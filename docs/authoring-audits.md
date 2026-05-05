@@ -32,12 +32,13 @@ The 8-command audit ran in May 2026. Total scorer total moved 164 → 165; per-f
 
 1. **`docs.md` argument wiring** — the Usage section documented `/docs <path>` (scoped audit) but the frontmatter lacked `argument-hint` and the body never referenced `$ARGUMENTS`. Added `argument-hint: "[path-or-scope]"` and threaded `$ARGUMENTS` into the Phase 1 explorer prompt as a scope hint (empty = full project). Score 20 → 21.
 
-The remaining sub-max command is `roadmap-init` at 18/21, which is **by-design**:
+The remaining 1pt gap on `roadmap-init` (20/21) is **by-design**:
 
-- **Plan Mode constraint absent (-2pts)**: `roadmap-init` is explicitly a "single-session, no approval gate" mechanical scaffolder (`docs/roadmap/CLAUDE.md` lifecycle folders + `.gitkeep` + root-CLAUDE.md mention) where re-running is the recovery mechanism and idempotency replaces the approval gate. Adding Plan Mode would worsen UX for no benefit.
 - **`argument-hint` absent (-1pt)**: documented as no-arg (`/roadmap-init` only). Adding `argument-hint` for scoring would be cosmetic noise.
 
-The scorer rewards `argument-hint` presence unconditionally; this is a known scoring quirk that costs 1pt for genuinely no-arg commands. Per-file floor 18 already accommodates roadmap-init.
+The scorer rewards `argument-hint` presence unconditionally; this is a known scoring quirk that costs 1pt for genuinely no-arg commands. Per-file floor 20 already accommodates roadmap-init.
+
+A second scoring quirk was **resolved during this audit**: the original Plan Mode check rewarded any command that included `Plan Mode`/`EnterPlanMode` text plus a `<constraint>`, and penalized everything else 2pts — which mis-fired against `roadmap-init` (a mechanical scaffolder where idempotency replaces the approval gate, so adding Plan Mode would worsen UX). The check now passes automatically when the command has zero `subagent_type:` refs (single-session mechanical work doesn't need a planning gate). Orchestrators that dispatch subagents are still required to declare a Plan Mode constraint, so the check still catches the failure mode it was designed for.
 
 **Other audit checklist points evaluated:**
 - **Structural alignment**: 7 of 8 commands follow Plan Mode → multi-phase → ExitPlanMode → Implementation; `roadmap-init` deliberately diverges (mechanical, idempotent). Aligned.

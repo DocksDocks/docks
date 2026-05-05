@@ -38,11 +38,11 @@ jobs:
           score=$(bash scripts/score-skills.sh)
           echo "score-skills total: $score"
           [ "$score" -ge 100 ] || { echo "::error::skills score $score below floor 100"; exit 1; }
-      - name: "score-commands (floor 162 total)"
+      - name: "score-commands (floor 165 total)"
         run: |
           score=$(bash scripts/score-commands.sh)
           echo "score-commands total: $score"
-          [ "$score" -ge 162 ] || { echo "::error::commands score $score below floor 162"; exit 1; }
+          [ "$score" -ge 165 ] || { echo "::error::commands score $score below floor 165"; exit 1; }
       - name: "score-agents (floor 595 total)"
         run: |
           score=$(bash scripts/score-agents.sh)
@@ -67,14 +67,14 @@ jobs:
             fi
           done < <(bash scripts/score-skills.sh --per-file)
           [ "$fail" -eq 0 ]
-      - name: "commands (floor 18 per-file)"
+      - name: "commands (floor 20 per-file)"
         run: |
           fail=0
           while IFS= read -r line; do
             score=$(echo "$line" | awk '{print $NF}')
             name=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
-            if [ "$score" -lt 18 ]; then
-              echo "::error::command $name score $score below per-file floor 18"
+            if [ "$score" -lt 20 ]; then
+              echo "::error::command $name score $score below per-file floor 20"
               fail=1
             fi
           done < <(bash scripts/score-commands.sh --per-file)

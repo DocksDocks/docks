@@ -47,8 +47,15 @@ for f in "$DIR"/*.md; do
   name=$(basename "$f")
   score=0
 
-  # 1. [project] Plan Mode constraint via <constraint> tag (2 pts)
-  if grep -q '<constraint>' "$f" && grep -qi 'EnterPlanMode\|Plan Mode' "$f"; then
+  # 1. [project] Plan Mode constraint via <constraint> tag (2 pts). Required
+  #    for orchestrators that dispatch subagents — the planning gate gives a
+  #    blast-radius preview before multi-file writes. Commands with zero
+  #    `subagent_type:` refs are mechanical/single-session (e.g., scaffolders
+  #    where idempotency replaces approval), so they pass automatically.
+  #    This avoids a false-positive penalty against genuinely simple commands.
+  subagent_refs=$(grep -cE 'subagent_type:' "$f")
+  if [ "$subagent_refs" -eq 0 ] \
+     || { grep -q '<constraint>' "$f" && grep -qi 'EnterPlanMode\|Plan Mode' "$f"; }; then
     score=$((score + 2))
   fi
 
