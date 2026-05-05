@@ -59,7 +59,6 @@ Use this snapshot directly in Phase 1 — no need to re-shell.
 
 ## Phase 1: Detection
 
-<task>
 Inspect the project to decide which scaffolding actions are needed. Read-only — no Write/Edit/mkdir/touch in this phase.
 
 Steps:
@@ -77,15 +76,14 @@ Steps:
      - If not matched: classify as `APPEND ROADMAP SECTION`.
 4. Emit a 5-row table to the user showing target | classification | reason. This is the only "plan" the user sees — no separate approval gate.
 
-Success Criteria:
+### Success Criteria
+
 - A 5-row classification table appears in the orchestrator's response.
 - No file-system mutations occurred (`git status --short` unchanged from Pre-flight).
 - Every classification is one of the allowed values listed above — no ambiguous "maybe" entries.
-</task>
 
 ## Phase 2: Implementation
 
-<task>
 Execute the actions classified in Phase 1. Skip any target classified `SKIP`.
 
 Steps:
@@ -103,18 +101,19 @@ Steps:
 
 Final report to the user: a single bullet list (≤8 bullets) of created vs skipped paths, followed by the captured `ls` and `git status --short` outputs. No prose narration.
 
-Success Criteria:
+### Success Criteria
+
 - Every target classified `CREATE` / `CREATE STUB` / `APPEND ROADMAP SECTION` in Phase 1 is now in the expected state on disk.
 - Every target classified `SKIP` is still untouched (verify by absence from `git status --short` for that path).
 - `docs/roadmap/CLAUDE.md` (if created) contains the literal heading `## Real-time task tracking — tri-state checkboxes` (Grep to confirm).
 - The project root `CLAUDE.md` contains the literal string `docs/roadmap` after this phase.
 - The final bullet list reflects reality, not the Phase 1 plan — re-verify with `test -f` before claiming "created".
 
-Anti-Hallucination Checks:
+### Anti-Hallucination Checks
+
 - Before reporting "created", run `test -f <path>` and confirm exit 0.
 - Before reporting "skipped", confirm Phase 1 classified it as SKIP — do not invent skips.
 - Do not claim the root `CLAUDE.md` was updated unless `Grep "docs/roadmap" CLAUDE.md` matches a line you actually added.
-</task>
 
 ---
 

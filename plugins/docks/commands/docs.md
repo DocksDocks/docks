@@ -4,8 +4,7 @@ description: Use when bootstrapping or auditing a project's .claude/skills/ and 
 argument-hint: "[path-or-scope]"
 allowed-tools: >-
   Read Write Glob Grep Agent WebFetch WebSearch
-  Bash(date) Bash(ls:*) Bash(find:*) Bash(wc:*)
-  Bash(git log:*) Bash(git status)
+  Bash(date) Bash(git log:*) Bash(git status)
   Bash(rtk:*) Bash(mkdir:*)
   Edit(.claude/skills/**) Edit(.claude/agents/**)
   Write(.claude/skills/**) Write(.claude/agents/**)
@@ -47,6 +46,7 @@ Environment snapshot (rendered at command-invoke time via Claude Code `!`-inject
 
 - Date: !`date '+%Y-%m-%d %H:%M:%S %Z'`
 - Branch: !`git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(not a git repo)"`
+- Scope: $ARGUMENTS  (empty = full project; if non-empty, restricts knowledge-area discovery and pattern scanning to this directory)
 
 Working tree (short):
 
@@ -78,7 +78,7 @@ Write to plan file under `## Phase 0: State`:
 
 Invoke `subagent_type: docs-explorer` with the prompt:
 
-> "Run /docs Phase 1. You are the Explorer. Plan file path: {plan-path}. Scope hint (optional, may be empty): $ARGUMENTS — if non-empty, treat it as a directory or sub-tree to restrict skill/agent enumeration and knowledge-area discovery to. Read Phase 0 State from the plan file. Map the project profile, enumerate all existing skills and agents with frontmatter parsed, and identify knowledge areas. Write output to the plan file under `## Phase 1: Exploration Results`."
+> "Run /docs Phase 1. You are the Explorer. Plan file path: {plan-path}. Scope: $ARGUMENTS (may be empty). Read Phase 0 State and the `## Environment` block from the plan file. Map the project profile, enumerate ALL existing skills and agents with frontmatter parsed (skill/agent enumeration always covers the full `.claude/skills/` and `.claude/agents/` regardless of scope), and identify knowledge areas — when scope is non-empty, restrict knowledge-area discovery to that directory or sub-tree. Write output to the plan file under `## Phase 1: Exploration Results`."
 
 ## Phase 2: Skills Analysis
 
@@ -87,8 +87,8 @@ Launch BOTH agents below in a SINGLE tool-call turn. Do NOT wait for one to fini
 </constraint>
 
 Parallel invocations (in one turn):
-- `subagent_type: docs-categorizer` — Prompt: "Run /docs Phase 2a. You are the Categorizer. Plan file: {plan-path}. Load Phase 0 State and Phase 1 Exploration Results. Audit all existing skills and propose the full skill set delta. Write output under `## Phase 2a: Categorizer Proposals`."
-- `subagent_type: docs-pattern-scanner` — Prompt: "Run /docs Phase 2b. You are the Pattern Scanner. Plan file: {plan-path}. Load Phase 1 Exploration Results. Extract concrete patterns across all 5 categories with file:line references. Write output under `## Phase 2b: Pattern Scanner Findings`."
+- `subagent_type: docs-categorizer` — Prompt: "Run /docs Phase 2a. You are the Categorizer. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty). Load Phase 0 State, Phase 1 Exploration Results, and the `## Environment` block. Audit all existing skills and propose the full skill set delta — when scope is non-empty, prioritize new-skill proposals tied to patterns in that directory. Write output under `## Phase 2a: Categorizer Proposals`."
+- `subagent_type: docs-pattern-scanner` — Prompt: "Run /docs Phase 2b. You are the Pattern Scanner. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty). Load Phase 1 Exploration Results and the `## Environment` block. Extract concrete patterns across all 5 categories with file:line references — when scope is non-empty, restrict scanning to that directory or sub-tree. Write output under `## Phase 2b: Pattern Scanner Findings`."
 
 After both return, append their outputs to the plan file, then immediately launch Phase 3.
 
@@ -96,7 +96,7 @@ After both return, append their outputs to the plan file, then immediately launc
 
 Invoke `subagent_type: docs-skills-builder` with the prompt:
 
-> "Run /docs Phase 3. You are the Skills Builder. Plan file: {plan-path}. Load Phase 2a Categorizer Proposals and Phase 2b Pattern Scanner Findings. Draft complete SKILL.md bodies and references/ files for every skill delta. Write output under `## Phase 3: Skills Plan`."
+> "Run /docs Phase 3. You are the Skills Builder. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty — flows through from Phase 2). Load Phase 2a Categorizer Proposals and Phase 2b Pattern Scanner Findings. Draft complete SKILL.md bodies and references/ files for every skill delta — proposals already respect the scope from Phase 2; ensure source_files and patterns referenced stay within scope when non-empty. Write output under `## Phase 3: Skills Plan`."
 
 After it returns, append output to the plan file, then immediately launch Phase 4.
 
@@ -107,8 +107,8 @@ Launch BOTH agents below in a SINGLE tool-call turn. Do NOT wait for one to fini
 </constraint>
 
 Parallel invocations (in one turn):
-- `subagent_type: docs-role-mapper` — Prompt: "Run /docs Phase 4a. You are the Role Mapper. Plan file: {plan-path}. Load Phase 1 Exploration Results (existing agents) and Phase 3 Skills Plan (proposed skills). Map proposed skills to agent roles with SRP boundaries and audit existing agents. Write output under `## Phase 4a: Role Mapper Proposals`."
-- `subagent_type: docs-pattern-extractor` — Prompt: "Run /docs Phase 4b. You are the Pattern Extractor. Plan file: {plan-path}. Load Phase 3 Skills Plan and Phase 2b Pattern Scanner Findings. Extract constraints, workflows, skill references, and integration points for each agent role. Write output under `## Phase 4b: Pattern Extractor Content`."
+- `subagent_type: docs-role-mapper` — Prompt: "Run /docs Phase 4a. You are the Role Mapper. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty — flows through from Phase 3). Load Phase 1 Exploration Results (existing agents) and Phase 3 Skills Plan (proposed skills). Map proposed skills to agent roles with SRP boundaries and audit existing agents. Write output under `## Phase 4a: Role Mapper Proposals`."
+- `subagent_type: docs-pattern-extractor` — Prompt: "Run /docs Phase 4b. You are the Pattern Extractor. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty — flows through from Phase 2b/3). Load Phase 3 Skills Plan and Phase 2b Pattern Scanner Findings. Extract constraints, workflows, skill references, and integration points for each agent role. Write output under `## Phase 4b: Pattern Extractor Content`."
 
 After both return, append outputs to the plan file, then immediately launch Phase 5.
 
@@ -116,7 +116,7 @@ After both return, append outputs to the plan file, then immediately launch Phas
 
 Invoke `subagent_type: docs-agents-builder` with the prompt:
 
-> "Run /docs Phase 5. You are the Agents Builder. Plan file: {plan-path}. Load Phase 4a Role Mapper Proposals and Phase 4b Pattern Extractor Content. Draft complete agent file content (frontmatter + system prompt) for every agent delta. Write output under `## Phase 5: Agents Plan`."
+> "Run /docs Phase 5. You are the Agents Builder. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty — flows through from Phase 4). Load Phase 4a Role Mapper Proposals and Phase 4b Pattern Extractor Content. Draft complete agent file content (frontmatter + system prompt) for every agent delta. Write output under `## Phase 5: Agents Plan`."
 
 After it returns, append output to the plan file, then immediately launch Phase 6.
 
@@ -124,7 +124,7 @@ After it returns, append output to the plan file, then immediately launch Phase 
 
 Invoke `subagent_type: docs-verifier` with the prompt:
 
-> "Run /docs Phase 6. You are the Verifier. Plan file: {plan-path}. Validate Phase 3 Skills Plan and Phase 5 Agents Plan against all checks: frontmatter, CSO compliance, size limits, file:line accuracy (spot-check 5+), cross-layer integrity (every agent skill reference must resolve to a Phase 3 path), and replaced-skill sentinel. Write output under `## Phase 6: Verification`."
+> "Run /docs Phase 6. You are the Verifier. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty). Validate Phase 3 Skills Plan and Phase 5 Agents Plan against all checks: frontmatter, CSO compliance, size limits, file:line accuracy (spot-check 5+ — when scope is non-empty, sample preferentially from within scope), cross-layer integrity (every agent skill reference must resolve to a Phase 3 path), and replaced-skill sentinel. Write output under `## Phase 6: Verification`."
 
 After it returns, append output to the plan file, then proceed to Phase 7.
 

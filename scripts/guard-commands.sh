@@ -1,9 +1,14 @@
 #!/bin/bash
 # Guard: validate command markdown structure hasn't been broken.
 # Accepts two flavors:
-#   - Legacy:  inline <task>...</task> blocks per phase (with Success Criteria in-task)
-#   - Thin orchestrator:  `subagent_type: foo-bar` references; Success Criteria lives
-#     in the corresponding plugins/docks/agents/<name>.md files
+#   - Thin orchestrator:  `subagent_type: foo-bar` references; Success Criteria
+#     lives in the corresponding plugins/docks/agents/<name>.md files
+#   - Inline single-session:  no subagents (mechanical scaffolders, idempotent
+#     workflows); Success Criteria embedded in the command body
+#
+# The legacy `<task>...</task>` flavor was deprecated in May 2026 — `<task>`
+# blocks anywhere in a command file are now a structural error. Single-session
+# commands use plain markdown phases with `### Success Criteria` subsections.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIR="${1:-$SCRIPT_DIR/../plugins/docks/commands}"
 errors=0
@@ -11,38 +16,28 @@ errors=0
 for f in "$DIR"/*.md; do
   name=$(basename "$f")
 
-  # Commands come in two flavors:
-  #   - Legacy:  inline <task>...</task> blocks per phase
-  #   - Thin orchestrator:  subagent_type: references that delegate to
-  #     plugins/docks/agents/<name>.md files (agents carry Success Criteria)
   task_open=$(grep -c '<task>' "$f")
   task_close=$(grep -c '</task>' "$f")
   subagent_refs=$(grep -cE '`subagent_type:|subagent_type: `' "$f")
 
-  if [ "$task_open" -gt 0 ] && [ "$subagent_refs" -eq 0 ]; then
-    flavor="legacy"
-  elif [ "$subagent_refs" -gt 0 ] && [ "$task_open" -eq 0 ]; then
-    flavor="thin"
-  elif [ "$task_open" -eq 0 ] && [ "$subagent_refs" -eq 0 ]; then
-    echo "FAIL: $name — neither <task> blocks nor subagent_type: references found (not a valid command)" >&2
-    errors=$((errors + 1))
-    continue
-  else
-    echo "FAIL: $name — mixes <task> blocks and subagent_type: references (pick one flavor)" >&2
+  # Legacy <task>...</task> blocks are no longer accepted.
+  if [ "$task_open" -gt 0 ] || [ "$task_close" -gt 0 ]; then
+    echo "FAIL: $name — legacy <task>...</task> blocks no longer accepted; use thin orchestrator (subagent_type: refs) or inline phases with '### Success Criteria' subsections" >&2
     errors=$((errors + 1))
     continue
   fi
 
-  if [ "$flavor" = "legacy" ]; then
-    # Every <task> must have a matching </task> (legacy flavor only)
-    if [ "$task_open" -ne "$task_close" ]; then
-      echo "FAIL: $name — mismatched <task> tags ($task_open open, $task_close close)" >&2
-      errors=$((errors + 1))
-    fi
+  if [ "$subagent_refs" -gt 0 ]; then
+    flavor="thin"
+  else
+    flavor="inline"
+  fi
 
-    # Legacy commands must have Success Criteria inline (thin commands push it to agents)
+  if [ "$flavor" = "inline" ]; then
+    # Inline single-session commands keep Success Criteria in the body
+    # (thin orchestrators push it to plugins/docks/agents/<name>.md files).
     if ! grep -q 'Success Criteria' "$f"; then
-      echo "FAIL: $name — no Success Criteria found (legacy command)" >&2
+      echo "FAIL: $name — no Success Criteria found (inline single-session command must keep it in the body)" >&2
       errors=$((errors + 1))
     fi
   fi

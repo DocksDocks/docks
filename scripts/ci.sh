@@ -80,7 +80,7 @@ done
 
 # --- 4. quality score floors (matches GH workflow numbers) ---
 section "quality score floors"
-declare -A FLOORS=([skills]=100 [commands]=165 [agents]=595)
+declare -A FLOORS=([skills]=100 [commands]=167 [agents]=595)
 for k in skills commands agents; do
   score=$(bash "scripts/score-$k.sh" 2>/dev/null)
   if [ -n "$score" ] && [ "$score" -ge "${FLOORS[$k]}" ]; then
@@ -92,7 +92,7 @@ done
 
 # --- 5. per-file score floors ---
 section "per-file score floors"
-declare -A PER_FILE_FLOORS=([skills]=8 [commands]=20 [agents]=14)
+declare -A PER_FILE_FLOORS=([skills]=8 [commands]=21 [agents]=14)
 for k in skills commands agents; do
   any_under=0
   while IFS= read -r line; do

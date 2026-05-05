@@ -4,7 +4,7 @@ description: Use when auditing a codebase for structural issues — dead code, d
 argument-hint: "[path-or-scope]"
 allowed-tools: >-
   Read Write Glob Grep Agent WebFetch WebSearch Edit
-  Bash(date) Bash(ls:*) Bash(find:*) Bash(wc:*) Bash(mkdir:*) Bash(rtk:*)
+  Bash(date) Bash(mkdir:*) Bash(rtk:*)
   Bash(git status) Bash(git log:*) Bash(git diff:*)
   Bash(git rm:*) Bash(git add:*) Bash(git restore:*)
   Bash(npx knip:*) Bash(npx depcheck:*) Bash(npx ts-prune:*) Bash(npx tsc:*) Bash(npx eslint:*)
@@ -184,7 +184,7 @@ After verification:
 
 See frontmatter `allowed-tools`. The enforced permission surface is:
 
-- **Planning (read-only):** `Read`, `Grep`, `Glob`, `Agent`, `WebFetch`, `WebSearch`, and scoped Bash for discovery (`date`, `ls:*`, `find:*`, `wc:*`, `git status`, `git log:*`, `git diff:*`, `rtk:*`).
+- **Planning (read-only):** `Read`, `Grep`, `Glob`, `Agent`, `WebFetch`, `WebSearch`, and scoped Bash for discovery (`date`, `git status`, `git log:*`, `git diff:*`, `rtk:*`).
 - **Implementation:** `Edit`, `Write`, scoped deletion/stage/revert (`git rm:*`, `git add:*`, `git restore:*`), scoped test runners (`npm test`, `pnpm test`, `pnpm run test:*`, `yarn test`, `pytest:*`, `cargo test:*`, `go test:*`), scoped analysis/type-check/lint tools (`npx knip:*`, `npx depcheck:*`, `npx ts-prune:*`, `npx tsc:*`, `npx eslint:*`, `vulture:*`, `ruff:*`, `mypy:*`, `deadcode:*`, `cargo-udeps:*`).
 
 ---

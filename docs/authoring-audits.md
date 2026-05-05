@@ -22,6 +22,13 @@ The 41-agent body audit ran in May 2026. Total scorer total moved 586 → 597; p
 
 The remaining 18 agents at 14/15 are missing the research-gate point by design — they don't touch external library docs (explorers, post-verifiers, categorizers, scanners). Per-file floor 14 captures the structural minimum without forcing unjustified context7 references.
 
+**Audit followup #4 — research-gate spot-check (May 2026)**: sampled 5 of the 18 sub-max agents (`fix-explorer`, `refactor-explorer`, `security-explorer`, `docs-pattern-extractor`, `docs-verifier`). All 5 are correctly research-gate-N/A:
+- *Explorers* enforce a 2nd constraint "enumerate; do not diagnose" — research-gate would conflict with this. They map facts; downstream phases use them.
+- *Pattern-extractors* extract from existing code; no framework recommendation.
+- *Verifiers* validate structural integrity (frontmatter, paths, sizes) — they don't write framework claims.
+
+Conclusion: the research-gate scorer correctly gates this point on agents that produce or recommend framework code (writers, builders, fixers). For enumerate/extract/verify roles, the 14/15 ceiling is the right shape.
+
 **No CLAUDE.md prose change needed** — the per-file ≥14 floor mechanically requires 2 constraint blocks (mandatory-only ceiling is exactly 14), so "every agent gets a 2nd role-specific constraint" is now enforced by the scorer rather than documentation.
 
 **Re-running this audit**: invariants from above carry forward; run `bash scripts/score-agents.sh --per-file | sort -k2 -n | head -20` to find the next sub-max cluster, then identify whether the gap is mechanical (research-gate, slop, missing constraint) or by-design.
@@ -32,13 +39,20 @@ The 8-command audit ran in May 2026. Total scorer total moved 164 → 165; per-f
 
 1. **`docs.md` argument wiring** — the Usage section documented `/docs <path>` (scoped audit) but the frontmatter lacked `argument-hint` and the body never referenced `$ARGUMENTS`. Added `argument-hint: "[path-or-scope]"` and threaded `$ARGUMENTS` into the Phase 1 explorer prompt as a scope hint (empty = full project). Score 20 → 21.
 
-The remaining 1pt gap on `roadmap-init` (20/21) is **by-design**:
+All 8 commands now score 21/21 (the per-file maximum). Two follow-up audits closed remaining gaps:
 
-- **`argument-hint` absent (-1pt)**: documented as no-arg (`/roadmap-init` only). Adding `argument-hint` for scoring would be cosmetic noise.
+1. **`docs.md` `$ARGUMENTS` propagation (Audit followup #1)**: the initial argument-wiring fix only threaded `$ARGUMENTS` into the Phase 1 explorer prompt; phases 2–6 operated on the full project regardless. Updated the pre-flight Environment block to render `Scope: $ARGUMENTS` (so it lands in the plan file once), and added explicit scope handling to each subagent prompt (Phase 2a/2b/3/4a/4b/5/6). When a user runs `/docs src/api`, the scope flows through every phase: pattern-scanner restricts source-line searches; categorizer prioritizes new-skill proposals tied to the directory; verifier samples within scope when spot-checking file:line refs.
 
-The scorer rewards `argument-hint` presence unconditionally; this is a known scoring quirk that costs 1pt for genuinely no-arg commands. Per-file floor 20 already accommodates roadmap-init.
+2. **`argument-hint` scoring quirk (Audit followup #2)**: the original check rewarded `argument-hint` presence unconditionally, costing 1pt for genuinely no-arg commands. Mirrored the orchestrator-aware Plan Mode rule — the check now passes automatically when the command's body never references `$ARGUMENTS` (no-args by design). Brings `roadmap-init` to 21/21.
 
-A second scoring quirk was **resolved during this audit**: the original Plan Mode check rewarded any command that included `Plan Mode`/`EnterPlanMode` text plus a `<constraint>`, and penalized everything else 2pts — which mis-fired against `roadmap-init` (a mechanical scaffolder where idempotency replaces the approval gate, so adding Plan Mode would worsen UX). The check now passes automatically when the command has zero `subagent_type:` refs (single-session mechanical work doesn't need a planning gate). Orchestrators that dispatch subagents are still required to declare a Plan Mode constraint, so the check still catches the failure mode it was designed for.
+Two scoring quirks resolved during the broader command audit:
+
+- **Plan Mode quirk**: original check unconditionally required `Plan Mode`/`EnterPlanMode` text — mis-fired against mechanical scaffolders. Now skipped when zero `subagent_type:` refs (single-session work doesn't need a planning gate).
+- **`argument-hint` quirk** (above).
+
+Both quirk fixes share the same shape: detect "feature-applicable by orchestration shape" and skip the check when not applicable. The result is a scoring rubric that doesn't penalize genuinely simple commands, while still catching real authoring failures in orchestrators.
+
+**Allowed-tools surface audit (Audit followup #3)**: trimmed `Bash(ls:*) Bash(find:*) Bash(wc:*)` from `docs.md`, `human-docs.md`, and `refactor.md` — these were declared but never used in the orchestrator body, and conflict with the kit's shell-avoidance philosophy (orchestrator + agents both use `Glob`/`Read`/`Grep` instead of shell utilities). The other 5 commands had clean allowed-tools lists.
 
 **Other audit checklist points evaluated:**
 - **Structural alignment**: 7 of 8 commands follow Plan Mode → multi-phase → ExitPlanMode → Implementation; `roadmap-init` deliberately diverges (mechanical, idempotent). Aligned.

@@ -4,7 +4,7 @@ description: Use when generating, fixing, or optimizing project documentation â€
 argument-hint: "[path-or-scope]"
 allowed-tools: >-
   Read Write Glob Grep Agent WebFetch WebSearch Edit
-  Bash(date) Bash(ls:*) Bash(find:*) Bash(mkdir:*) Bash(rtk:*)
+  Bash(date) Bash(mkdir:*) Bash(rtk:*)
   Bash(git status) Bash(git log:*) Bash(git diff:*) Bash(git add:*)
 ---
 

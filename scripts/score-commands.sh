@@ -84,8 +84,17 @@ for f in "$DIR"/*.md; do
     score=$((score + 1))
   fi
 
-  # 5. [docs] argument-hint: frontmatter field (1 pt)
-  has_fm_field "$f" "argument-hint" && score=$((score + 1))
+  # 5. [docs] argument-hint frontmatter field (1 pt). Required when the
+  #    command takes args — detected by `$ARGUMENTS` appearing in the body.
+  #    No-args-by-design commands (zero `$ARGUMENTS` references and no
+  #    argument-hint declaration) pass automatically; this avoids a false-
+  #    positive penalty against genuinely simple commands like roadmap-init.
+  #    Mirrors the orchestrator-aware Plan Mode rule above.
+  if grep -q '\$ARGUMENTS' "$f"; then
+    has_fm_field "$f" "argument-hint" && score=$((score + 1))
+  else
+    score=$((score + 1))
+  fi
 
   # 6. [docs] $ARGUMENTS used in body when command accepts args.
   #    Pass when: body uses $ARGUMENTS, OR argument-hint: is absent (command
