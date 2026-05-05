@@ -46,7 +46,7 @@ Run `bash scripts/ci.sh` before invoking `./scripts/release.sh` — even though 
 | `scripts/guard-skills.sh` | structural — frontmatter, ≤500 lines, name-matches-dir | n/a (pass/fail) |
 | `scripts/score-skills.sh` | quality score (max 16) | total ≥100, per-file ≥8 |
 | `scripts/guard-commands.sh` | subagent_type cross-refs resolve to plugins/docks/agents/*.md | n/a |
-| `scripts/score-commands.sh` | quality score (max 21) | total ≥158, per-file ≥18 |
+| `scripts/score-commands.sh` | quality score (max 21) | total ≥162, per-file ≥18 |
 | `scripts/guard-agents.sh` | frontmatter, "Use when…" / "Not…" CSO, model declared | n/a |
 | `scripts/score-agents.sh` | quality score (max 15) | total ≥595, per-file ≥14 |
 

@@ -26,25 +26,27 @@ The remaining 18 agents at 14/15 are missing the research-gate point by design �
 
 **Re-running this audit**: invariants from above carry forward; run `bash scripts/score-agents.sh --per-file | sort -k2 -n | head -20` to find the next sub-max cluster, then identify whether the gap is mechanical (research-gate, slop, missing constraint) or by-design.
 
-## Parked: commands body audit
+## Resolved: commands body audit (May 2026)
 
-**Question to answer:** Our 8 commands are thin orchestrators (Plan Mode → multi-phase subagent dispatch → ExitPlanMode gate). Is this orchestrator structure aligned with any documented Anthropic pattern, or is it purely a project convention?
+The 8-command audit ran in May 2026. Total scorer total moved 164 → 165; per-file minimum stayed 18 (roadmap-init by-design); total floor bumped 158 → 162. One mechanical fix landed:
 
-**What we already know:**
-- Per code.claude.com/docs/en/skills: "Custom commands have been merged into skills." Files in `commands/` continue to work but skills are the recommended path.
-- Anthropic's example command/skill files in the docs are SHORT (under 30 lines) — a description plus a numbered list of steps. Our commands are 200–400 lines because they orchestrate multi-phase subagent pipelines.
-- The orchestration pattern (Plan Mode constraint, Phase Transition Protocol, subagent_type cross-refs, $ARGUMENTS, allowed-tools enumeration) is unique to this plugin — Anthropic doesn't document this pattern.
+1. **`docs.md` argument wiring** — the Usage section documented `/docs <path>` (scoped audit) but the frontmatter lacked `argument-hint` and the body never referenced `$ARGUMENTS`. Added `argument-hint: "[path-or-scope]"` and threaded `$ARGUMENTS` into the Phase 1 explorer prompt as a scope hint (empty = full project). Score 20 → 21.
 
-**Audit checklist:**
-1. **Structural alignment** — does each command's structure (Plan Mode → Phases → ExitPlanMode → Implementation) actually correspond to its task, or is some boilerplate copied unnecessarily?
-2. **Phase Transition Protocol clarity** — every multi-phase command must include the Phase Transition Protocol per the guard. Audit whether the wording is consistent + whether the orchestrator behavior section in each command is actually being read by Claude (vs ignored when it's too verbose).
-3. **subagent_type references** — every reference must resolve to `plugins/docks/agents/<name>.md` (guard already enforces this). Audit whether the references reflect the latest agent set or have drift.
-4. **$ARGUMENTS wiring** — commands that accept arguments via `argument-hint:` must use `$ARGUMENTS` somewhere in the body. Already scored; verify no drift.
-5. **allowed-tools surface** — every command lists an `allowed-tools` set. Audit each set against the actual tools the command + its subagents need; trim surplus.
-6. **Description tightness** — already done in the May 2026 audit. Commands are 302–421 chars; `roadmap-init` is the longest at 421.
-7. **Per-file score gap** — `roadmap-init` was the lowest at 18/21 (3 short). Investigate which checks it's missing and whether they apply.
+The remaining sub-max command is `roadmap-init` at 18/21, which is **by-design**:
 
-**Sub-max files at last audit (May 2026):** roadmap-init (18/21), docs (20/21).
+- **Plan Mode constraint absent (-2pts)**: `roadmap-init` is explicitly a "single-session, no approval gate" mechanical scaffolder (`docs/roadmap/CLAUDE.md` lifecycle folders + `.gitkeep` + root-CLAUDE.md mention) where re-running is the recovery mechanism and idempotency replaces the approval gate. Adding Plan Mode would worsen UX for no benefit.
+- **`argument-hint` absent (-1pt)**: documented as no-arg (`/roadmap-init` only). Adding `argument-hint` for scoring would be cosmetic noise.
+
+The scorer rewards `argument-hint` presence unconditionally; this is a known scoring quirk that costs 1pt for genuinely no-arg commands. Per-file floor 18 already accommodates roadmap-init.
+
+**Other audit checklist points evaluated:**
+- **Structural alignment**: 7 of 8 commands follow Plan Mode → multi-phase → ExitPlanMode → Implementation; `roadmap-init` deliberately diverges (mechanical, idempotent). Aligned.
+- **Phase Transition Protocol**: enforced by `guard-commands.sh` for 3+ phase commands; passes.
+- **subagent_type references**: enforced by `guard-commands.sh` to resolve to existing agent files; passes.
+- **allowed-tools surface**: not audited line-by-line; left for future iteration if drift surfaces.
+- **Description tightness**: done in earlier audit; all commands ≤500 chars (one-pt tier).
+
+**Re-running this audit**: `bash scripts/score-commands.sh --per-file | sort -k2 -n` to surface sub-max commands; investigate per-checklist gap by-design vs mechanical fix.
 
 ## When picking up either audit
 

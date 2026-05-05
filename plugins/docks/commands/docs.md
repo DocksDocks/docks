@@ -1,6 +1,7 @@
 ---
 name: docs
 description: Use when bootstrapping or auditing a project's .claude/skills/ and .claude/agents/ directories. Covers skill health (CSO descriptions, size limits, staleness, coverage gaps), agent generation from skills, skill-maintenance skill creation, and cross-layer reference validation between agents and skills.
+argument-hint: "[path-or-scope]"
 allowed-tools: >-
   Read Write Glob Grep Agent WebFetch WebSearch
   Bash(date) Bash(ls:*) Bash(find:*) Bash(wc:*)
@@ -77,7 +78,7 @@ Write to plan file under `## Phase 0: State`:
 
 Invoke `subagent_type: docs-explorer` with the prompt:
 
-> "Run /docs Phase 1. You are the Explorer. Plan file path: {plan-path}. Read Phase 0 State from the plan file. Map the project profile, enumerate all existing skills and agents with frontmatter parsed, and identify knowledge areas. Write output to the plan file under `## Phase 1: Exploration Results`."
+> "Run /docs Phase 1. You are the Explorer. Plan file path: {plan-path}. Scope hint (optional, may be empty): $ARGUMENTS — if non-empty, treat it as a directory or sub-tree to restrict skill/agent enumeration and knowledge-area discovery to. Read Phase 0 State from the plan file. Map the project profile, enumerate all existing skills and agents with frontmatter parsed, and identify knowledge areas. Write output to the plan file under `## Phase 1: Exploration Results`."
 
 ## Phase 2: Skills Analysis
 

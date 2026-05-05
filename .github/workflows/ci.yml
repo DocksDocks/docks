@@ -38,11 +38,11 @@ jobs:
           score=$(bash scripts/score-skills.sh)
           echo "score-skills total: $score"
           [ "$score" -ge 100 ] || { echo "::error::skills score $score below floor 100"; exit 1; }
-      - name: "score-commands (floor 158 total)"
+      - name: "score-commands (floor 162 total)"
         run: |
           score=$(bash scripts/score-commands.sh)
           echo "score-commands total: $score"
-          [ "$score" -ge 158 ] || { echo "::error::commands score $score below floor 158"; exit 1; }
+          [ "$score" -ge 162 ] || { echo "::error::commands score $score below floor 162"; exit 1; }
       - name: "score-agents (floor 595 total)"
         run: |
           score=$(bash scripts/score-agents.sh)

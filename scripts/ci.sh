@@ -80,7 +80,7 @@ done
 
 # --- 4. quality score floors (matches GH workflow numbers) ---
 section "quality score floors"
-declare -A FLOORS=([skills]=100 [commands]=158 [agents]=595)
+declare -A FLOORS=([skills]=100 [commands]=162 [agents]=595)
 for k in skills commands agents; do
   score=$(bash "scripts/score-$k.sh" 2>/dev/null)
   if [ -n "$score" ] && [ "$score" -ge "${FLOORS[$k]}" ]; then
