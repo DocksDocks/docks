@@ -60,14 +60,25 @@ bash scripts/score-agents.sh     # quality score (max 15) — model, tools, Work
 
 CI runs all six on every push to `main` and every PR (see `.github/workflows/ci.yml`).
 
-## Versioning
+## Versioning + releases
 
 `version` in `marketplace.json` and `plugins/docks/.claude-plugin/plugin.json` controls update propagation:
 
 - **With explicit version**: users only receive updates when this field bumps. Bump on every release.
 - **Without version**: the git commit SHA is used; every commit counts as a new version (noisier but auto-tracking).
 
-Use `claude plugin tag` (from inside `plugins/docks/`) to cut a tagged release after bumping.
+`scripts/release.sh` wraps the full dance in one command:
+
+```bash
+./scripts/release.sh patch    # 0.1.0 → 0.1.1
+./scripts/release.sh minor    # 0.1.0 → 0.2.0
+./scripts/release.sh major    # 0.1.0 → 1.0.0
+./scripts/release.sh 0.2.0    # explicit
+```
+
+The script bumps both manifests, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, and calls `gh release create` with notes auto-generated from `git log` since the previous tag. Released versions appear at https://github.com/DocksDocks/docks/releases.
+
+Manually: `claude plugin tag --push ./plugins/docks` (tag only, no GitHub Release).
 
 ## License
 
