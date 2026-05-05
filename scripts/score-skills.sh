@@ -5,7 +5,7 @@
 #
 # Provenance:
 #  - "docs"    — Anthropic-documented (code.claude.com/docs/en/skills, agentskills.io)
-#  - "project" — kit-specific convention (see plugins/docks/CLAUDE.md Project Skills)
+#  - "project" — kit-specific convention (see CLAUDE.md "Authoring skills, commands & agents")
 #
 # Output: single total, or `<name> <score>` per skill with --per-file
 
@@ -55,20 +55,28 @@ for skill_dir in "$DIR"/*/; do
   # Strip surrounding YAML quotes so the prefix check works for both quoted + unquoted styles
   desc_clean="${desc#\"}"; desc_clean="${desc_clean%\"}"
   desc_clean="${desc_clean#\'}"; desc_clean="${desc_clean%\'}"
+  desc_len=${#desc_clean}
   if [ "$has_upstream" -gt 0 ]; then
     echo "$desc_clean" | grep -qiE 'use when' && score=$((score + 2))
   else
     echo "$desc_clean" | grep -qiE '^use when' && score=$((score + 2))
   fi
 
-  # 2. [docs] description + when_to_use combined ≤ 1,536 chars (2 pts) — HARD SPEC
-  #    The skill listing truncates at 1,536 chars; exceeding this silently drops
-  #    trigger keywords Claude needs to match on. Source: skills doc frontmatter ref.
-  desc_body=$(extract_yaml_value "$file" "description" | tr '\n' ' ')
-  wtu_body=$(extract_yaml_value "$file" "when_to_use" | tr '\n' ' ')
-  combined_len=$((${#desc_body} + ${#wtu_body}))
-  if [ "$combined_len" -le 1536 ] && [ "$combined_len" -gt 0 ]; then
+  # 2. [docs+project] Description tightness — tiered (2 pts max).
+  #    Two ceilings interact: (a) per-skill agentskills.io spec truncates at 1,536
+  #    chars combined description+when_to_use; (b) Claude Code's
+  #    skillListingBudgetFraction (default 1% of context) drops descriptions when
+  #    the AGGREGATE listing overruns. The guard already enforces a hard ≤1,024
+  #    cap on description; this scorer rewards staying tight enough to share the
+  #    aggregate budget cleanly with peer skills. Tier on raw description length
+  #    (the listing text users + Claude both see):
+  #      ≤500 chars: 2 pts (CSO-tight, fits aggregate budget)
+  #      ≤1000 chars: 1 pt (under guard cap but crowds the listing)
+  #      >1000 chars: 0 pts (likely contributes to listing truncation)
+  if [ "$desc_len" -gt 0 ] && [ "$desc_len" -le 500 ]; then
     score=$((score + 2))
+  elif [ "$desc_len" -gt 0 ] && [ "$desc_len" -le 1000 ]; then
+    score=$((score + 1))
   fi
 
   # 3. [project] Freshness within last 180 days (1 pt) — metadata.updated for kit

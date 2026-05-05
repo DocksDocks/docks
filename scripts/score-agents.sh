@@ -5,7 +5,7 @@
 #
 # Provenance:
 #  - "docs"    — Anthropic-documented (code.claude.com/docs/en/sub-agents)
-#  - "project" — kit-specific convention (see CLAUDE.md Agents section)
+#  - "project" — kit-specific convention (see CLAUDE.md "Authoring skills, commands & agents")
 #
 # Output: single total, or `<name> <score>` per agent with --per-file
 
@@ -51,9 +51,15 @@ for file in "$DIR"/*.md; do
   # 2. [project] "Not" exclusion clause (1 pt) — narrows the match surface
   echo "$desc" | grep -qiE '\bnot\b' && score=$((score + 1))
 
-  # 3. [project] Description length sweet spot 80–900 chars (1 pt)
+  # 3. [docs+project] Description tightness — agent descriptions feed the Agent
+  #    tool's enum that Claude reads when deciding delegation. Long descriptions
+  #    crowd the listing AND make it harder for Claude to disambiguate which
+  #    agent to pick. Per code.claude.com/docs/en/sub-agents, "Claude uses each
+  #    subagent's description to decide when to delegate tasks." Reward
+  #    CSO-tight descriptions (≥80 chars to ensure the trigger isn't degenerate,
+  #    ≤500 to share enum/listing space cleanly).
   desc_len=${#desc}
-  if [ "$desc_len" -ge 80 ] && [ "$desc_len" -le 900 ]; then
+  if [ "$desc_len" -ge 80 ] && [ "$desc_len" -le 500 ]; then
     score=$((score + 1))
   fi
 

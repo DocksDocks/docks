@@ -1,6 +1,6 @@
 ---
 name: dep-vuln-workflow
-description: Use when running a pnpm audit / npm audit / yarn audit / pip-audit / cargo audit / go list -m -u, responding to a CVE advisory, upgrading npm packages (major/minor/patch), dealing with a GHSA advisory, bumping next.js / react / typescript / eslint, handling peer-dependency conflicts after a major upgrade, deciding whether to auto-patch vs hold back a major, investigating a transitive vulnerability, or setting the dependency-update cadence for a project. Covers CVSS severity triage (critical/high/moderate/low), major-vs-patch upgrade risk, ecosystem-readiness check (peer-dep compatibility before major bumps), transitive-vuln handling (build-time vs runtime), the "one security commit + one hygiene commit" split, how to verify an upgrade (lint + typecheck + build + audit), and the rollback trigger (ESLint 10 + eslint-plugin-react story).
+description: Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or go list -m -u; responding to a CVE/GHSA advisory; bumping next.js / react / typescript / eslint majors; handling peer-dependency conflicts after a major upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; or setting dependency-update cadence.
 user-invocable: false
 metadata:
   pattern: tool-wrapper

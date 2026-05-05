@@ -7,8 +7,7 @@
 #
 # Provenance:
 #  - "docs"    — Anthropic-documented (code.claude.com/docs/en/skills, sub-agents)
-#  - "project" — kit-specific convention (see plugins/docks/CLAUDE.md Command
-#                Authoring Conventions)
+#  - "project" — kit-specific convention (see CLAUDE.md "Authoring skills, commands & agents")
 #
 # Output: total score, or `<name> <score>` per file with --per-file
 
@@ -62,8 +61,21 @@ for f in "$DIR"/*.md; do
   # 3. [docs] allowed-tools: frontmatter field (2 pts)
   has_fm_field "$f" "allowed-tools" && score=$((score + 2))
 
-  # 4. [docs] description: frontmatter field (1 pt)
+  # 4. [docs] description: frontmatter field (1 pt) + tightness (1 pt).
+  #    Per code.claude.com/docs/en/skills, "Custom commands have been merged into
+  #    skills" — command descriptions share the same listing budget as skills
+  #    (skillListingBudgetFraction, default 1% of context, fallback 8,000 chars).
+  #    Per-entry truncation at 1,536 chars. Reward concise descriptions that
+  #    don't crowd the aggregate budget.
   has_fm_field "$f" "description" && score=$((score + 1))
+  desc_val=$(get_fm_field "$f" "description" | tr -d '\n')
+  # Strip surrounding YAML quotes so length matches visible chars
+  desc_clean="${desc_val#\"}"; desc_clean="${desc_clean%\"}"
+  desc_clean="${desc_clean#\'}"; desc_clean="${desc_clean%\'}"
+  desc_len=${#desc_clean}
+  if [ "$desc_len" -gt 0 ] && [ "$desc_len" -le 500 ]; then
+    score=$((score + 1))
+  fi
 
   # 5. [docs] argument-hint: frontmatter field (1 pt)
   has_fm_field "$f" "argument-hint" && score=$((score + 1))

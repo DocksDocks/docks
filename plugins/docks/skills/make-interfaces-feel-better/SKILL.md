@@ -1,6 +1,6 @@
 ---
 name: make-interfaces-feel-better
-description: Use when building or reviewing UI components, fixing positioning that 'feels off' or 'feels detached', placing popovers/dropdowns/tooltips relative to their trigger, implementing animations, hover/press states, shadows, borders, typography, micro-interactions, or enter/exit transitions. Covers concentric border radius (outer = inner + padding), optical vs geometric alignment, layered box-shadows, interruptible CSS transitions, tabular numbers, image outlines, font smoothing, 40×40px hit areas, scale(0.96) on press, popover-anchored-to-trigger placement, and 'will-change' discipline. Triggers on phrases like 'make it feel better', 'feels off', 'looks weird', or any visual-detail polish work.
+description: Use when building or reviewing UI components; fixing positioning that 'feels off' or 'feels detached'; placing popovers/dropdowns/tooltips relative to their trigger; implementing animations, hover/press states, shadows, borders, typography, micro-interactions, or enter/exit transitions. Triggers on 'make it feel better', 'feels off', 'looks weird', or any visual-detail polish work.
 upstream:
   source: https://github.com/jakubkrehel/make-interfaces-feel-better
   license: MIT

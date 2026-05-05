@@ -1,6 +1,6 @@
 ---
 name: typescript-typing
-description: Use when writing or modifying TypeScript (.ts/.tsx), defining a function signature or exported API, choosing between `interface` and `type`, tempted to write `any` or a type assertion (`as Foo`), introducing a string or number literal that already exists elsewhere, designing variant props or API response shapes, working with IDs that could be mixed up across entities, validating external input (form/API/env), or writing a switch over a discriminated union and needing exhaustiveness. Covers `any` vs `unknown`, `interface` vs `type` (object shapes vs unions/aliases), discriminated unions over optional-flag bags, `as const` literal narrowing, branded types for IDs, exhaustive `never` checks, the `satisfies` operator, and parsing-not-asserting at I/O boundaries.
+description: Use when writing or modifying TypeScript (.ts/.tsx); defining a function signature or exported API; choosing between `interface` and `type`; tempted to write `any` or a type assertion (`as Foo`); designing variant props or API response shapes; working with IDs that could be mixed up across entities; validating external input (form/API/env); or writing a switch over a discriminated union and needing exhaustiveness.
 user-invocable: false
 paths:
   - "**/*.ts"
