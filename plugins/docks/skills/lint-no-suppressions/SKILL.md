@@ -96,11 +96,17 @@ Install (one-time per clone): `git config core.hooksPath .githooks && chmod +x .
 
 Package this as `scripts/install-hooks.sh` and commit it — new collaborators run the installer once.
 
+<constraint>
+Project-level rule-disabling (turning off a rule repo-wide via `.eslintrc` / `tsconfig.json` / `pyproject.toml`) is the same problem as inline suppression — just at a wider blast radius. Scope rule-disabling to the minimum file pattern that genuinely needs it (e.g., auto-generated files, vendored code), and document the reason in the config.
+</constraint>
+
+<constraint>
+CI must enforce the suppression block too. Client-side hooks are bypassable with `--no-verify`. Run the same scanner as a CI job so PRs cannot land with new suppressions even if the committer skipped the local hook.
+</constraint>
+
 ## Gotchas
 
-- **Project-level `.eslintrc` / tsconfig rule-disabling is the same problem**. Disabling a rule globally ("we turn off no-explicit-any in this repo") is not a fix. Scope rules down to the minimum file pattern that truly needs it (e.g., auto-generated files), and document why in the config.
 - **"It's legacy code" ≠ license to suppress.** If you're touching the line, fix it. If you're not, leave the pre-existing suppression untouched (the staged-diff scanner does the right thing — it only blocks NEW suppressions).
-- **CI must enforce the hook too.** Client-side hooks are bypassable with `--no-verify`. Add the same scanner as a CI job so PRs can't land with new suppressions even if the committer skipped the hook.
 - **`// TODO: fix this lint error`** is also a smell. If you can write the TODO comment, you can write the real fix.
 
 ## References

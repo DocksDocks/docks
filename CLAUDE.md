@@ -44,7 +44,7 @@ Run `bash scripts/ci.sh` before invoking `./scripts/release.sh` — even though 
 | Script | Purpose | Floor |
 |---|---|---|
 | `scripts/guard-skills.sh` | structural — frontmatter, ≤500 lines, name-matches-dir | n/a (pass/fail) |
-| `scripts/score-skills.sh` | quality score (max 16) | total ≥90, per-file ≥8 |
+| `scripts/score-skills.sh` | quality score (max 16) | total ≥100, per-file ≥8 |
 | `scripts/guard-commands.sh` | subagent_type cross-refs resolve to plugins/docks/agents/*.md | n/a |
 | `scripts/score-commands.sh` | quality score (max 21) | total ≥158, per-file ≥18 |
 | `scripts/guard-agents.sh` | frontmatter, "Use when…" / "Not…" CSO, model declared | n/a |
@@ -88,6 +88,22 @@ Claude Code surfaces every skill / command / agent description in the listing it
 | Other supported fields | `disable-model-invocation`, `user-invocable`, `argument-hint`, `arguments`, `paths`, `effort`, `context: fork`, `agent`, `hooks`, `shell`, `when_to_use` (counts toward the 1,536-char cap) | `argument-hint` (autocomplete only); `$ARGUMENTS` placeholder in body | `permissionMode`, `maxTurns`, `skills` (preloaded), `mcpServers`, `hooks`, `memory` (`user`/`project`/`local`), `background`, `effort`, `isolation: worktree`, `color`, `initialPrompt` |
 
 For **plugin-shipped agents**, `hooks`, `mcpServers`, and `permissionMode` are silently ignored for security — use `.claude/agents/` (not the plugin) when you need those features.
+
+### Body authoring rules
+
+The body (post-frontmatter content) loads at activation and stays in context across turns — every line is a recurring token cost. Anthropic's [best-practices conciseness test](https://code.claude.com/docs/en/best-practices): "Would removing this line cause Claude to make mistakes? If not, cut it." Don't include things Claude already knows ("PDF is a document format", "TypeScript is a typed superset") — the skill's value is project-specific knowledge the agent lacks.
+
+| Pattern | When to use |
+|---|---|
+| `<constraint>` block | Non-negotiable rule the agent must follow. Scorer rewards up to 3 per skill / up to 2 per agent — promote prose rules to constraints where emphasis matters. |
+| Quick-reference / lookup table | High-density mapping (smell → fix, before → after, anti-pattern → replacement). Agents pattern-match better against tables than prose. |
+| BAD/GOOD code blocks | Concrete pattern matching for fragile decisions. Scorer rewards presence of both idioms. |
+| Decision Tree (numbered) | "When stuck, check these in order" — favor procedures over declarations per [agentskills.io best-practices](https://agentskills.io/skill-creation/best-practices). |
+| Gotchas section | Highest-value content per agentskills.io — concrete corrections to mistakes the agent makes without being told. Add a gotcha each time you correct the agent on the same kind of mistake twice. |
+| Validation loop | "Do work → run validator → fix → repeat." Pair with a script in `scripts/` that returns useful error messages so the agent can self-correct. |
+| External `references/<topic>.md` | When body crosses ~310 lines, split detail into on-demand files referenced from `SKILL.md` (Anthropic doc tip: keep main SKILL.md ≤500 lines). |
+
+Body sweet spot: **80–310 lines** (scorer; ≤500 per Anthropic). Compaction re-attaches the first 5,000 tokens of each invoked skill (25K shared budget across skills) — content past that may be dropped after auto-compaction. Match specificity to fragility: prescriptive for fragile/sequential operations, flexible (with WHY explained) for rules that tolerate variation.
 
 ### Plugin namespace
 

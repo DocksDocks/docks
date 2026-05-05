@@ -82,6 +82,10 @@ function formatDetails(action: string, d: Details): string {
 
 Split the map by actor domain if useful: `DASHBOARD_FORMATTERS` + `WORKFLOW_FORMATTERS`, merged via spread.
 
+<constraint>
+Strategy Map entries are code, not config. Never move them to JSON or YAML — you lose type safety, exhaustiveness checks, and tree-shaking. The map IS the type system's record of every supported variant.
+</constraint>
+
 ### Indicators
 - switch statement with 5+ arms
 - "Every time we add X, we edit Y"
@@ -197,10 +201,13 @@ function Page({
 
 None of these demand classes, inheritance, or abstract base types. All of them fit a function-based React codebase.
 
+<constraint>
+Don't extract a hook for one caller. Premature extraction hides smell instead of fixing it — keep the logic inline until a second use-site appears AND the logic actually fits one of the `react-effect-policy` skill's 3 acceptable useEffect categories. "Extract Hook" is a refactor, not a code-organization shortcut.
+</constraint>
+
 ## Gotchas
 
 - **Don't over-split.** Two tightly-coupled 50-line functions in one file is fine. Split only when change axes genuinely diverge.
-- **Don't extract a hook for one caller** unless you expect a second caller soon. Keep the logic inline until a second use-site appears.
 - **Extract Hook ≠ useEffect sprawl.** See the `react-effect-policy` skill — most "hooks" should be pure functions + `useMemo`, not effects.
 - **Server Action splits should follow change axes, not alphabetical filing.** "crud vs view-as vs permissions" is change-axis-based; "actions-a-to-m.ts vs actions-n-to-z.ts" is not.
 - **Strategy Map entries are code, not config.** Don't move them to JSON — you lose type safety and tree-shaking.

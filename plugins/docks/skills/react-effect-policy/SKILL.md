@@ -43,7 +43,11 @@ metadata:
 
 ## Acceptable `useEffect` (the 3 allowed categories)
 
-Every new `useEffect` in our code MUST match one of these. Document which one in a one-line comment above the effect.
+<constraint>
+Every new `useEffect` MUST match exactly one of the 3 categories below (DOM/browser subscription, syncing into a no-subscribe external system, or debounced async tied to user input). Document which one with a one-line comment above the effect. If it doesn't match any, the code belongs in a render-time computation, an event handler, or a Server Action — not an effect.
+</constraint>
+
+Document which one in a one-line comment above the effect.
 
 ### 1. Subscribing to a DOM / browser API event
 - Pattern: `addEventListener` in body, `removeEventListener` in cleanup.
@@ -163,11 +167,14 @@ export function useDebouncedValue<T>(value: T, delay: number): T {
 }
 ```
 
+<constraint>
+Cleanup is mandatory for every subscription effect. Always return `() => unsubscribe()` (or `() => clearTimeout(id)`, `() => mql.removeEventListener(...)`, etc.). Strict Mode double-invokes effects in development; a missing cleanup surfaces as a leak in dev and is a real leak in production.
+</constraint>
+
 ## Gotchas
 
 - **`setState(true)` at the top of an effect body trips `set-state-in-effect`.** Move it inside the `async function` body (the rule allows setState within a callback function scope).
 - **Empty deps aren't a free pass.** If the effect references a state value, that state becomes stale. Use a ref or read from the DOM.
-- **Cleanup is mandatory for subscriptions.** Always return `() => unsubscribe()`. Strict Mode double-invokes effects in dev — a missing cleanup shows up as a leak.
 - **`useDeferredValue` is NOT a time-based debounce.** It's CPU-priority. For "wait 400ms then fire RPC," use `useDebouncedValue` (or any setTimeout-in-effect hook).
 - **`useEffectEvent` is still experimental** in React 19 (as of 2026-04). Do not use in production; use the ref-latest pattern instead.
 - **Don't "fix" an effect by burying it in a custom hook.** Extraction doesn't change correctness — it hides smell. Fix the anti-pattern first (use the replacement table above). Only extract once there's a second caller AND the logic fits one of the 3 acceptable categories. See the `react-solid` skill's Extract Hook guidance for when extraction is the right refactor.

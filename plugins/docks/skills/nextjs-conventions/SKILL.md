@@ -71,6 +71,10 @@ Helper modules with "middleware" in their name (e.g., `lib/supabase/middleware.t
 
 ## Async Conventions (Next.js 15+)
 
+<constraint>
+Next 15+: `cookies()`, `headers()`, `params`, and `searchParams` ALL return Promises. Always `await` them. Page props types must declare `params: Promise<...>` and `searchParams: Promise<...>`. Forgetting the await silently returns a Promise object as a value — the bug surfaces as `[object Promise]` in rendered output or as undefined-property reads downstream.
+</constraint>
+
 `cookies()`, `headers()`, `params`, `searchParams` are all async. Always `await` them.
 
 ```tsx
@@ -129,6 +133,10 @@ useEffect(() => { fetch("/api/items").then(setItems) }, [])
 - Server Actions can be imported into Client Components — that's the canonical data-mutation channel.
 
 ## SSR / CSR Hydration
+
+<constraint>
+Never gate rendering with a `useEffect` `mounted` flag. That defeats SSR entirely (the server renders empty, then the client re-renders, producing a hydration flash). Use `next/dynamic({ ssr: false })` for genuinely client-only widgets, or a pre-hydration CSS class for theme-style switches (e.g., `next-themes` writes `.dark` on `<html>` before React mounts).
+</constraint>
 
 ```tsx
 // BAD — useEffect "mounted" flag defeats SSR entirely

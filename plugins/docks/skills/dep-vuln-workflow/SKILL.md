@@ -148,13 +148,15 @@ const [open, setOpen] = useState(true)   // derive initial state inline
 
 Set this as a calendar item. Dep security is a habit, not a reaction.
 
+<constraint>
+Lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` / `Cargo.lock`) MUST be committed — never `.gitignore` it. A vuln in the lockfile is a real vuln. Advisory tools (GitHub Dependabot, Snyk) flag everything; their report is a starting point, not a verdict — apply the runtime-vs-build-time exposure filter above before patching.
+</constraint>
+
 ## Gotchas
 
 - **`pnpm audit --prod` vs full audit**: `--prod` excludes devDependencies. Use it when you want a runtime-only view. But don't use it to silence dev-only vulns you should still patch.
-- **Lockfile must be committed**. A vuln in `pnpm-lock.yaml` matters. Never gitignore the lockfile.
 - **Peer warnings are signals, not noise**. `unmet peer X@">=9": found 10` means the plugin was never tested against 10. Run `pnpm lint` immediately to see if it breaks in practice.
 - **`pnpm why <pkg>`** tells you the import path. Use it to see if a transitive vuln is reachable from your entry points.
-- **Snyk / GitHub Dependabot are not substitutes** for the exposure filter. They flag everything. Your judgment is whether a flag matters for your project.
 - **Major React bumps often require renderer + types bumps together**: `react@19` needs `@types/react@19` and `react-dom@19`. Missing one = silent type-only mismatch.
 
 ## References
