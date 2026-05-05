@@ -83,7 +83,9 @@ for skill_dir in "$DIR"/*/; do
   fi
 
   # Body (post-frontmatter) ≤ 500 lines
-  body_lines=$(awk '/^---$/{c++;next} c==2{print}' "$file" | wc -l)
+  # `&& c<2` cap prevents `---` lines inside body code fences (e.g., YAML examples)
+  # from being counted as a third frontmatter marker, which would truncate the body.
+  body_lines=$(awk '/^---$/ && c<2 {c++; next} c==2 {print}' "$file" | wc -l)
   if [ "$body_lines" -gt 500 ]; then
     echo "FAIL: $skill_name — body is $body_lines lines (cap: 500). Extract to references/" >&2
     errors=$((errors + 1))

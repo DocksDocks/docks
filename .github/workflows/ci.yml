@@ -33,21 +33,21 @@ jobs:
     needs: guard
     steps:
       - uses: actions/checkout@v4
-      - name: "score-skills (floor 90 total)"
+      - name: "score-skills (floor 100 total)"
         run: |
           score=$(bash scripts/score-skills.sh)
           echo "score-skills total: $score"
-          [ "$score" -ge 90 ] || { echo "::error::skills score $score below floor 90"; exit 1; }
-      - name: "score-commands (floor 150 total)"
+          [ "$score" -ge 100 ] || { echo "::error::skills score $score below floor 100"; exit 1; }
+      - name: "score-commands (floor 158 total)"
         run: |
           score=$(bash scripts/score-commands.sh)
           echo "score-commands total: $score"
-          [ "$score" -ge 150 ] || { echo "::error::commands score $score below floor 150"; exit 1; }
-      - name: "score-agents (floor 560 total)"
+          [ "$score" -ge 158 ] || { echo "::error::commands score $score below floor 158"; exit 1; }
+      - name: "score-agents (floor 595 total)"
         run: |
           score=$(bash scripts/score-agents.sh)
           echo "score-agents total: $score"
-          [ "$score" -ge 560 ] || { echo "::error::agents score $score below floor 560"; exit 1; }
+          [ "$score" -ge 595 ] || { echo "::error::agents score $score below floor 595"; exit 1; }
 
   per-file-floors:
     name: "per-file score floors"
@@ -67,26 +67,26 @@ jobs:
             fi
           done < <(bash scripts/score-skills.sh --per-file)
           [ "$fail" -eq 0 ]
-      - name: "commands (floor 17 per-file)"
+      - name: "commands (floor 18 per-file)"
         run: |
           fail=0
           while IFS= read -r line; do
             score=$(echo "$line" | awk '{print $NF}')
             name=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
-            if [ "$score" -lt 17 ]; then
-              echo "::error::command $name score $score below per-file floor 17"
+            if [ "$score" -lt 18 ]; then
+              echo "::error::command $name score $score below per-file floor 18"
               fail=1
             fi
           done < <(bash scripts/score-commands.sh --per-file)
           [ "$fail" -eq 0 ]
-      - name: "agents (floor 11 per-file)"
+      - name: "agents (floor 14 per-file)"
         run: |
           fail=0
           while IFS= read -r line; do
             score=$(echo "$line" | awk '{print $NF}')
             name=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
-            if [ "$score" -lt 11 ]; then
-              echo "::error::agent $name score $score below per-file floor 11"
+            if [ "$score" -lt 14 ]; then
+              echo "::error::agent $name score $score below per-file floor 14"
               fail=1
             fi
           done < <(bash scripts/score-agents.sh --per-file)

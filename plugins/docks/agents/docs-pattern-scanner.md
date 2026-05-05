@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (typically `date`, `git` status/log/diff, `rtk`).
 </constraint>
 
+<constraint>
+Evidence requirement: every finding must include a `file:line` reference plus a verifiable excerpt or pattern signature. Abstract observations ("the project has good error handling", "uses async patterns") without a source-code anchor are noise the downstream Skills Builder cannot act on. If you cannot point at it, omit it.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

@@ -74,7 +74,7 @@ for file in "$DIR"/*.md; do
   grep -q '^## Success Criteria' "$file" && score=$((score + 1))
 
   # 6. [project] Body size sweet spot 60–300 lines (1 pt)
-  body_lines=$(awk '/^---$/{c++;next} c==2{print}' "$file" | wc -l)
+  body_lines=$(awk '/^---$/ && c<2 {c++; next} c==2 {print}' "$file" | wc -l)
   if [ "$body_lines" -ge 60 ] && [ "$body_lines" -le 300 ]; then
     score=$((score + 1))
   fi

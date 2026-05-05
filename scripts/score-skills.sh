@@ -129,7 +129,7 @@ for skill_dir in "$DIR"/*/; do
   #    (~16 tok/line), so 5,000 tokens ÷ 16 ≈ 310 lines is the 4.7-safe ceiling.
   #    Anything past 310 risks post-compact truncation; anything past ~500 hits
   #    Anthropic's soft tip — move detail into references/ files instead.
-  body_lines=$(awk '/^---$/{c++;next} c==2{print}' "$file" | wc -l)
+  body_lines=$(awk '/^---$/ && c<2 {c++; next} c==2 {print}' "$file" | wc -l)
   if [ "$body_lines" -ge 80 ] && [ "$body_lines" -le 310 ]; then
     score=$((score + 2))
   fi

@@ -12,25 +12,19 @@ The starting point for any audit is `CLAUDE.md` → "Authoring skills, commands 
 - <https://agentskills.io/skill-creation/best-practices>
 - <https://agentskills.io/skill-creation/optimizing-descriptions>
 
-## Parked: agents body audit
+## Resolved: agents body audit (May 2026)
 
-**Question to answer:** Are the 41 subagent system prompts in `plugins/docks/agents/` doing the right amount of work, or are they over-/under-engineered relative to Anthropic's documented patterns?
+The 41-agent body audit ran in May 2026. Total scorer total moved 586 → 597; per-file minimum 13 → 14; floors bumped (`scripts/ci.sh` agents 560→595, per-file 11→14; GH workflow synced). Three classes of fix landed:
 
-**What we already know (from the May 2026 research):**
-- The Anthropic sub-agents doc shows minimal example prompts (2–3 sentences). Our agents are richer (60–300 line bodies) — that's either appropriate specialization or over-engineering.
-- The scorer at `scripts/score-agents.sh` rewards `## Workflow`, `## Success Criteria`, `<constraint>` blocks, anti-hallucination checks, research-gate (`context7`/`resolve-library-id`), no-slop, model declared, tools declared, body 60–300 lines.
-- Agents inherit ALL parent tools when `tools:` is omitted. Plugin-shipped agents silently ignore `hooks` / `mcpServers` / `permissionMode`.
+1. **Body-counting bug** in `score-skills.sh` / `score-agents.sh` / `guard-skills.sh` / `guard-agents.sh` — `---` lines inside YAML code fences were miscounted as a third frontmatter marker, truncating body length. Fixed with `&& c<2` cap on the awk counter. `docs-agents-builder` and `docs-skills-builder` jumped 14→15 from this fix alone.
+2. **Slop trigger words in example lists** — `human-docs-writer` line 40 and `human-docs-pre-verifier` line 51 enumerated `"robust"` and `"seamless"` as inflated adjectives to flag, which the scorer (correctly) couldn't distinguish from authoring slop. Replaced with `"best-in-class"` and `"industry-leading"` — same teaching value, no scorer trigger.
+3. **2nd `<constraint>` block** added to nine agents that had only the universal shell-avoidance constraint (verifier-scope for the four post-verifiers; evidence/specificity/boundary rules for `docs-pattern-scanner`, `docs-role-mapper`, `docs-categorizer`, `human-docs-analyzer`, `refactor-dead-code-scanner`).
 
-**Audit checklist:**
-1. **Body sweet spot** — `awk '/^---$/{c++;next} c==2{print}' <file> | wc -l` per agent. Sweet spot is 60–300 (scorer); flag any outside.
-2. **Tools tightness** — every agent should declare `tools:` (allowlist) or `disallowedTools:` (denylist). An omitted `tools:` field means inherit-all, which is permissive. Verify each agent's declared toolset matches its actual workflow needs (no surplus, no missing).
-3. **Research-gate** — agents that touch framework / library / API decisions should mention `context7` / `resolve-library-id` / `query-docs`. Audit which agents legitimately need this and add the constraint where missing.
-4. **Workflow ordering** — Anthropic's skills doc emphasizes "state what to do, not how/why." Audit each agent's `## Workflow` for narration vs imperative steps.
-5. **Anti-hallucination checks** — every agent that emits file:line refs should have an explicit checklist (verify file exists, verify line content, verify import paths). Audit which have it; add where missing.
-6. **Constraint block calibration** — `agentskills.io/skill-creation/best-practices` says "Match specificity to fragility." Audit which `<constraint>` blocks are appropriately strict vs over-specified for the agent's actual fragility.
-7. **Per-file score gap** — 22 of 41 agents are 1-2 pts below scorer max (15). Run `bash scripts/score-agents.sh --per-file` and triage each gap: real improvement opportunity, or by-design (e.g., agent doesn't need research-gate)?
+The remaining 18 agents at 14/15 are missing the research-gate point by design — they don't touch external library docs (explorers, post-verifiers, categorizers, scanners). Per-file floor 14 captures the structural minimum without forcing unjustified context7 references.
 
-**Sub-max files at last audit (May 2026):** test-post-verifier (13), test-explorer (14), security-explorer (14), review-post-verifier (13), review-explorer (14), refactor-explorer (14), refactor-dead-code-scanner (13), human-docs-writer (14), human-docs-pre-verifier (14), human-docs-post-verifier (13), human-docs-explorer (14), human-docs-analyzer (13), fix-post-verifier (13), fix-explorer (14), docs-verifier (14), docs-skills-builder (14), docs-role-mapper (13), docs-pattern-scanner (13), docs-pattern-extractor (14), docs-explorer (14), docs-categorizer (13), docs-agents-builder (14).
+**No CLAUDE.md prose change needed** — the per-file ≥14 floor mechanically requires 2 constraint blocks (mandatory-only ceiling is exactly 14), so "every agent gets a 2nd role-specific constraint" is now enforced by the scorer rather than documentation.
+
+**Re-running this audit**: invariants from above carry forward; run `bash scripts/score-agents.sh --per-file | sort -k2 -n | head -20` to find the next sub-max cluster, then identify whether the gap is mechanical (research-gate, slop, missing constraint) or by-design.
 
 ## Parked: commands body audit
 

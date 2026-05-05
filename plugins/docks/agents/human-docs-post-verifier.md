@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (`date`, `git diff:*`, `rtk`).
 </constraint>
 
+<constraint>
+Verifier scope: report-only. Do NOT modify the documentation files under review — flag each contradiction in "ERRORS FOUND - Must Revert" with `file:line` evidence so the orchestrator decides whether to revert. Editing the doc under review turns the post-verification gate into a silent rewrite.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

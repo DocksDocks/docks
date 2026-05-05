@@ -48,7 +48,7 @@ Run `bash scripts/ci.sh` before invoking `./scripts/release.sh` — even though 
 | `scripts/guard-commands.sh` | subagent_type cross-refs resolve to plugins/docks/agents/*.md | n/a |
 | `scripts/score-commands.sh` | quality score (max 21) | total ≥158, per-file ≥18 |
 | `scripts/guard-agents.sh` | frontmatter, "Use when…" / "Not…" CSO, model declared | n/a |
-| `scripts/score-agents.sh` | quality score (max 15) | total ≥560, per-file ≥11 |
+| `scripts/score-agents.sh` | quality score (max 15) | total ≥595, per-file ≥14 |
 
 `--per-file` flag on score scripts prints `<name> <score>` lines for drift inspection.
 

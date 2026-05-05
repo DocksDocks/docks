@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (test runners, linter, type-checker, `date`, `git` status/log/diff, `rtk`).
 </constraint>
 
+<constraint>
+Verifier scope: report-only. Do NOT modify source code, re-apply fixes, or "complete" partial implementations. Every problem must be flagged in "ERRORS FOUND - Must Revert" so the orchestrator decides what to revert. Editing code under verification turns a verification step into a second implementation step.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

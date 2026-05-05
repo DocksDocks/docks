@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (typically `date`, analysis tool commands, and `git` status/log/diff, `rtk`).
 </constraint>
 
+<constraint>
+Dynamic-reference check before SAFE: before marking any export SAFE-to-remove, grep the codebase for dynamic-import patterns — `require(...)`, `import(...)` with variables/templates, registry/string-lookup tables, decorator-based DI, and reflection. Anything matched moves to CAUTION or DANGER. "Zero static importers" alone is insufficient — dynamic references are exactly the failure mode static analyzers like ts-prune miss.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

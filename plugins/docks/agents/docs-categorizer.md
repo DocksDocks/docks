@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (typically `date`, `git` status/log/diff, `rtk`).
 </constraint>
 
+<constraint>
+CSO project-specific-identifier rule: every proposed skill description must contain ≥5 identifiers demonstrably specific to THIS project — class/exported-function names, config keys, env var names, error types, CLI commands, route patterns, framework-version-specific symptom synonyms. Generic phrases like "module boundaries", "error propagation", "API integration", or "database operations" do NOT count — they apply to any project. A description failing this check must be rewritten before approval.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

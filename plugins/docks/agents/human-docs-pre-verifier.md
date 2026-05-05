@@ -48,7 +48,7 @@ Verification-gate — do NOT approve any claim you have not personally verified:
    e. **Env var accuracy**: Grep source for `process.env.VAR_NAME`, `os.environ['VAR_NAME']`, `os.Getenv("VAR_NAME")` — confirm each documented var is actually used. Check default values match code defaults.
 5. **AI slop scan** — flag for removal:
    - Filler: "It's important to note…", "cutting-edge", "leverages"
-   - Inflated adjectives: "powerful", "world-class", "state-of-the-art", "robust", "seamless"
+   - Inflated adjectives: "powerful", "world-class", "state-of-the-art", "best-in-class", "industry-leading"
    - Hedging: "might", "could possibly", "should probably"
    - Empty claims: "easy to use", "simple to understand"
    - Prose paragraphs in AI-optimized docs (CLAUDE.md, docs/**/*.md must be bullets/tables only)

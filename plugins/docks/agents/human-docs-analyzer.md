@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (typically `date`, `git` status/log/diff, `rtk`).
 </constraint>
 
+<constraint>
+Specificity requirement for gap analysis: every gap item must name the exact missing or incorrect claim with evidence (paragraph, line number, command). "Documentation could be clearer" is not a gap. "Install step 3 says `npm install` but `package.json:3` declares `\"packageManager\": \"pnpm@9.x\"`" is. Generic critiques without source evidence are rejected — they give the writer nothing concrete to fix.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

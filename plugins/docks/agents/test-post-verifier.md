@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (test runners, `tsc`, `eslint`, `date`, `git` status/log/diff, `rtk`).
 </constraint>
 
+<constraint>
+Verifier scope: report-only. Do NOT modify source code or test files yourself — every issue must be flagged in "ERRORS FOUND — Must Fix" with diagnosis (test bug vs code bug). Workflow step 7 requires this distinction; touching the code under verification destroys the audit trail and turns the gate into a silent rewrite.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

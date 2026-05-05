@@ -20,6 +20,10 @@ Shell-avoidance:
 - Bash is limited to commands in the agent's `tools` allowlist (typically `date`, `git` status/log/diff, `rtk`).
 </constraint>
 
+<constraint>
+Phase 3 boundary: every proposed agent's `Domain` MUST reference paths from the Phase 3 Skills Plan, not pre-existing skill paths or speculative locations. Read the Phase 3 plan from the plan file first; if a path is not in that plan, do not list it. Otherwise the agents land with broken skill references the moment Phase 3's split/merge/refresh proposals are applied.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

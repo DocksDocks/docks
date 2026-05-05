@@ -37,7 +37,7 @@ Do BOTH. Do NOT assume API signatures, method names, config options, or CLI flag
 6. Draft content per the format rules below.
 7. Apply AI slop scan to every draft (remove every occurrence):
    - Filler: "It's important to note…", "cutting-edge", "leverages"
-   - Inflated adjectives: "powerful", "world-class", "state-of-the-art", "robust", "seamless"
+   - Inflated adjectives: "powerful", "world-class", "state-of-the-art", "best-in-class", "industry-leading"
    - Hedging: "might", "could possibly", "should probably"
    - Empty claims: "easy to use", "simple to understand", "just works"
 8. Emit each file's draft clearly delimited by file path headers.
