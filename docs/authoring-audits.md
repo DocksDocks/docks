@@ -54,6 +54,8 @@ Both quirk fixes share the same shape: detect "feature-applicable by orchestrati
 
 **Allowed-tools surface audit (Audit followup #3)**: trimmed `Bash(ls:*) Bash(find:*) Bash(wc:*)` from `docs.md`, `human-docs.md`, and `refactor.md` — these were declared but never used in the orchestrator body, and conflict with the kit's shell-avoidance philosophy (orchestrator + agents both use `Glob`/`Read`/`Grep` instead of shell utilities). The other 5 commands had clean allowed-tools lists.
 
+**`<task>` block retirement (Audit followup #6)**: roadmap-init was the last command using `<task>...</task>` blocks; the other 7 had already moved to thin orchestrator (subagent_type refs) or plain markdown. `<task>` was a kit-internal visual-grouping convention with no Claude Code semantics — Anthropic's docs (skills, commands, subagents, plugins) do not document or parse it. Plain markdown sections (`## Phase`, `### Success Criteria`) achieve the same grouping with less ceremony, so the kit retired the convention. The guard now rejects `<task>` blocks anywhere to keep all 8 commands consistent.
+
 **Other audit checklist points evaluated:**
 - **Structural alignment**: 7 of 8 commands follow Plan Mode → multi-phase → ExitPlanMode → Implementation; `roadmap-init` deliberately diverges (mechanical, idempotent). Aligned.
 - **Phase Transition Protocol**: enforced by `guard-commands.sh` for 3+ phase commands; passes.

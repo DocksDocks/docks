@@ -6,9 +6,13 @@
 #   - Inline single-session:  no subagents (mechanical scaffolders, idempotent
 #     workflows); Success Criteria embedded in the command body
 #
-# The legacy `<task>...</task>` flavor was deprecated in May 2026 — `<task>`
-# blocks anywhere in a command file are now a structural error. Single-session
-# commands use plain markdown phases with `### Success Criteria` subsections.
+# The `<task>...</task>` blocks earlier kit commands used were a kit-internal
+# visual-grouping convention — Claude Code does NOT parse them specially,
+# they are not an Anthropic-documented primitive. Plain markdown sections
+# (## Phase, ### Success Criteria) achieve the same grouping with less
+# ceremony, so the kit retired the convention in May 2026. The guard now
+# rejects `<task>` blocks anywhere in a command file to keep the convention
+# consistent across all kit commands.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIR="${1:-$SCRIPT_DIR/../plugins/docks/commands}"
 errors=0
@@ -20,9 +24,10 @@ for f in "$DIR"/*.md; do
   task_close=$(grep -c '</task>' "$f")
   subagent_refs=$(grep -cE '`subagent_type:|subagent_type: `' "$f")
 
-  # Legacy <task>...</task> blocks are no longer accepted.
+  # <task>...</task> blocks are kit-internal convention from earlier commands;
+  # the kit standardized on plain markdown sections in May 2026.
   if [ "$task_open" -gt 0 ] || [ "$task_close" -gt 0 ]; then
-    echo "FAIL: $name — legacy <task>...</task> blocks no longer accepted; use thin orchestrator (subagent_type: refs) or inline phases with '### Success Criteria' subsections" >&2
+    echo "FAIL: $name — <task>...</task> blocks no longer accepted (kit-internal convention retired); use thin orchestrator (subagent_type: refs) or inline phases with '### Success Criteria' subsections" >&2
     errors=$((errors + 1))
     continue
   fi
