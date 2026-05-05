@@ -1,77 +1,74 @@
 # docks
 
-A Claude Code plugin packaging the multi-agent pipeline kit: 8 slash commands, 7 engineering-convention skills, and 41 specialized subagents with per-phase Opus/Sonnet model tiering.
+Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with 8 slash commands, 7 engineering-convention skills, and 41 specialized subagents (12 Opus + 29 Sonnet, tiered per phase).
 
 ## Install
 
 ```bash
-/plugin marketplace add <github-handle>/docks
+/plugin marketplace add DocksDocks/docks
 /plugin install docks@docks
 /reload-plugins
 ```
 
-For local development:
+After install, commands are namespaced as `/docks:security`, `/docks:fix`, `/docks:review`, etc. Skills auto-trigger as before (they're `user-invocable: false`, namespacing is invisible at runtime).
 
-```bash
-claude --plugin-dir /path/to/docks
+## Repository layout
+
+```
+.
+├── .claude-plugin/marketplace.json   ← marketplace catalog (this file is what /plugin marketplace add reads)
+├── plugins/
+│   └── docks/                         ← the plugin itself (only this gets cached on user install)
+│       ├── .claude-plugin/plugin.json
+│       ├── skills/, commands/, agents/
+│       └── README.md                  ← plugin-facing docs
+├── scripts/                           ← plugin-author tooling (NOT shipped to users)
+│   ├── guard-skills.sh / score-skills.sh
+│   ├── guard-commands.sh / score-commands.sh
+│   └── guard-agents.sh / score-agents.sh
+└── .github/workflows/ci.yml           ← validator CI on push/PR
 ```
 
-## What's inside
+**What ships to users**: only `plugins/docks/`. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to `~/.claude/plugins/cache/` on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism — Claude Code's plugin cache copies only the directory pointed at by `source`.
 
-### Commands (8)
+## Develop locally
 
-All commands are namespaced as `/docks:<name>` once installed.
+Test changes without pushing to GitHub:
 
-| Command | Pipeline |
-|---------|----------|
-| `/docks:security` | Discovery → \[Scanner \| Analyzer \| Hunter\] → Synthesizer |
-| `/docks:fix` | Exploration → \[Code Scanner \| Dependency Scanner\] → Planner → Verifier |
-| `/docks:review` | Exploration → Analyzer → Verifier |
-| `/docks:test` | Exploration → Analyzer → Generator → Verifier |
-| `/docks:docs` | Detection → Exploration → \[Categorizer \| Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder → Verifier |
-| `/docks:human-docs` | Exploration → Analyzer → Writer → Verifier |
-| `/docks:refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Verifier |
-| `/docks:roadmap-init` | Single-session scaffolder for `docs/roadmap/` lifecycle folders |
+```bash
+claude --plugin-dir ./plugins/docks
+```
 
-All analysis commands enforce **Plan Mode** — read-only analysis first, user approval gate via `ExitPlanMode`, then implementation.
+When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session.
 
-### Skills (7)
+After edits, run `/reload-plugins` in the running session — no Claude Code restart needed.
 
-Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-namespaced for invocation since they're model-invoked.
+## Validate before pushing
 
-- `dep-vuln-workflow` — `pnpm/npm audit`, CVE/GHSA advisories, peer-dep conflicts
-- `lint-no-suppressions` — eslint-disable / @ts-ignore / # noqa decision tree
-- `nextjs-conventions` — Next.js 13/14/15/16 App Router, Server Components, `proxy.ts`
-- `react-effect-policy` — 6 useEffect anti-patterns + React 19 replacements
-- `react-solid` — SOLID's 5 principles for function-based React
-- `typescript-typing` — `any` vs `unknown`, discriminated unions, branded IDs, parse-don't-assert
-- `make-interfaces-feel-better` *(vendored, MIT)* — UI polish: concentric radius, optical alignment, motion
+Six validators mirror the kit-side conventions:
 
-### Agents (41)
+```bash
+bash scripts/guard-skills.sh     # structural — frontmatter, ≤500 lines, name-matches-dir
+bash scripts/score-skills.sh     # quality score (max 16) — Use-when prefix, freshness, BAD/GOOD ratio
+bash scripts/guard-commands.sh   # subagent_type cross-refs resolve to plugins/docks/agents/*.md
+bash scripts/score-commands.sh   # quality score (max 20) — Plan Mode, Phase Transition, slop
+bash scripts/guard-agents.sh     # frontmatter, "Use when…" / "Not…" CSO, model declared
+bash scripts/score-agents.sh     # quality score (max 15) — model, tools, Workflow + Success Criteria
+```
 
-12 Opus + 29 Sonnet, one per phase of each command. Synthesizers, analyzers with semantic reasoning, planners, and creative/adversarial work run on Opus 4.7. Exploration, pattern scanning, and mechanical verification run on Sonnet 4.6.
+`--per-file` flag on score scripts prints one `<name> <score>` line per item — useful for spotting drift after an edit.
 
-Force-invoke any agent directly with `@agent-<name>` (e.g. `@agent-refactor-solid-analyzer audit src/services/`).
+CI runs all six on every push to `main` and every PR (see `.github/workflows/ci.yml`).
 
-## Why pipelines and not single-session?
+## Versioning
 
-The kit deliberately uses sequential subagent pipelines despite Anthropic's general guidance against them, because:
+`version` in `marketplace.json` and `plugins/docks/.claude-plugin/plugin.json` controls update propagation:
 
-1. **Files-as-handoff** — the plan file IS the explicit context-passing mechanism, not an inherited compressed summary
-2. **Per-phase model tiering** saves ~70% vs. all-Opus single session
-3. **No summary compression** — subagents bootstrap from the plan file rather than inheriting a compressed parent context
+- **With explicit version**: users only receive updates when this field bumps. Bump on every release.
+- **Without version**: the git commit SHA is used; every commit counts as a new version (noisier but auto-tracking).
 
-Most pipelines use a **Builder-Verifier pattern** for quality assurance.
-
-## Validators
-
-Quality gates for kit hygiene (kept in the upstream config repo, not bundled with the plugin):
-
-- `bash guard-skills.sh` — structural checks (frontmatter, name-matches-dir, body ≤500 lines)
-- `bash score-skills.sh` — quality score (max 16)
-- `bash guard-commands.sh` / `score-commands.sh` — same for commands
-- `bash guard-agents.sh` / `score-agents.sh` — same for agents
+Use `claude plugin tag` (from inside `plugins/docks/`) to cut a tagged release after bumping.
 
 ## License
 
-MIT
+MIT — see `LICENSE` at the repo root.
