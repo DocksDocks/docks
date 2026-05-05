@@ -4,13 +4,10 @@
   "owner": {
     "name": "Eduardo Marquez (DocksDocks)"
   },
-  "metadata": {
-    "pluginRoot": "./plugins"
-  },
   "plugins": [
     {
       "name": "docks",
-      "source": "docks",
+      "source": "./plugins/docks",
       "description": "Multi-agent pipeline kit for Claude Code — Builder-Verifier patterns across security, fix, review, test, docs, refactor, and human-docs commands. 7 portable engineering-convention skills (Next.js, React 19, TypeScript, dep-vuln workflow, lint discipline, UI polish) and 41 specialized subagents with per-phase Opus/Sonnet model tiering.",
       "version": "0.1.0",
       "author": {
