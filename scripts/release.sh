@@ -35,6 +35,15 @@ command -v claude >/dev/null 2>&1 || err "claude is required"
 cd "$REPO_DIR"
 [ -z "$(git status --porcelain)" ] || err "working tree dirty — commit/stash first"
 
+# --- local CI gate: run scripts/ci.sh first (mirrors .github/workflows/ci.yml) ---
+# Failing here means tag-CI would have failed too — better to catch it now,
+# before burning a tag.
+echo "Running local ci.sh..."
+if ! bash "$REPO_DIR/scripts/ci.sh" -q; then
+  err "scripts/ci.sh failed — fix issues before releasing (see ci.sh output)"
+fi
+echo ""
+
 # --- compute new version ---
 ARG="${1:-}"
 [ -n "$ARG" ] || err "missing version arg (use X.Y.Z, patch, minor, or major)"
