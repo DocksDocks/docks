@@ -1,61 +1,61 @@
 name: validate
 
+# Triggers:
+#   - pull_request: validate before merge into main
+#   - push: tags: validate every release tag (release.sh creates the GH Release
+#     only if this run succeeds — tag-CI is the gate)
+#   - workflow_dispatch: manual run for ad-hoc validation
+
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    tags:
+      - 'docks--v*'
   workflow_dispatch:
 
 jobs:
   guard:
-    name: Structural validation (guards)
+    name: "guards (structural validation)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: guard-skills
+      - name: "guard-skills"
         run: bash scripts/guard-skills.sh
-
-      - name: guard-commands
+      - name: "guard-commands"
         run: bash scripts/guard-commands.sh
-
-      - name: guard-agents
+      - name: "guard-agents"
         run: bash scripts/guard-agents.sh
 
   score:
-    name: Quality score floors
+    name: "scores (quality floors)"
     runs-on: ubuntu-latest
     needs: guard
     steps:
       - uses: actions/checkout@v4
-
-      - name: score-skills (floor: total ≥ 90)
+      - name: "score-skills (floor 90 total)"
         run: |
           score=$(bash scripts/score-skills.sh)
           echo "score-skills total: $score"
           [ "$score" -ge 90 ] || { echo "::error::skills score $score below floor 90"; exit 1; }
-
-      - name: score-commands (floor: total ≥ 150)
+      - name: "score-commands (floor 150 total)"
         run: |
           score=$(bash scripts/score-commands.sh)
           echo "score-commands total: $score"
           [ "$score" -ge 150 ] || { echo "::error::commands score $score below floor 150"; exit 1; }
-
-      - name: score-agents (floor: total ≥ 560)
+      - name: "score-agents (floor 560 total)"
         run: |
           score=$(bash scripts/score-agents.sh)
           echo "score-agents total: $score"
           [ "$score" -ge 560 ] || { echo "::error::agents score $score below floor 560"; exit 1; }
 
   per-file-floors:
-    name: Per-file quality floors
+    name: "per-file score floors"
     runs-on: ubuntu-latest
     needs: guard
     steps:
       - uses: actions/checkout@v4
-
-      - name: skills per-file (floor: ≥ 8)
+      - name: "skills (floor 8 per-file)"
         run: |
           fail=0
           while IFS= read -r line; do
@@ -67,8 +67,7 @@ jobs:
             fi
           done < <(bash scripts/score-skills.sh --per-file)
           [ "$fail" -eq 0 ]
-
-      - name: commands per-file (floor: ≥ 17)
+      - name: "commands (floor 17 per-file)"
         run: |
           fail=0
           while IFS= read -r line; do
@@ -80,8 +79,7 @@ jobs:
             fi
           done < <(bash scripts/score-commands.sh --per-file)
           [ "$fail" -eq 0 ]
-
-      - name: agents per-file (floor: ≥ 11)
+      - name: "agents (floor 11 per-file)"
         run: |
           fail=0
           while IFS= read -r line; do
@@ -95,14 +93,12 @@ jobs:
           [ "$fail" -eq 0 ]
 
   plugin-validate:
-    name: Claude Code plugin validate
+    name: "claude plugin validate"
     runs-on: ubuntu-latest
     needs: guard
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Claude Code
+      - name: "install Claude Code"
         run: npm install -g @anthropic-ai/claude-code
-
-      - name: Validate plugin manifest
+      - name: "validate plugin manifest"
         run: claude plugin validate ./plugins/docks

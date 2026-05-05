@@ -67,8 +67,40 @@ git add "$PLUGIN_JSON" "$MARKETPLACE_JSON"
 git commit -m "chore(release): docks v$NEW_VERSION"
 git push origin HEAD
 
-# --- tag + push ---
+# --- tag + push (this triggers CI on the tag push) ---
 claude plugin tag --push --message "docks plugin %s" "$PLUGIN_PATH"
+
+TAG_NAME="docks--v$NEW_VERSION"
+TAG_SHA=$(git rev-parse "$TAG_NAME^{commit}")
+
+# --- wait for CI on the tag push, gate the release on its result ---
+echo ""
+echo "Waiting for CI on tag $TAG_NAME (commit $TAG_SHA)..."
+RUN_ID=""
+for i in $(seq 1 30); do
+  RUN_ID=$(gh run list --workflow=ci.yml --json databaseId,headSha,event \
+    --jq ".[] | select(.headSha == \"$TAG_SHA\" and .event == \"push\") | .databaseId" | head -1)
+  [ -n "$RUN_ID" ] && break
+  sleep 2
+done
+[ -n "$RUN_ID" ] || err "no CI run appeared for $TAG_NAME after 60s — check Actions manually before releasing"
+
+echo "Watching CI run $RUN_ID..."
+echo "  https://github.com/DocksDocks/docks/actions/runs/$RUN_ID"
+if ! gh run watch "$RUN_ID" --exit-status; then
+  echo ""
+  echo "✘ CI failed for $TAG_NAME — NOT creating GitHub Release."
+  echo ""
+  echo "To recover:"
+  echo "  1. Investigate the failure: gh run view $RUN_ID --log-failed"
+  echo "  2. Fix on a follow-up commit, then either:"
+  echo "       a) bump version again: ./scripts/release.sh patch"
+  echo "       b) or move the tag (loses immutability):"
+  echo "            git tag -d $TAG_NAME"
+  echo "            git push origin :refs/tags/$TAG_NAME"
+  echo "            ./scripts/release.sh $NEW_VERSION"
+  exit 1
+fi
 
 # --- compute release notes from commits since previous tag ---
 PREV_TAG=$(git tag --list 'docks--v*' --sort=-version:refname | sed -n '2p')
@@ -80,8 +112,8 @@ else
   HEADER=""
 fi
 
-# --- create GitHub Release ---
-gh release create "docks--v$NEW_VERSION" \
+# --- create GitHub Release (only if CI passed) ---
+gh release create "$TAG_NAME" \
   --title "docks v$NEW_VERSION" \
   --notes "$HEADER
 
@@ -95,6 +127,6 @@ $NOTES
 \`\`\`"
 
 echo ""
-echo "✔ Released docks v$NEW_VERSION"
-echo "  Tag:    docks--v$NEW_VERSION"
-echo "  Github: https://github.com/DocksDocks/docks/releases/tag/docks--v$NEW_VERSION"
+echo "✔ Released docks v$NEW_VERSION (CI green)"
+echo "  Tag:    $TAG_NAME"
+echo "  Github: https://github.com/DocksDocks/docks/releases/tag/$TAG_NAME"

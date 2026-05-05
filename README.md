@@ -76,7 +76,9 @@ CI runs all six on every push to `main` and every PR (see `.github/workflows/ci.
 ./scripts/release.sh 0.2.0    # explicit
 ```
 
-The script bumps both manifests, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, and calls `gh release create` with notes auto-generated from `git log` since the previous tag. Released versions appear at https://github.com/DocksDocks/docks/releases.
+The script bumps both manifests, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes auto-generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created — the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
+
+CI runs only on (a) PRs to main, (b) tag pushes matching `docks--v*`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI — PR validation gates merges, tag-CI gates releases.
 
 Manually: `claude plugin tag --push ./plugins/docks` (tag only, no GitHub Release).
 
