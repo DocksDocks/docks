@@ -2,6 +2,8 @@
 
 This file tracks **deferred audits** of the plugin's skills, commands, and agents against authoritative authoring best-practices. The first audit (skills, May 2026) lives in this repo's git history; what's recorded below is what hasn't been done yet so a future session can pick it up cold.
 
+> **Historical record — counts below predate v0.2.** The May 2026 audits ran against an 8-command / 41-agent / 7-skill inventory. The v0.2 rebalance (`a8a3ecc`) demoted `/fix`, `/review`, `/test`, `/human-docs`, `/roadmap-init` from commands to skills, leaving 3 commands / 20 agents / 15 skills. Hardcoded floors (e.g. `560→595`) also predate `93db77e`, which switched CI to count-derived floors (`N × per-file_floor`). For current inventory and floors, see `bash scripts/score-<type>.sh --per-file` and `CLAUDE.md` → "Validators".
+
 The starting point for any audit is `CLAUDE.md` → "Authoring skills, commands & agents" (frontmatter + description rules), plus the validators under `scripts/score-*.sh`. Those cover the description layer; what's parked here is the **body / system-prompt layer**.
 
 ## Sources to re-check before starting any audit

@@ -1,11 +1,11 @@
 # docks
 
-A Claude Code plugin packaging the multi-agent pipeline kit: 8 slash commands, 7 engineering-convention skills, and 41 specialized subagents with per-phase Opus/Sonnet model tiering.
+A Claude Code plugin packaging the multi-agent pipeline kit: **3 slash commands** (where parallel-agent value is irreducible), **15 engineering-convention skills**, and **20 specialized subagents** with per-phase Opus/Sonnet model tiering.
 
 ## Install
 
 ```bash
-/plugin marketplace add <github-handle>/docks
+/plugin marketplace add DocksDocks/docks
 /plugin install docks@docks
 /reload-plugins
 ```
@@ -13,44 +13,50 @@ A Claude Code plugin packaging the multi-agent pipeline kit: 8 slash commands, 7
 For local development:
 
 ```bash
-claude --plugin-dir /path/to/docks
+claude --plugin-dir /path/to/docks/plugins/docks
 ```
+
+When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session. After edits, run `/reload-plugins` — no Claude Code restart needed.
 
 ## What's inside
 
-### Commands (8)
+### Commands (3)
 
-All commands are namespaced as `/docks:<name>` once installed.
+All commands are namespaced as `/docks:<name>` once installed. The kit deliberately keeps only commands where parallel-agent orchestration adds structural value the model can't compress into a single session.
 
 | Command | Pipeline |
 |---------|----------|
-| `/docks:security` | Discovery → \[Scanner \| Analyzer \| Hunter\] → Synthesizer |
-| `/docks:fix` | Exploration → \[Code Scanner \| Dependency Scanner\] → Planner → Verifier |
-| `/docks:review` | Exploration → Analyzer → Verifier |
-| `/docks:test` | Exploration → Analyzer → Generator → Verifier |
-| `/docks:docs` | Detection → Exploration → \[Categorizer \| Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder → Verifier |
-| `/docks:human-docs` | Exploration → Analyzer → Writer → Verifier |
-| `/docks:refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Verifier |
-| `/docks:roadmap-init` | Single-session scaffolder for `docs/roadmap/` lifecycle folders |
+| `/docks:security` | Discovery → \[Vulnerability Scanner \| Logic Analyzer \| Adversarial Hunter\] → Synthesizer (challenges every finding) |
+| `/docks:docs` | Detection → Exploration → \[Categorizer \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder → Verifier |
+| `/docks:refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Pre-Verifier → (implementation) → Post-Verifier (catches NEW SOLID violations introduced while fixing old ones) |
 
-All analysis commands enforce **Plan Mode** — read-only analysis first, user approval gate via `ExitPlanMode`, then implementation.
+Each command enforces **Plan Mode** — read-only analysis first, user approval gate via `ExitPlanMode`, then implementation.
 
-### Skills (7)
+### Skills (15)
 
 Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-namespaced for invocation since they're model-invoked.
 
-- `dep-vuln-workflow` — `pnpm/npm audit`, CVE/GHSA advisories, peer-dep conflicts
-- `lint-no-suppressions` — eslint-disable / @ts-ignore / # noqa decision tree
-- `nextjs-conventions` — Next.js 13/14/15/16 App Router, Server Components, `proxy.ts`
-- `react-effect-policy` — 6 useEffect anti-patterns + React 19 replacements
-- `solid` — Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection
-- `react-reuse-components` — React composition patterns: compound components, slots/`asChild`, polymorphic `as`, headless hooks, provider+hook, variant systems (cva)
-- `typescript-typing` — `any` vs `unknown`, discriminated unions, branded IDs, parse-don't-assert
-- `make-interfaces-feel-better` *(vendored, MIT)* — UI polish: concentric radius, optical alignment, motion
+| Skill | Use when |
+|---|---|
+| `tdd-workflow` | Test-first development; tests as spec for code that doesn't exist yet |
+| `test-coverage` | Adding tests to existing code; backfilling coverage |
+| `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
+| `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `/security` / `code-review` |
+| `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
+| `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
+| `roadmap-init` | Bootstrap `docs/roadmap/` lifecycle convention in a project |
+| `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
+| `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
+| `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment *(vendored, MIT)* |
+| `nextjs-conventions` | Next.js 13/14/15/16 App Router, Server Components, `proxy.ts` rename |
+| `react-effect-policy` | React 19 useEffect discipline — 6 anti-patterns + Compiler-era replacements |
+| `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
+| `react-reuse-components` | React composition patterns — compound components, slots/`asChild`, polymorphic `as`, headless hooks, provider+hook, variant systems (cva) |
+| `typescript-typing` | `any` vs `unknown`, discriminated unions, branded IDs, parse-don't-assert |
 
-### Agents (41)
+### Agents (20)
 
-12 Opus + 29 Sonnet, one per phase of each command. Synthesizers, analyzers with semantic reasoning, planners, and creative/adversarial work run on Opus 4.7. Exploration, pattern scanning, and mechanical verification run on Sonnet 4.6.
+**8 Opus + 12 Sonnet**, one per phase of each command. Synthesizers, planners, semantic analyzers, and adversarial work run on Opus 4.7 (creative + judgment-heavy). Exploration, pattern scanning, and mechanical verification run on Sonnet 4.6 (faster + cheaper for enumeration work).
 
 Force-invoke any agent directly with `@agent-<name>` (e.g. `@agent-refactor-solid-analyzer audit src/services/`).
 
@@ -59,19 +65,20 @@ Force-invoke any agent directly with `@agent-<name>` (e.g. `@agent-refactor-soli
 The kit deliberately uses sequential subagent pipelines despite Anthropic's general guidance against them, because:
 
 1. **Files-as-handoff** — the plan file IS the explicit context-passing mechanism, not an inherited compressed summary
-2. **Per-phase model tiering** saves ~70% vs. all-Opus single session
+2. **Per-phase model tiering** saves tokens vs. an all-Opus single session
 3. **No summary compression** — subagents bootstrap from the plan file rather than inheriting a compressed parent context
 
-Most pipelines use a **Builder-Verifier pattern** for quality assurance.
+Most pipelines use a **Builder-Verifier pattern** for quality assurance: the verifier sees the same plan file the builder consumed and challenges its output before it's applied.
 
-## Validators
+## Validators (plugin-author tooling)
 
-Quality gates for kit hygiene (kept in the upstream config repo, not bundled with the plugin):
+Quality gates live in the marketplace repo's `scripts/` directory and are NOT shipped to user installs — they validate plugin authoring before release:
 
-- `bash guard-skills.sh` — structural checks (frontmatter, name-matches-dir, body ≤500 lines)
-- `bash score-skills.sh` — quality score (max 16)
-- `bash guard-commands.sh` / `score-commands.sh` — same for commands
-- `bash guard-agents.sh` / `score-agents.sh` — same for agents
+- `guard-skills.sh` / `score-skills.sh` — structural + quality (max 16)
+- `guard-commands.sh` / `score-commands.sh` — structural + quality (max 21)
+- `guard-agents.sh` / `score-agents.sh` — structural + quality (max 15)
+
+CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
 
 ## License
 

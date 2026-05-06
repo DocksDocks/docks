@@ -81,14 +81,14 @@ Six validators mirror the kit-side conventions:
 bash scripts/guard-skills.sh     # structural — frontmatter, ≤500 lines, name-matches-dir
 bash scripts/score-skills.sh     # quality score (max 16) — Use-when prefix, freshness, BAD/GOOD ratio
 bash scripts/guard-commands.sh   # subagent_type cross-refs resolve to plugins/docks/agents/*.md
-bash scripts/score-commands.sh   # quality score (max 20) — Plan Mode, Phase Transition, slop
+bash scripts/score-commands.sh   # quality score (max 21) — Plan Mode, Phase Transition, slop
 bash scripts/guard-agents.sh     # frontmatter, "Use when…" / "Not…" CSO, model declared
 bash scripts/score-agents.sh     # quality score (max 15) — model, tools, Workflow + Success Criteria
 ```
 
 `--per-file` flag on score scripts prints one `<name> <score>` line per item — useful for spotting drift after an edit.
 
-CI runs all six on every push to `main` and every PR (see `.github/workflows/ci.yml`).
+CI runs all six on every PR to `main` and on every `docks--v*` release tag (see `.github/workflows/ci.yml`; full trigger model below).
 
 ## Versioning + releases
 
