@@ -43,7 +43,8 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 - `lint-no-suppressions` — eslint-disable / @ts-ignore / # noqa decision tree
 - `nextjs-conventions` — Next.js 13/14/15/16 App Router, Server Components, `proxy.ts`
 - `react-effect-policy` — 6 useEffect anti-patterns + React 19 replacements
-- `react-solid` — SOLID's 5 principles for function-based React
+- `solid` — Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection
+- `react-reuse-components` — React composition patterns: compound components, slots/`asChild`, polymorphic `as`, headless hooks, provider+hook, variant systems (cva)
 - `typescript-typing` — `any` vs `unknown`, discriminated unions, branded IDs, parse-don't-assert
 - `make-interfaces-feel-better` *(vendored, MIT)* — UI polish: concentric radius, optical alignment, motion
 

@@ -1,6 +1,6 @@
 # docks
 
-Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with 3 slash commands (where parallel-agent value is irreducible), 14 engineering-convention skills, and 20 specialized subagents tiered between Opus and Sonnet per phase.
+Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with 3 slash commands (where parallel-agent value is irreducible), 15 engineering-convention skills, and 20 specialized subagents tiered between Opus and Sonnet per phase.
 
 ## Install
 
@@ -38,7 +38,8 @@ The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/roa
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment |
 | `nextjs-conventions` | Next.js 14+ patterns |
 | `react-effect-policy` | React 19 useEffect discipline |
-| `react-solid` | SOLID for React component design |
+| `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
+| `react-reuse-components` | React composition patterns — compound components, slots/`asChild`, polymorphic `as`, headless hooks, provider+hook, variant systems (cva) |
 | `typescript-typing` | TS generics, narrowing, branded types |
 
 ## Repository layout

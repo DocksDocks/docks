@@ -157,7 +157,7 @@ function send(invite: Invite) {
 }
 ```
 
-This is the type-level version of the Liskov rule from `react-solid`: every variant satisfies the contract on its own terms.
+This is the type-level version of the Liskov rule from `solid`: every variant satisfies the contract on its own terms.
 
 ## 5. Branded types for IDs
 
