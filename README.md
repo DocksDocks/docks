@@ -1,6 +1,6 @@
 # docks
 
-Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with 8 slash commands, 7 engineering-convention skills, and 41 specialized subagents (12 Opus + 29 Sonnet, tiered per phase).
+Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with 3 slash commands (where parallel-agent value is irreducible), 14 engineering-convention skills, and 20 specialized subagents tiered between Opus and Sonnet per phase.
 
 ## Install
 
@@ -10,7 +10,36 @@ Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent
 /reload-plugins
 ```
 
-After install, commands are namespaced as `/docks:security`, `/docks:fix`, `/docks:review`, etc. Skills auto-trigger as before (they're `user-invocable: false`, namespacing is invisible at runtime).
+After install, commands are namespaced as `/docks:security`, `/docks:docs`, `/docks:refactor`. Skills auto-trigger as before (they're `user-invocable: false`, namespacing is invisible at runtime).
+
+## What's in v0.2
+
+The 3 commands kept their multi-agent pipeline:
+
+| Command | Why kept as command |
+|---|---|
+| `/security` | 3 parallel scanners (vulnerability + logic + adversarial-hunter) + synthesizer challenging every finding — adversarial perspective doesn't compress to a skill |
+| `/docs` | 8-phase pipeline for `.claude/skills/` and `.claude/agents/` authoring with structural validators, cross-layer reference checks, skill-maintenance generation |
+| `/refactor` | Parallel dead-code + duplication + per-principle SOLID scanners; post-verifier checks for *new* SOLID violations introduced while fixing old ones |
+
+The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/roadmap-init` used to:
+
+| Skill | Use when |
+|---|---|
+| `tdd-workflow` | Test-first development; tests as spec for code that doesn't exist yet |
+| `test-coverage` | Adding tests to existing code; backfilling coverage |
+| `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
+| `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `/security` / `code-review` |
+| `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
+| `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
+| `roadmap-init` | Bootstrap `docs/roadmap/` lifecycle convention in a project |
+| `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
+| `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
+| `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment |
+| `nextjs-conventions` | Next.js 14+ patterns |
+| `react-effect-policy` | React 19 useEffect discipline |
+| `react-solid` | SOLID for React component design |
+| `typescript-typing` | TS generics, narrowing, branded types |
 
 ## Repository layout
 
