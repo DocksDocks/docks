@@ -3,7 +3,7 @@ name: refactor
 description: Use when auditing a codebase for structural issues — dead code, duplication, SOLID violations (all 5 principles including Liskov), missing abstractions, modernization candidates. Generates a tiered refactoring plan (quick wins → consolidation → structural) with per-change test strategy and revert triggers. Full-project scan by default; accepts a path argument to scope.
 argument-hint: "[path-or-scope]"
 allowed-tools: >-
-  Read Write Glob Grep Agent WebFetch WebSearch Edit
+  Read Write Glob Grep Agent Skill WebFetch WebSearch Edit
   Bash(date) Bash(mkdir:*) Bash(rtk:*)
   Bash(git status) Bash(git log:*) Bash(git diff:*)
   Bash(git rm:*) Bash(git add:*) Bash(git restore:*)
@@ -78,15 +78,15 @@ After it returns, write its output to the plan file under `## Phase 1: Explorati
 ## Phase 2: Parallel Analysis
 
 <constraint>
-Launch BOTH agents below in a SINGLE tool-call turn. Do NOT wait for one to finish before launching the next.
+Launch BOTH wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
-Parallel invocations (in one turn):
+Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
 
-- `subagent_type: refactor-dead-code-scanner` — Prompt: "Run /refactor Phase 2a. Plan file: {plan-file-path}. Find dead code (unused exports, unreachable code, unused deps, orphaned files) with SAFE/CAUTION/DANGER safety tiers per your system prompt. Write findings to the plan file under `## Phase 2a: Dead Code Findings`."
-- `subagent_type: refactor-duplication-scanner` — Prompt: "Run /refactor Phase 2b. Plan file: {plan-file-path}. Find duplicate code, extraction candidates, frontend reuse opportunities, module-org issues, and modernization candidates per your system prompt. Do NOT flag SOLID violations. Write findings to the plan file under `## Phase 2b: Duplication Findings`."
+- `Skill(skill: "docks:forked-refactor-dead-code-scanner", args: "{plan-file-path} $ARGUMENTS")` — wraps `refactor-dead-code-scanner`; writes under `## Phase 2a: Dead Code Findings`.
+- `Skill(skill: "docks:forked-refactor-duplication-scanner", args: "{plan-file-path} $ARGUMENTS")` — wraps `refactor-duplication-scanner`; writes under `## Phase 2b: Duplication Findings`.
 
-After both return, confirm their outputs landed in the plan file under their respective headers, then immediately launch Phase 3.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. After both return, confirm their outputs landed in the plan file under their respective `## Phase 2a:` and `## Phase 2b:` headers, then immediately launch Phase 3.
 
 ---
 
@@ -184,7 +184,7 @@ After verification:
 
 See frontmatter `allowed-tools`. The enforced permission surface is:
 
-- **Planning (read-only):** `Read`, `Grep`, `Glob`, `Agent`, `WebFetch`, `WebSearch`, and scoped Bash for discovery (`date`, `git status`, `git log:*`, `git diff:*`, `rtk:*`).
+- **Planning (read-only):** `Read`, `Grep`, `Glob`, `Agent`, `Skill`, `WebFetch`, `WebSearch`, and scoped Bash for discovery (`date`, `git status`, `git log:*`, `git diff:*`, `rtk:*`). `Skill` dispatches Phase 2 parallel scanners through the `forked-*` wrappers; `Agent` handles sequential phases (Explorer, SOLID Analyzer, Planner, Pre-Verifier, Post-Verifier).
 - **Implementation:** `Edit`, `Write`, scoped deletion/stage/revert (`git rm:*`, `git add:*`, `git restore:*`), scoped test runners (`npm test`, `pnpm test`, `pnpm run test:*`, `yarn test`, `pytest:*`, `cargo test:*`, `go test:*`), scoped analysis/type-check/lint tools (`npx knip:*`, `npx depcheck:*`, `npx ts-prune:*`, `npx tsc:*`, `npx eslint:*`, `vulture:*`, `ruff:*`, `mypy:*`, `deadcode:*`, `cargo-udeps:*`).
 
 ---

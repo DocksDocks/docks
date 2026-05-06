@@ -27,6 +27,15 @@ Before proposing remediations that use security libraries (helmet, cors, csrf, b
 Do BOTH. Do NOT assume API signatures from training data. A security fix with a wrong API is worse than no fix.
 </constraint>
 
+<constraint>
+Per-finding reproduction (mandatory). For every surviving finding from Phase 2 (vulnerability scanner, logic analyzer, adversarial hunter):
+- Grep for the vulnerability pattern itself, not just the file path. SQLi: search for dynamic query construction (`db.query(\`SELECT * WHERE ${...}\``, string concatenation in SQL). SSRF: search for outbound HTTP with user-controlled URL. Prototype pollution: search for `Object.assign` / spread merge with untrusted source. XSS: search for `innerHTML` / `dangerouslySetInnerHTML` with user input. Confirm the pattern still appears at the cited `file:line`.
+- Read 5+ lines of context around the cited line and confirm the data-flow narrative in the finding still holds.
+- For Critical/High severity, trace user-input reachability: Grep upward from the sink to confirm an actual taint path exists (route handler / form input / URL param / external API). If no path reaches it, downgrade or drop.
+
+DROP any finding whose pattern cannot be re-grepped or whose taint path cannot be traced. Log dropped findings under `## Dropped (failed reproduction)` with reason — "code path not present" / "input source not reachable" / "pattern was a false-positive grep match" / etc. This drives false-positive rate toward `/ultrareview`'s sub-1% bar.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date.

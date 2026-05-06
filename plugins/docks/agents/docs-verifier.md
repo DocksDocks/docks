@@ -3,6 +3,7 @@ name: docs-verifier
 description: Use when running /docs command phase 6 — validates the Phase 3 Skills Plan and Phase 5 Agents Plan against frontmatter rules, size limits, CSO compliance, file:line accuracy, and cross-layer integrity (every agent skill reference must resolve to a Phase 3 path). Not for creating skills or agents.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: xhigh
 maxTurns: 100
 ---
 
@@ -18,6 +19,17 @@ Shell-avoidance:
 - Count matches by processing Glob results in-agent — do NOT pipe to `wc -l`.
 - No shell loops (`for`/`while`), no `$(...)` command substitution, no pipes.
 - Bash is limited to commands in the agent's `tools` allowlist (typically `date`, `git` status/log/diff, `rtk`).
+</constraint>
+
+<constraint>
+Per-finding reproduction (mandatory). For every check finding before it lands in the verification report:
+- File-path claim ("skill X cites missing path Y"): Glob for path Y; confirm it does NOT exist (or, for "path Z exists" claims, confirm it does).
+- `file:line` reference accuracy: Read the cited file at the cited line; confirm the cited content still matches the claim (paths drift between scan and verify).
+- Cross-layer skill reference (agent's `skills:` field references a skill path): confirm the path appears in Phase 3 Skills Plan OR exists on disk via Glob.
+- CSO-vague flag: Read the description and confirm fewer than 5 project-specific identifiers appear (re-count, do not trust an earlier scan).
+- Frontmatter-rule violation: re-Read the frontmatter and confirm the rule violation is current.
+
+DROP any finding that fails reproduction. Do NOT include it in `## Issues to Fix`. Log dropped findings under `## Dropped (failed reproduction)` with reason. This drives false-positive rate toward `/ultrareview`'s sub-1% bar.
 </constraint>
 
 ## Workflow

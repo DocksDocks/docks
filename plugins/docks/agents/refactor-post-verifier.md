@@ -27,6 +27,16 @@ Before re-analyzing refactored files for framework-specific SOLID patterns (e.g.
 Do BOTH. Do NOT assume API signatures, method names, or config options from training data.
 </constraint>
 
+<constraint>
+Per-finding reproduction (mandatory). Before reporting any new violation or test-failure claim:
+- New SOLID violation: Read the file at `file:line` and confirm the offending pattern is currently present (not stale from an earlier scan). Quote the offending lines as evidence.
+- Lint-rule violation: re-run the linter on the affected file (`npx eslint <file>`, `ruff check <file>`, etc.) and confirm the rule still fires at the cited line.
+- Test failure: re-run the specific failing test (`pytest <path>::<test>`, `npm test -- <test>`, equivalent) and capture the latest output as evidence.
+- Type error: re-run the type-checker on the affected file (`npx tsc --noEmit <file>`, `mypy <file>`) and confirm the error still appears.
+
+DROP any claim that fails reproduction. Do NOT include it in `## ERRORS FOUND - Must Revert` or `## New Violations Introduced`. Log dropped claims under `## Dropped (failed reproduction)` with the reason. This drives false-positive rate toward `/ultrareview`'s sub-1% bar.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.

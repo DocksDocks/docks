@@ -3,7 +3,7 @@ name: docs
 description: Use when bootstrapping or auditing a project's .claude/skills/ and .claude/agents/ directories. Covers skill health (CSO descriptions, size limits, staleness, coverage gaps), agent generation from skills, skill-maintenance skill creation, and cross-layer reference validation between agents and skills.
 argument-hint: "[path-or-scope]"
 allowed-tools: >-
-  Read Write Glob Grep Agent WebFetch WebSearch
+  Read Write Glob Grep Agent Skill WebFetch WebSearch
   Bash(date) Bash(git log:*) Bash(git status)
   Bash(rtk:*) Bash(mkdir:*)
   Edit(.claude/skills/**) Edit(.claude/agents/**)
@@ -83,14 +83,14 @@ Invoke `subagent_type: docs-explorer` with the prompt:
 ## Phase 2: Skills Analysis
 
 <constraint>
-Launch BOTH agents below in a SINGLE tool-call turn. Do NOT wait for one to finish before launching the next.
+Launch BOTH wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
-Parallel invocations (in one turn):
-- `subagent_type: docs-categorizer` — Prompt: "Run /docs Phase 2a. You are the Categorizer. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty). Load Phase 0 State, Phase 1 Exploration Results, and the `## Environment` block. Audit all existing skills and propose the full skill set delta — when scope is non-empty, prioritize new-skill proposals tied to patterns in that directory. Write output under `## Phase 2a: Categorizer Proposals`."
-- `subagent_type: docs-pattern-scanner` — Prompt: "Run /docs Phase 2b. You are the Pattern Scanner. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty). Load Phase 1 Exploration Results and the `## Environment` block. Extract concrete patterns across all 5 categories with file:line references — when scope is non-empty, restrict scanning to that directory or sub-tree. Write output under `## Phase 2b: Pattern Scanner Findings`."
+Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
+- `Skill(skill: "docks:forked-docs-categorizer", args: "{plan-path} $ARGUMENTS")` — wraps `docs-categorizer`; writes under `## Phase 2a: Categorizer Proposals`.
+- `Skill(skill: "docks:forked-docs-pattern-scanner", args: "{plan-path} $ARGUMENTS")` — wraps `docs-pattern-scanner`; writes under `## Phase 2b: Pattern Scanner Findings`.
 
-After both return, append their outputs to the plan file, then immediately launch Phase 3.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. The forked subagents inherit the orchestrator's plan-file context (Phase 0 State, Phase 1 Exploration, `## Environment` block) by reading the plan file at `$0`. After both return, append their outputs to the plan file, then immediately launch Phase 3.
 
 ## Phase 3: Skills Builder
 
@@ -103,14 +103,14 @@ After it returns, append output to the plan file, then immediately launch Phase 
 ## Phase 4: Agents Analysis
 
 <constraint>
-Launch BOTH agents below in a SINGLE tool-call turn. Do NOT wait for one to finish before launching the next.
+Launch BOTH wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
-Parallel invocations (in one turn):
-- `subagent_type: docs-role-mapper` — Prompt: "Run /docs Phase 4a. You are the Role Mapper. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty — flows through from Phase 3). Load Phase 1 Exploration Results (existing agents) and Phase 3 Skills Plan (proposed skills). Map proposed skills to agent roles with SRP boundaries and audit existing agents. Write output under `## Phase 4a: Role Mapper Proposals`."
-- `subagent_type: docs-pattern-extractor` — Prompt: "Run /docs Phase 4b. You are the Pattern Extractor. Plan file: {plan-path}. Scope: $ARGUMENTS (may be empty — flows through from Phase 2b/3). Load Phase 3 Skills Plan and Phase 2b Pattern Scanner Findings. Extract constraints, workflows, skill references, and integration points for each agent role. Write output under `## Phase 4b: Pattern Extractor Content`."
+Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
+- `Skill(skill: "docks:forked-docs-role-mapper", args: "{plan-path} $ARGUMENTS")` — wraps `docs-role-mapper`; writes under `## Phase 4a: Role Mapper Proposals`.
+- `Skill(skill: "docks:forked-docs-pattern-extractor", args: "{plan-path} $ARGUMENTS")` — wraps `docs-pattern-extractor`; writes under `## Phase 4b: Pattern Extractor Content`.
 
-After both return, append outputs to the plan file, then immediately launch Phase 5.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. The forked subagents inherit the Phase 1 Exploration Results, Phase 3 Skills Plan, and Phase 2b Pattern Scanner Findings by reading the plan file at `$0`. After both return, append outputs to the plan file, then immediately launch Phase 5.
 
 ## Phase 5: Agents Builder
 
@@ -158,7 +158,7 @@ After approval:
 
 ## Allowed Tools
 
-See frontmatter. Planning phases: read-only. Implementation: Edit and Write scoped to `.claude/skills/**` and `.claude/agents/**`.
+See frontmatter. Planning phases: read-only — `Skill` dispatches the Phase 2 (Skills Analysis) and Phase 4 (Agents Analysis) parallel-scanner wrappers; `Agent` handles sequential phases (Explorer, Skills Builder, Agents Builder, Verifier). Implementation: `Edit` and `Write` scoped to `.claude/skills/**` and `.claude/agents/**`.
 
 ## Usage
 

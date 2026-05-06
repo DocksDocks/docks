@@ -3,6 +3,7 @@ name: docs-agents-builder
 description: Use when running /docs command phase 5 — drafts complete agent file content (frontmatter + system prompt) for every agent delta from the role mapper, using pattern extractor content for system prompt bodies. Not for deciding which agents to create (docs-role-mapper) or verifying the output (docs-verifier).
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
 model: sonnet
+effort: xhigh
 maxTurns: 100
 ---
 

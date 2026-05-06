@@ -3,6 +3,7 @@ name: refactor-pre-verifier
 description: Use when running /refactor command phase 5 — validates the planner's refactoring plan for reference accuracy, safety, dependency ordering, completeness, and over-engineering BEFORE implementation begins. Not for post-implementation verification (use refactor-post-verifier).
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
 model: sonnet
+effort: xhigh
 maxTurns: 100
 ---
 
@@ -25,6 +26,18 @@ Research-gate validation: for every Planner entry whose justification depends on
 1. Use `resolve-library-id` → `query-docs` (context7) to fetch current docs for the framework version actually installed.
 2. Use `WebFetch` on the official documentation as a second source.
 REJECT (mark MUST FIX) any Planner entry whose claim is contradicted by current docs — including entries that propose migrating away from a current convention because the model "remembers" an older one (e.g., proposing `proxy.ts` → `middleware.ts` in Next.js 16, where `proxy.ts` IS the current convention). Frameworks evolve fast — verify, don't trust training data.
+</constraint>
+
+<constraint>
+Per-finding reproduction (mandatory — not a sample). For every Planner entry:
+- Dead-code claim: Grep for the symbol; confirm zero remaining references.
+- Duplicate claim: Read both instances; confirm they are still similar.
+- Extraction candidate: Read the function; confirm it is still long enough to warrant extraction.
+- SOLID violation: Read the file at the reported `file:line`; confirm the pattern exists.
+- "This change will break X" claim: Grep for X across the codebase; confirm the impact surface still exists.
+- Modernization claim: Read `package.json` / lockfile / `Cargo.toml`; confirm the version still matches the migration premise.
+
+DROP any finding that fails reproduction. Do NOT pass dropped findings through to MUST FIX / SHOULD FIX. Log them under `## Dropped (failed reproduction)` with the reason. This drives false-positive rate toward `/ultrareview`'s sub-1% bar.
 </constraint>
 
 ## Workflow

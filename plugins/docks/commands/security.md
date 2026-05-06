@@ -3,7 +3,7 @@ name: security
 description: Use when running a security audit on a codebase — OWASP Top 10 coverage, logic flaws, authentication/authorization weaknesses, cryptographic misuse, race conditions, dependency vulnerabilities. Three parallel scanners (Vulnerability, Logic, Adversarial) followed by a Synthesizer that challenges every finding. Read-only; to fix issues, pipe findings into /fix.
 argument-hint: "[path-or-scope]"
 allowed-tools: >-
-  Read Write Glob Grep Agent WebFetch WebSearch
+  Read Write Glob Grep Agent Skill WebFetch WebSearch
   Bash(date) Bash(git status) Bash(git log:*) Bash(rtk:*)
 ---
 
@@ -69,15 +69,15 @@ After the explorer returns, write its output to the plan file under that heading
 ## Phase 2: Parallel Analysis
 
 <constraint>
-Launch ALL THREE agents below in a SINGLE tool-call turn.
+Launch ALL THREE wrappers below in a SINGLE tool-call turn via the Skill tool. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
-Parallel invocations:
-- `subagent_type: security-vulnerability-scanner`. Prompt: "Run /security Phase 2a. Plan file: {plan-file-path}. Scan for OWASP Top 10 vulnerabilities per your system prompt. Write findings to the plan file under `## Phase 2a: Vulnerability Findings`."
-- `subagent_type: security-logic-analyzer`. Prompt: "Run /security Phase 2b. Plan file: {plan-file-path}. Analyze for business-logic flaws and trust-boundary violations per your system prompt. Write findings to the plan file under `## Phase 2b: Logic Findings`."
-- `subagent_type: security-adversarial-hunter`. Prompt: "Run /security Phase 2c. Plan file: {plan-file-path}. Hunt for missed vulnerabilities and chained attacks per your system prompt. Write findings to the plan file under `## Phase 2c: Adversarial Findings`."
+Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
+- `Skill(skill: "docks:forked-security-vulnerability-scanner", args: "{plan-file-path} $ARGUMENTS")` — wraps `security-vulnerability-scanner`; writes under `## Phase 2a: Vulnerability Findings`.
+- `Skill(skill: "docks:forked-security-logic-analyzer", args: "{plan-file-path} $ARGUMENTS")` — wraps `security-logic-analyzer`; writes under `## Phase 2b: Logic Findings`.
+- `Skill(skill: "docks:forked-security-adversarial-hunter", args: "{plan-file-path} $ARGUMENTS")` — wraps `security-adversarial-hunter`; writes under `## Phase 2c: Adversarial Findings`.
 
-After all three return, confirm their outputs landed in the plan file, then immediately launch Phase 3.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. After all three return, confirm their outputs landed in the plan file under their respective `## Phase 2a:`, `## Phase 2b:`, and `## Phase 2c:` headers, then immediately launch Phase 3.
 
 ## Phase 3: Synthesis
 
@@ -95,7 +95,7 @@ Plan Mode handles user approval. This command is read-only; to fix issues, pipe 
 
 ## Allowed Tools
 
-See frontmatter. Orchestrator uses read-only tools + Agent for subagent invocation + Write for plan file I/O. Implementation is not part of this command — pipe findings to `/fix` for remediation.
+See frontmatter. Orchestrator uses read-only tools + `Skill` for the Phase 2 forked-wrapper fan-out + `Agent` for the sequential Phase 1 (Explorer) and Phase 3 (Synthesizer) invocations + `Write` for plan-file I/O. Implementation is not part of this command — pipe findings to `/fix` for remediation.
 
 ## Usage
 
