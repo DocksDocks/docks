@@ -9,9 +9,9 @@ This repo is **both a marketplace and a plugin** in the Claude Code plugin syste
 ├── .claude-plugin/marketplace.json    marketplace catalog (publishes the plugin)
 ├── plugins/docks/                     the plugin (cached on user install)
 │   ├── .claude-plugin/plugin.json     plugin manifest
-│   ├── skills/   (7 skills)           auto-trigger on relevant tasks
-│   ├── commands/ (8 commands)         /docks:security, /docks:fix, …
-│   └── agents/   (41 subagents)       per-phase Opus/Sonnet tiering
+│   ├── skills/   (15 skills)          auto-trigger on relevant tasks
+│   ├── commands/ (3 commands)         /docks:security, /docks:docs, /docks:refactor
+│   └── agents/   (20 subagents)       per-phase Opus/Sonnet tiering
 ├── scripts/                           plugin-author tooling (NOT shipped)
 │   ├── ci.sh                          local mirror of GH CI
 │   ├── release.sh                     end-to-end release flow
@@ -44,13 +44,15 @@ Run `bash scripts/ci.sh` before invoking `./scripts/release.sh` — even though 
 | Script | Purpose | Floor |
 |---|---|---|
 | `scripts/guard-skills.sh` | structural — frontmatter, ≤500 lines, name-matches-dir | n/a (pass/fail) |
-| `scripts/score-skills.sh` | quality score (max 16) | total ≥100, per-file ≥8 |
+| `scripts/score-skills.sh` | quality score (max 16) | per-file ≥8; total = N×8 (count-derived) |
 | `scripts/guard-commands.sh` | subagent_type cross-refs resolve to plugins/docks/agents/*.md | n/a |
-| `scripts/score-commands.sh` | quality score (max 21) | total ≥167, per-file ≥21 |
+| `scripts/score-commands.sh` | quality score (max 21) | per-file ≥21; total = N×21 (count-derived) |
 | `scripts/guard-agents.sh` | frontmatter, "Use when…" / "Not…" CSO, model declared | n/a |
-| `scripts/score-agents.sh` | quality score (max 15) | total ≥595, per-file ≥14 |
+| `scripts/score-agents.sh` | quality score (max 15) | per-file ≥14; total = N×14 (count-derived) |
 
 `--per-file` flag on score scripts prints `<name> <score>` lines for drift inspection.
+
+Total floors are computed at CI time as `artifact_count × per-file_floor` — adding or removing a skill/command/agent moves the floor automatically (see `93db77e`). Per-file floors are the true gate; total floors are derived.
 
 ## When editing skills/commands/agents
 
