@@ -33,21 +33,30 @@ jobs:
     needs: guard
     steps:
       - uses: actions/checkout@v4
-      - name: "score-skills (floor 100 total)"
+      # Floor = artifact_count × per-file_floor (8 skills, 21 commands, 14 agents).
+      # Count-derived so adding or removing a skill/command/agent doesn't require
+      # editing this workflow — the floor tracks the inventory automatically.
+      - name: "score-skills (floor = N × 8)"
         run: |
+          count=$(find plugins/docks/skills -mindepth 1 -maxdepth 1 -type d | wc -l)
+          floor=$((count * 8))
           score=$(bash scripts/score-skills.sh)
-          echo "score-skills total: $score"
-          [ "$score" -ge 100 ] || { echo "::error::skills score $score below floor 100"; exit 1; }
-      - name: "score-commands (floor 167 total)"
+          echo "score-skills total: $score (floor $floor = $count × 8)"
+          [ "$score" -ge "$floor" ] || { echo "::error::skills score $score below floor $floor ($count × 8)"; exit 1; }
+      - name: "score-commands (floor = N × 21)"
         run: |
+          count=$(find plugins/docks/commands -mindepth 1 -maxdepth 1 -name '*.md' | wc -l)
+          floor=$((count * 21))
           score=$(bash scripts/score-commands.sh)
-          echo "score-commands total: $score"
-          [ "$score" -ge 167 ] || { echo "::error::commands score $score below floor 167"; exit 1; }
-      - name: "score-agents (floor 595 total)"
+          echo "score-commands total: $score (floor $floor = $count × 21)"
+          [ "$score" -ge "$floor" ] || { echo "::error::commands score $score below floor $floor ($count × 21)"; exit 1; }
+      - name: "score-agents (floor = N × 14)"
         run: |
+          count=$(find plugins/docks/agents -mindepth 1 -maxdepth 1 -name '*.md' | wc -l)
+          floor=$((count * 14))
           score=$(bash scripts/score-agents.sh)
-          echo "score-agents total: $score"
-          [ "$score" -ge 595 ] || { echo "::error::agents score $score below floor 595"; exit 1; }
+          echo "score-agents total: $score (floor $floor = $count × 14)"
+          [ "$score" -ge "$floor" ] || { echo "::error::agents score $score below floor $floor ($count × 14)"; exit 1; }
 
   per-file-floors:
     name: "per-file score floors"

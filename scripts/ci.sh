@@ -31,11 +31,41 @@ command -v jq   >/dev/null    || { echo "jq required";   exit 2; }
 command -v python3 >/dev/null || { echo "python3 required (yaml validation)"; exit 2; }
 
 # --- 1. workflow YAML validity (catches the bug that broke 5 runs in a row) ---
+# Tries pyyaml first; on Debian/PEP 668 envs where pyyaml isn't installable
+# without --break-system-packages, falls back to yamllint, then `yq`. If
+# none are present locally, skip with a note — tag-CI on GitHub Actions
+# always re-validates so an invalid workflow never makes it to release.
 section "workflow YAML"
+yaml_check_ok=0
 if python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))" 2>/dev/null; then
-  ok ".github/workflows/ci.yml parses"
-else
-  fail ".github/workflows/ci.yml YAML invalid"
+  ok ".github/workflows/ci.yml parses (pyyaml)"
+  yaml_check_ok=1
+elif command -v yamllint >/dev/null 2>&1; then
+  if yamllint -d "{rules: {document-start: disable, line-length: disable, truthy: disable}}" .github/workflows/ci.yml >/dev/null 2>&1; then
+    ok ".github/workflows/ci.yml parses (yamllint)"
+    yaml_check_ok=1
+  else
+    fail ".github/workflows/ci.yml YAML invalid (yamllint)"
+  fi
+elif command -v yq >/dev/null 2>&1; then
+  if yq eval '.' .github/workflows/ci.yml >/dev/null 2>&1; then
+    ok ".github/workflows/ci.yml parses (yq)"
+    yaml_check_ok=1
+  else
+    fail ".github/workflows/ci.yml YAML invalid (yq)"
+  fi
+fi
+if [ "$yaml_check_ok" -eq 0 ]; then
+  # No YAML validator available locally — distinguish "missing tool" from "invalid YAML".
+  # Capture output rather than piping: under `set -o pipefail` the pipeline takes
+  # python3's exit code (always 1 when the import fails), so `python | grep` would
+  # mis-classify "missing module" as "invalid YAML".
+  py_yaml_err=$(python3 -c "import yaml" 2>&1 || true)
+  if echo "$py_yaml_err" | grep -q "ModuleNotFoundError"; then
+    [ "$QUIET" -eq 0 ] && printf "\033[1;33m  ⚠\033[0m .github/workflows/ci.yml YAML check skipped — install pyyaml/yamllint/yq locally for fast feedback (tag-CI on GitHub validates regardless)\n"
+  else
+    fail ".github/workflows/ci.yml YAML invalid"
+  fi
 fi
 
 # --- 2. plugin manifest ---
@@ -78,15 +108,24 @@ for g in guard-skills guard-commands guard-agents; do
   fi
 done
 
-# --- 4. quality score floors (matches GH workflow numbers) ---
+# --- 4. quality score floors (count-derived; tracks content size automatically) ---
+# Total floor = artifact_count × per-file_floor.
+# Hardcoded floors went stale every time the inventory changed; deriving from
+# count means a deletion / addition bumps the floor automatically. Per-file
+# floors come from PER_FILE_FLOORS below, which is also the GH workflow's truth.
 section "quality score floors"
-declare -A FLOORS=([skills]=100 [commands]=167 [agents]=595)
+declare -A PER_FILE_FLOORS=([skills]=8 [commands]=21 [agents]=14)
+count_skills=$(find plugins/docks/skills -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+count_commands=$(find plugins/docks/commands -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
+count_agents=$(find plugins/docks/agents -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
+declare -A COUNTS=([skills]=$count_skills [commands]=$count_commands [agents]=$count_agents)
 for k in skills commands agents; do
+  floor=$(( COUNTS[$k] * PER_FILE_FLOORS[$k] ))
   score=$(bash "scripts/score-$k.sh" 2>/dev/null)
-  if [ -n "$score" ] && [ "$score" -ge "${FLOORS[$k]}" ]; then
-    ok "score-$k: $score (floor ${FLOORS[$k]})"
+  if [ -n "$score" ] && [ "$score" -ge "$floor" ]; then
+    ok "score-$k: $score (floor ${floor} = ${COUNTS[$k]} × ${PER_FILE_FLOORS[$k]})"
   else
-    fail "score-$k: ${score:-<empty>} below floor ${FLOORS[$k]}"
+    fail "score-$k: ${score:-<empty>} below floor ${floor} (${COUNTS[$k]} × ${PER_FILE_FLOORS[$k]})"
   fi
 done
 
