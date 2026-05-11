@@ -22,7 +22,7 @@ The 3 commands kept their multi-agent pipeline:
 | `/docs` | 8-phase pipeline for `.claude/skills/` and `.claude/agents/` authoring with structural validators, cross-layer reference checks, skill-maintenance generation |
 | `/refactor` | Parallel dead-code + duplication + per-principle SOLID scanners; post-verifier checks for *new* SOLID violations introduced while fixing old ones |
 
-The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/roadmap-init` used to:
+The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/plan-init` used to:
 
 | Skill | Use when |
 |---|---|
@@ -32,7 +32,7 @@ The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/roa
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `/security` / `code-review` |
 | `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
-| `roadmap-init` | Bootstrap `docs/roadmap/` lifecycle convention in a project |
+| `plan-init` | Bootstrap `docs/plans/` 5-category lifecycle (planned/ongoing/blocked/scheduled/finished) in a project |
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
 | `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment |

@@ -193,7 +193,7 @@ Re-run the verification queries from Step 5 against the live files. If any claim
 | README written without reading the code | "It's a TypeScript project that helps developers be more productive" | Read `package.json`, name the actual stack components, cite real entry points |
 | AI slop terms in CLAUDE.md | Marketing-style phrases (see `references/slop-words.md` for the list) | "Auth uses JWT in `src/auth/session.ts:42`; sessions expire after 1h." |
 | Stale API docs after a route rename | Search-replace the old path everywhere | Re-grep for the route handler in source; update docs to match what's actually wired |
-| Documenting features that don't ship yet | Adding planned APIs to `docs/api/v1.md` | Document only what's in `main` (or whatever the docs branch tracks); roadmap items go to `docs/roadmap/` (see `roadmap-init` skill) |
+| Documenting features that don't ship yet | Adding planned APIs to `docs/api/v1.md` | Document only what's in `main` (or whatever the docs branch tracks); planned work goes to `docs/plans/` (see `plan-init` skill) |
 | .env.example without comments | Bare `DATABASE_URL=` line | Group + describe what each var gates, cite source files that read it |
 | README with marketing language | "World-class developer experience" | Concrete facts: "Hot reload via Vite. Type-checks on save via tsc-watch." |
 | Mixing prose + bullets in CLAUDE.md | Two paragraphs of context before a constraint | CLAUDE.md is reference material — bullets, tables, file:line. Save prose for human-readable docs. |
@@ -209,6 +209,6 @@ Re-run the verification queries from Step 5 against the live files. If any claim
 
 ## References
 
-- Companion skills: `roadmap-init` (for the `docs/roadmap/` convention — multi-commit work plans don't belong in `docs/`); `lint-no-suppressions` (when CI greps a doc check rule and you're tempted to silence it)
+- Companion skills: `plan-init` (for the `docs/plans/` 5-category lifecycle convention — multi-commit work plans don't belong inline in `docs/`); `lint-no-suppressions` (when CI greps a doc check rule and you're tempted to silence it)
 - Companion command: `/docs` — for `.claude/skills/` and `.claude/agents/` authoring (different audience, different validators, irreducible 8-phase pipeline value)
 - Kit-level `## Agentic Harness Heuristics`: rule #3 (multi-pass search) for Step 1 cataloging, rule #4 (trace symbols) before citing them

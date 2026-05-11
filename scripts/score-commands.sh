@@ -88,7 +88,8 @@ for f in "$DIR"/*.md; do
   #    command takes args — detected by `$ARGUMENTS` appearing in the body.
   #    No-args-by-design commands (zero `$ARGUMENTS` references and no
   #    argument-hint declaration) pass automatically; this avoids a false-
-  #    positive penalty against genuinely simple commands like roadmap-init.
+  #    positive penalty against genuinely simple commands like plan-init (the
+  #    skill superseded the old roadmap-init command — same shape, new name).
   #    Mirrors the orchestrator-aware Plan Mode rule above.
   if grep -q '\$ARGUMENTS' "$f"; then
     has_fm_field "$f" "argument-hint" && score=$((score + 1))
