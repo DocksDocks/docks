@@ -1,6 +1,10 @@
+@AGENTS.md
+
 # docks — Claude Code plugin marketplace
 
 This repo is **both a marketplace and a plugin** in the Claude Code plugin system. The marketplace catalog lives at `.claude-plugin/marketplace.json` and points at the plugin under `plugins/docks/` (the only directory cached on user install). Author-side tooling (validators, CI) lives at the repo root and never ships to users.
+
+> **Note:** This file covers Claude-Code-specific authoring. Cross-tool concerns (project purpose, generic engineering rules, the Codex distribution mirror) live in `AGENTS.md` (auto-imported above). For project-local skills used during release flow, see `.agents/skills/`.
 
 ## Layout
 

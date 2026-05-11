@@ -98,6 +98,35 @@ else
   fail "claude CLI not found — install Claude Code to run 'claude plugin validate'"
 fi
 
+# --- 2b. Codex plugin manifest (parallel to Claude, optional — only enforced if present) ---
+section "Codex plugin manifest"
+CODEX_PLUGIN="plugins/docks/.codex-plugin/plugin.json"
+CODEX_MARKET=".agents/plugins/marketplace.json"
+if [ -f "$CODEX_PLUGIN" ]; then
+  if jq empty "$CODEX_PLUGIN" 2>/dev/null; then
+    ok "$CODEX_PLUGIN JSON valid"
+  else
+    fail "$CODEX_PLUGIN JSON invalid"
+  fi
+  CODEX_PLUGIN_V=$(jq -r '.version' "$CODEX_PLUGIN" 2>/dev/null)
+  if [ "$CODEX_PLUGIN_V" = "$PLUGIN_V" ]; then
+    ok "codex plugin.json version matches claude plugin.json ($PLUGIN_V)"
+  else
+    fail "version drift: claude=$PLUGIN_V codex=$CODEX_PLUGIN_V"
+  fi
+  if [ -f "$CODEX_MARKET" ]; then
+    if jq empty "$CODEX_MARKET" 2>/dev/null; then
+      ok "$CODEX_MARKET JSON valid"
+    else
+      fail "$CODEX_MARKET JSON invalid"
+    fi
+  else
+    fail "$CODEX_MARKET missing while $CODEX_PLUGIN exists — they should ship together"
+  fi
+else
+  [ "$QUIET" -eq 0 ] && printf "\033[1;33m  ⚠\033[0m %s missing — Codex distribution not configured (optional)\n" "$CODEX_PLUGIN"
+fi
+
 # --- 3. structural guards ---
 section "structural guards"
 for g in guard-skills guard-commands guard-agents; do
