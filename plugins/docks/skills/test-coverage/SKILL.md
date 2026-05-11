@@ -117,7 +117,7 @@ After the suite passes, do NOT report "tests added" yet. Run the post-verificati
 
 - For each green test, verify the test file is in the suite's discovery glob (project config-dependent — `vitest.config.ts` `include`, `pytest.ini` `testpaths`, etc.)
 - Run with the project's coverage flag if it has one (`pnpm test --coverage`, `pytest --cov`, `go test -cover`) and confirm the new file appears in coverage output
-- Apply the **lint-loop 3-strike rule** from the kit-level `## Agentic Harness Heuristics`: if a single test keeps failing for 3 attempts, stop and ask the user — repeated failure usually means the diagnosis is wrong, not the code
+- Apply the **lint-loop 3-strike rule** (model-agnostic): if a single test keeps failing for 3 attempts on the same file, stop and ask the user — repeated failure usually means the diagnosis is wrong, not the code
 
 ## Common Traps
 
@@ -156,5 +156,5 @@ The skills share the lint-loop 3-strike rule and the discipline of running tests
 ## References
 
 - Companion skill: **tdd-workflow** — for test-first development (different ordering, tests as spec)
-- Kit-level `## Agentic Harness Heuristics` rule #5 (lint-loop 3-strike) and #4 (trace symbols before modifying) apply throughout
+- Agentic best-practices applied here (model-agnostic): lint-loop 3-strike (stop after 3 failed attempts on the same test), trace-symbols-before-modify (read the function and its callers before changing)
 - Project conventions: always read one existing test file before writing the first new one — that's the project's actual style guide

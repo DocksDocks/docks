@@ -58,7 +58,7 @@ These run in order. Each phase has an explicit yield point — do not silently s
 1. Run tests. Read each failure.
 2. Fix the *production code*. Tests stay read-only.
 3. Re-run.
-4. Apply the **lint-loop 3-strike rule** (see kit-level CLAUDE.md): if the same test keeps failing for 3 iterations, stop. Repeated failure usually means the diagnosis is wrong, not the code.
+4. Apply the **lint-loop 3-strike rule** — don't loop more than 3 times trying to fix the same failing test on the same file. On the third attempt, stop and ask the user (or revisit the spec). Repeated failure usually means the diagnosis is wrong, not the code.
 5. When all green: report it as "all N tests passing, implementation complete."
 
 ### Phase 5 — Refactor (only after all green)
@@ -151,4 +151,4 @@ Skip Phase 2 and you cannot distinguish "test passes because feature works" from
 
 - Kent Beck, "Test-Driven Development By Example" — the canonical sequence
 - Cursor agent best-practices (test-first recipe): https://cursor.com/blog/agent-best-practices
-- Kit-level rule: linter-loop 3-strike (see kit CLAUDE.md `## Agentic Harness Heuristics #5`) applies to the iteration phase
+- Agentic best-practice applied (model-agnostic): linter-loop 3-strike — stop after the third failed attempt on the same test; the diagnosis is more often wrong than the code

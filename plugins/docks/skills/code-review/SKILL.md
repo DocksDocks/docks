@@ -48,7 +48,7 @@ Confirm the stack: `package.json` / `pyproject.toml` / `go.mod` / `Cargo.toml` /
 
 ### Step 2 — Read the target with multiple search passes
 
-Apply the kit-level **multi-pass search heuristic** (see `## Agentic Harness Heuristics #3` in CLAUDE.md). One pass biased toward what you expect to find; another with deliberately different framing. Examples:
+Apply the **multi-pass search heuristic** — first-pass results often miss key details, so run multiple searches with varied wording. One pass biased toward what you expect to find; another with deliberately different framing. Frame queries as colleague-questions ("How does this handle errors?") rather than keywords ("ErrorHandler"). Examples:
 
 - Pass 1: "How does this handle errors?"
 - Pass 2: "What inputs are not validated?"
@@ -135,10 +135,10 @@ MEDIUM · Maintainability · src/api/orders.ts:45-62
 - Re-Read every cited file:line before adding it to the report — pasted-from-memory references rot fast
 - If a tool/lint/type-check command was claimed run, the report includes its actual output (stderr + exit code), not paraphrase
 - "I think this is a bug" is not a finding. Either prove it (file:line + scenario) or run another search pass
-- Apply the kit-level rule #4 (trace symbols): when claiming a function "does X", read the function and the call sites; don't trust the name
+- Apply the **trace-symbols rule**: when claiming a function "does X", read the function and the call sites; don't trust the name
 
 ## References
 
 - Pairs with: `/security` for OWASP Top 10 coverage with adversarial perspective; `/refactor` for SOLID and dead-code analysis at scale; `lint-no-suppressions` if your fix would otherwise involve silencing a linter rule
-- Kit-level `## Agentic Harness Heuristics`: rule #3 (multi-pass search) anchors Step 2; rule #4 (trace symbols) anchors evidence-gathering
+- Agentic best-practices applied here (model-agnostic): multi-pass search (Step 2), trace-symbols-before-claim (evidence-gathering)
 - OWASP Top 10 vocabulary: https://owasp.org/Top10/

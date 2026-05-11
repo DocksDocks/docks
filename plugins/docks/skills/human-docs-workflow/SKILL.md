@@ -215,4 +215,4 @@ Re-run the verification queries from Step 5 against the live files. If any claim
 
 - Companion skills: `plan-init` (for the `docs/plans/` 5-category lifecycle convention — multi-commit work plans don't belong inline in `docs/`); `lint-no-suppressions` (when CI greps a doc check rule and you're tempted to silence it)
 - Companion command: `/docs` — for `.claude/skills/` and `.claude/agents/` authoring (different audience, different validators, irreducible 8-phase pipeline value)
-- Kit-level `## Agentic Harness Heuristics`: rule #3 (multi-pass search) for Step 1 cataloging, rule #4 (trace symbols) before citing them
+- Agentic best-practices applied here (model-agnostic): multi-pass search for Step 1 cataloging (vary query wording, look past the first plausible match), trace-symbols-before-citing (read the route handler / env-var reference / CLI script before quoting it)

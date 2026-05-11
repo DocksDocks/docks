@@ -58,7 +58,7 @@ Skip this step if scope is "scan a directory" or "fix the audit report." Run it 
 
 ### Step 3 — Discover (parallel by default)
 
-Run two passes against the scope, ideally in the same turn (default-to-parallel rule from kit-level Agentic Harness Heuristics):
+Run two passes against the scope, ideally in the same turn — whenever you have multiple independent operations (reads, greps, fetches, independent edits), invoke them concurrently rather than sequentially (model-agnostic "default-to-parallel" rule):
 
 **Code-quality pass** — find bugs, dead code, refactoring opportunities, performance issues:
 
@@ -164,4 +164,4 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 
 - Companion skills: `dep-vuln-workflow` (CVE triage), `lint-no-suppressions` (never silence linters), `code-review` (produces the finding list this skill consumes), `tdd-workflow` (when fix-via-test-first is appropriate)
 - Companion commands: `/security` (full OWASP audit before fixing), `/refactor` (SOLID and dead-code at scale)
-- Kit-level `## Agentic Harness Heuristics`: rule #2 (default to parallel) for Step 3 discovery, rule #5 (linter-loop 3-strike) when fixes won't go green, rule #6 (read-before-edit TTL) before each Edit
+- Agentic best-practices applied here (model-agnostic): default-to-parallel for Step 3 discovery; linter-loop 3-strike when fixes won't go green (stop after 3 failed attempts on the same file — diagnosis is likely wrong); read-before-edit TTL — re-read a file before editing if you haven't read it in the last ~5 messages, since cached content goes stale silently
