@@ -18,9 +18,14 @@ For Claude-Code-specific authoring details — plugin manifest schema, slash com
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
 ├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
+├── docs/plans/                       JBLAR 5-category lifecycle (bootstrapped by plan-init skill)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
 └── .github/workflows/                gh-side CI on PR + tag push
 ```
+
+## Plans
+
+Multi-commit work plans for this repo live in `docs/plans/` and move between `planned/` → `ongoing/` → `finished/` via `git mv`. Plans stalled on external dependencies go to `blocked/`; date- or approval-triggered plans go to `scheduled/`. Every category is multi-occupancy. The full convention is in `docs/plans/AGENTS.md`; `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested-directory discovery. The `plan-manager` agent (`/docks:plan`) reads plans, evaluates schedule triggers, and dispatches to the assignee.
 
 ## Project-local skills
 

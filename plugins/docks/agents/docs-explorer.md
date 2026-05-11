@@ -32,7 +32,7 @@ Enumerate; do not diagnose. Map what exists — files, structures, patterns, too
 3. If `.claude/skills/` exists in the project, note it — do NOT read skills content yet (that is Phase 2's job).
 4. Identify project stack: check `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, `pyproject.toml`, `composer.json`.
 5. Map directory structure via Glob — enumerate source directories, config files, test dirs, docs dir. Count files per directory in-agent.
-6. Find existing documentation: Glob for `README.md`, `CLAUDE.md`, `docs/**/*.md`, `.env.example`, `.env.sample`.
+6. Find existing documentation: Glob for `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/**/*.md`, `.env.example`, `.env.sample`. AGENTS.md is the cross-tool source-of-truth file; CLAUDE.md may be a Claude-specific addition or a `@AGENTS.md` shim.
 7. For every existing skill (`Glob(".claude/skills/*/SKILL.md")`): Read each SKILL.md, parse YAML frontmatter (`name`, `description`, `metadata.source_files`, `metadata.updated`), and Glob `references/` under that skill directory.
 8. For every existing agent (`Glob(".claude/agents/*.md")` excluding `*.bak`): Read the file, extract frontmatter (`name`, `description`, `tools`, `model`) and every `.claude/skills/…` path referenced in the body.
 9. Identify knowledge areas: candidate skill domains based on source directories not yet covered by existing skills.

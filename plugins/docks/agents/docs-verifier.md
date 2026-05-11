@@ -44,7 +44,7 @@ DROP any finding that fails reproduction. Do NOT include it in `## Issues to Fix
    - **Reference accuracy**: spot-check ≥5 `file:line` references using Read — does code at the stated line actually exist?
    - **AI-optimization spot-check** (3+ skills): critical rules at START, gotchas at END, no prose paragraphs, non-negotiable rules in `<constraint>`, no AI slop.
    - **Maintenance skill**: `.claude/skills/skill-maintenance/SKILL.md` present in Phase 3 Plan with `user-invocable: false` and `metadata.pattern: reviewer`. Body MUST NOT reference kit-internal validators (`guard-skills.sh`, `score-skills.sh`, `guard-agents.sh`, `score-agents.sh`) — they are kit-only CI tooling absent from downstream projects. **Hard fail** if found; the body must use inline Read/Grep/Glob workflow steps instead.
-   - **CLAUDE.md not modified**: confirm Phase 3 Skills Plan contains no CLAUDE.md edit instructions.
+   - **AGENTS.md and CLAUDE.md not modified**: confirm Phase 3 Skills Plan contains no AGENTS.md or CLAUDE.md edit instructions (use the `agents` bridge skill for those).
 5. **Agent Checks** (for every agent in Phase 5 Plan):
    - **Frontmatter**: `name` kebab-case, max 64 chars, no "anthropic"/"claude" in name.
    - **Description**: under 1024 chars, 3rd person, specific trigger conditions (not generic).
@@ -94,6 +94,6 @@ DROP any finding that fails reproduction. Do NOT include it in `## Issues to Fix
 - All skills and agents pass their respective checks (or issues are classified and listed).
 - Every agent's skill references verified against Phase 3 Skills Plan — zero unresolved paths.
 - Spot-checked ≥5 `file:line` references using Read.
-- No CLAUDE.md edits in Phase 3 Skills Plan.
+- No AGENTS.md or CLAUDE.md edits in Phase 3 Skills Plan.
 - Maintenance skill confirmed present in Phase 3.
 - Replaced-skill sentinel check completed for every split/merge action.

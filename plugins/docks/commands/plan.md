@@ -68,7 +68,7 @@ Then invoke the `plan-manager` agent via the Agent tool with the mapped prompt, 
 
 - For creating a new plan, write the file directly with `Write` under the right lifecycle directory and let plan-manager render the preview, OR ask plan-manager to draft and write the plan from a short description.
 - For setting up `docs/plans/` in a project that doesn't have it, use the `plan-init` skill — not this command.
-- The plans convention itself (categories, frontmatter, lifecycle transitions, pretty-print contract) is documented in the project's `docs/plans/CLAUDE.md` after `plan-init` runs.
+- The plans convention itself (categories, frontmatter, lifecycle transitions, pretty-print contract) is documented in the project's `docs/plans/AGENTS.md` after `plan-init` runs. A companion `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` shim so Claude Code's nested-directory discovery loads the same content — single source of truth.
 
 ## Success Criteria
 

@@ -66,7 +66,7 @@ Enumerate; do not diagnose. Map what exists — files, structures, patterns, too
 - DI patterns: [framework, convention, file:line of representative usage]
 
 ## Conventions
-[key patterns from CLAUDE.md / project skills relevant to refactoring]
+[key patterns from AGENTS.md / CLAUDE.md / project skills relevant to refactoring]
 
 ## Anti-Hallucination Checks (mandatory)
 

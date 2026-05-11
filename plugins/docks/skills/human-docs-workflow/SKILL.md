@@ -1,6 +1,6 @@
 ---
 name: human-docs-workflow
-description: Use when generating, fixing, or auditing project-level prose documentation — README.md, CLAUDE.md, docs/**/*.md, .env.example, API references, JSDoc/TSDoc. Distinguishes human-readable docs (prose, runnable commands, API specs) from AI-optimized docs (CLAUDE.md, agent context). Every claim grounded in source code with file:line evidence. Not for project skill / agent authoring (use /docs which has irreducible 8-phase pipeline value for that).
+description: Use when generating, fixing, or auditing project-level prose documentation — README.md, AGENTS.md, CLAUDE.md, docs/**/*.md, .env.example, API references, JSDoc/TSDoc. Distinguishes human-readable docs (prose, runnable commands, API specs) from AI-optimized docs (AGENTS.md as cross-tool source of truth, CLAUDE.md as Claude-specific extension, agent context). Every claim grounded in source code with file:line evidence. Not for project skill / agent authoring (use /docs which has irreducible 8-phase pipeline value for that).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -14,7 +14,7 @@ Every concrete claim in documentation MUST be verifiable against current source 
 </constraint>
 
 <constraint>
-Format follows audience. Human-readable docs (README.md, docs/**/*.md, CONTRIBUTING.md) are prose-led: explain WHY, then HOW, with copy-paste-runnable commands and screenshots when helpful. AI-optimized docs (CLAUDE.md, agent context files) are dense bullets, tables, file:line references, and constraints — no narrative paragraphs, no marketing language. Mixing the two formats produces docs that are bad at both jobs.
+Format follows audience. Human-readable docs (README.md, docs/**/*.md, CONTRIBUTING.md) are prose-led: explain WHY, then HOW, with copy-paste-runnable commands and screenshots when helpful. AI-optimized docs (AGENTS.md, CLAUDE.md, agent context files) are dense bullets, tables, file:line references, and constraints — no narrative paragraphs, no marketing language. Mixing the two formats produces docs that are bad at both jobs.
 </constraint>
 
 <constraint>
@@ -25,7 +25,7 @@ No "AI slop" — phrases that signal generated-without-grounding text. See `refe
 
 - Bootstrapping documentation for a new project (README.md doesn't exist or is the framework's default)
 - Auditing existing docs for accuracy after a refactor / migration / dependency upgrade
-- Specific doc surface needs work — README, CLAUDE.md, docs/, .env.example, JSDoc
+- Specific doc surface needs work — README, AGENTS.md, CLAUDE.md, docs/, .env.example, JSDoc
 - Onboarding gap reported ("new contributors can't get the dev env running")
 - Pre-release sweep — make sure docs match what shipped
 
@@ -41,10 +41,11 @@ Every `.md` file in the project belongs to one of three categories. Treat them d
 | Category | Audience | Format | Examples |
 |---|---|---|---|
 | Human-readable | Developers, contributors, end-users | Prose + commands + screenshots | `README.md`, `docs/getting-started.md`, `CONTRIBUTING.md`, `CHANGELOG.md` |
-| AI-optimized | Claude / Cursor / agents | Dense bullets, tables, file:line, constraints, no narrative | `CLAUDE.md`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md` |
+| AI-optimized (cross-tool) | Any agent (Codex, Claude Code, OpenCode, Copilot…) via AGENTS.md spec | Dense bullets, tables, file:line, constraints, no narrative | `AGENTS.md`, `.agents/skills/*/SKILL.md`, agent definition files |
+| AI-optimized (Claude-specific) | Claude Code only — uses Plan Mode, subagent_type, Anthropic harness features | Same density, plus Claude-specific syntax | `CLAUDE.md`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, `.claude/commands/*.md` |
 | Keep-as-is | Generated, vendored, or owned by another tool | Don't touch | `pnpm-lock.yaml` adjacent docs, vendored README copies, generated API references |
 
-Inspect every `.md` and classify before writing. Mis-categorizing turns CLAUDE.md into marketing copy or README.md into a constraint dump — both fail their audience.
+Inspect every `.md` and classify before writing. Mis-categorizing turns AGENTS.md/CLAUDE.md into marketing copy or README.md into a constraint dump — both fail their audience. **AGENTS.md is the source of truth for cross-tool projects**; CLAUDE.md either inherits it via `@AGENTS.md` import (preferred) or holds Claude-only additions below the import.
 
 ## The Six-Step Procedure
 
@@ -56,7 +57,9 @@ find . -name "*.md" -not -path "./node_modules/*" -not -path "./.git/*" -not -pa
 
 # Note presence of these specific surfaces
 test -f README.md && echo "README.md exists" || echo "README MISSING"
+test -f AGENTS.md && echo "AGENTS.md exists (cross-tool source of truth)" || echo "AGENTS.md MISSING"
 test -f CLAUDE.md && echo "CLAUDE.md exists" || echo "CLAUDE.md MISSING"
+[ -f CLAUDE.md ] && grep -q '^@AGENTS\.md' CLAUDE.md && echo "  ↳ CLAUDE.md is a @AGENTS.md import"
 test -f .env.example && echo ".env.example exists" || echo ".env.example MISSING"
 test -d docs && ls docs/ | head -10 || echo "no docs/ dir"
 ```
@@ -80,17 +83,18 @@ This is what the docs need to describe. Skip this and you'll write generic descr
 Apply the three-category rule from "Doc Categories" above. Build a table:
 
 ```text
-| File                     | Category     | Last touched  | Action       |
-|--------------------------|--------------|---------------|--------------|
-| README.md                | human        | 2025-09-12    | UPDATE       |
-| CLAUDE.md                | ai-optimized | 2026-04-30    | KEEP         |
-| docs/architecture.md     | human        | 2024-11-03    | REWRITE      |
-| docs/api/v1.md           | human        | 2026-05-01    | UPDATE       |
-| .env.example             | (special)    | 2026-02-14    | UPDATE       |
-| pnpm-lock.yaml           | keep-as-is   | n/a           | LEAVE        |
+| File                     | Category            | Last touched  | Action       |
+|--------------------------|---------------------|---------------|--------------|
+| README.md                | human               | 2025-09-12    | UPDATE       |
+| AGENTS.md                | ai-optimized cross  | 2026-05-11    | KEEP         |
+| CLAUDE.md                | ai-optimized claude | 2026-04-30    | KEEP         |
+| docs/architecture.md     | human               | 2024-11-03    | REWRITE      |
+| docs/api/v1.md           | human               | 2026-05-01    | UPDATE       |
+| .env.example             | (special)           | 2026-02-14    | UPDATE       |
+| pnpm-lock.yaml           | keep-as-is          | n/a           | LEAVE        |
 ```
 
-For each `UPDATE` / `REWRITE` action, identify the specific deficiency: missing API route, stale env var list, broken command, version mismatch, lack of screenshots, prose in CLAUDE.md, etc.
+For each `UPDATE` / `REWRITE` action, identify the specific deficiency: missing API route, stale env var list, broken command, version mismatch, lack of screenshots, prose in AGENTS.md/CLAUDE.md, etc.
 
 ### Step 4 — Draft (per category)
 
@@ -126,7 +130,7 @@ pnpm dev
 <link to CONTRIBUTING.md or 1-paragraph workflow>
 ```
 
-**AI-optimized drafts** (CLAUDE.md, skills, agents) — dense, evidence-backed:
+**AI-optimized drafts** (AGENTS.md, CLAUDE.md, skills, agents) — dense, evidence-backed:
 
 ```text
 ## <Section>
@@ -142,7 +146,7 @@ pnpm dev
 </constraint>
 ```
 
-Never write narrative paragraphs in AI-optimized docs — they waste token budget and dilute the rule density Claude actually reads.
+Never write narrative paragraphs in AI-optimized docs — they waste token budget and dilute the rule density that any agent (Codex, Claude Code, etc.) actually reads.
 
 **.env.example drafts** — grouped by purpose, every var commented with what it gates:
 
@@ -191,12 +195,12 @@ Re-run the verification queries from Step 5 against the live files. If any claim
 | Trap | Wrong fix | Right fix |
 |---|---|---|
 | README written without reading the code | "It's a TypeScript project that helps developers be more productive" | Read `package.json`, name the actual stack components, cite real entry points |
-| AI slop terms in CLAUDE.md | Marketing-style phrases (see `references/slop-words.md` for the list) | "Auth uses JWT in `src/auth/session.ts:42`; sessions expire after 1h." |
+| AI slop terms in AGENTS.md/CLAUDE.md | Marketing-style phrases (see `references/slop-words.md` for the list) | "Auth uses JWT in `src/auth/session.ts:42`; sessions expire after 1h." |
 | Stale API docs after a route rename | Search-replace the old path everywhere | Re-grep for the route handler in source; update docs to match what's actually wired |
 | Documenting features that don't ship yet | Adding planned APIs to `docs/api/v1.md` | Document only what's in `main` (or whatever the docs branch tracks); planned work goes to `docs/plans/` (see `plan-init` skill) |
 | .env.example without comments | Bare `DATABASE_URL=` line | Group + describe what each var gates, cite source files that read it |
 | README with marketing language | "World-class developer experience" | Concrete facts: "Hot reload via Vite. Type-checks on save via tsc-watch." |
-| Mixing prose + bullets in CLAUDE.md | Two paragraphs of context before a constraint | CLAUDE.md is reference material — bullets, tables, file:line. Save prose for human-readable docs. |
+| Mixing prose + bullets in AGENTS.md/CLAUDE.md | Two paragraphs of context before a constraint | These are reference material — bullets, tables, file:line. Save prose for human-readable docs. |
 | Doc says "TODO: explain this" | Ship the TODO | Either explain it now or remove the section. TODOs in shipped docs become permanent. |
 
 ## Anti-Hallucination Checks

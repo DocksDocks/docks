@@ -97,7 +97,7 @@ metadata:
 **Maintenance skill body (if proposed):**
 Pattern: reviewer. Body ≤100 lines. Workflow: identify modified files, Glob skills, cross-reference source_files, update affected skills, bump `metadata.updated`. Include When to Skip section (typos, renames, test-only changes). Do NOT reference kit-internal validators (`guard-skills.sh`, `score-skills.sh`, `guard-agents.sh`, `score-agents.sh`) — they gate the kit's own SSOT and are not shipped to downstream projects. Describe checks as inline Claude-readable workflow steps (Read/Grep/Glob), not as shell-script invocations.
 
-**Do NOT touch CLAUDE.md.** Skills are self-discovering via descriptions.
+**Do NOT touch AGENTS.md or CLAUDE.md.** Skills are self-discovering via descriptions; project-root config files are out of scope for this phase. Use the `agents` bridge skill if AGENTS.md/CLAUDE.md need work.
 
 ## Anti-Hallucination Checks (mandatory)
 
@@ -114,5 +114,5 @@ Pattern: reviewer. Body ≤100 lines. Workflow: identify modified files, Glob sk
 - Every description CSO-compliant with ≥5 project-specific identifiers.
 - Every claim in skill body has a `file:line` reference verified by reading the actual file.
 - Research-gate applied before documenting any library/framework API.
-- CLAUDE.md not modified.
+- AGENTS.md and CLAUDE.md not modified.
 - Maintenance skill drafted if proposed by categorizer.

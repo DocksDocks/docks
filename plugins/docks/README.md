@@ -42,7 +42,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `test-coverage` | Adding tests to existing code; backfilling coverage |
 | `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `/security` / `code-review` |
-| `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
+| `human-docs-workflow` | README, AGENTS.md, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
 | `plan-init` | Bootstrap `docs/plans/` 5-category lifecycle (planned/ongoing/blocked/scheduled/finished) in a project |
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |

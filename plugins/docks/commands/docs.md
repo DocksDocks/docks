@@ -151,7 +151,7 @@ After approval:
 1. Create `.claude/skills/` and `.claude/agents/` directories (and all `<skill-name>/references/` subdirs) via `Bash(mkdir -p …)` as needed.
 2. For every **skill action** from Phase 3: write SKILL.md and `references/` files. For splits/merges: write the new skill directories; do NOT delete old ones (listed in Phase 7 cleanup instructions). For refreshes: overwrite existing SKILL.md body and bump `metadata.updated`.
 3. For every **agent action** from Phase 5: write the agent file. For regenerate: Read existing file, Write its content to `.claude/agents/<name>.md.bak`, then Write new content to `.claude/agents/<name>.md`. For delete: Write stub with `disable-model-invocation: true` and empty description.
-4. Verify in-session: all SKILL.md ≤500 lines; all `references/` 30-150 lines; all agent system prompts <200 lines; all agent skill references resolve on disk; `.claude/skills/skill-maintenance/SKILL.md` exists; CLAUDE.md not modified.
+4. Verify in-session: all SKILL.md ≤500 lines; all `references/` 30-150 lines; all agent system prompts <200 lines; all agent skill references resolve on disk; `.claude/skills/skill-maintenance/SKILL.md` exists; AGENTS.md and CLAUDE.md not modified (use the `agents` bridge skill if those need work).
 5. Report: skills created/updated/split/merged/refreshed, agents created/updated/regenerated, total lines, backup files written.
 
 ---
