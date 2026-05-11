@@ -1,6 +1,6 @@
 {
   "name": "docks",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Multi-agent pipeline kit (skills only on Codex — full version with Builder-Verifier slash commands and tiered Opus/Sonnet subagents on Claude Code). 25 portable engineering-convention skills covering test-first / coverage / fix workflows, code review, SOLID, React patterns, dep-vuln triage, design tokens, plans bootstrapping, multi-tool AGENTS.md bridging.",
   "author": {
     "name": "Eduardo Marquez"
