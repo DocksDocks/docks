@@ -21,6 +21,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN_JSON="$REPO_DIR/plugins/docks/.claude-plugin/plugin.json"
 MARKETPLACE_JSON="$REPO_DIR/.claude-plugin/marketplace.json"
+CODEX_PLUGIN_JSON="$REPO_DIR/plugins/docks/.codex-plugin/plugin.json"
 PLUGIN_PATH="./plugins/docks"
 
 err() { echo "error: $1" >&2; exit 1; }
@@ -66,13 +67,22 @@ esac
 
 echo "Bumping docks: $CURRENT → $NEW_VERSION"
 
-# --- bump both manifests ---
+# --- bump all manifests (Claude pair + Codex if present) ---
+# ci.sh enforces 4-way version sync: Claude plugin.json, Claude marketplace.json,
+# Codex plugin.json, and Codex marketplace.json (catalog only — no version field).
+# Bumping all of them here keeps the lockstep ci.sh expects.
 TMP="$(mktemp)"
 jq --arg v "$NEW_VERSION" '.version = $v' "$PLUGIN_JSON" > "$TMP" && mv "$TMP" "$PLUGIN_JSON"
 jq --arg v "$NEW_VERSION" '(.plugins[] | select(.name == "docks")).version = $v' "$MARKETPLACE_JSON" > "$TMP" && mv "$TMP" "$MARKETPLACE_JSON"
 
+CODEX_FILES_TO_ADD=""
+if [ -f "$CODEX_PLUGIN_JSON" ]; then
+  jq --arg v "$NEW_VERSION" '.version = $v' "$CODEX_PLUGIN_JSON" > "$TMP" && mv "$TMP" "$CODEX_PLUGIN_JSON"
+  CODEX_FILES_TO_ADD="$CODEX_PLUGIN_JSON"
+fi
+
 # --- commit + push the bump ---
-git add "$PLUGIN_JSON" "$MARKETPLACE_JSON"
+git add "$PLUGIN_JSON" "$MARKETPLACE_JSON" $CODEX_FILES_TO_ADD
 git commit -m "chore(release): docks v$NEW_VERSION"
 git push origin HEAD
 
