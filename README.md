@@ -1,6 +1,6 @@
 # docks
 
-Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with 3 slash commands (where parallel-agent value is irreducible), 15 engineering-convention skills, and 20 specialized subagents tiered between Opus and Sonnet per phase.
+Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with slash commands where parallel-agent value is irreducible, engineering-convention skills, and specialized subagents tiered between Opus and Sonnet per phase.
 
 ## Install
 
@@ -12,13 +12,13 @@ Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent
 
 After install, commands are namespaced as `/docks:security`, `/docks:docs`, `/docks:refactor`. Skills auto-trigger as before (they're `user-invocable: false`, namespacing is invisible at runtime).
 
-## What's in v0.2
+## What's Inside
 
-The 3 commands kept their multi-agent pipeline:
+The command layer keeps the multi-agent pipeline:
 
 | Command | Why kept as command |
 |---|---|
-| `/security` | 3 parallel scanners (vulnerability + logic + adversarial-hunter) + synthesizer challenging every finding — adversarial perspective doesn't compress to a skill |
+| `/security` | Parallel scanners (vulnerability + logic + adversarial-hunter) + synthesizer challenging every finding — adversarial perspective doesn't compress to a skill |
 | `/docs` | 8-phase pipeline for `.claude/skills/` and `.claude/agents/` authoring with structural validators, cross-layer reference checks, skill-maintenance generation |
 | `/refactor` | Parallel dead-code + duplication + per-principle SOLID scanners; post-verifier checks for *new* SOLID violations introduced while fixing old ones |
 

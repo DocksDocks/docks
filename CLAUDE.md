@@ -13,9 +13,9 @@ This repo is **both a marketplace and a plugin** in the Claude Code plugin syste
 ├── .claude-plugin/marketplace.json    marketplace catalog (publishes the plugin)
 ├── plugins/docks/                     the plugin (cached on user install)
 │   ├── .claude-plugin/plugin.json     plugin manifest
-│   ├── skills/   (15 skills)          auto-trigger on relevant tasks
-│   ├── commands/ (3 commands)         /docks:security, /docks:docs, /docks:refactor
-│   └── agents/   (20 subagents)       per-phase Opus/Sonnet tiering
+│   ├── skills/                         auto-trigger on relevant tasks
+│   ├── commands/                       slash command orchestrators
+│   └── agents/                         per-phase Opus/Sonnet tiering
 ├── scripts/                           plugin-author tooling (NOT shipped)
 │   ├── ci.sh                          local mirror of GH CI
 │   ├── release.sh                     end-to-end release flow
@@ -74,7 +74,7 @@ Skills, commands, and agents inside `plugins/docks/` follow the structural rules
 
 Claude Code surfaces every skill / command / agent description in the listing it shows the model at session start. When the listing exceeds the budget (default 1% of context, fallback 8,000 chars; override with `SLASH_COMMAND_TOOL_CHAR_BUDGET`) descriptions get silently dropped — names stay, keywords vanish, semantic matching breaks. Per-entry descriptions are also silently truncated at 1,536 chars. The scorers in `scripts/score-*.sh` defend that budget by rewarding tight, CSO-formatted descriptions; bloat costs points before it costs matches.
 
-### Description format (all three artifact types)
+### Description format (all artifact types)
 
 1. **Lead with "Use when …"** — Anthropic's doc examples and our guards enforce this prefix. For agents we additionally require a "Not for …" exclusion clause to prevent delegation collisions.
 2. **Put the key use case first.** Per the skills doc: "the combined `description` and `when_to_use` text is truncated at 1,536 characters in the skill listing"; first 100 chars matter most for matching.

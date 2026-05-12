@@ -11,7 +11,7 @@ For Claude-Code-specific authoring details — plugin manifest schema, slash com
 ├── plugins/docks/                    plugin payload (shipped to consumers)
 │   ├── .claude-plugin/plugin.json    Claude plugin manifest
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (parallel, skills-only subset)
-│   ├── skills/   (25 cross-tool)     surfaced in both Codex and Claude Code
+│   ├── skills/   (cross-tool)        surfaced in both Codex and Claude Code
 │   ├── commands/ (Claude-only)       slash commands — Codex plugins don't include these
 │   └── agents/   (Claude-only)       subagents — different file format on Codex (.toml)
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog

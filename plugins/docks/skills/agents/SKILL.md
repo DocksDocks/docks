@@ -99,7 +99,7 @@ After classification (or in greenfield/plugin-author layouts where classificatio
 | .agents/skills/                                     | CREATE DIR      | not present                     |
 | .claude/skills/code-review → .agents/skills/...     | MIGRATE+SYMLINK | found in .claude/skills/        |
 | CLAUDE.md                                           | REWRITE+@IMPORT | exists, content split approved  |
-| .claude/agents/ (3 files)                           | SURFACE ONLY    | Codex .toml format mismatch     |
+| .claude/agents/                                     | SURFACE ONLY    | Codex .toml format mismatch     |
 | .claude/rules/ (2 files)                            | SURFACE ONLY    | Claude-specific loader          |
 ```
 

@@ -25,7 +25,7 @@ Shell-avoidance:
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.
 2. Read the plan file to load Phase 3 Skills Plan (proposed skill set, paths, content outlines) and Phase 2b Pattern Scanner Findings.
-3. Derive agent role candidates independently from the Phase 3 Skills Plan — do NOT wait for the Role Mapper's output. Phase 4 runs both agents in parallel; they reconcile in Phase 5.
+3. Derive agent role candidates independently from the Phase 3 Skills Plan — do NOT wait for the Role Mapper's output. Phase 4 runs agents in parallel; they reconcile in Phase 5.
 4. For each agent role candidate, extract content across 7 dimensions:
    - **Critical constraints**: non-negotiable rules that belong in `<constraint>` tags in the agent's system prompt.
    - **Workflow steps**: numbered procedures the agent follows. Include conditions and branching.

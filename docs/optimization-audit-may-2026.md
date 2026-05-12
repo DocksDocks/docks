@@ -1,12 +1,12 @@
 # `docks` Plugin Optimization Audit on Opus 4.7 — May 2026
 
-**Scope:** the `docks` plugin (repo: `~/projects/docks`, published as [DocksDocks/docks](https://github.com/DocksDocks/docks)) ships the multi-agent pipeline kit — 3 commands (`/docks:security`, `/docks:docs`, `/docks:refactor`), 15 skills, 20 subagents, and the author-side validators (`scripts/guard-*.sh`, `scripts/score-*.sh`). Counts are accurate as of this audit (2026-05-06) and may drift as the plugin evolves; the plugin README is the source of truth for current inventory. Consumer-facing pieces — settings.json, hooks, status line, sync — live in `public` and are tracked at `docs/roadmap/planned/optimization-audit-may-2026.md` in the [DocksDocks/public](https://github.com/DocksDocks/public) repo.
+**Scope:** the `docks` plugin (repo: `~/projects/docks`, published as [DocksDocks/docks](https://github.com/DocksDocks/docks)) ships the multi-agent pipeline kit — command orchestrators, portable skills, specialized subagents, and the author-side validators (`scripts/guard-*.sh`, `scripts/score-*.sh`). Inventory shifts as the plugin evolves; use the filesystem and validators for the current roster. Consumer-facing pieces — settings.json, hooks, status line, sync — live in `public` and are tracked at `docs/roadmap/planned/optimization-audit-may-2026.md` in the [DocksDocks/public](https://github.com/DocksDocks/public) repo.
 
 ## TL;DR
 
-- **Three high-confidence wins for `docks`:** (1) selectively add `effort: xhigh` to the Sonnet agents whose current `max` inheritance from the parent is wasteful (the §A.1 table is the source of truth — actual split is 8 Opus / 12 Sonnet, with several agents miscategorized in the v0 draft); (2) extend the Builder-Verifier pattern by requiring verifier agents to **reproduce** their findings (re-grep the cited line, re-run the failing test) rather than only check syntactic citations — `/ultrareview`'s reported sub-1% false-positive rate comes from this step; (3) opt parallel scanners into `context: fork` via a skill-wrapper refactor (see next bullet) for the ~10× input-token cut on children 2-N.
-- **A third high-confidence win was APPLIED via skill-wrapper refactor on 2026-05-06:** parallel-scanner agents are now opted into `context: fork` for the ~10× input-token cut on children 2-N. Issue [#16803](https://github.com/anthropics/claude-code/issues/16803) was closed in **v2.1.101** — plugin-loaded skills now honor `context: fork` and `agent` frontmatter, and the `agent:` field accepts custom plugin-defined agent names per [Anthropic's skills docs](https://code.claude.com/docs/en/skills). The kit shipped 9 wrapper skills under `plugins/docks/skills/forked-*/SKILL.md`, each carrying `context: fork` + `agent: <scanner-name>`; the three orchestrators (`commands/{refactor,security,docs}.md`) now invoke `Skill(skill: "docks:forked-<name>", args: "{plan-path} $ARGUMENTS")` for parallel scanner phases. No validator carve-out was needed — wrappers score 14/16 on `score-skills.sh` (above the 8 floor). Sequential phases keep their `Agent(subagent_type: ...)` path. (§A.2)
-- **The plugin's architectural choices are mostly defensible and sometimes ahead of the curve.** Plan-file-as-IPC matches OpenHands' event-stream substrate and Cursor's January 2026 dynamic-context-discovery (46.9% token reduction). Builder→Verifier matches Aider's architect/editor split, Anthropic's lead/subagent research pattern, and Anysphere's Bugbot. CSO-style "Use when… Not for…" descriptions are the documented agentskills.io standard. Per-phase model tiering (Opus synthesis / Sonnet exploration) is exactly what Anthropic's research multi-agent system used to beat single-Opus by 90.2%. **20 agents is on the conservative end** vs community kits like wshobson/agents (185 across 80 plugins).
+- **High-confidence wins for `docks`:** (1) selectively add `effort: xhigh` to the Sonnet agents whose current `max` inheritance from the parent is wasteful (the §A.1 table is the source of truth; several agents were miscategorized in the v0 draft); (2) extend the Builder-Verifier pattern by requiring verifier agents to **reproduce** their findings (re-grep the cited line, re-run the failing test) rather than only check syntactic citations — `/ultrareview`'s reported sub-1% false-positive rate comes from this step; (3) opt parallel scanners into `context: fork` via a skill-wrapper refactor (see next bullet) for the ~10× input-token cut on children 2-N.
+- **The fork-wrapper win was APPLIED on 2026-05-06:** parallel-scanner agents are now opted into `context: fork` for the ~10× input-token cut on children 2-N. Issue [#16803](https://github.com/anthropics/claude-code/issues/16803) was closed in **v2.1.101** — plugin-loaded skills now honor `context: fork` and `agent` frontmatter, and the `agent:` field accepts custom plugin-defined agent names per [Anthropic's skills docs](https://code.claude.com/docs/en/skills). The kit shipped wrapper skills under `plugins/docks/skills/forked-*/SKILL.md`, each carrying `context: fork` + `agent: <scanner-name>`; the command orchestrators now invoke `Skill(skill: "docks:forked-<name>", args: "{plan-path} $ARGUMENTS")` for parallel scanner phases. No validator carve-out was needed — wrappers score above the floor. Sequential phases keep their `Agent(subagent_type: ...)` path. (§A.2)
+- **The plugin's architectural choices are mostly defensible and sometimes ahead of the curve.** Plan-file-as-IPC matches OpenHands' event-stream substrate and Cursor's January 2026 dynamic-context-discovery (46.9% token reduction). Builder→Verifier matches Aider's architect/editor split, Anthropic's lead/subagent research pattern, and Anysphere's Bugbot. CSO-style "Use when… Not for…" descriptions are the documented agentskills.io standard. Per-phase model tiering (Opus synthesis / Sonnet exploration) is exactly what Anthropic's research multi-agent system used to beat single-Opus by 90.2%. The subagent roster is deliberately specialized rather than sprawling.
 - **The most impactful new patterns the plugin is *not* using:** the **advisor tool** (`advisor_20260301`, **public beta** since April 9, 2026 — beta header `advisor-tool-2026-03-01`) which lets a Sonnet executor consult Opus mid-loop without orchestration code (good fit for the Phase-4-planner cost concentration); **per-finding reproduction** in verifier agents (the strongest signal-to-noise pattern documented anywhere as of May 2026); and **dynamic skill discovery** (Cursor's "files-not-tools" — expose only names + 1-line desc, defer full body to grep on demand).
 
 ---
@@ -16,7 +16,7 @@
 Top-10 actionable items derived from §1 below.
 
 - [ ] **(HIGH)** Add `effort: xhigh` overrides to Sonnet agents per the corrected table in §A.1; keep `max` on Opus synthesis tier and on `security-vulnerability-scanner` (cybersecurity refusal sensitivity).
-- [x] **(MED) APPLIED 2026-05-06** Opt parallel scanners into `context: fork` via skill-wrapper refactor — 9 wrapper skills + orchestrator-command edits in 3 places. No validator carve-out needed (wrappers score 14/16). Unblocked by v2.1.101 fix to issue [#16803](https://github.com/anthropics/claude-code/issues/16803). (§A.2). Expected: ~10× input-token cut on parallel-scanner children 2-N — to be confirmed via `cache_read_input_tokens` measurement on the next live runs.
+- [x] **(MED) APPLIED 2026-05-06** Opt parallel scanners into `context: fork` via skill-wrapper refactor. No validator carve-out needed; wrapper skills clear the existing floor. Unblocked by v2.1.101 fix to issue [#16803](https://github.com/anthropics/claude-code/issues/16803). (§A.2). Expected: ~10× input-token cut on parallel-scanner children 2-N — to be confirmed via `cache_read_input_tokens` measurement on the next live runs.
 - [ ] **(HIGH)** Add reproduce-step to verifier agents (`refactor-pre-verifier`, `refactor-post-verifier`, `security-synthesizer`, `docs-verifier`) — re-grep cited line / re-run failing test before report (§D.1).
 - [ ] **(MED)** Pilot advisor tool (`advisor_20260301`) on `refactor-pre-verifier` (Sonnet) via Messages API outside the kit — beta header `advisor-tool-2026-03-01` (§A.3). Demoted from HIGH because per-agent integration is not yet exposed through Claude Code agent frontmatter.
 - [ ] **(MED)** Move long enumerations from skill `description` fields to body sections (§C.1). Run `bash scripts/score-skills.sh --per-file` to verify no regressions.
@@ -35,7 +35,7 @@ Confidence: **HIGH** = multiple independent sources + empirical data; **MED** = 
 | # | Recommendation | Confidence | Effort | Expected Impact |
 |---|---|---|---|---|
 | 1 | Add `effort: xhigh` to the Sonnet agents where parent inheritance of `max` is wasteful — `*-pre-verifier.md`, `docs-verifier.md`, `docs-skills-builder.md`, `docs-agents-builder.md`, plus `*-pattern-scanner.md` / `*-pattern-extractor.md` / `*-dead-code-scanner.md` / `*-duplication-scanner.md` / `*-explorer.md` already on Sonnet. | HIGH | trivial | 20–40% token reduction on those phases without quality loss; preserves `max` on Opus tier and on cybersecurity-sensitive `security-vulnerability-scanner`. |
-| 2 | **APPLIED 2026-05-06** — opted parallel scanners into `context: fork` via 9 skill wrappers (`plugins/docks/skills/forked-*/SKILL.md`), each carrying `context: fork` + `agent: <name>`; orchestrators now dispatch via `Skill(skill: "docks:forked-<name>")`. Unblocked by v2.1.101 fix to issue [#16803](https://github.com/anthropics/claude-code/issues/16803). | HIGH | applied | ~10× input-token cut on parallel-scanner children 2-N expected (Anthropic v2.1.117 patch notes); to be confirmed via `cache_read_input_tokens` on next live runs. |
+| 2 | **APPLIED 2026-05-06** — opted parallel scanners into `context: fork` via skill wrappers (`plugins/docks/skills/forked-*/SKILL.md`), each carrying `context: fork` + `agent: <name>`; orchestrators now dispatch via `Skill(skill: "docks:forked-<name>")`. Unblocked by v2.1.101 fix to issue [#16803](https://github.com/anthropics/claude-code/issues/16803). | HIGH | applied | ~10× input-token cut on parallel-scanner children 2-N expected (Anthropic v2.1.117 patch notes); to be confirmed via `cache_read_input_tokens` on next live runs. |
 | 3 | Add a **reproduce step** to verifier agents (`*-pre-verifier`, `*-post-verifier`, `*-verifier`, `security-synthesizer`). Each finding must be reproduced (file:line re-grepped, failing test re-run) before landing in the report. | HIGH | moderate | Drives false-positive rate toward `/ultrareview`'s sub-1% bar. Highest signal-to-noise pattern documented as of May 2026. |
 | 4 | Pilot the **advisor tool** (`advisor_20260301`, public beta) on `refactor-pre-verifier`. Configure as Sonnet-executor + Opus-advisor; consult Opus only on findings flagged low-confidence. Run via Messages API — Claude Code can't pass arbitrary beta headers yet. | MED | moderate | Anthropic benchmark: Sonnet+Opus-advisor > Sonnet-solo on SWE-bench Multilingual (+2.7 pp) at 11.9% lower cost than Opus-solo. |
 | 5 | Move long enumeration content from skill `description` fields into bodies. The `description` loads every session and is capped at 1,536 chars (and silently truncated past that); the body loads only on activation. | MED | moderate | Cleans system-prompt prefix; per-skill scorer rewards ≤500 char descriptions. |
@@ -55,7 +55,7 @@ Public repo policy is `CLAUDE_CODE_EFFORT_LEVEL=max` (kept intentional — see `
 
 **Recommended overrides** (set `effort: xhigh` in frontmatter, leaving model decisions untouched):
 
-"Current model" column verified by `grep -m1 '^model:' plugins/docks/agents/*.md` on 2026-05-06 — actual split is **8 Opus / 12 Sonnet**.
+"Current model" column verified by `grep -m1 '^model:' plugins/docks/agents/*.md` on 2026-05-06.
 
 | Agent | Current model | Recommended effort | Why |
 |---|---|---|---|
@@ -82,7 +82,7 @@ Public repo policy is `CLAUDE_CODE_EFFORT_LEVEL=max` (kept intentional — see `
 
 **Rationale:** Anthropic's [Effort docs](https://platform.claude.com/docs/en/build-with-claude/effort) explicitly state `max` "can lead to overthinking" on structured-output / less intelligence-sensitive tasks. Hex's CTO measured "low-effort Opus 4.7 ≈ medium-effort Opus 4.6"; DataCamp's benchmark found `xhigh` produced over-verbose output on routine tasks. The `public` repo accepts that on the orchestrator turn but the per-subagent overrides above are where the savings actually compound.
 
-**Where the savings really live now:** with the corrected baseline, all **12 Sonnet agents** become candidates for an `effort: xhigh` override — the inherited `max` is wasteful across explorers, scanners, builders, and verifiers alike. The Opus tier is largely correct as-is and keeps `max` for synthesis-tier reasoning.
+**Where the savings really live now:** with the corrected baseline, Sonnet-tier agents become candidates for an `effort: xhigh` override — the inherited `max` is wasteful across explorers, scanners, builders, and verifiers alike. The Opus tier is largely correct as-is and keeps `max` for synthesis-tier reasoning.
 
 **Risk:** the `security-vulnerability-scanner` keeps `max` because 4.7-specific cybersecurity refusals are sensitive to effort drop (Anthropic-flagged in 4.7 release notes; refusal rate on safety-research tasks is 33% even at high effort).
 
@@ -96,11 +96,11 @@ Public repo policy is `CLAUDE_CODE_EFFORT_LEVEL=max` (kept intentional — see `
 
 **What landed:**
 
-1. **9 wrapper skills** at `plugins/docks/skills/forked-<scanner-name>/SKILL.md` — one per parallel-scanner agent (see roster below). Each wrapper is a thin task envelope (~50 lines body) with `context: fork`, `agent: <scanner-name>`, three `<constraint>` blocks (IPC contract, thin-envelope rule, missing-arg abort), and a Wrapper-args table. Bodies use `$0` for the plan-file path and `$1` for the scope (per Anthropic's [`$ARGUMENTS[N]` substitution](https://code.claude.com/docs/en/skills#available-string-substitutions)).
-2. **3 orchestrator edits** — `refactor.md` (Phase 2: 2 wrappers), `security.md` (Phase 2: 3 wrappers), `docs.md` (Phase 2: 2 wrappers + Phase 4: 2 wrappers). Each parallel-scanner block now reads `Skill(skill: "docks:forked-<name>", args: "{plan-path} $ARGUMENTS")`. Sequential phases (Explorer, Synthesizer, Builders, Verifiers, Planner) keep the existing `Agent(subagent_type: ...)` path — fork has no sibling to share a prefix with on a one-shot call. `Skill` was added to each command's `allowed-tools`.
-3. **No validator carve-out needed** — the audit predicted one, but the wrappers score 14/16 each on `score-skills.sh` (above the 8 per-file floor), driven by 3 `<constraint>` blocks, BAD/GOOD output-discipline tables, fresh `metadata.updated`, and CSO-tight descriptions. Body-size sweet-spot (80–310 lines) was deliberately skipped — the whole point of these wrappers is to be thin task envelopes; bloating them to 80+ lines would defeat the cache-reuse goal by enlarging each fork's prompt.
+1. **Wrapper skills** at `plugins/docks/skills/forked-<scanner-name>/SKILL.md` — matching each parallel-scanner role (see roster below). Each wrapper is a thin task envelope (~50 lines body) with `context: fork`, `agent: <scanner-name>`, `<constraint>` blocks (IPC contract, thin-envelope rule, missing-arg abort), and a Wrapper-args table. Bodies use `$0` for the plan-file path and `$1` for the scope (per Anthropic's [`$ARGUMENTS[N]` substitution](https://code.claude.com/docs/en/skills#available-string-substitutions)).
+2. **Orchestrator edits** — `refactor.md`, `security.md`, and `docs.md` use wrappers for their parallel scanner phases. Each parallel-scanner block now reads `Skill(skill: "docks:forked-<name>", args: "{plan-path} $ARGUMENTS")`. Sequential phases (Explorer, Synthesizer, Builders, Verifiers, Planner) keep the existing `Agent(subagent_type: ...)` path — fork has no sibling to share a prefix with on a one-shot call. `Skill` was added to each command's `allowed-tools`.
+3. **No validator carve-out needed** — the audit predicted one, but the wrappers score above the per-file floor, driven by `<constraint>` blocks, BAD/GOOD output-discipline tables, fresh `metadata.updated`, and CSO-tight descriptions. Body-size sweet-spot (80–310 lines) was deliberately skipped — the whole point of these wrappers is to be thin task envelopes; bloating them to 80+ lines would defeat the cache-reuse goal by enlarging each fork's prompt.
 
-**Wrapper roster (9):**
+**Wrapper roster:**
 
 | Wrapper | Wraps | Phase | IPC heading |
 |---|---|---|---|
@@ -114,13 +114,13 @@ Public repo policy is `CLAUDE_CODE_EFFORT_LEVEL=max` (kept intentional — see `
 | `forked-docs-role-mapper` | `docs-role-mapper` | `/docs` 4a | `## Phase 4a: Role Mapper Proposals` |
 | `forked-docs-pattern-extractor` | `docs-pattern-extractor` | `/docs` 4b | `## Phase 4b: Pattern Extractor Content` |
 
-The audit's original "wrapper candidates" list called out 6 (the refactor + security parallel scanners plus `docs-pattern-scanner` only). On reading `docs.md`, three more parallel fan-outs surfaced — `docs-categorizer` runs alongside `docs-pattern-scanner` in Phase 2, and `docs-role-mapper` runs alongside `docs-pattern-extractor` in Phase 4. All four are now wrapped.
+The audit's original "wrapper candidates" list missed some docs fan-outs. On reading `docs.md`, more parallel fan-outs surfaced — `docs-categorizer` runs alongside `docs-pattern-scanner` in Phase 2, and `docs-role-mapper` runs alongside `docs-pattern-extractor` in Phase 4. Those docs fan-outs are now wrapped too.
 
-**Expected benefit:** ~10× input-token cut on parallel-scanner children 2-N (per Anthropic v2.1.117 patch notes for the cache-prefix sharing the env var enables). On a `/refactor` run with 2 parallel scanners, that translates to roughly halving the Phase-2 input cost; on `/security` with 3 scanners it's closer to two-thirds off; on `/docs` the savings hit twice (Phase 2 and Phase 4 each fan out a pair).
+**Expected benefit:** ~10× input-token cut on parallel-scanner children 2-N (per Anthropic v2.1.117 patch notes for the cache-prefix sharing the env var enables). The exact savings depend on the number of siblings in a given phase; `/docs` benefits in multiple phases.
 
 **Validation plan:** capture `cache_read_input_tokens` on parallel-scanner children 2-N during the next live `/refactor`, `/security`, and `/docs` runs (see §G's validation section). The kit can ship the wrappers, but only a real run on `claude-opus-4-7[1m]` confirms the cache prefix is actually being reused.
 
-**Risk surfaced:** skill count went 15 → 24, which compresses the skill-listing budget marginally (per Anthropic's docs the listing aggregates at 1% of context, default 8,000 chars; descriptions are silently dropped past the cap). All 9 wrappers carry `user-invocable: false`, so they don't appear in the `/` menu — but their descriptions still load into Claude's listing. Each wrapper description is ≤330 chars; the additional ~3 KB of listing fits well under the 8 KB fallback. If this becomes a pressure point in future, set `SLASH_COMMAND_TOOL_CHAR_BUDGET` higher or move the wrappers to `name-only` via `skillOverrides`.
+**Risk surfaced:** the wrapper layer increases the skill-listing budget marginally (per Anthropic's docs the listing aggregates at 1% of context, default 8,000 chars; descriptions are silently dropped past the cap). Wrappers carry `user-invocable: false`, so they don't appear in the `/` menu — but their descriptions still load into Claude's listing. The wrapper descriptions are concise enough for the fallback budget today. If this becomes a pressure point in future, set `SLASH_COMMAND_TOOL_CHAR_BUDGET` higher or move the wrappers to `name-only` via `skillOverrides`.
 
 (Sequential-only agents — `refactor-solid-analyzer`, `refactor-planner`, all `*-verifier`, `security-synthesizer`, `docs-skills-builder`, `docs-agents-builder`, `docs-explorer`, `refactor-explorer`, `security-explorer` — don't benefit from fork because there's no parallel sibling to share the prefix with. Skipped intentionally.)
 
@@ -128,7 +128,7 @@ The audit's original "wrapper candidates" list called out 6 (the refactor + secu
 
 Wrap the `refactor-pre-verifier` API call with `advisor_20260301` configured to consult Opus 4.7 from its existing Sonnet executor. Anthropic's BrowseComp data: Haiku-with-Opus-advisor went from 19.7% → 41.2%. SWE-bench Multilingual: Sonnet 4.6 + Opus 4.6 advisor scored 74.8% (+2.7 pp over Sonnet-solo's 72.1%) at **−11.9% cost** vs Opus-solo.
 
-**Best fit:** the four Sonnet verifier/builder agents (now correctly identified — see §A.1): `refactor-pre-verifier`, `docs-verifier`, `docs-skills-builder`, `docs-agents-builder`. All four are Sonnet doing structured-output authoring or verification — exactly the workload Anthropic's prompting guide for the advisor optimizes (early-call before substantive work, late-call before declaring done).
+**Best fit:** Sonnet verifier/builder agents (now correctly identified — see §A.1): `refactor-pre-verifier`, `docs-verifier`, `docs-skills-builder`, `docs-agents-builder`. These are Sonnet doing structured-output authoring or verification — exactly the workload Anthropic's prompting guide for the advisor optimizes (early-call before substantive work, late-call before declaring done).
 
 **Pilot:** run `refactor-pre-verifier` (Sonnet+Opus-advisor) on the same fixture as a current run. Hypothesis: equal or better quality at the per-task cost of Sonnet-only plus a fixed Opus surcharge per advisor call (typically 2–3 calls per task, 1,400–1,800 tokens each per [Anthropic docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)).
 
@@ -142,7 +142,7 @@ Wrap the `refactor-pre-verifier` API call with `advisor_20260301` configured to 
 
 Anthropic's research multi-agent paper explicitly instructs the lead-research-agent on OODA loops with parallel-tool-call instructions: "leave any extensive tool calls to subagents; focus on running subagents in parallel efficiently."
 
-The plugin's three commands (`/docks:security`, `/docks:docs`, `/docks:refactor`) are exactly this orchestrator role. Add a one-paragraph OODA framing near the top of each command body:
+The plugin's command orchestrators are exactly this role. Add a one-paragraph OODA framing near the top of each command body:
 
 > **Orchestrator OODA:** observe (read fixture / repo state), orient (decide which subagents to spawn for this phase), decide (set scopes), act (spawn in parallel via single tool-call turn). Subagents do the actual work; orchestrator coordinates.
 
@@ -167,7 +167,7 @@ Verify the scanner agents' system prompts explicitly instruct intra-agent parall
 ### B.4 PostToolBatch hook for cross-scanner consistency (LOW / moderate)
 
 New hook event runs *after every tool call in a batch resolves* (per Claude API hooks reference 2026). For the "parallel scanners launched in single tool-call turns" pattern, this is the natural place to:
-- Validate cross-scanner consistency (do all three scanners agree on file ownership?)
+- Validate cross-scanner consistency (do scanners agree on file ownership?)
 - Trigger an early Builder phase if all scanners agree (skip the synthesis-merge step)
 
 Hook itself is configured in `public/ssot/.claude/settings.json` (see `agent_optimization.md` §3.3) but the consumer pattern lives here. Pilot on `/docks:security` Phase 2.
@@ -176,7 +176,7 @@ Hook itself is configured in `public/ssot/.claude/settings.json` (see `agent_opt
 
 The original audit's conclusion (don't merge Builder/Verifier; sample the verifier's research-gate ~30–50K tokens) holds. Two **additional** levers:
 
-1. **Forked subagents on parallel scanners** (cache-prefix sharing, see §A.2 — applied 2026-05-06 via 9 skill wrappers since v2.1.101).
+1. **Forked subagents on parallel scanners** (cache-prefix sharing, see §A.2 — applied 2026-05-06 via skill wrappers since v2.1.101).
 2. **Advisor tool on the pre-verifier** (Sonnet-executor + Opus-advisor on Phase 5, see §A.3).
 3. **Partial result streaming via PostToolBatch:** if the planner emits a checklist, fire the verifier on each item as it's completed, in parallel with the planner finishing. Hard to implement, high payoff.
 4. **Re-run the merge audit** after §A.2 fork wrappers and §A.3 advisor land — the 44% concentration may shift enough that the merge-vs-sample tradeoff changes.
@@ -198,7 +198,7 @@ Worth running `bash scripts/score-skills.sh --per-file` and looking for any skil
 
 ### C.2 Cursor's "names + 1-line desc" listing pattern (MED / high effort)
 
-Right now `skillListingBudgetFraction: 0.025` injects ~25 full skill descriptions into the system-prompt prefix. Cursor's January 2026 dynamic-context-discovery blog measured **46.9% MCP token reduction** by:
+Right now `skillListingBudgetFraction: 0.025` injects full skill descriptions into the system-prompt prefix. Cursor's January 2026 dynamic-context-discovery blog measured **46.9% MCP token reduction** by:
 - Loading only `name + 1-line description` statically
 - Letting the agent grep `.claude/skills/*/SKILL.md` for full content on demand
 
@@ -212,7 +212,7 @@ Third-party / vendored skills already get the `upstream:` frontmatter block (`so
 
 ### C.4 `disable-model-invocation: true` for destructive operations (LOW / trivial)
 
-agentskills.io spec calls out this field for skills that perform destructive operations. The plugin doesn't appear to ship any such skill currently (all 15 are read-mostly), so this is preemptive: if a future skill writes to repo state in non-trivial ways (file deletes, schema migrations), set the flag.
+agentskills.io spec calls out this field for skills that perform destructive operations. The plugin's current skill set appears read-mostly, so this is preemptive: if a future skill writes to repo state in non-trivial ways (file deletes, schema migrations), set the flag.
 
 ### C.5 `paths:` glob to gate auto-loading by file context (MED / trivial)
 
@@ -233,7 +233,7 @@ The plugin's verifier agents currently **check** outputs (file:line citations ma
 Apply to:
 - `refactor-pre-verifier` — for each "this change will break X" claim, re-grep for X and confirm the impact.
 - `refactor-post-verifier` — for each "the change introduced Y violation" claim, re-run the affected linter rule.
-- `security-synthesizer` — for each finding from the three parallel scanners, re-grep the cited file:line and verify the pattern matches.
+- `security-synthesizer` — for each finding from the parallel scanners, re-grep the cited file:line and verify the pattern matches.
 - `docs-verifier` — for each "skill X cites missing path Y" claim, verify path Y is missing.
 
 This is the strongest signal-to-noise pattern documented anywhere as of May 2026 (Aider, Anthropic research multi-agent, Bugbot, /ultrareview all converge on it). It's also the largest Phase-5 payoff lever.
@@ -272,7 +272,7 @@ Each is a real decision the public web can inform but not settle. Targets live h
 
 5. **/ultrareview comparison.** Run Anthropic's multi-agent reviewer fleet against `/docks:security` on the same diffs. Sub-1% false-positive rate is the bar. If `/docks:security` matches or beats it, publish; if not, study the per-finding-reproduction step and adopt it (this is §D.1 already, with measurement).
 
-6. **Skill-listing budget (§C.2).** Measure system-prompt prefix size and cache-hit rate before/after switching one skill to "names + 1-line desc, body fetched on demand." Decide whether to roll out to all 15.
+6. **Skill-listing budget (§C.2).** Measure system-prompt prefix size and cache-hit rate before/after switching one skill to "names + 1-line desc, body fetched on demand." Decide whether to roll out broadly.
 
 7. **Phase-4/5 merge audit, redux.** §A.2 (fork wrappers) landed 2026-05-06; §A.3 (advisor) is still gated on Messages-API access. Re-run the original audit's merge-vs-sample analysis once both are validated against live `cache_read_input_tokens` data — the 44% concentration may shift enough that the tradeoff changes.
 
@@ -301,7 +301,7 @@ Reinforcement — don't break these:
 
 6. **Plan-file-as-IPC** — matches OpenHands' state/event-stream architecture (arXiv:2407.16741), Cursor's January 2026 "files as the primary interface" (46.9% token reduction), claudefa.st Code Kit's `claude-progress.txt` substrate, and Anthropic's research multi-agent memory pattern.
 
-7. **20-agent count is conservative** vs the community (wshobson/agents ships 185 across 80 plugins). The original audit's "41 agents" figure appears to have conflated the plugin with the broader installed-skill landscape — actual plugin count is `ls plugins/docks/agents/*.md | wc -l = 20`.
+7. **The subagent roster is conservative** vs broad community kits. The original audit's agent inventory appears to have conflated the plugin with the broader installed-skill landscape; use `ls plugins/docks/agents/*.md | wc -l` when the current count is actually needed.
 
 8. **Marketplace + plugin in one repo, double-layered release gating.** Local `ci.sh` catches stage issues fast; GitHub-side `tag-CI` is the authoritative gate before `gh release create`. Two layers because each catches different failure modes.
 
@@ -315,7 +315,7 @@ Reinforcement — don't break these:
 
 - **Source weighting:** where Anthropic's official docs and a community blogger disagree, both views are reported. The plugin's per-phase model tiering and Builder-Verifier patterns are *empirically* validated (Anthropic research blog, Aider benchmarks); the advisor tool and reproduce-step are newer and have less independent corroboration.
 
-- **Agent count:** the original audit's "41 agents" appears stale or counts something other than `plugins/docks/agents/*.md` (which is 20 as of 2026-05). The Augment Code coordination-overhead concern still applies to any specialization/orchestration tradeoff but is moot at 20.
+- **Inventory caveat:** the original audit's agent inventory appears stale or counts something other than `plugins/docks/agents/*.md`. The Augment Code coordination-overhead concern still applies to any specialization/orchestration tradeoff, but current inventory should be computed from the filesystem instead of copied into prose.
 
 - **`context: fork` is reachable via skill wrappers** since v2.1.101 closed issue [#16803](https://github.com/anthropics/claude-code/issues/16803). Direct path on agent frontmatter remains unsupported (agent-tool named-`subagent_type` calls bypass fork); the kit's skill-wrapper layer (described in §A.2 and applied 2026-05-06) bridges this. This audit is authored for a Linux/macOS-only target stack — Windows-specific caveats are not tracked.
 

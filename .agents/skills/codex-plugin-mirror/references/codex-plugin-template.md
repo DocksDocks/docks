@@ -64,7 +64,7 @@ Source `plugins/docks/.claude-plugin/plugin.json` snippet:
 ```json
 {
   "name": "docks",
-  "description": "Multi-agent pipeline kit for Claude Code — 3 Builder-Verifier commands…",
+  "description": "Multi-agent pipeline kit for Claude Code — Builder-Verifier commands…",
   "version": "0.3.0",
   "author": { "name": "Eduardo Marquez" },
   "license": "MIT",
@@ -78,7 +78,7 @@ Mirrored `plugins/docks/.codex-plugin/plugin.json`:
 {
   "name": "docks",
   "version": "0.3.0",
-  "description": "Multi-agent pipeline kit (skills only) — 25 portable engineering-convention skills covering test-first / coverage / fix workflows, code review, SOLID, React patterns, dep-vuln triage, design tokens, and more.",
+  "description": "Multi-agent pipeline kit (skills only) — portable engineering-convention skills covering test-first / coverage / fix workflows, code review, SOLID, React patterns, dep-vuln triage, design tokens, and more.",
   "author": { "name": "Eduardo Marquez" },
   "homepage": "https://github.com/DocksDocks/docks",
   "repository": "https://github.com/DocksDocks/docks",
@@ -87,7 +87,7 @@ Mirrored `plugins/docks/.codex-plugin/plugin.json`:
   "skills": "./skills/",
   "interface": {
     "displayName": "docks",
-    "shortDescription": "25 portable engineering-convention skills (skills only).",
+    "shortDescription": "Portable engineering-convention skills (skills only).",
     "category": "Productivity"
   }
 }

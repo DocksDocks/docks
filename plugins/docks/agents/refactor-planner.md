@@ -42,7 +42,7 @@ Over-engineering guard: if the proposed refactoring is more complex than the vio
    - Phase 2 Duplication Scanner output
    - Phase 3 SOLID Analyzer output
 3. If `.claude/skills/` exists in the project, Read relevant skills for project-specific conventions.
-4. For each finding from all three input streams, apply research-gate before proposing any framework/library API in the fix.
+4. For each finding from all input streams, apply research-gate before proposing any framework/library API in the fix.
 
 **Tier 1 — Quick Wins** (high impact, low risk):
 - SAFE dead code removal (unused utilities, orphaned files)

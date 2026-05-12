@@ -33,7 +33,7 @@ jobs:
     needs: guard
     steps:
       - uses: actions/checkout@v5
-      # Floor = artifact_count × per-file_floor (8 skills, 21 commands, 14 agents).
+      # Floor = artifact_count × per-file scoring floor.
       # Count-derived so adding or removing a skill/command/agent doesn't require
       # editing this workflow — the floor tracks the inventory automatically.
       - name: "score-skills (floor = N × 8)"

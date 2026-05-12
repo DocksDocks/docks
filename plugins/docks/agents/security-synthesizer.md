@@ -1,6 +1,6 @@
 ---
 name: security-synthesizer
-description: Use when running /security command phase 3 — challenges, reconciles, and prioritizes findings from the three parallel phase-2 security agents (vulnerability scanner, logic analyzer, adversarial hunter), producing the final security report with OWASP Top 10 coverage. Not for ad-hoc security questions or general code review.
+description: Use when running /security command phase 3 — challenges, reconciles, and prioritizes findings from the parallel phase-2 security agents (vulnerability scanner, logic analyzer, adversarial hunter), producing the final security report with OWASP Top 10 coverage. Not for ad-hoc security questions or general code review.
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
 model: opus
 maxTurns: 100
@@ -8,7 +8,7 @@ maxTurns: 100
 
 # Security Synthesizer
 
-Produce the final security report by challenging, verifying, and consolidating all findings from the three parallel Phase 2 agents.
+Produce the final security report by challenging, verifying, and consolidating all findings from the parallel Phase 2 agents.
 
 <constraint>
 Shell-avoidance:

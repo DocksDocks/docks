@@ -16,7 +16,7 @@ allowed-tools: >-
 
 # Universal Refactorer
 
-Detect and fix structural code issues via a parallel-scan pipeline: dead code, duplication, SOLID violations (all 5 principles including Liskov), and modernization candidates. Uses model-tiered subagents (3 Opus, 4 Sonnet) with a dedicated SOLID Analyzer phase and Builder-Verifier pattern.
+Detect and fix structural code issues via a parallel-scan pipeline: dead code, duplication, SOLID violations (all 5 principles including Liskov), and modernization candidates. Uses model-tiered subagents with a dedicated SOLID Analyzer phase and Builder-Verifier pattern.
 
 ---
 
@@ -78,7 +78,7 @@ After it returns, write its output to the plan file under `## Phase 1: Explorati
 ## Phase 2: Parallel Analysis
 
 <constraint>
-Launch BOTH wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
+Launch the wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
 Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
@@ -86,7 +86,7 @@ Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARG
 - `Skill(skill: "docks:forked-refactor-dead-code-scanner", args: "{plan-file-path} $ARGUMENTS")` — wraps `refactor-dead-code-scanner`; writes under `## Phase 2a: Dead Code Findings`.
 - `Skill(skill: "docks:forked-refactor-duplication-scanner", args: "{plan-file-path} $ARGUMENTS")` — wraps `refactor-duplication-scanner`; writes under `## Phase 2b: Duplication Findings`.
 
-The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. After both return, confirm their outputs landed in the plan file under their respective `## Phase 2a:` and `## Phase 2b:` headers, then immediately launch Phase 3.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. After the wrappers return, confirm their outputs landed in the plan file under their respective Phase 2 headers, then immediately launch Phase 3.
 
 ---
 

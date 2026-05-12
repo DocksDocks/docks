@@ -1,6 +1,6 @@
 # docks
 
-A Claude Code plugin packaging the multi-agent pipeline kit: **3 slash commands** (where parallel-agent value is irreducible), **15 engineering-convention skills**, and **20 specialized subagents** with per-phase Opus/Sonnet model tiering.
+A Claude Code plugin packaging the multi-agent pipeline kit: slash commands where parallel-agent value is irreducible, engineering-convention skills, and specialized subagents with per-phase Opus/Sonnet model tiering.
 
 ## Install
 
@@ -20,7 +20,7 @@ When a `--plugin-dir` plugin shares a name with an installed marketplace plugin,
 
 ## What's inside
 
-### Commands (3)
+### Commands
 
 All commands are namespaced as `/docks:<name>` once installed. The kit deliberately keeps only commands where parallel-agent orchestration adds structural value the model can't compress into a single session.
 
@@ -32,7 +32,7 @@ All commands are namespaced as `/docks:<name>` once installed. The kit deliberat
 
 Each command enforces **Plan Mode** — read-only analysis first, user approval gate via `ExitPlanMode`, then implementation.
 
-### Skills (15)
+### Skills
 
 Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-namespaced for invocation since they're model-invoked.
 
@@ -54,9 +54,9 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `react-reuse-components` | React composition patterns — compound components, slots/`asChild`, polymorphic `as`, headless hooks, provider+hook, variant systems (cva) |
 | `typescript-typing` | `any` vs `unknown`, discriminated unions, branded IDs, parse-don't-assert |
 
-### Agents (20)
+### Agents
 
-**8 Opus + 12 Sonnet**, one per phase of each command. Synthesizers, planners, semantic analyzers, and adversarial work run on Opus 4.7 (creative + judgment-heavy). Exploration, pattern scanning, and mechanical verification run on Sonnet 4.6 (faster + cheaper for enumeration work).
+Model tiering is per phase. Synthesizers, planners, semantic analyzers, and adversarial work run on Opus 4.7 (creative + judgment-heavy). Exploration, pattern scanning, and mechanical verification run on Sonnet 4.6 (faster + cheaper for enumeration work).
 
 Force-invoke any agent directly with `@agent-<name>` (e.g. `@agent-refactor-solid-analyzer audit src/services/`).
 

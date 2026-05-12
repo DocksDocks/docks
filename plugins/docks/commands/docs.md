@@ -83,14 +83,14 @@ Invoke `subagent_type: docs-explorer` with the prompt:
 ## Phase 2: Skills Analysis
 
 <constraint>
-Launch BOTH wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
+Launch the wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
 Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
 - `Skill(skill: "docks:forked-docs-categorizer", args: "{plan-path} $ARGUMENTS")` — wraps `docs-categorizer`; writes under `## Phase 2a: Categorizer Proposals`.
 - `Skill(skill: "docks:forked-docs-pattern-scanner", args: "{plan-path} $ARGUMENTS")` — wraps `docs-pattern-scanner`; writes under `## Phase 2b: Pattern Scanner Findings`.
 
-The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. The forked subagents inherit the orchestrator's plan-file context (Phase 0 State, Phase 1 Exploration, `## Environment` block) by reading the plan file at `$0`. After both return, append their outputs to the plan file, then immediately launch Phase 3.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. The forked subagents inherit the orchestrator's plan-file context (Phase 0 State, Phase 1 Exploration, `## Environment` block) by reading the plan file at `$0`. After the wrappers return, append their outputs to the plan file, then immediately launch Phase 3.
 
 ## Phase 3: Skills Builder
 
@@ -103,14 +103,14 @@ After it returns, append output to the plan file, then immediately launch Phase 
 ## Phase 4: Agents Analysis
 
 <constraint>
-Launch BOTH wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
+Launch the wrappers below in a SINGLE tool-call turn via the Skill tool. Do NOT wait for one to finish before launching the next. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
 Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
 - `Skill(skill: "docks:forked-docs-role-mapper", args: "{plan-path} $ARGUMENTS")` — wraps `docs-role-mapper`; writes under `## Phase 4a: Role Mapper Proposals`.
 - `Skill(skill: "docks:forked-docs-pattern-extractor", args: "{plan-path} $ARGUMENTS")` — wraps `docs-pattern-extractor`; writes under `## Phase 4b: Pattern Extractor Content`.
 
-The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. The forked subagents inherit the Phase 1 Exploration Results, Phase 3 Skills Plan, and Phase 2b Pattern Scanner Findings by reading the plan file at `$0`. After both return, append outputs to the plan file, then immediately launch Phase 5.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. The forked subagents inherit the Phase 1 Exploration Results, Phase 3 Skills Plan, and Phase 2b Pattern Scanner Findings by reading the plan file at `$0`. After the wrappers return, append outputs to the plan file, then immediately launch Phase 5.
 
 ## Phase 5: Agents Builder
 

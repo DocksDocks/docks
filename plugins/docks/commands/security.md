@@ -1,6 +1,6 @@
 ---
 name: security
-description: Use when running a security audit on a codebase — OWASP Top 10 coverage, logic flaws, authentication/authorization weaknesses, cryptographic misuse, race conditions, dependency vulnerabilities. Three parallel scanners (Vulnerability, Logic, Adversarial) followed by a Synthesizer that challenges every finding. Read-only; to fix issues, pipe findings into /fix.
+description: Use when running a security audit on a codebase — OWASP Top 10 coverage, logic flaws, authentication/authorization weaknesses, cryptographic misuse, race conditions, dependency vulnerabilities. Parallel scanners are followed by a Synthesizer that challenges every finding. Read-only; to fix issues, pipe findings into /fix.
 argument-hint: "[path-or-scope]"
 allowed-tools: >-
   Read Write Glob Grep Agent Skill WebFetch WebSearch
@@ -69,7 +69,7 @@ After the explorer returns, write its output to the plan file under that heading
 ## Phase 2: Parallel Analysis
 
 <constraint>
-Launch ALL THREE wrappers below in a SINGLE tool-call turn via the Skill tool. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
+Launch the wrappers below in a SINGLE tool-call turn via the Skill tool. The wrappers use `context: fork` (issue #16803, v2.1.101) so siblings 2-N share the cached prompt prefix instead of re-paying full input-token cost per sibling.
 </constraint>
 
 Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARGUMENTS` (scope) as `$1`:
@@ -77,7 +77,7 @@ Parallel invocations (in one turn) — pass the plan-file path as `$0` and `$ARG
 - `Skill(skill: "docks:forked-security-logic-analyzer", args: "{plan-file-path} $ARGUMENTS")` — wraps `security-logic-analyzer`; writes under `## Phase 2b: Logic Findings`.
 - `Skill(skill: "docks:forked-security-adversarial-hunter", args: "{plan-file-path} $ARGUMENTS")` — wraps `security-adversarial-hunter`; writes under `## Phase 2c: Adversarial Findings`.
 
-The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. After all three return, confirm their outputs landed in the plan file under their respective `## Phase 2a:`, `## Phase 2b:`, and `## Phase 2c:` headers, then immediately launch Phase 3.
+The wrapper bodies carry the per-phase task brief and the IPC heading; do not duplicate them in the Skill args. After the wrappers return, confirm their outputs landed in the plan file under their respective Phase 2 headers, then immediately launch Phase 3.
 
 ## Phase 3: Synthesis
 

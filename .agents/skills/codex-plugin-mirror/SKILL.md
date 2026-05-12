@@ -74,7 +74,7 @@ If any commands or agents exist, add an explicit "(skills only)" suffix to the C
 |------------------------------------------------|-----------------|---------------------------------------|
 | plugins/docks/.codex-plugin/plugin.json        | CREATE          | not present                           |
 | .agents/plugins/marketplace.json               | CREATE          | not present                           |
-| plugins/docks/description (Codex side)         | APPEND "(skills only)" | source ships 4 commands + 21 agents |
+| plugins/docks/description (Codex side)         | APPEND "(skills only)" | source ships commands + agents |
 | Versions                                       | SYNC 0.3.0      | source plugin.json v0.3.0             |
 ```
 
