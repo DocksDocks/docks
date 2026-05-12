@@ -1,7 +1,7 @@
 ---
 title: Introduce on-demand references/ files in 6 skills
 goal: Lift deep per-language/per-framework/per-tool content into references/ for solid, test-coverage, dep-vuln-workflow, lint-no-suppressions, code-review, fix-workflow — main SKILL.md becomes decision-tree + top-rules
-status: ongoing
+status: finished
 created: 2026-05-12
 updated: 2026-05-12
 started_at: "2026-05-12"
@@ -9,7 +9,7 @@ assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: 584a53dc62655de331cfd748a2d7dd016b779c0b
 tags: [skills, refactor, references]
 affected_paths:
   - plugins/docks/skills/solid/
@@ -61,21 +61,21 @@ Current state of the 6 affected skills (LOC = body line count from `wc -l`):
 | 4 | Extend `lint-no-suppressions` → keep body lean + extract bash hook to `references/pre-commit-hook.md` + add `references/per-tool-catalog.md` (suppression syntax for ESLint, TS / `@ts-ignore` / `@ts-expect-error`, mypy, ruff, clippy, golangci-lint, shellcheck, pylint, Java) | — | with #1-#3,#5,#6 | **done** | self |
 | 5 | Restructure `code-review` → SKILL.md as per-axis triage decision tree + `references/{security,perf,maintainability}.md` (per-axis finding catalogue, severity calibration, common false-positive guards; ai-slop merged into maintainability) | — | with #1-#4,#6 | **done** | self |
 | 6 | Restructure `fix-workflow` → main body as tier-1/2/3 framework + `references/{security-fix,perf-fix,bug-fix}-templates.md` (per-finding-type plan templates with revert triggers and test strategy) | — | with #1-#5 | **done** | self |
-| 7 | Run `bash scripts/ci.sh` and `bash scripts/score-skills.sh --per-file` after EACH skill restructure; verify guard pass and per-file score ≥ 8 | 1-6 (incrementally) | — | planned | null |
-| 8 | Update `metadata.updated` frontmatter on each restructured skill | 1-6 | — | planned | null |
-| 9 | Commit: one commit per skill OR one batched commit (decide based on diff size; rule of thumb: batch if total <500 LOC changed, split if >500). Push to main. | 7, 8 | — | planned | null |
+| 7 | Run `bash scripts/ci.sh` and `bash scripts/score-skills.sh --per-file` after EACH skill restructure; verify guard pass and per-file score ≥ 8 | 1-6 (incrementally) | — | **done** | self |
+| 8 | Update `metadata.updated` frontmatter on each restructured skill | 1-6 | — | **done** | self |
+| 9 | Commit: one commit per skill OR one batched commit (decide based on diff size; rule of thumb: batch if total <500 LOC changed, split if >500). Push to main. | 7, 8 | — | **done** (6 per-skill commits chosen) | self |
 
 Status enum: `planned` / `in-flight` / `done` / `blocked` / `skipped`.
 
 ## Acceptance criteria
 
-- [ ] All 6 skills restructured with at least one `references/` file each
-- [ ] Each restructured skill's per-file score ≥ 8 (current floor); preferably ≥ 14
-- [ ] `bash scripts/ci.sh` green end-to-end after each commit
-- [ ] `grep -rn 'references/' plugins/docks/skills/{solid,test-coverage,dep-vuln-workflow,lint-no-suppressions,code-review,fix-workflow}/` confirms every named references file exists (no dangling pointers)
-- [ ] Each SKILL.md body retains ≥1 BAD/GOOD code pair and ≥2 `<constraint>` blocks (scorer signal preservation)
-- [ ] Description listing budget stays under 50% of `SLASH_COMMAND_TOOL_CHAR_BUDGET` (currently ~37% — net effect should be roughly flat since descriptions don't grow)
-- [ ] Manual sanity check: read each restructured SKILL.md in isolation and confirm the decision tree unambiguously routes to the correct references file
+- [x] All 6 skills restructured with at least one `references/` file each — confirmed: 20 references files total across the 6 skills (4 + 5 + 4 + 2 + 3 + 3 - 1 dual-use? actually: solid 4 + test-coverage 5 + dep-vuln 4 + lint-no-supp 2 + code-review 3 + fix-workflow 3 = 21)
+- [x] Each restructured skill's per-file score ≥ 8 (current floor); preferably ≥ 14 — actual: solid 16, test-coverage 16, dep-vuln 15, lint-no-supp 13 (below ≥14 stretch target by 1 — body 72 LOC sits below sweet spot 80–310; acceptable given floor 8), code-review 16, fix-workflow 16
+- [x] `bash scripts/ci.sh` green end-to-end after each commit — verified across all 6 commits
+- [x] `grep -rn 'references/' plugins/docks/skills/{solid,test-coverage,dep-vuln-workflow,lint-no-suppressions,code-review,fix-workflow}/` confirms every named references file exists (no dangling pointers) — verified at 2026-05-12T17:38
+- [x] Each SKILL.md body retains ≥1 BAD/GOOD code pair and ≥2 `<constraint>` blocks (scorer signal preservation) — all 6 retain ≥2 constraints + canonical BAD/GOOD or per-axis routing
+- [x] Description listing budget stays under 50% of `SLASH_COMMAND_TOOL_CHAR_BUDGET` (currently ~37% — net effect should be roughly flat since descriptions don't grow) — descriptions remained roughly flat; solid's description added "Rust / Python / Go" but stayed under 500
+- [x] Manual sanity check: read each restructured SKILL.md in isolation and confirm the decision tree unambiguously routes to the correct references file — all 6 SKILL.md files now lead with When-to-Load-References table that unambiguously routes based on language / framework / finding type
 
 ## Out of scope
 
@@ -188,6 +188,7 @@ Two parallel Explore agents mapped each affected skill's current body, extractio
 - **2026-05-12T17:17:00-03:00** — Step #5 done: restructured `code-review` (ai-slop merged into maintainability, 3 references not 4) — SKILL.md 145→156 LOC (added When-to-Load routing table after Step 3; still within sweet spot 80–310), 3 new references files (`security.md` 63 LOC with OWASP Top 10 → finding-template mapping + 3-question severity calibration + common false-positives, `perf.md` 87 LOC with per-domain pattern catalog DB/loop/async/render + calibration matrix, `maintainability.md` 104 LOC with dead-code + duplication + smart-abstraction + 11-row AI-slop tells catalog); main body retains all 3 `<constraint>` blocks, Common Traps table, Output Example; per-file score 16/16 maintained; guard PASS — assistant (Claude Opus 4.7)
 - **2026-05-12T17:25:00-03:00** — Step #2 done: restructured `test-coverage` — SKILL.md 161→167 LOC (added When-to-Load routing table after Step 1; still within sweet spot 80–310), 5 new references files (`jest-vitest.md` 119 LOC with detection signals + co-located/__tests__ naming + Vitest/Jest mock differences + RTL idioms, `pytest.md` 149 LOC with fixtures + scopes + monkeypatch + pytest-asyncio + conftest precedence, `cargo-test.md` 178 LOC with unit-vs-integration layout + trait-object DI + mockall + tokio::test + cargo-llvm-cov, `go-test.md` 204 LOC with white-vs-black-box packages + table-driven subtests + t.Cleanup + httptest + Go 1.22 loop-var fix, `junit.md` 210 LOC with mirroring layout + @Nested + Mockito strict stubbing + Spring slice tests + JaCoCo); main body retains all 3 `<constraint>` blocks AND the universal import-path BAD/GOOD pair in Step 3; per-file score 16/16 maintained; guard PASS; some references > 150 LOC soft guideline (cargo/go/junit) — accepted because per-framework topic depth is real and on-demand load means zero cost when inactive — assistant (Claude Opus 4.7)
 - **2026-05-12T17:35:00-03:00** — Step #1 done: restructured `solid` — SKILL.md 235→144 LOC (clean trim; deep per-principle code examples lifted out; main body now smell→fix tables + indicators + canonical O-section Strategy Map BAD/GOOD pair + Decision Tree + Common Traps; well within sweet spot 80–310). 4 new references files (`typescript-solid.md` 188 LOC with all 5 principles + ExtractMappedType pattern + exhaustiveness sentinel + function-argument DI, `rust-solid.md` 218 LOC with HashMap-of-fn + non_exhaustive enum + sealed-trait pattern + generics-vs-dyn DI matrix, `python-solid.md` 228 LOC with dict-of-callable + match + assert_never exhaustiveness + Protocol structural typing + constructor-or-argument injection, `go-solid.md` 254 LOC with map-of-func + sealed-interface sum type via isType() seal + caller-side small interfaces + accept-interfaces-return-structs idiom + ChargeFn fn-arg form). Main body retains all 3 `<constraint>` blocks + the canonical Strategy Map BAD/GOOD + Common Traps table; per-file score 16/16 maintained; guard PASS; references 188-254 LOC over 150-LOC soft guideline but justified by 5-principle depth × language idioms — assistant (Claude Opus 4.7)
+- **2026-05-12T17:38:00-03:00** — Plan shipped: all 6 SKILL.md files now route to references/ on activation; final acceptance check confirmed every pointer resolves; ship_commit 584a53dc; moving from ongoing/ to finished/2026-05-12-skills-references-extraction.md — assistant (Claude Opus 4.7)
 
 ## Review
 
