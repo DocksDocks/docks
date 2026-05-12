@@ -119,9 +119,69 @@ Status enum: `planned` / `in-flight` / `done` / `blocked` / `skipped`.
 - **Body line-count target:** after restructure, aim for 80–200 LOC in each SKILL.md (well within scorer sweet spot 80–310). Current bodies are 117–228 LOC, so most have headroom even before extraction.
 - **Commit strategy decision:** prefer per-skill commits unless a single skill's diff is trivial (<50 LOC), in which case batch with the next one. Avoid one mega-commit covering all 6 — review burden too high.
 
+### Research findings (2026-05-12)
+
+Two parallel Explore agents mapped each affected skill's current body, extraction targets (file:line), and scorer-signal preservation. **All 6 skills currently score 16/16; all retain ≥2 `<constraint>` blocks and ≥1 BAD/GOOD pair post-extraction → no risk of dropping below per-file floor 8.**
+
+**1. `solid` (228 LOC → ~100–120 LOC main)**
+- 4 references: `typescript-solid.md`, `rust-solid.md`, `python-solid.md`, `go-solid.md`
+- Verbatim TS extraction: lines 56–79 (S strategy map), 93–121 (L discriminated union), 135–152 (I split), 167–200 (D injection) ≈ 110 LOC
+- Fresh authoring: ~150 LOC each for Rust/Python/Go idiomatic per-principle examples (Rust newtype + trait-object + enum-match; Python dataclass + Protocol + ABC; Go interface + composition + replace-directives)
+- Stay in main: 3 constraints (lines 14–24), O-section BAD/GOOD (Strategy Map — most universal), Common Traps table (lines 218–227)
+- Estimated post-restructure score: 14–15/16
+
+**2. `test-coverage` (161 LOC → ~80–100 LOC main)**
+- 5 references: `jest-vitest.md`, `pytest.md`, `cargo-test.md`, `go-test.md`, `junit.md`
+- Verbatim extraction: Step 3 example only (lines 64–81) ≈ 8 LOC; rest needs fresh per-framework templates
+- Fresh authoring: ~120 LOC each for jest-vitest + pytest (file layout, describe/it or fixtures, mocking, assertions, coverage config); ~100 LOC each for cargo-test, go-test, junit
+- Stay in main: 3 constraints (lines 12–22), Step 3 import-path BAD/GOOD (lines 64–81 — universal across frameworks)
+- Estimated post-restructure score: 14–15/16
+
+**3. `dep-vuln-workflow` (168 LOC → ~90–110 LOC main)**
+- 4 references: `npm-pnpm-playbook.md`, `pip-playbook.md`, `cargo-playbook.md`, `go-mod-playbook.md`
+- Verbatim extraction: lines 44–54 (pnpm upgrade), 128–134 (Next/React upgrade surprises), 157–161 (npm-specific gotchas) ≈ 22 LOC → `npm-pnpm-playbook.md`
+- Fresh authoring: ~30 LOC fresh in npm-pnpm-playbook (yarn/npm equivalents); ~100 LOC each for pip / cargo / go-mod playbooks
+- Stay in main: 3 constraints (lines 12–13, 104–106, 151–153), Split Strategy BAD/GOOD (lines 78–100 — language-neutral commit discipline)
+- Move to `npm-pnpm-playbook.md`: Lint/Typecheck BAD/GOOD (lines 117–126 — React/Next-specific)
+- Estimated post-restructure score: 15–16/16
+
+**4. `lint-no-suppressions` (105 LOC → ~50–60 LOC main)**
+- 2 references: `pre-commit-hook.md`, `per-tool-catalog.md`
+- Verbatim extraction: bash pre-commit hook (lines 47–93) ≈ 47 LOC → `pre-commit-hook.md`
+- Fresh authoring: ~100–120 LOC per-tool catalog (ESLint, TS `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck`, mypy `# type: ignore`, ruff `# noqa`, clippy `#[allow]`, golangci-lint `//nolint`, shellcheck, pylint, Java `@SuppressWarnings`)
+- Stay in main: 2 constraints (lines 12–14, 99–101), decision table (lines 33–42)
+- Estimated post-restructure score: 16/16 maintained
+
+**5. `code-review` (136 LOC → ~100–110 LOC main)**
+- 4 references (or 3 — see open decision below): `security.md`, `perf.md`, `maintainability.md`, `ai-slop.md`
+- Verbatim extraction: ~10 LOC of categorization prose (Step 3, lines 59–68)
+- Fresh authoring: ~60–80 LOC security (OWASP Top 10 finding templates + severity calibration), ~50–70 LOC perf (N+1, loops, sync I/O, render cascades), ~40–60 LOC each for maintainability + ai-slop
+- Stay in main: all 3 constraints (lines 12–22), Common Traps table (lines 101–111), Output Example (lines 113–131)
+- Estimated post-restructure score: 16/16 maintained
+
+**6. `fix-workflow` (168 LOC → ~127 LOC main)**
+- 3 references: `security-fix-templates.md`, `perf-fix-templates.md`, `bug-fix-templates.md`
+- Verbatim extraction: Step 4 template table (lines 85–100) ≈ 16 LOC stays in main as the framework; per-finding-type expansions are new
+- Fresh authoring: ~50–70 LOC each (security-fix: CVE/GHSA triage + dependency bump test strategy + security-specific revert triggers; perf-fix: profiling commands + perf revert triggers + common perf anti-patterns; bug-fix: reproduction test template + integration-vs-unit decision + regression-prevention)
+- Stay in main: all 3 constraints (lines 12–22), Steps 1–6 framework, Common Traps table (lines 133–145), Pairing With Other Skills (lines 146–154)
+- Estimated post-restructure score: 16/16 maintained
+
+**Total scope summary:**
+- 22 references files (21 if `ai-slop` merges into `maintainability` for code-review)
+- ~250 LOC verbatim extraction across all 6 skills
+- ~1,600 LOC fresh authoring (Rust/Python/Go SOLID; pytest / cargo-test / go-test / junit templates; pip / cargo / go-mod playbooks; per-tool suppression catalog; per-axis review references; per-finding-type fix templates)
+- Per-skill post-restructure scores estimated at 14–16/16; per-file floor 8 not at risk
+
+**Open decisions for implementer:**
+1. **`test-coverage`:** keep `junit.md` (Java/JVM) in scope, or defer? Kit users skew JS/Python/Rust/Go.
+2. **`code-review`:** 4 references files (keep `ai-slop` separate) or 3 (merge into `maintainability` since they overlap substantially)?
+3. **Implementation order (suggested):** `lint-no-suppressions` (smallest, mostly extract — validates the pattern) → `dep-vuln-workflow` (~22 LOC extract + 4 playbooks) → `fix-workflow` (3 templates, tight scope) → `code-review` (4 per-axis references) → `test-coverage` (5 per-framework references) → `solid` (4 languages, largest fresh authoring).
+4. **Commit strategy:** per-skill (6 commits) recommended. Per-reference-file (22 commits) too granular; batched mega-commit too large for review.
+
 ## Evidence log
 
 - **2026-05-12T16:07:30-03:00** — Plan created — assistant (Claude Opus 4.7)
+- **2026-05-12T16:23:14-03:00** — Research completed via 2 parallel Explore forks (skills 1–3 + 4–6); per-skill extraction plans recorded in Notes; 4 open decisions surfaced — assistant (Claude Opus 4.7)
 
 ## Review
 
