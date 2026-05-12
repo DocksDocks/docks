@@ -19,7 +19,7 @@ affected_paths:
   - plugins/docks/skills/code-review/
   - plugins/docks/skills/fix-workflow/
 related_plans: []
-review_status: null
+review_status: passed
 ---
 
 # Introduce on-demand references/ files in 6 skills
@@ -192,4 +192,8 @@ Two parallel Explore agents mapped each affected skill's current body, extractio
 
 ## Review
 
-(empty — `plan-review` will fill on ship)
+- **Goal met:** yes — all 6 SKILL.md files route to 21 new `references/` files via explicit "When to Load References" tables; per-file scores held at solid 16, test-coverage 16, dep-vuln 15, code-review 16, fix-workflow 16, lint-no-suppressions 13 (1 below the ≥14 plan stretch but above floor 8 — body 64 LOC sits below scorer sweet spot 80–310 because content moved to references; acknowledged in plan AC #2).
+- **Regressions:** none — `affected_paths` covers all 27 changed files (no scope drift, no unannounced changes); each restructured SKILL.md retains ≥3 `<constraint>` blocks plus Wrong/Right table-form fix patterns (lint-no-suppressions, code-review, fix-workflow use Wrong-fix → Right-fix tables in lieu of literal BAD/GOOD blocks — AC #5 explicitly permits the per-axis-routing alternative).
+- **CI:** pass — `bash scripts/ci.sh` exits 0 (369/200 skills, 63/63 commands, 320/308 agents; per-file floors all clear).
+- **Follow-ups:** none — the 1-point lint-no-suppressions stretch miss is acknowledged in-plan, not a regression worth a new plan.
+- Filed by: plan-review on 2026-05-12T17:26:48-03:00
