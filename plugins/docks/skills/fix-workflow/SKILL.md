@@ -4,7 +4,7 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-06"
+  updated: "2026-05-12"
 ---
 
 # Fix Workflow
@@ -34,6 +34,16 @@ NOT for:
 - Architectural refactors with SOLID and per-principle analysis — see `/refactor`
 - Adding new features (use `tdd-workflow` for test-first or just write the code)
 
+## When to Load Per-Finding-Type Templates
+
+The universal 6-step procedure below applies to every fix. For finding-type-specific test strategies, revert triggers, and anti-patterns, load one of these:
+
+| Finding type | Reference file |
+|---|---|
+| CVE / GHSA / dependency vulnerability / security audit finding | `references/security-fix-templates.md` |
+| Performance regression / slow query / N+1 / render cascade | `references/perf-fix-templates.md` |
+| Functional bug reproducible via test / crash / wrong-output | `references/bug-fix-templates.md` |
+
 ## The Six-Step Procedure
 
 ### Step 1 — Stack and scope
@@ -58,7 +68,7 @@ Skip this step if scope is "scan a directory" or "fix the audit report." Run it 
 
 ### Step 3 — Discover (parallel by default)
 
-Run two passes against the scope, ideally in the same turn — whenever you have multiple independent operations (reads, greps, fetches, independent edits), invoke them concurrently rather than sequentially (model-agnostic "default-to-parallel" rule):
+Run two passes against the scope, ideally in the same turn — whenever you have multiple independent operations (reads, greps, fetches, independent edits), invoke them concurrently rather than sequentially:
 
 **Code-quality pass** — find bugs, dead code, refactoring opportunities, performance issues:
 
@@ -75,9 +85,9 @@ go vet ./... && staticcheck ./...           # go equivalent
 
 ```bash
 pnpm audit --prod                           # runtime CVEs
-pnpm outdated                               # version drift
 pip-audit                                   # python CVEs
 cargo audit                                 # rust CVEs
+govulncheck ./...                           # go CVEs (reachability-aware)
 ```
 
 Capture each tool's actual output (stderr + stdout, exit code). Don't paraphrase.
@@ -98,6 +108,8 @@ For each finding, fill in this template before writing any code:
 | Blast radius | What else touches this code path |
 
 Show the user the table grouped by tier. Don't apply yet.
+
+**For finding-type-specific test strategies and revert triggers**, load the matching reference file from the routing table above.
 
 ### Step 5 — Pre-verify against the codebase
 
@@ -158,10 +170,10 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 - Re-Read every file:line before reporting a fix as applied
 - Run the test the plan named, capture actual output (not paraphrase) — claim "fixed" only on observed green
 - If git diff shows a change you didn't intend, that's a bug in your edit; revert and redo, don't accept it
-- The "revert trigger" line in the plan is binding — if that test fails, revert NOW, don't try to patch the patch (apply kit-level rule #5: lint-loop 3-strike)
+- The "revert trigger" line in the plan is binding — if that test fails, revert NOW, don't try to patch the patch (3-strike rule: stop after 3 failed attempts on the same file — diagnosis is likely wrong)
 
 ## References
 
-- Companion skills: `dep-vuln-workflow` (CVE triage), `lint-no-suppressions` (never silence linters), `code-review` (produces the finding list this skill consumes), `tdd-workflow` (when fix-via-test-first is appropriate)
-- Companion commands: `/security` (full OWASP audit before fixing), `/refactor` (SOLID and dead-code at scale)
-- Agentic best-practices applied here (model-agnostic): default-to-parallel for Step 3 discovery; linter-loop 3-strike when fixes won't go green (stop after 3 failed attempts on the same file — diagnosis is likely wrong); read-before-edit TTL — re-read a file before editing if you haven't read it in the last ~5 messages, since cached content goes stale silently
+- Companion skills: `dep-vuln-workflow`, `lint-no-suppressions`, `code-review`, `tdd-workflow`
+- Companion commands: `/security`, `/refactor`
+- Per-finding-type templates: `references/security-fix-templates.md`, `references/perf-fix-templates.md`, `references/bug-fix-templates.md`
