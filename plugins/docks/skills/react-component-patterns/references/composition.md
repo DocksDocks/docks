@@ -1,38 +1,18 @@
----
-name: react-reuse-components
-description: Use when designing or reviewing reusable React components — choosing between compound components, slot-based composition (`asChild` Radix-style), polymorphic `as` prop, headless component patterns (TanStack Table style), provider+hook context, or variant systems (cva / tailwind-variants). React 19 ref-as-prop replaces forwardRef. Not for module / interface design pressure (use the solid skill) or React effect rules (use react-effect-policy).
-user-invocable: false
-paths:
-  - "**/*.tsx"
-  - "**/*.jsx"
-metadata:
-  pattern: tool-wrapper
-  updated: "2026-05-06"
----
+# React Component Composition — 6 Patterns
 
-# React Component Reuse Patterns
+Deep reference for composition triggers in the parent `SKILL.md`. Six composition patterns for building components that scale across callers without leaking implementation. Function-first React (React 19+ / Next.js App Router); no class components or HOCs.
 
-Six composition patterns for building components that scale across callers without leaking implementation. Function-first React (React 19+ / Next.js App Router); no class components or HOCs.
-
-<constraint>
-Don't make a component reusable until a second caller genuinely needs it. The 1-callsite reuse trap costs more than the duplication it prevents — a compound or polymorphic API on a single use site is over-engineering and degrades the original caller's signal. "We might need this elsewhere later" is not a second caller.
-</constraint>
-
-<constraint>
-React 19 made `ref` a regular prop on function components — `forwardRef` is no longer needed for new code (and will be deprecated, per the React 19 release notes). Wrapping a component in `forwardRef` "for the future" adds noise and breaks devtools display names. Add ref handling only when a caller actually needs imperative access.
-</constraint>
-
-<constraint>
-Slots / `asChild` (the Radix `<Slot>` pattern) require `React.cloneElement` and assume the child accepts the parent's props. Use them only when the parent's API is "behavior, not markup" — buttons, tooltips, links, dropdowns. Don't reach for `asChild` to avoid styling indirection; that's what variant systems are for.
-</constraint>
-
-## When to Use
+## When this applies
 
 - Building a UI primitive callers will compose differently (Tabs, Dialog, Accordion).
 - A component already has 5+ optional props for visual variants (`primary | secondary | ghost | …`) — variant system territory.
 - Two callers want the same logic but different markup — headless component territory.
 - A wrapper element is forcing callers into a fixed tag (`<button>` when they need `<Link>`) — polymorphic or `asChild` territory.
 - The same context value is consumed in 3+ places with the same boilerplate — provider + hook territory.
+
+<constraint>
+Slots / `asChild` (the Radix `<Slot>` pattern) require `React.cloneElement` and assume the child accepts the parent's props. Use them only when the parent's API is "behavior, not markup" — buttons, tooltips, links, dropdowns. Don't reach for `asChild` to avoid styling indirection; that's what variant systems are for.
+</constraint>
 
 ## Pattern 1 — Compound Components
 
@@ -303,12 +283,16 @@ function Input({ ref, ...props }: Props & { ref?: React.Ref<HTMLInputElement> })
 | Reach for compound components when there's no shared state | Children-as-prop with a discriminated `kind` — no Context overhead |
 | Use cva for 2 variants | A `clsx` ternary is fine. cva earns its keep at 5+ variants |
 | Add `displayName` to every component "for devtools" | Function components show their name automatically; only set it on `React.memo` / forwardRef wrappers |
+| Extract an effect into a custom hook to "fix" it | Fix the anti-pattern first (see `effects.md`). Only extract once there's a second caller. 1-callsite-trap. |
+
+## Companion content
+
+- `effects.md` — the 3 acceptable `useEffect` categories. Composition often eliminates effects, doesn't add them.
+- `solid` skill — module/interface/dependency-injection structure (composition is component-shape; SOLID is module-shape).
+- `design-tokenization` skill — variant systems consume semantic tokens, not hex colors.
 
 ## References
 
-- Companion skill: `solid` for module / interface / dependency-injection structure (composition is component-shape; SOLID is module-shape)
-- Companion skill: `react-effect-policy` for the 3 acceptable useEffect categories — composition often eliminates effects, doesn't add them
-- Companion skill: `design-tokenization` — variant systems consume semantic tokens, not hex colors
 - Radix UI Slot source: https://github.com/radix-ui/primitives/blob/main/packages/react/slot/src/Slot.tsx
 - TanStack Table headless docs: https://tanstack.com/table/latest/docs/introduction
 - React 19 ref-as-prop release notes: https://react.dev/blog/2024/12/05/react-19#ref-as-a-prop

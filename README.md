@@ -36,11 +36,9 @@ The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/pla
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
 | `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment |
-| `nextjs-conventions` | Next.js 14+ patterns |
-| `react-effect-policy` | React 19 useEffect discipline |
+| `react-component-patterns` | React 19+ effects (3 acceptable categories) + composition (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva variants) |
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
-| `react-reuse-components` | React composition patterns — compound components, slots/`asChild`, polymorphic `as`, headless hooks, provider+hook, variant systems (cva) |
-| `typescript-typing` | TS generics, narrowing, branded types |
+| `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
 ## Repository layout
 

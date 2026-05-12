@@ -48,11 +48,9 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
 | `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment *(vendored, MIT)* |
-| `nextjs-conventions` | Next.js 13/14/15/16 App Router, Server Components, `proxy.ts` rename |
-| `react-effect-policy` | React 19 useEffect discipline — 6 anti-patterns + Compiler-era replacements |
+| `react-component-patterns` | React 19+ effects (3 acceptable categories) + composition (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva variants) |
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
-| `react-reuse-components` | React composition patterns — compound components, slots/`asChild`, polymorphic `as`, headless hooks, provider+hook, variant systems (cva) |
-| `typescript-typing` | `any` vs `unknown`, discriminated unions, branded IDs, parse-don't-assert |
+| `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
 ### Agents
 

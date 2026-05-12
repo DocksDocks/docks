@@ -1,24 +1,8 @@
----
-name: react-effect-policy
-description: "Use when writing or reviewing a useEffect; fixing a react-hooks/set-state-in-effect or react-hooks/exhaustive-deps lint error; debugging cascading renders; porting a class component to hooks; replacing manual useMemo/useCallback in a React-19-Compiler codebase; or adding a setTimeout/addEventListener/matchMedia subscription."
-user-invocable: false
-paths:
-  - "**/*.tsx"
-  - "**/*.jsx"
-  - "**/*.ts"
-  - "**/*.js"
-metadata:
-  pattern: tool-wrapper
-  updated: "2026-04-28"
----
+# useEffect — Discipline & Replacement Patterns
 
-# React useEffect Policy
+Deep reference for effect-related triggers in the parent `SKILL.md`. The 3 acceptable `useEffect` categories, the anti-pattern → replacement table, and concrete code for `useSyncExternalStore`, debounced-value, and SSR/CSR gating.
 
-<constraint>
-`useEffect` is the exception, not the rule. React 19's docs are explicit: most effects in modern codebases are wrong. Before adding one, prove the code doesn't fit a faster escape hatch. Never suppress `react-hooks/set-state-in-effect` or `react-hooks/exhaustive-deps` — fix the underlying issue.
-</constraint>
-
-## When to Use
+## When this applies
 
 - Reviewing or writing any `useEffect` / `React.useEffect` call.
 - Fixing the `react-hooks/set-state-in-effect` or `react-hooks/exhaustive-deps` lint error.
@@ -50,6 +34,7 @@ Every new `useEffect` MUST match exactly one of the 3 categories below (DOM/brow
 Document which one in a one-line comment above the effect.
 
 ### 1. Subscribing to a DOM / browser API event
+
 - Pattern: `addEventListener` in body, `removeEventListener` in cleanup.
 - Dep array is empty or stable-refs-only. Re-subscribing every render or on every state change is a bug.
 - If you need current state inside the handler, either (a) read it from the DOM at handler time, or (b) hold it in a `useRef` updated during render, or (c) use functional state updaters.
@@ -79,10 +64,12 @@ React.useEffect(() => {
 ```
 
 ### 2. Synchronizing React state into an external system that has no subscription surface
+
 - Example: writing a CSS variable, updating a canvas, pushing to a third-party widget that doesn't offer a listener.
 - Rare in modern codebases. If the external system has a subscribe API, use `useSyncExternalStore` instead.
 
 ### 3. Firing an async side effect tied to a user-facing input that cannot move to a Server Action
+
 - Example: debounced RPC call while user types, live search.
 - Use `useDebouncedValue` to produce the stable trigger, then fetch inside an effect with a cancellation flag.
 - Call `setLoading(true)` inside the `async function` body (not synchronously in the effect body — that trips `set-state-in-effect`).
@@ -177,7 +164,7 @@ Cleanup is mandatory for every subscription effect. Always return `() => unsubsc
 - **Empty deps aren't a free pass.** If the effect references a state value, that state becomes stale. Use a ref or read from the DOM.
 - **`useDeferredValue` is NOT a time-based debounce.** It's CPU-priority. For "wait 400ms then fire RPC," use `useDebouncedValue` (or any setTimeout-in-effect hook).
 - **`useEffectEvent` is still experimental** in React 19 (as of 2026-04). Do not use in production; use the ref-latest pattern instead.
-- **Don't "fix" an effect by burying it in a custom hook.** Extraction doesn't change correctness — it hides smell. Fix the anti-pattern first (use the replacement table above). Only extract once there's a second caller AND the logic fits one of the 3 acceptable categories. See the `react-reuse-components` skill's 1-callsite-trap rule for when extraction is the right refactor.
+- **Don't "fix" an effect by burying it in a custom hook.** Extraction doesn't change correctness — it hides smell. Fix the anti-pattern first (use the replacement table above). Only extract once there's a second caller AND the logic fits one of the 3 acceptable categories. See `composition.md` § Common Traps for the 1-callsite-trap rule.
 
 ## References
 

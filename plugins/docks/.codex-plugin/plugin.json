@@ -1,7 +1,7 @@
 {
   "name": "docks",
   "version": "0.3.3",
-  "description": "Multi-agent pipeline kit (skills only on Codex — full version with Builder-Verifier slash commands and tiered Opus/Sonnet subagents on Claude Code). Portable engineering-convention skills cover test-first / coverage / fix workflows, code review, SOLID, React patterns, dep-vuln triage, design tokens, plans bootstrapping, and multi-tool AGENTS.md bridging.",
+  "description": "Multi-agent pipeline kit (skills only on Codex — full version with Builder-Verifier slash commands and tiered Opus/Sonnet subagents on Claude Code). Portable engineering-convention skills cover test-first / coverage / fix workflows, code review, SOLID, type-safety discipline, React component patterns (effects + composition), dep-vuln triage, design tokens, plans bootstrapping, and multi-tool AGENTS.md bridging.",
   "author": {
     "name": "Eduardo Marquez"
   },

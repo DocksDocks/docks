@@ -33,7 +33,7 @@ Do BOTH. Frameworks evolve faster than the training cutoff — recent examples t
 - Next.js 16 renamed `middleware.ts` → `proxy.ts` (the new name is the current convention, not the legacy)
 - React 19 deprecated `forwardRef` for most use cases (function components now accept `ref` directly)
 - Tailwind 4 moved config from `tailwind.config.js` to CSS-first
-If `.claude/skills/` contains a relevant skill (e.g., `nextjs-conventions`, `react-effect-policy`, `solid`, `react-reuse-components`), the skill's content takes precedence over training-data recall. NEVER mark a pattern outdated based on memory alone.
+If `.claude/skills/` contains a relevant skill (e.g., `react-component-patterns`, `solid`, `type-safety-discipline`, `design-tokenization`), the skill's content takes precedence over training-data recall. NEVER mark a pattern outdated based on memory alone.
 </constraint>
 
 ## Workflow

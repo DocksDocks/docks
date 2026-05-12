@@ -1,6 +1,6 @@
 ---
 name: solid
-description: Use when designing a module / service / class with multiple concerns, refactoring a 300+ LOC file with mixed change axes, replacing a growing switch/if-else with a strategy map, converting runtime instanceof checks into discriminated unions, splitting a fat interface, or breaking a hard-coded dependency on a concrete SDK. Generic SOLID for TS / Python / Go — React-component composition lives in react-reuse-components.
+description: Use when designing a module / service / class with multiple concerns, refactoring a 300+ LOC file with mixed change axes, replacing a growing switch/if-else with a strategy map, converting runtime instanceof checks into discriminated unions, splitting a fat interface, or breaking a hard-coded dependency on a concrete SDK. Generic SOLID for TS / Python / Go — React-component composition lives in react-component-patterns.
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -228,7 +228,7 @@ Either form decouples the caller from `Stripe` so tests, swaps, and provider mig
 
 ## References
 
-- Companion skill: `react-reuse-components` for React component composition patterns (compound, polymorphic, headless, slots) — distinct from SOLID's structural concerns
-- Companion skill: `typescript-typing` for discriminated-union ergonomics referenced in the L section
+- Companion skill: `react-component-patterns` for React component composition patterns (compound, polymorphic, headless, slots) — distinct from SOLID's structural concerns
+- Companion skill: `type-safety-discipline` for discriminated-union ergonomics referenced in the L section
 - Uncle Bob's original SOLID essays: https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html
 - TypeScript discriminated unions: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions

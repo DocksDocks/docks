@@ -80,7 +80,7 @@ DROP any finding that fails reproduction. Do NOT pass dropped findings through t
 - Read `package.json` / `requirements.txt` / `Cargo.toml` for the installed major version.
 - Run context7 `resolve-library-id` → `query-docs` for that version. Run `WebFetch` on the official docs as a second source.
 - Compare the Planner's claim against current docs. Common training-data drift to catch: Next.js 16 `proxy.ts` (current) being mistaken for "should be `middleware.ts`" (legacy); React 19 `ref` as a prop being flagged as "missing forwardRef"; Tailwind 4 CSS-first config being flagged as "missing tailwind.config.js".
-- If `.claude/skills/` includes a relevant skill (e.g., `nextjs-conventions`), the skill's content takes precedence over training data.
+- If `.claude/skills/` includes a relevant skill (e.g., `react-component-patterns`, `type-safety-discipline`), the skill's content takes precedence over training data.
 - Mark MUST FIX for any entry contradicted by current docs. Mark APPROVED with citation for entries the docs confirm.
 
 ## Output Format
