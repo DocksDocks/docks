@@ -25,7 +25,11 @@ For Claude-Code-specific authoring details — plugin manifest schema, slash com
 
 ## Plans
 
-Multi-commit work plans for this repo live in `docs/plans/` and move between `planned/` → `ongoing/` → `finished/` via `git mv`. Plans stalled on external dependencies go to `blocked/`; date- or approval-triggered plans go to `scheduled/`. Every category is multi-occupancy. The full convention is in `docs/plans/AGENTS.md`; `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested-directory discovery. The `plan-manager` agent (`/docks:plan`) reads plans, evaluates schedule triggers, and dispatches to the assignee.
+<constraint>
+Multi-commit work plans live in `docs/plans/{planned,ongoing,blocked,scheduled,finished}/`. Every plan file is a complete handoff document — `goal`, structured `Steps`, `Mistakes & Dead Ends`, `Sources`, `Review` — so any agent can pick one up cold without conversation context. Skills handle every operation: `plan-init` (bootstrap), `plan-manager` (list/show/resume/start/new/fire/ship), `plan-review` (verification). Trigger by natural language ("create docs/plans", "list plans", "review plan <slug>") — there is no slash command. Every category is multi-occupancy.
+</constraint>
+
+The full convention (frontmatter schema, body section order, 3-tier pretty-print contract, category-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested-directory discovery. Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation.
 
 ## Project-local skills
 

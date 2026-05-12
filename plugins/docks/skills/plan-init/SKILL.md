@@ -120,14 +120,11 @@ The exact text to write as a stub or append to an existing `AGENTS.md` (or `CLAU
 ```markdown
 ## Plans
 
-Multi-commit work plans live in `docs/plans/` and move between `planned/` →
-`ongoing/` → `finished/` via `git mv` so history is preserved. Plans that
-stall on an external dependency go to `blocked/`; plans queued for time-
-triggered auto-execution go to `scheduled/`. Every category is
-multi-occupancy — multiple plans can live in any directory at once. See
-`docs/plans/AGENTS.md` for the full convention. The `plan-manager` agent
-(`/docks:plan`) reads plans, evaluates schedule triggers, and dispatches to
-the assignee agent named in each plan's frontmatter.
+<constraint>
+Multi-commit work plans live in `docs/plans/{planned,ongoing,blocked,scheduled,finished}/`. Every plan file is a complete handoff document — `goal`, structured `Steps`, `Mistakes & Dead Ends`, `Sources`, `Review` — so any agent can pick one up cold without conversation context. Skills handle every operation: `plan-init` (bootstrap), `plan-manager` (list/show/resume/start/new/fire), `plan-review` (verification). Trigger by natural language ("create docs/plans", "list plans", "review plan <slug>") — there is no slash command. Every category is multi-occupancy.
+</constraint>
+
+The full convention (frontmatter schema, body section order, 3-tier pretty-print contract, category-specific age tokens) lives in `docs/plans/AGENTS.md`. `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested-directory discovery.
 ```
 
 When appending to an existing file, prepend a single blank line for visual separation. When creating a stub, the snippet IS the entire file.
@@ -140,7 +137,7 @@ When appending to an existing file, prepend a single blank line for visual separ
 | Overwriting an existing `docs/plans/AGENTS.md` with a fresh template | Re-running the bootstrap rewrites in-flight customizations | `test -f` check before writing; never overwrite a file the user has touched |
 | Appending the Plans section twice on a re-run | `Edit` without checking for existing `docs/plans` token | `grep -l 'docs/plans' AGENTS.md CLAUDE.md 2>/dev/null` first; SKIP if matched |
 | Creating an empty stub when the user has an AGENTS.md or CLAUDE.md but it's small | Treating "small" as "missing" | Existence check is the only gate — file size doesn't matter |
-| Trying to migrate `docs/roadmap/` here | Mixing bootstrap with migration paths | Bootstrap only handles greenfield; migration lives in `/docks:plan migrate-from-roadmap` |
+| Trying to migrate `docs/roadmap/` here | Mixing bootstrap with migration paths | Bootstrap only handles greenfield; for a `docs/roadmap/` directory, file a separate plan via `plan-manager` ("new plan migrate-roadmap") and migrate by hand |
 | Enforcing single-occupancy in any category | Refusing to create a second ongoing plan because one already exists | Multi-occupancy is the rule everywhere — never block on destination count |
 | Writing `docs/plans/CLAUDE.md` with the full template body | Duplicates the AGENTS.md content; drifts on edits | CLAUDE.md is a one-line `@AGENTS.md` shim only — single source of truth lives in AGENTS.md |
 | Skipping verification at the end | Trusting the writes worked | `test -f` each created path and grep `docs/plans/AGENTS.md` for the literal heading `## Multi-occupancy` |
@@ -155,5 +152,7 @@ When appending to an existing file, prepend a single blank line for visual separ
 
 ## References
 
-- `references/plans-agents-md-template.md` — the verbatim `docs/plans/AGENTS.md` content with the 5-category lifecycle, multi-occupancy rule, scheduled-date trigger spec, frontmatter contract, and pretty-print preview format. The companion `docs/plans/CLAUDE.md` is always a one-line `@AGENTS.md` shim — not duplicated content.
-- Companion: the `plan-manager` agent (`/docks:plan` slash command) reads plans, evaluates triggers, and dispatches to assignee agents. The bootstrap creates the directory structure; runtime dispatch is plan-manager's job.
+- `references/plans-agents-md-template.md` — the verbatim `docs/plans/AGENTS.md` content with the 5-category lifecycle, multi-occupancy rule, frontmatter schema (including `goal`, `started_at`, `tags`, `affected_paths`, `related_plans`, `review_status`), 12 canonical body sections, scheduled-date trigger spec, and 3-tier pretty-print contract with category-specific age tokens. The companion `docs/plans/CLAUDE.md` is always a one-line `@AGENTS.md` shim — not duplicated content.
+- Sibling skill `plan-manager` — handles every runtime operation on plans (list/show/resume/start/new/fire/ship). Triggered by natural language; auto-dispatches plan-review on `→ finished/` moves.
+- Sibling skill `plan-review` — verifies finished plans against their `ship_commit` diff, runs `scripts/ci.sh`, writes the `## Review` section. Auto-dispatched by plan-manager or manually via "review plan <slug>".
+- This skill creates the directory structure and convention doc; runtime operations live in plan-manager + plan-review. There is no slash command for plan operations — everything is natural-language skill activation, which keeps Codex and Claude on the same source of truth.

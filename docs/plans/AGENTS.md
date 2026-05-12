@@ -2,9 +2,18 @@
 
 Tactical work-item tracker. Every non-trivial work item — anything that
 takes more than one commit, or whose progress needs to survive an
-auto-compact — lives here as a plan file. The `plan-manager` agent
-(invoked via `/docks:plan`) reads plans, evaluates schedule triggers, and
-dispatches to assignee agents.
+auto-compact — lives here as a plan file. **Every plan file is a complete
+handoff document**: any agent can pick one up cold, without conversation
+context, and continue.
+
+Operations are skill-driven (cross-tool: Codex and Claude both work via
+natural language). There is no slash command.
+
+| User says | Skill triggered |
+|---|---|
+| "create docs/plans", "bootstrap planning" | `plan-init` |
+| "list plans", "show <slug>", "resume <slug>", "start <slug>", "new plan <slug>", "fire scheduled" | `plan-manager` |
+| "review plan <slug>", auto on `→ finished/` move | `plan-review` |
 
 ## Directory layout
 
@@ -53,36 +62,26 @@ Every plan file has frontmatter + body. Base frontmatter (all categories):
 ```markdown
 ---
 title: Short imperative title, ≤70 chars
+goal: One-sentence precise summary, ≤200 chars
 status: planned | ongoing | blocked | scheduled | finished
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
+started_at: null
 assignee: null | <agent-name-from-.claude/agents/>
 blockers: []
 blocked_reason: null
 blocked_since: null
 ship_commit: null
+tags: []
+affected_paths: []
+related_plans: []
+review_status: null
 ---
-
-## Context
-One short paragraph: why this work, what it unblocks.
-
-## Scope
-Bullet list of concrete changes — files, migrations, workflows, RPCs.
-
-## Acceptance criteria
-What "done" looks like. Specific enough to verify. Tri-state checkboxes
-work well here: `- [ ]` planned, `- [~]` in flight (uncommitted scratch),
-`- [x]` shipped — `[x]` is binding, `[~]` is freely toggled.
-
-## Out of scope
-Anything adjacent that is NOT in this plan.
-
-## Blockers
-Empty, or bulleted list of specific external inputs needed.
-
-## Notes
-Design decisions, open questions, related plans.
 ```
+
+`started_at` is set ONCE — the first time a plan moves into `ongoing/` —
+and never re-set on later bounces. It answers "how long has this plan
+been in flight in total."
 
 ### `scheduled/` adds three fields
 
@@ -104,40 +103,152 @@ dispatches to the assignee agent without asking.
 | Key | Rule |
 |---|---|
 | `title` | Imperative, ≤70 chars, no trailing period. First line of body must repeat as `# Title`. |
+| `goal` | One-sentence precise summary of the success state, ≤200 chars. Drives Tier-1 listing. |
 | `status` | Must match the containing directory. |
 | `created` | Never changes after the file exists. |
 | `updated` | Bump to today's date on every substantive edit. |
+| `started_at` | Date the plan FIRST moved into `ongoing/`. Set once; never re-set on later moves. `null` until first ongoing/ entry. |
 | `assignee` | Name of an agent under `.claude/agents/` (no `.md` suffix). `null` = plan-manager picks or asks. |
 | `blockers` | Array of short strings. Empty → actionable immediately. |
 | `blocked_reason` | One-line reason naming the external actor + the specific input needed. Required when `status: blocked`. |
 | `blocked_since` | Date the plan first moved into `blocked/`. Cleared only when leaving `blocked/`. |
 | `ship_commit` | Full SHA once the work lands on `main`. Only populated for `finished/`. |
+| `tags` | Free-form labels (e.g., `[migration, security]`) for filtering. Empty by default. |
+| `affected_paths` | Files this plan touches. Optional; populates the scope-drift check in plan-review. |
+| `related_plans` | Slugs of related/dependent plans. Optional. |
+| `review_status` | `null` until plan-review runs; then `passed` / `partial` / `regressed`. |
 | `trigger` | `date` or `manual-approval`. Required for `scheduled/`; absent elsewhere. |
 | `scheduled_date` | ISO 8601 with offset. Required when `trigger: date`. |
 | `auto_execute` | `true` = silent fire; `false` (default) = surface for approval. |
 
+### Body sections (canonical order)
+
+```markdown
+# <Title from frontmatter>
+
+## Goal
+Detailed and precise — what success looks like, why it matters. The
+frontmatter `goal` field is the one-line summary; this section is the
+expanded version.
+
+## Context
+One short paragraph: why this work, what it unblocks, current state.
+
+## Steps
+| # | Task | Depends | Parallel | Status | Owner |
+|---|---|---|---|---|---|
+| 1 | Do X | — | with #2 | planned | backend |
+| 2 | Do Y | — | with #1 | planned | supabase |
+| 3 | Do Z | 1, 2 | — | planned | frontend |
+
+Status enum: `planned` / `in-flight` / `done` / `blocked` / `skipped`.
+Optional `### Step details` block beneath the table for per-row notes.
+
+## Acceptance criteria
+Tri-state checkboxes:
+- [ ] planned
+- [~] in flight (uncommitted scratch)
+- [x] shipped — `[x]` is binding, `[~]` is freely toggled.
+
+## Out of scope
+Anything adjacent that is NOT in this plan.
+
+## Mistakes & Dead Ends
+Append-only journal. One entry per attempt that didn't work:
+- **YYYY-MM-DD**: <what was tried> → <why it failed> → <how to avoid>
+
+Empty when nothing's been tried. Incoming agents read this to skip
+re-walking known dead ends.
+
+## Sources
+URLs and file:line references, each paired with the concept they clarified:
+- <URL or file:line> — <which concept it clarified>
+
+## Blockers
+Empty, or bulleted list of specific external inputs needed.
+
+## Notes
+Design decisions, open questions, related plans.
+
+## Evidence log
+Append-only timeline (optional — omit for small plans):
+- **<ISO timestamp>** — <event> — <by whom/what>
+
+## Review
+(filled by plan-review on completion — leave empty placeholder until shipped)
+```
+
+When filled by `plan-review`, the Review section uses this schema:
+
+```markdown
+- **Goal met:** yes | partial | no — <one-line reasoning>
+- **Regressions:** none | <list with file:line>
+- **CI:** <pass | fail + first failing check>
+- **Follow-ups:** none | <list of new plan slugs filed>
+- Filed by: plan-review on <ISO timestamp>
+```
+
+Sections 5–11 must have their heading present but may have empty body.
+Section 12 (`## Review`) is a placeholder until `plan-review` fires.
+
 ## Lifecycle transitions
 
-| Transition | What to do |
+| Transition | What plan-manager does |
 |---|---|
-| New plan | Create in `planned/<slug>.md` (or `scheduled/<slug>.md` if it has a trigger). |
-| First commit toward plan | `git mv` to `ongoing/`, flip status, bump `updated`. |
+| New plan | Create in `planned/<YYYYMMDD>-<slug>.md` (or `scheduled/` if it has a trigger). |
+| First commit toward plan | `git mv` to `ongoing/`, flip status, bump `updated`, **set `started_at: today` (first time only)**. |
 | Block | `git mv ongoing/ → blocked/`, set `blocked_reason`, `blocked_since`. |
-| Unblock | `git mv blocked/ → ongoing/`, clear `blocked_reason` and `blocked_since`. |
-| Schedule trigger fires | `plan-manager` does `git mv scheduled/ → ongoing/`, removes scheduled-only keys, dispatches to assignee. |
-| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md`, set `status: finished`, paste SHA into `ship_commit`. |
+| Unblock | `git mv blocked/ → ongoing/`, clear `blocked_reason` and `blocked_since`. `started_at` unchanged. |
+| Schedule trigger fires | `git mv scheduled/ → ongoing/`, remove scheduled-only keys, set `started_at`, dispatch to assignee. |
+| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md`, set `status: finished`, paste SHA into `ship_commit`. Auto-dispatches `plan-review`. |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in Notes. Don't delete. |
 
 ## Pretty-print preview contract
 
 After any agent writes a plan or moves it between directories, it MUST
-render the file content in chat — never leave the user to open the file:
+render the file content in chat — never leave the user to open the file.
+Three tiers.
+
+### Tier 1 — Goal-listing (default for broad asks)
+
+Triggered by "what plans do I have?", "list plans", or any unscoped ask.
+Format: `  <slug>: <goal>` per line. Sorted by `(category, age desc)`.
+Category headers shown only when scope crosses categories.
+
+```
+Here are the plans:
+  w2-whatsapp-send: Wire W2 send so phone numbers flow with no manual reformat
+  image-cdn-migration: Migrate image CDN to Cloudflare R2 to drop S3 egress
+  auth-rate-limit: Add /auth/login throttle to stop credential stuffing
+```
+
+### Tier 2 — Bulk listing (per-category, N > 1)
+
+Triggered by "list <category> plans" with multiple plans in the category.
+Adds the assignee column and a category-specific age token (table below).
+
+```
+docs/plans/ongoing/ (3)
+  20260511-w2-whatsapp-send.md     supabase   Wire W2 send · 2d in flight · 3/5 steps · 1 mistake noted
+  20260509-image-cdn-migration.md  null       Migrate CDN to R2 · 4d in flight · 1/4 steps
+  20260507-auth-rate-limit.md      backend    /auth/login throttle · 6d in flight · 0/4 steps · stale 4d
+```
+
+Derived columns: `M/N steps` (done/total from `## Steps` table) and
+`K mistakes noted` (count of `## Mistakes & Dead Ends` bullet entries).
+
+### Tier 3 — Single-plan preview
+
+Triggered by "show <slug>" or after any plan write/move. Header strip +
+body verbatim:
 
 ```
 Created docs/plans/planned/20260511-w2-whatsapp-send.md
 
   title       Wire W2 send_whatsapp branch
-  status      planned (just now)
+  goal        Wire W2 send so phone numbers flow with no manual reformat
+  status      planned (0d queued)
+  steps       0/5 done · #1 planned (backend)
   assignee    supabase
   blockers    none
   created     2026-05-11
@@ -146,25 +257,29 @@ Created docs/plans/planned/20260511-w2-whatsapp-send.md
 
 # Wire W2 send_whatsapp branch
 
-(body rendered verbatim — markdown headings render natively in the chat)
+(body rendered verbatim — markdown headings render natively)
 
 ---
 
 docs/plans/planned/20260511-w2-whatsapp-send.md
 ```
 
-Computed fields the renderer adds (not stored in frontmatter): age strings
-("4 days in queue", "blocked 47 days · waiting on Bruno"), trigger state
-for scheduled ("date · in 2 days" / "OVERDUE by 6 hours").
+### Age tokens (category-specific; bare `X days` is forbidden)
 
-For bulk listings ("any plans planned?" with N > 1), use a one-line digest
-per plan instead of full previews:
+Every age token carries a contextual word — never bare numbers, because
+"6 days" alone is ambiguous (since creation? in category? since last edit?).
 
-```
-docs/plans/planned/ (3)
-  20260511-w2-whatsapp-send.md     supabase   Wire W2 send_whatsapp branch
-  20260509-image-cdn-migration.md  null       Migrate image CDN to R2
-```
+| Category | Age token | Source date | Example |
+|---|---|---|---|
+| `planned/` | `<X>d queued` | today − `created` | `6d queued` |
+| `ongoing/` | `<X>d in flight` | today − `started_at` | `2d in flight` |
+| `blocked/` | `blocked <X>d · waiting on <name>` | today − `blocked_since` | `blocked 47d · waiting on Bruno` |
+| `scheduled/` | `fires in <X>d` / `DUE` / `OVERDUE by <X>d` | `scheduled_date` − today | `fires in 5d` |
+| `finished/` | `shipped <X>d ago` | today − date from filename prefix | `shipped 4d ago` |
+
+Optional `stale <X>d` flag for `ongoing/` when `today − updated > 3` days.
+`<X>d` is compact form; ≥365 days renders as `<Y>mo`. If `started_at` is
+`null` (legacy plan), fall back to `<X>d in flight (approx)` using `created`.
 
 ## Auto-compact resilience
 
@@ -174,6 +289,7 @@ conversation context, so auto-compact never touches it.
 - **Re-read before resume** when picking up after a gap.
 - **Update as you go** in the file, not just in chat.
 - **Don't track state only in chat** — mirror anything important to the plan file.
+- **The plan file is a complete handoff document** — `Mistakes & Dead Ends`, `Sources`, `Evidence log`, and the `Steps` table mean an incoming agent (or the same agent after compact) has everything to continue without recap.
 
 ## Slugs and naming
 
@@ -192,4 +308,4 @@ Reference docs, architecture notes, and API contracts do not belong here
 — they belong in `.agents/skills/` (or the tool-specific `.claude/skills/`
 equivalent), agent files, or the project's root `AGENTS.md`.
 
-(Template generated by `plan-init` on 2026-05-11T18:31:06-03:00)
+(Template generated by `plan-init` on 2026-05-12T15:00:00-03:00)
