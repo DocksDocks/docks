@@ -4,7 +4,7 @@ description: Use when a linter or type-checker flags an error; when tempted to a
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-04-18"
+  updated: "2026-05-12"
 ---
 
 # Never Suppress Lint / Type Errors
@@ -40,77 +40,33 @@ Comments like `eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`,
 | Python `# noqa: E501` | Suppress the line-length rule | Split the line, or configure the project's line-length globally |
 | `no-console` | Disable per-line | Use the project logger, or gate behind `process.env.NODE_ENV !== 'production'` |
 
-## Pre-commit Hook — Reusable Template
+## When to Load References
 
-Drop this into any repo at `.githooks/pre-commit` and wire it once via `core.hooksPath`. It scans the staged diff (not the whole file) so pre-existing suppressions that pre-date the hook don't block current work — but every new one gets rejected.
-
-```bash
-#!/usr/bin/env bash
-# Blocks new lint/type suppressions in staged code.
-set -euo pipefail
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
-
-SUPPRESSION_PATTERNS=(
-  'eslint-disable'
-  '@ts-ignore'
-  '@ts-expect-error'
-  '@ts-nocheck'
-  '// *noqa'
-  '# *noqa'
-  '# *type: *ignore'
-  '# *pylint: *disable'
-  '@SuppressWarnings'
-)
-
-STAGED="$(git diff --cached --name-only --diff-filter=ACMR)"
-SCAN=""
-while IFS= read -r f; do
-  # Exclude hook tooling itself — it legitimately names the patterns it blocks
-  case "$f" in .githooks/*|scripts/install-hooks.sh) continue ;; esac
-  case "$f" in
-    *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.py|*.java|*.kt|*.sh|*.sql|*.go|*.rs)
-      [ -f "$f" ] && SCAN="$SCAN $f" ;;
-  esac
-done <<< "$STAGED"
-
-if [ -n "$SCAN" ]; then
-  violations=0
-  for pattern in "${SUPPRESSION_PATTERNS[@]}"; do
-    hits="$(git diff --cached --unified=0 -- $SCAN 2>/dev/null \
-            | grep -E '^\+' | grep -v '^+++' | grep -E "$pattern" || true)"
-    if [ -n "$hits" ]; then
-      echo "✗ new suppression: /$pattern/" >&2
-      echo "$hits" | sed 's/^/    /' >&2
-      violations=$((violations + 1))
-    fi
-  done
-  [ "$violations" -gt 0 ] && exit 1
-fi
-
-exit 0
-```
-
-Install (one-time per clone): `git config core.hooksPath .githooks && chmod +x .githooks/pre-commit`
-
-Package this as `scripts/install-hooks.sh` and commit it — new collaborators run the installer once.
+| Triggered by | Reference file |
+|---|---|
+| Setting up the pre-commit hook (or its CI mirror) that blocks new suppressions | `references/pre-commit-hook.md` |
+| Looking up suppression syntax / scope rules for a specific tool (ESLint, TypeScript, mypy, ruff, clippy, golangci-lint, shellcheck, pylint, Java) | `references/per-tool-catalog.md` |
 
 <constraint>
 Project-level rule-disabling (turning off a rule repo-wide via `.eslintrc` / `tsconfig.json` / `pyproject.toml`) is the same problem as inline suppression — just at a wider blast radius. Scope rule-disabling to the minimum file pattern that genuinely needs it (e.g., auto-generated files, vendored code), and document the reason in the config.
 </constraint>
 
 <constraint>
-CI must enforce the suppression block too. Client-side hooks are bypassable with `--no-verify`. Run the same scanner as a CI job so PRs cannot land with new suppressions even if the committer skipped the local hook.
+CI must enforce the suppression block too. Client-side hooks are bypassable with `--no-verify`. Run the same scanner as a CI job so PRs cannot land with new suppressions even if the committer skipped the local hook. See `references/pre-commit-hook.md` § CI Mirror for a ready-to-paste GitHub Actions step.
 </constraint>
 
 ## Gotchas
 
 - **"It's legacy code" ≠ license to suppress.** If you're touching the line, fix it. If you're not, leave the pre-existing suppression untouched (the staged-diff scanner does the right thing — it only blocks NEW suppressions).
 - **`// TODO: fix this lint error`** is also a smell. If you can write the TODO comment, you can write the real fix.
+- **`@ts-ignore` vs `@ts-expect-error`** — prefer `@ts-expect-error` when a suppression is truly justified. TS will warn if the underlying error goes away (forcing removal), so the suppression can't drift silently.
 
 ## References
 
-- React docs: https://react.dev/reference/rules-of-hooks
-- TypeScript handbook on suppressions: https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-9.html#-ts-expect-error-comments (intended for test fixtures only)
-- ESLint rule reference: https://eslint.org/docs/latest/use/configure/rules (prefer config over inline disable)
+- React rules-of-hooks: https://react.dev/reference/rules-of-hooks
+- TypeScript `@ts-expect-error` (intended for test fixtures): https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-9.html#-ts-expect-error-comments
+- ESLint rule reference (prefer config over inline disable): https://eslint.org/docs/latest/use/configure/rules
+- mypy error codes (use the bracketed form): https://mypy.readthedocs.io/en/stable/error_code_list.html
+- ruff rule reference: https://docs.astral.sh/ruff/rules/
+- clippy lint list: https://rust-lang.github.io/rust-clippy/master/
+- golangci-lint `nolintlint` (requires reason on `//nolint:`): https://golangci-lint.run/usage/linters/#nolintlint
