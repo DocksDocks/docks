@@ -57,7 +57,7 @@ Current state of the 6 affected skills (LOC = body line count from `wc -l`):
 |---|---|---|---|---|---|
 | 1 | Restructure `solid` → TS-primary SKILL.md + `references/{rust,python,go}-solid.md` (per-principle deep examples per language) | — | with #2-#6 | planned | null |
 | 2 | Restructure `test-coverage` → generic 6-step body + `references/{jest-vitest,pytest,junit,cargo-test,go-test}.md` (per-framework templates: file layout, assertion idioms, mocking conventions, fixture patterns) | — | with #1,#3-#6 | planned | null |
-| 3 | Restructure `dep-vuln-workflow` → triage process body + `references/{npm-pnpm,pip,cargo,go-mod}-playbook.md` (per-ecosystem audit commands, severity-triage flags, major-version upgrade order) | — | with #1,#2,#4-#6 | planned | null |
+| 3 | Restructure `dep-vuln-workflow` → triage process body + `references/{npm-pnpm,pip,cargo,go-mod}-playbook.md` (per-ecosystem audit commands, severity-triage flags, major-version upgrade order) | — | with #1,#2,#4-#6 | **done** | self |
 | 4 | Extend `lint-no-suppressions` → keep body lean + extract bash hook to `references/pre-commit-hook.md` + add `references/per-tool-catalog.md` (suppression syntax for ESLint, TS / `@ts-ignore` / `@ts-expect-error`, mypy, ruff, clippy, golangci-lint, shellcheck, pylint, Java) | — | with #1-#3,#5,#6 | **done** | self |
 | 5 | Restructure `code-review` → SKILL.md as per-axis triage decision tree + `references/{security,perf,maintainability,ai-slop}.md` (per-axis finding catalogue, severity calibration, common false-positive guards) | — | with #1-#4,#6 | planned | null |
 | 6 | Restructure `fix-workflow` → main body as tier-1/2/3 framework + `references/{security-fix,perf-fix,bug-fix}-templates.md` (per-finding-type plan templates with revert triggers and test strategy) | — | with #1-#5 | planned | null |
@@ -183,6 +183,7 @@ Two parallel Explore agents mapped each affected skill's current body, extractio
 - **2026-05-12T16:07:30-03:00** — Plan created — assistant (Claude Opus 4.7)
 - **2026-05-12T16:23:14-03:00** — Research completed via 2 parallel Explore forks (skills 1–3 + 4–6); per-skill extraction plans recorded in Notes; 4 open decisions surfaced — assistant (Claude Opus 4.7)
 - **2026-05-12T16:57:24-03:00** — Plan started (planned/ → ongoing/, set started_at); Step #4 done: restructured `lint-no-suppressions` — SKILL.md 117→72 LOC, new `references/pre-commit-hook.md` (100 LOC, lifts the bash hook + CI mirror), new `references/per-tool-catalog.md` (166 LOC, covers ESLint/TS/mypy/ruff/pylint/clippy/golangci-lint/shellcheck/Java with same-line-reason rule); per-file score 16→13 (above floor 8, above plan AC ≥14 floor: short by 1 point — body LOC 72 sits below scorer sweet spot 80–310) — assistant (Claude Opus 4.7)
+- **2026-05-12T17:02:00-03:00** — Step #3 done: restructured `dep-vuln-workflow` — SKILL.md 168→133 LOC (within sweet spot 80–310), 4 new references files (`npm-pnpm-playbook.md` 97 LOC, `pip-playbook.md` 91 LOC, `cargo-playbook.md` 87 LOC, `go-mod-playbook.md` 87 LOC; total 362 LOC of per-ecosystem content); main body retains 3 `<constraint>` blocks + Split Strategy BAD/GOOD pair; per-file score 15/16 (above AC ≥14 floor); guard PASS — assistant (Claude Opus 4.7)
 
 ## Review
 

@@ -1,26 +1,35 @@
 ---
 name: dep-vuln-workflow
-description: Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or go list -m -u; responding to a CVE/GHSA advisory; bumping next.js / react / typescript / eslint majors; handling peer-dependency conflicts after a major upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; or setting dependency-update cadence.
+description: Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence.
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-04-18"
+  updated: "2026-05-12"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
 
 <constraint>
-Security patches ship first, always. Hygiene/feature bumps ship separately so a revert on one doesn't roll back the other. Never bump a major version without verifying peer-dep compatibility AND running the full check suite (lint + typecheck + build).
+Security patches ship first, always. Hygiene/feature bumps ship separately so a revert on one doesn't roll back the other. Never bump a major without verifying peer-dep / version-resolution compatibility AND running the full check suite (lint + typecheck/static-analysis + build + audit).
 </constraint>
 
 ## When to Use
 
-- Running `pnpm audit` / `npm audit` / `yarn audit` and seeing findings.
-- A CVE / GHSA advisory lands for a package we use.
-- Bumping `next`, `react`, `typescript`, `eslint`, or any framework across a major version.
-- Resolving peer-dependency conflicts after an upgrade.
-- Investigating a transitive vulnerability (comes from a dep of a dep).
-- Setting the dep-update cadence for a project.
+- Running an audit tool (`pnpm/npm/yarn audit`, `pip-audit`, `cargo audit`, `govulncheck`) and seeing findings.
+- A CVE / GHSA / RUSTSEC advisory lands for a package the project depends on.
+- Bumping a framework / runtime / language toolchain across a major version.
+- Resolving peer-dep or version-resolution conflicts after an upgrade.
+- Investigating a transitive vulnerability (dep of a dep).
+- Setting dep-update cadence for a project.
+
+## When to Load References
+
+| Triggered by | Reference file |
+|---|---|
+| JS/TS project — pnpm/npm/yarn audit; Next/React/TS/ESLint majors | `references/npm-pnpm-playbook.md` |
+| Python project — pip-audit, poetry, pipenv, uv; Django/FastAPI/Pydantic majors | `references/pip-playbook.md` |
+| Rust project — `cargo audit`, `cargo outdated`; tokio/axum majors, edition or MSRV bumps | `references/cargo-playbook.md` |
+| Go project — `govulncheck`, `go list -m -u`; module path `/vN` majors | `references/go-mod-playbook.md` |
 
 ## Severity Triage
 
@@ -35,41 +44,27 @@ Security patches ship first, always. Hygiene/feature bumps ship separately so a 
 
 Not every vulnerability affects you. Before panicking:
 
-1. **Is the vulnerable code in the runtime bundle?** Check with `pnpm why <package>` — if the path goes through `devDependencies` only, it's not in the production artifact.
-2. **Is the vulnerable API the one we use?** Read the advisory. Many CVEs affect a specific function (e.g., `marked.setOptions`) — if we only call `marked.parse`, we're not exposed.
-3. **Does an upgrade fix it?** Check the advisory's `patched_versions`. If the fix is in a patch release (`^x.y.z`), auto-upgrade. If it's in a major, see "Major Version Playbook" below.
-
-Example: in this codebase, a MODERATE `hono` vuln appeared as transitive via `shadcn>@modelcontextprotocol/sdk>hono`. The `shadcn` CLI is build-time only and we don't SSR hono JSX — runtime exposure was zero. Still, a `shadcn` minor bump cleared the transitive without risk.
-
-## Upgrade Playbook — Patches & Minors
-
-```bash
-pnpm audit                              # See what's there
-pnpm outdated                           # What's available
-pnpm up <pkg-a>@latest <pkg-b>@latest   # Single `pnpm up` for the batch
-pnpm lint && pnpm typecheck && pnpm build
-pnpm audit                              # Confirm cleared
-```
-
-Commit once: `chore(deps): bump X/Y/Z + patch CVE-XXXX-YYYY` with the advisory link in the body.
+1. **Is the vulnerable code in the runtime bundle / binary?** Use your ecosystem's "why" tool (`pnpm why`, `pip show` / `poetry show --tree`, `cargo tree -i`, `go mod why`) — if every dep-path goes through dev/test/build-only sections, it's not in the shipped artifact.
+2. **Is the vulnerable API the one you call?** Read the advisory. Many CVEs affect a specific function — if you don't call it, you're not exposed. `govulncheck` does this reachability check automatically; for other ecosystems it's manual.
+3. **Does an upgrade fix it?** Check the advisory's `patched_versions`. If the fix is in a patch release, auto-upgrade. If it's in a major, see the Major Version Playbook below.
 
 ## Major Version Playbook — The 3 Pre-flight Checks
 
-Before bumping a framework major, verify:
+Before bumping any framework / runtime / language major:
 
-1. **Breaking changes**: read the migration guide, not just the release notes.
-2. **Peer dependency range**: the major must be satisfied by every plugin we use. Example: `eslint-config-next@16.2.4` declares `peer: "eslint": ">=9.0.0"` — satisfies ESLint 10 on paper, but the bundled `eslint-plugin-react@7.37.5` uses a removed ESLint API (`context.getFilename`). **The peer declaration lied.** Verify by upgrading and running `pnpm lint`.
-3. **Config migrations**: TypeScript 6.0 deprecates `baseUrl`. React 19 tightens `react-hooks/set-state-in-effect`. Always scan the release notes for config/rule changes.
+1. **Breaking changes** — read the migration guide, not just the release notes.
+2. **Version-resolution compatibility** — every plugin/dep the project uses must satisfy the new major. Declared peer/version ranges sometimes lie (a plugin says it supports the new major but its internals call a removed API). Verify by upgrading and running the full check suite end-to-end.
+3. **Config migrations** — language/framework majors often deprecate config fields or tighten rules (e.g., TypeScript 6.0 deprecates `baseUrl`; React 19 adds new hook-rule enforcement; Pydantic v2 renames `Config` to `model_config`). Scan release notes for config / rule changes.
 
 ### When to roll back
 
 If a major bump breaks an upstream plugin that you cannot control:
-- Revert that single package to the previous major (`pnpm up eslint@^9`)
-- Document the hold-back in the commit message: "held back because X ecosystem isn't ready — revisit when Y publishes fix"
-- Open a tracker issue / plan doc
-- Ship the other upgrades that worked
+- Revert that single package to the previous major.
+- Document the hold-back in the commit message: "held back because X ecosystem isn't ready — revisit when Y publishes fix."
+- Open a tracker issue / plan doc.
+- Ship the other upgrades that worked.
 
-**Do not** suppress the new lint rules or `@ts-ignore` the type errors. See the `lint-no-suppressions` skill.
+**Do not** suppress new lint rules or `@ts-ignore` / `# type: ignore` / `#[allow]` / `//nolint` the type errors. See the `lint-no-suppressions` skill.
 
 ## Split Strategy — Security vs Hygiene
 
@@ -77,91 +72,62 @@ Always two commits minimum. Commit A (security) must stand alone — small diff,
 
 ```
 # GOOD — split into two independently revertable units
-chore(deps): patch CVE-2026-23869 — bump next 16.1.7 → 16.2.4     [commit A]
-chore(deps): bump supabase-js, postcss, shadcn to latest          [commit B]
+chore(deps): patch CVE-2026-23869 — bump <pkg> X.Y.Z → X.Y.Z'    [commit A]
+chore(deps): bump <pkg-b>, <pkg-c>, <pkg-d> to latest             [commit B]
 ```
 
 ```
 # BAD — one mixed commit; reverting hygiene also reverts the CVE patch
-chore(deps): bump next, supabase-js, postcss, shadcn + patch CVE-2026-23869
+chore(deps): bump <pkg>, <pkg-b>, <pkg-c>, <pkg-d> + patch CVE-2026-23869
 ```
 
-For major bumps, **one commit per major**. Never bundle two majors in the same commit:
+For major bumps, **one commit per major**. Never bundle two majors:
 
 ```
-# BAD — if TS 6 breaks later, you can't bisect without also reverting React 19
-chore(deps): bump TypeScript 5 → 6 AND React 18 → 19
+# BAD — if A breaks later, you can't bisect without also reverting B
+chore(deps): bump A 5 → 6 AND B 18 → 19
 ```
 
 ```
 # GOOD — bisectable; each major gets its own full-suite verification
-chore(deps): bump TypeScript 5 → 6
-chore(deps): bump React 18 → 19
+chore(deps): bump A 5 → 6
+chore(deps): bump B 18 → 19
 ```
 
-## Lint/Typecheck/Build — Non-negotiable Verification
+## Verification — Non-negotiable
 
 <constraint>
-Every upgrade must pass `pnpm lint && pnpm typecheck && pnpm build && pnpm audit` before commit. If any step fails, fix the root cause or roll back the specific package that broke — never commit with known failures and never suppress the new errors to "make it green" (see the `lint-no-suppressions` skill).
+Every upgrade must pass the full check suite (lint + typecheck/static-analysis + build/compile + audit) before commit. If any step fails, fix the root cause or roll back the specific package that broke — never commit with known failures and never suppress new errors to "make it green" (see the `lint-no-suppressions` skill).
 </constraint>
 
-After every upgrade:
-
-```bash
-pnpm lint       # ESLint, must be zero errors
-pnpm typecheck  # tsc --noEmit, must be zero errors
-pnpm build      # Next.js production build must succeed
-pnpm audit      # Must show "No known vulnerabilities found"
-```
-
-```
-# BAD — suppress the new React 19 rule to ship the upgrade faster
-// eslint-disable-next-line react-hooks/set-state-in-effect
-useEffect(() => { setOpen(true) }, [])
-```
-
-```
-# GOOD — fix the underlying pattern surfaced by the upgrade
-const [open, setOpen] = useState(true)   // derive initial state inline
-```
-
-## Common Upgrade Surprises
-
-| Upgrade | Watch out for |
-|---|---|
-| Next.js 15 → 16 | `middleware.ts` → `proxy.ts`; edge runtime removed |
-| Next.js 14 → 15 | `cookies()` / `headers()` / `params` / `searchParams` become async |
-| React 18 → 19 | `react-hooks/set-state-in-effect` new rule; `use()` hook; async transitions |
-| TypeScript → 6.0 | `baseUrl` deprecated; stricter type narrowing; `ignoreDeprecations: "6.0"` escape hatch |
-| TypeScript → 5.0 | `decorators` native syntax; `const` type params; module resolution changes |
-| ESLint → 9 | `.eslintrc` removed, flat config only |
-| ESLint → 10 | Node 20.19+/22.13+ required; some legacy plugins break |
+Audit must report zero known vulnerabilities at the chosen severity floor. Ecosystem-specific check-suite commands live in the per-language reference files.
 
 ## Cadence
 
 | Trigger | Action |
 |---|---|
 | New CVE published for any direct dep | Patch within 48h |
-| Weekly | `pnpm audit` + review `pnpm outdated` |
+| Weekly | Audit + review what's outdated |
 | Monthly | Patch + minor upgrades bundled (hygiene commit) |
 | Quarterly | Evaluate pending major bumps against ecosystem readiness |
 
 Set this as a calendar item. Dep security is a habit, not a reaction.
 
 <constraint>
-Lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` / `Cargo.lock`) MUST be committed — never `.gitignore` it. A vuln in the lockfile is a real vuln. Advisory tools (GitHub Dependabot, Snyk) flag everything; their report is a starting point, not a verdict — apply the runtime-vs-build-time exposure filter above before patching.
+The lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` / `poetry.lock` / `Pipfile.lock` / `uv.lock` / `Cargo.lock` / `go.sum`) MUST be committed — never `.gitignore` it. A vuln in the lockfile is a real vuln. Advisory tools (GitHub Dependabot, Snyk, RustSec) flag everything; their report is a starting point, not a verdict — apply the runtime-vs-build-time exposure filter before patching.
 </constraint>
 
-## Gotchas
+## Gotchas — Universal
 
-- **`pnpm audit --prod` vs full audit**: `--prod` excludes devDependencies. Use it when you want a runtime-only view. But don't use it to silence dev-only vulns you should still patch.
-- **Peer warnings are signals, not noise**. `unmet peer X@">=9": found 10` means the plugin was never tested against 10. Run `pnpm lint` immediately to see if it breaks in practice.
-- **`pnpm why <pkg>`** tells you the import path. Use it to see if a transitive vuln is reachable from your entry points.
-- **Major React bumps often require renderer + types bumps together**: `react@19` needs `@types/react@19` and `react-dom@19`. Missing one = silent type-only mismatch.
+- **`--prod` / production-only flags** exclude dev/test/build deps from the audit view. Use them for runtime exposure; don't use them to silence dev-only vulns you should still patch.
+- **Peer / version-resolution warnings are signals, not noise.** "Unmet peer X@>=N: found N+1" means the plugin was never tested against N+1. Run the full check suite immediately.
+- **Major bumps usually require companion lockstep bumps** (renderer + types in JS, framework + runtime in Python, edition + tokio in Rust, module-path-suffix + module in Go). Missing one = silent type-only or runtime mismatch.
 
 ## References
 
-- pnpm audit: https://pnpm.io/cli/audit
 - GitHub Advisory Database: https://github.com/advisories
 - CVSS calculator: https://www.first.org/cvss/calculator/3.1
-- Next.js upgrade guides: https://nextjs.org/docs/app/building-your-application/upgrading
+- OSV (cross-language vuln DB): https://osv.dev/
+- RustSec Advisory DB: https://rustsec.org/advisories/
+- PyPA Advisory DB: https://github.com/pypa/advisory-database
+- Go Vulnerability DB: https://pkg.go.dev/vuln/
