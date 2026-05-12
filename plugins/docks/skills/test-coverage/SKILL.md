@@ -4,13 +4,13 @@ description: Use when writing tests for code that ALREADY EXISTS — adding cove
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-06"
+  updated: "2026-05-12"
 ---
 
 # Test Coverage Generation
 
 <constraint>
-Generated tests must use the project's existing test framework (Vitest / Jest / pytest / cargo test / go test / etc.) — never introduce a new framework as a side effect of writing tests. Inspect `package.json` / `Cargo.toml` / `pyproject.toml` / `go.mod` and existing `*.test.*` / `*_test.*` files BEFORE writing the first test.
+Generated tests must use the project's existing test framework (Vitest / Jest / pytest / cargo test / go test / JUnit / etc.) — never introduce a new framework as a side effect of writing tests. Inspect `package.json` / `Cargo.toml` / `pyproject.toml` / `go.mod` / `pom.xml` / `build.gradle` and existing `*.test.*` / `*_test.*` / `Test*.java` files BEFORE writing the first test.
 </constraint>
 
 <constraint>
@@ -40,11 +40,23 @@ These run sequentially. Each step has an explicit anti-hallucination check befor
 
 Read these in order:
 
-1. `package.json` `scripts.test` / `pyproject.toml [tool.pytest]` / `Cargo.toml [dev-dependencies]` / `go.mod` — the canonical framework declaration
-2. One existing test file from the project (find with `Glob '**/*.test.*'` or `**/*_test.*`) — captures the project's actual style: assertion library, describe/it vs flat, mock helpers, file naming
-3. Coverage config if present: `vitest.config.*` / `jest.config.*` / `.coveragerc` / `cargo-tarpaulin.toml` — tells you which thresholds matter
+1. `package.json` `scripts.test` / `pyproject.toml [tool.pytest]` / `Cargo.toml [dev-dependencies]` / `go.mod` / `pom.xml` or `build.gradle` — the canonical framework declaration
+2. One existing test file from the project (find with `Glob '**/*.test.*'` or `**/*_test.*` or `**/Test*.java`) — captures the project's actual style: assertion library, describe/it vs flat, mock helpers, file naming
+3. Coverage config if present: `vitest.config.*` / `jest.config.*` / `.coveragerc` / `cargo-tarpaulin.toml` / JaCoCo plugin block — tells you which thresholds matter
 
 Don't proceed without these three reads. Mimicking the project's style from a sample is what makes generated tests fit; running blind produces tests that look "off" and require rewriting.
+
+## When to Load Per-Framework Conventions
+
+For framework-specific file layout, mocking conventions, assertion idioms, async patterns, and coverage commands:
+
+| Framework | Reference file |
+|---|---|
+| Vitest / Jest (JS / TS) | `references/jest-vitest.md` |
+| pytest (Python) | `references/pytest.md` |
+| `cargo test` (Rust) | `references/cargo-test.md` |
+| `go test` (Go) | `references/go-test.md` |
+| JUnit 5 / Jupiter (Java / JVM) | `references/junit.md` |
 
 ### Step 2 — Inventory the target
 
@@ -53,24 +65,26 @@ For the path/function the user gave you:
 - List every exported function/class/module
 - For each: parameter types, return type, side effects (filesystem, network, DB, env vars), error paths
 - External dependencies that need mocking — distinguish "I/O the test must isolate" vs "pure computation that needs no mock"
-- Edge cases: null/undefined, boundary values (0, -1, MAX_INT, empty string, empty array), invalid types if the function is JS-flavored, async error paths, concurrent invocations
+- Edge cases: null/undefined, boundary values (0, -1, MAX_INT, empty string, empty array), invalid types if the function is dynamically typed, async error paths, concurrent invocations
 
 Write this inventory down before writing tests. It's the test plan. If you skip this and jump to test code, you'll write tests for what you remember about the file rather than what's actually in it.
 
 ### Step 3 — Structure pass (skeleton only, no assertions yet)
 
-Write the test file as `describe`/`it` blocks (or the project's idiomatic equivalent) with imports, mock setup, and empty test bodies:
+Write the test file as `describe`/`it` blocks (or the project's idiomatic equivalent — fixtures, `#[test]`, `func Test...`) with imports, mock setup, and empty test bodies. Universal principle (sample shown in Vitest; applies in every framework):
 
 ```ts
-// Wrong fix — start writing assertions immediately, find out halfway that import path is wrong
+// BAD — start writing assertions immediately, find out halfway that import path is wrong
 import { foo } from "../utils/helpers"; // wrong path
 describe("foo", () => {
   it("returns 42 for valid input", () => {
     expect(foo("x")).toBe(42); // 12 lines down before noticing import broke
   });
 });
+```
 
-// Right fix — structure pass first
+```ts
+// GOOD — structure pass first; every import resolved before assertions
 import { parseDuration } from "@/utils/parse-duration"; // verified path
 import { describe, it, expect } from "vitest";
 describe("parseDuration", () => {
@@ -88,8 +102,8 @@ Now write the setup → act → assert per test. Use the inventory from Step 2 a
 
 - The assertion is on a value the code under test PRODUCED, not on whether a mock was called
 - Mock return values match the real function's actual return shape (read the source if unsure — don't guess)
-- Async tests use the framework's async pattern (`await`, `.resolves`/`.rejects`, `done` callback) — never mix patterns in one test
-- Cleanup happens (close files, reset mocks, restore env vars) — usually `afterEach` / `beforeEach` blocks
+- Async tests use the framework's async pattern (`await`, `.resolves`/`.rejects`, `tokio::test`, `pytest-asyncio`, `done` callback) — never mix patterns in one test
+- Cleanup happens (close files, reset mocks, restore env vars) — usually `afterEach` / `beforeEach` / `t.Cleanup` / pytest fixture teardown
 
 ### Step 5 — Pre-run verification (catch false positives BEFORE running)
 
@@ -104,20 +118,13 @@ Reject any test that fails these checks before running the suite.
 
 ### Step 6 — Run, then post-verify
 
-```bash
-# Use the runner the project actually uses — never invent one
-pnpm test path/to/new.test.ts
-# or: npx vitest run path/to/new.test.ts
-# or: pytest path/to/new_test.py
-# or: cargo test --test new_test_name
-# or: go test ./path/to/...
-```
+Use the runner the project actually uses — never invent one. Per-framework command surface lives in the matching reference file (`pnpm test`, `pytest`, `cargo test`, `go test`, `mvn test` / `gradle test`).
 
 After the suite passes, do NOT report "tests added" yet. Run the post-verification:
 
 - For each green test, verify the test file is in the suite's discovery glob (project config-dependent — `vitest.config.ts` `include`, `pytest.ini` `testpaths`, etc.)
-- Run with the project's coverage flag if it has one (`pnpm test --coverage`, `pytest --cov`, `go test -cover`) and confirm the new file appears in coverage output
-- Apply the **lint-loop 3-strike rule** (model-agnostic): if a single test keeps failing for 3 attempts on the same file, stop and ask the user — repeated failure usually means the diagnosis is wrong, not the code
+- Run with the project's coverage flag if it has one and confirm the new file appears in coverage output
+- Apply the **lint-loop 3-strike rule**: if a single test keeps failing for 3 attempts on the same file, stop and ask the user — repeated failure usually means the diagnosis is wrong, not the code
 
 ## Common Traps
 
@@ -156,5 +163,5 @@ The skills share the lint-loop 3-strike rule and the discipline of running tests
 ## References
 
 - Companion skill: **tdd-workflow** — for test-first development (different ordering, tests as spec)
-- Agentic best-practices applied here (model-agnostic): lint-loop 3-strike (stop after 3 failed attempts on the same test), trace-symbols-before-modify (read the function and its callers before changing)
+- Per-framework conventions: `references/jest-vitest.md`, `references/pytest.md`, `references/cargo-test.md`, `references/go-test.md`, `references/junit.md`
 - Project conventions: always read one existing test file before writing the first new one — that's the project's actual style guide
