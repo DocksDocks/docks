@@ -21,6 +21,10 @@ Each generated test must exercise REAL behavior. A test that only verifies mock 
 Tests are READ-ONLY when running the suite. If a test fails because the test itself is wrong (typo, bad mock, wrong import path), fix the test. If a test fails because the production code is wrong, REPORT the bug and stop — do not modify production code while in test-coverage mode. Bug-fixing belongs in a separate cycle.
 </constraint>
 
+<constraint>
+Don't generate tests for code with no behavior worth verifying — re-export barrels (`index.ts`), type-only modules (`*.types.ts`, `.d.ts`), generated clients (Prisma, protoc, OpenAPI, GraphQL codegen), migration files, simple constant modules, and framework config files (`*.config.*`, `@Configuration` classes, `appsettings.json`-style). A test that only asserts "the file exports a function" inflates the coverage % without catching anything. Configure the framework's coverage-exclusion rules so the headline number reflects MEANINGFUL behavior coverage — per-framework config snippets live in the matching `references/<framework>.md`.
+</constraint>
+
 ## When to Use
 
 - A file or directory has no test coverage and the user wants tests added
@@ -48,7 +52,7 @@ Don't proceed without these three reads. Mimicking the project's style from a sa
 
 ## When to Load Per-Framework Conventions
 
-For framework-specific file layout, mocking conventions, assertion idioms, async patterns, and coverage commands:
+For framework-specific file layout, mocking conventions, assertion idioms, async patterns, **parallelism / perf tuning**, **coverage-scope exclusion config**, and discovery commands:
 
 | Framework | Reference file |
 |---|---|

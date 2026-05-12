@@ -201,10 +201,91 @@ For coverage thresholds, add a `check` goal binding with `<rule>` elements (line
 - **`@SpringBootTest` is heavy.** Spins up the full ApplicationContext. Prefer `@WebMvcTest` / `@DataJpaTest` for slice tests.
 - **Parallel execution is opt-in** — add `junit.jupiter.execution.parallel.enabled=true` in `junit-platform.properties`. Tests sharing static state will fail when enabled.
 
+## Perf Tuning & Parallelism
+
+The right flags drift across versions — check the JUnit 5 release notes for `junit.jupiter.execution.parallel.*` properties and `mvn help:describe -Dplugin=surefire` (or `./gradlew help --task test`), OR `resolve-library-id` + `query-docs` via context7 to fetch the current docs before tuning.
+
+Stable knobs (recent majors):
+
+```properties
+# src/test/resources/junit-platform.properties
+junit.jupiter.execution.parallel.enabled=true
+junit.jupiter.execution.parallel.mode.default=concurrent
+junit.jupiter.execution.parallel.mode.classes.default=concurrent
+junit.jupiter.execution.parallel.config.strategy=dynamic
+junit.jupiter.execution.parallel.config.dynamic.factor=1.0
+```
+
+`@Execution(ExecutionMode.SAME_THREAD)` opts a class/method out of parallelism (use when sharing static state, filesystem temp dirs, or single-thread-only resources).
+
+Surefire (Maven) / Gradle test parallelism:
+
+| Maven Surefire | Gradle | What |
+|---|---|---|
+| `mvn -T 1C test` | `org.gradle.parallel=true` in `gradle.properties` | Build-level parallelism across modules |
+| `<forkCount>1C</forkCount>` in surefire config | `maxParallelForks = ...` | JVM forks (process-level isolation) |
+| `<reuseForks>true</reuseForks>` | `forkEvery = 0` | Reuse JVMs across test classes (faster, shared static state) |
+| `<argLine>-Xmx2g</argLine>` | `maxHeapSize = "2g"` | Per-fork heap — bump for fixture-heavy tests |
+
+`forkEvery = 100` is a common Gradle pattern — fresh JVM every 100 classes to avoid memory creep without paying JVM-startup cost per class.
+
+Per-machine guidance:
+- **Laptop, local iteration:** `./gradlew test --tests "*MyClass*"` — single-class targeting + JVM reuse; the slowest part of JUnit is JVM startup.
+- **CI runner with N vCPU:** `maxParallelForks = N`, `forkEvery = 100`, parallel mode `concurrent` for unit tests; the SAME_THREAD class scope for `@SpringBootTest` slices that share static context.
+- **DB-sharing tests:** annotate the class `@Execution(SAME_THREAD)` or use `@DirtiesContext` + transactional rollback per test.
+- **Memory-constrained:** lower `maxParallelForks` to bound concurrent JVMs (each holds its own heap).
+
+## Coverage Scope — What NOT to Test
+
+```java
+// BAD — testing a Lombok @Data DTO; verifies the macro, not your code
+@Data
+public class UserDto {
+    private Long id;
+    private String name;
+}
+
+// UserDtoTest.java
+@Test void equalsAndHashCode() {
+    UserDto a = new UserDto(); a.setId(1L); a.setName("x");
+    UserDto b = new UserDto(); b.setId(1L); b.setName("x");
+    assertEquals(a, b);                 // testing Lombok's generated code, not yours
+}
+```
+
+```xml
+<!-- GOOD — exclude generated/boilerplate from JaCoCo in pom.xml -->
+<plugin>
+  <groupId>org.jacoco</groupId>
+  <artifactId>jacoco-maven-plugin</artifactId>
+  <configuration>
+    <excludes>
+      <exclude>**/dto/*.class</exclude>             <!-- Lombok-heavy DTOs -->
+      <exclude>**/generated/**</exclude>            <!-- mapstruct, protoc, openapi -->
+      <exclude>**/migration/**</exclude>            <!-- flyway/liquibase Java migrations -->
+      <exclude>**/*Application.class</exclude>      <!-- Spring main class -->
+      <exclude>**/config/**</exclude>               <!-- Spring @Configuration -->
+      <exclude>**/*Properties.class</exclude>       <!-- @ConfigurationProperties -->
+    </excludes>
+    <rules>
+      <rule>
+        <element>BUNDLE</element>
+        <limits>
+          <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit>
+        </limits>
+      </rule>
+    </rules>
+  </configuration>
+</plugin>
+```
+
+JaCoCo honors `javax.annotation.Generated` and `lombok.Generated` automatically — annotating generated code is the cleanest per-class opt-out. For everything else, prefer plugin-level `<excludes>` over scattered annotations so reviewers can see the rule in one place.
+
 ## See Also
 
 - `../SKILL.md` — universal 6-step procedure + constraints
 - JUnit 5 user guide: https://junit.org/junit5/docs/current/user-guide/
+- JUnit 5 parallel-execution docs: https://junit.org/junit5/docs/current/user-guide/#writing-tests-parallel-execution
 - Mockito docs: https://site.mockito.org/
 - JaCoCo: https://www.jacoco.org/jacoco/
 - AssertJ: https://assertj.github.io/doc/

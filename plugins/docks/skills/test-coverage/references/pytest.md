@@ -141,9 +141,78 @@ Use `# pragma: no cover` sparingly (and follow `lint-no-suppressions` discipline
 - **`scope="session"` fixtures with database state** leak across tests. Use transactions + rollback or `scope="function"` for DB.
 - **Mutable default arg in fixture factory** — same trap as in any Python function; use a factory fixture instead.
 
+## Perf Tuning & Parallelism
+
+The right flags drift across versions — run `pytest --help` for the version-correct set, OR `resolve-library-id` + `query-docs` via context7 to fetch the current docs before tuning.
+
+Stable knobs (recent majors):
+
+| Flag / Plugin | What |
+|---|---|
+| `pytest -n auto` (pytest-xdist) | Parallelize across N workers; `auto` = num_cpus |
+| `--dist=loadscope` (xdist) | Group by class/module; honors fixture scope better than default `load` |
+| `--dist=worksteal` (xdist 3.x+) | Dynamic rebalancing; faster on uneven test durations |
+| `pytest-forked` (separate plugin) | Each test in a forked subprocess — isolates crashes/leaks |
+| `--lf` / `--last-failed` | Re-run only failures from last run |
+| `--ff` / `--failed-first` | Run failures first, then everything else |
+| `-x` / `--exitfirst` | Stop on first failure |
+| `--durations=10` | Print 10 slowest tests — find perf hot spots |
+
+Fixture-scope ↔ parallelism interaction: a `scope="session"` fixture with mutable state hits race conditions under `-n auto`. Either drop to `scope="function"` or use `pytest-xdist`'s `worker_id` fixture for per-worker setup.
+
+Per-machine guidance:
+- **Laptop, local iteration:** `pytest -x --lf -n auto` — exit on first fail, replay last failures, parallel.
+- **CI runner with N vCPU:** `pytest -n auto --dist=worksteal --durations=20` — let xdist balance + surface slow tests.
+- **DB-sharing tests:** isolate to a separate suite or use a per-worker DB fixture (`worker_id` namespaced DB names).
+- **Flaky tests:** `pytest-rerunfailures` + `--reruns 2 --only-rerun TimeoutError` (allowlist, never blanket retry).
+
+## Coverage Scope — What NOT to Test
+
+```python
+# BAD — testing a re-export module
+# myapp/__init__.py
+from myapp.users import create_user, find_user
+from myapp.orders import create_order
+
+# tests/test_init.py
+from myapp import create_user, find_user, create_order
+def test_exports():
+    assert callable(create_user)
+    assert callable(find_user)
+    assert callable(create_order)
+```
+
+```toml
+# GOOD — exclude in pyproject.toml; test the real modules
+[tool.coverage.run]
+source = ["src/myapp"]
+omit = [
+    "src/myapp/__init__.py",        # barrels (re-exports)
+    "src/myapp/migrations/*",       # db migrations
+    "src/myapp/types/*",            # type stubs / aliases
+    "src/myapp/generated/*",        # codegen output (gRPC, GraphQL, etc.)
+    "src/myapp/conf/*.py",          # config-only modules
+    "*/site-packages/*",
+]
+
+[tool.coverage.report]
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@overload",
+    "\\.\\.\\.",                    # Protocol body ellipses
+]
+```
+
+Per-line `# pragma: no cover` is a smell — prefer the config-level `omit`/`exclude_lines` so the rule is visible to reviewers.
+
 ## See Also
 
 - `../SKILL.md` — universal 6-step procedure + constraints
 - pytest docs: https://docs.pytest.org/
 - pytest-asyncio: https://pytest-asyncio.readthedocs.io/
+- pytest-xdist: https://pytest-xdist.readthedocs.io/
 - coverage.py: https://coverage.readthedocs.io/

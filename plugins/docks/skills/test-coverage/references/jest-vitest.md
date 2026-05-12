@@ -111,6 +111,66 @@ pnpm jest --coverage --coverageThreshold='{"global":{"lines":80}}'
 
 Both default to v8 / istanbul providers. Check `coverage/index.html` for line-level uncovered branches.
 
+## Perf Tuning & Parallelism
+
+The right flags drift across versions — run `vitest --help` / `jest --help` for the version-correct set, OR `resolve-library-id` + `query-docs` via context7 to fetch the current docs before tuning.
+
+Stable knobs (recent majors):
+
+| Vitest | Jest | What |
+|---|---|---|
+| `--pool=threads` (default) / `--pool=forks` | n/a (always forks) | Threads = faster, shared globals; forks = isolated but slower |
+| `--poolOptions.threads.maxThreads=N` | `--maxWorkers=N` or `--maxWorkers=50%` | Cap parallel workers; CI default leaves room for runner overhead |
+| `--no-isolate` | n/a | Reuse same context across files in a worker — fast but module state leaks |
+| `--shard=1/4` | `--shard=1/4` | Run 1 of 4 disjoint slices; ideal for CI matrix |
+| `--bail` | `--bail` | Stop on first failure — faster local iteration |
+| `--changed` / `--changed-since` | `--onlyChanged` / `--changedSince` | Tests touching changed files only |
+
+Per-machine guidance:
+- **Laptop (4–8 cores), local iteration:** leave defaults; layer `--changed --bail` for tight loops.
+- **CI runner with N vCPU:** explicit `--maxWorkers=N` (Jest) or `--poolOptions.threads.maxThreads=N` (Vitest) — don't let the runner thrash.
+- **DB-sharing integration tests:** drop to `--maxWorkers=1` (or run them as a separate `:integration` suite); shared connections + parallel tests = flake.
+- **CI matrix:** prefer `--shard=` over manually splitting test files; the runner handles balanced distribution.
+
+## Coverage Scope — What NOT to Test
+
+```ts
+// BAD — testing a barrel; asserts no behavior
+// src/utils/index.ts
+export { parseDuration } from "./parse-duration";
+export { formatDate } from "./format-date";
+// src/utils/index.test.ts
+import * as utils from "./index";
+it("exports parseDuration", () => { expect(typeof utils.parseDuration).toBe("function"); });
+```
+
+```ts
+// GOOD — exclude barrels/types/generated from coverage; test the implementations directly
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+export default defineConfig({
+  test: {
+    coverage: {
+      provider: "v8",
+      exclude: [
+        "**/index.ts",              // re-export barrels
+        "**/*.types.ts",
+        "**/*.d.ts",
+        "**/generated/**",          // codegen output
+        "**/prisma/**",             // prisma client
+        "**/migrations/**",
+        "**/*.config.{ts,js,mjs}",  // framework config
+        "**/__tests__/**",
+        "**/__mocks__/**",
+      ],
+      thresholds: { lines: 80, branches: 75 },
+    },
+  },
+});
+```
+
+Jest equivalent: `coveragePathIgnorePatterns: [...]` in `jest.config.js`. Per-file `/* istanbul ignore file */` is a smell — prefer config-level exclusion so reviewers can see the rule.
+
 ## See Also
 
 - `../SKILL.md` — universal 6-step procedure + constraints

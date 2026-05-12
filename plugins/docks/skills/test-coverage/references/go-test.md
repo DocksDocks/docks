@@ -196,6 +196,67 @@ For coverage gates in CI, parse `go tool cover -func=cov.out | tail -1` and comp
 - **`init()` runs once per test binary.** Each package has one test binary; shared state across packages still requires a fixture.
 - **`*_test.go` files don't ship in releases** (excluded from `go build`).
 
+## Perf Tuning & Parallelism
+
+The right flags drift across versions — run `go help test` / `go help testflag` for the version-correct set, OR `resolve-library-id` + `query-docs` via context7 to fetch the current docs before tuning.
+
+Stable knobs (recent majors):
+
+| Flag | What |
+|---|---|
+| `go test -parallel N` | Cap parallel tests **within a package** (those calling `t.Parallel()`) |
+| `go test -p N` | Parallel **package** compilation+execution; defaults to GOMAXPROCS |
+| `go test -race` | Race detector — slow (~2-10×) but catches concurrency bugs; CRITICAL in CI |
+| `go test -count=1` | Bypass cache; required when measuring fresh runs |
+| `go test -timeout 30s` | Kill stuck tests; default 10m too long for CI feedback |
+| `go test -short` | Skip tests that opt into `testing.Short()` — fast feedback loops |
+| `go test -failfast` | Stop on first failure within a package |
+| `go test -shuffle=on` | Randomize test order — catches order-dependent bugs |
+| `go test -cpu=1,2,4` | Run the full suite at each GOMAXPROCS — exposes concurrency bugs |
+
+`t.Parallel()` opts a test into parallelism; tests that share state should NOT call it. Subtests inside `t.Run` each need their own `t.Parallel()` (and a loop-variable capture pre-Go 1.22 — see Gotchas above).
+
+Per-machine guidance:
+- **Laptop, local iteration:** `go test -short -failfast ./...` — skip integration, exit on first fail.
+- **CI runner with N vCPU:** `go test -race -shuffle=on -timeout=60s -p=N ./...` — race+shuffle catches the bugs you'll otherwise debug in prod.
+- **DB-sharing tests:** don't call `t.Parallel()`; or use per-worker schemas with `testing.M.Run` setup that namespaces by PID.
+- **Memory-constrained:** lower `-p` to bound concurrent package binaries (each is a separate process with its own heap).
+
+## Coverage Scope — What NOT to Test
+
+```go
+// BAD — testing a constants-only file
+// pkg/api/errors.go
+package api
+var ErrNotFound = errors.New("not found")
+var ErrForbidden = errors.New("forbidden")
+
+// pkg/api/errors_test.go
+func TestErrors(t *testing.T) {
+    if ErrNotFound == nil { t.Error("nil") }
+    if ErrForbidden == nil { t.Error("nil") }
+}
+```
+
+```bash
+# GOOD — scope coverage to packages with actual logic; filter generated/boilerplate
+go test -cover -coverpkg=./internal/... -coverprofile=cov.out ./...
+
+# Filter the profile after collection (post-processing is the Go idiom — there's no
+# built-in exclude list):
+grep -v -E '(_mock\.go|_generated\.go|/mocks/|/pb/|main\.go:|_string\.go:)' cov.out > cov.filtered
+
+# Common exclusions:
+#   - *.pb.go / *.pb.gw.go        (protobuf / grpc-gateway codegen)
+#   - **/mocks/*.go               (gomock generated)
+#   - **/generated/*.go           (sqlc, ent, gqlgen output)
+#   - main.go                     (entry point — exercise via integration tests)
+#   - *_string.go                 (stringer-generated)
+#   - **/wire_gen.go              (google/wire DI codegen)
+```
+
+Per-line `// +build !coverage` is uncommon in Go; prefer post-collection profile filtering or scoped `-coverpkg`. Codecov / Coveralls config files can also exclude paths post-upload.
+
 ## See Also
 
 - `../SKILL.md` — universal 6-step procedure + constraints

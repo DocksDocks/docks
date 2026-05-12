@@ -170,9 +170,70 @@ cargo tarpaulin --out Html
 - **Doctests run too.** A code block in a doc comment that compiles AND runs (the default) — use `ignore` or `no_run` for examples that shouldn't execute.
 - **Async tests without a runtime macro silently never run their body.** Always use `#[tokio::test]` or equivalent.
 
+## Perf Tuning & Parallelism
+
+The right flags drift across versions — run `cargo test --help` for the version-correct set, OR `resolve-library-id` + `query-docs` via context7 to fetch the current docs before tuning.
+
+Stable knobs (recent majors):
+
+| Flag / Tool | What |
+|---|---|
+| `cargo test -- --test-threads=N` | Defaults to num_cpus; lower for memory-bound or DB-sharing tests |
+| `cargo test -- --nocapture` | Show `println!` output (default: hidden until failure) |
+| `cargo test --release` | Compile in release mode — required for perf-sensitive integration tests |
+| `cargo-nextest` (replacement runner) | 3–5× faster than `cargo test`; better failure summaries; per-test process isolation |
+| `cargo nextest run --partition count:1/4` | Sharded execution for CI matrix |
+| `cargo nextest run --retries N` | Auto-retry flaky tests N times before failing |
+| `cargo test --no-run` | Compile tests without running; separate compile-time from run-time in CI |
+| `cargo test -- --skip <pat>` | Skip tests matching a substring pattern |
+
+`cargo-nextest` is the recommended runner for medium+ workspaces. With workspace-shared `target/`, `sccache` or `rust-cache` pays for itself within 2 CI runs.
+
+Per-machine guidance:
+- **Laptop, local iteration:** `cargo nextest run --status-level fail --failure-output immediate` — only show failures; small workspaces fit in defaults.
+- **CI runner with N vCPU:** `cargo nextest run --partition count:1/M -j N` across M runners; build once with `--no-run` then test for clean stage separation.
+- **DB-sharing tests:** mark with `#[serial]` (`serial_test` crate) or drop `--test-threads=1` per test binary.
+- **Memory-constrained:** `--test-threads=2` or even `1`; Rust unit tests can hold large fixture data per worker.
+
+## Coverage Scope — What NOT to Test
+
+```rust
+// BAD — testing a pub-use re-export
+// src/lib.rs
+pub use crate::parser::parse_duration;
+pub use crate::formatter::format_event;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn re_exports_exist() {
+        let _ = parse_duration;        // compiles → "test passes"
+        let _ = format_event;
+    }
+}
+```
+
+```bash
+# GOOD — exclude generated + boilerplate from llvm-cov; test the real impls
+cargo llvm-cov --html \
+  --ignore-filename-regex '(generated/|migrations/|build\.rs$|src/bin/|/proto/|src/lib\.rs$)' \
+  --fail-under-lines 80
+
+# Common exclusions to add to your CI invocation:
+#   - src/generated/*       (proto/grpc/sqlx codegen)
+#   - src/migrations/*      (sqlx-cli, diesel, refinery)
+#   - build.rs              (build script — test indirectly via crate behavior)
+#   - src/lib.rs            (often just pub-use re-exports)
+#   - src/bin/*.rs          (binary entry points — exercise via integration tests under tests/)
+```
+
+`#[cfg_attr(coverage_nightly, coverage(off))]` (nightly) per-fn suppression is a smell — prefer the config-level `--ignore-filename-regex` so reviewers see the rule.
+
 ## See Also
 
 - `../SKILL.md` — universal 6-step procedure + constraints
 - The Rust Book — Testing: https://doc.rust-lang.org/book/ch11-00-testing.html
 - `mockall` docs: https://docs.rs/mockall/
 - `cargo-llvm-cov`: https://github.com/taiki-e/cargo-llvm-cov
+- `cargo-nextest`: https://nexte.st/
