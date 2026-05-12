@@ -4,7 +4,7 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-06"
+  updated: "2026-05-12"
 ---
 
 # Code Review
@@ -66,6 +66,18 @@ Every finding lands in exactly one:
 - **Maintainability / AI slop** — dead code, duplicated logic, contradictory comments, unused imports, "smart" abstractions, defensive code for impossible cases, made-up error messages.
 
 Cap severity at the bucket's worst-case: a "performance" finding capped at *high* (causing prod outage), a "maintainability" finding capped at *medium* (slows future development).
+
+## When to Load Per-Axis Finding Catalogs
+
+For deep per-category finding patterns, severity calibration tables, and false-positive guards:
+
+| Finding category | Reference file |
+|---|---|
+| Security — OWASP Top 10, auth, crypto, deserialization, SSRF, IDOR | `references/security.md` |
+| Performance — N+1, render cascades, sync I/O, allocation in hot paths | `references/perf.md` |
+| Maintainability / AI slop — dead code, duplication, smart abstractions, contradictory comments, made-up errors | `references/maintainability.md` |
+
+(Bug-category findings are language-agnostic and covered by Step 4's pre-verify checks; no separate reference needed.)
 
 ### Step 4 — Self-verify before reporting (the false-positive guard)
 
@@ -140,5 +152,5 @@ MEDIUM · Maintainability · src/api/orders.ts:45-62
 ## References
 
 - Pairs with: `/security` for OWASP Top 10 coverage with adversarial perspective; `/refactor` for SOLID and dead-code analysis at scale; `lint-no-suppressions` if your fix would otherwise involve silencing a linter rule
-- Agentic best-practices applied here (model-agnostic): multi-pass search (Step 2), trace-symbols-before-claim (evidence-gathering)
+- Per-axis finding catalogs: `references/security.md`, `references/perf.md`, `references/maintainability.md`
 - OWASP Top 10 vocabulary: https://owasp.org/Top10/
