@@ -1,7 +1,7 @@
 {
   "name": "docks",
   "description": "Multi-agent pipeline kit for Claude Code — Builder-Verifier commands where parallel agents add structural value, plus portable skills covering test-first / test-coverage / fix workflows, code review, human-docs, design tokenization, dependency-vuln triage, lint discipline, UI polish, generic SOLID, type-safety discipline, and React component patterns (effects + composition). Specialized subagents tier between Opus and Sonnet per phase.",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "author": {
     "name": "Eduardo Marquez"
   },
