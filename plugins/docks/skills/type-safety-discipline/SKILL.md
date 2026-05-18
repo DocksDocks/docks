@@ -1,6 +1,6 @@
 ---
 name: type-safety-discipline
-description: Use when designing identifier types that could be mixed up across entities (UserId vs OrderId), validating external input (form/API/env), switching over tagged unions and needing exhaustiveness, choosing between `any` / `unknown` / generic bounds, or `interface` vs `type` alias. Primary examples in TypeScript; equivalency callouts for Rust (newtype), Kotlin (value class), Python (NewType). Covers branded types, discriminated unions, exhaustiveness, parse-don't-validate.
+description: "Use when designing identifier types that could be mixed up across entities (UserId vs OrderId), validating external input (form/API/env), switching over tagged unions for exhaustiveness, choosing between `any`/`unknown`/generics or `interface`/`type` alias, OR deciding whether a TypeScript `class` is justified (Error subtype, long-lived stateful object with invariants, framework-mandated shape). Primary examples in TS; equivalencies for Rust (newtype), Kotlin (value class), Python (NewType)."
 user-invocable: false
 paths:
   - "**/*.ts"
@@ -11,7 +11,7 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
+  updated: "2026-05-17"
 ---
 
 # Type-Safety Discipline
@@ -27,6 +27,7 @@ Primary examples below are in TypeScript. Each concept has a brief equivalency c
 - Writing or modifying any `.ts` / `.tsx` / `.rs` / `.kt` / `.py` file with type annotations.
 - Defining a function signature, struct/class, or exported API.
 - Choosing between object-shape vs sum-type representations: `interface`/`type` (TS), `struct`/`enum` (Rust), `data class`/`sealed interface` (Kotlin), `@dataclass`/tagged union (Python).
+- About to write `class Foo` in TypeScript — verify against § 9 below; the default is a function/closure unless one of three exceptions applies.
 - Tempted to widen with `any` / `Any` / `object`, leave a parameter untyped, or use an unchecked cast (`as Foo`, `unsafe`, `cast()`).
 - A string or number literal appearing in 2+ places.
 - Designing variant component props or an API response with multiple shapes.
@@ -45,6 +46,7 @@ Primary examples below are in TypeScript. Each concept has a brief equivalency c
 | `string` for both `userId` and `orgId` | Branded type (TS); newtype (Rust); `@JvmInline value class` (Kotlin); `NewType` (Python) | Compiler catches cross-entity mix-ups |
 | `JSON.parse(raw) as Foo` (TS) and equivalents | zod (TS) / serde (Rust) / kotlinx.serialization (Kotlin) / Pydantic (Python) | Casts lie; parsers prove |
 | `switch` / `match` / `when` with no exhaustive arm | `never` arm (TS); native `match` (Rust); `sealed when` (Kotlin); `assert_never` (Python) | Compiler flags every new variant |
+| `class FooService { constructor(deps) {} doIt() {} }` in TS | Top-level function (or factory closure if state is genuinely shared) | Class instances don't serialize across RSC/JSON/`structuredClone`, are harder to tree-shake, and tempt inheritance hierarchies |
 
 ## 1. `any` is poison — use the typed-but-opaque equivalent
 
@@ -263,6 +265,12 @@ Same pattern for: API request bodies (Server Actions, route handlers), `JSON.par
 Boundaries get parsers, not casts. Inside the typed core, never use `as` (or equivalents) to widen or to "tell the compiler this is fine" — narrow with type guards or refactor the type. The type system is only as honest as the boundary.
 </constraint>
 
+## 9. Classes — narrow sweet spot in TypeScript
+
+<constraint>
+TypeScript `class` is justified in exactly three cases: (a) `Error` subtypes (`class NotFoundError extends Error` — preserves stack + `instanceof`), (b) long-lived stateful objects with invariants + a lifecycle (connection pool, parser, FSM, cache with eviction), (c) framework-mandated shapes (NestJS `@Injectable`, TypeORM/Mikro-ORM entities, `class-validator` DTOs). Default to a top-level function or factory closure for everything else — class instances don't tree-shake well, don't serialize across RSC/JSON/`structuredClone`, and tempt the inheritance hierarchies the `solid` skill flags. Full BAD/GOOD + anti-pattern table in [`references/typescript-class-vs-function.md`](references/typescript-class-vs-function.md).
+</constraint>
+
 ## Decision Tree — When You're Stuck
 
 1. **Tempted to write `any` / `Any` / `object`?** → Use the typed-but-opaque equivalent and narrow. If the shape is dynamic, parse at the boundary.
@@ -271,6 +279,7 @@ Boundaries get parsers, not casts. Inside the typed core, never use `as` (or equ
 4. **Optional fields with "required when X" rules?** → Discriminated union / sum type.
 5. **Two ID-shaped values flowing through the same function?** → Brand them (TS branded, Rust newtype, Kotlin value class, Python `NewType`).
 6. **`switch` / `match` / `when` over a union?** → Use the exhaustiveness mechanism for your language.
+7. **About to write `class Foo` in TypeScript?** → Check § 9 (constraint) and `references/typescript-class-vs-function.md`. If it's not (a) an `Error` subtype, (b) a long-lived stateful object with invariants, or (c) framework-mandated (Nest, TypeORM, class-validator, etc.), prefer a function or factory closure.
 
 ## Gotchas
 
@@ -282,10 +291,14 @@ Boundaries get parsers, not casts. Inside the typed core, never use `as` (or equ
 - **Rust:** Don't reach for `Box<dyn Any>` to escape type errors — it requires runtime downcasting and is rarely the right answer. Use traits or `enum` for polymorphism.
 - **Kotlin:** `lateinit var` is an escape hatch with runtime cost (throws on access if unset). Prefer constructor injection or a nullable that you narrow.
 - **Python:** Don't suppress type errors with `# type: ignore` without a same-line reason. The `lint-no-suppressions` skill applies.
+- **TS:** `class` instances do not cross the React Server Components boundary as props (only built-ins like `Date`/`Map`/`Set` do); they also fail `structuredClone` of their methods and serialize to lossy JSON. If a value travels across `postMessage`, `localStorage`, RSC props, or an `IndexedDB` write, it must NOT be a class instance. See `react-component-patterns/references/rsc-boundary.md`.
+- **TS:** "Strategy pattern with a class per strategy" is almost never the right call — a `Record<Key, (input) => Output>` dispatch map gives the same Open/Closed property with less code and trivial tree-shaking. The `solid` skill flags this.
+- **TS:** Don't reach for a class because you want private fields. The `#privateField` syntax works on plain objects returned from factory functions, and `readonly` enforces immutability on `interface`/`type` shapes.
 
 ## References
 
 - Per-language deep-dives: `references/rust-newtype.md`, `references/kotlin-value-class.md`, `references/python-typing.md`.
+- TypeScript `class` vs function decision: `references/typescript-class-vs-function.md`.
 - TypeScript handbook — `unknown` vs `any`: https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#unknown
 - TypeScript handbook — discriminated unions + `never`: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions
 - TypeScript 4.9 — `satisfies` operator: https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator

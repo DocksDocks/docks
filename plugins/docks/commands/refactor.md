@@ -96,7 +96,7 @@ Runs sequentially after Phase 2. Uses Phase 2 safety-tier output to skip SAFE fi
 
 Invoke `subagent_type: refactor-solid-analyzer` with the following prompt:
 
-> "Run /refactor Phase 3. Plan file: {plan-file-path}. Perform deep SOLID analysis (all 5 principles including Liskov) on surviving code. Read Phase 2a findings to identify SAFE files to skip. Read Phase 2b findings for cross-reference. Produce component inventory, priority ordering, and per-principle violations per your system prompt. Write output to the plan file under `## Phase 3: SOLID Analysis Results`."
+> "Run /refactor Phase 3. Plan file: {plan-file-path}. Perform deep SOLID analysis (all 5 principles including Liskov) on surviving code. Read Phase 2a findings to identify SAFE files to skip. Read Phase 2b findings for cross-reference. If `.claude/skills/type-safety-discipline/references/typescript-class-vs-function.md` exists, read it and apply the TS class-justification gate from your system prompt for every TS/TSX pattern suggestion. If `.claude/skills/react-component-patterns/references/rsc-boundary.md` exists, read it before suggesting cross-module extractions in a Next.js App Router project. Produce component inventory, priority ordering, and per-principle violations per your system prompt. Write output to the plan file under `## Phase 3: SOLID Analysis Results`."
 
 After it returns, append its output to the plan file, then immediately launch Phase 4.
 
@@ -116,7 +116,7 @@ After it returns, append its output to the plan file, then immediately launch Ph
 
 Invoke `subagent_type: refactor-pre-verifier` with the following prompt:
 
-> "Run /refactor Phase 5. Plan file: {plan-file-path}. Validate the Phase 4 refactoring plan for reference accuracy (spot-check 5+ file:line refs), safety, dependency ordering, completeness, and over-engineering per your system prompt. Write output to the plan file under `## Phase 5: Pre-Verifier Results`."
+> "Run /refactor Phase 5. Plan file: {plan-file-path}. Validate the Phase 4 refactoring plan for reference accuracy (spot-check 5+ file:line refs), safety, dependency ordering, completeness, and over-engineering per your system prompt. Apply Check 5's TS class-justification audit (`type-safety-discipline/references/typescript-class-vs-function.md`) and Check 7's RSC-boundary audit (`react-component-patterns/references/rsc-boundary.md`) when the relevant skill references exist in the project. Write output to the plan file under `## Phase 5: Pre-Verifier Results`."
 
 After it returns, append its output to the plan file, then proceed to Phase 6.
 

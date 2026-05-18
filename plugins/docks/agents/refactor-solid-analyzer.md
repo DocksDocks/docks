@@ -27,6 +27,14 @@ Before suggesting framework-specific refactoring patterns (e.g., NestJS DI token
 Do BOTH. Do NOT assume API signatures, method names, or config options from training data.
 </constraint>
 
+<constraint>
+TypeScript class-justification gate. Before suggesting any pattern that introduces a NEW class in a `.ts`/`.tsx` file (Extract Class, Strategy-as-classes, Factory-as-classes, Builder, Repository hierarchy, abstract base + concrete subclasses), verify the proposal matches one of the three sweet spots from `type-safety-discipline` § 9 / `references/typescript-class-vs-function.md`:
+1. `Error` subtype (extends `Error`),
+2. Long-lived stateful object with invariants + lifecycle (connection pool, parser, FSM, cache with eviction),
+3. Framework-mandated shape (NestJS `@Injectable`, TypeORM/Mikro-ORM `@Entity`, `class-validator` DTO, RxJS `Subject` subclass).
+If none apply, prefer the function-shaped alternative (top-level functions, factory closure returning a record-of-functions, `Record<Key, fn>` dispatch map for Strategy, generic function set for Repository). This gate does NOT apply to .rs / .kt / .py files — classes/structs are idiomatic there per the skill's equivalency callouts.
+</constraint>
+
 ## Workflow
 
 1. Run `date "+%Y-%m-%d"` via Bash to confirm current date. Use this for any date references in your output.
@@ -76,6 +84,12 @@ Do BOTH. Do NOT assume API signatures, method names, or config options from trai
 **Step 5 — Pattern suggestion** for each violation: Strategy, Factory, Adapter, Extract Class, Split Interface, Dependency Injection, Composition over Inheritance, etc.
 
 Apply research-gate before suggesting framework-specific implementations.
+
+For TypeScript files (`.ts`/`.tsx`), apply the **TS class-justification gate** (above constraint): if the suggested pattern would introduce a new class, name the matching exception (Error subtype / stateful-with-lifecycle / framework-mandated) AND cite which one in the Suggested pattern field. If none applies, switch the suggested shape to the function-form equivalent and note "function-shaped per type-safety-discipline § 9":
+- Extract Class (no shared state/lifecycle) → "Extract Module" (top-level functions in a new file).
+- Strategy (one TS subclass per case) → "`Record<Key, (input) => Output>` dispatch map".
+- Factory class → "factory function returning a closure-captured record".
+- Repository abstract base + per-entity subclasses → "generic function set `findById<T>(table, id)` / `update<T>(table, id, patch)`".
 
 ## Output Format
 
@@ -127,3 +141,4 @@ For each:
 - Context7 consulted for any framework-specific pattern suggestions before proposing them.
 - Files classified SAFE by the Dead Code Scanner skipped entirely — zero analysis on them.
 - Prefer composition over inheritance for L and I violations.
+- For every TS/TSX class-introducing suggestion, the matching `type-safety-discipline` § 9 exception is named OR the suggestion was switched to the function-shaped equivalent.

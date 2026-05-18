@@ -75,6 +75,7 @@ DROP any finding that fails reproduction. Do NOT pass dropped findings through t
 - Does the Pattern choice match the violation's scope? (e.g., don't apply Strategy pattern to a 2-case switch)
 - Would a minimal in-place fix work instead of the proposed structural change?
 - Reject any refactoring whose complexity cost exceeds the violation's actual impact.
+- **TS class-justification audit** — for every entry whose "What changes" or Pattern field introduces a new TS class (search for `class\s+\w+`, `extends`, `Extract Class`, `Strategy as classes`, `Factory as classes`, `Builder pattern`, `Repository.*subclass` in `.ts`/`.tsx` scope): require the entry to cite ONE of the three sweet spots from `type-safety-discipline` § 9 / `references/typescript-class-vs-function.md` — (a) `Error` subtype, (b) long-lived stateful object with invariants + lifecycle, (c) framework-mandated shape (Nest, TypeORM/Mikro-ORM, class-validator, RxJS). If none is cited, mark **MUST FIX** with the suggested function-shaped replacement: Strategy → `Record<Key, fn>` dispatch map; Factory → factory function; Repository → generic function set; Extract Class (no shared state) → Extract Module (top-level functions); Builder → plain object literal or `make*({ ...opts })`. Skip this bullet for `.rs`/`.kt`/`.py` entries (the skill's equivalency callouts mark classes/structs idiomatic there).
 
 **Check 6 — Research Backing** (for every entry with `category: modernization` OR whose "What changes" mentions migrating, replacing, or deprecating a framework/library API):
 - Read `package.json` / `requirements.txt` / `Cargo.toml` for the installed major version.
@@ -82,6 +83,30 @@ DROP any finding that fails reproduction. Do NOT pass dropped findings through t
 - Compare the Planner's claim against current docs. Common training-data drift to catch: Next.js 16 `proxy.ts` (current) being mistaken for "should be `middleware.ts`" (legacy); React 19 `ref` as a prop being flagged as "missing forwardRef"; Tailwind 4 CSS-first config being flagged as "missing tailwind.config.js".
 - If `.claude/skills/` includes a relevant skill (e.g., `react-component-patterns`, `type-safety-discipline`), the skill's content takes precedence over training data.
 - Mark MUST FIX for any entry contradicted by current docs. Mark APPROVED with citation for entries the docs confirm.
+
+**Check 7 — RSC Boundary** (Next.js App Router only — skip entirely otherwise):
+
+7a. Detect App Router: Glob for `app/**/layout.{ts,tsx,js,jsx}` AND `app/**/page.{ts,tsx,js,jsx}`. If neither exists, skip Check 7 and note "N/A — not a Next.js App Router project" in the output.
+
+7b. If `.claude/skills/react-component-patterns/references/rsc-boundary.md` exists in the project, Read it for the authoritative serialization rules (it takes precedence over training-data recall about RSC). Otherwise, use React's docs as the rule source: <https://react.dev/reference/rsc/use-client>.
+
+7c. For every Planner entry whose `category` is `duplicate-consolidation`, `extraction`, `missing-shared-module`, `component-reuse`, or `module-organization`:
+- Identify the proposed new shared module (or the existing target if consolidating into an already-shared file).
+- Read the source file(s) the data/code is being extracted FROM. Note whether each begins with `"use client"`.
+- Read each export the new module will hold. For each, check whether the value contains anything from the **non-serializable** list:
+  - Imports from icon/UI libraries known to expose component refs: `lucide-react`, `react-icons`, `@heroicons/react`, `@radix-ui/react-icons`, `@tabler/icons-react`, `@phosphor-icons/react` (Grep for these import sources).
+  - Function values as object properties (Grep for `:\s*(\(.*\)\s*=>|function\b)` inside object literals, or properties whose value is a bare identifier referring to a function declared above).
+  - `new ClassName(...)` instantiations of non-built-in classes.
+  - Identifiers re-exported from other Client Components (their default/named exports are component refs).
+- Trace import sites for the new shared module: Grep for `from ["'](\./|@/)?(path-to-new-module)` across `app/**` and any layout/page paths.
+
+7d. For each importer found in 7c:
+- Read the importer file. If it does **not** start with `"use client"`, it is a Server Component (default in App Router under `app/**`).
+- If the importer passes the imported value as a prop to a Client Component (any JSX element whose source module begins with `"use client"`, OR a component imported from a known UI kit like `@/components/...` whose file starts with `"use client"`), mark **MUST FIX** with reason "RSC boundary violation: Server Component forwards non-serializable value (functions/component refs) as prop to Client Component — see `references/rsc-boundary.md` § The extraction trap".
+
+7e. Special case — marking the new shared file `"use client"` does NOT cure 7d. The `"use client"` directive only places the module in the client graph for direct client imports; a Server Component upstream that imports it still serializes its exports at the boundary. If the Planner entry proposes "mark file `\"use client\"` and have Server Component import it", reject with the same rule.
+
+7f. Suggested fix to attach to each MUST FIX entry: "Client Component imports the shared module directly; Server Component drops the import and the prop forwarding (Pattern A in `rsc-boundary.md`). Alternative: project the exported data to plain-serializable shape (e.g., replace `icon: BuildingIcon` with `icon: \"building\"` and let the Client Component map key→component locally — Pattern B)."
 
 ## Output Format
 
@@ -97,10 +122,17 @@ DROP any finding that fails reproduction. Do NOT pass dropped findings through t
 ## Over-Engineering Check
 For each `solid-violation` entry:
 - Entry N: APPROVED | REJECTED (reason) | MODIFIED (suggested simplification)
+- TS class-justification: APPROVED with cited exception (Error subtype | stateful+lifecycle | framework-mandated) | MODIFIED to function-shape (cite the replacement) | N/A (entry does not introduce a new TS class)
 
 ## Research Backing
 For each modernization / framework-migration entry:
 - Entry N: APPROVED (cite docs URL or context7 library ID) | REJECTED — contradicted by current docs (cite docs URL showing the contradiction)
+
+## RSC Boundary Check
+Next.js App Router detected: yes | no (skip section if no).
+For each extraction / consolidation / shared-module entry:
+- Entry N: APPROVED (no non-serializable values cross Server→Client) | MUST FIX (cite the importer `file:line` + the offending export + the rule from `references/rsc-boundary.md`)
+- Suggested fix per MUST FIX entry: Pattern A (Client-only import) | Pattern B (project to plain data) | Pattern C (children slot) — pick the one that preserves the refactor's intent.
 
 ## Issues to Fix
 Prioritized list:
@@ -121,7 +153,8 @@ Prioritized list:
 
 - Spot-checked 5+ `file:line` references with read results documented.
 - All CAUTION dead-code items verified (dynamic-import check confirmed thorough or flagged).
-- Every `solid-violation` entry passed the over-engineering check (APPROVED / REJECTED / MODIFIED).
+- Every `solid-violation` entry passed the over-engineering check (APPROVED / REJECTED / MODIFIED), including the TS class-justification audit for any entry that introduces a new TS class in a `.ts`/`.tsx` file.
 - Every modernization / framework-migration entry passed the Research Backing check with a current-docs citation, OR was rejected with a citation showing the contradiction.
 - Zero unverified dead code in the approved list.
+- If Next.js App Router was detected, every extraction / consolidation / shared-module entry passed the RSC Boundary check, OR was marked MUST FIX with the importer `file:line` and the suggested Pattern (A / B / C).
 - Issues to Fix prioritized as MUST FIX / SHOULD FIX / MINOR.
