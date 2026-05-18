@@ -4,7 +4,7 @@ description: Use when the user asks to list plans, show/resume/start a plan, sca
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
+  updated: "2026-05-17"
 ---
 
 # Plan Manager
@@ -25,6 +25,10 @@ Read plans from `docs/plans/`, scaffold new ones, evaluate scheduled triggers, d
 
 <constraint>
 **Shell-avoidance.** Use `Glob` for file enumeration (not `find`, `ls`, or shell `for` loops). Use `Read` for file contents (not `cat`/`head`/`tail`). Use `Grep` for content search. Reserve `Bash` for `date`, `git mv`, `git status`, and read-only existence checks (`test -f`, `test -d`). No shell loops, no `$(...)` substitution, no pipes.
+</constraint>
+
+<constraint>
+**HTML sidecar regeneration.** Every plan `<slug>.md` MAY have a sibling `<slug>.html` in the same directory (browser view; the .md remains canonical and is the only thing agents read). After every `Write` / `Edit` to a plan, AND after every `git mv` between lifecycle directories, regenerate the sidecar `.html` per the standard in `docs/plans/AGENTS.md` § "HTML sidecar (browser view)". Also regenerate `docs/plans/index.html` (dashboard) whenever any plan was touched in the turn. Sidecars use shared assets at `docs/plans/_assets/{dashboard.css,dashboard.js}` — never inline styles or scripts. NEVER read the .html to answer questions about plan state — the .md is canonical. If the parsed content hasn't changed, skip the write to keep git noise down.
 </constraint>
 
 ## Workflow
@@ -115,11 +119,27 @@ Pick the right tier:
 
 The header-strip `status` line uses the same category-specific age tokens as Tier 2. Empty optional sections (anything in 6–11 with only the heading) are NOT shown in the body of Tier 3 output.
 
+### Step 7.5 — Regenerate HTML sidecar (after any plan write / move)
+
+After Step 5 (`git mv`) or any `Write` / `Edit` to a plan file, regenerate `<slug>.html` in the same directory per the standard in `docs/plans/AGENTS.md` § HTML sidecar:
+
+1. Parse the .md: frontmatter → JSON; body → per-section HTML; steps table → `<table class="steps">` with `<td class="status" data-status="...">`.
+2. Use the template structure documented in AGENTS.md exactly — `data-status`, `data-section`, `data-progress`, `data-sort-value` attributes are load-bearing for the shared CSS/JS in `docs/plans/_assets/`.
+3. Reference assets via `../_assets/dashboard.css` and `../_assets/dashboard.js` (relative from the category subdir).
+4. Footer: `<a href="./<slug>.md">source: <slug>.md</a>` + `<span class="generated-at">generated <ISO timestamp></span>`.
+5. If the parsed content is byte-identical to the existing `.html`'s parsed projection, skip the write (avoid git noise).
+6. Regenerate `docs/plans/index.html` (dashboard) listing every plan across categories — same `_assets/`, `<body class="dashboard">`, filter selects, sortable `<table class="plans-table">`. Each `<tr data-status="..." data-assignee="..." data-tags="...">` links to the per-plan `.html`. The dashboard is regenerated whenever ANY plan was touched in the turn.
+7. NEVER read the `.html` back to answer questions — the .md is canonical. The sidecar is write-only from this skill's perspective.
+
+This step runs BEFORE Step 7 (pretty-print) so the chat preview can mention "sidecar regenerated → docs/plans/<cat>/<slug>.html".
+
 ### Step 8 — Auto-trigger plan-review on `→ finished/`
 
 After Step 5 moves a plan to `finished/` AND `ship_commit` is set, immediately dispatch the `plan-review` skill (or Claude agent in Claude Code via `Agent(subagent_type="plan-review", prompt=<plan-path>)`). The Review block gets written, `review_status` set, Tier-3 preview rendered.
 
 If `ship_commit` is missing at the time of the move, stop and ask the user for the SHA — never run plan-review against an empty `ship_commit`.
+
+After plan-review writes the `## Review` block to the .md, Step 7.5 must run AGAIN to refresh the sidecar `.html` with the new review content.
 
 ## Schedule trigger evaluation (for `scheduled/` only)
 
@@ -164,6 +184,7 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 ## Success Criteria
 
 - Every plan write/move is followed by a Tier-1/2/3 preview — the user never opens the file to know what landed.
+- Every plan write/move regenerates the `<slug>.html` sidecar AND `docs/plans/index.html` per `docs/plans/AGENTS.md` § HTML sidecar. The .md remains canonical and is never out-of-sync with its sidecar.
 - No plan in any category is treated as a singleton — multi-occupancy is the default everywhere.
 - Schedule triggers evaluate against a freshly-fetched `now`, not a stale conversation timestamp.
 - Dispatched assignees receive the full plan body as context so they survive auto-compact.

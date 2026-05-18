@@ -291,11 +291,180 @@ conversation context, so auto-compact never touches it.
 - **Don't track state only in chat** — mirror anything important to the plan file.
 - **The plan file is a complete handoff document** — `Mistakes & Dead Ends`, `Sources`, `Evidence log`, and the `Steps` table mean an incoming agent (or the same agent after compact) has everything to continue without recap.
 
+## HTML sidecar (browser view)
+
+Every plan `.md` file MAY have a sibling `.html` sidecar in the same
+directory — `docs/plans/ongoing/20260511-foo.md` → `docs/plans/ongoing/20260511-foo.html`.
+The `.md` remains the source of truth (canonical, agent-readable, git-friendly,
+LLM-native). The `.html` is a **derived artifact** for browser analysis only:
+collapsible sections, click-to-copy, color-coded status, no token cost in
+agent flows because no agent ever reads it.
+
+Shared assets live at:
+
+```
+docs/plans/_assets/
+├── dashboard.css      # one stylesheet for every sidecar + the dashboard
+└── dashboard.js       # toggleable sections, click-to-copy, filter/sort
+```
+
+Optionally, `docs/plans/index.html` is a **dashboard** that lists every plan
+across categories with filter / sort / search. Same `_assets/`.
+
+### When to (re)generate
+
+`plan-manager` regenerates the sidecar on every plan write or `git mv` —
+the .html is always in sync with the .md by construction. Generation is
+deterministic; nothing in the .html exists except what was parsed from
+the .md plus the shared assets reference.
+
+The .html files can be checked in (so a teammate sees the formatted view
+on GitHub or via a static-host link) or gitignored (treat as build
+artifact). Both choices are valid; default is checked-in until your
+repo's plan count makes the noise tedious. If gitignoring, add to
+`.gitignore`:
+
+```
+docs/plans/**/*.html
+!docs/plans/index.html
+!docs/plans/_assets/
+```
+
+### Sidecar HTML structure (the standard)
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title} · {status}</title>
+  <link rel="stylesheet" href="../_assets/dashboard.css" />
+  <script type="application/json" id="plan-data">
+    {/* full frontmatter as JSON, so JS doesn't re-parse YAML */}
+  </script>
+</head>
+<body data-status="{status}" data-slug="{slug}">
+  <header class="plan-header">
+    <div class="plan-header__top">
+      <span class="status-badge" data-status="{status}">{status}</span>
+      <span class="age-token">{category-specific age token}</span>
+    </div>
+    <h1>{title}</h1>
+    <p class="plan-goal-summary">{goal}</p>
+    <dl class="plan-meta">
+      <div><dt>slug</dt><dd>{slug}</dd></div>
+      <div><dt>created</dt><dd>{created}</dd></div>
+      <div><dt>updated</dt><dd>{updated}</dd></div>
+      <div><dt>started_at</dt><dd>{started_at or "—"}</dd></div>
+      <div><dt>assignee</dt><dd>{assignee or "—"}</dd></div>
+      <div><dt>ship_commit</dt><dd>{ship_commit or "—"}</dd></div>
+      <div><dt>blocked_since</dt><dd>{blocked_since or "—"}</dd></div>
+      <div><dt>scheduled_date</dt><dd>{scheduled_date or "—"}</dd></div>
+      <div><dt>tags</dt><dd>{tags joined or "—"}</dd></div>
+    </dl>
+  </header>
+
+  <main class="plan-body">
+    <!-- one <section class="plan-section plan-section--<slug>" data-section="<slug>"> per body section -->
+    <section class="plan-section plan-section--goal" data-section="goal">
+      <h2>Goal</h2>
+      <div class="plan-section__content markdown">{rendered Markdown}</div>
+    </section>
+
+    <section class="plan-section plan-section--steps" data-section="steps" data-progress="{M}/{N}">
+      <h2>Steps <span class="progress">{M} / {N}</span></h2>
+      <div class="plan-section__content">
+        <table class="steps">
+          <thead><tr><th>#</th><th>Task</th><th>Status</th><th>Owner</th></tr></thead>
+          <tbody>
+            <!-- one <tr> per row, with `<td class="status" data-status="{status}">` -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- repeat for: context, acceptance, out-of-scope, mistakes, sources, blockers, notes, evidence, review -->
+  </main>
+
+  <footer>
+    <a href="./{slug}.md">source: {slug}.md</a>
+    <span class="generated-at">generated {ISO timestamp}</span>
+  </footer>
+
+  <script src="../_assets/dashboard.js"></script>
+</body>
+</html>
+```
+
+Conventions the CSS depends on:
+
+| Element | Required attribute | Used by CSS for |
+|---|---|---|
+| `<body>` | `data-status="<category>"` | Page-level theming hook |
+| `<span class="status-badge">` | `data-status="<category>"` | Color per lifecycle (planned/ongoing/blocked/scheduled/finished) |
+| `<section class="plan-section plan-section--<slug>">` | `data-section="<slug>"` | Per-section emphasis (mistakes=red tint, review=green, blockers=amber) |
+| `<td class="status">` (inside `table.steps`) | `data-status="<step-status>"` | done=green, in-flight=blue, planned=gray, blocked=red, skipped=strikethrough |
+| Empty sections | `<div class="plan-section__content">` with empty content | dashboard.js auto-collapses them on load |
+
+### Dashboard structure (`docs/plans/index.html`)
+
+```html
+<body class="dashboard">
+  <h1>Plans</h1>
+
+  <div class="filters">
+    <input type="search" data-filter="search" placeholder="filter…" />
+    <select data-filter="status">
+      <option value="">all statuses</option>
+      <option value="planned">planned</option>
+      <option value="ongoing">ongoing</option>
+      <option value="blocked">blocked</option>
+      <option value="scheduled">scheduled</option>
+      <option value="finished">finished</option>
+    </select>
+    <select data-filter="assignee"><!-- populated server-side from plans --></select>
+    <select data-filter="tag"><!-- populated server-side from plans --></select>
+  </div>
+
+  <table class="plans-table">
+    <thead>
+      <tr>
+        <th data-sort="status">Status</th>
+        <th data-sort="title">Title</th>
+        <th data-sort="age">Age</th>
+        <th data-sort="assignee">Assignee</th>
+        <th data-sort="progress">Steps</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- one <tr data-status="<cat>" data-assignee="<a>" data-tags="t1,t2"> per plan -->
+      <!-- cells may carry data-sort-value="<sortable value>" for non-text sorting (e.g., ISO date for an "Age" col showing "6d queued") -->
+    </tbody>
+  </table>
+</body>
+```
+
+### Generation contract
+
+`plan-manager` is the canonical generator. It MUST:
+
+1. Re-generate the sidecar `.html` after every `Write` / `Edit` of a plan file.
+2. Re-generate the sidecar after every `git mv` between lifecycle directories (path AND filename may change).
+3. Re-generate `docs/plans/index.html` whenever any individual plan was touched in this turn.
+4. Use the assets at `../_assets/dashboard.{css,js}` (relative path from the category subdirectory).
+5. Preserve the .md as canonical — NEVER read the .html when answering "what's the state of plan X".
+6. When the sidecar would be unchanged (no parsed diff), skip the write to keep git noise down.
+
+The generation logic itself (Markdown → HTML rendering, frontmatter → JSON, steps table extraction) is implementation-detail of `plan-manager` — any deterministic transform that produces the structure above is conformant.
+
 ## Slugs and naming
 
 `<YYYYMMDD>-<kebab-slug>.md` (e.g., `20260511-w2-whatsapp-send.md`). Date
 prefix keeps `ls` chronological. On ship, change the prefix to the
 completion date: `finished/2026-05-04-auth-rate-limit.md`.
+
+The sidecar `.html` follows the same naming — `finished/2026-05-04-auth-rate-limit.html`.
 
 ## When to create a plan
 
