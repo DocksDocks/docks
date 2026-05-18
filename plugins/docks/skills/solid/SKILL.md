@@ -4,7 +4,7 @@ description: Use when designing a module / service / class with multiple concern
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
+  updated: "2026-05-17"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
@@ -21,6 +21,10 @@ Don't add classes / inheritance just to "make SOLID fit." If a codebase is funct
 
 <constraint>
 The Strategy Map (the Open/Closed pattern in this skill) is code, not config. Never move map entries to JSON / YAML — you trade type safety, exhaustiveness checks, and tree-shaking for a "data-driven" win that becomes parallel duplication the moment a variant needs custom logic.
+</constraint>
+
+<constraint>
+Before proposing any structural split, run the three tests from [`references/depth-and-seams.md`](references/depth-and-seams.md): (a) **Deletion test** — would deleting the module concentrate complexity or just scatter it? (b) **The interface IS the test surface** — if tests reach past the interface, the module is the wrong shape. (c) **One adapter = hypothetical seam, two adapters = real seam** — don't introduce an abstraction unless a second adapter (test fake counts when it exists) genuinely varies across it. Use the locked vocabulary (Module / Interface / Depth / Seam / Adapter / Leverage / Locality) — don't drift into "component," "service," "API," "wrapper," "boundary." Vocabulary drift makes reviews longer and conversations looser.
 </constraint>
 
 ## When to Use
@@ -124,6 +128,8 @@ In codebases without a DI container, **function arguments are the abstraction**.
 | `instanceof` / duck-type checks gating behavior | Discriminated union + exhaustive switch | L |
 | Interface > 10 methods with mutually-exclusive subsets | Split interface along caller groups | I |
 | Business logic imports concrete SDK | Inject via interface / function parameter | D |
+| About to introduce a new abstraction / interface / wrapper | Run the deletion test + 2-adapter rule first | `references/depth-and-seams.md` |
+| Refactor moves code around without changing depth | Stop — moved depth is not earned depth | `references/depth-and-seams.md` |
 
 ## Common Traps
 
@@ -131,7 +137,7 @@ In codebases without a DI container, **function arguments are the abstraction**.
 |---|---|
 | Add an `abstract class Formatter` and a subclass per variant | Strategy Map (`Record<string, (x: T) => U>`) — same Open/Closed property, no inheritance tax |
 | Move switch arms to `formatters.json` | Keep them as code; otherwise you lose exhaustiveness and tree-shaking |
-| Wrap every dependency in an interface "for testability" | Wrap only at the boundary you actually want to swap (the SDK, the network, the clock) |
+| Wrap every dependency in an interface "for testability" | Wrap only at the seam you actually want to swap (the SDK, the network, the clock) — and only when a second adapter (test fake, alt provider) actually exists |
 | Split a 200-line module into 4 × 50-line modules to "obey SRP" | Leave it; don't split until two genuinely independent change axes share the file |
 | Use `extends` / inheritance to share method implementations | Composition: extract a function, call it from both places |
 | Add a `?` to every optional field "for flexibility" | Discriminated union — the variant carries which fields are required |
@@ -141,4 +147,6 @@ In codebases without a DI container, **function arguments are the abstraction**.
 - Companion skill: `react-component-patterns` for React component composition patterns (compound, polymorphic, headless, slots) — distinct from SOLID's structural concerns
 - Companion skill: `type-safety-discipline` for discriminated-union ergonomics referenced in the L section
 - Per-language deep examples: `references/typescript-solid.md`, `references/rust-solid.md`, `references/python-solid.md`, `references/go-solid.md`
+- Structural vocabulary + the three tests: `references/depth-and-seams.md`
 - Uncle Bob's original SOLID essays: https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html
+- Depth/seam vocabulary adapted from Matt Pocock's `improve-codebase-architecture` skill (MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/improve-codebase-architecture/LANGUAGE.md

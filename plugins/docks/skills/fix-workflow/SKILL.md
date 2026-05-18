@@ -4,10 +4,14 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
+  updated: "2026-05-17"
 ---
 
 # Fix Workflow
+
+<constraint>
+Before anything else: build a feedback loop. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause — bisection, hypothesis testing, and instrumentation all just consume that signal. Without one, "fixing" is speculation. The full ranked menu of 10 loop-construction methods, plus iteration rules, non-deterministic-bug handling, and the "when you genuinely cannot build a loop" stop-and-ask procedure live in [`references/feedback-loops.md`](references/feedback-loops.md). Read it before Step 2 (Reproduce). Spend disproportionate effort here — a 2-second deterministic loop is a debugging superpower; a 90-second flaky one is barely better than nothing.
+</constraint>
 
 <constraint>
 Each fix MUST have a revert trigger declared up-front. "If test X fails after this change, run `git restore <file>`" — written down before the fix lands. A fix without a pre-declared revert trigger is a fix you cannot back out cleanly when CI flips red, and that's how regressions ship.
@@ -40,6 +44,7 @@ The universal 6-step procedure below applies to every fix. For finding-type-spec
 
 | Finding type | Reference file |
 |---|---|
+| Building / iterating / debugging the loop itself (Step 0 + Step 2) | `references/feedback-loops.md` |
 | CVE / GHSA / dependency vulnerability / security audit finding | `references/security-fix-templates.md` |
 | Performance regression / slow query / N+1 / render cascade | `references/perf-fix-templates.md` |
 | Functional bug reproducible via test / crash / wrong-output | `references/bug-fix-templates.md` |
@@ -61,10 +66,13 @@ Run `git status --short` and `git log --oneline -5` for context. If the working 
 
 Skip this step if scope is "scan a directory" or "fix the audit report." Run it when the user gave you a bug description.
 
-- Find or write a failing test that demonstrates the bug
+This step consumes the feedback loop you built per the Step 0 constraint (`references/feedback-loops.md`). If you skipped Step 0 because the loop "felt obvious," check the ranked menu — odds are there's a sharper, more deterministic option than the one you would have written by reflex.
+
+- Find or write a failing test that demonstrates the bug (or whichever loop method from the menu fits this bug)
 - If existing test infrastructure exists: try the smallest possible test first (single function, mocked dependencies)
 - If no test infrastructure: STOP and discuss with the user — adding a test framework is a separate task
 - Confirm the failure before continuing. "I think I see why this happens" is not reproduction.
+- For non-deterministic bugs: raise the reproduction rate before debugging (loop 100×, pin clock/RNG, freeze network). 1%-flake is not debuggable; 50% is. See `references/feedback-loops.md` § Non-deterministic bugs.
 
 ### Step 3 — Discover (parallel by default)
 
@@ -177,3 +185,5 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 - Companion skills: `dep-vuln-workflow`, `lint-no-suppressions`, `code-review`, `tdd-workflow`
 - Companion commands: `/security`, `/refactor`
 - Per-finding-type templates: `references/security-fix-templates.md`, `references/perf-fix-templates.md`, `references/bug-fix-templates.md`
+- Feedback-loop construction (Step 0): `references/feedback-loops.md`
+- Framing for feedback-loops.md adapted from Matt Pocock's `diagnose` skill (MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnose/SKILL.md

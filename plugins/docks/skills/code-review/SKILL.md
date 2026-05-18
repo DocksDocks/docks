@@ -4,7 +4,7 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
+  updated: "2026-05-17"
 ---
 
 # Code Review
@@ -19,6 +19,10 @@ Severity must match exploitability and blast radius, not surface scariness. A `d
 
 <constraint>
 The review phase is READ-ONLY. Don't apply fixes during analysis — produce the findings list, present it to the user, and only apply fixes if the user explicitly approves. Mid-review edits pollute the diff and make it impossible to distinguish findings from fixes.
+</constraint>
+
+<constraint>
+Two-axis mode (optional) — activate when reviewing changes since a fixed point AND a spec source exists (a related plan in `docs/plans/{ongoing,blocked,finished}/<slug>.md`, an issue link in a commit message, a PRD path passed by the user, or any `specs/`/`docs/` file matching the branch name). Run two passes and report them under separate `## Standards` and `## Spec` headings — **do NOT merge or rerank findings across axes**. A change can pass Standards and fail Spec (correct code, wrong feature) or pass Spec and fail Standards (right feature, wrong conventions); merging hides exactly those crossings. See the "Two-Axis Mode" section below. Skip activation if no spec source exists — single-axis Standards review is the default.
 </constraint>
 
 ## When to Use
@@ -110,6 +114,45 @@ If the user approves fixes:
 3. If a fix breaks a test or introduces a regression, **revert with `git restore`** and report the revert — don't try to fix the fix in the same review cycle
 4. After all approved fixes land, re-run the full check suite and report final state
 
+## Two-Axis Mode (Standards + Spec)
+
+When the trigger above fires, run the review on two axes and report them side-by-side without merging.
+
+**Axis 1 — Standards.** Does the diff follow the project's documented conventions? Source: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/adr/*`, any `STYLE.md`/`STANDARDS.md`, plus the skill set under `.claude/skills/`. **Skip what tooling already enforces** (eslint/biome/prettier/tsc/ruff/clippy/gofmt) — note their presence but don't re-derive what `npx tsc --noEmit` would flag in 2 seconds.
+
+**Axis 2 — Spec.** Does the diff faithfully implement what was asked? Source priority:
+1. A plan file in `docs/plans/{ongoing,blocked,finished}/<slug>.md` matching the branch / commit message — read its `Goal` and `Steps`.
+2. Issue references in commit messages (`#123`, `Closes #45`) — fetch via `gh issue view 123` if the repo has GitHub.
+3. A PRD/spec path passed by the user as the explicit spec source.
+4. A `specs/` / `docs/<feature>.md` file matching the branch name.
+
+If none exists, the Spec axis is skipped and the report notes "no spec source available" — single-axis Standards review proceeds.
+
+**Spec-axis report** — three sub-buckets per finding:
+- **(a) Missing or partial** — spec asked for X; the diff doesn't deliver it (or delivers a subset).
+- **(b) Scope creep** — the diff adds Y that the spec didn't ask for. Not always wrong, but call it out so the user can decide.
+- **(c) Implemented but wrong** — spec asked for Z; the diff has something Z-shaped, but the behaviour drifts from what the spec described. Quote the spec line as evidence.
+
+**Report shape:**
+
+```markdown
+## Standards
+<findings from Axis 1, severity-ordered, file:line + evidence + suggested fix>
+
+## Spec
+<findings from Axis 2 grouped by sub-bucket (missing/partial, scope creep, implemented-wrong),
+each citing the spec line + the diff line>
+
+## Summary
+- Standards: N findings (1 critical / 2 high / …)
+- Spec: M findings (k missing, j scope creep, i implemented-wrong)
+- Worst single issue across both axes: <one line>
+```
+
+Patterns to use parallel sub-agents for the two passes (so one axis doesn't bleed into the other's context) live in our `refactor` command's Phase 2 design — same idea, different domain. For straight `code-review` invocations the two passes can be sequential within one turn; the discipline that matters is keeping the reports separate.
+
+Pattern adapted from Matt Pocock's `review` skill (MIT): <https://github.com/mattpocock/skills/blob/main/skills/in-progress/review/SKILL.md>.
+
 ## Common Traps
 
 | Trap | Wrong fix | Right fix |
@@ -121,6 +164,8 @@ If the user approves fixes:
 | Mid-review fix pollution | Edit a "obviously broken" line during analysis | Stay read-only until Step 5. Never edit mid-analysis. |
 | Reporting "potential issues" | "There MIGHT be a SQL injection here" | Either it is one (file:line + evidence) or you don't know yet (run another search pass before deciding) |
 | Missing the surrounding context on a diff | Review only `+` lines | Always read 5-10 lines above and below the hunk; bugs live in deletions and at boundaries |
+| Merging Standards + Spec findings into one ranked list | Sort all findings by severity across both axes | Keep `## Standards` and `## Spec` reports separate; crossings (passes one, fails the other) are exactly what you want visible |
+| Spec axis skipped silently because "I didn't find a plan" | Move to single-axis report without comment | Note "no spec source available" explicitly in the report so the user knows the Spec axis was attempted, not forgotten |
 
 ## Output Example
 
