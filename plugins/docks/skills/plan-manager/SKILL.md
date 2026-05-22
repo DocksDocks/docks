@@ -1,10 +1,10 @@
 ---
 name: plan-manager
 description: Use when the user asks to list plans, show/resume/start a plan, scaffold a new plan, fire scheduled plans, or check plan status ("what plans do I have?"). Handles cross-tool plan management — scans docs/plans/, computes age tokens, dispatches assignees, evaluates scheduled triggers, scaffolds skeletons, renders three pretty-print tiers (goal-listing, bulk digest, single-plan preview). Not for bootstrapping docs/plans/ (plan-init) or verifying finished plans (plan-review).
-user-invocable: false
+user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-17"
+  updated: "2026-05-22"
 ---
 
 # Plan Manager

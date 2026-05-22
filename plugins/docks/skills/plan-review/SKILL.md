@@ -1,10 +1,10 @@
 ---
 name: plan-review
 description: Use when a plan moves to docs/plans/finished/ with ship_commit set, or the user asks to review a finished plan ("review plan <slug>", "check finished plans"). Verifies the plan's goal vs ship_commit's diff, runs scripts/ci.sh to flag regressions, writes a `## Review` block into the plan with goal-met assessment, regression scan, follow-ups. Not for general code review, pre-merge checks, or plans still in ongoing/.
-user-invocable: false
+user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
+  updated: "2026-05-22"
 ---
 
 # Plan Review

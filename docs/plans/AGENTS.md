@@ -7,7 +7,7 @@ handoff document**: any agent can pick one up cold, without conversation
 context, and continue.
 
 Operations are skill-driven (cross-tool: Codex and Claude both work via
-natural language). There is no slash command.
+natural language). The skills are also user-invocable directly.
 
 | User says | Skill triggered |
 |---|---|
