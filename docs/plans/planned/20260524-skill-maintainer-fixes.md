@@ -13,9 +13,9 @@ ship_commit: null
 tags: [skill-maintenance, bugfix, docs-command]
 affected_paths:
   - plugins/docks/skills/productivity/agents/SKILL.md
-  - plugins/docks/agents/engineering/docs-skills-builder.md
-  - plugins/docks/agents/engineering/docs-verifier.md
-  - plugins/docks/agents/engineering/docs-explorer.md
+  - plugins/docks/agents/docs-skills-builder.md
+  - plugins/docks/agents/docs-verifier.md
+  - plugins/docks/agents/docs-explorer.md
   - scripts/guard-skills.sh
   - scripts/skill-content-hash.sh
   - scripts/ci.sh

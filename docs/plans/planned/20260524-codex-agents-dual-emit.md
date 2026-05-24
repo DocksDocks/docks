@@ -14,8 +14,8 @@ tags: [codex, agents, docs-command, bridge]
 affected_paths:
   - plugins/docks/skills/productivity/agents/SKILL.md
   - plugins/docks/skills/productivity/agents/references/codex-agent-translation.md
-  - plugins/docks/agents/engineering/docs-agents-builder.md
-  - plugins/docks/agents/engineering/docs-verifier.md
+  - plugins/docks/agents/docs-agents-builder.md
+  - plugins/docks/agents/docs-verifier.md
   - plugins/docks/commands/docs.md
   - scripts/guard-codex-agents.sh
   - scripts/guard-codex-symlinks.sh

@@ -104,7 +104,9 @@ for f in "$DIR"/*.md; do
     score=$((score + 1))
   fi
 
-  # 7. [structural] Every `subagent_type:` reference resolves to an agent file (3 pts)
+  # 7. [structural] Every `subagent_type:` reference resolves to an agent file (3 pts).
+  # Agents stay flat at plugins/docks/agents/<name>.md (plugin manifest
+  # auto-discovers them at depth-1 only — see plan foundation-categorization-scoring).
   # If no subagent_type references exist (non-thin command), this passes.
   agents=$(grep -oE "subagent_type: \`?[a-z][a-z0-9-]+\`?" "$f" \
            | sed -E 's/subagent_type: `?([a-z0-9-]+)`?/\1/' | sort -u)

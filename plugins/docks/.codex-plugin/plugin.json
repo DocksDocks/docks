@@ -18,7 +18,11 @@
     "test",
     "review"
   ],
-  "skills": "./skills/",
+  "skills": [
+    "./skills/engineering",
+    "./skills/productivity",
+    "./skills/internal"
+  ],
   "interface": {
     "displayName": "docks",
     "shortDescription": "Portable engineering-convention skills (skills only on Codex — full version available on Claude Code).",

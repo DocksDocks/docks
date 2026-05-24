@@ -8,7 +8,7 @@ errors=0
 
 [ -d "$DIR" ] || { echo "FAIL: skills dir not found: $DIR" >&2; exit 1; }
 
-for skill_dir in "$DIR"/*/; do
+for skill_dir in "$DIR"/*/*/; do
   [ -d "$skill_dir" ] || continue
   skill_name=$(basename "$skill_dir")
   file="$skill_dir/SKILL.md"

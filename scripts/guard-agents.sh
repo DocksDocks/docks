@@ -10,8 +10,10 @@ errors=0
 if [ -f "$ARG" ]; then
   FILES=("$ARG")
 elif [ -d "$ARG" ]; then
+  # Agents stay flat at agents/<name>.md (depth-1). Plugin manifest doesn't
+  # accept an `agents` field, so the Claude Code plugin loader auto-discovers
+  # agents only at this depth.
   FILES=("$ARG"/*.md)
-  # Empty dir → pass silently with "no agents found"
   if ! compgen -G "$ARG/*.md" > /dev/null; then
     echo "Guard PASSED: no agent files found in $ARG"
     exit 0

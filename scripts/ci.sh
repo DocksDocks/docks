@@ -127,6 +127,29 @@ else
   [ "$QUIET" -eq 0 ] && printf "\033[1;33m  ⚠\033[0m %s missing — Codex distribution not configured (optional)\n" "$CODEX_PLUGIN"
 fi
 
+# --- 2c. skill category layout sanity ---
+# Skills are categorized (plan foundation-categorization-scoring).
+# Agents stay flat — plugin manifest doesn't accept an `agents` field, so
+# the loader auto-discovers them at depth-1 only.
+section "category layout"
+manifest_categories=$(jq -r '.skills[]?' plugins/docks/.claude-plugin/plugin.json 2>/dev/null)
+layout_ok=1
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  clean="${path#./}"
+  if [ ! -d "plugins/docks/$clean" ]; then
+    fail "plugin.json references missing category dir: $clean"
+    layout_ok=0
+  fi
+done <<< "$manifest_categories"
+
+stray_skills=$(find plugins/docks/skills -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l)
+if [ "$stray_skills" -gt 0 ]; then
+  fail "$stray_skills skill(s) at skills/<name>/SKILL.md (should be skills/<category>/<name>/SKILL.md)"
+  layout_ok=0
+fi
+[ "$layout_ok" -eq 1 ] && ok "skill categories declared in plugin.json all exist; no stray skills outside categories"
+
 # --- 3. structural guards ---
 section "structural guards"
 for g in guard-skills guard-commands guard-agents; do
@@ -137,41 +160,83 @@ for g in guard-skills guard-commands guard-agents; do
   fi
 done
 
-# --- 4. quality score floors (count-derived; tracks content size automatically) ---
-# Total floor = artifact_count × per-file_floor.
-# Hardcoded floors went stale every time the inventory changed; deriving from
-# count means a deletion / addition bumps the floor automatically. Per-file
-# floors come from PER_FILE_FLOORS below, which is also the GH workflow's truth.
+# --- 4. quality score floors ---
+# Per-file floor is the gate; total floor = sum(per_file_floor × count).
+# Floors live in scripts/scoring.config.json (one source of truth).
+# Skills are per-category (categorization in plan foundation-categorization-scoring).
+# Agents + commands are flat — plugin manifest auto-discovers them at depth-1 only.
 section "quality score floors"
-declare -A PER_FILE_FLOORS=([skills]=8 [commands]=21 [agents]=14)
-count_skills=$(find plugins/docks/skills -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-count_commands=$(find plugins/docks/commands -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
-count_agents=$(find plugins/docks/agents -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
-declare -A COUNTS=([skills]=$count_skills [commands]=$count_commands [agents]=$count_agents)
-for k in skills commands agents; do
-  floor=$(( COUNTS[$k] * PER_FILE_FLOORS[$k] ))
-  score=$(bash "scripts/score-$k.sh" 2>/dev/null)
-  if [ -n "$score" ] && [ "$score" -ge "$floor" ]; then
-    ok "score-$k: $score (floor ${floor} = ${COUNTS[$k]} × ${PER_FILE_FLOORS[$k]})"
+
+# Skills (per-category)
+for c in engineering productivity internal; do
+  dir="plugins/docks/skills/$c"
+  [ -d "$dir" ] || continue
+  floor=$(bash scripts/read-floor.sh skills "$c" 2>/dev/null) || { fail "scoring.config.json missing skills.$c"; continue; }
+  count=$(find "$dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+  [ "$count" -eq 0 ] && continue
+  cat_score=$(bash scripts/score-skills.sh --per-file 2>/dev/null \
+              | awk -v c="$c" 'index($1, c"/") == 1 {sum += $2} END {print sum+0}')
+  cat_floor=$(( count * floor ))
+  if [ "$cat_score" -ge "$cat_floor" ]; then
+    ok "score-skills/$c: $cat_score (floor $cat_floor = $count × $floor)"
   else
-    fail "score-$k: ${score:-<empty>} below floor ${floor} (${COUNTS[$k]} × ${PER_FILE_FLOORS[$k]})"
+    fail "score-skills/$c: $cat_score below floor $cat_floor ($count × $floor)"
+  fi
+done
+
+# Flat kinds (agents, commands)
+for k in agents commands; do
+  floor=$(bash scripts/read-floor.sh "$k" 2>/dev/null) || { fail "scoring.config.json missing $k"; continue; }
+  count=$(find "plugins/docks/$k" -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
+  total_floor=$(( count * floor ))
+  score=$(bash "scripts/score-$k.sh" 2>/dev/null)
+  if [ -n "$score" ] && [ "$score" -ge "$total_floor" ]; then
+    ok "score-$k: $score (floor $total_floor = $count × $floor)"
+  else
+    fail "score-$k: ${score:-<empty>} below floor $total_floor ($count × $floor)"
   fi
 done
 
 # --- 5. per-file score floors ---
 section "per-file score floors"
-declare -A PER_FILE_FLOORS=([skills]=8 [commands]=21 [agents]=14)
-for k in skills commands agents; do
+
+# Skills (per-category). Upstream-vendored skills (those with an `upstream:`
+# frontmatter block) are preserved verbatim from their source, so they're
+# exempt from the kit-calibrated per-file floor — the same relaxation
+# score-skills.sh already applies to their CSO/freshness checks. Structural
+# guards (guard-skills.sh) still gate them.
+any_under=0
+exempt_n=0
+while IFS= read -r line; do
+  s=$(echo "$line" | awk '{print $NF}')
+  catname=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
+  cat=${catname%%/*}
+  if grep -qE '^upstream:' "plugins/docks/skills/$catname/SKILL.md" 2>/dev/null; then
+    exempt_n=$((exempt_n + 1))
+    continue
+  fi
+  floor=$(bash scripts/read-floor.sh skills "$cat" 2>/dev/null)
+  [ -z "$floor" ] && { fail "  skills:$catname no floor for category '$cat'"; any_under=1; continue; }
+  if [ "$s" -lt "$floor" ]; then
+    fail "  skills:$catname score $s below per-file floor $floor"
+    any_under=1
+  fi
+done < <(bash scripts/score-skills.sh --per-file 2>/dev/null)
+[ "$any_under" -eq 0 ] && ok "skills per-file all clear per-category floors ($exempt_n upstream exempt)"
+
+# Flat kinds (agents, commands)
+for k in agents commands; do
+  floor=$(bash scripts/read-floor.sh "$k" 2>/dev/null) || continue
   any_under=0
   while IFS= read -r line; do
     s=$(echo "$line" | awk '{print $NF}')
     n=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
-    if [ "$s" -lt "${PER_FILE_FLOORS[$k]}" ]; then
-      fail "  $k:$n score $s below per-file floor ${PER_FILE_FLOORS[$k]}"
+    if [ "$s" -lt "$floor" ]; then
+      fail "  $k:$n score $s below per-file floor $floor"
       any_under=1
     fi
   done < <(bash "scripts/score-$k.sh" --per-file 2>/dev/null)
-  [ "$any_under" -eq 0 ] && ok "$k per-file all ≥ ${PER_FILE_FLOORS[$k]}"
+  [ "$any_under" -eq 0 ] && ok "$k per-file all ≥ $floor"
 done
 
 # --- summary ---

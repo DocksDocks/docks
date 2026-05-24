@@ -39,9 +39,10 @@ extract_yaml_value() {
   ' "$file"
 }
 
-for skill_dir in "$DIR"/*/; do
+for skill_dir in "$DIR"/*/*/; do
   [ -d "$skill_dir" ] || continue
   skill_name=$(basename "$skill_dir")
+  category=$(basename "$(dirname "$skill_dir")")
   file="$skill_dir/SKILL.md"
   [ -f "$file" ] || continue
   score=0
@@ -135,7 +136,7 @@ for skill_dir in "$DIR"/*/; do
   fi
 
   if [ "$MODE" = "per-file" ]; then
-    echo "$skill_name $score"
+    echo "$category/$skill_name $score"
   fi
   total=$((total + score))
 done

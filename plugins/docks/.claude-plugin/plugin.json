@@ -15,5 +15,10 @@
     "refactor",
     "test",
     "review"
+  ],
+  "skills": [
+    "./skills/engineering",
+    "./skills/productivity",
+    "./skills/internal"
   ]
 }

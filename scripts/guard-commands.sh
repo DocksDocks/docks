@@ -54,10 +54,11 @@ for f in "$DIR"/*.md; do
     errors=$((errors + 1))
   fi
 
-  # Thin commands: verify every subagent_type reference resolves to an agent file
+  # Thin commands: verify every subagent_type reference resolves to an agent file.
+  # Agents stay flat at plugins/docks/agents/<name>.md (the plugin manifest
+  # auto-discovers them at depth-1 only — see plan foundation-categorization-scoring).
   if [ "$flavor" = "thin" ]; then
     AGENTS_DIR="$SCRIPT_DIR/../plugins/docks/agents"
-    # Extract agent names from patterns like `subagent_type: foo-bar` or `subagent_type: \`foo-bar\``
     agents=$(grep -oE "subagent_type: \`?[a-z][a-z0-9-]+\`?" "$f" \
              | sed -E 's/subagent_type: `?([a-z0-9-]+)`?/\1/' | sort -u)
     for a in $agents; do
