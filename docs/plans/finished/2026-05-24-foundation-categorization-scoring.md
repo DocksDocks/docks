@@ -1,7 +1,7 @@
 ---
 title: Categorize skills/agents into folders with per-category scoring
 goal: Split skills + agents into engineering/productivity/internal folders, declare in plugin.json, rebalance score floors per category
-status: ongoing
+status: finished
 created: 2026-05-24
 updated: 2026-05-24
 started_at: 2026-05-24
@@ -9,7 +9,7 @@ assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: 6c818d524457d1981b86a3784d892e9ed28bf29a
 tags: [foundation, refactor, scoring]
 affected_paths:
   - plugins/docks/.claude-plugin/plugin.json
@@ -25,7 +25,7 @@ affected_paths:
   - scripts/score-commands.sh
   - scripts/ci.sh
 related_plans: [skill-maintainer-fixes, tree-skill, codex-agents-dual-emit, scaffold]
-review_status: null
+review_status: passed
 ---
 
 # Categorize skills/agents into folders with per-category scoring
@@ -145,4 +145,8 @@ Structural plan — no behavior changes, no new skills, no new agents. Every lat
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — 28 skills categorized 12/7/9 under engineering/productivity/internal (depth-2 verified, zero stray depth-1 skills); both manifests declare the `skills[]` array; `scoring.config.json` + `read-floor.sh` drive per-category floors (eng 10, prod/internal 8) with agents flat 14, commands flat 21; CI green with 2 upstream skills exempt.
+- **Regressions:** none — `bash scripts/ci.sh` exit 0; all structural guards + per-file/per-category floors pass.
+- **CI:** pass — "All ci.sh checks passed"; per-file section: "skills per-file all clear per-category floors (2 upstream exempt)".
+- **Follow-ups:** none — empty `agents/engineering/` + `agents/internal/` dirs persist on disk (sandbox can't rmdir) but are untracked and invisible to validators; tracked as a known harmless artifact in Notes, not a regression. Scope notes: `guard-agents.sh`/`score-agents.sh` were edited to read floors via `read-floor.sh` (beyond the step-9 wording, which named only command scripts) and 4 sibling plan files got bookkeeping edits — both benign, no follow-up needed.
+- Filed by: plan-review on 2026-05-24T20:02:33-03:00
