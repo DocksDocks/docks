@@ -82,6 +82,15 @@ for skill_dir in "$DIR"/*/*/; do
     fi
   fi
 
+  # metadata.content_hash — optional; if present must be 64-char lowercase hex.
+  # Written by scripts/skill-content-hash.sh as the skill-maintainer idempotency
+  # baseline (bump metadata.updated only when this hash changes).
+  chash=$(awk -F'"' '/^[[:space:]]*content_hash:/{print $2; exit}' "$file")
+  if [ -n "$chash" ] && ! echo "$chash" | grep -qE '^[0-9a-f]{64}$'; then
+    echo "FAIL: $skill_name — metadata.content_hash present but not 64-char lowercase hex (got: '$chash')" >&2
+    errors=$((errors + 1))
+  fi
+
   # Body (post-frontmatter) ≤ 500 lines
   # `&& c<2` cap prevents `---` lines inside body code fences (e.g., YAML examples)
   # from being counted as a third frontmatter marker, which would truncate the body.

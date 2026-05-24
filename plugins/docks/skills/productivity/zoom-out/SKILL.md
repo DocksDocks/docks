@@ -5,6 +5,7 @@ user-invocable: true
 metadata:
   pattern: micro-skill
   updated: "2026-05-17"
+  content_hash: "420a929a00cb2e15c0e4207ffe7ab0848df30b30bc96f47c91cef1bd183397a8"
 ---
 
 # Zoom Out

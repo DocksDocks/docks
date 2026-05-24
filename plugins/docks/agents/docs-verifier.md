@@ -40,7 +40,7 @@ DROP any finding that fails reproduction. Do NOT include it in `## Issues to Fix
 4. **Skill Checks** (for every skill in Phase 3 Plan):
    - **Frontmatter**: valid YAML; `name`, `description`, `user-invocable: false`, `metadata.pattern`, `metadata.source_files` (array), `metadata.updated` (date) all present. `name` lowercase + hyphens only.
    - **Description / CSO**: starts with "Use when…"; includes ≥5 project-specific identifiers (not generic phrases like `entry points` or `module boundaries`); under 1024 chars. Flag as `CSO-vague` if only generic terms.
-   - **Size**: SKILL.md ≤500 lines; `references/` files 30-150 lines. Flag thin skills (<50 lines, no references).
+   - **Size**: SKILL.md body ≤500 lines (hard cap). **Hard fail** any skill whose body is 310–500 lines with NO `references/` subdir — overflow past ~310 lines falls outside Claude Code's post-compaction re-attachment window and is silently dropped, so it MUST split into `references/<topic>.md` (30–150 lines each). Flag thin skills (<50 lines, no references).
    - **Reference accuracy**: spot-check ≥5 `file:line` references using Read — does code at the stated line actually exist?
    - **AI-optimization spot-check** (3+ skills): critical rules at START, gotchas at END, no prose paragraphs, non-negotiable rules in `<constraint>`, no AI slop.
    - **Maintenance skill**: `.claude/skills/skill-maintenance/SKILL.md` present in Phase 3 Plan with `user-invocable: false` and `metadata.pattern: reviewer`. Body MUST NOT reference kit-internal validators (`guard-skills.sh`, `score-skills.sh`, `guard-agents.sh`, `score-agents.sh`) — they are kit-only CI tooling absent from downstream projects. **Hard fail** if found; the body must use inline Read/Grep/Glob workflow steps instead.

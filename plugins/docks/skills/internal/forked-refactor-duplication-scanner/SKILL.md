@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/refactor-duplication-scanner.md"
     - "plugins/docks/commands/refactor.md"
   updated: "2026-05-06"
+  content_hash: "da0b2c97fe72a12308d67d0524c6a069f084ad5f5793615b141711675063a21e"
 ---
 
 # Forked Refactor Duplication Scanner

@@ -4,7 +4,8 @@ description: "Use when authoring a new skill for the docks plugin (`plugins/dock
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-05-17"
+  updated: "2026-05-24"
+  content_hash: "3f942796c93583402b248f15570d1e3651f425575c551a5967b3e97687761493"
 ---
 
 # Write a Skill (docks conventions)
@@ -30,7 +31,8 @@ description: "Use when <specific trigger words and contexts>. <Concrete pattern 
 user-invocable: false             # true only for slash-command-style skills (e.g., zoom-out)
 metadata:
   pattern: tool-wrapper           # or: micro-skill, meta-skill
-  updated: "YYYY-MM-DD"
+  updated: "YYYY-MM-DD"           # bump ONLY on a real content change
+  # content_hash: auto-managed by scripts/skill-content-hash.sh --backfill
 ---
 
 # Skill Name
@@ -65,7 +67,7 @@ metadata:
 | 8 | Code fence with language tag | 1 | ` ```ts `, ` ```bash `, etc. — not bare ` ``` ` |
 | 9 | Body 80–310 lines | 2 | sweet spot; either side loses the 2 pts |
 
-**Per-file floor: 8.** CI fails any skill scoring below 8. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
+**Per-file floor (per category):** engineering 10, productivity 8, internal 8 (`scripts/scoring.config.json`). CI fails any skill below its category floor. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
 
 ## The authoring loop
 
@@ -120,7 +122,7 @@ A skill with 4 constraint blocks scores the same as 3. Pick the 3 most load-bear
 | BAD/GOOD pair is two snippets of similar code with no annotation | Add the `// BAD — <one-line reason>` and `// GOOD — <one-line reason>` comments; the agent pattern-matches on the comments |
 | Every paragraph wrapped in `<constraint>` | Demote to prose — past 3 constraints the scorer gives nothing, and the pattern stops signalling "non-negotiable" |
 | `name:` doesn't match directory name | Guard fails. Rename directory to match (kebab-case, `[a-z0-9-]+`, ≤64 chars). |
-| Forgot `metadata.updated` bump after editing | Set to today (`date "+%Y-%m-%d"`). Scorer rewards freshness within 180 days. |
+| Forgot `metadata.updated` bump after editing | Bump to today (`date "+%Y-%m-%d"`) **only if content actually changed**, then re-sync the hash: `bash scripts/skill-content-hash.sh --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body. |
 | Body crossed 310 → just left it there | Move detail to `references/`. Past 310 lines, post-compaction re-attachment drops content silently. |
 | Used `comprehensive`/`robust`/`elegant`/`seamless` because it "reads better" | Each occurrence costs 1 pt. Rewrite or cut. |
 

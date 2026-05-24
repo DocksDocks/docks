@@ -5,6 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-06"
+  content_hash: "f944d63b4c39fc1e1f898a7a53770d1a4f8192dc8664a17ebe7dab821d356b88"
 ---
 
 # Test-Driven Development Workflow

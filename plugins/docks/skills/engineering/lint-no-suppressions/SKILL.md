@@ -5,6 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-12"
+  content_hash: "1079692709d5e74a853e01f509ba74c247ae3e951adf5c845468d8fa526ec7e9"
 ---
 
 # Never Suppress Lint / Type Errors

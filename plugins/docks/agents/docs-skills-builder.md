@@ -75,6 +75,8 @@ metadata:
 6. `## Gotchas` — concrete failure scenarios with what breaks and why
 7. `## References` — list of `references/` files with when-to-read conditions
 
+**References split (mandatory):** if a drafted SKILL.md body would exceed **310 lines**, split the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. Past ~310 lines, content falls outside Claude Code's post-compaction re-attachment window and is silently dropped. Phase 6 (docs-verifier) hard-fails a 310–500 line body with no `references/`.
+
 **AI-optimization rules (mandatory for every file):**
 - Critical constraints at START, gotchas at END (U-shaped attention).
 - Tables for comparisons, bullets for sequences — no prose paragraphs.
@@ -95,7 +97,7 @@ metadata:
 - Gotchas at bottom
 
 **Maintenance skill body (if proposed):**
-Pattern: reviewer. Body ≤100 lines. Workflow: identify modified files, Glob skills, cross-reference source_files, update affected skills, bump `metadata.updated`. Include When to Skip section (typos, renames, test-only changes). Do NOT reference kit-internal validators (`guard-skills.sh`, `score-skills.sh`, `guard-agents.sh`, `score-agents.sh`) — they gate the kit's own SSOT and are not shipped to downstream projects. Describe checks as inline Claude-readable workflow steps (Read/Grep/Glob), not as shell-script invocations.
+Pattern: reviewer. Body ≤100 lines. Workflow: identify modified files, Glob skills, cross-reference source_files, update affected skills, bump `metadata.updated` **only when the skill's meaning changed** (normalized SKILL.md body or any `references/*.md` differs from the prior version) — re-running on an unchanged skill MUST be a no-op (no `metadata.updated` churn). Include When to Skip section (typos, renames, test-only changes, no-op regenerations). Do NOT reference kit-internal validators (`guard-skills.sh`, `score-skills.sh`, `guard-agents.sh`, `score-agents.sh`) — they gate the kit's own SSOT and are not shipped to downstream projects. Describe checks as inline Claude-readable workflow steps (Read/Grep/Glob), not as shell-script invocations.
 
 **Do NOT touch AGENTS.md or CLAUDE.md.** Skills are self-discovering via descriptions; project-root config files are out of scope for this phase. Use the `agents` bridge skill if AGENTS.md/CLAUDE.md need work.
 
@@ -110,7 +112,7 @@ Pattern: reviewer. Body ≤100 lines. Workflow: identify modified files, Glob sk
 
 ## Success Criteria
 
-- All SKILL.md files ≤500 lines. All `references/` files 30-150 lines.
+- All SKILL.md files ≤500 lines; any body over 310 lines splits detail into `references/` (30-150 lines each).
 - Every description CSO-compliant with ≥5 project-specific identifiers.
 - Every claim in skill body has a `file:line` reference verified by reading the actual file.
 - Research-gate applied before documenting any library/framework API.

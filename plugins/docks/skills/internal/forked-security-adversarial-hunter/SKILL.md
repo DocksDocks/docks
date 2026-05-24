@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/security-adversarial-hunter.md"
     - "plugins/docks/commands/security.md"
   updated: "2026-05-06"
+  content_hash: "a3f917435383dc322ef411c707731e53552633aaad1de9629e94fe1a4aa42d5f"
 ---
 
 # Forked Security Adversarial Hunter

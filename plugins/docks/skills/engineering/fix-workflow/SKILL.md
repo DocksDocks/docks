@@ -5,6 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-17"
+  content_hash: "8d020184502808e2f7de73921207d944067cb3d183c4430954fe52035c185567"
 ---
 
 # Fix Workflow

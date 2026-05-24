@@ -5,6 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-06"
+  content_hash: "70914bbe95f7746beda4560e00abed897ef4cb4c593889578e52c42ca06b0911"
 ---
 
 # Design Tokenization

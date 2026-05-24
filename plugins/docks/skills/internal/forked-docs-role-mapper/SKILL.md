@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/docs-role-mapper.md"
     - "plugins/docks/commands/docs.md"
   updated: "2026-05-06"
+  content_hash: "bf3d40bc4bbb4527ab1768f4d3ee978bdd9fe11e26c46dd646af45154bd36589"
 ---
 
 # Forked Docs Role Mapper

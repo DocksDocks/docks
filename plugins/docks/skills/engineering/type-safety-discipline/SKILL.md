@@ -12,6 +12,7 @@ paths:
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-17"
+  content_hash: "fc9aef873dbf64837f243eeaf8fd130a9edd35ef54e1b803f0ca060826146f77"
 ---
 
 # Type-Safety Discipline

@@ -10,6 +10,7 @@ paths:
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-17"
+  content_hash: "812c71671f67bedebb189c897f827afa39a3f6c3b0d08901917c23dfc0ac4e73"
 ---
 
 # React Component Patterns

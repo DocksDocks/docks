@@ -1,10 +1,10 @@
 ---
 title: Fix skill-maintainer timestamps and enforce references/ in /docs
-status: planned
+status: ongoing
 goal: Bump updated: only on semantic content change, and make /docs reliably generate references/ subdirs when SKILL.md bodies exceed sweet spot
 created: 2026-05-24
 updated: 2026-05-24
-started_at: null
+started_at: 2026-05-24
 assignee: null
 blockers: []
 blocked_reason: null
@@ -12,13 +12,14 @@ blocked_since: null
 ship_commit: null
 tags: [skill-maintenance, bugfix, docs-command]
 affected_paths:
-  - plugins/docks/skills/productivity/agents/SKILL.md
+  - scripts/skill-content-hash.sh
+  - scripts/guard-skills.sh
+  - scripts/ci.sh
+  - tests/skill-maintainer-idempotency.sh
   - plugins/docks/agents/docs-skills-builder.md
   - plugins/docks/agents/docs-verifier.md
-  - plugins/docks/agents/docs-explorer.md
-  - scripts/guard-skills.sh
-  - scripts/skill-content-hash.sh
-  - scripts/ci.sh
+  - plugins/docks/skills/productivity/write-skill/SKILL.md
+  - plugins/docks/skills/**/SKILL.md  # content_hash backfill (26 kit skills; 2 upstream excluded)
 related_plans: [foundation-categorization-scoring, tree-skill]
 review_status: null
 ---
@@ -44,17 +45,17 @@ The two fixes ship together because they both touch `/docs` Phase 3/5/6 and the 
 
 | # | Task | Depends | Parallel | Status | Owner |
 |---|---|---|---|---|---|
-| 1 | Define "semantic change" predicate (table below) and document in CLAUDE.md or successor location | — | with #2 | planned | self |
-| 2 | Add `metadata.content_hash:` as a valid optional frontmatter field in guard-skills.sh | — | with #1 | planned | self |
-| 3 | Write `scripts/skill-content-hash.sh <skill-dir>` — normalizes and SHA-256s | 1 | — | planned | self |
-| 4 | Update skill-maintenance skill / agent to compute proposed hash before write, skip write if equal to stored | 3 | with #5 | planned | self |
-| 5 | Add `--check-only` flag to maintainer — reports per skill: `unchanged` / `would-bump <field>`, non-zero exit if any would-bump | 3 | with #4 | planned | self |
-| 6 | Update `docs-skills-builder` (Phase 3): MUST split into references/ if body would exceed 310 lines | — | with #7 | planned | self |
-| 7 | Update `docs-verifier` (Phase 6): hard-fail body 310–500 lines without references/; existing >500 hard-fail stays | — | with #6 | planned | self |
-| 8 | Backfill `content_hash:` on every existing plugin skill via one-pass run | 4 | — | planned | self |
-| 9 | Add test `tests/skill-maintainer-idempotency.sh` — re-run maintainer, assert `git status` shows zero changes | 4, 8 | — | planned | self |
-| 10 | `bash scripts/ci.sh` green including new test | 8, 9 | — | planned | self |
-| 11 | `./scripts/release.sh patch` | 10 | — | planned | self |
+| 1 | Define "semantic change" predicate + document (header of skill-content-hash.sh + write-skill) | — | with #2 | done | self |
+| 2 | Validate `metadata.content_hash:` (optional, 64-hex) in guard-skills.sh | — | with #1 | done | self |
+| 3 | Write `scripts/skill-content-hash.sh` — normalize + SHA-256, `--backfill`, `--check-only` | 1 | — | done | self |
+| 4 | Wire predicate into the REAL maintainer: docs-skills-builder's generated maintenance skill + write-skill (NOT the agents bridge skill — see Mistakes) | 3 | with #5 | done | self |
+| 5 | `--check-only` mode — reports `unchanged` / `would-bump`, non-zero exit if any would-bump | 3 | with #4 | done | self |
+| 6 | Update `docs-skills-builder` (Phase 3): MUST split into references/ if body > 310 lines | — | with #7 | done | self |
+| 7 | Update `docs-verifier` (Phase 6): hard-fail body 310–500 lines without references/ | — | with #6 | done | self |
+| 8 | Backfill `content_hash:` on every kit-authored skill (26; 2 upstream excluded — see Mistakes) | 4 | — | done | self |
+| 9 | Add test `tests/skill-maintainer-idempotency.sh` — determinism + `--check-only` exits 0 | 4, 8 | — | done | self |
+| 10 | `bash scripts/ci.sh` green including new test | 8, 9 | — | done | self |
+| 11 | ~~`./scripts/release.sh patch`~~ — deferred per user instruction (commit only, push later) | — | — | skipped | self |
 
 ### Step details
 
@@ -82,13 +83,13 @@ The two fixes ship together because they both touch `/docs` Phase 3/5/6 and the 
 
 ## Acceptance criteria
 
-- [ ] `metadata.content_hash:` accepted as optional frontmatter; guard-skills.sh passes
-- [ ] `scripts/skill-content-hash.sh` deterministic — same input twice → same hash
-- [ ] Re-running skill-maintenance on an unchanged skill produces zero file writes (`tests/skill-maintainer-idempotency.sh` green)
-- [ ] `--check-only` mode reports per-skill status without writing
-- [ ] `/docs` Phase 6 hard-fails skills with body 310–500 lines and no references/
-- [ ] Every existing plugin skill has `content_hash:` backfilled
-- [ ] `bash scripts/ci.sh` green
+- [x] `metadata.content_hash:` accepted as optional frontmatter (64-hex validated); guard-skills.sh passes
+- [x] `scripts/skill-content-hash.sh` deterministic — same input twice → same hash (verified)
+- [x] Re-running skill-maintenance on an unchanged skill produces zero file writes (`tests/skill-maintainer-idempotency.sh` green via `--check-only` exit 0)
+- [x] `--check-only` mode reports per-skill status without writing
+- [x] `/docs` Phase 6 (docs-verifier) hard-fails skills with body 310–500 lines and no references/
+- [x] Every **kit-authored** plugin skill has `content_hash:` backfilled (26; 2 upstream-vendored excluded by design — verbatim preservation)
+- [x] `bash scripts/ci.sh` green
 
 ## Out of scope
 
@@ -98,7 +99,9 @@ The two fixes ship together because they both touch `/docs` Phase 3/5/6 and the 
 
 ## Mistakes & Dead Ends
 
-(none yet — plan freshly written)
+- **2026-05-24**: Plan named `plugins/docks/skills/productivity/agents/SKILL.md` (the multi-tool **bridge** skill) and "the skill-maintenance skill" as the maintainer to extend. Wrong reference — that skill does AGENTS.md/symlink bridging, not timestamp maintenance. The real skill-maintenance machinery is the `/docs` pipeline: `docs-skills-builder` writes skills + drafts the downstream maintenance skill that bumps `metadata.updated`, and `docs-verifier` validates. The kit's own authoring path is the `write-skill` skill. → Adapted: built the deterministic core in `scripts/skill-content-hash.sh`, wired the predicate into `docs-skills-builder` (generated maintenance skill instructions) + `write-skill`, and the Phase-6 references/ hard-fail into `docs-verifier`. The `agents` bridge skill was NOT touched. `docs-explorer.md` (listed in affected_paths) needed no change. Avoid this by grepping for the actual machinery (`grep -rl 'metadata.updated'`) before trusting a plan's file references.
+- **2026-05-24**: Backfilling `content_hash` into the 2 upstream-vendored skills (`caveman`, `make-interfaces-feel-better`) would modify verbatim-preserved files and add metadata they don't carry. → `skill-content-hash.sh` skips `upstream:` skills (same policy as the per-file score-floor exemption from plan foundation-categorization-scoring). They have no `metadata.updated` to protect, so there's no churn to prevent. Acceptance "every existing plugin skill" reinterpreted as "every kit-authored skill."
+- **2026-05-24**: Plan step 9 said the test should "re-run maintainer, assert `git status` shows zero changes." A git-status assertion is brittle in a dirty dev tree (unrelated uncommitted files trip it). → The test instead asserts `skill-content-hash.sh --check-only` exits 0 (every stored hash matches recomputed content = maintainer would bump nothing) plus a determinism check. Same guarantee, no git-state dependency.
 
 ## Sources
 

@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/refactor-dead-code-scanner.md"
     - "plugins/docks/commands/refactor.md"
   updated: "2026-05-06"
+  content_hash: "acbf87ea55993a21e637002d45c2f9dc34204eaa26eb6273816073aad7e40c82"
 ---
 
 # Forked Refactor Dead Code Scanner

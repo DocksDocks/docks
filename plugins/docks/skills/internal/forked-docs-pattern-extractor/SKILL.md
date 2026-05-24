@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/docs-pattern-extractor.md"
     - "plugins/docks/commands/docs.md"
   updated: "2026-05-06"
+  content_hash: "f6bb410b3168c925fe3b9f7900857efe8cc64b6a85a6f57841b755b0f24b4f9f"
 ---
 
 # Forked Docs Pattern Extractor

@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/docs-categorizer.md"
     - "plugins/docks/commands/docs.md"
   updated: "2026-05-06"
+  content_hash: "0f4ef358304624639474c4db047f0eb14e75745121537137d51818043e97bbac"
 ---
 
 # Forked Docs Categorizer

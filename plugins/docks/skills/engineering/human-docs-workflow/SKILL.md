@@ -5,6 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-06"
+  content_hash: "a919d23627b6c7a3a2c894bf0096187385b11bbd761b624a6ae7d61a4ae2e758"
 ---
 
 # Human Docs Workflow

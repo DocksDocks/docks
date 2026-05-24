@@ -5,6 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-12"
+  content_hash: "5f3f93d63ed92b66843bdf1788c9223528d872b4f3a81d6e72bb371a0bfc52f7"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow

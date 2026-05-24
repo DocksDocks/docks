@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/docs-pattern-scanner.md"
     - "plugins/docks/commands/docs.md"
   updated: "2026-05-06"
+  content_hash: "d1c22df0c97620b18d1db8f3c90e16c4b3469d4aafc7743bbc3eaa80d1d1e769"
 ---
 
 # Forked Docs Pattern Scanner

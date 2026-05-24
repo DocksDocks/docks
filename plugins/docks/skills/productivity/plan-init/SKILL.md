@@ -5,6 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-22"
+  content_hash: "ad04df3e10cde67ae44121c7aca2b5250dfc0829a1ec7d2febffb52ae18b8bde"
 ---
 
 # Plans Directory Bootstrapper

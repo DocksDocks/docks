@@ -239,6 +239,17 @@ for k in agents commands; do
   [ "$any_under" -eq 0 ] && ok "$k per-file all ≥ $floor"
 done
 
+# --- 6. skill-maintainer idempotency ---
+# Every kit skill's stored metadata.content_hash must match its recomputed hash,
+# so re-running the maintainer is a no-op (no metadata.updated churn). Catches a
+# skill edited without re-running scripts/skill-content-hash.sh --backfill.
+section "skill-maintainer idempotency"
+if bash tests/skill-maintainer-idempotency.sh >/dev/null 2>&1; then
+  ok "skill content_hash in sync; maintainer re-run is a no-op (upstream excluded)"
+else
+  fail "skill-maintainer idempotency failed (run: bash tests/skill-maintainer-idempotency.sh)"
+fi
+
 # --- summary ---
 echo ""
 if [ "${#failures[@]}" -eq 0 ]; then

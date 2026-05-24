@@ -10,6 +10,7 @@ metadata:
     - "plugins/docks/agents/security-logic-analyzer.md"
     - "plugins/docks/commands/security.md"
   updated: "2026-05-06"
+  content_hash: "104cba2010aeb45f284fded6f062450cab53fe888a284b4d2e1212b1c0fa6923"
 ---
 
 # Forked Security Logic Analyzer
