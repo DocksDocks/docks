@@ -21,7 +21,7 @@ Users do NOT invoke this agent directly — they trigger the `plan-review` skill
 
 ## Workflow
 
-Load and follow `plugins/docks/skills/plan-review/SKILL.md` precisely. The skill's 10 steps are canonical:
+Load and follow `plugins/docks/skills/productivity/plan-review/SKILL.md` precisely. The skill's 10 steps are canonical:
 
 1. Anchor `now` via `date` once + verify scope (plan is in `finished/` with `ship_commit` set)
 2. Extract review inputs (`goal`, `## Goal`, acceptance criteria, `affected_paths`)
