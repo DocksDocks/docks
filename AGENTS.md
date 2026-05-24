@@ -18,7 +18,7 @@ For Claude-Code-specific authoring details — plugin manifest schema, slash com
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
 ├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
-├── docs/plans/                       JBLAR 5-category lifecycle (bootstrapped by plan-init skill)
+├── docs/plans/                       5-category lifecycle planning (bootstrapped by plan-init skill)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
 └── .github/workflows/                gh-side CI on PR + tag push
 ```
