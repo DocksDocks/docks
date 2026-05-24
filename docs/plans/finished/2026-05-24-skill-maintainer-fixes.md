@@ -1,6 +1,6 @@
 ---
 title: Fix skill-maintainer timestamps and enforce references/ in /docs
-status: ongoing
+status: finished
 goal: Bump updated: only on semantic content change, and make /docs reliably generate references/ subdirs when SKILL.md bodies exceed sweet spot
 created: 2026-05-24
 updated: 2026-05-24
@@ -9,7 +9,7 @@ assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: e060f996aeb6801168aa1dfe5959954e71518bd9
 tags: [skill-maintenance, bugfix, docs-command]
 affected_paths:
   - scripts/skill-content-hash.sh
@@ -21,7 +21,7 @@ affected_paths:
   - plugins/docks/skills/productivity/write-skill/SKILL.md
   - plugins/docks/skills/**/SKILL.md  # content_hash backfill (26 kit skills; 2 upstream excluded)
 related_plans: [foundation-categorization-scoring, tree-skill]
-review_status: null
+review_status: passed
 ---
 
 # Fix skill-maintainer timestamps and enforce references/ in /docs
@@ -124,4 +124,8 @@ The two fixes ship together because they both touch `/docs` Phase 3/5/6 and the 
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — both fixes shipped against the user-approved adapted scope. Idempotency: `scripts/skill-content-hash.sh` (normalize+SHA-256 over frontmatter excl. `updated`/`content_hash` + body + sorted `references/*.md`) with `--backfill`/`--check-only`, upstream-excluded; 26 kit skills backfilled (caveman + make-interfaces-feel-better excluded as upstream — confirmed absent from the diff and content_hash-free on disk). References discipline: `docs-skills-builder` Phase 3 mandatory >310-line split + `docs-verifier` Phase 6 hard-fail on 310–500-line body with no `references/`. All 7 `[x]` criteria evidence-backed; `tests/skill-maintainer-idempotency.sh` confirms determinism + `--check-only` exit 0 (26 unchanged).
+- **Regressions:** none — `scripts/ci.sh` step 6 logic verified correct (`then ok … else fail`, scripts/ci.sh:247–251); test passes standalone (exit 0) and via CI.
+- **CI:** pass — `bash scripts/ci.sh` exit 0, all sections green including the new "skill-maintainer idempotency" section.
+- **Follow-ups:** none — Notes open-question on agent-file `metadata.updated` drift is explicitly deferred in this plan's Out of scope; file a plan only if agent timestamp churn surfaces.
+- Filed by: plan-review on 2026-05-24T20:17:00-03:00
