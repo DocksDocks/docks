@@ -1,6 +1,6 @@
 ---
 title: Add context-tree skill for lazy per-folder context
-status: ongoing
+status: finished
 goal: Generate and auto-refresh nested AGENTS.md+CLAUDE.md pairs per major folder so root context stays sparse and per-area conventions load lazily
 created: 2026-05-24
 updated: 2026-05-24
@@ -9,7 +9,7 @@ assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: 079a2716f6dc0ce9ed06ec7349d6e72f3871dfc5
 tags: [context-tree, lazy-context, hooks, multi-tool]
 affected_paths:
   - plugins/docks/skills/productivity/context-tree/SKILL.md
@@ -34,7 +34,7 @@ affected_paths:
   - .github/AGENTS.md
   - .github/CLAUDE.md
 related_plans: [foundation-categorization-scoring, skill-maintainer-fixes, scaffold]
-review_status: null
+review_status: passed
 ---
 
 # Add context-tree skill for lazy per-folder context
@@ -154,4 +154,8 @@ The payoff: the root context file stays sparse (loaded once per session by every
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 8 acceptance criteria evidence-verified against ship_commit 079a271: 5 node pairs on disk (each AGENTS.md + one-line `@AGENTS.md` CLAUDE.md), root CLAUDE.md collapsed 147→1 line, root AGENTS.md carries the Context tree section (AGENTS.md:26), nodes self-sufficient (no "see root" pointers), the PostToolUse hook nudges in-node / stays silent at root / is empty-stdin-safe (4-payload simulation), and docs/plans/{AGENTS,CLAUDE}.md were left untouched (detected as an existing node).
+- **Regressions:** none — validator hardening verified: guard-agents.sh + score-agents.sh skip reserved `AGENTS`/`CLAUDE` basenames (scripts/guard-agents.sh:29, scripts/score-agents.sh:43), ci.sh adds `guard-tree` to structural guards and excludes the two reserved files from the agent-count floor (scripts/ci.sh:155,190). Hook is executable (100755) with a valid `#!/bin/bash` shebang and exits 0 on every path.
+- **CI:** pass — `bash scripts/ci.sh` exit 0; all guards green (incl. guard-tree: 6 nodes valid), score floors clear (productivity 117/72 over 9 skills, agents 29/28), content_hash idempotent.
+- **Follow-ups:** none — deferred `docs/scaffold/` node lands with the scaffold plan (out of scope here); the two `plugins/docks/{skills,agents}/AGENTS.md` nodes shipping to consumers as inert bloat is a documented, accepted trade-off.
+- Filed by: plan-review on 2026-05-24T23:01:54-03:00
