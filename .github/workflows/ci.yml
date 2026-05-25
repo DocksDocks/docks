@@ -33,16 +33,28 @@ jobs:
     needs: guard
     steps:
       - uses: actions/checkout@v5
-      # Floor = artifact_count × per-file scoring floor.
-      # Count-derived so adding or removing a skill/command/agent doesn't require
-      # editing this workflow — the floor tracks the inventory automatically.
-      - name: "score-skills (floor = N × 8)"
+      # Floor = artifact_count × per-file scoring floor (per-category for skills).
+      # Count-derived so adding/removing a skill or agent doesn't require editing
+      # this workflow — the floor tracks the inventory automatically. Adding a new
+      # skill *category* does require updating the loop below (as in scripts/ci.sh).
+      - name: "score-skills (per-category floor)"
         run: |
-          count=$(find plugins/docks/skills -mindepth 1 -maxdepth 1 -type d | wc -l)
-          floor=$((count * 8))
-          score=$(bash scripts/score-skills.sh)
-          echo "score-skills total: $score (floor $floor = $count × 8)"
-          [ "$score" -ge "$floor" ] || { echo "::error::skills score $score below floor $floor ($count × 8)"; exit 1; }
+          # Skills are categorized: plugins/docks/skills/<category>/<skill>/.
+          # Per-category floor (engineering/productivity differ) — mirrors scripts/ci.sh
+          # so local and tag-CI agree. Floors from scripts/scoring.config.json.
+          fail=0
+          for c in engineering productivity; do
+            dir="plugins/docks/skills/$c"
+            [ -d "$dir" ] || continue
+            floor=$(bash scripts/read-floor.sh skills "$c" 2>/dev/null) || { echo "::error::scoring.config.json missing skills.$c"; fail=1; continue; }
+            count=$(find "$dir" -mindepth 1 -maxdepth 1 -type d | wc -l)
+            [ "$count" -eq 0 ] && continue
+            cat_score=$(bash scripts/score-skills.sh --per-file | awk -v c="$c" 'index($1, c"/") == 1 {sum += $2} END {print sum+0}')
+            cat_floor=$((count * floor))
+            echo "score-skills/$c: $cat_score (floor $cat_floor = $count × $floor)"
+            [ "$cat_score" -ge "$cat_floor" ] || { echo "::error::skills/$c score $cat_score below floor $cat_floor ($count × $floor)"; fail=1; }
+          done
+          [ "$fail" -eq 0 ]
       - name: "score-agents (floor = N × 14)"
         run: |
           # Exclude reserved context-tree node files (AGENTS.md/CLAUDE.md) — not agents.
@@ -59,14 +71,27 @@ jobs:
     needs: guard
     steps:
       - uses: actions/checkout@v5
-      - name: "skills (floor 8 per-file)"
+      - name: "skills (per-category per-file floor)"
         run: |
+          # Per-category per-file floor (engineering=10, productivity=8 per
+          # scripts/scoring.config.json). Upstream-vendored skills (with an
+          # `upstream:` frontmatter block) are exempt — mirrors scripts/ci.sh.
           fail=0
           while IFS= read -r line; do
             score=$(echo "$line" | awk '{print $NF}')
-            name=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
-            if [ "$score" -lt 8 ]; then
-              echo "::error::skill $name score $score below per-file floor 8"
+            catname=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
+            cat=${catname%%/*}
+            if grep -qE '^upstream:' "plugins/docks/skills/$catname/SKILL.md" 2>/dev/null; then
+              continue
+            fi
+            floor=$(bash scripts/read-floor.sh skills "$cat" 2>/dev/null)
+            if [ -z "$floor" ]; then
+              echo "::error::skills:$catname no floor for category '$cat'"
+              fail=1
+              continue
+            fi
+            if [ "$score" -lt "$floor" ]; then
+              echo "::error::skill $catname score $score below per-file floor $floor"
               fail=1
             fi
           done < <(bash scripts/score-skills.sh --per-file)
