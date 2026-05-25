@@ -85,5 +85,5 @@ Corollary: an in-memory test fake **counts as the second adapter** if you write 
 
 - Parent: `solid/SKILL.md` — apply these tests to every solid-violation entry before proposing a refactor.
 - Companion: `fix-workflow/references/feedback-loops.md` — when "no correct test seam exists" surfaces during a bug fix, that's the depth/seam signal escalating into a refactor.
-- Companion: `refactor-pre-verifier` agent Check 5 (Over-Engineering) — uses the deletion test + 2-adapter rule to reject hypothetical-seam proposals.
+- Companion: `refactor/references/pre-verifier.md` Check 5 (Over-Engineering) — apply the deletion test + 2-adapter rule there to reject hypothetical-seam proposals.
 - Source attribution: vocabulary and three tests from Matt Pocock's `improve-codebase-architecture` skill (MIT, `github.com/mattpocock/skills/blob/main/skills/engineering/improve-codebase-architecture/LANGUAGE.md`), itself building on John Ousterhout's *A Philosophy of Software Design* (depth concept) and Michael Feathers' *Working Effectively with Legacy Code* (seam concept).
