@@ -1,15 +1,15 @@
 ---
 title: Convert docs/refactor/security pipelines from commands to cross-tool skills
 goal: Replace the 3 Builder-Verifier commands with self-contained cross-tool pipeline skills (phase expertise in references/); delete the 20 pipeline agents + 9 forked-* wrappers; swap the Plan-Mode gate for the plan-manager lifecycle
-status: ongoing
+status: finished
 created: 2026-05-24
-updated: 2026-05-24
+updated: 2026-05-25
 started_at: 2026-05-24
 assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: d19c4b7446d9dab59515e3f7b56501b771f2f018
 tags: [re-architecture, skills, cross-tool, codex, commands-removal]
 affected_paths:
   - plugins/docks/skills/engineering/security/SKILL.md
@@ -32,7 +32,7 @@ affected_paths:
   - AGENTS.md
   - docs/authoring-audits.md
 related_plans: [tree-skill, scaffold, foundation-categorization-scoring, skill-maintainer-fixes]
-review_status: null
+review_status: passed
 ---
 
 # Convert docs/refactor/security pipelines from commands to cross-tool skills
@@ -160,4 +160,8 @@ Cross-plan interactions:
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 8 binding criteria verified against ship commit `d19c4b7`: 3 cross-tool skills (`engineering/security` 5 refs, `engineering/refactor` 7 refs, `productivity/docs` 8 refs) with all 20 `references/` links resolving; 20 pipeline agents + 9 `internal/forked-*` + 3 commands + `{guard,score}-commands.sh` deleted; only `plan-manager.md`/`plan-review.md` remain under `agents/`; every `ExitPlanMode` hit is a negative "do NOT call" guard or the `agents` skill's CLAUDE-SPECIFIC list; both manifests dropped `./skills/internal`. Smoke-test `[~]` (structural-only, live run deferred) is expected scope, not a shortfall.
+- **Regressions:** none — no `subagent_type:`/`Task` dispatch or command refs to any deleted artifact survive in `plugins/docks/`. Note (pre-existing, NOT introduced by this commit): `plugins/docks/skills/engineering/solid/references/depth-and-seams.md:88` carries a prose "Companion: `refactor-pre-verifier` agent" cross-reference to a now-deleted agent; that file was not modified by this ship and the line is documentation, not an executable dispatch, so nothing breaks.
+- **CI:** pass — `bash scripts/ci.sh` exit 0; all guards/scorers green (engineering 198/floor 140, productivity 102/floor 64, agents 29/floor 28; each new skill scores 15; content_hash in sync). The workflow-YAML lint step self-skipped locally (no pyyaml/yq) — tag-CI on GitHub validates it regardless.
+- **Follow-ups:** none required. Optional cleanup slug (do NOT auto-create): `solid-ref-stale-agent-link` — refresh the `refactor-pre-verifier` cross-reference in `solid/references/depth-and-seams.md:88` to point at `refactor/references/pre-verifier.md`.
+- Filed by: plan-review on 2026-05-25T00:14:32Z
