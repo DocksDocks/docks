@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Add plan-sidecar skill + simplified HTML standard · finished</title>
+  <link rel="stylesheet" href="../_assets/dashboard.css" />
+  <script type="application/json" id="plan-data">
+{
+  "title": "Add plan-sidecar skill + simplified HTML standard",
+  "goal": "Ship a plan-sidecar skill that authors plan HTML sidecars + the index.html dashboard from shared assets (per-plan latitude), simplify the AGENTS.md standard, and wire plan-manager to invoke it",
+  "status": "finished",
+  "slug": "2026-05-24-html-sidecar-generator",
+  "created": "2026-05-24",
+  "updated": "2026-05-25",
+  "started_at": "2026-05-24",
+  "assignee": null,
+  "ship_commit": "56869c392d17c8df2df087b8fd5fe188edfecffb",
+  "tags": ["plans", "html", "skill", "dashboard"],
+  "review_status": "passed"
+}
+  </script>
+</head>
+<body data-status="finished" data-slug="2026-05-24-html-sidecar-generator">
+  <header class="plan-header">
+    <div class="plan-header__top">
+      <span class="status-badge" data-status="finished">finished</span>
+      <span class="age-token">shipped 1d ago</span>
+    </div>
+    <h1>Add plan-sidecar skill + simplified HTML standard</h1>
+    <p class="plan-goal-summary">Ship a plan-sidecar skill that authors plan HTML sidecars + the index.html dashboard from shared assets (per-plan latitude), simplify the AGENTS.md standard, and wire plan-manager to invoke it</p>
+    <dl class="plan-meta">
+      <div><dt>slug</dt><dd>2026-05-24-html-sidecar-generator</dd></div>
+      <div><dt>created</dt><dd>2026-05-24</dd></div>
+      <div><dt>updated</dt><dd>2026-05-25</dd></div>
+      <div><dt>started_at</dt><dd>2026-05-24</dd></div>
+      <div><dt>assignee</dt><dd>—</dd></div>
+      <div><dt>ship_commit</dt><dd>56869c392d17c8df2df087b8fd5fe188edfecffb</dd></div>
+      <div><dt>review_status</dt><dd>passed</dd></div>
+      <div><dt>tags</dt><dd>plans, html, skill, dashboard</dd></div>
+    </dl>
+  </header>
+
+  <main class="plan-body">
+    <section class="plan-section plan-section--goal" data-section="goal">
+      <h2>Goal</h2>
+      <div class="plan-section__content markdown">
+        <p>Make the HTML sidecar contract real — as a <strong>skill</strong>, not a generator script. Build a cross-tool <code>plan-sidecar</code> skill that turns a plan <code>.md</code> into its <code>.html</code> sidecar and (re)builds <code>docs/plans/index.html</code>, using the shared assets and the documented <code>data-*</code> contract, with <strong>per-plan latitude</strong> (a plan may add visualization — including its own <code>.css</code>/<code>.js</code> — as long as every hook still resolves). Simplify the AGENTS.md standard from a deterministic-generation spec into a skill-authoring contract, and replace plan-manager's hand-generation language with an invocation of the skill. Ship the skill + the dashboard + 2 exemplar sidecars (one finished, one planned).</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--context" data-section="context">
+      <h2>Context</h2>
+      <div class="plan-section__content markdown">
+        <p>Re-spec of the original "deterministic plan HTML sidecar generator" plan. The user's call: <strong>a separate skill, not a <code>scripts/gen-plan-html.sh</code> generator</strong> — one shared standard (css + js + <code>data-*</code> contract) that every sidecar conforms to, authored by a skill that has latitude to tailor each plan's view. The <code>.md</code> stays canonical; the <code>.html</code> is a derived, browser-only artifact. Because authoring it well needs judgment, it belongs in a skill an agent runs — not a rigid transform.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--steps" data-section="steps" data-progress="8/8">
+      <h2>Steps <span class="progress">8 / 8</span></h2>
+      <div class="plan-section__content">
+        <table class="steps">
+          <thead><tr><th>#</th><th>Task</th><th>Status</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Lock decisions: skill (not script); simplified standard; per-plan latitude; check in <code>.html</code>; 2 exemplars</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>2</td><td>Create <code>plan-sidecar/SKILL.md</code> + <code>references/templates.md</code> (sidecar + dashboard modes, contract, latitude)</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>3</td><td>Simplify <code>docs/plans/AGENTS.md</code> § HTML sidecar for skill-authoring — keep the <code>data-*</code> contract, point to <code>plan-sidecar</code></td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>4</td><td>Wire <code>plan-manager</code> SKILL.md — constraint + Step 7.5 invoke <code>plan-sidecar</code></td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>5</td><td>Author <code>docs/plans/index.html</code> dashboard — every plan, filter/sort, shared assets</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>6</td><td>Author 2 exemplar sidecars: scaffold (finished) + plan-review-smoke (planned)</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>7</td><td><code>content_hash</code> backfill (plan-sidecar, plan-manager) + <code>bash scripts/ci.sh</code> green</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>8</td><td>Ship — feat commit, plan-manager ship (→ finished, regen this plan's own sidecar), plan-review</td><td class="status" data-status="done">done</td><td>self</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--acceptance" data-section="acceptance">
+      <h2>Acceptance criteria</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><code>[x]</code> <code>plan-sidecar</code> skill exists (scores 15/16, well above the productivity floor 8) and documents sidecar + dashboard modes + the shared-asset <code>data-*</code> contract + per-plan latitude</li>
+          <li><code>[x]</code> <code>docs/plans/AGENTS.md</code> § HTML sidecar is simplified for skill-authoring (keeps the <code>data-*</code> contract; points to <code>plan-sidecar</code>; no generator-script language)</li>
+          <li><code>[x]</code> <code>plan-manager</code> SKILL.md invokes <code>plan-sidecar</code> instead of describing hand-generation (constraint + Step 7.5)</li>
+          <li><code>[x]</code> <code>docs/plans/index.html</code> lists every plan with working filter/sort, using <code>_assets/dashboard.{css,js}</code></li>
+          <li><code>[x]</code> 2 exemplar sidecars render correctly (status badge, sections, steps <code>data-status</code>, embedded <code>plan-data</code> JSON, <code>_assets</code> refs, zero inline styles)</li>
+          <li><code>[x]</code> <code>bash scripts/ci.sh</code> green; <code>content_hash</code> re-synced for changed skills</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--out-of-scope" data-section="out-of-scope">
+      <h2>Out of scope</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>A <code>scripts/gen-plan-html.sh</code> generator or any deterministic transform — superseded by the skill</li>
+          <li>Full backfill of all plans' sidecars — only 2 exemplars; the skill authors the rest on each plan's next touch</li>
+          <li>Restyling <code>dashboard.css</code> / <code>dashboard.js</code> — consumed as-is</li>
+          <li>A CI freshness guard (<code>guard-plan-html.sh</code>) — sidecars are skill-authored, not lockstep-generated</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--mistakes" data-section="mistakes">
+      <h2>Mistakes &amp; Dead Ends</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>2026-05-24</strong> (re-spec: script → skill): the plan originally specced <code>scripts/gen-plan-html.sh</code>, a deterministic bash+python generator, plus a CI freshness guard. → The user rejected a generator that "doesn't fit for us" and asked for a standard + a skill with per-plan latitude. A rigid transform can't exercise that judgment. → Rewrote as the cross-tool <code>plan-sidecar</code> skill consuming the existing shared assets; AGENTS.md simplified to an authoring contract; plan-manager invokes the skill. Slug kept (<code>html-sidecar-generator</code>) as the stable ID; title updated.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--sources" data-section="sources">
+      <h2>Sources</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><code>docs/plans/AGENTS.md</code> § "HTML sidecar" — the standard being simplified</li>
+          <li><code>docs/plans/_assets/dashboard.css</code> + <code>dashboard.js</code> (commit <code>6c73fe3</code>) — shared assets the skill references</li>
+          <li><code>plugins/docks/skills/productivity/plan-manager/SKILL.md</code> — the constraint + Step 7.5 this plan rewires</li>
+          <li><code>plugins/docks/skills/productivity/scaffold/SKILL.md</code> — sibling generative-skill pattern</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--blockers" data-section="blockers">
+      <h2>Blockers</h2>
+      <div class="plan-section__content markdown">
+        <p>(none — actionable immediately; shared assets already landed in <code>6c73fe3</code>)</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--notes" data-section="notes">
+      <h2>Notes</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>Origin</strong>: deferred out of the pipelines-to-skills ship review. Earlier ships all skipped sidecar generation, confirming the gap was the missing author — now filled by the skill, not a script.</li>
+          <li><strong>Checked-in <code>.html</code></strong>: per the user ("Check in all .html") and the AGENTS.md default.</li>
+          <li><strong>Dogfood at ship</strong>: this very sidecar was authored by <code>plan-sidecar</code> when the plan moved to <code>finished/</code> — the skill validated end-to-end on its own plan.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--review" data-section="review">
+      <h2>Review</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>Goal met:</strong> yes — <code>plan-sidecar</code> skill ships (scores 15/16, above the productivity floor 8) documenting sidecar + dashboard modes, the shared-asset <code>data-*</code> contract, and per-plan latitude; <code>docs/plans/AGENTS.md</code> simplified to a skill-authoring contract; <code>plan-manager</code> rewired to invoke the skill; <code>index.html</code> lists all plans with live filter/sort; 2 exemplar sidecars conform. All 6 <code>[x]</code> criteria verified against the <code>56869c3</code> diff.</li>
+          <li><strong>Regressions:</strong> none — no inline <code>&lt;style&gt;</code> or external <code>&lt;script src="http…"&gt;</code> in any authored HTML; exemplars link <code>../_assets/</code>, the dashboard links <code>_assets/</code>; steps use the hyphenated <code>in-flight</code> key; the empty Review section auto-collapses; JSON island present.</li>
+          <li><strong>Scope drift:</strong> none against <code>affected_paths</code> — all 7 listed paths appear in the ship commit.</li>
+          <li><strong>CI:</strong> pass — <code>bash scripts/ci.sh</code> exit 0, every section green; <code>content_hash</code> in sync.</li>
+          <li><strong>Follow-ups:</strong> none — remaining sidecars author themselves on each plan's next <code>plan-manager</code> touch.</li>
+          <li>Filed by: plan-review on 2026-05-25T00:02:00-03:00</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="./2026-05-24-html-sidecar-generator.md">source: 2026-05-24-html-sidecar-generator.md</a>
+    <span class="generated-at">generated 2026-05-25T00:05:00-03:00</span>
+  </footer>
+
+  <script src="../_assets/dashboard.js"></script>
+</body>
+</html>

@@ -1,15 +1,15 @@
 ---
 title: Add plan-sidecar skill + simplified HTML standard
 goal: Ship a plan-sidecar skill that authors plan HTML sidecars + the index.html dashboard from shared assets (per-plan latitude), simplify the AGENTS.md standard, and wire plan-manager to invoke it
-status: ongoing
+status: finished
 created: 2026-05-24
-updated: 2026-05-24
+updated: 2026-05-25
 started_at: 2026-05-24
 assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: 56869c392d17c8df2df087b8fd5fe188edfecffb
 tags: [plans, html, skill, dashboard]
 affected_paths:
   - plugins/docks/skills/productivity/plan-sidecar/SKILL.md
@@ -20,7 +20,7 @@ affected_paths:
   - docs/plans/finished/2026-05-24-scaffold.html
   - docs/plans/planned/20260512-plan-review-smoke.html
 related_plans: [pipelines-to-skills, tree-skill]
-review_status: null
+review_status: passed
 ---
 
 # Add plan-sidecar skill + simplified HTML standard
@@ -46,7 +46,7 @@ The `.md` stays canonical and is the only thing agents read; the `.html` is a de
 | 5 | Author `docs/plans/index.html` dashboard — every plan across categories, filter/sort, shared assets | 2 | with #6 | done | self |
 | 6 | Author 2 exemplar sidecars: `finished/2026-05-24-scaffold.html` + `planned/20260512-plan-review-smoke.html` | 2 | with #5 | done | self |
 | 7 | `content_hash` backfill (plan-sidecar, plan-manager) + `bash scripts/ci.sh` green | 2, 4 | — | done | self |
-| 8 | Ship — feat commit, plan-manager ship (→ finished, regen this plan's own sidecar), plan-review | 3–7 | — | in-flight | self |
+| 8 | Ship — feat commit, plan-manager ship (→ finished, regen this plan's own sidecar), plan-review | 3–7 | — | done | self |
 
 ### Step details
 
@@ -95,4 +95,9 @@ The `.md` stays canonical and is the only thing agents read; the `.html` is a de
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — `plan-sidecar` skill ships (scores 15/16, above the productivity floor of 8) documenting sidecar + dashboard modes, the shared-asset `data-*` contract, and per-plan latitude; `docs/plans/AGENTS.md` simplified to a skill-authoring contract (6 `data-*` refs retained, zero generator-script language, points to the skill); `plan-manager` constraint + Step 7.5 rewired to invoke the skill; `index.html` lists all 8 plans with live filter/sort; 2 exemplar sidecars conform. All 6 `[x]` acceptance criteria verified against the `56869c3` diff and current tree.
+- **Regressions:** none — no inline `<style>` or external `<script src="http…">` in any of the 3 authored HTML files; both exemplars link `../_assets/`, the dashboard links `_assets/` (no `../`); steps use the hyphenated `in-flight` key the CSS targets (`docs/plans/planned/20260512-plan-review-smoke.html:74`); the empty Review section auto-collapses (`...smoke.html:165`); JSON island present in both. The 2-exemplar count (not full backfill) is an explicit Out-of-scope descope, not drift.
+- **Scope drift:** none against `affected_paths` — all 7 listed paths appear in the ship commit. Unannounced (expected): the plan file's own `planned/ → ongoing/` `git mv` (later `→ finished/` at ship).
+- **CI:** pass — `bash scripts/ci.sh` exit 0, every section green; `content_hash` for `plan-sidecar` + `plan-manager` in sync (idempotency check passed). The workflow-YAML step skips gracefully (no local pyyaml; tag-CI validates on GitHub).
+- **Follow-ups:** none — remaining sidecars author themselves on each plan's next `plan-manager` touch, by design.
+- Filed by: plan-review on 2026-05-25T00:02:00-03:00
