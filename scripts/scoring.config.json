@@ -1,10 +1,8 @@
 {
-  "_comment": "Skills are categorized (plugin manifest accepts a skills[] array of paths). Agents and commands stay flat (plugin manifest doesn't accept an agents field — auto-discovery is depth-1 only). Per-file floor is the gate; total floor is count-derived. Calibrated 2026-05-24 against observed scores.",
+  "_comment": "Skills are categorized (plugin manifest accepts a skills[] array of paths). Agents stay flat (auto-discovery is depth-1 only). Per-file floor is the gate; total floor is count-derived. Calibrated 2026-05-24.",
   "skills": {
     "engineering":  { "per_file_floor": 10 },
-    "productivity": { "per_file_floor": 8 },
-    "internal":     { "per_file_floor": 8 }
+    "productivity": { "per_file_floor": 8 }
   },
-  "agents":   { "per_file_floor": 14 },
-  "commands": { "per_file_floor": 21 }
+  "agents":   { "per_file_floor": 14 }
 }

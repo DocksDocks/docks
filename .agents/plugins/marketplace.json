@@ -1,7 +1,7 @@
 {
   "name": "docks",
   "interface": {
-    "displayName": "docks — skills only"
+    "displayName": "docks"
   },
   "plugins": [
     {

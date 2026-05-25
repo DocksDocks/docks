@@ -13,9 +13,8 @@ This repo is **both a marketplace and a plugin** in the Claude Code plugin syste
 ├── .claude-plugin/marketplace.json    marketplace catalog (publishes the plugin)
 ├── plugins/docks/                     the plugin (cached on user install)
 │   ├── .claude-plugin/plugin.json     plugin manifest
-│   ├── skills/                         auto-trigger on relevant tasks
-│   ├── commands/                       slash command orchestrators
-│   └── agents/                         per-phase Opus/Sonnet tiering
+│   ├── skills/                         cross-tool — auto-trigger + user-invocable pipelines
+│   └── agents/                         plan-manager + plan-review (thin opus plan-lifecycle wrappers)
 ├── scripts/                           plugin-author tooling (NOT shipped)
 │   ├── ci.sh                          local mirror of GH CI
 │   ├── release.sh                     end-to-end release flow
@@ -48,50 +47,48 @@ Run `bash scripts/ci.sh` before invoking `./scripts/release.sh` — even though 
 | Script | Purpose | Floor |
 |---|---|---|
 | `scripts/guard-skills.sh` | structural — frontmatter, ≤500 lines, name-matches-dir | n/a (pass/fail) |
-| `scripts/score-skills.sh` | quality score (max 16) | per-file ≥8; total = N×8 (count-derived) |
-| `scripts/guard-commands.sh` | subagent_type cross-refs resolve to plugins/docks/agents/*.md | n/a |
-| `scripts/score-commands.sh` | quality score (max 21) | per-file ≥21; total = N×21 (count-derived) |
+| `scripts/score-skills.sh` | quality score (max 16) | per-file ≥ category floor (engineering 10, productivity 8); total count-derived |
 | `scripts/guard-agents.sh` | frontmatter, "Use when…" / "Not…" CSO, model declared | n/a |
 | `scripts/score-agents.sh` | quality score (max 15) | per-file ≥14; total = N×14 (count-derived) |
 
 `--per-file` flag on score scripts prints `<name> <score>` lines for drift inspection.
 
-Total floors are computed at CI time as `artifact_count × per-file_floor` — adding or removing a skill/command/agent moves the floor automatically (see `93db77e`). Per-file floors are the true gate; total floors are derived.
+Total floors are computed at CI time as `artifact_count × per-file_floor` — adding or removing a skill/agent moves the floor automatically (see `93db77e`). Per-file floors are the true gate; total floors are derived.
 
-## When editing skills/commands/agents
+## When editing skills/agents
 
-1. Edit files inside `plugins/docks/{skills,commands,agents}/`
+1. Edit files inside `plugins/docks/{skills,agents}/`
 2. Run `bash scripts/ci.sh` — must be green before commit
 3. For local Claude Code testing without push: `claude --plugin-dir ./plugins/docks` (and `/reload-plugins` after each edit)
 4. PR to main → PR-CI runs and gates the merge
 5. After merge, run `./scripts/release.sh patch` to publish
 
 <constraint>
-Skills, commands, and agents inside `plugins/docks/` follow the structural rules enforced by the guards. New file → must pass `bash scripts/ci.sh` before commit. Don't loosen the validator floors to make a problematic file pass — fix the file.
+Skills and agents inside `plugins/docks/` follow the structural rules enforced by the guards. New file → must pass `bash scripts/ci.sh` before commit. Don't loosen the validator floors to make a problematic file pass — fix the file.
 </constraint>
 
-## Authoring skills, commands & agents
+## Authoring skills & agents
 
-Claude Code surfaces every skill / command / agent description in the listing it shows the model at session start. When the listing exceeds the budget (default 1% of context, fallback 8,000 chars; override with `SLASH_COMMAND_TOOL_CHAR_BUDGET`) descriptions get silently dropped — names stay, keywords vanish, semantic matching breaks. Per-entry descriptions are also silently truncated at 1,536 chars. The scorers in `scripts/score-*.sh` defend that budget by rewarding tight, CSO-formatted descriptions; bloat costs points before it costs matches.
+Claude Code surfaces every skill / agent description in the listing it shows the model at session start. When the listing exceeds the budget (default 1% of context, fallback 8,000 chars; override with `SLASH_COMMAND_TOOL_CHAR_BUDGET`) descriptions get silently dropped — names stay, keywords vanish, semantic matching breaks. Per-entry descriptions are also silently truncated at 1,536 chars. The scorers in `scripts/score-*.sh` defend that budget by rewarding tight, CSO-formatted descriptions; bloat costs points before it costs matches.
 
 ### Description format (all artifact types)
 
 1. **Lead with "Use when …"** — Anthropic's doc examples and our guards enforce this prefix. For agents we additionally require a "Not for …" exclusion clause to prevent delegation collisions.
 2. **Put the key use case first.** Per the skills doc: "the combined `description` and `when_to_use` text is truncated at 1,536 characters in the skill listing"; first 100 chars matter most for matching.
-3. **Stay ≤500 chars** to earn full scorer credit. Tier (skills + commands): ≤500 = 2 pts, ≤1,000 = 1 pt, else 0. Agents: ≥80 and ≤500 = 1 pt.
+3. **Stay ≤500 chars** to earn full scorer credit. Tier (skills): ≤500 = 2 pts, ≤1,000 = 1 pt, else 0. Agents: ≥80 and ≤500 = 1 pt.
 4. **Use concrete trigger keywords**, not abstract capability prose. "Use when running pnpm audit, pip-audit, …" beats "Use when working with dependency security." Move "Covers X, Y, Z…" enumerations into the body — the body loads only on activation; the description loads every session.
 5. **Avoid slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — `score-*.sh` deducts 1 pt per occurrence (max −2).
 6. **For agents that should fire automatically**, include "Use proactively …" or specific trigger phrases — Anthropic recommends this for delegation reliability.
 
 ### Frontmatter quick reference
 
-| Field | Skills (`SKILL.md`) | Commands (`commands/<name>.md`) | Agents (`agents/<name>.md`) |
-|---|---|---|---|
-| `name` | optional (dir name fallback); ≤64 chars, `[a-z0-9-]+`, must match parent dir per agentskills.io spec | n/a (filename = name) | required; ≤64 chars, `[a-z0-9-]+`, must match filename, must NOT contain `anthropic`/`claude` |
-| `description` | recommended; ≤1,024 hard cap; ≤500 for full scorer credit | required; ≤500 for full credit | required; must contain a "Not …" clause; ≤500 for full credit |
-| `model` | optional override per turn; values: `sonnet` / `opus` / `haiku` / full ID / `inherit` | optional override | optional; defaults to `inherit`. Resolution: env `CLAUDE_CODE_SUBAGENT_MODEL` → per-invocation param → frontmatter → parent |
-| `tools` / `allowed-tools` | `allowed-tools` pre-approves tools while skill is active | `allowed-tools` is the auto-approve list | `tools` is allowlist (omitted = inherit ALL parent tools); `disallowedTools` is denylist |
-| Other supported fields | `disable-model-invocation`, `user-invocable`, `argument-hint`, `arguments`, `paths`, `effort`, `context: fork`, `agent`, `hooks`, `shell`, `when_to_use` (counts toward the 1,536-char cap) | `argument-hint` (autocomplete only); `$ARGUMENTS` placeholder in body | `permissionMode`, `maxTurns`, `skills` (preloaded), `mcpServers`, `hooks`, `memory` (`user`/`project`/`local`), `background`, `effort`, `isolation: worktree`, `color`, `initialPrompt` |
+| Field | Skills (`SKILL.md`) | Agents (`agents/<name>.md`) |
+|---|---|---|
+| `name` | optional (dir name fallback); ≤64 chars, `[a-z0-9-]+`, must match parent dir per agentskills.io spec | required; ≤64 chars, `[a-z0-9-]+`, must match filename, must NOT contain `anthropic`/`claude` |
+| `description` | recommended; ≤1,024 hard cap; ≤500 for full scorer credit | required; must contain a "Not …" clause; ≤500 for full credit |
+| `model` | optional override per turn; values: `sonnet` / `opus` / `haiku` / full ID / `inherit` | optional; defaults to `inherit`. Resolution: env `CLAUDE_CODE_SUBAGENT_MODEL` → per-invocation param → frontmatter → parent |
+| `tools` / `allowed-tools` | `allowed-tools` pre-approves tools while skill is active | `tools` is allowlist (omitted = inherit ALL parent tools); `disallowedTools` is denylist |
+| Other supported fields | `disable-model-invocation`, `user-invocable`, `argument-hint`, `arguments`, `paths`, `effort`, `context: fork`, `agent`, `hooks`, `shell`, `when_to_use` (counts toward the 1,536-char cap) | `permissionMode`, `maxTurns`, `skills` (preloaded), `mcpServers`, `hooks`, `memory` (`user`/`project`/`local`), `background`, `effort`, `isolation: worktree`, `color`, `initialPrompt` |
 
 For **plugin-shipped agents**, `hooks`, `mcpServers`, and `permissionMode` are silently ignored for security — use `.claude/agents/` (not the plugin) when you need those features.
 
@@ -113,7 +110,7 @@ Body sweet spot: **80–310 lines** (scorer; ≤500 per Anthropic). Compaction r
 
 ### Plugin namespace
 
-All plugin artifacts surface as `<plugin-name>:<artifact-name>` (e.g., `docks:fix`, `docks:security-vulnerability-scanner`). The namespace comes from `name` in `.claude-plugin/plugin.json`. If `version` is omitted from `plugin.json`, the git commit SHA acts as the version, so every commit becomes a new "update" for installed users — always tag explicit semver bumps via `release.sh`.
+All plugin artifacts surface as `<plugin-name>:<artifact-name>` (e.g., `docks:security`, `docks:write-skill`). The namespace comes from `name` in `.claude-plugin/plugin.json`. If `version` is omitted from `plugin.json`, the git commit SHA acts as the version, so every commit becomes a new "update" for installed users — always tag explicit semver bumps via `release.sh`.
 
 <constraint>
 When adding or editing a description, run `bash scripts/ci.sh` and check that per-file scores didn't regress. Length bloat past 500 chars costs scorer points before it costs listing matches; don't paper over it by raising floors. Move enumerations and topic lists into the body, not the description.

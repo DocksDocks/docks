@@ -152,7 +152,7 @@ fi
 
 # --- 3. structural guards ---
 section "structural guards"
-for g in guard-skills guard-commands guard-agents; do
+for g in guard-skills guard-agents; do
   if bash "scripts/$g.sh" >/dev/null 2>&1; then
     ok "$g passed"
   else
@@ -168,7 +168,7 @@ done
 section "quality score floors"
 
 # Skills (per-category)
-for c in engineering productivity internal; do
+for c in engineering productivity; do
   dir="plugins/docks/skills/$c"
   [ -d "$dir" ] || continue
   floor=$(bash scripts/read-floor.sh skills "$c" 2>/dev/null) || { fail "scoring.config.json missing skills.$c"; continue; }
@@ -184,8 +184,8 @@ for c in engineering productivity internal; do
   fi
 done
 
-# Flat kinds (agents, commands)
-for k in agents commands; do
+# Flat kinds (agents)
+for k in agents; do
   floor=$(bash scripts/read-floor.sh "$k" 2>/dev/null) || { fail "scoring.config.json missing $k"; continue; }
   count=$(find "plugins/docks/$k" -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
   total_floor=$(( count * floor ))
@@ -224,8 +224,8 @@ while IFS= read -r line; do
 done < <(bash scripts/score-skills.sh --per-file 2>/dev/null)
 [ "$any_under" -eq 0 ] && ok "skills per-file all clear per-category floors ($exempt_n upstream exempt)"
 
-# Flat kinds (agents, commands)
-for k in agents commands; do
+# Flat kinds (agents)
+for k in agents; do
   floor=$(bash scripts/read-floor.sh "$k" 2>/dev/null) || continue
   any_under=0
   while IFS= read -r line; do

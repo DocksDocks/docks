@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-05-24"
-  content_hash: "3f942796c93583402b248f15570d1e3651f425575c551a5967b3e97687761493"
+  content_hash: "df6ba21ab3a632eeb593b8b6d8a521679c0265a95bd4427cb7bd8ada5e391a72"
 ---
 
 # Write a Skill (docks conventions)
@@ -128,8 +128,7 @@ A skill with 4 constraint blocks scores the same as 3. Pick the 3 most load-bear
 
 ## When this skill does NOT apply
 
-- Authoring an **agent** (not a skill) — different conventions live in `scripts/score-agents.sh` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The CLAUDE.md "Authoring skills, commands & agents" section is the source of truth for agents.
-- Authoring a **command** — same `scripts/score-commands.sh` rubric applies, different from skills (max 21, per-file floor 21). Commands are slash-invokable orchestrators.
+- Authoring an **agent** (not a skill) — different conventions live in `scripts/score-agents.sh` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The CLAUDE.md "Authoring skills & agents" section is the source of truth for agents.
 - Modifying an existing skill — read it first, preserve constraint blocks, bump `metadata.updated`, re-score before commit.
 
 ## Source attribution

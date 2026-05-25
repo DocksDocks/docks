@@ -1,6 +1,6 @@
 # docks
 
-A Claude Code plugin packaging the multi-agent pipeline kit: slash commands where parallel-agent value is irreducible, engineering-convention skills, and specialized subagents with per-phase Opus/Sonnet model tiering.
+A cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode), packaged as a Claude Code plugin. Sequential pipeline skills (security, refactor, docs) plus a library of engineering-convention skills.
 
 ## Install
 
@@ -20,17 +20,17 @@ When a `--plugin-dir` plugin shares a name with an installed marketplace plugin,
 
 ## What's inside
 
-### Commands
+### Pipeline skills
 
-All commands are namespaced as `/docks:<name>` once installed. The kit deliberately keeps only commands where parallel-agent orchestration adds structural value the model can't compress into a single session.
+Each runs as one sequential pass in a single context. Approval gates through the `docs/plans/` lifecycle (the `plan-manager` skill), not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`. The pipeline skills are `user-invocable` — trigger by name or natural language.
 
-| Command | Pipeline |
+| Skill | Pipeline |
 |---------|----------|
-| `/docks:security` | Discovery → \[Vulnerability Scanner \| Logic Analyzer \| Adversarial Hunter\] → Synthesizer (challenges every finding) |
-| `/docks:docs` | Detection → Exploration → \[Categorizer \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder → Verifier |
-| `/docks:refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Pre-Verifier → (implementation) → Post-Verifier (catches NEW SOLID violations introduced while fixing old ones) |
+| `security` | Discovery → Vulnerability Scan → Logic Analysis → Adversarial Hunt → Synthesizer (challenges every finding). Read-only; pipe findings to `fix-workflow`. |
+| `docs` | Detection → Exploration → \[Categorizer \| Pattern Scanner\] → Skills Builder → *(Claude only:* \[Role Mapper \| Pattern Extractor\] → Agents Builder*)* → Verifier |
+| `refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Pre-Verifier → approve → implementation → Post-Verifier (catches NEW SOLID violations introduced while fixing old ones) |
 
-Each command enforces **Plan Mode** — read-only analysis first, user approval gate via `ExitPlanMode`, then implementation.
+The bracketed phases are independent lenses — a runtime with parallel workers MAY run them concurrently, but the portable default is sequential.
 
 ### Skills
 
@@ -41,7 +41,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `tdd-workflow` | Test-first development; tests as spec for code that doesn't exist yet |
 | `test-coverage` | Adding tests to existing code; backfilling coverage |
 | `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
-| `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `/security` / `code-review` |
+| `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
 | `human-docs-workflow` | README, AGENTS.md, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
 | `plan-init` | Bootstrap `docs/plans/` 5-category lifecycle (planned/ongoing/blocked/scheduled/finished) in a project |
@@ -52,31 +52,24 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
-### Agents
+Plus `write-skill`, `agents`, `plan-manager`, `plan-review`, `zoom-out`, and `caveman` under `productivity/`.
 
-Model tiering is per phase. Synthesizers, planners, semantic analyzers, and adversarial work run on Opus 4.7 (creative + judgment-heavy). Exploration, pattern scanning, and mechanical verification run on Sonnet 4.6 (faster + cheaper for enumeration work).
+### Plan-lifecycle agents (Claude Code only)
 
-Force-invoke any agent directly with `@agent-<name>` (e.g. `@agent-refactor-solid-analyzer audit src/services/`).
+`plan-manager` and `plan-review` ship as thin opus-tier subagents so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills; Codex (and any non-Claude runtime) uses the skills directly. Force-invoke with `@agent-plan-manager`.
 
-## Why pipelines and not single-session?
+## Why sequential, single-context?
 
-The kit deliberately uses sequential subagent pipelines despite Anthropic's general guidance against them, because:
-
-1. **Files-as-handoff** — the plan file IS the explicit context-passing mechanism, not an inherited compressed summary
-2. **Per-phase model tiering** saves tokens vs. an all-Opus single session
-3. **No summary compression** — subagents bootstrap from the plan file rather than inheriting a compressed parent context
-
-Most pipelines use a **Builder-Verifier pattern** for quality assurance: the verifier sees the same plan file the builder consumed and challenges its output before it's applied.
+Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass so the *same* skill works on every runtime — Codex skills cannot dispatch subagents, and plugins cannot ship them. The plan file remains the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval artifact. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (written to the same plan file) before anything is applied.
 
 ## Validators (plugin-author tooling)
 
 Quality gates live in the marketplace repo's `scripts/` directory and are NOT shipped to user installs — they validate plugin authoring before release:
 
 - `guard-skills.sh` / `score-skills.sh` — structural + quality (max 16)
-- `guard-commands.sh` / `score-commands.sh` — structural + quality (max 21)
 - `guard-agents.sh` / `score-agents.sh` — structural + quality (max 15)
 
-CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
+`bash scripts/ci.sh` runs the full local gate. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
 
 ## License
 

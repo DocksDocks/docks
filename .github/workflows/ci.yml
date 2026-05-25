@@ -22,8 +22,6 @@ jobs:
       - uses: actions/checkout@v5
       - name: "guard-skills"
         run: bash scripts/guard-skills.sh
-      - name: "guard-commands"
-        run: bash scripts/guard-commands.sh
       - name: "guard-agents"
         run: bash scripts/guard-agents.sh
 
@@ -43,13 +41,6 @@ jobs:
           score=$(bash scripts/score-skills.sh)
           echo "score-skills total: $score (floor $floor = $count × 8)"
           [ "$score" -ge "$floor" ] || { echo "::error::skills score $score below floor $floor ($count × 8)"; exit 1; }
-      - name: "score-commands (floor = N × 21)"
-        run: |
-          count=$(find plugins/docks/commands -mindepth 1 -maxdepth 1 -name '*.md' | wc -l)
-          floor=$((count * 21))
-          score=$(bash scripts/score-commands.sh)
-          echo "score-commands total: $score (floor $floor = $count × 21)"
-          [ "$score" -ge "$floor" ] || { echo "::error::commands score $score below floor $floor ($count × 21)"; exit 1; }
       - name: "score-agents (floor = N × 14)"
         run: |
           count=$(find plugins/docks/agents -mindepth 1 -maxdepth 1 -name '*.md' | wc -l)
@@ -75,18 +66,6 @@ jobs:
               fail=1
             fi
           done < <(bash scripts/score-skills.sh --per-file)
-          [ "$fail" -eq 0 ]
-      - name: "commands (floor 21 per-file)"
-        run: |
-          fail=0
-          while IFS= read -r line; do
-            score=$(echo "$line" | awk '{print $NF}')
-            name=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
-            if [ "$score" -lt 21 ]; then
-              echo "::error::command $name score $score below per-file floor 21"
-              fail=1
-            fi
-          done < <(bash scripts/score-commands.sh --per-file)
           [ "$fail" -eq 0 ]
       - name: "agents (floor 14 per-file)"
         run: |
