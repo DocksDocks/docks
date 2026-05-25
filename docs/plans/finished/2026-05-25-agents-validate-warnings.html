@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resolve plugin-validate warnings from the agents/ context-tree node · finished</title>
+  <link rel="stylesheet" href="../_assets/dashboard.css" />
+  <script type="application/json" id="plan-data">
+{ "title": "Resolve plugin-validate warnings from the agents/ context-tree node",
+  "goal": "Eliminate (or formally accept) the \"No frontmatter\" warnings claude plugin validate/tag emit for agents/AGENTS.md + CLAUDE.md, which fail validate --strict.",
+  "status": "finished", "slug": "20260525-agents-validate-warnings",
+  "created": "2026-05-25", "updated": "2026-05-25", "started_at": "2026-05-25",
+  "assignee": null, "ship_commit": "911210634fcc26599e0cbee49165cd0bf3a35754",
+  "review_status": "passed",
+  "tags": ["ci","plugin","context-tree","validate","low-priority"] }
+  </script>
+</head>
+<body data-status="finished" data-slug="20260525-agents-validate-warnings">
+  <header class="plan-header">
+    <div class="plan-header__top">
+      <span class="status-badge" data-status="finished">finished</span>
+      <span class="age-token">shipped 0d ago</span>
+    </div>
+    <h1>Resolve plugin-validate warnings from the agents/ context-tree node</h1>
+    <p class="plan-goal-summary">Eliminate (or formally accept) the &quot;No frontmatter&quot; warnings <code>claude plugin validate</code>/<code>tag</code> emit for <code>agents/AGENTS.md</code> + <code>CLAUDE.md</code>, which fail <code>validate --strict</code>.</p>
+    <dl class="plan-meta">
+      <div><dt>slug</dt><dd>20260525-agents-validate-warnings</dd></div>
+      <div><dt>created</dt><dd>2026-05-25</dd></div>
+      <div><dt>updated</dt><dd>2026-05-25</dd></div>
+      <div><dt>started_at</dt><dd>2026-05-25</dd></div>
+      <div><dt>assignee</dt><dd>&mdash;</dd></div>
+      <div><dt>ship_commit</dt><dd><code>9112106</code></dd></div>
+      <div><dt>tags</dt><dd>ci, plugin, context-tree, validate, low-priority</dd></div>
+    </dl>
+  </header>
+
+  <main class="plan-body">
+    <section class="plan-section plan-section--goal" data-section="goal">
+      <h2>Goal</h2>
+      <div class="plan-section__content markdown">
+        <p><code>claude plugin validate ./plugins/docks</code> and <code>claude plugin tag</code> (run by <code>release.sh</code> on every release) emit two warnings:</p>
+        <pre><code>Validating agent: .../plugins/docks/agents/AGENTS.md
+  &#10095; frontmatter: No frontmatter block found.
+Validating agent: .../plugins/docks/agents/CLAUDE.md
+  &#10095; frontmatter: No frontmatter block found.</code></pre>
+        <p>The plugin's agent loader auto-discovers <strong>every</strong> <code>*.md</code> in <code>agents/</code> as a subagent. Two of those files are not agents &mdash; they are the context-tree node (<code>AGENTS.md</code> authoring doc + <code>CLAUDE.md</code> <code>@AGENTS.md</code> import) required as a pair by <code>guard-tree.sh</code>. Success = those two warnings no longer appear (so <code>claude plugin validate --strict</code> passes), OR the warnings are formally accepted with the stale supporting docs corrected &mdash; and <code>guard-tree.sh</code> + <code>ci.sh</code> stay green either way.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--context" data-section="context">
+      <h2>Context</h2>
+      <div class="plan-section__content markdown">
+        <p>Surfaced during the v0.4.1 release: <code>claude plugin tag</code> printed the warnings on every run. They are <strong>non-blocking today</strong> &mdash; <code>validate</code>/<code>tag</code> exit 0, and CI's <code>claude plugin validate</code> (no <code>--strict</code>) passes. The runtime <em>tolerates</em> the files (confirmed: <code>validate --strict --help</code> says it fails on &quot;issues that the runtime tolerates&quot;). So consumers do <strong>not</strong> get broken agents.</p>
+        <p>The one real risk: <code>claude plugin validate --strict</code> <strong>fails</strong> on these warnings (verified, exit 1). The <code>--strict</code> help text recommends it &quot;in CI to fail on &hellip; issues the runtime tolerates,&quot; so the repo cannot adopt that hardening until this is resolved. This is the entire reason the item is worth a plan rather than being ignored &mdash; severity is otherwise <strong>low</strong>.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--steps" data-section="steps" data-progress="6/7">
+      <h2>Steps <span class="progress">6 / 7</span></h2>
+      <div class="plan-section__content">
+        <table class="steps">
+          <thead><tr><th>#</th><th>Task</th><th>Status</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Decide approach: <strong>A</strong> accept+document &middot; <strong>B</strong> remove agents/ node, fold authoring into root AGENTS.md &middot; <strong>C</strong> experiment: declare agents via a manifest subdir (mirror skills) &mdash; chose <strong>B</strong></td><td class="status" data-status="done">done</td><td>user</td></tr>
+            <tr><td>2</td><td>(C-first) Spike: move the 2 agent files into <code>agents/&lt;subdir&gt;/</code>, declare it in plugin.json, run <code>validate --strict</code> &mdash; does <code>agents/AGENTS.md</code> stop warning? (it did not)</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>3</td><td>(B) Migrate agent-authoring content into root AGENTS.md; delete <code>agents/AGENTS.md</code> + <code>agents/CLAUDE.md</code></td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>4</td><td>Update root AGENTS.md context-tree table for the chosen layout</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>5</td><td>Correct the manifest <code>agents</code>-field premise (resolved by deleting <code>agents/AGENTS.md</code>; <code>validate</code> proved the array is <strong>rejected</strong>)</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>6</td><td>Verify <code>validate --strict</code> (0 warnings) &middot; guard-tree &middot; ci.sh green</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>7</td><td>(A only) Document expected warnings + &quot;no --strict in CI until resolved&quot;</td><td class="status" data-status="skipped">skipped</td><td>self</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--acceptance" data-section="acceptance">
+      <h2>Acceptance criteria</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>&#9745; A decision is recorded in Step 1 &mdash; <strong>B</strong> (C spike failed).</li>
+          <li>&#9745; For B/C: <code>validate --strict</code> exits 0 with <strong>no</strong> &quot;No frontmatter&quot; warnings for the agents/ node files &mdash; &quot;&#10003; Validation passed&quot;.</li>
+          <li>&#9744; For A: warnings documented as expected, with the <code>--strict</code> caveat noted &mdash; n/a (B chosen).</li>
+          <li>&#9745; <code>guard-tree.sh</code> passes &mdash; 6 nodes valid.</li>
+          <li>&#9745; <code>ci.sh</code> green &mdash; all checks passed.</li>
+          <li>&#9745; The stale &quot;manifest rejects an agents field&quot; claim corrected &mdash; file deleted; Notes corrected (the claim was actually right).</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--out-of-scope" data-section="out-of-scope">
+      <h2>Out of scope</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>Moving agent <strong>files</strong> out of <code>agents/</code> &mdash; the &quot;agents stay flat&quot; rule governs their location.</li>
+          <li>Adopting <code>validate --strict</code> in CI &mdash; separate hardening, now unblocked by this fix.</li>
+          <li>Codex manifest changes &mdash; agents are Claude-only.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--mistakes" data-section="mistakes">
+      <h2>Mistakes &amp; Dead Ends</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>2026-05-25</strong>: Added an <code>agents</code> array of file paths to plugin.json expecting it to replace directory auto-discovery &rarr; <code>validate</code> STILL warned on <code>agents/AGENTS.md</code> + <code>CLAUDE.md</code> (output byte-identical) &rarr; the validator scans the default <code>agents/</code> dir regardless of the manifest array (it changes the runtime loader, not validate). Reverted.</li>
+          <li><strong>2026-05-25</strong>: Tried relocating the node to the plugin root (<code>plugins/docks/AGENTS.md</code> + <code>CLAUDE.md</code>) &rarr; validator then reported <code>Validating plugin: plugins/docks/CLAUDE.md</code> (3 warnings, worse) &rarr; no <code>AGENTS.md</code>/<code>CLAUDE.md</code> is safe anywhere the validator scans, including the plugin root. Removed.</li>
+          <li><strong>2026-05-25 (option C &mdash; the decisive spike, RULED OUT)</strong>: Moved the two real agents into <code>agents/lifecycle/</code> and added <code>&quot;agents&quot;: [&quot;./agents/lifecycle&quot;]</code> to plugin.json, expecting the node files to sit above the scanned path like <code>skills/AGENTS.md</code>. <code>validate --strict</code> failed on BOTH pillars: (1) <code>agents: Invalid input</code> &mdash; the manifest rejected that array shape (so the original &quot;rejects an agents field&quot; claim was right); (2) <code>agents/AGENTS.md</code> + <code>CLAUDE.md</code> STILL warned &mdash; a subdir does NOT lift them above the <code>agents/</code> scan. Dead either way. Reverted; executed <strong>B</strong>. Lesson: the validator scans <code>agents/</code> recursively; no in-<code>agents/</code> location is safe for a non-agent <code>*.md</code>.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--sources" data-section="sources">
+      <h2>Sources</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><a href="https://code.claude.com/docs/en/plugins-reference">plugins-reference</a> &mdash; agents default dir is <code>agents/</code>; manifest mentions an <code>agents</code> array, but the spike proved <code>validate --strict</code> rejects the path-array shape we tried (<code>agents: Invalid input</code>).</li>
+          <li><code>claude plugin validate --strict --help</code> &mdash; &quot;Treat warnings as errors &hellip; issues that the runtime tolerates.&quot; Confirms runtime tolerance + that <code>--strict</code> turns warnings into failures.</li>
+          <li><code>scripts/guard-tree.sh</code> &mdash; requires the pair only if a folder has either file; does not require a node everywhere (so removing the <code>agents/</code> node is allowed).</li>
+          <li><code>plugins/docks/skills/AGENTS.md</code> &mdash; clean because skills are declared as subdirs; the spike showed this does NOT transfer to agents.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--blockers" data-section="blockers">
+      <h2>Blockers</h2>
+      <div class="plan-section__content markdown">
+        <p>None &mdash; the Step-1 decision (<strong>B</strong>) was made and the work is complete.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--notes" data-section="notes">
+      <h2>Notes</h2>
+      <div class="plan-section__content markdown">
+        <p><strong>Recommendation (pre-execution):</strong> try <strong>C</strong> first (ideal &mdash; keeps a clean, lazily-loaded <code>agents/</code> node AND silences the validator). Fall back to <strong>B</strong> if the validator always scans <code>agents/</code>. <strong>A</strong> (accept + document) is the proportionate minimum. <em>Outcome: C failed, B executed.</em></p>
+        <p><strong>Bonus finding &mdash; CORRECTED (Step 5):</strong> an earlier draft claimed the manifest &quot;accepts an <code>agents</code> array of paths.&quot; The C spike <strong>disproved</strong> that: <code>validate --strict</code> returned <code>agents: Invalid input</code>, so the manifest does <strong>not</strong> accept that array shape &mdash; the original &quot;agents stay flat&quot; rule stood. Moot now: B deleted <code>agents/AGENTS.md</code>; agent-authoring rules now live in root <code>AGENTS.md</code> under &quot;Authoring agents (Claude-only).&quot;</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--evidence" data-section="evidence">
+      <h2>Evidence log</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>2026-05-25</strong> &mdash; Investigation: validator lints all <code>agents/*.md</code>; runtime tolerates; <code>--strict</code> fails; explicit <code>agents</code> array did not silence validate; plugin-root node added a 3rd warning. Baseline restored (2 warnings, ci.sh green).</li>
+          <li><strong>2026-05-25</strong> &mdash; Execution: C spike (agents&rarr;<code>lifecycle/</code> + manifest array) failed (<code>agents: Invalid input</code> + node files still warned) &rarr; reverted. Executed <strong>B</strong>: deleted <code>agents/AGENTS.md</code> + <code>CLAUDE.md</code>, folded authoring into root <code>AGENTS.md</code>, dropped the context-tree row, removed the manifest array, agents back to flat. Result: <code>validate --strict</code> &rarr; <strong>&#10003; Validation passed</strong>; <code>guard-tree</code> &rarr; 6 nodes valid; <code>ci.sh</code> &rarr; all checks passed (<code>score-agents 29 &ge; 28</code>; no depth-1 cascade). Shipped as <code>9112106</code>.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--review" data-section="review">
+      <h2>Review</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>Goal met:</strong> yes &mdash; option B shipped in <code>9112106</code>: both <code>agents/</code> node files deleted, authoring folded into root <code>AGENTS.md</code> (&quot;Authoring agents (Claude-only)&quot;), context-tree row dropped; <code>claude plugin validate --strict ./plugins/docks</code> now exits 0 with <strong>no</strong> &quot;No frontmatter&quot; warnings. All 5 binding <code>[x]</code> criteria reproduced this turn (validate --strict &#10003;, guard-tree 6 nodes &#10003;, ci.sh &#10003;, stale claim grep-clean, decision=B recorded).</li>
+          <li><strong>Regressions:</strong> none &mdash; agents stay flat (<code>plan-manager.md</code>, <code>plan-review.md</code>); depth-1 scorers untouched (<code>score-agents 29 &ge; floor 28</code>); full <code>ci.sh</code> green.</li>
+          <li><strong>CI:</strong> pass (<code>bash scripts/ci.sh</code> exit 0 &mdash; &quot;&#10003; All ci.sh checks passed&quot;; plus <code>validate --strict</code> exit 0 and <code>guard-tree</code> 6 nodes valid, all re-run this turn).</li>
+          <li><strong>Scope:</strong> minor drift &mdash; <code>plugins/docks/.claude-plugin/plugin.json</code> is in <code>affected_paths</code> but absent from the ship commit; benign and self-documented (it was the anticipated option-C <code>agents</code> array, reverted when B was chosen &mdash; B needs no manifest change). All 3 actually-changed files are listed; no unannounced changes.</li>
+          <li><strong>Follow-ups:</strong> none &mdash; the unblocked hardening (&quot;adopt <code>validate --strict</code> in CI&quot;) is already captured in the plan's Out of scope; create it via &quot;new plan&quot; only if/when you want to track it.</li>
+          <li>Filed by: plan-review on 2026-05-25T02:30:50-03:00</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="./2026-05-25-agents-validate-warnings.md">source: 2026-05-25-agents-validate-warnings.md</a>
+    <span class="generated-at">generated 2026-05-25T02:28:53-03:00</span>
+  </footer>
+
+  <script src="../_assets/dashboard.js"></script>
+</body>
+</html>

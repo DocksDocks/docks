@@ -25,6 +25,7 @@
     <select data-filter="tag">
       <option value="">all tags</option>
       <option value="bugfix">bugfix</option>
+      <option value="ci">ci</option>
       <option value="codex">codex</option>
       <option value="commands-removal">commands-removal</option>
       <option value="context-tree">context-tree</option>
@@ -36,9 +37,11 @@
       <option value="hooks">hooks</option>
       <option value="html">html</option>
       <option value="lazy-context">lazy-context</option>
+      <option value="low-priority">low-priority</option>
       <option value="meta">meta</option>
       <option value="multi-tool">multi-tool</option>
       <option value="plans">plans</option>
+      <option value="plugin">plugin</option>
       <option value="re-architecture">re-architecture</option>
       <option value="references">references</option>
       <option value="refactor">refactor</option>
@@ -49,6 +52,7 @@
       <option value="skill-maintenance">skill-maintenance</option>
       <option value="skills">skills</option>
       <option value="template">template</option>
+      <option value="validate">validate</option>
     </select>
   </div>
 
@@ -63,6 +67,13 @@
       </tr>
     </thead>
     <tbody>
+      <tr data-status="finished" data-assignee="" data-tags="ci,plugin,context-tree,validate,low-priority">
+        <td><span class="status-badge" data-status="finished">finished</span></td>
+        <td class="title"><a href="finished/2026-05-25-agents-validate-warnings.html">Resolve plugin-validate warnings from the agents/ context-tree node</a></td>
+        <td data-sort-value="2026-05-25">shipped 0d ago</td>
+        <td>—</td>
+        <td>6/7</td>
+      </tr>
       <tr data-status="finished" data-assignee="" data-tags="plans,html,skill,dashboard">
         <td><span class="status-badge" data-status="finished">finished</span></td>
         <td class="title"><a href="finished/2026-05-24-html-sidecar-generator.html">Add plan-sidecar skill + simplified HTML standard</a></td>
