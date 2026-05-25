@@ -83,6 +83,7 @@ Notes:
 - `{status}` is the lifecycle category (`planned`/`ongoing`/`blocked`/`scheduled`/`finished`).
 - Section `--slug` values map to CSS modifiers: only `mistakes` (red), `review` (green), `blockers` (amber) are tinted; the rest use the base `plan-section--<slug>` with no special style.
 - Steps `data-status` uses the step enum with `in-flight` hyphenated.
+- Per-plan assets: to extend the base look, add `<link rel="stylesheet" href="../_assets/<slug>.css" />` (and/or a `<script src="../_assets/<slug>.js">`) AFTER the shared `dashboard.css`/`dashboard.js` so it overrides. Never inline.
 - Empty optional sections: emit the heading + an empty `.plan-section__content` — `dashboard.js` collapses them on load.
 
 ## Dashboard — `docs/plans/index.html`

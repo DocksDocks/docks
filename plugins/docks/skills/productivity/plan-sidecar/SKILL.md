@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-05-24"
-  content_hash: "cf72eb5a3d6114a5015f787f299e1a195cc504865a206a0828becfc5fc6f66fd"
+  content_hash: "2357febeb13045595b48608722ae7230511deaf1c9658f597626e12f82666a47"
 ---
 
 # Plan Sidecar — author a plan's browser view
@@ -17,11 +17,11 @@ metadata:
 </constraint>
 
 <constraint>
-**Conform to the shared contract — don't fork the assets.** Every sidecar links `../_assets/dashboard.css` + `../_assets/dashboard.js`; the dashboard itself uses `_assets/…` (no `../`). Emit the load-bearing `data-*` hooks (table below). NEVER inline a `<style>`/`<script>` block or copy CSS rules into the file — all styling lives in the shared assets, so one edit restyles every plan.
+**Link the shared base first; never inline.** Every sidecar links `../_assets/dashboard.css` + `../_assets/dashboard.js` (the dashboard uses `_assets/…`, no `../`) and emits the load-bearing `data-*` hooks (table below). NEVER inline a `<style>`/`<script>` block or copy CSS rules into the file — styling lives in asset *files* so one edit restyles every plan. Adding EXTRA plan-specific asset files is allowed (constraint 3); inlining is not.
 </constraint>
 
 <constraint>
-**Per-plan latitude is within the contract, never around it.** You MAY add plan-specific visualization — an extra callout, a reordered section, a highlighted metric — as long as every required `data-*` hook still resolves and no styles are inlined. The contract is the floor; "better visualization" builds on top of the hooks, it does not replace them.
+**Per-plan latitude — including extra `.css`/`.js` files.** A plan may need richer visualization than the shared base. You MAY add a callout, reorder sections, highlight a metric, AND ship a plan-specific stylesheet/script — put it at `_assets/<slug>.css` / `_assets/<slug>.js` and `<link>`/`<script src>` it AFTER `dashboard.{css,js}` so it extends or overrides the base. Non-negotiable even then: link the shared base first, keep every required `data-*` hook resolving, and never inline (extra styling/behavior goes in a linked file, not a `<style>`/`<script>` block). The contract is the floor; per-plan assets build on top.
 </constraint>
 
 ## Modes
@@ -36,7 +36,7 @@ plan-manager invokes both after any plan touch: the sidecar for the touched plan
 
 ## The shared-asset contract
 
-Assets live at `docs/plans/_assets/dashboard.css` + `dashboard.js` — this skill **consumes** them (restyling is out of scope). Reference them relatively: `../_assets/…` from a sidecar in a category dir; `_assets/…` from `index.html`. Full HTML skeletons (sidecar + dashboard) with every hook annotated: [`references/templates.md`](references/templates.md).
+Assets live at `docs/plans/_assets/dashboard.css` + `dashboard.js` — this skill **consumes** them (restyling the base is out of scope). Reference them relatively: `../_assets/…` from a sidecar in a category dir; `_assets/…` from `index.html`. A plan needing more than the base may add `_assets/<slug>.css` / `_assets/<slug>.js`, linked AFTER the shared files (constraint 3) — the base stays untouched so "one edit restyles all" still holds. Full HTML skeletons (sidecar + dashboard) with every hook annotated: [`references/templates.md`](references/templates.md).
 
 Load-bearing hooks the css/js target — emit these exactly:
 

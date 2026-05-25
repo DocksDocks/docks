@@ -319,7 +319,8 @@ sidecar mode for the touched plan, then dashboard mode for `index.html`. It skip
 the write when the parsed projection is unchanged, and never reads the `.html`
 back (the `.md` is canonical). The full HTML skeletons live in that skill's
 `references/templates.md`; per-plan latitude is allowed within the contract below —
-extra visualization is fine as long as every hook still resolves and nothing is inlined.
+extra visualization is fine, including a plan-specific `_assets/<slug>.{css,js}` linked
+after the shared base, as long as every hook still resolves and nothing is inlined.
 
 The .html files can be checked in (so a teammate sees the formatted view
 on GitHub or via a static-host link) or gitignored (treat as build
