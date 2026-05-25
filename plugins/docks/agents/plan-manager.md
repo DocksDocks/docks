@@ -29,7 +29,7 @@ Users do NOT invoke this agent directly — they trigger the `plan-manager` skil
 
 ## Workflow
 
-Load and follow `plugins/docks/skills/plan-manager/SKILL.md` precisely. The skill's 8 steps are canonical:
+Load and follow `plugins/docks/skills/productivity/plan-manager/SKILL.md` precisely. The skill's 8 steps are canonical:
 
 1. Parse user intent → category + operation
 2. Enumerate plans in target category

@@ -1,0 +1,19 @@
+{
+  "name": "{{ plugin_name }}",
+  "description": "{{ plugin_description }}",
+  "owner": {
+    "name": "{{ author_name }}"
+  },
+  "plugins": [
+    {
+      "name": "{{ plugin_name }}",
+      "source": "./plugins/{{ plugin_name }}",
+      "description": "{{ plugin_description }}",
+      "version": "0.1.0",
+      "author": {
+        "name": "{{ author_name }}"
+      },
+      "license": "{{ license }}"
+    }
+  ]
+}

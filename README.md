@@ -1,6 +1,6 @@
 # docks
 
-Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent pipeline kit with slash commands where parallel-agent value is irreducible, engineering-convention skills, and specialized subagents tiered between Opus and Sonnet per phase.
+Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skills-audit/docs) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, human-docs, design tokens, SOLID, type-safety, and React patterns; and a `docs/plans/` lifecycle tracks multi-commit work.
 
 ## Install
 
@@ -10,26 +10,30 @@ Claude Code plugin marketplace publishing the **docks** plugin — a multi-agent
 /reload-plugins
 ```
 
-After install, commands are namespaced as `/docks:security`, `/docks:docs`, `/docks:refactor`. Skills auto-trigger as before (they're `user-invocable: false`, namespacing is invisible at runtime).
+After install, the pipeline skills are user-invocable — ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `docs` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
 
-## What's Inside
+## What's inside
 
-The command layer keeps the multi-agent pipeline:
+### Pipeline skills (sequential, cross-tool)
 
-| Command | Why kept as command |
+Each runs as one sequential pass in a single context and gates approval through the `docs/plans/` lifecycle (the `plan-manager` skill), not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`.
+
+| Skill | Pipeline |
 |---|---|
-| `/security` | Parallel scanners (vulnerability + logic + adversarial-hunter) + synthesizer challenging every finding — adversarial perspective doesn't compress to a skill |
-| `/docs` | 8-phase pipeline for `.claude/skills/` and `.claude/agents/` authoring with structural validators, cross-layer reference checks, skill-maintenance generation |
-| `/refactor` | Parallel dead-code + duplication + per-principle SOLID scanners; post-verifier checks for *new* SOLID violations introduced while fixing old ones |
+| `security` | discovery → vulnerability scan → logic analysis → adversarial hunt → synthesis that challenges every finding. Read-only; pipe findings to `fix-workflow`. |
+| `refactor` | exploration → dead-code + duplication + per-principle SOLID analysis → tiered plan → approve → test-guarded one-change-at-a-time implementation → post-verify SOLID delta. |
+| `docs` | explore → categorize skills → pattern-scan → build SKILL.md + references/ → *(Claude Code only:* build agents*)* → verify → approve → implement. |
 
-The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/plan-init` used to:
+### Convention skills
+
+Auto-trigger on matching tasks (all `user-invocable: false`):
 
 | Skill | Use when |
 |---|---|
 | `tdd-workflow` | Test-first development; tests as spec for code that doesn't exist yet |
 | `test-coverage` | Adding tests to existing code; backfilling coverage |
 | `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
-| `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `/security` / `code-review` |
+| `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
 | `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
 | `plan-init` | Bootstrap `docs/plans/` 5-category lifecycle (planned/ongoing/blocked/scheduled/finished) in a project |
@@ -40,6 +44,12 @@ The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/pla
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
+Plus `write-skill`, `agents` (AGENTS.md ↔ skills bridging), `plan-manager`, `plan-review`, `zoom-out`, `caveman` under `productivity/`.
+
+### Plan-lifecycle agents (Claude Code only)
+
+`plan-manager` and `plan-review` ship as thin opus-tier subagents (`plugins/docks/agents/`) so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills — Codex uses the skills directly.
+
 ## Repository layout
 
 ```
@@ -48,11 +58,10 @@ The skills cover everything `/fix`, `/review`, `/test`, `/human-docs`, and `/pla
 ├── plugins/
 │   └── docks/                         ← the plugin itself (only this gets cached on user install)
 │       ├── .claude-plugin/plugin.json
-│       ├── skills/, commands/, agents/
+│       ├── skills/, agents/           ← cross-tool skills + 2 plan-lifecycle agents
 │       └── README.md                  ← plugin-facing docs
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── guard-skills.sh / score-skills.sh
-│   ├── guard-commands.sh / score-commands.sh
 │   └── guard-agents.sh / score-agents.sh
 └── .github/workflows/ci.yml           ← validator CI on push/PR
 ```
@@ -67,26 +76,22 @@ Test changes without pushing to GitHub:
 claude --plugin-dir ./plugins/docks
 ```
 
-When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session.
-
-After edits, run `/reload-plugins` in the running session — no Claude Code restart needed.
+When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session. After edits, run `/reload-plugins` in the running session — no Claude Code restart needed.
 
 ## Validate before pushing
 
-Six validators mirror the kit-side conventions:
+Four validators mirror the kit-side conventions:
 
 ```bash
 bash scripts/guard-skills.sh     # structural — frontmatter, ≤500 lines, name-matches-dir
 bash scripts/score-skills.sh     # quality score (max 16) — Use-when prefix, freshness, BAD/GOOD ratio
-bash scripts/guard-commands.sh   # subagent_type cross-refs resolve to plugins/docks/agents/*.md
-bash scripts/score-commands.sh   # quality score (max 21) — Plan Mode, Phase Transition, slop
 bash scripts/guard-agents.sh     # frontmatter, "Use when…" / "Not…" CSO, model declared
 bash scripts/score-agents.sh     # quality score (max 15) — model, tools, Workflow + Success Criteria
 ```
 
-`--per-file` flag on score scripts prints one `<name> <score>` line per item — useful for spotting drift after an edit.
+`--per-file` flag on score scripts prints one `<name> <score>` line per item — useful for spotting drift after an edit. `bash scripts/ci.sh` runs the full local gate (guards + scorers + manifest + idempotency).
 
-CI runs all six on every PR to `main` and on every `docks--v*` release tag (see `.github/workflows/ci.yml`; full trigger model below).
+CI runs all of these on every PR to `main` and on every `docks--v*` release tag (see `.github/workflows/ci.yml`; full trigger model below).
 
 ## Versioning + releases
 

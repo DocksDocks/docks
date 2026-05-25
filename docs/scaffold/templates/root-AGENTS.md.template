@@ -1,0 +1,37 @@
+# AGENTS.md
+
+{{ plugin_description }}
+
+`{{ plugin_name }}` is a cross-tool plugin built on the docks scaffold — skills surface in every agentskills.io runtime (Claude Code, Codex, OpenCode). This root file stays repo-wide; per-area conventions load lazily from nested `AGENTS.md` nodes (see Context tree).
+
+## Repository scope
+
+```
+.
+├── plugins/{{ plugin_name }}/
+│   ├── .claude-plugin/plugin.json    Claude plugin manifest
+│   ├── .codex-plugin/plugin.json     Codex plugin manifest
+│   └── skills/                       cross-tool skills (productivity/, engineering/)
+├── .claude-plugin/marketplace.json   Claude marketplace catalog
+├── .agents/plugins/marketplace.json  Codex marketplace catalog
+├── docs/plans/                       plan lifecycle (bootstrapped by plan-init)
+└── scripts/                          author-side validators
+```
+
+## Context tree
+
+Per-area conventions live in nested `AGENTS.md` nodes, each paired with a one-line `CLAUDE.md` (`@AGENTS.md`) so Claude Code's descendant walker finds them:
+
+| Node | Covers |
+|---|---|
+| `docs/plans/AGENTS.md` | plan lifecycle + conventions |
+| `plugins/{{ plugin_name }}/skills/AGENTS.md` | skill authoring rules |
+| `scripts/AGENTS.md` | validators + CI |
+
+The `context-tree` skill maintains these nodes; `scripts/guard-tree.sh` enforces the pair convention.
+
+## Tool-agnostic rules
+
+- Run `bash scripts/guard-tree.sh` and `bash scripts/guard-skills.sh plugins/{{ plugin_name }}/skills` before commit
+- Skill bodies stay ≤500 lines per agentskills.io spec (sweet spot 80–310)
+- Manifest versions stay in lockstep across both `plugin.json`s and both marketplace catalogs

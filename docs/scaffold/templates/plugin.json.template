@@ -1,0 +1,12 @@
+{
+  "name": "{{ plugin_name }}",
+  "description": "{{ plugin_description }}",
+  "version": "0.1.0",
+  "author": {
+    "name": "{{ author_name }}"
+  },
+  "license": "{{ license }}",
+  "skills": [
+    "./skills/productivity"
+  ]
+}

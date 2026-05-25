@@ -1,8 +1,8 @@
 # AGENTS.md
 
-docks is a multi-agent pipeline kit and plugin marketplace. It ships **skills** (cross-tool — any agentskills.io-compliant runtime: Codex, Claude Code, OpenCode, VS Code Copilot) and, on Claude Code specifically, additionally ships **tiered subagents and Builder-Verifier slash commands** that exploit Claude Code's parallel-agent dispatch model.
+docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for any agentskills.io-compliant runtime (Codex, Claude Code, OpenCode, VS Code Copilot), including three sequential **pipeline skills** — `security`, `refactor`, and `docs` — that fold what used to be Claude-only Builder-Verifier slash commands into a single-context, runtime-portable form. Each pipeline runs its phases in order, keeps per-phase expertise in `references/`, and gates approval through the `docs/plans/` lifecycle instead of Plan Mode. The only Claude-specific extras are two thin plan-lifecycle subagents (`plan-manager`, `plan-review`).
 
-For Claude-Code-specific authoring details — plugin manifest schema, slash command shape, subagent frontmatter, release flow via `claude plugin tag`, validators, scoring — **see `CLAUDE.md`**. This file (AGENTS.md) is the cross-tool entry point and points back to CLAUDE.md for the substance.
+This root file stays **repo-wide**. Per-area authoring details — skill/agent frontmatter, scoring, the release flow, CI triggers — live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
 ## Repository scope
 
@@ -10,18 +10,33 @@ For Claude-Code-specific authoring details — plugin manifest schema, slash com
 .
 ├── plugins/docks/                    plugin payload (shipped to consumers)
 │   ├── .claude-plugin/plugin.json    Claude plugin manifest
-│   ├── .codex-plugin/plugin.json     Codex plugin manifest (parallel, skills-only subset)
-│   ├── skills/   (cross-tool)        surfaced in both Codex and Claude Code
-│   ├── commands/ (Claude-only)       slash commands — Codex plugins don't include these
-│   └── agents/   (Claude-only)       subagents — different file format on Codex (.toml)
+│   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks — near-parity with Claude)
+│   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/docs pipelines
+│   ├── agents/   (Claude-only)       plan-manager + plan-review thin opus plan-lifecycle wrappers
+│   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
 ├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
-├── docs/plans/                       JBLAR 5-category lifecycle (bootstrapped by plan-init skill)
+├── docs/plans/                       5-category lifecycle planning (bootstrapped by plan-init skill)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
 └── .github/workflows/                gh-side CI on PR + tag push
 ```
+
+## Context tree
+
+Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired with a one-line `CLAUDE.md` (`@AGENTS.md`) because Claude Code descends `CLAUDE.md`, not `AGENTS.md`. Drill into the node for the local rules — this root carries only repo-wide concerns:
+
+| Node | Covers |
+|---|---|
+| `docs/plans/AGENTS.md` | plan frontmatter schema, lifecycle transitions, 3-tier pretty-print contract |
+| `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
+| `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
+| `plugins/docks/agents/AGENTS.md` | agent authoring — Claude-only wrappers, CSO + "Not" clause, model resolution |
+| `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
+| `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.sh` |
+
+The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes; `scripts/guard-tree.sh` enforces the pair convention in CI.
 
 ## Plans
 
@@ -29,7 +44,7 @@ For Claude-Code-specific authoring details — plugin manifest schema, slash com
 Multi-commit work plans live in `docs/plans/{planned,ongoing,blocked,scheduled,finished}/`. Every plan file is a complete handoff document — `goal`, structured `Steps`, `Mistakes & Dead Ends`, `Sources`, `Review` — so any agent can pick one up cold without conversation context. Skills handle every operation: `plan-init` (bootstrap), `plan-manager` (list/show/resume/start/new/fire/ship), `plan-review` (verification). Trigger by natural language ("create docs/plans", "list plans", "review plan <slug>") or the matching `plan-*` skill directly. Every category is multi-occupancy.
 </constraint>
 
-The full convention (frontmatter schema, body section order, 3-tier pretty-print contract, category-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested-directory discovery. Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation.
+The full convention (frontmatter schema, body section order, 3-tier pretty-print contract, category-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation.
 
 ## Project-local skills
 
@@ -55,6 +70,7 @@ Claude Code sees these via the symlinks under `.claude/skills/`. Codex sees them
 ## What does NOT belong in this repo
 
 - Consumer-side env vars / permissions / RTK config — those live in [DocksDocks/public](https://github.com/DocksDocks/public)
-- Plugin version numbers in CLAUDE.md or README prose — let manifest files + GitHub Releases be the source of truth
+- `disable-claudeai-connectors.sh` — same reason, it's an opinionated user-machine hook
+- Plugin version numbers in prose (CLAUDE.md, README) — let manifest files + GitHub Releases be the source of truth
 
-(Generated by `/docks:agents` on 2026-05-11. For Claude-specific instructions, read `CLAUDE.md`.)
+(Cross-tool entry point. Per-area rules live in the Context tree nodes above.)

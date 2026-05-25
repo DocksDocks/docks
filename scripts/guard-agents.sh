@@ -10,8 +10,10 @@ errors=0
 if [ -f "$ARG" ]; then
   FILES=("$ARG")
 elif [ -d "$ARG" ]; then
+  # Agents stay flat at agents/<name>.md (depth-1). Plugin manifest doesn't
+  # accept an `agents` field, so the Claude Code plugin loader auto-discovers
+  # agents only at this depth.
   FILES=("$ARG"/*.md)
-  # Empty dir → pass silently with "no agents found"
   if ! compgen -G "$ARG/*.md" > /dev/null; then
     echo "Guard PASSED: no agent files found in $ARG"
     exit 0
@@ -24,8 +26,10 @@ fi
 for file in "${FILES[@]}"; do
   [ -f "$file" ] || continue
   name_fromfile=$(basename "$file" .md)
-  # Skip the .gitkeep sentinel
-  [ "$name_fromfile" = ".gitkeep" ] && continue
+  # Skip the .gitkeep sentinel + reserved context-tree node files. AGENTS.md /
+  # CLAUDE.md are never agent definitions (uppercase fails the kebab-case name
+  # rule anyway); this dir doubles as a context-tree node validated by guard-tree.
+  case "$name_fromfile" in .gitkeep|AGENTS|CLAUDE) continue ;; esac
 
   # Must open with `---` frontmatter fence on line 1
   first_line=$(head -n 1 "$file")

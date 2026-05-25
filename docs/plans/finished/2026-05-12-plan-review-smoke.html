@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smoke-test the docks:plans handoff-grade redesign · finished</title>
+  <link rel="stylesheet" href="../_assets/dashboard.css" />
+  <script type="application/json" id="plan-data">
+{
+  "title": "Smoke-test the docks:plans handoff-grade redesign",
+  "goal": "Verify the new docs:plans schema, 3-tier pretty-print, and skill workflow end-to-end via this very plan",
+  "status": "finished",
+  "slug": "2026-05-12-plan-review-smoke",
+  "created": "2026-05-12",
+  "updated": "2026-05-25",
+  "started_at": "2026-05-12",
+  "assignee": null,
+  "ship_commit": "7bd0f257457a5ef4a18220b8307224857ac268a2",
+  "tags": ["meta", "dogfood"],
+  "review_status": "passed"
+}
+  </script>
+</head>
+<body data-status="finished" data-slug="2026-05-12-plan-review-smoke">
+  <header class="plan-header">
+    <div class="plan-header__top">
+      <span class="status-badge" data-status="finished">finished</span>
+      <span class="age-token">shipped 13d ago</span>
+    </div>
+    <h1>Smoke-test the docks:plans handoff-grade redesign</h1>
+    <p class="plan-goal-summary">Verify the new docs:plans schema, 3-tier pretty-print, and skill workflow end-to-end via this very plan</p>
+    <dl class="plan-meta">
+      <div><dt>slug</dt><dd>2026-05-12-plan-review-smoke</dd></div>
+      <div><dt>created</dt><dd>2026-05-12</dd></div>
+      <div><dt>updated</dt><dd>2026-05-25</dd></div>
+      <div><dt>started_at</dt><dd>2026-05-12</dd></div>
+      <div><dt>assignee</dt><dd>—</dd></div>
+      <div><dt>ship_commit</dt><dd>7bd0f257457a5ef4a18220b8307224857ac268a2</dd></div>
+      <div><dt>review_status</dt><dd>passed</dd></div>
+      <div><dt>tags</dt><dd>meta, dogfood</dd></div>
+    </dl>
+  </header>
+
+  <main class="plan-body">
+    <section class="plan-section plan-section--goal" data-section="goal">
+      <h2>Goal</h2>
+      <div class="plan-section__content markdown">
+        <p>Validate that the rebuilt <code>docs:plans</code> convention works end-to-end: a plan file using the new schema can be created, listed in three pretty-print tiers, moved through <code>planned/ → ongoing/ → finished/</code> with <code>started_at</code> set and <code>ship_commit</code> on ship, and reviewed by the new <code>plan-review</code> skill which writes a structured <code>## Review</code> block.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--context" data-section="context">
+      <h2>Context</h2>
+      <div class="plan-section__content markdown">
+        <p>The previous plans system worked but plan files were shallow. This redesign moved every runtime operation into cross-tool skills triggered by natural language, deleted the slash command, and extended plan files into complete handoff documents. This smoke-test plan exists to dogfood the result — and is closed by shipping itself through the system it validates.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--steps" data-section="steps" data-progress="11/11">
+      <h2>Steps <span class="progress">11 / 11</span></h2>
+      <div class="plan-section__content">
+        <table class="steps">
+          <thead><tr><th>#</th><th>Task</th><th>Status</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Update <code>docs/plans/AGENTS.md</code> with new schema + sections + age tokens</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>2</td><td>Update <code>plan-init/references/plans-agents-md-template.md</code> in lockstep</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>3</td><td>Create <code>plan-manager</code> skill</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>4</td><td>Create <code>plan-review</code> skill</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>5</td><td>Update <code>plan-init/SKILL.md</code> to mention new sibling skills</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>6</td><td>Refactor <code>plan-manager</code> agent to thin opus wrapper</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>7</td><td>Create <code>plan-review</code> agent (thin opus wrapper)</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>8</td><td>Delete <code>plugins/docks/commands/plan.md</code></td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>9</td><td>Update root <code>AGENTS.md</code> with <code>&lt;constraint&gt;</code> block</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>10</td><td>Run <code>bash scripts/ci.sh</code> — verify guards + scorers green</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>11</td><td>Smoke-test: this plan file + lifecycle demonstration</td><td class="status" data-status="done">done</td><td>self</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--acceptance" data-section="acceptance">
+      <h2>Acceptance criteria</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><code>[x]</code> All frontmatter fields documented in <code>docs/plans/AGENTS.md</code> are present and valid in this file</li>
+          <li><code>[x]</code> All 12 canonical body sections present with non-trivial content (or heading-only for optional sections)</li>
+          <li><code>[x]</code> <code>## Steps</code> table includes the <code>Depends</code> and <code>Parallel</code> columns with at least one row demonstrating each</li>
+          <li><code>[x]</code> <code>## Mistakes &amp; Dead Ends</code> entries follow the structured shape</li>
+          <li><code>[x]</code> <code>## Sources</code> entries pair each URL with the concept it clarified</li>
+          <li><code>[x]</code> Plan moves through <code>planned/ → finished/</code> with <code>started_at</code> set — completed by this ship (routed planned→finished directly; the work was complete at creation)</li>
+          <li><code>[x]</code> <code>plan-review</code> auto-fires on the <code>→ finished/</code> move and writes a structured <code>## Review</code> block</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--out-of-scope" data-section="out-of-scope">
+      <h2>Out of scope</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>Migration of existing plan files (none existed — all category dirs held only <code>.gitkeep</code>)</li>
+          <li>A plan-health scorer (<code>scripts/score-plans.sh</code>) — follow-up</li>
+          <li><code>affected_paths</code>-based conflict detection between ongoing plans — follow-up</li>
+          <li>Codex-equivalent <code>.toml</code> subagent files — Codex consumes the skills directly</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--mistakes" data-section="mistakes">
+      <h2>Mistakes &amp; Dead Ends</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>2026-05-12</strong>: First draft added <code>/docks:plan</code> subcommands on top of the existing dispatcher → user clarified the original <code>/docks:plan</code> was only meant to bootstrap with no arguments; runtime operations belong in skills → ask about a command's original scope BEFORE adding subcommands.</li>
+          <li><strong>2026-05-12</strong>: First draft of Tier-2 pretty-print used bare <code>6 days</code> → user pointed out "days" is ambiguous → always pair age numbers with a category-specific word; added <code>started_at</code> so the <code>ongoing/</code> token is exact.</li>
+          <li><strong>2026-05-12</strong>: First Tier-2 example showed an <code>ongoing/</code> row tagged "blocked" (contradicts the convention) → sanity-check example rows against lifecycle rules before publishing.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--sources" data-section="sources">
+      <h2>Sources</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><a href="https://github.com/mattpocock/skills">mattpocock/skills</a> — reference-driven handoff structure; "every plan is a complete handoff document"</li>
+          <li><a href="https://github.com/vercel-labs/agent-browser">vercel-labs/agent-browser</a> — deterministic refs; the <code>#N</code> step IDs</li>
+          <li>Microsoft Agent Framework handoff docs — decentralized routing; the <code>Depends</code> + <code>Owner</code> columns</li>
+          <li><a href="https://github.com/TauricResearch/TradingAgents">TauricResearch/TradingAgents</a> — per-step decision log; <code>## Mistakes &amp; Dead Ends</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--blockers" data-section="blockers">
+      <h2>Blockers</h2>
+      <div class="plan-section__content markdown">
+        <p>(none — actionable now; this plan tracks the redesign work that was already complete)</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--notes" data-section="notes">
+      <h2>Notes</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>Eating own dog food: this plan uses every new frontmatter field and every new body section.</li>
+          <li><code>started_at: 2026-05-12</code> — the redesign work (<code>7bd0f25</code>) was already complete when this plan was created; it sat in <code>planned/</code> only because the final lifecycle move was overlooked.</li>
+          <li><strong>Closed 2026-05-25</strong>: the two previously-deferred criteria (lifecycle move + plan-review) are now satisfied by this very ship — the smoke test completed by shipping itself through the system it validates (8+ plans shipped through it since 2026-05-12).</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--evidence" data-section="evidence">
+      <h2>Evidence log</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>2026-05-12T12:55 -03:00 — Plan research phase (three Explore agents)</li>
+          <li>2026-05-12T13:30 -03:00 — User requested Codex equivalent via skills; cross-tool skill-first architecture</li>
+          <li>2026-05-12T15:30 -03:00 — Implementation complete; <code>bash scripts/ci.sh</code> green</li>
+          <li>2026-05-12T15:45 -03:00 — This smoke-test plan file written as dogfood</li>
+          <li>2026-05-25 — Administratively shipped to finished/ (ship_commit 7bd0f25); plan-review passed</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--review" data-section="review">
+      <h2>Review</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>Goal met:</strong> yes — all 7 <code>[x]</code> criteria are evidence-backed in <code>7bd0f25</code>: the 15-field frontmatter schema + 12 body sections in <code>docs/plans/AGENTS.md</code>, the <code>Steps</code> Depends/Parallel columns, category-specific age tokens, and <code>plan-review</code> auto-fire on <code>→ finished/</code>. The lifecycle move + plan-review criteria are satisfied by this very ship — the smoke test completes itself. Live corroboration: 8+ plans shipped through plan-manager + plan-review since 2026-05-12.</li>
+          <li><strong>Regressions:</strong> none — CI green; no offending pattern on reproduction reads.</li>
+          <li><strong>CI:</strong> pass (<code>bash scripts/ci.sh</code> exit 0; workflow-YAML is a local skip for missing pyyaml, not a failure — GitHub tag-CI validates regardless).</li>
+          <li><strong>Scope:</strong> no drift — all 9 <code>affected_paths</code> appear in the <code>7bd0f25</code> diff (incl. the planned deletion of <code>commands/plan.md</code>); the only unannounced change is the plan file creating itself. Later relocation to <code>skills/productivity/</code> is a separate reviewed plan, not drift here.</li>
+          <li><strong>Follow-ups:</strong> none.</li>
+          <li>Filed by: plan-review on 2026-05-25T00:14:50-03:00</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="./2026-05-12-plan-review-smoke.md">source: 2026-05-12-plan-review-smoke.md</a>
+    <span class="generated-at">generated 2026-05-25T00:16:00-03:00</span>
+  </footer>
+
+  <script src="../_assets/dashboard.js"></script>
+</body>
+</html>

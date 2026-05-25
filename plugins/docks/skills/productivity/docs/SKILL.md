@@ -1,0 +1,119 @@
+---
+name: docs
+description: "Use when bootstrapping or auditing a project's skills (and, on Claude Code, agents) — skill health (CSO descriptions, size/staleness, coverage gaps), codebase pattern extraction with file:line evidence, SKILL.md authoring + references/ splits, a skill-maintenance skill, and cross-layer agent↔skill validation. Sequential phases gated through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
+user-invocable: true
+metadata:
+  pattern: pipeline
+  updated: "2026-05-24"
+  # content_hash: auto-managed by scripts/skill-content-hash.sh --backfill
+  content_hash: "af8de3e004e81df19c7277f60946fb5d47a83efbd61349a7d422be1992c4940c"
+---
+
+# Skills & Agents Pipeline (cross-tool)
+
+Bootstrap and audit a project's `.claude/skills/` (and, on Claude Code, `.claude/agents/`) in one sequential pass: explore, propose the skill-set delta, extract codebase patterns, draft skills, verify, then implement after approval. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
+
+<constraint>
+Single-agent sequential. Execute the phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Append each phase's output to the plan file under the exact heading shown, as you finish it, so a mid-run compaction can resume by re-reading the file.
+</constraint>
+
+<constraint>
+Agent generation is Claude-Code-specific. Phases 4a, 4b, and 5 produce `.claude/agents/` files — a Claude concept. On Codex or any other runtime, SKIP them: produce skills only (Phases 1→2→3→6→implement). Never emit agent files on a non-Claude runtime, and never let a missing agent phase block the skills track.
+</constraint>
+
+<constraint>
+Approval via the plan lifecycle, not Plan Mode. Write the full skills/agents plan to a `docs/plans/` file and surface it — do NOT call `ExitPlanMode` (Claude-only). Tell the user: "review and say `start <slug>` to implement." Implementation (Phase 8) runs only after the user starts the plan. If `docs/plans/` is absent, run `plan-init` first.
+</constraint>
+
+## When to use
+
+- Standing up `.claude/skills/` in a project that has none, or auditing existing skills for drift.
+- After a refactor changed documented patterns and skills need a refresh.
+- When skill descriptions stopped triggering (CSO drift) or a SKILL.md outgrew its size budget.
+
+## When NOT to use
+
+| Situation | Use instead |
+|---|---|
+| README / AGENTS.md / CLAUDE.md / prose docs | `human-docs-workflow` |
+| Writing one skill by hand | `write-skill` |
+| Multi-tool AGENTS.md ↔ skills symlink bridging | `agents` |
+| Security / refactor analysis | `security` / `refactor` |
+
+## Pipeline
+
+Run in order. Each phase reads its reference, then writes output under the exact heading (the resume anchor — keep verbatim). Phase 0 is inline (no reference).
+
+| # | Phase | Reference | Output heading | Runtime |
+|---|---|---|---|---|
+| 0 | State detection (counts, today) | — | `## Phase 0: State` | all |
+| 1 | Exploration (profile, enumerate skills/agents, knowledge areas) | `references/explorer.md` | `## Phase 1: Exploration Results` | all |
+| 2a | Skills categorization (the delta) | `references/categorizer.md` | `## Phase 2a: Categorizer Proposals` | all |
+| 2b | Pattern scan (file:line evidence) | `references/pattern-scanner.md` | `## Phase 2b: Pattern Scanner Findings` | all |
+| 3 | Skills builder (draft SKILL.md + references/) | `references/skills-builder.md` | `## Phase 3: Skills Plan` | all |
+| 4a | Agent role mapping | `references/role-mapper.md` | `## Phase 4a: Role Mapper Proposals` | Claude only |
+| 4b | Agent pattern extraction | `references/pattern-extractor.md` | `## Phase 4b: Pattern Extractor Content` | Claude only |
+| 5 | Agents builder (draft agent files) | `references/agents-builder.md` | `## Phase 5: Agents Plan` | Claude only |
+| 6 | Verification (skills + agents + cross-layer) | `references/verifier.md` | `## Phase 6: Verification` | all |
+
+## How to run each phase
+
+1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
+2. **Phase 0** (inline): count `.claude/skills/*/SKILL.md` and `.claude/agents/*.md`; note whether `.claude/skills/skill-maintenance/` exists; write the counts + today under `## Phase 0: State`.
+3. Create/open the plan file (see below). Run Phases 1→2a→2b→3.
+4. **Branch:** on Claude Code, run Phases 4a→4b→5 (agent track). On any other runtime, skip them.
+5. Run Phase 6 (verifier). It checks only the phases that ran — skills always; agents only if present.
+6. Before starting each phase, confirm the prior heading is present. If a phase found nothing, write "no changes" under its heading — never silently skip.
+7. After Phase 6, present the plan (see Gate).
+
+## The plan file (IPC + deliverable)
+
+One Markdown file holds the whole run — inter-phase memory and the implementation spec.
+
+```text
+docs/plans/planned/<YYYYMMDD>-skills-audit.md   (tracked by plan-manager)
+```
+
+Write as you go — never hold all phase output in context and dump at the end. Downstream phases locate prior output by grepping for the headings above.
+
+## Skill description quality (Phase 2a / 3)
+
+Every proposed description starts `Use when…` and carries ≥5 identifiers specific to THIS project — exported names, config keys, env vars, error types, CLI commands, route patterns. Generic phrases ("module boundaries", "error handling") count for nothing.
+
+| | Example |
+|---|---|
+| BAD | "Use when working with the API and database operations in the project." |
+| GOOD | "Use when editing `routes/checkout.ts`, touching the `STRIPE_WEBHOOK_SECRET` env var, handling the `CartExpiredError`, or running `pnpm seed:orders` — covers the order-state machine and idempotency keys." |
+
+## Gate + implementation
+
+Phases 1–6 are read-only. After Phase 6:
+
+1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
+2. Surface it: report the counts and tell the user "review `docs/plans/planned/<slug>.md` and say `start <slug>` to implement."
+3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files (and agent files, Claude only); for regenerated agents, back up the original to `<name>.md.bak`; bump `metadata.updated` only on real content change, then re-sync hashes with `skill-content-hash.sh --backfill`.
+4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `agents` bridge skill's job.
+
+## References
+
+| Read before running | File | Runtime |
+|---|---|---|
+| Phase 1 — profile, enumerate skills/agents, knowledge areas | `references/explorer.md` | all |
+| Phase 2a — the skill-set delta (create/update/split/merge/refresh) | `references/categorizer.md` | all |
+| Phase 2b — codebase pattern extraction with file:line | `references/pattern-scanner.md` | all |
+| Phase 3 — draft SKILL.md bodies + references/ splits | `references/skills-builder.md` | all |
+| Phase 4a — map skills → agent roles | `references/role-mapper.md` | Claude only |
+| Phase 4b — extract per-agent system-prompt content | `references/pattern-extractor.md` | Claude only |
+| Phase 5 — draft agent files | `references/agents-builder.md` | Claude only |
+| Phase 6 — validate skills, agents, cross-layer integrity | `references/verifier.md` | all |
+
+## Gotchas
+
+| Gotcha | Consequence | Right move |
+|---|---|---|
+| Running the agent phases (4–5) on Codex | Emits `.claude/agents/` files a non-Claude runtime ignores | Skip 4a/4b/5 off Claude Code; produce skills only |
+| Implementing before the user starts the plan | Writes files the user never approved | Gate on `start <slug>`; Phases 1–6 are read-only |
+| Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change, then `skill-content-hash.sh --backfill` |
+| SKILL.md body crossing 310 lines | Overflow dropped after compaction; verifier hard-fails | Split detail into `references/<topic>.md` (30–150 lines) |
+| Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |
+| Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers cross-tool config | Use the `agents` bridge skill for those |
