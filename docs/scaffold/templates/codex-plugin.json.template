@@ -1,0 +1,17 @@
+{
+  "name": "{{ plugin_name }}",
+  "version": "0.1.0",
+  "description": "{{ plugin_description }}",
+  "author": {
+    "name": "{{ author_name }}"
+  },
+  "license": "{{ license }}",
+  "skills": [
+    "./skills/productivity"
+  ],
+  "interface": {
+    "displayName": "{{ plugin_name }}",
+    "shortDescription": "{{ plugin_description }}",
+    "category": "Productivity"
+  }
+}

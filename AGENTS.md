@@ -30,6 +30,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | Node | Covers |
 |---|---|
 | `docs/plans/AGENTS.md` | plan frontmatter schema, lifecycle transitions, 3-tier pretty-print contract |
+| `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `plugins/docks/agents/AGENTS.md` | agent authoring — Claude-only wrappers, CSO + "Not" clause, model resolution |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |

@@ -251,6 +251,21 @@ else
   fail "skill-maintainer idempotency failed (run: bash tests/skill-maintainer-idempotency.sh)"
 fi
 
+# --- 7. scaffold spec + render smoke (no-op when docs/scaffold/spec.yaml absent) ---
+if [ -f docs/scaffold/spec.yaml ]; then
+  section "scaffold"
+  if bash scripts/guard-scaffold-spec.sh >/dev/null 2>&1; then
+    ok "guard-scaffold-spec passed (spec coherent; referenced paths resolve)"
+  else
+    fail "guard-scaffold-spec failed (run: bash scripts/guard-scaffold-spec.sh)"
+  fi
+  if bash scripts/test-scaffold.sh >/dev/null 2>&1; then
+    ok "test-scaffold passed (templates render to a valid skeleton)"
+  else
+    fail "test-scaffold failed (run: bash scripts/test-scaffold.sh)"
+  fi
+fi
+
 # --- summary ---
 echo ""
 if [ "${#failures[@]}" -eq 0 ]; then
