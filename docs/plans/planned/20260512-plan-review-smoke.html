@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smoke-test the docks:plans handoff-grade redesign · planned</title>
+  <link rel="stylesheet" href="../_assets/dashboard.css" />
+  <script type="application/json" id="plan-data">
+{
+  "title": "Smoke-test the docks:plans handoff-grade redesign",
+  "goal": "Verify the new docs:plans schema, 3-tier pretty-print, and skill workflow end-to-end via this very plan",
+  "status": "planned",
+  "slug": "20260512-plan-review-smoke",
+  "created": "2026-05-12",
+  "updated": "2026-05-12",
+  "started_at": null,
+  "assignee": null,
+  "ship_commit": null,
+  "tags": ["meta", "dogfood"],
+  "review_status": null
+}
+  </script>
+</head>
+<body data-status="planned" data-slug="20260512-plan-review-smoke">
+  <header class="plan-header">
+    <div class="plan-header__top">
+      <span class="status-badge" data-status="planned">planned</span>
+      <span class="age-token">12d queued</span>
+    </div>
+    <h1>Smoke-test the docks:plans handoff-grade redesign</h1>
+    <p class="plan-goal-summary">Verify the new docs:plans schema, 3-tier pretty-print, and skill workflow end-to-end via this very plan</p>
+    <dl class="plan-meta">
+      <div><dt>slug</dt><dd>20260512-plan-review-smoke</dd></div>
+      <div><dt>created</dt><dd>2026-05-12</dd></div>
+      <div><dt>updated</dt><dd>2026-05-12</dd></div>
+      <div><dt>started_at</dt><dd>—</dd></div>
+      <div><dt>assignee</dt><dd>—</dd></div>
+      <div><dt>ship_commit</dt><dd>—</dd></div>
+      <div><dt>tags</dt><dd>meta, dogfood</dd></div>
+    </dl>
+  </header>
+
+  <main class="plan-body">
+    <section class="plan-section plan-section--goal" data-section="goal">
+      <h2>Goal</h2>
+      <div class="plan-section__content markdown">
+        <p>Validate that the rebuilt <code>docs:plans</code> convention works end-to-end. Concretely: a plan file using the new schema (with <code>goal</code>, <code>started_at</code>, <code>tags</code>, <code>affected_paths</code>, <code>related_plans</code>, <code>review_status</code> frontmatter plus the new body sections) can be created, listed in three pretty-print tiers, moved through <code>planned/ → ongoing/ → finished/</code> with <code>started_at</code> set on first ongoing entry and <code>ship_commit</code> set on ship, and reviewed by the new <code>plan-review</code> skill which writes a structured <code>## Review</code> block.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--context" data-section="context">
+      <h2>Context</h2>
+      <div class="plan-section__content markdown">
+        <p>The previous plans system worked but plan files were shallow (no <code>goal</code>, no structured <code>Steps</code> with parallelism, no <code>Mistakes &amp; Dead Ends</code> journal, no <code>Sources</code> log, no <code>Review</code> section). Pretty-print used ambiguous <code>X days</code> tokens. This redesign moved every runtime operation into cross-tool skills triggered by natural language, deleted the slash command, and extended plan files into complete handoff documents. This smoke-test plan exists to dogfood the result.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--steps" data-section="steps" data-progress="10/11">
+      <h2>Steps <span class="progress">10 / 11</span></h2>
+      <div class="plan-section__content">
+        <table class="steps">
+          <thead><tr><th>#</th><th>Task</th><th>Status</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Update <code>docs/plans/AGENTS.md</code> with new schema + sections + age tokens</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>2</td><td>Update <code>plan-init/references/plans-agents-md-template.md</code> in lockstep</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>3</td><td>Create <code>plan-manager</code> skill</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>4</td><td>Create <code>plan-review</code> skill</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>5</td><td>Update <code>plan-init/SKILL.md</code> to mention new sibling skills</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>6</td><td>Refactor <code>plan-manager</code> agent to thin opus wrapper</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>7</td><td>Create <code>plan-review</code> agent (thin opus wrapper)</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>8</td><td>Delete <code>plugins/docks/commands/plan.md</code></td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>9</td><td>Update root <code>AGENTS.md</code> with <code>&lt;constraint&gt;</code> block</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>10</td><td>Run <code>bash scripts/ci.sh</code> — verify guards + scorers green</td><td class="status" data-status="done">done</td><td>self</td></tr>
+            <tr><td>11</td><td>Smoke-test: this plan file + lifecycle demonstration</td><td class="status" data-status="in-flight">in-flight</td><td>self</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--acceptance" data-section="acceptance">
+      <h2>Acceptance criteria</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><code>[x]</code> All frontmatter fields documented in <code>docs/plans/AGENTS.md</code> are present and valid in this file</li>
+          <li><code>[x]</code> All 12 canonical body sections present with non-trivial content (or heading-only for optional sections)</li>
+          <li><code>[x]</code> <code>## Steps</code> table includes <code>Depends</code> and <code>Parallel</code> columns with at least one row demonstrating each</li>
+          <li><code>[x]</code> <code>## Mistakes &amp; Dead Ends</code> entries follow the structured shape</li>
+          <li><code>[x]</code> <code>## Sources</code> entries pair each URL with the concept it clarified</li>
+          <li><code>[ ]</code> Plan moves through <code>planned/ → ongoing/ → finished/</code> with <code>started_at</code> set on first ongoing entry (not yet exercised)</li>
+          <li><code>[ ]</code> <code>plan-review</code> auto-fires on the <code>→ finished/</code> move and writes a structured <code>## Review</code> block (deferred)</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--out-of-scope" data-section="out-of-scope">
+      <h2>Out of scope</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>Migration of existing plan files (none exist — all category dirs hold only <code>.gitkeep</code>)</li>
+          <li>A plan-health scorer (<code>scripts/score-plans.sh</code>) — follow-up</li>
+          <li><code>affected_paths</code>-based conflict detection between ongoing plans — follow-up</li>
+          <li>Codex-equivalent <code>.toml</code> subagent files — Codex consumes the skills directly</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--mistakes" data-section="mistakes">
+      <h2>Mistakes &amp; Dead Ends</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>2026-05-12</strong>: First draft added <code>/docks:plan</code> subcommands on top of the existing dispatcher → user clarified the original <code>/docks:plan</code> was only meant to bootstrap with no arguments, and runtime operations belong in skills → avoid by asking about a command's original scope BEFORE adding subcommands.</li>
+          <li><strong>2026-05-12</strong>: First draft of Tier-2 pretty-print used bare <code>6 days</code> with no contextual word → user pointed out "days" is ambiguous → avoid by always pairing age numbers with a category-specific contextual word; added <code>started_at</code> frontmatter so the <code>ongoing/</code> token is exact.</li>
+          <li><strong>2026-05-12</strong>: First Tier-2 example showed a row in <code>ongoing/</code> tagged "blocked → see plan", which contradicts the convention → avoid by sanity-checking example rows against lifecycle rules before publishing them.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--sources" data-section="sources">
+      <h2>Sources</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><a href="https://github.com/mattpocock/skills">mattpocock/skills</a> — reference-driven handoff structure; inspires "every plan is a complete handoff document"</li>
+          <li><a href="https://github.com/vercel-labs/agent-browser">vercel-labs/agent-browser</a> — deterministic refs; inspires the deterministic <code>#N</code> step IDs</li>
+          <li>Microsoft Agent Framework handoff docs — decentralized routing; inspires the <code>Depends</code> + <code>Owner</code> columns</li>
+          <li><a href="https://github.com/TauricResearch/TradingAgents">TauricResearch/TradingAgents</a> — per-step decision log; inspires <code>## Mistakes &amp; Dead Ends</code></li>
+          <li><code>plugins/docks/agents/plan-manager.md</code> (pre-refactor) — the workflow whose substance migrated into the new skill</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--blockers" data-section="blockers">
+      <h2>Blockers</h2>
+      <div class="plan-section__content markdown">
+        <p>(none — actionable now; this plan tracks the redesign work that's already largely complete)</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--notes" data-section="notes">
+      <h2>Notes</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>Eating own dog food: this plan uses every new frontmatter field and every new body section.</li>
+          <li><code>started_at: null</code> because this plan hasn't moved to <code>ongoing/</code> yet.</li>
+          <li>The two unchecked acceptance criteria (lifecycle move + plan-review run) are intentionally deferred.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--evidence" data-section="evidence">
+      <h2>Evidence log</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>2026-05-12T12:55 -03:00 — Plan research phase (three Explore agents)</li>
+          <li>2026-05-12T13:10 -03:00 — User confirmed scope decisions</li>
+          <li>2026-05-12T13:30 -03:00 — User requested Codex equivalent via skills</li>
+          <li>2026-05-12T13:50 -03:00 — User clarified ambiguous "X days" tokens; pretty-print rewritten</li>
+          <li>2026-05-12T15:30 -03:00 — Implementation complete; <code>bash scripts/ci.sh</code> green</li>
+          <li>2026-05-12T15:45 -03:00 — This smoke-test plan file written as dogfood</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--review" data-section="review">
+      <h2>Review</h2>
+      <div class="plan-section__content markdown"></div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="./20260512-plan-review-smoke.md">source: 20260512-plan-review-smoke.md</a>
+    <span class="generated-at">generated 2026-05-24T23:46:00-03:00</span>
+  </footer>
+
+  <script src="../_assets/dashboard.js"></script>
+</body>
+</html>

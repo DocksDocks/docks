@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-22"
-  content_hash: "33c8efdbefad69061139b7fd69af83af7be9312feafb547b2f9af73656a7c139"
+  content_hash: "95bd339d027a9e54c5bd715348cac59cf1921bdcbe0a277ce35d1683e1a30d1f"
 ---
 
 # Plan Manager
@@ -29,7 +29,7 @@ Read plans from `docs/plans/`, scaffold new ones, evaluate scheduled triggers, d
 </constraint>
 
 <constraint>
-**HTML sidecar regeneration.** Every plan `<slug>.md` MAY have a sibling `<slug>.html` in the same directory (browser view; the .md remains canonical and is the only thing agents read). After every `Write` / `Edit` to a plan, AND after every `git mv` between lifecycle directories, regenerate the sidecar `.html` per the standard in `docs/plans/AGENTS.md` § "HTML sidecar (browser view)". Also regenerate `docs/plans/index.html` (dashboard) whenever any plan was touched in the turn. Sidecars use shared assets at `docs/plans/_assets/{dashboard.css,dashboard.js}` — never inline styles or scripts. NEVER read the .html to answer questions about plan state — the .md is canonical. If the parsed content hasn't changed, skip the write to keep git noise down.
+**HTML sidecar via the `plan-sidecar` skill.** Every plan `<slug>.md` MAY have a sibling `<slug>.html` (browser view; the .md stays canonical and is the only thing agents read). After every `Write` / `Edit` to a plan AND after every `git mv` between lifecycle directories, invoke the **`plan-sidecar`** skill — sidecar mode for the touched plan, then dashboard mode to refresh `docs/plans/index.html`. Do NOT hand-author the HTML here; `plan-sidecar` owns the standard (shared assets `docs/plans/_assets/{dashboard.css,dashboard.js}`, the `data-*` contract, skip-if-unchanged). NEVER read the .html to answer questions about plan state — the .md is canonical.
 </constraint>
 
 ## Workflow
@@ -120,19 +120,16 @@ Pick the right tier:
 
 The header-strip `status` line uses the same category-specific age tokens as Tier 2. Empty optional sections (anything in 6–11 with only the heading) are NOT shown in the body of Tier 3 output.
 
-### Step 7.5 — Regenerate HTML sidecar (after any plan write / move)
+### Step 7.5 — Refresh the HTML sidecar (after any plan write / move)
 
-After Step 5 (`git mv`) or any `Write` / `Edit` to a plan file, regenerate `<slug>.html` in the same directory per the standard in `docs/plans/AGENTS.md` § HTML sidecar:
+After Step 5 (`git mv`) or any `Write` / `Edit` to a plan file, invoke the **`plan-sidecar`** skill — don't hand-author HTML here:
 
-1. Parse the .md: frontmatter → JSON; body → per-section HTML; steps table → `<table class="steps">` with `<td class="status" data-status="...">`.
-2. Use the template structure documented in AGENTS.md exactly — `data-status`, `data-section`, `data-progress`, `data-sort-value` attributes are load-bearing for the shared CSS/JS in `docs/plans/_assets/`.
-3. Reference assets via `../_assets/dashboard.css` and `../_assets/dashboard.js` (relative from the category subdir).
-4. Footer: `<a href="./<slug>.md">source: <slug>.md</a>` + `<span class="generated-at">generated <ISO timestamp></span>`.
-5. If the parsed content is byte-identical to the existing `.html`'s parsed projection, skip the write (avoid git noise).
-6. Regenerate `docs/plans/index.html` (dashboard) listing every plan across categories — same `_assets/`, `<body class="dashboard">`, filter selects, sortable `<table class="plans-table">`. Each `<tr data-status="..." data-assignee="..." data-tags="...">` links to the per-plan `.html`. The dashboard is regenerated whenever ANY plan was touched in the turn.
-7. NEVER read the `.html` back to answer questions — the .md is canonical. The sidecar is write-only from this skill's perspective.
+1. **Sidecar mode** — `plan-sidecar <path/to/the-touched-plan.md>` re-authors that plan's `<slug>.html` (it skips the write if the parsed projection is unchanged).
+2. **Dashboard mode** — `plan-sidecar dashboard` refreshes `docs/plans/index.html` whenever ANY plan was touched in the turn.
 
-This step runs BEFORE Step 7 (pretty-print) so the chat preview can mention "sidecar regenerated → docs/plans/<cat>/<slug>.html".
+In Claude Code, activate it via the `Skill` tool (`plan-sidecar`); on Codex / other runtimes, follow its `SKILL.md`. `plan-sidecar` owns the standard — shared `_assets/`, the load-bearing `data-*` contract, and per-plan latitude. NEVER read the `.html` back — the .md is canonical.
+
+This step runs BEFORE Step 7 (pretty-print) so the chat preview can mention "sidecar refreshed → docs/plans/<cat>/<slug>.html".
 
 ### Step 8 — Auto-trigger plan-review on `→ finished/`
 
@@ -185,7 +182,7 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 ## Success Criteria
 
 - Every plan write/move is followed by a Tier-1/2/3 preview — the user never opens the file to know what landed.
-- Every plan write/move regenerates the `<slug>.html` sidecar AND `docs/plans/index.html` per `docs/plans/AGENTS.md` § HTML sidecar. The .md remains canonical and is never out-of-sync with its sidecar.
+- Every plan write/move refreshes the `<slug>.html` sidecar AND `docs/plans/index.html` via the `plan-sidecar` skill. The .md remains canonical and is never out-of-sync with its sidecar.
 - No plan in any category is treated as a singleton — multi-occupancy is the default everywhere.
 - Schedule triggers evaluate against a freshly-fetched `now`, not a stale conversation timestamp.
 - Dispatched assignees receive the full plan body as context so they survive auto-compact.
@@ -199,4 +196,5 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 - `docs/plans/AGENTS.md` — full convention (frontmatter schema, body sections, lifecycle transitions, pretty-print contract). Created/updated by `plan-init`.
 - `plan-init` skill — bootstraps `docs/plans/` directory structure. Use that, not this skill, for first-time setup.
 - `plan-review` skill — verifies finished/ plans. Auto-dispatched by Step 8 of this skill; also runs manually via "review plan <slug>".
+- `plan-sidecar` skill — authors the `<slug>.html` sidecars + `docs/plans/index.html` dashboard. Invoked by Step 7.5 after every plan touch (this skill never hand-authors the HTML).
 - Claude-only thin wrapper `plugins/docks/agents/plan-manager.md` exists for inter-agent dispatch via `Agent(subagent_type="plan-manager", prompt=...)`. Users trigger this skill directly via natural language.
