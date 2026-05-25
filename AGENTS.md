@@ -32,11 +32,22 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | `docs/plans/AGENTS.md` | plan frontmatter schema, lifecycle transitions, 3-tier pretty-print contract |
 | `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
-| `plugins/docks/agents/AGENTS.md` | agent authoring — Claude-only wrappers, CSO + "Not" clause, model resolution |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.sh` |
 
 The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes; `scripts/guard-tree.sh` enforces the pair convention in CI.
+
+## Authoring agents (Claude-only)
+
+Agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `plugins/docks/agents/` holds only two — `plan-manager` and `plan-review`, thin opus-tier wrappers around their cross-tool skills for inter-agent `Agent(subagent_type=…)` dispatch. Each is a flat `agents/<name>.md`.
+
+The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): `claude plugin validate` lints every `*.md` under `agents/` as a subagent, so an `AGENTS.md`/`CLAUDE.md` pair there fails `validate --strict` with "No frontmatter". Neither relocating the files into a subdir nor declaring an `agents` array in the manifest avoids that scan (both tried and ruled out). These authoring rules therefore live in this root file instead of a nested node.
+
+- **Description (CSO):** lead with "Use when …" AND include a "Not …" exclusion clause (both required by `guard-agents.sh`); ≥80 and ≤500 chars; concrete triggers; no slop words.
+- **Frontmatter:** `name` (required, kebab-case, matches filename, no `anthropic`/`claude` substring); `description` (required, with the "Not …" clause); `model` (`sonnet`/`opus`/`haiku`/full-ID/`inherit` — resolution: env `CLAUDE_CODE_SUBAGENT_MODEL` → per-invocation → frontmatter → parent); `tools` (allowlist; omitted = inherit all). For plugin-shipped agents, `hooks`/`mcpServers`/`permissionMode` are silently ignored for security — use `.claude/agents/` when you need those.
+- **Body (≤500; sweet spot 60–300):** same patterns as skills (`<constraint>` blocks — up to 2 rewarded — lookup tables, BAD/GOOD, gotchas, validation loop); structure as context-acknowledgment (step 1), then `## Workflow`, `## Output Format`, `## Anti-Hallucination Checks`, `## Success Criteria`.
+- **Validators:** `bash scripts/guard-agents.sh` (structural) + `bash scripts/score-agents.sh --per-file` (max 15, per-file floor 14 — mechanically needs 2 `<constraint>` blocks); both run inside `scripts/ci.sh`. Floors detailed in `scripts/AGENTS.md`.
+- **Sources:** [sub-agents](https://code.claude.com/docs/en/sub-agents) · [plugins-reference](https://code.claude.com/docs/en/plugins-reference).
 
 ## Plans
 
