@@ -40,7 +40,8 @@ has_fm_field() {
 for file in "$DIR"/*.md; do
   [ -f "$file" ] || continue
   name=$(basename "$file" .md)
-  [ "$name" = ".gitkeep" ] && continue
+  # Skip sentinel + reserved context-tree node files (AGENTS.md/CLAUDE.md are never agents)
+  case "$name" in .gitkeep|AGENTS|CLAUDE) continue ;; esac
   score=0
 
   # 1. [docs-example] Description starts with "Use when" (2 pts) — every Anthropic

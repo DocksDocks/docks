@@ -22,6 +22,7 @@
     "./skills/engineering",
     "./skills/productivity"
   ],
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "docks",
     "shortDescription": "Portable engineering-convention skills (skills only on Codex — full version available on Claude Code).",

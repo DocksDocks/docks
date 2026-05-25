@@ -152,7 +152,7 @@ fi
 
 # --- 3. structural guards ---
 section "structural guards"
-for g in guard-skills guard-agents; do
+for g in guard-skills guard-agents guard-tree; do
   if bash "scripts/$g.sh" >/dev/null 2>&1; then
     ok "$g passed"
   else
@@ -187,7 +187,8 @@ done
 # Flat kinds (agents)
 for k in agents; do
   floor=$(bash scripts/read-floor.sh "$k" 2>/dev/null) || { fail "scoring.config.json missing $k"; continue; }
-  count=$(find "plugins/docks/$k" -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
+  # Exclude reserved context-tree node files — they're not agent definitions.
+  count=$(find "plugins/docks/$k" -mindepth 1 -maxdepth 1 -name '*.md' ! -name AGENTS.md ! -name CLAUDE.md 2>/dev/null | wc -l)
   total_floor=$(( count * floor ))
   score=$(bash "scripts/score-$k.sh" 2>/dev/null)
   if [ -n "$score" ] && [ "$score" -ge "$total_floor" ]; then
