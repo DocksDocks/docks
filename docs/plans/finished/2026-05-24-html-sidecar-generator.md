@@ -2,9 +2,9 @@
 title: Add plan-sidecar skill + simplified HTML standard
 goal: Ship a plan-sidecar skill that authors plan HTML sidecars + the index.html dashboard from shared assets (per-plan latitude), simplify the AGENTS.md standard, and wire plan-manager to invoke it
 status: finished
-created: 2026-05-24
-updated: 2026-05-25
-started_at: 2026-05-24
+created: "2026-05-24T00:00:00-03:00"
+updated: "2026-05-25T00:00:00-03:00"
+started_at: "2026-05-24T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null

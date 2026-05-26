@@ -2,9 +2,9 @@
 title: Categorize skills/agents into folders with per-category scoring
 goal: Split skills + agents into engineering/productivity/internal folders, declare in plugin.json, rebalance score floors per category
 status: finished
-created: 2026-05-24
-updated: 2026-05-24
-started_at: 2026-05-24
+created: "2026-05-24T00:00:00-03:00"
+updated: "2026-05-24T00:00:00-03:00"
+started_at: "2026-05-24T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null

@@ -2,9 +2,9 @@
 title: Fix skill-maintainer timestamps and enforce references/ in /docs
 status: finished
 goal: Bump updated: only on semantic content change, and make /docs reliably generate references/ subdirs when SKILL.md bodies exceed sweet spot
-created: 2026-05-24
-updated: 2026-05-24
-started_at: 2026-05-24
+created: "2026-05-24T00:00:00-03:00"
+updated: "2026-05-24T00:00:00-03:00"
+started_at: "2026-05-24T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null

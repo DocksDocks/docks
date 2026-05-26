@@ -148,6 +148,6 @@ Notes:
 ```
 
 Notes:
-- `data-sort-value` on the Age cell is the sortable ISO date (display is the human token like `6d queued`).
+- `data-sort-value` on the Age cell is the **full ISO 8601 datetime with offset** from the source frontmatter field (`created` / `started_at` / `blocked_since` / `scheduled_date` / `updated`), e.g. `2026-05-26T17:23:40-03:00`. The display token is the human form (`47m queued`, `6d queued`); the datetime backs deterministic sorting when two rows share a display token.
 - `data-tags` is comma-joined; `dashboard.js` splits on `,` for the tag filter.
 - The `assignee`/`tag` selects must list only values that actually appear, or filtering offers dead options.

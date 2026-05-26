@@ -2,9 +2,9 @@
 title: Add context-tree skill for lazy per-folder context
 status: finished
 goal: Generate and auto-refresh nested AGENTS.md+CLAUDE.md pairs per major folder so root context stays sparse and per-area conventions load lazily
-created: 2026-05-24
-updated: 2026-05-24
-started_at: 2026-05-24
+created: "2026-05-24T00:00:00-03:00"
+updated: "2026-05-24T00:00:00-03:00"
+started_at: "2026-05-24T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null

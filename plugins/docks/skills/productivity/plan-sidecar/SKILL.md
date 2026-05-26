@@ -4,8 +4,8 @@ description: "Use when a plan .md is written, moved, or shipped and its browser-
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-05-24"
-  content_hash: "2357febeb13045595b48608722ae7230511deaf1c9658f597626e12f82666a47"
+  updated: "2026-05-26"
+  content_hash: "e8528645b6adc75580e086c2c621d237f97f1e4c26e5ab7cf5f04e7d22b4c54c"
 ---
 
 # Plan Sidecar — author a plan's browser view
@@ -57,7 +57,7 @@ dashboard.js auto-collapses any `.plan-section__content` whose text is empty —
 ## Workflow — sidecar mode (`plan-sidecar <plan.md>`)
 
 1. **Read the `.md`** (canonical). Parse frontmatter, body sections, and the `## Steps` table.
-2. **Compute the age token** — category-specific (see `docs/plans/AGENTS.md`): planned `Xd queued`, ongoing `Xd in flight`, blocked `blocked Xd`, scheduled `fires in Xd`, finished `shipped Xd ago` (from the filename date; `shipped today` at 0d).
+2. **Compute the age token** — category-specific (see `docs/plans/AGENTS.md`): planned `<X> queued`, ongoing `<X> in flight`, blocked `blocked <X>`, scheduled `fires in <X>`, finished `shipped <X> ago` (or `shipped just now` at <60s). Source datetime per category: `created` / `started_at` / `blocked_since` / `scheduled_date` / `updated` (ship-time). `<X>` renders at the largest unit ≥ 1: `<60s → just now`, `<60min → <X>m`, `<24h → <X>h`, `<365d → <X>d`, `≥365d → <Y>mo`. Legacy date-only frontmatter is treated as `T00:00:00<offset>` for the math.
 3. **Author the `.html`** next to the `.md` (`<slug>.html`) from the `references/templates.md` skeleton:
    - `<head>`: title `{title} · {status}`; `<link …="../_assets/dashboard.css">`; `<script type="application/json" id="plan-data">` holding the frontmatter as JSON.
    - header: `.status-badge[data-status]`, age token, `<h1>`, goal, `.plan-meta` `<dl>`.
@@ -71,7 +71,7 @@ dashboard.js auto-collapses any `.plan-section__content` whose text is empty —
 
 1. **Enumerate** every plan `.md` across `planned/ ongoing/ blocked/ scheduled/ finished/` (skip `.gitkeep`).
 2. **Per plan**, read frontmatter + count `## Steps` rows (M done / N total).
-3. **Author `docs/plans/index.html`** (assets via `_assets/…`, no `../`): `<body class="dashboard">`, the `.filters` block, and `table.plans-table` with one `<tr data-status data-assignee data-tags>` per plan. The title cell links to that plan's `.html` when it exists, else its `.md`. The age cell carries `data-sort-value="<ISO date>"` so sorting works on the display token.
+3. **Author `docs/plans/index.html`** (assets via `_assets/…`, no `../`): `<body class="dashboard">`, the `.filters` block, and `table.plans-table` with one `<tr data-status data-assignee data-tags>` per plan. The title cell links to that plan's `.html` when it exists, else its `.md`. The age cell carries `data-sort-value="<ISO 8601 datetime>"` (the full source datetime from frontmatter — e.g. `2026-05-26T17:23:40-03:00`) so sorting is deterministic even when two plans render the same human token like `47m queued`.
 4. **Populate** the `assignee` + `tag` `<select>` options from the plans actually present (empty `assignee` → `null`).
 
 ## BAD / GOOD
@@ -101,6 +101,7 @@ title: ...</pre>
 | Step status `in_flight` / `inflight` | The css key is `in-flight` (hyphen). Map the plan status enum to `in-flight`. |
 | Dropped an empty optional section | Emit it empty (heading + empty `.plan-section__content`); dashboard.js auto-collapses it. |
 | `shipped` token on an ongoing plan | The age token is category-specific — see the table in `docs/plans/AGENTS.md`. |
+| `shipped today` rendered for a 0-day finished plan | The legacy "today at 0d" wording was day-granular; with datetime, render `shipped just now` (<60s) or `shipped <X>m ago` / `shipped <X>h ago` instead. |
 | Dashboard links every title to `.html` but most don't exist | Link `.html` only when the sidecar exists; otherwise link the `.md`. |
 
 ## When NOT to use

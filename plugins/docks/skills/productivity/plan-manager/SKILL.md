@@ -4,8 +4,8 @@ description: Use when the user asks to list plans, show/resume/start a plan, sca
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-22"
-  content_hash: "95bd339d027a9e54c5bd715348cac59cf1921bdcbe0a277ce35d1683e1a30d1f"
+  updated: "2026-05-26"
+  content_hash: "3b8f8c97de6c47de77596d3c43cd833d097d5122a38419a459a86b0c3806c906"
 ---
 
 # Plan Manager
@@ -51,28 +51,28 @@ The user message determines category and operation:
 
 ### Step 2 — Enumerate plans
 
-Run `date '+%Y-%m-%dT%H:%M:%S%:z'` once at the top of the turn to anchor "now" — every age computation in this turn uses this single value.
+Run `date '+%Y-%m-%dT%H:%M:%S%:z'` once at the top of the turn to anchor "now" (full ISO datetime with offset) — every age computation in this turn uses this single value, and every transition timestamp (`started_at`, `blocked_since`, `updated` bump) is set from this same anchor for consistency within the turn.
 
 Use `Glob("docs/plans/<category>/*.md")`. Exclude `.gitkeep`. For each match, `Read` the file and parse YAML frontmatter (title, goal, status, assignee, blockers, blocked_since, scheduled_date, trigger, auto_execute, created, updated, started_at, ship_commit). Parse the body's `## Steps` table and `## Mistakes & Dead Ends` section for derived counts.
 
 ### Step 3 — Compute derived state
 
-Age tokens are **category-specific** — bare "X days" is forbidden:
+Age tokens are **category-specific** — bare "X" is forbidden. The numeric component renders at the largest unit ≥ 1: `<60s → just now`, `<60min → <X>m`, `<24h → <X>h`, `<365d → <X>d`, `≥365d → <Y>mo`. Source fields are ISO 8601 datetimes; subtract from the turn anchor.
 
-| Category | Age token | Source date |
+| Category | Age token | Source field |
 |---|---|---|
-| `planned/` | `<X>d queued` | today − `created` |
-| `ongoing/` | `<X>d in flight` | today − `started_at` |
-| `blocked/` | `blocked <X>d · waiting on <name>` | today − `blocked_since` |
-| `scheduled/` | `fires in <X>d` / `DUE` / `OVERDUE by <X>d` | `scheduled_date` − today |
-| `finished/` | `shipped <X>d ago` | today − date from filename prefix |
+| `planned/` | `<X> queued` | now − `created` |
+| `ongoing/` | `<X> in flight` | now − `started_at` |
+| `blocked/` | `blocked <X> · waiting on <name>` | now − `blocked_since` |
+| `scheduled/` | `fires in <X>` / `DUE` / `OVERDUE by <X>` | `scheduled_date` − now |
+| `finished/` | `shipped <X> ago` (`shipped just now` at <60s) | now − `updated` |
 
 Plus:
 - `M/N steps` — count rows in `## Steps` table; `M` = rows with status `done`, `N` = total rows.
 - `K mistakes noted` — count of bullet entries under `## Mistakes & Dead Ends`.
-- Optional `stale <X>d` flag for `ongoing/` when `today − updated > 3` days.
+- Optional `stale <X>` flag for `ongoing/` when `now − updated > 3 days`.
 
-If `started_at` is `null` for an ongoing/ plan (legacy or never set), render `<X>d in flight (approx)` using `today − created` — the parenthetical signals the fallback.
+If `started_at` is `null` for an ongoing/ plan (legacy or never set), render `<X> in flight (approx)` using `now − created` — the parenthetical signals the fallback. If a legacy plan still has a bare date (`2026-05-12`) instead of an ISO datetime, treat it as `T00:00:00<local-offset>` for the math — do not refuse to compute.
 
 ### Step 4 — Dispatch decision
 
@@ -92,21 +92,21 @@ Pass the plan file path AND full body as context so the assignee re-reads the pl
 git mv docs/plans/<old-cat>/<slug>.md docs/plans/<new-cat>/<slug>.md
 ```
 
-Then `Edit` the file's frontmatter to update `status`, bump `updated`, and apply transition-specific field updates:
+Then `Edit` the file's frontmatter to update `status`, bump `updated` to the turn-anchor ISO datetime, and apply transition-specific field updates. Every timestamp written in this turn uses the **same** anchor value captured in Step 2 — never re-invoke `date` for individual fields.
 
-- **First move to `ongoing/`** (from `planned/` or `scheduled/`, when `started_at: null`): set `started_at: <today YYYY-MM-DD>`. **Never re-set on later moves.**
-- **`ongoing/` → `blocked/`**: set `blocked_since: <today>`, set `blocked_reason: <one-line>`.
-- **`blocked/` → `ongoing/`**: clear `blocked_reason` and `blocked_since`. Do NOT touch `started_at`.
+- **First move to `ongoing/`** (from `planned/` or `scheduled/`, when `started_at: null`): set `started_at: "<anchor ISO datetime>"`. **Never re-set on later moves.**
+- **`ongoing/` → `blocked/`**: set `blocked_since: "<anchor ISO datetime>"`, set `blocked_reason: <one-line>`.
+- **`blocked/` → `ongoing/`**: clear `blocked_reason` and `blocked_since` (set both to `null`). Do NOT touch `started_at`.
 - **`scheduled/` → `ongoing/`**: remove scheduled-only keys (`trigger`, `scheduled_date`, `auto_execute`). Set `started_at` if null.
-- **`ongoing/` → `finished/`**: rename file to `<YYYY-MM-DD>-<slug>.md` (completion-date prefix), set `ship_commit: <SHA>` (ask user if not known). Then auto-trigger plan-review (Step 8).
+- **`ongoing/` → `finished/`**: rename file to `<YYYY-MM-DD>-<slug>.md` (date-only completion prefix — never a datetime in the filename), set `ship_commit: <SHA>` (ask user if not known). The `updated` bump records the ship-time datetime that `finished/` age tokens read from. Then auto-trigger plan-review (Step 8).
 
 ### Step 6 — New plan scaffold
 
 When the user says "new plan <slug>" or "scaffold a plan for <slug>":
 
-1. Compose filename: `<YYYYMMDD>-<kebab-slug>.md` using today's date.
+1. Compose filename: `<YYYYMMDD>-<kebab-slug>.md` using the **date portion** of the turn anchor (slice the first 10 chars of the ISO datetime, strip the dashes for the prefix). Filenames stay date-only — never datetime — to keep `ls` readable.
 2. Ask the user inline for `title` (≤70 chars) and `goal` (≤200 chars) if not provided.
-3. `Write` the file at `docs/plans/planned/<filename>` with frontmatter defaults (status: planned, created: today, updated: today, started_at: null, assignee: null, blockers: [], blocked_reason: null, blocked_since: null, ship_commit: null, tags: [], affected_paths: [], related_plans: [], review_status: null).
+3. `Write` the file at `docs/plans/planned/<filename>` with frontmatter defaults (status: planned, **created: "<anchor ISO datetime>"**, **updated: "<anchor ISO datetime>"**, started_at: null, assignee: null, blockers: [], blocked_reason: null, blocked_since: null, ship_commit: null, tags: [], affected_paths: [], related_plans: [], review_status: null). Quote the datetimes (`created: "..."`) so YAML doesn't mis-parse the offset colon.
 4. Body has all 12 canonical sections from `docs/plans/AGENTS.md` (`## Goal`, `## Context`, `## Steps`, `## Acceptance criteria`, `## Out of scope`, `## Mistakes & Dead Ends`, `## Sources`, `## Blockers`, `## Notes`, `## Evidence log`, `## Review`). Sections 5–11 have heading + empty body. `## Review` carries the placeholder `(filled by plan-review on completion)`.
 5. Render Tier-3 preview so the user sees the scaffold immediately.
 
@@ -114,11 +114,11 @@ When the user says "new plan <slug>" or "scaffold a plan for <slug>":
 
 Pick the right tier:
 
-- **Tier 1** — Goal-listing. Triggered by broad asks ("list plans", "what plans do I have?"). Format: `  <slug>: <goal>` per line. Sorted by `(category, age desc)`.
+- **Tier 1** — Goal-listing. Triggered by broad asks ("list plans", "what plans do I have?"). Format: `  <slug>: <goal>` per line. Sorted by `(category, age desc)` using the source ISO datetime so same-day plans break ties deterministically.
 - **Tier 2** — Bulk listing. Triggered by `list <category>` with N > 1. Adds assignee column + category-specific age token + `M/N steps` + `K mistakes noted`.
-- **Tier 3** — Single-plan preview. Triggered by `show <slug>`, after any write/move, after a scaffold. Header strip (title, goal, status with age token, steps, assignee, blockers, created) + body verbatim + footer file path.
+- **Tier 3** — Single-plan preview. Triggered by `show <slug>`, after any write/move, after a scaffold. Header strip (title, goal, status with age token, steps, assignee, blockers, created) + body verbatim + footer file path. The header strip's `created` line renders just the date portion (`2026-05-26`) for readability; the full ISO datetime stays in the file.
 
-The header-strip `status` line uses the same category-specific age tokens as Tier 2. Empty optional sections (anything in 6–11 with only the heading) are NOT shown in the body of Tier 3 output.
+The header-strip `status` line uses the same category-specific age tokens as Tier 2 (with sub-day `<X>m` / `<X>h` granularity when applicable). Empty optional sections (anything in 6–11 with only the heading) are NOT shown in the body of Tier 3 output.
 
 ### Step 7.5 — Refresh the HTML sidecar (after any plan write / move)
 
@@ -160,20 +160,24 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 
 | Trap | Wrong fix | Right fix |
 |---|---|---|
-| Showing `<X> days` without a contextual word | Bare `2 days` | Category-specific token (`2d in flight`, `2d queued`, `blocked 2d`, etc.) |
+| Showing `<X>` without a contextual word | Bare `2d` | Category-specific token (`2d in flight`, `2d queued`, `blocked 2d`, etc.) |
+| Rounding a sub-day delta up to `1d` | `1d in flight` for a 3-hour-old plan | Use `<X>m` / `<X>h` until the delta crosses 24h |
+| Writing a bare date into a datetime field | `created: 2026-05-26` | Quote a full ISO datetime — `created: "2026-05-26T17:23:40-03:00"` |
+| Re-invoking `date` for each transition field | One anchor per file edit | One anchor per turn (Step 2) — every timestamp in this turn uses it |
 | Re-setting `started_at` on `blocked/ → ongoing/` | Bumping `started_at` because plan is "newly ongoing again" | `started_at` is set ONCE; on bounce-back, leave it alone |
 | Ending a turn with just a file path after a write | "Created docs/plans/planned/foo.md" with no preview | Always render Tier-1/2/3 — pretty-print is mandatory |
 | Inventing an assignee when frontmatter says `null` | Picking the "obvious" agent silently | Ask the user, or self-execute if scope is small (<5 line items) |
-| Counting `<X> days` ambiguously when `started_at` is null | Defaulting to `today − created` without flagging | Render `<X>d in flight (approx)` so the user sees it's a fallback |
+| Counting age ambiguously when `started_at` is null | Defaulting to `now − created` without flagging | Render `<X> in flight (approx)` so the user sees it's a fallback |
 | Auto-firing a `scheduled/` plan with `auto_execute: false` | Treating "DUE" as permission to fire | DUE means "list for approval"; only `auto_execute: true` fires silently |
 | Skipping plan-review on `→ finished/` because `ship_commit` is empty | Calling plan-review with empty SHA | Stop and ask the user for the SHA before moving to finished/ |
 | Reading a stale plan body after another agent edited it | Trusting cached content | Re-`Read` the file when re-entering after dispatch |
+| Embedding a datetime into the filename | `20260526T172340-foo.md` | Filenames stay date-only — the datetime lives in the frontmatter |
 
 ## Anti-Hallucination Checks
 
 - Before reporting "moved", confirm `git mv` exited 0 and `test -f <new-path>` succeeds.
 - Before reporting an `assignee` dispatch, confirm the agent file exists with `Glob` — never `Agent(subagent_type=...)` for a non-existent name.
-- Computed ages must come from a single `date` invocation at the top of the turn, not from memory of the current date.
+- Computed ages must come from a single `date '+%Y-%m-%dT%H:%M:%S%:z'` invocation at the top of the turn (Step 2), not from memory of the current datetime. Every write in this turn uses that same anchor for `updated`/`started_at`/`blocked_since` so they round-trip cleanly with the displayed age tokens.
 - Never report `DUE` for a scheduled plan without parsing `scheduled_date` and comparing to a freshly-fetched `now`.
 - After every `Edit` to a plan file, re-`Read` the affected frontmatter line and confirm the change applied — `Edit` failures are silent if the `old_string` was wrong.
 - Never claim plan-review ran without confirming the plan body now contains a `## Review` block AND `review_status` is set to one of `passed` / `partial` / `regressed`.
@@ -189,7 +193,8 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 - Stale `assignee` values trigger a warning and reassignment, never a silent failure.
 - `started_at` is set exactly once per plan (first ongoing/ entry), never re-set.
 - Plan-review auto-fires on every successful `→ finished/` move with `ship_commit` set.
-- Age tokens are category-specific in every output — no bare `X days` anywhere.
+- Age tokens are category-specific in every output — no bare `X days` anywhere — and use sub-day units (`<X>m`, `<X>h`) when the delta is below 24 hours.
+- Every timestamp field (`created`, `updated`, `started_at`, `blocked_since`) is written as a quoted ISO 8601 datetime with offset; the per-turn anchor is the source for every write in that turn.
 
 ## References
 

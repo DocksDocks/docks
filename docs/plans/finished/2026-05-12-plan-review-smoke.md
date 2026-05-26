@@ -2,9 +2,9 @@
 title: Smoke-test the docks:plans handoff-grade redesign
 goal: Verify the new docs:plans schema, 3-tier pretty-print, and skill workflow end-to-end via this very plan
 status: finished
-created: 2026-05-12
-updated: 2026-05-25
-started_at: 2026-05-12
+created: "2026-05-12T00:00:00-03:00"
+updated: "2026-05-25T00:00:00-03:00"
+started_at: "2026-05-12T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null

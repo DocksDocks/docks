@@ -2,9 +2,9 @@
 title: Resolve plugin-validate warnings from the agents/ context-tree node
 goal: Eliminate (or formally accept) the "No frontmatter" warnings claude plugin validate/tag emit for agents/AGENTS.md + CLAUDE.md, which fail validate --strict.
 status: finished
-created: 2026-05-25
-updated: 2026-05-25
-started_at: 2026-05-25
+created: "2026-05-25T00:00:00-03:00"
+updated: "2026-05-25T00:00:00-03:00"
+started_at: "2026-05-25T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null

@@ -64,8 +64,8 @@ Every plan file has frontmatter + body. Base frontmatter (all categories):
 title: Short imperative title, ≤70 chars
 goal: One-sentence precise summary, ≤200 chars
 status: planned | ongoing | blocked | scheduled | finished
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+created: "2026-05-26T17:23:40-03:00"
+updated: "2026-05-26T17:23:40-03:00"
 started_at: null
 assignee: null | <agent-name-from-.claude/agents/>
 blockers: []
@@ -78,6 +78,13 @@ related_plans: []
 review_status: null
 ---
 ```
+
+All time-valued fields (`created`, `updated`, `started_at`, `blocked_since`)
+are **ISO 8601 datetimes with offset** (`YYYY-MM-DDTHH:MM:SS±HH:MM`), captured
+once at write time via `date '+%Y-%m-%dT%H:%M:%S%:z'` — never bare dates. The
+datetime drives sub-day age tokens (`47m queued`, `3h in flight`) and lets two
+plans created the same day still sort deterministically. Filename prefixes
+stay date-only (`YYYYMMDD-` / finished `YYYY-MM-DD-`) for chronological `ls`.
 
 `started_at` is set ONCE — the first time a plan moves into `ongoing/` —
 and never re-set on later bounces. It answers "how long has this plan
@@ -100,18 +107,23 @@ dispatches to the assignee agent without asking.
 
 ### Frontmatter rules
 
+All time-valued keys (`created`, `updated`, `started_at`, `blocked_since`,
+`scheduled_date`) are ISO 8601 datetimes with offset, captured at write time
+from `date '+%Y-%m-%dT%H:%M:%S%:z'`. Quote them in YAML (`created: "..."`)
+so the colon in the offset doesn't confuse parsers.
+
 | Key | Rule |
 |---|---|
 | `title` | Imperative, ≤70 chars, no trailing period. First line of body must repeat as `# Title`. |
 | `goal` | One-sentence precise summary of the success state, ≤200 chars. Drives Tier-1 listing. |
 | `status` | Must match the containing directory. |
-| `created` | Never changes after the file exists. |
-| `updated` | Bump to today's date on every substantive edit. |
-| `started_at` | Date the plan FIRST moved into `ongoing/`. Set once; never re-set on later moves. `null` until first ongoing/ entry. |
+| `created` | ISO 8601 datetime with offset. Never changes after the file exists. |
+| `updated` | ISO 8601 datetime with offset. Bump to current datetime on every substantive edit. |
+| `started_at` | ISO 8601 datetime the plan FIRST moved into `ongoing/`. Set once; never re-set on later moves. `null` until first ongoing/ entry. |
 | `assignee` | Name of an agent under `.claude/agents/` (no `.md` suffix). `null` = plan-manager picks or asks. |
 | `blockers` | Array of short strings. Empty → actionable immediately. |
 | `blocked_reason` | One-line reason naming the external actor + the specific input needed. Required when `status: blocked`. |
-| `blocked_since` | Date the plan first moved into `blocked/`. Cleared only when leaving `blocked/`. |
+| `blocked_since` | ISO 8601 datetime the plan first moved into `blocked/`. Cleared only when leaving `blocked/`. |
 | `ship_commit` | Full SHA once the work lands on `main`. Only populated for `finished/`. |
 | `tags` | Free-form labels (e.g., `[migration, security]`) for filtering. Empty by default. |
 | `affected_paths` | Files this plan touches. Optional; populates the scope-drift check in plan-review. |
@@ -155,7 +167,7 @@ Anything adjacent that is NOT in this plan.
 
 ## Mistakes & Dead Ends
 Append-only journal. One entry per attempt that didn't work:
-- **YYYY-MM-DD**: <what was tried> → <why it failed> → <how to avoid>
+- **<ISO 8601 datetime>**: <what was tried> → <why it failed> → <how to avoid>
 
 Empty when nothing's been tried. Incoming agents read this to skip
 re-walking known dead ends.
@@ -195,12 +207,12 @@ Section 12 (`## Review`) is a placeholder until `plan-review` fires.
 
 | Transition | What plan-manager does |
 |---|---|
-| New plan | Create in `planned/<YYYYMMDD>-<slug>.md` (or `scheduled/` if it has a trigger). |
-| First commit toward plan | `git mv` to `ongoing/`, flip status, bump `updated`, **set `started_at: today` (first time only)**. |
-| Block | `git mv ongoing/ → blocked/`, set `blocked_reason`, `blocked_since`. |
+| New plan | Create in `planned/<YYYYMMDD>-<slug>.md` (or `scheduled/` if it has a trigger). `created` + `updated` get the current ISO datetime. |
+| First commit toward plan | `git mv` to `ongoing/`, flip status, bump `updated`, **set `started_at: <ISO datetime>` (first time only)**. |
+| Block | `git mv ongoing/ → blocked/`, set `blocked_reason`, `blocked_since: <ISO datetime>`. |
 | Unblock | `git mv blocked/ → ongoing/`, clear `blocked_reason` and `blocked_since`. `started_at` unchanged. |
-| Schedule trigger fires | `git mv scheduled/ → ongoing/`, remove scheduled-only keys, set `started_at`, dispatch to assignee. |
-| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md`, set `status: finished`, paste SHA into `ship_commit`. Auto-dispatches `plan-review`. |
+| Schedule trigger fires | `git mv scheduled/ → ongoing/`, remove scheduled-only keys, set `started_at: <ISO datetime>`, dispatch to assignee. |
+| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md`, set `status: finished`, bump `updated` to ship-time ISO datetime, paste SHA into `ship_commit`. Auto-dispatches `plan-review`. |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in Notes. Don't delete. |
 
 ## Pretty-print preview contract
@@ -267,19 +279,35 @@ docs/plans/planned/20260511-w2-whatsapp-send.md
 ### Age tokens (category-specific; bare `X days` is forbidden)
 
 Every age token carries a contextual word — never bare numbers, because
-"6 days" alone is ambiguous (since creation? in category? since last edit?).
+"6" alone is ambiguous (since creation? in category? since last edit?).
 
-| Category | Age token | Source date | Example |
+Tokens are computed from ISO 8601 datetimes (frontmatter) against "now"
+(`date '+%Y-%m-%dT%H:%M:%S%:z'` anchored once per turn). The numeric
+component renders at the largest unit ≥ 1:
+
+| Δ from anchor | Render |
+|---|---|
+| < 60 s | `just now` |
+| < 60 min | `<X>m` |
+| < 24 h | `<X>h` |
+| < 365 d | `<X>d` |
+| ≥ 365 d | `<Y>mo` |
+
+| Category | Age token | Source field | Example |
 |---|---|---|---|
-| `planned/` | `<X>d queued` | today − `created` | `6d queued` |
-| `ongoing/` | `<X>d in flight` | today − `started_at` | `2d in flight` |
-| `blocked/` | `blocked <X>d · waiting on <name>` | today − `blocked_since` | `blocked 47d · waiting on Bruno` |
-| `scheduled/` | `fires in <X>d` / `DUE` / `OVERDUE by <X>d` | `scheduled_date` − today | `fires in 5d` |
-| `finished/` | `shipped <X>d ago` | today − date from filename prefix | `shipped 4d ago` |
+| `planned/` | `<X> queued` | now − `created` | `47m queued`, `6d queued` |
+| `ongoing/` | `<X> in flight` | now − `started_at` | `3h in flight`, `2d in flight` |
+| `blocked/` | `blocked <X> · waiting on <name>` | now − `blocked_since` | `blocked 47d · waiting on Bruno` |
+| `scheduled/` | `fires in <X>` / `DUE` / `OVERDUE by <X>` | `scheduled_date` − now | `fires in 5d`, `OVERDUE by 2h` |
+| `finished/` | `shipped <X> ago` (or `shipped just now`) | now − `updated` (ship-time datetime) | `shipped 3h ago`, `shipped 4d ago` |
 
-Optional `stale <X>d` flag for `ongoing/` when `today − updated > 3` days.
-`<X>d` is compact form; ≥365 days renders as `<Y>mo`. If `started_at` is
-`null` (legacy plan), fall back to `<X>d in flight (approx)` using `created`.
+Optional `stale <X>` flag for `ongoing/` when `now − updated > 3 days`.
+If `started_at` is `null` (legacy plan that pre-dates the datetime
+migration), fall back to `<X> in flight (approx)` using `created`.
+
+Finished plans pre-dating the datetime migration only have a date
+prefix in the filename and date-only frontmatter; treat their `updated`
+as `T00:00:00<offset>` for token math.
 
 ## Auto-compact resilience
 
@@ -355,11 +383,16 @@ skeletons (sidecar + dashboard): the `plan-sidecar` skill's `references/template
 
 ## Slugs and naming
 
-`<YYYYMMDD>-<kebab-slug>.md` (e.g., `20260511-w2-whatsapp-send.md`). Date
-prefix keeps `ls` chronological. On ship, change the prefix to the
-completion date: `finished/2026-05-04-auth-rate-limit.md`.
+`<YYYYMMDD>-<kebab-slug>.md` (e.g., `20260511-w2-whatsapp-send.md`). The
+filename prefix is **date-only** even though frontmatter holds the full
+ISO datetime — datetime in filenames is unreadable and `ls` still sorts
+chronologically by date. Two plans created the same day collide in `ls`
+order but are still ordered deterministically by their frontmatter
+`created` datetime.
 
-The sidecar `.html` follows the same naming — `finished/2026-05-04-auth-rate-limit.html`.
+On ship, change the prefix to the completion date:
+`finished/2026-05-04-auth-rate-limit.md`. The sidecar `.html` follows
+the same naming — `finished/2026-05-04-auth-rate-limit.html`.
 
 ## When to create a plan
 
@@ -372,4 +405,4 @@ Reference docs, architecture notes, and API contracts do not belong here
 — they belong in `.agents/skills/` (or the tool-specific `.claude/skills/`
 equivalent), agent files, or the project's root `AGENTS.md`.
 
-(Template generated by `plan-init` on 2026-05-12T15:00:00-03:00)
+(Template generated by `plan-init` on 2026-05-26T17:23:40-03:00)

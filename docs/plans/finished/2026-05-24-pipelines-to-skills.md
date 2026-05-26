@@ -2,9 +2,9 @@
 title: Convert docs/refactor/security pipelines from commands to cross-tool skills
 goal: Replace the 3 Builder-Verifier commands with self-contained cross-tool pipeline skills (phase expertise in references/); delete the 20 pipeline agents + 9 forked-* wrappers; swap the Plan-Mode gate for the plan-manager lifecycle
 status: finished
-created: 2026-05-24
-updated: 2026-05-25
-started_at: 2026-05-24
+created: "2026-05-24T00:00:00-03:00"
+updated: "2026-05-25T00:00:00-03:00"
+started_at: "2026-05-24T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null

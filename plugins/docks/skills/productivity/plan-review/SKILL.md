@@ -4,8 +4,8 @@ description: Use when a plan moves to docs/plans/finished/ with ship_commit set,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-22"
-  content_hash: "e4b44f27f8f25b7412963c6aba762ce7c85324837185b7eadbf998f68d315ff2"
+  updated: "2026-05-26"
+  content_hash: "8f1814fe7f395b669d77f7cca87d33232c3d28233413f42695cfafe9b11aefe6"
 ---
 
 # Plan Review
@@ -111,13 +111,13 @@ Set frontmatter `review_status` to match: `passed` / `partial` / `regressed`.
 
 ### Step 8 — Atomic write
 
-`Edit` the plan file with `old_string` matching the current `## Review` block (placeholder OR previous filled block) and `new_string` = the freshly composed block. Bump frontmatter `updated` to today.
+`Edit` the plan file with `old_string` matching the current `## Review` block (placeholder OR previous filled block) and `new_string` = the freshly composed block. Bump frontmatter `updated` to the turn-anchor ISO datetime (the same value used in the Review block's `Filed by` line) — never a bare date.
 
 If the file's `## Review` block has changed shape (e.g., user edited the placeholder), re-`Read` the file before composing the Edit so `old_string` matches exactly.
 
 ### Step 9 — Render Tier-3 preview
 
-Render the Tier-3 single-plan preview (per `docs/plans/AGENTS.md`) so the user sees the full Review block in chat without opening the file. Header strip uses `finished (shipped <X>d ago)` age token.
+Render the Tier-3 single-plan preview (per `docs/plans/AGENTS.md`) so the user sees the full Review block in chat without opening the file. Header strip uses the `finished` age token — `shipped just now`, `shipped <X>m ago`, `shipped <X>h ago`, or `shipped <X>d ago` depending on the delta from now to the plan's `updated` datetime.
 
 ### Step 10 — Surface follow-ups (do not create)
 

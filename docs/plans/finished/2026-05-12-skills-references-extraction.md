@@ -2,9 +2,9 @@
 title: Introduce on-demand references/ files in 6 skills
 goal: Lift deep per-language/per-framework/per-tool content into references/ for solid, test-coverage, dep-vuln-workflow, lint-no-suppressions, code-review, fix-workflow — main SKILL.md becomes decision-tree + top-rules
 status: finished
-created: 2026-05-12
-updated: 2026-05-12
-started_at: "2026-05-12"
+created: "2026-05-12T00:00:00-03:00"
+updated: "2026-05-12T00:00:00-03:00"
+started_at: "2026-05-12T00:00:00-03:00"
 assignee: null
 blockers: []
 blocked_reason: null
