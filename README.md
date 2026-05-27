@@ -1,6 +1,6 @@
 # docks
 
-Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skills-audit/docs) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, human-docs, design tokens, SOLID, type-safety, and React patterns; and a `docs/plans/` lifecycle tracks multi-commit work.
+Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, human-docs, design tokens, SOLID, type-safety, and React patterns; and a `docs/plans/` lifecycle tracks multi-commit work.
 
 ## Install
 
@@ -10,7 +10,7 @@ Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cro
 /reload-plugins
 ```
 
-After install, the pipeline skills are user-invocable — ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `docs` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
+After install, the pipeline skills are user-invocable — ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `skill-agent-pipeline` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
 
 ## What's inside
 
@@ -22,7 +22,7 @@ Each runs as one sequential pass in a single context and gates approval through 
 |---|---|
 | `security` | discovery → vulnerability scan → logic analysis → adversarial hunt → synthesis that challenges every finding. Read-only; pipe findings to `fix-workflow`. |
 | `refactor` | exploration → dead-code + duplication + per-principle SOLID analysis → tiered plan → approve → test-guarded one-change-at-a-time implementation → post-verify SOLID delta. |
-| `docs` | explore → categorize skills → pattern-scan → build SKILL.md + references/ → *(Claude Code only:* build agents*)* → verify → approve → implement. |
+| `skill-agent-pipeline` | explore → categorize skills → pattern-scan → build SKILL.md + references/ → build agents (`.claude/agents/*.md` + `.codex/agents/*.toml`) → verify → approve → implement. |
 
 ### Convention skills
 
@@ -44,7 +44,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`):
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
-Plus `write-skill`, `agents` (AGENTS.md ↔ skills bridging), `plan-manager`, `plan-review`, `zoom-out`, `caveman` under `productivity/`.
+Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills bridging), `plan-manager`, `plan-review`, `zoom-out`, `caveman` under `productivity/`.
 
 ### Plan-lifecycle agents (Claude Code only)
 

@@ -38,7 +38,7 @@ Report drift; do not auto-fix in `audit`. The user decides whether to `refresh`.
 
 ## No-op refresh (hook safety)
 
-`refresh <folder>` is called by the `PostToolUse` hook on every edit inside a node. It MUST be a no-op when nothing semantic changed, or the hook write-loops. Reuse the `skill-maintainer` content-predicate pattern:
+`refresh <folder>` is called by the `PostToolUse` hook on every edit inside a node. It MUST be a no-op when nothing semantic changed, or the hook write-loops. Reuse the `skill-maintenance` content-predicate pattern:
 
 ```bash
 # only rewrite when the derived content actually differs from disk

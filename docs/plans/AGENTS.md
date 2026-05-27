@@ -124,7 +124,7 @@ so the colon in the offset doesn't confuse parsers.
 | `blockers` | Array of short strings. Empty → actionable immediately. |
 | `blocked_reason` | One-line reason naming the external actor + the specific input needed. Required when `status: blocked`. |
 | `blocked_since` | ISO 8601 datetime the plan first moved into `blocked/`. Cleared only when leaving `blocked/`. |
-| `ship_commit` | Full SHA once the work lands on `main`. Only populated for `finished/`. |
+| `ship_commit` | Full SHA of the commit under review — branch-agnostic: `main` for a direct ship, or a feature branch for review-before-merge. Only populated for `finished/`. |
 | `tags` | Free-form labels (e.g., `[migration, security]`) for filtering. Empty by default. |
 | `affected_paths` | Files this plan touches. Optional; populates the scope-drift check in plan-review. |
 | `related_plans` | Slugs of related/dependent plans. Optional. |
@@ -212,7 +212,7 @@ Section 12 (`## Review`) is a placeholder until `plan-review` fires.
 | Block | `git mv ongoing/ → blocked/`, set `blocked_reason`, `blocked_since: <ISO datetime>`. |
 | Unblock | `git mv blocked/ → ongoing/`, clear `blocked_reason` and `blocked_since`. `started_at` unchanged. |
 | Schedule trigger fires | `git mv scheduled/ → ongoing/`, remove scheduled-only keys, set `started_at: <ISO datetime>`, dispatch to assignee. |
-| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md`, set `status: finished`, bump `updated` to ship-time ISO datetime, paste SHA into `ship_commit`. Auto-dispatches `plan-review`. |
+| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md`, set `status: finished`, bump `updated` to ship-time ISO datetime, paste the HEAD SHA into `ship_commit` — branch-agnostic, no `main` requirement (ship from a feature branch so review runs before merge, or from `main` directly). Auto-dispatches `plan-review`. |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in Notes. Don't delete. |
 
 ## Pretty-print preview contract

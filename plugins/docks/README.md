@@ -1,6 +1,6 @@
 # docks
 
-A cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode), packaged as a Claude Code plugin. Sequential pipeline skills (security, refactor, docs) plus a library of engineering-convention skills.
+A cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode), packaged as a Claude Code plugin. Sequential pipeline skills (security, refactor, skill-agent-pipeline) plus a library of engineering-convention skills.
 
 ## Install
 
@@ -27,7 +27,7 @@ Each runs as one sequential pass in a single context. Approval gates through the
 | Skill | Pipeline |
 |---------|----------|
 | `security` | Discovery → Vulnerability Scan → Logic Analysis → Adversarial Hunt → Synthesizer (challenges every finding). Read-only; pipe findings to `fix-workflow`. |
-| `docs` | Detection → Exploration → \[Categorizer \| Pattern Scanner\] → Skills Builder → *(Claude only:* \[Role Mapper \| Pattern Extractor\] → Agents Builder*)* → Verifier |
+| `skill-agent-pipeline` | Detection → Exploration → \[Categorizer \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder (`.md` + `.toml`) → Verifier |
 | `refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Pre-Verifier → approve → implementation → Post-Verifier (catches NEW SOLID violations introduced while fixing old ones) |
 
 The bracketed phases are independent lenses — a runtime with parallel workers MAY run them concurrently, but the portable default is sequential.
@@ -52,7 +52,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
-Plus `write-skill`, `agents`, `plan-manager`, `plan-review`, `zoom-out`, and `caveman` under `productivity/`.
+Plus `write-skill`, `multi-tool-bridge`, `plan-manager`, `plan-review`, `zoom-out`, and `caveman` under `productivity/`.
 
 ### Plan-lifecycle agents (Claude Code only)
 

@@ -37,7 +37,7 @@ Constraints at START, gotchas at END. Bullets/tables, no prose. Every claim has 
 
 ## Output (write under `## Phase 5: Agents Plan`)
 
-Per agent: `### File: .claude/agents/<name>.md` + full content; then its Codex `.codex/agents/<name>.toml` twin per `codex-agents-builder.md` (or a `NOT PORTABLE` note for `Agent`-tool dispatchers).
+Per agent: `### File: .claude/agents/<name>.md` + full content; then its Codex `.codex/agents/<name>.toml` twin per `codex-agents-builder.md` (for an `Agent`-dispatching agent the `.toml` still ships — note the `agents.max_depth: 1` single-level-dispatch caveat).
 
 ## Gotcha
 

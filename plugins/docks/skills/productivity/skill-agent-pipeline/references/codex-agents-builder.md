@@ -9,7 +9,7 @@ One agent per TOML file at `.codex/agents/<name>.toml` (project scope; `~/.codex
 </constraint>
 
 <constraint>
-`Agent`-tool dependency does NOT port. Codex subagents cannot spawn subagents. If the source Claude agent's `tools` include `Agent` (its purpose is inter-agent dispatch), still emit the `.md`, but for the `.toml` SURFACE the limitation to the user — do not write a `.toml` that silently can't do the agent's core job. Note it in the Phase 5 output, don't drop it silently.
+`Agent`-tool dispatch ports ONE level. Codex allows a direct child agent by default (`agents.max_depth: 1`; root = depth 0), so a Claude agent whose `tools` include `Agent` for single-level dispatch DOES translate — emit the `.toml` and route its delegation to a built-in `worker`/`explorer` (or a custom child agent). What the default cap blocks is DEEPER nesting — a child that spawns its own children (depth ≥ 2); raising `agents.max_depth` enables it, at the fan-out/latency/cost penalty Codex deliberately warns about. Surface the depth caveat in the Phase 5 output — do not label the agent unportable.
 </constraint>
 
 ## Codex `.codex/agents/*.toml` schema
@@ -20,11 +20,11 @@ One agent per TOML file at `.codex/agents/<name>.toml` (project scope; `~/.codex
 | `description` | yes | string | "when to use this agent" (the Claude CSO carries over) |
 | `developer_instructions` | yes | string | the system prompt; TOML triple-quoted `"""…"""`; no documented length cap |
 | `model` | no | string | see model map below; omit → inherits parent session |
-| `model_reasoning_effort` | no | string | `"medium"` / `"high"` (agent-file scope); omit by default |
+| `model_reasoning_effort` | no | string | `"minimal"`/`"low"`/`"medium"`/`"high"`/`"xhigh"` (`xhigh` model-dependent); omit by default |
 | `sandbox_mode` | no | string | `"read-only"` / `"workspace-write"` / `"danger-full-access"` |
 | `nickname_candidates` | no | string[] | Codex-only display names; omit |
 | `mcp_servers` | no | table | pass through only what the source agent already declares |
-| `skills.config` | no | array of tables | `[[skills.config]]` with `path` + `enabled`; point at Phase-3 skill paths |
+| `skills.config` | no | array of tables | `[[skills.config]]` (`path` + `enabled`) is the per-skill enable/DISABLE switch — Codex auto-discovers skills from `.agents/skills` (CWD→repo-root walk); it does NOT "wire" a skill to an agent |
 
 ## Claude → Codex field translation
 
@@ -35,9 +35,9 @@ One agent per TOML file at `.codex/agents/<name>.toml` (project scope; `~/.codex
 | markdown system-prompt body | `developer_instructions` | wrap in `"""…"""` |
 | `tools` incl. `Edit`/`Write` | `sandbox_mode = "workspace-write"` | agent writes files |
 | `tools` read-only (`Read`/`Glob`/`Grep`) | `sandbox_mode = "read-only"` | |
-| `tools` incl. `Agent` | — (no equivalent) | **hard-warn**; emit `.md` only-faithfully, surface the gap |
+| `tools` incl. `Agent` (single-level dispatch) | built-in `worker`/`explorer` child + `agents.max_depth ≥ 1` | one dispatch level ports (default `max_depth: 1`); only deeper nesting is capped — note it, don't call it unportable |
 | `tools` incl. destructive `Bash` | never auto `danger-full-access` | surface for user to opt in |
-| `maxTurns` | (drop) | no per-agent equivalent (global `agents.job_max_runtime_seconds`) |
+| `maxTurns` (turn cap) | (drop — no analog) | Codex has no per-agent turn count; `agents.job_max_runtime_seconds` is a wall-clock timeout for `spawn_agents_on_csv` workers, not a turn cap |
 | `model` | `model` | per the model map |
 | — | `model_reasoning_effort` / `nickname_candidates` | optional Codex-only; omit unless asked |
 
@@ -70,7 +70,7 @@ developer_instructions = """
 
 ## Output (append under `## Phase 5: Agents Plan`, beside each Claude `.md`)
 
-Per agent: `### File: .codex/agents/<name>.toml` + full TOML. For an `Agent`-tool-dependent agent, instead write `### Codex: <name> — NOT PORTABLE` + the one-line reason, so the gate surfaces it.
+Per agent: `### File: .codex/agents/<name>.toml` + full TOML. For an `Agent`-dispatching agent, STILL emit the `.toml`; add a one-line note that single-level dispatch maps to a Codex `worker`/`explorer` child under `agents.max_depth: 1`, and flag only if it needs deeper nesting.
 
 ## Gotcha
 
@@ -79,4 +79,4 @@ Per agent: `### File: .codex/agents/<name>.toml` + full TOML. For an `Agent`-too
 | `description` with a bare `:`/`#` left unquoted in TOML | TOML strings need quotes — `description = "…"`; triple-quote the instructions |
 | Guessing a Codex model not in the valid list | Use the model map / the project's pinned model; never invent an ID |
 | Writing `sandbox_mode = "danger-full-access"` automatically | Never auto-select it — surface and let the user opt in |
-| Emitting a `.toml` for an `Agent`-tool dispatcher | Surface "not portable"; the Claude `.md` stays the canonical form |
+| Labeling an `Agent`-dispatching agent "not portable" | One dispatch level ports (Codex `agents.max_depth: 1`) — emit the `.toml`, route delegation to `worker`/`explorer`, flag only deeper-than-1 nesting |

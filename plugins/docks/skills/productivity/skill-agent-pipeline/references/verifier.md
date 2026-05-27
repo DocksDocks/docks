@@ -22,7 +22,7 @@ Per-finding reproduction is mandatory. Before any finding lands in `## Issues to
 
 **Claude `.claude/agents/*.md`:** `name` kebab-case ≤64, no "anthropic"/"claude" · description <1024, 3rd person, specific · system prompt <200 lines · tools minimal · no scope overlaps.
 
-**Codex `.codex/agents/*.toml`:** parses as TOML; all three required keys present (`name`, `description`, `developer_instructions`); `model` ∈ the known Codex IDs or omitted; `sandbox_mode` ∈ {`read-only`, `workspace-write`, `danger-full-access`} or omitted; `name` matches its Claude twin. An `Agent`-tool dispatcher MUST appear as a `NOT PORTABLE` note, not a `.toml` — **hard fail** if a misleading `.toml` was written for one.
+**Codex `.codex/agents/*.toml`:** parses as TOML; all three required keys present (`name`, `description`, `developer_instructions`); `model` ∈ the known Codex IDs or omitted; `sandbox_mode` ∈ {`read-only`, `workspace-write`, `danger-full-access`} or omitted; `name` matches its Claude twin. An `Agent`-dispatching agent STILL ships a `.toml` (single-level dispatch ports under Codex `agents.max_depth: 1`) — verify it routes delegation to a `worker`/`explorer` child and notes the depth cap; **hard fail** only a `.toml` that assumes deeper-than-default nesting works.
 
 ## Cross-layer integrity (critical)
 

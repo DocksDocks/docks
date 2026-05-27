@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-05-27"
-  content_hash: "46dbfbe11cd980a3e86bee8778cba952440d66a84e61627cba5f8a5ed2c5c38c"
+  content_hash: "b793852e29b51ac87d62a075710f50064da8515c39c6e7043c478ed9cccef98f"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -17,7 +17,7 @@ Single-agent sequential. Execute the phases IN ORDER, in THIS context. There is 
 </constraint>
 
 <constraint>
-Agents are emitted in BOTH formats, on every runtime. Phases 4a/4b/5 draft each logical agent as a Claude `.claude/agents/*.md` AND a Codex `.codex/agents/*.toml` (field-by-field translation in `references/codex-agents-builder.md`). Do NOT skip the agent track by runtime — a project bootstrapped here must work in both tools. The one thing that cannot port: an agent whose Claude `tools` include `Agent` (Codex subagents cannot spawn subagents) — emit the `.md`, but SURFACE that its dispatch role has no Codex equivalent rather than writing a misleading `.toml`.
+Agents are emitted in BOTH formats, on every runtime. Phases 4a/4b/5 draft each logical agent as a Claude `.claude/agents/*.md` AND a Codex `.codex/agents/*.toml` (field-by-field translation in `references/codex-agents-builder.md`). Do NOT skip the agent track by runtime — a project bootstrapped here must work in both tools. Mind dispatch DEPTH: an agent whose Claude `tools` include `Agent` (single-level inter-agent dispatch) DOES port — Codex allows a direct child agent by default (`agents.max_depth: 1`), so emit the `.toml` and route delegation to a built-in `worker`/`explorer` child. Only agents that need their children to spawn further (depth ≥ 2) exceed the default cap — note that `agents.max_depth` must be raised, rather than calling them unportable.
 </constraint>
 
 <constraint>
@@ -111,7 +111,7 @@ Phases 1–6 are read-only. After Phase 6:
 
 | Gotcha | Consequence | Right move |
 |---|---|---|
-| A Claude agent whose `tools` include `Agent` translated to Codex | Codex subagents can't spawn subagents — the `.toml` would be an inert dispatcher | Emit the `.claude/agents/*.md`; SURFACE that the Codex port can't replicate `Agent`-tool dispatch |
+| Calling an `Agent`-dispatching agent unportable to Codex | Codex allows one dispatch level by default (`agents.max_depth: 1`), so single-level dispatch ports | Emit BOTH files; route delegation to a Codex `worker`/`explorer` child; flag only deeper-than-1 nesting (raise `agents.max_depth`) |
 | A pre-existing skill's description exceeds 1024 chars | Codex silently skips the whole skill | Phase 2a flags it `rewrite-description`; Phase 6 hard-fails until fixed |
 | Implementing before the user starts the plan | Writes files the user never approved | Gate on `start <slug>`; Phases 1–6 are read-only |
 | Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change; sync hashes only when the current project documents that contract |

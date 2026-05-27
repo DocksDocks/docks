@@ -4,8 +4,8 @@ description: Use when the user asks to list plans, show/resume/start a plan, sca
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-26"
-  content_hash: "3b8f8c97de6c47de77596d3c43cd833d097d5122a38419a459a86b0c3806c906"
+  updated: "2026-05-27"
+  content_hash: "54b5f31e1aa3a2599f8ae9c3d877ae3f0f6147513572229d4f60737857b81567"
 ---
 
 # Plan Manager
@@ -98,7 +98,7 @@ Then `Edit` the file's frontmatter to update `status`, bump `updated` to the tur
 - **`ongoing/` → `blocked/`**: set `blocked_since: "<anchor ISO datetime>"`, set `blocked_reason: <one-line>`.
 - **`blocked/` → `ongoing/`**: clear `blocked_reason` and `blocked_since` (set both to `null`). Do NOT touch `started_at`.
 - **`scheduled/` → `ongoing/`**: remove scheduled-only keys (`trigger`, `scheduled_date`, `auto_execute`). Set `started_at` if null.
-- **`ongoing/` → `finished/`**: rename file to `<YYYY-MM-DD>-<slug>.md` (date-only completion prefix — never a datetime in the filename), set `ship_commit: <SHA>` (ask user if not known). The `updated` bump records the ship-time datetime that `finished/` age tokens read from. Then auto-trigger plan-review (Step 8).
+- **`ongoing/` → `finished/`**: rename file to `<YYYY-MM-DD>-<slug>.md` (date-only completion prefix — never a datetime in the filename), set `ship_commit: <SHA>` (ask user if not known). **Branch-agnostic** — `ship_commit` is HEAD on whatever branch you're on; ship from `main` (direct) or from a feature branch (so plan-review runs before the merge). Never require `main`, never switch or create branches — the branch is the user's call. The `updated` bump records the ship-time datetime that `finished/` age tokens read from. Then auto-trigger plan-review (Step 8).
 
 ### Step 6 — New plan scaffold
 

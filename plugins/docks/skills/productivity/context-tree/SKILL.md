@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-05-27"
-  content_hash: "7c85dd3028b61dbebd4fc3dba84face97d8c6be4a0a9cf6abbbfeab511cd1ff4"
+  content_hash: "7c601ae47896a369b64199071cbf1513192cf6a36b22117830f22ad7aa841978"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -30,7 +30,7 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 |---|---|---|
 | `context-tree init` | First-time scaffold: detect major folders, propose the node list, await approval, write every pair, insert the "Context tree" section into root `AGENTS.md`. Idempotent — re-running detects existing nodes and leaves them. | yes (after approval) |
 | `context-tree audit` | Read-only. Report drift: nodes missing a CLAUDE.md pair, CLAUDE.md that isn't `@AGENTS.md`-only, AGENTS.md claims that no longer match disk, folders that newly qualify as nodes. | no |
-| `context-tree refresh <folder>` | Regenerate one node from current disk state. Calls the `skill-maintainer` `--check-only` predicate first; if nothing semantic changed, it's a no-op (no write). | only if changed |
+| `context-tree refresh <folder>` | Regenerate one node from current disk state. Calls the `skill-maintenance` `--check-only` predicate first; if nothing semantic changed, it's a no-op (no write). | only if changed |
 | `context-tree refresh` | Regenerate every node (use when the convention itself changes). Same approval gate as `init`. | yes (after approval) |
 
 ## What counts as a node
@@ -115,4 +115,4 @@ Drift handling, existing-file merges, and the already-a-node detection live in [
 - [`references/major-folder-heuristics.md`](references/major-folder-heuristics.md) — what qualifies as a node, detection rules, the skip-list.
 - [`references/node-template.md`](references/node-template.md) — the AGENTS.md skeleton, the CLAUDE.md one-liner, the root "Context tree" section, the self-sufficiency checklist.
 - [`references/conflict-resolution.md`](references/conflict-resolution.md) — existing-file detection, drift/audit logic, merge-vs-overwrite, no-op refresh.
-- Companion: `skill-maintainer` (`--check-only` content predicate the refresh op reuses) · `agents` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).
+- Companion: `skill-maintenance` (`--check-only` content predicate the refresh op reuses) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).
