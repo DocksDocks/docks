@@ -1,6 +1,6 @@
-# Phase 4b — Pattern Extractor (Claude Code only)
+# Phase 4b — Pattern Extractor
 
-> Claude-specific. Produces agent system-prompt content. Skip on Codex / other runtimes.
+> Cross-tool. Produces the agent system-prompt content that feeds BOTH the Claude `.md` body and the Codex `.toml` `developer_instructions`; runs on every runtime.
 
 Extract concrete patterns, workflows, and constraints for each proposed agent role's system prompt — referencing skills rather than inlining their content.
 

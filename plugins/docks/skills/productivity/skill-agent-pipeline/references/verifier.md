@@ -12,14 +12,17 @@ Per-finding reproduction is mandatory. Before any finding lands in `## Issues to
 |---|---|
 | Frontmatter | valid YAML; `name` (lowercase+hyphens), quoted `description`, `user-invocable`, `metadata.pattern`, `source_files`, `updated` |
 | CSO | starts `Use when…`; ≥5 project-specific identifiers; ≤1024 chars; no angle brackets; no unquoted `: ` or `#` hazards |
+| Existing-skill cap | any ON-DISK skill whose parsed `description` >1024 chars that Phase 2a did NOT flag `rewrite-description` → **hard fail** (Codex silently skips an over-cap skill, so it never loads) |
 | Size | body ≤500 (hard cap). **Hard fail** 310–500 lines with NO references/ — split required |
 | Reference accuracy | spot-check ≥5 `file:line` refs by reading |
 | Maintenance skill | use plugin `docks:skill-maintenance` when available; local copy only for project-specific rules; `pattern: reviewer`, `user-invocable: false`; **hard fail** if body references kit-internal validators that do not ship downstream |
 | No prose-config edits | Phase 3 must contain no AGENTS.md / CLAUDE.md edits |
 
-## Agent checks (every Phase 5 agent — Claude only)
+## Agent checks (every Phase 5 agent — BOTH formats)
 
-`name` kebab-case ≤64, no "anthropic"/"claude" · description <1024, 3rd person, specific · system prompt <200 lines · tools minimal · no scope overlaps.
+**Claude `.claude/agents/*.md`:** `name` kebab-case ≤64, no "anthropic"/"claude" · description <1024, 3rd person, specific · system prompt <200 lines · tools minimal · no scope overlaps.
+
+**Codex `.codex/agents/*.toml`:** parses as TOML; all three required keys present (`name`, `description`, `developer_instructions`); `model` ∈ the known Codex IDs or omitted; `sandbox_mode` ∈ {`read-only`, `workspace-write`, `danger-full-access`} or omitted; `name` matches its Claude twin. An `Agent`-tool dispatcher MUST appear as a `NOT PORTABLE` note, not a `.toml` — **hard fail** if a misleading `.toml` was written for one.
 
 ## Cross-layer integrity (critical)
 
@@ -38,5 +41,5 @@ For each split/merge in Phase 3, the gate presentation MUST include `git rm -r .
 | Gotcha | Fix |
 |---|---|
 | Flagging a path "missing" from a stale earlier scan | Re-list it now — paths drift between scan and verify |
-| Verifying agent checks on a Codex run | No agents were produced; run skills checks only |
+| Skipping Codex `.toml` validation as "agents are Claude-only" | Both formats now ship — validate the `.toml` schema (required keys, model/sandbox values, name parity) too |
 | Letting an overlong or invalid YAML description through because the body is good | Fix frontmatter first — Codex skips invalid skills before reading the body |

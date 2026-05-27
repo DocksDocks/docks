@@ -1,6 +1,6 @@
-# Phase 5 — Agents Builder (Claude Code only)
+# Phase 5 — Agents Builder
 
-> Claude-specific. Drafts `.claude/agents/` files. Skip on Codex / other runtimes — they consume skills only.
+> Cross-tool. Drafts the Claude `.claude/agents/*.md` for each agent; its Codex `.codex/agents/*.toml` twin comes from `codex-agents-builder.md`. Run both — every agent ships in both forms.
 
 Assemble complete agent file content (frontmatter + system prompt) for every create/update/regenerate action from the Role Mapper, using Pattern Extractor content for the bodies.
 
@@ -37,7 +37,7 @@ Constraints at START, gotchas at END. Bullets/tables, no prose. Every claim has 
 
 ## Output (write under `## Phase 5: Agents Plan`)
 
-Per agent: `### File: .claude/agents/<name>.md` + full content.
+Per agent: `### File: .claude/agents/<name>.md` + full content; then its Codex `.codex/agents/<name>.toml` twin per `codex-agents-builder.md` (or a `NOT PORTABLE` note for `Agent`-tool dispatchers).
 
 ## Gotcha
 

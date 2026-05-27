@@ -1,11 +1,11 @@
 ---
 name: human-docs-workflow
-description: Use when generating, fixing, or auditing project-level prose documentation — README.md, AGENTS.md, CLAUDE.md, docs/**/*.md, .env.example, API references, JSDoc/TSDoc. Distinguishes human-readable docs (prose, runnable commands, API specs) from AI-optimized docs (AGENTS.md as cross-tool source of truth, CLAUDE.md as Claude-specific extension, agent context). Every claim grounded in source code with file:line evidence. Not for project skill / agent authoring (use /docs which has irreducible 8-phase pipeline value for that).
+description: Use when generating, fixing, or auditing project-level prose documentation — README.md, AGENTS.md, CLAUDE.md, docs/**/*.md, .env.example, API references, JSDoc/TSDoc. Distinguishes human-readable docs (prose, runnable commands, API specs) from AI-optimized docs (AGENTS.md as cross-tool source of truth, CLAUDE.md as Claude-specific extension, agent context). Every claim grounded in source code with file:line evidence. Not for project skill / agent authoring (use the skill-agent-pipeline skill which has irreducible 8-phase pipeline value for that).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-06"
-  content_hash: "a919d23627b6c7a3a2c894bf0096187385b11bbd761b624a6ae7d61a4ae2e758"
+  updated: "2026-05-27"
+  content_hash: "5b430b79a75c0d38fb27b02015b5e4ccfad3cf89f0de2dc2bbc56faa6ba8010f"
 ---
 
 # Human Docs Workflow
@@ -31,7 +31,7 @@ No "AI slop" — phrases that signal generated-without-grounding text. See `refe
 - Pre-release sweep — make sure docs match what shipped
 
 NOT for:
-- Project skill / agent authoring — use `/docs` command (8-phase pipeline with skill-maintenance generation, structural validators, cross-layer reference checks — irreducible value)
+- Project skill / agent authoring — use the `skill-agent-pipeline` skill (8-phase pipeline with skill-maintenance generation, structural validators, cross-layer reference checks — irreducible value)
 - Public marketing pages or blog posts (different writing constraints)
 - API reference generation FROM source (use the language's standard tool — TypeDoc, Sphinx, godoc — and link to its output from the README)
 
@@ -215,5 +215,5 @@ Re-run the verification queries from Step 5 against the live files. If any claim
 ## References
 
 - Companion skills: `plan-init` (for the `docs/plans/` 5-category lifecycle convention — multi-commit work plans don't belong inline in `docs/`); `lint-no-suppressions` (when CI greps a doc check rule and you're tempted to silence it)
-- Companion command: `/docs` — for `.claude/skills/` and `.claude/agents/` authoring (different audience, different validators, irreducible 8-phase pipeline value)
+- Companion skill: `skill-agent-pipeline` — for `.claude/skills/` + `.codex/agents/` authoring (different audience, different validators, irreducible 8-phase pipeline value)
 - Agentic best-practices applied here (model-agnostic): multi-pass search for Step 1 cataloging (vary query wording, look past the first plausible match), trace-symbols-before-citing (read the route handler / env-var reference / CLI script before quoting it)

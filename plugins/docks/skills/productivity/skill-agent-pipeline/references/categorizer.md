@@ -10,7 +10,7 @@ CSO identifier rule: every proposed description must start `Use when…`, be ≤
 Codex YAML rule: generated descriptions are quoted YAML strings by default. If a description contains `: `, `#`, quotes, brackets, CLI flags, route templates, or code punctuation, it MUST still parse as one YAML string. Do not accept unquoted descriptions from proposals.
 </constraint>
 
-## Audit each existing skill (5 checks)
+## Audit each existing skill (6 checks)
 
 | Check | Trigger → action |
 |---|---|
@@ -18,6 +18,7 @@ Codex YAML rule: generated descriptions are quoted YAML strings by default. If a
 | Staleness | source file changed since `metadata.updated` (check git history per `source_files` entry) → refresh |
 | Coverage | a Phase-1 knowledge area with no skill's `source_files` covering it → new skill |
 | CSO | description not `Use when…` or <5 project identifiers → rewrite-description |
+| Description length | parsed `description` >1024 chars → rewrite-description. Load-bearing, not cosmetic: Codex silently SKIPS an over-cap skill, so it never loads. Measure the full parsed string, not the truncated preview. |
 | Deleted source | `source_files` paths that no longer exist → remove from array |
 
 ## Design new skills
@@ -26,7 +27,7 @@ For each uncovered knowledge area large enough to warrant one: name (kebab-case)
 
 ## Maintenance skill rule
 
-If plugin `docks:skill-maintenance` is available, do NOT create a generic local `skill-maintenance` skill. If a local copy already exists, propose removing it only after comparing for project-specific rules. Create or keep local `skill-maintenance` only when the project needs local maintenance behavior that the plugin skill does not cover. If it exists but frontmatter drifted, propose a fix before any remove/keep decision.
+If plugin `docks:skill-maintenance` is available, do NOT create a generic local `skill-maintenance` skill. If a local copy already exists, compare it for project-specific rules: when it adds none, PROPOSE REMOVAL — the plugin `docks:skill-maintenance` already maintains skills for BOTH Codex and Claude, so a generic local copy is redundant. The gate carries a `git rm -r .claude/skills/skill-maintenance/` (and `.agents/skills/...`) sentinel for the user to approve; never delete without approval. Keep a local copy only when the project needs maintenance behavior the plugin skill does not cover; if it exists but frontmatter drifted, propose a fix before any remove/keep decision.
 
 ## Output (write under `## Phase 2a: Categorizer Proposals`)
 

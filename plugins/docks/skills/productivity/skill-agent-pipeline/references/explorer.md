@@ -17,14 +17,14 @@ For each `.claude/skills/*/SKILL.md`, parse frontmatter and list:
 | Field | Source |
 |---|---|
 | name | frontmatter `name` |
-| description | first ~120 chars |
+| description | first ~120 chars AND full char-count — flag if >1024 (Codex hard-skips an over-cap skill) |
 | source_files count | `metadata.source_files` length |
 | references/ | files under the skill's `references/` |
 | updated | `metadata.updated` |
 
 ## Existing agents
 
-For each `.claude/agents/*.md` (exclude `*.bak`): `name` · `description` (first ~120 chars) · `tools` · `model` · every `.claude/skills/…` path referenced in the body. (Skip on runtimes without an agents concept.)
+For each `.claude/agents/*.md` AND `.codex/agents/*.toml` (exclude `*.bak`): `name` · `description` (first ~120 chars) · `tools` / `sandbox_mode` · `model` · every `.claude/skills/…` path referenced in the body. Note any agent present in only ONE of the two formats (cross-format drift to reconcile in Phase 5).
 
 ## Knowledge areas
 

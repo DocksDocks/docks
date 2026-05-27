@@ -1,23 +1,23 @@
 ---
-name: docs
-description: "Use when bootstrapping or auditing a project's skills (and, on Claude Code, agents) — skill health (CSO descriptions, size/staleness, coverage gaps), codebase pattern extraction with file:line evidence, SKILL.md authoring + references/ splits, a skill-maintenance skill, and cross-layer agent↔skill validation. Sequential phases gated through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
+name: skill-agent-pipeline
+description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, the 1024-char description cap, size/staleness, coverage gaps), codebase pattern extraction with file:line evidence, SKILL.md authoring + references/ splits, removing a stale local skill-maintenance in favor of the plugin one, and cross-layer agent-skill validation. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form. Sequential phases gated through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
 user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-05-27"
-  content_hash: "acf98ebe0e6a02b3d59455bee8c3dbba5e1ffe57db903a6365f87ff49ede7be4"
+  content_hash: "46dbfbe11cd980a3e86bee8778cba952440d66a84e61627cba5f8a5ed2c5c38c"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
 
-Bootstrap and audit a project's `.claude/skills/` (and, on Claude Code, `.claude/agents/`) in one sequential pass: explore, propose the skill-set delta, extract codebase patterns, draft skills, verify, then implement after approval. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
+Bootstrap and audit a project's `.claude/skills/` plus its agents — drafted in BOTH Claude (`.claude/agents/*.md`) and Codex (`.codex/agents/*.toml`) form — in one sequential pass: explore, propose the skill-set delta, extract codebase patterns, draft skills, verify, then implement after approval. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
 Single-agent sequential. Execute the phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Append each phase's output to the plan file under the exact heading shown, as you finish it, so a mid-run compaction can resume by re-reading the file.
 </constraint>
 
 <constraint>
-Agent generation is Claude-Code-specific. Phases 4a, 4b, and 5 produce `.claude/agents/` files — a Claude concept. On Codex or any other runtime, SKIP them: produce skills only (Phases 1→2→3→6→implement). Never emit agent files on a non-Claude runtime, and never let a missing agent phase block the skills track.
+Agents are emitted in BOTH formats, on every runtime. Phases 4a/4b/5 draft each logical agent as a Claude `.claude/agents/*.md` AND a Codex `.codex/agents/*.toml` (field-by-field translation in `references/codex-agents-builder.md`). Do NOT skip the agent track by runtime — a project bootstrapped here must work in both tools. The one thing that cannot port: an agent whose Claude `tools` include `Agent` (Codex subagents cannot spawn subagents) — emit the `.md`, but SURFACE that its dispatch role has no Codex equivalent rather than writing a misleading `.toml`.
 </constraint>
 
 <constraint>
@@ -50,18 +50,18 @@ Run in order. Each phase reads its reference, then writes output under the exact
 | 2a | Skills categorization (the delta) | `references/categorizer.md` | `## Phase 2a: Categorizer Proposals` | all |
 | 2b | Pattern scan (file:line evidence) | `references/pattern-scanner.md` | `## Phase 2b: Pattern Scanner Findings` | all |
 | 3 | Skills builder (draft SKILL.md + references/) | `references/skills-builder.md` | `## Phase 3: Skills Plan` | all |
-| 4a | Agent role mapping | `references/role-mapper.md` | `## Phase 4a: Role Mapper Proposals` | Claude only |
-| 4b | Agent pattern extraction | `references/pattern-extractor.md` | `## Phase 4b: Pattern Extractor Content` | Claude only |
-| 5 | Agents builder (draft agent files) | `references/agents-builder.md` | `## Phase 5: Agents Plan` | Claude only |
+| 4a | Agent role mapping | `references/role-mapper.md` | `## Phase 4a: Role Mapper Proposals` | all |
+| 4b | Agent pattern extraction | `references/pattern-extractor.md` | `## Phase 4b: Pattern Extractor Content` | all |
+| 5 | Agents builder (draft `.md` + `.toml`) | `references/agents-builder.md` + `references/codex-agents-builder.md` | `## Phase 5: Agents Plan` | all |
 | 6 | Verification (skills + agents + cross-layer) | `references/verifier.md` | `## Phase 6: Verification` | all |
 
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
-2. **Phase 0** (inline): count `.agents/skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, and `.claude/agents/*.md`; note whether local `skill-maintenance` exists and whether plugin `docks:skill-maintenance` is available; write the counts + today under `## Phase 0: State`.
+2. **Phase 0** (inline): count `.agents/skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, and `.codex/agents/*.toml`; note whether a local `skill-maintenance` exists and whether plugin `docks:skill-maintenance` is available (a stale local copy is flagged for REMOVAL in Phase 2a, not regenerated); write the counts + today under `## Phase 0: State`.
 3. Create/open the plan file (see below). Run Phases 1→2a→2b→3.
-4. **Branch:** on Claude Code, run Phases 4a→4b→5 (agent track). On any other runtime, skip them.
-5. Run Phase 6 (verifier). It checks only the phases that ran — skills always; agents only if present.
+4. **Agent track:** run Phases 4a→4b→5 on every runtime — they draft each agent in both `.claude/agents/*.md` and `.codex/agents/*.toml` form.
+5. Run Phase 6 (verifier). It validates skills and BOTH agent formats, plus cross-layer integrity.
 6. Before starting each phase, confirm the prior heading is present. If a phase found nothing, write "no changes" under its heading — never silently skip.
 7. After Phase 6, present the plan (see Gate).
 
@@ -90,7 +90,7 @@ Phases 1–6 are read-only. After Phase 6:
 
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
 2. Surface it: report the counts and tell the user "review `docs/plans/planned/<slug>.md` and say `start <slug>` to implement."
-3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files (and agent files, Claude only); for regenerated agents, back up the original to `<name>.md.bak`; bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
+3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents, back up the original to `<name>.md.bak`; apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, `git rm` it after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
 4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `multi-tool-bridge` skill's job.
 
 ## References
@@ -101,16 +101,18 @@ Phases 1–6 are read-only. After Phase 6:
 | Phase 2a — the skill-set delta (create/update/split/merge/refresh) | `references/categorizer.md` | all |
 | Phase 2b — codebase pattern extraction with file:line | `references/pattern-scanner.md` | all |
 | Phase 3 — draft SKILL.md bodies + references/ splits | `references/skills-builder.md` | all |
-| Phase 4a — map skills → agent roles | `references/role-mapper.md` | Claude only |
-| Phase 4b — extract per-agent system-prompt content | `references/pattern-extractor.md` | Claude only |
-| Phase 5 — draft agent files | `references/agents-builder.md` | Claude only |
+| Phase 4a — map skills → agent roles | `references/role-mapper.md` | all |
+| Phase 4b — extract per-agent system-prompt content | `references/pattern-extractor.md` | all |
+| Phase 5 — draft Claude agent files (`.md`) | `references/agents-builder.md` | all |
+| Phase 5 — translate each agent to Codex (`.toml`) | `references/codex-agents-builder.md` | all |
 | Phase 6 — validate skills, agents, cross-layer integrity | `references/verifier.md` | all |
 
 ## Gotchas
 
 | Gotcha | Consequence | Right move |
 |---|---|---|
-| Running the agent phases (4–5) on Codex | Emits `.claude/agents/` files a non-Claude runtime ignores | Skip 4a/4b/5 off Claude Code; produce skills only |
+| A Claude agent whose `tools` include `Agent` translated to Codex | Codex subagents can't spawn subagents — the `.toml` would be an inert dispatcher | Emit the `.claude/agents/*.md`; SURFACE that the Codex port can't replicate `Agent`-tool dispatch |
+| A pre-existing skill's description exceeds 1024 chars | Codex silently skips the whole skill | Phase 2a flags it `rewrite-description`; Phase 6 hard-fails until fixed |
 | Implementing before the user starts the plan | Writes files the user never approved | Gate on `start <slug>`; Phases 1–6 are read-only |
 | Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change; sync hashes only when the current project documents that contract |
 | SKILL.md body crossing 310 lines | Overflow dropped after compaction; verifier hard-fails | Split detail into `references/<topic>.md` (30–150 lines) |

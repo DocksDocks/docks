@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for any agentskills.io-compliant runtime (Codex, Claude Code, OpenCode, VS Code Copilot), including three sequential **pipeline skills** — `security`, `refactor`, and `docs` — that fold what used to be Claude-only Builder-Verifier slash commands into a single-context, runtime-portable form. Each pipeline runs its phases in order, keeps per-phase expertise in `references/`, and gates approval through the `docs/plans/` lifecycle instead of Plan Mode. The only Claude-specific extras are two thin plan-lifecycle subagents (`plan-manager`, `plan-review`).
+docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for any agentskills.io-compliant runtime (Codex, Claude Code, OpenCode, VS Code Copilot), including three sequential **pipeline skills** — `security`, `refactor`, and `skill-agent-pipeline` — that fold what used to be Claude-only Builder-Verifier slash commands into a single-context, runtime-portable form. Each pipeline runs its phases in order, keeps per-phase expertise in `references/`, and gates approval through the `docs/plans/` lifecycle instead of Plan Mode. The only Claude-specific extras are two thin plan-lifecycle subagents (`plan-manager`, `plan-review`).
 
 This root file stays **repo-wide**. Per-area authoring details — skill/agent frontmatter, scoring, the release flow, CI triggers — live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -11,7 +11,7 @@ This root file stays **repo-wide**. Per-area authoring details — skill/agent f
 ├── plugins/docks/                    plugin payload (shipped to consumers)
 │   ├── .claude-plugin/plugin.json    Claude plugin manifest
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks — near-parity with Claude)
-│   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/docs pipelines
+│   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
 │   ├── agents/   (Claude-only)       plan-manager + plan-review thin opus plan-lifecycle wrappers
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog

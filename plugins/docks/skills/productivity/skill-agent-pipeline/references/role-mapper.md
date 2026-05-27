@@ -1,6 +1,6 @@
-# Phase 4a — Role Mapper (Claude Code only)
+# Phase 4a — Role Mapper
 
-> Claude-specific. Agents are a Claude Code concept. Skip this phase on Codex / other runtimes — they consume skills only.
+> Cross-tool. Maps the proposed skill set to logical agent roles — format-agnostic. Phase 5 emits each role in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml`; this phase just defines the roles, so it runs on every runtime.
 
 Map the Phase 3 proposed skill set to agent roles with single-responsibility boundaries, specific trigger descriptions, and minimal tool sets. Audit existing agents against the new skill paths.
 
