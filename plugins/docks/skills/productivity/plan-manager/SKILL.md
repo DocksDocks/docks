@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-27"
-  content_hash: "54b5f31e1aa3a2599f8ae9c3d877ae3f0f6147513572229d4f60737857b81567"
+  content_hash: "aa6b3a8769123cac0a48870ea27408e2960c9624a9b7a0559fc2027653cada73"
 ---
 
 # Plan Manager
@@ -21,7 +21,7 @@ Read plans from `docs/plans/`, scaffold new ones, evaluate scheduled triggers, d
 </constraint>
 
 <constraint>
-**Never invent an assignee.** If a plan's `assignee` frontmatter is `null`, ask the user or self-execute — do not pick an agent out of thin air. If `assignee` names an agent that does not exist under the runtime-appropriate agents directory (`.claude/agents/<assignee>.md` for Claude Code, `.codex/agents/<assignee>.toml` for Codex), warn the user (stale assignee), offer to reassign, and only proceed once the user confirms.
+**Never invent an assignee.** If a plan's `assignee` frontmatter is `null`, ask the user or self-execute — do not pick an agent out of thin air. An assignee resolves one of two ways: a **project** agent in the runtime-appropriate dir (`.claude/agents/<assignee>.md` for Claude Code, `.codex/agents/<assignee>.toml` for Codex), or a **plugin** agent under a scoped name (`<plugin>:<assignee>`, e.g. `docks:plan-review`) that lives in the plugin install cache, NOT in the project agents dir — so a missing project file alone does not prove a scoped assignee is stale. If neither resolves, warn the user (stale assignee), offer to reassign, and only proceed once the user confirms.
 </constraint>
 
 <constraint>
@@ -176,7 +176,7 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 ## Anti-Hallucination Checks
 
 - Before reporting "moved", confirm `git mv` exited 0 and `test -f <new-path>` succeeds.
-- Before reporting an `assignee` dispatch, confirm the agent file exists with `Glob` — never `Agent(subagent_type=...)` for a non-existent name.
+- Before reporting an `assignee` dispatch, confirm the target resolves — a project agent at `.claude/agents/<name>.md` / `.codex/agents/<name>.toml` (Glob-checkable), or a scoped `<plugin>:<name>` plugin agent registered by the runtime's plugin loader (not a project file). Never `Agent(subagent_type=...)` for an unresolved name.
 - Computed ages must come from a single `date '+%Y-%m-%dT%H:%M:%S%:z'` invocation at the top of the turn (Step 2), not from memory of the current datetime. Every write in this turn uses that same anchor for `updated`/`started_at`/`blocked_since` so they round-trip cleanly with the displayed age tokens.
 - Never report `DUE` for a scheduled plan without parsing `scheduled_date` and comparing to a freshly-fetched `now`.
 - After every `Edit` to a plan file, re-`Read` the affected frontmatter line and confirm the change applied — `Edit` failures are silent if the `old_string` was wrong.

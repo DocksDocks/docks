@@ -122,6 +122,25 @@ for file in "${FILES[@]}"; do
     echo "FAIL: $name_fromfile — missing '## Success Criteria' section" >&2
     errors=$((errors + 1))
   fi
+
+  # Bundled SKILL.md must load via ${CLAUDE_PLUGIN_ROOT} (substituted inline in
+  # agent content), never a repo-relative path — that only resolves in the
+  # plugin's own source tree, so it 404s in every consumer repo and the agent
+  # silently falls back. See plugins-reference §Environment variables.
+  bad_skill_refs=$(grep -nE '/SKILL\.md' "$file" | grep -v 'CLAUDE_PLUGIN_ROOT' || true)
+  if [ -n "$bad_skill_refs" ]; then
+    echo "FAIL: $name_fromfile — bundled SKILL.md must load via \${CLAUDE_PLUGIN_ROOT}, not a repo-relative path:" >&2
+    echo "$bad_skill_refs" | sed 's/^/    /' >&2
+    errors=$((errors + 1))
+  fi
+
+  # Plugin subagents cannot spawn subagents, so `Agent` in their tools list is
+  # inert (Agent(agent_type) has no effect in a subagent definition). Flag it so
+  # dispatch logic isn't written against a capability the agent doesn't have.
+  if echo "$tools" | grep -qE '(^|[, ])Agent([,(]| |$)'; then
+    echo "FAIL: $name_fromfile — 'Agent' in tools is inert for a plugin subagent (subagents cannot spawn subagents); remove it and dispatch from the main conversation" >&2
+    errors=$((errors + 1))
+  fi
 done
 
 if [ "$errors" -gt 0 ]; then

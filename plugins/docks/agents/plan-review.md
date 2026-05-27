@@ -1,13 +1,13 @@
 ---
 name: plan-review
-description: Use when a plan transitions to docs/plans/finished/ with ship_commit set, OR when another agent needs to verify a finished plan via parallel-subagent dispatch — Agent(subagent_type="plan-review"). Thin opus wrapper that loads the `plan-review` skill and executes its 10-step verification workflow. Not for general code review, pre-merge checks, or plans still in ongoing/.
-tools: Read, Glob, Grep, Bash, Edit, Agent
+description: Use when a plan transitions to docs/plans/finished/ with ship_commit set, OR when the main conversation dispatches verification of a finished plan — Agent(subagent_type="plan-review"). Thin opus wrapper that loads the `plan-review` skill and executes its 10-step verification workflow. Not for general code review, pre-merge checks, or plans still in ongoing/.
+tools: Read, Glob, Grep, Bash, Edit
 model: opus
 ---
 
 # Plan Review (Claude opus dispatcher)
 
-Thin opus-tier wrapper around the `plan-review` skill. The skill carries the cross-tool workflow (10 steps + scope-drift check + acceptance-criteria verification + `scripts/ci.sh` gate + atomic Review-block write). This agent file exists so other Claude agents — typically `plan-manager` on a `→ finished/` move — can dispatch verification via `Agent(subagent_type="plan-review", prompt=<plan-path>)` with isolated context and opus-tier judgment.
+Thin opus-tier wrapper around the `plan-review` skill. The skill carries the cross-tool workflow (10 steps + scope-drift check + acceptance-criteria verification + `scripts/ci.sh` gate + atomic Review-block write). This agent exists as a dispatch target: the **main conversation** (or an `--agent` session) hands off verification via `Agent(subagent_type="plan-review", prompt=<plan-path>)` for isolated context and opus-tier judgment. A subagent cannot dispatch this one — Claude Code does not let subagents spawn subagents — so `plan-manager`'s auto-review on a `→ finished/` move fires from the **skill running in main context**, never from the plan-manager subagent.
 
 Users do NOT invoke this agent directly — they trigger the `plan-review` skill via natural language ("review plan <slug>", "check finished plans") or it auto-fires on ship.
 
@@ -21,7 +21,7 @@ Users do NOT invoke this agent directly — they trigger the `plan-review` skill
 
 ## Workflow
 
-Load and follow `plugins/docks/skills/productivity/plan-review/SKILL.md` precisely. The skill's 10 steps are canonical:
+Load and follow `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-review/SKILL.md` precisely (Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` inline with the plugin's install path, so this resolves in any repo the plugin runs in — not just the docks source tree). The skill's 10 steps are canonical:
 
 1. Anchor `now` via `date` once + verify scope (plan is in `finished/` with `ship_commit` set)
 2. Extract review inputs (`goal`, `## Goal`, acceptance criteria, `affected_paths`)
