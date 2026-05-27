@@ -1,11 +1,11 @@
 ---
-name: agents
-description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code + others) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, and rewrites CLAUDE.md to @AGENTS.md while preserving Claude-specific content (content-classified). Idempotent. Not for setting up docs/plans/ (use plan-init) or porting Claude subagents to Codex TOML (format mismatch).
+name: multi-tool-bridge
+description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code + others) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, and rewrites the project CLAUDE.md (./CLAUDE.md or ./.claude/CLAUDE.md) to @AGENTS.md while preserving Claude-specific content (content-classified). Idempotent. Not for setting up docs/plans/ (use plan-init) or porting Claude subagents to Codex TOML (format mismatch).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-26"
-  content_hash: "e1bee3a7d2e44f1ee5027d433332b9059b82183fd1a2eb8caba85a69dc719bf0"
+  updated: "2026-05-27"
+  content_hash: "76318e72a7d3fc8d4bdd4410fca55ce417e29b7e1659b0caf36eb41a06832eb9"
 ---
 
 # Multi-Tool Agent Bridge
@@ -33,7 +33,7 @@ Detection is read-only. Before any write, classify every target with `Read`/`Glo
 - Setting up a project to work in both Codex and Claude Code (any project where the user types "make this work with Codex too" or "set up AGENTS.md")
 - Standardizing on `.agents/skills/` as the canonical location (per [agentskills.io's recommendation](https://agentskills.io/client-implementation/adding-skills-support))
 - Adding the bridge to an existing Claude-only project (auto-detects layout)
-- The user says "set up AGENTS.md", "wire CLAUDE.md to AGENTS.md", "make this multi-tool", or `/docks:agents`
+- The user says "set up AGENTS.md", "wire CLAUDE.md to AGENTS.md", "make this multi-tool", or `/docks:multi-tool-bridge`
 
 ## Workflow
 
@@ -55,20 +55,23 @@ Classify the project into one of three layouts (controls which steps run):
 
 ```bash
 test -f AGENTS.md            && echo "EXISTS AGENTS.md"          || echo "MISSING AGENTS.md"
-test -f CLAUDE.md            && echo "EXISTS CLAUDE.md"          || echo "MISSING CLAUDE.md"
+test -f CLAUDE.md            && echo "EXISTS CLAUDE.md (root)"   || echo "MISSING CLAUDE.md (root)"
+test -f .claude/CLAUDE.md    && echo "EXISTS .claude/CLAUDE.md" || echo "MISSING .claude/CLAUDE.md"
 test -d .agents/skills       && echo "EXISTS .agents/skills/"   || echo "MISSING .agents/skills/"
 test -d .claude/skills       && echo "EXISTS .claude/skills/"   || echo "MISSING .claude/skills/"
 test -d .claude/agents       && echo "EXISTS .claude/agents/"   || echo "MISSING .claude/agents/"
 test -d .claude/rules        && echo "EXISTS .claude/rules/"    || echo "MISSING .claude/rules/"
 ```
 
+A project CLAUDE.md is valid at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.md` (Claude Code loads and concatenates both when both exist — neither overrides the other). Record which of the two exist; the rewrite target is decided in Step 5.
+
 Enumerate `.claude/skills/*/SKILL.md` via Glob. For each, capture the skill name (directory basename). These are the migration candidates.
 
-### Step 3 — Classify existing CLAUDE.md (only when EXISTS)
+### Step 3 — Classify existing CLAUDE.md (when `./CLAUDE.md` and/or `./.claude/CLAUDE.md` exists)
 
-When `CLAUDE.md` already exists, the Bridge Insertion is NOT just an `@AGENTS.md` prepend — it's a content split. Per the constraints above:
+When a project CLAUDE.md already exists at EITHER location, the Bridge Insertion is NOT just an `@AGENTS.md` prepend — it's a content split. Per the constraints above:
 
-1. `Read` the full CLAUDE.md.
+1. `Read` whichever project CLAUDE.md exists — `./CLAUDE.md`, `./.claude/CLAUDE.md`, or both. If BOTH exist, both are already loaded and concatenated by Claude Code (neither wins): classify the UNION of their sections and WARN the user before rewriting either, so a rule living in one file isn't duplicated or contradicted by the other.
 2. Load `references/claude-md-classification.md` for the keyword rules.
 3. Walk the file section by section (split on `^##` and `^###` headings). For each section, score:
    - **GENERIC** (move to AGENTS.md): no Claude-specific keywords; covers build/test/style/security/repo-layout/engineering rules.
@@ -123,9 +126,14 @@ For each row classified `CREATE` / `MIGRATE+SYMLINK` / `REWRITE+@IMPORT`:
    ```
    Skip when destination already exists. If `.claude/skills/<name>` is already a symlink pointing at the right target → SKIP. If it's a symlink pointing somewhere else → STOP and ask the user (do not silently fix).
 
-4. **CLAUDE.md rewrite**:
-   - **CREATE STUB** (greenfield/plugin-author without existing CLAUDE.md): write a one-line file: `@AGENTS.md`
-   - **APPEND BRIDGE** (existing CLAUDE.md, nothing Claude-specific to keep): rewrite as `@AGENTS.md` + one blank line + (nothing else)
+4. **CLAUDE.md rewrite** — first pick the TARGET file:
+   - Default to root `./CLAUDE.md` (conventional, team-visible). Create it there when neither location exists.
+   - If the ONLY existing project CLAUDE.md is `./.claude/CLAUDE.md`, rewrite THAT file — but the import must be `@../AGENTS.md`, because `@path` resolves relative to the file containing it (an `@AGENTS.md` inside `.claude/` would wrongly resolve to `.claude/AGENTS.md`).
+   - If BOTH exist, rewrite root `./CLAUDE.md` with the import and leave `./.claude/CLAUDE.md` in place after showing its classified content — only consolidate on explicit user approval (never silently merge two memory files).
+
+   Then apply the matching case (use the import form the target rule dictates):
+   - **CREATE STUB** (greenfield/plugin-author without existing CLAUDE.md): write a one-line root file: `@AGENTS.md`
+   - **APPEND BRIDGE** (existing CLAUDE.md, nothing Claude-specific to keep): rewrite as `@AGENTS.md` (or `@../AGENTS.md` when the target is `./.claude/CLAUDE.md`) + one blank line + (nothing else)
    - **SPLIT** (existing CLAUDE.md with Claude-specific keepers): rewrite as:
      ```
      @AGENTS.md
@@ -179,6 +187,8 @@ Final report (markdown):
 | `git mv` fails outside a git repo | Falling back to silent `mv` and losing rename tracking | Use `git mv` when in a repo; plain `mv` otherwise; report which was used |
 | `@AGENTS.md` import added but AGENTS.md doesn't exist | Broken import in CLAUDE.md | Write AGENTS.md BEFORE rewriting CLAUDE.md; verify with `test -f AGENTS.md` |
 | Mixed-content section split paragraph-by-paragraph without user input | Author intent lost | Show the proposed split, wait for approval; mixed sections default to STAY in CLAUDE.md if unsure |
+| Only `./CLAUDE.md` checked; project keeps memory at `./.claude/CLAUDE.md` | Skill reports "no CLAUDE.md" and skips the bridge | Audit BOTH locations (Step 2) — both are valid project memory and may coexist |
+| `@AGENTS.md` written into `./.claude/CLAUDE.md` | Import resolves to `.claude/AGENTS.md` (wrong path) | Inside `.claude/`, the import is `@../AGENTS.md`; prefer rewriting root `./CLAUDE.md` |
 
 ## Anti-Hallucination Checks
 
@@ -187,6 +197,8 @@ Final report (markdown):
 - After the rewrite, compare CLAUDE.md line counts pre/post — total content (CLAUDE.md + AGENTS.md combined) must not drop more than 5% (catches accidental section loss)
 - `git status --short` at the end must only show paths this skill touched; investigate any other entries before reporting "done"
 - Do NOT claim a layout type without the detection check in Step 1 actually returning matches
+- Before reporting "no project CLAUDE.md", confirm BOTH `test -f CLAUDE.md` AND `test -f .claude/CLAUDE.md` returned missing — a project may keep its CLAUDE.md under `.claude/`
+- When the import target is `./.claude/CLAUDE.md`, verify the relative form resolved: `grep -c '^@\.\./AGENTS.md' .claude/CLAUDE.md` must return ≥1 (not `^@AGENTS.md`)
 
 ## References
 

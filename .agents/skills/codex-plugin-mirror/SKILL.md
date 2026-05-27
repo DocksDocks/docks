@@ -1,6 +1,6 @@
 ---
 name: codex-plugin-mirror
-description: Use when adding Codex distribution to an existing Claude Code plugin — reads .claude-plugin/plugin.json and marketplace.json, generates parallel .codex-plugin/plugin.json and .agents/plugins/marketplace.json with translated schema, drops fields Codex plugins don't support (commands, subagents references), keeps versions in sync. Idempotent. Not for project-level skills setup (use plan-init or agents) or porting Claude subagent files to .codex/agents/ TOML (separate concern).
+description: Use when adding Codex distribution to an existing Claude Code plugin — reads .claude-plugin/plugin.json and marketplace.json, generates parallel .codex-plugin/plugin.json and .agents/plugins/marketplace.json with translated schema, drops fields Codex plugins don't support (commands, subagents references), keeps versions in sync. Idempotent. Not for project-level skills setup (use plan-init or multi-tool-bridge) or porting Claude subagent files to .codex/agents/ TOML (separate concern).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
@@ -141,5 +141,5 @@ If versions disagree, STOP — report which file is out of sync. Never claim "mi
 
 - `references/codex-plugin-template.md` — verbatim Codex plugin.json scaffold (with field-by-field translation notes from Claude source)
 - `references/codex-marketplace-template.md` — verbatim Codex marketplace.json scaffold (`.agents/plugins/marketplace.json`)
-- Companion: when the user wants AGENTS.md + `.agents/skills/` symlink bridge in a consumer project (not a plugin distribution mirror), use the `agents` skill instead. This skill is plugin-author-specific.
+- Companion: when the user wants AGENTS.md + `.agents/skills/` symlink bridge in a consumer project (not a plugin distribution mirror), use the `multi-tool-bridge` skill instead. This skill is plugin-author-specific.
 - External: [Codex Plugins — Build docs](https://developers.openai.com/codex/plugins/build) — canonical Codex manifest schema reference.

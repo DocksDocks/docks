@@ -92,6 +92,15 @@ If nothing Claude-specific survives the split, CLAUDE.md becomes a one-line file
 
 (A symlink `CLAUDE.md -> AGENTS.md` is also officially supported by Claude Code per the memory docs, but the bridge skill defaults to the `@AGENTS.md` import form so the user can add Claude-specific content later without restructuring.)
 
+## Project CLAUDE.md location — `./CLAUDE.md` vs `./.claude/CLAUDE.md`
+
+A project CLAUDE.md is recognized at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.md`. When both exist they are both loaded and **concatenated** by Claude Code — neither takes precedence. Implications for the bridge:
+
+- **Detect both.** Classify whichever exists; if both exist, classify the union and warn before rewriting either, so a rule in one file isn't silently duplicated or contradicted by the other.
+- **Rewrite target = root `./CLAUDE.md`** by default (conventional, team-visible, committed). Create it there when neither exists.
+- **Relative-import gotcha.** `@path` imports resolve relative to the file containing them, so `@AGENTS.md` is correct only in root `./CLAUDE.md`. If the target is `./.claude/CLAUDE.md`, the import MUST be `@../AGENTS.md` (an `@AGENTS.md` there resolves to the non-existent `.claude/AGENTS.md`).
+- **Never consolidate two files silently.** When both exist, wire the import into root `./CLAUDE.md` and leave `./.claude/CLAUDE.md` in place; merge only on explicit user approval.
+
 ## What about user-level CLAUDE.md?
 
 This skill scopes to the **project-level** CLAUDE.md only. User-level CLAUDE.md (`~/.claude/CLAUDE.md`) and managed-policy CLAUDE.md are out of scope — they often contain personal/org settings that don't generalize and shouldn't be bridged to the project repo.

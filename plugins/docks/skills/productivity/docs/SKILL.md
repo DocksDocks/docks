@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-05-27"
-  content_hash: "0ccfedc22debdd490bfac603dd2ddd63fcd24192ba2cb6a015bb5606b493a4b4"
+  content_hash: "acf98ebe0e6a02b3d59455bee8c3dbba5e1ffe57db903a6365f87ff49ede7be4"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -36,7 +36,7 @@ Approval via the plan lifecycle, not Plan Mode. Write the full skills/agents pla
 |---|---|
 | README / AGENTS.md / CLAUDE.md / prose docs | `human-docs-workflow` |
 | Writing one skill by hand | `write-skill` |
-| Multi-tool AGENTS.md ↔ skills symlink bridging | `agents` |
+| Multi-tool AGENTS.md ↔ skills symlink bridging | `multi-tool-bridge` |
 | Security / refactor analysis | `security` / `refactor` |
 
 ## Pipeline
@@ -91,7 +91,7 @@ Phases 1–6 are read-only. After Phase 6:
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
 2. Surface it: report the counts and tell the user "review `docs/plans/planned/<slug>.md` and say `start <slug>` to implement."
 3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files (and agent files, Claude only); for regenerated agents, back up the original to `<name>.md.bak`; bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
-4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `agents` bridge skill's job.
+4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `multi-tool-bridge` skill's job.
 
 ## References
 
@@ -116,4 +116,4 @@ Phases 1–6 are read-only. After Phase 6:
 | SKILL.md body crossing 310 lines | Overflow dropped after compaction; verifier hard-fails | Split detail into `references/<topic>.md` (30–150 lines) |
 | Unquoted `description:` contains `: ` or `#` | Codex skips the skill with invalid YAML or silently truncated description | Quote every generated description |
 | Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |
-| Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers cross-tool config | Use the `agents` bridge skill for those |
+| Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers cross-tool config | Use the `multi-tool-bridge` skill for those |

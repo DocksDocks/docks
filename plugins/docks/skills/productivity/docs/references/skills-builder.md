@@ -66,5 +66,5 @@ Per skill, a delimited block: `### File: .claude/skills/<name>/SKILL.md` + full 
 |---|---|
 | Body restates what the model already knows ("TypeScript is typed…") | Cut — the body is for project-specific knowledge only |
 | `name:` ≠ directory name | Rename so they match (kebab-case) — guards fail otherwise |
-| Touching AGENTS.md / CLAUDE.md | Out of scope here — use the `agents` bridge skill |
+| Touching AGENTS.md / CLAUDE.md | Out of scope here — use the `multi-tool-bridge` skill |
 | Unquoted description with `: ` or `#` | Quote it before the plan reaches approval — Codex will skip the skill |
