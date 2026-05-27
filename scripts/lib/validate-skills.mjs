@@ -133,7 +133,27 @@ function validateCommon(file, frontmatterText, fm, errors) {
   }
 }
 
-function validateClaude(fm, body, errors) {
+// agentskills.io UNIVERSAL structural rules — enforced on both runtimes (Codex
+// truncates an over-length body too, and "avoid deeply nested reference chains"
+// is a spec rule, not a Claude-only convention).
+function validateStructure(file, body, errors) {
+  const lines = bodyLineCount(body);
+  if (lines > 500) {
+    errors.push(`body is ${lines} lines (cap: 500); extract detail into references/`);
+  }
+  const refDir = path.join(path.dirname(file), 'references');
+  if (fs.existsSync(refDir) && fs.statSync(refDir).isDirectory()) {
+    for (const entry of fs.readdirSync(refDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        errors.push(
+          `references/ must stay one level deep; nested directory ${JSON.stringify(entry.name)} is not allowed (agentskills.io: avoid deep reference chains)`,
+        );
+      }
+    }
+  }
+}
+
+function validateClaude(fm, errors) {
   const upstream = Boolean(fm.upstream);
   const description = fm.description;
 
@@ -156,9 +176,6 @@ function validateClaude(fm, body, errors) {
   if (contentHash !== undefined && (typeof contentHash !== 'string' || !HASH_RE.test(contentHash))) {
     errors.push('metadata.content_hash must be a 64-character lowercase hex string when present');
   }
-
-  const lines = bodyLineCount(body);
-  if (lines > 500) errors.push(`body is ${lines} lines (cap: 500); extract detail into references/`);
 }
 
 function main() {
@@ -183,7 +200,8 @@ function main() {
         errors.push(`invalid YAML frontmatter: ${parsed.error}`);
       } else {
         validateCommon(file, extracted.text, parsed.value, errors);
-        if (runtime === 'claude') validateClaude(parsed.value, extracted.body, errors);
+        validateStructure(file, extracted.body, errors);
+        if (runtime === 'claude') validateClaude(parsed.value, errors);
       }
     }
     if (errors.length > 0) {

@@ -12,7 +12,8 @@ These scripts validate and release the plugin. They are **author-side only** —
 |---|---|---|
 | `skills/guard.sh` | Runs Codex + Claude skill guards | pass/fail |
 | `skills/codex.sh` | Codex loader compatibility — YAML frontmatter via Node `yaml`, name/description, 1024-char cap, no truncating plain scalars | pass/fail |
-| `skills/claude.sh` | Claude compatibility — Codex checks plus CSO prefix, `user-invocable`, `metadata.updated`, body ≤500 | pass/fail |
+| `skills/claude.sh` | Claude compatibility — Codex checks plus CSO prefix, `user-invocable`, `metadata.updated` | pass/fail |
+| `skills/codex-facts.sh` | Pins canonical Codex model ids / `sandbox_mode` / `model_reasoning_effort` + the `agents.max_depth` nesting fact in the skill-agent-pipeline reference docs (run by `skills/guard.sh`; self-skips when absent) | pass/fail |
 | `skills/score.sh` | quality (max 16) | per-file ≥ category floor (engineering 10, productivity 8) |
 | `skills/content-hash.sh` | `metadata.updated` idempotency baseline | `--check-only` gate |
 | `agents/guard.sh` | frontmatter, "Use when…"/"Not…" CSO, model declared | pass/fail |

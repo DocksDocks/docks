@@ -13,4 +13,8 @@ else
   bash "$SCRIPT_DIR/claude.sh" || exit $?
 fi
 
+# Codex platform-fact drift guard for the skill-agent-pipeline reference docs
+# (path-independent; self-skips when that skill is absent).
+bash "$SCRIPT_DIR/codex-facts.sh" || exit $?
+
 echo "Guard PASSED: skills match Codex and Claude conventions"
