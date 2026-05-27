@@ -81,11 +81,12 @@ scripts:
   - { source: scripts/skills/codex.sh }
   - { source: scripts/skills/claude.sh }
   - { source: scripts/skills/score.sh }
-  - { source: scripts/skills/content-hash.sh }
   - { source: scripts/config/read-floor.sh }
   - { source: scripts/config/scoring.json }
   - { source: scripts/tree/guard.sh }
 ```
+
+This block shows the script-entry shape, not a complete inventory. Setup mode should copy the live spec's script list after verifying each source exists.
 
 Copied verbatim into the new project's `scripts/`. Each validator accepts a path argument, so the seeded project invokes them against its own `plugins/<name>/skills` (see the seeded `scripts/AGENTS.md`). The generated `package.json` and `pnpm-lock.yaml` provide the Node `yaml` dependency for parser-backed skill validation.
 

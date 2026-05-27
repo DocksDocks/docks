@@ -4,9 +4,8 @@ description: "Use when bootstrapping or auditing a project's skills (and, on Cla
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-05-24"
-  # content_hash: auto-managed by scripts/skills/content-hash.sh --backfill
-  content_hash: "506635d152b4422eeebaaafdc8d1e6d38e195d882d0fea4fc72a872c16919630"
+  updated: "2026-05-27"
+  content_hash: "0ccfedc22debdd490bfac603dd2ddd63fcd24192ba2cb6a015bb5606b493a4b4"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -91,7 +90,7 @@ Phases 1–6 are read-only. After Phase 6:
 
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
 2. Surface it: report the counts and tell the user "review `docs/plans/planned/<slug>.md` and say `start <slug>` to implement."
-3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files (and agent files, Claude only); for regenerated agents, back up the original to `<name>.md.bak`; bump `metadata.updated` only on real content change, then re-sync hashes with `scripts/skills/content-hash.sh --backfill`.
+3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files (and agent files, Claude only); for regenerated agents, back up the original to `<name>.md.bak`; bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
 4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `agents` bridge skill's job.
 
 ## References
@@ -113,7 +112,7 @@ Phases 1–6 are read-only. After Phase 6:
 |---|---|---|
 | Running the agent phases (4–5) on Codex | Emits `.claude/agents/` files a non-Claude runtime ignores | Skip 4a/4b/5 off Claude Code; produce skills only |
 | Implementing before the user starts the plan | Writes files the user never approved | Gate on `start <slug>`; Phases 1–6 are read-only |
-| Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change, then `scripts/skills/content-hash.sh --backfill` |
+| Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change; sync hashes only when the current project documents that contract |
 | SKILL.md body crossing 310 lines | Overflow dropped after compaction; verifier hard-fails | Split detail into `references/<topic>.md` (30–150 lines) |
 | Unquoted `description:` contains `: ` or `#` | Codex skips the skill with invalid YAML or silently truncated description | Quote every generated description |
 | Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |

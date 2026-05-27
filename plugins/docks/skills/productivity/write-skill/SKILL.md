@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-05-26"
-  content_hash: "5f3540a1d585db78d0699c7764d11a472070e699d2eb7bd95f6896ec2fd87b5d"
+  updated: "2026-05-27"
+  content_hash: "f87bfbebe710e4b68b2d5c5ec90eb68c87d160590b1933ddf2130db4b457bbd2"
 ---
 
 # Write a Skill (docks conventions)
@@ -32,7 +32,6 @@ user-invocable: false             # true only for slash-command-style skills (e.
 metadata:
   pattern: tool-wrapper           # or: micro-skill, meta-skill
   updated: "YYYY-MM-DD"           # bump ONLY on a real content change
-  # content_hash: auto-managed by scripts/skills/content-hash.sh --backfill
 ---
 
 # Skill Name
@@ -122,7 +121,7 @@ A skill with 4 constraint blocks scores the same as 3. Pick the 3 most load-bear
 | BAD/GOOD pair is two snippets of similar code with no annotation | Add the `// BAD — <one-line reason>` and `// GOOD — <one-line reason>` comments; the agent pattern-matches on the comments |
 | Every paragraph wrapped in `<constraint>` | Demote to prose — past 3 constraints the scorer gives nothing, and the pattern stops signalling "non-negotiable" |
 | `name:` doesn't match directory name | Guard fails. Rename directory to match (kebab-case, `[a-z0-9-]+`, ≤64 chars). |
-| Forgot `metadata.updated` bump after editing | Bump to today (`date "+%Y-%m-%d"`) **only if content actually changed**, then re-sync the hash: `bash scripts/skills/content-hash.sh --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body. |
+| Forgot `metadata.updated` bump after editing | Bump to today (`date "+%Y-%m-%d"`) **only if content actually changed**. If this project documents `metadata.content_hash`, run its documented hash-sync command; otherwise do not add a hash or report missing Docks tooling. |
 | Body crossed 310 → just left it there | Move detail to `references/`. Past 310 lines, post-compaction re-attachment drops content silently. |
 | Used `comprehensive`/`robust`/`elegant`/`seamless` because it "reads better" | Each occurrence costs 1 pt. Rewrite or cut. |
 

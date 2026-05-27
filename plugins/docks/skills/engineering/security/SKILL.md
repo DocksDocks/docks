@@ -4,9 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-05-24"
-  # content_hash: auto-managed by scripts/skills/content-hash.sh --backfill
-  content_hash: "22bc507386db284eabe4eb9f083aac99c2fab5f3cd99f34ffaf4dc7ec373c368"
+  updated: "2026-05-27"
+  content_hash: "f6e95e10489635433e4e15a9456c2803c9a55b6519d830b3b10380b645978fb2"
 ---
 
 # Security Audit (cross-tool pipeline)
