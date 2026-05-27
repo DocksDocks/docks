@@ -115,3 +115,8 @@ Before applying the rewrite, the skill computes:
 - If `lines_after > lines_before * 1.15` → STOP, report potential content duplication
 
 The 5% / 15% tolerances allow for the `@AGENTS.md` import line, blank-line normalization, and minor heading adjustments — but catch accidental section deletion or duplication.
+
+## Sources
+
+- <https://code.claude.com/docs/en/memory> — confirms (2026-05-27) the facts this file relies on: a project CLAUDE.md is valid at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.md`; all discovered memory files are **concatenated** (neither overrides the other); `@path` imports resolve **relative to the file containing the import** (so `@../AGENTS.md` is required inside `.claude/CLAUDE.md`); a `CLAUDE.md -> AGENTS.md` symlink is officially supported.
+- <https://code.claude.com/docs/en/settings> — the `.claude/` directory, plugin/marketplace, and tool/permission primitives behind the CLAUDE-specific keyword set above.

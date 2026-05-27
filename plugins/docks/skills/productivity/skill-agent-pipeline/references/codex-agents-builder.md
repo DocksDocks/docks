@@ -80,3 +80,16 @@ Per agent: `### File: .codex/agents/<name>.toml` + full TOML. For an `Agent`-dis
 | Guessing a Codex model not in the valid list | Use the model map / the project's pinned model; never invent an ID |
 | Writing `sandbox_mode = "danger-full-access"` automatically | Never auto-select it — surface and let the user opt in |
 | Labeling an `Agent`-dispatching agent "not portable" | One dispatch level ports (Codex `agents.max_depth: 1`) — emit the `.toml`, route delegation to `worker`/`explorer`, flag only deeper-than-1 nesting |
+
+## Sources
+
+Codex facts confirmed against the official docs (2026-05-27) — re-verify here before editing the schema / translation / model tables above:
+
+- <https://developers.openai.com/codex/subagents> — `.codex/agents/*.toml` schema: required `name`/`description`/`developer_instructions`; optional keys; built-in `default`/`worker`/`explorer`; one agent per file; project `.codex/agents/` vs personal `~/.codex/agents/`.
+- <https://developers.openai.com/codex/config-reference> — `agents.max_depth` (default 1 → single-level child dispatch ports, deeper nesting capped), `agents.max_threads` (6), `agents.job_max_runtime_seconds` (1800, `spawn_agents_on_csv` wall-clock), `model_reasoning_effort` set (`minimal`/`low`/`medium`/`high`/`xhigh`).
+- <https://developers.openai.com/codex/sandbox> — canonical `sandbox_mode` values (`read-only`/`workspace-write`/`danger-full-access`).
+- <https://developers.openai.com/codex/models> — valid model IDs (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`).
+- <https://developers.openai.com/codex/skills> — Codex discovers agentskills.io skills from `.agents/skills` (CWD→repo-root walk); `[[skills.config]]` in `config.toml` enables/disables them.
+- <https://code.claude.com/docs/en/sub-agents> — the source Claude `.claude/agents/*.md` frontmatter (`name`/`description`/`tools`/`model`/`maxTurns`) this translation reads from; note Claude's own one-level subagent limit is a Claude-side fact that does NOT transfer to Codex, which dispatches one level via `agents.max_depth: 1`.
+
+`scripts/skills/codex-facts.sh` pins the model-id / `sandbox_mode` / `model_reasoning_effort` sets + the `agents.max_depth` fact so this doc can't silently drift from these sources.
