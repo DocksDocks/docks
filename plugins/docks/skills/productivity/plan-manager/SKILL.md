@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-05-27"
-  content_hash: "aa6b3a8769123cac0a48870ea27408e2960c9624a9b7a0559fc2027653cada73"
+  content_hash: "74ad0f3b970b0ab273162326d9ea1f4fda8748d365ca4dd768170e172ccfc7d3"
 ---
 
 # Plan Manager
@@ -89,7 +89,12 @@ Pass the plan file path AND full body as context so the assignee re-reads the pl
 ### Step 5 — Move file (state transition)
 
 ```bash
-git mv docs/plans/<old-cat>/<slug>.md docs/plans/<new-cat>/<slug>.md
+git mv docs/plans/<old-cat>/<slug>.md docs/plans/<new-cat>/<new-name>.md
+# Carry the .html sidecar in the SAME move (same target basename) when it exists —
+# never let a move orphan or drop it. <new-name> = <slug>, except on → finished/
+# where it gains the date prefix (see the finished bullet below). Step 7.5 then
+# re-authors the sidecar's content in place (new age token / review block).
+test -f docs/plans/<old-cat>/<slug>.html && git mv docs/plans/<old-cat>/<slug>.html docs/plans/<new-cat>/<new-name>.html
 ```
 
 Then `Edit` the file's frontmatter to update `status`, bump `updated` to the turn-anchor ISO datetime, and apply transition-specific field updates. Every timestamp written in this turn uses the **same** anchor value captured in Step 2 — never re-invoke `date` for individual fields.
@@ -98,7 +103,7 @@ Then `Edit` the file's frontmatter to update `status`, bump `updated` to the tur
 - **`ongoing/` → `blocked/`**: set `blocked_since: "<anchor ISO datetime>"`, set `blocked_reason: <one-line>`.
 - **`blocked/` → `ongoing/`**: clear `blocked_reason` and `blocked_since` (set both to `null`). Do NOT touch `started_at`.
 - **`scheduled/` → `ongoing/`**: remove scheduled-only keys (`trigger`, `scheduled_date`, `auto_execute`). Set `started_at` if null.
-- **`ongoing/` → `finished/`**: rename file to `<YYYY-MM-DD>-<slug>.md` (date-only completion prefix — never a datetime in the filename), set `ship_commit: <SHA>` (ask user if not known). **Branch-agnostic** — `ship_commit` is HEAD on whatever branch you're on; ship from `main` (direct) or from a feature branch (so plan-review runs before the merge). Never require `main`, never switch or create branches — the branch is the user's call. The `updated` bump records the ship-time datetime that `finished/` age tokens read from. Then auto-trigger plan-review (Step 8).
+- **`ongoing/` → `finished/`**: rename file (and its `.html` sidecar) to `<YYYY-MM-DD>-<slug>.{md,html}` (date-only completion prefix — never a datetime in the filename), set `ship_commit: <SHA>` (ask user if not known). **Branch-agnostic** — `ship_commit` is HEAD on whatever branch you're on; ship from `main` (direct) or from a feature branch (so plan-review runs before the merge). Never require `main`, never switch or create branches — the branch is the user's call. The `updated` bump records the ship-time datetime that `finished/` age tokens read from. Then auto-trigger plan-review (Step 8).
 
 ### Step 6 — New plan scaffold
 
@@ -172,6 +177,7 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 | Skipping plan-review on `→ finished/` because `ship_commit` is empty | Calling plan-review with empty SHA | Stop and ask the user for the SHA before moving to finished/ |
 | Reading a stale plan body after another agent edited it | Trusting cached content | Re-`Read` the file when re-entering after dispatch |
 | Embedding a datetime into the filename | `20260526T172340-foo.md` | Filenames stay date-only — the datetime lives in the frontmatter |
+| Moving a plan's `.md` without its `.html` sidecar | `git mv` only the `.md` → sidecar orphaned in the old dir (or lost) | `git mv` both in one step (same target basename, incl. the ship date-prefix), then regenerate content via Step 7.5 |
 
 ## Anti-Hallucination Checks
 

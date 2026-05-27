@@ -328,6 +328,11 @@ LLM-native). The `.html` is a **derived artifact** for browser analysis only:
 collapsible sections, click-to-copy, color-coded status, no token cost in
 agent flows because no agent ever reads it.
 
+When a plan moves between directories, its sidecar moves **with** it: `plan-manager`
+carries the `.html` in the same `git mv` as the `.md` (matching the ship-time
+`<YYYY-MM-DD>-` rename), then re-authors the content in place. A move never leaves
+a sidecar orphaned in the old directory, and never drops it.
+
 Shared assets live at:
 
 ```

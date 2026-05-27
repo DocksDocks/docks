@@ -4,8 +4,8 @@ description: "Use when a plan .md is written, moved, or shipped and its browser-
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-05-26"
-  content_hash: "e8528645b6adc75580e086c2c621d237f97f1e4c26e5ab7cf5f04e7d22b4c54c"
+  updated: "2026-05-27"
+  content_hash: "7cf87bdb2b33684cf4ac3905a7952a5a0cd2d2c164e3ea566e1ba693294e7834"
 ---
 
 # Plan Sidecar — author a plan's browser view
@@ -103,6 +103,7 @@ title: ...</pre>
 | `shipped` token on an ongoing plan | The age token is category-specific — see the table in `docs/plans/AGENTS.md`. |
 | `shipped today` rendered for a 0-day finished plan | The legacy "today at 0d" wording was day-granular; with datetime, render `shipped just now` (<60s) or `shipped <X>m ago` / `shipped <X>h ago` instead. |
 | Dashboard links every title to `.html` but most don't exist | Link `.html` only when the sidecar exists; otherwise link the `.md`. |
+| Moving / renaming / deleting a sidecar when its plan changes dirs | Not this skill's job — `plan-manager` `git mv`s the `.html` alongside the `.md`. This skill only (re)authors content at the path it's handed. |
 
 ## When NOT to use
 
