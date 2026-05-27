@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rename docs skill to skill-agent-pipeline + emit Codex agents · planned</title>
+  <link rel="stylesheet" href="../_assets/dashboard.css" />
+  <script type="application/json" id="plan-data">
+{ "title": "Rename docs skill to skill-agent-pipeline + emit Codex agents", "goal": "Rename docs skill to skill-agent-pipeline; emit both Claude .md and Codex .toml agents; wire stale skill-maintenance removal; drop in-project guard dependence; confirm references/ convention.", "status": "planned", "slug": "20260527-skill-agent-pipeline-rename", "created": "2026-05-27T12:29:38-03:00", "updated": "2026-05-27T12:29:38-03:00", "started_at": null, "assignee": null, "ship_commit": null, "tags": ["skills","rename","codex","agents","pipeline"], "updated_at": "2026-05-27T12:43:33-03:00" }
+  </script>
+</head>
+<body data-status="planned" data-slug="20260527-skill-agent-pipeline-rename">
+  <header class="plan-header">
+    <div class="plan-header__top">
+      <span class="status-badge" data-status="planned">planned</span>
+      <span class="age-token">14m queued</span>
+    </div>
+    <h1>Rename docs skill to skill-agent-pipeline + emit Codex agents</h1>
+    <p class="plan-goal-summary">Rename docs skill to skill-agent-pipeline; emit both Claude .md and Codex .toml agents; wire stale skill-maintenance removal; drop in-project guard dependence; confirm references/ convention.</p>
+    <dl class="plan-meta">
+      <div><dt>slug</dt><dd>20260527-skill-agent-pipeline-rename</dd></div>
+      <div><dt>created</dt><dd>2026-05-27</dd></div>
+      <div><dt>updated</dt><dd>2026-05-27</dd></div>
+      <div><dt>started_at</dt><dd>—</dd></div>
+      <div><dt>assignee</dt><dd>—</dd></div>
+      <div><dt>ship_commit</dt><dd>—</dd></div>
+      <div><dt>tags</dt><dd>skills, rename, codex, agents, pipeline</dd></div>
+    </dl>
+  </header>
+
+  <main class="plan-body">
+    <section class="plan-section plan-section--goal" data-section="goal">
+      <h2>Goal</h2>
+      <div class="plan-section__content markdown">
+        <p>Reshape the pipeline skill currently named <code>docs</code> (<code>plugins/docks/skills/productivity/docs/</code>, title "Skills &amp; Agents Pipeline") on five axes:</p>
+        <ol>
+          <li><strong>Rename <code>docs</code> → <code>skill-agent-pipeline</code>.</strong> <code>docs</code> collides with prose docs and <code>human-docs-workflow</code> already owns README/AGENTS.md prose. Rename dir + <code>name:</code>, update body self-references, all inbound prose (manifests, marketplace catalogs, root AGENTS.md, human-docs-workflow), re-sync <code>content_hash</code>, bump <code>metadata.updated</code>.</li>
+          <li><strong>Emit Codex agents too (both formats always).</strong> Phases 4a/4b/5 are gated "Claude only" today. Codex has supported project-local subagents since GA 2026-03-16: TOML at <code>.codex/agents/*.toml</code>. Un-gate so every run emits BOTH <code>.claude/agents/*.md</code> AND <code>.codex/agents/*.toml</code>, via a new <code>references/codex-agents-builder.md</code> carrying the Claude→Codex translation table.</li>
+          <li><strong>Wire stale local <code>skill-maintenance</code> removal.</strong> The plugin ships <code>docks:skill-maintenance</code>, so a project should not keep a generated local copy. Detect a stale one and PROPOSE removal (with a <code>git rm</code> sentinel) instead of regenerating.</li>
+          <li><strong>Drop in-project guard dependence.</strong> Running inside a consumer project must not depend on this repo's <code>scripts/</code> guards. Sweep so all validation rules are inline.</li>
+          <li><strong>Confirm the <code>references/</code> convention.</strong> Already mandated past 310 lines; confirm + strengthen so generated skills follow the full docks convention.</li>
+          <li><strong>Enforce the ≤1024-char description cap on PRE-EXISTING skills.</strong> Today the cap only governs descriptions the pipeline <em>generates</em>; the audit never measures the length of descriptions already on disk, so an existing skill over Codex's 1024 hard cap (Codex silently skips it) goes undetected. Add the length check to exploration, categorization, and verification.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--context" data-section="context">
+      <h2>Context</h2>
+      <div class="plan-section__content markdown">
+        <p>Second of two user-requested renames (sibling: <code>multi-tool-bridge-rename</code>). The "emit Codex agents" axis is substantive — research agents confirmed the full <code>.codex/agents/*.toml</code> schema and a Claude→Codex translation against the official Codex docs AND the repo's two real Claude agent files. Scope: this changes what the pipeline generates IN CONSUMER PROJECTS. The plugin's own <code>plugins/docks/agents/</code> stays Claude-only and is not touched.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--steps" data-section="steps" data-progress="0/11">
+      <h2>Steps <span class="progress">0 / 11</span></h2>
+      <div class="plan-section__content">
+        <table class="steps">
+          <thead><tr><th>#</th><th>Task</th><th>Depends</th><th>Status</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>git mv productivity/docs → productivity/skill-agent-pipeline</td><td>—</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>2</td><td>SKILL.md name docs→skill-agent-pipeline; update body self-refs + "Use instead" table</td><td>1</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>3</td><td>Update all inbound prose references (see step details)</td><td>1</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>4</td><td>Un-gate agent track: 4a/4b/5 run on ALL runtimes emitting BOTH formats</td><td>1</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>5</td><td>Author references/codex-agents-builder.md — TOML schema + translation table</td><td>4</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>6</td><td>Update agents-builder / role-mapper / pattern-extractor / verifier for dual-format + Codex TOML checks</td><td>4</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>7</td><td>Wire stale local skill-maintenance detection→removal (+ git rm sentinel)</td><td>1</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>8</td><td>Guard-independence sweep: no bash scripts/... in any in-project path</td><td>1</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>9</td><td>Confirm/strengthen references/ convention for generated skills</td><td>1</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>10</td><td>Enforce ≤1024-char description audit on PRE-EXISTING skills (explorer length capture + categorizer 6th check + verifier over-cap hard-fail)</td><td>1</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+            <tr><td>11</td><td>Re-sync content_hash, bump metadata.updated, bash scripts/ci.sh green</td><td>2–10</td><td class="status" data-status="planned">planned</td><td>—</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Claude → Codex agent translation table</strong> (Step 5):</p>
+        <table class="steps">
+          <thead><tr><th>Claude (.claude/agents/*.md)</th><th>Codex (.codex/agents/*.toml)</th><th>Rule</th><th>Confidence</th></tr></thead>
+          <tbody>
+            <tr><td>name</td><td>name</td><td>1:1 (kebab-case)</td><td>confirmed</td></tr>
+            <tr><td>description (CSO)</td><td>description</td><td>1:1 — "when to use this agent"</td><td>confirmed</td></tr>
+            <tr><td>markdown system prompt</td><td>developer_instructions</td><td>triple-quoted TOML multiline</td><td>confirmed</td></tr>
+            <tr><td>model: opus</td><td>model = "gpt-5.5"</td><td>frontier-tier map</td><td>confirmed</td></tr>
+            <tr><td>model: sonnet</td><td>model = "gpt-5.3-codex" (alt gpt-5.4)</td><td>coding-tuned standard</td><td>SYNTHESIS — confirm</td></tr>
+            <tr><td>model: haiku</td><td>model = "gpt-5.4-mini"</td><td>mini tier</td><td>SYNTHESIS — confirm</td></tr>
+            <tr><td>model: inherit/absent</td><td>omit model</td><td>inherits parent session</td><td>confirmed</td></tr>
+            <tr><td>tools incl. Edit/Write</td><td>sandbox_mode = "workspace-write"</td><td>writes files</td><td>confirmed</td></tr>
+            <tr><td>tools read-only</td><td>sandbox_mode = "read-only"</td><td>Read/Glob/Grep only</td><td>confirmed</td></tr>
+            <tr><td>tools incl. Agent</td><td>NO EQUIVALENT — hard warn</td><td>Codex subagents can't spawn subagents</td><td>confirmed (key)</td></tr>
+            <tr><td>maxTurns</td><td>(drop)</td><td>global job_max_runtime_seconds only</td><td>confirmed</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Step 3 — inbound prose refs:</strong> <code>human-docs-workflow/SKILL.md</code> (description + lines 34, 218), <code>AGENTS.md:3,14</code>, <code>.claude-plugin/marketplace.json:3,11</code>, both <code>plugin.json</code> manifests, <code>.agents/plugins/marketplace.json</code>. Leave historical <code>docs/*.md</code> audit files.</p>
+        <p><strong>Cannot auto-translate / surface to user:</strong> agents whose <code>tools</code> include <code>Agent</code> (inert as Codex dispatchers — the repo's own plan-manager/plan-review are exactly this); sonnet/haiku model rows (judgment call, project-configurable); <code>danger-full-access</code> never auto-selected.</p>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--acceptance" data-section="acceptance">
+      <h2>Acceptance criteria</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>Skill dir + <code>name:</code> are <code>skill-agent-pipeline</code>; guard passes name-matches-dir.</li>
+          <li>No stale <code>docks:docs</code> / <code>/docs</code> skill refs outside historical <code>docs/*.md</code> audits.</li>
+          <li>A run drafts BOTH <code>.claude/agents/&lt;name&gt;.md</code> and <code>.codex/agents/&lt;name&gt;.toml</code>; the TOML has the three required keys + valid <code>model</code>/<code>sandbox_mode</code>.</li>
+          <li>An agent whose Claude <code>tools</code> include <code>Agent</code> triggers a "cannot port dispatch to Codex" warning.</li>
+          <li>A stale local <code>skill-maintenance</code> is flagged for removal with a <code>git rm</code> sentinel; none is regenerated.</li>
+          <li>A pre-existing skill whose description exceeds 1024 chars is flagged with a <code>rewrite-description</code> action (Phase 2a) and hard-failed by the verifier (Phase 6) until fixed.</li>
+          <li>No in-project (downstream) <code>scripts/...</code> dependency remains.</li>
+          <li><code>content_hash</code> re-synced; <code>metadata.updated</code> bumped; <code>bash scripts/ci.sh</code> green.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--out-of-scope" data-section="out-of-scope">
+      <h2>Out of scope</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li>Renaming the <code>agents</code> bridge skill — sibling plan <code>multi-tool-bridge-rename</code>.</li>
+          <li>Touching the plugin's own <code>plugins/docks/agents/</code> (plan-manager, plan-review stay Claude-only).</li>
+          <li>AGENTS.md / CLAUDE.md prose rewrites in consumer projects (the bridge skill's job).</li>
+          <li>Porting the repo's own plan-manager/plan-review to Codex TOML (they depend on the <code>Agent</code> tool — documented as a known limit only).</li>
+          <li>Codex <code>mcp_servers</code> auto-wiring beyond pass-through.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--mistakes" data-section="mistakes">
+      <h2>Mistakes &amp; Dead Ends</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>2026-05-27</strong>: Agent D's returned message referenced a translation table built earlier in its transcript but not included; no <code>SendMessage</code> tool is exposed to retrieve it. → Table reconstructed from agent C (full schema) + agent D's addendum; synthesis rows flagged "confirm". Avoid: ask research agents to inline the full artifact in their FINAL message.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--sources" data-section="sources">
+      <h2>Sources</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><a href="https://developers.openai.com/codex/subagents">Codex subagents</a> — <code>.codex/agents/*.toml</code> schema; required name/description/developer_instructions; one agent/file; <code>/agent</code>; built-ins default/worker/explorer.</li>
+          <li><a href="https://developers.openai.com/codex/sandbox">Codex sandbox</a> — <code>sandbox_mode</code> ∈ read-only / workspace-write / danger-full-access.</li>
+          <li><a href="https://developers.openai.com/codex/models">Codex models</a> — gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.2.</li>
+          <li><a href="https://simonwillison.net/2026/Mar/16/codex-subagents/">Simon Willison</a> — subagents GA 2026-03-16.</li>
+          <li><a href="https://code.claude.com/docs/en/sub-agents">Claude sub-agents</a> — source frontmatter (name/description/tools/model/maxTurns) + markdown body.</li>
+          <li><code>plugins/docks/agents/plan-manager.md:1-6</code> + <code>plan-review.md:1-6</code> — real Claude agents; BOTH depend on <code>tools: …, Agent</code> → inert as Codex dispatchers (the canonical "cannot auto-translate" case).</li>
+          <li><code>docs/SKILL.md:20</code> — "Claude only" agent-gate to invert; <code>skills-builder.md:55,57</code> + <code>verifier.md:17</code> — existing rules to extend.</li>
+          <li><code>references/categorizer.md:13-21</code> — Phase-2a "5 checks" audit has NO description-length check; <code>explorer.md:23</code> truncates existing descriptions to ~120 chars. The 1024 hard cap is established in <code>skills/AGENTS.md</code> + <code>skill-maintenance/SKILL.md</code> (Codex skips over-cap skills).</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--blockers" data-section="blockers">
+      <h2>Blockers</h2>
+      <div class="plan-section__content markdown"></div>
+    </section>
+
+    <section class="plan-section plan-section--notes" data-section="notes">
+      <h2>Notes</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>Name choice:</strong> <code>skill-agent-pipeline</code> (user decision 2026-05-27) — most literal: produces both skills and agents.</li>
+          <li><strong>Codex agents decision:</strong> "both formats always" — even a Claude-only project gets <code>.codex/agents/*.toml</code>, matching the cross-tool ethos.</li>
+          <li><strong>Coupling with <code>multi-tool-bridge-rename</code>:</strong> that plan edits two files in this tree. Ship the bridge rename FIRST, then this rename moves the dir; else rebase.</li>
+          <li>Model mapping beyond opus→gpt-5.5 is a judgment call — make it project-configurable.</li>
+          <li><strong>References question answered:</strong> the pipeline ALREADY emits <code>references/</code> for generated skills (<code>skills-builder.md:5</code>). Step 9 is confirmation + tightening.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--evidence" data-section="evidence">
+      <h2>Evidence log</h2>
+      <div class="plan-section__content markdown">
+        <ul>
+          <li><strong>2026-05-27T12:29:38-03:00</strong> — Scaffolded after investigation + 2 parallel research agents (Codex subagent TOML schema; Claude→Codex translation grounded against real agent files) — by plan-manager.</li>
+          <li><strong>2026-05-27T12:43:33-03:00</strong> — Added Step 10 (enforce ≤1024-char description audit on pre-existing skills) + acceptance criterion after the user flagged the cap only governed generated skills — by plan-manager.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plan-section plan-section--review" data-section="review">
+      <h2>Review</h2>
+      <div class="plan-section__content markdown"></div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="./20260527-skill-agent-pipeline-rename.md">source: 20260527-skill-agent-pipeline-rename.md</a>
+    <span class="generated-at">generated 2026-05-27T12:43:33-03:00</span>
+  </footer>
+
+  <script src="../_assets/dashboard.js"></script>
+</body>
+</html>
