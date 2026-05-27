@@ -5,8 +5,8 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-05-24"
-  # content_hash: auto-managed by scripts/skill-content-hash.sh --backfill
-  content_hash: "7758ea8f2cf10483557e78dd16999c4d2b04b4982fd512377ce22562195024ed"
+  # content_hash: auto-managed by scripts/skills/content-hash.sh --backfill
+  content_hash: "4788c5d44583ae03a67a3b524a506b9db30500e8fec93c8672e644c0ae6ff35b"
 ---
 
 # Refactor (cross-tool pipeline)

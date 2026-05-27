@@ -28,44 +28,20 @@ section() { [ "$QUIET" -eq 0 ] && printf "\n\033[1m▸ %s\033[0m\n" "$1"; }
 # --- preconditions ---
 command -v bash >/dev/null    || { echo "bash required"; exit 2; }
 command -v jq   >/dev/null    || { echo "jq required";   exit 2; }
-command -v python3 >/dev/null || { echo "python3 required (yaml validation)"; exit 2; }
+
+# Node is already a Codex prerequisite. The repo uses pnpm + the npm `yaml`
+# package to parse SKILL.md frontmatter exactly instead of approximating YAML
+# with grep.
+# shellcheck source=scripts/lib/skills.sh
+source "$REPO_DIR/scripts/lib/skills.sh"
+skills_require_node_yaml "$REPO_DIR" || exit $?
 
 # --- 1. workflow YAML validity (catches the bug that broke 5 runs in a row) ---
-# Tries pyyaml first; on Debian/PEP 668 envs where pyyaml isn't installable
-# without --break-system-packages, falls back to yamllint, then `yq`. If
-# none are present locally, skip with a note — tag-CI on GitHub Actions
-# always re-validates so an invalid workflow never makes it to release.
 section "workflow YAML"
-yaml_check_ok=0
-if python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))" 2>/dev/null; then
-  ok ".github/workflows/ci.yml parses (pyyaml)"
-  yaml_check_ok=1
-elif command -v yamllint >/dev/null 2>&1; then
-  if yamllint -d "{rules: {document-start: disable, line-length: disable, truthy: disable}}" .github/workflows/ci.yml >/dev/null 2>&1; then
-    ok ".github/workflows/ci.yml parses (yamllint)"
-    yaml_check_ok=1
-  else
-    fail ".github/workflows/ci.yml YAML invalid (yamllint)"
-  fi
-elif command -v yq >/dev/null 2>&1; then
-  if yq eval '.' .github/workflows/ci.yml >/dev/null 2>&1; then
-    ok ".github/workflows/ci.yml parses (yq)"
-    yaml_check_ok=1
-  else
-    fail ".github/workflows/ci.yml YAML invalid (yq)"
-  fi
-fi
-if [ "$yaml_check_ok" -eq 0 ]; then
-  # No YAML validator available locally — distinguish "missing tool" from "invalid YAML".
-  # Capture output rather than piping: under `set -o pipefail` the pipeline takes
-  # python3's exit code (always 1 when the import fails), so `python | grep` would
-  # mis-classify "missing module" as "invalid YAML".
-  py_yaml_err=$(python3 -c "import yaml" 2>&1 || true)
-  if echo "$py_yaml_err" | grep -q "ModuleNotFoundError"; then
-    [ "$QUIET" -eq 0 ] && printf "\033[1;33m  ⚠\033[0m .github/workflows/ci.yml YAML check skipped — install pyyaml/yamllint/yq locally for fast feedback (tag-CI on GitHub validates regardless)\n"
-  else
-    fail ".github/workflows/ci.yml YAML invalid"
-  fi
+if node -e 'const fs=require("fs"); const {parseDocument}=require("yaml"); const doc=parseDocument(fs.readFileSync(".github/workflows/ci.yml","utf8"), {prettyErrors:true, strict:true, uniqueKeys:true}); if (doc.errors.length) { for (const e of doc.errors) console.error(e.message); process.exit(1); }' >/dev/null 2>&1; then
+  ok ".github/workflows/ci.yml parses (node yaml)"
+else
+  fail ".github/workflows/ci.yml YAML invalid (node yaml)"
 fi
 
 # --- 2. plugin manifest ---
@@ -107,6 +83,13 @@ if [ -f "$CODEX_PLUGIN" ]; then
     ok "$CODEX_PLUGIN JSON valid"
   else
     fail "$CODEX_PLUGIN JSON invalid"
+  fi
+  CODEX_SKILLS_TYPE=$(jq -r '.skills | type' "$CODEX_PLUGIN" 2>/dev/null)
+  CODEX_SKILLS_VALUE=$(jq -r '.skills // empty' "$CODEX_PLUGIN" 2>/dev/null)
+  if [ "$CODEX_SKILLS_TYPE" = "string" ] && [ "$CODEX_SKILLS_VALUE" = "./skills/" ]; then
+    ok "codex plugin.json skills uses current Codex string path ($CODEX_SKILLS_VALUE)"
+  else
+    fail "codex plugin.json skills must be string \"./skills/\" for current Codex (arrays are rejected)"
   fi
   CODEX_PLUGIN_V=$(jq -r '.version' "$CODEX_PLUGIN" 2>/dev/null)
   if [ "$CODEX_PLUGIN_V" = "$PLUGIN_V" ]; then
@@ -152,7 +135,7 @@ fi
 
 # --- 3. structural guards ---
 section "structural guards"
-for g in guard-skills guard-agents guard-tree; do
+for g in skills/guard agents/guard tree/guard; do
   if bash "scripts/$g.sh" >/dev/null 2>&1; then
     ok "$g passed"
   else
@@ -162,7 +145,7 @@ done
 
 # --- 4. quality score floors ---
 # Per-file floor is the gate; total floor = sum(per_file_floor × count).
-# Floors live in scripts/scoring.config.json (one source of truth).
+# Floors live in scripts/config/scoring.json (one source of truth).
 # Skills are per-category (categorization in plan foundation-categorization-scoring).
 # Agents + commands are flat — plugin manifest auto-discovers them at depth-1 only.
 section "quality score floors"
@@ -171,26 +154,26 @@ section "quality score floors"
 for c in engineering productivity; do
   dir="plugins/docks/skills/$c"
   [ -d "$dir" ] || continue
-  floor=$(bash scripts/read-floor.sh skills "$c" 2>/dev/null) || { fail "scoring.config.json missing skills.$c"; continue; }
+  floor=$(bash scripts/config/read-floor.sh skills "$c" 2>/dev/null) || { fail "scripts/config/scoring.json missing skills.$c"; continue; }
   count=$(find "$dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
   [ "$count" -eq 0 ] && continue
-  cat_score=$(bash scripts/score-skills.sh --per-file 2>/dev/null \
+  cat_score=$(bash scripts/skills/score.sh --per-file 2>/dev/null \
               | awk -v c="$c" 'index($1, c"/") == 1 {sum += $2} END {print sum+0}')
   cat_floor=$(( count * floor ))
   if [ "$cat_score" -ge "$cat_floor" ]; then
-    ok "score-skills/$c: $cat_score (floor $cat_floor = $count × $floor)"
+    ok "skills score/$c: $cat_score (floor $cat_floor = $count × $floor)"
   else
-    fail "score-skills/$c: $cat_score below floor $cat_floor ($count × $floor)"
+    fail "skills score/$c: $cat_score below floor $cat_floor ($count × $floor)"
   fi
 done
 
 # Flat kinds (agents)
 for k in agents; do
-  floor=$(bash scripts/read-floor.sh "$k" 2>/dev/null) || { fail "scoring.config.json missing $k"; continue; }
+  floor=$(bash scripts/config/read-floor.sh "$k" 2>/dev/null) || { fail "scripts/config/scoring.json missing $k"; continue; }
   # Exclude reserved context-tree node files — they're not agent definitions.
   count=$(find "plugins/docks/$k" -mindepth 1 -maxdepth 1 -name '*.md' ! -name AGENTS.md ! -name CLAUDE.md 2>/dev/null | wc -l)
   total_floor=$(( count * floor ))
-  score=$(bash "scripts/score-$k.sh" 2>/dev/null)
+  score=$(bash "scripts/$k/score.sh" 2>/dev/null)
   if [ -n "$score" ] && [ "$score" -ge "$total_floor" ]; then
     ok "score-$k: $score (floor $total_floor = $count × $floor)"
   else
@@ -204,8 +187,8 @@ section "per-file score floors"
 # Skills (per-category). Upstream-vendored skills (those with an `upstream:`
 # frontmatter block) are preserved verbatim from their source, so they're
 # exempt from the kit-calibrated per-file floor — the same relaxation
-# score-skills.sh already applies to their CSO/freshness checks. Structural
-# guards (guard-skills.sh) still gate them.
+# skills/score.sh already applies to their CSO/freshness checks. Structural
+# guards (skills/guard.sh) still gate them.
 any_under=0
 exempt_n=0
 while IFS= read -r line; do
@@ -216,18 +199,18 @@ while IFS= read -r line; do
     exempt_n=$((exempt_n + 1))
     continue
   fi
-  floor=$(bash scripts/read-floor.sh skills "$cat" 2>/dev/null)
+  floor=$(bash scripts/config/read-floor.sh skills "$cat" 2>/dev/null)
   [ -z "$floor" ] && { fail "  skills:$catname no floor for category '$cat'"; any_under=1; continue; }
   if [ "$s" -lt "$floor" ]; then
     fail "  skills:$catname score $s below per-file floor $floor"
     any_under=1
   fi
-done < <(bash scripts/score-skills.sh --per-file 2>/dev/null)
-[ "$any_under" -eq 0 ] && ok "skills per-file all clear per-category floors ($exempt_n upstream exempt)"
+done < <(bash scripts/skills/score.sh --per-file 2>/dev/null)
+[ "$any_under" -eq 0 ] && ok "skills per-file all clear per-category floors ($exempt_n upstream skipped)"
 
 # Flat kinds (agents)
 for k in agents; do
-  floor=$(bash scripts/read-floor.sh "$k" 2>/dev/null) || continue
+  floor=$(bash scripts/config/read-floor.sh "$k" 2>/dev/null) || continue
   any_under=0
   while IFS= read -r line; do
     s=$(echo "$line" | awk '{print $NF}')
@@ -236,17 +219,18 @@ for k in agents; do
       fail "  $k:$n score $s below per-file floor $floor"
       any_under=1
     fi
-  done < <(bash "scripts/score-$k.sh" --per-file 2>/dev/null)
+  done < <(bash "scripts/$k/score.sh" --per-file 2>/dev/null)
   [ "$any_under" -eq 0 ] && ok "$k per-file all ≥ $floor"
 done
 
 # --- 6. skill-maintainer idempotency ---
 # Every kit skill's stored metadata.content_hash must match its recomputed hash,
 # so re-running the maintainer is a no-op (no metadata.updated churn). Catches a
-# skill edited without re-running scripts/skill-content-hash.sh --backfill.
+# skill edited without re-running scripts/skills/content-hash.sh --backfill.
 section "skill-maintainer idempotency"
 if bash tests/skill-maintainer-idempotency.sh >/dev/null 2>&1; then
-  ok "skill content_hash in sync; maintainer re-run is a no-op (upstream excluded)"
+  upstream_n=$(grep -R -l '^upstream:' plugins/docks/skills/*/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')
+  ok "skill content_hash in sync; maintainer re-run is a no-op ($upstream_n upstream skipped)"
 else
   fail "skill-maintainer idempotency failed (run: bash tests/skill-maintainer-idempotency.sh)"
 fi
@@ -254,15 +238,15 @@ fi
 # --- 7. scaffold spec + render smoke (no-op when docs/scaffold/spec.yaml absent) ---
 if [ -f docs/scaffold/spec.yaml ]; then
   section "scaffold"
-  if bash scripts/guard-scaffold-spec.sh >/dev/null 2>&1; then
-    ok "guard-scaffold-spec passed (spec coherent; referenced paths resolve)"
+  if bash scripts/scaffold/guard-spec.sh >/dev/null 2>&1; then
+    ok "scaffold/guard-spec passed (spec coherent; referenced paths resolve)"
   else
-    fail "guard-scaffold-spec failed (run: bash scripts/guard-scaffold-spec.sh)"
+    fail "scaffold/guard-spec failed (run: bash scripts/scaffold/guard-spec.sh)"
   fi
-  if bash scripts/test-scaffold.sh >/dev/null 2>&1; then
-    ok "test-scaffold passed (templates render to a valid skeleton)"
+  if bash scripts/scaffold/test.sh >/dev/null 2>&1; then
+    ok "scaffold/test passed (templates render to a valid skeleton)"
   else
-    fail "test-scaffold failed (run: bash scripts/test-scaffold.sh)"
+    fail "scaffold/test failed (run: bash scripts/scaffold/test.sh)"
   fi
 fi
 

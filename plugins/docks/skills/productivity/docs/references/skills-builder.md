@@ -15,7 +15,7 @@ Before documenting any library / framework / external API in a skill, fetch curr
 ```yaml
 ---
 name: <skill-name>
-description: Use when <triggers>. Covers <5+ project-specific identifiers>.
+description: "Use when <triggers>. Covers <5+ project-specific identifiers>."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -32,9 +32,29 @@ Title → `<constraint>` block (2–4 rules) → `## When to Use` → `## Core P
 
 Critical constraints at START, gotchas at END (U-shaped attention). Tables for comparisons, bullets for sequences — no prose paragraphs. Every claim has a `file:line`. Positive framing ("Use `const`, not `var`"). Code blocks from actual source. No slop ("important to note", inflated adjectives). `| Good | Bad | Why |` tables for fragile rules.
 
+## Codex + Claude frontmatter rules
+
+Generated skills must load in both Codex and Claude Code:
+
+| Rule | Why |
+|---|---|
+| Quote every `description` string | YAML treats `: ` as a mapping and `#` as a comment in plain scalars |
+| Keep `description` ≤1024 chars | Codex rejects longer descriptions |
+| Avoid `<` and `>` in `description` | Codex skill validation rejects angle brackets |
+| Put concrete triggers first | The body loads only after the skill triggers |
+| Move enumerations to `references/` | Prevent overlong descriptions and session-listing bloat |
+
+```yaml
+# BAD — invalid YAML
+description: Use when editing routes: checkout, account, webhook.
+
+# GOOD — one YAML string, under the hard cap
+description: "Use when editing checkout routes, STRIPE_WEBHOOK_SECRET handling, CartExpiredError, order state transitions, or pnpm seed:orders fixtures. Not for generic React UI work."
+```
+
 ## Maintenance skill (if proposed)
 
-`pattern: reviewer`, body ≤100 lines. Workflow: identify modified files → cross-reference skill `source_files` → update affected skills → bump `metadata.updated` ONLY when the skill's meaning changed (normalized body or any `references/*.md` differs). Re-running on an unchanged skill MUST be a no-op. Describe checks as inline read/search/list steps — do NOT reference kit-internal validators (`guard-skills.sh`, `score-skills.sh`), which don't ship to downstream projects.
+Prefer the plugin-provided `docks:skill-maintenance`. Create a local `skill-maintenance` only for project-specific behavior not covered by the plugin. If proposed: `pattern: reviewer`, body ≤100 lines, quoted description ≤1024 chars. Workflow: identify modified files → cross-reference skill `source_files` → update affected skills → bump `metadata.updated` ONLY when the skill's meaning changed (normalized body or any `references/*.md` differs). Re-running on an unchanged skill MUST be a no-op. Describe checks as inline read/search/list steps — do NOT reference kit-internal validators, which don't ship to downstream projects.
 
 ## Output (write under `## Phase 3: Skills Plan`)
 
@@ -47,3 +67,4 @@ Per skill, a delimited block: `### File: .claude/skills/<name>/SKILL.md` + full 
 | Body restates what the model already knows ("TypeScript is typed…") | Cut — the body is for project-specific knowledge only |
 | `name:` ≠ directory name | Rename so they match (kebab-case) — guards fail otherwise |
 | Touching AGENTS.md / CLAUDE.md | Out of scope here — use the `agents` bridge skill |
+| Unquoted description with `: ` or `#` | Quote it before the plan reaches approval — Codex will skip the skill |

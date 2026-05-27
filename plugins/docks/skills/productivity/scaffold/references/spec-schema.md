@@ -1,6 +1,6 @@
 # spec.yaml schema
 
-`docs/scaffold/spec.yaml` defines what a seeded project contains. Setup mode writes it; seed mode reads it. Stdlib-parseable YAML, no anchors/aliases. `scripts/guard-scaffold-spec.sh` validates it; `scripts/test-scaffold.sh` renders it.
+`docs/scaffold/spec.yaml` defines what a seeded project contains. Setup mode writes it; seed mode reads it. Stdlib-parseable YAML, no anchors/aliases. `scripts/scaffold/guard-spec.sh` validates it; `scripts/scaffold/test.sh` renders it.
 
 ## Top-level keys
 
@@ -32,10 +32,12 @@ templated_files:
   - { template: codex-plugin.json.template,      dest: "plugins/{{ plugin_name }}/.codex-plugin/plugin.json" }
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
+  - { template: package.json.template,           dest: "package.json" }
+  - { template: pnpm-lock.yaml.template,         dest: "pnpm-lock.yaml" }
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
 ```
 
-The three versioned manifests (`plugin.json`, codex `plugin.json`, claude `marketplace.json`) must agree on `version` — `test-scaffold.sh` enforces this on the rendered output.
+The three versioned manifests (`plugin.json`, codex `plugin.json`, claude `marketplace.json`) must agree on `version` — `scripts/scaffold/test.sh` enforces this on the rendered output.
 
 ## `tree_nodes`
 
@@ -73,14 +75,19 @@ bundled_skills:
 
 ```yaml
 scripts:
-  - { source: scripts/guard-skills.sh }
-  - { source: scripts/score-skills.sh }
-  - { source: scripts/scoring.config.json }
-  - { source: scripts/read-floor.sh }
-  - { source: scripts/guard-tree.sh }
+  - { source: scripts/lib/skills.sh }
+  - { source: scripts/lib/validate-skills.mjs }
+  - { source: scripts/skills/guard.sh }
+  - { source: scripts/skills/codex.sh }
+  - { source: scripts/skills/claude.sh }
+  - { source: scripts/skills/score.sh }
+  - { source: scripts/skills/content-hash.sh }
+  - { source: scripts/config/read-floor.sh }
+  - { source: scripts/config/scoring.json }
+  - { source: scripts/tree/guard.sh }
 ```
 
-Copied verbatim into the new project's `scripts/`. Each validator accepts a path argument, so the seeded project invokes them against its own `plugins/<name>/skills` (see the seeded `scripts/AGENTS.md`).
+Copied verbatim into the new project's `scripts/`. Each validator accepts a path argument, so the seeded project invokes them against its own `plugins/<name>/skills` (see the seeded `scripts/AGENTS.md`). The generated `package.json` and `pnpm-lock.yaml` provide the Node `yaml` dependency for parser-backed skill validation.
 
 ## `variables`
 

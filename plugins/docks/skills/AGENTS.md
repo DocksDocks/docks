@@ -7,7 +7,7 @@ Run `bash scripts/ci.sh` after any skill change — it must be green before comm
 </constraint>
 
 <constraint>
-After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `bash scripts/skill-content-hash.sh --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
+After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `bash scripts/skills/content-hash.sh --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
 </constraint>
 
 ## Description (the thing that gets matched)
@@ -26,7 +26,7 @@ After changing a skill's meaning, bump `metadata.updated` (today) and re-sync th
 | `description` | recommended; ≤1,024 hard cap; ≤500 for full credit; starts "Use when" |
 | `user-invocable` | `true` for slash-command-style skills, else `false` |
 | `metadata.updated` | `YYYY-MM-DD`; bump only on a real content change |
-| `metadata.content_hash` | auto-managed by `skill-content-hash.sh --backfill` |
+| `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.sh --backfill` |
 | `allowed-tools` | pre-approves tools while the skill is active |
 | third-party | add an `upstream:` block (`source`/`license`/`vendored_at`) to relax kit checks for vendored skills |
 
@@ -47,7 +47,7 @@ Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-co
 
 ## Scoring
 
-`bash scripts/score-skills.sh --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/scoring.config.json`). Aim 14+ on new skills. Structural gate: `bash scripts/guard-skills.sh`. To author a new skill from scratch, use the `write-skill` skill.
+`bash scripts/skills/score.sh --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/config/scoring.json`). Aim 14+ on new skills. Structural gate: `bash scripts/skills/guard.sh`. To author a new skill from scratch, use the `write-skill` skill.
 
 ## Namespace
 

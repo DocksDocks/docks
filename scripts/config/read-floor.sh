@@ -1,13 +1,13 @@
 #!/bin/bash
-# Read per-file score floor from scoring.config.json.
+# Read per-file score floor from scripts/config/scoring.json.
 # Usage:
-#   ./read-floor.sh <kind> <category>   # categorized kinds (skills)
-#   ./read-floor.sh <kind>              # flat kinds (agents, commands)
+#   scripts/config/read-floor.sh <kind> <category>   # categorized kinds (skills)
+#   scripts/config/read-floor.sh <kind>              # flat kinds (agents, commands)
 # Prints the integer per_file_floor on stdout.
 # Exits non-zero if the kind/category pair isn't declared.
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIG="$SCRIPT_DIR/scoring.config.json"
+CONFIG="$SCRIPT_DIR/scoring.json"
 KIND="${1:?usage: $0 <kind> [<category>]}"
 CATEGORY="${2:-}"
 

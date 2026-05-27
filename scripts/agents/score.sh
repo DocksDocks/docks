@@ -10,6 +10,7 @@
 # Output: single total, or `<name> <score>` per agent with --per-file
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MODE="total"
 DIR=""
 for arg in "$@"; do
@@ -18,7 +19,7 @@ for arg in "$@"; do
     *) DIR="$arg" ;;
   esac
 done
-DIR="${DIR:-$SCRIPT_DIR/../plugins/docks/agents}"
+DIR="${DIR:-$REPO_DIR/plugins/docks/agents}"
 total=0
 
 if ! compgen -G "$DIR/*.md" > /dev/null; then

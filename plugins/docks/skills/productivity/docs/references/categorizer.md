@@ -3,7 +3,11 @@
 Audit every existing skill and propose the full skill-set delta: create / update / split / merge / refresh / rewrite-description.
 
 <constraint>
-CSO identifier rule: every proposed description must start `Use when…` and contain ≥5 identifiers specific to THIS project — exported names, config keys, env vars, error types, CLI commands, route patterns, version-specific symptom synonyms. Generic phrases ("module boundaries", "error propagation", "API integration", "database operations") count for nothing. A description failing this is rewritten before approval.
+CSO identifier rule: every proposed description must start `Use when…`, be ≤1024 characters, contain no angle brackets, and contain ≥5 identifiers specific to THIS project — exported names, config keys, env vars, error types, CLI commands, route patterns, version-specific symptom synonyms. Generic phrases ("module boundaries", "error propagation", "API integration", "database operations") count for nothing. A description failing this is rewritten before approval.
+</constraint>
+
+<constraint>
+Codex YAML rule: generated descriptions are quoted YAML strings by default. If a description contains `: `, `#`, quotes, brackets, CLI flags, route templates, or code punctuation, it MUST still parse as one YAML string. Do not accept unquoted descriptions from proposals.
 </constraint>
 
 ## Audit each existing skill (5 checks)
@@ -22,7 +26,7 @@ For each uncovered knowledge area large enough to warrant one: name (kebab-case)
 
 ## Maintenance skill rule
 
-If Phase 0 reported no `skill-maintenance` skill, always propose creating `.claude/skills/skill-maintenance/SKILL.md` (`pattern: reviewer`, `user-invocable: false`). If it exists but frontmatter drifted, propose a fix.
+If plugin `docks:skill-maintenance` is available, do NOT create a generic local `skill-maintenance` skill. If a local copy already exists, propose removing it only after comparing for project-specific rules. Create or keep local `skill-maintenance` only when the project needs local maintenance behavior that the plugin skill does not cover. If it exists but frontmatter drifted, propose a fix before any remove/keep decision.
 
 ## Output (write under `## Phase 2a: Categorizer Proposals`)
 
@@ -34,3 +38,4 @@ If Phase 0 reported no `skill-maintenance` skill, always propose creating `.clau
 |---|---|
 | Proposing agent-role changes here | Phase 4 owns roles; mixing scopes corrupts the Phase 3 builder's `source_files` |
 | Accepting a description with generic terms | Re-count project identifiers; <5 → rewrite before approval |
+| Creating generic local `skill-maintenance` while Docks already ships one | Use `docks:skill-maintenance`; keep local only for project-specific rules |

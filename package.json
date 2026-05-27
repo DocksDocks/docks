@@ -1,0 +1,15 @@
+{
+  "name": "docks-plugin-tooling",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "description": "Author-side validation tooling for the Docks plugin.",
+  "scripts": {
+    "ci": "bash scripts/ci.sh",
+    "guard:skills": "bash scripts/skills/guard.sh",
+    "guard:skills:codex": "bash scripts/skills/codex.sh",
+    "guard:skills:claude": "bash scripts/skills/claude.sh"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.0"
+  }
+}

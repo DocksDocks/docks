@@ -28,10 +28,10 @@ Per-area conventions live in nested `AGENTS.md` nodes, each paired with a one-li
 | `plugins/{{ plugin_name }}/skills/AGENTS.md` | skill authoring rules |
 | `scripts/AGENTS.md` | validators + CI |
 
-The `context-tree` skill maintains these nodes; `scripts/guard-tree.sh` enforces the pair convention.
+The `context-tree` skill maintains these nodes; `scripts/tree/guard.sh` enforces the pair convention.
 
 ## Tool-agnostic rules
 
-- Run `bash scripts/guard-tree.sh` and `bash scripts/guard-skills.sh plugins/{{ plugin_name }}/skills` before commit
+- Run `corepack enable && pnpm install --frozen-lockfile` once, then `bash scripts/tree/guard.sh` and `bash scripts/skills/guard.sh plugins/{{ plugin_name }}/skills` before commit
 - Skill bodies stay ≤500 lines per agentskills.io spec (sweet spot 80–310)
 - Manifest versions stay in lockstep across both `plugin.json`s and both marketplace catalogs

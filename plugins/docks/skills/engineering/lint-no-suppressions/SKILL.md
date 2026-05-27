@@ -1,11 +1,11 @@
 ---
 name: lint-no-suppressions
-description: Use when a linter or type-checker flags an error; when tempted to add eslint-disable / @ts-ignore / @ts-expect-error / @ts-nocheck / # noqa / # type: ignore / # pylint: disable / @SuppressWarnings; when setting up a new repo's pre-commit hook; when reviewing a PR that adds a suppression comment; or when a rule like react-hooks/set-state-in-effect or @typescript-eslint/no-explicit-any seems "wrong" for the current line.
+description: "Use when a linter or type-checker flags an error; when tempted to add eslint-disable / @ts-ignore / @ts-expect-error / @ts-nocheck / # noqa / # type: ignore / # pylint: disable / @SuppressWarnings; when setting up a new repo's pre-commit hook; when reviewing a PR that adds a suppression comment; or when a rule like react-hooks/set-state-in-effect or @typescript-eslint/no-explicit-any seems \"wrong\" for the current line."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
-  content_hash: "1079692709d5e74a853e01f509ba74c247ae3e951adf5c845468d8fa526ec7e9"
+  updated: "2026-05-26"
+  content_hash: "4d976a688cbbc7aca8b2170a9e1516983c53007c287ae40bd0e192f59b1bcf7b"
 ---
 
 # Never Suppress Lint / Type Errors

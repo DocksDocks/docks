@@ -7,10 +7,10 @@
 # The repo root is a node too: root CLAUDE.md is the bare `@AGENTS.md` import,
 # root AGENTS.md is the cross-tool entry point. See
 # plugins/docks/skills/productivity/context-tree.
-# Usage: ./guard-tree.sh [repo-root]   (default: inferred from script location)
+# Usage: ./guard.sh [repo-root]   (default: inferred from script location)
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="${1:-$SCRIPT_DIR/..}"
+ROOT="${1:-$SCRIPT_DIR/../..}"
 ROOT="$(cd "$ROOT" && pwd)"
 errors=0
 nodes=0
@@ -54,8 +54,8 @@ $node_dirs
 EOF
 
 if [ "$errors" -gt 0 ]; then
-  echo "guard-tree FAILED: $errors error(s) across $nodes node(s)" >&2
+    echo "tree/guard FAILED: $errors error(s) across $nodes node(s)" >&2
   exit 1
 fi
-echo "guard-tree PASSED: $nodes context-tree node(s) valid"
+echo "tree/guard PASSED: $nodes context-tree node(s) valid"
 exit 0

@@ -1,9 +1,10 @@
 #!/bin/bash
 # Guard: validate agent markdown structural correctness for every agent in a directory
-# Usage: ./guard-agents.sh [path-or-file]   (default: plugins/docks/agents)
+# Usage: ./guard.sh [path-or-file]   (default: plugins/docks/agents)
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ARG="${1:-$SCRIPT_DIR/../plugins/docks/agents}"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ARG="${1:-$REPO_DIR/plugins/docks/agents}"
 errors=0
 
 # Accept either a directory or a single file.
@@ -28,7 +29,7 @@ for file in "${FILES[@]}"; do
   name_fromfile=$(basename "$file" .md)
   # Skip the .gitkeep sentinel + reserved context-tree node files. AGENTS.md /
   # CLAUDE.md are never agent definitions (uppercase fails the kebab-case name
-  # rule anyway); this dir doubles as a context-tree node validated by guard-tree.
+  # rule anyway); this dir doubles as a context-tree node validated by scripts/tree/guard.sh.
   case "$name_fromfile" in .gitkeep|AGENTS|CLAUDE) continue ;; esac
 
   # Must open with `---` frontmatter fence on line 1

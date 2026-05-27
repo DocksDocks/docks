@@ -1,11 +1,11 @@
 ---
 name: context-tree
-description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh <folder> / refresh. Not for single-root-context repos, generic doc generation, or docs/plans/ which is already a node."
+description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh folder / refresh all. Not for single-root-context repos, generic doc generation, or docs/plans/ which is already a node."
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-05-24"
-  content_hash: "713209493df170f5d4c55574379ac5171fec05b467c9bed3723685bb54139924"
+  updated: "2026-05-26"
+  content_hash: "7da9d18cc8f5a99e2851e0df3577147d0258babcf1c116ce57a636e0d4aee2b8"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -82,7 +82,7 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 4. **Write pairs.** For each approved folder: write `<folder>/AGENTS.md` (self-sufficient content per the template) + `<folder>/CLAUDE.md` (`@AGENTS.md` only).
 5. **Relocate, don't duplicate.** When a node's content is being *moved out of* the root context file, delete it from root in the same pass so the root shrinks. Leave a one-line breadcrumb in the root "Context tree" section, not the full content.
 6. **Root section.** Insert/update a "Context tree" section in root `AGENTS.md` listing the nodes (see `references/node-template.md`).
-7. **Verify.** Run `bash scripts/guard-tree.sh` (every node is a complete pair; CLAUDE.md is `@AGENTS.md`-only; AGENTS.md ≤500 lines) then `bash scripts/ci.sh`.
+7. **Verify.** Run `bash scripts/tree/guard.sh` (every node is a complete pair; CLAUDE.md is `@AGENTS.md`-only; AGENTS.md ≤500 lines) then `bash scripts/ci.sh`.
 
 ## Workflow — `refresh` / `audit`
 
@@ -96,12 +96,12 @@ Drift handling, existing-file merges, and the already-a-node detection live in [
 | Gotcha | Fix |
 |---|---|
 | Wrote `AGENTS.md` but no `CLAUDE.md` | Claude Code can't see it. Always write the pair; CLAUDE.md = `@AGENTS.md`. |
-| CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — `guard-tree.sh` fails otherwise. |
+| CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — `scripts/tree/guard.sh` fails otherwise. |
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
 | `init` clobbered `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them from the write set. |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
 | Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must call the maintainer `--check-only` predicate and no-op when nothing semantic changed. |
-| AGENTS.md grew past 500 lines | Past the node-body ceiling. Split the folder or tighten; `guard-tree.sh` enforces ≤500. |
+| AGENTS.md grew past 500 lines | Past the node-body ceiling. Split the folder or tighten; `scripts/tree/guard.sh` enforces ≤500. |
 
 ## When NOT to use
 

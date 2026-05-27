@@ -5,8 +5,8 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-05-24"
-  # content_hash: auto-managed by scripts/skill-content-hash.sh --backfill
-  content_hash: "af8de3e004e81df19c7277f60946fb5d47a83efbd61349a7d422be1992c4940c"
+  # content_hash: auto-managed by scripts/skills/content-hash.sh --backfill
+  content_hash: "506635d152b4422eeebaaafdc8d1e6d38e195d882d0fea4fc72a872c16919630"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -59,7 +59,7 @@ Run in order. Each phase reads its reference, then writes output under the exact
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
-2. **Phase 0** (inline): count `.claude/skills/*/SKILL.md` and `.claude/agents/*.md`; note whether `.claude/skills/skill-maintenance/` exists; write the counts + today under `## Phase 0: State`.
+2. **Phase 0** (inline): count `.agents/skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, and `.claude/agents/*.md`; note whether local `skill-maintenance` exists and whether plugin `docks:skill-maintenance` is available; write the counts + today under `## Phase 0: State`.
 3. Create/open the plan file (see below). Run Phases 1→2a→2b→3.
 4. **Branch:** on Claude Code, run Phases 4a→4b→5 (agent track). On any other runtime, skip them.
 5. Run Phase 6 (verifier). It checks only the phases that ran — skills always; agents only if present.
@@ -78,7 +78,7 @@ Write as you go — never hold all phase output in context and dump at the end. 
 
 ## Skill description quality (Phase 2a / 3)
 
-Every proposed description starts `Use when…` and carries ≥5 identifiers specific to THIS project — exported names, config keys, env vars, error types, CLI commands, route patterns. Generic phrases ("module boundaries", "error handling") count for nothing.
+Every proposed description starts `Use when…`, is valid YAML when parsed as frontmatter, is ≤1024 chars, contains no angle brackets, and carries ≥5 identifiers specific to THIS project — exported names, config keys, env vars, error types, CLI commands, route patterns. Quote descriptions by default. Generic phrases ("module boundaries", "error handling") count for nothing.
 
 | | Example |
 |---|---|
@@ -91,7 +91,7 @@ Phases 1–6 are read-only. After Phase 6:
 
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
 2. Surface it: report the counts and tell the user "review `docs/plans/planned/<slug>.md` and say `start <slug>` to implement."
-3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files (and agent files, Claude only); for regenerated agents, back up the original to `<name>.md.bak`; bump `metadata.updated` only on real content change, then re-sync hashes with `skill-content-hash.sh --backfill`.
+3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files (and agent files, Claude only); for regenerated agents, back up the original to `<name>.md.bak`; bump `metadata.updated` only on real content change, then re-sync hashes with `scripts/skills/content-hash.sh --backfill`.
 4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `agents` bridge skill's job.
 
 ## References
@@ -113,7 +113,8 @@ Phases 1–6 are read-only. After Phase 6:
 |---|---|---|
 | Running the agent phases (4–5) on Codex | Emits `.claude/agents/` files a non-Claude runtime ignores | Skip 4a/4b/5 off Claude Code; produce skills only |
 | Implementing before the user starts the plan | Writes files the user never approved | Gate on `start <slug>`; Phases 1–6 are read-only |
-| Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change, then `skill-content-hash.sh --backfill` |
+| Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change, then `scripts/skills/content-hash.sh --backfill` |
 | SKILL.md body crossing 310 lines | Overflow dropped after compaction; verifier hard-fails | Split detail into `references/<topic>.md` (30–150 lines) |
+| Unquoted `description:` contains `: ` or `#` | Codex skips the skill with invalid YAML or silently truncated description | Quote every generated description |
 | Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |
 | Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers cross-tool config | Use the `agents` bridge skill for those |

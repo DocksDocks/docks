@@ -20,12 +20,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: "guard-skills"
-        run: bash scripts/guard-skills.sh
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: "enable corepack"
+        run: corepack enable
+      - name: "install pnpm dependencies"
+        run: pnpm install --frozen-lockfile
+      - name: "skills guard (Codex + Claude)"
+        run: bash scripts/skills/guard.sh
       - name: "guard-agents"
-        run: bash scripts/guard-agents.sh
+        run: bash scripts/agents/guard.sh
       - name: "guard-tree"
-        run: bash scripts/guard-tree.sh
+        run: bash scripts/tree/guard.sh
 
   score:
     name: "scores (quality floors)"
@@ -41,29 +48,30 @@ jobs:
         run: |
           # Skills are categorized: plugins/docks/skills/<category>/<skill>/.
           # Per-category floor (engineering/productivity differ) — mirrors scripts/ci.sh
-          # so local and tag-CI agree. Floors from scripts/scoring.config.json.
+          # so local and tag-CI agree. Floors from scripts/config/scoring.json.
           fail=0
           for c in engineering productivity; do
             dir="plugins/docks/skills/$c"
             [ -d "$dir" ] || continue
-            floor=$(bash scripts/read-floor.sh skills "$c" 2>/dev/null) || { echo "::error::scoring.config.json missing skills.$c"; fail=1; continue; }
+            floor=$(bash scripts/config/read-floor.sh skills "$c" 2>/dev/null) || { echo "::error::scripts/config/scoring.json missing skills.$c"; fail=1; continue; }
             count=$(find "$dir" -mindepth 1 -maxdepth 1 -type d | wc -l)
             [ "$count" -eq 0 ] && continue
-            cat_score=$(bash scripts/score-skills.sh --per-file | awk -v c="$c" 'index($1, c"/") == 1 {sum += $2} END {print sum+0}')
+            cat_score=$(bash scripts/skills/score.sh --per-file | awk -v c="$c" 'index($1, c"/") == 1 {sum += $2} END {print sum+0}')
             cat_floor=$((count * floor))
             echo "score-skills/$c: $cat_score (floor $cat_floor = $count × $floor)"
             [ "$cat_score" -ge "$cat_floor" ] || { echo "::error::skills/$c score $cat_score below floor $cat_floor ($count × $floor)"; fail=1; }
           done
           [ "$fail" -eq 0 ]
-      - name: "score-agents (floor = N × 14)"
+      - name: "score-agents (configured floor)"
         run: |
           # Exclude reserved context-tree node files (AGENTS.md/CLAUDE.md) — not agents.
           # Mirrors scripts/ci.sh so local and tag-CI agree on the agent count.
           count=$(find plugins/docks/agents -mindepth 1 -maxdepth 1 -name '*.md' ! -name AGENTS.md ! -name CLAUDE.md | wc -l)
-          floor=$((count * 14))
-          score=$(bash scripts/score-agents.sh)
-          echo "score-agents total: $score (floor $floor = $count × 14)"
-          [ "$score" -ge "$floor" ] || { echo "::error::agents score $score below floor $floor ($count × 14)"; exit 1; }
+          per_file_floor=$(bash scripts/config/read-floor.sh agents)
+          floor=$((count * per_file_floor))
+          score=$(bash scripts/agents/score.sh)
+          echo "score-agents total: $score (floor $floor = $count × $per_file_floor)"
+          [ "$score" -ge "$floor" ] || { echo "::error::agents score $score below floor $floor ($count × $per_file_floor)"; exit 1; }
 
   per-file-floors:
     name: "per-file score floors"
@@ -74,7 +82,7 @@ jobs:
       - name: "skills (per-category per-file floor)"
         run: |
           # Per-category per-file floor (engineering=10, productivity=8 per
-          # scripts/scoring.config.json). Upstream-vendored skills (with an
+          # scripts/config/scoring.json). Upstream-vendored skills (with an
           # `upstream:` frontmatter block) are exempt — mirrors scripts/ci.sh.
           fail=0
           while IFS= read -r line; do
@@ -84,7 +92,7 @@ jobs:
             if grep -qE '^upstream:' "plugins/docks/skills/$catname/SKILL.md" 2>/dev/null; then
               continue
             fi
-            floor=$(bash scripts/read-floor.sh skills "$cat" 2>/dev/null)
+            floor=$(bash scripts/config/read-floor.sh skills "$cat" 2>/dev/null)
             if [ -z "$floor" ]; then
               echo "::error::skills:$catname no floor for category '$cat'"
               fail=1
@@ -94,19 +102,20 @@ jobs:
               echo "::error::skill $catname score $score below per-file floor $floor"
               fail=1
             fi
-          done < <(bash scripts/score-skills.sh --per-file)
+          done < <(bash scripts/skills/score.sh --per-file)
           [ "$fail" -eq 0 ]
-      - name: "agents (floor 14 per-file)"
+      - name: "agents (configured per-file floor)"
         run: |
           fail=0
+          floor=$(bash scripts/config/read-floor.sh agents)
           while IFS= read -r line; do
             score=$(echo "$line" | awk '{print $NF}')
             name=$(echo "$line" | awk '{$NF=""; print $0}' | sed 's/[[:space:]]*$//')
-            if [ "$score" -lt 14 ]; then
-              echo "::error::agent $name score $score below per-file floor 14"
+            if [ "$score" -lt "$floor" ]; then
+              echo "::error::agent $name score $score below per-file floor $floor"
               fail=1
             fi
-          done < <(bash scripts/score-agents.sh --per-file)
+          done < <(bash scripts/agents/score.sh --per-file)
           [ "$fail" -eq 0 ]
 
   plugin-validate:
@@ -126,12 +135,14 @@ jobs:
     needs: guard
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-node@v6
         with:
-          python-version: '3.x'
-      - name: "install pyyaml (spec parsing)"
-        run: pip install pyyaml
+          node-version: '24'
+      - name: "enable corepack"
+        run: corepack enable
+      - name: "install pnpm dependencies"
+        run: pnpm install --frozen-lockfile
       - name: "guard-scaffold-spec (spec coherent; paths resolve)"
-        run: bash scripts/guard-scaffold-spec.sh
+        run: bash scripts/scaffold/guard-spec.sh
       - name: "test-scaffold (templates render to a valid skeleton)"
-        run: bash scripts/test-scaffold.sh
+        run: bash scripts/scaffold/test.sh

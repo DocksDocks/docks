@@ -18,10 +18,7 @@
     "test",
     "review"
   ],
-  "skills": [
-    "./skills/engineering",
-    "./skills/productivity"
-  ],
+  "skills": "./skills/",
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "docks",

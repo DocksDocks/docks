@@ -1,6 +1,6 @@
 # CI workflows (.github/)
 
-`workflows/ci.yml` runs the same guards + scorers as local `scripts/ci.sh`, plus YAML / manifest validation, on GitHub.
+`workflows/ci.yml` runs the same guards + scorers as local `scripts/ci.sh`, plus YAML / manifest validation, on GitHub. Skill YAML/frontmatter guards use Node + pnpm (`corepack enable`, then `pnpm install --frozen-lockfile`) before running `scripts/skills/guard.sh`, which covers Codex and Claude compatibility checks.
 
 ## Trigger model
 

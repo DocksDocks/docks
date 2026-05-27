@@ -47,4 +47,4 @@ old=$(cat <folder>/AGENTS.md 2>/dev/null)
 [ "$new" = "$old" ] && exit 0   # no write, no churn
 ```
 
-This mirrors `skill-content-hash.sh --check-only`: compute the would-be content, compare to disk, write only on a real difference.
+This mirrors `scripts/skills/content-hash.sh --check-only`: compute the would-be content, compare to disk, write only on a real difference.

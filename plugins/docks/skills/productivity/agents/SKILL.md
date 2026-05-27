@@ -1,11 +1,11 @@
 ---
 name: agents
-description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code + others) — creates canonical AGENTS.md, migrates .claude/skills/ → .agents/skills/, symlinks .claude/skills/<name> back, and rewrites CLAUDE.md to @AGENTS.md while preserving Claude-specific content (content-classified). Idempotent. Not for setting up docs/plans/ (use plan-init) or porting Claude subagents to Codex TOML (format mismatch).
+description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code + others) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, and rewrites CLAUDE.md to @AGENTS.md while preserving Claude-specific content (content-classified). Idempotent. Not for setting up docs/plans/ (use plan-init) or porting Claude subagents to Codex TOML (format mismatch).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-11"
-  content_hash: "6829e48ba0ce1e3dbc1c6dcc227e98cc808c01315cff006d6029b1977c7c39d0"
+  updated: "2026-05-26"
+  content_hash: "e1bee3a7d2e44f1ee5027d433332b9059b82183fd1a2eb8caba85a69dc719bf0"
 ---
 
 # Multi-Tool Agent Bridge

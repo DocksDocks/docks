@@ -1,10 +1,15 @@
 ---
 name: caveman
-description: "Ultra-compressed communication mode. Cuts token usage ~75% by dropping filler, articles, and pleasantries while keeping full technical accuracy. Use when user says \"caveman mode\", \"talk like caveman\", \"use caveman\", \"less tokens\", \"be brief\", or invokes /caveman."
-upstream:
-  source: https://github.com/mattpocock/skills/tree/main/skills/productivity/caveman
-  license: MIT
-  vendored_at: "2026-05-17"
+description: "Use when the user asks for ultra-compressed communication: \"caveman mode\", \"talk like caveman\", \"use caveman\", \"less tokens\", \"be brief\", or invokes /caveman. Drops filler, articles, and pleasantries while keeping full technical accuracy."
+user-invocable: true
+metadata:
+  pattern: upstream-adapted
+  updated: "2026-05-27"
+  upstream:
+    source: https://github.com/mattpocock/skills/tree/main/skills/productivity/caveman
+    license: MIT
+    vendored_at: "2026-05-17"
+  content_hash: "0a9ea2a7a83ec6a76eacd81d9618a678517b8eae4f1642a0bc8b16322dbeef42"
 ---
 
 Respond terse like smart caveman. All technical substance stay. Only fluff die.

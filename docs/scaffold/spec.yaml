@@ -1,6 +1,6 @@
 # scaffold spec — what `scaffold <target>` seeds into a new docks-style plugin.
 # Schema: plugins/docks/skills/productivity/scaffold/references/spec-schema.md
-# Validated by scripts/guard-scaffold-spec.sh (paths resolve) + scripts/test-scaffold.sh (templates render).
+# Validated by scripts/scaffold/guard-spec.sh (paths resolve) + scripts/scaffold/test.sh (templates render).
 version: 1
 
 plugin:
@@ -13,6 +13,8 @@ templated_files:
   - { template: codex-plugin.json.template,      dest: "plugins/{{ plugin_name }}/.codex-plugin/plugin.json" }
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
+  - { template: package.json.template,          dest: "package.json" }
+  - { template: pnpm-lock.yaml.template,        dest: "pnpm-lock.yaml" }
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
 
 # Context-tree node pairs (each gets AGENTS.md + one-line CLAUDE.md). Exactly one seed source per node.
@@ -33,11 +35,16 @@ bundled_skills:
 # Validator scripts copied verbatim. They accept a path arg, so the seeded project
 # invokes them against its own plugins/<name>/skills (see scripts/AGENTS.md template).
 scripts:
-  - { source: scripts/guard-skills.sh }
-  - { source: scripts/score-skills.sh }
-  - { source: scripts/scoring.config.json }
-  - { source: scripts/read-floor.sh }
-  - { source: scripts/guard-tree.sh }
+  - { source: scripts/lib/skills.sh }
+  - { source: scripts/lib/validate-skills.mjs }
+  - { source: scripts/skills/guard.sh }
+  - { source: scripts/skills/codex.sh }
+  - { source: scripts/skills/claude.sh }
+  - { source: scripts/skills/score.sh }
+  - { source: scripts/skills/content-hash.sh }
+  - { source: scripts/config/read-floor.sh }
+  - { source: scripts/config/scoring.json }
+  - { source: scripts/tree/guard.sh }
 
 variables:
   plugin_name:        { prompt: "Plugin name (kebab-case, not 'docks')" }

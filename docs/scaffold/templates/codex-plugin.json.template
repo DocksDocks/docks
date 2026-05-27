@@ -6,9 +6,7 @@
     "name": "{{ author_name }}"
   },
   "license": "{{ license }}",
-  "skills": [
-    "./skills/productivity"
-  ],
+  "skills": "./skills/",
   "interface": {
     "displayName": "{{ plugin_name }}",
     "shortDescription": "{{ plugin_description }}",

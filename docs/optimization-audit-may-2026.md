@@ -1,6 +1,6 @@
 # `docks` Plugin Optimization Audit on Opus 4.7 — May 2026
 
-**Scope:** the `docks` plugin (repo: `~/projects/docks`, published as [DocksDocks/docks](https://github.com/DocksDocks/docks)) ships the multi-agent pipeline kit — command orchestrators, portable skills, specialized subagents, and the author-side validators (`scripts/guard-*.sh`, `scripts/score-*.sh`). Inventory shifts as the plugin evolves; use the filesystem and validators for the current roster. Consumer-facing pieces — settings.json, hooks, status line, sync — live in `public` and are tracked at `docs/roadmap/planned/optimization-audit-may-2026.md` in the [DocksDocks/public](https://github.com/DocksDocks/public) repo.
+**Scope:** the `docks` plugin (repo: `~/projects/docks`, published as [DocksDocks/docks](https://github.com/DocksDocks/docks)) ships the multi-agent pipeline kit — command orchestrators, portable skills, specialized subagents, and the author-side validators under `scripts/skills/`, `scripts/agents/`, `scripts/tree/`, and `scripts/scaffold/`. Inventory shifts as the plugin evolves; use the filesystem and validators for the current roster. Consumer-facing pieces — settings.json, hooks, status line, sync — live in `public` and are tracked at `docs/roadmap/planned/optimization-audit-may-2026.md` in the [DocksDocks/public](https://github.com/DocksDocks/public) repo.
 
 ## TL;DR
 
@@ -19,7 +19,7 @@ Top-10 actionable items derived from §1 below.
 - [x] **(MED) APPLIED 2026-05-06** Opt parallel scanners into `context: fork` via skill-wrapper refactor. No validator carve-out needed; wrapper skills clear the existing floor. Unblocked by v2.1.101 fix to issue [#16803](https://github.com/anthropics/claude-code/issues/16803). (§A.2). Expected: ~10× input-token cut on parallel-scanner children 2-N — to be confirmed via `cache_read_input_tokens` measurement on the next live runs.
 - [ ] **(HIGH)** Add reproduce-step to verifier agents (`refactor-pre-verifier`, `refactor-post-verifier`, `security-synthesizer`, `docs-verifier`) — re-grep cited line / re-run failing test before report (§D.1).
 - [ ] **(MED)** Pilot advisor tool (`advisor_20260301`) on `refactor-pre-verifier` (Sonnet) via Messages API outside the kit — beta header `advisor-tool-2026-03-01` (§A.3). Demoted from HIGH because per-agent integration is not yet exposed through Claude Code agent frontmatter.
-- [ ] **(MED)** Move long enumerations from skill `description` fields to body sections (§C.1). Run `bash scripts/score-skills.sh --per-file` to verify no regressions.
+- [ ] **(MED)** Move long enumerations from skill `description` fields to body sections (§C.1). Run `bash scripts/skills/score.sh --per-file` to verify no regressions.
 - [ ] **(MED)** Restructure skill listings to Cursor's "names + 1-line desc" pattern (§C.2). Pilot with one skill before full rollout.
 - [ ] **(MED)** Add OODA framing to orchestrator command bodies (`/docks:security`, `/docks:docs`, `/docks:refactor`) (§B.1).
 - [ ] **(MED)** Audit plan-file IPC for chain-of-thought leakage — verifier should see decisions only, not planner's reasoning trace (§B.2).
@@ -86,7 +86,7 @@ Public repo policy is `CLAUDE_CODE_EFFORT_LEVEL=max` (kept intentional — see `
 
 **Risk:** the `security-vulnerability-scanner` keeps `max` because 4.7-specific cybersecurity refusals are sensitive to effort drop (Anthropic-flagged in 4.7 release notes; refusal rate on safety-research tasks is 33% even at high effort).
 
-**Validation:** the existing `scripts/score-agents.sh` does NOT yet score the `effort` field. Consider adding a per-agent floor for the synthesis tier (must declare `max`) so a contributor can't accidentally drop it.
+**Validation:** the existing `scripts/agents/score.sh` does NOT yet score the `effort` field. Consider adding a per-agent floor for the synthesis tier (must declare `max`) so a contributor can't accidentally drop it.
 
 ### A.2 Fork subagents — APPLIED via skill-wrapper refactor (2026-05-06)
 
@@ -192,9 +192,9 @@ Per `docks/CLAUDE.md`:
 
 Every session loads the description. Audit existing skills for `Covers X, Y, Z…` enumerations in the description that should live in the body.
 
-The `score-skills.sh` validator already rewards ≤500 char descriptions (2 pts ≤500, 1 pt ≤1000, 0 else) and deducts for slop words (`comprehensive`, `robust`, `elegant`, `seamless`). **Verify scores haven't regressed** since the most recent additions.
+The `scripts/skills/score.sh` validator already rewards ≤500 char descriptions (2 pts ≤500, 1 pt ≤1000, 0 else) and deducts for slop words (`comprehensive`, `robust`, `elegant`, `seamless`). **Verify scores haven't regressed** since the most recent additions.
 
-Worth running `bash scripts/score-skills.sh --per-file` and looking for any skill scoring below the 8/16 floor.
+Worth running `bash scripts/skills/score.sh --per-file` and looking for any skill scoring below the 8/16 floor.
 
 ### C.2 Cursor's "names + 1-line desc" listing pattern (MED / high effort)
 
@@ -278,7 +278,7 @@ Each is a real decision the public web can inform but not settle. Targets live h
 
 8. **Plan-brittleness (§D.2).** Inject a deliberate mid-run failure (delete a file the planner expects) and measure whether the orchestrator re-plans gracefully. Anthropic 2026 Architecture Patterns lists this as the #1 plan-and-execute failure mode.
 
-9. **Description-bloat sweep (§C.1).** Run `bash scripts/score-skills.sh --per-file` and `bash scripts/score-agents.sh --per-file`. Any score below the floor → trim to ≤500 chars and re-run.
+9. **Description-bloat sweep (§C.1).** Run `bash scripts/skills/score.sh --per-file` and `bash scripts/agents/score.sh --per-file`. Any score below the floor → trim to ≤500 chars and re-run.
 
 ---
 
@@ -286,7 +286,7 @@ Each is a real decision the public web can inform but not settle. Targets live h
 
 Reinforcement — don't break these:
 
-1. **CSO-compliant agent descriptions** ("Use when… Not for…") are the documented agentskills.io standard and the recommended Anthropic skill-authoring practice. Validators (`scripts/guard-agents.sh`) enforce this. Keep rigorously.
+1. **CSO-compliant agent descriptions** ("Use when… Not for…") are the documented agentskills.io standard and the recommended Anthropic skill-authoring practice. Validators (`scripts/agents/guard.sh`) enforce this. Keep rigorously.
 
 2. **Per-phase model tiering — empirically validated.** Not a folk theory:
    - Anthropic's research system: Lead Opus + Sonnet subagents outperformed single-Opus by 90.2%.

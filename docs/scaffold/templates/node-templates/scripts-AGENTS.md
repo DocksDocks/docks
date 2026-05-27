@@ -2,9 +2,11 @@
 
 Author-side validators — never shipped to consumers. Each accepts a path argument so it targets this project's plugin directory.
 
-- `guard-skills.sh <skills-dir>` — structural skill checks (frontmatter, ≤500 lines, name matches dir)
-- `score-skills.sh <skills-dir>` — quality score (per-category floor from `scoring.config.json`)
-- `guard-tree.sh [repo-root]` — context-tree node-pair convention (AGENTS.md + one-line CLAUDE.md)
-- `read-floor.sh skills <category>` — reads the per-category score floor
+- `skills/guard.sh <skills-dir>` — runs both Codex and Claude skill compatibility checks
+- `skills/codex.sh <skills-dir>` — Codex loader checks (YAML, name, description cap)
+- `skills/claude.sh <skills-dir>` — Claude skill checks (CSO, metadata, body cap)
+- `skills/score.sh <skills-dir>` — quality score (per-category floor from `config/scoring.json`)
+- `tree/guard.sh [repo-root]` — context-tree node-pair convention (AGENTS.md + one-line CLAUDE.md)
+- `config/read-floor.sh skills <category>` — reads the per-category score floor
 
-Run these before every commit. Wire them into a `ci.sh` as the project grows.
+Run `corepack enable && pnpm install --frozen-lockfile` before the Node-backed skill guards. Run validators before every commit. Wire them into a `ci.sh` as the project grows.

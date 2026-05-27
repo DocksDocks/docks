@@ -11,7 +11,7 @@ The `scaffold` skill's source of truth for seeding new docks-style plugin projec
 ## Rules
 
 - Every `{{ var }}` token in a template must correspond to a key under `spec.yaml` `variables`.
-- Bundled-skill `source` paths and `scripts` paths in `spec.yaml` must resolve in this repo — `scripts/guard-scaffold-spec.sh` enforces this.
-- `scripts/test-scaffold.sh` renders the templates with test values into a temp dir and asserts the output is a structurally valid skeleton: JSON manifests parse, the three versioned manifests agree, every context-tree node is a valid pair, and no `{{ }}` placeholder leaks through.
+- Bundled-skill `source` paths and `scripts` paths in `spec.yaml` must resolve in this repo — `scripts/scaffold/guard-spec.sh` enforces this.
+- `scripts/scaffold/test.sh` renders the templates with test values into a temp dir and asserts the output is a structurally valid skeleton: JSON manifests parse, the three versioned manifests agree, every context-tree node is a valid pair, and no `{{ }}` placeholder leaks through.
 - Detect bundled paths from the LIVE repo when editing `spec.yaml` — don't hand-copy stale examples (the skill is `context-tree`, not `tree`).
 - Editing `spec.yaml` or `templates/` re-runs both guards via `bash scripts/ci.sh`.

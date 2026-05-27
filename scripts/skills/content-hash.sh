@@ -1,5 +1,5 @@
 #!/bin/bash
-# skill-content-hash.sh — deterministic content hash for skills, so the
+# content-hash.sh — deterministic content hash for skills, so the
 # skill-maintainer can bump `metadata.updated` ONLY on a real content change.
 #
 # Semantic-change predicate: the hash covers a skill's MEANING —
@@ -16,16 +16,17 @@
 # and must not be rewritten (same policy as the per-file score-floor exemption).
 #
 # Usage:
-#   skill-content-hash.sh <skill-dir>          print the content hash of one skill
-#   skill-content-hash.sh --backfill [root]    write/refresh content_hash on every
-#                                              kit skill under root (never touches updated)
-#   skill-content-hash.sh --check-only [root]  report per skill: unchanged | would-bump;
-#                                              exit non-zero if any would-bump (CI gate)
+#   scripts/skills/content-hash.sh <skill-dir>          print the content hash of one skill
+#   scripts/skills/content-hash.sh --backfill [root]    write/refresh content_hash on every
+#                                                        kit skill under root (never touches updated)
+#   scripts/skills/content-hash.sh --check-only [root]  report per skill: unchanged | would-bump;
+#                                                        exit non-zero if any would-bump (CI gate)
 #
 # Default root: plugins/docks/skills
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEFAULT_ROOT="$SCRIPT_DIR/../plugins/docks/skills"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DEFAULT_ROOT="$REPO_DIR/plugins/docks/skills"
 
 sha256() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 | awk '{print $1}'
@@ -120,7 +121,7 @@ case "$mode" in
     exit 0
     ;;
   "")
-    echo "usage: skill-content-hash.sh <skill-dir> | --backfill [root] | --check-only [root]" >&2
+    echo "usage: scripts/skills/content-hash.sh <skill-dir> | --backfill [root] | --check-only [root]" >&2
     exit 2
     ;;
   *)

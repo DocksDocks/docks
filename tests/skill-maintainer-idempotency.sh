@@ -7,11 +7,11 @@
 #      so the maintainer would bump NOTHING (`--check-only` exits 0)
 #
 # If this fails, a skill was edited without re-running
-# `scripts/skill-content-hash.sh --backfill` (and bumping metadata.updated).
+# `scripts/skills/content-hash.sh --backfill` (and bumping metadata.updated).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-HASH=scripts/skill-content-hash.sh
+HASH=scripts/skills/content-hash.sh
 fail=0
 
 # 1. determinism — same input twice yields the same hash
@@ -27,11 +27,12 @@ fi
 
 # 2. idempotency — the maintainer would bump nothing
 if check=$(bash "$HASH" --check-only); then
-  echo "ok: all kit skills in sync ($(echo "$check" | grep -c '^unchanged') unchanged, upstream excluded)"
+  upstream_n=$(grep -R -l '^upstream:' plugins/docks/skills/*/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')
+  echo "ok: all kit skills in sync ($(echo "$check" | grep -c '^unchanged') unchanged, $upstream_n upstream skipped)"
 else
   echo "FAIL: skills out of sync — maintainer would bump:"
   echo "$check" | grep '^would-bump' | sed 's/^/  /'
-  echo "  fix: bash scripts/skill-content-hash.sh --backfill  (and bump metadata.updated on changed skills)"
+  echo "  fix: bash scripts/skills/content-hash.sh --backfill  (and bump metadata.updated on changed skills)"
   fail=1
 fi
 

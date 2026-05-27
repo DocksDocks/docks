@@ -8,7 +8,7 @@ The entire file is one line:
 @AGENTS.md
 ```
 
-No frontmatter, no heading, nothing else. `guard-tree.sh` fails any CLAUDE.md that isn't exactly this. The `@AGENTS.md` import resolves relative to the file's own directory.
+No frontmatter, no heading, nothing else. `scripts/tree/guard.sh` fails any CLAUDE.md that isn't exactly this. The `@AGENTS.md` import resolves relative to the file's own directory.
 
 ## AGENTS.md skeleton
 

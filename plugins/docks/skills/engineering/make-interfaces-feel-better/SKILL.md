@@ -1,10 +1,15 @@
 ---
 name: make-interfaces-feel-better
-description: Use when building or reviewing UI components; fixing positioning that 'feels off' or 'feels detached'; placing popovers/dropdowns/tooltips relative to their trigger; implementing animations, hover/press states, shadows, borders, typography, micro-interactions, or enter/exit transitions. Triggers on 'make it feel better', 'feels off', 'looks weird', or any visual-detail polish work.
-upstream:
-  source: https://github.com/jakubkrehel/make-interfaces-feel-better
-  license: MIT
-  vendored_at: "2026-04-20"
+description: "Use when building or reviewing UI components; fixing positioning that 'feels off' or 'feels detached'; placing popovers/dropdowns/tooltips relative to their trigger; implementing animations, hover/press states, shadows, borders, typography, micro-interactions, or enter/exit transitions. Triggers on 'make it feel better', 'feels off', 'looks weird', or any visual-detail polish work."
+user-invocable: true
+metadata:
+  pattern: upstream-adapted
+  updated: "2026-05-27"
+  upstream:
+    source: https://github.com/jakubkrehel/make-interfaces-feel-better
+    license: MIT
+    vendored_at: "2026-04-20"
+  content_hash: "10e9969d17eab3195adb5edbaea58c427d293cb14a8b05da5792b63b50ec0aae"
 ---
 
 # Details that make interfaces feel better

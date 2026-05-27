@@ -10,11 +10,11 @@ Per-finding reproduction is mandatory. Before any finding lands in `## Issues to
 
 | Check | Rule |
 |---|---|
-| Frontmatter | valid YAML; `name` (lowercase+hyphens), `description`, `user-invocable`, `metadata.pattern`, `source_files`, `updated` |
-| CSO | starts `Use when…`; ≥5 project-specific identifiers; <1024 chars |
+| Frontmatter | valid YAML; `name` (lowercase+hyphens), quoted `description`, `user-invocable`, `metadata.pattern`, `source_files`, `updated` |
+| CSO | starts `Use when…`; ≥5 project-specific identifiers; ≤1024 chars; no angle brackets; no unquoted `: ` or `#` hazards |
 | Size | body ≤500 (hard cap). **Hard fail** 310–500 lines with NO references/ — split required |
 | Reference accuracy | spot-check ≥5 `file:line` refs by reading |
-| Maintenance skill | present, `pattern: reviewer`, `user-invocable: false`; **hard fail** if body references kit-internal validators (`guard-skills.sh`, etc.) |
+| Maintenance skill | use plugin `docks:skill-maintenance` when available; local copy only for project-specific rules; `pattern: reviewer`, `user-invocable: false`; **hard fail** if body references kit-internal validators that do not ship downstream |
 | No prose-config edits | Phase 3 must contain no AGENTS.md / CLAUDE.md edits |
 
 ## Agent checks (every Phase 5 agent — Claude only)
@@ -39,3 +39,4 @@ For each split/merge in Phase 3, the gate presentation MUST include `git rm -r .
 |---|---|
 | Flagging a path "missing" from a stale earlier scan | Re-list it now — paths drift between scan and verify |
 | Verifying agent checks on a Codex run | No agents were produced; run skills checks only |
+| Letting an overlong or invalid YAML description through because the body is good | Fix frontmatter first — Codex skips invalid skills before reading the body |

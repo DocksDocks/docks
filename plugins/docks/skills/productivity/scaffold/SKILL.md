@@ -1,11 +1,11 @@
 ---
 name: scaffold
-description: "Use when spinning up a new docks-style plugin project, or capturing the current repo's structure for reuse — generates a cross-tool plugin skeleton (context-tree AGENTS.md/CLAUDE.md nodes, plugin manifests, bundled skills, validator scripts) from docs/scaffold/spec.yaml. Modes: `scaffold setup` writes the spec from this repo; `scaffold <target-path>` seeds a new greenfield project. Not for non-plugin repos, non-empty targets, or generic file templating."
+description: "Use when spinning up a new docks-style plugin project, or capturing the current repo's structure for reuse — generates a cross-tool plugin skeleton (context-tree AGENTS.md/CLAUDE.md nodes, plugin manifests, bundled skills, validator scripts) from docs/scaffold/spec.yaml. Modes: `scaffold setup` writes the spec from this repo; `scaffold target-path` seeds a new greenfield project. Not for non-plugin repos, non-empty targets, or generic file templating."
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-05-24"
-  content_hash: "08dfc84f564049908d4c4e1f805b8f2ced1be5bf5f04d4b95410911885836d9b"
+  updated: "2026-05-26"
+  content_hash: "e46440b8f7eb9a4d19105bedaabd603aa713d8ec8fc142f07bdebc2f794bfa7d"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -71,7 +71,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 3. **Choose templates.** For each file a new project needs parameterized (manifests, root AGENTS.md, node AGENTS.md), create `templates/<name>.template` with `{{ var }}` placeholders where repo-specific values appear.
 4. **Propose.** Show the spec (variables, tree_nodes, bundled_skills, scripts) + the template file list. **STOP for confirmation** (constraint 2).
 5. **Write.** Create `docs/scaffold/spec.yaml`, `docs/scaffold/templates/`, and the `docs/scaffold/` context-tree node pair (AGENTS.md + CLAUDE.md).
-6. **Verify.** `bash scripts/guard-scaffold-spec.sh` (spec parses; every referenced template + bundled-skill path resolves).
+6. **Verify.** `bash scripts/scaffold/guard-spec.sh` (spec parses; every referenced template + bundled-skill path resolves).
 
 ## Workflow — seed mode (`scaffold <target-path>`)
 
@@ -80,7 +80,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 3. **Interview.** Prompt for each `variable`; pull `default_from` via `git config` where set. (Use `AskUserQuestion` on Claude; plain prompts elsewhere.)
 4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **STOP for confirmation** (constraint 2).
 5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; seed `docs/plans/` via the bundled plan-init.
-6. **Init + verify.** `git init` if needed. Run `bash <target>/scripts/ci.sh` — the new project must be green from a cold start. Then grep for stray `{{` (constraint 3).
+6. **Init + verify.** `git init` if needed. Run `corepack enable && pnpm install --frozen-lockfile`, then the generated validators such as `bash <target>/scripts/skills/guard.sh <target>/plugins/<name>/skills` and `bash <target>/scripts/tree/guard.sh <target>`. Then grep for stray `{{` (constraint 3).
 
 ## Gotchas
 
@@ -90,7 +90,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 | Left a raw `{{ plugin_name }}` in an output file | Unmapped variable. Grep the target for `{{` after writing; every token must resolve. |
 | Bundled-skill path in spec is stale (`tree`, old `agents`) | Detect bundled skills from the LIVE repo during setup; don't copy a hand-written example. |
 | Wrote a node AGENTS.md without its CLAUDE.md | Tree nodes are pairs. Seed both; CLAUDE.md = `@AGENTS.md` (see `context-tree`). |
-| New project's ci.sh fails on cold start | The spec/templates are wrong. Fix until `bash <target>/scripts/ci.sh` is green — that's the acceptance bar. |
+| New project's validators fail on cold start | The spec/templates are wrong. Fix until the generated skill and tree guards are green — that's the acceptance bar. |
 | Used `ExitPlanMode` for the gate | Claude-only. Use a conversational confirm so Codex works too. |
 
 ## When NOT to use

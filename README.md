@@ -61,8 +61,9 @@ Plus `write-skill`, `agents` (AGENTS.md ↔ skills bridging), `plan-manager`, `p
 │       ├── skills/, agents/           ← cross-tool skills + 2 plan-lifecycle agents
 │       └── README.md                  ← plugin-facing docs
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
-│   ├── guard-skills.sh / score-skills.sh
-│   └── guard-agents.sh / score-agents.sh
+│   ├── skills/guard.sh / score.sh
+│   ├── agents/guard.sh / score.sh
+│   └── scaffold/ + tree/ + config/
 └── .github/workflows/ci.yml           ← validator CI on push/PR
 ```
 
@@ -83,10 +84,12 @@ When a `--plugin-dir` plugin shares a name with an installed marketplace plugin,
 Four validators mirror the kit-side conventions:
 
 ```bash
-bash scripts/guard-skills.sh     # structural — frontmatter, ≤500 lines, name-matches-dir
-bash scripts/score-skills.sh     # quality score (max 16) — Use-when prefix, freshness, BAD/GOOD ratio
-bash scripts/guard-agents.sh     # frontmatter, "Use when…" / "Not…" CSO, model declared
-bash scripts/score-agents.sh     # quality score (max 15) — model, tools, Workflow + Success Criteria
+corepack enable
+pnpm install --frozen-lockfile
+bash scripts/skills/guard.sh     # Codex + Claude skill compatibility
+bash scripts/skills/score.sh     # quality score (max 16) — Use-when prefix, freshness, BAD/GOOD ratio
+bash scripts/agents/guard.sh     # frontmatter, "Use when…" / "Not…" CSO, model declared
+bash scripts/agents/score.sh     # quality score (max 15) — model, tools, Workflow + Success Criteria
 ```
 
 `--per-file` flag on score scripts prints one `<name> <score>` line per item — useful for spotting drift after an edit. `bash scripts/ci.sh` runs the full local gate (guards + scorers + manifest + idempotency).
@@ -109,7 +112,7 @@ CI runs all of these on every PR to `main` and on every `docks--v*` release tag 
 ./scripts/release.sh 0.2.0    # explicit
 ```
 
-The script bumps both manifests, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes auto-generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created — the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
+The script bumps the Claude and Codex plugin manifests plus the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes auto-generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created — the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
 
 CI runs only on (a) PRs to main, (b) tag pushes matching `docks--v*`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI — PR validation gates merges, tag-CI gates releases.
 

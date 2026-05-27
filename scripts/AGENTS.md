@@ -10,14 +10,16 @@ These scripts validate and release the plugin. They are **author-side only** —
 
 | Script | Purpose | Floor |
 |---|---|---|
-| `guard-skills.sh` | structural — frontmatter, ≤500 lines, name matches dir | pass/fail |
-| `score-skills.sh` | quality (max 16) | per-file ≥ category floor (engineering 10, productivity 8) |
-| `guard-agents.sh` | frontmatter, "Use when…"/"Not…" CSO, model declared | pass/fail |
-| `score-agents.sh` | quality (max 15) | per-file ≥14; total = N×14 |
-| `guard-tree.sh` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |
-| `skill-content-hash.sh` | `metadata.updated` idempotency baseline | `--check-only` gate |
+| `skills/guard.sh` | Runs Codex + Claude skill guards | pass/fail |
+| `skills/codex.sh` | Codex loader compatibility — YAML frontmatter via Node `yaml`, name/description, 1024-char cap, no truncating plain scalars | pass/fail |
+| `skills/claude.sh` | Claude compatibility — Codex checks plus CSO prefix, `user-invocable`, `metadata.updated`, body ≤500 | pass/fail |
+| `skills/score.sh` | quality (max 16) | per-file ≥ category floor (engineering 10, productivity 8) |
+| `skills/content-hash.sh` | `metadata.updated` idempotency baseline | `--check-only` gate |
+| `agents/guard.sh` | frontmatter, "Use when…"/"Not…" CSO, model declared | pass/fail |
+| `agents/score.sh` | quality (max 15) | per-file ≥14; total = N×14 |
+| `tree/guard.sh` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |
 
-`--per-file` on score scripts prints `<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate.
+`--per-file` on score scripts prints `<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill YAML parsing uses Node + pnpm (`corepack enable && pnpm install --frozen-lockfile`) so local checks match Codex-oriented tooling without requiring PyYAML.
 
 ## Edit → release workflow
 
@@ -49,4 +51,4 @@ Run `bash scripts/ci.sh` manually before `./scripts/release.sh` — iterating on
 
 ## Versioning
 
-Both `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and both marketplace catalogs carry a `version` that must agree — `release.sh` keeps them in lockstep; `claude plugin tag` validates it. Without an explicit `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `docks--v<X.Y.Z>` (double-dash separator from `claude plugin tag`).
+Both `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and the Claude marketplace catalog carry a `version` that must agree — `release.sh` keeps them in lockstep; `claude plugin tag` validates it. The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `docks--v<X.Y.Z>` (double-dash separator from `claude plugin tag`).
