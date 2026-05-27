@@ -1,32 +1,32 @@
 ---
 title: Rename docs skill to skill-agent-pipeline + emit Codex agents
 goal: Rename docs skill to skill-agent-pipeline; emit both Claude .md and Codex .toml agents; wire stale skill-maintenance removal; drop in-project guard dependence; confirm references/ convention.
-status: planned
+status: finished
 created: "2026-05-27T12:29:38-03:00"
-updated: "2026-05-27T12:43:33-03:00"
-started_at: null
+updated: "2026-05-27T13:39:45-03:00"
+started_at: "2026-05-27T13:20:56-03:00"
 assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: "971f9ccd4809c8780c1065ffb7c5ccfbe73c4c4e"
 tags: [skills, rename, codex, agents, pipeline]
 affected_paths:
-  - plugins/docks/skills/productivity/docs/SKILL.md
-  - plugins/docks/skills/productivity/docs/references/skills-builder.md
-  - plugins/docks/skills/productivity/docs/references/verifier.md
-  - plugins/docks/skills/productivity/docs/references/agents-builder.md
-  - plugins/docks/skills/productivity/docs/references/role-mapper.md
-  - plugins/docks/skills/productivity/docs/references/pattern-extractor.md
-  - plugins/docks/skills/productivity/docs/references/categorizer.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/SKILL.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/references/codex-agents-builder.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/references/agents-builder.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/references/role-mapper.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/references/pattern-extractor.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/references/explorer.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/references/categorizer.md
+  - plugins/docks/skills/productivity/skill-agent-pipeline/references/verifier.md
   - plugins/docks/skills/engineering/human-docs-workflow/SKILL.md
   - .claude-plugin/marketplace.json
-  - .agents/plugins/marketplace.json
   - plugins/docks/.claude-plugin/plugin.json
   - plugins/docks/.codex-plugin/plugin.json
   - AGENTS.md
 related_plans: [multi-tool-bridge-rename]
-review_status: null
+review_status: passed
 ---
 
 # Rename docs skill to skill-agent-pipeline + emit Codex agents
@@ -80,17 +80,17 @@ plan changes what the pipeline generates IN CONSUMER PROJECTS. The plugin's OWN
 ## Steps
 | # | Task | Depends | Parallel | Status | Owner |
 |---|---|---|---|---|---|
-| 1 | `git mv plugins/docks/skills/productivity/docs plugins/docks/skills/productivity/skill-agent-pipeline` | — | — | planned | — |
-| 2 | SKILL.md `name: docs → skill-agent-pipeline`; update body self-references + "Use instead" table; keep title | 1 | with 3 | planned | — |
-| 3 | Update all inbound prose references (see Step details) | 1 | with 2 | planned | — |
-| 4 | Un-gate agent track: rewrite `SKILL.md:20` constraint + pipeline table runtime column so 4a/4b/5 run on ALL runtimes emitting BOTH formats | 1 | — | planned | — |
-| 5 | Author `references/codex-agents-builder.md` — Codex TOML schema + Claude→Codex translation table + model mapping + `Agent`-tool hard-warn | 4 | with 6 | planned | — |
-| 6 | Update `agents-builder.md`, `role-mapper.md`, `pattern-extractor.md`, `verifier.md` for dual-format output + Codex TOML validation | 4 | with 5 | planned | — |
-| 7 | Wire stale local `skill-maintenance` detection→removal (categorizer 2a + skills-builder + gate `git rm` sentinel) | 1 | with 8,9 | planned | — |
-| 8 | Guard-independence sweep: no `bash scripts/...` in any in-project path; inline validation rules in references | 1 | with 7,9 | planned | — |
-| 9 | Confirm/strengthen `references/` convention for generated skills (constraint blocks, BAD/GOOD, split rule) | 1 | with 7,8 | planned | — |
-| 10 | Enforce ≤1024-char description audit on PRE-EXISTING skills (explorer length capture + categorizer 6th check + verifier over-cap hard-fail) | 1 | with 7,8,9 | planned | — |
-| 11 | Re-sync `content_hash`, bump `metadata.updated`, run `bash scripts/ci.sh` green | 2–10 | — | planned | — |
+| 1 | `git mv plugins/docks/skills/productivity/docs plugins/docks/skills/productivity/skill-agent-pipeline` | — | — | done | — |
+| 2 | SKILL.md `name: docs → skill-agent-pipeline`; update body self-references + "Use instead" table; keep title | 1 | with 3 | done | — |
+| 3 | Update all inbound prose references (see Step details) | 1 | with 2 | done | — |
+| 4 | Un-gate agent track: rewrite `SKILL.md:20` constraint + pipeline table runtime column so 4a/4b/5 run on ALL runtimes emitting BOTH formats | 1 | — | done | — |
+| 5 | Author `references/codex-agents-builder.md` — Codex TOML schema + Claude→Codex translation table + model mapping + `Agent`-tool hard-warn | 4 | with 6 | done | — |
+| 6 | Update `agents-builder.md`, `role-mapper.md`, `pattern-extractor.md`, `verifier.md` for dual-format output + Codex TOML validation | 4 | with 5 | done | — |
+| 7 | Wire stale local `skill-maintenance` detection→removal (categorizer 2a + skills-builder + gate `git rm` sentinel) | 1 | with 8,9 | done | — |
+| 8 | Guard-independence sweep: no `bash scripts/...` in any in-project path; inline validation rules in references | 1 | with 7,9 | done | — |
+| 9 | Confirm/strengthen `references/` convention for generated skills (constraint blocks, BAD/GOOD, split rule) | 1 | with 7,8 | done | — |
+| 10 | Enforce ≤1024-char description audit on PRE-EXISTING skills (explorer length capture + categorizer 6th check + verifier over-cap hard-fail) | 1 | with 7,8,9 | done | — |
+| 11 | Re-sync `content_hash`, bump `metadata.updated`, run `bash scripts/ci.sh` green | 2–10 | — | done | — |
 
 ### Step details
 - **Step 3 — inbound prose references to the `docs` skill** (grep-confirmed; update the catch-all by re-running `grep -rn -E "docks:docs|/docs\b|skills-audit/docs"` and excluding `docs/plans/` + historical `docs/*.md` audits):
@@ -129,14 +129,14 @@ plan changes what the pipeline generates IN CONSUMER PROJECTS. The plugin's OWN
 - **Step 10 — existing-skill description length** (user-flagged): today the ≤1024 cap only governs *generated* descriptions (`categorizer.md:6` constraint + `verifier.md`); pre-existing skills are never length-checked — the Phase-2a audit has 5 checks (Size=body-lines / Staleness / Coverage / CSO-quality / Deleted-source) and none measures description chars, and `explorer.md:23` truncates to ~120 chars. Add: (a) Phase 1 explorer records each existing skill's FULL description char-count; (b) Phase 2a categorizer gains a 6th audit check — `description >1024 chars → rewrite-description`, noting Codex hard-skips an over-cap skill (load-bearing, not cosmetic); (c) Phase 6 verifier hard-fails any existing skill still over cap. Applies to BOTH `.agents/skills/` and `.claude/skills/` entries.
 
 ## Acceptance criteria
-- [ ] Skill dir + `name:` are `skill-agent-pipeline`; guard passes name-matches-dir.
-- [ ] No stale `docks:docs` / `/docs` skill references outside historical `docs/*.md` audits.
-- [ ] A pipeline run drafts BOTH `.claude/agents/<name>.md` and `.codex/agents/<name>.toml` for each agent; the TOML has the three required keys and a valid `model`/`sandbox_mode`.
-- [ ] An agent whose Claude `tools` include `Agent` triggers a "cannot port dispatch to Codex" warning.
-- [ ] A stale local `skill-maintenance` is flagged for removal with a `git rm` sentinel; none is regenerated.
-- [ ] A pre-existing skill whose description exceeds 1024 chars is flagged with a `rewrite-description` action (Phase 2a) and hard-failed by the verifier (Phase 6) until fixed.
-- [ ] `grep -rn "scripts/" ` across the skill + references shows no in-project (downstream) dependency — only this-repo dev-loop references remain.
-- [ ] `content_hash` re-synced; `metadata.updated` bumped; `bash scripts/ci.sh` green.
+- [x] Skill dir + `name:` are `skill-agent-pipeline`; guard passes name-matches-dir.
+- [x] No stale `docks:docs` / `/docs` skill references outside historical `docs/*.md` audits.
+- [x] A pipeline run drafts BOTH `.claude/agents/<name>.md` and `.codex/agents/<name>.toml` for each agent; the TOML has the three required keys and a valid `model`/`sandbox_mode`.
+- [x] An agent whose Claude `tools` include `Agent` triggers a "cannot port dispatch to Codex" warning.
+- [x] A stale local `skill-maintenance` is flagged for removal with a `git rm` sentinel; none is regenerated.
+- [x] A pre-existing skill whose description exceeds 1024 chars is flagged with a `rewrite-description` action (Phase 2a) and hard-failed by the verifier (Phase 6) until fixed.
+- [x] `grep -rn "scripts/" ` across the skill + references shows no in-project (downstream) dependency — only this-repo dev-loop references remain.
+- [x] `content_hash` re-synced; `metadata.updated` bumped; `bash scripts/ci.sh` green.
 
 ## Out of scope
 - Renaming the `agents` bridge skill — sibling plan `multi-tool-bridge-rename`.
@@ -171,6 +171,13 @@ plan changes what the pipeline generates IN CONSUMER PROJECTS. The plugin's OWN
 ## Evidence log
 - **2026-05-27T12:29:38-03:00** — Plan scaffolded after investigation + 2 parallel research agents (Codex subagent TOML schema; Claude→Codex translation grounded against the repo's real agent files) confirmed the schema and translation rules — by plan-manager (main context).
 - **2026-05-27T12:43:33-03:00** — Added Step 10 (enforce ≤1024-char description audit on pre-existing skills) + acceptance criterion after the user flagged that the cap only governed generated skills, not the existing ones being audited — by plan-manager.
+- **2026-05-27T13:20:56-03:00** — All 11 steps implemented in main context: `git mv` docs→skill-agent-pipeline, SKILL.md rename + agent-gate inversion (both-formats always) + Phase-0/Phase-8 wiring, new `references/codex-agents-builder.md` (Codex TOML schema + Claude→Codex translation + model map + `Agent`-tool hard-warn), un-gated `role-mapper.md`/`pattern-extractor.md` headers, dual-format `agents-builder.md`/`verifier.md`, ≤1024 existing-skill audit across `explorer.md`/`categorizer.md`/`verifier.md`, stale-`skill-maintenance` removal in categorizer + gate. Inbound prose updated in 3 manifests + AGENTS.md + human-docs-workflow. `content_hash` re-synced; `bash scripts/ci.sh` green. Awaiting user go-ahead to commit + ship.
 
 ## Review
-(filled by plan-review on completion)
+
+- **Goal met:** yes — all 11 steps shipped in `971f9ccd`; 8/8 acceptance criteria verified against the diff (dir+`name:` = `skill-agent-pipeline`, both `.claude/agents/*.md` + `.codex/agents/*.toml` emission un-gated, `Agent`-tool NOT-PORTABLE hard-warn, stale-`skill-maintenance` `git rm` sentinel, ≤1024 pre-existing-skill audit, zero in-project `scripts/` refs).
+- **Regressions:** none — `bash scripts/ci.sh` green (guards, scorers, plugin validate, hash idempotency, scaffold all pass).
+- **CI:** pass
+- **Scope:** all 13 `affected_paths` present in `ship_commit`; `pattern-scanner.md` + `skills-builder.md` also appear rename-only (0-line, part of the dir move) — benign, not drift.
+- **Follow-ups:** none — the sonnet/haiku→Codex model-map rows are deliberately flagged "confirm per project" in `codex-agents-builder.md` (a documented judgment call, not a defect).
+- Filed by: plan-review on 2026-05-27T13:39:45-03:00
