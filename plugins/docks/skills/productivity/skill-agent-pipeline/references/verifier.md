@@ -32,6 +32,21 @@ Every `.claude/skills/…` path referenced by a Phase 5 agent MUST exist in the 
 
 For each split/merge in Phase 3, the gate presentation MUST include `git rm -r .claude/skills/<old-name>/` for cleanup. Flag if missing.
 
+## SKILL.md split preservation (per-section, not byte-%)
+
+For every Phase 3 split of a `SKILL.md` into `references/`, verify no content was lost — splitting adds pointers, so output ≥ input; a byte-% floor is the wrong check. Per-section presence + a line-parity tripwire:
+
+```bash
+# original snapshot taken before the split (e.g. /tmp/skill.before)
+while IFS= read -r h; do
+  grep -rqF "$h" <skill>/SKILL.md <skill>/references/ || echo "LOST SECTION: $h"
+done < <(grep -E '^#{1,3} ' /tmp/skill.before)
+before=$(wc -l < /tmp/skill.before); after=$(cat <skill>/SKILL.md <skill>/references/*.md | wc -l)
+awk -v b="$before" -v a="$after" 'BEGIN{ if (a < b) print "NET SHRINK after split" }'
+```
+
+Any `LOST SECTION` (relocated prose must be verbatim) / `NET SHRINK` ⇒ **hard fail**, restore the original.
+
 ## Output (write under `## Phase 6: Verification`)
 
 `Skills Report` · `Agents Report` · `Cross-Layer Integrity` · `Replaced-Skill Sentinel` · `Issues to Fix` (hard fail → should-fix → minor) · `Dropped (failed reproduction)`.

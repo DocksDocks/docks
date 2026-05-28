@@ -135,7 +135,7 @@ fi
 
 # --- 3. structural guards ---
 section "structural guards"
-for g in skills/guard agents/guard tree/guard; do
+for g in skills/guard skills/transform-guard agents/guard tree/guard; do
   if bash "scripts/$g.sh" >/dev/null 2>&1; then
     ok "$g passed"
   else

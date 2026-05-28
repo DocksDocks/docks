@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-05-27"
-  content_hash: "f87bfbebe710e4b68b2d5c5ec90eb68c87d160590b1933ddf2130db4b457bbd2"
+  updated: "2026-05-28"
+  content_hash: "866cae26f2c87e110d121cef6ebc9d8f1eea6f2c4cbb6d700695bee597b60a35"
 ---
 
 # Write a Skill (docks conventions)
@@ -124,6 +124,10 @@ A skill with 4 constraint blocks scores the same as 3. Pick the 3 most load-bear
 | Forgot `metadata.updated` bump after editing | Bump to today (`date "+%Y-%m-%d"`) **only if content actually changed**. If this project documents `metadata.content_hash`, run its documented hash-sync command; otherwise do not add a hash or report missing Docks tooling. |
 | Body crossed 310 → just left it there | Move detail to `references/`. Past 310 lines, post-compaction re-attachment drops content silently. |
 | Used `comprehensive`/`robust`/`elegant`/`seamless` because it "reads better" | Each occurrence costs 1 pt. Rewrite or cut. |
+
+## Transforming skills (split / migrate / rewrite existing content)
+
+A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no error. Before authoring one, read [`references/data-preservation.md`](references/data-preservation.md): inventory → per-section approval table → two-phase write → read-back verification. Two non-negotiables, copied **inline** into the skill (never cross-linked): a preservation `<constraint>` near the top (survives the 5,000-token compaction window) and a `## Verification` block doing per-section presence + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split. `scripts/skills/transform-guard.sh` enforces both on the curated transformer list.
 
 ## When this skill does NOT apply
 

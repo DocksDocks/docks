@@ -4,8 +4,8 @@ description: "Use when bootstrapping or auditing a project's skills and agents �
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-05-27"
-  content_hash: "767d4889be3f25b87a84cedef56ac49a61d6ea78bd5074bf4679ca9e982d8f5c"
+  updated: "2026-05-28"
+  content_hash: "6cd76f46326dc0477f4c50510eb14388ee731774cb3a618efa6ed9e2eafce9b8"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -90,7 +90,7 @@ Phases 1–6 are read-only. After Phase 6:
 
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
 2. Surface it: report the counts and tell the user "review `docs/plans/planned/<slug>.md` and say `start <slug>` to implement."
-3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents, back up the original to `<name>.md.bak`; apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, `git rm` it after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
+3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents AND any SKILL.md being split into `references/`, back up the original first (`<name>.md.bak`, plus each new `references/*.md` for a split) and copy relocated prose **verbatim** (reformat OK, reword NOT); apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, `git rm` it after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
 4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `multi-tool-bridge` skill's job.
 
 ## References
@@ -106,6 +106,24 @@ Phases 1–6 are read-only. After Phase 6:
 | Phase 5 — draft Claude agent files (`.md`) | `references/agents-builder.md` | all |
 | Phase 5 — translate each agent to Codex (`.toml`) | `references/codex-agents-builder.md` | all |
 | Phase 6 — validate skills, agents, cross-layer integrity | `references/verifier.md` | all |
+
+## Verification (Phase 6 + after any SKILL.md split — fail loud)
+
+Splitting a `SKILL.md` into `references/` is a content transform — guard against silent loss with **per-section presence**, not a byte-percentage (the split adds pointers, so output ≥ input).
+
+```bash
+# before splitting:  cp <skill>/SKILL.md /tmp/skill.before
+# every original section heading must survive across the new SKILL.md + references/
+while IFS= read -r h; do
+  grep -rqF "$h" <skill>/SKILL.md <skill>/references/ || echo "LOST SECTION: $h"
+done < <(grep -E '^#{1,3} ' /tmp/skill.before)
+# line-parity tripwire: relocated content is verbatim, so the sum must not shrink
+before=$(wc -l < /tmp/skill.before)
+after=$(cat <skill>/SKILL.md <skill>/references/*.md | wc -l)
+awk -v b="$before" -v a="$after" 'BEGIN{ if (a < b) print "NET SHRINK after split — content dropped" }'
+```
+
+Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from `/tmp/skill.before`, locate the content; no content loss across the split. Phase 6's verifier (`references/verifier.md`) runs this for every split skill.
 
 ## Gotchas
 

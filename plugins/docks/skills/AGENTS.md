@@ -45,6 +45,25 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 
 Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment (~5,000 tokens) may silently drop content.
 
+## Data preservation for transforming skills
+
+A skill that **moves, splits, migrates, or rewrites existing content** (root → nodes, `CLAUDE.md` → `AGENTS.md`, `SKILL.md` → `references/`, code refactors) can drop content with no error. The kit standard lives in `productivity/write-skill/references/data-preservation.md` (10-point checklist + 3 copy-paste templates). Two non-negotiables, both **copied inline** into the skill (never cross-linked — a sibling-skill reference is a dangling pointer; agentskills.io says keep references one level deep):
+
+1. A preservation `<constraint>` near the top of the body (survives the 5,000-token post-compaction window).
+2. A `## Verification` block doing **per-section presence** + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split (scaffolding makes output ≥100% of input, so a lost section hides under it).
+
+`scripts/skills/transform-guard.sh` enforces both across the curated transformer list (`scripts/AGENTS.md`).
+
+## Cross-tool wording (Claude Code + Codex)
+
+Skills run in both runtimes; phrase for both. Verified 2026-05-28 against the live docs.
+
+1. **Constraints at the top.** After compaction Claude Code re-attaches only the first ~5,000 tokens of each invoked skill (25,000-token shared budget, oldest-invoked dropped first). Put non-negotiable/safety rules in `<constraint>` blocks near the top — a rule at the bottom is dropped first.
+2. **Turn-ending approval gates.** No runtime "pause" primitive exists for skills (`disable-model-invocation` only gates auto-invoke). The only enforceable pause is ending the turn: "print the proposal as your final message and STOP; don't call Write/Edit until the user replies." "STOP and await" alone gets bypassed (Opus 4.7/4.8 follow instructions literally).
+3. **Front-load the description.** Codex shortens the skills *catalog* tail-first when it overflows (~8,000 chars ≈ 2% of context); the per-skill `description` cap is still 1,024. Primary trigger in the first ~100 chars (Claude truncates the listing at 1,536 too).
+4. **Codex reads bodies as plain markdown** — it does not weight `<constraint>` XML. A safety rule must read correctly as plain prose, not lean on the tag for emphasis.
+5. **`isolation: worktree` is Claude-only.** Don't rely on it (or plugin-subagent `hooks`/`mcpServers`/`permissionMode`) for cross-tool safety.
+
 ## Scoring
 
 `bash scripts/skills/score.sh --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/config/scoring.json`). Aim 14+ on new skills. Structural gate: `bash scripts/skills/guard.sh`. To author a new skill from scratch, use the `write-skill` skill.

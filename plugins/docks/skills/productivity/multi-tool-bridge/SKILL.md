@@ -4,8 +4,8 @@ description: Use when setting up multi-tool agent compatibility in a project (Co
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-27"
-  content_hash: "51874d502b701ce6c76df700d95406f8646f7b03ffbe9c4f9a8169df7040a369"
+  updated: "2026-05-28"
+  content_hash: "0e87675a874d26538125f5aac658107260b69e3a85605a417f9efe66f7241d79"
 ---
 
 # Multi-Tool Agent Bridge
@@ -113,6 +113,8 @@ After classification (or in greenfield/plugin-author layouts where classificatio
 
 For each row classified `CREATE` / `MIGRATE+SYMLINK` / `REWRITE+@IMPORT`:
 
+0. **Backup anchor** — in a git repo, `git stash push -u -m "multi-tool-bridge-pre-rewrite-<ISO>"` before the first destructive write (a botched split is then one `git stash pop` from recovery), and copy the source CLAUDE.md aside for the per-section presence check in Anti-Hallucination.
+
 1. **AGENTS.md** —
    - **CREATE** (greenfield/plugin-author): write the verbatim content from `references/agents-md-template.md`, filling in project-specific placeholders the user provides (or marking them `<!-- TODO -->`).
    - **CREATE+POPULATE** (consumer with existing CLAUDE.md): write the generic sections moved from CLAUDE.md.
@@ -194,7 +196,7 @@ Final report (markdown):
 
 - Before reporting "migrated", run `test -L .claude/skills/<name>` and `test -e .agents/skills/<name>/SKILL.md` — both must succeed
 - Before reporting "@AGENTS.md import wired", `grep -c '^@AGENTS.md' CLAUDE.md` must return ≥1
-- After the rewrite, compare CLAUDE.md line counts pre/post — total content (CLAUDE.md + AGENTS.md combined) must not drop more than 5% (catches accidental section loss)
+- After the rewrite, confirm every original `^#{1,3}` section of the source CLAUDE.md appears in CLAUDE.md or AGENTS.md — **per-section presence**, not a byte-%. The split adds scaffolding, so combined output should be ≥ the original; a net shrink, or any missing section that wasn't an explicit user `DROP`, ⇒ restore from the Step 5 backup and stop (do not claim "migrated")
 - `git status --short` at the end must only show paths this skill touched; investigate any other entries before reporting "done"
 - Do NOT claim a layout type without the detection check in Step 1 actually returning matches
 - Before reporting "no project CLAUDE.md", confirm BOTH `test -f CLAUDE.md` AND `test -f .claude/CLAUDE.md` returned missing — a project may keep its CLAUDE.md under `.claude/`

@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-05-27"
-  content_hash: "7c601ae47896a369b64199071cbf1513192cf6a36b22117830f22ad7aa841978"
+  updated: "2026-05-28"
+  content_hash: "9f4a760c173b35946088de697b98e5323dfc755567af68fb077c7a28c040c782"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -21,7 +21,11 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 </constraint>
 
 <constraint>
-**Approval gate before writing (cross-tool, NOT Plan Mode).** `init` and full `refresh` MUST show the proposed node list as a table and wait for explicit user confirmation before writing any file. Do NOT call `ExitPlanMode` (Claude-only). The gate is a plain conversational "here's what I'll create/change — confirm?" so it works identically on Codex.
+**Approval gate — turn-ending, cross-tool, NOT Plan Mode.** `init` and full `refresh` MUST render the proposal (the node list AND the per-section relocation table from constraint 4), then **end the turn** — print it as your final message and STOP. Do NOT call Write/Edit/git-mv until the user replies. Do NOT call `ExitPlanMode` (Claude-only). Silence is not consent; an ambiguous reply re-shows the table. ("STOP and await" alone gets bypassed by eager/literal models — the enforceable pause is ending the turn.)
+</constraint>
+
+<constraint>
+**No content loss when relocating — per-section, NOT byte-percentage.** A split *adds* scaffolding (imports, CLAUDE.md files, node headings, breadcrumbs), so output is normally ≥100% of input — a byte-% floor is the wrong primary check (a lost section hides under added bytes). Instead: (1) inventory every source `^#{1,3}` section before writing; (2) the approval table accounts for EACH section → a destination or an explicit user `DROP` (unclassified → KEEP in root); (3) relocate verbatim (reformat OK, reword NOT); (4) two-phase write — nodes first + `tree/guard.sh`, prune root LAST after a second confirmation; (5) the `## Verification` block then confirms every source section survives downstream + flags any net shrink. On a miss: stop, restore, locate it — do NOT report success. Full algorithm: [`references/data-preservation.md`](references/data-preservation.md).
 </constraint>
 
 ## Operations
@@ -78,11 +82,11 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 
 1. **Acknowledge state.** Note whether a root `AGENTS.md`/`CLAUDE.md` exists and whether any nested pairs already exist (e.g. `docs/plans/`). Never clobber an existing node — detect and preserve it.
 2. **Detect candidates.** Apply the heuristics (`references/major-folder-heuristics.md`) to enumerate major folders. Exclude already-existing nodes from the write set.
-3. **Propose.** Render a table: `folder | new? | source files considered | one-line summary of the conventions that will go in its AGENTS.md`. **STOP and await explicit confirmation** (constraint 3).
-4. **Write pairs.** For each approved folder: write `<folder>/AGENTS.md` (self-sufficient content per the template) + `<folder>/CLAUDE.md` (`@AGENTS.md` only).
-5. **Relocate, don't duplicate.** When a node's content is being *moved out of* the root context file, delete it from root in the same pass so the root shrinks. Leave a one-line breadcrumb in the root "Context tree" section, not the full content.
-6. **Root section.** Insert/update a "Context tree" section in root `AGENTS.md` listing the nodes (see `references/node-template.md`).
-7. **Verify.** Run `bash scripts/tree/guard.sh` (every node is a complete pair; CLAUDE.md is `@AGENTS.md`-only; AGENTS.md ≤500 lines) then `bash scripts/ci.sh`.
+3. **Inventory + propose (per-section).** Snapshot every source `^#{1,3}` section of the root context file (`cp` it aside — e.g. `/tmp/root.before` — for the Verification step). Render TWO tables: (a) node list — `folder | new? | sources | one-line summary`; (b) **relocation table — `Section | Destination | Reason`** covering EVERY root section; unclassified → `KEEP in root` (the user may mark any row `DROP`). Then **end the turn** (constraint 3). `--dry-run` / "preview only" stops here for good — also print the post-prune root preview + each node preview, and write nothing.
+4. **Phase A — write nodes (root untouched).** For each approved folder: write `<folder>/AGENTS.md` (self-sufficient, sections relocated **verbatim** per the table) + `<folder>/CLAUDE.md` (`@AGENTS.md` only). Run `bash scripts/tree/guard.sh` to confirm every pair parses. Root is still fully intact — a halt here leaves duplication (recoverable), never loss.
+5. **Phase B — prune root (second confirmation).** Show the exact lines to be removed from root (the relocated sections) and confirm before deleting. Never delete a section whose content you cannot point to in an already-written node. Leave a one-line breadcrumb per node in the "Context tree" section.
+6. **Root section.** Insert/update the "Context tree" breadcrumb table in root `AGENTS.md` (see `references/node-template.md`).
+7. **Verify (fail loud).** Run the `## Verification` block below (per-section presence + net-shrink tripwire), then `bash scripts/tree/guard.sh` and `bash scripts/ci.sh`. Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from the snapshot, do NOT report success.
 
 ## Workflow — `refresh` / `audit`
 
@@ -90,6 +94,22 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 - `refresh <folder>` regenerates one node only if the maintainer's content predicate says something semantic changed (avoids hook write-loops). `refresh` (no arg) re-runs the full convention across every node behind the approval gate.
 
 Drift handling, existing-file merges, and the already-a-node detection live in [`references/conflict-resolution.md`](references/conflict-resolution.md).
+
+## Verification (run after any relocation — fail loud)
+
+```bash
+# Phase A copied the original root aside first, e.g.  cp root-AGENTS.md /tmp/root.before
+# 1. per-section presence — every original section must survive somewhere downstream
+while IFS= read -r h; do
+  grep -rqF "$h" <written-nodes> root-AGENTS.md || echo "LOST SECTION: $h"
+done < <(grep -E '^#{1,3} ' /tmp/root.before)
+# 2. net-shrink tripwire — a split ADDS scaffolding, so total should be >= original
+before=$(wc -c < /tmp/root.before)
+after=$(cat root-AGENTS.md <every-written-node> | wc -c)
+awk -v b="$before" -v a="$after" 'BEGIN{ if (a < b) print "NET SHRINK — a section was dropped, investigate" }'
+```
+
+Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`, locate the content; never report the tree complete with an open miss. This per-section check (not a byte-% floor) is the safeguard `scripts/skills/transform-guard.sh` expects every transforming skill to carry.
 
 ## Gotchas
 
@@ -100,6 +120,8 @@ Drift handling, existing-file merges, and the already-a-node detection live in [
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
 | `init` clobbered `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them from the write set. |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
+| Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + `tree/guard.sh`, prune root LAST (Phase B). |
+| Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
 | Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must call the maintainer `--check-only` predicate and no-op when nothing semantic changed. |
 | AGENTS.md grew past 500 lines | Past the node-body ceiling. Split the folder or tighten; `scripts/tree/guard.sh` enforces ≤500. |
 
@@ -115,4 +137,5 @@ Drift handling, existing-file merges, and the already-a-node detection live in [
 - [`references/major-folder-heuristics.md`](references/major-folder-heuristics.md) — what qualifies as a node, detection rules, the skip-list.
 - [`references/node-template.md`](references/node-template.md) — the AGENTS.md skeleton, the CLAUDE.md one-liner, the root "Context tree" section, the self-sufficiency checklist.
 - [`references/conflict-resolution.md`](references/conflict-resolution.md) — existing-file detection, drift/audit logic, merge-vs-overwrite, no-op refresh.
+- [`references/data-preservation.md`](references/data-preservation.md) — the section-inventory algorithm, per-section relocation table, two-phase write, and the verbatim verification snippet (self-contained; the kit pattern is in `write-skill/references/data-preservation.md`).
 - Companion: `skill-maintenance` (`--check-only` content predicate the refresh op reuses) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).

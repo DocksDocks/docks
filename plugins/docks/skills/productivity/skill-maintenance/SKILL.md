@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-05-26"
-  content_hash: "02769b9f7c529410b8b0cf06dc6f7930633da9b3c720cdd89b783ff8e4ee9555"
+  updated: "2026-05-28"
+  content_hash: "67f6bb4d360f53b0c26480d4ee582552abdbeb9eb52dcc03cef334126c70bfd7"
 ---
 
 # Skill Maintenance
@@ -48,7 +48,11 @@ local behavior, and wait for explicit user approval before deleting files.
    present. If absent, search the skill body and `references/` for paths,
    exported names, CLI commands, env vars, routes, table names, and error names.
 5. **Update only affected skills.** Refresh claims, references, examples, and
-   trigger descriptions that changed. Leave unrelated skills alone.
+   trigger descriptions that changed. Leave unrelated skills alone. When a
+   refresh would **rewrite a prose section** (not just fix a path, count, or
+   typo), show the before/after as a diff and get explicit confirmation before
+   writing — silently auto-rewriting prose can drop authored intent. Relocate
+   verbatim; reword only on approval.
 6. **Bump metadata only on meaning change.** Change `metadata.updated` when the
    normalized body or any reference content changed. Do not bump it for a pure
    formatting no-op.

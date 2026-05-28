@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-05-27"
-  content_hash: "c113a7a808526c1ca91afda30d3c3536693e28953bf96b36a023d54b63585033"
+  updated: "2026-05-28"
+  content_hash: "26ce0e1caefbe8c09558659729bfb2e3a90cac45b39956f8b71aaf2073a45ddc"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -116,6 +116,19 @@ Then STOP and tell the user: "Refactoring plan written to `<path>`; review and s
 | Phase 4 — tiered plan, 9 fields, over-engineering guard | `references/planner.md` |
 | Phase 5 — pre-impl checks + reproduction | `references/pre-verifier.md` |
 | Phase 8 — post-impl verify + SOLID delta | `references/post-verifier.md` |
+
+## Verification (Phase 8 — scope + no unplanned loss)
+
+Phase 8 is where a refactor can silently delete or rewrite code outside the plan. Enforce scope mechanically instead of trusting the prose rule in constraint 3:
+
+```bash
+# changed files must be a SUBSET of the plan's affected_paths — no scope bleed
+git diff --name-only | while read -r f; do
+  grep -qF "$f" <plan-affected_paths> || echo "OUT OF SCOPE: $f"
+done
+```
+
+No content loss outside the planned diff: every deletion must be a planned dead-code removal (Phase 2a SAFE tier) or a consolidation whose target you can point to. An `OUT OF SCOPE` line ⇒ `git restore` that change and do not report success. Full post-impl checks (tests, SOLID delta): `references/post-verifier.md`.
 
 ## Gotchas
 

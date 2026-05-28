@@ -19,6 +19,7 @@ These scripts validate and release the plugin. They are **author-side only** —
 | `agents/guard.sh` | frontmatter, "Use when…"/"Not…" CSO, model declared | pass/fail |
 | `agents/score.sh` | quality (max 15) | per-file ≥14; total = N×14 |
 | `tree/guard.sh` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |
+| `skills/transform-guard.sh` | curated content-transforming skills carry a preservation `<constraint>` + `## Verification` block; shrinking pending-allowlist warns during rollout, fails on regression | pass/warn |
 
 `--per-file` on score scripts prints `<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill YAML parsing uses Node + pnpm (`corepack enable && pnpm install --frozen-lockfile`) so local checks match Codex-oriented tooling without requiring PyYAML.
 

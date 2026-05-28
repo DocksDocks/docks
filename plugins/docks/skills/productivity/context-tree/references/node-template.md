@@ -62,3 +62,18 @@ Edit the node, not this list, when a folder's rules change.
 ```
 
 The list is breadcrumbs only — the authoritative content is in each node, so the root stays sparse.
+
+## Per-section relocation table (the approval gate)
+
+Alongside the node list, the gate shows a row for EVERY root `^#{1,3}` section so nothing moves (or drops) unseen. Full rules: [`data-preservation.md`](data-preservation.md).
+
+```markdown
+| Section (root heading)   | Destination                    | Reason                          |
+|--------------------------|--------------------------------|---------------------------------|
+| ## Authoring skills      | plugins/docks/skills/AGENTS.md | folder-local authoring rules    |
+| ## CI triggers           | .github/AGENTS.md              | CI config change axis           |
+| ## Repository purpose    | KEEP in root                   | cross-cutting; not folder-local |
+| ## Legacy notes          | DROP (user-confirmed)          | obsolete                        |
+```
+
+Unclassified → `KEEP in root` (default safe). `DROP` only on an explicit user mark.
