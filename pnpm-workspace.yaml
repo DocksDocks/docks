@@ -1,0 +1,7 @@
+# Supply-chain hardening (Supabase / pnpm Dec-2025 guidance).
+minimumReleaseAge: 4320 # minutes = 3 days: quarantine freshly-published versions
+allowBuilds:
+  # Deny by default. claude-code's postinstall materializes a ~230MB CLI binary,
+  # only needed by the plugin-validate CI job — which runs `node install.cjs`
+  # itself. Keeping it false keeps the binary out of every other install.
+  '@anthropic-ai/claude-code': false
