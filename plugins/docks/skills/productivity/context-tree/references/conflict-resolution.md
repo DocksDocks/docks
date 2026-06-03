@@ -39,15 +39,39 @@ When content moves *out of* the root into nodes, route it **per section**, not p
 
 MIXED sections (part folder-local, part cross-cutting) split paragraph-by-paragraph; the unclassified remainder stays in root. The relocation table at the gate must list every `^#{1,3}` root section — no section is left unaccounted. Prune root only in Phase B, after nodes are written and `tree/guard.sh` passes.
 
-## Drift detection (`audit`)
+## Drift detection (`audit`) — content-accuracy, not existence
 
-For each node, compare AGENTS.md claims to disk:
+`audit` verifies that each node's **source-anchored claims still match current source**, re-derived from disk. Existence is not accuracy: a path can resolve while the node describes it wrongly, and a renamed validator or a changed scoring floor sails through a file-exists check untouched. Read-only — report drift, never auto-fix; the user decides whether to `refresh`.
 
-- Does a referenced file/path still exist?
-- Does a count ("5 validators") still match?
-- Did a new file appear that the node's rules don't cover?
+<constraint>
+Vertical accuracy, not horizontal change. A node's `## tree` `refreshed:` date and the file's git history prove only that text changed — never that it matches source. Ignore both here; open and read the cited source for every claim. Re-derive from disk as it is now: pre-baseline drift (a claim already wrong before the last refresh) is invisible to any date- or diff-based check.
+</constraint>
 
-Report drift; do not auto-fix in `audit`. The user decides whether to `refresh`.
+<constraint>
+No node may be reported drift-free without stating how many claims were opened and verified — a "no drift" verdict with zero claims checked is a fail, not a pass. Reproduce every drift finding against the cited source before recording it; drop any you cannot reproduce, with a reason.
+</constraint>
+
+### What counts as a checkable claim
+
+| Claim type | Example in a node | Verify by |
+|---|---|---|
+| path / file:line ref | `` `scripts/ci.sh` ``, `` `score.sh:125` `` | read it; confirm it says what the node asserts — not just that it resolves |
+| code / command snippet | a fenced `bash`/`md` block, a CLI invocation | grep or run it; confirm it still appears / still works |
+| named identifier | a validator, script target, env var, config key, function | grep the symbol; confirm it is DEFINED, not merely named |
+| count / threshold | "5 validators", "floor 8", "≤500 lines" | re-derive the number from source; confirm it still matches |
+| coverage | a new file/folder the node's rules don't mention | flag as a coverage gap (candidate `refresh`) |
+
+Soft prose (rationale, "prefer X" advice) has no source anchor — mark it `unverifiable`, never drift.
+
+### Verdict per claim
+
+`confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (count/threshold/behaviour wrong) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
+
+### Pre-filter (cheap, not authoritative)
+
+Scope the read with the node's `## tree` `sources:` list (the files its claims cite); `refreshed:`/git-delta narrows where to look first. Neither substitutes for opening every claim — they only order the work.
+
+Output per node: `claims checked | confirmed | broken-ref | stale-snippet | fictional-identifier | drifted-claim | verdict`, plus a dropped-on-failed-reproduction list. Report drift; do not auto-fix in `audit`. The user decides whether to `refresh`.
 
 ## No-op refresh (hook safety)
 

@@ -25,10 +25,10 @@ BAD/GOOD beat prose.>
 ## Gotchas
 <Concrete corrections specific to this folder, if any.>
 
-<!-- optional, machine-readable drift aid -->
+<!-- machine-readable drift aid — `audit` reads `sources:` to scope its content check -->
 ## tree (metadata)
 - refreshed: YYYY-MM-DD
-- sources: <files this node's claims are derived from>
+- sources: <every file this node's claims cite — the cited-sources floor `audit` pre-filters on>
 ```
 
 Keep it ≤500 lines (Anthropic doc max; distinct from the SKILL.md 310 sweet spot). If it grows past that, the folder probably needs to split.
@@ -40,6 +40,7 @@ Keep it ≤500 lines (Anthropic doc max; distinct from the SKILL.md 310 sweet sp
 - [ ] Reads correctly if it's the ONLY context file loaded (the `--continue` test)
 - [ ] CLAUDE.md sibling exists and is `@AGENTS.md`-only
 - [ ] AGENTS.md ≤500 lines
+- [ ] `## tree` `sources:` lists every file this node's claims cite (so `audit` can verify them)
 
 ## Root "Context tree" section
 

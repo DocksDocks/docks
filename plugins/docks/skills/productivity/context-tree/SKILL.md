@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-05-28"
-  content_hash: "9f4a760c173b35946088de697b98e5323dfc755567af68fb077c7a28c040c782"
+  updated: "2026-06-03"
+  content_hash: "7521bc48234f50b69f3b321ac9e2d674d9e45d6a80f739ac38019415c5b6410f"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -33,7 +33,7 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 | Op | What it does | Writes? |
 |---|---|---|
 | `context-tree init` | First-time scaffold: detect major folders, propose the node list, await approval, write every pair, insert the "Context tree" section into root `AGENTS.md`. Idempotent — re-running detects existing nodes and leaves them. | yes (after approval) |
-| `context-tree audit` | Read-only. Report drift: nodes missing a CLAUDE.md pair, CLAUDE.md that isn't `@AGENTS.md`-only, AGENTS.md claims that no longer match disk, folders that newly qualify as nodes. | no |
+| `context-tree audit` | Read-only. Report drift: nodes missing a CLAUDE.md pair, CLAUDE.md that isn't `@AGENTS.md`-only, AGENTS.md claims that no longer match **current source** (every path/snippet/identifier/count verified by reading — not just file existence), folders that newly qualify as nodes. | no |
 | `context-tree refresh <folder>` | Regenerate one node from current disk state. Calls the `skill-maintenance` `--check-only` predicate first; if nothing semantic changed, it's a no-op (no write). | only if changed |
 | `context-tree refresh` | Regenerate every node (use when the convention itself changes). Same approval gate as `init`. | yes (after approval) |
 
@@ -90,7 +90,7 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 
 ## Workflow — `refresh` / `audit`
 
-- `audit` walks tracked nodes, compares AGENTS.md claims to disk, and reports drift — it never writes. Use it to decide whether a `refresh` is warranted.
+- `audit` walks tracked nodes and verifies every source-anchored claim (path/file:line, snippet, identifier, count) against **current source** — content, not just existence — re-derived from disk and ignoring git history; it reports drift with the count of claims checked, and never writes. Full procedure: [`references/conflict-resolution.md`](references/conflict-resolution.md). Use it to decide whether a `refresh` is warranted.
 - `refresh <folder>` regenerates one node only if the maintainer's content predicate says something semantic changed (avoids hook write-loops). `refresh` (no arg) re-runs the full convention across every node behind the approval gate.
 
 Drift handling, existing-file merges, and the already-a-node detection live in [`references/conflict-resolution.md`](references/conflict-resolution.md).
@@ -123,6 +123,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + `tree/guard.sh`, prune root LAST (Phase B). |
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
 | Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must call the maintainer `--check-only` predicate and no-op when nothing semantic changed. |
+| `audit` passed a node as "no drift" on a file-exists check | Existence ≠ accuracy — a renamed validator, changed floor, or moved file:line stays hidden. `audit` verifies every claim's content against current source and states the count checked. |
 | AGENTS.md grew past 500 lines | Past the node-body ceiling. Split the folder or tighten; `scripts/tree/guard.sh` enforces ≤500. |
 
 ## When NOT to use
