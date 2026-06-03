@@ -3,7 +3,7 @@ title: Add a content-accuracy audit to context-tree's audit op
 goal: Make `context-tree audit` verify each node's source-anchored claims against current source — not just file existence — so renamed validators and stale file:line refs surface as drift.
 status: finished
 created: "2026-06-03T15:26:46-03:00"
-updated: "2026-06-03T16:01:50-03:00"
+updated: "2026-06-03T16:08:04-03:00"
 started_at: "2026-06-03T15:56:29-03:00"
 assignee: null
 blockers: []
@@ -16,7 +16,7 @@ affected_paths:
   - plugins/docks/skills/productivity/context-tree/SKILL.md
   - plugins/docks/skills/productivity/context-tree/references/node-template.md
 related_plans: []
-review_status: null
+review_status: passed
 ---
 
 # Add a content-accuracy audit to context-tree's audit op
@@ -91,4 +91,8 @@ The `skill-agent-pipeline` skill just gained a mandatory content-accuracy audit 
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — `conflict-resolution.md` "Drift detection" now verifies every source-anchored claim (path/file:line, snippet, identifier, count, coverage) against current source re-derived from disk, with a drift taxonomy (`broken-ref`/`stale-snippet`/`fictional-identifier`/`drifted-claim`/`unverifiable`), reproduce-or-drop, and a CLEAN-requires-non-zero-claim-count rule; `node-template.md` `sources:` is load-bearing as the audit pre-filter; `SKILL.md` audit rows + new gotcha reflect content-vs-existence. Auto-fix and prose-doc auditing stayed out of scope; discipline copied inline (zero cross-skill pointers — `grep -rn 'skill-agent-pipeline\|content-auditor'` over the skill dir returns nothing).
+- **Regressions:** none
+- **CI:** pass — `bash scripts/ci.sh` exit 0; transform-guard green (preservation `<constraint>` + `## Verification` intact), `content_hash in sync`, context-tree per-file score clears the productivity floor.
+- **Follow-ups:** none (a standalone CI validator that machine-checks node claims is noted out-of-scope in the plan as a possible future plan, not filed here)
+- Filed by: plan-review on 2026-06-03T16:08:04-03:00
