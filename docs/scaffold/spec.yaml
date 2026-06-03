@@ -19,6 +19,7 @@ templated_files:
   - { template: root-CLAUDE.md.template,         dest: "CLAUDE.md" }
   - { template: gitignore.template,              dest: ".gitignore" }
   - { template: ci.sh.template,                  dest: "scripts/ci.sh" }
+  - { template: release.sh.template,             dest: "scripts/release.sh" }
 
 # Context-tree node pairs (each gets AGENTS.md + one-line CLAUDE.md). Exactly one seed source per node.
 tree_nodes:
