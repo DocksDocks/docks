@@ -1,16 +1,16 @@
 ---
 name: plan-review
-description: Use when a plan moves to docs/plans/finished/ with ship_commit set, or the user asks to review a finished plan ("review plan slug", "check finished plans"). Verifies the plan's goal vs ship_commit's diff, runs scripts/ci.sh to flag regressions, writes a `## Review` block into the plan with goal-met assessment, regression scan, follow-ups. Not for general code review, pre-merge checks, or plans still in ongoing/.
+description: Use when a plan moves to docs/plans/finished/ with ship_commit set, or the user asks to review a finished plan ("review plan slug", "check finished plans"). Verifies the plan's goal vs ship_commit's diff, runs the project's CI/test command to flag regressions, writes a `## Review` block into the plan with goal-met assessment, regression scan, follow-ups. Not for general code review, pre-merge checks, or plans still in ongoing/.
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-26"
-  content_hash: "0778778bdb22f9f77f6624a405011d8ed5bdcc81203cb4f2de1fb59d1817e2be"
+  updated: "2026-06-03"
+  content_hash: "68617e7a9d4e9baba0a359ff74c034a9baca7fca94678a8f70766c78256d634b"
 ---
 
 # Plan Review
 
-Verify a finished plan against the diff that shipped it. Read `goal` and acceptance criteria, compare to the actual changes in `ship_commit`, run the project's `scripts/ci.sh` if present, and write a structured `## Review` block into the plan file with the verdict.
+Verify a finished plan against the diff that shipped it. Read `goal` and acceptance criteria, compare to the actual changes in `ship_commit`, run the project's CI/test command if it has one, and write a structured `## Review` block into the plan file with the verdict.
 
 <constraint>
 **Only act on plans in `finished/` with `ship_commit` set.** If the plan is in `ongoing/`, `planned/`, `blocked/`, or `scheduled/`, stop with a clear error — the diff doesn't exist yet, and reviewing pre-ship doesn't make sense. If `ship_commit` is empty/null in a `finished/` plan, ask the user for the SHA before proceeding.
@@ -28,7 +28,7 @@ Verify a finished plan against the diff that shipped it. Read `goal` and accepta
 **Per-finding reproduction (mandatory).** Before claiming a regression or scope-drift finding:
 - Re-`Read` the file(s) at `file:line` and confirm the offending pattern is present in the current code.
 - If the regression is a failing test, re-run the specific test command and capture the latest output.
-- If `scripts/ci.sh` fails, capture the first failing line verbatim — never paraphrase.
+- If the project's CI command fails, capture the first failing line verbatim — never paraphrase.
 - DROP any finding that fails reproduction; log it under "Dropped (failed reproduction)" rather than including it in the Review block.
 </constraint>
 
@@ -80,13 +80,7 @@ For each `[ ]` or `[~]` (unfinished) checkbox: flag as "partial — criterion no
 
 ### Step 6 — CI gate
 
-If `scripts/ci.sh` exists at the repo root, run it:
-
-```bash
-bash scripts/ci.sh
-```
-
-Capture exit code + first failing line if non-zero. If `scripts/ci.sh` is absent, record "CI: n/a (no scripts/ci.sh)".
+Find the project's CI/test command — a documented entrypoint (its README / AGENTS.md / CONTRIBUTING), a `package.json` script, a `Makefile` target, or a repo-root CI script. If one exists, run it and capture the exit code + first failing line if non-zero. If the project has no runnable CI, record "CI: n/a (no project CI command)".
 
 ### Step 7 — Compose the Review block
 
@@ -131,14 +125,14 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 | Appending a second `## Review` block on re-run | `Write` mode adding to the body | `Edit` with `old_string` matching the existing block |
 | Auto-creating follow-up plans for regressions | Calling `plan-manager` "new plan" automatically | List slug suggestions in `Follow-ups:`; user creates them |
 | Claiming a regression without reproducing | Listing it from a stale grep | Per-finding reproduction — re-read the file, re-run the test |
-| Paraphrasing the CI failure line | "Tests fail in some unit tests" | Quote the literal first failing line from `scripts/ci.sh` output |
+| Paraphrasing the CI failure line | "Tests fail in some unit tests" | Quote the literal first failing line from the CI command's output |
 | Skipping the `affected_paths` drift check when the field is empty | Marking "no drift" trivially | If `affected_paths: []`, record "Drift check skipped (affected_paths unset)" |
 | Bumping `updated` without re-Reading the frontmatter after Edit | Trusting the Edit succeeded | Re-`Read` to confirm — silent Edit failures happen on `old_string` mismatch |
 
 ## Anti-Hallucination Checks
 
 - Before claiming a `[x]` criterion is verified, you MUST have read the relevant changed code OR grepped for evidence — not just trusted the checkbox.
-- Before claiming "CI pass", you MUST have run `bash scripts/ci.sh` and seen exit code 0 in this turn.
+- Before claiming "CI pass", you MUST have run the project's CI command and seen exit code 0 in this turn.
 - Before claiming "CI fail", you MUST have captured the first failing line verbatim from the output.
 - Before claiming `## Review` was written, re-`Read` the file and confirm the new block is present with all five lines (Goal met, Regressions, CI, Follow-ups, Filed by).
 - Before claiming `review_status` is set, re-`Read` the frontmatter and confirm the new value.
@@ -148,7 +142,7 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 
 - Plan-review only runs on `finished/` plans with `ship_commit` set; all other states return a clear stop error.
 - Every `[x]` acceptance criterion either gets evidence-backed verification or is flagged as "unverifiable".
-- `scripts/ci.sh` is run when present; CI verdict is captured verbatim.
+- the project's CI command is run when present; CI verdict is captured verbatim.
 - The `## Review` block is written via idempotent `Edit` (re-runs replace, not append).
 - `review_status` frontmatter is set to one of `passed` / `partial` / `regressed`.
 - Tier-3 preview is rendered after the write — user sees the verdict without opening the file.

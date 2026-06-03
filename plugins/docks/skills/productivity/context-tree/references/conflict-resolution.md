@@ -55,7 +55,7 @@ No node may be reported drift-free without stating how many claims were opened a
 
 | Claim type | Example in a node | Verify by |
 |---|---|---|
-| path / file:line ref | `` `scripts/ci.sh` ``, `` `score.sh:125` `` | read it; confirm it says what the node asserts — not just that it resolves |
+| path / file:line ref | `` `src/db.ts:42` ``, `` `Makefile:18` `` | read it; confirm it says what the node asserts — not just that it resolves |
 | code / command snippet | a fenced `bash`/`md` block, a CLI invocation | grep or run it; confirm it still appears / still works |
 | named identifier | a validator, script target, env var, config key, function | grep the symbol; confirm it is DEFINED, not merely named |
 | count / threshold | "5 validators", "floor 8", "≤500 lines" | re-derive the number from source; confirm it still matches |

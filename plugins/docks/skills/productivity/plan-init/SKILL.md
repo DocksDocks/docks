@@ -4,8 +4,8 @@ description: Use when bootstrapping the docs/plans/ convention in a new or exist
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-26"
-  content_hash: "0409915bb47ed66d5e6a746b6682539bffb274d189cdd8b8e30922a7df908864"
+  updated: "2026-06-03"
+  content_hash: "a8ea53df9e79075abe4636ffed7d2699e81e949a12bece31005909c914733d80"
 ---
 
 # Plans Directory Bootstrapper
@@ -155,5 +155,5 @@ When appending to an existing file, prepend a single blank line for visual separ
 
 - `references/plans-agents-md-template.md` — the verbatim `docs/plans/AGENTS.md` content with the 5-category lifecycle, multi-occupancy rule, frontmatter schema (including `goal`, `started_at`, `tags`, `affected_paths`, `related_plans`, `review_status`), 12 canonical body sections, scheduled-date trigger spec, and 3-tier pretty-print contract with category-specific age tokens. The companion `docs/plans/CLAUDE.md` is always a one-line `@AGENTS.md` shim — not duplicated content.
 - Sibling skill `plan-manager` — handles every runtime operation on plans (list/show/resume/start/new/fire/ship). Triggered by natural language; auto-dispatches plan-review on `→ finished/` moves.
-- Sibling skill `plan-review` — verifies finished plans against their `ship_commit` diff, runs `scripts/ci.sh`, writes the `## Review` section. Auto-dispatched by plan-manager or manually via "review plan <slug>".
+- Sibling skill `plan-review` — verifies finished plans against their `ship_commit` diff, runs the project's CI, writes the `## Review` section. Auto-dispatched by plan-manager or manually via "review plan <slug>".
 - This skill creates the directory structure and convention doc; runtime operations live in plan-manager + plan-review. All three are user-invocable (slash command in Claude Code) and also trigger on natural language; the shared skill files keep Codex and Claude on the same source of truth.

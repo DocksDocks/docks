@@ -37,7 +37,7 @@ Then **end the turn** and wait (the turn-ending approval gate). `--dry-run` stop
 
 ### 3. Two-phase write
 
-**Phase A — nodes first, root untouched.** Write each `<folder>/AGENTS.md` + `CLAUDE.md`, copying the routed sections **verbatim** (reformatting heading levels / list markers is fine; rewording is not). Run `bash scripts/tree/guard.sh`. If you halt now, the root still has everything — worst case is duplication, which is recoverable. Loss is not.
+**Phase A — nodes first, root untouched.** Write each `<folder>/AGENTS.md` + `CLAUDE.md`, copying the routed sections **verbatim** (reformatting heading levels / list markers is fine; rewording is not). Confirm each pair is well-formed (CLAUDE.md is `@AGENTS.md`-only). If you halt now, the root still has everything — worst case is duplication, which is recoverable. Loss is not.
 
 **Phase B — prune root last.** Show the exact lines to remove (the relocated sections), confirm, then delete them and insert the one-line breadcrumb per node. Never delete a section you cannot point to inside an already-written node.
 

@@ -7,7 +7,7 @@ model: opus
 
 # Plan Review (Claude opus dispatcher)
 
-Thin opus-tier wrapper around the `plan-review` skill. The skill carries the cross-tool workflow (10 steps + scope-drift check + acceptance-criteria verification + `scripts/ci.sh` gate + atomic Review-block write). This agent exists as a dispatch target: the **main conversation** (or an `--agent` session) hands off verification via `Agent(subagent_type="plan-review", prompt=<plan-path>)` for isolated context and opus-tier judgment. A subagent cannot dispatch this one — Claude Code does not let subagents spawn subagents — so `plan-manager`'s auto-review on a `→ finished/` move fires from the **skill running in main context**, never from the plan-manager subagent.
+Thin opus-tier wrapper around the `plan-review` skill. The skill carries the cross-tool workflow (10 steps + scope-drift check + acceptance-criteria verification + CI gate + atomic Review-block write). This agent exists as a dispatch target: the **main conversation** (or an `--agent` session) hands off verification via `Agent(subagent_type="plan-review", prompt=<plan-path>)` for isolated context and opus-tier judgment. A subagent cannot dispatch this one — Claude Code does not let subagents spawn subagents — so `plan-manager`'s auto-review on a `→ finished/` move fires from the **skill running in main context**, never from the plan-manager subagent.
 
 Users do NOT invoke this agent directly — they trigger the `plan-review` skill via natural language ("review plan <slug>", "check finished plans") or it auto-fires on ship.
 
@@ -28,7 +28,7 @@ Load and follow `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-review/SKILL.md`
 3. Enumerate changes in the ship commit (`git show <SHA> --stat --name-only` + diff for verification reads)
 4. Scope-drift check (`affected_paths` vs actual changed files)
 5. Acceptance-criteria verification (grep/Read changed files for each `[x]` checkbox)
-6. CI gate (`bash scripts/ci.sh` if present)
+6. CI gate (the project's CI command, if present)
 7. Compose the structured `## Review` block (Goal met / Regressions / CI / Follow-ups / Filed by)
 8. Atomic write via `Edit` (`old_string` matches existing block; bump `updated`)
 9. Render Tier-3 preview
@@ -41,7 +41,7 @@ If the plan body references a framework or library (Next.js, Supabase, React, Ta
 ## Anti-Hallucination Checks
 
 - Before claiming a `[x]` criterion is verified, you MUST have read the relevant changed code OR grepped for evidence in this turn — not just trusted the checkbox.
-- Before claiming "CI pass", you MUST have run `bash scripts/ci.sh` and seen exit code 0 in this turn.
+- Before claiming "CI pass", you MUST have run the project's CI command and seen exit code 0 in this turn.
 - Before claiming "CI fail", you MUST have captured the first failing line verbatim from the output — never paraphrase.
 - Before claiming `## Review` was written, re-`Read` the file and confirm the new block is present with all five lines (Goal met, Regressions, CI, Follow-ups, Filed by).
 - Before claiming `review_status` is set, re-`Read` the frontmatter and confirm the new value matches one of `passed` / `partial` / `regressed`.
@@ -52,7 +52,7 @@ If the plan body references a framework or library (Next.js, Supabase, React, Ta
 
 - Plan-review only runs on `finished/` plans with `ship_commit` set; all other states return a clear stop error.
 - Every `[x]` acceptance criterion either gets evidence-backed verification or is flagged as "unverifiable".
-- `scripts/ci.sh` is run when present; CI verdict is captured verbatim from the first failing line.
+- the project's CI command is run when present; CI verdict is captured verbatim from the first failing line.
 - The `## Review` block is written via idempotent `Edit` (re-runs replace, not append).
 - `review_status` frontmatter is set to one of `passed` / `partial` / `regressed`.
 - Tier-3 preview is rendered after the write — user sees the verdict without opening the file.

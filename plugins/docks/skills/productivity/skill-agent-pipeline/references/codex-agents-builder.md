@@ -92,4 +92,4 @@ Codex facts confirmed against the official docs (2026-05-27) — re-verify here 
 - <https://developers.openai.com/codex/skills> — Codex discovers agentskills.io skills from `.agents/skills` (CWD→repo-root walk); `[[skills.config]]` in `config.toml` enables/disables them.
 - <https://code.claude.com/docs/en/sub-agents> — the source Claude `.claude/agents/*.md` frontmatter (`name`/`description`/`tools`/`model`/`maxTurns`) this translation reads from; note Claude's own one-level subagent limit is a Claude-side fact that does NOT transfer to Codex, which dispatches one level via `agents.max_depth: 1`.
 
-`scripts/skills/codex-facts.sh` pins the model-id / `sandbox_mode` / `model_reasoning_effort` sets + the `agents.max_depth` fact so this doc can't silently drift from these sources.
+These model-id / `sandbox_mode` / `model_reasoning_effort` sets and the `agents.max_depth` fact are pinned to the canonical Codex sources above and verified in CI, so this doc can't silently drift.

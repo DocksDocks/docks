@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-05-28"
-  content_hash: "67f6bb4d360f53b0c26480d4ee582552abdbeb9eb52dcc03cef334126c70bfd7"
+  updated: "2026-06-03"
+  content_hash: "2283039d937cf47946d68fa5f1c2452185136a3453e884085cc10ff279a5859f"
 ---
 
 # Skill Maintenance
@@ -138,10 +138,9 @@ already exists:
 Use the narrowest available command:
 
 ```bash
-# Docks repo
-bash scripts/skills/guard.sh
+# if the project ships a skill validator/loader-check, run it
 
-# Generic Codex project
+# generic Codex loader check
 codex debug prompt-input | sed -n '/Skipped loading/,/Available skills/p'
 
 # Generic filesystem check

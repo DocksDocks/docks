@@ -10,6 +10,10 @@ Run `bash scripts/ci.sh` after any skill change — it must be green before comm
 After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `bash scripts/skills/content-hash.sh --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
 </constraint>
 
+<constraint>
+Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.sh`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.sh`, `scripts/config/*`, `scripts/lib/*`, `scripts/scaffold/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.sh` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
+</constraint>
+
 ## Description (the thing that gets matched)
 
 1. **Lead with "Use when …"** — the guard enforces this prefix.

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-06-03"
-  content_hash: "7521bc48234f50b69f3b321ac9e2d674d9e45d6a80f739ac38019415c5b6410f"
+  content_hash: "a02368ec02d9b5b8f610508fba08450e01978e1a5205d60cebde9f6999cb8c3a"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -66,7 +66,7 @@ For authoring rules, see the root CLAUDE.md "Authoring skills" section.
 <!-- GOOD — self-sufficient; restates what a reader needs here -->
 # Authoring skills (plugins/docks/skills/)
 Frontmatter: name matches dir, description starts "Use when…", ≤500 chars.
-Body ≤500 lines (sweet spot 80–310). Run `bash scripts/ci.sh` before commit.
+Body ≤500 lines (sweet spot 80–310). Run the repo's own lint + tests before commit.
 ```
 
 ```markdown
@@ -83,10 +83,10 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 1. **Acknowledge state.** Note whether a root `AGENTS.md`/`CLAUDE.md` exists and whether any nested pairs already exist (e.g. `docs/plans/`). Never clobber an existing node — detect and preserve it.
 2. **Detect candidates.** Apply the heuristics (`references/major-folder-heuristics.md`) to enumerate major folders. Exclude already-existing nodes from the write set.
 3. **Inventory + propose (per-section).** Snapshot every source `^#{1,3}` section of the root context file (`cp` it aside — e.g. `/tmp/root.before` — for the Verification step). Render TWO tables: (a) node list — `folder | new? | sources | one-line summary`; (b) **relocation table — `Section | Destination | Reason`** covering EVERY root section; unclassified → `KEEP in root` (the user may mark any row `DROP`). Then **end the turn** (constraint 3). `--dry-run` / "preview only" stops here for good — also print the post-prune root preview + each node preview, and write nothing.
-4. **Phase A — write nodes (root untouched).** For each approved folder: write `<folder>/AGENTS.md` (self-sufficient, sections relocated **verbatim** per the table) + `<folder>/CLAUDE.md` (`@AGENTS.md` only). Run `bash scripts/tree/guard.sh` to confirm every pair parses. Root is still fully intact — a halt here leaves duplication (recoverable), never loss.
+4. **Phase A — write nodes (root untouched).** For each approved folder: write `<folder>/AGENTS.md` (self-sufficient, sections relocated **verbatim** per the table) + `<folder>/CLAUDE.md` (`@AGENTS.md` only). Confirm every pair is well-formed (each `CLAUDE.md` is exactly `@AGENTS.md`; each `AGENTS.md` is non-empty and ≤500 lines). Root is still fully intact — a halt here leaves duplication (recoverable), never loss.
 5. **Phase B — prune root (second confirmation).** Show the exact lines to be removed from root (the relocated sections) and confirm before deleting. Never delete a section whose content you cannot point to in an already-written node. Leave a one-line breadcrumb per node in the "Context tree" section.
 6. **Root section.** Insert/update the "Context tree" breadcrumb table in root `AGENTS.md` (see `references/node-template.md`).
-7. **Verify (fail loud).** Run the `## Verification` block below (per-section presence + net-shrink tripwire), then `bash scripts/tree/guard.sh` and `bash scripts/ci.sh`. Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from the snapshot, do NOT report success.
+7. **Verify (fail loud).** Run the `## Verification` block below (per-section presence + net-shrink tripwire), then re-confirm each node pair is well-formed and run the project's own checks (lint / tests / CI), if it has any. Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from the snapshot, do NOT report success.
 
 ## Workflow — `refresh` / `audit`
 
@@ -109,14 +109,14 @@ after=$(cat root-AGENTS.md <every-written-node> | wc -c)
 awk -v b="$before" -v a="$after" 'BEGIN{ if (a < b) print "NET SHRINK — a section was dropped, investigate" }'
 ```
 
-Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`, locate the content; never report the tree complete with an open miss. This per-section check (not a byte-% floor) is the safeguard `scripts/skills/transform-guard.sh` expects every transforming skill to carry.
+Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`, locate the content; never report the tree complete with an open miss. This per-section check (not a byte-% floor) is the safeguard every content-transforming skill must carry.
 
 ## Gotchas
 
 | Gotcha | Fix |
 |---|---|
 | Wrote `AGENTS.md` but no `CLAUDE.md` | Claude Code can't see it. Always write the pair; CLAUDE.md = `@AGENTS.md`. |
-| CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — `scripts/tree/guard.sh` fails otherwise. |
+| CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — anything else breaks the pair. |
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
 | `init` clobbered `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them from the write set. |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
@@ -124,7 +124,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
 | Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must call the maintainer `--check-only` predicate and no-op when nothing semantic changed. |
 | `audit` passed a node as "no drift" on a file-exists check | Existence ≠ accuracy — a renamed validator, changed floor, or moved file:line stays hidden. `audit` verifies every claim's content against current source and states the count checked. |
-| AGENTS.md grew past 500 lines | Past the node-body ceiling. Split the folder or tighten; `scripts/tree/guard.sh` enforces ≤500. |
+| AGENTS.md grew past 500 lines | Past the node-body ceiling (Anthropic's doc max). Split the folder or tighten to keep every node ≤500 lines. |
 
 ## When NOT to use
 
