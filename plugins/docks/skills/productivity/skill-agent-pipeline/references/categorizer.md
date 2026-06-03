@@ -15,7 +15,7 @@ Codex YAML rule: generated descriptions are quoted YAML strings by default. If a
 | Check | Trigger → action |
 |---|---|
 | Size | SKILL.md >500 lines → split; <50 lines, no references/, <3 claims → merge into nearest sibling |
-| Staleness | source file changed since `metadata.updated` (check git history per `source_files` entry) → refresh |
+| Staleness | git-delta (source changed since `metadata.updated`, per `source_files`) is a cheap **pre-filter only** — `metadata.updated`/`content_hash` track whether text changed, never whether it matches source. **Phase 2c is authoritative**: refresh/rewrite is set by the content audit, not by git-delta |
 | Coverage | a Phase-1 knowledge area with no skill's `source_files` covering it → new skill |
 | CSO | description not `Use when…` or <5 project identifiers → rewrite-description |
 | Description length | parsed `description` >1024 chars → rewrite-description. Load-bearing, not cosmetic: Codex silently SKIPS an over-cap skill, so it never loads. Measure the full parsed string, not the truncated preview. |
@@ -40,3 +40,4 @@ If plugin `docks:skill-maintenance` is available, do NOT create a generic local 
 | Proposing agent-role changes here | Phase 4 owns roles; mixing scopes corrupts the Phase 3 builder's `source_files` |
 | Accepting a description with generic terms | Re-count project identifiers; <5 → rewrite before approval |
 | Creating generic local `skill-maintenance` while Docks already ships one | Use `docks:skill-maintenance`; keep local only for project-specific rules |
+| Treating a fresh `metadata.updated` or matching `content_hash` as "accurate" | They prove change, not correctness — Phase 2c re-verifies every claim regardless of date or hash |

@@ -1,11 +1,11 @@
 ---
 name: skill-agent-pipeline
-description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, the 1024-char description cap, size/staleness, coverage gaps), codebase pattern extraction with file:line evidence, SKILL.md authoring + references/ splits, removing a stale local skill-maintenance in favor of the plugin one, and cross-layer agent-skill validation. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form. Sequential phases gated through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
+description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, the 1024-char description cap, size/staleness, coverage gaps), a content-accuracy audit that verifies every file:line ref and code snippet against current source (catching stale refs and fictional APIs), codebase pattern extraction with file:line evidence, SKILL.md authoring + references/ splits, removing a stale local skill-maintenance in favor of the plugin one, and cross-layer agent-skill validation. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form. Sequential phases gated through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-05-28"
-  content_hash: "6cd76f46326dc0477f4c50510eb14388ee731774cb3a618efa6ed9e2eafce9b8"
+  updated: "2026-06-03"
+  content_hash: "c8dfd4a9985e3c9b94e38e2ad42a559c3cbd9315f6af6423a7f619bd443203ae"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -48,6 +48,7 @@ Run in order. Each phase reads its reference, then writes output under the exact
 | 0 | State detection (counts, today) | — | `## Phase 0: State` | all |
 | 1 | Exploration (profile, enumerate skills/agents, knowledge areas) | `references/explorer.md` | `## Phase 1: Exploration Results` | all |
 | 2a | Skills categorization (the delta) | `references/categorizer.md` | `## Phase 2a: Categorizer Proposals` | all |
+| 2c | Content-accuracy audit (every ref/snippet/identifier vs current source) | `references/content-auditor.md` | `## Phase 2c: Content-Accuracy Audit` | all |
 | 2b | Pattern scan (file:line evidence) | `references/pattern-scanner.md` | `## Phase 2b: Pattern Scanner Findings` | all |
 | 3 | Skills builder (draft SKILL.md + references/) | `references/skills-builder.md` | `## Phase 3: Skills Plan` | all |
 | 4a | Agent role mapping | `references/role-mapper.md` | `## Phase 4a: Role Mapper Proposals` | all |
@@ -59,7 +60,7 @@ Run in order. Each phase reads its reference, then writes output under the exact
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
 2. **Phase 0** (inline): count `.agents/skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, and `.codex/agents/*.toml`; note whether a local `skill-maintenance` exists and whether plugin `docks:skill-maintenance` is available (a stale local copy is flagged for REMOVAL in Phase 2a, not regenerated); write the counts + today under `## Phase 0: State`.
-3. Create/open the plan file (see below). Run Phases 1→2a→2b→3.
+3. Create/open the plan file (see below). Run Phases 1→2a→2c→2b→3. **Phase 2c is mandatory and always runs** — it audits every existing skill and agent claim against current source (ignoring git history and `metadata.updated`); write its table even when all-clean, never skip. After 2c, **reconcile**: amend the `## Phase 2a` block in place to escalate each non-CLEAN skill to REFRESH/REWRITE (`→ escalated by 2c: …`), and route each non-CLEAN agent to the Phase 5 regenerate list — so the gate reads one delta.
 4. **Agent track:** run Phases 4a→4b→5 on every runtime — they draft each agent in both `.claude/agents/*.md` and `.codex/agents/*.toml` form.
 5. Run Phase 6 (verifier). It validates skills and BOTH agent formats, plus cross-layer integrity.
 6. Before starting each phase, confirm the prior heading is present. If a phase found nothing, write "no changes" under its heading — never silently skip.
@@ -99,6 +100,7 @@ Phases 1–6 are read-only. After Phase 6:
 |---|---|---|
 | Phase 1 — profile, enumerate skills/agents, knowledge areas | `references/explorer.md` | all |
 | Phase 2a — the skill-set delta (create/update/split/merge/refresh) | `references/categorizer.md` | all |
+| Phase 2c — content-accuracy audit of every existing claim vs current source | `references/content-auditor.md` | all |
 | Phase 2b — codebase pattern extraction with file:line | `references/pattern-scanner.md` | all |
 | Phase 3 — draft SKILL.md bodies + references/ splits | `references/skills-builder.md` | all |
 | Phase 4a — map skills → agent roles | `references/role-mapper.md` | all |
@@ -133,6 +135,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from `/tmp/skill.before`, loc
 | A pre-existing skill's description exceeds 1024 chars | Codex silently skips the whole skill | Phase 2a flags it `rewrite-description`; Phase 6 hard-fails until fixed |
 | Implementing before the user starts the plan | Writes files the user never approved | Gate on `start <slug>`; Phases 1–6 are read-only |
 | Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change; sync hashes only when the current project documents that contract |
+| Declaring a skill accurate from a git-delta or a 5-ref spot-check | Pre-baseline drift and fictional APIs ship unseen | Phase 2c opens EVERY ref/snippet/identifier vs current source and states the count verified; `metadata.updated` is not accuracy evidence |
 | SKILL.md body crossing 310 lines | Overflow dropped after compaction; verifier hard-fails | Split detail into `references/<topic>.md` (30–150 lines) |
 | Unquoted `description:` contains `: ` or `#` | Codex skips the skill with invalid YAML or silently truncated description | Quote every generated description |
 | Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |

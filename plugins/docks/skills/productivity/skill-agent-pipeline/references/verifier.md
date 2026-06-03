@@ -14,7 +14,7 @@ Per-finding reproduction is mandatory. Before any finding lands in `## Issues to
 | CSO | starts `Use when…`; ≥5 project-specific identifiers; ≤1024 chars; no angle brackets; no unquoted `: ` or `#` hazards |
 | Existing-skill cap | any ON-DISK skill whose parsed `description` >1024 chars that Phase 2a did NOT flag `rewrite-description` → **hard fail** (Codex silently skips an over-cap skill, so it never loads) |
 | Size | body ≤500 (hard cap). **Hard fail** 310–500 lines with NO references/ — split required |
-| Reference accuracy | spot-check ≥5 `file:line` refs by reading |
+| Content accuracy | apply `references/content-auditor.md` to every drafted/refreshed skill — verify EVERY `file:line` ref, code snippet, and asserted identifier against current source, **not a sample**. State claims-checked; pass only at zero unreproduced drift |
 | Maintenance skill | use plugin `docks:skill-maintenance` when available; local copy only for project-specific rules; `pattern: reviewer`, `user-invocable: false`; **hard fail** if body references kit-internal validators that do not ship downstream |
 | No prose-config edits | Phase 3 must contain no AGENTS.md / CLAUDE.md edits |
 
@@ -58,3 +58,4 @@ Any `LOST SECTION` (relocated prose must be verbatim) / `NET SHRINK` ⇒ **hard 
 | Flagging a path "missing" from a stale earlier scan | Re-list it now — paths drift between scan and verify |
 | Skipping Codex `.toml` validation as "agents are Claude-only" | Both formats now ship — validate the `.toml` schema (required keys, model/sandbox values, name parity) too |
 | Letting an overlong or invalid YAML description through because the body is good | Fix frontmatter first — Codex skips invalid skills before reading the body |
+| Passing a freshly-drafted skill on a 5-ref spot-check | Newly authored skills hallucinate APIs too — run `content-auditor.md` over every drafted/refreshed skill, all claims not a sample |
