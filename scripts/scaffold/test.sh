@@ -87,7 +87,10 @@ try {
   // this test genuinely fails if the spec stops emitting it.
   for (const tf of spec.templated_files || []) {
     const src = fs.readFileSync(path.join(tdir, tf.template), 'utf8');
-    write(subst(tf.dest), subst(src));
+    const dest = subst(tf.dest);
+    write(dest, subst(src));
+    // shell entrypoints are seeded executable (mirrors the scaffold skill's chmod step)
+    if (dest.endsWith('.sh')) fs.chmodSync(path.join(tmp, dest), 0o755);
   }
   for (const node of spec.tree_nodes || []) {
     const nodePath = subst(node.path);
@@ -106,6 +109,15 @@ try {
     if (fs.readFileSync(file, 'utf8').includes('{{')) leftovers.push(path.relative(tmp, file));
   });
   if (leftovers.length > 0) errors.push(`leftover placeholders:\n${leftovers.join('\n')}`);
+
+  // every seeded shell entrypoint must be executable
+  for (const tf of spec.templated_files || []) {
+    const dest = subst(tf.dest);
+    if (!dest.endsWith('.sh')) continue;
+    if (!(fs.statSync(path.join(tmp, dest)).mode & 0o111)) {
+      errors.push(`${dest}: seeded shell entrypoint is not executable (expected +x)`);
+    }
+  }
 
   const versions = {};
   for (const tf of spec.templated_files || []) {

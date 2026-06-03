@@ -4,8 +4,8 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-05-27"
-  content_hash: "24dee293c54d3ae496ab04d475268610dda220178dd9fb5a04478d0153a6799e"
+  updated: "2026-06-03"
+  content_hash: "3021a7bb6dc495a569875e6dc4cd8349a5d92a8796632c2752b1f58124dd4bc8"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -79,7 +79,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 2. **Load spec.** Read `docs/scaffold/spec.yaml`. If absent, stop and suggest `scaffold setup`.
 3. **Interview.** Prompt for each `variable`; pull `default_from` via `git config` where set. (Use `AskUserQuestion` on Claude; plain prompts elsewhere.)
 4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **STOP for confirmation** (constraint 2).
-5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; seed `docs/plans/` via the bundled plan-init.
+5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; seed `docs/plans/` via the bundled plan-init. Then `chmod +x` the seeded shell entrypoints (`scripts/ci.sh`, `scripts/release.sh`) — templated files are written without the exec bit.
 6. **Init + verify.** `git init` if needed. Run `corepack enable && pnpm install --frozen-lockfile`, then the generated validators such as `bash <target>/scripts/skills/guard.sh <target>/plugins/<name>/skills` and `bash <target>/scripts/tree/guard.sh <target>`. Then grep for stray `{{` (constraint 3).
 
 ## Gotchas
@@ -91,6 +91,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 | Bundled-skill path in spec is stale (`tree`, old `agents`) | Detect bundled skills from the LIVE repo during setup; don't copy a hand-written example. |
 | Wrote a node AGENTS.md without its CLAUDE.md | Tree nodes are pairs. Seed both; CLAUDE.md = `@AGENTS.md` (see `context-tree`). |
 | New project's validators fail on cold start | The spec/templates are wrong. Fix until the generated skill and tree guards are green — that's the acceptance bar. |
+| Seeded `scripts/ci.sh` / `release.sh` not executable | Templated files land without the exec bit — `chmod +x scripts/*.sh` after rendering (or run them via `bash`). |
 | Used `ExitPlanMode` for the gate | Claude-only. Use a conversational confirm so Codex works too. |
 
 ## When NOT to use
