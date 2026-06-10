@@ -4,8 +4,8 @@ description: "Use when tunneling in code-level detail and you need a system-leve
 user-invocable: true
 metadata:
   pattern: micro-skill
-  updated: "2026-05-17"
-  content_hash: "420a929a00cb2e15c0e4207ffe7ab0848df30b30bc96f47c91cef1bd183397a8"
+  updated: "2026-06-10"
+  content_hash: "db1de8a03f7cf2a5fd26e3c7740c5748df332df0ca3785a33dce1382fede1f9b"
 ---
 
 # Zoom Out
@@ -20,12 +20,25 @@ The output of a zoom-out is a MAP, not a write-up. Aim for a labelled diagram (f
 Use the project's domain vocabulary first. If `.claude/skills/solid/references/depth-and-seams.md` exists, the structural vocabulary is locked to Module / Interface / Implementation / Depth / Seam / Adapter — use those terms exactly, don't drift into "component," "service," "API," "wrapper," "boundary." Domain nouns come from the project's `AGENTS.md` / `CLAUDE.md` / `CONTEXT.md` (whichever exists) — use those rather than inventing labels.
 </constraint>
 
+<constraint>
+Cap the map at ~7 modules. More than 7 means you haven't zoomed out far enough — collapse adjacent modules until ≤ 7. The cap is the discipline: an exhaustive inventory is the file-level noise you were escaping, re-drawn one level up.
+</constraint>
+
 ## What to produce
 
-1. **Module list** — name + one-line role each. **Cap at ~7 modules**; if you have more, you haven't zoomed out far enough — collapse adjacent ones until ≤ 7. The 7-item cap is the discipline.
+1. **Module list** — name + one-line role each (≤ 7; see the cap constraint).
 2. **Call edges** — `A → B (what A asks B for)`. Direction matters — caller on the left.
 3. **Data flow** — where state mutates, where IO crosses (network / disk / DB / queue), where the seams sit (places behaviour can be altered without editing in place).
 4. **The user's question, restated against the map** — "you were asking about X; X lives in Module M, called from N callers, gated by …". This closes the loop.
+
+## Output form by situation
+
+| Situation | Lead with |
+|---|---|
+| "Who calls X / who writes Y" | Edge list — `A → B (what A asks B for)` |
+| Data-lifecycle bug (stale cache, dangling rows) | Data-flow rows — mutates / reads / IO |
+| "Where do I put this change?" | Module list + the seam it belongs behind |
+| Comparing two refactor options | Two maps, same module names, side by side |
 
 ## When NOT to use
 
@@ -34,9 +47,22 @@ Use the project's domain vocabulary first. If `.claude/skills/solid/references/d
 - A research question better served by `Explore` ("where is X defined", "find all callers of Y") — that's grep + Glob, not zoom-out.
 - The user asked for an implementation, not an explanation — implement, then briefly describe; don't gate work behind a diagram.
 
+## BAD / GOOD
+
+```text
+BAD  — prose write-up: "The Foo module kind of handles incoming requests and
+       talks to Bar, which does persistence-related things, and eventually
+       notifications happen somewhere downstream..."  (the noise you were
+       already drowning in — no edges, no direction, no seams)
+
+GOOD — labelled edges: Client → Foo (POST /things) → Bar (insertThing)
+       → Baz (notifyThing) → [Slack | Email | Webhook]; only writer: Bar.
+       (direction, ownership, and the seam are visible at a glance)
+```
+
 ## Quick template
 
-```
+```text
 modules:
   - Foo          — receives X from clients, normalizes to Y
   - Bar          — owns persistence for Y; writes to Postgres `things` table

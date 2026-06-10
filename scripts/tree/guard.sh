@@ -18,7 +18,7 @@ nodes=0
 # Unique directories (excluding .git / node_modules) that contain either context file.
 node_dirs=$(find "$ROOT" \( -name .git -o -name node_modules \) -prune -o \
   -type f \( -name AGENTS.md -o -name CLAUDE.md \) -print \
-  | xargs -n1 dirname | LC_ALL=C sort -u)
+  | sed 's#/[^/]*$##' | LC_ALL=C sort -u)
 
 while IFS= read -r dir; do
   [ -n "$dir" ] || continue
