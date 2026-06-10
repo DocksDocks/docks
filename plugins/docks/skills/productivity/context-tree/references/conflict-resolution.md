@@ -37,7 +37,7 @@ When content moves *out of* the root into nodes, route it **per section**, not p
 | Obsolete, user-confirmed | `DROP` (explicit only) |
 | Can't confidently classify | **KEEP in root** (default safe — never silently move) |
 
-MIXED sections (part folder-local, part cross-cutting) split paragraph-by-paragraph; the unclassified remainder stays in root. The relocation table at the gate must list every `^#{1,3}` root section — no section is left unaccounted. Prune root only in Phase B, after nodes are written and `tree/guard.sh` passes.
+MIXED sections (part folder-local, part cross-cutting) split paragraph-by-paragraph; the unclassified remainder stays in root. The relocation table at the gate must list every `^#{1,3}` root section — no section is left unaccounted. Prune root only in Phase B, after nodes are written and the pair check passes (every CLAUDE.md exactly `@AGENTS.md`, every AGENTS.md non-empty and ≤500 lines — via the project's validators when it has them).
 
 ## Drift detection (`audit`) — content-accuracy, not existence
 
