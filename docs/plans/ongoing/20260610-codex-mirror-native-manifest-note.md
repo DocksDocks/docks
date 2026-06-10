@@ -1,10 +1,10 @@
 ---
 title: Note Codex native .claude-plugin discovery in codex-plugin-mirror
 goal: codex-plugin-mirror reflects that Codex discovers .claude-plugin/plugin.json natively, re-scoping the mirror to the marketplace catalog, degradation surfacing, and version lockstep
-status: planned
+status: ongoing
 created: "2026-06-10T05:25:00+00:00"
-updated: "2026-06-10T05:25:00+00:00"
-started_at: null
+updated: "2026-06-10T05:31:43+00:00"
+started_at: "2026-06-10T05:31:43+00:00"
 assignee: null
 blockers: []
 blocked_reason: null
@@ -31,15 +31,15 @@ Follow-up filed by plan-review on the capability-tuning research rollout (ship d
 
 | # | Task | Depends | Parallel | Status | Owner |
 |---|---|---|---|---|---|
-| 1 | Re-verify DISCOVERABLE_PLUGIN_MANIFEST_PATHS in openai/codex source at implementation time | — | — | planned | main |
-| 2 | Update SKILL.md: framing paragraph + a "native discovery" fact note + trap-table row; bump metadata.updated | 1 | — | planned | main |
-| 3 | Run the repo validators (ci.sh), commit + push | 2 | — | planned | main |
+| 1 | Re-verify DISCOVERABLE_PLUGIN_MANIFEST_PATHS in openai/codex source at implementation time | — | — | done | main |
+| 2 | Update SKILL.md: framing paragraph + a "native discovery" fact note + trap-table row; bump metadata.updated | 1 | — | done | main |
+| 3 | Run the repo validators (ci.sh), commit + push | 2 | — | in-flight | main |
 
 ## Acceptance criteria
 
-- [ ] SKILL.md states Codex natively discovers `.claude-plugin/plugin.json` (with source + verification date)
-- [ ] Mirror's value proposition re-scoped to marketplace catalog + interface/degradation + version lockstep — nothing implies the `.codex-plugin` manifest is required for discovery
-- [ ] `metadata.updated` bumped; ci.sh green; pushed
+- [x] SKILL.md states Codex natively discovers `.claude-plugin/plugin.json` (with source + verification date) — "Scope note" paragraph + trap row
+- [x] Mirror's value proposition re-scoped to marketplace catalog + interface/degradation + version lockstep — nothing implies the `.codex-plugin` manifest is required for discovery
+- [~] `metadata.updated` bumped; ci.sh green; pushed
 
 ## Out of scope
 

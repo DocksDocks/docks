@@ -4,12 +4,14 @@ description: Use when adding Codex distribution to an existing Claude Code plugi
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-11"
+  updated: "2026-06-10"
 ---
 
 # Codex Plugin Mirror
 
 Add Codex distribution alongside an existing Claude Code plugin by generating Codex-schema manifests that point at the same `skills/` directory. The result: one source of truth for skill content, parallel manifest files for each tool's plugin loader, and clear surfacing of features that don't port (slash commands, Claude subagents).
+
+Scope note (verified 2026-06-10 against the openai/codex source): Codex natively discovers `.claude-plugin/plugin.json` as an alternate manifest path (`DISCOVERABLE_PLUGIN_MANIFEST_PATHS` in `codex-rs/utils/plugins/src/plugin_namespace.rs`), so a Claude plugin is loadable by Codex even with no `.codex-plugin/` directory. The mirror is NOT what makes the plugin discoverable — its value is (a) the Codex marketplace catalog (`.agents/plugins/marketplace.json`), (b) a Codex-tailored `description` + `interface` block with explicit "(skills only)" degradation surfacing, and (c) version lockstep across all four manifest files.
 
 <constraint>
 All paths are RELATIVE to the project working directory at invoke time. Never write to absolute kit paths or to a different project. If `git rev-parse --show-toplevel` succeeds, prefer that as the project root; otherwise use the current working directory.
@@ -121,6 +123,7 @@ If versions disagree, STOP — report which file is out of sync. Never claim "mi
 
 | Trap | Wrong fix | Right fix |
 |---|---|---|
+| Framing the mirror as required for Codex discovery | "Without .codex-plugin/ Codex can't see the plugin" | Codex discovers `.claude-plugin/plugin.json` natively (verified 2026-06-10) — pitch the mirror as marketplace catalog + Codex-tailored interface + version lockstep |
 | Codex plugin description claims feature parity | Copy Claude description verbatim | Append "(skills only)" when source ships commands or subagents Codex won't include |
 | Marketplace JSON schema confusion (Claude's `source: "./path"` vs Codex's `source: {source: "local", path: "./path"}`) | Naive string copy | Build the Codex `source` object explicitly per the Codex docs |
 | Versions drift between `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` after a release | Bump only one file | Step 7 verification catches drift; release.sh should bump all four files |
