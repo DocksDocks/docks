@@ -1,23 +1,27 @@
 ---
 title: Research-driven capability tuning for Claude + Codex prompt surfaces
 goal: Ship a capability-tuning skill + refresh kit prompt surfaces with verified mid-2026 Claude/Codex facts so both runtimes run at max capability
-status: ongoing
+status: finished
 created: "2026-06-10T02:52:22+00:00"
-updated: "2026-06-10T03:11:09+00:00"
+updated: "2026-06-10T03:13:57+00:00"
 started_at: "2026-06-10T02:52:22+00:00"
 assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: d1ded7538d459d7f57ad76122814e3567711a835
 tags: [skills, capability, research, codex, claude]
 affected_paths:
-  - plugins/docks/skills/productivity/
-  - plugins/docks/skills/AGENTS.md
-  - plugins/docks/skills/productivity/skill-agent-pipeline/references/codex-agents-builder.md
-  - plugins/docks/agents/
+  - plugins/docks/skills/
+  - plugins/docks/.claude-plugin/plugin.json
+  - plugins/docks/.codex-plugin/plugin.json
+  - plugins/docks/README.md
+  - .claude-plugin/marketplace.json
+  - README.md
+  - scripts/skills/codex-facts.sh
+  - docs/plans/
 related_plans: []
-review_status: null
+review_status: passed
 ---
 
 # Research-driven capability tuning for Claude + Codex prompt surfaces
@@ -55,7 +59,7 @@ User goal (via /goal): "improve current settings and system prompts to achieve t
 - [x] codex-agents-builder.md facts re-verified or corrected; codex-facts.sh still green — guard strengthened to pin `none`
 - [x] Stale model-behavior claims in existing surfaces corrected (none left contradicting live docs)
 - [x] bash scripts/ci.sh exits 0 — all checks green incl. claude plugin validate
-- [~] Pushed to claude/dreamy-dijkstra-xu8opp
+- [x] Pushed to claude/dreamy-dijkstra-xu8opp — ship commit d1ded75
 
 ## Out of scope
 
@@ -88,5 +92,12 @@ User goal (via /goal): "improve current settings and system prompts to achieve t
 
 - **2026-06-10T02:52:22+00:00** — Plan created; 3 research agents in flight — main
 - **2026-06-10T03:11:09+00:00** — All research in; skill authored (16/16); 4 surfaces refreshed; ci.sh green — main
+- **2026-06-10T03:11:57+00:00** — Shipped as d1ded75; affected_paths reconciled to actuals (plugins/docks/agents/ dropped — investigated, dispatch claims still accurate, no edit needed) — main
 
 ## Review
+
+- **Goal met:** yes — capability-tuning skill shipped (16/16, 445-char CSO description) and every stale Claude/Codex fact found by research was corrected; all 6 `[x]` criteria evidence-verified against the d1ded75 diff.
+- **Regressions:** none — codex-facts guard strengthened (now pins `none`) and full guard+scorer suite green; code-review and skill-agent-pipeline re-score at 16 and pass idempotency.
+- **CI:** pass (`✔ All ci.sh checks passed`, exit 0, re-run at review time)
+- **Follow-ups:** codex-mirror-native-manifest-note — `.agents/skills/codex-plugin-mirror` could note that Codex now natively discovers `.claude-plugin/plugin.json`, narrowing the mirror's job to the marketplace catalog.
+- Filed by: plan-review on 2026-06-10T03:13:57+00:00
