@@ -1,15 +1,15 @@
 ---
 title: Optimize all skill prompts, harden validator scripts, revalidate kit
 goal: Every shipped skill + reference audited and improved (CSO, facts, structure), validator scripts hardened, all guards/scorers green, queued codex-mirror plan shipped
-status: ongoing
+status: finished
 created: "2026-06-10T05:31:43+00:00"
-updated: "2026-06-10T06:06:22+00:00"
+updated: "2026-06-10T06:07:27+00:00"
 started_at: "2026-06-10T05:31:43+00:00"
 assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: 0027054823454ef3dcf15e1852e4a3bb62e66139
 tags: [skills, scripts, audit, quality]
 affected_paths:
   - plugins/docks/skills/
@@ -17,7 +17,7 @@ affected_paths:
   - .agents/skills/codex-plugin-mirror/SKILL.md
   - docs/plans/
 related_plans: [20260610-codex-mirror-native-manifest-note, 2026-06-10-capability-tuning-research-rollout]
-review_status: null
+review_status: passed
 ---
 
 # Optimize all skill prompts, harden validator scripts, revalidate kit
@@ -85,4 +85,8 @@ Follows the capability-tuning research rollout (d1ded75). Baseline at start: 27 
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 5 criteria evidence-verified: 27 shipped skills + 2 agents dispositioned (improved / clean / vendored-frozen), scores at ceiling everywhere structurally possible (eng 218, prod 204, agents 30), validator hardening landed incl. the new shellcheck gate, codex-mirror sub-plan shipped+passed, work spread across commits 8d41f52 (engineering) and 0027054 (productivity+scripts), both pushed.
+- **Regressions:** none — no per-file score dropped vs the 05:31 baseline; ci.sh green at every commit; slop-check precision fix verified to change only quoting skills (write-skill).
+- **CI:** pass (`✔ All ci.sh checks passed`, exit 0, including the new shell-lint section)
+- **Follow-ups:** none — the audit's only deliberate non-ceiling scores are documented dispositions (caveman 12 brevity-by-design, make-interfaces 10 vendored-frozen).
+- Filed by: plan-review on 2026-06-10T06:07:27+00:00
