@@ -4,8 +4,8 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-06-03"
-  content_hash: "3021a7bb6dc495a569875e6dc4cd8349a5d92a8796632c2752b1f58124dd4bc8"
+  updated: "2026-06-10"
+  content_hash: "0f82bad35293782870148c08c9c5253c6d8a5f3121f4a15ad2e8757dd318f98b"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -17,7 +17,7 @@ metadata:
 </constraint>
 
 <constraint>
-**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — and wait for explicit user confirmation. Do NOT call `ExitPlanMode` (Claude-only); the gate is a plain conversational "here's what I'll write — confirm?" so it works identically on Codex.
+**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then print it as your final message and END THE TURN. Do not call Write/Edit until the user replies. Do NOT call `ExitPlanMode` (Claude-only); the turn-ending gate works identically on Codex.
 </constraint>
 
 <constraint>
