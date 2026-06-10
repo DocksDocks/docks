@@ -42,9 +42,9 @@ cargo fmt --check && cargo clippy -- -D warnings && cargo test && cargo audit
 |---|---|
 | Edition 2021 → 2024 | `unsafe` in `extern` blocks now required; closure capture changes; tail-expressions in macros |
 | MSRV bumps | Many crates raise MSRV in 1.x.y; CI matrix must include the bumped floor |
-| `tokio` 1.x → 2.x | `current_thread` scheduler rewrites; `block_in_place` semantics; `JoinSet` lifetime tweaks |
-| `axum` 0.7 → 0.8 | Router type-state changes; `State` extractor required; `Handler` trait revamp |
-| `reqwest` 0.11 → 0.12 | `rustls` default; bundled TLS feature flag renames |
+| `hyper` 0.14 → 1.0 | `Body` trait split (`Incoming` for requests); `hyper-util` for client/server helpers |
+| `axum` 0.7 → 0.8 | Path-param syntax `/:id` → `/{id}`; `#[async_trait]` removed from `FromRequest`; `Option<T>` extractor semantics |
+| `reqwest` 0.11 → 0.12 | hyper 1.0 upgrade underneath; TLS feature flag renames — check `default-tls`/`rustls-tls` features |
 | `clap` 3 → 4 | `Arg::new` signature; `derive` macros tightened; `App` → `Command` |
 | `diesel` 1 → 2 | Async support is a separate crate (`diesel-async`); QueryDsl method renames |
 

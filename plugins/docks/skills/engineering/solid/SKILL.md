@@ -4,8 +4,8 @@ description: Use when designing a module / service / class with multiple concern
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-24"
-  content_hash: "232702274c3be2fa8c4b1009459e2f4aa47decfd42b8045f3ae4c6fe61119551"
+  updated: "2026-06-10"
+  content_hash: "d71a29de09794824c6c9a5fe261a62f38855a139cab30c7c2d77c2244d1cdf74"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion

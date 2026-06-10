@@ -1,11 +1,11 @@
 ---
 name: dep-vuln-workflow
-description: Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence.
+description: Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence. Not for fixing the vulnerable code path itself (use fix-workflow) or full security audits (use security).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-12"
-  content_hash: "5f3f93d63ed92b66843bdf1788c9223528d872b4f3a81d6e72bb371a0bfc52f7"
+  updated: "2026-06-10"
+  content_hash: "15d26c8518b70d0eb91add97019b3881b51be8db59e92366d0830e28210ea924"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
@@ -71,25 +71,25 @@ If a major bump breaks an upstream plugin that you cannot control:
 
 Always two commits minimum. Commit A (security) must stand alone — small diff, easy to cherry-pick to a release branch. Commit B (hygiene) can be reverted without affecting A.
 
-```
+```text
 # GOOD — split into two independently revertable units
 chore(deps): patch CVE-2026-23869 — bump <pkg> X.Y.Z → X.Y.Z'    [commit A]
 chore(deps): bump <pkg-b>, <pkg-c>, <pkg-d> to latest             [commit B]
 ```
 
-```
+```text
 # BAD — one mixed commit; reverting hygiene also reverts the CVE patch
 chore(deps): bump <pkg>, <pkg-b>, <pkg-c>, <pkg-d> + patch CVE-2026-23869
 ```
 
 For major bumps, **one commit per major**. Never bundle two majors:
 
-```
+```text
 # BAD — if A breaks later, you can't bisect without also reverting B
 chore(deps): bump A 5 → 6 AND B 18 → 19
 ```
 
-```
+```text
 # GOOD — bisectable; each major gets its own full-suite verification
 chore(deps): bump A 5 → 6
 chore(deps): bump B 18 → 19

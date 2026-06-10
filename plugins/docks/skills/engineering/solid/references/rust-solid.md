@@ -55,7 +55,7 @@ pub fn format_event(kind: &str, e: &Event) -> String {
 ```rust
 // GOOD — strategy map via HashMap<&str, fn>
 use std::collections::HashMap;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;   // std since Rust 1.80 — no once_cell dependency needed
 
 type Formatter = fn(&Event) -> String;
 
@@ -202,13 +202,15 @@ impl<G: PaymentGateway> CheckoutService<G> {
     }
 }
 
-// Option B: trait object (dynamic dispatch, simpler types)
+// Option B: trait object (dynamic dispatch, simpler types).
+// NOTE: a trait with native `async fn` is NOT dyn-compatible — Option B needs
+// #[async_trait] on the trait (or a desugared `fn charge(&self) -> Pin<Box<dyn Future<Output = Result<ChargeId>> + Send + '_>>`).
 pub struct CheckoutServiceDyn {
     gateway: Box<dyn PaymentGateway + Send + Sync>,
 }
 ```
 
-Generics are the Rust default — pay zero runtime cost. Use `dyn` only when you need heterogeneous collections or hot-swappable impls.
+Generics are the Rust default — pay zero runtime cost. Use `dyn` only when you need heterogeneous collections or hot-swappable impls, and mind the async-fn dyn-compatibility note above.
 
 ## See Also
 

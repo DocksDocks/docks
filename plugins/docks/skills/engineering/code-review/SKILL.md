@@ -1,11 +1,11 @@
 ---
 name: code-review
-description: Use when reviewing code for bugs, security vulnerabilities (OWASP Top 10), performance issues, maintainability problems, or AI slop — on a path, a diff, or the working tree. Produces a categorized findings list with file:line references, severity, and suggested fixes. Optional fix-application phase after the user approves. Not for full security audits (use the /security command for OWASP-coverage with parallel adversarial scanning) or refactoring sprees (use /refactor).
+description: Use when reviewing code for bugs, security vulnerabilities (OWASP Top 10), performance issues, maintainability problems, or AI slop — on a path, a diff, or the working tree. Produces a categorized findings list with file:line references, severity, and suggested fixes. Optional fix-application phase after the user approves. Not for full security audits (use the security skill's sequential OWASP pipeline) or refactoring sprees (use the refactor skill).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-06-10"
-  content_hash: "fadb8cfd06410290c61c7ee3041a517d61336661d398866da390d3b48d6821cf"
+  content_hash: "c5b045e764e1b31341f744a15353ca31ab9113caf9c5f5e60b9961f9eae498fd"
 ---
 
 # Code Review
@@ -35,8 +35,8 @@ Two-axis mode (optional) — activate when reviewing changes since a fixed point
 - Pre-merge sanity check after a round of AI-generated changes
 
 NOT for:
-- Full OWASP Top 10 coverage with adversarial perspective — use the `/security` command (3 parallel scanners + synthesizer adds genuine value there)
-- Whole-codebase refactor / dead code / SOLID audit — use `/refactor`
+- Full OWASP Top 10 coverage with adversarial perspective — use the `security` skill (sequential 5-phase pipeline: discovery → scan → logic → adversarial hunt → synthesis)
+- Whole-codebase refactor / dead code / SOLID audit — use the `refactor` skill
 - Test coverage gaps — use `test-coverage` skill
 
 ## The Five-Step Procedure
@@ -108,7 +108,7 @@ SEVERITY · CATEGORY · file:line
   Suggested fix: <one sentence or short snippet>
 ```
 
-Then ask: "Apply fixes? (all / critical-only / specific findings / none)". Wait for user choice.
+Then print "Apply fixes? (all / critical-only / specific findings / none)" as your final message and end the turn — do not call Edit/Write until the user replies.
 
 If the user approves fixes:
 
@@ -152,7 +152,7 @@ each citing the spec line + the diff line>
 - Worst single issue across both axes: <one line>
 ```
 
-Patterns to use parallel sub-agents for the two passes (so one axis doesn't bleed into the other's context) live in our `refactor` command's Phase 2 design — same idea, different domain. For straight `code-review` invocations the two passes can be sequential within one turn; the discipline that matters is keeping the reports separate.
+Run the two passes sequentially within one turn — the discipline that matters is keeping the reports separate, not how they're scheduled. (A runtime with isolated workers MAY split the axes so one doesn't bleed into the other's context, but sequential is the portable default.)
 
 Pattern adapted from Matt Pocock's `review` skill (MIT): <https://github.com/mattpocock/skills/blob/main/skills/in-progress/review/SKILL.md>.
 
@@ -163,7 +163,7 @@ Pattern adapted from Matt Pocock's `review` skill (MIT): <https://github.com/mat
 | "Findings" without code evidence | "Authentication seems weak" with no file:line | Drop the finding; an audit without evidence is worse than no audit |
 | Severity inflation to look thorough | Mark everything HIGH so the report looks weighty | Calibrate to actual blast radius; drop unjustified severity |
 | Reviewing code in a vacuum (no test/lint context) | Skip Step 1; jump straight to reading source | Read `package.json` scripts; know what the project's quality bar already is before adding "issues" |
-| Same false positive appears every run | Project uses an idiom that looks wrong but isn't | Document the idiom in `.claude/skills/` so future runs skip it |
+| Same false positive appears every run | Project uses an idiom that looks wrong but isn't | Document the idiom in the project's skills directory (`.agents/skills/` or `.claude/skills/`) so future runs skip it |
 | Mid-review fix pollution | Edit a "obviously broken" line during analysis | Stay read-only until Step 5. Never edit mid-analysis. |
 | Reporting "potential issues" | "There MIGHT be a SQL injection here" | Either it is one (file:line + evidence) or you don't know yet (run another search pass before deciding) |
 | Self-censoring evidenced-but-uncertain findings | Drop everything below high confidence to look precise | Report with a `confidence:` label; recall is the review's job, filtering is the user's — silent drops hide real bugs |

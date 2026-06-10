@@ -8,7 +8,7 @@ Reference example of the single canonical stylesheet the design-tokenization ski
 
 @source "../components";
 @source "../app";
-@source "../shared";        /* every dir with class names — Tailwind v4 won't auto-scan */
+@source "../shared";        /* dirs v4's auto-detection misses: gitignored, outside the stylesheet root */
 
 @custom-variant dark (&:is(.dark *));
 

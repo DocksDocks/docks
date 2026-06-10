@@ -22,7 +22,7 @@ Project-level rule-disabling (turning off a rule repo-wide) is the widest blast 
 | `// eslint-disable-line <rule>` | Same line (less readable) |
 | `/* eslint-disable <rule> */` … `/* eslint-enable <rule> */` | Block between markers |
 | `/* eslint-disable */` at file top | Whole file (avoid) |
-| `overrides` in `.eslintrc.*` config | Path-glob scope |
+| `files` + `rules` entry in `eslint.config.js` (flat config; `.eslintrc` `overrides` on ESLint ≤8 only) | Path-glob scope |
 
 ```ts
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- third-party SDK types stale, filed @company/sdk#42
@@ -97,6 +97,7 @@ X = compute_constant()  # pylint: disable=invalid-name  -- protocol constant nam
 
 | Syntax | Scope |
 |---|---|
+| `#[expect(clippy::needless_return)]` | Item — PREFER over `allow`: warns when the lint stops firing (stable Rust 1.81+) |
 | `#[allow(clippy::needless_return)]` | Item (function / struct / impl block) |
 | `#![allow(clippy::pedantic)]` at crate root | Whole crate |
 | `[lints.clippy]` in `Cargo.toml` | Project-wide (Rust 1.74+) |

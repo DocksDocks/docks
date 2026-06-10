@@ -91,7 +91,7 @@ def format_event(e: Event) -> str:
         case _:                                     assert_never(e)
 ```
 
-`assert_never` (PEP 661 / `typing.assert_never`) is what makes mypy yell when a new variant is added but not handled.
+`typing.assert_never` (Python 3.11+) is what makes mypy yell when a new variant is added but not handled.
 
 ## L — Liskov Substitution (tagged dataclasses, Protocol, match)
 
@@ -124,7 +124,7 @@ class Email:   kind: Literal["email"]   = "email";   recipient: str = ""; subjec
 @dataclass
 class Sms:     kind: Literal["sms"]     = "sms";     recipient: str = ""; body: str = ""
 @dataclass
-class Webhook: kind: Literal["webhook"] = "webhook"; url: str = "";       payload: dict = None  # type: ignore
+class Webhook: kind: Literal["webhook"] = "webhook"; url: str = "";       payload: dict | None = None
 
 Notification = Email | Sms | Webhook
 
@@ -225,4 +225,4 @@ def checkout(amount: int, charge: Callable[[int], str]) -> str:
 - `../SKILL.md` — universal Decision Tree + constraints + Common Traps
 - `type-safety-discipline` references/python-typing.md — NewType, TypeGuard, parse-don't-validate
 - Python `Protocol` (PEP 544): https://peps.python.org/pep-0544/
-- `typing.assert_never` (PEP 661): https://docs.python.org/3/library/typing.html#typing.assert_never
+- `typing.assert_never` (Python 3.11+): https://docs.python.org/3/library/typing.html#typing.assert_never

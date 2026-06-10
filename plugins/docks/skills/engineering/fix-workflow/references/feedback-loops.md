@@ -76,7 +76,7 @@ Do **not** proceed to hypothesise without a loop. Generating hypotheses against 
 ## Gotchas
 
 - **`[DEBUG-prefix]` tagging is load-bearing for cleanup.** Untagged debug logs survive into production. A grep for your prefix at Phase 6 is one command; reading the diff line-by-line is not.
-- **The "correct seam" for the regression test isn't always where the bug surfaced.** If the bug needs 3 callers in sequence, a unit test on the 3rd caller is false confidence. If no correct seam exists, that's itself a finding — flag it for `/refactor` (see `solid/references/depth-and-seams.md`).
+- **The "correct seam" for the regression test isn't always where the bug surfaced.** If the bug needs 3 callers in sequence, a unit test on the 3rd caller is false confidence. If no correct seam exists, that's itself a finding — flag it for the `refactor` skill (see `solid/references/depth-and-seams.md`).
 - **Performance loops measure what they measure.** A 1% regression on a hot path matters; a 50% regression on cold init at boot may not. Baseline the right scenario.
 - **Loop construction time is fix-completion time.** A 20-min investment in a 2-sec deterministic loop beats a 2-min investment in a 90-sec flaky one — the difference compounds across every iteration of the fix.
 - **Stop and re-Read changed files between iterations of the loop.** If the loop is 90s and the file is 200 lines, you'll forget what you changed by the time it finishes; re-Read before reasoning.

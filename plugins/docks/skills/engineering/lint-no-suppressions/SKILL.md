@@ -4,8 +4,8 @@ description: "Use when a linter or type-checker flags an error; when tempted to 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-26"
-  content_hash: "4d976a688cbbc7aca8b2170a9e1516983c53007c287ae40bd0e192f59b1bcf7b"
+  updated: "2026-06-10"
+  content_hash: "26d3bef96e33f5ee2daf401459d9e654a8c52b570c9f5f0f1dccfd61e2213794"
 ---
 
 # Never Suppress Lint / Type Errors
@@ -29,6 +29,22 @@ Comments like `eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`,
 3. **Is there a structural fix?** Often yes: extract a function, change a type, narrow a type guard, introduce a derived value, move logic to a different scope.
 4. **Only if all three fail**: document the concrete, irreducible reason (hardware quirk, third-party type declaration bug with a filed issue link, platform constraint) in the comment *and* the PR description. "Speed" / "later" / "I'll fix it next sprint" are not reasons.
 
+## BAD / GOOD — the suppression vs the fix
+
+```ts
+// BAD — silences the rule, hides the real shape of the data, rots silently
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const items = (response as any).data.items;
+
+// GOOD — declare the narrow interface the call site actually needs
+interface SearchResponse {
+  data: { items: SearchItem[] };
+}
+const items: SearchItem[] = (response as SearchResponse).data.items;
+```
+
+The GOOD form is barely more code, survives refactors (the compiler re-checks it on every change), and documents the contract the suppression was hiding.
+
 ## Common Traps — Fix Instead of Suppress
 
 | Rule | Wrong fix | Right fix |
@@ -49,7 +65,7 @@ Comments like `eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`,
 | Looking up suppression syntax / scope rules for a specific tool (ESLint, TypeScript, mypy, ruff, clippy, golangci-lint, shellcheck, pylint, Java) | `references/per-tool-catalog.md` |
 
 <constraint>
-Project-level rule-disabling (turning off a rule repo-wide via `.eslintrc` / `tsconfig.json` / `pyproject.toml`) is the same problem as inline suppression — just at a wider blast radius. Scope rule-disabling to the minimum file pattern that genuinely needs it (e.g., auto-generated files, vendored code), and document the reason in the config.
+Project-level rule-disabling (turning off a rule repo-wide via `eslint.config.js` / `tsconfig.json` / `pyproject.toml`) is the same problem as inline suppression — just at a wider blast radius. Scope rule-disabling to the minimum file pattern that genuinely needs it (e.g., auto-generated files, vendored code), and document the reason in the config.
 </constraint>
 
 <constraint>
@@ -61,6 +77,8 @@ CI must enforce the suppression block too. Client-side hooks are bypassable with
 - **"It's legacy code" ≠ license to suppress.** If you're touching the line, fix it. If you're not, leave the pre-existing suppression untouched (the staged-diff scanner does the right thing — it only blocks NEW suppressions).
 - **`// TODO: fix this lint error`** is also a smell. If you can write the TODO comment, you can write the real fix.
 - **`@ts-ignore` vs `@ts-expect-error`** — prefer `@ts-expect-error` when a suppression is truly justified. TS will warn if the underlying error goes away (forcing removal), so the suppression can't drift silently.
+- **A bare suppression silences EVERYTHING, not one rule.** Bare `// eslint-disable-next-line` (no rule name) disables ALL rules on that line; bare `# noqa` silences every Python code; bare `# type: ignore` silences every mypy code (use `# type: ignore[code]`); bare `//nolint` (no `:linter`) silences every golangci linter. Always name the rule — it's the difference between a scoped exception and a blanket blindfold.
+- **Rust: prefer `#[expect(lint)]` over `#[allow(lint)]`** (stable since Rust 1.81) — the drift-detecting analog of `@ts-expect-error`: it warns when the lint stops firing, forcing the stale suppression out.
 
 ## References
 

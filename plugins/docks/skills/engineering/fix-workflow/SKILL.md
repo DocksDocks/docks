@@ -1,11 +1,11 @@
 ---
 name: fix-workflow
-description: Use when fixing a specific bug, security finding, performance regression, dependency vulnerability, or dead-code report — given either a path to scan, a bug description, or a list of findings (e.g. from /security or code-review). Produces a tiered fix plan with blast-radius analysis, test strategy, and revert triggers per change. Not for full multi-scanner audits with parallel agents (the legacy /fix command). Not for refactoring-driven cleanup (use /refactor).
+description: Use when fixing a specific bug, security finding, performance regression, dependency vulnerability, or dead-code report — given either a path to scan, a bug description, or a list of findings (e.g. from the security skill or code-review). Produces a tiered fix plan with blast-radius analysis, test strategy, and revert triggers per change. Not for full security audits (use the security skill). Not for refactoring-driven cleanup (use the refactor skill).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-17"
-  content_hash: "8d020184502808e2f7de73921207d944067cb3d183c4430954fe52035c185567"
+  updated: "2026-06-10"
+  content_hash: "a15c827feed5c4c2471f0a28b503cd67e59dc1214d846c6fb60d269ee0042d54"
 ---
 
 # Fix Workflow
@@ -35,8 +35,8 @@ Tier fixes by blast radius. Tier 1 = local change, single file, has a test (low 
 - Dead-code report (`knip` / `depcheck` / `ts-prune` / `vulture`) needs cleanup
 
 NOT for:
-- Full multi-scanner adversarial audits — see `/security` (3 parallel scanners + synthesizer is real value)
-- Architectural refactors with SOLID and per-principle analysis — see `/refactor`
+- Full adversarial security audits — see the `security` skill (sequential 5-phase OWASP pipeline with adversarial hunt + synthesis)
+- Architectural refactors with SOLID and per-principle analysis — see the `refactor` skill
 - Adding new features (use `tdd-workflow` for test-first or just write the code)
 
 ## When to Load Per-Finding-Type Templates
@@ -116,7 +116,7 @@ For each finding, fill in this template before writing any code:
 | Revert trigger | Specific test/lint that, if it flips, triggers `git restore` |
 | Blast radius | What else touches this code path |
 
-Show the user the table grouped by tier. Don't apply yet.
+Show the user the table grouped by tier. If the plan contains any Tier 2/3 fix, print it as your final message and end the turn — do not call Edit/Write until the user approves (a Tier-1-only plan may proceed directly).
 
 **For finding-type-specific test strategies and revert triggers**, load the matching reference file from the routing table above.
 
@@ -171,8 +171,8 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 | Lint or type errors flagged, tempted to add suppressions | `lint-no-suppressions` (always fix root cause) |
 | CVE / GHSA advisory, package upgrade decision | `dep-vuln-workflow` (severity triage + ecosystem-readiness) |
 | Code review surfaced findings, want them fixed | This skill — `code-review` produces the input list |
-| Adversarial security audit needed first | `/security` command (parallel scanners), then this skill on the findings |
-| Architectural cleanup beyond bug-fixing | `/refactor` command (SOLID, per-principle, dead code at scale) |
+| Adversarial security audit needed first | `security` skill (sequential OWASP pipeline), then this skill on the findings |
+| Architectural cleanup beyond bug-fixing | `refactor` skill (SOLID, per-principle, dead code at scale) |
 
 ## Anti-Hallucination Checks
 

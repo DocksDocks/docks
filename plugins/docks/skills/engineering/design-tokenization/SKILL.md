@@ -4,8 +4,8 @@ description: Use when working with colors, Tailwind classes, CSS custom properti
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-06"
-  content_hash: "70914bbe95f7746beda4560e00abed897ef4cb4c593889578e52c42ca06b0911"
+  updated: "2026-06-10"
+  content_hash: "84d2f1aba0d68b84536a893d289281ca565b93bf8de8574635a407cf4f07dbd7"
 ---
 
 # Design Tokenization
@@ -111,7 +111,7 @@ Exception — alpha modifiers ARE allowed for hover/active states on the same ba
 
 ## Tailwind v4 — @source and Class-Purge
 
-Tailwind v4 (`@tailwindcss/vite`) does NOT auto-scan the filesystem. Point it at every directory containing class names:
+Tailwind v4 (`@tailwindcss/vite`) auto-detects sources but skips `.gitignore`'d paths, binary files, and anything outside the stylesheet's project root. Add `@source` for every directory the heuristic misses (monorepo siblings, `shared/`, gitignored build trees):
 
 ```css
 /* Wrong fix: misses src/shared/ — classes there get purged */
@@ -167,7 +167,7 @@ Four-step procedure. Don't skip the audit — proposing token names without seei
 
 - `references/canonical-stylesheet.md` — full `:root` + `.dark` + `@theme inline` shape with both layers
 - `references/audit-and-greps.md` — four audit greps + pre-commit lock script + CI variant
-- Tailwind v4 `@source` and `@custom-variant`: https://tailwindcss.com/docs/v4-beta
+- Tailwind v4 `@source` (automatic source detection + explicit registration): https://tailwindcss.com/docs/detecting-classes-in-source-files
 - shadcn/ui design tokens: https://ui.shadcn.com/docs/theming (uses the `*-foreground` convention)
 - Brandfetch / logo.dev — verify official hex before adding a brand token
 - Companion skills: `make-interfaces-feel-better` (visual polish), `lint-no-suppressions` (when CI greps feel "annoying" — fix the violation, don't disable)
