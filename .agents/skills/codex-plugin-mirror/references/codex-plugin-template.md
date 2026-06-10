@@ -65,7 +65,7 @@ Source `plugins/docks/.claude-plugin/plugin.json` snippet:
 {
   "name": "docks",
   "description": "Multi-agent pipeline kit for Claude Code — Builder-Verifier commands…",
-  "version": "0.3.0",
+  "version": "X.Y.Z",
   "author": { "name": "Eduardo Marquez" },
   "license": "MIT",
   "keywords": ["pipeline", "multi-agent", "skills", "agents", "security", "refactor", "test", "review"]
@@ -77,7 +77,7 @@ Mirrored `plugins/docks/.codex-plugin/plugin.json`:
 ```json
 {
   "name": "docks",
-  "version": "0.3.0",
+  "version": "X.Y.Z",
   "description": "Multi-agent pipeline kit (skills only) — portable engineering-convention skills covering test-first / coverage / fix workflows, code review, SOLID, React patterns, dep-vuln triage, design tokens, and more.",
   "author": { "name": "Eduardo Marquez" },
   "homepage": "https://github.com/DocksDocks/docks",

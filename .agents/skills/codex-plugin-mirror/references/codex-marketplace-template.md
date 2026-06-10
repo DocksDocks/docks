@@ -36,8 +36,8 @@ For monorepo marketplaces with multiple plugins, repeat the `plugins[]` object o
 | `plugins[].name` | `plugins[].name` | Verbatim |
 | `plugins[].source` | `plugins[].source` (string) | Wrap into `{ "source": "local", "path": <string> }` — Codex's source uses an object schema |
 | `plugins[].category` | `plugins[].category` | Verbatim |
-| `plugins[].policy.installation` | (derived) | Default `"AVAILABLE"` — alternative values aren't documented yet; revisit if Codex publishes them |
-| `plugins[].policy.authentication` | (derived) | Default `"ON_INSTALL"` — same rationale |
+| `plugins[].policy.installation` | (derived) | Default `"AVAILABLE"`; documented set (verified 2026-06-10): `"AVAILABLE"` / `"NOT_AVAILABLE"` / `"INSTALLED_BY_DEFAULT"` |
+| `plugins[].policy.authentication` | (derived) | Default `"ON_INSTALL"`; documented set: `"ON_INSTALL"` / `"ON_USE"` |
 
 ## Fields the mirror DROPS
 
@@ -67,7 +67,7 @@ Source `.claude-plugin/marketplace.json` snippet (simplified):
       "name": "docks",
       "source": "./plugins/docks",
       "description": "Multi-agent pipeline kit for Claude Code — …",
-      "version": "0.3.0",
+      "version": "X.Y.Z",
       "category": "engineering-workflows"
     }
   ]
