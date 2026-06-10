@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-17"
-  content_hash: "4ca74c3bb037316ab65568002825ca02a101d695b5aa565d56ec3dfe3144cb3a"
+  updated: "2026-06-10"
+  content_hash: "fadb8cfd06410290c61c7ee3041a517d61336661d398866da390d3b48d6821cf"
 ---
 
 # Code Review
@@ -95,6 +95,8 @@ Before listing a finding, run these checks:
 
 Reject findings that fail these checks. A short list of solid findings beats a long list of shaky ones.
 
+Reject for missing **evidence**, never for low severity or imperfect **confidence**. Current Opus models follow conservative filters literally — told "only report what you're sure about", they investigate, find the bug, then silently decline to report it. A finding with real evidence but uncertain exploitability gets reported with an explicit confidence label (`confidence: low|medium|high`) so the user or a downstream verification pass does the filtering.
+
 ### Step 5 — Report (and optionally fix)
 
 Format the report by severity (critical → high → medium → low), each finding with:
@@ -164,6 +166,7 @@ Pattern adapted from Matt Pocock's `review` skill (MIT): <https://github.com/mat
 | Same false positive appears every run | Project uses an idiom that looks wrong but isn't | Document the idiom in `.claude/skills/` so future runs skip it |
 | Mid-review fix pollution | Edit a "obviously broken" line during analysis | Stay read-only until Step 5. Never edit mid-analysis. |
 | Reporting "potential issues" | "There MIGHT be a SQL injection here" | Either it is one (file:line + evidence) or you don't know yet (run another search pass before deciding) |
+| Self-censoring evidenced-but-uncertain findings | Drop everything below high confidence to look precise | Report with a `confidence:` label; recall is the review's job, filtering is the user's — silent drops hide real bugs |
 | Missing the surrounding context on a diff | Review only `+` lines | Always read 5-10 lines above and below the hunk; bugs live in deletions and at boundaries |
 | Merging Standards + Spec findings into one ranked list | Sort all findings by severity across both axes | Keep `## Standards` and `## Spec` reports separate; crossings (passes one, fails the other) are exactly what you want visible |
 | Spec axis skipped silently because "I didn't find a plan" | Move to single-axis report without comment | Note "no spec source available" explicitly in the report so the user knows the Spec axis was attempted, not forgotten |

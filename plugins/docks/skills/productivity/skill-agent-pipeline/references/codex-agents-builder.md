@@ -20,7 +20,7 @@ One agent per TOML file at `.codex/agents/<name>.toml` (project scope; `~/.codex
 | `description` | yes | string | "when to use this agent" (the Claude CSO carries over) |
 | `developer_instructions` | yes | string | the system prompt; TOML triple-quoted `"""…"""`; no documented length cap |
 | `model` | no | string | see model map below; omit → inherits parent session |
-| `model_reasoning_effort` | no | string | `"minimal"`/`"low"`/`"medium"`/`"high"`/`"xhigh"` (`xhigh` model-dependent); omit by default |
+| `model_reasoning_effort` | no | string | `"none"`/`"minimal"`/`"low"`/`"medium"`/`"high"`/`"xhigh"` (`none` is the newer no-reasoning mode; `xhigh` is the ceiling — Claude's `max` maps to `xhigh`, per Codex's own external-agent migration); omit by default |
 | `sandbox_mode` | no | string | `"read-only"` / `"workspace-write"` / `"danger-full-access"` |
 | `nickname_candidates` | no | string[] | Codex-only display names; omit |
 | `mcp_servers` | no | table | pass through only what the source agent already declares |
@@ -46,11 +46,11 @@ One agent per TOML file at `.codex/agents/<name>.toml` (project scope; `~/.codex
 | Claude `model` | Codex `model` | Note |
 |---|---|---|
 | `opus` | `gpt-5.5` | frontier tier (confirmed) |
-| `sonnet` | `gpt-5.3-codex` | coding-tuned standard (alt `gpt-5.4`) — project-configurable |
+| `sonnet` | `gpt-5.4` | mainline standard — absorbed the codex line at 5.4 (alt `gpt-5.3-codex`, being sunset) — project-configurable |
 | `haiku` | `gpt-5.4-mini` | mini tier — project-configurable |
 | `inherit` / absent | omit `model` | inherits the parent Codex session |
 
-Valid Codex model IDs: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`. If the project pins a Codex model in `config.toml`, prefer that over the default map.
+Valid Codex model IDs: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2` (the last two-line `-codex` checkpoints — `gpt-5.3-codex` — and `gpt-5.2` are being sunset; mainline 5.4+ absorbed the codex tuning). If the project pins a Codex model in `config.toml`, prefer that over the default map.
 
 ## Worked example
 
@@ -83,7 +83,7 @@ Per agent: `### File: .codex/agents/<name>.toml` + full TOML. For an `Agent`-dis
 
 ## Sources
 
-Codex facts confirmed against the official docs (2026-05-27) — re-verify here before editing the schema / translation / model tables above:
+Codex facts confirmed against the official docs (2026-05-27; effort set + model map re-verified 2026-06-10 against the openai/codex source) — re-verify here before editing the schema / translation / model tables above:
 
 - <https://developers.openai.com/codex/subagents> — `.codex/agents/*.toml` schema: required `name`/`description`/`developer_instructions`; optional keys; built-in `default`/`worker`/`explorer`; one agent per file; project `.codex/agents/` vs personal `~/.codex/agents/`.
 - <https://developers.openai.com/codex/config-reference> — `agents.max_depth` (default 1 → single-level child dispatch ports, deeper nesting capped), `agents.max_threads` (6), `agents.job_max_runtime_seconds` (1800, `spawn_agents_on_csv` wall-clock), `model_reasoning_effort` set (`minimal`/`low`/`medium`/`high`/`xhigh`).

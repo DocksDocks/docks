@@ -5,8 +5,9 @@
 # Fails if the reference doc names a model id / sandbox value / reasoning-effort
 # outside the canonical Codex sets, drops a required value, or revives the discredited
 # "subagents cannot spawn subagents" claim.
-# Sources (confirmed 2026-05-27): developers.openai.com/codex {subagents, sandbox,
-#   models, config-reference}. Author-side only; skips cleanly when the doc is absent.
+# Sources (confirmed 2026-05-27; effort set re-confirmed 2026-06-10 vs the openai/codex
+#   source): developers.openai.com/codex {subagents, sandbox, models, config-reference}.
+#   Author-side only; skips cleanly when the doc is absent.
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -30,10 +31,11 @@ while read -r tok; do
   esac
 done < <(grep -oE 'gpt-5\.[0-9]+(-[a-z]+)*' "$DOC" | sort -u)
 
-# 2. model_reasoning_effort: the full canonical set must be documented (it was once incomplete).
-for v in minimal low medium high xhigh; do
+# 2. model_reasoning_effort: the full canonical set must be documented (it was once incomplete;
+#    "none" joined as the newer no-reasoning mode — confirmed 2026-06-10).
+for v in none minimal low medium high xhigh; do
   grep -qE "\"$v\"" "$DOC" || {
-    echo "FAIL: codex-agents-builder.md missing model_reasoning_effort value \"$v\" (set: minimal/low/medium/high/xhigh)" >&2
+    echo "FAIL: codex-agents-builder.md missing model_reasoning_effort value \"$v\" (set: none/minimal/low/medium/high/xhigh)" >&2
     errors=$((errors + 1))
   }
 done
