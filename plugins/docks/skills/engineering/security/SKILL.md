@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-05-27"
-  content_hash: "f6e95e10489635433e4e15a9456c2803c9a55b6519d830b3b10380b645978fb2"
+  updated: "2026-06-10"
+  content_hash: "7469d2a99a28c33361e3766e70b82ad2225576b49f0c8a5ef14a6394ee44f615"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -51,7 +51,7 @@ Run these in order. Each phase reads its reference, then writes its output to th
 | 2c | Adversarial hunt (bypasses, chained attacks) | `references/adversarial-hunter.md` | `## Phase 2c: Adversarial Findings` |
 | 3 | Synthesis (challenge, dedupe, prioritize) | `references/synthesizer.md` | `## Phase 3: Security Audit Report` |
 
-Phases 2a–2c are independent lenses over the same Phase 1 map — on a runtime with parallel workers you MAY run them concurrently, but the portable default is sequential.
+Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequentially in this context (constraint 1) — their independence just means a finding in one never gates another.
 
 ## How to run each phase
 

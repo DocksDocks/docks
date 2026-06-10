@@ -61,6 +61,6 @@ Any `LOST SECTION` (other than a user-confirmed `DROP`) or `NET SHRINK` line ⇒
 - [ ] Original root copied to `/tmp/root.before` before any write
 - [ ] Relocation table covers every `^#{1,3}` section; unclassified → KEEP in root
 - [ ] Turn ended at the gate; nothing written before the user replied
-- [ ] Phase A wrote nodes + `tree/guard.sh` passed BEFORE any root deletion
+- [ ] Phase A wrote nodes + the pair check passed BEFORE any root deletion
 - [ ] Phase B pruned root only after the second confirmation
 - [ ] Verification: zero `LOST SECTION` / `NET SHRINK` lines (DROPs excepted)

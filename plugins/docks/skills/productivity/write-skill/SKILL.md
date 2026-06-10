@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-05-28"
-  content_hash: "866cae26f2c87e110d121cef6ebc9d8f1eea6f2c4cbb6d700695bee597b60a35"
+  updated: "2026-06-10"
+  content_hash: "2d0e6f5f425be4afface5c8506a45bd8628eded5f071946072fa19a03fc82ba8"
 ---
 
 # Write a Skill (docks conventions)
@@ -20,6 +20,10 @@ Description-first. The description is surfaced in the skill listing every sessio
 
 <constraint>
 Body sweet spot: 80–310 lines (`scripts/skills/score.sh` awards 2 pts here). ≤80 lines is allowed but loses the 2 pts. >310 is also allowed (≤500 hard cap per agentskills.io) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~280 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its three references.
+</constraint>
+
+<constraint>
+Bookkeeping is part of the edit, not an afterthought. After any change to a skill's meaning, bump `metadata.updated` to today AND re-sync the stored content hash with the project's documented hash command (in this kit: the content-hash backfill script) — CI's idempotency gate fails on a stale hash, and editing only `updated:` does not change the hash.
 </constraint>
 
 ## The minimum viable docks skill

@@ -56,7 +56,7 @@ CRITICAL · Security · A03:2021 · src/api/search.ts:42
 ## See Also
 
 - `../SKILL.md` — universal 5-step review procedure + constraints
-- `/security` command — adversarial multi-scanner audit for full coverage
+- `security` skill — sequential 5-phase OWASP pipeline (adversarial hunt + synthesis) for full coverage
 - `dep-vuln-workflow` skill — when the finding is a vulnerable dependency
 - `fix-workflow` references/security-fix-templates.md — once findings are approved for fix
 - OWASP Top 10 (2021): https://owasp.org/Top10/

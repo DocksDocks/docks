@@ -96,7 +96,7 @@ TAG_SHA=$(git rev-parse "$TAG_NAME^{commit}")
 echo ""
 echo "Waiting for CI on tag $TAG_NAME (commit $TAG_SHA)..."
 RUN_ID=""
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   RUN_ID=$(gh run list --workflow=ci.yml --json databaseId,headSha,event \
     --jq ".[] | select(.headSha == \"$TAG_SHA\" and .event == \"push\") | .databaseId" | head -1)
   [ -n "$RUN_ID" ] && break

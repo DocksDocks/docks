@@ -26,7 +26,7 @@ pipenv update <pkg>
 
 # uv (Astral's fast resolver, lockfile-aware)
 uv pip compile requirements.in -o requirements.txt --upgrade
-uv pip audit
+uv export --format requirements-txt | pip-audit -r /dev/stdin   # uv has no audit subcommand
 uv tree
 
 # safety (third-party scanner, broader DB)

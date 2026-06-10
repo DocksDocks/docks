@@ -1,11 +1,11 @@
 ---
 name: human-docs-workflow
-description: Use when generating, fixing, or auditing project-level prose documentation — README.md, AGENTS.md, CLAUDE.md, docs/**/*.md, .env.example, API references, JSDoc/TSDoc. Distinguishes human-readable docs (prose, runnable commands, API specs) from AI-optimized docs (AGENTS.md as cross-tool source of truth, CLAUDE.md as Claude-specific extension, agent context). Every claim grounded in source code with file:line evidence. Not for project skill / agent authoring (use the skill-agent-pipeline skill which has irreducible 8-phase pipeline value for that).
+description: Use when generating, fixing, or auditing project-level prose documentation — README.md, AGENTS.md, CLAUDE.md, docs/**/*.md, .env.example, API references, JSDoc/TSDoc. Distinguishes human-readable docs (prose, runnable commands, API specs) from AI-optimized docs (AGENTS.md as cross-tool source of truth, CLAUDE.md as Claude-specific extension, agent context). Every claim grounded in source code with file:line evidence. Not for project skill / agent authoring (use skill-agent-pipeline).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-27"
-  content_hash: "5b430b79a75c0d38fb27b02015b5e4ccfad3cf89f0de2dc2bbc56faa6ba8010f"
+  updated: "2026-06-10"
+  content_hash: "6964c34a0d967b033ca80e46d557d07dcf9e7480648ff3582dc4ddbf07e2030c"
 ---
 
 # Human Docs Workflow

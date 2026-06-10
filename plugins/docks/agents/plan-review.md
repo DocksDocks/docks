@@ -38,6 +38,12 @@ Read the skill body for the full per-finding reproduction rules and the trap tab
 
 If the plan body references a framework or library (Next.js, Supabase, React, Tailwind, etc.) and you need to verify the implementation against current docs, use **resolve-library-id → query-docs** via context7. Training-data drift on framework conventions is the most common false-positive source for "regression" claims.
 
+## Output Format
+
+- The `## Review` block written into the plan uses exactly five lines: `Goal met` (yes/partial/no + one-line reasoning), `Regressions` (none, or file:line list), `CI` (pass/fail with the first failing line verbatim, or n/a), `Follow-ups` (none, or suggested slugs — never auto-created), `Filed by` (ISO timestamp).
+- `review_status` frontmatter is set to `passed` / `partial` / `regressed` in the same edit.
+- Chat output is the Tier-3 single-plan preview (header strip + body) — never a bare file path.
+
 ## Anti-Hallucination Checks
 
 - Before claiming a `[x]` criterion is verified, you MUST have read the relevant changed code OR grepped for evidence in this turn — not just trusted the checkbox.

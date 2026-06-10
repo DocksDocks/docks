@@ -37,7 +37,7 @@ Document which one in a one-line comment above the effect.
 
 - Pattern: `addEventListener` in body, `removeEventListener` in cleanup.
 - Dep array is empty or stable-refs-only. Re-subscribing every render or on every state change is a bug.
-- If you need current state inside the handler, either (a) read it from the DOM at handler time, or (b) hold it in a `useRef` updated during render, or (c) use functional state updaters.
+- If you need current state inside the handler, either (a) read it from the DOM at handler time, (b) wrap the handler in `useEffectEvent` (stable since React 19.2), or (c) use functional state updaters / a render-updated `useRef` on older React.
 
 ```tsx
 // GOOD — keyboard hotkey, empty deps, reads current state from DOM
@@ -163,7 +163,7 @@ Cleanup is mandatory for every subscription effect. Always return `() => unsubsc
 - **`setState(true)` at the top of an effect body trips `set-state-in-effect`.** Move it inside the `async function` body (the rule allows setState within a callback function scope).
 - **Empty deps aren't a free pass.** If the effect references a state value, that state becomes stale. Use a ref or read from the DOM.
 - **`useDeferredValue` is NOT a time-based debounce.** It's CPU-priority. For "wait 400ms then fire RPC," use `useDebouncedValue` (or any setTimeout-in-effect hook).
-- **`useEffectEvent` is still experimental** in React 19 (as of 2026-04). Do not use in production; use the ref-latest pattern instead.
+- **`useEffectEvent` is stable since React 19.2** (eslint-plugin-react-hooks v6 understands it) — use it to read latest props/state inside an effect without adding them to the dep array. Fall back to the ref-latest pattern only on React <19.2. https://react.dev/reference/react/useEffectEvent
 - **Don't "fix" an effect by burying it in a custom hook.** Extraction doesn't change correctness — it hides smell. Fix the anti-pattern first (use the replacement table above). Only extract once there's a second caller AND the logic fits one of the 3 acceptable categories. See `composition.md` § Common Traps for the 1-callsite-trap rule.
 
 ## References

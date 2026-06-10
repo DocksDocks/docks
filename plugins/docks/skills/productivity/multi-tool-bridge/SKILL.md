@@ -4,8 +4,8 @@ description: Use when setting up multi-tool agent compatibility in a project (Co
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-28"
-  content_hash: "0e87675a874d26538125f5aac658107260b69e3a85605a417f9efe66f7241d79"
+  updated: "2026-06-10"
+  content_hash: "a00ffa56997f5ad50071a50dc2dda3050d2643f5085165567ee6794c05fc6de0"
 ---
 
 # Multi-Tool Agent Bridge
@@ -90,7 +90,7 @@ When a project CLAUDE.md already exists at EITHER location, the Bridge Insertion
 | Project Skills (.claude/…) | KEEP in CLAUDE.md | references .claude/skills/ directly   |
 ```
 
-5. **Wait for user confirmation**. Do not proceed to Step 5 until the user approves (or amends) the split.
+5. **Approval gate** — print the proposal table as your final message and end the turn. Do not call Write/Edit/`git mv` until the user approves (or amends) the split in their reply.
 
 ### Step 4 — Build the action table
 

@@ -1,11 +1,11 @@
 ---
 name: code-review
-description: Use when reviewing code for bugs, security vulnerabilities (OWASP Top 10), performance issues, maintainability problems, or AI slop — on a path, a diff, or the working tree. Produces a categorized findings list with file:line references, severity, and suggested fixes. Optional fix-application phase after the user approves. Not for full security audits (use the /security command for OWASP-coverage with parallel adversarial scanning) or refactoring sprees (use /refactor).
+description: Use when reviewing code for bugs, security vulnerabilities (OWASP Top 10), performance issues, maintainability problems, or AI slop — on a path, a diff, or the working tree. Produces a categorized findings list with file:line references, severity, and suggested fixes. Optional fix-application phase after the user approves. Not for full security audits (use the security skill's sequential OWASP pipeline) or refactoring sprees (use the refactor skill).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-17"
-  content_hash: "4ca74c3bb037316ab65568002825ca02a101d695b5aa565d56ec3dfe3144cb3a"
+  updated: "2026-06-10"
+  content_hash: "c5b045e764e1b31341f744a15353ca31ab9113caf9c5f5e60b9961f9eae498fd"
 ---
 
 # Code Review
@@ -35,8 +35,8 @@ Two-axis mode (optional) — activate when reviewing changes since a fixed point
 - Pre-merge sanity check after a round of AI-generated changes
 
 NOT for:
-- Full OWASP Top 10 coverage with adversarial perspective — use the `/security` command (3 parallel scanners + synthesizer adds genuine value there)
-- Whole-codebase refactor / dead code / SOLID audit — use `/refactor`
+- Full OWASP Top 10 coverage with adversarial perspective — use the `security` skill (sequential 5-phase pipeline: discovery → scan → logic → adversarial hunt → synthesis)
+- Whole-codebase refactor / dead code / SOLID audit — use the `refactor` skill
 - Test coverage gaps — use `test-coverage` skill
 
 ## The Five-Step Procedure
@@ -95,6 +95,8 @@ Before listing a finding, run these checks:
 
 Reject findings that fail these checks. A short list of solid findings beats a long list of shaky ones.
 
+Reject for missing **evidence**, never for low severity or imperfect **confidence**. Current Opus models follow conservative filters literally — told "only report what you're sure about", they investigate, find the bug, then silently decline to report it. A finding with real evidence but uncertain exploitability gets reported with an explicit confidence label (`confidence: low|medium|high`) so the user or a downstream verification pass does the filtering.
+
 ### Step 5 — Report (and optionally fix)
 
 Format the report by severity (critical → high → medium → low), each finding with:
@@ -106,7 +108,7 @@ SEVERITY · CATEGORY · file:line
   Suggested fix: <one sentence or short snippet>
 ```
 
-Then ask: "Apply fixes? (all / critical-only / specific findings / none)". Wait for user choice.
+Then print "Apply fixes? (all / critical-only / specific findings / none)" as your final message and end the turn — do not call Edit/Write until the user replies.
 
 If the user approves fixes:
 
@@ -150,7 +152,7 @@ each citing the spec line + the diff line>
 - Worst single issue across both axes: <one line>
 ```
 
-Patterns to use parallel sub-agents for the two passes (so one axis doesn't bleed into the other's context) live in our `refactor` command's Phase 2 design — same idea, different domain. For straight `code-review` invocations the two passes can be sequential within one turn; the discipline that matters is keeping the reports separate.
+Run the two passes sequentially within one turn — the discipline that matters is keeping the reports separate, not how they're scheduled. (A runtime with isolated workers MAY split the axes so one doesn't bleed into the other's context, but sequential is the portable default.)
 
 Pattern adapted from Matt Pocock's `review` skill (MIT): <https://github.com/mattpocock/skills/blob/main/skills/in-progress/review/SKILL.md>.
 
@@ -161,9 +163,10 @@ Pattern adapted from Matt Pocock's `review` skill (MIT): <https://github.com/mat
 | "Findings" without code evidence | "Authentication seems weak" with no file:line | Drop the finding; an audit without evidence is worse than no audit |
 | Severity inflation to look thorough | Mark everything HIGH so the report looks weighty | Calibrate to actual blast radius; drop unjustified severity |
 | Reviewing code in a vacuum (no test/lint context) | Skip Step 1; jump straight to reading source | Read `package.json` scripts; know what the project's quality bar already is before adding "issues" |
-| Same false positive appears every run | Project uses an idiom that looks wrong but isn't | Document the idiom in `.claude/skills/` so future runs skip it |
+| Same false positive appears every run | Project uses an idiom that looks wrong but isn't | Document the idiom in the project's skills directory (`.agents/skills/` or `.claude/skills/`) so future runs skip it |
 | Mid-review fix pollution | Edit a "obviously broken" line during analysis | Stay read-only until Step 5. Never edit mid-analysis. |
 | Reporting "potential issues" | "There MIGHT be a SQL injection here" | Either it is one (file:line + evidence) or you don't know yet (run another search pass before deciding) |
+| Self-censoring evidenced-but-uncertain findings | Drop everything below high confidence to look precise | Report with a `confidence:` label; recall is the review's job, filtering is the user's — silent drops hide real bugs |
 | Missing the surrounding context on a diff | Review only `+` lines | Always read 5-10 lines above and below the hunk; bugs live in deletions and at boundaries |
 | Merging Standards + Spec findings into one ranked list | Sort all findings by severity across both axes | Keep `## Standards` and `## Spec` reports separate; crossings (passes one, fails the other) are exactly what you want visible |
 | Spec axis skipped silently because "I didn't find a plan" | Move to single-axis report without comment | Note "no spec source available" explicitly in the report so the user knows the Spec axis was attempted, not forgotten |

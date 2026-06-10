@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-05-28"
-  content_hash: "26ce0e1caefbe8c09558659729bfb2e3a90cac45b39956f8b71aaf2073a45ddc"
+  updated: "2026-06-10"
+  content_hash: "020828f61411f4d47014e7bb7c17d94d8558704c6644695256d7e5217d4017fa"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -82,7 +82,7 @@ After Phase 5, write `## Phase 6: Plan Presentation` to the plan file:
 3. Skipped findings (including over-engineering and unreproducible drops).
 4. Any MUST FIX from the pre-verifier requiring plan adjustment first.
 
-Then STOP and tell the user: "Refactoring plan written to `<path>`; review and say `start <slug>` to implement." Approval flows through the plan lifecycle — never `ExitPlanMode`.
+Then print "Refactoring plan written to `<path>`; review and say `start <slug>` to implement." as your final message and end the turn — do not call Edit/Write until the user replies. Approval flows through the plan lifecycle — never `ExitPlanMode`.
 
 ## Implementation (Phases 7–8, after approval)
 

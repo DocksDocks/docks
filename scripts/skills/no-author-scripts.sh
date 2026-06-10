@@ -27,7 +27,7 @@ ALLOWLIST="scaffold write-skill"
 # Real docks author-script paths only. Deliberately NOT bare "scripts/" so generic
 # examples a skill tells a consumer to create (scripts/install-hooks.sh,
 # scripts/hitl-loop.sh) and node files (scripts/AGENTS.md) do not trip it.
-PATTERN='scripts/(ci|release)\.sh|scripts/(skills|agents|tree|scaffold|config|lib)/'
+PATTERN='scripts/(ci|release)\.sh|scripts/(skills|agents|tree|scaffold|config|lib)/|tree/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh'
 
 files=$(
   find "$SKILLS_DIR" -type f \( -name SKILL.md -o \( -path '*/references/*' -a -name '*.md' \) \) 2>/dev/null

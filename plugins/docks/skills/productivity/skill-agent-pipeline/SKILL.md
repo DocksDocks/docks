@@ -1,11 +1,11 @@
 ---
 name: skill-agent-pipeline
-description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, the 1024-char description cap, size/staleness, coverage gaps), a content-accuracy audit that verifies every file:line ref and code snippet against current source (catching stale refs and fictional APIs), codebase pattern extraction with file:line evidence, SKILL.md authoring + references/ splits, removing a stale local skill-maintenance in favor of the plugin one, and cross-layer agent-skill validation. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form. Sequential phases gated through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
+description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, caps, staleness, coverage gaps), a content-accuracy audit verifying every file:line ref and snippet against current source, pattern extraction with evidence, and SKILL.md authoring + references/ splits. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form; phases gate through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-06-03"
-  content_hash: "1eb59b01fa866dd7642f82bacf59591f1310b266004f8541458aca2e05b4541e"
+  updated: "2026-06-10"
+  content_hash: "976e7518e47d37efc1246e91580d385521ad2d71b94e54b079afa827fb12509c"
 ---
 
 # Skills & Agents Pipeline (cross-tool)

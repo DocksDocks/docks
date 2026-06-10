@@ -60,13 +60,14 @@ A skill that **moves, splits, migrates, or rewrites existing content** (root →
 
 ## Cross-tool wording (Claude Code + Codex)
 
-Skills run in both runtimes; phrase for both. Verified 2026-05-28 against the live docs.
+Skills run in both runtimes; phrase for both. Verified 2026-06-10 against the live docs + the openai/codex source.
 
 1. **Constraints at the top.** After compaction Claude Code re-attaches only the first ~5,000 tokens of each invoked skill (25,000-token shared budget, oldest-invoked dropped first). Put non-negotiable/safety rules in `<constraint>` blocks near the top — a rule at the bottom is dropped first.
 2. **Turn-ending approval gates.** No runtime "pause" primitive exists for skills (`disable-model-invocation` only gates auto-invoke). The only enforceable pause is ending the turn: "print the proposal as your final message and STOP; don't call Write/Edit until the user replies." "STOP and await" alone gets bypassed (Opus 4.7/4.8 follow instructions literally).
-3. **Front-load the description.** Codex shortens the skills *catalog* tail-first when it overflows (~8,000 chars ≈ 2% of context); the per-skill `description` cap is still 1,024. Primary trigger in the first ~100 chars (Claude truncates the listing at 1,536 too).
+3. **Front-load the description.** When the Codex skills *catalog* overflows its budget (2% of the context window in tokens; the ~8,000-char figure is only the fallback when the window is unknown), descriptions are truncated EVENLY — no skill is dropped, every description loses its tail. The per-skill `description` cap is still 1,024. Primary trigger in the first ~100 chars (Claude truncates the listing at 1,536 too).
 4. **Codex reads bodies as plain markdown** — it does not weight `<constraint>` XML. A safety rule must read correctly as plain prose, not lean on the tag for emphasis.
 5. **`isolation: worktree` is Claude-only.** Don't rely on it (or plugin-subagent `hooks`/`mcpServers`/`permissionMode`) for cross-tool safety.
+6. **Goals over step-lists for frontier models.** Fable 5's prompting guide warns that skills written for prior models are often too prescriptive and can degrade its output; Opus 4.8 follows literally but won't generalize an instruction beyond its stated scope. Write the goal + the non-negotiable constraints, state scope explicitly, and skip micro-step choreography the model can derive.
 
 ## Scoring
 

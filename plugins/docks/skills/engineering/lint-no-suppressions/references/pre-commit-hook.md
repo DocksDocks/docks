@@ -91,7 +91,7 @@ GitLab CI / Circle CI / Bitbucket equivalents follow the same shape: fetch the b
 ## Limitations
 
 - The diff-based scanner only flags NEW suppressions. Pre-existing suppressions in legacy code remain untouched (by design — you don't want CI to fail on unchanged code).
-- It can't detect project-level rule-disabling in config files (`.eslintrc.js`, `tsconfig.json`, `pyproject.toml`, `Cargo.toml [lints]`). For those, add a separate config-file audit step (manual review on `.eslintrc.*` and `tsconfig.json` diffs in PR review).
+- It can't detect project-level rule-disabling in config files (`eslint.config.js` — or legacy `.eslintrc.*` — `tsconfig.json`, `pyproject.toml`, `Cargo.toml [lints]`). For those, add a separate config-file audit step (manual review on `eslint.config.js`/`.eslintrc.*` and `tsconfig.json` diffs in PR review).
 - `--no-verify` bypasses client-side hooks. The CI mirror exists for this reason.
 - Multi-byte filenames in `git diff --cached --name-only` need `core.quotePath=false` to be handled correctly by the `while read` loop.
 

@@ -99,6 +99,6 @@ LOW · AI slop · src/api/auth.ts:42
 ## See Also
 
 - `../SKILL.md` — universal 5-step review procedure + constraints
-- `/refactor` command — when findings exceed ≥ 10 and a sweep is needed
+- `refactor` skill — when findings exceed ≥ 10 and a sweep is needed
 - `lint-no-suppressions` skill — if a fix involves removing a suppression
 - `fix-workflow` references/bug-fix-templates.md — when a maintainability finding hides a real bug

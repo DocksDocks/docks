@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-06-03"
-  content_hash: "a02368ec02d9b5b8f610508fba08450e01978e1a5205d60cebde9f6999cb8c3a"
+  updated: "2026-06-10"
+  content_hash: "39dbeb900758228a87b32d4a56b1735249b1f30f71a1db4f80577b3d2b61e9a0"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -25,7 +25,7 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 </constraint>
 
 <constraint>
-**No content loss when relocating — per-section, NOT byte-percentage.** A split *adds* scaffolding (imports, CLAUDE.md files, node headings, breadcrumbs), so output is normally ≥100% of input — a byte-% floor is the wrong primary check (a lost section hides under added bytes). Instead: (1) inventory every source `^#{1,3}` section before writing; (2) the approval table accounts for EACH section → a destination or an explicit user `DROP` (unclassified → KEEP in root); (3) relocate verbatim (reformat OK, reword NOT); (4) two-phase write — nodes first + `tree/guard.sh`, prune root LAST after a second confirmation; (5) the `## Verification` block then confirms every source section survives downstream + flags any net shrink. On a miss: stop, restore, locate it — do NOT report success. Full algorithm: [`references/data-preservation.md`](references/data-preservation.md).
+**No content loss when relocating — per-section, NOT byte-percentage.** A split *adds* scaffolding (imports, CLAUDE.md files, node headings, breadcrumbs), so output is normally ≥100% of input — a byte-% floor is the wrong primary check (a lost section hides under added bytes). Instead: (1) inventory every source `^#{1,3}` section before writing; (2) the approval table accounts for EACH section → a destination or an explicit user `DROP` (unclassified → KEEP in root); (3) relocate verbatim (reformat OK, reword NOT); (4) two-phase write — nodes first + the pair check (every CLAUDE.md exactly `@AGENTS.md`, every AGENTS.md non-empty, ≤500 lines), prune root LAST after a second confirmation; (5) the `## Verification` block then confirms every source section survives downstream + flags any net shrink. On a miss: stop, restore, locate it — do NOT report success. Full algorithm: [`references/data-preservation.md`](references/data-preservation.md).
 </constraint>
 
 ## Operations
@@ -120,7 +120,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
 | `init` clobbered `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them from the write set. |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
-| Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + `tree/guard.sh`, prune root LAST (Phase B). |
+| Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + the pair check, prune root LAST (Phase B). |
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
 | Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must call the maintainer `--check-only` predicate and no-op when nothing semantic changed. |
 | `audit` passed a node as "no drift" on a file-exists check | Existence ≠ accuracy — a renamed validator, changed floor, or moved file:line stays hidden. `audit` verifies every claim's content against current source and states the count checked. |

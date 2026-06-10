@@ -1,6 +1,6 @@
 ---
 name: react-component-patterns
-description: "Use when designing or reviewing React components — writing `useEffect` (DOM subscribe, external sync, debounced async) and fixing `react-hooks/*` errors, designing composition APIs (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva), OR debugging Next.js RSC boundary errors (`Functions cannot be passed to Client Components`, `$$typeof+render` icon/closure across server-to-client). React 19 ref-as-prop replaces `forwardRef`. Refs: `effects.md`, `composition.md`, `rsc-boundary.md`."
+description: "Use when designing or reviewing React components — writing `useEffect` (DOM subscribe, external sync, debounced async) and fixing `react-hooks/*` errors, designing composition APIs (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva), OR debugging Next.js RSC boundary errors (`Functions cannot be passed to Client Components`, `$$typeof+render` icon/closure across server-to-client). React 19 ref-as-prop replaces `forwardRef`."
 user-invocable: false
 paths:
   - "**/*.tsx"
@@ -9,8 +9,8 @@ paths:
   - "**/*.js"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-26"
-  content_hash: "852988ad8b4097046a96aa4b10d6be2fa4568cce9869f59927f83e9936db7e63"
+  updated: "2026-06-10"
+  content_hash: "93189533744b654bdca94656484cfd6ebb56e66ed0c0defb89610b3c1070baff"
 ---
 
 # React Component Patterns

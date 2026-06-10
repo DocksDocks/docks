@@ -52,7 +52,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
-Plus `write-skill`, `multi-tool-bridge`, `plan-manager`, `plan-review`, `zoom-out`, and `caveman` under `productivity/`.
+Plus `capability-tuning` (max-capability settings.json / config.toml templates for Claude Code + Codex, grounded in context engineering), `write-skill`, `multi-tool-bridge`, `plan-manager`, `plan-review`, `zoom-out`, and `caveman` under `productivity/`.
 
 ### Plan-lifecycle agents (Claude Code only)
 

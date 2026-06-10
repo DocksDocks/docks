@@ -15,7 +15,7 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_DIR"
+cd "$REPO_DIR" || exit 2
 
 QUIET=0
 [ "${1:-}" = "-q" ] && QUIET=1
@@ -143,6 +143,20 @@ for g in skills/guard skills/no-author-scripts skills/transform-guard agents/gua
   fi
 done
 
+# --- 3b. shell lint (shellcheck) ---
+# Self-skips when shellcheck isn't installed locally; tag-CI enforces it
+# (preinstalled on ubuntu-latest runners).
+section "shell lint"
+if command -v shellcheck >/dev/null 2>&1; then
+  if shellcheck -S warning scripts/*.sh scripts/*/*.sh plugins/docks/hooks/*.sh tests/*.sh >/dev/null 2>&1; then
+    ok "shellcheck -S warning clean (scripts, hooks, tests)"
+  else
+    fail "shellcheck warnings (run: shellcheck -S warning scripts/*.sh scripts/*/*.sh plugins/docks/hooks/*.sh tests/*.sh)"
+  fi
+else
+  [ "$QUIET" -eq 0 ] && printf "\033[1;33m  ⚠\033[0m shellcheck not installed — skipped locally (CI enforces)\n"
+fi
+
 # --- 4. quality score floors ---
 # Per-file floor is the gate; total floor = sum(per_file_floor × count).
 # Floors live in scripts/config/scoring.json (one source of truth).
@@ -168,6 +182,7 @@ for c in engineering productivity; do
 done
 
 # Flat kinds (agents)
+# shellcheck disable=SC2043 # single kind today; loop keeps the flat-kind shape extensible
 for k in agents; do
   floor=$(bash scripts/config/read-floor.sh "$k" 2>/dev/null) || { fail "scripts/config/scoring.json missing $k"; continue; }
   # Exclude reserved context-tree node files — they're not agent definitions.
@@ -209,6 +224,7 @@ done < <(bash scripts/skills/score.sh --per-file 2>/dev/null)
 [ "$any_under" -eq 0 ] && ok "skills per-file all clear per-category floors ($exempt_n upstream skipped)"
 
 # Flat kinds (agents)
+# shellcheck disable=SC2043 # single kind today; loop keeps the flat-kind shape extensible
 for k in agents; do
   floor=$(bash scripts/config/read-floor.sh "$k" 2>/dev/null) || continue
   any_under=0

@@ -86,7 +86,7 @@ for file in "$DIR"/*.md; do
 
   # 8. [docs] Explicit model declared (1 pt) — agent-frontmatter `model:` is the
   #    per-phase tiering mechanism per the subagents doc resolution order
-  grep -qE '^model:[[:space:]]*(sonnet|opus|haiku)' "$file" && score=$((score + 1))
+  grep -qE '^model:[[:space:]]*(sonnet|opus|haiku|claude-[a-z0-9-]+)' "$file" && score=$((score + 1))  # full IDs are explicit tiering too; bare `inherit` is not
 
   # 9. [docs] Tool constraint declared — `tools:` OR `disallowedTools:` (1 pt).
   #    Absence of both means the agent inherits ALL parent tools; explicit
@@ -95,8 +95,9 @@ for file in "$DIR"/*.md; do
     score=$((score + 1))
   fi
 
-  # 10. [project] No slop words (lose 1 per hit, max 2)
-  slop=$(grep -ciE '\bcomprehensive\b|\brobust\b|\belegant\b|\bseamless\b' "$file")
+  # 10. [project] No slop words (lose 1 per hit, max 2). Fenced blocks + code
+  #     spans stripped — quoting a banned word is not prose slop.
+  slop=$(awk '/^```/{infence=!infence; next} !infence' "$file" | sed 's/`[^`]*`//g' | grep -ciE '\bcomprehensive\b|\brobust\b|\belegant\b|\bseamless\b')
   slop_score=$((2 - slop))
   [ "$slop_score" -lt 0 ] && slop_score=0
   score=$((score + slop_score))

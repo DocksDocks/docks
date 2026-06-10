@@ -1,11 +1,11 @@
 ---
 name: plan-init
-description: Use when bootstrapping the docs/plans/ convention in a new or existing project — creates planned/ongoing/blocked/scheduled/finished subdirectories with .gitkeep, writes a plans-local AGENTS.md (5-category lifecycle, multi-occupancy rule, scheduled-date trigger, pretty-print contract) plus a one-line CLAUDE.md shim that does @AGENTS.md for Claude Code discovery, and appends a Plans section to the root AGENTS.md (or root CLAUDE.md if AGENTS.md is absent). Idempotent — re-running on a project that already has docs/plans/ is a no-op for existing files.
+description: Use when bootstrapping the docs/plans/ convention in a new or existing project — creates planned/ongoing/blocked/scheduled/finished subdirectories with .gitkeep, writes a plans-local AGENTS.md (lifecycle rules + pretty-print contract) plus a one-line CLAUDE.md shim that does @AGENTS.md for Claude Code discovery, and appends a Plans section to the root AGENTS.md (or root CLAUDE.md if AGENTS.md is absent). Idempotent — re-running is a no-op for existing files.
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-03"
-  content_hash: "a8ea53df9e79075abe4636ffed7d2699e81e949a12bece31005909c914733d80"
+  updated: "2026-06-10"
+  content_hash: "77a6644c0c922a3797d676820ff9208049546ce6b78814f630df2cad267c6d94"
 ---
 
 # Plans Directory Bootstrapper

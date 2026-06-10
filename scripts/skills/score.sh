@@ -23,22 +23,10 @@ DIR="${DIR:-$REPO_DIR/plugins/docks/skills}"
 total=0
 today=$(date +%s)
 
-# Extract a YAML value that may span multiple lines (single-line or block-scalar)
-# until the next top-level YAML key or end of frontmatter.
-extract_yaml_value() {
-  local file="$1" key="$2"
-  awk -v key="$key" '
-    /^---$/{c++; if(c==2) exit; next}
-    c==1 && $0 ~ "^"key":" {
-      sub("^"key":[[:space:]]*", "")
-      flag=1
-      print
-      next
-    }
-    c==1 && flag && /^[a-z_][a-zA-Z0-9_-]*:/ { flag=0 }
-    c==1 && flag { print }
-  ' "$file"
-}
+# ${#var} must count CHARACTERS, not bytes — em-dash-heavy descriptions inflate
+# 3× under a C/POSIX locale and would mis-tier at the 500-char boundary.
+utf8_loc=$(locale -a 2>/dev/null | grep -iEm1 '^(C|en_US)\.(utf-?8)$' || true)
+[ -n "$utf8_loc" ] && export LC_ALL="$utf8_loc"
 
 for skill_dir in "$DIR"/*/*/; do
   [ -d "$skill_dir" ] || continue
@@ -90,7 +78,7 @@ for skill_dir in "$DIR"/*/*/; do
               | sed 's/.*vendored_at:[[:space:]]*"\{0,1\}\([0-9-]*\)"\{0,1\}.*/\1/')
   fi
   if [ -n "$updated" ]; then
-    updated_ts=$(date -d "$updated" +%s 2>/dev/null || echo 0)
+    updated_ts=$(date -d "$updated" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$updated" +%s 2>/dev/null || echo 0)  # GNU, then BSD
     if [ "$updated_ts" -gt 0 ]; then
       age_days=$(( (today - updated_ts) / 86400 ))
       [ "$age_days" -le 180 ] && score=$((score + 1))
@@ -110,8 +98,11 @@ for skill_dir in "$DIR"/*/*/; do
     score=$((score + 2))
   fi
 
-  # 6. [project] No slop words (2 pts, lose 1 per hit)
-  slop=$(grep -ciE '\bcomprehensive\b|\brobust\b|\belegant\b|\bseamless\b' "$file")
+  # 6. [project] No slop words (2 pts, lose 1 per hit). Fenced code blocks and
+  #    backtick code spans are stripped first: QUOTING a banned word (write-skill's
+  #    ban list, a BAD example inside a fence) is not prose slop — only running
+  #    text is penalized.
+  slop=$(awk '/^```/{infence=!infence; next} !infence' "$file" | sed 's/`[^`]*`//g' | grep -ciE '\bcomprehensive\b|\brobust\b|\belegant\b|\bseamless\b')
   slop_score=$((2 - slop))
   [ "$slop_score" -lt 0 ] && slop_score=0
   score=$((score + slop_score))

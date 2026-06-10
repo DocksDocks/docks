@@ -11,8 +11,8 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-17"
-  content_hash: "fc9aef873dbf64837f243eeaf8fd130a9edd35ef54e1b803f0ca060826146f77"
+  updated: "2026-06-10"
+  content_hash: "cc735c0e4b456d22dc8e42b0513008fdab62bdc42393a018555995309072b54d"
 ---
 
 # Type-Safety Discipline
@@ -294,7 +294,7 @@ TypeScript `class` is justified in exactly three cases: (a) `Error` subtypes (`c
 - **Python:** Don't suppress type errors with `# type: ignore` without a same-line reason. The `lint-no-suppressions` skill applies.
 - **TS:** `class` instances do not cross the React Server Components boundary as props (only built-ins like `Date`/`Map`/`Set` do); they also fail `structuredClone` of their methods and serialize to lossy JSON. If a value travels across `postMessage`, `localStorage`, RSC props, or an `IndexedDB` write, it must NOT be a class instance. See `react-component-patterns/references/rsc-boundary.md`.
 - **TS:** "Strategy pattern with a class per strategy" is almost never the right call — a `Record<Key, (input) => Output>` dispatch map gives the same Open/Closed property with less code and trivial tree-shaking. The `solid` skill flags this.
-- **TS:** Don't reach for a class because you want private fields. The `#privateField` syntax works on plain objects returned from factory functions, and `readonly` enforces immutability on `interface`/`type` shapes.
+- **TS:** Don't reach for a class because you want private fields. `#private` is class-only syntax — but a factory closure's captured variables are truly private at runtime, and `readonly` enforces immutability on `interface`/`type` shapes.
 
 ## References
 
