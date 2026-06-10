@@ -1,20 +1,20 @@
 ---
 title: Note Codex native .claude-plugin discovery in codex-plugin-mirror
 goal: codex-plugin-mirror reflects that Codex discovers .claude-plugin/plugin.json natively, re-scoping the mirror to the marketplace catalog, degradation surfacing, and version lockstep
-status: ongoing
+status: finished
 created: "2026-06-10T05:25:00+00:00"
-updated: "2026-06-10T05:31:43+00:00"
+updated: "2026-06-10T05:35:26+00:00"
 started_at: "2026-06-10T05:31:43+00:00"
 assignee: null
 blockers: []
 blocked_reason: null
 blocked_since: null
-ship_commit: null
+ship_commit: 71bfdb79028d24e05a07d63b48fd2c8c9c61b78f
 tags: [skills, codex, project-local]
 affected_paths:
   - .agents/skills/codex-plugin-mirror/SKILL.md
 related_plans: [2026-06-10-capability-tuning-research-rollout]
-review_status: null
+review_status: passed
 ---
 
 # Note Codex native .claude-plugin discovery in codex-plugin-mirror
@@ -33,13 +33,13 @@ Follow-up filed by plan-review on the capability-tuning research rollout (ship d
 |---|---|---|---|---|---|
 | 1 | Re-verify DISCOVERABLE_PLUGIN_MANIFEST_PATHS in openai/codex source at implementation time | — | — | done | main |
 | 2 | Update SKILL.md: framing paragraph + a "native discovery" fact note + trap-table row; bump metadata.updated | 1 | — | done | main |
-| 3 | Run the repo validators (ci.sh), commit + push | 2 | — | in-flight | main |
+| 3 | Run the repo validators (ci.sh), commit + push | 2 | — | done | main |
 
 ## Acceptance criteria
 
 - [x] SKILL.md states Codex natively discovers `.claude-plugin/plugin.json` (with source + verification date) — "Scope note" paragraph + trap row
 - [x] Mirror's value proposition re-scoped to marketplace catalog + interface/degradation + version lockstep — nothing implies the `.codex-plugin` manifest is required for discovery
-- [~] `metadata.updated` bumped; ci.sh green; pushed
+- [x] `metadata.updated` bumped; ci.sh green (exit 0); shipped as 71bfdb7
 
 ## Out of scope
 
@@ -62,4 +62,8 @@ Follow-up filed by plan-review on the capability-tuning research rollout (ship d
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — Scope-note paragraph + trap row land the native-discovery fact (re-verified against openai/codex HEAD at implementation time) and re-scope the mirror's pitch; all 3 criteria evidence-verified against the 71bfdb7 diff.
+- **Regressions:** none — change is additive prose in a project-local skill; full guard+scorer suite green.
+- **CI:** pass (`✔ All ci.sh checks passed`, exit 0, run pre-ship this turn)
+- **Follow-ups:** none — unannounced rider in the ship commit is the umbrella plan file (20260610-full-kit-prompt-optimization.md), expected.
+- Filed by: plan-review on 2026-06-10T05:35:26+00:00
