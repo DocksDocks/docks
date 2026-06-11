@@ -1,10 +1,10 @@
-# Sidecar + dashboard HTML skeletons
+# Sidecar + dashboard skeletons, data-file format, questions island
 
 Copy these, substitute the `{ }` placeholders, keep every `data-*` hook. Styling and behavior come entirely from `docs/plans/_assets/dashboard.{css,js}` — never inline a `<style>` or `<script src="http…">`.
 
-Path rule: a **sidecar** in `docs/plans/<category>/` references `../_assets/…`; the **dashboard** at `docs/plans/index.html` references `_assets/…` (no `../`).
+Path rules: every **sidecar** lives at `docs/plans/_views/<basename>.html` and references `../_assets/…`; its source link points at the `.md`'s CURRENT category (`../planned/…`, `../finished/…`). The **dashboard** at `docs/plans/index.html` references `_assets/…` (no `../`). `<basename>` is frozen at scaffold time — on ship only the `.md` is renamed.
 
-## Sidecar — `docs/plans/<category>/<slug>.html`
+## Sidecar — `docs/plans/_views/<basename>.html`
 
 ```html
 <!doctype html>
@@ -15,24 +15,25 @@ Path rule: a **sidecar** in `docs/plans/<category>/` references `../_assets/…`
   <title>{title} · {status}</title>
   <link rel="stylesheet" href="../_assets/dashboard.css" />
   <script type="application/json" id="plan-data">
-{ "title": "{title}", "goal": "{goal}", "status": "{status}", "slug": "{slug}",
+{ "title": "{title}", "goal": "{goal}", "status": "{status}", "slug": "{basename}",
   "created": "{created}", "updated": "{updated}", "started_at": {started_at|null},
+  "blocked_since": {blocked_since|null}, "scheduled_date": {scheduled_date|null},
   "assignee": {assignee|null}, "ship_commit": {ship_commit|null}, "tags": [{tags}] }
   </script>
 </head>
-<body data-status="{status}" data-slug="{slug}">
+<body data-status="{status}" data-slug="{basename}">
   <header class="plan-header">
     <div class="plan-header__top">
       <span class="status-badge" data-status="{status}">{status}</span>
-      <span class="age-token">{age token}</span>
+      <span class="age-token">{baked age token — no-JS fallback only}</span>
     </div>
     <h1>{title}</h1>
     <p class="plan-goal-summary">{goal}</p>
     <dl class="plan-meta">
-      <div><dt>slug</dt><dd>{slug}</dd></div>
-      <div><dt>created</dt><dd>{created}</dd></div>
-      <div><dt>updated</dt><dd>{updated}</dd></div>
-      <div><dt>started_at</dt><dd>{started_at or "—"}</dd></div>
+      <div><dt>slug</dt><dd>{basename}</dd></div>
+      <div><dt>created</dt><dd>{created date}</dd></div>
+      <div><dt>updated</dt><dd>{updated date}</dd></div>
+      <div><dt>started_at</dt><dd>{started_at date or "—"}</dd></div>
       <div><dt>assignee</dt><dd>{assignee or "—"}</dd></div>
       <div><dt>ship_commit</dt><dd>{ship_commit or "—"}</dd></div>
       <div><dt>tags</dt><dd>{tags joined or "—"}</dd></div>
@@ -59,95 +60,80 @@ Path rule: a **sidecar** in `docs/plans/<category>/` references `../_assets/…`
       </div>
     </section>
 
-    <!-- repeat one <section data-section="…"> per body section, in canonical order:
-         context · acceptance · out-of-scope · mistakes · sources · blockers · notes · evidence · review
-         add the tint modifier where apt: -->
-    <section class="plan-section plan-section--mistakes" data-section="mistakes">
-      <h2>Mistakes &amp; Dead Ends</h2>
-      <div class="plan-section__content markdown">{rendered Markdown, or empty → auto-collapses}</div>
-    </section>
-    <!-- plan-section--review (green tint) and plan-section--blockers (amber tint) likewise -->
+    <!-- one <section data-section="…"> per body section, canonical order:
+         context · acceptance · out-of-scope · mistakes · sources · blockers ·
+         open-questions (when present) · notes · evidence · review
+         tint modifiers: --mistakes (red), --review (green), --blockers (amber) -->
   </main>
 
   <footer>
-    <a href="./{slug}.md">source: {slug}.md</a>
+    <a href="../{category}/{current-md-filename}">source: {current-md-filename}</a>
     <span class="generated-at">generated {ISO timestamp}</span>
   </footer>
 
+  <script src="../_assets/plans-data.js"></script>
   <script src="../_assets/dashboard.js"></script>
 </body>
 </html>
 ```
 
 Notes:
-- `{status}` is the lifecycle category (`planned`/`ongoing`/`blocked`/`scheduled`/`finished`).
-- Section `--slug` values map to CSS modifiers: only `mistakes` (red), `review` (green), `blockers` (amber) are tinted; the rest use the base `plan-section--<slug>` with no special style.
-- Steps `data-status` uses the step enum with `in-flight` hyphenated.
-- Per-plan assets: to extend the base look, add `<link rel="stylesheet" href="../_assets/<slug>.css" />` (and/or a `<script src="../_assets/<slug>.js">`) AFTER the shared `dashboard.css`/`dashboard.js` so it overrides. Never inline.
-- Empty optional sections: emit the heading + an empty `.plan-section__content` — `dashboard.js` collapses them on load.
+- The `#plan-data` island MUST include the age-source field for the plan's category: `created` (planned), `started_at` (ongoing), `blocked_since` (blocked), `scheduled_date` (scheduled), `updated` (finished). dashboard.js reads it to render the live age token; the baked `.age-token` text is only the no-JS fallback.
+- The two script tags come last, in that order — `plans-data.js` powers the nav sidebar (search, status groups, current-plan highlight), which `dashboard.js` renders at view time. Never bake nav or meta-strip markup.
+- Per-plan assets: `<link …="../_assets/<slug>.css">` / `<script src="../_assets/<slug>.js">` AFTER the shared pair. Never inline.
+- Empty optional sections: emit heading + empty `.plan-section__content` — auto-collapsed on load.
+- Skip-if-unchanged: compare ignoring `.age-token` text and `.generated-at` — never rewrite for time alone.
 
-## Dashboard — `docs/plans/index.html`
+## `#plan-questions` island (only when the `.md` has `## Open questions`)
+
+Add inside `<head>`, after `#plan-data`. dashboard.js then injects the [Plan | Open questions] tab pair (choice cards, textareas, per-question nav, progress counter, Copy JSON / Download / Clear, pagination at 10/page). Answers persist to localStorage (`plan-answers:<basename>`).
 
 ```html
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Plans</title>
-  <link rel="stylesheet" href="_assets/dashboard.css" />
-</head>
-<body class="dashboard">
-  <h1>Plans</h1>
-
-  <div class="filters">
-    <input type="search" data-filter="search" placeholder="filter…" />
-    <select data-filter="status">
-      <option value="">all statuses</option>
-      <option value="planned">planned</option>
-      <option value="ongoing">ongoing</option>
-      <option value="blocked">blocked</option>
-      <option value="scheduled">scheduled</option>
-      <option value="finished">finished</option>
-    </select>
-    <select data-filter="assignee">
-      <option value="">all assignees</option>
-      <!-- one <option> per distinct assignee present (omit/—for null) -->
-    </select>
-    <select data-filter="tag">
-      <option value="">all tags</option>
-      <!-- one <option> per distinct tag present -->
-    </select>
-  </div>
-
-  <table class="plans-table">
-    <thead>
-      <tr>
-        <th data-sort="status">Status</th>
-        <th data-sort="title">Title</th>
-        <th data-sort="age">Age</th>
-        <th data-sort="assignee">Assignee</th>
-        <th data-sort="progress">Steps</th>
-      </tr>
-    </thead>
-    <tbody>
-      <!-- one row per plan; link title to <slug>.html if it exists, else <slug>.md -->
-      <tr data-status="{status}" data-assignee="{assignee or ''}" data-tags="{tag,tag}">
-        <td><span class="status-badge" data-status="{status}">{status}</span></td>
-        <td class="title"><a href="{category}/{slug}.html">{title}</a></td>
-        <td data-sort-value="{ISO date}">{age token}</td>
-        <td>{assignee or "—"}</td>
-        <td>{M}/{N}</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <script src="_assets/dashboard.js"></script>
-</body>
-</html>
+<script type="application/json" id="plan-questions">
+{ "version": 1,
+  "questions": [
+    { "id": "{kebab-id}", "type": "choice", "multi": false, "allowCustom": true,
+      "title": "{the question}",
+      "context": "{enough context to decide without reading the whole plan; `inline code` allowed}",
+      "options": [
+        { "value": "{kebab-value}", "label": "{Short label}", "recommended": true,
+          "description": "{one-line tradeoff}" },
+        { "value": "{other}", "label": "{Other label}", "description": "{tradeoff}" }
+      ] },
+    { "id": "{kebab-id-2}", "type": "text",
+      "title": "{the question}", "context": "{context}",
+      "placeholder": "{e.g. hint text}" }
+  ] }
+</script>
 ```
 
-Notes:
-- `data-sort-value` on the Age cell is the **full ISO 8601 datetime with offset** from the source frontmatter field (`created` / `started_at` / `blocked_since` / `scheduled_date` / `updated`), e.g. `2026-05-26T17:23:40-03:00`. The display token is the human form (`47m queued`, `6d queued`); the datetime backs deterministic sorting when two rows share a display token.
-- `data-tags` is comma-joined; `dashboard.js` splits on `,` for the tag filter.
-- The `assignee`/`tag` selects must list only values that actually appear, or filtering offers dead options.
+Mirror the `.md` section faithfully: one entry per numbered question, `(recommended)` → `"recommended": true`, `custom allowed` → `"allowCustom": true`. The user's export is JSON shaped `{ "slug": "<basename>", "exportedAt": "<ISO>", "answers": { "<id>": { "selected": ["…"], "custom": "…" } | { "text": "…" } } }` — pasted in chat or saved to `docs/plans/_open_questions/<basename>.answers.json` for plan-manager to ingest.
+
+## Dashboard — `docs/plans/index.html` (write-once static skeleton)
+
+Seeded verbatim from this skill's `assets/index.html`; never edited afterwards. It holds the filter controls (only the status `<select>` carries baked options), an empty `<tbody>`, a `<noscript>` note, and the two script tags. Rows, assignee/tag filter options, and live ages all render client-side from `plans-data.js`. Baked `<tr>` rows from the pre-data-file convention keep working as a no-data fallback (dashboard.js only replaces the tbody when `window.PLANS_DATA` is non-empty).
+
+## Data file — `docs/plans/_assets/plans-data.js`
+
+A dashboard refresh edits ONLY this file (loaded via `<script src>` — `fetch()`+`.json` is blocked on `file://`):
+
+```js
+window.PLANS_DATA = [
+  { status: "planned", title: "Short imperative title",
+    href: "_views/20260101-example-slug.html", iso: "2026-01-01T09:00:00-03:00",
+    assignee: "", tags: ["example"], steps: { done: 0, total: 4 }, questions: 2 },
+];
+```
+
+| Field | Rule |
+|---|---|
+| `status` | lifecycle category; drives row badge, filter, nav grouping |
+| `title` | frontmatter title |
+| `href` | `_views/<basename>.html` when the sidecar exists, else `<category>/<file>.md` |
+| `iso` | the category's age-source datetime (same field the sidecar island carries) — never a baked human token |
+| `assignee` | `""` when null |
+| `tags` | array; renderer comma-joins into `data-tags` |
+| `steps` | `{done, total, note?}` — `note` renders as a small suffix, e.g. `"1 skipped"` |
+| `questions` | optional count of open questions → `?N` badge on the row |
+
+The renderer emits the same `data-status` / `data-assignee` / `data-tags` / `data-sort-value` contract as baked rows, so filters, sort, and CSS work identically either way.

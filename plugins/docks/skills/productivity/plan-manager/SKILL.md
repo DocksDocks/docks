@@ -1,11 +1,11 @@
 ---
 name: plan-manager
-description: Use when the user asks to list plans, show/resume/start a plan, scaffold a new plan, fire scheduled plans, or check plan status ("what plans do I have?"). Handles cross-tool plan management — scans docs/plans/, computes age tokens, dispatches assignees, evaluates scheduled triggers, scaffolds skeletons, renders three pretty-print tiers (goal-listing, bulk digest, single-plan preview). Not for bootstrapping docs/plans/ (plan-init) or verifying finished plans (plan-review).
+description: Use when the user asks to list plans, show/resume/start/ship a plan, scaffold a new plan, fire scheduled plans, check plan status ("what plans do I have?"), or ingest open-question answers (pasted JSON or docs/plans/_open_questions/ files). Cross-tool plan management — scans docs/plans/, computes age tokens, dispatches assignees, evaluates scheduled triggers, audit-gated scaffolds, three pretty-print tiers. Not for bootstrapping docs/plans/ (plan-init) or verifying finished plans (plan-review).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-27"
-  content_hash: "74ad0f3b970b0ab273162326d9ea1f4fda8748d365ca4dd768170e172ccfc7d3"
+  updated: "2026-06-11"
+  content_hash: "c9ec717966b0dcbd702961b795091fbfa589b666d8bd8485f1226f55b0bd8ab6"
 ---
 
 # Plan Manager
@@ -29,7 +29,7 @@ Read plans from `docs/plans/`, scaffold new ones, evaluate scheduled triggers, d
 </constraint>
 
 <constraint>
-**HTML sidecar via the `plan-sidecar` skill.** Every plan `<slug>.md` MAY have a sibling `<slug>.html` (browser view; the .md stays canonical and is the only thing agents read). After every `Write` / `Edit` to a plan AND after every `git mv` between lifecycle directories, invoke the **`plan-sidecar`** skill — sidecar mode for the touched plan, then dashboard mode to refresh `docs/plans/index.html`. Do NOT hand-author the HTML here; `plan-sidecar` owns the standard (shared assets `docs/plans/_assets/{dashboard.css,dashboard.js}`, the `data-*` contract, skip-if-unchanged). NEVER read the .html to answer questions about plan state — the .md is canonical.
+**HTML sidecar via the `plan-sidecar` skill.** Every plan `<slug>.md` MAY have a sidecar at `docs/plans/_views/<basename>.html` (browser view; the .md stays canonical and is the only thing agents read; the basename NEVER changes — on ship only the .md is renamed). After every `Write` / `Edit` to a plan AND after every `git mv` between lifecycle directories, invoke the **`plan-sidecar`** skill — sidecar mode for the touched plan (regenerates the `_views/` file IN PLACE; never `git mv` a sidecar), then dashboard mode to sync `docs/plans/_assets/plans-data.js` (`index.html` is a write-once skeleton — never edit it). Do NOT hand-author the HTML here; `plan-sidecar` owns the standard, and the project's `docs/plans/AGENTS.md` is the per-project source of truth. NEVER read the .html to answer questions about plan state — the .md is canonical.
 </constraint>
 
 ## Workflow
@@ -48,12 +48,15 @@ The user message determines category and operation:
 | "new plan <slug>" / "scaffold a plan for <slug>" | `planned/` | See Step 6 (new plan scaffold) |
 | "fire scheduled" / "check scheduled" | `scheduled` | List + evaluate triggers + offer to fire DUE plans |
 | "ship <slug>" | `ongoing` → `finished` | Move, set ship_commit, auto-dispatch plan-review |
+| pasted answers JSON / "ingest answers" / answers file found | (find by slug) | Ingest open-question answers (Step 6.5) |
 
 ### Step 2 — Enumerate plans
 
 Run `date '+%Y-%m-%dT%H:%M:%S%:z'` once at the top of the turn to anchor "now" (full ISO datetime with offset) — every age computation in this turn uses this single value, and every transition timestamp (`started_at`, `blocked_since`, `updated` bump) is set from this same anchor for consistency within the turn.
 
 Use `Glob("docs/plans/<category>/*.md")`. Exclude `.gitkeep`. For each match, `Read` the file and parse YAML frontmatter (title, goal, status, assignee, blockers, blocked_since, scheduled_date, trigger, auto_execute, created, updated, started_at, ship_commit). Parse the body's `## Steps` table and `## Mistakes & Dead Ends` section for derived counts.
+
+Also `Glob("docs/plans/_open_questions/*.answers.json")` — every match is a pending answers export waiting to be ingested. Surface pending files in any listing output and offer Step 6.5.
 
 ### Step 3 — Compute derived state
 
@@ -90,11 +93,10 @@ Pass the plan file path AND full body as context so the assignee re-reads the pl
 
 ```bash
 git mv docs/plans/<old-cat>/<slug>.md docs/plans/<new-cat>/<new-name>.md
-# Carry the .html sidecar in the SAME move (same target basename) when it exists —
-# never let a move orphan or drop it. <new-name> = <slug>, except on → finished/
-# where it gains the date prefix (see the finished bullet below). Step 7.5 then
-# re-authors the sidecar's content in place (new age token / review block).
-test -f docs/plans/<old-cat>/<slug>.html && git mv docs/plans/<old-cat>/<slug>.html docs/plans/<new-cat>/<new-name>.html
+# Only the .md moves. <new-name> = <slug>, except on → finished/ where it gains
+# the date prefix (see the finished bullet below). The sidecar lives at
+# docs/plans/_views/<basename>.html with a STABLE basename — never git mv it;
+# Step 7.5 regenerates it in place (new data-status, badge, source link).
 ```
 
 Then `Edit` the file's frontmatter to update `status`, bump `updated` to the turn-anchor ISO datetime, and apply transition-specific field updates. Every timestamp written in this turn uses the **same** anchor value captured in Step 2 — never re-invoke `date` for individual fields.
@@ -103,17 +105,37 @@ Then `Edit` the file's frontmatter to update `status`, bump `updated` to the tur
 - **`ongoing/` → `blocked/`**: set `blocked_since: "<anchor ISO datetime>"`, set `blocked_reason: <one-line>`.
 - **`blocked/` → `ongoing/`**: clear `blocked_reason` and `blocked_since` (set both to `null`). Do NOT touch `started_at`.
 - **`scheduled/` → `ongoing/`**: remove scheduled-only keys (`trigger`, `scheduled_date`, `auto_execute`). Set `started_at` if null.
-- **`ongoing/` → `finished/`**: rename file (and its `.html` sidecar) to `<YYYY-MM-DD>-<slug>.{md,html}` (date-only completion prefix — never a datetime in the filename), set `ship_commit: <SHA>` (ask user if not known). **Branch-agnostic** — `ship_commit` is HEAD on whatever branch you're on; ship from `main` (direct) or from a feature branch (so plan-review runs before the merge). Never require `main`, never switch or create branches — the branch is the user's call. The `updated` bump records the ship-time datetime that `finished/` age tokens read from. Then auto-trigger plan-review (Step 8).
+- **`ongoing/` → `finished/`**: rename the `.md` to `<YYYY-MM-DD>-<slug>.md` (date-only completion prefix — never a datetime in the filename; the `_views/` sidecar keeps its scaffold basename), set `ship_commit: <SHA>` (ask user if not known). **Branch-agnostic** — `ship_commit` is HEAD on whatever branch you're on; ship from `main` (direct) or from a feature branch (so plan-review runs before the merge). Never require `main`, never switch or create branches — the branch is the user's call. The `updated` bump records the ship-time datetime that `finished/` age tokens read from. Then auto-trigger plan-review (Step 8).
 
 ### Step 6 — New plan scaffold
 
 When the user says "new plan <slug>" or "scaffold a plan for <slug>":
 
+**Audit-first gate — mandatory, BEFORE writing the plan file.** A plan is only as good as the evidence it cites:
+
+- Open/grep every file the plan will cite. Every `file:line` in `## Sources` and every `affected_paths` entry must come from code read in THIS session — never from memory of the codebase.
+- Pair each Sources entry with one-line evidence of what it shows ("— card renders timestamp only", "— retention parser regex here").
+- Record verbatim user decisions that constrain the plan (approvals, declined options like "do not re-propose X") in `## Context` / `## Out of scope`, so future agents don't re-litigate them.
+- Prefer executable acceptance criteria (a command + expected outcome) over judgment calls, where natural.
+- Proportionality: a small parked-idea stub needs only a light audit — don't let process outweigh a 20-line placeholder plan.
+
+Then scaffold:
+
 1. Compose filename: `<YYYYMMDD>-<kebab-slug>.md` using the **date portion** of the turn anchor (slice the first 10 chars of the ISO datetime, strip the dashes for the prefix). Filenames stay date-only — never datetime — to keep `ls` readable.
 2. Ask the user inline for `title` (≤70 chars) and `goal` (≤200 chars) if not provided.
 3. `Write` the file at `docs/plans/planned/<filename>` with frontmatter defaults (status: planned, **created: "<anchor ISO datetime>"**, **updated: "<anchor ISO datetime>"**, started_at: null, assignee: null, blockers: [], blocked_reason: null, blocked_since: null, ship_commit: null, tags: [], affected_paths: [], related_plans: [], review_status: null). Quote the datetimes (`created: "..."`) so YAML doesn't mis-parse the offset colon.
-4. Body has all 12 canonical sections from `docs/plans/AGENTS.md` (`## Goal`, `## Context`, `## Steps`, `## Acceptance criteria`, `## Out of scope`, `## Mistakes & Dead Ends`, `## Sources`, `## Blockers`, `## Notes`, `## Evidence log`, `## Review`). Sections 5–11 have heading + empty body. `## Review` carries the placeholder `(filled by plan-review on completion)`.
+4. Body has all 12 canonical sections from `docs/plans/AGENTS.md` (`## Goal`, `## Context`, `## Steps`, `## Acceptance criteria`, `## Out of scope`, `## Mistakes & Dead Ends`, `## Sources`, `## Blockers`, `## Notes`, `## Evidence log`, `## Review`). Sections 5–11 have heading + empty body. `## Review` carries the placeholder `(filled by plan-review on completion)`. When the plan genuinely needs user decisions, add an optional `## Open questions` section between `## Blockers` and `## Notes` — each question carries an `id`, a type (`choice` with options, one of which may be `(recommended)` and `custom allowed`, or `text`), and enough context (inline `code` welcome) to decide without reading the whole plan.
 5. Render Tier-3 preview so the user sees the scaffold immediately.
+
+### Step 6.5 — Ingest open-question answers
+
+Trigger: the user pastes an answers JSON (`{ "slug": …, "answers": … }`), or Step 2 found `docs/plans/_open_questions/<basename>.answers.json` (exported from the sidecar's Open questions tab — `file://` pages can't write into the repo, so the user copies or downloads).
+
+1. Locate the plan by slug across categories; `Read` it.
+2. For each answered question id, encode the decision into the plan: rationale into `## Context` / `## Notes`, scope changes into `## Steps` rows or `## Out of scope`. Record the user's choice verbatim (e.g. `cadence: quarterly`).
+3. Remove the answered questions from `## Open questions` (drop the whole section when none remain); unanswered ids stay — partial ingests are fine. Bump `updated` to the turn anchor.
+4. Run Step 7.5 — the sidecar's `#plan-questions` island shrinks or disappears, and the data file's `questions` count updates.
+5. Delete the ingested answers file (`git rm` when tracked). Render Tier-3.
 
 ### Step 7 — Render preview (mandatory after Steps 4, 5, or 6)
 
@@ -129,12 +151,12 @@ The header-strip `status` line uses the same category-specific age tokens as Tie
 
 After Step 5 (`git mv`) or any `Write` / `Edit` to a plan file, invoke the **`plan-sidecar`** skill — don't hand-author HTML here:
 
-1. **Sidecar mode** — `plan-sidecar <path/to/the-touched-plan.md>` re-authors that plan's `<slug>.html` (it skips the write if the parsed projection is unchanged).
-2. **Dashboard mode** — `plan-sidecar dashboard` refreshes `docs/plans/index.html` whenever ANY plan was touched in the turn.
+1. **Sidecar mode** — `plan-sidecar <path/to/the-touched-plan.md>` regenerates `docs/plans/_views/<basename>.html` IN PLACE (new `data-status` / badge / source link after a move; it skips the write when the projection is unchanged ignoring time-derived text — never regenerate just to refresh an age token, ages render at view time).
+2. **Dashboard mode** — `plan-sidecar dashboard` syncs `docs/plans/_assets/plans-data.js` whenever ANY plan was touched in the turn. `index.html` is a write-once static skeleton — never edited.
 
 In Claude Code, activate it via the `Skill` tool (`plan-sidecar`); on Codex / other runtimes, follow its `SKILL.md`. `plan-sidecar` owns the standard — shared `_assets/`, the load-bearing `data-*` contract, and per-plan latitude. NEVER read the `.html` back — the .md is canonical.
 
-This step runs BEFORE Step 7 (pretty-print) so the chat preview can mention "sidecar refreshed → docs/plans/<cat>/<slug>.html".
+This step runs BEFORE Step 7 (pretty-print) so the chat preview can mention "sidecar refreshed → docs/plans/_views/<basename>.html".
 
 ### Step 8 — Auto-trigger plan-review on `→ finished/`
 
@@ -177,7 +199,9 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 | Skipping plan-review on `→ finished/` because `ship_commit` is empty | Calling plan-review with empty SHA | Stop and ask the user for the SHA before moving to finished/ |
 | Reading a stale plan body after another agent edited it | Trusting cached content | Re-`Read` the file when re-entering after dispatch |
 | Embedding a datetime into the filename | `20260526T172340-foo.md` | Filenames stay date-only — the datetime lives in the frontmatter |
-| Moving a plan's `.md` without its `.html` sidecar | `git mv` only the `.md` → sidecar orphaned in the old dir (or lost) | `git mv` both in one step (same target basename, incl. the ship date-prefix), then regenerate content via Step 7.5 |
+| `git mv`-ing the `_views/` sidecar alongside its `.md` | Carrying the `.html` in the move "to keep them together" | Only the `.md` moves; the sidecar keeps its stable `_views/<basename>.html` path and is regenerated in place (Step 7.5) |
+| Scaffolding a plan from memory of the codebase | Writing `file:line` Sources without opening the files | Audit-first gate — every Source / affected_path comes from code read in this session, with one-line evidence |
+| Editing a sidecar or `plans-data.js` only to refresh a stale age | Rewriting `6d queued` by hand | Ages render at view time from the ISO datetimes; baked text is the no-JS fallback |
 
 ## Anti-Hallucination Checks
 
@@ -192,7 +216,8 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 ## Success Criteria
 
 - Every plan write/move is followed by a Tier-1/2/3 preview — the user never opens the file to know what landed.
-- Every plan write/move refreshes the `<slug>.html` sidecar AND `docs/plans/index.html` via the `plan-sidecar` skill. The .md remains canonical and is never out-of-sync with its sidecar.
+- Every plan write/move refreshes `docs/plans/_views/<basename>.html` AND `docs/plans/_assets/plans-data.js` via the `plan-sidecar` skill — sidecars never `git mv`'d, `index.html` never edited. The .md remains canonical.
+- New plans pass the audit-first gate; ingested answers are encoded into the plan and the answers file is deleted.
 - No plan in any category is treated as a singleton — multi-occupancy is the default everywhere.
 - Schedule triggers evaluate against a freshly-fetched `now`, not a stale conversation timestamp.
 - Dispatched assignees receive the full plan body as context so they survive auto-compact.
@@ -202,9 +227,13 @@ If a plan was DUE but didn't fire, append a one-line entry to `docs/plans/schedu
 - Age tokens are category-specific in every output — no bare `X days` anywhere — and use sub-day units (`<X>m`, `<X>h`) when the delta is below 24 hours.
 - Every timestamp field (`created`, `updated`, `started_at`, `blocked_since`) is written as a quoted ISO 8601 datetime with offset; the per-turn anchor is the source for every write in that turn.
 
+## Staleness check (per-project contract)
+
+`docs/plans/AGENTS.md` (written by plan-init) is the per-project source of truth this skill executes against. If it lacks a section this skill relies on (the `_views/` sidecar rules, view-time age tokens, Open questions, audit-first scaffolding), offer to append the missing section from plan-init's template — never silently diverge from the project's own contract.
+
 ## References
 
-- `docs/plans/AGENTS.md` — full convention (frontmatter schema, body sections, lifecycle transitions, pretty-print contract). Created/updated by `plan-init`.
+- `docs/plans/AGENTS.md` — full convention (frontmatter schema, body sections, lifecycle transitions, pretty-print contract); the per-project source of truth. Created/updated by `plan-init` — a contract change in any plan-* skill must land in plan-init's template too.
 - `plan-init` skill — bootstraps `docs/plans/` directory structure. Use that, not this skill, for first-time setup.
 - `plan-review` skill — verifies finished/ plans. Auto-dispatched by Step 8 of this skill; also runs manually via "review plan <slug>".
 - `plan-sidecar` skill — authors the `<slug>.html` sidecars + `docs/plans/index.html` dashboard. Invoked by Step 7.5 after every plan touch (this skill never hand-authors the HTML).

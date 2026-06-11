@@ -58,6 +58,10 @@ A skill that **moves, splits, migrates, or rewrites existing content** (root →
 
 `scripts/skills/transform-guard.sh` enforces both across the curated transformer list (`scripts/AGENTS.md`).
 
+## Plan-skill contract sync (two homes)
+
+The plans convention lives in TWO places: the `plan-*` skills (the machinery) and each consumer project's `docs/plans/AGENTS.md` (the per-project contract its agents actually read, generated from `plan-init/references/plans-agents-md-template.md`). Whenever a `plan-*` skill changes the contract — frontmatter schema, body sections, the sidecar standard (`_views/`, view-time age tokens, data-driven dashboard), asset behavior, open questions — the SAME change must land in plan-init's template in the same commit; `plan-manager`/`plan-sidecar` cite the project's `docs/plans/AGENTS.md` as the per-project source of truth and offer to append missing sections (staleness check) rather than silently diverge. The asset masters in `plan-sidecar/assets/` are part of the contract: bump that skill's `metadata.updated` when they change (`content_hash` covers only SKILL.md + references, not assets).
+
 ## Cross-tool wording (Claude Code + Codex)
 
 Skills run in both runtimes; phrase for both. Verified 2026-06-10 against the live docs + the openai/codex source.

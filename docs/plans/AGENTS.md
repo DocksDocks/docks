@@ -19,17 +19,22 @@ natural language). The skills are also user-invocable directly.
 
 ```
 docs/plans/
-├── AGENTS.md       # this file — rules (cross-tool source of truth)
-├── CLAUDE.md       # one-line @AGENTS.md import for Claude Code discovery
-├── planned/        # specced, not started — actionable when picked up
-├── ongoing/        # actively being worked on
-├── blocked/        # waiting on a specific external input
-├── scheduled/      # queued for date- or approval-triggered auto-execution
-└── finished/       # shipped
+├── AGENTS.md          # this file — rules (cross-tool source of truth)
+├── CLAUDE.md          # one-line @AGENTS.md import for Claude Code discovery
+├── index.html         # dashboard skeleton (write-once; rows render from _assets/plans-data.js)
+├── _assets/           # shared dashboard.{css,js} + plans-data.js (dashboard data file)
+├── _views/            # ALL plan sidecars — <basename>.html, never moved or renamed
+├── _open_questions/   # exported answers files awaiting ingest
+├── planned/           # specced, not started — actionable when picked up
+├── ongoing/           # actively being worked on
+├── blocked/           # waiting on a specific external input
+├── scheduled/         # queued for date- or approval-triggered auto-execution
+└── finished/          # shipped
 ```
 
 A plan is a single `.md` file that moves between directories as its status
-changes. Each category has a `.gitkeep` so empty directories survive in git.
+changes — only the `.md` moves; its `_views/` sidecar is regenerated in
+place. Each directory has a `.gitkeep` so empty directories survive in git.
 
 ## Multi-occupancy — every category, always
 
@@ -64,8 +69,8 @@ Every plan file has frontmatter + body. Base frontmatter (all categories):
 title: Short imperative title, ≤70 chars
 goal: One-sentence precise summary, ≤200 chars
 status: planned | ongoing | blocked | scheduled | finished
-created: "2026-05-26T17:23:40-03:00"
-updated: "2026-05-26T17:23:40-03:00"
+created: "2026-06-11T15:59:21-03:00"
+updated: "2026-06-11T15:59:21-03:00"
 started_at: null
 assignee: null | <agent-name-from-.claude/agents/>
 blockers: []
@@ -212,7 +217,7 @@ Section 12 (`## Review`) is a placeholder until `plan-review` fires.
 | Block | `git mv ongoing/ → blocked/`, set `blocked_reason`, `blocked_since: <ISO datetime>`. |
 | Unblock | `git mv blocked/ → ongoing/`, clear `blocked_reason` and `blocked_since`. `started_at` unchanged. |
 | Schedule trigger fires | `git mv scheduled/ → ongoing/`, remove scheduled-only keys, set `started_at: <ISO datetime>`, dispatch to assignee. |
-| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md`, set `status: finished`, bump `updated` to ship-time ISO datetime, paste the HEAD SHA into `ship_commit` — branch-agnostic, no `main` requirement (ship from a feature branch so review runs before merge, or from `main` directly). Auto-dispatches `plan-review`. |
+| Ship | `git mv` to `finished/<YYYY-MM-DD>-<slug>.md` (the `.md` only — the `_views/` sidecar keeps its name), set `status: finished`, bump `updated` to ship-time ISO datetime, paste the HEAD SHA into `ship_commit` — branch-agnostic, no `main` requirement (ship from a feature branch so review runs before merge, or from `main` directly). Auto-dispatches `plan-review`. |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in Notes. Don't delete. |
 
 ## Pretty-print preview contract
@@ -309,6 +314,107 @@ Finished plans pre-dating the datetime migration only have a date
 prefix in the filename and date-only frontmatter; treat their `updated`
 as `T00:00:00<offset>` for token math.
 
+## HTML sidecars — fixed location, live values
+
+Browser views are derived artifacts; the `.md` files stay canonical and
+no agent ever reads a sidecar. The `plan-sidecar` skill authors
+everything here (sidecars, the dashboard data file, the shared assets —
+seeded at bootstrap). Five rules keep the views cheap to maintain:
+
+**1. All sidecars live in `_views/` (fixed location, stable names).**
+Every plan's `.html` sits at `docs/plans/_views/<basename>.html` regardless
+of lifecycle category, and the basename NEVER changes after creation (on
+ship, only the `.md` gains the date prefix). Lifecycle transitions `git mv`
+only the `.md`. The sidecar still bakes `data-status`, the status badge,
+and the relative link to its source `.md` (`../<category>/<file>.md`), so
+on a category move it is **regenerated in place** (a cheap edit — no
+`git mv`, no orphaning). Asset hrefs from `_views/` are `../_assets/…`.
+
+**2. The dashboard is data-driven.** `index.html` is a static skeleton
+written once and never edited again. Plan rows, filter options, and ages
+all render client-side from `_assets/plans-data.js` (one small object per
+plan, loaded via `<script src>` — `fetch()`+JSON does NOT work on
+`file://`). A dashboard refresh = editing only `plans-data.js`. Each
+entry's `href` points into `_views/` when the sidecar exists, else to the
+category `.md`; `iso` carries the category's source datetime.
+
+**3. Age tokens compute at view time.** `_assets/dashboard.js` derives the
+human token (`6d queued`, `shipped 8d ago`, …) from the ISO datetimes in
+the markup (dashboard: the data file; sidecar: the `#plan-data` island).
+Baked age text is a **no-JS fallback only** — never rebuild a sidecar or
+the data file just to refresh an age. The island must include the
+category's source field (`created` / `started_at` / `blocked_since` /
+`scheduled_date` / `updated` — include `blocked_since`/`scheduled_date`
+for blocked/scheduled plans). Content-derived values (steps `M/N`, titles,
+goals) are still baked — they only change when the `.md` changes, which
+already triggers regeneration.
+
+**4. The meta `<dl>` renders as a compact strip.** `dashboard.js` rebuilds
+`.plan-meta` at view time into chips (assignee, tags, created, ship SHA)
+with a "details" toggle revealing the full `<dl>`; rows whose value is `—`
+and the slug (already in the URL) stay hidden. Generators keep emitting
+the plain `<dl>` — the strip is a view transform, not a markup change.
+
+**5. Every sidecar gets a nav sidebar — from the same data file.**
+Sidecars include `<script src="../_assets/plans-data.js">` before
+`dashboard.js`; the runtime renders a fixed sidebar ("← All plans" back to
+`index.html`, a search box filtering plans by title, every view grouped by
+status with counts — groups are click-to-collapse dropdowns persisted in
+`localStorage` (`finished` starts collapsed unless it holds the current
+plan; searching temporarily expands collapsed groups), current plan
+highlighted; collapses to a ☰ toggle on narrow screens). Plans change →
+only `plans-data.js` changes → every sidecar's nav updates by itself.
+Generators emit the two script tags and never bake nav markup.
+
+## Open questions — async Q&A between agent and user
+
+Plans whose next step needs user input carry an optional `## Open
+questions` section in the `.md` (canonical; place it between `## Blockers`
+and `## Notes`). Each question lists an `id`, a type (`choice` with
+options — mark one `(recommended)`, note `custom allowed` — or `text`),
+and enough context (inline `code` welcome) for the user to decide without
+reading the whole plan.
+
+The sidecar generator mirrors the section into a `#plan-questions` JSON
+island (`{ version, questions: [{ id, type, title, context, options:
+[{value, label, description, recommended}], multi, allowCustom,
+placeholder }] }`). When the island exists, `dashboard.js` injects a
+`[Plan | Open questions]` tab pair: choice cards / textareas, per-question
+nav with answered-state, a progress counter, Copy JSON / Download
+actions, and pagination at 10 questions per page (pager hidden when one
+page; the per-question nav jumps to the right page). The dashboard data
+file may carry `questions: N` to badge the plan row (`?N`).
+
+Answer flow (browsers on `file://` cannot write into the repo):
+
+1. The user answers in the browser; answers persist to `localStorage`
+   (key `plan-answers:<slug>`) while they work.
+2. They export — **Copy JSON** (paste in chat) or **Download** (file lands
+   in `~/Downloads/<slug>.answers.json`; move it to
+   `docs/plans/_open_questions/<slug>.answers.json`).
+3. The agent ingests the answers: encodes the decisions into the plan
+   (`## Context`, `## Notes`, steps), deletes the answered questions from
+   `## Open questions` (and the answers file once ingested), regenerates
+   the sidecar, and updates the data file's `questions` count.
+
+## Audit-first scaffolding
+
+A plan is only as good as the evidence it cites. Before scaffolding a
+substantive plan:
+
+- **Open/grep every file you intend to cite.** Every `file:line` in
+  `## Sources` and every `affected_paths` entry must come from code read in
+  the current session — never from memory of the codebase.
+- **Pair each Source with one-line evidence** of what it shows
+  ("— card renders timestamp only", "— retention parser regex here").
+- **Record verbatim user decisions** that constrain the plan (approvals,
+  declined options like "do not re-propose X") in `## Context` /
+  `## Out of scope`, so future agents don't re-litigate them.
+- **Prefer executable acceptance criteria** (a command + expected outcome)
+  over judgment calls, where natural.
+- **Proportionality:** a small parked-idea stub needs only a light audit —
+  don't let process outweigh a 20-line placeholder plan.
+
 ## Auto-compact resilience
 
 The plan file on disk is the source of truth — it isn't part of
@@ -318,73 +424,6 @@ conversation context, so auto-compact never touches it.
 - **Update as you go** in the file, not just in chat.
 - **Don't track state only in chat** — mirror anything important to the plan file.
 - **The plan file is a complete handoff document** — `Mistakes & Dead Ends`, `Sources`, `Evidence log`, and the `Steps` table mean an incoming agent (or the same agent after compact) has everything to continue without recap.
-
-## HTML sidecar (browser view)
-
-Every plan `.md` file MAY have a sibling `.html` sidecar in the same
-directory — `docs/plans/ongoing/20260511-foo.md` → `docs/plans/ongoing/20260511-foo.html`.
-The `.md` remains the source of truth (canonical, agent-readable, git-friendly,
-LLM-native). The `.html` is a **derived artifact** for browser analysis only:
-collapsible sections, click-to-copy, color-coded status, no token cost in
-agent flows because no agent ever reads it.
-
-When a plan moves between directories, its sidecar moves **with** it: `plan-manager`
-carries the `.html` in the same `git mv` as the `.md` (matching the ship-time
-`<YYYY-MM-DD>-` rename), then re-authors the content in place. A move never leaves
-a sidecar orphaned in the old directory, and never drops it.
-
-Shared assets live at:
-
-```
-docs/plans/_assets/
-├── dashboard.css      # one stylesheet for every sidecar + the dashboard
-└── dashboard.js       # toggleable sections, click-to-copy, filter/sort
-```
-
-Optionally, `docs/plans/index.html` is a **dashboard** that lists every plan
-across categories with filter / sort / search. Same `_assets/`.
-
-### Who authors it
-
-The **`plan-sidecar` skill** (`plugins/docks/skills/productivity/plan-sidecar/`) —
-not a generator script. `plan-manager` invokes it after every plan write / `git mv`:
-sidecar mode for the touched plan, then dashboard mode for `index.html`. It skips
-the write when the parsed projection is unchanged, and never reads the `.html`
-back (the `.md` is canonical). The full HTML skeletons live in that skill's
-`references/templates.md`; per-plan latitude is allowed within the contract below —
-extra visualization is fine, including a plan-specific `_assets/<slug>.{css,js}` linked
-after the shared base, as long as every hook still resolves and nothing is inlined.
-
-The .html files can be checked in (so a teammate sees the formatted view
-on GitHub or via a static-host link) or gitignored (treat as build
-artifact). Both choices are valid; default is checked-in until your
-repo's plan count makes the noise tedious. If gitignoring, add to
-`.gitignore`:
-
-```
-docs/plans/**/*.html
-!docs/plans/index.html
-!docs/plans/_assets/
-```
-
-### The contract (what the css/js depend on)
-
-Path rule: a sidecar in a category dir references `../_assets/…`; `index.html`
-references `_assets/…` (no `../`). Sidecars embed the frontmatter as JSON in a
-`<script type="application/json" id="plan-data">` island so the JS needn't
-re-parse YAML. Age tokens are category-specific (see the table above). Full HTML
-skeletons (sidecar + dashboard): the `plan-sidecar` skill's `references/templates.md`.
-
-| Element | Required attribute | Used by css/js for |
-|---|---|---|
-| `<body>` (sidecar) | `data-status="<category>"` | page-level theming |
-| `<body>` (dashboard) | `class="dashboard"` | switches dashboard.js into dashboard mode |
-| `<span class="status-badge">` | `data-status="<category>"` | color per lifecycle (planned/ongoing/blocked/scheduled/finished) |
-| `<section class="plan-section plan-section--<slug>">` | `data-section="<slug>"` | collapse + tint (mistakes=red, review=green, blockers=amber) |
-| `<td class="status">` (in `table.steps`) | `data-status="<step-status>"` | done=green, in-flight=blue, planned=gray, blocked=red, skipped=strike |
-| dashboard `<tr>` | `data-status` / `data-assignee` / `data-tags` | row filtering |
-| dashboard `<th>` | `data-sort` (+ cell `data-sort-value` for non-text) | column sorting |
-| empty `<div class="plan-section__content">` | (empty) | dashboard.js auto-collapses on load |
 
 ## Slugs and naming
 
@@ -396,8 +435,9 @@ order but are still ordered deterministically by their frontmatter
 `created` datetime.
 
 On ship, change the prefix to the completion date:
-`finished/2026-05-04-auth-rate-limit.md`. The sidecar `.html` follows
-the same naming — `finished/2026-05-04-auth-rate-limit.html`.
+`finished/2026-05-04-auth-rate-limit.md`. The `_views/` sidecar does NOT
+follow the rename — `<basename>.html` is frozen at scaffold time so its
+URL stays stable.
 
 ## When to create a plan
 
@@ -410,4 +450,4 @@ Reference docs, architecture notes, and API contracts do not belong here
 — they belong in `.agents/skills/` (or the tool-specific `.claude/skills/`
 equivalent), agent files, or the project's root `AGENTS.md`.
 
-(Template generated by `plan-init` on 2026-05-26T17:23:40-03:00)
+(Template generated by `plan-init` on 2026-06-11T15:59:21-03:00)

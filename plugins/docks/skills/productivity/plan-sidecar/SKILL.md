@@ -1,118 +1,116 @@
 ---
 name: plan-sidecar
-description: "Use when a plan .md is written, moved, or shipped and its browser-view .html sidecar — or the docs/plans/index.html dashboard — needs (re)authoring: render a plan's frontmatter + body into a styled, collapsible HTML view wired to the shared docs/plans/_assets/dashboard.{css,js}. Invoked by plan-manager after every plan touch; also standalone (\"rebuild plan sidecars\", \"build the plans dashboard\"). Not for reading plan state (the .md is canonical) or non-plan markdown."
+description: "Use when a plan .md is written, moved, or shipped and its browser view needs (re)authoring — renders the .md into docs/plans/_views/ (stable basenames, regenerated in place), syncs the _assets/plans-data.js dashboard data file, mirrors `## Open questions` into a #plan-questions island, and seeds the shared dashboard assets from bundled masters. Invoked by plan-manager after every plan touch; also standalone (\"rebuild plan sidecars\", \"refresh the plans dashboard\"). Not for reading plan state (the .md is canonical)."
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-05-27"
-  content_hash: "7cf87bdb2b33684cf4ac3905a7952a5a0cd2d2c164e3ea566e1ba693294e7834"
+  updated: "2026-06-11"
+  content_hash: "f3a033371ec54925fc94a6926100e0e54a6335134d75dc6496ae99ed81d20efb"
 ---
 
 # Plan Sidecar — author a plan's browser view
 
-`plan-sidecar` renders a plan `.md` into its `.html` sidecar and (re)builds `docs/plans/index.html`, the cross-plan dashboard. The `.md` stays canonical — the `.html` is a derived, browser-only view (collapsible sections, status color, click-to-copy) that no agent ever reads. One shared standard: every sidecar links the same `docs/plans/_assets/dashboard.{css,js}` and emits the `data-*` hooks those assets target. Within that contract you have latitude to tailor a plan's view for clearer reading.
+`plan-sidecar` renders a plan `.md` into its `.html` sidecar (fixed home: `docs/plans/_views/`), keeps the dashboard data file `docs/plans/_assets/plans-data.js` in sync, and seeds the shared assets from masters bundled with this skill. The `.md` stays canonical — the `.html` is a derived, browser-only view that no agent ever reads. The per-project contract this skill implements lives in the project's `docs/plans/AGENTS.md` (written by `plan-init`) — that file is the source of truth when the two disagree.
 
 <constraint>
 **The `.md` is canonical; the `.html` is write-only.** NEVER read a sidecar to answer "what's the state of plan X" — read the `.md`. The sidecar is regenerated from the `.md`; if they disagree, the `.md` wins and the sidecar is stale.
 </constraint>
 
 <constraint>
-**Link the shared base first; never inline.** Every sidecar links `../_assets/dashboard.css` + `../_assets/dashboard.js` (the dashboard uses `_assets/…`, no `../`) and emits the load-bearing `data-*` hooks (table below). NEVER inline a `<style>`/`<script>` block or copy CSS rules into the file — styling lives in asset *files* so one edit restyles every plan. Adding EXTRA plan-specific asset files is allowed (constraint 3); inlining is not.
+**Sidecars live in `docs/plans/_views/`, and only the `.md` ever moves.** Every sidecar sits at `_views/<basename>.html` where `<basename>` is the plan's scaffold basename — NEVER renamed afterwards (on ship the `.md` gains the `YYYY-MM-DD-` prefix; the `.html` keeps its name, so URLs stay stable). On a lifecycle move the sidecar is regenerated IN PLACE — a cheap edit updating `data-status`, the badge, and the source link recomputed from the new category (`../planned/<file>.md`, `../finished/<date>-<slug>.md`, …). No `git mv`, ever.
 </constraint>
 
 <constraint>
-**Per-plan latitude — including extra `.css`/`.js` files.** A plan may need richer visualization than the shared base. You MAY add a callout, reorder sections, highlight a metric, AND ship a plan-specific stylesheet/script — put it at `_assets/<slug>.css` / `_assets/<slug>.js` and `<link>`/`<script src>` it AFTER `dashboard.{css,js}` so it extends or overrides the base. Non-negotiable even then: link the shared base first, keep every required `data-*` hook resolving, and never inline (extra styling/behavior goes in a linked file, not a `<style>`/`<script>` block). The contract is the floor; per-plan assets build on top.
+**Values render at view time; never rewrite to refresh time.** `dashboard.js` computes age tokens in the browser from the ISO datetimes in the markup (sidecar: the `#plan-data` island; dashboard: each entry's `iso`). Baked age text is a no-JS fallback ONLY — never rewrite a sidecar or a `plans-data.js` entry just to refresh an age token, and skip-if-unchanged comparisons MUST exclude time-derived text (baked age token, `generated` footer timestamp). Content-derived values (titles, goals, steps `M/N`) stay baked — they only change when the `.md` changes, which already triggers regeneration.
+</constraint>
+
+<constraint>
+**Link the shared base; never inline.** Every sidecar links `../_assets/dashboard.css` and ends with `<script src="../_assets/plans-data.js">` + `<script src="../_assets/dashboard.js">` (in that order — the data file powers the nav sidebar). NEVER inline a `<style>`/`<script>` block — styling and behavior live in asset files so one edit restyles every plan. Per-plan latitude is allowed on top: extra sections, callouts, and plan-specific `_assets/<slug>.{css,js}` linked AFTER the shared base, as long as every required `data-*` hook still resolves. Nav-sidebar and meta-strip markup are rendered by `dashboard.js` at view time — never bake them.
 </constraint>
 
 ## Modes
 
 | Invocation | Mode | What it does | Writes |
 |---|---|---|---|
-| `plan-sidecar <path/to/plan.md>` | sidecar | Render one plan's `.md` → sibling `.html` | `<same-dir>/<slug>.html` |
-| `plan-sidecar dashboard` | dashboard | Rebuild the cross-plan index from every plan's frontmatter | `docs/plans/index.html` |
-| `plan-sidecar` (bare) | — | Ask: one sidecar, or the dashboard? | — |
+| `plan-sidecar <path/to/plan.md>` | sidecar | Render one plan's `.md` → `_views/<basename>.html` | `docs/plans/_views/<basename>.html` |
+| `plan-sidecar dashboard` | dashboard | Sync the data file from every plan's frontmatter | `docs/plans/_assets/plans-data.js` |
+| `plan-sidecar assets` | assets | Seed missing shared assets from this skill's masters | `docs/plans/_assets/*`, `docs/plans/index.html` |
+| `plan-sidecar` (bare) | — | Ask: sidecar, dashboard, or assets? | — |
 
-plan-manager invokes both after any plan touch: the sidecar for the touched plan, then `dashboard`.
+plan-manager invokes sidecar + dashboard modes after any plan touch; plan-init invokes assets mode at bootstrap. `index.html` is a static skeleton written ONCE (assets mode) and never edited again — a dashboard refresh edits only `plans-data.js`.
 
 ## The shared-asset contract
 
-Assets live at `docs/plans/_assets/dashboard.css` + `dashboard.js` — this skill **consumes** them (restyling the base is out of scope). Reference them relatively: `../_assets/…` from a sidecar in a category dir; `_assets/…` from `index.html`. A plan needing more than the base may add `_assets/<slug>.css` / `_assets/<slug>.js`, linked AFTER the shared files (constraint 3) — the base stays untouched so "one edit restyles all" still holds. Full HTML skeletons (sidecar + dashboard) with every hook annotated: [`references/templates.md`](references/templates.md).
+Master copies of the four assets ship in this skill's `assets/` directory: `dashboard.css`, `dashboard.js` (live age tokens, data-driven rows, nav sidebar, open-questions tab, meta strip — they depend on each other; seed both together), `index.html` (static dashboard skeleton), `plans-data.js` (empty data skeleton). Consumer copies live at `docs/plans/_assets/` (+ `docs/plans/index.html`). Reference them relatively: `../_assets/…` from `_views/`; `_assets/…` from `index.html`.
 
 Load-bearing hooks the css/js target — emit these exactly:
 
 | Element | Required attribute | Drives |
 |---|---|---|
-| `<body>` (sidecar) | `data-status="<category>"` | page theming |
+| `<body>` (sidecar) | `data-status="<category>"` + `data-slug="<basename>"` | page theming · localStorage keys |
 | `<body>` (dashboard) | `class="dashboard"` | switches dashboard.js into dashboard mode |
 | `.status-badge` | `data-status="<category>"` | badge color per lifecycle |
-| `.plan-section` | `data-section="<slug>"` (+ `--mistakes`/`--review`/`--blockers` modifier where apt) | collapse + section tint |
+| `.plan-section` | `data-section="<slug>"` (+ `--mistakes`/`--review`/`--blockers` modifier) | collapse + section tint |
 | steps `<section>` | `data-progress="<M>/<N>"` | progress display |
 | steps `<td class="status">` | `data-status="done\|in-flight\|planned\|blocked\|skipped"` | per-step color |
-| dashboard `<tr>` | `data-status` + `data-assignee` + `data-tags` | filter |
-| dashboard `<th>` | `data-sort="<key>"` (+ cell `data-sort-value` for non-text) | sort |
-| `<script id="plan-data">` | `type="application/json"` | frontmatter for JS — no YAML re-parse in the browser |
+| `<script id="plan-data">` | `type="application/json"`; MUST carry the category's age-source field (`created` / `started_at` / `blocked_since` / `scheduled_date` / `updated`) | live age token |
+| `<script id="plan-questions">` | `type="application/json"` (only when `## Open questions` exists) | [Plan \| Open questions] tab pair |
 
-dashboard.js auto-collapses any `.plan-section__content` whose text is empty — emit empty optional sections as empty (heading + empty content div) and they collapse on load.
+dashboard.js auto-collapses any `.plan-section__content` whose text is empty — emit empty optional sections as heading + empty content div. The `.plan-meta` `<dl>` is emitted plain; dashboard.js rebuilds it into a compact chip strip at view time.
 
 ## Workflow — sidecar mode (`plan-sidecar <plan.md>`)
 
-1. **Read the `.md`** (canonical). Parse frontmatter, body sections, and the `## Steps` table.
-2. **Compute the age token** — category-specific (see `docs/plans/AGENTS.md`): planned `<X> queued`, ongoing `<X> in flight`, blocked `blocked <X>`, scheduled `fires in <X>`, finished `shipped <X> ago` (or `shipped just now` at <60s). Source datetime per category: `created` / `started_at` / `blocked_since` / `scheduled_date` / `updated` (ship-time). `<X>` renders at the largest unit ≥ 1: `<60s → just now`, `<60min → <X>m`, `<24h → <X>h`, `<365d → <X>d`, `≥365d → <Y>mo`. Legacy date-only frontmatter is treated as `T00:00:00<offset>` for the math.
-3. **Author the `.html`** next to the `.md` (`<slug>.html`) from the `references/templates.md` skeleton:
-   - `<head>`: title `{title} · {status}`; `<link …="../_assets/dashboard.css">`; `<script type="application/json" id="plan-data">` holding the frontmatter as JSON.
-   - header: `.status-badge[data-status]`, age token, `<h1>`, goal, `.plan-meta` `<dl>`.
-   - one `<section class="plan-section plan-section--<slug>" data-section="<slug>">` per body section; steps → `data-progress` + `table.steps` with `<td class="status" data-status>`; mistakes/review/blockers get the tint modifier class.
-   - footer: `<a href="./<slug>.md">source</a>` + generated timestamp; `<script src="../_assets/dashboard.js">`.
+1. **Read the `.md`** (canonical). Parse frontmatter, body sections, the `## Steps` table, and `## Open questions` if present.
+2. **Compute the baked age token** (no-JS fallback only) — category-specific grammar per `docs/plans/AGENTS.md`: planned `<X> queued`, ongoing `<X> in flight` (+ `(approx)` when `started_at` is null), blocked `blocked <X>`, scheduled `fires in <X>` / `DUE` / `OVERDUE by <X>`, finished `shipped <X> ago` (`shipped just now` at <60s). Units: `just now` / `<X>m` / `<X>h` / `<X>d` / `<Y>mo`. Legacy date-only frontmatter is treated as `T00:00:00<offset>`.
+3. **Author the `.html`** at `docs/plans/_views/<basename>.html` from the [`references/templates.md`](references/templates.md) skeleton — `#plan-data` island (frontmatter as JSON including the category's age-source field), header, one `<section data-section>` per body section, `#plan-questions` island when `## Open questions` exists, footer source link `../<category>/<current-md-filename>`, the two script tags.
 4. **Render the body Markdown** to HTML for the subset plans use — ATX headings, GFM tables, `-`/`[x]` lists, fenced + inline code, links, bold. No images, no HTML passthrough.
-5. **Skip if unchanged** — if the parsed projection matches the existing `.html`, do not rewrite (keep git noise down).
-6. **Verify** — the file contains no `<style` and no `<script src="http`; every required `data-*` hook from the table is present.
+5. **Clean up a stale co-located sidecar** — if `docs/plans/<category>/<file>.html` exists from the pre-`_views/` convention, delete it (`git rm` when tracked) after writing the `_views/` copy.
+6. **Skip if unchanged** — if the parsed projection matches the existing `.html` ignoring time-derived text (baked age token, `generated` timestamp), do not rewrite.
+7. **Verify** — no `<style`, no `<script src="http`; every required hook present; the island carries the age-source field for the plan's category.
 
 ## Workflow — dashboard mode (`plan-sidecar dashboard`)
 
 1. **Enumerate** every plan `.md` across `planned/ ongoing/ blocked/ scheduled/ finished/` (skip `.gitkeep`).
-2. **Per plan**, read frontmatter + count `## Steps` rows (M done / N total).
-3. **Author `docs/plans/index.html`** (assets via `_assets/…`, no `../`): `<body class="dashboard">`, the `.filters` block, and `table.plans-table` with one `<tr data-status data-assignee data-tags>` per plan. The title cell links to that plan's `.html` when it exists, else its `.md`. The age cell carries `data-sort-value="<ISO 8601 datetime>"` (the full source datetime from frontmatter — e.g. `2026-05-26T17:23:40-03:00`) so sorting is deterministic even when two plans render the same human token like `47m queued`.
-4. **Populate** the `assignee` + `tag` `<select>` options from the plans actually present (empty `assignee` → `null`).
+2. **Per plan**, build one entry: `status`, `title`, `href` (`_views/<basename>.html` when the sidecar exists, else `<category>/<file>.md`), `iso` (the category's age-source datetime), `assignee` (`""` = none), `tags`, `steps {done,total,note?}`, and `questions: N` when `## Open questions` holds N questions (renders a `?N` badge).
+3. **Edit `docs/plans/_assets/plans-data.js`** — only this file. Never touch `index.html` (if it's missing, run assets mode first). Skip the write when entries are unchanged ignoring nothing — entries hold no time-derived text, so plain comparison works.
 
-## BAD / GOOD
+## Workflow — assets mode (`plan-sidecar assets`)
 
-```html
-<!-- BAD — inline styles + raw YAML dumped as text; forks the standard -->
-<body style="font-family: sans-serif">
-  <pre>status: ongoing
-title: ...</pre>
+1. For each master in this skill's `assets/` dir: `dashboard.css` + `dashboard.js` → `docs/plans/_assets/`; `plans-data.js` → `docs/plans/_assets/` (NEVER overwrite — it's data); `index.html` → `docs/plans/` (NEVER overwrite — written once).
+2. Copy only files that are missing. On an explicit "refresh assets" ask, overwrite `dashboard.{css,js}` only — always both together, and warn if the existing copies differ from the masters (the project may have customized them).
 
-<!-- GOOD — shared assets + structured hooks + JSON island -->
-<head>
-  <link rel="stylesheet" href="../_assets/dashboard.css" />
-  <script type="application/json" id="plan-data">{"status":"ongoing","title":"…"}</script>
-</head>
-<body data-status="ongoing" data-slug="20260524-foo">
-  <span class="status-badge" data-status="ongoing">ongoing</span>
-```
+## Migration (projects with sidecars in category dirs)
+
+The pre-`_views/` convention co-located `<slug>.html` next to its `.md` and `git mv`'d both on every transition. Old sidecars keep working with the new assets — migrate lazily: the next time a plan is touched, sidecar mode writes to `_views/` (keeping the file's CURRENT basename, even a date-prefixed finished one — basenames freeze at migration) and deletes the co-located copy (step 5). Migrating a whole repo at once is just running sidecar mode over every plan, then dashboard mode once.
 
 ## Gotchas
 
 | Gotcha | Fix |
 |---|---|
-| Used `../_assets/` in `index.html` | The dashboard sits at `docs/plans/`, not a category dir — use `_assets/…` (no `../`). |
+| Rewrote a sidecar or data entry only to refresh an age token | Forbidden — ages render at view time; baked text is a no-JS fallback. |
+| `git mv`'d the sidecar alongside its `.md` | Sidecars never move — regenerate in place at `_views/` with the new category baked in. |
+| Renamed the sidecar to the `YYYY-MM-DD-` prefix on ship | Only the `.md` is renamed; the `.html` basename is frozen at scaffold time. |
+| Loaded plan data via `fetch()` + `.json` | Chrome blocks fetch/XHR on `file://` (CORS) — the data ships as a `.js` assigning `window.PLANS_DATA`, loaded via `<script src>`. |
+| Edited `index.html` to add a dashboard row | `index.html` is a write-once skeleton — rows render client-side; edit `plans-data.js` only. |
+| Baked nav-sidebar or meta-strip markup into a sidecar | Both are rendered by `dashboard.js` at view time from `plans-data.js` / the `<dl>` — emit only the two script tags and the plain `<dl>`. |
+| `#plan-data` island missing `blocked_since` / `scheduled_date` | The island must carry the age-source field for the plan's category or the live token can't render. |
 | Inlined CSS / copied rules into a sidecar | All styling is in the shared assets; emit classes + `data-*`, never `<style>`. |
-| Read the `.html` to answer a plan-state question | The `.md` is canonical; the `.html` may be stale. Read the `.md`. |
-| Step status `in_flight` / `inflight` | The css key is `in-flight` (hyphen). Map the plan status enum to `in-flight`. |
-| Dropped an empty optional section | Emit it empty (heading + empty `.plan-section__content`); dashboard.js auto-collapses it. |
-| `shipped` token on an ongoing plan | The age token is category-specific — see the table in `docs/plans/AGENTS.md`. |
-| `shipped today` rendered for a 0-day finished plan | The legacy "today at 0d" wording was day-granular; with datetime, render `shipped just now` (<60s) or `shipped <X>m ago` / `shipped <X>h ago` instead. |
-| Dashboard links every title to `.html` but most don't exist | Link `.html` only when the sidecar exists; otherwise link the `.md`. |
-| Moving / renaming / deleting a sidecar when its plan changes dirs | Not this skill's job — `plan-manager` `git mv`s the `.html` alongside the `.md`. This skill only (re)authors content at the path it's handed. |
+| Step status `in_flight` / `inflight` | The css key is `in-flight` (hyphen). |
+| Read the `.html` to answer a plan-state question | The `.md` is canonical; the sidecar may be stale. |
 
 ## When NOT to use
 
 - Answering "what's the state of plan X" — read the `.md` (canonical), never the sidecar.
 - Non-plan markdown (skills, agents, docs) — this skill renders the plan structure only.
-- Changing the shared look — edit `docs/plans/_assets/dashboard.{css,js}` directly; this skill consumes them.
+- Changing the shared look for one project — edit that project's `docs/plans/_assets/dashboard.{css,js}` directly; this skill seeds and consumes them.
+
+## Staleness check (per-project contract)
+
+If the project's `docs/plans/AGENTS.md` lacks a section this skill relies on (the `_views/` fixed-location rules, the view-time age-token contract, the data-driven dashboard, or Open questions), offer to append the missing section from plan-init's template — never silently diverge from what the project's own contract documents.
 
 ## References
 
-- [`references/templates.md`](references/templates.md) — full sidecar + dashboard HTML skeletons, every `data-*` hook annotated.
-- `docs/plans/AGENTS.md` § "HTML sidecar" — the standard (assets, `data-*` contract, age tokens, checked-in default).
-- Companion skills: `plan-manager` (invokes this after every plan touch) · `plan-init` (bootstraps `docs/plans/`).
+- [`references/templates.md`](references/templates.md) — sidecar + dashboard skeletons, `plans-data.js` entry format, `#plan-questions` island schema, answers-export shape.
+- `assets/` (this skill) — master copies of `dashboard.css`, `dashboard.js`, `index.html`, `plans-data.js`.
+- `docs/plans/AGENTS.md` (per project) — the per-project contract; plan-init's template is its source. A contract change here must land in that template too.
+- Companion skills: `plan-manager` (invokes this after every plan touch; ingests open-question answers) · `plan-init` (bootstraps `docs/plans/`, invokes assets mode).
