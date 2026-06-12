@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-06-03"
-  content_hash: "2283039d937cf47946d68fa5f1c2452185136a3453e884085cc10ff279a5859f"
+  updated: "2026-06-12"
+  content_hash: "52065b4f79ea2dd87410e45994b0ffee6fac7400bc2ddb77e1ce9f042da56962"
 ---
 
 # Skill Maintenance
@@ -97,6 +97,7 @@ description: "Use when editing routes: checkout, account, webhook, or fixing esl
 | Source path changed | Compare `metadata.source_files` with filesystem | Update paths and claims |
 | Reference file missing | List `references/` and links from body | Restore file or remove pointer |
 | Skill no longer triggers | Inspect first 150 chars of description | Put concrete trigger words first |
+| Wrong sibling skill fires for a task | Compare both descriptions with near-miss prompts that share keywords | Sharpen triggers; route the near-miss via a "Not ..." clause |
 | Local maintenance skill exists | Compare to Docks plugin skill | Keep only if it adds project-specific rules |
 
 ## Idempotency Rules
@@ -140,12 +141,19 @@ Use the narrowest available command:
 ```bash
 # if the project ships a skill validator/loader-check, run it
 
+# if the docks plugin is installed, write-skill bundles a portable validator —
+# frontmatter guard + 16-pt score, no kit tooling needed (--strict for kit conventions):
+bash <docks-plugin>/skills/productivity/write-skill/scripts/skill-guard.sh .agents/skills
+
 # generic Codex loader check
 codex debug prompt-input | sed -n '/Skipped loading/,/Available skills/p'
 
 # Generic filesystem check
 find .agents/skills .claude/skills -name SKILL.md -maxdepth 3 -print 2>/dev/null
 ```
+
+If the bundled validator is absent (docks not installed), fall back to the
+generic checks — never hard-depend on it.
 
 ## References
 

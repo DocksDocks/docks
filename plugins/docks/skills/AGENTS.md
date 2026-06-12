@@ -21,6 +21,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 3. **≤500 chars** for full scorer credit (≤500 = 2 pts, ≤1,000 = 1, else 0; hard cap 1,024).
 4. **Concrete trigger keywords**, not capability prose. "Use when running pnpm audit, pip-audit…" beats "Use when working with dependency security." Move "Covers X, Y, Z" enumerations into the body.
 5. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — −1 pt each (max −2).
+6. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. No static scorer sees two skills claiming the same trigger surface; `write-skill`'s near-miss table is the procedure.
 
 ## Frontmatter
 
@@ -46,6 +47,7 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 | Gotchas | concrete corrections to repeat mistakes |
 | Validation loop | do → run validator → fix → repeat |
 | `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each) |
+| `scripts/` / `assets/` bundle | executable helpers every invocation would re-derive (execution is token-free) / copy-only output templates; neither is content-hashed — bump `metadata.updated` manually when they change |
 
 Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment (~5,000 tokens) may silently drop content.
 
@@ -76,6 +78,8 @@ Skills run in both runtimes; phrase for both. Verified 2026-06-10 against the li
 ## Scoring
 
 `bash scripts/skills/score.sh --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/config/scoring.json`). Aim 14+ on new skills. Structural gate: `bash scripts/skills/guard.sh`. To author a new skill from scratch, use the `write-skill` skill.
+
+**Portable mirror:** `write-skill` ships `scripts/skill-guard.sh`, a self-contained mirror of the guard subset + 16-pt rubric for consumer repos where this kit's `scripts/` tree doesn't exist (`skill-maintenance` points at it too). Any rubric change in `score.sh` or rule change in `lib/validate-skills.mjs` must land in the mirror in the same commit, with a `metadata.updated` bump on write-skill — bundled `scripts/` sit outside the `content_hash` surface.
 
 ## Namespace
 

@@ -25,6 +25,8 @@ These scripts validate and release the plugin. They are **author-side only** —
 
 `--per-file` on score scripts prints `<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill YAML parsing uses Node + pnpm (`corepack enable && pnpm install --frozen-lockfile`) so local checks match Codex-oriented tooling without requiring PyYAML.
 
+**Shipped mirror:** the write-skill skill bundles `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.sh`, a portable mirror of the guard subset + `score.sh` rubric for consumer repos. Changing the rubric in `skills/score.sh` or rules in `lib/validate-skills.mjs` requires updating that mirror in the same commit (and bumping write-skill's `metadata.updated` — bundled `scripts/` aren't content-hashed). It's outside ci.sh's shellcheck glob; shellcheck it manually when edited.
+
 ## Edit → release workflow
 
 1. Edit files inside `plugins/docks/{skills,agents}/`.
