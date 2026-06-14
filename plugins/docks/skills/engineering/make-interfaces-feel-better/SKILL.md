@@ -1,6 +1,6 @@
 ---
 name: make-interfaces-feel-better
-description: "Use when building or reviewing UI components; fixing positioning that 'feels off' or 'feels detached'; placing popovers/dropdowns/tooltips relative to their trigger; implementing animations, hover/press states, shadows, borders, typography, micro-interactions, or enter/exit transitions. Triggers on 'make it feel better', 'feels off', 'looks weird', or any visual-detail polish work."
+description: "Use when building or reviewing UI components; fixing positioning that 'feels off' or 'feels detached'; placing popovers/dropdowns/tooltips relative to their trigger; implementing animations, hover/press states, shadows, borders, typography, micro-interactions, or enter/exit transitions. Triggers on 'make it feel better', 'feels off', 'looks weird', or any visual-detail polish work. Not for color/token systems (use design-tokenization) or composition APIs (use react-component-patterns)."
 user-invocable: true
 metadata:
   pattern: upstream-adapted
@@ -9,12 +9,24 @@ metadata:
     source: https://github.com/jakubkrehel/make-interfaces-feel-better
     license: MIT
     vendored_at: "2026-04-20"
-  content_hash: "17dad652614f3f4ef5b3a8fae46bde0262f9842b132e427cd67bacb98320e230"
+  content_hash: "0c2c7baf699d70408b9729eec4cdeb875356398c09eb0ca61f3b62991fb33826"
 ---
 
 # Details that make interfaces feel better
 
 Great interfaces rarely come from a single thing. It's usually a collection of small details that compound into a great experience. Apply these principles when building or reviewing UI code.
+
+<constraint>
+The numeric values here are tuned, not illustrative — `scale(0.96)` on press (never below `0.95`), `bounce: 0` on every spring, icon cross-fade `scale 0.25→1` / `opacity 0→1` / `blur 4px→0`, image outline at exactly `rgba(0,0,0,0.1)` (light) / `rgba(255,255,255,0.1)` (dark). A plausible-looking substitute (a `0.9` press, a `bounce: 0.2`, a slate-tinted outline) is the difference between "polished" and "off." If you change one, change it because the design calls for it, not because you guessed.
+</constraint>
+
+<constraint>
+Never animate `transition: all` or scope `will-change` broadly. `all` animates properties you didn't mean to (layout, color), which janks on the first interaction and defeats GPU compositing; `will-change: all` forces every property onto its own layer and exhausts GPU memory. Always name the exact properties (`transition-property: scale, opacity`), and only ever `will-change` the compositable trio `transform` / `opacity` / `filter`.
+</constraint>
+
+<constraint>
+Nested rounded elements must use concentric radii: `outerRadius = innerRadius + padding`. A card and the button inside it sharing one radius value is the single most common reason an interface "feels off" — the corners visibly diverge as they curve. Compute the outer radius from the inner one and the gap, every time something rounded sits inside something else rounded.
+</constraint>
 
 ## Quick Reference
 
@@ -82,6 +94,14 @@ Use `initial={false}` on `AnimatePresence` to prevent enter animations on first 
 ### 14. Never Use `transition: all`
 
 Always specify exact properties: `transition-property: scale, opacity`. Tailwind's `transition-transform` covers `transform, translate, scale, rotate`.
+
+```css
+/* BAD — animates layout + color too; the hover jank you can't pin down */
+.card { transition: all 0.2s; }
+
+/* GOOD — only the compositable properties you actually change */
+.card { transition-property: scale, opacity; transition-duration: 0.2s; }
+```
 
 ### 15. Use `will-change` Sparingly
 

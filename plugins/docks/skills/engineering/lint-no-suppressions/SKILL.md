@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-06-14"
-  content_hash: "8724816f0b81a4df4c71241657d87dc599ebcf29e3d0b3c3006c5b7fcbd742a0"
+  content_hash: "2d60d75a386c3516369dfb8c9164e4da2e8df13f9795d9eaea7068e3808a59ef"
 ---
 
 # Never Suppress Lint / Type Errors
@@ -28,6 +28,19 @@ Comments like `eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`,
 2. **Is the code doing something the rule author didn't anticipate?** 99% of the time, no. The rule's edge cases are usually already covered.
 3. **Is there a structural fix?** Often yes: extract a function, change a type, narrow a type guard, introduce a derived value, move logic to a different scope.
 4. **Only if all three fail**: document the concrete, irreducible reason (hardware quirk, third-party type declaration bug with a filed issue link, platform constraint) in the comment *and* the PR description. "Speed" / "later" / "I'll fix it next sprint" are not reasons.
+
+## Rationalizations — the excuse and the reality
+
+Under deadline pressure the suppression always feels justified. Each excuse has a standard rebuttal; pattern-match yours here before reaching for the comment.
+
+| Excuse | Reality |
+|---|---|
+| "It's just one line, it's temporary" | A silenced check is the most permanent code there is — nothing has a deadline once the warning is gone. |
+| "The rule is wrong for this line" | ~99% of the time the rule anticipated this case. You owe a filed-issue link before you're allowed to believe the 1%. |
+| "I'll fix it properly next sprint" | The suppression deletes the only signal that would remind you. There is no next sprint for a green check. |
+| "It's legacy / not my code" | If you're editing the line, it's your line now. (Pre-existing suppressions you don't touch are fine — the scanner only blocks NEW ones.) |
+| "CI is red and I have to ship" | Suppressing turns a visible red into invisible debt that ships anyway. Fix the cause, or revert the change that caused it. |
+| "Casting through `any`/`unknown` is quicker" | Quicker to write, slower forever — the compiler stops protecting that path the moment you do. |
 
 ## BAD / GOOD — the suppression vs the fix
 

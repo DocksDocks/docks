@@ -21,7 +21,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 3. **≤500 chars** for full scorer credit (≤500 = 2 pts, ≤1,000 = 1, else 0; hard cap 1,024).
 4. **Concrete trigger keywords**, not capability prose. "Use when running pnpm audit, pip-audit…" beats "Use when working with dependency security." Move "Covers X, Y, Z" enumerations into the body.
 5. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — −1 pt each (max −2).
-6. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. No static scorer sees two skills claiming the same trigger surface; `write-skill`'s near-miss table is the procedure.
+6. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. `tests/skill-trigger-collision.mjs` fails a pair sharing ≥5 positive-surface trigger tokens with no routing, but the subtle collisions still need the manual near-miss pass; `write-skill`'s near-miss table is the procedure.
 
 ## Frontmatter
 
@@ -46,7 +46,7 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 | BAD/GOOD code blocks | fragile decisions; scorer rewards both idioms |
 | Gotchas | concrete corrections to repeat mistakes |
 | Validation loop | do → run validator → fix → repeat |
-| `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each) |
+| `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each); a reference > 100 lines with 3+ headings needs a `## Contents` TOC (`refs-guard.mjs`, Anthropic best-practice) |
 | `scripts/` / `assets/` bundle | executable helpers every invocation would re-derive (execution is token-free) / copy-only output templates; neither is content-hashed — bump `metadata.updated` manually when they change |
 
 Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment (~5,000 tokens) may silently drop content.

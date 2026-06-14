@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-06-12"
-  content_hash: "ec733ce0adf8ae7cd0704b27b06222c02320643d2bfeabba1542523f847e2f4b"
+  updated: "2026-06-14"
+  content_hash: "cc11d08b20f1db1d87138a655519914b648da1bb081c390317f01218a5def4ff"
 ---
 
 # Write a Skill (docks conventions)
@@ -75,10 +75,10 @@ metadata:
 ## The authoring loop
 
 1. **Draft the description.** Write 3 candidates. Verify ≤500 chars on each (`echo -n "$desc" | wc -m` — characters, not bytes; em-dashes inflate `wc -c` 3×). Pick the one with the most concrete trigger keywords (file types, command names, error messages, named patterns).
-2. **Collision-check the triggers.** Write 3 realistic should-trigger prompts and 3 near-miss should-NOT-trigger prompts, then read the descriptions of the 2–3 sibling skills closest in domain: every near-miss must route cleanly to its sibling via a `Not for…` clause. No static scorer can see two skills claiming the same trigger surface — this step is where collisions die. See "Near-miss negatives" below.
+2. **Collision-check the triggers.** Write 3 realistic should-trigger prompts and 3 near-miss should-NOT-trigger prompts, then read the descriptions of the 2–3 sibling skills closest in domain: every near-miss must route cleanly to its sibling via a `Not for…` clause. The kit's `tests/skill-trigger-collision.mjs` catches gross keyword overlap mechanically (a pair sharing ≥5 positive-surface trigger tokens with no routing fails CI), but only this manual near-miss pass catches the subtle ones — this step is where collisions die. See "Near-miss negatives" below.
 3. **Draft the body** in `SKILL.md`. Target 80–310 lines. Include at least: one `<constraint>`, one BAD/GOOD pair, one table, one fenced code block with a language tag. Pick prescriptiveness per "Degrees of freedom" below.
 4. **Score check.** Kit: `bash scripts/skills/score.sh --per-file | grep <name>`. Any other repo: `bash <write-skill-dir>/scripts/skill-guard.sh <skill-dir>` — the same rubric, bundled with this skill. If < 14, look at the rubric and find the missing point.
-5. **Structural check.** Kit: `bash scripts/skills/guard.sh`. Elsewhere: `skill-guard.sh --strict` covers the portable subset. Failures are non-negotiable — fix them.
+5. **Structural check.** Kit: `bash scripts/skills/guard.sh` (includes `refs-guard.mjs`: broken `references/` links, orphan reference files, and the long-reference TOC rule below). Elsewhere: `skill-guard.sh --strict` covers the portable subset. Failures are non-negotiable — fix them.
 6. **Full CI.** `bash scripts/ci.sh` where present. Must be green before commit.
 7. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
 
@@ -114,7 +114,7 @@ If a near-miss has no clean route, the new skill's `Not for…` clause (or the s
 | Multiple languages share the same principle but need per-language code | One body section explaining the principle, language-specific BAD/GOOD in `references/<lang>-<topic>.md`. Pattern: `solid/references/typescript-solid.md`, `…/rust-solid.md`. |
 | A scenario applies but is the exception, not the rule | `references/` keeps it out of the per-session-loaded body. |
 
-Reference file sweet spot: 30–150 lines. Past 150, split again.
+Reference file sweet spot: 30–150 lines. Past 150, split again. Any reference file over **100 lines** with 3+ section headings needs a `## Contents` TOC at the top — Claude often partial-reads long references (`head`-style), and the TOC keeps the full scope visible (Anthropic best-practice). `refs-guard.mjs` enforces this; the heading gate auto-exempts embedded output templates whose sections live inside a verbatim code fence.
 
 ### `scripts/` and `assets/` — the other two bundles
 

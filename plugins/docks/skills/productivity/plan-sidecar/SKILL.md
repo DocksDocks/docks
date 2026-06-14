@@ -1,11 +1,11 @@
 ---
 name: plan-sidecar
-description: "Use when a plan .md is written, moved, or shipped and its browser view needs (re)authoring — renders the .md into docs/plans/_views/ (stable basenames, regenerated in place), syncs the _assets/plans-data.js dashboard data file, mirrors `## Open questions` into a #plan-questions island, and seeds the shared dashboard assets from bundled masters. Invoked by plan-manager after every plan touch; also standalone (\"rebuild plan sidecars\", \"refresh the plans dashboard\"). Not for reading plan state (the .md is canonical)."
+description: "Use when a plan .md is written, moved, or shipped and its browser view needs (re)authoring — renders the .md into docs/plans/_views/, syncs the _assets/plans-data.js dashboard data file, mirrors `## Open questions` into a #plan-questions island, and seeds the shared dashboard assets. Invoked by plan-manager after every plan touch; also standalone (\"rebuild plan sidecars\", \"refresh the plans dashboard\"). Not for reading plan state (the .md is canonical) or non-plan markdown."
 user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-06-14"
-  content_hash: "70282fc5bf06ac716f5ac3c4c3778d7739020bfcd33936f88cde4bbf575626bb"
+  content_hash: "e4c01f65cbdb1f79903c14bfbf052e6b7e475734a7136e910f6e8caa68eb44e8"
 ---
 
 # Plan Sidecar — author a plan's browser view
@@ -57,6 +57,17 @@ Load-bearing hooks the css/js target — emit these exactly:
 | `<script id="plan-questions">` | `type="application/json"` (only when `## Open questions` exists) | [Plan \| Open questions] tab pair |
 
 dashboard.js auto-collapses any `.plan-section__content` whose text is empty — emit empty optional sections as heading + empty content div. The `.plan-meta` `<dl>` is emitted plain; dashboard.js rebuilds it into a compact chip strip at view time.
+
+The single mistake that breaks the "one edit restyles every plan" guarantee:
+
+```html
+<!-- BAD — inlined styling/behavior; now this plan can't be restyled centrally -->
+<head><style>.status-badge{background:#e8a}</style></head>
+
+<!-- GOOD — link the shared base; theming comes from the data-* hook -->
+<head><link rel="stylesheet" href="../_assets/dashboard.css" /></head>
+<body data-status="ongoing"> … <span class="status-badge" data-status="ongoing"></span>
+```
 
 ## Workflow — sidecar mode (`plan-sidecar <plan.md>`)
 

@@ -1,11 +1,11 @@
 ---
 name: plan-init
-description: Use when bootstrapping the docs/plans/ convention in a new or existing project — creates the 5 lifecycle dirs plus _views/ and _open_questions/, seeds the shared dashboard assets and write-once index.html via plan-sidecar's assets mode, writes a plans-local AGENTS.md (lifecycle, sidecar, open-questions, audit-first rules) plus a one-line CLAUDE.md @AGENTS.md shim, and appends a Plans section to the root AGENTS.md (or root CLAUDE.md if absent). Idempotent — re-running is a no-op for existing files.
+description: Use when bootstrapping the docs/plans/ convention in a new or existing project — creates the 5 lifecycle dirs plus _views/ and _open_questions/, seeds the dashboard assets and write-once index.html, writes a plans-local AGENTS.md plus a one-line CLAUDE.md @AGENTS.md shim, and appends a Plans section to the root AGENTS.md (or root CLAUDE.md if absent). Idempotent — re-running is a no-op. Not for per-plan operations (use plan-manager) or rendering sidecars (use plan-sidecar).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-11"
-  content_hash: "7b95538bc2fc5500c6d27b9075fc2c380597bee9d42117188bdb9d498acfa49f"
+  updated: "2026-06-14"
+  content_hash: "c4c10b8b7b14339087f8fc38a014f2b468ea44ff9b4684d755cbb7f579550edd"
 ---
 
 # Plans Directory Bootstrapper
