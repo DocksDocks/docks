@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Read per-file score floor from scripts/config/scoring.json (port of read-floor.sh).
+// Read per-file score floor from scripts/config/scoring.json.
 //   read-floor.mjs <kind> <category>   # categorized kinds (skills)
 //   read-floor.mjs <kind>              # flat kinds (agents)
 // Prints the integer per_file_floor; exits non-zero if the kind/category isn't declared.

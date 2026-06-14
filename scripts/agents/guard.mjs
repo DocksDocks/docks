@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// agents/guard.mjs (port of agents/guard.sh) — structural validation of agent
+// agents/guard.mjs — structural validation of agent
 // markdown. Usage: agents/guard.mjs [path-or-file]
 import fs from 'node:fs';
 import path from 'node:path';
+import { splitLines, bodyAfterFrontmatter } from '../lib/skills-parse.mjs';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
@@ -22,20 +23,11 @@ if (fs.existsSync(ARG) && fs.statSync(ARG).isFile()) {
 let errors = 0;
 const fail = (m) => { console.error(`FAIL: ${m}`); errors += 1; };
 
-function bodyLineCount(lines) {
-  let c = 0; let n = 0;
-  for (const l of lines) {
-    if (l === '---' && c < 2) { c += 1; continue; }
-    if (c === 2) n += 1;
-  }
-  return n;
-}
-
 for (const file of files) {
   const name = path.basename(file, '.md');
   if (['.gitkeep', 'AGENTS', 'CLAUDE'].includes(name)) continue;
   const content = fs.readFileSync(file, 'utf8');
-  const lines = (content.endsWith('\n') ? content.slice(0, -1) : content).split('\n');
+  const lines = splitLines(content);
 
   if (lines[0] !== '---') { fail(`${name} — does not start with '---' frontmatter fence`); continue; }
   if (lines.filter((l) => l === '---').length < 2) {
@@ -65,7 +57,8 @@ for (const file of files) {
   const tools = getField('tools');
   if (tools === '') fail(`${name} — tools field missing or empty`);
 
-  if (bodyLineCount(lines) > 500) fail(`${name} — body is ${bodyLineCount(lines)} lines (cap: 500). Extract detail out of the agent prompt`);
+  const bodyLen = bodyAfterFrontmatter(lines).length;
+  if (bodyLen > 500) fail(`${name} — body is ${bodyLen} lines (cap: 500). Extract detail out of the agent prompt`);
   if (!lines.some((l) => l.includes('<constraint>'))) fail(`${name} — no <constraint> block in body`);
   if (!lines.some((l) => /^## Workflow/.test(l))) fail(`${name} — missing '## Workflow' section`);
   if (!lines.some((l) => /^## Success Criteria/.test(l))) fail(`${name} — missing '## Success Criteria' section`);

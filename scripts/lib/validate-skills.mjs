@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
+import { findSkillFiles } from './skills-walk.mjs';
 
 const MAX_NAME_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 1024;
@@ -28,23 +29,6 @@ function parseArgs(argv) {
     process.exit(2);
   }
   return { runtime, root: path.resolve(roots[0]) };
-}
-
-function findSkillFiles(root) {
-  const files = [];
-  function walk(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === '.git') continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name === 'SKILL.md') {
-        files.push(full);
-      }
-    }
-  }
-  walk(root);
-  return files.sort();
 }
 
 function extractFrontmatter(content) {

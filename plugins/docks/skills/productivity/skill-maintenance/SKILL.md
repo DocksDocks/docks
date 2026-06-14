@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: reviewer
   updated: "2026-06-14"
-  content_hash: "a9a38604961b6370f60ccde0236bf45b3a404718e46c9d90fd6f1f3eacc91e65"
+  content_hash: "f61674d04b0d670f0e837fadd96b1aea8f666cca12409a4d144e32b75f416c52"
 ---
 
 # Skill Maintenance
@@ -143,7 +143,7 @@ Use the narrowest available command:
 
 # if the docks plugin is installed, write-skill bundles a portable validator —
 # frontmatter guard + 16-pt score, no kit tooling needed (--strict for kit conventions):
-bash <docks-plugin>/skills/productivity/write-skill/scripts/skill-guard.sh .agents/skills
+node <docks-plugin>/skills/productivity/write-skill/scripts/skill-guard.mjs validate .agents/skills
 
 # generic Codex loader check
 codex debug prompt-input | sed -n '/Skipped loading/,/Available skills/p'

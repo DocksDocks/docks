@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// test.mjs (port of test.sh) — render docs/scaffold/templates with fixed test
+// test.mjs — render docs/scaffold/templates with fixed test
 // values into a temp dir, assert it's a structurally valid plugin skeleton, then
 // materialize a COMPLETE seed and run the seeded scripts/ci.mjs end-to-end
 // ("a freshly seeded project starts green"). No-op when there is no scaffold spec.

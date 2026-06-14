@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ci.mjs — local mirror of .github/workflows/ci.yml (port of ci.sh). Run before
+// ci.mjs — local mirror of .github/workflows/ci.yml. Run before
 // releasing. All validators are Node .mjs; manifests are checked natively.
 // Usage: node scripts/ci.mjs [-q]
 import { spawnSync } from 'node:child_process';
@@ -87,7 +87,8 @@ section('trigger collisions');
 nodeOk(['tests/skill-trigger-collision.mjs']) ? ok('no unrouted high-overlap skill descriptions')
   : fail('trigger-collision: unrouted high-overlap pair(s) (run: node tests/skill-trigger-collision.mjs)');
 
-// --- 3b. shell lint (the only bash left is plugins/docks/hooks/*.sh) ---
+// --- 3b. shell lint — currently a no-op (zero bash in the repo); the glob is
+// kept so a future plugins/docks/hooks/*.sh would still be linted.
 // Self-skips when shellcheck isn't installed locally; tag-CI enforces it.
 section('shell lint');
 const bashFiles = fs.existsSync('plugins/docks/hooks')

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// codex-facts.mjs (port of codex-facts.sh) — pin the Codex platform facts the
+// codex-facts.mjs — pin the Codex platform facts the
 // skill-agent-pipeline reference docs assert. Author-side only; skips when absent.
 import fs from 'node:fs';
 import path from 'node:path';

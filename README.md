@@ -61,9 +61,9 @@ Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills brid
 │       ├── skills/, agents/           ← cross-tool skills + 2 plan-lifecycle agents
 │       └── README.md                  ← plugin-facing docs
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
-│   ├── skills/guard.sh / score.sh
-│   ├── agents/guard.sh / score.sh
-│   └── scaffold/ + tree/ + config/
+│   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
+│   ├── skills/guard.mjs, agents/guard.mjs + score.mjs
+│   └── scaffold/ + tree/ + config/ + lib/
 └── .github/workflows/ci.yml           ← validator CI on push/PR
 ```
 
@@ -86,13 +86,13 @@ Four validators mirror the kit-side conventions:
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
-bash scripts/skills/guard.sh     # Codex + Claude skill compatibility
-bash scripts/skills/score.sh     # quality score (max 16) — Use-when prefix, freshness, BAD/GOOD ratio
-bash scripts/agents/guard.sh     # frontmatter, "Use when…" / "Not…" CSO, model declared
-bash scripts/agents/score.sh     # quality score (max 15) — model, tools, Workflow + Success Criteria
+node scripts/skills/guard.mjs    # Codex + Claude skill compatibility + reference hygiene
+node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file   # skill quality score (max 16)
+node scripts/agents/guard.mjs    # frontmatter, "Use when…" / "Not…" CSO, model declared
+node scripts/agents/score.mjs    # quality score (max 15) — model, tools, Workflow + Success Criteria
 ```
 
-`--per-file` flag on score scripts prints one `<name> <score>` line per item — useful for spotting drift after an edit. `bash scripts/ci.sh` runs the full local gate (guards + scorers + manifest + idempotency).
+`--per-file` on a scorer prints one `<name> <score>` line per item — useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
 
 CI runs all of these on every PR to `main` and on every `docks--v*` release tag (see `.github/workflows/ci.yml`; full trigger model below).
 
@@ -103,13 +103,13 @@ CI runs all of these on every PR to `main` and on every `docks--v*` release tag 
 - **With explicit version**: users only receive updates when this field bumps. Bump on every release.
 - **Without version**: the git commit SHA is used; every commit counts as a new version (noisier but auto-tracking).
 
-`scripts/release.sh` wraps the full dance in one command:
+`scripts/release.mjs` wraps the full dance in one command (`--dry-run` previews the bump + manifest diff without tagging):
 
 ```bash
-./scripts/release.sh patch    # 0.1.0 → 0.1.1
-./scripts/release.sh minor    # 0.1.0 → 0.2.0
-./scripts/release.sh major    # 0.1.0 → 1.0.0
-./scripts/release.sh 0.2.0    # explicit
+node scripts/release.mjs patch    # 0.1.0 → 0.1.1
+node scripts/release.mjs minor    # 0.1.0 → 0.2.0
+node scripts/release.mjs major    # 0.1.0 → 1.0.0
+node scripts/release.mjs 0.2.0    # explicit
 ```
 
 The script bumps the Claude and Codex plugin manifests plus the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes auto-generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created — the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.

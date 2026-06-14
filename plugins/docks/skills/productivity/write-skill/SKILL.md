@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-06-14"
-  content_hash: "de681ed0bff15b33c1e15278ad7586342db93f417b2cdf0b580d8f5da99e161f"
+  content_hash: "6278654c456f27f3083e92acf526c698b042195e1fef119cc02cd357c7ebb8dc"
 ---
 
 # Write a Skill (docks conventions)
@@ -168,11 +168,11 @@ Writing ALWAYS/NEVER in caps is the yellow flag: state the consequence instead (
 
 ## Transforming skills (split / migrate / rewrite existing content)
 
-A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no error. Before authoring one, read [`references/data-preservation.md`](references/data-preservation.md): inventory → per-section approval table → two-phase write → read-back verification. Two non-negotiables, copied **inline** into the skill (never cross-linked): a preservation `<constraint>` near the top (survives the 5,000-token compaction window) and a `## Verification` block doing per-section presence + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split. `scripts/skills/transform-guard.sh` enforces both on the curated transformer list.
+A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no error. Before authoring one, read [`references/data-preservation.md`](references/data-preservation.md): inventory → per-section approval table → two-phase write → read-back verification. Two non-negotiables, copied **inline** into the skill (never cross-linked): a preservation `<constraint>` near the top (survives the 5,000-token compaction window) and a `## Verification` block doing per-section presence + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split. `scripts/skills/transform-guard.mjs` enforces both on the curated transformer list.
 
 ## When this skill does NOT apply
 
-- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.sh` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The CLAUDE.md "Authoring skills & agents" section is the source of truth for agents.
+- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The CLAUDE.md "Authoring skills & agents" section is the source of truth for agents.
 - Modifying an existing skill — read it first, preserve constraint blocks, bump `metadata.updated`, re-score before commit.
 
 ## Source attribution

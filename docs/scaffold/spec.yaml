@@ -39,6 +39,7 @@ bundled_skills:
 # Validator scripts copied verbatim. They accept a path arg, so the seeded project
 # invokes them against its own plugins/<name>/skills (see scripts/AGENTS.md template).
 scripts:
+  - { source: scripts/lib/skills-walk.mjs }
   - { source: scripts/lib/validate-skills.mjs }
   - { source: scripts/skills/guard.mjs }
   - { source: scripts/skills/refs-guard.mjs }

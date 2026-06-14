@@ -34,7 +34,7 @@ function metaUpdated(lines) {
   return '';
 }
 
-// ---- the 16-pt scorer (single source; identical to the kit's score.sh) ----
+// ---- the 16-pt scorer (single source of the docks rubric) ----
 function scoreSkill(file) {
   const lines = splitLines(fs.readFileSync(file, 'utf8'));
   let score = 0;
@@ -86,7 +86,7 @@ function findSkillFiles(root) {
   return out.sort();
 }
 
-// ---- consumer validator (port of skill-guard.sh check_skill) ----
+// ---- consumer validator: frontmatter + structure checks ----
 function validate(dirs, strict) {
   let fails = 0; let warns = 0; let checked = 0;
   const fail = (m) => { console.log(`  FAIL: ${m}`); fails += 1; };
@@ -138,7 +138,7 @@ function validate(dirs, strict) {
     }
     const slop = slopCount(lines);
     if (slop > 0) warn(`${slop} slop word(s) in prose (comprehensive/robust/elegant/seamless)`);
-    console.log(`  score: ${scoreSkill(file)}/16 (docks rubric; kit per-file floors: engineering 10, productivity 8; aim 14+)`);
+    console.log(`  score: ${scoreSkill(file)}/16 (docks rubric; per-file floor set by the project's scoring.json; aim 14+)`);
   }
 
   for (const a of dirs) {
@@ -153,7 +153,7 @@ function validate(dirs, strict) {
   console.log(`skill-guard PASSED: ${checked} skill(s), ${warns} warning(s)`);
 }
 
-// ---- score mode (== kit score.sh): `<category>/<name> <score>` or total ----
+// ---- score mode: `<category>/<name> <score>` or total ----
 function score(args) {
   const perFile = args.includes('--per-file');
   const root = args.find((a) => !a.startsWith('--')) || path.join(process.cwd(), 'plugins/docks/skills');

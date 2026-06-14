@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Guard: validate context-tree node pairs (port of tree/guard.sh).
+// Guard: validate context-tree node pairs.
 // Every dir carrying AGENTS.md or CLAUDE.md must be a COMPLETE node:
 //   - both present (no half-pairs); CLAUDE.md is exactly the one-line `@AGENTS.md`;
 //   - AGENTS.md <= 500 lines. Usage: tree/guard.mjs [repo-root]

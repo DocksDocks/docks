@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// guard-spec.mjs (port of guard-spec.sh) — validate docs/scaffold/spec.yaml is
+// guard-spec.mjs — validate docs/scaffold/spec.yaml is
 // coherent: it parses, and every template / bundled-skill / script path resolves.
 // No-op when the repo has no scaffold spec. Usage: guard-spec.mjs [repo-root]
 import fs from 'node:fs';

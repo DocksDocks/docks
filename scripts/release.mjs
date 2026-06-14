@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // release.mjs — bump plugin version, tag, push, and create a GitHub Release.
-// (Port of release.sh; native JSON instead of jq.)
 //
 // Usage:
 //   node scripts/release.mjs [--dry-run] <new-version>   # explicit, e.g. 0.2.0

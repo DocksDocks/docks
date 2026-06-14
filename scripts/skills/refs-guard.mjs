@@ -22,22 +22,10 @@
 // Usage: node scripts/skills/refs-guard.mjs [skills-root ...]
 import fs from 'node:fs';
 import path from 'node:path';
+import { findSkillFiles } from '../lib/skills-walk.mjs';
 
 const TOC_LINE_THRESHOLD = 100;
 const TOC_HEADING_MIN = 3;
-
-function findSkillFiles(root) {
-  const out = [];
-  (function walk(dir) {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (e.name === 'node_modules' || e.name === '.git') continue;
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (e.name === 'SKILL.md') out.push(full);
-    }
-  })(root);
-  return out.sort();
-}
 
 // Count doc-level (##/###) headings outside fences, with length-aware fence
 // tracking (a fence closes only on a marker at least as long as its opener) and

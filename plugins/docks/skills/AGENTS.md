@@ -3,15 +3,15 @@
 Skills are the cross-tool payload — every skill here surfaces in Claude Code, Codex, and any agentskills.io runtime. Each skill is a directory `<category>/<name>/SKILL.md` (+ optional `references/`). Categories: `engineering/`, `productivity/`. The description is surfaced in the session listing (loaded every session); the body loads only on activation — spend the effort on the description.
 
 <constraint>
-Run `bash scripts/ci.sh` after any skill change — it must be green before commit. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
+Run `node scripts/ci.mjs` after any skill change — it must be green before commit. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
 </constraint>
 
 <constraint>
-After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `bash scripts/skills/content-hash.sh --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
+After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `node scripts/skills/content-hash.mjs --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
 </constraint>
 
 <constraint>
-Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.sh`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.sh`, `scripts/config/*`, `scripts/lib/*`, `scripts/scaffold/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.sh` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
+Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`, `scripts/scaffold/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
 </constraint>
 
 ## Description (the thing that gets matched)
@@ -31,7 +31,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 | `description` | recommended; ≤1,024 hard cap; ≤500 for full credit; starts "Use when" |
 | `user-invocable` | `true` for slash-command-style skills, else `false` |
 | `metadata.updated` | `YYYY-MM-DD`; bump only on a real content change |
-| `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.sh --backfill` |
+| `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.mjs --backfill` |
 | `allowed-tools` | pre-approves tools while the skill is active |
 | third-party | add an `upstream:` block (`source`/`license`/`vendored_at`) to relax kit checks for vendored skills |
 
@@ -58,7 +58,7 @@ A skill that **moves, splits, migrates, or rewrites existing content** (root →
 1. A preservation `<constraint>` near the top of the body (survives the 5,000-token post-compaction window).
 2. A `## Verification` block doing **per-section presence** + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split (scaffolding makes output ≥100% of input, so a lost section hides under it).
 
-`scripts/skills/transform-guard.sh` enforces both across the curated transformer list (`scripts/AGENTS.md`).
+`scripts/skills/transform-guard.mjs` enforces both across the curated transformer list (`scripts/AGENTS.md`).
 
 ## Plan-skill contract sync (two homes)
 

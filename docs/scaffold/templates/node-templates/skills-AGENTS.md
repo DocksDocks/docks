@@ -5,6 +5,6 @@ Skills are the cross-tool payload — each surfaces in Claude Code, Codex, and a
 - Description starts "Use when …" (CSO); ≤500 chars for full scorer credit.
 - `name` matches the parent directory; kebab-case.
 - Body ≤500 lines (sweet spot 80–310) — every line loads on activation.
-- Run `corepack enable && pnpm install --frozen-lockfile` once, then `bash scripts/skills/guard.sh plugins/{{ plugin_name }}/skills` before commit.
+- Run `corepack enable && pnpm install --frozen-lockfile` once, then `node scripts/skills/guard.mjs plugins/{{ plugin_name }}/skills` before commit.
 
 Use the bundled `write-skill` skill to author new skills from scratch.

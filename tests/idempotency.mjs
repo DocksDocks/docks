@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// idempotency.mjs (port of skill-maintainer-idempotency.sh) — re-running the
+// idempotency.mjs — re-running the
 // skill-maintainer on unchanged skills is a no-op: the content hash is
 // deterministic, and every stored content_hash is in sync (--check-only exits 0).
 import { spawnSync } from 'node:child_process';

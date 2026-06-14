@@ -11,7 +11,7 @@
 - [`variables`](#variables)
 - [Substitution rules](#substitution-rules)
 
-`docs/scaffold/spec.yaml` defines what a seeded project contains. Setup mode writes it; seed mode reads it. Stdlib-parseable YAML, no anchors/aliases. `scripts/scaffold/guard-spec.sh` validates it; `scripts/scaffold/test.sh` renders it.
+`docs/scaffold/spec.yaml` defines what a seeded project contains. Setup mode writes it; seed mode reads it. Stdlib-parseable YAML, no anchors/aliases. `scripts/scaffold/guard-spec.mjs` validates it; `scripts/scaffold/test.mjs` renders it.
 
 ## Top-level keys
 
@@ -48,7 +48,7 @@ templated_files:
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
 ```
 
-The three versioned manifests (`plugin.json`, codex `plugin.json`, claude `marketplace.json`) must agree on `version` — `scripts/scaffold/test.sh` enforces this on the rendered output.
+The three versioned manifests (`plugin.json`, codex `plugin.json`, claude `marketplace.json`) must agree on `version` — `scripts/scaffold/test.mjs` enforces this on the rendered output.
 
 ## `tree_nodes`
 
@@ -86,15 +86,15 @@ bundled_skills:
 
 ```yaml
 scripts:
-  - { source: scripts/lib/skills.sh }
+  - { source: scripts/lib/skills-walk.mjs }
   - { source: scripts/lib/validate-skills.mjs }
-  - { source: scripts/skills/guard.sh }
-  - { source: scripts/skills/codex.sh }
-  - { source: scripts/skills/claude.sh }
-  - { source: scripts/skills/score.sh }
-  - { source: scripts/config/read-floor.sh }
+  - { source: scripts/skills/guard.mjs }
+  - { source: scripts/skills/refs-guard.mjs }
+  - { source: scripts/skills/codex-facts.mjs }
+  - { source: scripts/skills/content-hash.mjs }
+  - { source: scripts/config/read-floor.mjs }
   - { source: scripts/config/scoring.json }
-  - { source: scripts/tree/guard.sh }
+  - { source: scripts/tree/guard.mjs }
 ```
 
 This block shows the script-entry shape, not a complete inventory. Setup mode should copy the live spec's script list after verifying each source exists.

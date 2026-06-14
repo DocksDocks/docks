@@ -33,9 +33,9 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
-| `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.sh` |
+| `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 
-The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes; `scripts/tree/guard.sh` enforces the pair convention in CI.
+The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes; `scripts/tree/guard.mjs` enforces the pair convention in CI.
 
 ## Authoring agents (Claude-only)
 
@@ -43,11 +43,11 @@ Agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `p
 
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): `claude plugin validate` lints every `*.md` under `agents/` as a subagent, so an `AGENTS.md`/`CLAUDE.md` pair there fails `validate --strict` with "No frontmatter". Neither relocating the files into a subdir nor declaring an `agents` array in the manifest avoids that scan (both tried and ruled out). These authoring rules therefore live in this root file instead of a nested node.
 
-- **Description (CSO):** lead with "Use when …" AND include a "Not …" exclusion clause (both required by `scripts/agents/guard.sh`); ≥80 and ≤500 chars; concrete triggers; no slop words.
+- **Description (CSO):** lead with "Use when …" AND include a "Not …" exclusion clause (both required by `scripts/agents/guard.mjs`); ≥80 and ≤500 chars; concrete triggers; no slop words.
 - **Frontmatter:** `name` (required, kebab-case, matches filename, no `anthropic`/`claude` substring); `description` (required, with the "Not …" clause); `model` (`sonnet`/`opus`/`haiku`/full-ID/`inherit` — resolution: env `CLAUDE_CODE_SUBAGENT_MODEL` → per-invocation → frontmatter → parent); `tools` (allowlist; omitted = inherit all). For plugin-shipped agents, `hooks`/`mcpServers`/`permissionMode` are silently ignored for security — use `.claude/agents/` when you need those.
 - **Body (≤500; sweet spot 60–300):** same patterns as skills (`<constraint>` blocks — up to 2 rewarded — lookup tables, BAD/GOOD, gotchas, validation loop); structure as context-acknowledgment (step 1), then `## Workflow`, `## Output Format`, `## Anti-Hallucination Checks`, `## Success Criteria`.
-- **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.sh`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step — they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.sh` scans agent bodies alongside shipped skills.
-- **Validators:** `bash scripts/agents/guard.sh` (structural) + `bash scripts/agents/score.sh --per-file` (max 15, per-file floor 14 — mechanically needs 2 `<constraint>` blocks); both run inside `scripts/ci.sh`. Floors detailed in `scripts/AGENTS.md`.
+- **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step — they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.mjs` scans agent bodies alongside shipped skills.
+- **Validators:** `node scripts/agents/guard.mjs` (structural) + `node scripts/agents/score.mjs --per-file` (max 15, per-file floor 14 — mechanically needs 2 `<constraint>` blocks); both run inside `scripts/ci.mjs`. Floors detailed in `scripts/AGENTS.md`.
 - **Sources:** [sub-agents](https://code.claude.com/docs/en/sub-agents) · [plugins-reference](https://code.claude.com/docs/en/plugins-reference).
 
 ## Plans
@@ -68,9 +68,9 @@ Claude Code sees these via the symlinks under `.claude/skills/`. Codex sees them
 
 ## Tool-agnostic rules
 
-- Run `bash scripts/ci.sh` before any commit — guards + scorers must be green
+- Run `node scripts/ci.mjs` before any commit — guards + scorers must be green
 - Don't loosen validator floors to pass; fix the file instead
-- Manifest version numbers stay in lockstep across `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and the versioned Claude marketplace catalog — `release.sh` enforces this
+- Manifest version numbers stay in lockstep across `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and the versioned Claude marketplace catalog — `release.mjs` enforces this
 - Skill bodies stay ≤500 lines per agentskills.io spec; sweet spot 80–310
 
 ## Security

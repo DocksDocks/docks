@@ -70,4 +70,4 @@ awk -v b="$before" -v a="$after" 'BEGIN{ if (a < b) print "NET SHRINK — invest
 
 ## What a CI lint can and cannot check
 
-`scripts/skills/transform-guard.sh` validates **this repo's committed skill files** — it flags a docks SKILL.md that describes a transform but omits a preservation constraint + `## Verification` block. It is a *structure* lint. It canNOT check consumer runtime data loss: `scripts/` is author-side-only and never ships, and the skill runs in the consumer's repo where these scripts don't exist. That is exactly why the runtime check lives **inline in the skill body**, not in a shipped script.
+`scripts/skills/transform-guard.mjs` validates **this repo's committed skill files** — it flags a docks SKILL.md that describes a transform but omits a preservation constraint + `## Verification` block. It is a *structure* lint. It canNOT check consumer runtime data loss: `scripts/` is author-side-only and never ships, and the skill runs in the consumer's repo where these scripts don't exist. That is exactly why the runtime check lives **inline in the skill body**, not in a shipped script.

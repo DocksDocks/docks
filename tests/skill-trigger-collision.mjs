@@ -18,6 +18,7 @@
 //   --report  print the full ranked overlap matrix (informational), always exit 0
 import fs from 'node:fs';
 import path from 'node:path';
+import { findSkillFiles } from '../scripts/lib/skills-walk.mjs';
 
 const OVERLAP_FAIL = 5; // shared significant tokens at/above which an UNROUTED pair fails
 
@@ -77,20 +78,6 @@ function readDescription(file) {
   return raw.replace(/^["'|>]\s*/, '').replace(/["']\s*$/, '').trim();
 }
 
-function findSkills(root) {
-  const out = [];
-  function walk(dir) {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (e.name === 'node_modules' || e.name === '.git') continue;
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (e.name === 'SKILL.md') out.push(full);
-    }
-  }
-  walk(root);
-  return out;
-}
-
 const args = process.argv.slice(2);
 const report = args.includes('--report');
 const roots = args.filter((a) => !a.startsWith('--'));
@@ -103,7 +90,7 @@ if (roots.length === 0) {
 const skills = [];
 for (const root of roots) {
   if (!fs.existsSync(root)) continue;
-  for (const file of findSkills(root)) {
+  for (const file of findSkillFiles(root)) {
     const name = path.basename(path.dirname(file));
     const desc = readDescription(file);
     if (desc) skills.push({ name, desc, toks: tokens(positiveSurface(desc)) });

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// content-hash.mjs — deterministic skill content hash (port of content-hash.sh).
+// content-hash.mjs — deterministic skill content hash.
 // The hash covers a skill's MEANING: normalized frontmatter (excluding the
 // `updated:` + `content_hash:` bookkeeping lines) + body + sorted references/*.md.
-// Parity-gated against content-hash.sh via tests/parity.mjs — the hashes MUST
-// match, or every stored content_hash invalidates.
+// The normalization here is load-bearing: change it and every stored
+// content_hash invalidates, so keep it byte-stable.
 //
 // Usage:
 //   content-hash.mjs <skill-dir>            print the content hash of one skill
@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { eachSkillDir } from '../lib/skills-walk.mjs';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
@@ -101,17 +102,6 @@ function writeHash(dir, h) {
   fs.writeFileSync(file, out.join('\n'));
 }
 
-function* skillDirs(root) {
-  for (const cat of fs.readdirSync(root).sort()) {
-    const cp = path.join(root, cat);
-    if (!fs.statSync(cp).isDirectory()) continue;
-    for (const skill of fs.readdirSync(cp).sort()) {
-      const sp = path.join(cp, skill);
-      if (fs.statSync(sp).isDirectory()) yield sp;
-    }
-  }
-}
-
 const mode = process.argv[2];
 if (mode === '--backfill' || mode === '--check-only') {
   const root = process.argv[3] || DEFAULT_ROOT;
@@ -120,11 +110,8 @@ if (mode === '--backfill' || mode === '--check-only') {
     process.exit(2);
   }
   let anyWouldBump = 0;
-  for (const dir of skillDirs(root)) {
-    if (!fs.existsSync(path.join(dir, 'SKILL.md'))) continue;
+  for (const { dir, name, category: cat } of eachSkillDir(root)) {
     if (isUpstream(dir)) continue;
-    const name = path.basename(dir);
-    const cat = path.basename(path.dirname(dir));
     const fresh = hashSkill(dir);
     const stored = storedHash(dir);
     if (mode === '--check-only') {

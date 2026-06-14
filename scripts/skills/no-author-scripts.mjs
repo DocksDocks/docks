@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// no-author-scripts.mjs (port of no-author-scripts.sh) — shipped skill/agent
+// no-author-scripts.mjs — shipped skill/agent
 // bodies must not name docks plugin-author scripts as steps a consumer runs.
 // Scope: SKILL.md + references/*.md + agents/*.md. Allowlist: tooling-authoring
 // skills whose subject IS the docks tooling.

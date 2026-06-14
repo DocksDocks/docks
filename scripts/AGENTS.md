@@ -25,10 +25,11 @@ These scripts validate and release the plugin. They are **author-side only** —
 | `scaffold/guard-spec.mjs` · `scaffold/test.mjs` | scaffold spec coherence + a full seed starts green | pass/fail |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| `tests/parity.mjs` | dev tool — proves a `.mjs` port == its old `.sh` (the gate used during the bash→`.mjs` migration) | — |
 | shellcheck (`ci.mjs` §3b) | `-S warning` over any `plugins/docks/hooks/*.sh`; currently a no-op (zero bash in the repo) — kept so a future shell hook is still linted | pass/warn |
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
+
+**Shared author-side libs (`scripts/lib/`):** `skills-walk.mjs` (SKILL.md traversal — `findSkillFiles`/`eachSkillDir`/`findSkillByName`) and `skills-parse.mjs` (frontmatter/body line helpers — `bodyAfterFrontmatter`/`slopCount`/`metaUpdated`/…) are imported by the author-side validators so the walk + body-line method live once. The bundled `write-skill/scripts/skill-guard.mjs` keeps its OWN copies on purpose — it ships standalone into consumer repos where `scripts/lib/` doesn't exist; its body-line method must stay byte-identical to `skills-parse.mjs`'s or scores shift. `skills-walk.mjs` is seeded (the seeded validators import it); `skills-parse.mjs` is not (no seeded script imports it).
 
 **Single-source scorer:** the 16-pt skill scorer lives ONCE, in the bundled `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (`score [--per-file]`). The kit's `ci.mjs` scores with that same shipped file over `plugins/docks/skills`, and consumers run it on their own skills (`validate` / `score`) — one rubric, no author-side mirror, no sync contract. Bundled `scripts/` aren't content-hashed; bump write-skill's `metadata.updated` when the rubric changes.
 

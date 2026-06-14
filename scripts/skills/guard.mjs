@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// guard.mjs (port of skills/guard.sh) — run the skill frontmatter validators
+// guard.mjs — run the skill frontmatter validators
 // (codex + claude via validate-skills.mjs), the Codex-fact drift guard, and the
 // reference-hygiene guard. Usage: guard.mjs [skills-dir]
 import { spawnSync } from 'node:child_process';

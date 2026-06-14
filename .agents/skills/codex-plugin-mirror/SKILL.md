@@ -116,8 +116,8 @@ If versions disagree, STOP — report which file is out of sync. Never claim "mi
 1. Files created / updated (full paths)
 2. Feature-surface degradation count (dropped commands, dropped subagents, ported skills)
 3. Version sync state
-4. Reminder to update CI (`scripts/ci.sh` or equivalent) to validate the new manifests on every release
-5. Reminder to update the release script (`release.sh`) to bump BOTH `.claude-plugin/` and `.codex-plugin/` files in lockstep
+4. Reminder to update CI (`scripts/ci.mjs` or equivalent) to validate the new manifests on every release
+5. Reminder to update the release script (`release.mjs`) to bump BOTH `.claude-plugin/` and `.codex-plugin/` files in lockstep
 
 ## Common Traps
 
@@ -126,7 +126,7 @@ If versions disagree, STOP — report which file is out of sync. Never claim "mi
 | Framing the mirror as required for Codex discovery | "Without .codex-plugin/ Codex can't see the plugin" | Codex discovers `.claude-plugin/plugin.json` natively (verified 2026-06-10) — pitch the mirror as marketplace catalog + Codex-tailored interface + version lockstep |
 | Codex plugin description claims feature parity | Copy Claude description verbatim | Append "(skills only)" when source ships commands or subagents Codex won't include |
 | Marketplace JSON schema confusion (Claude's `source: "./path"` vs Codex's `source: {source: "local", path: "./path"}`) | Naive string copy | Build the Codex `source` object explicitly per the Codex docs |
-| Versions drift between `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` after a release | Bump only one file | Step 7 verification catches drift; release.sh should bump all four files |
+| Versions drift between `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` after a release | Bump only one file | Step 7 verification catches drift; release.mjs should bump all four files |
 | Generating Codex manifests in a repo with no `.claude-plugin/` | Treat empty plugin source as greenfield | STOP in Step 1 — this skill needs a Claude plugin as input, not a project skeleton |
 | Translating `mcpServers` block incorrectly | Assume Claude's inline MCP config copies to Codex's `mcpServers: "./path-to-mcp-json"` | Read Codex's plugin-manifest reference; both tools point at `./.mcp.json` by convention — preserve the path |
 | Auto-creating `.codex-plugin/` for a `plugins/<name>/` that doesn't have its own `.claude-plugin/` | Mirror a non-existent source | Step 1's Glob skips plugin dirs without manifests |

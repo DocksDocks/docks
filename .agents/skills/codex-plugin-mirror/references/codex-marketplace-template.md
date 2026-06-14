@@ -116,4 +116,4 @@ Versions live in `plugin.json` (Claude AND Codex), NOT in marketplace.json. When
 2. Bump `plugins/<name>/.codex-plugin/plugin.json` to the same version
 3. Both marketplace files stay version-free at the plugin-entry level; the catalog just lists what's available
 
-The release script (`scripts/release.sh` in this kit, or equivalent) should treat the four files (two plugin manifests, two marketplace catalogs) as one atomic group when bumping.
+The release script (`scripts/release.mjs` in this kit, or equivalent) should treat the four files (two plugin manifests, two marketplace catalogs) as one atomic group when bumping.
