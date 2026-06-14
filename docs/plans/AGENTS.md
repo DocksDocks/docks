@@ -146,25 +146,29 @@ caught in `## Self-review` (it's a real artifact, not ceremony).
 
 When a plan's next step needs a human decision, list it under
 `## Open questions`: an `id`, a type (`choice` with options — mark one
-`(recommended)`, note `custom allowed` — or `text`), and enough context
-(inline `code` welcome) to decide without reading the whole plan.
+`(recommended)`, note `custom allowed` — or `text` for a genuinely open
+answer), and enough context (inline `code` welcome) to decide without reading
+the whole plan. This block is the canonical, structured list of what's
+pending; how it's *surfaced* is:
 
-How they're surfaced:
+- **Native multiple-choice — the default for every question.** The agent
+  surfaces each one through the runtime's question UI — in Claude Code,
+  `AskUserQuestion` — so the user just clicks an option (one marked
+  `(recommended)`; a `text` question uses the free-text / "Other" field). This
+  is what makes juggling several plans at once cheap.
+- **Visual choice** (component look, layout, palette, spacing) → the agent
+  renders the options as a self-contained, self-styled, throwaway `.html` and
+  surfaces it, because seeing beats describing. Ephemeral and gitignored —
+  never a tracked artifact. (No display — headless/remote — hands back the
+  file path.)
 
-- **Text / discrete choice → native multiple-choice.** In Claude Code, the
-  agent asks via the question UI (`AskUserQuestion`); the user just picks. This
-  is what makes managing several plans at once cheap.
-- **Visual choice** (component look, layout, palette, spacing) → the plan
-  *induces the agent to render the options as a self-contained, self-styled,
-  throwaway `.html`* and surface it, because seeing beats describing. The HTML
-  is ephemeral and gitignored — never a tracked artifact. (Where there's no
-  display — headless/remote — the agent hands back the file path or falls back
-  to describing.)
-- **Headless / no question UI (e.g. Codex)** → the agent prints the questions
-  as a numbered text block and reads the user's typed answers. No files.
+Answers are encoded back into the plan (`## Context` / `## Notes` /
+`## Steps`), the answered questions removed, and `updated` bumped.
 
-When answered, the agent encodes each decision into the plan (`## Context` /
-`## Notes` / `## Steps`), removes the answered questions, and bumps `updated`.
+A runtime with **no** question UI at all (e.g. Codex today) is the floor case:
+the agent presents the same structured options inline and reads the typed
+reply. That's the unavoidable minimum, not a path to design for — optimize for
+the picker.
 
 ## Lifecycle transitions
 
