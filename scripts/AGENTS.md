@@ -1,6 +1,6 @@
 # Plugin-author tooling (scripts/)
 
-These scripts validate and release the plugin. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported); the only bash left in the repo is the shipped runtime `context-tree-nudge` hook. `ci.mjs` is the local gate, and `.github/workflows/ci.yml` runs that same `ci.mjs` — true local↔CI parity.
+These scripts validate and release the plugin. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported) and the cross-tool `context-tree-nudge` PostToolUse hook. The repo has **zero** bash. `ci.mjs` is the local gate, and `.github/workflows/ci.yml` runs that same `ci.mjs` — true local↔CI parity.
 
 <constraint>
 `node scripts/ci.mjs` must be green before any commit — it exits non-zero on any failure. Don't loosen validator floors to make a problematic file pass; fix the file.
@@ -26,7 +26,7 @@ These scripts validate and release the plugin. They are **author-side only** —
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
 | `tests/parity.mjs` | dev tool — proves a `.mjs` port == its old `.sh` (the gate used during the bash→`.mjs` migration) | — |
-| shellcheck (`ci.mjs` §3b) | `-S warning` over `plugins/docks/hooks/*.sh` (the only bash left — a shipped runtime hook); self-skips locally, CI enforces | pass/fail |
+| shellcheck (`ci.mjs` §3b) | `-S warning` over any `plugins/docks/hooks/*.sh`; currently a no-op (zero bash in the repo) — kept so a future shell hook is still linted | pass/warn |
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
 
