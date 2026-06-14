@@ -49,7 +49,9 @@ Decisions reached with the user (2026-06-14 session):
 | 1 | Rewrite the contract: `docs/plans/AGENTS.md` + `plan-init`'s template — two folders, status-as-field, `.md`-only, lean required spine (Goal/Steps/Acceptance/Review) + optional sections, the self-review rubric, the two question layers, on-demand visual HTML. Keep the `AGENTS.md`+`CLAUDE.md` pair (tree/guard). | — | planned |
 | 2 | `.gitignore` ephemeral renders (`docs/plans/**/*.html`, `docs/plans/.rendered/`); `git rm` the tracked `_views/`, `_assets/`, `index.html`. | 1 | planned |
 | 3 | Rewrite `plan-init`: seed only `active/` + `finished/` + the new `AGENTS.md`/`CLAUDE.md`; drop `_assets/_views/_open_questions/index.html` seeding and the `plan-sidecar` assets-mode call. | 1 | planned |
-| 4 | Rewrite `plan-manager`: status-field transitions (edit field; `git mv` only on `→ finished`); the **draft → self-review (rubric) → open-questions** scaffold loop; `AskUserQuestion` for text/choice, on-demand visual HTML for visual choices; listing reads the `status` field; drop Step 7.5 (sidecar refresh). Resolve OQ-4 (commit cadence). | 1 | planned |
+| 3b | **v1→v2 idempotent migration in `plan-init`.** Detect an old-model `docs/plans/` (any of `planned/ongoing/blocked/scheduled/` dirs, `_views/`, `_assets/`, `index.html`, or a contract saying "status must match directory") and migrate: `git mv` non-finished plans into `active/` (keep their `status` field as-is), keep `finished/`, `git rm` the derived artifacts, rewrite the contract + gitignore renders. No-op when already v2. | 1,3 | planned |
+| 4 | Rewrite `plan-manager`: status-field transitions (edit field; `git mv` only on `→ finished`); the **draft → self-review (rubric) → open-questions** scaffold loop; `AskUserQuestion` for text/choice, on-demand visual HTML for visual choices; listing reads the `status` field; auto-commit on transition (D-4); drop Step 7.5 (sidecar refresh). | 1 | planned |
+| 4b | **Deprecation detection in `plan-manager`.** On any op, if it sees an old-model layout, surface it and offer to trigger `plan-init`'s v1→v2 migration (3b) rather than operating on a mixed model. | 3b,4 | planned |
 | 5 | Resolve `plan-review` vs draft-review (OQ-3): expose the self-review rubric for `planned/` drafts (fold into plan-manager or make plan-review dual-mode), keep finished-plan verification. | 1 | planned |
 | 6 | Resolve `plan-sidecar` fate (OQ-2): delete + fold visual-render instruction into plan-manager, or keep a slim rescoped helper. Update `plugins/docks/skills/AGENTS.md` plan-skill list + transform-guard list if the skill set changes. | 4 | planned |
 | 7 | Migrate this repo's `docs/plans/`: retire empty `planned/ongoing/blocked/scheduled` dirs; `finished/` stays; this plan stays in `active/`. Resolve OQ-5 (touch the 19 finished plans or leave). | 2 | planned |
@@ -62,6 +64,7 @@ Decisions reached with the user (2026-06-14 session):
 - `docs/plans/` contains only `active/`, `finished/`, `AGENTS.md`, `CLAUDE.md` — no `_views/ _assets/ _open_questions/ index.html`.
 - A new plan scaffolded by `plan-manager` arrives with the self-review rubric already applied and a populated `## Open questions` (or an explicit "none") — verify on one throwaway plan.
 - No `plan-*` skill body or `docs/plans/AGENTS.md` references committed sidecars, `plans-data.js`, the dashboard, or the 5-folder model.
+- Running `plan-init` on an old-model `docs/plans/` migrates it to v2 idempotently (re-run = no-op); `plan-manager` flags a deprecated layout and offers the migration instead of silently operating on it.
 - `bash scripts/ci.sh` green; `plan-*` skills each ≥ productivity floor (8); idempotency check passes.
 
 ## Out of scope
@@ -88,6 +91,7 @@ Dogfooding the loop — holes caught while drafting and how they were resolved:
 - **Checkable acceptance:** replaced "no committed HTML" (judgment) with a `git ls-files` command that returns nothing.
 - **Assumptions → questions:** every place this draft would otherwise *guess* (scheduled, sidecar fate, review depth, commit cadence, finished migration, fallback) became an OQ instead of a silent default.
 - **Dependency order:** Step 6 depends on Step 4 (the visual-render instruction must exist before plan-sidecar is folded into it); Step 9 gates on all.
+- **User-caught hole (2026-06-14):** the draft migrated only *this* repo's plans (Step 7) but never said what happens when the v2 skills meet an existing consumer project on the old layout. Added Steps 3b (idempotent v1→v2 migration in plan-init) + 4b (deprecation detection in plan-manager). The cold-handoff check *should* have caught "what about existing installs?" — the human review layer did, which is the loop working as designed.
 
 ## Sources
 
