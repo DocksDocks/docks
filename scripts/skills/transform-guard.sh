@@ -32,7 +32,7 @@ DIR="${1:-$REPO_DIR/plugins/docks/skills}"
 
 # Curated content-transforming skills (audit output). Add a name here when a new
 # skill moves/splits/migrates/rewrites existing content.
-TRANSFORMING_SKILLS="context-tree multi-tool-bridge skill-agent-pipeline skill-maintenance refactor"
+TRANSFORMING_SKILLS="context-tree multi-tool-bridge skill-agent-pipeline skill-maintenance refactor plan-init"
 
 # Subset not yet hardened — WARN only. Empty: the data-preservation rollout
 # (plans: context-tree-loss-guard, kit-wording-rollout) is complete and every

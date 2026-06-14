@@ -53,10 +53,10 @@ The `agents/` folder deliberately carries **no context-tree node** (hence its ab
 ## Plans
 
 <constraint>
-Multi-commit work plans live in `docs/plans/{planned,ongoing,blocked,scheduled,finished}/`. Every plan file is a complete handoff document — `goal`, structured `Steps`, `Mistakes & Dead Ends`, `Sources`, `Review` — so any agent can pick one up cold without conversation context. Skills handle every operation: `plan-init` (bootstrap), `plan-manager` (list/show/resume/start/new/fire/ship), `plan-review` (verification). Trigger by natural language ("create docs/plans", "list plans", "review plan <slug>") or the matching `plan-*` skill directly. Every category is multi-occupancy.
+Multi-commit work plans live in `docs/plans/active/` (lifecycle stage is the `status:` frontmatter field) and `docs/plans/finished/` (archive). Only the `.md` is tracked — views render on demand. Every plan file is a complete handoff document — `goal`, `Steps`, `Acceptance criteria`, `Review` — so any agent can pick one up cold. Skills handle every operation: `plan-init` (bootstrap/migrate), `plan-manager` (list/show/start/block/ship/new — drafts are self-reviewed, transitions auto-commit), `plan-review` (finished verification + draft review). Trigger by natural language or the matching `plan-*` skill. `active/` is multi-occupancy.
 </constraint>
 
-The full convention (frontmatter schema, body section order, 3-tier pretty-print contract, category-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation.
+The full convention (frontmatter schema, body spine, status-as-field model, the self-review rubric, open-questions via the native picker, status-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation.
 
 ## Project-local skills
 

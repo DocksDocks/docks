@@ -1,11 +1,11 @@
 ---
 name: plan-review
-description: Use when a plan moves to docs/plans/finished/ with ship_commit set, or the user asks to review a finished plan ("review plan slug", "check finished plans"). Verifies the plan's goal vs ship_commit's diff, runs the project's CI/test command to flag regressions, writes a `## Review` block into the plan with goal-met assessment, regression scan, follow-ups. Not for general code review, pre-merge checks, or plans still in ongoing/.
+description: Use when a plan reaches status finished (in docs/plans/finished/) with ship_commit set — verifies goal vs the ship_commit diff, runs the project's CI to flag regressions, writes a `## Review` block with goal-met assessment, regression scan, follow-ups. Also the draft-review pass plan-manager dispatches on a big/risky new plan — red-teams the draft against the self-review rubric and reports holes. Not for general code review or pre-merge checks.
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-03"
-  content_hash: "68617e7a9d4e9baba0a359ff74c034a9baca7fca94678a8f70766c78256d634b"
+  updated: "2026-06-14"
+  content_hash: "d2fd6a69344818a39ab83a54a14a2f8384d16613e70eafde656b04ea1303d9d1"
 ---
 
 # Plan Review
@@ -13,7 +13,7 @@ metadata:
 Verify a finished plan against the diff that shipped it. Read `goal` and acceptance criteria, compare to the actual changes in `ship_commit`, run the project's CI/test command if it has one, and write a structured `## Review` block into the plan file with the verdict.
 
 <constraint>
-**Only act on plans in `finished/` with `ship_commit` set.** If the plan is in `ongoing/`, `planned/`, `blocked/`, or `scheduled/`, stop with a clear error — the diff doesn't exist yet, and reviewing pre-ship doesn't make sense. If `ship_commit` is empty/null in a `finished/` plan, ask the user for the SHA before proceeding.
+**Two modes, keyed on `status`.** A `finished` plan (in `finished/`) with `ship_commit` set → **finished review**: diff-vs-goal verification (Steps 1–10). A non-finished draft (in `active/`, any other status) → **draft review** (Mode 0): red-team the draft against the self-review rubric and report holes — do NOT look for a diff (there isn't one). If `ship_commit` is empty on a `finished` plan, ask the user for the SHA before proceeding.
 </constraint>
 
 <constraint>
@@ -32,7 +32,29 @@ Verify a finished plan against the diff that shipped it. Read `goal` and accepta
 - DROP any finding that fails reproduction; log it under "Dropped (failed reproduction)" rather than including it in the Review block.
 </constraint>
 
-## Workflow
+## Mode 0 — draft review (status ≠ finished)
+
+When dispatched on a non-finished draft (plan-manager calls this for a big/risky
+new plan, or the user asks to "review the draft"), there is no diff — you are
+red-teaming the plan itself. Read the plan, then check each item:
+
+| Check | Hole it catches |
+|---|---|
+| Actionability | every `## Steps` row has a verifiable done-condition — no "improve/handle X" |
+| Dependency order | no step needs the output of a later one; prerequisites exist |
+| Evidence re-verify | every cited `file:line` in `## Sources`/`affected_paths` resolves and says what's claimed (re-`Read` it) |
+| Goal coverage | with every step done, is `## Goal` actually met? name the gap |
+| Checkable acceptance | `## Acceptance criteria` are commands + expected output where natural |
+| Failure mode | each risky step has a revert trigger |
+| Assumption → question | anything the plan guessed should be an `## Open question`, not a silent default |
+
+Plus the cold-handoff test: *could a fresh agent execute this with ONLY this
+file? Where would it guess?* Report findings as a bulleted list (each a concrete
+fix or a new open question) — append them to the plan's `## Self-review` section
+or return them to the dispatching agent. Do NOT write a `## Review` block, set
+`review_status`, or run CI in this mode — those are finished-review only.
+
+## Finished review
 
 ### Step 1 — Anchor + verify scope
 
@@ -121,7 +143,7 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 
 | Trap | Wrong fix | Right fix |
 |---|---|---|
-| Reviewing a plan still in `ongoing/` | Reading the diff at HEAD and guessing | Stop — plan-review is `finished/` only |
+| Looking for a diff on a non-finished draft | Reading HEAD and guessing | `status ≠ finished` → Mode 0 draft review (no diff) |
 | Appending a second `## Review` block on re-run | `Write` mode adding to the body | `Edit` with `old_string` matching the existing block |
 | Auto-creating follow-up plans for regressions | Calling `plan-manager` "new plan" automatically | List slug suggestions in `Follow-ups:`; user creates them |
 | Claiming a regression without reproducing | Listing it from a stale grep | Per-finding reproduction — re-read the file, re-run the test |

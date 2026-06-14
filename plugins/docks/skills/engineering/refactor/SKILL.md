@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-06-10"
-  content_hash: "020828f61411f4d47014e7bb7c17d94d8558704c6644695256d7e5217d4017fa"
+  updated: "2026-06-14"
+  content_hash: "779651682f1c9821b13f2eeac2c57c6f3e7f31c61c15b177844c32e502fa5794"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -67,8 +67,8 @@ Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 mer
 ## The plan file (IPC + deliverable)
 
 ```text
-docs/plans/planned/<YYYYMMDD>-refactor-<scope>.md   (preferred — tracked by plan-manager)
-docs/refactor-plan-<YYYYMMDD>.md                    (fallback when docs/plans/ is absent)
+docs/plans/active/refactor-<scope>.md   (preferred — tracked by plan-manager; status is a frontmatter field)
+docs/refactor-plan-<YYYYMMDD>.md        (fallback when docs/plans/ is absent)
 ```
 
 Write as you go — do not hold all phase output in context and dump it at the end. Downstream phases and a resumed run locate prior output by grepping the headings.
