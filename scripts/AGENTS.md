@@ -1,6 +1,6 @@
 # Plugin-author tooling (scripts/)
 
-These scripts validate and release the plugin. They are **author-side only** — never shipped to consumers. All validators are Node `.mjs`; only `release.sh` remains bash. `ci.mjs` is the local gate, and `.github/workflows/ci.yml` runs that same `ci.mjs` — true local↔CI parity.
+These scripts validate and release the plugin. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported); the only bash left in the repo is the shipped runtime `context-tree-nudge` hook. `ci.mjs` is the local gate, and `.github/workflows/ci.yml` runs that same `ci.mjs` — true local↔CI parity.
 
 <constraint>
 `node scripts/ci.mjs` must be green before any commit — it exits non-zero on any failure. Don't loosen validator floors to make a problematic file pass; fix the file.
@@ -26,7 +26,7 @@ These scripts validate and release the plugin. They are **author-side only** —
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
 | `tests/parity.mjs` | dev tool — proves a `.mjs` port == its old `.sh` (the gate used during the bash→`.mjs` migration) | — |
-| shellcheck (`ci.mjs` §3b) | `-S warning` over the remaining bash (`release.sh`, `plugins/docks/hooks/*.sh`); self-skips locally, CI enforces | pass/fail |
+| shellcheck (`ci.mjs` §3b) | `-S warning` over `plugins/docks/hooks/*.sh` (the only bash left — a shipped runtime hook); self-skips locally, CI enforces | pass/fail |
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
 
@@ -38,13 +38,13 @@ These scripts validate and release the plugin. They are **author-side only** —
 2. `node scripts/ci.mjs` — green before commit.
 3. Local Claude Code test (no push): `claude --plugin-dir ./plugins/docks` (then `/reload-plugins`).
 4. PR to main → PR-CI gates the merge.
-5. After merge: `./scripts/release.sh patch|minor|major|<X.Y.Z>`.
+5. After merge: `node scripts/release.mjs patch|minor|major|<X.Y.Z>` (add `--dry-run` to preview).
 
 ## Release flow (double-layered gating)
 
 ```text
 edit → node scripts/ci.mjs                   (LAYER 1 — local, fast)
-     → ./scripts/release.sh <bump>
+     → node scripts/release.mjs <bump>
         ├── runs ci.mjs again as precondition
         ├── bumps plugin.json + marketplace.json versions
         ├── commits + pushes
@@ -54,12 +54,12 @@ edit → node scripts/ci.mjs                   (LAYER 1 — local, fast)
         └── tag-CI fails  → exits non-zero, prints recovery
 ```
 
-Two layers: `ci.mjs` catches local issues fast (no burned tag); tag-CI catches contributor-machine drift and is the authoritative gate that decides whether the GitHub Release is created. `release.sh` stays bash for now (git-tag / GH-release orchestration); it calls `node scripts/ci.mjs` as its local gate.
+Two layers: `ci.mjs` catches local issues fast (no burned tag); tag-CI catches contributor-machine drift and is the authoritative gate that decides whether the GitHub Release is created. `release.mjs` (Node; `--dry-run` previews the bump + manifest diff without tagging) orchestrates the version bump → commit → `claude plugin tag` → tag-CI wait → `gh release create`; it calls `node scripts/ci.mjs` as its local gate.
 
 <constraint>
-Run `node scripts/ci.mjs` manually before `./scripts/release.sh` — iterating on failures is easier without the script's clean-tree requirement. The local ci.mjs must pass before any push that goes near a tag.
+Run `node scripts/ci.mjs` manually before `node scripts/release.mjs` — iterating on failures is easier without the script's clean-tree requirement. The local ci.mjs must pass before any push that goes near a tag.
 </constraint>
 
 ## Versioning
 
-Both `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and the Claude marketplace catalog carry a `version` that must agree — `release.sh` keeps them in lockstep; `claude plugin tag` validates it. The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `docks--v<X.Y.Z>` (double-dash separator from `claude plugin tag`).
+Both `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and the Claude marketplace catalog carry a `version` that must agree — `release.mjs` keeps them in lockstep; `claude plugin tag` validates it. The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `docks--v<X.Y.Z>` (double-dash separator from `claude plugin tag`).

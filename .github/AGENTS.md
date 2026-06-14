@@ -6,7 +6,7 @@
 
 Only three events trigger CI:
 - `pull_request` to main → gate merges
-- `push` of tags matching `docks--v*` → gate releases (`release.sh` waits for this)
+- `push` of tags matching `docks--v*` → gate releases (`release.mjs` waits for this)
 - `workflow_dispatch` → manual
 
 <constraint>

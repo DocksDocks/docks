@@ -87,15 +87,18 @@ section('trigger collisions');
 nodeOk(['tests/skill-trigger-collision.mjs']) ? ok('no unrouted high-overlap skill descriptions')
   : fail('trigger-collision: unrouted high-overlap pair(s) (run: node tests/skill-trigger-collision.mjs)');
 
-// --- 3b. shell lint (only the bash that remains: release.sh + hooks) ---
+// --- 3b. shell lint (the only bash left is plugins/docks/hooks/*.sh) ---
 // Self-skips when shellcheck isn't installed locally; tag-CI enforces it.
 section('shell lint');
-const bashFiles = ['scripts/release.sh', ...(fs.existsSync('plugins/docks/hooks')
-  ? fs.readdirSync('plugins/docks/hooks').filter((f) => f.endsWith('.sh')).map((f) => `plugins/docks/hooks/${f}`) : [])];
-const shellcheck = spawnSync('shellcheck', ['-S', 'warning', ...bashFiles], { encoding: 'utf8' });
-if (shellcheck.error) warn('shellcheck not installed — skipped locally (CI enforces)');
-else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean (${bashFiles.length} bash file(s))`);
-else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
+const bashFiles = fs.existsSync('plugins/docks/hooks')
+  ? fs.readdirSync('plugins/docks/hooks').filter((f) => f.endsWith('.sh')).map((f) => `plugins/docks/hooks/${f}`) : [];
+if (bashFiles.length === 0) ok('no bash to lint (all tooling is Node .mjs)');
+else {
+  const shellcheck = spawnSync('shellcheck', ['-S', 'warning', ...bashFiles], { encoding: 'utf8' });
+  if (shellcheck.error) warn('shellcheck not installed — skipped locally (CI enforces)');
+  else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean (${bashFiles.length} hook(s))`);
+  else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
+}
 
 // --- 4 + 5. score floors (per-category + per-file) ---
 section('quality score floors');
