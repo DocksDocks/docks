@@ -1,5 +1,20 @@
 # go test Conventions
 
+## Contents
+
+- [Detection](#detection)
+- [File Naming + Layout](#file-naming-layout)
+- [Assertion Idioms](#assertion-idioms)
+- [Table-Driven Tests + Subtests](#table-driven-tests-subtests)
+- [Helpers + Cleanup](#helpers-cleanup)
+- [Mocking](#mocking)
+- [Running](#running)
+- [Coverage](#coverage)
+- [Common Gotchas](#common-gotchas)
+- [Perf Tuning & Parallelism](#perf-tuning-parallelism)
+- [Coverage Scope — What NOT to Test](#coverage-scope-what-not-to-test)
+- [See Also](#see-also)
+
 Per-framework expansion of the parent SKILL.md. Load when the project's test runner is `go test`. Pairs with the universal 6-step procedure and `<constraint>` rules in `../SKILL.md`.
 
 ## Detection

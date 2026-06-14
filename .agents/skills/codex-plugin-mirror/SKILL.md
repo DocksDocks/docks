@@ -4,7 +4,7 @@ description: Use when adding Codex distribution to an existing Claude Code plugi
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
+  updated: "2026-06-14"
 ---
 
 # Codex Plugin Mirror

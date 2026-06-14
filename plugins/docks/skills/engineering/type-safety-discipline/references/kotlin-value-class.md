@@ -1,5 +1,16 @@
 # Kotlin — Value Classes + Sealed Types
 
+## Contents
+
+- [Value classes for ID safety (Kotlin 1.5+)](#value-classes-for-id-safety-kotlin-15)
+  - [Validated value class](#validated-value-class)
+- [Sealed interfaces for tagged unions](#sealed-interfaces-for-tagged-unions)
+  - [Exhaustive `when`](#exhaustive-when)
+- [Parse-don't-validate with kotlinx.serialization](#parse-dont-validate-with-kotlinxserialization)
+- [Smart-cast over unchecked cast](#smart-cast-over-unchecked-cast)
+- [Avoid](#avoid)
+- [References](#references)
+
 Deep examples for the patterns referenced in the main `SKILL.md`. Read this when working in a Kotlin codebase.
 
 ## Value classes for ID safety (Kotlin 1.5+)

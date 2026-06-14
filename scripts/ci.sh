@@ -157,6 +157,16 @@ else
   [ "$QUIET" -eq 0 ] && printf "\033[1;33m  ⚠\033[0m shellcheck not installed — skipped locally (CI enforces)\n"
 fi
 
+# --- 3c. cross-skill trigger-collision audit ---
+# No mechanical scorer sees two skills claiming the same trigger surface; this
+# fails on a high-overlap description pair that routes to neither sibling.
+section "trigger collisions"
+if node tests/skill-trigger-collision.mjs >/dev/null 2>&1; then
+  ok "no unrouted high-overlap skill descriptions"
+else
+  fail "trigger-collision: unrouted high-overlap pair(s) (run: node tests/skill-trigger-collision.mjs)"
+fi
+
 # --- 4. quality score floors ---
 # Per-file floor is the gate; total floor = sum(per_file_floor × count).
 # Floors live in scripts/config/scoring.json (one source of truth).

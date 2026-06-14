@@ -17,4 +17,13 @@ fi
 # (path-independent; self-skips when that skill is absent).
 bash "$SCRIPT_DIR/codex-facts.sh" || exit $?
 
+# Reference hygiene: broken local links, orphan references, missing TOC on
+# reference files > 100 lines (Anthropic best-practice). Node-based (no shell
+# parsing of markdown); node+yaml is already a guard prerequisite above.
+if [ -n "$DIR" ]; then
+  node "$SCRIPT_DIR/refs-guard.mjs" "$DIR" || exit $?
+else
+  node "$SCRIPT_DIR/refs-guard.mjs" || exit $?
+fi
+
 echo "Guard PASSED: skills match Codex and Claude conventions"

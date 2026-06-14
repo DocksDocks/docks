@@ -1,5 +1,29 @@
 # Surfaces
 
+## Contents
+
+- [Concentric Border Radius](#concentric-border-radius)
+  - [Example](#example)
+  - [Tailwind Example](#tailwind-example)
+- [Optical Alignment](#optical-alignment)
+  - [Buttons with Text + Icon](#buttons-with-text-icon)
+  - [Play Button Triangles](#play-button-triangles)
+  - [Asymmetric Icons (Stars, Arrows, Carets)](#asymmetric-icons-stars-arrows-carets)
+- [Shadows Instead of Borders](#shadows-instead-of-borders)
+  - [Shadow as Border (Light Mode)](#shadow-as-border-light-mode)
+  - [Shadow as Border (Dark Mode)](#shadow-as-border-dark-mode)
+  - [Usage with Hover Transition](#usage-with-hover-transition)
+  - [When to Use Shadows vs. Borders](#when-to-use-shadows-vs-borders)
+- [Image Outlines](#image-outlines)
+  - [Color rules (non-negotiable)](#color-rules-non-negotiable)
+  - [Light Mode](#light-mode)
+  - [Dark Mode](#dark-mode)
+  - [Tailwind with Dark Mode](#tailwind-with-dark-mode)
+- [Minimum Hit Area](#minimum-hit-area)
+  - [CSS Example](#css-example)
+  - [Tailwind Example](#tailwind-example-1)
+  - [Collision Rule](#collision-rule)
+
 Border radius, optical alignment, shadows, and image outlines.
 
 ## Concentric Border Radius

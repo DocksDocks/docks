@@ -40,6 +40,8 @@ jobs:
         run: bash scripts/agents/guard.sh
       - name: "guard-tree"
         run: bash scripts/tree/guard.sh
+      - name: "trigger-collision audit (cross-skill description overlap)"
+        run: node tests/skill-trigger-collision.mjs
       - name: "shell lint (shellcheck, warning severity — mirrors scripts/ci.sh §3b)"
         run: shellcheck -S warning scripts/*.sh scripts/*/*.sh plugins/docks/hooks/*.sh tests/*.sh
 

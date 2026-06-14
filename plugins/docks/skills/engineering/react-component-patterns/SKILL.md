@@ -9,8 +9,8 @@ paths:
   - "**/*.js"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "93189533744b654bdca94656484cfd6ebb56e66ed0c0defb89610b3c1070baff"
+  updated: "2026-06-14"
+  content_hash: "3eae7e15ac2528b53f5399611b07cbb8bc4f18449f534a5280ffa82f9b2c479a"
 ---
 
 # React Component Patterns

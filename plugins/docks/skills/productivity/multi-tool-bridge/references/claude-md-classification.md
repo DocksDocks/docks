@@ -1,5 +1,16 @@
 # CLAUDE.md Content Classification — Keyword Rules
 
+## Contents
+
+- [CLAUDE-specific keyword set (any one hit → keep in CLAUDE.md)](#claude-specific-keyword-set-any-one-hit-keep-in-claudemd)
+- [GENERIC content (move to AGENTS.md)](#generic-content-move-to-agentsmd)
+- [MIXED sections — splitting strategy](#mixed-sections-splitting-strategy)
+- [Heading hierarchy in the rewritten CLAUDE.md](#heading-hierarchy-in-the-rewritten-claudemd)
+- [Project CLAUDE.md location — `./CLAUDE.md` vs `./.claude/CLAUDE.md`](#project-claudemd-location-claudemd-vs-claudeclaudemd)
+- [What about user-level CLAUDE.md?](#what-about-user-level-claudemd)
+- [Verification heuristic for the proposed split](#verification-heuristic-for-the-proposed-split)
+- [Sources](#sources)
+
 When an existing `CLAUDE.md` is present, the bridge skill must split it into:
 
 - **GENERIC** → moves to `AGENTS.md` (tool-agnostic instructions)

@@ -1,5 +1,19 @@
 # RSC Boundary — Server↔Client Serialization
 
+## Contents
+
+- [When this applies](#when-this-applies)
+- [What can and cannot cross Server→Client as props](#what-can-and-cannot-cross-serverclient-as-props)
+- [The extraction trap (NAV_GROUPS-style)](#the-extraction-trap-nav_groups-style)
+- [Three valid patterns for sharing across the boundary](#three-valid-patterns-for-sharing-across-the-boundary)
+  - [Pattern A — Client-only shared module](#pattern-a-client-only-shared-module)
+  - [Pattern B — Server-fetched plain data](#pattern-b-server-fetched-plain-data)
+  - [Pattern C — Children-as-slot interleaving](#pattern-c-children-as-slot-interleaving)
+- [Decision Tree](#decision-tree)
+- [Common Traps](#common-traps)
+- [Gotchas](#gotchas)
+- [References](#references)
+
 Deep reference for the React Server Components serialization boundary in Next.js App Router. Covers what crosses Server→Client as props, what doesn't, the extraction trap that crashes Lucide-icon-style nav data, and the three valid patterns for sharing code across the boundary.
 
 ## When this applies

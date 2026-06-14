@@ -42,6 +42,7 @@ scripts:
   - { source: scripts/lib/skills.sh }
   - { source: scripts/lib/validate-skills.mjs }
   - { source: scripts/skills/guard.sh }
+  - { source: scripts/skills/refs-guard.mjs }
   - { source: scripts/skills/codex-facts.sh }
   - { source: scripts/skills/codex.sh }
   - { source: scripts/skills/claude.sh }

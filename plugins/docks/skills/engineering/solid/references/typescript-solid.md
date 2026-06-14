@@ -1,5 +1,14 @@
 # SOLID — TypeScript / JavaScript
 
+## Contents
+
+- [S — Single Responsibility](#s-single-responsibility)
+- [O — Open/Closed (Strategy Map)](#o-openclosed-strategy-map)
+- [L — Liskov Substitution](#l-liskov-substitution)
+- [I — Interface Segregation](#i-interface-segregation)
+- [D — Dependency Inversion](#d-dependency-inversion)
+- [See Also](#see-also)
+
 Per-language expansion of the parent SKILL.md. Load when the project is TS / JS / Node / browser-based. Pairs with the universal Decision Tree and `<constraint>` rules in `../SKILL.md`.
 
 ## S — Single Responsibility

@@ -1,5 +1,15 @@
 # Skill Maintenance References
 
+## Contents
+
+- [Loader Warnings](#loader-warnings)
+- [Description Budgeting](#description-budgeting)
+- [YAML-Safe Frontmatter](#yaml-safe-frontmatter)
+- [Source-File Targeting](#source-file-targeting)
+- [Idempotent Update Algorithm](#idempotent-update-algorithm)
+- [Local `skill-maintenance` Decision Table](#local-skill-maintenance-decision-table)
+- [Validation Without Project Scripts](#validation-without-project-scripts)
+
 Use this file for the details that should not crowd the `SKILL.md` body. Keep
 the active workflow in `SKILL.md`; load this reference when validating a tricky
 skill set or cleaning up local maintenance skills.

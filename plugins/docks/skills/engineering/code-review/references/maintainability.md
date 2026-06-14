@@ -1,5 +1,17 @@
 # Maintainability & AI-Slop Finding Catalog
 
+## Contents
+
+- [Pattern Catalog](#pattern-catalog)
+  - [Dead Code](#dead-code)
+  - [Duplication](#duplication)
+  - ["Smart" Abstractions](#smart-abstractions)
+  - [AI-Slop Tells](#ai-slop-tells)
+- [Severity Calibration](#severity-calibration)
+- [False-Positive Guards](#false-positive-guards)
+- [Output Template (extends the parent SKILL.md format)](#output-template-extends-the-parent-skillmd-format)
+- [See Also](#see-also)
+
 Per-axis expansion of the parent SKILL.md Step 3 (maintainability / AI-slop bucket). Load when triaging dead code, duplication, "smart" abstractions, contradictory comments, defensive code for impossible cases, or made-up error messages. Pairs with the universal `<constraint>` rules: evidence-bearing file:line, articulated failure scenario, calibrated severity (cap MEDIUM for maintainability findings).
 
 ## Pattern Catalog

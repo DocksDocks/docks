@@ -4,8 +4,8 @@ description: "Use when a plan .md is written, moved, or shipped and its browser 
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-06-11"
-  content_hash: "f3a033371ec54925fc94a6926100e0e54a6335134d75dc6496ae99ed81d20efb"
+  updated: "2026-06-14"
+  content_hash: "70282fc5bf06ac716f5ac3c4c3778d7739020bfcd33936f88cde4bbf575626bb"
 ---
 
 # Plan Sidecar — author a plan's browser view

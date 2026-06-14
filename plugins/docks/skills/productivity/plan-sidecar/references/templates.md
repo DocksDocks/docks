@@ -1,5 +1,12 @@
 # Sidecar + dashboard skeletons, data-file format, questions island
 
+## Contents
+
+- [Sidecar — `docs/plans/_views/<basename>.html`](#sidecar-docsplans_viewsbasenamehtml)
+- [`#plan-questions` island (only when the `.md` has `## Open questions`)](#plan-questions-island-only-when-the-md-has-open-questions)
+- [Dashboard — `docs/plans/index.html` (write-once static skeleton)](#dashboard-docsplansindexhtml-write-once-static-skeleton)
+- [Data file — `docs/plans/_assets/plans-data.js`](#data-file-docsplans_assetsplans-datajs)
+
 Copy these, substitute the `{ }` placeholders, keep every `data-*` hook. Styling and behavior come entirely from `docs/plans/_assets/dashboard.{css,js}` — never inline a `<style>` or `<script src="http…">`.
 
 Path rules: every **sidecar** lives at `docs/plans/_views/<basename>.html` and references `../_assets/…`; its source link points at the `.md`'s CURRENT category (`../planned/…`, `../finished/…`). The **dashboard** at `docs/plans/index.html` references `_assets/…` (no `../`). `<basename>` is frozen at scaffold time — on ship only the `.md` is renamed.

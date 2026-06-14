@@ -1,5 +1,21 @@
 # useEffect — Discipline & Replacement Patterns
 
+## Contents
+
+- [When this applies](#when-this-applies)
+- [Anti-patterns → Replacement](#anti-patterns-replacement)
+- [Acceptable `useEffect` (the 3 allowed categories)](#acceptable-useeffect-the-3-allowed-categories)
+  - [1. Subscribing to a DOM / browser API event](#1-subscribing-to-a-dom-browser-api-event)
+  - [2. Synchronizing React state into an external system that has no subscription surface](#2-synchronizing-react-state-into-an-external-system-that-has-no-subscription-surface)
+  - [3. Firing an async side effect tied to a user-facing input that cannot move to a Server Action](#3-firing-an-async-side-effect-tied-to-a-user-facing-input-that-cannot-move-to-a-server-action)
+- [Replacement Patterns — Concrete](#replacement-patterns-concrete)
+  - [`useSyncExternalStore` for media queries / browser state](#usesyncexternalstore-for-media-queries-browser-state)
+  - [Derived state instead of mirror-via-effect](#derived-state-instead-of-mirror-via-effect)
+  - [SSR/CSR hydration gating — no effect needed](#ssrcsr-hydration-gating-no-effect-needed)
+  - [Debounced value — one generic hook](#debounced-value-one-generic-hook)
+- [Gotchas](#gotchas)
+- [References](#references)
+
 Deep reference for effect-related triggers in the parent `SKILL.md`. The 3 acceptable `useEffect` categories, the anti-pattern → replacement table, and concrete code for `useSyncExternalStore`, debounced-value, and SSR/CSR gating.
 
 ## When this applies

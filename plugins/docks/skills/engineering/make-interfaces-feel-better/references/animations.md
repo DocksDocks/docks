@@ -1,5 +1,31 @@
 # Animations
 
+## Contents
+
+- [Interruptible Animations](#interruptible-animations)
+  - [CSS Transitions vs. Keyframes](#css-transitions-vs-keyframes)
+- [Enter Animations: Split and Stagger](#enter-animations-split-and-stagger)
+  - [Step by Step](#step-by-step)
+  - [Code Example](#code-example)
+  - [CSS-Only Stagger](#css-only-stagger)
+- [Exit Animations](#exit-animations)
+  - [Subtle Exit (Recommended)](#subtle-exit-recommended)
+  - [Full Exit (When Context Matters)](#full-exit-when-context-matters)
+  - [Good vs. Bad](#good-vs-bad)
+- [Contextual Icon Animations](#contextual-icon-animations)
+  - [Motion Example](#motion-example)
+  - [CSS Transition Approach (No Motion)](#css-transition-approach-no-motion)
+  - [Choosing Between Motion and CSS](#choosing-between-motion-and-css)
+  - [When to Animate Icons](#when-to-animate-icons)
+- [Scale on Press](#scale-on-press)
+  - [CSS Example](#css-example)
+  - [Tailwind Example](#tailwind-example)
+  - [Motion Example](#motion-example-1)
+  - [Static Prop Pattern](#static-prop-pattern)
+- [Skip Animation on Page Load](#skip-animation-on-page-load)
+  - [When It Works](#when-it-works)
+  - [When It Breaks](#when-it-breaks)
+
 Interruptible animations, enter/exit transitions, and contextual icon animations.
 
 ## Interruptible Animations

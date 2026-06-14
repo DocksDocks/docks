@@ -1,5 +1,21 @@
 # JUnit 5 / Jupiter Conventions
 
+## Contents
+
+- [Detection](#detection)
+- [File Layout](#file-layout)
+- [Assertion Idioms](#assertion-idioms)
+- [Parameterized Tests](#parameterized-tests)
+- [Lifecycle](#lifecycle)
+- [Nested Tests for Grouping](#nested-tests-for-grouping)
+- [Mocking](#mocking)
+- [Running](#running)
+- [Coverage](#coverage)
+- [Common Gotchas](#common-gotchas)
+- [Perf Tuning & Parallelism](#perf-tuning-parallelism)
+- [Coverage Scope — What NOT to Test](#coverage-scope-what-not-to-test)
+- [See Also](#see-also)
+
 Per-framework expansion of the parent SKILL.md. Load when the project's test runner is JUnit 5 (Jupiter) — the JVM standard. Pairs with the universal 6-step procedure and `<constraint>` rules in `../SKILL.md`.
 
 ## Detection

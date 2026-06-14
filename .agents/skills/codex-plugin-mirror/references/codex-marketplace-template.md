@@ -1,5 +1,12 @@
 # Embedded Template — `.agents/plugins/marketplace.json`
 
+## Contents
+
+- [Field-by-field translation from Claude `marketplace.json`](#field-by-field-translation-from-claude-marketplacejson)
+- [Fields the mirror DROPS](#fields-the-mirror-drops)
+- [Worked example (docks)](#worked-example-docks)
+- [Versioning policy](#versioning-policy)
+
 Verbatim scaffold to write at `<repo-root>/.agents/plugins/marketplace.json` when mirroring a Claude marketplace catalog to Codex. The Codex marketplace catalog has a different shape from Claude's — `source` is an object (not a string), and per-plugin metadata is leaner (description/version/author live in the plugin manifest, not the marketplace entry).
 
 ```json

@@ -4,8 +4,8 @@ description: "Use when a linter or type-checker flags an error; when tempted to 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "117d9e8bf2d4533c7d9cb61fb9287469b98caeeb152c79a9b9e7ae5238d921e0"
+  updated: "2026-06-14"
+  content_hash: "8724816f0b81a4df4c71241657d87dc599ebcf29e3d0b3c3006c5b7fcbd742a0"
 ---
 
 # Never Suppress Lint / Type Errors

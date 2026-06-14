@@ -11,8 +11,8 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "cc735c0e4b456d22dc8e42b0513008fdab62bdc42393a018555995309072b54d"
+  updated: "2026-06-14"
+  content_hash: "6256b6b19148c72ee9a3516acfafe80ed4fbb13d2146a5f0ba7f5111aa3775d7"
 ---
 
 # Type-Safety Discipline

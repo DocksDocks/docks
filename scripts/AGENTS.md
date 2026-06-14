@@ -14,6 +14,7 @@ These scripts validate and release the plugin. They are **author-side only** —
 | `skills/codex.sh` | Codex loader compatibility — YAML frontmatter via Node `yaml`, name/description, 1024-char cap, no truncating plain scalars | pass/fail |
 | `skills/claude.sh` | Claude compatibility — Codex checks plus CSO prefix, `user-invocable`, `metadata.updated` | pass/fail |
 | `skills/codex-facts.sh` | Pins canonical Codex model ids / `sandbox_mode` / `model_reasoning_effort` + the `agents.max_depth` nesting fact in the skill-agent-pipeline reference docs (run by `skills/guard.sh`; self-skips when absent) | pass/fail |
+| `skills/refs-guard.mjs` | Reference hygiene (run by `skills/guard.sh`): broken local `references/`/`assets/` links, orphan reference files, and a missing `## Contents` TOC on any `references/*.md` > 100 lines with ≥3 doc-level headings (Anthropic best-practice; the heading gate auto-exempts embedded output templates) | pass/fail |
 | `skills/score.sh` | quality (max 16) | per-file ≥ category floor (engineering 10, productivity 8) |
 | `skills/content-hash.sh` | `metadata.updated` idempotency baseline | `--check-only` gate |
 | `agents/guard.sh` | frontmatter, "Use when…"/"Not…" CSO, model declared | pass/fail |
@@ -22,6 +23,7 @@ These scripts validate and release the plugin. They are **author-side only** —
 | `skills/transform-guard.sh` | curated content-transforming skills carry a preservation `<constraint>` + `## Verification` block; shrinking pending-allowlist warns during rollout, fails on regression | pass/warn |
 | `skills/no-author-scripts.sh` | shipped SKILL.md + references/ + agent bodies must not name docks author scripts (`scripts/ci.sh`, `scripts/{skills,agents,tree,scaffold,config,lib}/…`, `release.sh`) — they don't ship to consumers; allowlist: `scaffold`, `write-skill` | pass/fail |
 | shellcheck (`ci.sh` §3b + `ci.yml` guard job) | `-S warning` over `scripts/**/*.sh`, `plugins/docks/hooks/*.sh`, `tests/*.sh`; self-skips locally when shellcheck is absent — tag-CI enforces | pass/fail |
+| `tests/skill-trigger-collision.mjs` | Cross-skill trigger-overlap audit (`ci.sh` §3c + `ci.yml` guard job): fails when two descriptions share ≥5 positive-surface trigger tokens but neither routes to the other (`--report` prints the full overlap matrix) | pass/fail |
 
 `--per-file` on score scripts prints `<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill YAML parsing uses Node + pnpm (`corepack enable && pnpm install --frozen-lockfile`) so local checks match Codex-oriented tooling without requiring PyYAML.
 

@@ -4,12 +4,12 @@ description: "Use when building or reviewing UI components; fixing positioning t
 user-invocable: true
 metadata:
   pattern: upstream-adapted
-  updated: "2026-05-27"
+  updated: "2026-06-14"
   upstream:
     source: https://github.com/jakubkrehel/make-interfaces-feel-better
     license: MIT
     vendored_at: "2026-04-20"
-  content_hash: "10e9969d17eab3195adb5edbaea58c427d293cb14a8b05da5792b63b50ec0aae"
+  content_hash: "17dad652614f3f4ef5b3a8fae46bde0262f9842b132e427cd67bacb98320e230"
 ---
 
 # Details that make interfaces feel better

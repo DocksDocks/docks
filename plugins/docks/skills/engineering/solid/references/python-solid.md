@@ -1,5 +1,14 @@
 # SOLID — Python
 
+## Contents
+
+- [S — Single Responsibility](#s-single-responsibility)
+- [O — Open/Closed (Strategy Map via dict)](#o-openclosed-strategy-map-via-dict)
+- [L — Liskov Substitution (tagged dataclasses, Protocol, match)](#l-liskov-substitution-tagged-dataclasses-protocol-match)
+- [I — Interface Segregation (Protocol > ABC for narrow contracts)](#i-interface-segregation-protocol-abc-for-narrow-contracts)
+- [D — Dependency Inversion (constructor or argument injection)](#d-dependency-inversion-constructor-or-argument-injection)
+- [See Also](#see-also)
+
 Per-language expansion of the parent SKILL.md. Load when the project is Python. Pairs with the universal Decision Tree and `<constraint>` rules in `../SKILL.md`.
 
 Python's duck typing and `Protocol` (PEP 544) make Interface Segregation cheap; design pressure shifts to SRP (module organization) and DI (constructor injection vs argument passing).

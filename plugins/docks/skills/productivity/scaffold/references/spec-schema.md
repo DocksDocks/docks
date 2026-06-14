@@ -1,5 +1,16 @@
 # spec.yaml schema
 
+## Contents
+
+- [Top-level keys](#top-level-keys)
+- [`plugin`](#plugin)
+- [`templated_files`](#templated_files)
+- [`tree_nodes`](#tree_nodes)
+- [`bundled_skills`](#bundled_skills)
+- [`scripts`](#scripts)
+- [`variables`](#variables)
+- [Substitution rules](#substitution-rules)
+
 `docs/scaffold/spec.yaml` defines what a seeded project contains. Setup mode writes it; seed mode reads it. Stdlib-parseable YAML, no anchors/aliases. `scripts/scaffold/guard-spec.sh` validates it; `scripts/scaffold/test.sh` renders it.
 
 ## Top-level keys

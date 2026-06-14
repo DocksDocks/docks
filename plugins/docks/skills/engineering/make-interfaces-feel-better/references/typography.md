@@ -1,5 +1,17 @@
 # Typography
 
+## Contents
+
+- [Text Wrapping](#text-wrapping)
+  - [text-wrap: balance](#text-wrap-balance)
+  - [text-wrap: pretty](#text-wrap-pretty)
+  - [When to Use Which](#when-to-use-which)
+- [Font Smoothing (macOS)](#font-smoothing-macos)
+  - [Good vs. Bad](#good-vs-bad)
+- [Tabular Numbers](#tabular-numbers)
+  - [When to Use](#when-to-use)
+  - [Caveat](#caveat)
+
 Typography rendering details that make interfaces feel better.
 
 ## Text Wrapping

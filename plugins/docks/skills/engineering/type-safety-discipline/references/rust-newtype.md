@@ -1,5 +1,16 @@
 # Rust — Newtype Pattern + Type-Safety Idioms
 
+## Contents
+
+- [Newtype for ID safety](#newtype-for-id-safety)
+  - [Validated newtype](#validated-newtype)
+  - [`From` / `TryFrom` for conversion](#from-tryfrom-for-conversion)
+- [Discriminated unions (enums)](#discriminated-unions-enums)
+  - [Pattern matching with guards](#pattern-matching-with-guards)
+- [Parse-don't-validate with serde](#parse-dont-validate-with-serde)
+- [Avoid](#avoid)
+- [References](#references)
+
 Deep examples for the patterns referenced in the main `SKILL.md`. Read this when working in a Rust codebase.
 
 ## Newtype for ID safety

@@ -4,8 +4,8 @@ description: Use when setting up multi-tool agent compatibility in a project (Co
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "a00ffa56997f5ad50071a50dc2dda3050d2643f5085165567ee6794c05fc6de0"
+  updated: "2026-06-14"
+  content_hash: "f03583cbfd280d3d372389d3447522a43941b7f7993f00d008a491ba4f3a3c19"
 ---
 
 # Multi-Tool Agent Bridge
