@@ -1,0 +1,112 @@
+#!/usr/bin/env node
+// release.mjs — bump plugin version, tag, push, and create a GitHub Release.
+// Seeded from the docks scaffold (Node port; native JSON instead of jq;
+// parameterized name/paths; git-tag fallback when the claude CLI is absent;
+// the tag-CI gate is optional). Usage:
+//   node scripts/release.mjs [--dry-run] <X.Y.Z|patch|minor|major>
+// Preconditions: clean working tree, gh authenticated. (claude optional.)
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const PLUGIN_NAME = '{{ plugin_name }}';
+const PLUGIN_JSON = path.join(REPO, 'plugins/{{ plugin_name }}/.claude-plugin/plugin.json');
+const MARKETPLACE_JSON = path.join(REPO, '.claude-plugin/marketplace.json');
+const CODEX_PLUGIN_JSON = path.join(REPO, 'plugins/{{ plugin_name }}/.codex-plugin/plugin.json');
+const PLUGIN_PATH = './plugins/{{ plugin_name }}';
+
+const err = (m) => { console.error(`error: ${m}`); process.exit(1); };
+const has = (cmd) => !spawnSync(cmd, ['--version'], { stdio: 'ignore' }).error;
+const cap = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', cwd: REPO });
+const run = (cmd, args) => { const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: REPO }); if ((r.status ?? 1) !== 0) err(`${cmd} ${args.join(' ')} failed`); };
+
+const argv = process.argv.slice(2);
+const dryRun = argv.includes('--dry-run');
+const ARG = argv.filter((a) => a !== '--dry-run')[0];
+const DRY = dryRun ? '[dry-run] ' : '';
+
+if (!dryRun && !has('gh')) err('gh is required');
+if (!fs.existsSync(PLUGIN_JSON)) err(`plugin.json not found at ${PLUGIN_JSON}`);
+if (!fs.existsSync(MARKETPLACE_JSON)) err(`marketplace.json not found at ${MARKETPLACE_JSON}`);
+if (!dryRun && cap('git', ['status', '--porcelain']).stdout.trim() !== '') err('working tree dirty — commit/stash first');
+
+console.log('Running local ci.mjs...');
+if ((spawnSync('node', [path.join(REPO, 'scripts/ci.mjs'), '-q'], { stdio: 'inherit' }).status ?? 1) !== 0) err('scripts/ci.mjs failed — fix issues before releasing');
+console.log('');
+
+if (!ARG) err('missing version arg (use X.Y.Z, patch, minor, or major)');
+const CURRENT = JSON.parse(fs.readFileSync(PLUGIN_JSON, 'utf8')).version;
+const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(CURRENT || '');
+if (!m) err(`current version not semver: ${CURRENT}`);
+const [MA, MI, PA] = [Number(m[1]), Number(m[2]), Number(m[3])];
+let NEW_VERSION;
+if (ARG === 'major') NEW_VERSION = `${MA + 1}.0.0`;
+else if (ARG === 'minor') NEW_VERSION = `${MA}.${MI + 1}.0`;
+else if (ARG === 'patch') NEW_VERSION = `${MA}.${MI}.${PA + 1}`;
+else if (/^\d+\.\d+\.\d+$/.test(ARG)) NEW_VERSION = ARG;
+else err(`version must be X.Y.Z, patch, minor, or major (got: ${ARG})`);
+if (NEW_VERSION === CURRENT) err(`new version equals current (${CURRENT})`);
+console.log(`Bumping ${PLUGIN_NAME}: ${CURRENT} → ${NEW_VERSION}`);
+
+function bump(file, mutate) {
+  const original = fs.readFileSync(file, 'utf8');
+  const data = JSON.parse(original);
+  mutate(data);
+  const out = `${JSON.stringify(data, null, 2)}\n`;
+  if (dryRun) {
+    const orig = original.split('\n');
+    const changed = out.split('\n').filter((l, i) => l !== orig[i]).map((l) => l.trim());
+    console.log(`  ${DRY}would write ${path.relative(REPO, file)} (changed: ${changed.join(' | ') || 'none — formatting drift!'})`);
+  } else fs.writeFileSync(file, out);
+}
+bump(PLUGIN_JSON, (d) => { d.version = NEW_VERSION; });
+bump(MARKETPLACE_JSON, (d) => { const p = d.plugins.find((x) => x.name === PLUGIN_NAME); if (p) p.version = NEW_VERSION; });
+const codexAdd = [];
+if (fs.existsSync(CODEX_PLUGIN_JSON)) { bump(CODEX_PLUGIN_JSON, (d) => { d.version = NEW_VERSION; }); codexAdd.push(path.relative(REPO, CODEX_PLUGIN_JSON)); }
+
+const TAG_NAME = `${PLUGIN_NAME}--v${NEW_VERSION}`;
+const addFiles = ['plugins/{{ plugin_name }}/.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', ...codexAdd];
+if (dryRun) {
+  console.log(`  ${DRY}git add ${addFiles.join(' ')} && git commit -m "chore(release): ${PLUGIN_NAME} v${NEW_VERSION}" && git push origin HEAD`);
+  console.log(`  ${DRY}tag ${TAG_NAME} (claude plugin tag, or git tag fallback) → wait for tag-CI if present → gh release create`);
+  console.log(`\n${DRY}OK — no changes written, no tag, no release.`);
+  process.exit(0);
+}
+
+run('git', ['add', ...addFiles]);
+run('git', ['commit', '-m', `chore(release): ${PLUGIN_NAME} v${NEW_VERSION}`]);
+run('git', ['push', 'origin', 'HEAD']);
+
+if (has('claude')) run('claude', ['plugin', 'tag', '--push', '--message', `${PLUGIN_NAME} plugin %s`, PLUGIN_PATH]);
+else { run('git', ['tag', '-a', TAG_NAME, '-m', `${PLUGIN_NAME} plugin v${NEW_VERSION}`]); run('git', ['push', 'origin', TAG_NAME]); }
+const TAG_SHA = cap('git', ['rev-parse', `${TAG_NAME}^{commit}`]).stdout.trim();
+const REPO_SLUG = (cap('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']).stdout || '').trim();
+
+if (fs.existsSync(path.join(REPO, '.github/workflows/ci.yml'))) {
+  console.log(`\nWaiting for CI on tag ${TAG_NAME} (commit ${TAG_SHA})...`);
+  let RUN_ID = '';
+  for (let i = 0; i < 30; i += 1) {
+    RUN_ID = cap('gh', ['run', 'list', '--workflow=ci.yml', '--json', 'databaseId,headSha,event',
+      '--jq', `.[] | select(.headSha == "${TAG_SHA}" and .event == "push") | .databaseId`]).stdout.trim().split('\n')[0] || '';
+    if (RUN_ID) break;
+    spawnSync('sleep', ['2']);
+  }
+  if (!RUN_ID) err(`no CI run appeared for ${TAG_NAME} after 60s — check Actions manually before releasing`);
+  console.log(`Watching CI run ${RUN_ID}...`);
+  if (REPO_SLUG) console.log(`  https://github.com/${REPO_SLUG}/actions/runs/${RUN_ID}`);
+  if ((spawnSync('gh', ['run', 'watch', RUN_ID, '--exit-status'], { stdio: 'inherit', cwd: REPO }).status ?? 1) !== 0) {
+    console.log(`\n✘ CI failed for ${TAG_NAME} — NOT creating GitHub Release.`);
+    console.log(`To recover: gh run view ${RUN_ID} --log-failed; fix, then node scripts/release.mjs patch (or move the tag).`);
+    process.exit(1);
+  }
+} else console.log('No .github/workflows/ci.yml — local ci.mjs is the release gate.');
+
+const PREV_TAG = cap('git', ['tag', '--list', `${PLUGIN_NAME}--v*`, '--sort=-version:refname']).stdout.trim().split('\n')[1] || '';
+const NOTES = PREV_TAG ? cap('git', ['log', `${PREV_TAG}..HEAD`, '--pretty=format:- %s', '--no-merges']).stdout : 'Initial release.';
+const HEADER = PREV_TAG ? `Changes since \`${PREV_TAG}\`:` : '';
+run('gh', ['release', 'create', TAG_NAME, '--title', `${PLUGIN_NAME} v${NEW_VERSION}`,
+  '--notes', `${HEADER}\n\n${NOTES}\n\n## Install\n\n\`\`\`\n/plugin marketplace update ${PLUGIN_NAME}\n/plugin install ${PLUGIN_NAME}@${PLUGIN_NAME}\n\`\`\``]);
+
+console.log(`\n✔ Released ${PLUGIN_NAME} v${NEW_VERSION}\n  Tag:    ${TAG_NAME}`);
+if (REPO_SLUG) console.log(`  Github: https://github.com/${REPO_SLUG}/releases/tag/${TAG_NAME}`);

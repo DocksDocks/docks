@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-06-12"
-  content_hash: "52065b4f79ea2dd87410e45994b0ffee6fac7400bc2ddb77e1ce9f042da56962"
+  updated: "2026-06-14"
+  content_hash: "f61674d04b0d670f0e837fadd96b1aea8f666cca12409a4d144e32b75f416c52"
 ---
 
 # Skill Maintenance
@@ -143,7 +143,7 @@ Use the narrowest available command:
 
 # if the docks plugin is installed, write-skill bundles a portable validator —
 # frontmatter guard + 16-pt score, no kit tooling needed (--strict for kit conventions):
-bash <docks-plugin>/skills/productivity/write-skill/scripts/skill-guard.sh .agents/skills
+node <docks-plugin>/skills/productivity/write-skill/scripts/skill-guard.mjs validate .agents/skills
 
 # generic Codex loader check
 codex debug prompt-input | sed -n '/Skipped loading/,/Available skills/p'

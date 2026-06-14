@@ -1,5 +1,18 @@
 # Jest / Vitest Conventions
 
+## Contents
+
+- [Detection](#detection)
+- [File Naming Conventions](#file-naming-conventions)
+- [Assertion Idioms](#assertion-idioms)
+- [Mocking](#mocking)
+- [Common Mock-Shape Mismatches](#common-mock-shape-mismatches)
+- [React Testing Library (when React is in the project)](#react-testing-library-when-react-is-in-the-project)
+- [Coverage](#coverage)
+- [Perf Tuning & Parallelism](#perf-tuning-parallelism)
+- [Coverage Scope — What NOT to Test](#coverage-scope-what-not-to-test)
+- [See Also](#see-also)
+
 Per-framework expansion of the parent SKILL.md. Load when the project's test runner is Jest or Vitest. Pairs with the universal 6-step procedure and `<constraint>` rules in `../SKILL.md`.
 
 ## Detection

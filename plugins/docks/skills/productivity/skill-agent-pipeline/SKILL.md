@@ -4,8 +4,8 @@ description: "Use when bootstrapping or auditing a project's skills and agents �
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-06-10"
-  content_hash: "976e7518e47d37efc1246e91580d385521ad2d71b94e54b079afa827fb12509c"
+  updated: "2026-06-14"
+  content_hash: "3118e89e9b57cc712d2771bbc1ad88e606528d15be406f4bf75b822fbeb8db19"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -71,7 +71,7 @@ Run in order. Each phase reads its reference, then writes output under the exact
 One Markdown file holds the whole run — inter-phase memory and the implementation spec.
 
 ```text
-docs/plans/planned/<YYYYMMDD>-skills-audit.md   (tracked by plan-manager)
+docs/plans/active/skills-audit.md   (tracked by plan-manager; status is a frontmatter field)
 ```
 
 Write as you go — never hold all phase output in context and dump at the end. Downstream phases locate prior output by grepping for the headings above.
@@ -90,7 +90,7 @@ Every proposed description starts `Use when…`, is valid YAML when parsed as fr
 Phases 1–6 are read-only. After Phase 6:
 
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
-2. Surface it: report the counts and tell the user "review `docs/plans/planned/<slug>.md` and say `start <slug>` to implement."
+2. Surface it: report the counts and tell the user "review `docs/plans/active/<slug>.md` and say `start <slug>` to implement."
 3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents AND any SKILL.md being split into `references/`, back up the original first (`<name>.md.bak`, plus each new `references/*.md` for a split) and copy relocated prose **verbatim** (reformat OK, reword NOT); apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, `git rm` it after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
 4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `multi-tool-bridge` skill's job.
 

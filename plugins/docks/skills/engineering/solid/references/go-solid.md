@@ -1,5 +1,14 @@
 # SOLID — Go
 
+## Contents
+
+- [S — Single Responsibility](#s-single-responsibility)
+- [O — Open/Closed (Strategy Map via map)](#o-openclosed-strategy-map-via-map)
+- [L — Liskov Substitution (interface-as-sum-type + type switch)](#l-liskov-substitution-interface-as-sum-type-type-switch)
+- [I — Interface Segregation (small interfaces are the Go idiom)](#i-interface-segregation-small-interfaces-are-the-go-idiom)
+- [D — Dependency Inversion ("accept interfaces, return structs")](#d-dependency-inversion-accept-interfaces-return-structs)
+- [See Also](#see-also)
+
 Per-language expansion of the parent SKILL.md. Load when the project is Go. Pairs with the universal Decision Tree and `<constraint>` rules in `../SKILL.md`.
 
 Go's small interfaces and lack of inheritance make Interface Segregation idiomatic by default. Design pressure concentrates on SRP (package boundaries), L (interfaces-as-sum-types), and D (interface accept, struct return).

@@ -1,5 +1,17 @@
 # TypeScript — `class` vs Function
 
+## Contents
+
+- [When this applies](#when-this-applies)
+- [The rule](#the-rule)
+- [BAD / GOOD](#bad-good)
+- [Anti-patterns that should not be classes](#anti-patterns-that-should-not-be-classes)
+- ["But I need private fields"](#but-i-need-private-fields)
+- ["But I want dependency injection"](#but-i-want-dependency-injection)
+- [Equivalency](#equivalency)
+- [Decision Tree](#decision-tree)
+- [References](#references)
+
 Deep reference for the "Classes — narrow sweet spot" trigger in the parent `SKILL.md`. When TypeScript justifies a `class`, when it doesn't, and what to write instead.
 
 ## When this applies

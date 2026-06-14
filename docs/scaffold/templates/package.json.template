@@ -4,10 +4,9 @@
   "packageManager": "pnpm@10.33.2",
   "description": "Author-side validation tooling for {{ plugin_name }}.",
   "scripts": {
-    "ci": "bash scripts/ci.sh",
-    "guard:skills": "bash scripts/skills/guard.sh plugins/{{ plugin_name }}/skills",
-    "guard:skills:codex": "bash scripts/skills/codex.sh plugins/{{ plugin_name }}/skills",
-    "guard:skills:claude": "bash scripts/skills/claude.sh plugins/{{ plugin_name }}/skills"
+    "ci": "node scripts/ci.mjs",
+    "guard:skills": "node scripts/skills/guard.mjs plugins/{{ plugin_name }}/skills",
+    "score:skills": "node plugins/{{ plugin_name }}/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file plugins/{{ plugin_name }}/skills"
   },
   "devDependencies": {
     "yaml": "^2.9.0"

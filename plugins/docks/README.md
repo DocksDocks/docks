@@ -66,10 +66,10 @@ Earlier versions ran each pipeline as parallel Claude subagents. The kit now run
 
 Quality gates live in the marketplace repo's `scripts/` directory and are NOT shipped to user installs — they validate plugin authoring before release:
 
-- `scripts/skills/guard.sh` / `scripts/skills/score.sh` — Codex + Claude compatibility and quality (max 16)
-- `scripts/agents/guard.sh` / `scripts/agents/score.sh` — structural + quality (max 15)
+- `scripts/skills/guard.mjs` + the bundled `write-skill/scripts/skill-guard.mjs` (`score`) — Codex + Claude compatibility and quality (max 16)
+- `scripts/agents/guard.mjs` / `scripts/agents/score.mjs` — structural + quality (max 15)
 
-`bash scripts/ci.sh` runs the full local gate. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
+`node scripts/ci.mjs` runs the full local gate. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
 
 ## License
 

@@ -1,5 +1,25 @@
 # React Component Composition — 6 Patterns
 
+## Contents
+
+- [When this applies](#when-this-applies)
+- [Pattern 1 — Compound Components](#pattern-1-compound-components)
+  - [When this fits](#when-this-fits)
+- [Pattern 2 — Slot / `asChild`](#pattern-2-slot-aschild)
+  - [When this fits](#when-this-fits-1)
+- [Pattern 3 — Polymorphic `as` Prop](#pattern-3-polymorphic-as-prop)
+  - [When this fits](#when-this-fits-2)
+- [Pattern 4 — Headless Components (Logic-Only Hooks)](#pattern-4-headless-components-logic-only-hooks)
+  - [When this fits](#when-this-fits-3)
+- [Pattern 5 — Provider + Hook](#pattern-5-provider-hook)
+  - [When this fits](#when-this-fits-4)
+- [Pattern 6 — Variant Systems (cva / tailwind-variants)](#pattern-6-variant-systems-cva-tailwind-variants)
+- [React 19 — ref-as-prop](#react-19-ref-as-prop)
+- [Decision Tree](#decision-tree)
+- [Common Traps](#common-traps)
+- [Companion content](#companion-content)
+- [References](#references)
+
 Deep reference for composition triggers in the parent `SKILL.md`. Six composition patterns for building components that scale across callers without leaking implementation. Function-first React (React 19+ / Next.js App Router); no class components or HOCs.
 
 ## When this applies

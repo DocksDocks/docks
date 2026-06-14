@@ -1,5 +1,19 @@
 # pytest Conventions
 
+## Contents
+
+- [Detection](#detection)
+- [File Naming + Discovery](#file-naming-discovery)
+- [Assertion Idioms](#assertion-idioms)
+- [Fixtures](#fixtures)
+- [Mocking](#mocking)
+- [Async Tests](#async-tests)
+- [Coverage](#coverage)
+- [Common Gotchas](#common-gotchas)
+- [Perf Tuning & Parallelism](#perf-tuning-parallelism)
+- [Coverage Scope — What NOT to Test](#coverage-scope-what-not-to-test)
+- [See Also](#see-also)
+
 Per-framework expansion of the parent SKILL.md. Load when the project's test runner is pytest. Pairs with the universal 6-step procedure and `<constraint>` rules in `../SKILL.md`.
 
 ## Detection

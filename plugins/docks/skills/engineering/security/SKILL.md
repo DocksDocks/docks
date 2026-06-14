@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-06-10"
-  content_hash: "7469d2a99a28c33361e3766e70b82ad2225576b49f0c8a5ef14a6394ee44f615"
+  updated: "2026-06-14"
+  content_hash: "a18a109da65e920c22dd9ee3835f778ffda0aa26459f28b437f2ab48bf2b3d68"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -69,8 +69,8 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 One Markdown file holds the whole run. It doubles as inter-phase memory and the final artifact.
 
 ```text
-docs/plans/planned/<YYYYMMDD>-security-audit.md   (preferred — tracked by plan-manager)
-docs/security-audit-<YYYYMMDD>.md                 (fallback when docs/plans/ is absent)
+docs/plans/active/security-audit.md   (preferred — tracked by plan-manager; status is a frontmatter field)
+docs/security-audit-<YYYYMMDD>.md      (fallback when docs/plans/ is absent)
 ```
 
 Write as you go — do not hold all phase output in context and dump it at the end. The headings above are the contract; downstream phases (and a resumed run) locate prior output by grepping for them.

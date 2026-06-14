@@ -1,11 +1,11 @@
 ---
 name: solid
-description: Use when designing a module / service / class with multiple concerns, refactoring a 300+ LOC file with mixed change axes, replacing a growing switch/if-else with a strategy map, converting runtime instanceof checks into discriminated unions, splitting a fat interface, or breaking a hard-coded dependency on a concrete SDK. Generic SOLID across TS / Rust / Python / Go — React-component composition lives in react-component-patterns.
+description: Use when designing a module / service / class with multiple concerns, refactoring a 300+ LOC file with mixed change axes, replacing a growing switch/if-else with a strategy map, converting runtime instanceof checks into discriminated unions, splitting a fat interface, or breaking a hard-coded dependency on a concrete SDK. Generic SOLID across TS / Rust / Python / Go — React-component composition lives in react-component-patterns; type-level union/`class` design in type-safety-discipline.
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "d71a29de09794824c6c9a5fe261a62f38855a139cab30c7c2d77c2244d1cdf74"
+  updated: "2026-06-14"
+  content_hash: "bdc0089b553eb801ca1e545559ebe06105555f51eda5b6b3a57ba71dbe529425"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion

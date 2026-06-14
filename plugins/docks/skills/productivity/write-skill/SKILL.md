@@ -1,25 +1,25 @@
 ---
 name: write-skill
-description: "Use when authoring a new skill for the docks plugin skill tree or any kit that follows docks conventions — agentskills.io frontmatter, CSO description starting `Use when…`, ≤500-line body with 80-310 sweet spot, constraint blocks, BAD/GOOD pairs, `references/` extraction past 310 lines, near-miss trigger checks, `metadata.updated` bump, and the kit-CI / bundled `skill-guard.sh` validation loop. Not for Anthropic's global `skill-creator` workflow (that handles evals/benchmarking)."
+description: "Use when authoring a new skill for the docks plugin skill tree or any kit that follows docks conventions — agentskills.io frontmatter, CSO description starting `Use when…`, ≤500-line body with 80-310 sweet spot, constraint blocks, BAD/GOOD pairs, `references/` extraction past 310 lines, near-miss trigger checks, `metadata.updated` bump, and the kit-CI / bundled `skill-guard.mjs` validation loop. Not for Anthropic's global `skill-creator` workflow (that handles evals/benchmarking)."
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-06-12"
-  content_hash: "ec733ce0adf8ae7cd0704b27b06222c02320643d2bfeabba1542523f847e2f4b"
+  updated: "2026-06-14"
+  content_hash: "6278654c456f27f3083e92acf526c698b042195e1fef119cc02cd357c7ebb8dc"
 ---
 
 # Write a Skill (docks conventions)
 
 The description is the only thing your agent sees when deciding which skill to load. Get it wrong and the skill never fires. Get it right and the body content barely matters.
 
-This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in `scripts/skills/score.sh`, the structural guards in `scripts/skills/guard.sh`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
+This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in the bundled `scripts/skill-guard.mjs` (the single source the kit CI also scores with), the structural guards in `scripts/skills/guard.mjs`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
 
 <constraint>
-Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `bash scripts/skills/score.sh --per-file | grep <name>` (kit) or this skill's bundled `scripts/skill-guard.sh` (any repo) before considering the description done.
+Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `node scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also uses — before considering the description done.
 </constraint>
 
 <constraint>
-Body sweet spot: 80–310 lines (`scripts/skills/score.sh` awards 2 pts here). ≤80 lines is allowed but loses the 2 pts. >310 is also allowed (≤500 hard cap per agentskills.io) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~280 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its three references.
+Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 pts here). ≤80 lines is allowed but loses the 2 pts. >310 is also allowed (≤500 hard cap per agentskills.io) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~280 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its three references.
 </constraint>
 
 <constraint>
@@ -75,11 +75,11 @@ metadata:
 ## The authoring loop
 
 1. **Draft the description.** Write 3 candidates. Verify ≤500 chars on each (`echo -n "$desc" | wc -m` — characters, not bytes; em-dashes inflate `wc -c` 3×). Pick the one with the most concrete trigger keywords (file types, command names, error messages, named patterns).
-2. **Collision-check the triggers.** Write 3 realistic should-trigger prompts and 3 near-miss should-NOT-trigger prompts, then read the descriptions of the 2–3 sibling skills closest in domain: every near-miss must route cleanly to its sibling via a `Not for…` clause. No static scorer can see two skills claiming the same trigger surface — this step is where collisions die. See "Near-miss negatives" below.
+2. **Collision-check the triggers.** Write 3 realistic should-trigger prompts and 3 near-miss should-NOT-trigger prompts, then read the descriptions of the 2–3 sibling skills closest in domain: every near-miss must route cleanly to its sibling via a `Not for…` clause. The kit's `tests/skill-trigger-collision.mjs` catches gross keyword overlap mechanically (a pair sharing ≥5 positive-surface trigger tokens with no routing fails CI), but only this manual near-miss pass catches the subtle ones — this step is where collisions die. See "Near-miss negatives" below.
 3. **Draft the body** in `SKILL.md`. Target 80–310 lines. Include at least: one `<constraint>`, one BAD/GOOD pair, one table, one fenced code block with a language tag. Pick prescriptiveness per "Degrees of freedom" below.
-4. **Score check.** Kit: `bash scripts/skills/score.sh --per-file | grep <name>`. Any other repo: `bash <write-skill-dir>/scripts/skill-guard.sh <skill-dir>` — the same rubric, bundled with this skill. If < 14, look at the rubric and find the missing point.
-5. **Structural check.** Kit: `bash scripts/skills/guard.sh`. Elsewhere: `skill-guard.sh --strict` covers the portable subset. Failures are non-negotiable — fix them.
-6. **Full CI.** `bash scripts/ci.sh` where present. Must be green before commit.
+4. **Score check.** `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also scores with (one rubric, no mirror). Validate one skill: `node …/skill-guard.mjs validate <skill-dir>`. If < 14, find the missing point in the rubric.
+5. **Structural check.** Kit: `node scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
+6. **Full CI.** `node scripts/ci.mjs` where present. Must be green before commit.
 7. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
 
 ## BAD / GOOD descriptions
@@ -114,7 +114,7 @@ If a near-miss has no clean route, the new skill's `Not for…` clause (or the s
 | Multiple languages share the same principle but need per-language code | One body section explaining the principle, language-specific BAD/GOOD in `references/<lang>-<topic>.md`. Pattern: `solid/references/typescript-solid.md`, `…/rust-solid.md`. |
 | A scenario applies but is the exception, not the rule | `references/` keeps it out of the per-session-loaded body. |
 
-Reference file sweet spot: 30–150 lines. Past 150, split again.
+Reference file sweet spot: 30–150 lines. Past 150, split again. Any reference file over **100 lines** with 3+ section headings needs a `## Contents` TOC at the top — Claude often partial-reads long references (`head`-style), and the TOC keeps the full scope visible (Anthropic best-practice). `refs-guard.mjs` enforces this; the heading gate auto-exempts embedded output templates whose sections live inside a verbatim code fence.
 
 ### `scripts/` and `assets/` — the other two bundles
 
@@ -123,7 +123,7 @@ Reference file sweet spot: 30–150 lines. Past 150, split again.
 | `scripts/<tool>` | Every invocation would re-derive the same helper — the smell: three test runs each wrote the same `create_docx.py` | Execution is token-free; only stdout enters context |
 | `assets/<file>` | Output needs a template or binary copied, never read (HTML shells, fonts, dashboard masters) | Zero until copied |
 
-State intent explicitly: "Run `scripts/x.py`" (execute) vs "Read `scripts/x.py`" (load as reference). Neither directory is covered by `content_hash` (it hashes SKILL.md + references/ only) — bump `metadata.updated` manually when they change. This skill eats its own cooking: `scripts/skill-guard.sh` here is the bundled portable validator.
+State intent explicitly: "Run `scripts/x.py`" (execute) vs "Read `scripts/x.py`" (load as reference). Neither directory is covered by `content_hash` (it hashes SKILL.md + references/ only) — bump `metadata.updated` manually when they change. This skill eats its own cooking: `scripts/skill-guard.mjs` here is the bundled portable validator AND the single source of the scorer rubric the kit CI uses.
 
 ## Constraint block discipline
 
@@ -168,11 +168,11 @@ Writing ALWAYS/NEVER in caps is the yellow flag: state the consequence instead (
 
 ## Transforming skills (split / migrate / rewrite existing content)
 
-A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no error. Before authoring one, read [`references/data-preservation.md`](references/data-preservation.md): inventory → per-section approval table → two-phase write → read-back verification. Two non-negotiables, copied **inline** into the skill (never cross-linked): a preservation `<constraint>` near the top (survives the 5,000-token compaction window) and a `## Verification` block doing per-section presence + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split. `scripts/skills/transform-guard.sh` enforces both on the curated transformer list.
+A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no error. Before authoring one, read [`references/data-preservation.md`](references/data-preservation.md): inventory → per-section approval table → two-phase write → read-back verification. Two non-negotiables, copied **inline** into the skill (never cross-linked): a preservation `<constraint>` near the top (survives the 5,000-token compaction window) and a `## Verification` block doing per-section presence + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split. `scripts/skills/transform-guard.mjs` enforces both on the curated transformer list.
 
 ## When this skill does NOT apply
 
-- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.sh` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The CLAUDE.md "Authoring skills & agents" section is the source of truth for agents.
+- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The CLAUDE.md "Authoring skills & agents" section is the source of truth for agents.
 - Modifying an existing skill — read it first, preserve constraint blocks, bump `metadata.updated`, re-score before commit.
 
 ## Source attribution

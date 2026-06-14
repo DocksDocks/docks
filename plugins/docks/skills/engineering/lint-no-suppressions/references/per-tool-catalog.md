@@ -1,5 +1,19 @@
 # Suppression Syntax — Per-Tool Catalog
 
+## Contents
+
+- [Universal scope rule](#universal-scope-rule)
+- [ESLint (JavaScript / TypeScript)](#eslint-javascript-typescript)
+- [TypeScript](#typescript)
+- [mypy (Python)](#mypy-python)
+- [ruff (Python)](#ruff-python)
+- [pylint (Python)](#pylint-python)
+- [clippy (Rust)](#clippy-rust)
+- [golangci-lint (Go)](#golangci-lint-go)
+- [shellcheck (bash / sh)](#shellcheck-bash-sh)
+- [Java / `@SuppressWarnings`](#java-suppresswarnings)
+- [Anti-pattern checklist](#anti-pattern-checklist)
+
 Reference for when a suppression IS genuinely justified (per the parent SKILL.md decision tree, after fixes #1–#3 have been ruled out). **Every suppression below MUST include a same-line reason** — a sentence naming the concrete, irreducible cause (third-party type bug + filed issue link, hardware quirk, platform constraint, generic erasure round-trip, etc.). "Speed", "later", or "I'll fix it next sprint" are not reasons.
 
 ## Universal scope rule

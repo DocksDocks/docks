@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "c5b045e764e1b31341f744a15353ca31ab9113caf9c5f5e60b9961f9eae498fd"
+  updated: "2026-06-14"
+  content_hash: "14787d13e5126b8f1781071cfa7708ce1a6733e141c0cc0227e9e771275d7ed7"
 ---
 
 # Code Review

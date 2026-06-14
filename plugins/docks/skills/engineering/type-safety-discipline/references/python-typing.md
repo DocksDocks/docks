@@ -1,5 +1,15 @@
 # Python — NewType + Tagged Unions + Pydantic
 
+## Contents
+
+- [NewType for ID safety](#newtype-for-id-safety)
+  - [Validated newtype (NewType + factory)](#validated-newtype-newtype-factory)
+- [Tagged unions with dataclasses + match](#tagged-unions-with-dataclasses-match)
+- [Parse-don't-validate with Pydantic v2](#parse-dont-validate-with-pydantic-v2)
+- [Literal types instead of string magic](#literal-types-instead-of-string-magic)
+- [Avoid](#avoid)
+- [References](#references)
+
 Deep examples for the patterns referenced in the main `SKILL.md`. Read this when working in a Python codebase.
 
 ## NewType for ID safety

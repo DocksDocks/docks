@@ -1,5 +1,14 @@
 # SOLID — Rust
 
+## Contents
+
+- [S — Single Responsibility](#s-single-responsibility)
+- [O — Open/Closed (Strategy Map via HashMap or match)](#o-openclosed-strategy-map-via-hashmap-or-match)
+- [L — Liskov Substitution (enums + pattern matching)](#l-liskov-substitution-enums-pattern-matching)
+- [I — Interface Segregation (traits, narrow + composed)](#i-interface-segregation-traits-narrow-composed)
+- [D — Dependency Inversion (trait objects or generics)](#d-dependency-inversion-trait-objects-or-generics)
+- [See Also](#see-also)
+
 Per-language expansion of the parent SKILL.md. Load when the project is Rust. Pairs with the universal Decision Tree and `<constraint>` rules in `../SKILL.md`.
 
 Rust's type system makes Liskov and Interface Segregation almost-free; the design pressure shifts toward SRP (module organization) and DI (trait objects vs generics).

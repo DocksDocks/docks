@@ -1,5 +1,12 @@
 # Embedded Template — `.agents/plugins/marketplace.json`
 
+## Contents
+
+- [Field-by-field translation from Claude `marketplace.json`](#field-by-field-translation-from-claude-marketplacejson)
+- [Fields the mirror DROPS](#fields-the-mirror-drops)
+- [Worked example (docks)](#worked-example-docks)
+- [Versioning policy](#versioning-policy)
+
 Verbatim scaffold to write at `<repo-root>/.agents/plugins/marketplace.json` when mirroring a Claude marketplace catalog to Codex. The Codex marketplace catalog has a different shape from Claude's — `source` is an object (not a string), and per-plugin metadata is leaner (description/version/author live in the plugin manifest, not the marketplace entry).
 
 ```json
@@ -109,4 +116,4 @@ Versions live in `plugin.json` (Claude AND Codex), NOT in marketplace.json. When
 2. Bump `plugins/<name>/.codex-plugin/plugin.json` to the same version
 3. Both marketplace files stay version-free at the plugin-entry level; the catalog just lists what's available
 
-The release script (`scripts/release.sh` in this kit, or equivalent) should treat the four files (two plugin manifests, two marketplace catalogs) as one atomic group when bumping.
+The release script (`scripts/release.mjs` in this kit, or equivalent) should treat the four files (two plugin manifests, two marketplace catalogs) as one atomic group when bumping.

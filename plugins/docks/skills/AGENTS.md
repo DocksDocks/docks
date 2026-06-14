@@ -3,15 +3,15 @@
 Skills are the cross-tool payload — every skill here surfaces in Claude Code, Codex, and any agentskills.io runtime. Each skill is a directory `<category>/<name>/SKILL.md` (+ optional `references/`). Categories: `engineering/`, `productivity/`. The description is surfaced in the session listing (loaded every session); the body loads only on activation — spend the effort on the description.
 
 <constraint>
-Run `bash scripts/ci.sh` after any skill change — it must be green before commit. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
+Run `node scripts/ci.mjs` after any skill change — it must be green before commit. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
 </constraint>
 
 <constraint>
-After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `bash scripts/skills/content-hash.sh --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
+After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `node scripts/skills/content-hash.mjs --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
 </constraint>
 
 <constraint>
-Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.sh`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.sh`, `scripts/config/*`, `scripts/lib/*`, `scripts/scaffold/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.sh` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
+Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`, `scripts/scaffold/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
 </constraint>
 
 ## Description (the thing that gets matched)
@@ -21,7 +21,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 3. **≤500 chars** for full scorer credit (≤500 = 2 pts, ≤1,000 = 1, else 0; hard cap 1,024).
 4. **Concrete trigger keywords**, not capability prose. "Use when running pnpm audit, pip-audit…" beats "Use when working with dependency security." Move "Covers X, Y, Z" enumerations into the body.
 5. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — −1 pt each (max −2).
-6. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. No static scorer sees two skills claiming the same trigger surface; `write-skill`'s near-miss table is the procedure.
+6. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. `tests/skill-trigger-collision.mjs` fails a pair sharing ≥5 positive-surface trigger tokens with no routing, but the subtle collisions still need the manual near-miss pass; `write-skill`'s near-miss table is the procedure.
 
 ## Frontmatter
 
@@ -31,7 +31,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 | `description` | recommended; ≤1,024 hard cap; ≤500 for full credit; starts "Use when" |
 | `user-invocable` | `true` for slash-command-style skills, else `false` |
 | `metadata.updated` | `YYYY-MM-DD`; bump only on a real content change |
-| `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.sh --backfill` |
+| `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.mjs --backfill` |
 | `allowed-tools` | pre-approves tools while the skill is active |
 | third-party | add an `upstream:` block (`source`/`license`/`vendored_at`) to relax kit checks for vendored skills |
 
@@ -46,7 +46,7 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 | BAD/GOOD code blocks | fragile decisions; scorer rewards both idioms |
 | Gotchas | concrete corrections to repeat mistakes |
 | Validation loop | do → run validator → fix → repeat |
-| `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each) |
+| `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each); a reference > 100 lines with 3+ headings needs a `## Contents` TOC (`refs-guard.mjs`, Anthropic best-practice) |
 | `scripts/` / `assets/` bundle | executable helpers every invocation would re-derive (execution is token-free) / copy-only output templates; neither is content-hashed — bump `metadata.updated` manually when they change |
 
 Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment (~5,000 tokens) may silently drop content.
@@ -58,11 +58,11 @@ A skill that **moves, splits, migrates, or rewrites existing content** (root →
 1. A preservation `<constraint>` near the top of the body (survives the 5,000-token post-compaction window).
 2. A `## Verification` block doing **per-section presence** + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split (scaffolding makes output ≥100% of input, so a lost section hides under it).
 
-`scripts/skills/transform-guard.sh` enforces both across the curated transformer list (`scripts/AGENTS.md`).
+`scripts/skills/transform-guard.mjs` enforces both across the curated transformer list (`scripts/AGENTS.md`).
 
 ## Plan-skill contract sync (two homes)
 
-The plans convention lives in TWO places: the `plan-*` skills (the machinery) and each consumer project's `docs/plans/AGENTS.md` (the per-project contract its agents actually read, generated from `plan-init/references/plans-agents-md-template.md`). Whenever a `plan-*` skill changes the contract — frontmatter schema, body sections, the sidecar standard (`_views/`, view-time age tokens, data-driven dashboard), asset behavior, open questions — the SAME change must land in plan-init's template in the same commit; `plan-manager`/`plan-sidecar` cite the project's `docs/plans/AGENTS.md` as the per-project source of truth and offer to append missing sections (staleness check) rather than silently diverge. The asset masters in `plan-sidecar/assets/` are part of the contract: bump that skill's `metadata.updated` when they change (`content_hash` covers only SKILL.md + references, not assets).
+The plans convention lives in TWO places: the `plan-*` skills (the machinery) and each consumer project's `docs/plans/AGENTS.md` (the per-project contract its agents actually read, generated from `plan-init/references/plans-agents-md-template.md`). Whenever a `plan-*` skill changes the contract — frontmatter schema, body spine, the two-folder status-as-field model, the self-review rubric, open-questions surfacing, age tokens — the SAME change must land in plan-init's template in the same commit; `plan-manager` cites the project's `docs/plans/AGENTS.md` as the per-project source of truth and offers to refresh it from plan-init (staleness check) rather than silently diverge. The plan system tracks only the `.md` — views (the `plan-manager` chat glance, a throwaway visual-question `.html`) render on demand and are never committed.
 
 ## Cross-tool wording (Claude Code + Codex)
 
@@ -77,9 +77,9 @@ Skills run in both runtimes; phrase for both. Verified 2026-06-10 against the li
 
 ## Scoring
 
-`bash scripts/skills/score.sh --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/config/scoring.json`). Aim 14+ on new skills. Structural gate: `bash scripts/skills/guard.sh`. To author a new skill from scratch, use the `write-skill` skill.
+`node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/config/scoring.json`). Aim 14+ on new skills. Structural gate: `node scripts/skills/guard.mjs`. To author a new skill from scratch, use the `write-skill` skill.
 
-**Portable mirror:** `write-skill` ships `scripts/skill-guard.sh`, a self-contained mirror of the guard subset + 16-pt rubric for consumer repos where this kit's `scripts/` tree doesn't exist (`skill-maintenance` points at it too). Any rubric change in `score.sh` or rule change in `lib/validate-skills.mjs` must land in the mirror in the same commit, with a `metadata.updated` bump on write-skill — bundled `scripts/` sit outside the `content_hash` surface.
+**Single source, not a mirror:** the 16-pt scorer lives ONCE in the bundled `write-skill/scripts/skill-guard.mjs` (`score` / `validate`), shipped so it runs in consumer repos AND used by this kit's own `ci.mjs` to score (`skill-maintenance` points at it too). There is no author-side `score.sh` to keep in sync — one rubric. Bundled `scripts/` sit outside the `content_hash` surface, so bump write-skill's `metadata.updated` when the rubric changes.
 
 ## Namespace
 

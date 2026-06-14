@@ -1,6 +1,6 @@
 ---
 name: plan-review
-description: Use when a plan transitions to docs/plans/finished/ with ship_commit set, OR when the main conversation dispatches verification of a finished plan — Agent(subagent_type="plan-review"). Thin opus wrapper that loads the `plan-review` skill and executes its 10-step verification workflow. Not for general code review, pre-merge checks, or plans still in ongoing/.
+description: Use when a plan reaches status finished (in docs/plans/finished/) with ship_commit set, OR when the main conversation dispatches verification — Agent(subagent_type="plan-review"). Thin opus wrapper that loads the `plan-review` skill — finished-plan diff-vs-goal verification, or the draft-review pass (red-team a non-finished plan against the self-review rubric). Not for general code review or pre-merge checks.
 tools: Read, Glob, Grep, Bash, Edit
 model: opus
 ---
@@ -12,7 +12,7 @@ Thin opus-tier wrapper around the `plan-review` skill. The skill carries the cro
 Users do NOT invoke this agent directly — they trigger the `plan-review` skill via natural language ("review plan <slug>", "check finished plans") or it auto-fires on ship.
 
 <constraint>
-**Only act on plans in `finished/` with `ship_commit` set.** If the plan is in `ongoing/`, `planned/`, `blocked/`, or `scheduled/`, stop with a clear error — the diff doesn't exist yet, and reviewing pre-ship doesn't make sense. If `ship_commit` is empty/null in a `finished/` plan, ask the user for the SHA before proceeding.
+**Two modes, keyed on `status`.** A `finished` plan (in `finished/`) with `ship_commit` set → **finished review**: the diff-vs-goal verification (Steps 1–10 below). A non-finished draft (in `active/`, any other status) → **draft review**: red-team it against the self-review rubric in the skill — there is no diff, so do NOT write a `## Review` block, set `review_status`, or run CI; report holes as fixes/open-questions. If `ship_commit` is empty on a `finished` plan, ask the user for the SHA first.
 </constraint>
 
 <constraint>
@@ -56,7 +56,7 @@ If the plan body references a framework or library (Next.js, Supabase, React, Ta
 
 ## Success Criteria
 
-- Plan-review only runs on `finished/` plans with `ship_commit` set; all other states return a clear stop error.
+- Finished review runs only on `finished/` plans with `ship_commit` set; a non-finished draft routes to draft-review (no `## Review` block).
 - Every `[x]` acceptance criterion either gets evidence-backed verification or is flagged as "unverifiable".
 - the project's CI command is run when present; CI verdict is captured verbatim from the first failing line.
 - The `## Review` block is written via idempotent `Edit` (re-runs replace, not append).
