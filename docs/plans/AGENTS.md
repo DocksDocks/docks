@@ -152,10 +152,13 @@ the whole plan. This block is the canonical, structured list of what's
 pending; how it's *surfaced* is:
 
 - **Native multiple-choice — the default for every question.** The agent
-  surfaces each one through the runtime's question UI — in Claude Code,
-  `AskUserQuestion` — so the user just clicks an option (one marked
-  `(recommended)`; a `text` question uses the free-text / "Other" field). This
-  is what makes juggling several plans at once cheap.
+  surfaces each one through the runtime's question UI so the user just clicks an
+  option (one marked `(recommended)`; a `text` question uses the free-text /
+  custom field). Claude Code: `AskUserQuestion`. Codex: `ask_user_question`,
+  its interactive questionnaire (single/multi-choice + custom option) — landing
+  as of 2026-06 ([openai/codex#9926](https://github.com/openai/codex/issues/9926)),
+  interactive mode only; use it where present. This is what makes juggling
+  several plans at once cheap.
 - **Visual choice** (component look, layout, palette, spacing) → the agent
   renders the options as a self-contained, self-styled, throwaway `.html` and
   surfaces it, because seeing beats describing. Ephemeral and gitignored —
@@ -165,8 +168,10 @@ pending; how it's *surfaced* is:
 Answers are encoded back into the plan (`## Context` / `## Notes` /
 `## Steps`), the answered questions removed, and `updated` bumped.
 
-A runtime with **no** question UI at all (e.g. Codex today) is the floor case:
-the agent presents the same structured options inline and reads the typed
+A genuinely non-interactive context is the floor case — `codex exec`, CI, or
+any run where the question tools are removed (both `AskUserQuestion` and
+`ask_user_question` are disabled in non-interactive mode so they can't hang).
+There, the agent presents the same structured options inline and reads the
 reply. That's the unavoidable minimum, not a path to design for — optimize for
 the picker.
 

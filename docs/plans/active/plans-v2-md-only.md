@@ -80,7 +80,7 @@ Decisions reached with the user (2026-06-14 session):
 - **D-3 (was OQ-3) — self-review is inline always, plus a fresh-context subagent review** for big/risky plans (steps > 6 or a risk-flagged step). Small stubs get the inline rubric only — proportional.
 - **D-4 (was OQ-4) — `plan-manager` auto-commits the `.md`** on each status transition, with a clear message; the user can amend. This plan's `planned → ongoing` flip is the first dogfood.
 - **D-5 (was OQ-5) — leave the 19 `finished/` plans untouched** as an archive (their `status:` already reads `finished`).
-- **D-6 (revised 2026-06-14) — native multiple-choice (`AskUserQuestion`) is THE way to surface open questions; visual choices → throwaway HTML.** There is no designed text path — typed Q&A is only the unavoidable floor in a runtime with no question UI (e.g. Codex). The `## Open questions` block stays the canonical structured list; the file-based `_open_questions/` export-paste path is dropped.
+- **D-6 (revised 2026-06-14) — native multiple-choice is THE way to surface open questions; visual choices → throwaway HTML.** Claude Code uses `AskUserQuestion`; Codex uses `ask_user_question` (its interactive questionnaire — single/multi-choice + custom option; landing per openai/codex#9926, interactive mode only). There is no designed text path — typed Q&A is only the floor in a genuinely non-interactive run (`codex exec`/CI, where the question tools are disabled). The `## Open questions` block stays the canonical structured list; the file-based `_open_questions/` export-paste path is dropped.
 
 ## Self-review (rubric pass on this draft)
 
