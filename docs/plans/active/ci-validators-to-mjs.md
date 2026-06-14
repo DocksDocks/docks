@@ -1,10 +1,10 @@
 ---
 title: Migrate CI validators from bash to .mjs (parity-gated)
 goal: Port the parsing-heavy CI validators from bash to Node .mjs — one at a time, each gated by a parity check that proves identical output — keeping the calibrated scorers/hashers byte-identical and the bash orchestrators in place
-status: planned
+status: ongoing
 created: "2026-06-14T05:49:26+00:00"
-updated: "2026-06-14T05:49:26+00:00"
-started_at: null
+updated: "2026-06-14T06:00:38+00:00"
+started_at: "2026-06-14T06:00:38+00:00"
 assignee: null
 tags: [tooling, ci, dx]
 affected_paths:
@@ -48,15 +48,14 @@ off by one point re-tiers skills; a port that hashes differently invalidates
 every stored `content_hash`. So the migration is incremental and parity-gated,
 not a big-bang.
 
-User decisions are captured under `## Open questions` below — answer them before
-implementation starts.
+User decisions are recorded under `## Decisions` below.
 
 ## Steps
 
 | # | Task | Depends | Status |
 |---|---|---|---|
-| 1 | Build the reusable **parity harness** (`tests/parity.mjs <old.sh> <new.mjs> -- <args>`): runs both, normalizes, asserts identical stdout + exit code; non-zero diff fails. This is the de-risking tool every port is gated on. | — | planned |
-| 2 | Port the calibrated trio FIRST (highest risk, proves the approach): `score.sh`→`score.mjs` (parity: identical `--per-file` + total over all skills), `content-hash.sh`→`content-hash.mjs` (parity: identical hash for every skill + `--check-only`/`--backfill` behavior), `agents/score.sh`→`agents/score.mjs`. Keep each `.sh` until its parity test is green. | 1 | planned |
+| 1 | Build the reusable **parity harness** (`tests/parity.mjs <old.sh> <new.mjs> -- <args>`): runs both, normalizes, asserts identical stdout + exit code; non-zero diff fails. This is the de-risking tool every port is gated on. | — | done |
+| 2 | Port the calibrated trio FIRST (highest risk, proves the approach): `score.sh`→`score.mjs` (parity: identical `--per-file` + total over all skills), `content-hash.sh`→`content-hash.mjs` (parity: identical hash for every skill + `--check-only`/`--backfill` behavior), `agents/score.sh`→`agents/score.mjs`. Keep each `.sh` until its parity test is green. | 1 | done |
 | 3 | Port the structural guards: `transform-guard`, `no-author-scripts`, `codex-facts`, `agents/guard`, `tree/guard`, `scaffold/guard-spec`, `read-floor`. `codex.sh`/`claude.sh` already call `validate-skills.mjs` — fold or keep per OQ-3. | 1 | planned |
 | 4 | Port the orchestrators (D-1): `ci.sh`→`ci.mjs` and `release.sh`→`release.mjs` (release is behavioral-parity, highest care — dry-run it); rewire `ci.yml` + `guard.sh` to call the `.mjs` validators. | 2,3 | planned |
 | 5 | **Single-source collapse (D-2):** merge the skill frontmatter guard (`validate-skills.mjs` + `codex.sh`/`claude.sh`) + the scorer (`score.sh`) + the bash mirror (`skill-guard.sh`) into ONE bundled `write-skill/scripts/skill-guard.mjs`; point the repo CI at that shipped file over `plugins/docks/skills`; delete the duplicates; bump write-skill `metadata.updated` (bundled `scripts/` aren't content-hashed). | 2,3 | planned |
