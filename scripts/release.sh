@@ -36,12 +36,12 @@ command -v claude >/dev/null 2>&1 || err "claude is required"
 cd "$REPO_DIR"
 [ -z "$(git status --porcelain)" ] || err "working tree dirty — commit/stash first"
 
-# --- local CI gate: run scripts/ci.sh first (mirrors .github/workflows/ci.yml) ---
+# --- local CI gate: run scripts/ci.mjs first (mirrors .github/workflows/ci.yml) ---
 # Failing here means tag-CI would have failed too — better to catch it now,
 # before burning a tag.
-echo "Running local ci.sh..."
-if ! bash "$REPO_DIR/scripts/ci.sh" -q; then
-  err "scripts/ci.sh failed — fix issues before releasing (see ci.sh output)"
+echo "Running local ci.mjs..."
+if ! node "$REPO_DIR/scripts/ci.mjs" -q; then
+  err "scripts/ci.mjs failed — fix issues before releasing (see ci.mjs output)"
 fi
 echo ""
 

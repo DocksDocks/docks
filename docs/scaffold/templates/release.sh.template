@@ -43,12 +43,12 @@ command -v gh >/dev/null 2>&1 || err "gh is required"
 cd "$REPO_DIR"
 [ -z "$(git status --porcelain)" ] || err "working tree dirty — commit/stash first"
 
-# --- local CI gate: run scripts/ci.sh first ---
+# --- local CI gate: run scripts/ci.mjs first ---
 # Failing here means a tag-CI run (if any) would have failed too — catch it now,
 # before burning a tag.
-echo "Running local ci.sh..."
-if ! bash "$REPO_DIR/scripts/ci.sh" -q; then
-  err "scripts/ci.sh failed — fix issues before releasing (see ci.sh output)"
+echo "Running local ci.mjs..."
+if ! node "$REPO_DIR/scripts/ci.mjs" -q; then
+  err "scripts/ci.mjs failed — fix issues before releasing (see ci.mjs output)"
 fi
 echo ""
 

@@ -77,9 +77,9 @@ Skills run in both runtimes; phrase for both. Verified 2026-06-10 against the li
 
 ## Scoring
 
-`bash scripts/skills/score.sh --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/config/scoring.json`). Aim 14+ on new skills. Structural gate: `bash scripts/skills/guard.sh`. To author a new skill from scratch, use the `write-skill` skill.
+`node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>` — max 16. Per-file floor by category: **engineering 10, productivity 8** (`scripts/config/scoring.json`). Aim 14+ on new skills. Structural gate: `node scripts/skills/guard.mjs`. To author a new skill from scratch, use the `write-skill` skill.
 
-**Portable mirror:** `write-skill` ships `scripts/skill-guard.sh`, a self-contained mirror of the guard subset + 16-pt rubric for consumer repos where this kit's `scripts/` tree doesn't exist (`skill-maintenance` points at it too). Any rubric change in `score.sh` or rule change in `lib/validate-skills.mjs` must land in the mirror in the same commit, with a `metadata.updated` bump on write-skill — bundled `scripts/` sit outside the `content_hash` surface.
+**Single source, not a mirror:** the 16-pt scorer lives ONCE in the bundled `write-skill/scripts/skill-guard.mjs` (`score` / `validate`), shipped so it runs in consumer repos AND used by this kit's own `ci.mjs` to score (`skill-maintenance` points at it too). There is no author-side `score.sh` to keep in sync — one rubric. Bundled `scripts/` sit outside the `content_hash` surface, so bump write-skill's `metadata.updated` when the rubric changes.
 
 ## Namespace
 
