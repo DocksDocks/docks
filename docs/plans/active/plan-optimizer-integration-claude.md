@@ -3,7 +3,7 @@ title: Fold iterate-until-plateau plan refinement into the self-review loop
 goal: Port Sean Geng's plan-optimizer (scored iterate-until-plateau loop + best-of-N) into the existing docks self-review machinery instead of shipping a 4th plan-* skill.
 status: planned
 created: "2026-06-23T15:07:16-03:00"
-updated: "2026-06-23T15:07:16-03:00"
+updated: "2026-06-23T15:22:35-03:00"
 started_at: null
 assignee: null
 tags: ["plan-system", "skill-enhancement", "research"]
@@ -30,12 +30,12 @@ skill.** The article's contribution is a *scored, iterative* critique
 escape). docks already has the *qualitative, single-pass* version of exactly
 this (draft in produce-mode → self-review in critique-mode against a 7-check
 rubric). The work is to upgrade that single pass into a scored loop, in place,
-proportional to plan size — reusing the one rubric docks already owns.
+running on **every** plan — reusing the one rubric docks already owns.
 
 Success = the existing self-review becomes a scored iterate-until-plateau loop
-for big/risky plans, defined **once** in `docs/plans/AGENTS.md` and synced to
-the plan-init template, with no 4th plan-* skill added and `node scripts/ci.mjs`
-green.
+that runs on **every** plan (plateau detection stops cheaply on trivial plans),
+defined **once** in `docs/plans/AGENTS.md` and synced to the plan-init template,
+with no 4th plan-* skill added and `node scripts/ci.mjs` green.
 
 ## Context
 
@@ -74,7 +74,7 @@ unscored pass**. The article makes it **iterative and scored until plateau**.
 The article's 7 weighted dimensions map almost 1:1 onto docks's 7 self-review
 checks — so this is an upgrade to existing machinery, not a new concept.
 
-**Why enhance, not add a standalone skill** (decision, pending Q1):
+**Why enhance, not add a standalone skill** (decided — enhance in place):
 - A 4th plan-* skill collides with `plan-manager` (both "improve a plan") and
   needs fresh `Not for…` routing clauses.
 - It would put the rubric in a *third* home; the kit's "two homes" rule
@@ -91,19 +91,31 @@ and their two thin agent wrappers. The "two homes" rule names the *contract*
 pair; Steps 3–5 cover the other four. Step 6's CI gate is what proves they
 didn't drift.
 
-**Proportionality is non-negotiable** (`docs/plans/AGENTS.md:140-143`): the loop
-multiplies token cost (N generate+score passes). Small plans (≤6 steps, no risk
-flag) keep the cheap single inline pass; only big/risky plans get the loop. A
-hard max-rounds cap bounds worst-case cost.
+**Cost is bounded by convergence, not by skipping plans.** The loop runs on
+**every** plan (user decision), but it is not unbounded: plateau detection (no
+gain over the last K=3 rounds) stops a trivial plan after 1–2 rounds because
+there is nothing left to improve, and an **8-round** hard cap bounds the
+worst case. This replaces the old proportionality rule
+(`docs/plans/AGENTS.md:140-143`, which Step 1 updates) — small plans no longer
+*skip* the loop, they simply converge out of it fast.
+
+**Decisions (resolved 2026-06-23, via the open-questions picker):**
+- **Integration shape** (delegated to author): enhance the existing self-review /
+  `plan-review` Mode 0 in place — no new skill (rationale above).
+- **Loop scope:** runs on **every** plan, not just big/risky ones.
+- **Loop constants:** article defaults (MARGIN +2, K=3, best-of-N=3) + an
+  **8-round** hard cap (max convergence headroom; the cap rarely binds).
+- **Attribution:** **yes** — credit Sean Geng + the article URL in the changed
+  skills (Step 3 + `## Notes`).
 
 ## Steps
 
 | # | Task | Depends | Status |
 |---|---|---|---|
-| 1 | In `docs/plans/AGENTS.md`, extend the "Self-review" section concretely: add a `Weight` column to the existing 7-check rubric table (per-dimension weights summing to 100, mapped 1:1 to the article's 7 dimensions), then add a paragraph below the table documenting the iterate-until-plateau loop (MARGIN +2, sliding window K=3, hard max-rounds cap) and the best-of-N(3) escape when hill-climb stalls. Keep proportionality explicit: small = single inline pass, big/risky = scored loop. | — | planned |
+| 1 | In `docs/plans/AGENTS.md`, extend the "Self-review" section concretely: add a `Weight` column to the existing 7-check rubric table (per-dimension weights summing to 100, mapped 1:1 to the article's 7 dimensions), then add a paragraph below the table documenting the iterate-until-plateau loop (MARGIN +2, sliding window K=3, **8-round hard cap**) and the best-of-N(3) escape when hill-climb stalls. State scope: the loop runs on **every** plan; plateau detection stops trivial plans after 1–2 rounds. REPLACE the old proportionality rule (lines 140-143: "small plans skip the loop") with this convergence-bounded framing. | — | planned |
 | 2 | Sync the IDENTICAL edit (Weight column + loop paragraph) into `plugins/.../plan-init/references/plans-agents-md-template.md` (its "Self-review" section, ~line 105) — the "two homes" rule. The template's wording is condensed vs the contract, so mirror the *substance* (same Weight column, same loop terms), not byte-for-byte text. | 1 | planned |
-| 3 | Rewrite `plan-review` Mode 0 (`SKILL.md:35-56`) to run the scored loop: score (deliberate separate pass) → critique top weaknesses → rewrite → re-score → stop at plateau or max-rounds; best-of-N when stuck; return the optimized draft + score breakdown + trajectory, still surfacing residual human decisions as `## Open questions`. Bump `metadata.updated`; re-sync `content_hash`. | 1 | planned |
-| 4 | Update `plan-manager` Step 6 (`SKILL.md:92-99`): small plans = inline single-pass self-review (unchanged); big/risky = dispatch the now-iterative Mode 0 optimizer (the dispatch hook already exists) and record trajectory + final score in `## Self-review`. Bump `metadata.updated`; re-sync `content_hash`. | 3 | planned |
+| 3 | Rewrite `plan-review` Mode 0 (`SKILL.md:35-56`) to run the scored loop: score (deliberate separate pass) → critique top weaknesses → rewrite → re-score → stop at plateau or the 8-round cap; best-of-N when stuck; return the optimized draft + score breakdown + trajectory, still surfacing residual human decisions as `## Open questions`. Add the source attribution (Sean Geng + article URL) to the skill's `## References`/Sources. Bump `metadata.updated`; re-sync `content_hash`. | 1 | planned |
+| 4 | Update `plan-manager` Step 6 (`SKILL.md:92-99`): EVERY plan runs the scored loop — small plans run it inline (in plan-manager's context), big/risky plans dispatch it to the fresh-context Mode 0 subagent (the dispatch hook already exists). Record trajectory + final score in `## Self-review`. Bump `metadata.updated`; re-sync `content_hash`. | 3 | planned |
 | 5 | Reconcile the thin Claude agents `plugins/docks/agents/plan-review.md` + `plan-manager.md` with Steps 3–4 — both bodies DO paraphrase Mode-0 / self-review behavior, so this is unconditional: each body must reference the scored loop + trajectory recording, and the agent scorer must stay ≥14 per file (agent scorer max 15, floor 14 — distinct from the 16-pt skill scorer). | 3,4 | planned |
 | 6 | Run the project's validators/CI: skill guards + 16-pt skill scorer AND agent guards + agent scorer (max 15, floor 14) all green; content-hash idempotency green. Fix any floor regressions in-file (never loosen floors). | 2,3,4,5 | planned |
 
@@ -111,44 +123,16 @@ hard max-rounds cap bounds worst-case cost.
 
 - [ ] `docs/plans/AGENTS.md` "Self-review" documents a weighted rubric + iterate-until-plateau (MARGIN, K, max-rounds cap) + best-of-N — verify by grep: `grep -nE "plateau|best-of-N|sliding window|Weight" docs/plans/AGENTS.md` returns the new lines.
 - [ ] The plan-init template carries the synced substance — the SAME positive grep on the template returns the loop terms: `grep -nE "plateau|best-of-N|sliding window|Weight" plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` is non-empty (the two-homes sync is verified by both greps hitting, not by a byte-diff of the already-divergent blocks).
-- [ ] `plan-review` Mode 0 + `plan-manager` Step 6 describe the scored loop and the small-vs-big routing; both skills' `content_hash` re-synced (the idempotency check in the project's CI passes).
+- [ ] `plan-review` Mode 0 + `plan-manager` Step 6 describe the scored loop running on every plan (inline for small, fresh-context subagent for big/risky); both skills' `content_hash` re-synced (the idempotency check in the project's CI passes).
 - [ ] The project's CI (`node scripts/ci.mjs`) exits 0 — all guards, the 16-pt skill scorer, and the agent scorer (floor 14) green, no loosened floors.
 - [ ] No new top-level `plan-*` skill directory exists — `ls -d plugins/docks/skills/productivity/plan-*/` lists exactly `plan-init/`, `plan-manager/`, `plan-review/`.
 
 ## Out of scope
 
 - A general-purpose (non-plan) optimizer skill.
-- Auto-running the loop on every plan — proportionality keeps small plans single-pass.
+- A user-invocable `optimize plan <slug>` re-run verb — out of scope for now (the loop runs automatically on every plan; a manual re-run trigger is a natural follow-up if wanted).
 - Vendoring Sean Geng's `plan-optimizer.zip` verbatim. License is unstated on the freebie page; we port the *technique* and attribute the source, we don't copy the file.
 - Changing the open-questions surfacing (native picker) or any other lifecycle stage.
-
-## Open questions
-
-- **id: integration-shape** (choice; custom allowed)
-  How should the technique land?
-  - (a) Enhance the existing self-review / `plan-review` Mode 0 in place — one rubric, lifecycle-gated, no new skill. **(recommended)**
-  - (b) Ship a standalone `plan-optimizer` skill alongside the existing three.
-  - (c) Both — fold the loop into self-review AND expose a user-invocable `optimize plan <slug>` entry point.
-
-- **id: loop-scope** (choice; custom allowed)
-  When does the scored loop run?
-  - (a) Big/risky plans only (>6 steps or a risk-flagged step) — matches the existing fresh-context-subagent trigger. **(recommended)**
-  - (b) Every plan (small plans too).
-  - (c) Only on explicit user request ("optimize this plan").
-
-- **id: loop-constants** (choice; custom allowed)
-  The loop's tunable constants (the article's defaults are MARGIN +2, sliding
-  window K=3, best-of-N=3; only the hard rounds-cap is genuinely undecided).
-  Adopt which set?
-  - (a) Article defaults (MARGIN +2, K=3, N=3) + a **5-round** hard cap. **(recommended)**
-  - (b) Article defaults + a **3-round** cap (cheaper, may under-optimize).
-  - (c) Article defaults + an **8-round** cap (more thorough, higher token cost).
-  - (custom) override MARGIN / K / N as well.
-
-- **id: attribution** (choice; custom allowed)
-  Credit the source in the skill/notes?
-  - (a) Yes — name Sean Geng + the article URL in a `## Notes`/`## Sources` line of the changed skills. **(recommended)**
-  - (b) No attribution.
 
 ## Self-review
 
@@ -173,8 +157,9 @@ covered by Steps 1–6. Holes the pass caught and fixed:
   an open question → folded all four into the `loop-constants` question.
 - **"Two homes" undersold the surface** (really six places) → noted in `## Context`.
 
-Remaining genuine human decisions are the four `## Open questions` (none were
-silent guesses).
+All four open questions were surfaced via the picker and resolved (see
+`## Context` → Decisions): enhance in place, every-plan scope, article defaults +
+8-round cap, attribute the source. None were silent guesses.
 
 ## Review
 
@@ -195,10 +180,10 @@ silent guesses).
 ## Notes
 
 This plan is itself the deliverable of the "could this be integrated?" question:
-the answer is **yes, by enhancing the existing self-review into a scored loop**,
-contingent on Q1. If the user picks (b) standalone skill, Steps 1–5 change shape
-(author a new skill via `write-skill` instead of editing the contract) but the
-rubric-sync and CI gate (Steps 2, 6) still apply.
+the answer is **yes, by enhancing the existing self-review into a scored loop
+that runs on every plan** — no new skill. Attribution (decided): the changed
+skills credit Sean Geng + https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving
+as the source of the technique.
 
 **Failure mode (Steps 3–4–6):** the risk is a `content_hash` idempotency failure
 at the CI gate after editing the SKILL bodies. If it fails, re-run the project's
