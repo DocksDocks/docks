@@ -15,7 +15,7 @@ natural language); the skills are also user-invocable directly.
 |---|---|
 | "create docs/plans", "bootstrap planning", "migrate my plans" | `plan-init` |
 | "list plans", "show <slug>", "start/block/ship <slug>", "new plan <slug>", "fire scheduled" | `plan-manager` |
-| "review plan <slug>", auto on `→ finished` move | `plan-review` |
+| "review plan <slug>", auto on steps-complete (`→ in_review`) | `plan-review` |
 
 ## Directory layout
 
@@ -55,7 +55,7 @@ Every plan file has frontmatter + body. Base frontmatter:
 ---
 title: Short imperative title, ≤70 chars
 goal: One-sentence precise summary, ≤200 chars
-status: planned | ongoing | blocked | scheduled | finished
+status: planned | ongoing | blocked | scheduled | in_review | finished
 created: "2026-06-14T05:09:31+00:00"
 updated: "2026-06-14T05:09:31+00:00"
 started_at: null
@@ -64,6 +64,7 @@ tags: []
 affected_paths: []
 related_plans: []
 review_status: null
+planned_at_commit: null
 ---
 ```
 
@@ -74,10 +75,13 @@ Status-specific keys are added **only when that status applies** (same
 |---|---|
 | `status: blocked` | `blocked_reason` (names the external actor + input needed), `blocked_since` (ISO datetime) |
 | `status: scheduled` | `trigger` (`date` \| `manual-approval`), `scheduled_date` (ISO, required for `date`), `auto_execute` (default `false`) |
+| `status: in_review` | `in_review_since` (ISO datetime, set once on `→ in_review`); the completion review diffs `planned_at_commit..HEAD` |
 | `status: finished` | `ship_commit` (full SHA under review — branch-agnostic) |
 
+`planned_at_commit` (base frontmatter) is the SHA the plan was scaffolded against (`git rev-parse HEAD`): the drift-check base AND the completion-review diff base.
+
 All time-valued keys (`created`, `updated`, `started_at`, `blocked_since`,
-`scheduled_date`) are **ISO 8601 datetimes with offset**
+`scheduled_date`, `in_review_since`) are **ISO 8601 datetimes with offset**
 (`YYYY-MM-DDTHH:MM:SS±HH:MM`), captured once at write time via
 `date '+%Y-%m-%dT%H:%M:%S%:z'` — never bare dates. Quote them so the offset
 colon doesn't confuse YAML. `started_at` is set ONCE (first move to
@@ -97,7 +101,8 @@ Include an optional section only when it carries content.
 | `## Acceptance criteria` | **yes** | checkable conditions — prefer a command + expected output over a judgment call |
 | `## Review` | **yes** (placeholder) | `(filled by plan-review on completion)` until shipped |
 | `## Context` | when useful | why now, what it unblocks, verbatim user decisions that constrain the plan |
-| `## Out of scope` | when useful | adjacent work explicitly NOT included |
+| `## Out of scope` | when useful | adjacent work NOT included; for an implementation plan, a per-file do-NOT-touch list, each with a one-line blast-radius rationale |
+| `## STOP conditions` | on risky/handoff plans | named, plan-specific escape hatches — "if assumption X turns out false, STOP and report; do not improvise" |
 | `## Open questions` | when decisions are pending | see "Open questions" — agent→user residue |
 | `## Self-review` | on substantive plans | what the rubric pass caught (see below) |
 | `## Mistakes & Dead Ends` | as they happen | append-only: `- **<ISO>**: <tried> → <why it failed> → <how to avoid>` |
@@ -134,9 +139,11 @@ Rubric — run every item before the plan is shown. Each check carries a **weigh
 | Failure mode | 15 | each risky step has a revert trigger / "if this fails, then…" |
 | Assumption → question | 10 | anything *guessed* becomes an `## Open question`, never a silent default |
 
-Then the meta-frame that catches the rest — the cold-handoff test: *"Could a
-fresh agent execute this with ONLY this file? Where would it guess?"* Every
-guess → fix it or make it an open question.
+Then the meta-frame that catches the rest — the cold-handoff test: *"Could the
+**weakest plausible executor** (assume a smaller/cheaper model — competent at
+following explicit instructions, weak at filling gaps or knowing when to stop)
+execute this with ONLY this file? Where would it guess?"* Every guess → fix it
+or make it an open question.
 
 ### Scored iterate-until-plateau loop (tiered)
 
@@ -175,10 +182,13 @@ answer), and enough context (inline `code` welcome) to decide without reading
 the whole plan. This block is the canonical, structured list of what's
 pending; how it's *surfaced* is:
 
-- **Native multiple-choice — the default for every question.** The agent
-  surfaces each one through the runtime's question UI so the user just clicks an
-  option (one marked `(recommended)`; a `text` question uses the free-text /
-  custom field). Claude Code: `AskUserQuestion`. Codex: `ask_user_question`,
+- **Native multiple-choice — mandatory for every question, on every render.**
+  Whenever a plan carrying unresolved `## Open questions` is presented or
+  rendered (Tier-3, after ANY write/transition — not only at scaffold), the
+  agent MUST surface each one through the runtime's question UI in the SAME turn
+  — never leave them as prose for the user to answer in free text. The user just
+  clicks an option (one marked `(recommended)`; a `text` question uses the
+  free-text / custom field). Claude Code: `AskUserQuestion`. Codex: `ask_user_question`,
   its interactive questionnaire (single/multi-choice + custom option) — landing
   as of 2026-06 ([openai/codex#9926](https://github.com/openai/codex/issues/9926)),
   interactive mode only; use it where present. This is what makes juggling
@@ -207,12 +217,13 @@ from committed state — the user can amend.
 
 | Transition | What plan-manager does |
 |---|---|
-| New plan | Draft + self-review, then `Write` `active/<slug>.md`, `status: planned` (`scheduled` if it has a trigger). `created`+`updated` = now. |
+| New plan | Draft + self-review, then `Write` `active/<slug>.md`, `status: planned` (`scheduled` if it has a trigger). `created`+`updated` = now; **set `planned_at_commit`** (`git rev-parse HEAD`) as the drift + review base. |
 | Start | `status: ongoing`, **set `started_at` (first time only)**, dispatch to assignee. No `git mv`. |
 | Block | `status: blocked`, set `blocked_reason` + `blocked_since`. No `git mv`. |
 | Unblock | `status: ongoing`, clear `blocked_reason`/`blocked_since`. `started_at` unchanged. |
-| Schedule fires | `status: ongoing`, drop scheduled-only keys, set `started_at`, dispatch. |
-| Ship | `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit` (HEAD — branch-agnostic). Auto-dispatch `plan-review`. |
+| Schedule fires | `status: ongoing`, drop scheduled-only keys, set `started_at`, dispatch. (An `auto_execute` plan still halts at `in_review` for a human ship.) |
+| Steps complete → review | When every `## Steps` row is `done`: `status: in_review`, set `in_review_since`, **auto-dispatch `plan-review`** (completion review — diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, file stays in `active/`). No `git mv`. |
+| Ship | Allowed only when `review_status: passed` (on `partial`/`regressed`, fix first; if `null`, dispatch the review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit` (HEAD). Carries the existing `## Review` forward — **no re-dispatch** (re-run only if HEAD moved since the review). |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in `## Notes`. Don't delete. |
 
 ## On-demand views
@@ -249,6 +260,7 @@ just now`, `<60min → <X>m`, `<24h → <X>h`, `<365d → <X>d`, `≥365d → <Y
 | `ongoing` | `<X> in flight` (`(approx)` from `created` if `started_at` null) | now − `started_at` |
 | `blocked` | `blocked <X> · waiting on <name>` | now − `blocked_since` |
 | `scheduled` | `fires in <X>` / `DUE` / `OVERDUE by <X>` | `scheduled_date` − now |
+| `in_review` | `<X> in review` | now − `in_review_since` |
 | `finished` | `shipped <X> ago` (`shipped just now` <60s) | now − `updated` |
 
 Optional `stale <X>` flag for `ongoing` when `now − updated > 3 days`. Legacy

@@ -1,11 +1,11 @@
 ---
 name: plan-review
-description: Use when a plan reaches status finished (in docs/plans/finished/) with ship_commit set — verifies goal vs the ship_commit diff, runs the project's CI to flag regressions, writes a `## Review` block with goal-met assessment, regression scan, follow-ups. Also the draft-review pass plan-manager dispatches on a big/risky new plan — red-teams the draft against the self-review rubric and reports holes. Not for general code review or pre-merge checks.
+description: Use when a plan's steps all complete (status in_review) or it reaches status finished — verifies goal vs the diff (planned_at_commit..HEAD for the completion review, ship_commit for finished), runs the project's CI to flag regressions, writes a `## Review` block with goal-met assessment, regression scan, follow-ups. Also the draft-review pass plan-manager dispatches on a big/risky new plan — red-teams the draft against the self-review rubric and reports holes. Not for general code review or pre-merge checks.
 user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-06-23"
-  content_hash: "fa47e03e7c81479c5c156eea55c7ac1cf4b8a1cc1dced72e9c95bec5cc8d441f"
+  content_hash: "42502efbfb130830378b87cd63e8637d1b52b426aee548548863515c11e644e6"
 ---
 
 # Plan Review
@@ -13,7 +13,7 @@ metadata:
 Verify a finished plan against the diff that shipped it. Read `goal` and acceptance criteria, compare to the actual changes in `ship_commit`, run the project's CI/test command if it has one, and write a structured `## Review` block into the plan file with the verdict.
 
 <constraint>
-**Two modes, keyed on `status`.** A `finished` plan (in `finished/`) with `ship_commit` set → **finished review**: diff-vs-goal verification (Steps 1–10). A non-finished draft (in `active/`, any other status) → **draft review** (Mode 0): red-team the draft against the self-review rubric and report holes — do NOT look for a diff (there isn't one). If `ship_commit` is empty on a `finished` plan, ask the user for the SHA before proceeding.
+**Three modes, keyed on `status`.** (1) `in_review` (file still in `active/`, all `## Steps` `done`) → **completion review**: diff-vs-goal against `planned_at_commit..HEAD` (+ working tree) — the Finished-review steps with the diff base swapped, ending by surfacing "ready to ship" rather than archiving. (2) `finished` (in `finished/`) with `ship_commit` set → **finished review**: Steps 1–10 against the `ship_commit` diff. (3) any other non-finished draft (in `active/`) → **draft review** (Mode 0): red-team against the self-review rubric, report holes, no diff. If `ship_commit` is empty on a `finished` plan, ask the user for the SHA before proceeding.
 </constraint>
 
 <constraint>
@@ -70,6 +70,16 @@ it in `## Self-review`. Only on a *direct* user-invoked draft review (no
 `plan-manager` in the loop) may you append findings to `## Self-review` yourself.
 Either way, do NOT write a `## Review` block, set `review_status`, or run CI in
 this mode — those are finished-review only.
+
+## Completion review (`status: in_review`)
+
+Fired automatically when all `## Steps` reach `done` (plan-manager Step 8) — the review now happens BEFORE ship. It is the **Finished review below with three deltas**:
+
+1. The file is in `active/`, not `finished/` — Step 1's path check expects `active/`.
+2. The diff base is the plan's `planned_at_commit`, not a `ship_commit`: in Step 3 use `git diff --stat <planned_at_commit>..HEAD` plus `git status --short` for uncommitted work, instead of `git show <ship_commit>`. If `planned_at_commit` is unset (plan predates the field), backfill from the plan's `created`-era commit if recoverable, else review the working tree only and note "drift base unset".
+3. It is NOT terminal: after writing `## Review` + `review_status` (Steps 7–9), end by surfacing the verdict — on `passed`, "✓ reviewed — say `ship <slug>` to archive"; on `partial`/`regressed`, hand the findings back so they're fixed before ship. Do NOT `git mv` or set `ship_commit` (ship does that later).
+
+Acceptance-criteria verification, the CI gate, the idempotent `## Review` write, and per-finding reproduction are identical to Finished review.
 
 ## Finished review
 
@@ -160,7 +170,7 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 
 | Trap | Wrong fix | Right fix |
 |---|---|---|
-| Looking for a diff on a non-finished draft | Reading HEAD and guessing | `status ≠ finished` → Mode 0 draft review (no diff) |
+| Looking for a diff on a non-finished draft | Reading HEAD and guessing | `in_review` → completion review (diff `planned_at_commit..HEAD`); other active drafts → Mode 0 (no diff) |
 | Appending a second `## Review` block on re-run | `Write` mode adding to the body | `Edit` with `old_string` matching the existing block |
 | Auto-creating follow-up plans for regressions | Calling `plan-manager` "new plan" automatically | List slug suggestions in `Follow-ups:`; user creates them |
 | Claiming a regression without reproducing | Listing it from a stale grep | Per-finding reproduction — re-read the file, re-run the test |
@@ -179,7 +189,7 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 
 ## Success Criteria
 
-- Plan-review only runs on `finished/` plans with `ship_commit` set; all other states return a clear stop error.
+- Finished review runs on `finished/` plans with `ship_commit`; completion review runs on `in_review` plans in `active/` (diff base `planned_at_commit..HEAD`); draft review (Mode 0) on other active drafts.
 - Every `[x]` acceptance criterion either gets evidence-backed verification or is flagged as "unverifiable".
 - the project's CI command is run when present; CI verdict is captured verbatim.
 - The `## Review` block is written via idempotent `Edit` (re-runs replace, not append).
@@ -190,6 +200,6 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 ## References
 
 - `docs/plans/AGENTS.md` — full convention; this skill writes the `## Review` block defined there.
-- `plan-manager` skill — handles the `→ finished/` move that auto-triggers this skill. See its Step 8.
+- `plan-manager` skill — performs the `→ in_review` transition that auto-triggers the completion review (and the later ship). See its Step 8.
 - `plugins/docks/agents/plan-review.md` — Claude-only thin wrapper for inter-agent dispatch via `Agent(subagent_type="plan-review", prompt=<plan-path>)`. Skill is the canonical workflow; agent is a runtime convenience.
 - Scored iterate-until-plateau technique adapted from Sean Geng, "Iterate a plan until it stops improving" — <https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving>.
