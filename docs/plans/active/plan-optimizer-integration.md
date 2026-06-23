@@ -3,7 +3,7 @@ title: Add a tiered scored iterate-until-plateau refinement to the plan self-rev
 goal: Port Sean Geng's plan-optimizer (scored critique→rewrite loop, tiered to plan size, best-of-N escape) into the existing docks self-review machinery — no new skill — proven by a decision matrix and gated by a behavioral smoke test.
 status: ongoing
 created: "2026-06-23T15:40:27-03:00"
-updated: "2026-06-23T16:01:20-03:00"
+updated: "2026-06-23T16:07:43-03:00"
 started_at: "2026-06-23T16:01:20-03:00"
 assignee: null
 tags: ["plan-system", "skill-enhancement", "research"]
@@ -146,25 +146,25 @@ edited unless a specific sentence becomes false.
 
 | # | Task | Depends | Status |
 |---|---|---|---|
-| 1 | `docs/plans/AGENTS.md` "Self-review": add a `Weight` column to the 7-check rubric table — default (tunable) weights summing to 100: goal-clarity/actionability 20, completeness/goal-coverage 15, sequencing & dependency-order 15, feasibility 15, risks & failure-mode 15, success-metrics/checkable-acceptance 10, specificity 10. Add a paragraph documenting the **tiered** iterate-until-plateau loop (MARGIN +2, K=3, 8-round cap, best-of-N=3, threshold 85/100) and a one-line attribution to Sean Geng + the article URL. REPLACE the proportionality rule at lines 140-143 (incl. the "get the inline rubric" sentence) with the tiered policy. | — | planned |
-| 2 | Sync the same substance (Weight column + tiered-loop paragraph + attribution) into `plugins/.../plan-init/references/plans-agents-md-template.md` (Self-review section, ~line 105) — mirror the *substance*, not byte-for-byte. **Also REPLACE the template's own proportionality sentence at ~line 125** (the identical "get the inline rubric" string lives in both homes; leaving the template's copy diverges the two contract homes). | 1 | planned |
-| 3 | Rewrite `plan-review` Mode 0 (`SKILL.md:35-55`) to run the scored loop (score = separate pass → critique → rewrite → re-score → stop at plateau/8-round cap; best-of-N when stuck) and to **return** the rewrite + breakdown + trajectory to the caller (RETURN-ONLY when dispatched by plan-manager — it does NOT write the plan file; the separate direct user-invoked draft-review path may write to `## Self-review` itself). Pin the recorded-artifact format: `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`. Add the Sean-Geng attribution to `## References`. Bump `metadata.updated`; re-sync `content_hash`. | 1 | planned |
-| 4 | Update `plan-manager` Step 6 (`SKILL.md:92-99`) for the tiered policy + write-ownership. State the control flow explicitly: **score every plan once; enter the hill-climb iff `score < 85` OR the plan is big/risky OR the user asked for hardening** — big/risky dispatches to the fresh-context Mode 0, everything else runs inline. `plan-manager` writes the optimized draft and records the score + trajectory (Step 3 format) in `## Self-review`. Bump `metadata.updated`; re-sync `content_hash`. | 3 | planned |
-| 5 | **Verify (do not edit)** the two thin wrappers `plugins/docks/agents/plan-review.md` + `plan-manager.md`: confirm their wording stays true under the scored loop (incl. that plan-manager.md:29's named enumeration of the 7 checks stays accurate — only a Weight column is added, the checks don't change). Edit ONLY a sentence that became factually *false* (incomplete-but-true wording is left as-is). Done-condition: `git diff --stat plugins/docks/agents/` is empty, OR each hunk corrects a now-false sentence (noted in the commit). | 3,4 | planned |
-| 6 | **Smoke test:** on a throwaway draft plan, run the loop; confirm a per-criterion score breakdown + a trajectory + a plateau/cap stop reason are recorded in its `## Self-review` in the Step 3 format. Then `rm` the throwaway and confirm `git status` is clean — plan `.md`s are tracked (only render `.html`s are gitignored), so it must be deleted, never committed. | 3,4 | planned |
-| 7 | Run the project's CI (`node scripts/ci.mjs`): skill guards + 16-pt skill scorer AND agent guards + agent scorer (max 15, floor 14) green; content-hash idempotency green. Fix any floor regression in-file — never loosen floors. | 2,3,4,5,6 | planned |
+| 1 | `docs/plans/AGENTS.md` "Self-review": add a `Weight` column to the 7-check rubric table — default (tunable) weights summing to 100: goal-clarity/actionability 20, completeness/goal-coverage 15, sequencing & dependency-order 15, feasibility 15, risks & failure-mode 15, success-metrics/checkable-acceptance 10, specificity 10. Add a paragraph documenting the **tiered** iterate-until-plateau loop (MARGIN +2, K=3, 8-round cap, best-of-N=3, threshold 85/100) and a one-line attribution to Sean Geng + the article URL. REPLACE the proportionality rule at lines 140-143 (incl. the "get the inline rubric" sentence) with the tiered policy. | — | done |
+| 2 | Sync the same substance (Weight column + tiered-loop paragraph + attribution) into `plugins/.../plan-init/references/plans-agents-md-template.md` (Self-review section, ~line 105) — mirror the *substance*, not byte-for-byte. **Also REPLACE the template's own proportionality sentence at ~line 125** (the identical "get the inline rubric" string lives in both homes; leaving the template's copy diverges the two contract homes). | 1 | done |
+| 3 | Rewrite `plan-review` Mode 0 (`SKILL.md:35-55`) to run the scored loop (score = separate pass → critique → rewrite → re-score → stop at plateau/8-round cap; best-of-N when stuck) and to **return** the rewrite + breakdown + trajectory to the caller (RETURN-ONLY when dispatched by plan-manager — it does NOT write the plan file; the separate direct user-invoked draft-review path may write to `## Self-review` itself). Pin the recorded-artifact format: `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`. Add the Sean-Geng attribution to `## References`. Bump `metadata.updated`; re-sync `content_hash`. | 1 | done |
+| 4 | Update `plan-manager` Step 6 (`SKILL.md:92-99`) for the tiered policy + write-ownership. State the control flow explicitly: **score every plan once; enter the hill-climb iff `score < 85` OR the plan is big/risky OR the user asked for hardening** — big/risky dispatches to the fresh-context Mode 0, everything else runs inline. `plan-manager` writes the optimized draft and records the score + trajectory (Step 3 format) in `## Self-review`. Bump `metadata.updated`; re-sync `content_hash`. | 3 | done |
+| 5 | **Verify (do not edit)** the two thin wrappers `plugins/docks/agents/plan-review.md` + `plan-manager.md`: confirm their wording stays true under the scored loop (incl. that plan-manager.md:29's named enumeration of the 7 checks stays accurate — only a Weight column is added, the checks don't change). Edit ONLY a sentence that became factually *false* (incomplete-but-true wording is left as-is). Done-condition: `git diff --stat plugins/docks/agents/` is empty, OR each hunk corrects a now-false sentence (noted in the commit). | 3,4 | done |
+| 6 | **Smoke test:** on a throwaway draft plan, run the loop; confirm a per-criterion score breakdown + a trajectory + a plateau/cap stop reason are recorded in its `## Self-review` in the Step 3 format. Then `rm` the throwaway and confirm `git status` is clean — plan `.md`s are tracked (only render `.html`s are gitignored), so it must be deleted, never committed. | 3,4 | done |
+| 7 | Run the project's CI (`node scripts/ci.mjs`): skill guards + 16-pt skill scorer AND agent guards + agent scorer (max 15, floor 14) green; content-hash idempotency green. Fix any floor regression in-file — never loosen floors. | 2,3,4,5,6 | done |
 
 ## Acceptance criteria
 
-- [ ] The decision matrix is recorded and selects enhance-in-place (A+B) — `grep -n "Decision matrix" docs/plans/active/plan-optimizer-integration.md` resolves and the chosen row is stated.
-- [ ] `docs/plans/AGENTS.md` documents a weighted rubric + the tiered loop + constants — `grep -nE "plateau|best-of-N|sliding window|Weight|threshold" docs/plans/AGENTS.md` returns the new lines.
-- [ ] The proportionality sentence is gone from BOTH contract homes — `grep -c "get the inline rubric" docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` reports `0` for each file.
-- [ ] The plan-init template carries the synced substance — `grep -nE "plateau|best-of-N|Weight|threshold" plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` is non-empty.
-- [ ] `plan-review` Mode 0 + `plan-manager` Step 6 describe the tiered loop AND the write-ownership (plan-manager writes, Mode 0 returns) — confirmed by Read; both skills' `content_hash` re-synced (CI idempotency passes).
-- [ ] Smoke test recorded: a throwaway run shows score breakdown + trajectory + plateau/cap stop in `## Self-review` (Step 3 format); the specific throwaway file is then deleted — `ls docs/plans/active/<throwaway-slug>.md` returns "No such file" AND `git status --short` is clean (it was never committed). (Do not assert `active/` is empty — it holds real plans.)
-- [ ] Wrappers stayed thin: `git diff --stat plugins/docks/agents/` is empty, OR every hunk corrects a sentence that became false.
-- [ ] `node scripts/ci.mjs` exits 0 — all guards, 16-pt skill scorer, agent scorer (floor 14) green, no loosened floors.
-- [ ] No new top-level `plan-*` skill dir — `ls -d plugins/docks/skills/productivity/plan-*/` lists exactly `plan-init/`, `plan-manager/`, `plan-review/`.
+- [x] The decision matrix is recorded and selects enhance-in-place (A+B) — `grep -n "Decision matrix" docs/plans/active/plan-optimizer-integration.md` resolves and the chosen row is stated.
+- [x] `docs/plans/AGENTS.md` documents a weighted rubric + the tiered loop + constants — `grep -nE "plateau|best-of-N|sliding window|Weight|threshold" docs/plans/AGENTS.md` returns the new lines.
+- [x] The proportionality sentence is gone from BOTH contract homes — `grep -c "get the inline rubric" docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` reports `0` for each file.
+- [x] The plan-init template carries the synced substance — `grep -nE "plateau|best-of-N|Weight|threshold" plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` is non-empty.
+- [x] `plan-review` Mode 0 + `plan-manager` Step 6 describe the tiered loop AND the write-ownership (plan-manager writes, Mode 0 returns) — confirmed by Read; both skills' `content_hash` re-synced (CI idempotency passes).
+- [x] Smoke test recorded: a throwaway run shows score breakdown + trajectory + plateau/cap stop in `## Self-review` (Step 3 format); the specific throwaway file is then deleted — `ls docs/plans/active/<throwaway-slug>.md` returns "No such file" AND `git status --short` is clean (it was never committed). (Do not assert `active/` is empty — it holds real plans.)
+- [x] Wrappers stayed thin: `git diff --stat plugins/docks/agents/` is empty, OR every hunk corrects a sentence that became false.
+- [x] `node scripts/ci.mjs` exits 0 — all guards, 16-pt skill scorer, agent scorer (floor 14) green, no loosened floors.
+- [x] No new top-level `plan-*` skill dir — `ls -d plugins/docks/skills/productivity/plan-*/` lists exactly `plan-init/`, `plan-manager/`, `plan-review/`.
 
 ## Out of scope
 
@@ -255,3 +255,14 @@ homes, not in every changed file.
 gate after editing the SKILL bodies — re-run the project's content-hash backfill
 and re-check before assuming a real regression (a stale stored hash looks like
 drift but is fixed by the backfill, not a code change).
+
+**Execution (2026-06-23, branch `feat/plan-optimizer-loop`):** all 7 steps done.
+Edited 4 contract/skill homes (`docs/plans/AGENTS.md`, the plan-init template,
+`plan-review` + `plan-manager` SKILL bodies); bumped `metadata.updated` on the 3
+touched skills and re-synced their `content_hash`. Step 5 confirmed the two agent
+wrappers stayed thin (`git diff plugins/docks/agents/` empty — the verify-only
+call held). Step 6 smoke test ran the loop on a throwaway and recorded
+`Score: 88/100 · trajectory 50→81→88→88→88 · stopped: plateau (K=3)`, then deleted
+it (git-clean). Step 7 `node scripts/ci.mjs` exited 0 (skills eng 224 / prod 188,
+agents 30 / floor 28, content_hash idempotency in sync). All 8 acceptance criteria
+verified green.
