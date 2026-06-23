@@ -1,10 +1,11 @@
 ---
 title: Add a tiered scored iterate-until-plateau refinement to the plan self-review
 goal: Port Sean Geng's plan-optimizer (scored critique→rewrite loop, tiered to plan size, best-of-N escape) into the existing docks self-review machinery — no new skill — proven by a decision matrix and gated by a behavioral smoke test.
-status: ongoing
+status: finished
 created: "2026-06-23T15:40:27-03:00"
-updated: "2026-06-23T16:07:43-03:00"
+updated: "2026-06-23T16:18:40-03:00"
 started_at: "2026-06-23T16:01:20-03:00"
+ship_commit: "891ccf3e29c5f75c82c7d0fed6e2116ea63ccbfc"
 assignee: null
 tags: ["plan-system", "skill-enhancement", "research"]
 affected_paths:
