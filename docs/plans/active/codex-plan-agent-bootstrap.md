@@ -1,10 +1,10 @@
 ---
 title: Bootstrap Codex plan agents
 goal: Add Codex repo-local plan-agent bootstrap support without changing Claude plugin subagent behavior.
-status: planned
+status: ongoing
 created: "2026-06-23T20:15:44-03:00"
-updated: "2026-06-23T20:15:44-03:00"
-started_at: null
+updated: "2026-06-23T20:17:14-03:00"
+started_at: "2026-06-23T20:17:14-03:00"
 assignee: null
 tags: [codex, plans, agents, scaffold]
 affected_paths:
