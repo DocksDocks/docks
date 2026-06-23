@@ -1,10 +1,12 @@
 ---
 title: Graft improve's audit-safety patterns into security + code-review
 goal: Add prompt-injection-as-data and stale-ADR rules to security, plus leverage ordering and introduced-vs-pre-existing tagging to code-review
-status: ongoing
+status: in_review
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T18:08:52-03:00"
+updated: "2026-06-23T18:12:45-03:00"
 started_at: "2026-06-23T18:08:52-03:00"
+in_review_since: "2026-06-23T18:12:45-03:00"
+planned_at_commit: 0739686
 assignee: null
 tags: [engineering, security, code-review, improve-graft]
 affected_paths:

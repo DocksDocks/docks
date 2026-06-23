@@ -1,10 +1,12 @@
 ---
 title: Optional Claude-only dispatched-executor mode for refactor
 goal: Add an opt-in mode where refactor dispatches a cheaper executor in an isolated worktree and reviews its diff like a tech lead, default staying single-context
-status: ongoing
+status: in_review
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T18:10:51-03:00"
+updated: "2026-06-23T18:12:45-03:00"
 started_at: "2026-06-23T18:10:51-03:00"
+in_review_since: "2026-06-23T18:12:45-03:00"
+planned_at_commit: f257b5c
 assignee: null
 tags: [engineering, refactor, claude-only, improve-graft]
 affected_paths:

@@ -1,10 +1,12 @@
 ---
 title: Auto-review a plan when its steps complete, before ship
 goal: Add an in_review status so plan-review fires automatically on step completion (pre-ship), plus drift-check base SHA and handoff-template hardening
-status: ongoing
+status: in_review
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T17:58:19-03:00"
+updated: "2026-06-23T18:12:45-03:00"
 started_at: "2026-06-23T17:58:19-03:00"
+in_review_since: "2026-06-23T18:12:45-03:00"
+planned_at_commit: deb79d1
 assignee: null
 tags: [plans, lifecycle, review, improve-graft]
 affected_paths:
