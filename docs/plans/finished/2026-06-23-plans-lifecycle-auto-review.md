@@ -1,9 +1,9 @@
 ---
 title: Auto-review a plan when its steps complete, before ship
 goal: Add an in_review status so plan-review fires automatically on step completion (pre-ship), plus drift-check base SHA and handoff-template hardening
-status: in_review
+status: finished
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T18:15:59-03:00"
+updated: "2026-06-23T18:21:20-03:00"
 started_at: "2026-06-23T17:58:19-03:00"
 in_review_since: "2026-06-23T18:12:45-03:00"
 planned_at_commit: deb79d1
@@ -16,6 +16,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-review/SKILL.md
 related_plans: [improve-audit-grafts, model-tiered-executor-mode]
 review_status: passed
+ship_commit: a41bdb53f1b9fc1dacb306372c3b4a9d7f1fa4d7
 ---
 
 # Auto-review a plan when its steps complete, before ship

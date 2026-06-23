@@ -1,9 +1,9 @@
 ---
 title: Graft improve's audit-safety patterns into security + code-review
 goal: Add prompt-injection-as-data and stale-ADR rules to security, plus leverage ordering and introduced-vs-pre-existing tagging to code-review
-status: in_review
+status: finished
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T18:15:59-03:00"
+updated: "2026-06-23T18:21:20-03:00"
 started_at: "2026-06-23T18:08:52-03:00"
 in_review_since: "2026-06-23T18:12:45-03:00"
 planned_at_commit: 0739686
@@ -14,6 +14,7 @@ affected_paths:
   - plugins/docks/skills/engineering/code-review/SKILL.md
 related_plans: [plans-lifecycle-auto-review, model-tiered-executor-mode]
 review_status: passed
+ship_commit: a41bdb53f1b9fc1dacb306372c3b4a9d7f1fa4d7
 ---
 
 # Graft improve's audit-safety patterns into security + code-review
