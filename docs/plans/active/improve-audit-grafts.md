@@ -3,7 +3,7 @@ title: Graft improve's audit-safety patterns into security + code-review
 goal: Add prompt-injection-as-data and stale-ADR rules to security, plus leverage ordering and introduced-vs-pre-existing tagging to code-review
 status: in_review
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T18:12:45-03:00"
+updated: "2026-06-23T18:15:59-03:00"
 started_at: "2026-06-23T18:08:52-03:00"
 in_review_since: "2026-06-23T18:12:45-03:00"
 planned_at_commit: 0739686
@@ -13,7 +13,7 @@ affected_paths:
   - plugins/docks/skills/engineering/security/SKILL.md
   - plugins/docks/skills/engineering/code-review/SKILL.md
 related_plans: [plans-lifecycle-auto-review, model-tiered-executor-mode]
-review_status: null
+review_status: passed
 ---
 
 # Graft improve's audit-safety patterns into security + code-review
@@ -72,11 +72,11 @@ Success = both safety rules and both ordering improvements are present and
 
 ## Acceptance criteria
 
-- [ ] `grep -rni 'data, not instructions\|prompt.injection' plugins/docks/skills/engineering/security/SKILL.md plugins/docks/skills/engineering/code-review/SKILL.md` → present in BOTH.
-- [ ] `grep -ni 'drift\|stale' plugins/docks/skills/engineering/security/SKILL.md` → the stale-ADR nuance is in the Finding-quality section.
-- [ ] `grep -ni 'leverage\|impact.*effort' plugins/docks/skills/engineering/code-review/SKILL.md` → leverage tiebreak in Step 5.
-- [ ] `grep -ni 'introduced\|pre-existing' plugins/docks/skills/engineering/code-review/SKILL.md` → the branch-scope tagging is present.
-- [ ] `node scripts/ci.mjs` exits 0; in particular `tests/skill-trigger-collision.mjs` still PASSES (descriptions untouched) and both skills clear the engineering per-file score floor.
+- [x] `grep -rni 'data, not instructions\|prompt.injection' plugins/docks/skills/engineering/security/SKILL.md plugins/docks/skills/engineering/code-review/SKILL.md` → present in BOTH.
+- [x] `grep -ni 'drift\|stale' plugins/docks/skills/engineering/security/SKILL.md` → the stale-ADR nuance is in the Finding-quality section.
+- [x] `grep -ni 'leverage\|impact.*effort' plugins/docks/skills/engineering/code-review/SKILL.md` → leverage tiebreak in Step 5.
+- [x] `grep -ni 'introduced\|pre-existing' plugins/docks/skills/engineering/code-review/SKILL.md` → the branch-scope tagging is present.
+- [x] `node scripts/ci.mjs` exits 0; in particular `tests/skill-trigger-collision.mjs` still PASSES (descriptions untouched) and both skills clear the engineering per-file score floor.
 
 ## Out of scope
 
@@ -102,4 +102,14 @@ A dispatched `plan-review` Mode 0 caught one blocking hole: the original Step 2 
 
 ## Review
 
-(filled by plan-review on completion)
+`Goal met: yes · review_status: passed · completion review (in_review), diff base 0739686..f257b5c · Filed by: plan-review (dispatched, 9 tool-uses)`
+
+Independent completion review re-ran each grep criterion against the current files.
+
+- **All criteria PASS.** prompt-injection-as-data present in BOTH skills as net-new lines (security:28, code-review:30); decision-drift-is-a-finding (security:86); leverage tiebreak as a surgical one-line replacement in code-review Step 5 (:108); introduced-vs-pre-existing branch tagging reusing the two-axis no-merge discipline (code-review:56).
+- **Descriptions byte-identical** across the range — no trigger-collision risk introduced (the plan's core safety constraint held).
+- **Scope clean.** Only the two `affected_paths` SKILL.md files changed (+ in-file `metadata.updated`/`content_hash` bumps, allowed). CI green at HEAD.
+
+Cosmetic note (non-blocking): the plan's own acceptance-criteria text reads `'drift\|stale'` / `'impact.*effort'`; the implementation uses the tightened `drift` / `leverage` wording — the files satisfy both phrasings.
+
+Regressions: none. CI: pass. Follow-ups: none.

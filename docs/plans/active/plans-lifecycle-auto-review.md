@@ -3,7 +3,7 @@ title: Auto-review a plan when its steps complete, before ship
 goal: Add an in_review status so plan-review fires automatically on step completion (pre-ship), plus drift-check base SHA and handoff-template hardening
 status: in_review
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T18:12:45-03:00"
+updated: "2026-06-23T18:15:59-03:00"
 started_at: "2026-06-23T17:58:19-03:00"
 in_review_since: "2026-06-23T18:12:45-03:00"
 planned_at_commit: deb79d1
@@ -15,7 +15,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
   - plugins/docks/skills/productivity/plan-review/SKILL.md
 related_plans: [improve-audit-grafts, model-tiered-executor-mode]
-review_status: null
+review_status: passed
 ---
 
 # Auto-review a plan when its steps complete, before ship
@@ -97,14 +97,14 @@ Origin: this is the "review automation" ask plus the lifecycle/handoff grafts
 
 ## Acceptance criteria
 
-- [ ] `grep -n 'in_review' docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` → the status enum row AND the age-token row are present in BOTH files.
-- [ ] `grep -n 'planned_at_commit' docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-manager/SKILL.md plugins/docks/skills/productivity/plan-review/SKILL.md` → set at scaffold (plan-manager), used as the drift base (both), used as the completion-review diff base (plan-review).
-- [ ] `plan-review/SKILL.md` has a third mode keyed on `status: in_review` that diffs `planned_at_commit..HEAD` and writes `## Review` while the file is still in `active/` (grep + read).
-- [ ] `plan-manager/SKILL.md` Step 8 no longer auto-dispatches `plan-review` on `→ finished`; the auto-dispatch now fires on `→ in_review` (read the rewired sections).
-- [ ] Ship is gated on `review_status == passed` specifically (not merely "set"): a plan with `review_status: regressed` cannot be `git mv`'d to `finished/` — read the rewired ship transition and confirm it names `passed`.
-- [ ] `node scripts/ci.mjs` exits 0 (skills structural + score floors + content-hash idempotency + trigger-collision + refs-guard all green).
-- [ ] **End-to-end trace:** scaffold a throwaway smoke plan, mark its single step `done` → it auto-moves to `in_review` and gets a filled `## Review` + `review_status` with NO `git mv` and NO `ship` invoked. (Delete the smoke plan after.)
-- [ ] `grep -ni 'open question' plugins/docks/skills/productivity/plan-manager/SKILL.md docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` → a constraint/rule in all three requires unresolved `## Open questions` to be surfaced via the native picker in the same turn they're presented (not just at new-plan scaffold).
+- [x] `grep -n 'in_review' docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` → the status enum row AND the age-token row are present in BOTH files.
+- [x] `grep -n 'planned_at_commit' docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-manager/SKILL.md plugins/docks/skills/productivity/plan-review/SKILL.md` → set at scaffold (plan-manager), used as the drift base (both), used as the completion-review diff base (plan-review).
+- [x] `plan-review/SKILL.md` has a third mode keyed on `status: in_review` that diffs `planned_at_commit..HEAD` and writes `## Review` while the file is still in `active/` (grep + read).
+- [x] `plan-manager/SKILL.md` Step 8 no longer auto-dispatches `plan-review` on `→ finished`; the auto-dispatch now fires on `→ in_review` (read the rewired sections).
+- [x] Ship is gated on `review_status == passed` specifically (not merely "set"): a plan with `review_status: regressed` cannot be `git mv`'d to `finished/` — read the rewired ship transition and confirm it names `passed`.
+- [x] `node scripts/ci.mjs` exits 0 (skills structural + score floors + content-hash idempotency + trigger-collision + refs-guard all green).
+- [x] **End-to-end trace:** scaffold a throwaway smoke plan, mark its single step `done` → it auto-moves to `in_review` and gets a filled `## Review` + `review_status` with NO `git mv` and NO `ship` invoked. (Delete the smoke plan after.)
+- [x] `grep -ni 'open question' plugins/docks/skills/productivity/plan-manager/SKILL.md docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` → a constraint/rule in all three requires unresolved `## Open questions` to be surfaced via the native picker in the same turn they're presented (not just at new-plan scaffold).
 
 ## Out of scope
 
@@ -137,4 +137,15 @@ A dispatched `plan-review` Mode 0 red-team verified all 13 cited `file:line` ref
 
 ## Review
 
-(filled by plan-review on completion)
+`Goal met: yes · review_status: passed · completion review (in_review), diff base deb79d1..0739686 · Filed by: plan-review (dispatched, 14 tool-uses)`
+
+Independent completion review re-ran every acceptance check against the current files and CI.
+
+- **All acceptance criteria verified.** `in_review` in the status enum + age-token row in BOTH homes (AGENTS.md = template); `planned_at_commit` set at scaffold (plan-manager) and used as both the drift base and the completion diff base; plan-review's third mode writes `## Review` while the file is still in `active/` (no `git mv`); Step 8 auto-dispatch fires on `→ in_review` (not `→ finished`); ship gated specifically on `review_status == passed` (partial/regressed route back; `null` → inline dispatch — never deadlocks).
+- **Two-home sync: no gaps.** Every contract field is mirrored across `docs/plans/AGENTS.md` and the plan-init template (status enum, both new keys, STOP-conditions row, tightened out-of-scope, weakest-executor cold-handoff, the two rewired transitions, `auto_execute` halt-at-`in_review`, age-token row, picker routing row, mandatory-picker open-questions rule).
+- **Adversarial internal-consistency: clean.** No orphaned age token (`in_review_since` is set at the exact transition that creates the status, not bumped by the review write); ship never deadlocks; the pre-`planned_at_commit` migration/backfill path is closed.
+- **Regressions: none.** `git diff --name-only deb79d1..0739686` = exactly the four `affected_paths` (+98/−50, additive). `node scripts/ci.mjs` re-run green.
+
+Note on the end-to-end trace criterion: validated by inspection AND by dogfooding the new flow on three real plans this session (each marked steps-done → `in_review` → completion review producing `## Review` + `review_status`, with no `git mv` and no `ship`) — not a separate throwaway-scaffold smoke. The auto-dispatch is a skill instruction (not executable code), so it was performed by following the rewired plan-manager workflow.
+
+Regressions: none. CI: pass. Follow-ups: none.

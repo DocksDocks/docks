@@ -3,7 +3,7 @@ title: Optional Claude-only dispatched-executor mode for refactor
 goal: Add an opt-in mode where refactor dispatches a cheaper executor in an isolated worktree and reviews its diff like a tech lead, default staying single-context
 status: in_review
 created: "2026-06-23T17:36:31-03:00"
-updated: "2026-06-23T18:12:45-03:00"
+updated: "2026-06-23T18:15:59-03:00"
 started_at: "2026-06-23T18:10:51-03:00"
 in_review_since: "2026-06-23T18:12:45-03:00"
 planned_at_commit: f257b5c
@@ -13,7 +13,7 @@ affected_paths:
   - plugins/docks/skills/engineering/refactor/SKILL.md
   - plugins/docks/skills/engineering/refactor/references/executor-dispatch.md
 related_plans: [plans-lifecycle-auto-review, improve-audit-grafts]
-review_status: null
+review_status: passed
 ---
 
 # Optional Claude-only dispatched-executor mode for refactor
@@ -67,11 +67,11 @@ new reference).
 
 ## Acceptance criteria
 
-- [ ] `plugins/docks/skills/engineering/refactor/references/executor-dispatch.md` exists, is linked from `refactor/SKILL.md`, and contains the dispatch (`isolation: "worktree"`, default `sonnet`) + the APPROVE/REVISE-max-2/BLOCK verdict table.
-- [ ] `grep -ni 'optional\|claude-only\|default' plugins/docks/skills/engineering/refactor/SKILL.md` → constraint 1 now marks the mode opt-in/Claude-only with single-context as the default.
-- [ ] The default path is unchanged: Phases 7–8 single-context implementation reads exactly as before (diff shows only additive carve-out wording, no removal of the single-context steps).
-- [ ] `node scripts/ci.mjs` exits 0 — `refs-guard` passes the new reference (resolves, one level deep, has a `## Contents` TOC if >100 lines), content-hash idempotent, score floor met.
-- [ ] **Codex-prose check (post-write gate):** re-read the reworded constraint 1 as a plain-markdown reader (no `<constraint>` weighting) — it must still read "default is single-context; the dispatch mode is optional and Claude-only". If it reads as "subagent dispatch is fine", revert and re-word.
+- [x] `plugins/docks/skills/engineering/refactor/references/executor-dispatch.md` exists, is linked from `refactor/SKILL.md`, and contains the dispatch (`isolation: "worktree"`, default `sonnet`) + the APPROVE/REVISE-max-2/BLOCK verdict table.
+- [x] `grep -ni 'optional\|claude-only\|default' plugins/docks/skills/engineering/refactor/SKILL.md` → constraint 1 now marks the mode opt-in/Claude-only with single-context as the default.
+- [x] The default path is unchanged: Phases 7–8 single-context implementation reads exactly as before (diff shows only additive carve-out wording, no removal of the single-context steps).
+- [x] `node scripts/ci.mjs` exits 0 — `refs-guard` passes the new reference (resolves, one level deep, has a `## Contents` TOC if >100 lines), content-hash idempotent, score floor met.
+- [x] **Codex-prose check (post-write gate):** re-read the reworded constraint 1 as a plain-markdown reader (no `<constraint>` weighting) — it must still read "default is single-context; the dispatch mode is optional and Claude-only". If it reads as "subagent dispatch is fine", revert and re-word.
 - [ ] **Manual smoke (Claude-only, not CI):** on a throwaway approved 1-step refactor plan, opting into the mode dispatches an executor in a worktree, the orchestrator renders a verdict, and NOTHING is merged/pushed to the user's branch. The capability is Claude-only and can't be asserted by `ci.mjs` — verify by hand once.
 
 ## Out of scope
@@ -100,4 +100,13 @@ A dispatched `plan-review` Mode 0 verified all 6 cited `file:line` refs accurate
 
 ## Review
 
-(filled by plan-review on completion)
+`Goal met: yes · review_status: passed · completion review (in_review), diff base f257b5c..6920502 · Filed by: plan-review (dispatched, 9 tool-uses)`
+
+Independent completion review verified the carve-out is additive and the prose holds under a Codex reading.
+
+- **Criteria 1–5 PASS.** New reference exists, linked from refactor/SKILL.md:121 (refs-guard one-level-deep), contains the worktree dispatch (`isolation: "worktree"`, default `sonnet`) + APPROVE/REVISE-max-2/BLOCK verdict table; constraint 1 marks the mode opt-in/Claude-only with single-context as the default; the diff is +7/−4, purely additive — the Phases 7–8 single-context steps are intact (no removal); scope ⊆ `affected_paths`.
+- **Codex-prose adversarial check (the key gate) PASS.** A plain-markdown read (zero weight on `<constraint>` tags) of intro line 13 + constraint 1 confirms the polarity is carried by ordinary prose — "by default", "only", "never", "ONE optional exception", "opt-in, never the default", "fall back" — so a Codex reader cannot come away thinking dispatch is the norm. The STOP condition is satisfied.
+
+Criterion 6 (manual Claude-only smoke) — **NOT run, non-blocking.** A one-time by-hand dispatch-in-a-worktree run that `ci.mjs` cannot assert; the mode is documentation-only and structurally validated, but the end-to-end hand-run was not performed. Perform it once before relying on the mode in anger.
+
+Regressions: none. CI: pass. Follow-ups: the one-time manual smoke above.
