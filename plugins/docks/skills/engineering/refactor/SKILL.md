@@ -4,16 +4,16 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-06-14"
-  content_hash: "779651682f1c9821b13f2eeac2c57c6f3e7f31c61c15b177844c32e502fa5794"
+  updated: "2026-06-23"
+  content_hash: "3da2671dadd9d0a4189d4bc1e6a1074ae259c4dbf4c5a25e1825ef37429f2ac7"
 ---
 
 # Refactor (cross-tool pipeline)
 
-Detect and fix structural issues — dead code, duplication, SOLID violations, modernization — as one sequential pass with a tiered plan, an approval gate, and test-guarded implementation. Single-agent and cross-tool: no slash command, no subagent dispatch, no Plan Mode. Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
+Detect and fix structural issues — dead code, duplication, SOLID violations, modernization — as one sequential pass with a tiered plan, an approval gate, and test-guarded implementation. Single-agent and cross-tool by default — no slash command, no Plan Mode; the only subagent dispatch is the optional Claude-only executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential. Execute the phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Append each phase's output to the plan file as you finish it, so a mid-run compaction can resume by re-reading it.
+Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context; the analysis phases (1–5) never fan out or dispatch subagents — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Append each phase's output to the plan file as you finish it, so a mid-run compaction can resume by re-reading it. Implementation has ONE optional, explicitly Claude-only exception — the dispatched-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and off-Claude you always fall back to the in-context path (Phases 7–8).
 </constraint>
 
 <constraint>
@@ -84,6 +84,8 @@ After Phase 5, write `## Phase 6: Plan Presentation` to the plan file:
 
 Then print "Refactoring plan written to `<path>`; review and say `start <slug>` to implement." as your final message and end the turn — do not call Edit/Write until the user replies. Approval flows through the plan lifecycle — never `ExitPlanMode`.
 
+After approval, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same `docs/plans/` verdict; just who does the edits.
+
 ## Implementation (Phases 7–8, after approval)
 
 1. Run the full test suite first to establish a baseline. If tests already fail, note which and proceed carefully.
@@ -116,6 +118,7 @@ Then print "Refactoring plan written to `<path>`; review and say `start <slug>` 
 | Phase 4 — tiered plan, 9 fields, over-engineering guard | `references/planner.md` |
 | Phase 5 — pre-impl checks + reproduction | `references/pre-verifier.md` |
 | Phase 8 — post-impl verify + SOLID delta | `references/post-verifier.md` |
+| Optional (Claude-only) — dispatched cheaper-executor + tech-lead review | `references/executor-dispatch.md` |
 
 ## Verification (Phase 8 — scope + no unplanned loss)
 
