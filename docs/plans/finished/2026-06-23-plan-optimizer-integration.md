@@ -3,7 +3,7 @@ title: Add a tiered scored iterate-until-plateau refinement to the plan self-rev
 goal: Port Sean Geng's plan-optimizer (scored critique→rewrite loop, tiered to plan size, best-of-N escape) into the existing docks self-review machinery — no new skill — proven by a decision matrix and gated by a behavioral smoke test.
 status: finished
 created: "2026-06-23T15:40:27-03:00"
-updated: "2026-06-23T16:18:40-03:00"
+updated: "2026-06-23T19:19:32Z"
 started_at: "2026-06-23T16:01:20-03:00"
 ship_commit: "891ccf3e29c5f75c82c7d0fed6e2116ea63ccbfc"
 assignee: null
@@ -14,7 +14,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-review/SKILL.md
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
 related_plans: []
-review_status: null
+review_status: passed
 ---
 
 # Add a tiered scored iterate-until-plateau refinement to the plan self-review
@@ -224,7 +224,11 @@ silent guesses.
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 8 acceptance criteria verified with evidence this turn (grep + diff reads); weighted rubric + tiered iterate-until-plateau loop landed in `docs/plans/AGENTS.md` and synced to the plan-init template, plan-review Mode 0 + plan-manager Step 6 carry the loop and the write-ownership rule, and CI is green.
+- **Regressions:** none — `affected_paths` (4 entries) all in the ship-commit changed-files list; the only unannounced change (`plan-init/SKILL.md`) is the expected `metadata.updated`/`content_hash` re-sync forced by editing the template it owns, not drift.
+- **CI:** pass — `node scripts/ci.mjs` exits 0 (skills eng 224 / prod 188, agents 30 / floor 28, `skill content_hash in sync; maintainer re-run is a no-op`).
+- **Follow-ups:** none
+- Filed by: plan-review on 2026-06-23T19:19:32Z
 
 ## Sources
 
