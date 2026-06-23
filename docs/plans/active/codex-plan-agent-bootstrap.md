@@ -1,10 +1,11 @@
 ---
 title: Bootstrap Codex plan agents
 goal: Add Codex repo-local plan-agent bootstrap support without changing Claude plugin subagent behavior.
-status: ongoing
+status: in_review
 created: "2026-06-23T20:15:44-03:00"
-updated: "2026-06-23T20:17:14-03:00"
+updated: "2026-06-23T20:23:17-03:00"
 started_at: "2026-06-23T20:17:14-03:00"
+in_review_since: "2026-06-23T20:23:17-03:00"
 assignee: null
 tags: [codex, plans, agents, scaffold]
 affected_paths:
@@ -23,7 +24,7 @@ affected_paths:
   - plugins/docks/skills/productivity/scaffold/SKILL.md
   - plugins/docks/skills/productivity/scaffold/references/spec-schema.md
 related_plans: [codex-plan-agents]
-review_status: null
+review_status: passed
 planned_at_commit: "793889afd056bc141a73c6e315136d33a684e41f"
 ---
 
@@ -45,21 +46,21 @@ Make `plan-init` and greenfield scaffolded Docks-style projects create thin proj
 
 | # | Task | Depends | Status |
 |---|---|---|---|
-| 1 | Tighten the existing repo-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers so they are thin, explicit-delegation wrappers around the canonical skills. Done when both files parse as TOML and do not duplicate full skill bodies. | - | planned |
-| 2 | Teach `plan-init` to seed missing default Codex plan-agent wrappers alongside `docs/plans/`, while preserving idempotency, migration behavior, and the plugin/consumer boundary. Done when the skill tells agents exactly which files to create and when to skip existing custom files. | 1 | planned |
-| 3 | Update the docs/plans template plus `plan-manager` and `plan-review` skills so review dispatch resolves Claude agents or Codex project agents, then falls back to inline skill execution when no explicit delegation or resolved agent exists. Done when the lifecycle text no longer implies Codex must use skills only. | 2 | planned |
-| 4 | Update scaffold support for greenfield Docks-style projects to include Codex plan-agent templates. Done when `docs/scaffold/spec.yaml`, schema docs, and scaffold skill text describe/render `.codex/agents/*.toml` without changing plugin manifests. | 2 | planned |
-| 5 | Refresh root and plugin READMEs to distinguish Claude plugin-shipped agents from repo-local/generated Codex agents, and remove stale "Codex skills cannot dispatch subagents" wording. Done when public docs match the verified Codex behavior. | 3 | planned |
-| 6 | Refresh content hashes for changed shipped skills and run the scaffold guards plus full CI. Done when `node scripts/scaffold/guard-spec.mjs`, `node scripts/scaffold/test.mjs`, and `node scripts/ci.mjs` exit 0. | 1-5 | planned |
+| 1 | Tighten the existing repo-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers so they are thin, explicit-delegation wrappers around the canonical skills. Done when both files parse as TOML and do not duplicate full skill bodies. | - | done |
+| 2 | Teach `plan-init` to seed missing default Codex plan-agent wrappers alongside `docs/plans/`, while preserving idempotency, migration behavior, and the plugin/consumer boundary. Done when the skill tells agents exactly which files to create and when to skip existing custom files. | 1 | done |
+| 3 | Update the docs/plans template plus `plan-manager` and `plan-review` skills so review dispatch resolves Claude agents or Codex project agents, then falls back to inline skill execution when no explicit delegation or resolved agent exists. Done when the lifecycle text no longer implies Codex must use skills only. | 2 | done |
+| 4 | Update scaffold support for greenfield Docks-style projects to include Codex plan-agent templates. Done when `docs/scaffold/spec.yaml`, schema docs, and scaffold skill text describe/render `.codex/agents/*.toml` without changing plugin manifests. | 2 | done |
+| 5 | Refresh root and plugin READMEs to distinguish Claude plugin-shipped agents from repo-local/generated Codex agents, and remove stale "Codex skills cannot dispatch subagents" wording. Done when public docs match the verified Codex behavior. | 3 | done |
+| 6 | Refresh content hashes for changed shipped skills and run the scaffold guards plus full CI. Done when `node scripts/scaffold/guard-spec.mjs`, `node scripts/scaffold/test.mjs`, and `node scripts/ci.mjs` exit 0. | 1-5 | done |
 
 ## Acceptance criteria
 
-- [ ] This repo has `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml`, and scaffold templates can create the same defaults in new repos.
-- [ ] No plugin manifest starts shipping Codex agents; Claude plugin agents remain under `plugins/docks/agents/`.
-- [ ] `plan-init` instructions seed only missing default Codex plan-agent files and avoid overwriting project-customized agents.
-- [ ] `docs/plans` template, `plan-manager`, and `plan-review` describe Codex agent dispatch with explicit permission or policy and inline fallback.
-- [ ] Root and plugin READMEs no longer say Codex cannot dispatch subagents; they state the plugin boundary accurately.
-- [ ] `node scripts/scaffold/guard-spec.mjs`, `node scripts/scaffold/test.mjs`, and `node scripts/ci.mjs` pass.
+- [x] This repo has `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml`, and scaffold templates can create the same defaults in new repos.
+- [x] No plugin manifest starts shipping Codex agents; Claude plugin agents remain under `plugins/docks/agents/`.
+- [x] `plan-init` instructions seed only missing default Codex plan-agent files and avoid overwriting project-customized agents.
+- [x] `docs/plans` template, `plan-manager`, and `plan-review` describe Codex agent dispatch with explicit permission or policy and inline fallback.
+- [x] Root and plugin READMEs no longer say Codex cannot dispatch subagents; they state the plugin boundary accurately.
+- [x] `node scripts/scaffold/guard-spec.mjs`, `node scripts/scaffold/test.mjs`, and `node scripts/ci.mjs` pass.
 
 ## Out of scope
 
@@ -87,7 +88,11 @@ Score: 92/100 · trajectory 92 · stopped: first pass above threshold.
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — `plan-init`, scaffold, plan lifecycle skills, and READMEs now cover repo-local Codex plan-agent wrappers while preserving Claude-only plugin-shipped agents.
+- **Regressions:** none
+- **CI:** pass (`node scripts/ci.mjs`)
+- **Follow-ups:** none
+- Filed by: plan-review on 2026-06-23T20:23:17-03:00
 
 ## Sources
 
