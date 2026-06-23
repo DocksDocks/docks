@@ -1,10 +1,11 @@
 ---
 title: Add repo-local Codex plan lifecycle agents
 goal: Add project-scoped Codex custom agents that mirror the repo's Claude plan-manager and plan-review wrappers, then document the plugin-vs-project-agent boundary.
-status: ongoing
+status: in_review
 created: "2026-06-23T19:52:26-03:00"
 updated: "2026-06-23T19:52:26-03:00"
 started_at: "2026-06-23T19:52:26-03:00"
+in_review_since: "2026-06-23T19:52:26-03:00"
 assignee: null
 tags: [codex, agents, plans]
 affected_paths:
@@ -31,10 +32,10 @@ Current Codex docs support project-scoped custom agents in `.codex/agents/`, wit
 
 | # | Task | Depends | Status |
 |---|---|---|---|
-| 1 | Add `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` with narrow descriptions, appropriate `model` / `model_reasoning_effort`, `sandbox_mode = "workspace-write"`, and `developer_instructions` that load the canonical plan skills instead of duplicating their full bodies. | -- | planned |
-| 2 | Update root `AGENTS.md` so the repository map distinguishes plugin-shipped Claude agents from project-local Codex agent equivalents, and makes clear that `.codex/agents` is for working on this repo rather than part of the installable plugin payload. | 1 | planned |
-| 3 | Update `plan-manager/SKILL.md` dispatch wording so auto-review via `plan-review` covers both Claude `Agent(subagent_type=...)` and Codex custom-agent dispatch when a project `.codex/agents/plan-review.toml` exists; keep inline execution as the fallback. Bump `metadata.updated` and resync `content_hash`. | 1 | planned |
-| 4 | Verify the TOML parses, the plan-manager skill hash is synchronized, and the full repo gate passes. | 1,2,3 | planned |
+| 1 | Add `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` with narrow descriptions, appropriate `model` / `model_reasoning_effort`, `sandbox_mode = "workspace-write"`, and `developer_instructions` that load the canonical plan skills instead of duplicating their full bodies. | -- | done |
+| 2 | Update root `AGENTS.md` so the repository map distinguishes plugin-shipped Claude agents from project-local Codex agent equivalents, and makes clear that `.codex/agents` is for working on this repo rather than part of the installable plugin payload. | 1 | done |
+| 3 | Update `plan-manager/SKILL.md` dispatch wording so auto-review via `plan-review` covers both Claude `Agent(subagent_type=...)` and Codex custom-agent dispatch when a project `.codex/agents/plan-review.toml` exists; keep inline execution as the fallback. Bump `metadata.updated` and resync `content_hash`. | 1 | done |
+| 4 | Verify the TOML parses, the plan-manager skill hash is synchronized, and the full repo gate passes. | 1,2,3 | done |
 
 ## Acceptance criteria
 
