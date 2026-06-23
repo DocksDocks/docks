@@ -1,9 +1,9 @@
 ---
 title: Fold iterate-until-plateau plan refinement into the self-review loop
 goal: Port Sean Geng's plan-optimizer (scored iterate-until-plateau loop + best-of-N) into the existing docks self-review machinery instead of shipping a 4th plan-* skill.
-status: planned
+status: finished
 created: "2026-06-23T15:07:16-03:00"
-updated: "2026-06-23T15:22:35-03:00"
+updated: "2026-06-23T15:48:57-03:00"
 started_at: null
 assignee: null
 tags: ["plan-system", "skill-enhancement", "research"]
@@ -19,6 +19,10 @@ review_status: null
 ---
 
 # Fold iterate-until-plateau plan refinement into the self-review loop
+
+> **Superseded by [[plan-optimizer-integration]]** (2026-06-23). Merged into the
+> canonical reconciled plan; never executed. Kept for provenance — its concrete
+> loop constants, checkbox acceptance, and resolved decisions live on in the merge.
 
 ## Goal
 

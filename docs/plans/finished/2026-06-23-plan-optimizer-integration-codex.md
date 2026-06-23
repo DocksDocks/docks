@@ -1,9 +1,9 @@
 ---
 title: Evaluate plan optimizer integration for docks
 goal: Decide whether Sean Geng's plan-optimizer loop belongs in docks as a new skill or as an upgrade to existing plan lifecycle skills, then implement the chosen path safely.
-status: planned
+status: finished
 created: "2026-06-23T15:05:18-03:00"
-updated: "2026-06-23T15:05:18-03:00"
+updated: "2026-06-23T15:48:57-03:00"
 started_at: null
 assignee: null
 tags: [plans, skills, research, codex]
@@ -19,6 +19,10 @@ review_status: null
 ---
 
 # Evaluate plan optimizer integration for docks
+
+> **Superseded by [[plan-optimizer-integration]]** (2026-06-23). Merged into the
+> canonical reconciled plan; never executed. Kept for provenance — its decision
+> matrix, behavioral smoke test, and tiered-policy idea live on in the merge.
 
 ## Goal
 
