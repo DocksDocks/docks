@@ -110,20 +110,32 @@ then red-teamed against the rubric below, before it reaches the user — making
 "review each detail and revalidate" automatic. Two question layers: agent→agent
 (this rubric, resolved internally) and agent→user (`## Open questions`).
 
-| Check | Hole it catches |
-|---|---|
-| Actionability | every step has a verifiable done-condition |
-| Dependency order | no step needs a later step's output; prerequisites exist |
-| Evidence re-verify | every cited `file:line` was opened this session and says what's claimed |
-| Goal coverage | with every step done, is the Goal actually met? name the gap |
-| Checkable acceptance | criteria are a command + expected output where natural |
-| Failure mode | each risky step has a revert trigger |
-| Assumption → question | anything guessed becomes an `## Open question`, not a silent default |
+| Check | Weight | Hole it catches |
+|---|---|---|
+| Actionability | 20 | every step has a verifiable done-condition |
+| Dependency order | 15 | no step needs a later step's output; prerequisites exist |
+| Evidence re-verify | 15 | every cited `file:line` was opened this session and says what's claimed |
+| Goal coverage | 15 | with every step done, is the Goal actually met? name the gap |
+| Checkable acceptance | 10 | criteria are a command + expected output where natural |
+| Failure mode | 15 | each risky step has a revert trigger |
+| Assumption → question | 10 | anything guessed becomes an `## Open question`, not a silent default |
 
 Then the cold-handoff meta-frame: "Could a fresh agent execute this with ONLY
 this file? Where would it guess?" Every guess → fix it or make it an open
-question. Proportional: small plans (≤6 steps, no risk) get the inline rubric;
-big/risky plans also get a fresh-context subagent review.
+question.
+
+**Scored iterate-until-plateau loop (tiered).** The rubric is *scored*, not just
+checked: a deliberate separate pass assigns each check its weighted sub-score
+(sum 0–100), then hill-climbs — critique lowest checks → rewrite → re-score, keep
+a new draft only if it beats the best by margin **+2**, stop at plateau (no gain
+over **K=3** rounds) or an **8-round cap**; when stuck, a **best-of-N=3** escape
+picks the best of 3 fresh rewrites. Record `Score: <n>/100 · trajectory
+<a→b→…> · stopped: plateau (K=3) | 8-round cap` in `## Self-review`. Tiered —
+**every plan is scored once**; iteration fires only when the first **score < 85**,
+the plan is big/risky (>6 steps or a risk flag → a fresh-context subagent runs
+it), or the user asks for hardening; a parked stub gets just the score + one
+critique. *(Technique adapted from Sean Geng, "Iterate a plan until it stops
+improving" — https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving.)*
 
 ## Open questions — bounded decisions for the user
 

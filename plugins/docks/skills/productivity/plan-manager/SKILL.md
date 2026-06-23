@@ -4,8 +4,8 @@ description: Use when the user asks to list plans, show/start/block/ship a plan,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-14"
-  content_hash: "9549054cc4e077cd95152d61433701d78c52da45cd26c27730b6b98c1dbda9db"
+  updated: "2026-06-23"
+  content_hash: "d68387c6c93c27ba28d9f74e11bdf159fb76e7ebf9628788b1d1f6c4be48ec05"
 ---
 
 # Plan Manager
@@ -94,7 +94,7 @@ git add docs/plans/active/x.md && git commit -m "plan(x): block on CI"
 **Audit-first** (mandatory before writing): open/grep every file the plan will cite — every `file:line` in `## Sources` and `affected_paths` comes from code read THIS session, paired with one-line evidence. Record verbatim user decisions in `## Context`/`## Out of scope`. Proportionality: a parked-idea stub needs only a light audit.
 
 1. Compose `active/<kebab-slug>.md` (no date prefix — status is a field). Frontmatter defaults: `status: planned`, `created`+`updated` = anchor, `started_at: null`, `assignee: null`, `tags: []`, `affected_paths: []`, `related_plans: []`, `review_status: null`. Body = the required spine (`## Goal`, `## Steps`, `## Acceptance criteria`, `## Review` placeholder) plus only the optional sections that carry content.
-2. **Self-review** the draft (the constraint's rubric + cold-handoff). Fix holes; record what the pass caught in `## Self-review`. Every remaining guess → an `## Open question` (`id`, `choice`/`text`, options with one `(recommended)`).
+2. **Self-review the draft — scored + tiered** (the constraint's rubric + cold-handoff). Run the weighted score pass (per `docs/plans/AGENTS.md`), then iterate: **score every plan once; enter the hill-climb iff the first `score < 85` OR the plan is big/risky (>6 steps or a risk flag) OR the user asked for hardening.** Big/risky dispatches the loop to a fresh-context `plan-review` Mode 0 — it RETURNS the rewrite + trajectory and `plan-manager` is the sole writer; everything else runs inline. Fix holes; record the outcome in `## Self-review` as `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`. Every remaining guess → an `## Open question` (`id`, `choice`/`text`, options with one `(recommended)`).
 3. **Surface the open questions** via the native picker — `AskUserQuestion` (Claude Code) / `ask_user_question` (Codex). For a *visual* question (component look, layout, palette), render the options as a self-contained throwaway `.html` (gitignored; hand back the path if headless) instead of describing them.
 4. Auto-commit, then render Tier-3.
 

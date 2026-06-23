@@ -4,8 +4,8 @@ description: Use when a plan reaches status finished (in docs/plans/finished/) w
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-14"
-  content_hash: "d2fd6a69344818a39ab83a54a14a2f8384d16613e70eafde656b04ea1303d9d1"
+  updated: "2026-06-23"
+  content_hash: "fa47e03e7c81479c5c156eea55c7ac1cf4b8a1cc1dced72e9c95bec5cc8d441f"
 ---
 
 # Plan Review
@@ -49,10 +49,27 @@ red-teaming the plan itself. Read the plan, then check each item:
 | Assumption → question | anything the plan guessed should be an `## Open question`, not a silent default |
 
 Plus the cold-handoff test: *could a fresh agent execute this with ONLY this
-file? Where would it guess?* Report findings as a bulleted list (each a concrete
-fix or a new open question) — append them to the plan's `## Self-review` section
-or return them to the dispatching agent. Do NOT write a `## Review` block, set
-`review_status`, or run CI in this mode — those are finished-review only.
+file? Where would it guess?*
+
+**Score + iterate (tiered).** Don't just list holes — *score* the draft. As a
+deliberate separate pass, give each rubric check its weighted sub-score (weights
+in `docs/plans/AGENTS.md`; sum to a 0–100 total). Then hill-climb: critique the
+lowest-scoring checks → propose a rewrite → re-score; keep a candidate only if it
+beats the best by margin **+2**; stop at plateau (no gain over **K=3** rounds) or
+an **8-round cap**. When stuck below target, take a **best-of-N=3** escape (score
+3 genuinely different rewrites, keep the winner). Scale by tier (per the
+contract): a parked stub gets score + one critique; a normal plan iterates only
+if the first **score < 85** or hardening was requested; big/risky plans get the
+full loop.
+
+**Return-only when dispatched by `plan-manager`.** Report the score breakdown, the
+proposed rewrite, and a trajectory line — `Score: <n>/100 · trajectory
+<a→b→…> · stopped: plateau (K=3) | 8-round cap` — and **return** them to the
+dispatching agent; `plan-manager` owns writing the optimized draft and recording
+it in `## Self-review`. Only on a *direct* user-invoked draft review (no
+`plan-manager` in the loop) may you append findings to `## Self-review` yourself.
+Either way, do NOT write a `## Review` block, set `review_status`, or run CI in
+this mode — those are finished-review only.
 
 ## Finished review
 
@@ -175,3 +192,4 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 - `docs/plans/AGENTS.md` — full convention; this skill writes the `## Review` block defined there.
 - `plan-manager` skill — handles the `→ finished/` move that auto-triggers this skill. See its Step 8.
 - `plugins/docks/agents/plan-review.md` — Claude-only thin wrapper for inter-agent dispatch via `Agent(subagent_type="plan-review", prompt=<plan-path>)`. Skill is the canonical workflow; agent is a runtime convenience.
+- Scored iterate-until-plateau technique adapted from Sean Geng, "Iterate a plan until it stops improving" — <https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving>.

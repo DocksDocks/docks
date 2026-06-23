@@ -121,26 +121,50 @@ makes "review each detail and revalidate" automatic. Two question layers:
 - **agent → user** (`## Open questions`): only the residue that genuinely
   needs a human decision, surfaced as options.
 
-Rubric — run every item before the plan is shown:
+Rubric — run every item before the plan is shown. Each check carries a **weight**
+(default, tunable; sums to 100) used by the score pass below:
 
-| Check | Hole it catches |
-|---|---|
-| Actionability | every step has a verifiable done-condition — no "improve/handle/clean up X" |
-| Dependency order | no step needs the output of a later one; prerequisites exist |
-| Evidence re-verify | every cited `file:line` was opened *this session* and says what the step claims |
-| Goal coverage | with every step done, is the Goal *actually* met? name the gap |
-| Checkable acceptance | criteria are a command + expected output where natural |
-| Failure mode | each risky step has a revert trigger / "if this fails, then…" |
-| Assumption → question | anything *guessed* becomes an `## Open question`, never a silent default |
+| Check | Weight | Hole it catches |
+|---|---|---|
+| Actionability | 20 | every step has a verifiable done-condition — no "improve/handle/clean up X" |
+| Dependency order | 15 | no step needs the output of a later one; prerequisites exist |
+| Evidence re-verify | 15 | every cited `file:line` was opened *this session* and says what the step claims |
+| Goal coverage | 15 | with every step done, is the Goal *actually* met? name the gap |
+| Checkable acceptance | 10 | criteria are a command + expected output where natural |
+| Failure mode | 15 | each risky step has a revert trigger / "if this fails, then…" |
+| Assumption → question | 10 | anything *guessed* becomes an `## Open question`, never a silent default |
 
 Then the meta-frame that catches the rest — the cold-handoff test: *"Could a
 fresh agent execute this with ONLY this file? Where would it guess?"* Every
 guess → fix it or make it an open question.
 
-**Proportional:** small plans (≤6 steps, no risk flag) get the inline rubric.
-Big or risky plans additionally get a **fresh-context subagent review** — a
-separate agent can't inherit the author's blind spots. Record what the pass
-caught in `## Self-review` (it's a real artifact, not ceremony).
+### Scored iterate-until-plateau loop (tiered)
+
+The rubric isn't only a checklist — it's *scored*, and a draft is refined until
+the score stops improving. The score pass is **deliberate and separate**: go
+check by check, assign each its weighted sub-score, sum to a 0–100 total. Then
+hill-climb — critique the lowest-scoring checks, rewrite to fix them, re-score;
+keep the new draft only if it beats the best by a real **margin (+2)**; stop when
+the best score hasn't moved over the last **K=3** rounds (plateau) or at a hard
+**8-round cap**. When hill-climbing stalls below target, take a **best-of-N (N=3)**
+escape — generate 3 genuinely different rewrites in one round, score all, keep
+the winner. Record the outcome in `## Self-review` as
+`Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`.
+
+**Tiered — every plan is scored once; iteration intensity scales with the plan.**
+Small plans no longer *skip* the review; they get the score and simply converge
+out of the loop immediately:
+
+| Tier | Treatment |
+|---|---|
+| Parked / small stub | one weighted **score + single critique** pass — no iteration |
+| Normal substantive plan | hill-climb **only if the first score < 85/100** or the user asks for hardening; iterate to plateau or the 8-round cap |
+| Big / risky (>6 steps or a risk flag) | a **fresh-context subagent** runs the loop (it can't inherit the author's blind spots) + the best-of-N escape |
+| Explicit "make this best possible" | the full iterate-until-plateau loop |
+
+Record what the pass caught in `## Self-review` (it's a real artifact, not
+ceremony). *(Scored-loop technique adapted from Sean Geng, "Iterate a plan until
+it stops improving" — https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving.)*
 
 ## Open questions — bounded decisions for the user
 
