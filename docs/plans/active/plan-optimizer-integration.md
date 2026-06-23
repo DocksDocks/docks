@@ -3,7 +3,7 @@ title: Add a tiered scored iterate-until-plateau refinement to the plan self-rev
 goal: Port Sean Geng's plan-optimizer (scored critique→rewrite loop, tiered to plan size, best-of-N escape) into the existing docks self-review machinery — no new skill — proven by a decision matrix and gated by a behavioral smoke test.
 status: planned
 created: "2026-06-23T15:40:27-03:00"
-updated: "2026-06-23T15:40:27-03:00"
+updated: "2026-06-23T15:51:37-03:00"
 started_at: null
 assignee: null
 tags: ["plan-system", "skill-enhancement", "research"]
@@ -111,9 +111,14 @@ sub-threshold / big / on-request plans pay for iteration.
 
 - **`plan-manager` OWNS the plan file**: scaffolds it, writes the optimized
   draft, and records the final score + trajectory in `## Self-review`.
-- **`plan-review` Mode 0 SCORES + critiques + proposes a rewrite** and **returns**
-  it (rewrite + findings) to the dispatching context. It does **not** own the
-  file write; it may append findings to `## Self-review` (existing behavior).
+- **`plan-review` Mode 0, when dispatched by `plan-manager`, is RETURN-ONLY:** it
+  scores + critiques + proposes a rewrite and **returns** them (with the
+  trajectory) to the caller; it does **not** touch the plan file. `plan-manager`
+  is the sole writer during new-plan scaffolding.
+- The pre-existing **direct user-invoked draft review** ("review the draft", no
+  `plan-manager` in the loop) is the separate path that may append its findings to
+  `## Self-review` itself — there is no dispatcher to hand the write to. New-plan
+  scaffolding always routes through `plan-manager`, so the ownership rule holds there.
 - Small plans: `plan-manager` runs score+critique inline and writes. Big/risky:
   `plan-manager` dispatches Mode 0 (fresh context), receives the rewrite, writes.
 
@@ -143,7 +148,7 @@ edited unless a specific sentence becomes false.
 |---|---|---|---|
 | 1 | `docs/plans/AGENTS.md` "Self-review": add a `Weight` column to the 7-check rubric table — default (tunable) weights summing to 100: goal-clarity/actionability 20, completeness/goal-coverage 15, sequencing & dependency-order 15, feasibility 15, risks & failure-mode 15, success-metrics/checkable-acceptance 10, specificity 10. Add a paragraph documenting the **tiered** iterate-until-plateau loop (MARGIN +2, K=3, 8-round cap, best-of-N=3, threshold 85/100) and a one-line attribution to Sean Geng + the article URL. REPLACE the proportionality rule at lines 140-143 (incl. the "get the inline rubric" sentence) with the tiered policy. | — | planned |
 | 2 | Sync the same substance (Weight column + tiered-loop paragraph + attribution) into `plugins/.../plan-init/references/plans-agents-md-template.md` (Self-review section, ~line 105) — mirror the *substance*, not byte-for-byte. **Also REPLACE the template's own proportionality sentence at ~line 125** (the identical "get the inline rubric" string lives in both homes; leaving the template's copy diverges the two contract homes). | 1 | planned |
-| 3 | Rewrite `plan-review` Mode 0 (`SKILL.md:35-55`) to run the scored loop (score = separate pass → critique → rewrite → re-score → stop at plateau/8-round cap; best-of-N when stuck) and to **return** the rewrite + breakdown + trajectory to the caller (it does NOT own the file write; may append findings to `## Self-review`). Pin the recorded-artifact format: `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`. Add the Sean-Geng attribution to `## References`. Bump `metadata.updated`; re-sync `content_hash`. | 1 | planned |
+| 3 | Rewrite `plan-review` Mode 0 (`SKILL.md:35-55`) to run the scored loop (score = separate pass → critique → rewrite → re-score → stop at plateau/8-round cap; best-of-N when stuck) and to **return** the rewrite + breakdown + trajectory to the caller (RETURN-ONLY when dispatched by plan-manager — it does NOT write the plan file; the separate direct user-invoked draft-review path may write to `## Self-review` itself). Pin the recorded-artifact format: `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`. Add the Sean-Geng attribution to `## References`. Bump `metadata.updated`; re-sync `content_hash`. | 1 | planned |
 | 4 | Update `plan-manager` Step 6 (`SKILL.md:92-99`) for the tiered policy + write-ownership. State the control flow explicitly: **score every plan once; enter the hill-climb iff `score < 85` OR the plan is big/risky OR the user asked for hardening** — big/risky dispatches to the fresh-context Mode 0, everything else runs inline. `plan-manager` writes the optimized draft and records the score + trajectory (Step 3 format) in `## Self-review`. Bump `metadata.updated`; re-sync `content_hash`. | 3 | planned |
 | 5 | **Verify (do not edit)** the two thin wrappers `plugins/docks/agents/plan-review.md` + `plan-manager.md`: confirm their wording stays true under the scored loop (incl. that plan-manager.md:29's named enumeration of the 7 checks stays accurate — only a Weight column is added, the checks don't change). Edit ONLY a sentence that became factually *false* (incomplete-but-true wording is left as-is). Done-condition: `git diff --stat plugins/docks/agents/` is empty, OR each hunk corrects a now-false sentence (noted in the commit). | 3,4 | planned |
 | 6 | **Smoke test:** on a throwaway draft plan, run the loop; confirm a per-criterion score breakdown + a trajectory + a plateau/cap stop reason are recorded in its `## Self-review` in the Step 3 format. Then `rm` the throwaway and confirm `git status` is clean — plan `.md`s are tracked (only render `.html`s are gitignored), so it must be deleted, never committed. | 3,4 | planned |
@@ -156,7 +161,7 @@ edited unless a specific sentence becomes false.
 - [ ] The proportionality sentence is gone from BOTH contract homes — `grep -c "get the inline rubric" docs/plans/AGENTS.md plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` reports `0` for each file.
 - [ ] The plan-init template carries the synced substance — `grep -nE "plateau|best-of-N|Weight|threshold" plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` is non-empty.
 - [ ] `plan-review` Mode 0 + `plan-manager` Step 6 describe the tiered loop AND the write-ownership (plan-manager writes, Mode 0 returns) — confirmed by Read; both skills' `content_hash` re-synced (CI idempotency passes).
-- [ ] Smoke test recorded: a throwaway run shows score breakdown + trajectory + plateau/cap stop in `## Self-review` (Step 3 format); the throwaway is removed (`ls docs/plans/active/` shows none) AND `git status` is clean (it was never committed).
+- [ ] Smoke test recorded: a throwaway run shows score breakdown + trajectory + plateau/cap stop in `## Self-review` (Step 3 format); the specific throwaway file is then deleted — `ls docs/plans/active/<throwaway-slug>.md` returns "No such file" AND `git status --short` is clean (it was never committed). (Do not assert `active/` is empty — it holds real plans.)
 - [ ] Wrappers stayed thin: `git diff --stat plugins/docks/agents/` is empty, OR every hunk corrects a sentence that became false.
 - [ ] `node scripts/ci.mjs` exits 0 — all guards, 16-pt skill scorer, agent scorer (floor 14) green, no loosened floors.
 - [ ] No new top-level `plan-*` skill dir — `ls -d plugins/docks/skills/productivity/plan-*/` lists exactly `plan-init/`, `plan-manager/`, `plan-review/`.
@@ -204,6 +209,14 @@ The merged-file Mode 0 pass then caught three merge-introduced defects, now fixe
   attribution to the contract + `plan-review`'s `## References`.
 Plus pinned the rubric weights, the `score < 85` iteration control-flow, and the
 recorded-artifact format that were under-specified.
+
+A follow-up Codex review caught two final nits, now fixed: (1) the write-ownership
+rule contradicted itself ("does not write" + "may append to `## Self-review`") —
+resolved by keying it on the path: Mode 0 is RETURN-ONLY when dispatched by
+plan-manager, while the separate direct user-invoked draft-review path may write
+to `## Self-review` itself; (2) the smoke-test cleanup wrongly asserted
+`ls active/` is empty — now checks the specific throwaway slug is absent +
+`git status --short` clean.
 
 All open questions resolved via the picker (see Context → Decisions); none are
 silent guesses.
