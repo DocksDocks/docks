@@ -36,7 +36,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`):
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
 | `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
-| `plan-init` | Bootstrap `docs/plans/` 5-category lifecycle (planned/ongoing/blocked/scheduled/finished) in a project |
+| `plan-init` | Bootstrap the `docs/plans/` active/finished lifecycle and repo-local Codex plan-agent defaults in a project |
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
 | `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment |
@@ -46,19 +46,21 @@ Auto-trigger on matching tasks (all `user-invocable: false`):
 
 Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills bridging), `plan-manager`, `plan-review`, `zoom-out`, `caveman` under `productivity/`.
 
-### Plan-lifecycle agents (Claude Code only)
+### Plan-lifecycle agents
 
-`plan-manager` and `plan-review` ship as thin opus-tier subagents (`plugins/docks/agents/`) so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills — Codex uses the skills directly.
+`plan-manager` and `plan-review` ship as thin opus-tier Claude subagents (`plugins/docks/agents/`) so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills. Codex plugin installs do not ship subagents, but `plan-init` and `scaffold` can seed project-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers for explicit Codex custom-agent delegation; otherwise Codex runs the skills inline.
 
 ## Repository layout
 
 ```
 .
 ├── .claude-plugin/marketplace.json   ← marketplace catalog (this file is what /plugin marketplace add reads)
+├── .codex/agents/                     ← repo-local Codex plan wrappers for maintainers
 ├── plugins/
 │   └── docks/                         ← the plugin itself (only this gets cached on user install)
 │       ├── .claude-plugin/plugin.json
-│       ├── skills/, agents/           ← cross-tool skills + 2 plan-lifecycle agents
+│       ├── skills/                    ← cross-tool skills
+│       ├── agents/                    ← Claude-only plan-lifecycle wrappers
 │       └── README.md                  ← plugin-facing docs
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)

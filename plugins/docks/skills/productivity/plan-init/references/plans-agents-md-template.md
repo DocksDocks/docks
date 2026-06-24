@@ -22,6 +22,15 @@ natural language); the skills are also user-invocable directly.
 | "list plans", "show <slug>", "start/block/ship <slug>", "new plan <slug>", "fire scheduled" | `plan-manager` |
 | "review plan <slug>", auto on steps-complete (`→ in_review`) | `plan-review` |
 
+## Runtime agent dispatch
+
+The `plan-*` skills are canonical. Runtime agents are thin convenience wrappers:
+Claude plugins may provide `plugins/docks/agents/plan-manager.md` and
+`plan-review.md`, while Codex projects may provide `.codex/agents/plan-manager.toml`
+and `plan-review.toml` seeded by `plan-init` or scaffold. Use an agent only when
+it resolves and explicit user delegation or runtime policy allows it; otherwise
+run the matching skill inline.
+
 ## Directory layout
 
 ```
@@ -178,7 +187,7 @@ each one so a fresh session resumes from committed state (the user can amend).
 | Block | `status: blocked`, set `blocked_reason` + `blocked_since`. No `git mv`. |
 | Unblock | `status: ongoing`, clear `blocked_reason`/`blocked_since`. `started_at` unchanged. |
 | Schedule fires | `status: ongoing`, drop scheduled keys, set `started_at`, dispatch. (`auto_execute` still halts at `in_review`.) |
-| Steps complete → review | All `## Steps` rows `done` → `status: in_review`, set `in_review_since`, auto-dispatch `plan-review` (completion review: diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, file stays in `active/`). No `git mv`. |
+| Steps complete → review | All `## Steps` rows `done` → `status: in_review`, set `in_review_since`, dispatch `plan-review` through the current runtime when a resolved agent and explicit delegation/policy allow it (Claude `Agent(subagent_type=...)`; Codex `.codex/agents/plan-review.toml`); otherwise run the `plan-review` skill inline. Completion review diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, and keeps the file in `active/`. No `git mv`. |
 | Ship | Only when `review_status: passed` (else fix first; if `null`, dispatch review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit`. Carries `## Review` forward — no re-dispatch. |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in `## Notes`. |
 

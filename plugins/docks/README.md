@@ -44,7 +44,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
 | `human-docs-workflow` | README, AGENTS.md, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
-| `plan-init` | Bootstrap `docs/plans/` 5-category lifecycle (planned/ongoing/blocked/scheduled/finished) in a project |
+| `plan-init` | Bootstrap the `docs/plans/` active/finished lifecycle and repo-local Codex plan-agent defaults in a project |
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
 | `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment *(vendored, MIT)* |
@@ -54,13 +54,13 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 
 Plus `capability-tuning` (max-capability settings.json / config.toml templates for Claude Code + Codex, grounded in context engineering), `write-skill`, `multi-tool-bridge`, `plan-manager`, `plan-review`, `zoom-out`, and `caveman` under `productivity/`.
 
-### Plan-lifecycle agents (Claude Code only)
+### Plan-lifecycle agents
 
-`plan-manager` and `plan-review` ship as thin opus-tier subagents so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills; Codex (and any non-Claude runtime) uses the skills directly. Force-invoke with `@agent-plan-manager`.
+`plan-manager` and `plan-review` ship as thin opus-tier Claude subagents so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills. Codex plugin installs do not ship subagents, but `plan-init` and `scaffold` can seed project-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers for explicit Codex custom-agent delegation; otherwise Codex runs the skills inline. In Claude, force-invoke with `@agent-plan-manager`.
 
 ## Why sequential, single-context?
 
-Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass so the *same* skill works on every runtime — Codex skills cannot dispatch subagents, and plugins cannot ship them. The plan file remains the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval artifact. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (written to the same plan file) before anything is applied.
+Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass so the *same* skill works on every runtime. Plugin-shipped subagents remain Claude-only; Codex can use project-local `.codex/agents/*.toml` custom agents when explicitly delegated, with inline skill execution as the portable fallback. The plan file remains the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval artifact. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (written to the same plan file) before anything is applied.
 
 ## Validators (plugin-author tooling)
 

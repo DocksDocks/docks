@@ -13,6 +13,8 @@ templated_files:
   - { template: codex-plugin.json.template,      dest: "plugins/{{ plugin_name }}/.codex-plugin/plugin.json" }
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
+  - { template: codex-plan-manager.toml.template, dest: ".codex/agents/plan-manager.toml" }
+  - { template: codex-plan-review.toml.template,  dest: ".codex/agents/plan-review.toml" }
   - { template: package.json.template,          dest: "package.json" }
   - { template: pnpm-lock.yaml.template,        dest: "pnpm-lock.yaml" }
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }

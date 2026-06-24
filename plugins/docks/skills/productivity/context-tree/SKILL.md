@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-06-10"
-  content_hash: "39dbeb900758228a87b32d4a56b1735249b1f30f71a1db4f80577b3d2b61e9a0"
+  updated: "2026-06-23"
+  content_hash: "ecf2cedf492a894d34671078890f586a0b5bf300475b618b8548c59d9c359deb"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -36,6 +36,16 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 | `context-tree audit` | Read-only. Report drift: nodes missing a CLAUDE.md pair, CLAUDE.md that isn't `@AGENTS.md`-only, AGENTS.md claims that no longer match **current source** (every path/snippet/identifier/count verified by reading — not just file existence), folders that newly qualify as nodes. | no |
 | `context-tree refresh <folder>` | Regenerate one node from current disk state. Calls the `skill-maintenance` `--check-only` predicate first; if nothing semantic changed, it's a no-op (no write). | only if changed |
 | `context-tree refresh` | Regenerate every node (use when the convention itself changes). Same approval gate as `init`. | yes (after approval) |
+
+## Plan lifecycle handoff
+
+`context-tree` is not a plan operator, but user-triggered fixes can be risky
+enough to need the plan lifecycle. Keep `audit` read-only. For `init`, full
+`refresh`, or "fix the audit findings", create a `plan-manager` plan before
+writing when the change affects more than one node, moves/prunes root content,
+changes conventions, or needs multi-step verification. Trivial half-pair repairs
+(`AGENTS.md` exists but `CLAUDE.md` is missing, or vice versa) may be applied
+directly after the normal approval gate.
 
 ## What counts as a node
 
@@ -119,6 +129,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — anything else breaks the pair. |
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
 | `init` clobbered `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them from the write set. |
+| Fixed a multi-node audit directly in chat | Risky fix path. Create a `plan-manager` plan first unless it is a trivial half-pair repair. |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
 | Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + the pair check, prune root LAST (Phase B). |
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
@@ -139,4 +150,4 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 - [`references/node-template.md`](references/node-template.md) — the AGENTS.md skeleton, the CLAUDE.md one-liner, the root "Context tree" section, the self-sufficiency checklist.
 - [`references/conflict-resolution.md`](references/conflict-resolution.md) — existing-file detection, drift/audit logic, merge-vs-overwrite, no-op refresh.
 - [`references/data-preservation.md`](references/data-preservation.md) — the section-inventory algorithm, per-section relocation table, two-phase write, and the verbatim verification snippet (self-contained; the kit pattern is in `write-skill/references/data-preservation.md`).
-- Companion: `skill-maintenance` (`--check-only` content predicate the refresh op reuses) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).
+- Companion: `plan-manager` (durable plan for risky user-triggered fixes) · `skill-maintenance` (`--check-only` content predicate the refresh op reuses) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).

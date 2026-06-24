@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for any agentskills.io-compliant runtime (Codex, Claude Code, OpenCode, VS Code Copilot), including three sequential **pipeline skills** — `security`, `refactor`, and `skill-agent-pipeline` — that fold what used to be Claude-only Builder-Verifier slash commands into a single-context, runtime-portable form. Each pipeline runs its phases in order, keeps per-phase expertise in `references/`, and gates approval through the `docs/plans/` lifecycle instead of Plan Mode. The only Claude-specific extras are two thin plan-lifecycle subagents (`plan-manager`, `plan-review`).
+docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for any agentskills.io-compliant runtime (Codex, Claude Code, OpenCode, VS Code Copilot), including three sequential **pipeline skills** — `security`, `refactor`, and `skill-agent-pipeline` — that fold what used to be Claude-only Builder-Verifier slash commands into a single-context, runtime-portable form. Each pipeline runs its phases in order, keeps per-phase expertise in `references/`, and gates approval through the `docs/plans/` lifecycle instead of Plan Mode. The installable plugin's Claude-specific extras are two thin plan-lifecycle subagents (`plan-manager`, `plan-review`); this source repo also has project-local Codex wrappers under `.codex/agents/` for maintainers.
 
 This root file stays **repo-wide**. Per-area authoring details — skill/agent frontmatter, scoring, the release flow, CI triggers — live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -17,8 +17,9 @@ This root file stays **repo-wide**. Per-area authoring details — skill/agent f
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
+├── .codex/agents/                    repo-local Codex plan-manager + plan-review wrappers (not plugin payload)
 ├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
-├── docs/plans/                       5-category lifecycle planning (bootstrapped by plan-init skill)
+├── docs/plans/                       active/finished lifecycle planning (bootstrapped by plan-init skill)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
 └── .github/workflows/                gh-side CI on PR + tag push
 ```
@@ -37,9 +38,14 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 
 The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes; `scripts/tree/guard.mjs` enforces the pair convention in CI.
 
-## Authoring agents (Claude-only)
+## Authoring agents
 
-Agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `plugins/docks/agents/` holds only two — `plan-manager` and `plan-review`, thin opus-tier wrappers around their cross-tool skills for inter-agent `Agent(subagent_type=…)` dispatch. Each is a flat `agents/<name>.md`.
+Project-local Codex agents live in `.codex/agents/*.toml`. They are for working
+on this repository with Codex and are not part of the installable Docks plugin.
+Keep them thin: load the matching canonical skill, add only Codex-specific
+dispatch/sandbox guidance, and avoid duplicating full skill bodies.
+
+Plugin-shipped agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `plugins/docks/agents/` holds only two — `plan-manager` and `plan-review`, thin opus-tier wrappers around their cross-tool skills for inter-agent `Agent(subagent_type=…)` dispatch. Each is a flat `agents/<name>.md`.
 
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): `claude plugin validate` lints every `*.md` under `agents/` as a subagent, so an `AGENTS.md`/`CLAUDE.md` pair there fails `validate --strict` with "No frontmatter". Neither relocating the files into a subdir nor declaring an `agents` array in the manifest avoids that scan (both tried and ruled out). These authoring rules therefore live in this root file instead of a nested node.
 
@@ -56,7 +62,7 @@ The `agents/` folder deliberately carries **no context-tree node** (hence its ab
 Multi-commit work plans live in `docs/plans/active/` (lifecycle stage is the `status:` frontmatter field) and `docs/plans/finished/` (archive). Only the `.md` is tracked — views render on demand. Every plan file is a complete handoff document — `goal`, `Steps`, `Acceptance criteria`, `Review` — so any agent can pick one up cold. Skills handle every operation: `plan-init` (bootstrap/migrate), `plan-manager` (list/show/start/block/ship/new — drafts are self-reviewed, transitions auto-commit), `plan-review` (finished verification + draft review). Trigger by natural language or the matching `plan-*` skill. `active/` is multi-occupancy.
 </constraint>
 
-The full convention (frontmatter schema, body spine, status-as-field model, the self-review rubric, open-questions via the native picker, status-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation.
+The full convention (frontmatter schema, body spine, status-as-field model, the self-review rubric, open-questions via the native picker, status-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation. Codex project agents in `.codex/agents/` provide the same repo-local focused wrappers when explicit Codex subagent delegation is useful.
 
 ## Project-local skills
 

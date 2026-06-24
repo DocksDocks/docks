@@ -19,7 +19,7 @@
 |---|---|---|---|
 | `version` | int | yes | Schema version. Currently `1`. Seed refuses an unknown version. |
 | `plugin` | map | yes | Plugin-level constants (`name_placeholder`, `license`). |
-| `templated_files` | list | yes | Variable-substituted files rendered into the new project (manifests, root AGENTS.md). |
+| `templated_files` | list | yes | Variable-substituted files rendered into the new project (manifests, root AGENTS.md, Codex project agents). |
 | `tree_nodes` | list | yes | Context-tree node pairs to create. |
 | `bundled_skills` | list | no | Skills copied verbatim from the source repo (pinned to its revision). |
 | `scripts` | list | no | Validator scripts copied verbatim into the new project's `scripts/`. |
@@ -35,7 +35,7 @@ plugin:
 
 ## `templated_files`
 
-Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted.
+Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted. Codex custom agents are plain templated files under `.codex/agents/`; they are project-local wrappers, not plugin-shipped agents.
 
 ```yaml
 templated_files:
@@ -43,6 +43,8 @@ templated_files:
   - { template: codex-plugin.json.template,      dest: "plugins/{{ plugin_name }}/.codex-plugin/plugin.json" }
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
+  - { template: codex-plan-manager.toml.template, dest: ".codex/agents/plan-manager.toml" }
+  - { template: codex-plan-review.toml.template,  dest: ".codex/agents/plan-review.toml" }
   - { template: package.json.template,           dest: "package.json" }
   - { template: pnpm-lock.yaml.template,         dest: "pnpm-lock.yaml" }
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }

@@ -5,12 +5,17 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-06-23"
-  content_hash: "42502efbfb130830378b87cd63e8637d1b52b426aee548548863515c11e644e6"
+  content_hash: "a5412d8a645ab5ee338fd7e10dc0f115c04e94b9ac051e98aed2762a8efcad93"
 ---
 
 # Plan Review
 
 Verify a finished plan against the diff that shipped it. Read `goal` and acceptance criteria, compare to the actual changes in `ship_commit`, run the project's CI/test command if it has one, and write a structured `## Review` block into the plan file with the verdict.
+
+Runtime wrappers are convenience only. Claude may dispatch
+`plugins/docks/agents/plan-review.md`; Codex projects may have a repo-local
+`.codex/agents/plan-review.toml` seeded by `plan-init` or scaffold. In every
+case, this skill is canonical and the wrapper must load it before acting.
 
 <constraint>
 **Three modes, keyed on `status`.** (1) `in_review` (file still in `active/`, all `## Steps` `done`) → **completion review**: diff-vs-goal against `planned_at_commit..HEAD` (+ working tree) — the Finished-review steps with the diff base swapped, ending by surfacing "ready to ship" rather than archiving. (2) `finished` (in `finished/`) with `ship_commit` set → **finished review**: Steps 1–10 against the `ship_commit` diff. (3) any other non-finished draft (in `active/`) → **draft review** (Mode 0): red-team against the self-review rubric, report holes, no diff. If `ship_commit` is empty on a `finished` plan, ask the user for the SHA before proceeding.
@@ -201,5 +206,6 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 
 - `docs/plans/AGENTS.md` — full convention; this skill writes the `## Review` block defined there.
 - `plan-manager` skill — performs the `→ in_review` transition that auto-triggers the completion review (and the later ship). See its Step 8.
-- `plugins/docks/agents/plan-review.md` — Claude-only thin wrapper for inter-agent dispatch via `Agent(subagent_type="plan-review", prompt=<plan-path>)`. Skill is the canonical workflow; agent is a runtime convenience.
+- `plugins/docks/agents/plan-review.md` — Claude-only thin wrapper for inter-agent dispatch via `Agent(subagent_type="plan-review", prompt=<plan-path>)`.
+- `.codex/agents/plan-review.toml` — optional project-local Codex wrapper for explicit custom-agent delegation. Skill is the canonical workflow; agents are runtime conveniences.
 - Scored iterate-until-plateau technique adapted from Sean Geng, "Iterate a plan until it stops improving" — <https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving>.
