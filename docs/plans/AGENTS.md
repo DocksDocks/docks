@@ -136,8 +136,10 @@ The first body line repeats the title as `# <Title>`. `plan-review` fills
 
 The cold-handoff test is no longer a reflective question (a draft can satisfy
 that superficially); it is a **binary contract**. Before a plan is shown, walk
-this list — each item is **present & specific** or marked **`N/A — reason`**; a
-bare gap is a defect, not a default:
+this list — each item is **present & specific**, or marked **`N/A — reason`**
+where the reason proves a cold executor needs nothing there (a generic
+"N/A — not needed" is a **miss**, not a pass — an unjustified N/A is how the
+score gets gamed); a bare gap is a defect, not a default:
 
 1. **File manifest** — every step names exact path(s) (`path:line-range` to edit).
 2. **Environment & commands** — versions, env vars, exact build/test/lint commands with flags.
@@ -150,8 +152,9 @@ bare gap is a defect, not a default:
 9. **No undefined terms / forward refs** — no `TBD`/`TODO`/"implement later", no reference to a type/function/file defined nowhere in the plan or in cited code.
 
 Then run the **adversarial cold-read**: *read ONLY this file and, at each step,
-enumerate every decision it does not answer.* Each such decision is a defect —
-fix it, or turn it into an `## Open question` (mark genuine unknowns
+enumerate every decision it does not answer — and challenge every `N/A`* (truly
+inapplicable, or quietly skipped?). Each unanswered decision or unjustified `N/A`
+is a defect — fix it, or turn it into an `## Open question` (mark genuine unknowns
 `NEEDS CLARIFICATION`). This converts "where would it guess?" into a finding list.
 
 ## Self-review — drafted plans arrive already hole-checked
@@ -185,8 +188,12 @@ Sum = 100. **Standalone executability carries the largest weight on purpose:**
 the loop can only climb as high as the rubric lets it perceive quality, so the
 cold-handoff dimension must be scored — and scored heavily — or the hill-climb
 cannot optimize it (anything not scored is not climbed). Score it **objectively**
-against the cold-handoff checklist above (each field present/specific or `N/A`),
-not a subjective "how complete does this feel" — an objective sub-checklist
+against the cold-handoff checklist above (each field present/specific or a
+*justified* `N/A`), not a subjective "how complete does this feel". **Weight the
+items the other rows don't already reward** — decision rationale, known gotchas,
+interface/data contracts, environment & commands, global constraints verbatim —
+so the 22 points buy genuinely cold-handoff content, not work Actionability or
+Executable acceptance already paid for. A de-duplicated, objective sub-checklist
 resists the padding/reward-hacking that a "completeness" score otherwise invites.
 
 ### Scored iterate-until-plateau loop (tiered)

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-06-26"
-  content_hash: "1c299c659a40c896f144ebd0f0867e0c6138836d8cd98a0a1773be7a85407370"
+  content_hash: "eb397132923ee80f388e334b1305a6abaebab0064bdb345823df01a6f2c303a9"
 ---
 
 # Plan Manager
@@ -16,7 +16,7 @@ previews so the user never opens a plan file. A plan's lifecycle stage is its
 `status:` field; `active/` vs `finished/` is the only directory distinction.
 
 <constraint>
-**A new plan is drafted, then self-reviewed, BEFORE it reaches the user.** After writing the draft, red-team it against the scored rubric in `docs/plans/AGENTS.md` (standalone executability 22 — the largest weight — actionability, dependency order, evidence re-verify, goal coverage, executable acceptance, failure mode, assumption→question) AND walk the **cold-handoff checklist**, the binary required-content gate (file manifest with exact paths, environment & commands with flags, interface/data contracts, executable acceptance, out-of-scope, decision rationale, known gotchas, global constraints verbatim, no undefined/forward terms) — each item present & specific or `N/A — reason`. Then an **adversarial cold-read**: read ONLY this file and enumerate every decision it doesn't answer; each is a defect. Fix what you can; turn every remaining guess into an `## Open question` (`NEEDS CLARIFICATION` for true unknowns). For a big/risky plan (>6 steps or a risk-flagged step), use a fresh-context `plan-review` agent only when it resolves and explicit delegation/policy allows it; otherwise run the review inline. The user sees the already-hole-checked plan, not the raw draft.
+**A new plan is drafted, then self-reviewed, BEFORE it reaches the user.** After writing the draft, red-team it against the scored rubric in `docs/plans/AGENTS.md` (standalone executability 22 — the largest weight — actionability, dependency order, evidence re-verify, goal coverage, executable acceptance, failure mode, assumption→question) AND walk the **cold-handoff checklist**, the binary required-content gate (file manifest with exact paths, environment & commands with flags, interface/data contracts, executable acceptance, out-of-scope, decision rationale, known gotchas, global constraints verbatim, no undefined/forward terms) — each item present & specific or a *justified* `N/A — reason` (a generic N/A scores as a miss). Then an **adversarial cold-read**: read ONLY this file and enumerate every decision it doesn't answer; each is a defect. Fix what you can; turn every remaining guess into an `## Open question` (`NEEDS CLARIFICATION` for true unknowns). For a big/risky plan (>6 steps or a risk-flagged step), use a fresh-context `plan-review` agent only when it resolves and explicit delegation/policy allows it; otherwise run the review inline. The user sees the already-hole-checked plan, not the raw draft.
 </constraint>
 
 <constraint>

@@ -137,7 +137,9 @@ silently. Tier by size so a parked idea isn't drowned in empty headings:
 
 The cold-handoff test is a binary contract, not a reflective question (a draft
 can satisfy that superficially). Before a plan is shown, walk this list — each
-item is present & specific or marked `N/A — reason`; a bare gap is a defect:
+item is present & specific, or marked `N/A — reason` where the reason proves a
+cold executor needs nothing there (a generic "N/A — not needed" is a miss, not a
+pass — an unjustified N/A is how the score gets gamed); a bare gap is a defect:
 
 1. File manifest — every step names exact path(s) (`path:line-range` to edit).
 2. Environment & commands — versions, env vars, exact build/test/lint commands with flags.
@@ -150,8 +152,10 @@ item is present & specific or marked `N/A — reason`; a bare gap is a defect:
 9. No undefined terms / forward refs — no `TBD`/`TODO`/"implement later", no reference to a type/function/file defined nowhere in the plan or in cited code.
 
 Then the adversarial cold-read: read ONLY this file and, at each step, enumerate
-every decision it does not answer. Each is a defect — fix it or turn it into an
-`## Open question` (mark genuine unknowns `NEEDS CLARIFICATION`).
+every decision it does not answer — and challenge every `N/A` (truly
+inapplicable, or quietly skipped?). Each unanswered decision or unjustified `N/A`
+is a defect — fix it or turn it into an `## Open question` (mark genuine unknowns
+`NEEDS CLARIFICATION`).
 
 ## Self-review — drafted plans arrive already hole-checked
 
@@ -176,8 +180,11 @@ Sum = 100. **Standalone executability carries the largest weight on purpose:**
 the loop only climbs as high as the rubric lets it perceive quality, so the
 cold-handoff dimension must be scored heavily or the hill-climb can't optimize
 it. Score it objectively against the cold-handoff checklist above (each field
-present/specific or `N/A`), not a subjective "how complete does this feel" —
-that resists the padding a "completeness" score otherwise invites.
+present/specific or a *justified* `N/A`), weighting the items the other rows
+don't already reward — rationale, gotchas, interface/data contracts, environment
+& commands, global constraints verbatim — so the 22 points buy genuinely
+cold-handoff content, not work Actionability or Executable acceptance already
+paid for. That resists the padding a "completeness" score otherwise invites.
 
 **Scored iterate-until-plateau loop (tiered).** The rubric is *scored*, not just
 checked: a deliberate separate pass assigns each check its weighted sub-score

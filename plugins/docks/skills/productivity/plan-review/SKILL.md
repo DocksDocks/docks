@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-06-26"
-  content_hash: "a176effcea61ab121b7d78e86a70483050b2c200d47be4ee9719039eb01a4733"
+  content_hash: "a712af3b8f0d48070c98cbec55f54dab49a1a6bafc778161fdee63cc69d4b283"
 ---
 
 # Plan Review
@@ -58,7 +58,7 @@ Plus the **cold-handoff checklist** (the binary required-content gate in
 `docs/plans/AGENTS.md`: file manifest with exact paths, environment & commands
 with flags, interface/data contracts, executable acceptance, out-of-scope,
 decision rationale, known gotchas, global constraints verbatim, no
-undefined/forward terms — each present & specific or `N/A — reason`), then the
+undefined/forward terms — each present & specific or a *justified* `N/A — reason`), then the
 **adversarial cold-read**: read ONLY this file and list every decision each step
 leaves unanswered; each is a defect to fix or raise as an open question.
 

@@ -9,6 +9,7 @@ assignee: null
 tags: [plans, contract, self-review, cold-handoff]
 affected_paths:
   - docs/plans/AGENTS.md
+  - plugins/docks/skills/productivity/plan-init/SKILL.md
   - plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
   - plugins/docks/skills/productivity/plan-review/SKILL.md
@@ -131,7 +132,7 @@ The contract's two machine-relevant shapes downstream readers depend on:
 - Tree-node size held: `wc -l < docs/plans/AGENTS.md` → `< 500`.
 - Per-file scores held above floor:
   `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep -E 'plan-(manager|review|init)'`
-  → each ≥ the productivity floor (8); observed 16/15/16.
+  → each ≥ the productivity floor (8); observed 16/16/15 (plan-init/plan-manager/plan-review).
 
 ## Out of scope / do-NOT-touch
 
@@ -192,19 +193,37 @@ knows what NOT to touch. No unanswered decision remains → no `## Open question
 ## Self-review
 
 Scored against the new rubric (the one this plan introduces — re-anchored on
-`docs/plans/AGENTS.md`):
+`docs/plans/AGENTS.md`). **Two passes, and the gap between them is itself the
+finding:**
 
-- Standalone executability 22/22 — checklist all present; cold-read leaves no gap.
-- Actionability 16/16 — every step has a file + a verifiable done-condition.
-- Dependency order 12/12 — `Depends` column is acyclic; 1→2→3…→9.
-- Evidence re-verify 9/10 — paths/line-counts confirmed this session; −1: scores
-  cited from one CI run, not re-pinned per file.
-- Goal coverage 12/12 — steps 1–7 cover all three goal clauses; 8 is the worked example.
-- Executable acceptance 12/12 — all criteria are commands + expected output.
-- Failure mode 9/10 — CI is the revert trigger; −1: no explicit rollback step beyond `git restore`.
-- Assumption→question 6/6 — the scope cut + weights are recorded decisions, none guessed silently.
+- **Pass 1 (in-context self-score): 98/100, Standalone executability 22/22,
+  "cold-read leaves no gap." This was optimistic and wrong.** It missed a
+  checklist-item-9 violation (stray `</content>`/`</invoke>` tags leaked into the
+  tail of this file) and a checklist-item-1 violation (`affected_paths` omitted
+  `plan-init/SKILL.md`, which the Steps `Files` column lists). The in-context
+  author cannot reliably catch its own cold-handoff holes — exactly the failure
+  this change targets.
+- **Pass 2 (fresh-context adversarial review):** a fresh-instance review of this
+  plan + the contract (the Claude-A/Claude-B method the research recommends)
+  caught both violations above, plus two design gaps in the contract itself — an
+  unjustified-`N/A` self-grant vector and a checklist↔rubric double-count. All
+  fixed: the contract now requires a *justified* `N/A` and weights the 22 points
+  on the items other rubric rows don't already reward.
 
-`Score: 98/100 · trajectory 98 · stopped: plateau (K=3, single-pass — normal tier, first score ≥ 85)`
+Post-fix honest score (de-duplicated dimension, per the tightened rubric):
+
+- Standalone executability 20/22 — checklist clean post-fix; −2 because Pass 1
+  proved the in-context score is not self-sufficient (the fresh pass is the gate).
+- Actionability 16/16 — every step names a file + a verifiable done-condition.
+- Dependency order 12/12 — `Depends` is acyclic (1→…→9).
+- Evidence re-verify 10/10 — manifest now matches `git status`; paths confirmed.
+- Goal coverage 12/12 — steps 1–7 cover all three goal clauses; 8–9 verify.
+- Executable acceptance 12/12 — criteria are commands + output; rubric-sum command
+  corrected to be precisely runnable (a Pass-1 cold-handoff defect, now fixed).
+- Failure mode 9/10 — CI + `git restore` is the revert trigger; −1: no per-step rollback.
+- Assumption→question 6/6 — scope cut + weights are recorded decisions, none guessed.
+
+`Score: 97/100 · trajectory 98 (in-context, optimistic) → 97 (post fresh-context review + fixes) · stopped: fresh-context review resolved all findings`
 
 ## Review
 
