@@ -1,9 +1,9 @@
 ---
 title: Close the cold-handoff gap in the plans contract
 goal: Make plan self-review optimize standalone executability — add a scored Standalone-Executability dimension, a binary cold-handoff required-content checklist, and cold-executable spine fields — synced across both contract homes.
-status: ongoing
+status: in_review
 created: "2026-06-26T02:58:48+00:00"
-updated: "2026-06-26T02:58:48+00:00"
+updated: "2026-06-26T04:32:42+00:00"
 started_at: "2026-06-26T02:58:48+00:00"
 assignee: null
 tags: [plans, contract, self-review, cold-handoff]
@@ -16,7 +16,8 @@ affected_paths:
   - plugins/docks/agents/plan-manager.md
   - AGENTS.md
 related_plans: []
-review_status: null
+review_status: passed
+in_review_since: "2026-06-26T04:32:42+00:00"
 planned_at_commit: 4c12d53c33a8d387d1277997054cab858dc1a23c
 ---
 
@@ -95,8 +96,8 @@ Decisions (recorded so they don't die with this session):
 | 5 | Update Mode 0 rubric table + cold-handoff text in plan-review | `plugins/docks/skills/productivity/plan-review/SKILL.md` | 1,2 | done |
 | 6 | Update the plan-manager agent wrapper's self-review restatement; refresh terse summaries in root `AGENTS.md` + plan-init Root Snippet/reference desc | `plugins/docks/agents/plan-manager.md`, `AGENTS.md`, `plugins/docks/skills/productivity/plan-init/SKILL.md` | 1,2 | done |
 | 7 | Bump `metadata.updated` (2026-06-26) on the 3 changed skills; `content-hash.mjs --backfill` | the 3 SKILL.md frontmatters | 3,4,5 | done |
-| 8 | Write this plan in the new format (dogfood / worked example) + self-review it | `docs/plans/active/cold-handoff-contract.md` | 1–7 | in-flight |
-| 9 | `node scripts/ci.mjs` green; adversarial review pass; then commit + push to `claude/new-session-b8ooj9` | all affected | 8 | planned |
+| 8 | Write this plan in the new format (dogfood / worked example) + self-review it | `docs/plans/active/cold-handoff-contract.md` | 1–7 | done |
+| 9 | `node scripts/ci.mjs` green; adversarial review pass; then commit + push to `claude/new-session-b8ooj9` | all affected | 8 | done |
 
 ## Interfaces & data shapes
 
@@ -227,7 +228,13 @@ Post-fix honest score (de-duplicated dimension, per the tightened rubric):
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all three goal clauses shipped: the scored Standalone-executability dimension (22, largest; rubric sums to 100 in both homes), the binary cold-handoff checklist + adversarial cold-read (replacing the reflective test), and the tiered cold-executable spine; synced across both contract homes + skills + agent wrapper.
+- **Acceptance criteria:** all pass — `node scripts/ci.mjs` exit 0; rubric sum 100/100 both homes; `Standalone executability`/`Cold-handoff checklist` present in both homes; `docs/plans/AGENTS.md` 360 lines (<500); per-file scores 16/16/15 (≥ floor 8).
+- **Regressions:** none — CI green on `4c12d53..HEAD`; no validator floors loosened.
+- **Scope drift:** none — all 7 `affected_paths` appear in the diff. One unannounced change: `docs/plans/active/cold-handoff-contract.md` itself (the plan file, conventionally not self-listed — expected).
+- **CI:** pass (`✔ All ci.mjs checks passed`).
+- **Follow-ups:** `cold-handoff-contract-stage4` (the deferred kit-wide sweep — convention-skill description audit, Codex AGENTS.md build/test/lint block, all-caps→"rule+why"). Not auto-created.
+- Filed by: plan-review (completion review, inline) on 2026-06-26T04:32:42+00:00
 
 ## Sources
 
