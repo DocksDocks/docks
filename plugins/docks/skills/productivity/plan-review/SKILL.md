@@ -4,8 +4,8 @@ description: Use when a plan's steps all complete (status in_review) or it reach
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-23"
-  content_hash: "a5412d8a645ab5ee338fd7e10dc0f115c04e94b9ac051e98aed2762a8efcad93"
+  updated: "2026-06-26"
+  content_hash: "a176effcea61ab121b7d78e86a70483050b2c200d47be4ee9719039eb01a4733"
 ---
 
 # Plan Review
@@ -45,16 +45,22 @@ red-teaming the plan itself. Read the plan, then check each item:
 
 | Check | Hole it catches |
 |---|---|
+| Standalone executability | the cold-handoff checklist passes — a fresh, weaker executor could act with ONLY this file (largest rubric weight, 22) |
 | Actionability | every `## Steps` row has a verifiable done-condition — no "improve/handle X" |
 | Dependency order | no step needs the output of a later one; prerequisites exist |
 | Evidence re-verify | every cited `file:line` in `## Sources`/`affected_paths` resolves and says what's claimed (re-`Read` it) |
 | Goal coverage | with every step done, is `## Goal` actually met? name the gap |
-| Checkable acceptance | `## Acceptance criteria` are commands + expected output where natural |
+| Executable acceptance | `## Acceptance criteria` are commands + their expected output, not prose |
 | Failure mode | each risky step has a revert trigger |
 | Assumption → question | anything the plan guessed should be an `## Open question`, not a silent default |
 
-Plus the cold-handoff test: *could a fresh agent execute this with ONLY this
-file? Where would it guess?*
+Plus the **cold-handoff checklist** (the binary required-content gate in
+`docs/plans/AGENTS.md`: file manifest with exact paths, environment & commands
+with flags, interface/data contracts, executable acceptance, out-of-scope,
+decision rationale, known gotchas, global constraints verbatim, no
+undefined/forward terms — each present & specific or `N/A — reason`), then the
+**adversarial cold-read**: read ONLY this file and list every decision each step
+leaves unanswered; each is a defect to fix or raise as an open question.
 
 **Score + iterate (tiered).** Don't just list holes — *score* the draft. As a
 deliberate separate pass, give each rubric check its weighted sub-score (weights

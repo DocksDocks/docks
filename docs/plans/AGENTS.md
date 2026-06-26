@@ -68,8 +68,8 @@ planned_at_commit: null
 ---
 ```
 
-Status-specific keys are added **only when that status applies** (same
-"include it when it carries content" rule as the body):
+Status-specific keys are added **only when that status applies** (the same
+"required unless genuinely inapplicable" discipline as the body):
 
 | Added when | Keys |
 |---|---|
@@ -89,22 +89,41 @@ colon doesn't confuse YAML. `started_at` is set ONCE (first move to
 `auto_execute: true` fires silently, else the DUE plan is surfaced for
 approval.
 
-## Body — lean spine, optional rest
+## Body — spine, plus the sections a cold executor needs
 
-The required spine is small so a parked idea isn't drowned in empty headings.
-Include an optional section only when it carries content.
+A plan is read **cold**: a fresh, weaker executor (or a thin subagent) acts on
+it with no conversation context. So the test for a section is **"would its
+absence force the executor to guess?"** — if yes, it is required; **omit a
+section only when it is genuinely inapplicable, and then say so explicitly
+(`N/A — <one-line reason>`), never silently.** This replaces the old "include it
+only when it carries content" rule, which quietly dropped exactly the standalone
+context a stranger needs. Tier by size so a parked idea isn't drowned in empty
+headings:
+
+- **Base spine (every plan):** `## Goal`, `## Steps`, `## Acceptance criteria`,
+  `## Cold-handoff checklist`, `## Review`.
+- **Substantive / multi-commit / handoff plans also require** (or an explicit
+  `N/A — reason`): `## Context & rationale`, `## Environment & how-to-run`,
+  `## Out of scope / do-NOT-touch`, and — when work crosses files —
+  `## Interfaces & data shapes`. Add `## Known gotchas` / `## Global constraints`
+  whenever such traps or hard limits exist.
 
 | Section | Required? | Holds |
 |---|---|---|
 | `## Goal` | **yes** | what success looks like, why it matters (the expanded `goal:`) |
-| `## Steps` | **yes** | the `# / Task / Depends / Status` table; status enum `planned/in-flight/done/blocked/skipped` |
-| `## Acceptance criteria` | **yes** | checkable conditions — prefer a command + expected output over a judgment call |
-| `## Review` | **yes** (placeholder) | `(filled by plan-review on completion)` until shipped |
-| `## Context` | when useful | why now, what it unblocks, verbatim user decisions that constrain the plan |
-| `## Out of scope` | when useful | adjacent work NOT included; for an implementation plan, a per-file do-NOT-touch list, each with a one-line blast-radius rationale |
+| `## Context & rationale` | substantive | why now, what it unblocks, verbatim user decisions — AND the *why* behind each non-obvious choice (rationale is the implicit knowledge that dies with the drafting session) |
+| `## Environment & how-to-run` | substantive | runtime/tool versions, env vars, and the exact install/build/test/lint commands **with flags** (`pnpm test`, `pytest -v`) — an executor references these constantly |
+| `## Steps` | **yes** | the `# / Task / Files / Depends / Status` table — **every row names the exact path(s)** it creates/modifies (`path:line-range` when editing); status enum `planned/in-flight/done/blocked/skipped` |
+| `## Interfaces & data shapes` | multi-file | exact signatures / types / JSON shapes a neighboring task consumes or produces — a task's implementer sees only their own task, so this is how they learn the names and types around them |
+| `## Acceptance criteria` | **yes** | each criterion is a **command + its expected output**, not a prose judgment (EARS phrasing optional) — see "Executable acceptance" |
+| `## Out of scope / do-NOT-touch` | substantive | adjacent work excluded, stated positively (an agent cannot infer it from omission); for an implementation plan, a per-file do-NOT-touch list, each with a one-line blast-radius rationale |
+| `## Known gotchas` | when traps exist | framework/repo pitfalls that otherwise live only in conversation |
+| `## Global constraints` | when limits exist | version floors, dependency limits, naming/copy rules, platform reqs — one line each, **copied verbatim** from the spec |
+| `## Cold-handoff checklist` | **yes** | the binary required-content gate (see below) — each item present & specific or `N/A — reason` |
 | `## STOP conditions` | on risky/handoff plans | named, plan-specific escape hatches — "if assumption X turns out false, STOP and report; do not improvise" |
-| `## Open questions` | when decisions are pending | see "Open questions" — agent→user residue |
-| `## Self-review` | on substantive plans | what the rubric pass caught (see below) |
+| `## Open questions` | when decisions are pending | agent→user residue; `NEEDS CLARIFICATION` marks a genuine unknown rather than a silent default |
+| `## Self-review` | on substantive plans | what the scored rubric pass caught (see below) |
+| `## Review` | **yes** (placeholder) | `(filled by plan-review on completion)` until shipped |
 | `## Mistakes & Dead Ends` | as they happen | append-only: `- **<ISO>**: <tried> → <why it failed> → <how to avoid>` |
 | `## Sources` | when it cites code | `file:line` / URL — each paired with the one-line evidence it shows |
 | `## Notes` | when useful | design decisions, links |
@@ -112,6 +131,28 @@ Include an optional section only when it carries content.
 The first body line repeats the title as `# <Title>`. `plan-review` fills
 `## Review` with: `Goal met: yes|partial|no`, `Regressions`, `CI`,
 `Follow-ups`, `Filed by`.
+
+### Cold-handoff checklist — the required-content gate
+
+The cold-handoff test is no longer a reflective question (a draft can satisfy
+that superficially); it is a **binary contract**. Before a plan is shown, walk
+this list — each item is **present & specific** or marked **`N/A — reason`**; a
+bare gap is a defect, not a default:
+
+1. **File manifest** — every step names exact path(s) (`path:line-range` to edit).
+2. **Environment & commands** — versions, env vars, exact build/test/lint commands with flags.
+3. **Interface & data contracts** — exact signatures/types/shapes for anything crossing a task boundary.
+4. **Executable acceptance** — every criterion is a command + its expected output.
+5. **Out of scope** — what NOT to touch, stated positively.
+6. **Decision rationale** — the *why* behind each non-obvious choice.
+7. **Known gotchas** — the traps that lived only in conversation.
+8. **Global constraints verbatim** — exact values copied from the spec.
+9. **No undefined terms / forward refs** — no `TBD`/`TODO`/"implement later", no reference to a type/function/file defined nowhere in the plan or in cited code.
+
+Then run the **adversarial cold-read**: *read ONLY this file and, at each step,
+enumerate every decision it does not answer.* Each such decision is a defect —
+fix it, or turn it into an `## Open question` (mark genuine unknowns
+`NEEDS CLARIFICATION`). This converts "where would it guess?" into a finding list.
 
 ## Self-review — drafted plans arrive already hole-checked
 
@@ -131,19 +172,22 @@ Rubric — run every item before the plan is shown. Each check carries a **weigh
 
 | Check | Weight | Hole it catches |
 |---|---|---|
-| Actionability | 20 | every step has a verifiable done-condition — no "improve/handle/clean up X" |
-| Dependency order | 15 | no step needs the output of a later one; prerequisites exist |
-| Evidence re-verify | 15 | every cited `file:line` was opened *this session* and says what the step claims |
-| Goal coverage | 15 | with every step done, is the Goal *actually* met? name the gap |
-| Checkable acceptance | 10 | criteria are a command + expected output where natural |
-| Failure mode | 15 | each risky step has a revert trigger / "if this fails, then…" |
-| Assumption → question | 10 | anything *guessed* becomes an `## Open question`, never a silent default |
+| Standalone executability | 22 | the cold-handoff checklist passes — the **weakest plausible executor** (a smaller/cheaper model: good at following explicit instructions, weak at filling gaps) could act with ONLY this file |
+| Actionability | 16 | every step has a verifiable done-condition — no "improve/handle/clean up X" |
+| Dependency order | 12 | no step needs the output of a later one; prerequisites exist |
+| Evidence re-verify | 10 | every cited `file:line` was opened *this session* and says what the step claims |
+| Goal coverage | 12 | with every step done, is the Goal *actually* met? name the gap |
+| Executable acceptance | 12 | criteria are a command + its expected output, not a prose judgment |
+| Failure mode | 10 | each risky step has a revert trigger / "if this fails, then…" |
+| Assumption → question | 6 | anything *guessed* becomes an `## Open question`, never a silent default |
 
-Then the meta-frame that catches the rest — the cold-handoff test: *"Could the
-**weakest plausible executor** (assume a smaller/cheaper model — competent at
-following explicit instructions, weak at filling gaps or knowing when to stop)
-execute this with ONLY this file? Where would it guess?"* Every guess → fix it
-or make it an open question.
+Sum = 100. **Standalone executability carries the largest weight on purpose:**
+the loop can only climb as high as the rubric lets it perceive quality, so the
+cold-handoff dimension must be scored — and scored heavily — or the hill-climb
+cannot optimize it (anything not scored is not climbed). Score it **objectively**
+against the cold-handoff checklist above (each field present/specific or `N/A`),
+not a subjective "how complete does this feel" — an objective sub-checklist
+resists the padding/reward-hacking that a "completeness" score otherwise invites.
 
 ### Scored iterate-until-plateau loop (tiered)
 
@@ -155,8 +199,10 @@ keep the new draft only if it beats the best by a real **margin (+2)**; stop whe
 the best score hasn't moved over the last **K=3** rounds (plateau) or at a hard
 **8-round cap**. When hill-climbing stalls below target, take a **best-of-N (N=3)**
 escape — generate 3 genuinely different rewrites in one round, score all, keep
-the winner. Record the outcome in `## Self-review` as
-`Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`.
+the winner. Every ~3 rounds **re-anchor on the original rubric + checklist** (re-read
+them) before scoring again — it counters the drift where scores climb but the plan
+doesn't actually get easier to execute cold. Record the outcome in `## Self-review`
+as `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`.
 
 **Tiered — every plan is scored once; iteration intensity scales with the plan.**
 Small plans no longer *skip* the review; they get the score and simply converge

@@ -4,8 +4,8 @@ description: Use when the user asks to list plans, show/start/block/ship a plan,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-23"
-  content_hash: "a6a83b9fc1213064a5412c7e86f41b8c23c3a490f776bc68bb249849115a6976"
+  updated: "2026-06-26"
+  content_hash: "1c299c659a40c896f144ebd0f0867e0c6138836d8cd98a0a1773be7a85407370"
 ---
 
 # Plan Manager
@@ -16,7 +16,7 @@ previews so the user never opens a plan file. A plan's lifecycle stage is its
 `status:` field; `active/` vs `finished/` is the only directory distinction.
 
 <constraint>
-**A new plan is drafted, then self-reviewed, BEFORE it reaches the user.** After writing the draft, red-team it against the rubric in `docs/plans/AGENTS.md` (actionability, dependency order, evidence re-verify, goal coverage, checkable acceptance, failure mode, assumption→question) and the cold-handoff test ("could a fresh agent run this with ONLY this file?"). Fix what you can; turn every remaining guess into an `## Open question`. For a big/risky plan (>6 steps or a risk-flagged step), use a fresh-context `plan-review` agent only when it resolves and explicit delegation/policy allows it; otherwise run the review inline. The user sees the already-hole-checked plan, not the raw draft.
+**A new plan is drafted, then self-reviewed, BEFORE it reaches the user.** After writing the draft, red-team it against the scored rubric in `docs/plans/AGENTS.md` (standalone executability 22 — the largest weight — actionability, dependency order, evidence re-verify, goal coverage, executable acceptance, failure mode, assumption→question) AND walk the **cold-handoff checklist**, the binary required-content gate (file manifest with exact paths, environment & commands with flags, interface/data contracts, executable acceptance, out-of-scope, decision rationale, known gotchas, global constraints verbatim, no undefined/forward terms) — each item present & specific or `N/A — reason`. Then an **adversarial cold-read**: read ONLY this file and enumerate every decision it doesn't answer; each is a defect. Fix what you can; turn every remaining guess into an `## Open question` (`NEEDS CLARIFICATION` for true unknowns). For a big/risky plan (>6 steps or a risk-flagged step), use a fresh-context `plan-review` agent only when it resolves and explicit delegation/policy allows it; otherwise run the review inline. The user sees the already-hole-checked plan, not the raw draft.
 </constraint>
 
 <constraint>
@@ -101,7 +101,7 @@ git add docs/plans/active/x.md && git commit -m "plan(x): block on CI"
 
 **Audit-first** (mandatory before writing): open/grep every file the plan will cite — every `file:line` in `## Sources` and `affected_paths` comes from code read THIS session, paired with one-line evidence. Record verbatim user decisions in `## Context`/`## Out of scope`. Proportionality: a parked-idea stub needs only a light audit.
 
-1. Compose `active/<kebab-slug>.md` (no date prefix — status is a field). Frontmatter defaults: `status: planned`, `created`+`updated` = anchor, `started_at: null`, `assignee: null`, `tags: []`, `affected_paths: []`, `related_plans: []`, `review_status: null`, `planned_at_commit`: `git rev-parse HEAD` (the drift + completion-review base). Body = the required spine (`## Goal`, `## Steps`, `## Acceptance criteria`, `## Review` placeholder) plus only the optional sections that carry content.
+1. Compose `active/<kebab-slug>.md` (no date prefix — status is a field). Frontmatter defaults: `status: planned`, `created`+`updated` = anchor, `started_at: null`, `assignee: null`, `tags: []`, `affected_paths: []`, `related_plans: []`, `review_status: null`, `planned_at_commit`: `git rev-parse HEAD` (the drift + completion-review base). Body = the base spine (`## Goal`, `## Steps` with exact paths, `## Acceptance criteria`, `## Cold-handoff checklist`, `## Review` placeholder); for a substantive/handoff plan also add `## Context & rationale`, `## Environment & how-to-run`, `## Out of scope / do-NOT-touch`, and — when work crosses files — `## Interfaces & data shapes`. These are required unless explicitly `N/A — reason`; a section is omitted only when its absence wouldn't force the executor to guess — never silently (per the spine rule in `docs/plans/AGENTS.md`).
 2. **Self-review the draft — scored + tiered** (the constraint's rubric + cold-handoff). Run the weighted score pass (per `docs/plans/AGENTS.md`), then iterate: **score every plan once; enter the hill-climb iff the first `score < 85` OR the plan is big/risky (>6 steps or a risk flag) OR the user asked for hardening.** Big/risky dispatches the loop to a fresh-context `plan-review` Mode 0 only when a resolved agent and explicit delegation/policy allow it; that agent RETURNS the rewrite + trajectory and `plan-manager` is the sole writer. Without a resolved/allowed agent, run the same review inline. Fix holes; record the outcome in `## Self-review` as `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`. Every remaining guess → an `## Open question` (`id`, `choice`/`text`, options with one `(recommended)`).
 3. **Surface the open questions** via the native picker — `AskUserQuestion` (Claude Code) / `ask_user_question` (Codex). For a *visual* question (component look, layout, palette), render the options as a self-contained throwaway `.html` (gitignored; hand back the path if headless) instead of describing them.
 4. Auto-commit, then render Tier-3.

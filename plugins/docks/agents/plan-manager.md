@@ -26,7 +26,7 @@ trigger the `plan-manager` skill via natural language.
 </constraint>
 
 <constraint>
-**Self-review the draft, then auto-commit every transition.** A new plan is drafted, red-teamed against the skill's self-review rubric (+ the cold-handoff test), and its remaining guesses turned into `## Open questions` BEFORE the user sees it — for a big/risky plan, run that review as a fresh subagent (or hand it back to the caller, since subagents can't spawn subagents). After every status change, render the right pretty-print tier AND `git add` + commit the `.md` (commit only the plan file) so a fresh session resumes from committed state.
+**Self-review the draft, then auto-commit every transition.** A new plan is drafted, red-teamed against the skill's scored self-review rubric (standalone executability is the largest weight) + the binary cold-handoff checklist + an adversarial cold-read, and its remaining guesses turned into `## Open questions` BEFORE the user sees it — for a big/risky plan, run that review as a fresh subagent (or hand it back to the caller, since subagents can't spawn subagents). After every status change, render the right pretty-print tier AND `git add` + commit the `.md` (commit only the plan file) so a fresh session resumes from committed state.
 </constraint>
 
 <constraint>
