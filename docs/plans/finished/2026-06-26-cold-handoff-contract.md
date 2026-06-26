@@ -1,9 +1,9 @@
 ---
 title: Close the cold-handoff gap in the plans contract
 goal: Make plan self-review optimize standalone executability — add a scored Standalone-Executability dimension, a binary cold-handoff required-content checklist, and cold-executable spine fields — synced across both contract homes.
-status: in_review
+status: finished
 created: "2026-06-26T02:58:48+00:00"
-updated: "2026-06-26T04:32:42+00:00"
+updated: "2026-06-26T04:54:22+00:00"
 started_at: "2026-06-26T02:58:48+00:00"
 assignee: null
 tags: [plans, contract, self-review, cold-handoff]
@@ -19,6 +19,7 @@ related_plans: []
 review_status: passed
 in_review_since: "2026-06-26T04:32:42+00:00"
 planned_at_commit: 4c12d53c33a8d387d1277997054cab858dc1a23c
+ship_commit: 6c01e2cc46859bae421f37bf1cba3d6ec7812065
 ---
 
 # Close the cold-handoff gap in the plans contract
