@@ -1,10 +1,11 @@
 ---
 title: Stage 4 — kit-wide cold-handoff/authoring sweep
 goal: Apply the research's Stage 4 across the kit — soften the ~7 non-safety all-caps imperatives (the kit already pairs most with their why), quality-audit skill/agent descriptions, add a minimal hand-written Codex commands block, and document the Claude-A/Claude-B fresh-instance test as standing QA.
-status: ongoing
+status: in_review
 created: "2026-06-26T04:59:29+00:00"
-updated: "2026-06-27T03:42:13-03:00"
+updated: "2026-06-27T03:45:51-03:00"
 started_at: "2026-06-27T02:37:20-03:00"
+in_review_since: "2026-06-27T03:45:51-03:00"
 assignee: null
 tags: [plans, kit-wide, authoring, codex, follow-up]
 affected_paths:
@@ -130,7 +131,7 @@ Decisions (pre-resolved so this is execution-ready, not blocked on questions):
 | 3 | Quality-audit each skill/agent description (trigger in first ~100 chars, near-miss routing per `write-skill`, ≤1536-char listing); record a verdict table (each description → keep/tighten) under this plan's `## Notes`, then apply the tightenings | descriptions in frontmatter; this plan's `## Notes` | — | done |
 | 4 | Add a minimal hand-written build/test/lint commands block early in root `AGENTS.md` (install + `node scripts/ci.mjs`) | `AGENTS.md` | — | done |
 | 5 | Document the Claude-A/Claude-B fresh-instance test as standing QA for plan/skill authoring; bump `write-skill`'s `metadata.updated` (mirrors step 2) | `plugins/docks/skills/productivity/write-skill/SKILL.md` | — | done |
-| 6 | Re-run `node scripts/skills/content-hash.mjs --backfill` first (covers every body edit, incl. step 5's write-skill change); then `node scripts/ci.mjs` green; per-file scores hold; self-review; commit | all touched | 2,3,4,5 | planned |
+| 6 | Re-run `node scripts/skills/content-hash.mjs --backfill` first (covers every body edit, incl. step 5's write-skill change); then `node scripts/ci.mjs` green; per-file scores hold; self-review; commit | all touched | 2,3,4,5 | done |
 
 ## Interfaces & data shapes
 
