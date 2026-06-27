@@ -109,7 +109,7 @@ A project CLAUDE.md is recognized at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.m
 
 - **Detect both.** Classify whichever exists; if both exist, classify the union and warn before rewriting either, so a rule in one file isn't silently duplicated or contradicted by the other.
 - **Rewrite target = root `./CLAUDE.md`** by default (conventional, team-visible, committed). Create it there when neither exists.
-- **Relative-import gotcha.** `@path` imports resolve relative to the file containing them, so `@AGENTS.md` is correct only in root `./CLAUDE.md`. If the target is `./.claude/CLAUDE.md`, the import MUST be `@../AGENTS.md` (an `@AGENTS.md` there resolves to the non-existent `.claude/AGENTS.md`).
+- **Relative-import gotcha.** `@path` imports resolve relative to the file containing them, so `@AGENTS.md` is correct only in root `./CLAUDE.md`. If the target is `./.claude/CLAUDE.md`, the import must be `@../AGENTS.md` (an `@AGENTS.md` there resolves to the non-existent `.claude/AGENTS.md`).
 - **Never consolidate two files silently.** When both exist, wire the import into root `./CLAUDE.md` and leave `./.claude/CLAUDE.md` in place; merge only on explicit user approval.
 
 ## What about user-level CLAUDE.md?

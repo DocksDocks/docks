@@ -25,7 +25,7 @@ Try in roughly this order — earlier methods are usually cheaper and sharper.
 7. **Property / fuzz loop.** "Sometimes wrong output" → 1000 random inputs, look for the failure pattern.
 8. **Bisection harness.** Bug appeared between two known states (commit, dataset, dependency version) → automate "boot at state X, check, repeat", feed to `git bisect run`.
 9. **Differential loop.** Same input through old-version vs new-version (or two configs) and diff outputs.
-10. **HITL bash script (last resort).** If a human MUST click, drive *them* with a structured loop (`scripts/hitl-loop.sh`-style) so captured output still feeds back to you. Plain "ask the user to try again" is not a loop.
+10. **HITL bash script (last resort).** If a human has to click, drive *them* with a structured loop (`scripts/hitl-loop.sh`-style) so captured output still feeds back to you. Plain "ask the user to try again" is not a loop.
 
 ## Iterate on the loop itself
 

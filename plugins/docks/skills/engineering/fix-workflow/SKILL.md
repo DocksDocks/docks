@@ -4,8 +4,8 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "a15c827feed5c4c2471f0a28b503cd67e59dc1214d846c6fb60d269ee0042d54"
+  updated: "2026-06-27"
+  content_hash: "6cc7287eeba45b52a1409874751961ec34044da24eb4909204358eb0092a63b9"
 ---
 
 # Fix Workflow

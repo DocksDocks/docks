@@ -4,8 +4,8 @@ description: Use when working with colors, Tailwind classes, CSS custom properti
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "84d2f1aba0d68b84536a893d289281ca565b93bf8de8574635a407cf4f07dbd7"
+  updated: "2026-06-27"
+  content_hash: "7fe626ac9ec19bbd2ecc4d23fd8ba555d148aae05c1b05fb7d03fee84804879c"
 ---
 
 # Design Tokenization
@@ -15,11 +15,11 @@ No hex color literals in application code. Every visible color routes through a 
 </constraint>
 
 <constraint>
-Every token defined in `:root` MUST also be defined in `.dark`. A token defined in only one block silently breaks contrast in the other mode — utility resolves to `undefined` and falls back to inherited or transparent. Treat the two blocks as a contract: edit both in the same change.
+Every token defined in `:root` must also be defined in `.dark`. A token defined in only one block silently breaks contrast in the other mode — utility resolves to `undefined` and falls back to inherited or transparent. Treat the two blocks as a contract: edit both in the same change.
 </constraint>
 
 <constraint>
-Brand tokens and semantic tokens never mix. A token named after a third-party company (`whatsapp`, `stripe`, `google`) must NEVER be used for a non-brand surface. A semantic token (`primary`, `destructive`, `success`) must NEVER carry a vendor's official hex value. Mixing the two layers makes future redesigns drag third-party brands along, or causes brand drift on a future success-state recolor.
+Brand tokens and semantic tokens never mix. A token named after a third-party company (`whatsapp`, `stripe`, `google`) must never be used for a non-brand surface. A semantic token (`primary`, `destructive`, `success`) must never carry a vendor's official hex value. Mixing the two layers makes future redesigns drag third-party brands along, or causes brand drift on a future success-state recolor.
 </constraint>
 
 ## When to Use

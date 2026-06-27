@@ -3,7 +3,7 @@ title: Stage 4 — kit-wide cold-handoff/authoring sweep
 goal: Apply the research's Stage 4 across the kit — soften the ~7 non-safety all-caps imperatives (the kit already pairs most with their why), quality-audit skill/agent descriptions, add a minimal hand-written Codex commands block, and document the Claude-A/Claude-B fresh-instance test as standing QA.
 status: ongoing
 created: "2026-06-26T04:59:29+00:00"
-updated: "2026-06-27T02:58:17-03:00"
+updated: "2026-06-27T03:06:00-03:00"
 started_at: "2026-06-27T02:37:20-03:00"
 assignee: null
 tags: [plans, kit-wide, authoring, codex, follow-up]
@@ -126,7 +126,7 @@ Decisions (pre-resolved so this is execution-ready, not blocked on questions):
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
 | 1 | Re-confirm the pre-computed keep/reframe verdict in `## Notes` (|K| = 32 keep / 7 reframe) against HEAD: run the enumerate grep recorded in `## Notes` (expect 39 occ / 36 lines) and check each listed `file:line` still matches; if HEAD drifted, re-derive via the 6-category KEEP taxonomy in `## Notes` (which is authoritative over the 3 branches). `plan-init/…/plans-agents-md-template.md:251` stays KEEP-by-scope | `plugins/docks/skills/**/{SKILL.md,references/*.md}`, `plugins/docks/agents/*.md` | — | done |
-| 2 | Apply the guidance reframes; bump `metadata.updated` + `content-hash --backfill` on every touched skill | touched `SKILL.md` + frontmatter | 1 | planned |
+| 2 | Apply the guidance reframes; bump `metadata.updated` + `content-hash --backfill` on every touched skill | touched `SKILL.md` + frontmatter | 1 | done |
 | 3 | Quality-audit each skill/agent description (trigger in first ~100 chars, near-miss routing per `write-skill`, ≤1536-char listing); record a verdict table (each description → keep/tighten) under this plan's `## Notes`, then apply the tightenings | descriptions in frontmatter; this plan's `## Notes` | — | planned |
 | 4 | Add a minimal hand-written build/test/lint commands block early in root `AGENTS.md` (install + `node scripts/ci.mjs`) | `AGENTS.md` | — | planned |
 | 5 | Document the Claude-A/Claude-B fresh-instance test as standing QA for plan/skill authoring; bump `write-skill`'s `metadata.updated` (mirrors step 2) | `plugins/docks/skills/productivity/write-skill/SKILL.md` | — | planned |

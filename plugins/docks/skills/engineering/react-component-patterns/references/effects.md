@@ -44,7 +44,7 @@ Deep reference for effect-related triggers in the parent `SKILL.md`. The 3 accep
 ## Acceptable `useEffect` (the 3 allowed categories)
 
 <constraint>
-Every new `useEffect` MUST match exactly one of the 3 categories below (DOM/browser subscription, syncing into a no-subscribe external system, or debounced async tied to user input). Document which one with a one-line comment above the effect. If it doesn't match any, the code belongs in a render-time computation, an event handler, or a Server Action — not an effect.
+Every new `useEffect` must match exactly one of the 3 categories below (DOM/browser subscription, syncing into a no-subscribe external system, or debounced async tied to user input). Document which one with a one-line comment above the effect. If it doesn't match any, the code belongs in a render-time computation, an event handler, or a Server Action — not an effect.
 </constraint>
 
 Document which one in a one-line comment above the effect.

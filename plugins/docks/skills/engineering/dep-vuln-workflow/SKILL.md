@@ -4,8 +4,8 @@ description: Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or go
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "15d26c8518b70d0eb91add97019b3881b51be8db59e92366d0830e28210ea924"
+  updated: "2026-06-27"
+  content_hash: "369f676090a8bebe5b63405dc3e30bb688c6dcbd111e8df1043d568740f18bf7"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
@@ -115,7 +115,7 @@ Audit must report zero known vulnerabilities at the chosen severity floor. Ecosy
 Set this as a calendar item. Dep security is a habit, not a reaction.
 
 <constraint>
-The lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` / `poetry.lock` / `Pipfile.lock` / `uv.lock` / `Cargo.lock` / `go.sum`) MUST be committed — never `.gitignore` it. A vuln in the lockfile is a real vuln. Advisory tools (GitHub Dependabot, Snyk, RustSec) flag everything; their report is a starting point, not a verdict — apply the runtime-vs-build-time exposure filter before patching.
+The lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` / `poetry.lock` / `Pipfile.lock` / `uv.lock` / `Cargo.lock` / `go.sum`) must be committed — never `.gitignore` it. A vuln in the lockfile is a real vuln. Advisory tools (GitHub Dependabot, Snyk, RustSec) flag everything; their report is a starting point, not a verdict — apply the runtime-vs-build-time exposure filter before patching.
 </constraint>
 
 ## Gotchas — Universal
