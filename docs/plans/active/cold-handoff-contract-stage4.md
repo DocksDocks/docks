@@ -1,10 +1,10 @@
 ---
 title: Stage 4 — kit-wide cold-handoff/authoring sweep
 goal: Apply the research's Stage 4 across the kit — soften the ~7 non-safety all-caps imperatives (the kit already pairs most with their why), quality-audit skill/agent descriptions, add a minimal hand-written Codex commands block, and document the Claude-A/Claude-B fresh-instance test as standing QA.
-status: planned
+status: ongoing
 created: "2026-06-26T04:59:29+00:00"
-updated: "2026-06-27T02:32:06-03:00"
-started_at: null
+updated: "2026-06-27T02:37:20-03:00"
+started_at: "2026-06-27T02:37:20-03:00"
 assignee: null
 tags: [plans, kit-wide, authoring, codex, follow-up]
 affected_paths:
