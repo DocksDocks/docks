@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-06-14"
-  content_hash: "6278654c456f27f3083e92acf526c698b042195e1fef119cc02cd357c7ebb8dc"
+  content_hash: "4c2cd53413c33a2fd15e59477f0438d9b034fa0df2c76883cf2acc99214a5d87"
 ---
 
 # Write a Skill (docks conventions)
@@ -81,6 +81,10 @@ metadata:
 5. **Structural check.** Kit: `node scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
 6. **Full CI.** `node scripts/ci.mjs` where present. Must be green before commit.
 7. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
+
+## Fresh-instance QA (the Claude-A / Claude-B test)
+
+The author of a skill (or plan) can't see its own gaps — they fill them from memory the description and body never state. Standing QA: hand the finished artifact to a **fresh instance** with no authoring context (Claude-A authors, Claude-B reviews cold — in this kit, a fresh-context subagent). Claude-B does exactly one thing: act on the artifact using only what it says, and every place it has to guess is a handoff defect Claude-A could not perceive. This caught a 96→89 self-score inflation on the `cold-handoff-contract` plan that the in-context author had rated clean. Run it before shipping any skill, agent, or substantive plan — a fresh-context read finding no material gap is a stronger stop than the author's own re-read.
 
 ## BAD / GOOD descriptions
 

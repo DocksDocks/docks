@@ -4,6 +4,13 @@ docks is a cross-tool engineering skill kit and plugin marketplace. It ships **s
 
 This root file stays **repo-wide**. Per-area authoring details — skill/agent frontmatter, scoring, the release flow, CI triggers — live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
+## Commands
+
+```bash
+corepack enable && pnpm install --frozen-lockfile   # one-time setup (Node 22.x; pnpm via corepack)
+node scripts/ci.mjs                                  # guards + scorers — must be green before any commit
+```
+
 ## Repository scope
 
 ```

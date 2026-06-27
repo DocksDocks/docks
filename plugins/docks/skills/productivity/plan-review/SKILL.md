@@ -1,11 +1,11 @@
 ---
 name: plan-review
-description: Use when a plan's steps all complete (status in_review) or it reaches status finished — verifies goal vs the diff (planned_at_commit..HEAD for the completion review, ship_commit for finished), runs the project's CI to flag regressions, writes a `## Review` block with goal-met assessment, regression scan, follow-ups. Also the draft-review pass plan-manager dispatches on a big/risky new plan — red-teams the draft against the self-review rubric and reports holes. Not for general code review or pre-merge checks.
+description: Use when a plan's steps all complete (status in_review) or it reaches status finished — verifies goal vs the diff (planned_at_commit..HEAD for completion, ship_commit for finished), runs the project's CI for regressions, writes the `## Review` block (goal-met, regressions, follow-ups). Also the draft-review pass plan-manager dispatches on a big/risky plan — red-teams it against the self-review rubric. Not for general code review or pre-merge checks.
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-26"
-  content_hash: "a712af3b8f0d48070c98cbec55f54dab49a1a6bafc778161fdee63cc69d4b283"
+  updated: "2026-06-27"
+  content_hash: "52cd6f75bc170b4fcf6b17ef8c5471a8b42e9278219e3b086b2ea36060b18da3"
 ---
 
 # Plan Review

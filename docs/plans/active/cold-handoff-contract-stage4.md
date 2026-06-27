@@ -3,7 +3,7 @@ title: Stage 4 — kit-wide cold-handoff/authoring sweep
 goal: Apply the research's Stage 4 across the kit — soften the ~7 non-safety all-caps imperatives (the kit already pairs most with their why), quality-audit skill/agent descriptions, add a minimal hand-written Codex commands block, and document the Claude-A/Claude-B fresh-instance test as standing QA.
 status: ongoing
 created: "2026-06-26T04:59:29+00:00"
-updated: "2026-06-27T03:06:00-03:00"
+updated: "2026-06-27T03:42:13-03:00"
 started_at: "2026-06-27T02:37:20-03:00"
 assignee: null
 tags: [plans, kit-wide, authoring, codex, follow-up]
@@ -127,9 +127,9 @@ Decisions (pre-resolved so this is execution-ready, not blocked on questions):
 |---|---|---|---|---|
 | 1 | Re-confirm the pre-computed keep/reframe verdict in `## Notes` (|K| = 32 keep / 7 reframe) against HEAD: run the enumerate grep recorded in `## Notes` (expect 39 occ / 36 lines) and check each listed `file:line` still matches; if HEAD drifted, re-derive via the 6-category KEEP taxonomy in `## Notes` (which is authoritative over the 3 branches). `plan-init/…/plans-agents-md-template.md:251` stays KEEP-by-scope | `plugins/docks/skills/**/{SKILL.md,references/*.md}`, `plugins/docks/agents/*.md` | — | done |
 | 2 | Apply the guidance reframes; bump `metadata.updated` + `content-hash --backfill` on every touched skill | touched `SKILL.md` + frontmatter | 1 | done |
-| 3 | Quality-audit each skill/agent description (trigger in first ~100 chars, near-miss routing per `write-skill`, ≤1536-char listing); record a verdict table (each description → keep/tighten) under this plan's `## Notes`, then apply the tightenings | descriptions in frontmatter; this plan's `## Notes` | — | planned |
-| 4 | Add a minimal hand-written build/test/lint commands block early in root `AGENTS.md` (install + `node scripts/ci.mjs`) | `AGENTS.md` | — | planned |
-| 5 | Document the Claude-A/Claude-B fresh-instance test as standing QA for plan/skill authoring; bump `write-skill`'s `metadata.updated` (mirrors step 2) | `plugins/docks/skills/productivity/write-skill/SKILL.md` | — | planned |
+| 3 | Quality-audit each skill/agent description (trigger in first ~100 chars, near-miss routing per `write-skill`, ≤1536-char listing); record a verdict table (each description → keep/tighten) under this plan's `## Notes`, then apply the tightenings | descriptions in frontmatter; this plan's `## Notes` | — | done |
+| 4 | Add a minimal hand-written build/test/lint commands block early in root `AGENTS.md` (install + `node scripts/ci.mjs`) | `AGENTS.md` | — | done |
+| 5 | Document the Claude-A/Claude-B fresh-instance test as standing QA for plan/skill authoring; bump `write-skill`'s `metadata.updated` (mirrors step 2) | `plugins/docks/skills/productivity/write-skill/SKILL.md` | — | done |
 | 6 | Re-run `node scripts/skills/content-hash.mjs --backfill` first (covers every body edit, incl. step 5's write-skill change); then `node scripts/ci.mjs` green; per-file scores hold; self-review; commit | all touched | 2,3,4,5 | planned |
 
 ## Interfaces & data shapes
@@ -309,10 +309,43 @@ is empty (skills/agents unchanged since `planned_at_commit`); `grep -rEo … | w
 
 After step 2: `grep -rEo … | wc -l` → **32** (each reframed token lower-cased).
 
-### Per-description verdicts (step 3)
+### Per-description verdicts (step 3) — DONE
 
-(Recorded here at execution time — one `| <name> | keep | <note> |` (or `tighten`)
-row per skill/agent description; the acceptance criterion counts these rows.)
+Audited all **28** skill + agent descriptions: every one leads with `Use when`,
+all sit ≤ the 1,024 hard cap, and the `skill-trigger-collision` test is green.
+**1 tighten, 27 keep.** The only objective weakness was `plan-review` (skill) at
+513 chars — over the 500 full-credit threshold — trimmed to 453.
+
+| description | verdict | note |
+|---|---|---|
+| code-review | keep | front-loaded; routes to security + refactor (454) |
+| dep-vuln-workflow | keep | routes to fix-workflow + security (473) |
+| design-tokenization | keep | distinct color/Tailwind triggers; make-interfaces routes color→here (421) |
+| fix-workflow | keep | routes to security + refactor (456) |
+| human-docs-workflow | keep | routes to skill-agent-pipeline (488) |
+| lint-no-suppressions | keep | highly specific suppression triggers; collision test passes (424) |
+| make-interfaces-feel-better | keep | routes to design-tokenization + react-component-patterns (490) |
+| react-component-patterns | keep | routed-to by solid + make-interfaces (445) |
+| refactor | keep | routes to security + fix-workflow (464) |
+| security | keep | routes to dep-vuln-workflow (412) |
+| solid | keep | routes via prose to react-component-patterns + type-safety-discipline (492) |
+| tdd-workflow | keep | routes to test-coverage (476) |
+| test-coverage | keep | routes to tdd-workflow (414) |
+| type-safety-discipline | keep | routes via prose to solid; near cap (496) |
+| capability-tuning | keep | routes to write-skill + multi-tool-bridge (445) |
+| caveman | keep | unique trigger (caveman mode); no sibling collision (248) |
+| context-tree | keep | routes away from single-root + docs/plans (381) |
+| multi-tool-bridge | keep | routes to plan-init (475) |
+| plan-init | keep | routes to plan-manager (391) |
+| plan-manager (skill) | keep | routes to plan-init + plan-review (492) |
+| plan-review (skill) | tighten | trimmed 513→453 for ≤500 full credit; routing kept |
+| scaffold | keep | routes away from non-plugin / non-empty targets (474) |
+| skill-agent-pipeline | keep | routes to human-docs-workflow (498) |
+| skill-maintenance | keep | routes to write-skill (355) |
+| write-skill | keep | routes away from skill-creator (485) |
+| zoom-out | keep | unique map/zoom triggers; "not prose" (481) |
+| plan-manager (agent) | keep | routes to plan-init + plan-review (435) |
+| plan-review (agent) | keep | routes away from general code review (412) |
 
 ## Sources
 
