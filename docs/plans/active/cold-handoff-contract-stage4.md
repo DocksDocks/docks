@@ -3,7 +3,7 @@ title: Stage 4 — kit-wide cold-handoff/authoring sweep
 goal: Apply the research's Stage 4 across the kit — soften the ~7 non-safety all-caps imperatives (the kit already pairs most with their why), quality-audit skill/agent descriptions, add a minimal hand-written Codex commands block, and document the Claude-A/Claude-B fresh-instance test as standing QA.
 status: in_review
 created: "2026-06-26T04:59:29+00:00"
-updated: "2026-06-27T03:45:51-03:00"
+updated: "2026-06-27T03:49:06-03:00"
 started_at: "2026-06-27T02:37:20-03:00"
 in_review_since: "2026-06-27T03:45:51-03:00"
 assignee: null
@@ -14,7 +14,7 @@ affected_paths:
   - AGENTS.md
   - plugins/docks/skills/productivity/write-skill/SKILL.md
 related_plans: [cold-handoff-contract]
-review_status: null
+review_status: passed
 planned_at_commit: 463a3fbd5c88d67399381b91119cb1660cabd929
 ---
 
@@ -271,7 +271,11 @@ residuals applied afterward:
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 4 clauses delivered in `463a3fb..HEAD`: (1) the 7 guidance/domain imperatives softened across 6 lines (case-sensitive caps count 39→32, the |K|=32 keep set intact, each rule + its *why* preserved; `feedback-loops.md:28` is the one substantive rewrite); (2) the 28-row description audit table recorded in `## Notes` with 1 tighten (`plan-review` 513→453, now 453 chars) + 27 keep; (3) an early `## Commands` block in root `AGENTS.md:7-12` (before `## Repository scope` at :14), minimal per the Gloaguen scope cap; (4) the `## Fresh-instance QA (the Claude-A / Claude-B test)` section in `write-skill/SKILL.md`. (`plugins/docks/agents` is listed in `affected_paths` but no agent file changed — both agent descriptions audited to "keep" and no reframe sites live in agents; expected, not a goal miss.)
+- **Regressions:** none — `node scripts/ci.mjs` exit 0; per-file score floors hold (skills per-category clear, agents ≥ 14); `metadata.content_hash` idempotent (maintainer re-run is a no-op); all 7 reframe `file:line`s carry no caps, the 32 keep occurrences remain.
+- **CI:** pass (`✔ All ci.mjs checks passed` — exit 0)
+- **Follow-ups:** none
+- Filed by: plan-review (completion review) on 2026-06-27T03:49:06-03:00
 
 ## Notes
 
