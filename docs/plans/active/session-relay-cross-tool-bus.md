@@ -3,7 +3,7 @@ title: session-relay v2 — cross-tool Codex↔Claude agent bus
 goal: Evolve the Claude-only session-relay plugin into a tool-agnostic bus so a Codex session and a Claude Code session register on one shared MCP mailbox and exchange message+reply both ways
 status: in_review
 created: "2026-06-30T01:02:14-03:00"
-updated: "2026-06-30T01:49:19-03:00"
+updated: "2026-06-30T01:50:39-03:00"
 started_at: "2026-06-30T01:18:08-03:00"
 assignee: null
 tags: [session-relay, cross-tool, codex, mcp, multi-agent]
@@ -20,7 +20,7 @@ affected_paths:
   - .agents/plugins/marketplace.json
   - scripts/ci.mjs
 related_plans: []
-review_status: null
+review_status: passed
 planned_at_commit: "96243021203a362fd3db4e1ef92e168230641c73"
 in_review_since: "2026-06-30T01:49:19-03:00"
 ---
@@ -213,7 +213,11 @@ well-scoped, first score ≥ 85 so no hill-climb loop).
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — cross-tool bus works both ways: Step 11 live round-trip recorded PASSED (Claude→Codex `MANGO`, Codex→Claude `PAPAYA-FROM-CODEX`, roster showed `[codex]`+`[claude]`); Phase 1 criteria re-reproduced this turn (selftest 15 checks, `roster()[0].tool` prints `codex`); Claude path preserved (doorbell argv unchanged, hook defaults `tool=claude`, `SESSION_RELAY_HOME` alias kept).
+- **Regressions:** none — `relay.mjs` Claude doorbell (`claude -p --resume --output-format json`) and the Claude `hooks/hooks.json` (calls `session-start.mjs` with no arg → `tool=claude`) are unchanged; the `~/.claude/session-relay` → `~/.agent-relay` home move strands no users (v1 is unshipped, on `feat/session-relay-cross-session-bus`) and keeps `SESSION_RELAY_HOME` as a back-compat alias.
+- **CI:** pass — `node scripts/ci.mjs` → `✔ All ci.mjs checks passed` (incl. the 5 new session-relay Codex-parity checks: codex plugin.json valid + version-match, marketplace entry present, codex-hooks.json + bus.mcp.json JSON-valid); `node plugins/session-relay/test/selftest.mjs` → `PASS: session-relay self-test — 15 checks`.
+- **Follow-ups:** ~~session-relay-claude-manifest-cross-tool-desc~~ — RESOLVED inline this PR: the Claude-side `plugins/session-relay/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` descriptions/keywords/tags now read cross-tool (Claude Code + Codex), matching the Codex manifests.
+- Filed by: plan-review on 2026-06-30T01:50:39-03:00
 
 ## Sources
 
