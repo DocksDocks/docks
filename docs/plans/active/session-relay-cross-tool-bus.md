@@ -1,17 +1,19 @@
 ---
 title: session-relay v2 — cross-tool Codex↔Claude agent bus
 goal: Evolve the Claude-only session-relay plugin into a tool-agnostic bus so a Codex session and a Claude Code session register on one shared MCP mailbox and exchange message+reply both ways
-status: planned
+status: in_review
 created: "2026-06-30T01:02:14-03:00"
-updated: "2026-06-30T01:02:14-03:00"
-started_at: null
+updated: "2026-06-30T01:49:19-03:00"
+started_at: "2026-06-30T01:18:08-03:00"
 assignee: null
 tags: [session-relay, cross-tool, codex, mcp, multi-agent]
 affected_paths:
   - plugins/session-relay/lib/store.mjs
   - plugins/session-relay/mcp/bus.mjs
-  - plugins/session-relay/hooks/codex-session-start.mjs
+  - plugins/session-relay/hooks/session-start.mjs
+  - plugins/session-relay/hooks/codex-hooks.json
   - plugins/session-relay/.codex-plugin/plugin.json
+  - plugins/session-relay/.codex-plugin/bus.mcp.json
   - plugins/session-relay/skills/productivity/session-relay/scripts/relay.mjs
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - plugins/session-relay/test/selftest.mjs
@@ -20,6 +22,7 @@ affected_paths:
 related_plans: []
 review_status: null
 planned_at_commit: "96243021203a362fd3db4e1ef92e168230641c73"
+in_review_since: "2026-06-30T01:49:19-03:00"
 ---
 
 # session-relay v2 — cross-tool Codex↔Claude agent bus
@@ -109,17 +112,17 @@ literature faults MCP buses for lacking.
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | **Neutralize store home.** `homeDir()` defaults to `~/.agent-relay`; reads `AGENT_RELAY_HOME`, then `SESSION_RELAY_HOME` (back-compat alias), then the default. No behavior change for existing Claude users beyond the path. | `plugins/session-relay/lib/store.mjs` | — | planned |
-| 2 | **Add `tool` field to the registry.** `register({id,dir,name,tool})` stores `tool` (`"claude"`/`"codex"`, default `"claude"` when unset). `roster`/`resolve` unchanged otherwise. | `plugins/session-relay/lib/store.mjs` | 1 | planned |
-| 3 | **Make `relay.mjs wake` tool-aware.** Dispatch on `target.tool`: `claude` → existing `claude -p "<msg>" --resume <id> --output-format json` (cwd=dir); `codex` → `codex exec resume <id> "<msg>"` (cwd=dir, `--json` + `-o <tmp>` for a structured reply). | `plugins/session-relay/skills/productivity/session-relay/scripts/relay.mjs` | 2 | planned |
-| 4 | **Extend self-test** to cover tool-tagged registration + doorbell dispatch selection (assert the codex branch builds the right argv without spawning). | `plugins/session-relay/test/selftest.mjs` | 2,3 | planned |
-| 5 | **PRE-PHASE-2 VERIFY (resolves open questions, do on a live codex box).** Confirm: (a) a Codex plugin/`hooks.json` `SessionStart` hook fires with stdin `{source,session_id,cwd}`; (b) that `session_id` is the exact id `codex exec resume <id>` accepts (round-trip); (c) whether `codex exec resume` must run from the session's original cwd; (d) how Codex sets an MCP server's working dir. Record findings in `## Notes`; if (a) or (b) fails, STOP and fall back to doorbell-prompt-drives-`inbox` (no Codex hook). | (investigation; updates `## Notes`) | 3 | planned |
-| 6 | **Codex SessionStart hook.** Mirror of `session-start.mjs` adapted to Codex stdin: write the same `cwd→id` marker + `register({tool:"codex"})`, and on `source=resume` emit `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"<drained mail>"}}`. | `plugins/session-relay/hooks/codex-session-start.mjs` (+ a Codex `hooks.json`) | 5 | planned |
-| 7 | **Codex MCP wiring.** Document + ship the `codex mcp add bus -- node <abs>/mcp/bus.mjs` step (or a `[mcp_servers.bus]` config snippet) with `RELAY_PROJECT_DIR`/cwd set so the marker self-id resolves. `bus.mjs` already falls back to `process.cwd()`. | `plugins/session-relay/.codex-plugin/plugin.json`, SKILL.md install notes | 5 | planned |
-| 8 | **Codex plugin parity.** Emit `.codex-plugin/plugin.json` for session-relay (skills + hooks) via the `codex-plugin-mirror` skill; add a `session-relay` entry to `.agents/plugins/marketplace.json`. Drop "Claude Code only" from the descriptions. | `plugins/session-relay/.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` | 6,7 | planned |
-| 9 | **Update the skill** body: document the cross-tool model, the two doorbells, Codex install, and the `tool` field. Bump `metadata.updated`, backfill `content_hash`. | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | 6,7 | planned |
-| 10 | **Extend `ci.mjs`** session-relay section for Codex parity (codex plugin.json JSON valid; marketplace entry present; selftest still green). | `scripts/ci.mjs` | 8 | planned |
-| 11 | **Live cross-tool round-trip** smoke test: Claude→Codex and Codex→Claude, both delivered + acted on. Capture transcript in `## Notes`. | (test script in scratchpad) | 6,7,8 | planned |
+| 1 | **Neutralize store home.** `homeDir()` defaults to `~/.agent-relay`; reads `AGENT_RELAY_HOME`, then `SESSION_RELAY_HOME` (back-compat alias), then the default. No behavior change for existing Claude users beyond the path. | `plugins/session-relay/lib/store.mjs` | — | done |
+| 2 | **Add `tool` field to the registry.** `register({id,dir,name,tool})` stores `tool` (`"claude"`/`"codex"`, default `"claude"` when unset). `roster`/`resolve` unchanged otherwise. | `plugins/session-relay/lib/store.mjs` | 1 | done |
+| 3 | **Make `relay.mjs wake` tool-aware.** Dispatch on `target.tool`: `claude` → existing `claude -p "<msg>" --resume <id> --output-format json` (cwd=dir); `codex` → `codex exec resume <id> "<msg>"` (cwd=dir, `--json` + `-o <tmp>` for a structured reply). | `plugins/session-relay/skills/productivity/session-relay/scripts/relay.mjs` | 2 | done |
+| 4 | **Extend self-test** to cover tool-tagged registration + doorbell dispatch selection (assert the codex branch builds the right argv without spawning). | `plugins/session-relay/test/selftest.mjs` | 2,3 | done |
+| 5 | **PRE-PHASE-2 VERIFY (resolves open questions, do on a live codex box).** Confirm: (a) a Codex plugin/`hooks.json` `SessionStart` hook fires with stdin `{source,session_id,cwd}`; (b) that `session_id` is the exact id `codex exec resume <id>` accepts (round-trip); (c) whether `codex exec resume` must run from the session's original cwd; (d) how Codex sets an MCP server's working dir. Record findings in `## Notes`; if (a) or (b) fails, STOP and fall back to doorbell-prompt-drives-`inbox` (no Codex hook). | (investigation; updates `## Notes`) | 3 | done |
+| 6 | **Codex SessionStart hook.** Codex's SessionStart stdin is identical to Claude's, so `session-start.mjs` is **shared** — it takes a `tool` arg (`argv[2]`) and tags `register({tool})`. A Codex `hooks.json` invokes it with `codex`. | `plugins/session-relay/hooks/session-start.mjs` (shared, `codex` arg) + `plugins/session-relay/hooks/codex-hooks.json` | 5 | done |
+| 7 | **Codex MCP wiring.** Document + ship the `codex mcp add bus -- node <abs>/mcp/bus.mjs` step (or a `[mcp_servers.bus]` config snippet) with `RELAY_PROJECT_DIR`/cwd set so the marker self-id resolves. `bus.mjs` already falls back to `process.cwd()`. | `plugins/session-relay/.codex-plugin/plugin.json`, SKILL.md install notes | 5 | done |
+| 8 | **Codex plugin parity.** Emit `.codex-plugin/plugin.json` for session-relay (skills + hooks) via the `codex-plugin-mirror` skill; add a `session-relay` entry to `.agents/plugins/marketplace.json`. Drop "Claude Code only" from the descriptions. | `plugins/session-relay/.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` | 6,7 | done |
+| 9 | **Update the skill** body: document the cross-tool model, the two doorbells, Codex install, and the `tool` field. Bump `metadata.updated`, backfill `content_hash`. | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | 6,7 | done |
+| 10 | **Extend `ci.mjs`** session-relay section for Codex parity (codex plugin.json JSON valid; marketplace entry present; selftest still green). | `scripts/ci.mjs` | 8 | done |
+| 11 | **Live cross-tool round-trip** smoke test: Claude→Codex and Codex→Claude, both delivered + acted on. Capture transcript in `## Notes`. | (test script in scratchpad) | 6,7,8 | done |
 
 Phases: **Phase 1 = steps 1–4** (neutralize, no Codex; ships independently).
 **Phase 2 = steps 5–11** (the cross-tool milestone). Phase 3/4 (A2A-flavored
@@ -193,11 +196,6 @@ typed message contract; A2A facade) are out of scope here — see Out of scope.
 - If **step 5** shows Codex has **no SessionStart-equivalent hook**, or its `session_id` does **not** round-trip through `codex exec resume`, STOP the auto-drain approach and fall back: the Codex doorbell prompt itself instructs the woken Codex agent to call the bus `inbox` tool (Codex is an MCP client, so `inbox` works without a hook). Record the decision; do not invent a Codex hook event name.
 - If `codex exec resume` requires the original cwd and the recorded dir is unavailable, STOP and surface — do not resume from an arbitrary dir.
 
-## Open questions
-
-- **OQ1 (choice):** Open the **v1 (Claude-only) PR now**, or hold it and ship v1+v2 together? Branch `feat/session-relay-cross-session-bus` (commit `9624302`) is complete, tested, CI-green. Options: `open v1 PR now, track v2 as this plan (recommended)` · `hold the PR, fold v2 into the same PR` · `hold everything until v2 is also built`.
-- **OQ2 (choice):** Codex packaging for Phase 2 — `full Codex plugin (codex plugin marketplace + hooks + mcp parity, matches docks' cross-tool pattern) (recommended)` · `lightweight: documented codex mcp add + manual hook setup, no Codex plugin` · `both (plugin + a manual fallback doc)`.
-
 ## Self-review
 
 Drafted then red-teamed against the rubric (single scored pass — substantive but
@@ -230,6 +228,14 @@ well-scoped, first score ≥ 85 so no hill-climb loop).
 
 ## Notes
 
+- **Step 5 live-verification (RESOLVED on this box, codex 0.142.2):**
+  - Codex SessionStart hook EXISTS — same `hooks.json` shape (PascalCase events), stdin `{source:startup|resume|clear|compact, session_id, transcript_path, cwd, model, permission_mode}`, and the SAME `hookSpecificOutput.additionalContext` injection as Claude. So `hooks/session-start.mjs` serves both tools with a `tool` arg.
+  - **id round-trips:** the rollout `session_meta` shows `id == session_id == thread_id` (e.g. `019f16c5-…`), and `codex exec resume <thread_id>` recalled prior context (codeword KIWI) live. So the hook's `session_id` is exactly the id the doorbell resumes.
+  - **Codex resume is NOT cwd-scoped** (cross-dir recall worked) — unlike Claude. The Codex doorbell may run from any dir; we still pass `cwd=target.dir` (harmless, good for the woken agent's file ops).
+  - **Codex doorbell:** `codex exec resume <id> "<msg>" --json`; session id surfaces in the `thread.started` event and the rollout filename.
+  - **Codex plugin surface:** plugins bundle Skills + MCP servers + Hooks; Codex uses `${CLAUDE_PLUGIN_ROOT}` too. The Codex bus MCP ships as `.codex-plugin/bus.mcp.json` (referenced by the Codex manifest only — kept out of the plugin root so Claude never double-loads it); `codex mcp add bus` is the documented manual alternative. Receive-path needs only the hook, send-path can use the bus tool or `relay.mjs` via Bash.
+- **Step 11 live cross-tool round-trip (PASSED, 2026-06-30):** a real Codex session (temp `CODEX_HOME` carrying the shared SessionStart hook) and a real Claude session (`--plugin-dir`) both auto-registered on one shared store (`roster` showed `[codex]` + `[claude]`). **Claude→Codex:** an externally-queued message was delivered into the Codex session by its hook; the agent acted (replied `MANGO`). **Codex→Claude:** the Codex agent ran `relay.mjs send`, the message landed in the store and was delivered into the Claude session by its hook, which echoed `PAPAYA-FROM-CODEX`. All cross-tool checks green; `node scripts/ci.mjs` green (incl. 5 new Codex-parity checks); `selftest` 15 checks.
+- **Decisions (2026-06-30 session):** (OQ1) **fold v2 into the same PR** — do NOT open the v1 PR yet; build Phase 1+2 on `feat/session-relay-cross-session-bus`, then open one PR for the full cross-tool bus. (OQ2) **full Codex plugin** packaging — ship `.codex-plugin/plugin.json` + Codex hooks + a `.agents/plugins/marketplace.json` entry (matches docks' cross-tool plugin pattern).
 - v1 already mirrors prior-art primitives: MCP-as-bus (claude-swarm spine), file-mailbox+lock (Agent Teams), named addressing (roster). Its novelty is being zero-dependency, backend-less, and surviving `/resume` because state is on disk + re-read by the SessionStart hook.
 - The store self-id trick (resolve "me" from `RELAY_PROJECT_DIR` via the cwd→id marker) sidesteps MCP's "server never learns the host session id" limit identically for Codex — no new mechanism needed.
 - A2A's Message/Part + Task lifecycle is the model to mirror IF Phase 3/4 is ever pursued; the mailbox line maps cleanly onto a `TextPart`.

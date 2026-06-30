@@ -157,6 +157,18 @@ if (fs.existsSync(SR)) {
   if (srPlugin?.version && srPlugin.version === srMarketV) ok(`session-relay version agrees (${srPlugin.version})`);
   else fail(`session-relay version drift: plugin.json=${srPlugin?.version} marketplace.json=${srMarketV}`);
 
+  // Codex parity: mirror manifest, marketplace entry, and JSON-valid hook/mcp configs.
+  const srCodex = readJSON(`${SR}/.codex-plugin/plugin.json`);
+  srCodex ? ok('session-relay .codex-plugin/plugin.json JSON valid') : fail('session-relay .codex-plugin/plugin.json JSON invalid');
+  if (srCodex?.version && srCodex.version === srPlugin?.version) ok(`session-relay codex manifest version matches claude (${srCodex.version})`);
+  else fail(`session-relay codex version drift: codex=${srCodex?.version} claude=${srPlugin?.version}`);
+  const srCodexMarket = readJSON('.agents/plugins/marketplace.json');
+  (srCodexMarket?.plugins || []).some((p) => p.name === 'session-relay')
+    ? ok('session-relay listed in Codex marketplace (.agents/plugins/marketplace.json)')
+    : fail('session-relay missing from .agents/plugins/marketplace.json');
+  readJSON(`${SR}/hooks/codex-hooks.json`) ? ok('session-relay codex-hooks.json JSON valid') : fail('session-relay codex-hooks.json JSON invalid');
+  readJSON(`${SR}/.codex-plugin/bus.mcp.json`) ? ok('session-relay codex bus.mcp.json JSON valid') : fail('session-relay codex bus.mcp.json JSON invalid');
+
   const srValidate = spawnSync('claude', ['plugin', 'validate', `./${SR}`], { encoding: 'utf8' });
   if (srValidate.error) warn('claude CLI not found — skipped session-relay plugin validate');
   else if (`${srValidate.stdout}${srValidate.stderr}`.includes('Validation passed')) ok('claude plugin validate ./plugins/session-relay');
