@@ -8,8 +8,14 @@ import path from 'node:path';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
-const SKILLS_DIR = path.join(REPO_DIR, 'plugins/docks/skills');
-const AGENTS_DIR = path.join(REPO_DIR, 'plugins/docks/agents');
+// Default scans docks; pass a skills dir (+ optional agents dir) to scope to
+// another plugin. In explicit-scope mode agents are scanned ONLY when given, so
+// `<plugin>/skills` alone never falls back to docks agents.
+const argSkills = process.argv[2];
+const SKILLS_DIR = path.resolve(argSkills || path.join(REPO_DIR, 'plugins/docks/skills'));
+const AGENTS_DIR = argSkills
+  ? (process.argv[3] ? path.resolve(process.argv[3]) : null)
+  : path.join(REPO_DIR, 'plugins/docks/agents');
 const ALLOWLIST = ['scaffold', 'write-skill'];
 
 const PATTERN = /scripts\/(ci|release)\.sh|scripts\/(skills|agents|tree|scaffold|config|lib)\/|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
@@ -27,7 +33,7 @@ function walk(dir, filter, out = []) {
 
 const files = [
   ...walk(SKILLS_DIR, (f) => f.endsWith('SKILL.md') || (f.includes('/references/') && f.endsWith('.md'))),
-  ...walk(AGENTS_DIR, (f) => f.endsWith('.md')),
+  ...(AGENTS_DIR ? walk(AGENTS_DIR, (f) => f.endsWith('.md')) : []),
 ];
 
 const report = [];
