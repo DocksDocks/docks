@@ -145,6 +145,38 @@ section('skill-maintainer idempotency');
 nodeOk(['tests/idempotency.mjs']) ? ok('skill content_hash in sync; maintainer re-run is a no-op')
   : fail('skill-maintainer idempotency failed (run: node tests/idempotency.mjs)');
 
+// --- 6b. session-relay plugin (second marketplace plugin; Claude-only) ---
+// Self-contained: the rest of ci.mjs is scoped to plugins/docks, so this is the
+// only place the session-relay plugin is gated (manifest, version, skill, self-test).
+const SR = 'plugins/session-relay';
+if (fs.existsSync(SR)) {
+  section('session-relay plugin');
+  const srPlugin = readJSON(`${SR}/.claude-plugin/plugin.json`);
+  srPlugin ? ok('session-relay plugin.json JSON valid') : fail('session-relay plugin.json JSON invalid');
+  const srMarketV = market?.plugins?.find((p) => p.name === 'session-relay')?.version;
+  if (srPlugin?.version && srPlugin.version === srMarketV) ok(`session-relay version agrees (${srPlugin.version})`);
+  else fail(`session-relay version drift: plugin.json=${srPlugin?.version} marketplace.json=${srMarketV}`);
+
+  const srValidate = spawnSync('claude', ['plugin', 'validate', `./${SR}`], { encoding: 'utf8' });
+  if (srValidate.error) warn('claude CLI not found — skipped session-relay plugin validate');
+  else if (`${srValidate.stdout}${srValidate.stderr}`.includes('Validation passed')) ok('claude plugin validate ./plugins/session-relay');
+  else fail('claude plugin validate ./plugins/session-relay (run manually for details)');
+
+  const SRSK = `${SR}/skills`;
+  nodeOk(['scripts/skills/guard.mjs', SRSK]) ? ok('session-relay skill frontmatter valid')
+    : fail('session-relay skill frontmatter invalid (node scripts/skills/guard.mjs plugins/session-relay/skills)');
+  nodeOk(['scripts/skills/content-hash.mjs', '--check-only', SRSK]) ? ok('session-relay skill content_hash in sync')
+    : fail('session-relay skill content_hash drift (node scripts/skills/content-hash.mjs --backfill plugins/session-relay/skills)');
+  const srFloor = floorOf('skills', 'productivity');
+  const srScores = node([BUNDLE, 'score', '--per-file', SRSK]).stdout.trim().split('\n').filter(Boolean);
+  let srUnder = 0;
+  for (const l of srScores) { const s = parseInt(l.split(' ').pop(), 10); if (s < srFloor) { fail(`  session-relay:${l} below floor ${srFloor}`); srUnder = 1; } }
+  if (!srUnder && srScores.length) ok(`session-relay skill score ≥ ${srFloor} (${srScores.join(', ')})`);
+
+  nodeOk([`${SR}/test/selftest.mjs`]) ? ok('session-relay self-test (store + MCP handshake + hook) passed')
+    : fail('session-relay self-test failed (node plugins/session-relay/test/selftest.mjs)');
+}
+
 // --- 7. scaffold ---
 if (fs.existsSync('docs/scaffold/spec.yaml')) {
   section('scaffold');

@@ -21,6 +21,7 @@ node scripts/ci.mjs                                  # guards + scorers — must
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
 │   ├── agents/   (Claude-only)       plan-manager + plan-review thin opus plan-lifecycle wrappers
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
+├── plugins/session-relay/            2nd plugin (Claude-only): cross-session/cross-project agent message bus — MCP bus server + SessionStart hook + relay CLI; self-versioned, gated by its own ci.mjs section
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
