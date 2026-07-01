@@ -3,7 +3,7 @@ title: Adopt LLM-Wiki Lint checklist + OKF/Karpathy prior-art citations
 goal: Fold Karpathy's LLM-Wiki Lint checks into context-tree audit + skill-maintenance drift, and cite OKF + Karpathy LLM-Wiki as convergent prior art — no vendoring.
 status: in_review
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T17:34:39-03:00"
+updated: "2026-07-01T17:36:35-03:00"
 in_review_since: "2026-07-01T17:34:39-03:00"
 started_at: "2026-07-01T17:31:29-03:00"
 assignee: claude
@@ -14,7 +14,7 @@ affected_paths:
   - plugins/docks/skills/productivity/skill-maintenance/SKILL.md
   - plugins/docks/skills/productivity/write-skill/SKILL.md
 related_plans: []
-review_status: null
+review_status: passed
 planned_at_commit: "7ee6a0de28bdae9109282cfba3acc5803df69242"
 ---
 
@@ -116,7 +116,11 @@ Red-team caught and fixed: (1) acceptance criterion 1's Lint grep false-passed o
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met: yes** — work commit `4303561` lands both slices: the LLM-Wiki graph Lint (5 checks) in `context-tree audit` (op row L36, workflow bullet L103, Graph Lint table in `references/conflict-resolution.md`) plus the two per-skill drift rows in `skill-maintenance` (intra-skill contradiction + stale-claim), and the OKF/Karpathy prior-art citations in `write-skill:184` + `context-tree:13`. All 5 acceptance criteria pass (five per-check Lint greps exit 0; citations grep matches both files; `never writes` present + audit op-row `Writes? = no` + no write-verb on audit; no `upstream:` blocks). Scope clean: `git show 4303561 --stat` touches only the 3 skills' 4 files; CSO `description:` frontmatter unchanged; graph-only checks kept out of `skill-maintenance`; nothing vendored.
+- **Regressions:** none — no source-anchored claim in the touched skills failed reproduction; `content_hash` re-synced on all three skills.
+- **CI:** pass — `node scripts/ci.mjs` exits 0, including `docks skill content_hash in sync` and `docks skill frontmatter valid`.
+- **Follow-ups:** none.
+- **Filed by:** plan-review (completion) 2026-07-01T17:36:35-03:00
 
 ## Sources
 
