@@ -1,9 +1,9 @@
 ---
 title: Port session-relay to a single Rust binary (zero-runtime, both tools)
 goal: Replace session-relay's Node payload with one static Rust `relay` binary (4 committed arches + sh launcher) so a Codex host needs no Node, enabling kernel flock locking.
-status: ongoing
+status: in_review
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T20:06:08-03:00"
+updated: "2026-07-01T20:07:05-03:00"
 started_at: "2026-07-01T17:56:26-03:00"
 assignee: claude
 tags: [rust, session-relay, plugin, cross-tool, build, ci]
@@ -31,6 +31,7 @@ affected_paths:
   - .gitignore
 related_plans: [session-relay-cross-tool-bus, session-relay-auto-discovery]
 review_status: null
+in_review_since: "2026-07-01T20:07:05-03:00"
 planned_at_commit: "7ee6a0de28bdae9109282cfba3acc5803df69242"
 ---
 
@@ -114,7 +115,7 @@ Replace session-relay's five store-touching Node `.mjs` files with **one statica
 | 5 | Wire the toolchain: session-relay descriptor gains a build capability; `ci.mjs`'s Rust leg runs `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` + builds ONLY the host leg (`cargo build --release --locked` → `bin/relay-<hostTarget>`) and verifies committed `SHA256SUMS` BEFORE the self-test — **skipping that check with a printed notice while `bin/` holds no committed binaries** (they land in step 7, so the gate stays green between steps 5 and 7); `release.mjs` does **not** build darwin — it asserts all 4 committed binaries exist + `sha256sum -c` passes, then bumps+tags. Implemented as a `rust: { dir, bin, binName, targets }` descriptor capability + shared `scripts/lib/rust-bin.mjs` (`rustHostTarget`/`findCargo`/`verifySha256Sums` — Node-crypto verify, no `sha256sum` dep); release also asserts the launcher + exec bits; confirmed locally that the musl host leg builds with only `rustup target add` (static-pie, no musl-gcc needed) | `scripts/lib/plugins.mjs`, `scripts/lib/rust-bin.mjs`, `scripts/ci.mjs`, `scripts/release.mjs`, `scripts/AGENTS.md` | 3, 4 | done |
 | 6 | Rewrite the tests + docs against the host-leg binary (manifests still on Node — nothing consumer-facing flips yet): self-test black-box subset spawns `bin/relay` (host leg from step 5) — seed the cwd→id marker by piping a synthesized SessionStart event into `bin/relay hook`, seed **named** registrations via the `relay register` CLI subcommand; white-box store internals + the 8×10 cross-process stress move to `cargo test`; add read-only `relay peek <id>` for the remaining store assertions; rewrite ALL `SKILL.md` path strings (`:32,40,46,59,76,97,98,126` — every `relay.mjs` and `mcp/bus.mjs` mention, including the `codex mcp add` example) + rebump `content_hash` via `node scripts/skills/content-hash.mjs --backfill`. Done: 39-check selftest all through the binary (skip-with-notice if `bin/` empty on a cargo-less box); the `## Verify` line (`node test/selftest.mjs`) intentionally unchanged — the selftest stays a Node *harness* driving the binary; `list` awk example field `$3`→`$4` (Rust list interposes `[tool]`) | `test/selftest.mjs`, `rust/src/{cli,main}.rs` (`peek`), `skills/productivity/session-relay/SKILL.md` | 4, 5 | done |
 | 7 | Land the consumer-facing flip in ONE atomic commit: add the `bin/relay` sh launcher; commit the 4 arch binaries from `build-binaries.yml` artifacts + `SHA256SUMS` (all five `bin/` entries **mode 100755**); add the repo-root `.gitattributes` line; flip ALL FOUR manifests **per the Interfaces table** — Claude `plugin.json` MCP + `hooks.json` (exec form) on `${CLAUDE_PLUGIN_ROOT}`, `codex-hooks.json` shell form, `bus.mcp.json` on **native `${PLUGIN_ROOT}`** . Done: binaries from build-binaries run 28552485456 (all 4 transit checksums OK); launcher shellcheck-linted (SC1007 fix: `CDPATH=''`) and smoke-tested (dispatches to the musl leg); exec bits verified in the git INDEX (Write had staged the launcher 100644 — the exact EACCES gotcha; re-chmodded) | `bin/{relay,relay-*,SHA256SUMS}`, `.gitattributes`, the 4 manifests, `scripts/{ci.mjs,lib/rust-bin.mjs,lib/plugins.mjs,AGENTS.md}` | 6 | done |
-| 8 | Delete the now-unreferenced Node payload and finalize: `git rm` the five superseded `.mjs`; run the full gate | `git rm plugins/session-relay/{mcp/bus.mjs,lib/store.mjs,lib/discover.mjs,hooks/session-start.mjs,skills/productivity/session-relay/scripts/relay.mjs}` | 7 | planned |
+| 8 | Delete the now-unreferenced Node payload and finalize: `git rm` the five superseded `.mjs`; run the full gate | `git rm plugins/session-relay/{mcp/bus.mjs,lib/store.mjs,lib/discover.mjs,hooks/session-start.mjs,skills/productivity/session-relay/scripts/relay.mjs}` | 7 | done |
 
 ## Acceptance criteria
 
