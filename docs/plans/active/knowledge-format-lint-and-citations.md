@@ -1,9 +1,10 @@
 ---
 title: Adopt LLM-Wiki Lint checklist + OKF/Karpathy prior-art citations
 goal: Fold Karpathy's LLM-Wiki Lint checks into context-tree audit + skill-maintenance drift, and cite OKF + Karpathy LLM-Wiki as convergent prior art — no vendoring.
-status: ongoing
+status: in_review
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T17:31:29-03:00"
+updated: "2026-07-01T17:34:39-03:00"
+in_review_since: "2026-07-01T17:34:39-03:00"
 started_at: "2026-07-01T17:31:29-03:00"
 assignee: claude
 tags: [skills, context-tree, skill-maintenance, prior-art, documentation]
@@ -39,10 +40,10 @@ Turn the investigation's one genuinely-additive finding into shipped improvement
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Add the LLM-Wiki **Lint checklist** to the `context-tree audit` op: extend the audit row + the audit workflow bullet, and the audit procedure reference, with the five new checks (contradictions between nodes · orphan nodes with no inbound links · concepts mentioned but lacking a node · missing cross-references · web-fillable data gaps). Keep `audit` **read-only** (report drift, never write). | `plugins/docks/skills/productivity/context-tree/SKILL.md:36,103` (audit op row + workflow bullet), `plugins/docks/skills/productivity/context-tree/references/conflict-resolution.md` (audit procedure) | — | planned |
-| 2 | Extend `skill-maintenance` **Drift Detection** with ONLY the checks that map to a single skill (it has no node graph): **intra-skill contradiction** and **stale claim superseded by newer source**. Do NOT add the graph-only checks (orphan / no-inbound-link, cross-node contradiction, missing cross-reference) — those live in `context-tree audit` alone. | `plugins/docks/skills/productivity/skill-maintenance/SKILL.md` (Drift Detection §, ~L91-101) | — | planned |
-| 3 | Add the **prior-art citations**: in `write-skill` (alongside the existing Matt Pocock / skill-creator citation, ~L184) note that Google's OKF (Apache-2.0) and Karpathy's LLM-Wiki independently standardize the same markdown+frontmatter+progressive-disclosure pattern; and add a one-line prior-art note to `context-tree` (near L13 "The pattern is canon, not invention"). Cite URLs; vendor nothing. | `plugins/docks/skills/productivity/write-skill/SKILL.md:184`, `plugins/docks/skills/productivity/context-tree/SKILL.md:13` | — | planned |
-| 4 | Re-sync metadata: run `node scripts/skills/content-hash.mjs --backfill` and bump `metadata.updated` on every changed SKILL.md — including `context-tree/SKILL.md`, whose hash is re-driven by the Step-1 `references/conflict-resolution.md` edit even though its body is untouched; confirm `node scripts/ci.mjs` passes. | `context-tree/SKILL.md`, `skill-maintenance/SKILL.md`, `write-skill/SKILL.md` frontmatter | 1, 2, 3 | planned |
+| 1 | Add the LLM-Wiki **Lint checklist** to the `context-tree audit` op: extend the audit row + the audit workflow bullet, and the audit procedure reference, with the five new checks (contradictions between nodes · orphan nodes with no inbound links · concepts mentioned but lacking a node · missing cross-references · web-fillable data gaps). Keep `audit` **read-only** (report drift, never write). | `plugins/docks/skills/productivity/context-tree/SKILL.md:36,103` (audit op row + workflow bullet), `plugins/docks/skills/productivity/context-tree/references/conflict-resolution.md` (audit procedure) | — | done |
+| 2 | Extend `skill-maintenance` **Drift Detection** with ONLY the checks that map to a single skill (it has no node graph): **intra-skill contradiction** and **stale claim superseded by newer source**. Do NOT add the graph-only checks (orphan / no-inbound-link, cross-node contradiction, missing cross-reference) — those live in `context-tree audit` alone. | `plugins/docks/skills/productivity/skill-maintenance/SKILL.md` (Drift Detection §, ~L91-101) | — | done |
+| 3 | Add the **prior-art citations**: in `write-skill` (alongside the existing Matt Pocock / skill-creator citation, ~L184) note that Google's OKF (Apache-2.0) and Karpathy's LLM-Wiki independently standardize the same markdown+frontmatter+progressive-disclosure pattern; and add a one-line prior-art note to `context-tree` (near L13 "The pattern is canon, not invention"). Cite URLs; vendor nothing. | `plugins/docks/skills/productivity/write-skill/SKILL.md:184`, `plugins/docks/skills/productivity/context-tree/SKILL.md:13` | — | done |
+| 4 | Re-sync metadata: run `node scripts/skills/content-hash.mjs --backfill` and bump `metadata.updated` on every changed SKILL.md — including `context-tree/SKILL.md`, whose hash is re-driven by the Step-1 `references/conflict-resolution.md` edit even though its body is untouched; confirm `node scripts/ci.mjs` passes. | `context-tree/SKILL.md`, `skill-maintenance/SKILL.md`, `write-skill/SKILL.md` frontmatter | 1, 2, 3 | done |
 
 ## Interfaces & data shapes
 
@@ -108,6 +109,10 @@ _None — scope (citations + Lint checklist, no new skill, no vendoring) was cho
 Score: 87 → ~90/100 · trajectory 73→89→87→~90 (two fresh-context `plan-review` red-teams; all findings applied pre-start) · stopped: second review pass, fixes applied. A web-verification pass (2026-07-01) fixed one **mis-sourced** claim: OKF's Apache-2.0 license was cited to the Google Cloud blog, which doesn't state it — the actual source is the `knowledge-catalog` repo LICENSE (claim itself confirmed true). Format + Karpathy Lint items verified verbatim (see Sources → External research). **Second re-review (87/100)** caught that the Lint acceptance grep was gameable (summed `≥5` satisfiable by overlapping alternatives on one line) and silently omitted the "missing cross-references" check — replaced with five per-check greps, each required to match. Step 2's over-declared dependency on Step 1 corrected to `—` (different files, disjoint check subsets). The `capability-tuning:24,181` lineage anchors were re-verified this session (Karpathy context-engineering quote + primary-source list — both hold).
 
 Red-team caught and fixed: (1) acceptance criterion 1's Lint grep false-passed on pre-existing "orphan"/"coverage gap" text in `conflict-resolution.md` — now greps distinctive new phrases with a min count; (2) Step 2 mapped graph-only checks onto per-skill `skill-maintenance` (which has no node graph) — now scoped to intra-skill contradiction + stale-claim only; (3) the required `## Cold-handoff checklist` spine section was missing and the exact hash command wasn't inlined — both added (`node scripts/skills/content-hash.mjs --backfill`); (4) reference edits silently re-drive the parent SKILL.md hash, and step 4 had no CI-red STOP — both now stated. All 10 cited anchors resolved; two minor line-number imprecisions corrected (skill-maintenance L91-101, capability-tuning L3).
+
+## Mistakes & Dead Ends
+
+- **2026-07-01T17:34:39-03:00**: Graph-Lint addition pushed `conflict-resolution.md` from 87 → 101 lines → `refs-guard` failed (references >100 lines with 3+ headings need a `## Contents` TOC), which also failed the scaffold seed test downstream → fixed by adding the TOC; the plan's gotchas listed the 500-line SKILL cap and the 30–150-line reference band but missed the >100-line TOC rule — check `refs-guard.mjs` thresholds when growing any reference file.
 
 ## Review
 
