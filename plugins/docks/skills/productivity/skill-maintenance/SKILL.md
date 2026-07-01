@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-06-14"
-  content_hash: "f61674d04b0d670f0e837fadd96b1aea8f666cca12409a4d144e32b75f416c52"
+  updated: "2026-07-01"
+  content_hash: "c65c2833b37031edb7189a69fe2b8a905a5f07fec7d18c1527d520e5d8811177"
 ---
 
 # Skill Maintenance
@@ -98,6 +98,8 @@ description: "Use when editing routes: checkout, account, webhook, or fixing esl
 | Reference file missing | List `references/` and links from body | Restore file or remove pointer |
 | Skill no longer triggers | Inspect first 150 chars of description | Put concrete trigger words first |
 | Wrong sibling skill fires for a task | Compare both descriptions with near-miss prompts that share keywords | Sharpen triggers; route the near-miss via a "Not ..." clause |
+| Two body rules contradict each other | Read the full body (and its references) once end-to-end; list rule pairs giving incompatible instructions for the same case | Reconcile: keep the stricter or newer rule, scope or delete the other — never leave both |
+| Claim superseded by a newer source | Re-open each cited source/URL/doc; compare the claim against current behavior, not the version remembered at writing time | Update the claim and bump `metadata.updated`; drop citations that no longer support it |
 | Local maintenance skill exists | Compare to Docks plugin skill | Keep only if it adds project-specific rules |
 
 ## Idempotency Rules

@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-06-14"
-  content_hash: "4c2cd53413c33a2fd15e59477f0438d9b034fa0df2c76883cf2acc99214a5d87"
+  updated: "2026-07-01"
+  content_hash: "89d9540ede6d92fe41ac8a7d192214b8b7a047b36bba8832f629a46fc6b8bc62"
 ---
 
 # Write a Skill (docks conventions)
@@ -181,4 +181,4 @@ A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no 
 
 ## Source attribution
 
-Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT, <https://github.com/mattpocock/skills/blob/main/skills/productivity/write-a-skill/SKILL.md>). Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows.
+Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT, <https://github.com/mattpocock/skills/blob/main/skills/productivity/write-a-skill/SKILL.md>). Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.
