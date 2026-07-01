@@ -3,7 +3,7 @@ title: Adopt LLM-Wiki Lint checklist + OKF/Karpathy prior-art citations
 goal: Fold Karpathy's LLM-Wiki Lint checks into context-tree audit + skill-maintenance drift, and cite OKF + Karpathy LLM-Wiki as convergent prior art — no vendoring.
 status: planned
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T15:56:09-03:00"
+updated: "2026-07-01T17:06:53-03:00"
 started_at: null
 assignee: null
 tags: [skills, context-tree, skill-maintenance, prior-art, documentation]
@@ -74,7 +74,7 @@ N/A — doc/skill prose edits; no cross-task data contract.
 
 - Skill descriptions start with "Use when…" and stay ≤ 1024 chars (agentskills.io + kit CSO).
 - `references/*.md` files are 30–150 lines each, loaded on demand.
-- Attribution: OKF is Apache-2.0 (citation/quote fine); the Karpathy gist has no license (idea reimplemented, prose not copied).
+- Attribution: OKF is Apache-2.0 (per the `knowledge-catalog` repo LICENSE — citation/quote fine); the Karpathy gist has no license (idea reimplemented, prose not copied).
 
 ## Cold-handoff checklist
 
@@ -98,7 +98,7 @@ _None — scope (citations + Lint checklist, no new skill, no vendoring) was cho
 
 ## Self-review
 
-Score: 73 → 89/100 · trajectory 73→89 (draft red-teamed by a fresh `plan-review` context, then its 10 fixes applied pre-start) · stopped: single review pass, fixes applied.
+Score: 73 → 89/100 · trajectory 73→89 (draft red-teamed by a fresh `plan-review` context, then its 10 fixes applied pre-start) · stopped: single review pass, fixes applied. A later web-verification pass (2026-07-01) fixed one **mis-sourced** claim: OKF's Apache-2.0 license was cited to the Google Cloud blog, which doesn't state it — the actual source is the `knowledge-catalog` repo LICENSE (claim itself confirmed true). Format + Karpathy Lint items verified verbatim (see Sources → External research).
 
 Red-team caught and fixed: (1) acceptance criterion 1's Lint grep false-passed on pre-existing "orphan"/"coverage gap" text in `conflict-resolution.md` — now greps distinctive new phrases with a min count; (2) Step 2 mapped graph-only checks onto per-skill `skill-maintenance` (which has no node graph) — now scoped to intra-skill contradiction + stale-claim only; (3) the required `## Cold-handoff checklist` spine section was missing and the exact hash command wasn't inlined — both added (`node scripts/skills/content-hash.mjs --backfill`); (4) reference edits silently re-drive the parent SKILL.md hash, and step 4 had no CI-red STOP — both now stated. All 10 cited anchors resolved; two minor line-number imprecisions corrected (skill-maintenance L91-101, capability-tuning L3).
 
@@ -115,7 +115,10 @@ Red-team caught and fixed: (1) acceptance criterion 1's Lint grep false-passed o
 - `plugins/docks/skills/productivity/skill-maintenance/SKILL.md:91-101` — Drift Detection table.
 - `plugins/docks/skills/productivity/write-skill/SKILL.md:184` — existing Matt Pocock / skill-creator prior-art citation (add OKF + Karpathy here).
 - `plugins/docks/skills/productivity/capability-tuning/SKILL.md:3` — the quoted "Grounded in context engineering (Karpathy's method)" (description); `:24,181` — Karpathy lineage anchors.
-- External: OKF spec — Google Cloud (Apache-2.0), <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>. Karpathy "LLM Wiki" gist (unlicensed), <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>.
+**External research (web-verified 2026-07-01, not from memory):**
+- [Google Cloud OKF announcement](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing) — "Published by the Google Cloud Data Cloud team … an open specification"; "OKF v0.1 represents knowledge as a **directory of markdown files with YAML frontmatter**, with a small set of agreed-upon conventions" (fields: type/title/description/resource/tags/timestamp). → format claim verified. The blog itself does **not** state a license.
+- [GoogleCloudPlatform/knowledge-catalog](https://github.com/GoogleCloudPlatform/knowledge-catalog) (contains the `okf/` spec) — repo README + LICENSE: **"All solutions within this repository are provided under the Apache 2.0 license."** → the Apache-2.0 claim's actual source (the blog is not).
+- [Karpathy "LLM Wiki" gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — verified verbatim: three layers (raw sources / wiki / schema), operations Ingest/Query/**Lint**; Lint health-checks for *"contradictions between pages, stale claims that newer sources have superseded, orphan pages with no inbound links, important concepts … lacking their own page, missing cross-references, data gaps."* No license stated → idea reimplemented, prose not copied. (These are exactly the checks Step 1–2 map onto `context-tree audit` + `skill-maintenance` drift.)
 
 ## Notes
 
