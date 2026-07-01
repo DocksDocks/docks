@@ -28,6 +28,8 @@ export function findCargo() {
   return fs.existsSync(home) ? home : null;
 }
 
+export const sha256File = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+
 // Verify a `shasum -a 256`-format SHA256SUMS file against its own directory.
 // Returns { listed, bad } where bad holds "name (missing|checksum mismatch)".
 export function verifySha256Sums(binDir) {

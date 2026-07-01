@@ -1,6 +1,6 @@
 # Plugin-author tooling (scripts/)
 
-These scripts validate and release the repo's plugins. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported) and the cross-tool `context-tree-nudge` PostToolUse hook. The repo has **zero** bash. `ci.mjs` is the local gate, and `.github/workflows/ci.yml` runs that same `ci.mjs` — true local↔CI parity.
+These scripts validate and release the repo's plugins. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported) and the cross-tool `context-tree-nudge` PostToolUse hook. The only shell in the repo is session-relay's arch-dispatch launcher (`plugins/session-relay/bin/relay`, POSIX sh, shellcheck-linted). `ci.mjs` is the local gate, and `.github/workflows/ci.yml` runs that same `ci.mjs` — true local↔CI parity.
 
 <constraint>
 `node scripts/ci.mjs` must be green before any commit — it exits non-zero on any failure. Don't loosen validator floors to make a problematic file pass; fix the file.
@@ -18,7 +18,7 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `agents` | agents root, or `null` (agents guard+score run only when set) |
 | `codex` | `true` when a `.codex-plugin/` mirror + Codex marketplace entry ship |
 | `selftest` | path to a runnable self-test, or `null` |
-| `rust` | Rust binary capability, or `null`: `{ dir, bin, binName, targets }` — `ci.mjs` runs `cargo fmt --check` + `clippy -D warnings` + a `--locked` host-leg build into `bin/` and verifies committed `SHA256SUMS` (warn-skips while none is committed); `release.mjs` refuses to tag unless every target binary + launcher are committed executable with verifying checksums. Helpers in `lib/rust-bin.mjs` |
+| `rust` | Rust binary capability, or `null`: `{ dir, bin, binName, targets }` — `ci.mjs` runs `cargo fmt --check` + `clippy -D warnings` + a `--locked` host-leg rebuild, then compares it against the committed `bin/` binary (byte-identity FAILS in CI — same image as the producer `build-binaries.yml` — and warns locally, where path/linker variance is expected; the committed binary is never overwritten) and verifies committed `SHA256SUMS`; `release.mjs` refuses to tag unless every target binary + launcher are committed executable with verifying checksums. Helpers in `lib/rust-bin.mjs` |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `install` | the consumer install snippet for the GitHub Release notes |
@@ -44,7 +44,7 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `scaffold/guard-spec.mjs` · `scaffold/test.mjs` | scaffold spec coherence + a full seed starts green | pass/fail |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| shellcheck (repo-wide) | `-S warning` over every plugin's `hooks/*.sh` (via `shellHooks(p)`); currently a no-op (zero bash in the repo) — kept so a future shell hook is still linted | pass/warn |
+| shellcheck (repo-wide) | `-S warning` over every plugin's `hooks/*.sh` plus a rust capability's sh launcher (`bin/<binName>`), via `shellHooks(p)` — today that's session-relay's `bin/relay` | pass/warn |
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
 

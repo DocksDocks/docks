@@ -90,9 +90,16 @@ export function manifestCategories(manifest) {
   return skills.map((s) => s.replace(/^\.\//, '').replace(/^skills\//, '').replace(/\/$/, '')).filter(Boolean);
 }
 
-// Bash hook files (*.sh) under a plugin's hooks/ dir — for shellcheck.
+// Shell files to lint: hook scripts (*.sh) under a plugin's hooks/ dir, plus
+// the rust capability's sh launcher (bin/<binName>) when present.
 export function shellHooks(p) {
   const dir = path.join(p.root, 'hooks');
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((f) => f.endsWith('.sh')).map((f) => path.join(dir, f));
+  const out = fs.existsSync(dir)
+    ? fs.readdirSync(dir).filter((f) => f.endsWith('.sh')).map((f) => path.join(dir, f))
+    : [];
+  if (p.rust) {
+    const launcher = path.join(p.rust.bin, p.rust.binName);
+    if (fs.existsSync(launcher)) out.push(launcher);
+  }
+  return out;
 }
