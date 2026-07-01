@@ -13,7 +13,7 @@ import {
   PLUGINS, presentPlugins, byName, claudeManifest, codexManifest,
   CLAUDE_MARKETPLACE, CODEX_MARKETPLACE, marketEntryVersion, manifestCategories, shellHooks,
 } from './lib/plugins.mjs';
-import { findCargo, rustHostTarget, verifySha256Sums } from './lib/rust-bin.mjs';
+import { findCargo, rustHostTarget, sha256File, verifySha256Sums } from './lib/rust-bin.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 process.chdir(REPO);
@@ -163,11 +163,25 @@ function gateRust(p) {
     const host = rustHostTarget();
     if (!host) fail(`${p.name}: unsupported host ${process.platform}/${process.arch} — no launcher target triple`);
     else if ((cargoRun(['build', '--release', '--locked', '--target', host]).status ?? 1) === 0) {
-      fs.mkdirSync(bin, { recursive: true });
+      const built = path.join(dir, 'target', host, 'release', binName);
       const out = path.join(bin, `${binName}-${host}`);
-      fs.copyFileSync(path.join(dir, 'target', host, 'release', binName), out);
-      fs.chmodSync(out, 0o755);
-      ok(`${p.name} host leg built --locked → ${out}`);
+      if (!fs.existsSync(out)) {
+        // No committed binary yet (pre-flip window) — stage the local build so
+        // the self-test has something to spawn.
+        fs.mkdirSync(bin, { recursive: true });
+        fs.copyFileSync(built, out);
+        fs.chmodSync(out, 0o755);
+        ok(`${p.name} host leg built --locked → ${out}`);
+      } else if (sha256File(built) === sha256File(out)) {
+        // Committed binary is canonical (the build-binaries workflow is the
+        // sole producer) — never overwrite it; a matching rebuild proves the
+        // committed artifact is reproducible from this source.
+        ok(`${p.name} host rebuild byte-identical to committed ${binName}-${host}`);
+      } else {
+        // Binaries embed build paths + the host linker's output, so only a
+        // runner on the SAME image as the producer can expect byte-identity.
+        (process.env.CI ? fail : warn)(`${p.name} host rebuild digest differs from committed ${binName}-${host} — CI enforces byte-identity (same image as build-binaries); locally this is expected path/linker variance`);
+      }
     } else fail(`${p.name} host build failed (run: rustup target add ${host} && cargo build --release --locked --target ${host}, in ${dir})`);
   }
   if (!fs.existsSync(path.join(bin, 'SHA256SUMS'))) {

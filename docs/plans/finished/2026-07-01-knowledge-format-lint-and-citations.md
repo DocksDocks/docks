@@ -1,9 +1,9 @@
 ---
 title: Adopt LLM-Wiki Lint checklist + OKF/Karpathy prior-art citations
 goal: Fold Karpathy's LLM-Wiki Lint checks into context-tree audit + skill-maintenance drift, and cite OKF + Karpathy LLM-Wiki as convergent prior art — no vendoring.
-status: in_review
+status: finished
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T17:36:35-03:00"
+updated: "2026-07-01T19:42:16-03:00"
 in_review_since: "2026-07-01T17:34:39-03:00"
 started_at: "2026-07-01T17:31:29-03:00"
 assignee: claude
@@ -15,6 +15,7 @@ affected_paths:
   - plugins/docks/skills/productivity/write-skill/SKILL.md
 related_plans: []
 review_status: passed
+ship_commit: "9e7a7329080ef2b52058ef2c09de8527b9d44494"
 planned_at_commit: "7ee6a0de28bdae9109282cfba3acc5803df69242"
 ---
 
@@ -116,11 +117,11 @@ Red-team caught and fixed: (1) acceptance criterion 1's Lint grep false-passed o
 
 ## Review
 
-- **Goal met: yes** — work commit `4303561` lands both slices: the LLM-Wiki graph Lint (5 checks) in `context-tree audit` (op row L36, workflow bullet L103, Graph Lint table in `references/conflict-resolution.md`) plus the two per-skill drift rows in `skill-maintenance` (intra-skill contradiction + stale-claim), and the OKF/Karpathy prior-art citations in `write-skill:184` + `context-tree:13`. All 5 acceptance criteria pass (five per-check Lint greps exit 0; citations grep matches both files; `never writes` present + audit op-row `Writes? = no` + no write-verb on audit; no `upstream:` blocks). Scope clean: `git show 4303561 --stat` touches only the 3 skills' 4 files; CSO `description:` frontmatter unchanged; graph-only checks kept out of `skill-maintenance`; nothing vendored.
-- **Regressions:** none — no source-anchored claim in the touched skills failed reproduction; `content_hash` re-synced on all three skills.
-- **CI:** pass — `node scripts/ci.mjs` exits 0, including `docks skill content_hash in sync` and `docks skill frontmatter valid`.
+- **Goal met: yes** — completion re-review after HEAD moved to `9e7a732` (rust-port commits landed on the branch). The scoped diff `7ee6a0d..HEAD` for this plan's four paths is intact and unchanged from work commit `4303561`: the LLM-Wiki graph Lint (5 checks) in `context-tree audit` (op row L36, workflow bullet L103, Graph Lint table in `references/conflict-resolution.md`), the two per-skill drift rows in `skill-maintenance` (intra-skill contradiction + stale-claim), and the OKF/Karpathy prior-art citations in `write-skill:184` + `context-tree:13`. All 5 acceptance criteria re-run and pass (five per-check Lint greps exit 0; citations grep matches both files; `never writes` present + audit op-row `Writes? = no` + no write-verb on audit; no `upstream:` blocks). `content_hash` re-synced on all three skills; CSO `description:` frontmatter unchanged.
+- **Regressions:** none — the newer rust-port commits (`9e7a732`, `f1795c7`, `4495b29`, `08c400e`, `20c2ee8`, …) are scoped to `plugins/session-relay/rust`, `scripts/`, `.github/`, and plan files; disjoint from this plan's four files. Scoped `git diff --stat 7ee6a0d..HEAD` still touches only the 3 skills' 4 files.
+- **CI:** pass — `node scripts/ci.mjs` exits 0, including `docks skill content_hash in sync` and `docks skill frontmatter valid`; the session-relay Rust leg (`cargo fmt --check` / `clippy -D warnings`) is clean, and the only warn-skip is the not-yet-committed `plugins/session-relay/bin/SHA256SUMS` checksum verify (binaries land via `build-binaries.yml`) — out of this plan's scope, not a regression.
 - **Follow-ups:** none.
-- **Filed by:** plan-review (completion) 2026-07-01T17:36:35-03:00
+- **Filed by:** plan-review (completion re-review, HEAD moved) 2026-07-01T19:38:33-03:00
 
 ## Sources
 
