@@ -6,7 +6,7 @@
 
 Only three events trigger CI:
 - `pull_request` to main → gate merges
-- `push` of tags matching `docks--v*` → gate releases (`release.mjs` waits for this)
+- `push` of tags matching `*--v*` — any `<plugin>--v<version>` release tag (`docks--v*`, `session-relay--v*`, …) → gate releases (`release.mjs` waits for this; a plugin-specific glob here once left session-relay releases un-gated)
 - `workflow_dispatch` → manual
 
 <constraint>

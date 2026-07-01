@@ -11,7 +11,7 @@ on:
     branches: [main]
   push:
     tags:
-      - 'docks--v*'
+      - '*--v*'   # any <plugin>--v<version> release tag (docks--v*, session-relay--v*, ...)
   workflow_dispatch:
 
 # Least privilege: the single validator job is read-only.
