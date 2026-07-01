@@ -1,11 +1,11 @@
 ---
 title: Adopt LLM-Wiki Lint checklist + OKF/Karpathy prior-art citations
 goal: Fold Karpathy's LLM-Wiki Lint checks into context-tree audit + skill-maintenance drift, and cite OKF + Karpathy LLM-Wiki as convergent prior art — no vendoring.
-status: planned
+status: ongoing
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T17:28:45-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-01T17:31:29-03:00"
+started_at: "2026-07-01T17:31:29-03:00"
+assignee: claude
 tags: [skills, context-tree, skill-maintenance, prior-art, documentation]
 affected_paths:
   - plugins/docks/skills/productivity/context-tree/SKILL.md
