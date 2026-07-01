@@ -1,11 +1,11 @@
 ---
 title: Port session-relay to a single Rust binary (zero-runtime, both tools)
 goal: Replace session-relay's Node payload with one static Rust `relay` binary (4 committed arches + sh launcher) so a Codex host needs no Node, enabling kernel flock locking.
-status: planned
+status: ongoing
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T17:28:45-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-01T17:56:26-03:00"
+started_at: "2026-07-01T17:56:26-03:00"
+assignee: claude
 tags: [rust, session-relay, plugin, cross-tool, build, ci]
 affected_paths:
   - plugins/session-relay/rust/
