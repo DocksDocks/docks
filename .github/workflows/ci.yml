@@ -38,5 +38,11 @@ jobs:
         run: node node_modules/@anthropic-ai/claude-code/install.cjs
       - name: "add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)"
         run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: "provision Rust for the session-relay host leg (no-op until the crate lands; rustup is preinstalled on the image)"
+        run: |
+          if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+            (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)
+          fi
       - name: "run the full gate (ci.mjs) — guards, scores, manifests, plugin validate, scaffold, shellcheck"
         run: node scripts/ci.mjs

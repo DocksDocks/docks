@@ -1,0 +1,69 @@
+name: build-binaries
+
+# Produces the four session-relay `relay` binaries as artifacts (rust-port plan).
+#
+#   macos-latest (Apple Silicon)  → aarch64-apple-darwin (native) + x86_64-apple-darwin (cross target)
+#   ubuntu-latest                 → x86_64-unknown-linux-musl + aarch64-unknown-linux-musl (static)
+#
+# workflow_dispatch ONLY — deliberately NOT tag-triggered. Binaries must be
+# committed into plugins/session-relay/bin/ BEFORE release.mjs tags HEAD:
+# the tag push is the release gate, so it can only verify what is already
+# in-tree, never produce it. Flow: dispatch here → download artifacts →
+# commit into bin/ (mode 100755) + SHA256SUMS → release.mjs bumps + tags.
+#
+# Notes:
+#   - Dispatchable only once this file exists on the DEFAULT branch.
+#   - No third-party toolchain action: both runner images preinstall rustup
+#     (runner-images Ubuntu2404 + macos-15-arm64 readmes, verified 2026-07-01);
+#     `rustup toolchain install` reads plugins/session-relay/rust/rust-toolchain.toml.
+#   - Will fail (by design) until the crate lands (rust-port plan step 3).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: "build (${{ matrix.runner }})"
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            targets: "aarch64-apple-darwin x86_64-apple-darwin"
+          - runner: ubuntu-latest
+            targets: "x86_64-unknown-linux-musl aarch64-unknown-linux-musl"
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: plugins/session-relay/rust
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: "linux only: musl C toolchain + aarch64 cross-linker"
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools gcc-aarch64-linux-gnu
+      - name: "install the pinned toolchain (rust-toolchain.toml) + this runner's targets"
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.targets }}
+      - name: "build each target (--locked; release profile lives in Cargo.toml)"
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          mkdir -p ../bin-out
+          for t in ${{ matrix.targets }}; do
+            cargo build --release --locked --target "$t"
+            cp "target/$t/release/relay" "../bin-out/relay-$t"
+          done
+      - name: "per-runner checksums (transit cross-check; the committed SHA256SUMS is regenerated in bin/)"
+        working-directory: plugins/session-relay/bin-out
+        run: shasum -a 256 relay-* | tee "SHA256SUMS-${{ matrix.runner }}.part"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: relay-${{ matrix.runner }}
+          path: |
+            plugins/session-relay/bin-out/relay-*
+            plugins/session-relay/bin-out/SHA256SUMS-*.part
+          if-no-files-found: error
