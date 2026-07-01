@@ -1,5 +1,11 @@
 # Conflict resolution — existing files, drift, no-op refresh
 
+## Contents
+
+- [Existing-node detection](#existing-node-detection-run-first-always) · [Half-pairs](#half-pairs-drift-to-fix) · [Merge vs overwrite](#merge-vs-overwrite) · [Per-section relocation](#per-section-relocation-init--full-refresh)
+- [Drift detection (`audit`)](#drift-detection-audit--content-accuracy-not-existence) — checkable claims, per-claim verdicts, [Graph Lint](#graph-lint-cross-node-health--after-the-per-claim-pass), pre-filter
+- [No-op refresh (hook safety)](#no-op-refresh-hook-safety)
+
 ## Existing-node detection (run first, always)
 
 Before writing anything, find folders that already have the pair:
@@ -66,6 +72,20 @@ Soft prose (rationale, "prefer X" advice) has no source anchor — mark it `unve
 ### Verdict per claim
 
 `confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (count/threshold/behaviour wrong) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
+
+### Graph Lint (cross-node health — after the per-claim pass)
+
+The per-claim checks above judge one node at a time; these five judge the tree as a graph. Same rules apply: read-only, report findings, never auto-fix. (Checklist adapted from Karpathy's LLM-Wiki Lint op.)
+
+| Lint check | Verify by |
+|---|---|
+| Contradictions between nodes | Compare rules that govern the same file/tool/threshold across nodes AND the root; two nodes giving incompatible instructions for the same case is a finding, whichever is "right" |
+| Orphan node — no inbound link | A node's folder missing from the root Context-tree table and unreferenced by any sibling node; it still loads lazily but is invisible to a reader navigating from the root |
+| Concept mentioned but lacking a node | A folder/subsystem repeatedly named across nodes (or in root) that qualifies as a node under "What counts as a node" yet has no pair |
+| Missing cross-references | Node A restates or depends on a convention canonically held by node B without naming it; add-a-link is the `refresh` fix, not silent duplication drift |
+| Web-fillable data gap | A claim that needs an external fact the repo cannot supply (a version, an upstream URL, a spec value) left vague where a source could pin it |
+
+Output: append the graph findings to the per-node report as `graph: <check> — <finding>` lines; each is a `refresh` candidate (or a root Context-tree table fix), decided by the user.
 
 ### Pre-filter (cheap, not authoritative)
 

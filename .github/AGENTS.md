@@ -1,12 +1,16 @@
 # CI workflows (.github/)
 
-`workflows/ci.yml` runs `node scripts/ci.mjs` — the exact same gate as local — in one job on GitHub. All validators are Node `.mjs`; the job needs Node + pnpm (`corepack enable`, then `pnpm install --frozen-lockfile`) for the `yaml` package and the lockfile-pinned `claude-code` binary, and adds `node_modules/.bin` to PATH so `ci.mjs` finds `claude`.
+`workflows/ci.yml` runs `node scripts/ci.mjs` — the exact same gate as local — in one job on GitHub. All validators are Node `.mjs`; the job needs Node + pnpm (`corepack enable`, then `pnpm install --frozen-lockfile`) for the `yaml` package and the lockfile-pinned `claude-code` binary, and adds `node_modules/.bin` to PATH so `ci.mjs` finds `claude`. The validate job also provisions Rust for the session-relay host leg (guarded: no-op until `plugins/session-relay/rust/rust-toolchain.toml` exists; rustup is preinstalled on the runner image, so no third-party toolchain action).
+
+## build-binaries.yml — the session-relay binary producer
+
+`workflows/build-binaries.yml` builds the four static `relay` binaries (2-runner matrix: Apple-Silicon `macos-latest` → both darwin arches; `ubuntu-latest` → both linux-musl arches) and uploads them as artifacts. **`workflow_dispatch` only — never tag-triggered**: binaries must be committed into `plugins/session-relay/bin/` *before* `release.mjs` tags HEAD (the tag push is the gate; it verifies what is in-tree, it cannot produce it). It is dispatchable only once the file exists on the default branch. No third-party toolchain action — both runner images preinstall rustup, and the pinned compiler comes from `rust-toolchain.toml`.
 
 ## Trigger model
 
 Only three events trigger CI:
 - `pull_request` to main → gate merges
-- `push` of tags matching `docks--v*` → gate releases (`release.mjs` waits for this)
+- `push` of tags matching `*--v*` — any `<plugin>--v<version>` release tag (`docks--v*`, `session-relay--v*`, …) → gate releases (`release.mjs` waits for this; a plugin-specific glob here once left session-relay releases un-gated)
 - `workflow_dispatch` → manual
 
 <constraint>

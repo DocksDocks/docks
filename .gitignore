@@ -4,3 +4,4 @@
 .idea/
 .vscode/
 node_modules/
+plugins/session-relay/rust/target/

@@ -18,6 +18,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { byName, PLUGINS, claudeManifest, codexManifest, CLAUDE_MARKETPLACE } from './lib/plugins.mjs';
+import { verifySha256Sums } from './lib/rust-bin.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const err = (m) => { console.error(`error: ${m}`); process.exit(1); };
@@ -46,6 +47,26 @@ if (!dryRun && !has('claude')) err('claude is required');
 if (!fs.existsSync(PLUGIN_JSON)) err(`plugin.json not found at ${PLUGIN_JSON}`);
 if (!fs.existsSync(MARKETPLACE_JSON)) err(`marketplace.json not found at ${MARKETPLACE_JSON}`);
 if (!dryRun && cap('git', ['status', '--porcelain']).stdout.trim() !== '') err('working tree dirty — commit/stash first');
+
+// --- rust binaries precondition (capability-driven) ---
+// Plugins reach consumers via git clone, never via Release assets, so every
+// target binary must already be committed in-tree. The darwin legs cannot be
+// built here — the build-binaries workflow produces all four; commit its
+// output before releasing.
+if (plugin.rust) {
+  const { bin, binName, targets } = plugin.rust;
+  const binDir = path.join(REPO, bin);
+  const want = [binName, ...targets.map((t) => `${binName}-${t}`)];
+  const missing = want.filter((f) => !fs.existsSync(path.join(binDir, f)));
+  if (missing.length) err(`missing committed binaries in ${bin}/: ${missing.join(', ')} — dispatch the build-binaries workflow and commit its output first`);
+  const noExec = want.filter((f) => !(fs.statSync(path.join(binDir, f)).mode & 0o111));
+  if (noExec.length) err(`not executable: ${noExec.map((f) => `${bin}/${f}`).join(', ')} — chmod +x and re-commit`);
+  if (!fs.existsSync(path.join(binDir, 'SHA256SUMS'))) err(`${bin}/SHA256SUMS missing — commit it alongside the binaries`);
+  const { listed, bad } = verifySha256Sums(binDir);
+  if (listed < targets.length) err(`${bin}/SHA256SUMS lists ${listed} file(s), expected ≥ ${targets.length} target binaries`);
+  if (bad.length) err(`bin checksum failures: ${bad.join(', ')}`);
+  console.log(`Rust binaries OK: ${targets.length} targets + launcher present in ${bin}/, checksums verify.`);
+}
 
 // --- local CI gate (full repo + all plugins) ---
 console.log('Running local ci.mjs...');

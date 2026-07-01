@@ -15,6 +15,11 @@
 //   agents        agents root, or null
 //   codex         true when a .codex-plugin/ mirror + Codex marketplace entry ship
 //   selftest      path to a runnable self-test, or null
+//   rust          Rust binary capability, or null: { dir, bin, binName, targets }
+//                 — ci.mjs runs fmt/clippy + a --locked host-leg build into
+//                 bin/ and verifies committed SHA256SUMS; release.mjs refuses
+//                 to tag unless every target binary + the launcher are
+//                 committed and checksums verify (see lib/rust-bin.mjs)
 //   extraJson     additional JSON configs to validate (hooks/mcp/etc.)
 //   transformGuard run scripts/skills/transform-guard.mjs (curated transformers)
 //   install       the consumer install snippet for the GitHub Release notes
@@ -29,6 +34,7 @@ export const PLUGINS = [
     agents: 'plugins/docks/agents',
     codex: true,
     selftest: null,
+    rust: null,
     extraJson: [],
     transformGuard: true,
     install: '/plugin marketplace update docks\n/plugin install docks@docks',
@@ -40,6 +46,17 @@ export const PLUGINS = [
     agents: null,
     codex: true,
     selftest: 'plugins/session-relay/test/selftest.mjs',
+    rust: {
+      dir: 'plugins/session-relay/rust',
+      bin: 'plugins/session-relay/bin',
+      binName: 'relay',
+      targets: [
+        'x86_64-unknown-linux-musl',
+        'aarch64-unknown-linux-musl',
+        'x86_64-apple-darwin',
+        'aarch64-apple-darwin',
+      ],
+    },
     extraJson: [
       'plugins/session-relay/hooks/codex-hooks.json',
       'plugins/session-relay/.codex-plugin/bus.mcp.json',

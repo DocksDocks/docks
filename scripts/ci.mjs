@@ -13,6 +13,7 @@ import {
   PLUGINS, presentPlugins, byName, claudeManifest, codexManifest,
   CLAUDE_MARKETPLACE, CODEX_MARKETPLACE, marketEntryVersion, manifestCategories, shellHooks,
 } from './lib/plugins.mjs';
+import { findCargo, rustHostTarget, verifySha256Sums } from './lib/rust-bin.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 process.chdir(REPO);
@@ -135,8 +136,47 @@ function gatePlugin(p) {
     if (!aunder) ok(`${p.name} agents per-file all ≥ ${floor}`);
   }
 
+  // Rust gate runs BEFORE the self-test so a broken/mismatched binary fails
+  // here with a clear message, not as a confusing self-test spawn error.
+  if (p.rust && fs.existsSync(p.rust.dir)) gateRust(p);
+
   if (p.selftest) (nodeOk([p.selftest]) ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
     : fail(`${p.name} self-test failed (run: node ${p.selftest})`));
+}
+
+// Rust capability: fmt + clippy + a --locked release build of the HOST leg
+// only (the other legs come from the build-binaries workflow and are
+// committed in-tree — git-clone plugin delivery never sees Release assets).
+// The host build lands in bin/ and the committed SHA256SUMS is verified
+// against it: a divergent local toolchain fails loudly instead of silently
+// shipping a byte-different binary.
+function gateRust(p) {
+  const { dir, bin, binName } = p.rust;
+  const cargo = findCargo();
+  if (!cargo) warn(`${p.name}: cargo not found — Rust gate skipped locally (CI enforces)`);
+  else {
+    const cargoRun = (args) => spawnSync(cargo, args, { encoding: 'utf8', cwd: dir });
+    (cargoRun(['fmt', '--check']).status ?? 1) === 0 ? ok(`${p.name} cargo fmt --check clean`)
+      : fail(`${p.name} cargo fmt --check failed (run: cargo fmt, in ${dir})`);
+    (cargoRun(['clippy', '--all-targets', '--', '-D', 'warnings']).status ?? 1) === 0 ? ok(`${p.name} cargo clippy -D warnings clean`)
+      : fail(`${p.name} cargo clippy failed (run: cargo clippy --all-targets -- -D warnings, in ${dir})`);
+    const host = rustHostTarget();
+    if (!host) fail(`${p.name}: unsupported host ${process.platform}/${process.arch} — no launcher target triple`);
+    else if ((cargoRun(['build', '--release', '--locked', '--target', host]).status ?? 1) === 0) {
+      fs.mkdirSync(bin, { recursive: true });
+      const out = path.join(bin, `${binName}-${host}`);
+      fs.copyFileSync(path.join(dir, 'target', host, 'release', binName), out);
+      fs.chmodSync(out, 0o755);
+      ok(`${p.name} host leg built --locked → ${out}`);
+    } else fail(`${p.name} host build failed (run: rustup target add ${host} && cargo build --release --locked --target ${host}, in ${dir})`);
+  }
+  if (!fs.existsSync(path.join(bin, 'SHA256SUMS'))) {
+    warn(`${p.name}: no committed ${bin}/SHA256SUMS yet (binaries land via build-binaries.yml) — checksum verify skipped`);
+    return;
+  }
+  const { listed, bad } = verifySha256Sums(bin);
+  bad.length === 0 ? ok(`${p.name} bin checksums verify (${listed} listed)`)
+    : fail(`${p.name} bin checksum failures: ${bad.join(', ')} — local build must be byte-identical to committed (pinned toolchain)`);
 }
 
 function gateSkills(p, manifest) {
