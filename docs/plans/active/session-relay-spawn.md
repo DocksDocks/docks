@@ -3,7 +3,7 @@ title: session-relay — spawn a new full-context agent session (relay spawn)
 goal: Add `relay spawn <dir>`, a verb that creates a NEW persistent Claude/Codex session in any project dir — full CLAUDE.md/skills/plugins context — and converses with it over the bus, no manual session management.
 status: planned
 created: "2026-07-02T17:32:36-03:00"
-updated: "2026-07-02T17:32:36-03:00"
+updated: "2026-07-02T17:48:59-03:00"
 started_at: null
 assignee: claude
 tags: [session-relay, spawn, rust, cross-tool, claude, codex, multi-agent]
@@ -106,6 +106,23 @@ requested `--name`, and hand back a worker the parent already knows how to talk 
   `session-relay-per-session-identity`, not this plan.
 - **Zero new crates.** Budget stays `tinyjson` + `rustix` only (`Cargo.toml:9-11`).
   Detach is pure std (`process_group(0)` + null stdio); no daemonize crate.
+- **Permission posture (resolved 2026-07-02 via the native picker, CUSTOM answer).**
+  User's verbatim words: *"auto mode maybe? instead of acceptedits? or full access but
+  we state some rules, like it always have to use another branch and never modify real
+  live files like production via ssh and etc, only probes via ssh and scripts that do
+  stuff like that."* Interpreted policy to implement:
+  - **Default child posture = each tool's native "auto" working mode** (Codex: the Auto
+    preset / `workspace-write` sandbox with auto-approvals; Claude: the closest
+    auto-accepting working mode) — NOT read-only, NOT unfenced full access. **A5 pins
+    the EXACT current flag names** for "auto" per tool; do not guess them now.
+  - **The spawn prompt-prefix carries guardrail RULES injected into every child**
+    (pinned deliverable — see `## Interfaces & data shapes` and `## Global constraints`):
+    (1) always create and work on a separate git branch, never commit directly to the
+    default branch; (2) never modify live/production systems (e.g. over ssh) — read-only
+    probes are allowed, mutations are not; (3) destructive or irreversible operations
+    require asking the parent session over the bus first.
+  - **`--full-access` opts UP** to full access (the guardrail rules are STILL injected);
+    **`--read-only` opts DOWN** to a read-only sandbox.
 
 ### The persistent-but-one-shot reconciliation (why this isn't a contradiction)
 
@@ -156,13 +173,13 @@ resumable**, not a long-lived process. The full loop:
 | A2 | Live: `claude -p "say READY" --output-format json` with `cwd=<scratch>`; capture the result JSON; record the EXACT key path carrying the session id (skill notes `.result` is the reply — pin the session-id key) | scratch + this file | A1 | planned |
 | A3 | **Load-bearing:** does a headless `claude -p` run FIRE the SessionStart hook (self-register on the bus)? Spawn a `-p` child in a scratch project with the session-relay plugin active; check the registry/marker gains a new id. AND does `claude -p --session-id <uuid>` accept a pre-minted id? Record both yes/no | scratch + this file | A1 | planned |
 | A4 | Live: `codex exec --json "say READY"` with `cwd=<scratch>`; record the session-id location (session_configured event / rollout filename), whether `codex exec` fires the Codex SessionStart hook, and whether it accepts a pre-set id flag | scratch + this file | A1 | planned |
-| A5 | Inventory the EXACT permission/sandbox flags of the installed CLIs: `claude -p` (`--permission-mode` values, `--allowedTools`, `--dangerously-skip-permissions`) and `codex exec` (`--sandbox`, `--ask-for-approval`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`). These pin B1's flag construction | scratch + this file (`## Interfaces & data shapes`) | A1 | planned |
-| B1 | New module `spawn.rs`: DETACHED launch — `std::process::Command` with null stdio + `CommandExt::process_group(0)`, `.spawn()` (NEVER `.output()`); per-tool child argv from A2–A5 (permission flags + `--` prompt fence); binary overridable via `RELAY_SPAWN_CMD_CLAUDE` / `RELAY_SPAWN_CMD_CODEX` | `plugins/session-relay/rust/src/spawn.rs` (new) | A2–A5 | planned |
+| A5 | Pin the EXACT flag mappings for the **auto-mode default** (the resolved posture): the current "auto" working mode per tool — Codex the Auto preset / `workspace-write` + auto-approvals (`--sandbox`/`--ask-for-approval`/`--full-auto` current values), Claude the closest auto-accepting mode (`--permission-mode` current values). Also record the `--full-access` (up) and `--read-only` (down) flag mappings. Do not guess — inventory live from each CLI's `--help` | scratch + this file (`## Interfaces & data shapes`) | A1 | planned |
+| B1 | New module `spawn.rs`: DETACHED launch — `std::process::Command` with null stdio + `CommandExt::process_group(0)`, `.spawn()` (NEVER `.output()`); per-tool child argv from A2–A5, defaulting to the **auto-mode** flags (`--full-access` opts up, `--read-only` opts down) + `--` prompt fence; binary overridable via `RELAY_SPAWN_CMD_CLAUDE` / `RELAY_SPAWN_CMD_CODEX` | `plugins/session-relay/rust/src/spawn.rs` (new) | A2–A5 | planned |
 | B2 | Birth confirmation: pre-snapshot the marker for `<dir>` (or, when the tool accepts a pre-set id, mint via `store::uuid_v4` and watch for that exact id); poll `store::id_for_dir`/`store::resolve` every ~250ms up to `--timeout` (default 30s); on birth, `store::register(name, id, dir, tool)`; on timeout, exit non-zero with a `relay discover` hint | `plugins/session-relay/rust/src/spawn.rs` (reuses `store.rs:378 id_for_dir`, `:362 resolve`, `:308 register`, `:149 is_uuid`, `:97 uuid_v4`) | B1 | planned |
 | B3 | Arg parsing + dispatch: `spawn <dir> [--tool][--name][--reply-to][--timeout][--full-access][--dry] [--] <task>` via `cli::Args` (`flag`/`has`/`positionals`/`message_after_sep`); add `spawn` to `main.rs` match + `pub mod spawn;` to `lib.rs` | `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/main.rs:12-17`, `plugins/session-relay/rust/src/lib.rs:5` | B1, B2 | planned |
-| B4 | First-prompt standing prefix: resolve `--reply-to` (default = registry name for the spawn cwd via `store::id_for_dir(cwd)`); build `<prefix> + <task>` (trusted — NOT fenced as untrusted mail); `--dry` prints resolved tool/cmd/args/cwd/prompt (mirrors `wake --dry`, cli.rs:354-375) | `plugins/session-relay/rust/src/spawn.rs` | B3 | planned |
+| B4 | First-prompt standing prefix: resolve `--reply-to` (default = registry name for the spawn cwd via `store::id_for_dir(cwd)`); build `<prefix> + <task>` (trusted — NOT fenced as untrusted mail). The prefix MUST embed the **guardrail rules block VERBATIM** from `## Interfaces & data shapes` (branch-only, no live/production mutations, ask-parent-before-destructive) — a pinned deliverable, injected on EVERY spawn regardless of `--full-access`/`--read-only`; `--dry` prints resolved tool/cmd/args/cwd/prompt (mirrors `wake --dry`, cli.rs:354-375) | `plugins/session-relay/rust/src/spawn.rs` | B3 | planned |
 | B5 | Tool default: `--tool` omitted → default `claude` + a printed note (`IsTerminal` gate optional); the picker lives in the SKILL, not the CLI | `plugins/session-relay/rust/src/spawn.rs` | B3 | planned |
-| B6 | Rust unit tests (`#[cfg(test)]` in `spawn.rs`): per-tool argv incl. permission flags, `--` prompt fencing (a dash-leading task stays the final positional), prefix text names `--reply-to`, default-tool note, `--reply-to` resolution | `plugins/session-relay/rust/src/spawn.rs` | B1–B5 | planned |
+| B6 | Rust unit tests (`#[cfg(test)]` in `spawn.rs`): per-tool argv incl. auto-mode / `--full-access` / `--read-only` flags, `--` prompt fencing (a dash-leading task stays the final positional), prefix text names `--reply-to` AND embeds all three guardrail rule lines verbatim (asserted for auto + `--full-access` + `--read-only`), default-tool note, `--reply-to` resolution | `plugins/session-relay/rust/src/spawn.rs` | B1–B5 | planned |
 | B7 | Selftest (fake child — NO real claude/codex in CI): a stub via `RELAY_SPAWN_CMD_CLAUDE` that runs `relay hook` to simulate the child's birth registration; run `relay spawn <dir> --tool claude --name w1 --timeout 5 -- "task"`; assert spawn detects birth, registers `w1`, `roster` shows it, and `send w1` queues. Grow the check count | `plugins/session-relay/test/selftest.mjs` | B1–B6 | planned |
 | C1 | SKILL.md: document `relay spawn` — the new-session-vs-subagent distinction, the tool-picker guidance (ask when `--tool` omitted, interactive), the permission posture + `--full-access`, and the reply-to loop; bump `metadata.updated` + recompute `content_hash` via the project's skill validators, if present | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B7 | planned |
 | C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | planned |
@@ -178,10 +195,15 @@ relay spawn <dir>                         # required: the child's project dir (m
   [--name <busName>]                       # registered on the bus for the child id at birth
   [--reply-to <parentBusName>]             # default: registry name for the spawn cwd
   [--timeout <sec>]                        # birth-confirmation deadline (default 30)
-  [--full-access]                          # opt into danger permission mode (see Open questions)
+  [--full-access]                          # opt UP to full access (guardrail rules still injected)
+  [--read-only]                            # opt DOWN to a read-only sandbox
   [--dry]                                  # print resolved argv+cwd+prompt, do not launch
   [--] <first task>                        # verbatim; a bare `--` fences a dash-leading task
 ```
+
+Default (neither `--full-access` nor `--read-only`) = each tool's native **auto**
+working mode (A5 pins the exact flags). The guardrail rules block below is injected
+into the prompt on EVERY spawn, independent of the permission flag.
 
 **Child argv per tool (documented-but-UNVERIFIED — Phase A A2–A5 replace this with
 the verbatim observed forms; do NOT ship against these guesses):**
@@ -191,8 +213,8 @@ the verbatim observed forms; do NOT ship against these guesses):**
 | claude | `claude -p [--session-id <uuid>] --output-format json <perm-flags> -- <prompt>` |
 | codex | `codex exec --json <sandbox-flags> [<id-flag> <uuid>] -- <prompt>` |
 
-- `<perm-flags>` / `<sandbox-flags>` come from A5's live inventory (default posture in
-  `## Open questions`; `--full-access` opts up).
+- `<perm-flags>` / `<sandbox-flags>` come from A5's live inventory; the DEFAULT is each
+  tool's **auto** working mode, `--full-access` opts up, `--read-only` opts down.
 - `<uuid>` is minted via `store::uuid_v4` ONLY when A3/A4 confirm the tool accepts a
   pre-set session id; otherwise birth-confirmation falls back to the marker-diff watch.
 - `<prompt>` = the standing prefix + the user's first task (below).
@@ -205,10 +227,25 @@ TRUSTED — parent instructing its own child — so it is NOT wrapped in the
 You are a session-relay bus worker spawned by "<reply-to>". You are running in a
 fresh session in this project — its CLAUDE.md/AGENTS.md, skills, and plugins apply.
 When you finish, or if you need a decision, report to "<reply-to>" via the
-session-relay skill's send tool (send to "<reply-to>"). Your task:
+session-relay skill's send tool (send to "<reply-to>").
+
+Guardrail rules (non-negotiable):
+1. Always create and work on a separate git branch; never commit directly to the
+   default branch.
+2. Never modify live/production systems (e.g. over ssh). Read-only probes are
+   allowed; mutations are not.
+3. Destructive or irreversible operations require asking "<reply-to>" over the bus
+   first and waiting for approval.
+
+Your task:
 
 <first task>
 ```
+
+**Guardrail rules block = a PINNED DELIVERABLE.** B4 injects rules 1–3 above verbatim
+into every spawned child's first prompt, on EVERY spawn, regardless of the permission
+flag (`--full-access` / `--read-only` change the sandbox, never these rules). A
+`spawn.rs` unit test (B6) asserts all three rule lines are present in the built prompt.
 
 **Env overrides (dual-purpose: wrapper scripts AND the selftest seam):**
 `RELAY_SPAWN_CMD_CLAUDE` / `RELAY_SPAWN_CMD_CODEX` replace the launched binary path.
@@ -296,9 +333,12 @@ Phase B/C (executable):
   (`store.rs:374 set_marker` is last-writer-wins). Pre-mint + watch-for-specific-id
   avoids the ambiguity; without pre-mint, watch marker-diff and accept that concurrent
   same-dir spawns are undefined (document; don't try to serialize globally).
-- **Permission posture.** A headless worker with read-only perms cannot edit files —
-  useless; full-access is dangerous. Default = workspace-scoped write; `--full-access`
-  opts into danger mode. NEVER pass `--dangerously-*` by default (`## Open questions`).
+- **Permission posture.** Default = each tool's native **auto** working mode (A5 pins
+  the flags); `--full-access` opts up, `--read-only` opts down. NEVER pass
+  `--dangerously-*` by default. The guardrail rules block (branch-only, no
+  live/production mutations, ask-parent-before-destructive) is injected into the prompt
+  on EVERY spawn regardless of the flag — the sandbox and the prompt-rules are two
+  independent layers.
 - **Trusted vs untrusted prompt.** The FIRST prompt is trusted (parent → its own child)
   and is NOT wrapped in the `<session-relay-mail>` untrusted fence. Mail the child later
   receives IS untrusted and the existing `hook.rs` fence (`:59 defuse`, `:101 mail_block`)
@@ -317,6 +357,12 @@ Phase B/C (executable):
   executable with a verifying `SHA256SUMS` (release.mjs:56-68).
 - Three-manifest version lockstep enforced by `release.mjs` + `ci.mjs`.
 - Skill body ≤500 lines; `metadata.updated` bumped on any content change.
+- **Spawn guardrail rules (injected into every child's first prompt, verbatim, on EVERY
+  spawn — independent of the permission flag):** (1) always create/work on a separate
+  git branch, never commit to the default branch; (2) never modify live/production
+  systems (e.g. over ssh), read-only probes only; (3) destructive/irreversible ops
+  require asking the parent over the bus first. This is a pinned deliverable, not
+  advisory — B4 templates it and B6 tests for it.
 - Do not push until the user asks (this draft's auto-commit is commit-only).
 
 ## STOP conditions
@@ -333,20 +379,6 @@ Phase B/C (executable):
 - **Observed permission/sandbox flags differ from the guessed table** → update
   `## Interfaces & data shapes` and re-derive B1 before coding; never ship against
   remembered flags.
-
-## Open questions
-
-- **id:** `perm-posture` · **type:** choice (custom allowed) · what is the DEFAULT
-  permission posture for a spawned child (the exact flag values come from A5; this
-  chooses the policy)?
-  - **Workspace-scoped write** — claude `--permission-mode acceptEdits`, codex
-    `--sandbox workspace-write`; `--full-access` opts into danger mode
-    *(recommended)* — a worker that can edit its own project but is still sandboxed
-    from the wider machine; the useful-but-bounded default.
-  - Read-only by default (worker must be explicitly granted write) — safest, but a
-    read-only worker can't do most tasks, so most spawns would need `--full-access`.
-  - Full access by default (danger mode) — most capable, highest blast radius; makes
-    every spawned child able to run arbitrary commands unattended.
 
 ## Self-review
 
@@ -371,8 +403,10 @@ fixes they forced:
   (`RELAY_SPAWN_CMD_*` → a stub running `relay hook`) so B7 has a verifiable
   done-condition with no real CLI in CI.
 - **Assumption → question (6):** the one genuine user-facing decision (permission
-  posture / blast radius) became the lone `## Open question`; every other guess is
-  either pinned by a verbatim design decision or deferred to a Phase-A live check.
+  posture / blast radius) was surfaced as an open question and RESOLVED 2026-07-02 via
+  the native picker (custom answer → auto-mode default + injected guardrail rules,
+  encoded in `## Context`); every other guess is either pinned by a verbatim design
+  decision or deferred to a Phase-A live check.
 - Residual −8: exact child-CLI flag names + the session-id JSON key are unverifiable
   until Phase A runs on the installed CLIs (deliberately deferred, not guessable); B1
   is gated on recording them.
@@ -398,8 +432,9 @@ fixes they forced:
 8. **Global constraints verbatim** — present: zero-crates, ci-green, committed-binary
    provenance, version lockstep, skill line cap, no-push.
 9. **No undefined terms / forward refs** — pass: every flag/type/function is defined here
-   or cited in read code; the one policy unknown is an explicit open question and the
-   flag names are explicit Phase-A recordings, not silent TODOs.
+   or cited in read code; the permission policy is resolved (auto-mode + guardrail rules,
+   `## Context`/`## Global constraints`) and the exact flag names are explicit Phase-A
+   recordings, not silent TODOs.
 
 ## Review
 
