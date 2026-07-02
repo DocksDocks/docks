@@ -1,10 +1,10 @@
 ---
 title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
-status: planned
+status: ongoing
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T17:56:29-03:00"
-started_at: null
+updated: "2026-07-02T17:58:51-03:00"
+started_at: "2026-07-02T17:58:51-03:00"
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
 affected_paths:
@@ -14,6 +14,7 @@ affected_paths:
   - plugins/session-relay/rust/src/cli.rs
   - plugins/session-relay/rust/src/hook.rs
   - plugins/session-relay/test/selftest.mjs
+  - plugins/session-relay/test/fake-app-server.mjs
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - plugins/session-relay/bin/
   - plugins/session-relay/.claude-plugin/plugin.json
@@ -148,31 +149,38 @@ Cite these in code comments and the release notes.
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| A1 | Verify env + `WebFetch` the app-server + CLI-features docs; transcribe the JSON-RPC envelope, verb names, and param/result shapes into `## Interfaces & data shapes` (mark each observed-vs-documented) | `docs/plans/active/session-relay-app-server-push.md` (this file) | — | planned |
-| A2 | Launch `codex app-server --listen unix:///tmp/relay-spike.sock` in the background; write a throwaway node scratch client (`/tmp/claude-*/scratch/rpc.mjs`, `net.connect` to the socket, newline-delimited JSON-RPC) that does the init handshake; record the exact init request + response | scratch only + this file | A1 | planned |
+| A1 | Verify env + `WebFetch` the app-server + CLI-features docs; transcribe the JSON-RPC envelope, verb names, param/result shapes, **the exact `codex app-server` launch + `--listen` syntax, and any wire-framing note (newline-delimited vs `Content-Length`)** into `## Interfaces & data shapes` (mark each observed-vs-documented) | `docs/plans/active/session-relay-app-server-push.md` (this file) | — | planned |
+| A2 | Launch `codex app-server` on a unix socket (**exact `--listen` flag per A1**) in the background; write a throwaway node scratch client (`/tmp/claude-*/scratch/rpc.mjs`, `net.connect` to the socket) that does the init handshake; **record the observed wire framing (newline-delimited vs `Content-Length`-prefixed)** and the exact init request + response | scratch only + this file | A1 | planned |
 | A3 | `thread/resume` an existing CLI session id read from `/home/docks/.codex/sessions/**`; confirm the thread loads; record request + result shape | scratch + this file | A2 | planned |
 | A4 | `thread/inject_items` a fenced UNTRUSTED-DATA test item into the resumed thread WITHOUT starting a turn; confirm it lands in model-visible history (observe by a follow-up `turn/start` whose model reply references it, or the thread state event); record shape | scratch + this file | A3 | planned |
-| A5 | `turn/start` a turn carrying only a neutral doorbell nudge; capture the event stream (event type names + turn id); record shape | scratch + this file | A4 | planned |
+| A5 | `turn/start` a turn carrying only a neutral doorbell nudge **with `approval-policy never`**; capture the event stream (event type names + turn id) AND verify the turn **runs to completion unattended** (reaches a terminal turn-completed event, does not hang on an approval elicitation); record shape. **If it hangs → STOP (`## STOP conditions`)** | scratch + this file | A4 | planned |
 | A6 | Live-verify whether `codex --remote` accepts `unix://` or ONLY `ws://` (attach a TUI to the spike socket); record the finding. **If ws-only → HALT after Phase A and reassess with the user (`## STOP conditions`)** | scratch + this file | A2 | planned |
-| B1 | New module `watch.rs`: a minimal JSON-RPC-over-`UnixStream` client (connect, `rpc_call(method, params) -> Result<JsonValue,String>`, line framing via `tinyjson`) + the poll loop | `plugins/session-relay/rust/src/watch.rs` | A2–A5 | planned |
-| B2 | Make the fence reusable: promote `mail_block`/`defuse` in `hook.rs` to `pub(crate)` so `watch.rs` reuses the exact UNTRUSTED-DATA block (no duplicate fence) | `plugins/session-relay/rust/src/hook.rs:59,101` | — | planned |
-| B3 | `watch <nameOrId>… \| --all` arg parsing (reuse `cli::Args`), target resolution via `store::resolve`, per-target mailbox polling via `store::peek`+`store::drain`; `--server`/`RELAY_APP_SERVER`, `--auto-turn`, `--once`, `--dry` | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/main.rs:15` | B1, B2 | planned |
-| B4 | Delivery: default `thread/inject_items` (fenced block); `--auto-turn` `turn/start` (neutral nudge + `approval-policy never`); non-reachable target → `relay wake` fallback (print the fallback command in `--dry`, spawn the doorbell live) | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/cli.rs:291` (wake reuse) | B1, B3 | planned |
+| B1 | New module `watch.rs` **plus `pub mod watch;` in `lib.rs`**: a minimal JSON-RPC-over-`UnixStream` client (connect, `rpc_call(method, params) -> Result<JsonValue,String>`, **framing per A2's recorded finding** — newline-delimited or `Content-Length`) + the poll loop | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/lib.rs` | A2–A5 | planned |
+| B2 | Visibility promotions for reuse: promote `mail_block`/`defuse` in `hook.rs` AND `Args::has` in `cli.rs:42` to `pub(crate)` so `watch.rs` reuses the exact UNTRUSTED-DATA fence + the `has` arg helper (no duplicates) | `plugins/session-relay/rust/src/hook.rs:59,101`, `plugins/session-relay/rust/src/cli.rs:42` | — | planned |
+| B3 | `watch <nameOrId>… \| --all` arg parsing (reuse `cli::Args`); **extend `BOOL_FLAGS` (cli.rs:23) with `auto-turn`,`once`,`all`** so `positionals()` doesn't skip the token after them; target resolution via `store::resolve`, per-target mailbox polling via `store::peek`+`store::drain`; `--server`/`RELAY_APP_SERVER`, `--auto-turn`, `--once`, `--dry` | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/main.rs:15`, `plugins/session-relay/rust/src/cli.rs:23` | B1, B2 | planned |
+| B4 | Delivery: reachable iff (inferred/explicit) `tool==codex` AND socket connects — default `thread/inject_items` (fenced block from B2's `mail_block`); `--auto-turn` `turn/start` (neutral nudge + `approval-policy never`); non-reachable target → `relay wake` fallback (print the fallback command in `--dry`, spawn the doorbell live) | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/cli.rs:291` (wake reuse) | B1, B2, B3 | planned |
 | B5 | Rust unit tests in `watch.rs`: JSON-RPC request framing, inject-items vs turn/start param construction, the reachable/`--auto-turn`/fallback decision matrix | `plugins/session-relay/rust/src/watch.rs` (`#[cfg(test)]`) | B1–B4 | planned |
-| B6 | Selftest: host a FAKE app-server on a unix socket (node `net.createServer`, minimal JSON-RPC), run `relay watch --id <id> --server <sock> --once` (+ a `--auto-turn` case), assert the fake server received a fenced `inject_items` (default) / neutral `turn/start` (auto-turn); grow the check count | `plugins/session-relay/test/selftest.mjs` | B1–B5 | planned |
+| B6 | Selftest: add a standalone `test/fake-app-server.mjs` (unix-socket JSON-RPC, records received frames to a file, canned replies) **spawned DETACHED** before the sync watch call — an in-process `net.createServer` deadlocks `spawnSync(relay watch)`; run `relay watch --id <id> --server <sock> --once` (+ a `--auto-turn` case) with the target **registered `tool=codex` (or `--tool codex`)** so it hits inject_items not the wake fallback; assert the recorded frames contain a fenced `inject_items` (default) / neutral `turn/start` (auto-turn); grow the check count | `plugins/session-relay/test/selftest.mjs`, `plugins/session-relay/test/fake-app-server.mjs` | B1–B5 | planned |
 | C1 | Update `SKILL.md`: document the `codex app-server` + `relay watch` + `codex --remote` workflow and the new delivery-matrix cell; bump `metadata.updated` + recompute `content_hash` via the project's skill validators | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B6 | planned |
 | C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | planned |
 | C3 | Release: `node scripts/release.mjs --plugin session-relay minor` → 0.4.0 (bumps the 3 manifests in lockstep, tags, waits for tag-CI, cuts the Release) | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` | C2 | planned |
 
 ## Interfaces & data shapes
 
-**Certain (JSON-RPC 2.0 spec):** every message is a line of JSON. Request:
+**Certain (JSON-RPC 2.0 spec):** every message is a JSON *object*. Request:
 `{"jsonrpc":"2.0","id":<n>,"method":"<verb>","params":{…}}`. Response:
 `{"jsonrpc":"2.0","id":<n>,"result":{…}}` or `…,"error":{"code","message"}`.
-Notifications (no `id`) produce no response — the app-server streams turn events
-as notifications. `watch.rs`'s client matches responses by `id` and treats
-`id`-less lines as event notifications (same discipline as `test/selftest.mjs`'s
-`runBus` at selftest.mjs:70-76).
+Notifications (no `id`) get no response — the app-server streams turn events as
+notifications. `watch.rs`'s client matches responses by `id` and treats `id`-less
+messages as event notifications.
+
+**SPIKE-VERIFIED — do NOT assume (A2 pins it):** JSON-RPC 2.0 is
+transport-agnostic and defines message *objects*, never their **wire framing**.
+How objects are delimited on the socket is either newline-delimited (one object
+per line) or `Content-Length`-prefixed (LSP-style) — A2 records which, and B1's
+client framing + B6's fake server MUST match that finding. (`test/selftest.mjs`'s
+`runBus` at selftest.mjs:70-76 is a newline-delimited *model*, not proof of the
+app-server's framing.)
 
 **Documented-but-unverified (Phase A A1–A5 replaces this table with the verbatim
 observed shapes — do NOT ship the client against these guesses):**
@@ -194,16 +202,21 @@ exactly what the SessionStart/UserPromptSubmit hook already injects.
 
 ```
 relay watch <nameOrId>… | --all
-  [--server <unix-socket-path>]   # or RELAY_APP_SERVER env
+  [--server <unix-socket-path>]   # or RELAY_APP_SERVER env; implies tool=codex
+  [--tool codex]                  # override the --server tool inference
   [--auto-turn]                   # turn/start instead of inject_items
   [--once]                        # single poll+deliver+exit (selftest/cron)
   [--dry]                         # print the RPC/fallback instead of sending
 ```
 
-Reuses `cli::Args` (cli.rs:30-70): `flag`, `has`, `positionals(from)`. Poll
-interval: a fixed default (e.g. 2s) — no config surface this plan. Reachability:
-a target is app-server-reachable iff `tool == "codex"` AND a `--server`/env
-socket path exists and connects; otherwise the `relay wake` fallback runs.
+Reuses `cli::Args` (cli.rs:30-70): `flag`, `has` (promoted `pub(crate)` in B2),
+`positionals(from)`. Poll interval: a fixed default (e.g. 2s) — no config surface
+this plan. **Tool inference: when `--server`/`RELAY_APP_SERVER` is set, `watch`
+treats the target as `tool=codex` (an explicit `--tool` overrides)** — the `--id`
+path otherwise defaults `tool=claude` (mirror of `cli::explicit_target`, cli.rs:94)
+and would wrongly route to the wake fallback. Reachability: reachable iff
+(inferred/explicit) `tool == "codex"` AND the `--server`/env socket connects;
+otherwise the `relay wake` fallback runs.
 
 ## Acceptance criteria
 
@@ -211,14 +224,16 @@ Phase A (spike — commands + the JSON fragment to look for; the executor record
 the verbatim shape into `## Interfaces & data shapes`):
 
 - `codex --version` → `codex-cli 0.142.5` (already verified).
-- After A2, the scratch client's `initialize` response line parses as JSON and
-  contains a `result` object with server info — captured verbatim into the plan.
+- After A2, the scratch client's `initialize` response parses as JSON and
+  contains a `result` object with server info — captured verbatim; **the observed
+  wire framing (newline-delimited vs `Content-Length`) is recorded.**
 - After A3, `thread/resume` with a real `/home/docks/.codex/sessions` uuid returns
   a `result` (not an `error`) — the thread loads.
 - After A4, `thread/inject_items` returns a non-error `result` AND a subsequent
   `turn/start` reply demonstrably references the injected fenced text.
-- After A5, `turn/start` streams ≥1 event notification; the event-type names are
-  recorded.
+- After A5, `turn/start` (with `approval-policy never`) streams ≥1 event
+  notification AND reaches a terminal turn-completed event **unattended** (no
+  approval hang); the event-type names are recorded.
 - A6 records a definite yes/no: does `codex --remote unix://…` attach, or is
   `--remote` ws-only?
 
@@ -231,8 +246,12 @@ Phase B/C (executable):
   watch checks). Record the before/after count in `## Notes`.
 - **Live leg (the real proof):** with a Codex thread hosted under
   `codex app-server` on a unix socket and `relay watch --id <thread-id> --server
-  <sock>` running, `relay send --id <thread-id> -- "ping from A"` causes the
-  fenced mail to surface inside that live thread **with zero keystrokes** in B.
+  <sock>` running (the `--server` flag infers `tool=codex`, so it injects instead
+  of falling back to wake), `relay send --id <thread-id> -- "ping from A"` lands
+  the fenced mail in that live thread **with zero keystrokes** in B. **Observation
+  per mode:** default (inject_items) surfaces the mail only via a follow-up turn or
+  an attached TUI (topology b) — a bare inject into an idle headless thread emits
+  nothing on its own; `--auto-turn` surfaces it directly via the turn.
 - `node scripts/ci.mjs` green before every commit.
 - After C3: `plugins/session-relay/.claude-plugin/plugin.json`,
   `.codex-plugin/plugin.json`, and the `session-relay` entry in
@@ -311,9 +330,13 @@ Phase B/C (executable):
   `git diff --stat 0aa20e4c2e8d3416bb385ec479bd51fd8b850c91..HEAD -- plugins/session-relay/`
   first; if `main.rs`/`cli.rs`/`hook.rs`/`selftest.mjs` changed, reconcile the
   plan before editing.
-- **The observed app-server JSON shapes contradict the documented table** → update
-  `## Interfaces & data shapes` and re-derive B1–B4 before coding; never ship
-  against the guessed table.
+- **The observed app-server wire framing OR JSON shapes contradict the documented
+  table** (framing isn't newline-delimited, or param/result shapes differ) → update
+  `## Interfaces & data shapes` and re-derive B1–B4 before coding; never ship the
+  client against the guessed framing/table.
+- **A `turn/start` with `approval-policy never` hangs on an approval elicitation**
+  (A5) → `--auto-turn` is NOT shippable this plan: ship inject_items-only and park
+  `--auto-turn` (the safe default already meets the Goal), or STOP and reassess.
 
 ## Self-review
 
@@ -424,6 +447,16 @@ internally inconsistent, so it is handed back as a finding rather than
 half-applied. Findings #1–#7 are targeted patches to `## Interfaces`, three
 steps, and the cli.rs/lib.rs reuse surfaces — no architectural re-draft needed.
 
+**Resolution — 2026-07-02T17:58:51-03:00:** findings #1–#8 applied (framing
+reclassified across `## Interfaces`/A1/A2/B1/B6/STOP; B6 fake server made a
+detached out-of-process `test/fake-app-server.mjs`; `--server`⇒`tool=codex`
+inference pinned in `## Interfaces`, B6 + the live leg; `cli::Args::has` promotion
+folded into B2; `BOOL_FLAGS` extension added to B3; `pub mod watch;` added to B1;
+B4 `Depends` gained B2; A5 gained the unattended-completion check + a named STOP).
+#9–#10 folded as clarifications (live-leg observability; A1 records the launch
+syntax, A2 defers to it). #11 left as an observation — the halt-at-spike STOP is
+unchanged per the user's decision. Plan started (`→ ongoing`) immediately after.
+
 ## Cold-handoff checklist
 
 1. **File manifest** — present: every step names exact path(s); new module
@@ -431,9 +464,9 @@ steps, and the cli.rs/lib.rs reuse surfaces — no architectural re-draft needed
    `SKILL.md`, the 3 manifests + `bin/`.
 2. **Environment & commands** — present: Node 22/pnpm, Rust 1.85, codex 0.142.5,
    ci/cargo/selftest/release commands with flags in `## Environment & how-to-run`.
-3. **Interface & data contracts** — present: JSON-RPC envelope (certain) + the
-   documented verb table (Phase A replaces with verbatim shapes) + the `relay
-   watch` CLI contract.
+3. **Interface & data contracts** — present: JSON-RPC envelope (objects certain;
+   wire framing spike-verified in A2) + the documented verb table (Phase A replaces
+   with verbatim shapes) + the `relay watch` CLI contract.
 4. **Executable acceptance** — present: cargo/selftest/CI commands + the live
    send→surface leg + the version-lockstep check.
 5. **Out of scope** — present and positive (WS, hooks, Claude push, `--notify`,
