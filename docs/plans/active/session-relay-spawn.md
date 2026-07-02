@@ -3,7 +3,7 @@ title: session-relay — spawn a new full-context agent session (relay spawn)
 goal: Add `relay spawn <dir>`, a verb that creates a NEW persistent Claude/Codex session in any project dir — full CLAUDE.md/skills/plugins context — and converses with it over the bus, no manual session management.
 status: ongoing
 created: "2026-07-02T17:32:36-03:00"
-updated: "2026-07-02T20:51:54-03:00"
+updated: "2026-07-02T20:55:15-03:00"
 started_at: "2026-07-02T20:23:42-03:00"
 assignee: claude
 tags: [session-relay, spawn, rust, cross-tool, claude, codex, multi-agent]
@@ -193,7 +193,7 @@ resumable**, not a long-lived process. The full loop:
 | B5 | Tool default: `--tool` omitted → default `claude` + a printed note (`IsTerminal` gate optional); the picker lives in the SKILL, not the CLI | `plugins/session-relay/rust/src/spawn.rs` | B3 | done |
 | B6 | Rust unit tests (`#[cfg(test)]` in `spawn.rs`): per-tool argv incl. the asymmetric default (Codex Auto / Claude bypassPermissions), `--read-only` (both), `--full-access` (codex-only), `--` prompt fencing (a dash-leading task stays the final positional), prefix text names `--reply-to`, carries the absolute-`relay`-path reply command `<abs-relay> send …` (S1), AND embeds all three guardrail rule lines verbatim (asserted for default + `--read-only` + `--full-access`), default-tool note, `--reply-to` resolution | `plugins/session-relay/rust/src/spawn.rs` | B1–B5 | done |
 | B7 | Selftest (fake child — NO real claude/codex in CI): write a small stub executable to a temp path, point `RELAY_SPAWN_CMD_CLAUDE` at it; the stub derives the child id — **parse `--session-id <uuid>` from its own argv (pre-mint path)** or **mint its own uuid (marker-watch path)** — then re-invokes the SAME `relay` binary's `hook` verb with `{session_id, cwd, source:"startup"}` on stdin (model: `selftest.mjs:91-93`) to perform the birth registration. **Exercise BOTH birth paths, one check each** (the stub's id-derivation must match the compiled default per A3); run `relay spawn <dir> --tool claude --name w1 --timeout 5 -- "task"` and assert spawn detects birth, registers `w1`, `roster` shows it, `send w1` queues. Add `RELAY_SPAWN_CMD_CLAUDE`/`RELAY_SPAWN_CMD_CODEX` to `selftest.mjs`'s `envFor` scrub list (`:49`, alongside `RELAY_NO_WATCH`), and confirm B1 does NOT `.env_clear()` so the stub inherits `SESSION_RELAY_HOME` and writes the throwaway store. Grow the check count | `plugins/session-relay/test/selftest.mjs` | B1–B6 | done |
-| C1 | SKILL.md: document `relay spawn` — the new-session-vs-subagent distinction, the tool-picker guidance (ask when `--tool` omitted, interactive), the permission posture + `--full-access`, and the reply-to loop; bump `metadata.updated` + recompute `content_hash` via the project's skill validators, if present | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B7 | planned |
+| C1 | SKILL.md: document `relay spawn` — the new-session-vs-subagent distinction, the tool-picker guidance (ask when `--tool` omitted, interactive), the permission posture + `--full-access`, and the reply-to loop; bump `metadata.updated` + recompute `content_hash` via the project's skill validators, if present | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B7 | done |
 | C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | planned |
 | C3 | Release: `node scripts/release.mjs --plugin session-relay minor` (bumps the 3 manifests in lockstep, tags, waits for tag-CI, cuts the Release) | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` | C2 | planned |
 
@@ -232,6 +232,18 @@ resumable**, not a long-lived process. The full loop:
   Both opt flags now apply to **BOTH tools** (`--full-access` is no longer codex-only).
   Guardrail rules stay injected on every spawn regardless of flag. NEVER pass
   `--dangerously-*` variants.
+
+### Phase B live-leg evidence (2026-07-02)
+
+`relay spawn /tmp/spawn-scratch --tool claude --name worker1 --reply-to
+docks-builder -- "create HELLO.txt containing exactly: hi — then report done…"`
+→ **birth confirmed in 0.5s** (`spawned worker1 (5fce6fb9-…) in /tmp/spawn-scratch`,
+spawn returned detached); ~30s later the worker had written `HELLO.txt` (`hi`,
+no trailing newline) AND its report arrived in the parent mailbox via the
+injected PRIMARY abs-relay command (`fromName:"cli"`), where the parent's
+Monitor watch pushed it into the live session — the complete zero-keystroke
+loop. The worker also honored the guardrail nuance unprompted ("not a git
+repository, so no branch/commit was involved").
 
 **Verbatim child argv (final, from the findings above):**
 
