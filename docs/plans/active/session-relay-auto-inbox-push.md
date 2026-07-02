@@ -3,7 +3,7 @@ title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
 status: planned
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T15:39:59-03:00"
+updated: "2026-07-02T16:03:07-03:00"
 started_at: null
 assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
@@ -362,6 +362,55 @@ body: (a) how `--event` coexists with the `codex` tool tag → Interfaces + Step
 (b) the exact mailbox path in the nudge → `store::mailbox_path`, made `pub(crate)`;
 (c) the empty-inbox × `RELAY_NO_WATCH` behavior → the emit matrix. The only residue
 needing a human is the executor/assignee.
+
+### Draft red-team (plan-review dispatch — 2026-07-02T16:03:07-03:00, gate before start)
+
+All cited `file:line` re-opened this session and confirmed against HEAD (`c706053`):
+`main.rs:14`, `hook.rs:51/92-94/112-129/21-42`, `cli.rs:23/30/54-58/291-401`,
+`store.rs:41/205/422-433`, `hooks.json`, `codex-hooks.json`, `selftest.mjs`
+(39-check baseline verified by count), `release.mjs:56-68/159`, `build-binaries.yml`,
+`ci.mjs` gateRust, `plugins.mjs` descriptor (4 targets), all three manifests at 0.2.2.
+**Emit matrix is complete (8 cells + the `no_watch` modifier) and contradiction-free:**
+UserPromptSubmit+empty emits nothing on both tools; claude SessionStart always nudges
+(unless `RELAY_NO_WATCH`); codex SessionStart+empty emits nothing. **CLI parse composes
+unambiguously** — `--event` is a value flag skipped by `positionals` and absent from
+`BOOL_FLAGS`, so `codex --event prompt` yields tool=codex, event=Prompt. **Nudge line**
+guards double-arm ("not already armed one this session"), degrades without Monitor ("if
+no such tool exists, ignore this line"), interpolates the path twice. **Verified-vs-guess
+is correctly quarantined:** the Codex `hookEventName` echo is the only genuine guess
+(gotcha 5, live-leg-confirmed); the Codex `additionalContext` contract is doc-verified;
+the Claude leg mirrors the already-shipped SessionStart `hookSpecificOutput` path.
+
+**Verdict: fix-first** — three small gaps touch executable acceptance / a stated
+deliverable (none block the code; all are quick plan edits):
+
+1. **Self-test determinism (acceptance #1 flake).** `envFor` (`selftest.mjs:41-45`) does
+   NOT scrub `RELAY_NO_WATCH`. Gotcha 6's remedy (pass it via `extra` for check #5) makes
+   #5 work but does not stop a host that exports `RELAY_NO_WATCH=1` from leaking into
+   checks #3/#4 and suppressing the nudge → check #3 flakes. Fix: add `RELAY_NO_WATCH` to
+   the envFor delete-list (check #5 still overrides — `extra` is spread AFTER the deletes).
+2. **Parse unit test not cleanly executable (acceptance #2).** Step 5's parse case
+   (`Args(["codex","--event","prompt"]) → tool codex, event Prompt`) needs a pure mapping
+   fn, but Interfaces factors only `render_context`; the tool/event derivation lives inside
+   `run(&[String]) -> !`, which exits and can't be unit-tested. Name a pure
+   `fn parse_invocation(args: &[String]) -> (&str /*tool*/, HookEvent)` that both `run` and
+   the test call — otherwise the test can only assert `cli::Args` primitives, not the mapping.
+3. **Release-notes deliverable won't land (gotcha 1).** Gotcha 1 says "call the Codex
+   `trusted_hash` re-trust out in the v0.3.0 release notes," but Step 10's `release.mjs`
+   auto-generates notes from commit subjects only (`release.mjs:159`,
+   `git log PREV..HEAD --pretty=format:- %s`) — nothing operationalizes the caveat. Fix:
+   land it in a commit subject inside the `0.2.2..0.3.0` range, or add an explicit
+   "edit the GitHub release body to add the re-trust caveat" sub-step to Step 10.
+
+Non-blocking notes: (a) `hook::run` must call `positionals(0)` — `main`'s `&argv[1..]`
+already strips `hook`, so the cli.rs `positionals(1)` idiom would miss the `codex` tag;
+inferable but unstated. (b) "Prompt-turn overhead must stay zero" is CONTEXT-only —
+`set_marker`+`register`+`drain` still do three flock'd disk ops per prompt (disclosed as a
+`discover`-liveness bonus, so a design choice, not a defect). (c) Citation nit:
+`Cargo.toml` rust-version is line 5 (cited `:3-4`); `main.rs` doc + usage strings
+("hook [codex]") go stale after `--event` — cosmetic. (d) context7 was unavailable to this
+review agent; the Claude `UserPromptSubmit` `additionalContext` claim is grounded on the
+identical, already-shipped in-repo SessionStart path rather than a fresh doc fetch.
 
 ## Review
 
