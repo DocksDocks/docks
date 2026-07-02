@@ -1,10 +1,10 @@
 ---
 title: session-relay — spawn a new full-context agent session (relay spawn)
 goal: Add `relay spawn <dir>`, a verb that creates a NEW persistent Claude/Codex session in any project dir — full CLAUDE.md/skills/plugins context — and converses with it over the bus, no manual session management.
-status: planned
+status: ongoing
 created: "2026-07-02T17:32:36-03:00"
-updated: "2026-07-02T18:02:50-03:00"
-started_at: null
+updated: "2026-07-02T20:23:42-03:00"
+started_at: "2026-07-02T20:23:42-03:00"
 assignee: claude
 tags: [session-relay, spawn, rust, cross-tool, claude, codex, multi-agent]
 affected_paths:
@@ -180,7 +180,7 @@ resumable**, not a long-lived process. The full loop:
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| A0 | Confirm `session-relay-app-server-push` has shipped (`ls docs/plans/finished/*app-server-push*`); if not, STOP — this plan is queued behind it. Re-read that plan's `## Interfaces & data shapes` for the Codex app-server `thread/start` spike outcome | `docs/plans/finished/` (read), this file | — | planned |
+| A0 | Confirm `session-relay-app-server-push` has shipped (`ls docs/plans/finished/*app-server-push*`); if not, STOP — this plan is queued behind it. Re-read that plan's `## Interfaces & data shapes` for the Codex app-server `thread/start` spike outcome | `docs/plans/finished/` (read), this file | — | done |
 | A1 | Verify `claude` + `codex` on PATH; record `claude --version` / `codex --version` and each CLI's relevant `--help` sections | this file (`## Interfaces & data shapes`) | A0 | planned |
 | A2 | Live (DOCS-ONLY probe — NOT the spawn launch): `claude -p "say READY" --output-format json` with `cwd=<scratch>`; record the EXACT key path carrying the session id. This documents the shape for the SKILL only — spawn launches DETACHED with null stdout and never reads it, so `--output-format json` is NOT on the child argv (S2 in `## Self-review`); birth is confirmed via marker-diff / pre-mint resolve | scratch + this file | A1 | planned |
 | A3 | **Load-bearing:** does a headless `claude -p` run FIRE the SessionStart hook (self-register on the bus)? Spawn a `-p` child in a scratch project with the session-relay plugin active; check the registry/marker gains a new id. AND does `claude -p --session-id <uuid>` accept a pre-minted id? Record both yes/no | scratch + this file | A1 | planned |
@@ -665,6 +665,24 @@ the plan carries **zero unresolved structural findings**:
   subcommand) → **0.4.0** if it ships before app-server-push, **0.5.0** if after
   (app-server-push is also a minor). Confirm the current manifest version at Phase C.
 - Selftest check count (fill during B7): before `<N>` → after `<N+k>`.
+- **A0 reconciliation (2026-07-02, at start — app-server-push SHIPPED as 0.4.0):**
+  - Drift since `planned_at_commit` is exactly the sibling plan's changes:
+    `main.rs` gained a `watch` arm (spawn adds its own arm alongside — no conflict);
+    `cli.rs` `BOOL_FLAGS` is now 5 entries (`dry`,`json`,`auto-turn`,`once`,`all`) —
+    B3 must extend it with `read-only`,`full-access`; `Args::has` is ALREADY
+    `pub(crate)` (done by the sibling's B2 — spawn gets it for free); `lib.rs` has
+    `pub mod watch;`; `selftest.mjs` is at **48 checks** (the "before" count for B7)
+    and its `envFor` scrub list now also carries `RELAY_APP_SERVER`,
+    `RELAY_TURN_SETTLE_MS`, `RELAY_TURN_WAIT_MS` — add `RELAY_SPAWN_CMD_*` beside them.
+  - **Codex birth path stays `codex exec`** (as pinned in `## Out of scope`): app-server
+    `thread/start` works (spike-verified) but requires a RUNNING app-server — a setup
+    precondition spawn's zero-management goal shouldn't take on. Relevant inherited
+    facts if that ever changes: MCP tool calls inside app-server turns raise
+    `mcpServer/elicitation/request` needing an attached answering client (watch's
+    `pump_turn`), and hooks DO fire inside app-server turns.
+  - `watch.rs`'s `wake_fallback` uses the same `std::env::current_exe()` self-exec
+    pattern B4 needs for `<abs-relay>` — reuse the idiom.
+  - **Version path resolved: 0.5.0** (app-server-push shipped 0.4.0 first).
 - The `--reply-to` default resolves the parent's own bus name via
   `store::id_for_dir(<spawn cwd>)` → `store::resolve(id).name` (`id_for_dir` returns an
   **id**, not a name — resolve it; fall back to the id if the parent is unnamed). If the
