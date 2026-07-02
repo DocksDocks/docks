@@ -3,7 +3,7 @@ title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
 status: ongoing
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T16:11:57-03:00"
+updated: "2026-07-02T16:20:03-03:00"
 started_at: "2026-07-02T16:11:57-03:00"
 assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
@@ -189,14 +189,14 @@ the check — same as `context-tree-nudge`.
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Dispatch the full argv tail to the hook | `plugins/session-relay/rust/src/main.rs:14` | — | planned |
-| 2 | Expose the flag parser to `hook.rs` | `plugins/session-relay/rust/src/cli.rs:30-64` (struct/methods → `pub(crate)`) | — | planned |
-| 3 | Expose `mailbox_path` for the nudge | `plugins/session-relay/rust/src/store.rs:41` (`fn` → `pub(crate) fn`) | — | planned |
-| 4 | Add `HookEvent`, new `run(&[String])`, pure `render_context`, event-derived `hookEventName`, `RELAY_NO_WATCH` read; move the empty-inbox early-return into `render_context` | `plugins/session-relay/rust/src/hook.rs` | 1,2,3 | planned |
-| 5 | In-module unit tests for `render_context` + event parsing | `plugins/session-relay/rust/src/hook.rs` (`#[cfg(test)]`) | 4 | planned |
-| 6 | Wire the `UserPromptSubmit` Claude hook (exec form) | `plugins/session-relay/hooks/hooks.json` | 4 | planned |
-| 7 | Wire the `UserPromptSubmit` Codex hook (shell form) | `plugins/session-relay/hooks/codex-hooks.json` | 4 | planned |
-| 8 | Extend the black-box self-test with 5 push-delivery checks | `plugins/session-relay/test/selftest.mjs` | 4,6,7 | planned |
+| 1 | Dispatch the full argv tail to the hook | `plugins/session-relay/rust/src/main.rs:14` | — | done |
+| 2 | Expose the flag parser to `hook.rs` | `plugins/session-relay/rust/src/cli.rs:30-64` (struct/methods → `pub(crate)`) | — | done |
+| 3 | Expose `mailbox_path` for the nudge | `plugins/session-relay/rust/src/store.rs:41` (`fn` → `pub(crate) fn`) | — | done |
+| 4 | Add `HookEvent`, new `run(&[String])`, pure `render_context`, event-derived `hookEventName`, `RELAY_NO_WATCH` read; move the empty-inbox early-return into `render_context` | `plugins/session-relay/rust/src/hook.rs` | 1,2,3 | done |
+| 5 | In-module unit tests for `render_context` + event parsing | `plugins/session-relay/rust/src/hook.rs` (`#[cfg(test)]`) | 4 | done |
+| 6 | Wire the `UserPromptSubmit` Claude hook (exec form) | `plugins/session-relay/hooks/hooks.json` | 4 | done |
+| 7 | Wire the `UserPromptSubmit` Codex hook (shell form) | `plugins/session-relay/hooks/codex-hooks.json` | 4 | done |
+| 8 | Extend the black-box self-test with 5 push-delivery checks | `plugins/session-relay/test/selftest.mjs` | 4,6,7 | done |
 | 9 | Rebuild 4-arch binaries, commit into `bin/` + `SHA256SUMS` | `.github/workflows/build-binaries.yml`, `plugins/session-relay/bin/` | 1-8 | planned |
 | 10 | Release session-relay `0.3.0` (minor) | via `scripts/release.mjs --plugin session-relay minor` (bumps both `plugin.json`s + marketplace) | 9 | planned |
 
@@ -493,3 +493,11 @@ to proceed; started immediately after.
   `discover` liveness accuracy at no extra cost.
 - Follow-up idea captured, not scheduled: `session-relay-watch` (external daemon +
   desktop notification for the live-Codex-idle gap).
+- **Execution deviations (2026-07-02, steps 1–8):** (a) `selftest.mjs`
+  `resolveBin` now prefers the fresh `rust/target/<host-triple>/release/relay`
+  build over the committed `bin/relay-<triple>` — mid-development the committed
+  binary lags the source, so the repo gate's self-test would otherwise exercise
+  stale behavior and fail the new checks until Step 9; committed binaries stay
+  untouched, and a cargo-less consumer still falls back to them. (b) `cli.rs`:
+  only `Args` (struct + field), `flag`, and `positionals` went `pub(crate)` —
+  `has` stayed private because `hook.rs` doesn't use it (minimal visibility).
