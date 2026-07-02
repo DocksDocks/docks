@@ -3,7 +3,7 @@ title: Port session-relay to a single Rust binary (zero-runtime, both tools)
 goal: Replace session-relay's Node payload with one static Rust `relay` binary (4 committed arches + sh launcher) so a Codex host needs no Node, enabling kernel flock locking.
 status: in_review
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-01T20:12:14-03:00"
+updated: "2026-07-02T13:06:09-03:00"
 started_at: "2026-07-01T17:56:26-03:00"
 assignee: claude
 tags: [rust, session-relay, plugin, cross-tool, build, ci]
@@ -41,7 +41,7 @@ planned_at_commit: "7ee6a0de28bdae9109282cfba3acc5803df69242"
 
 ## Goal
 
-Replace session-relay's five store-touching Node `.mjs` files with **one statically-linked Rust binary** (`relay`, multi-call via subcommands) so the plugin runs on a **Codex-only host that has no Node installed** — the single real gap in today's cross-tool story. "Replace" means the five `.mjs` are **deleted** and every manifest/hook/test path resolves to the plugin's `bin/relay` via each tool's plugin-root variable — `${CLAUDE_PLUGIN_ROOT}` in the Claude manifests, **native `${PLUGIN_ROOT}`** in the Codex MCP manifest (see the per-manifest table in Interfaces). The port also (a) upgrades the cross-process store lock from a hand-rolled mkdir-mutex + stale-reclaim to a **kernel-managed `flock`** (auto-released on crash), and (b) cuts per-`Write` hook cold-start from ~20–60 ms (Node) to ~1–5 ms (native). Success = both tools launch the bus/hook/CLI from `bin/relay`, every existing security/self-test invariant still passes, all four arch binaries are committed, and `node scripts/ci.mjs` is green.
+Replace session-relay's five store-touching Node `.mjs` files with **one statically-linked Rust binary** (`relay`, multi-call via subcommands) so the plugin runs on a **Codex-only host that has no Node installed** — the single real gap in today's cross-tool story. "Replace" means the five `.mjs` are **deleted** and every manifest/hook/test path resolves to the plugin's `bin/relay` via each tool's plugin-root variable — `${CLAUDE_PLUGIN_ROOT}` in the Claude manifests, and on Codex a `sh` resolver (env-first, cache-glob fallback — live-verify showed Codex substitutes NO variable in MCP config; see the per-manifest table in Interfaces). The port also (a) upgrades the cross-process store lock from a hand-rolled mkdir-mutex + stale-reclaim to a **kernel-managed `flock`** (auto-released on crash), and (b) cuts per-`Write` hook cold-start from ~20–60 ms (Node) to ~1–5 ms (native). Success = both tools launch the bus/hook/CLI from `bin/relay`, every existing security/self-test invariant still passes, all four arch binaries are committed, and `node scripts/ci.mjs` is green.
 
 **Why now / why Rust (decision rationale):** A prior multi-language analysis (this branch) concluded a compiled binary is the *only* option that removes the consumer runtime dependency — Python/uv only grows it. Rust was chosen over Go for the smaller committed artifact (binaries live in git), no-GC purity, ecosystem alignment with Codex (itself Rust), and being the more correct home for the concurrency-critical store. macOS was verified a **non-issue** for this git-clone-delivered CLI: a free Apple-Silicon `macos-latest` runner builds both darwin arches with zero cross-toolchain (arm64 native + x86_64 via the added target), and Gatekeeper/notarization never fires on a git-cloned (non-quarantined) binary. Scope (**commit binaries in-tree**, full 5-file port) was chosen by the maintainer over download-on-first-run.
 
@@ -89,7 +89,7 @@ Replace session-relay's five store-touching Node `.mjs` files with **one statica
   | Manifest | New shape |
   |---|---|
   | `.claude-plugin/plugin.json` (MCP) | `"command": "${CLAUDE_PLUGIN_ROOT}/bin/relay"`, `"args": ["bus"]` (binary-in-`command` is the docs' own example) |
-  | `.codex-plugin/bus.mcp.json` (MCP) | `"command": "${PLUGIN_ROOT}/bin/relay"`, `"args": ["bus"]` — **native Codex var, NOT `${CLAUDE_PLUGIN_ROOT}`** (the compat alias is the form [openai/codex#19372](https://github.com/openai/codex/issues/19372) reports failing) |
+  | `.codex-plugin/bus.mcp.json` (MCP) | **DIRECT server map** (no `mcpServers` wrapper — Codex parses only the direct map or snake_case `mcp_servers`): `"bus": {"command": "sh", "args": ["-c", "<env-first + cache-glob>"]}`. Live-verified 2026-07-02 on codex 0.142.5: Codex substitutes NO variable in MCP config (command OR args) and exports NO `PLUGIN_ROOT` env to MCP children (only hooks get it) — [#19372](https://github.com/openai/codex/issues/19372) open, latest release affected. The sh line tries `$PLUGIN_ROOT` first (future-proof for the upstream fix), else resolves the newest `~/.codex/plugins/cache/*/session-relay/*/bin/relay` |
   | `hooks/hooks.json` (Claude) | **exec form** — `{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/relay", "args": ["hook"]}` (docs: "Prefer exec form for any hook that references a path placeholder") |
   | `hooks/codex-hooks.json` (Codex) | keep **shell form** — `"\"${CLAUDE_PLUGIN_ROOT}/bin/relay\" hook codex"` (sh expands the exported env var at runtime — the mechanism the current hook already proves works on Codex) |
 - **Crate release profile** (`rust/Cargo.toml` — all stable-channel, per [min-sized-rust](https://github.com/johnthagen/min-sized-rust); `codegen-units = 1` is also a prerequisite for the reproducible-rebuild criterion):
@@ -131,7 +131,7 @@ Replace session-relay's five store-touching Node `.mjs` files with **one statica
 - **Ported self-test:** `node plugins/session-relay/test/selftest.mjs` → `PASS` over the black-box subset enumerated in Step 6, exit 0, spawning `bin/relay` (grep the file: no `spawnSync('node'` and no `import .*lib/store`).
 - **Plugin lint:** `claude plugin validate ./plugins/session-relay` → passes.
 - **All four manifests flipped (per-file, not a line-coincidence grep):** `cd plugins/session-relay && grep -L 'bin/relay' .claude-plugin/plugin.json .codex-plugin/bus.mcp.json hooks/hooks.json hooks/codex-hooks.json` prints **nothing**, AND `grep -rn '"command":[[:space:]]*"node"' .claude-plugin .codex-plugin hooks` prints **nothing**.
-- **Codex manifest uses the NATIVE var (catches the #19372 form the previous grep can't):** `grep -q '${PLUGIN_ROOT}/bin/relay' plugins/session-relay/.codex-plugin/bus.mcp.json && ! grep -q 'CLAUDE_PLUGIN_ROOT' plugins/session-relay/.codex-plugin/bus.mcp.json` → exit 0.
+- **Codex manifest uses the live-verified sh form (native `${PLUGIN_ROOT}` is falsified — #19372):** `grep -q 'plugins/cache/\*/session-relay' plugins/session-relay/.codex-plugin/bus.mcp.json && ! grep -q 'CLAUDE_PLUGIN_ROOT' plugins/session-relay/.codex-plugin/bus.mcp.json && ! grep -q '"mcpServers"' plugins/session-relay/.codex-plugin/bus.mcp.json` → exit 0 (direct map, cache-glob fallback, no camelCase wrapper).
 - **Exec bits committed:** `git ls-files -s plugins/session-relay/bin/ | grep -vc '^100755'` → `1` (only `SHA256SUMS` is non-executable; launcher + 4 binaries are all `100755`).
 - **No residual Node paths in the skill doc:** `grep -n 'relay\.mjs\|mcp/bus\.mjs' plugins/session-relay/skills/productivity/session-relay/SKILL.md` prints **nothing**.
 - **Node payload deleted:** `ls plugins/session-relay/{mcp/bus.mjs,lib/store.mjs,lib/discover.mjs,hooks/session-start.mjs,skills/productivity/session-relay/scripts/relay.mjs} 2>&1` → all `No such file`.
@@ -182,7 +182,7 @@ Replace session-relay's five store-touching Node `.mjs` files with **one statica
 
 ## STOP conditions
 
-- If a real Codex install does NOT substitute **native `${PLUGIN_ROOT}`** in the MCP `command` field (step 7 verification — the manifest already uses the native var per the Interfaces table) → STOP, do not ship the Codex manifest change. Report; consider a `command:"sh"` + `args:["${PLUGIN_ROOT}/bin/relay", …]` form so substitution stays in `args` (the position that works today).
+- ~~If a real Codex install does NOT substitute **native `${PLUGIN_ROOT}`** in the MCP `command` field → STOP~~ **FIRED + RESOLVED 2026-07-02**: live verify confirmed no substitution AND no env for MCP children; shipped the prescribed sh fallback (env-first + cache-glob — see Interfaces). Bus verified live on codex 0.142.5 (`whoami`/`roster` over the plugin MCP handshake).
 - If the cross-process `cargo test` cannot demonstrate `flock` mutual exclusion as reliably as the current mkdir-mutex → STOP at step 3; do not flip manifests. The flock upgrade is the point of the port.
 - If `build-binaries.yml` cannot produce a runnable darwin binary on the native runners → STOP before step 7; do not commit a partial arch set (the launcher would `exit 1` on the missing platform).
 
@@ -213,6 +213,10 @@ Red-team caught and fixed: (1) **no producer for the two darwin binaries** — r
 - **2026-07-01T20:05-03:00**: Expected local host rebuild to match CI's committed binary byte-for-byte (pinned toolchain + `--locked` + `codegen-units=1`) → digests differ (`56ba41…` CI vs `79e08e…` local): binaries embed absolute build/registry paths and the distro linker's output → don't chase cross-machine reproducibility with `--remap-path-prefix` (linker still differs); enforce byte-identity only in CI (same image as producer) and warn locally.
 - **2026-07-01T20:05-03:00**: Launcher used the classic `CDPATH= cd` idiom → shellcheck SC1007 warning failed the gate (launcher is now linted via `shellHooks`) → use the explicit `CDPATH=''` empty-string form.
 - **2026-07-01T20:10-03:00**: Wrote the launcher with the Write tool and staged it → landed `100644` in the index (the plan's own EACCES gotcha) → always verify `git ls-files -s`, not `ls -l`, after creating executables.
+
+- **2026-07-02T13:05-03:00**: Shipped `bus.mcp.json` as `{"mcpServers": {...}}` (camelCase, Claude's shape) → Codex parses ONLY a direct server map or snake_case `mcp_servers` — the file was silently ignored, so the bus NEVER loaded on Codex (latent since 0.1.0; masked because the SKILL suggested `codex mcp add` as an alternative) → mirror Codex manifests from Codex docs, not by analogy to Claude's.
+- **2026-07-02T13:05-03:00**: Assumed native `${PLUGIN_ROOT}` substitutes in the Codex MCP `command` field (build docs show that form) → live debug trace (`RefreshMcpServers`) shows the literal string reaching spawn, and an env-dump probe shows MCP children get NO `PLUGIN_ROOT`/`CLAUDE_PLUGIN_ROOT` env at all (hooks do) → for plugin MCP on codex ≤0.142.5 use `sh -c` env-first + newest `~/.codex/plugins/cache/*/session-relay/*/bin/relay` glob; re-check when #19372 closes.
+- **2026-07-02T13:05-03:00**: Expected the Codex SessionStart hook to fire in `codex exec` → Codex gates each plugin hook behind a `trusted_hash` in `config.toml` `[hooks.state]`; headless exec skips untrusted hooks silently → one interactive session must approve the hook (or automation passes the dangerous bypass flag).
 
 ## Sources
 
