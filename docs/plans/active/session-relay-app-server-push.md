@@ -3,7 +3,7 @@ title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
 status: ongoing
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T17:58:51-03:00"
+updated: "2026-07-02T18:50:20-03:00"
 started_at: "2026-07-02T17:58:51-03:00"
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
@@ -149,12 +149,12 @@ Cite these in code comments and the release notes.
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| A1 | Verify env + `WebFetch` the app-server + CLI-features docs; transcribe the JSON-RPC envelope, verb names, param/result shapes, **the exact `codex app-server` launch + `--listen` syntax, and any wire-framing note (newline-delimited vs `Content-Length`)** into `## Interfaces & data shapes` (mark each observed-vs-documented) | `docs/plans/active/session-relay-app-server-push.md` (this file) | — | planned |
-| A2 | Launch `codex app-server` on a unix socket (**exact `--listen` flag per A1**) in the background; write a throwaway node scratch client (`/tmp/claude-*/scratch/rpc.mjs`, `net.connect` to the socket) that does the init handshake; **record the observed wire framing (newline-delimited vs `Content-Length`-prefixed)** and the exact init request + response | scratch only + this file | A1 | planned |
-| A3 | `thread/resume` an existing CLI session id read from `/home/docks/.codex/sessions/**`; confirm the thread loads; record request + result shape | scratch + this file | A2 | planned |
-| A4 | `thread/inject_items` a fenced UNTRUSTED-DATA test item into the resumed thread WITHOUT starting a turn; confirm it lands in model-visible history (observe by a follow-up `turn/start` whose model reply references it, or the thread state event); record shape | scratch + this file | A3 | planned |
-| A5 | `turn/start` a turn carrying only a neutral doorbell nudge **with `approval-policy never`**; capture the event stream (event type names + turn id) AND verify the turn **runs to completion unattended** (reaches a terminal turn-completed event, does not hang on an approval elicitation); record shape. **If it hangs → STOP (`## STOP conditions`)** | scratch + this file | A4 | planned |
-| A6 | Live-verify whether `codex --remote` accepts `unix://` or ONLY `ws://` (attach a TUI to the spike socket); record the finding. **If ws-only → HALT after Phase A and reassess with the user (`## STOP conditions`)** | scratch + this file | A2 | planned |
+| A1 | Verify env + `WebFetch` the app-server + CLI-features docs; transcribe the JSON-RPC envelope, verb names, param/result shapes, **the exact `codex app-server` launch + `--listen` syntax, and any wire-framing note (newline-delimited vs `Content-Length`)** into `## Interfaces & data shapes` (mark each observed-vs-documented) | `docs/plans/active/session-relay-app-server-push.md` (this file) | — | done |
+| A2 | Launch `codex app-server` on a unix socket (**exact `--listen` flag per A1**) in the background; write a throwaway node scratch client (`/tmp/claude-*/scratch/rpc.mjs`, `net.connect` to the socket) that does the init handshake; **record the observed wire framing (newline-delimited vs `Content-Length`-prefixed)** and the exact init request + response | scratch only + this file | A1 | done |
+| A3 | `thread/resume` an existing CLI session id read from `/home/docks/.codex/sessions/**`; confirm the thread loads; record request + result shape | scratch + this file | A2 | done |
+| A4 | `thread/inject_items` a fenced UNTRUSTED-DATA test item into the resumed thread WITHOUT starting a turn; confirm it lands in model-visible history (observe by a follow-up `turn/start` whose model reply references it, or the thread state event); record shape | scratch + this file | A3 | done |
+| A5 | `turn/start` a turn carrying only a neutral doorbell nudge **with `approval-policy never`**; capture the event stream (event type names + turn id) AND verify the turn **runs to completion unattended** (reaches a terminal turn-completed event, does not hang on an approval elicitation); record shape. **If it hangs → STOP (`## STOP conditions`)** | scratch + this file | A4 | done |
+| A6 | Live-verify whether `codex --remote` accepts `unix://` or ONLY `ws://` (attach a TUI to the spike socket); record the finding. **If ws-only → HALT after Phase A and reassess with the user (`## STOP conditions`)** | scratch + this file | A2 | done |
 | B1 | New module `watch.rs` **plus `pub mod watch;` in `lib.rs`**: a minimal JSON-RPC-over-`UnixStream` client (connect, `rpc_call(method, params) -> Result<JsonValue,String>`, **framing per A2's recorded finding** — newline-delimited or `Content-Length`) + the poll loop | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/lib.rs` | A2–A5 | planned |
 | B2 | Visibility promotions for reuse: promote `mail_block`/`defuse` in `hook.rs` AND `Args::has` in `cli.rs:42` to `pub(crate)` so `watch.rs` reuses the exact UNTRUSTED-DATA fence + the `has` arg helper (no duplicates) | `plugins/session-relay/rust/src/hook.rs:59,101`, `plugins/session-relay/rust/src/cli.rs:42` | — | planned |
 | B3 | `watch <nameOrId>… \| --all` arg parsing (reuse `cli::Args`); **extend `BOOL_FLAGS` (cli.rs:23) with `auto-turn`,`once`,`all`** so `positionals()` doesn't skip the token after them; target resolution via `store::resolve`, per-target mailbox polling via `store::peek`+`store::drain`; `--server`/`RELAY_APP_SERVER`, `--auto-turn`, `--once`, `--dry` | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/main.rs:15`, `plugins/session-relay/rust/src/cli.rs:23` | B1, B2 | planned |
@@ -174,23 +174,89 @@ Notifications (no `id`) get no response — the app-server streams turn events a
 notifications. `watch.rs`'s client matches responses by `id` and treats `id`-less
 messages as event notifications.
 
-**SPIKE-VERIFIED — do NOT assume (A2 pins it):** JSON-RPC 2.0 is
-transport-agnostic and defines message *objects*, never their **wire framing**.
-How objects are delimited on the socket is either newline-delimited (one object
-per line) or `Content-Length`-prefixed (LSP-style) — A2 records which, and B1's
-client framing + B6's fake server MUST match that finding. (`test/selftest.mjs`'s
-`runBus` at selftest.mjs:70-76 is a newline-delimited *model*, not proof of the
-app-server's framing.)
+**A1 findings (2026-07-02, WebFetch of both official docs — doc-verbatim; A2–A5
+confirm live before B1 ships against them):**
 
-**Documented-but-unverified (Phase A A1–A5 replaces this table with the verbatim
-observed shapes — do NOT ship the client against these guesses):**
+- **Launch syntax:** `codex app-server [--listen TRANSPORT_URI]` — `stdio://`
+  (default) | `unix://` (default socket path) | `unix://PATH` | `ws://IP:PORT` |
+  `off`. WS auth flags: `--ws-auth capability-token --ws-token-file <abs>` /
+  `--ws-auth signed-bearer-token --ws-shared-secret-file <abs>`.
+- **Wire framing (doc-stated, A2 confirms on the unix socket):**
+  "newline-delimited JSON (JSONL)" — one JSON-RPC message per line; WS carries
+  one message per text frame. No Content-Length prefix.
+- **Handshake:** `initialize` request `{ "method":"initialize","id":0,"params":
+  { "clientInfo": { "name","title","version" } } }` → result carries
+  `userAgent`/platform fields; then the client sends the notification
+  `{ "method":"initialized","params":{} }`.
+- **`thread/resume`** params `{ "threadId": <id>, … }` (doc example shows
+  `"thr_123"` — a placeholder; A3 verifies a raw rollout uuid works as threadId).
+- **`turn/start`** params `{ "threadId", "input": [{"type":"text","text":…}],
+  "cwd"?, "approvalPolicy"?, "model"?, … }` — **input is an ARRAY of typed
+  items, not a bare string**; `approvalPolicy` is camelCase with values
+  `"never"`/`"unlessTrusted"`/`"onRequest"`.
+- **`thread/inject_items`** params `{ "threadId", "items": [ { "type":"message",
+  "role", "content": [{"type":"output_text","text":…}] } ] }` (doc example uses
+  role `assistant` + `output_text`; A4 records which role/content-type fits
+  relay mail — likely `user`-role message; confirm live).
+- **`turn/steer`** params `{ "threadId", "input":[…], "expectedTurnId" }`.
+- **Turn event notifications:** `turn/started`, `turn/completed`,
+  `turn/diff/updated`, `turn/plan/updated`, `item/started`, `item/completed`,
+  `item/agentMessage/delta`, `item/commandExecution/outputDelta`,
+  `thread/tokenUsage/updated`, `thread/status/changed`.
+- **Auth:** stdio/unix have no auth beyond one `initialize` per connection.
+- **`codex --remote` accepts `unix://` per the CLI-features doc** ("`unix://`
+  (default local Unix socket) or `unix://PATH`", alongside `ws://`/`wss://`) —
+  the ws-only HALT scenario is likely moot, but A6 still verifies live.
 
-| Verb | params (expected) | result / effect |
-|---|---|---|
-| `initialize` (handshake) | client info + protocol version | server info + capabilities |
-| `thread/resume` | `{ threadId: <session-uuid> }` | loads the stored thread; the client becomes a subscriber |
-| `thread/inject_items` | `{ threadId, items: [<Responses-API item>] }` | appends to model-visible history; **no turn starts** |
-| `turn/start` | `{ threadId, input: <user text>, approvalPolicy?: "never" }` | starts a turn; streams turn events as notifications |
+(`test/selftest.mjs`'s `runBus` at selftest.mjs:70-76 is a newline-delimited
+*model*; the doc statement above now backs it, and A2 confirms on-socket.)
+
+### Phase A spike findings (2026-07-02, all live-verified on codex-cli 0.142.5)
+
+- **A2 — transports:** stdio transport is raw JSONL (verified: spawned
+  `codex app-server` child, wrote `{"method":"initialize","id":0,…}\n`, got
+  `{"id":0,"result":{…}}\n` + a `remoteControl/status/changed` notification).
+  **Every socket listener — `unix://` included — is a WebSocket server**: raw
+  JSON lines on the unix socket get silence/ECONNRESET; an HTTP Upgrade request
+  returns `HTTP/1.1 101 Switching Protocols` (verified byte-for-byte). So a
+  socket client MUST speak WS framing (HTTP Upgrade + RFC6455 masked client
+  frames); only a stdio-spawned child avoids WS entirely. The `jsonrpc":"2.0"`
+  field is omitted on the wire (doc-stated; requests without it work).
+- **A2 — bind restrictions:** `--listen unix:///tmp/...` fails
+  `Operation not permitted` (codex refuses sockets in world-writable dirs);
+  `$HOME` paths bind fine (mode 600). OS `SUN_LEN` (~108 chars) also rejects
+  long socket paths with `path must be shorter than SUN_LEN`.
+- **A3 ✓** `thread/resume` with a raw rollout uuid loads the thread — result
+  `thread.id == thread.sessionId ==` the uuid, plus `path` to the rollout;
+  works on `codex exec`-created sessions. Resuming starts the thread's MCP
+  servers (session-relay `bus` reached "ready" — plugin context loads).
+- **A4 ✓** `thread/inject_items` `{threadId, items:[{type:"message",
+  role:"user", content:[{type:"input_text", text:…}]}]}` → `{"result":{}}`;
+  the item persists durably in the rollout as a `response_item` and is
+  model-visible (a later turn answered the injected magic word "BLOWFISH").
+- **A5 ✓** `turn/start` `{threadId, input:[{type:"text",text:…}],
+  approvalPolicy:"never"}` runs to `turn/completed` unattended (no approval
+  hang). Full observed event sequence: `thread/status/changed` →
+  `turn/started` → `hook/started`/`hook/completed` (session-start +
+  user-prompt-submit — v0.3.0 hooks fire inside app-server turns) →
+  `item/started`/`item/completed` (`userMessage`, `reasoning`,
+  `agentMessage` with `text` + `phase:"final_answer"`) →
+  `thread/tokenUsage/updated` → `account/rateLimits/updated` (subscription
+  pool — billing directive holds) → `turn/completed`.
+  **Gotcha: `turn/start` issued immediately (~200ms) after `inject_items`
+  wedges the turn** (task_started, then no tokens, no items, ever — reproduced
+  twice); a ~5s settle between inject and turn makes it reliable (verified).
+  `sandbox` enum values are kebab-case (`workspace-write`;
+  `workspaceWrite` → "unknown variant" error). Error shape:
+  `{"error":{"code":-32600,"message":"Invalid request: …"}}`.
+- **A6 ✓** `codex --remote unix:///home/docks/.relay-spike.sock` attaches a
+  live TUI (verified under a pseudo-tty against the spike server: interface
+  renders, no scheme error). **ws-only is FALSE → the user's HALT condition is
+  NOT triggered.** However the framing STOP IS triggered: reaching any SHARED
+  server (the topology where the user's TUI sees the push live) requires a
+  hand-rolled WS-over-UDS client; the stdio-child topology requires none.
+  Phase B is halted pending the user's transport/topology decision (recorded
+  below in `## Notes` once answered).
 
 The **injected item** is the existing fenced block: `hook.rs`'s `mail_block`
 (hook.rs:101) wraps mail in `<session-relay-mail>…</session-relay-mail>` labelled
@@ -308,6 +374,13 @@ Phase B/C (executable):
 
 ## Global constraints
 
+- **Subscription-only billing (standing user directive, 2026-07-02):** every turn
+  this plan drives — app-server `turn/start`, the `relay wake` fallback, spike
+  turns — runs the local codex engine under the user's ChatGPT-subscription auth
+  (verified: `~/.codex/auth.json` `auth_mode: "chatgpt"`, API-key slot null).
+  Never introduce an API-key billing path; never export `OPENAI_API_KEY` into
+  any spawned process. Note in SKILL.md that watch/auto-turn consume the same
+  subscription usage pool as interactive turns.
 - Zero new crates — `tinyjson` + `rustix` only (`Cargo.toml:9-11`).
 - `node scripts/ci.mjs` green before every commit; commit only in-scope files.
 - Committed binaries come ONLY from `build-binaries.yml` (never a local build);
