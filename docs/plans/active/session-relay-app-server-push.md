@@ -3,7 +3,7 @@ title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
 status: ongoing
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T18:50:20-03:00"
+updated: "2026-07-02T19:07:29-03:00"
 started_at: "2026-07-02T17:58:51-03:00"
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
@@ -155,12 +155,12 @@ Cite these in code comments and the release notes.
 | A4 | `thread/inject_items` a fenced UNTRUSTED-DATA test item into the resumed thread WITHOUT starting a turn; confirm it lands in model-visible history (observe by a follow-up `turn/start` whose model reply references it, or the thread state event); record shape | scratch + this file | A3 | done |
 | A5 | `turn/start` a turn carrying only a neutral doorbell nudge **with `approval-policy never`**; capture the event stream (event type names + turn id) AND verify the turn **runs to completion unattended** (reaches a terminal turn-completed event, does not hang on an approval elicitation); record shape. **If it hangs → STOP (`## STOP conditions`)** | scratch + this file | A4 | done |
 | A6 | Live-verify whether `codex --remote` accepts `unix://` or ONLY `ws://` (attach a TUI to the spike socket); record the finding. **If ws-only → HALT after Phase A and reassess with the user (`## STOP conditions`)** | scratch + this file | A2 | done |
-| B1 | New module `watch.rs` **plus `pub mod watch;` in `lib.rs`**: a minimal JSON-RPC-over-`UnixStream` client (connect, `rpc_call(method, params) -> Result<JsonValue,String>`, **framing per A2's recorded finding** — newline-delimited or `Content-Length`) + the poll loop | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/lib.rs` | A2–A5 | planned |
-| B2 | Visibility promotions for reuse: promote `mail_block`/`defuse` in `hook.rs` AND `Args::has` in `cli.rs:42` to `pub(crate)` so `watch.rs` reuses the exact UNTRUSTED-DATA fence + the `has` arg helper (no duplicates) | `plugins/session-relay/rust/src/hook.rs:59,101`, `plugins/session-relay/rust/src/cli.rs:42` | — | planned |
-| B3 | `watch <nameOrId>… \| --all` arg parsing (reuse `cli::Args`); **extend `BOOL_FLAGS` (cli.rs:23) with `auto-turn`,`once`,`all`** so `positionals()` doesn't skip the token after them; target resolution via `store::resolve`, per-target mailbox polling via `store::peek`+`store::drain`; `--server`/`RELAY_APP_SERVER`, `--auto-turn`, `--once`, `--dry` | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/main.rs:15`, `plugins/session-relay/rust/src/cli.rs:23` | B1, B2 | planned |
-| B4 | Delivery: reachable iff (inferred/explicit) `tool==codex` AND socket connects — default `thread/inject_items` (fenced block from B2's `mail_block`); `--auto-turn` `turn/start` (neutral nudge + `approval-policy never`); non-reachable target → `relay wake` fallback (print the fallback command in `--dry`, spawn the doorbell live) | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/cli.rs:291` (wake reuse) | B1, B2, B3 | planned |
-| B5 | Rust unit tests in `watch.rs`: JSON-RPC request framing, inject-items vs turn/start param construction, the reachable/`--auto-turn`/fallback decision matrix | `plugins/session-relay/rust/src/watch.rs` (`#[cfg(test)]`) | B1–B4 | planned |
-| B6 | Selftest: add a standalone `test/fake-app-server.mjs` (unix-socket JSON-RPC, records received frames to a file, canned replies) **spawned DETACHED** before the sync watch call — an in-process `net.createServer` deadlocks `spawnSync(relay watch)`; run `relay watch --id <id> --server <sock> --once` (+ a `--auto-turn` case) with the target **registered `tool=codex` (or `--tool codex`)** so it hits inject_items not the wake fallback; assert the recorded frames contain a fenced `inject_items` (default) / neutral `turn/start` (auto-turn); grow the check count | `plugins/session-relay/test/selftest.mjs`, `plugins/session-relay/test/fake-app-server.mjs` | B1–B5 | planned |
+| B1 | New module `watch.rs` **plus `pub mod watch;` in `lib.rs`**: a minimal JSON-RPC-over-`UnixStream` client (connect, `rpc_call(method, params) -> Result<JsonValue,String>`, **framing per A2's recorded finding** — newline-delimited or `Content-Length`) + the poll loop | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/lib.rs` | A2–A5 | done |
+| B2 | Visibility promotions for reuse: promote `mail_block`/`defuse` in `hook.rs` AND `Args::has` in `cli.rs:42` to `pub(crate)` so `watch.rs` reuses the exact UNTRUSTED-DATA fence + the `has` arg helper (no duplicates) | `plugins/session-relay/rust/src/hook.rs:59,101`, `plugins/session-relay/rust/src/cli.rs:42` | — | done |
+| B3 | `watch <nameOrId>… \| --all` arg parsing (reuse `cli::Args`); **extend `BOOL_FLAGS` (cli.rs:23) with `auto-turn`,`once`,`all`** so `positionals()` doesn't skip the token after them; target resolution via `store::resolve`, per-target mailbox polling via `store::peek`+`store::drain`; `--server`/`RELAY_APP_SERVER`, `--auto-turn`, `--once`, `--dry` | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/main.rs:15`, `plugins/session-relay/rust/src/cli.rs:23` | B1, B2 | done |
+| B4 | Delivery: reachable iff (inferred/explicit) `tool==codex` AND socket connects — default `thread/inject_items` (fenced block from B2's `mail_block`); `--auto-turn` `turn/start` (neutral nudge + `approval-policy never`); non-reachable target → `relay wake` fallback (print the fallback command in `--dry`, spawn the doorbell live) | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/cli.rs:291` (wake reuse) | B1, B2, B3 | done |
+| B5 | Rust unit tests in `watch.rs`: JSON-RPC request framing, inject-items vs turn/start param construction, the reachable/`--auto-turn`/fallback decision matrix | `plugins/session-relay/rust/src/watch.rs` (`#[cfg(test)]`) | B1–B4 | done |
+| B6 | Selftest: add a standalone `test/fake-app-server.mjs` (unix-socket JSON-RPC, records received frames to a file, canned replies) **spawned DETACHED** before the sync watch call — an in-process `net.createServer` deadlocks `spawnSync(relay watch)`; run `relay watch --id <id> --server <sock> --once` (+ a `--auto-turn` case) with the target **registered `tool=codex` (or `--tool codex`)** so it hits inject_items not the wake fallback; assert the recorded frames contain a fenced `inject_items` (default) / neutral `turn/start` (auto-turn); grow the check count | `plugins/session-relay/test/selftest.mjs`, `plugins/session-relay/test/fake-app-server.mjs` | B1–B5 | done |
 | C1 | Update `SKILL.md`: document the `codex app-server` + `relay watch` + `codex --remote` workflow and the new delivery-matrix cell; bump `metadata.updated` + recompute `content_hash` via the project's skill validators | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B6 | planned |
 | C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | planned |
 | C3 | Release: `node scripts/release.mjs --plugin session-relay minor` → 0.4.0 (bumps the 3 manifests in lockstep, tags, waits for tag-CI, cuts the Release) | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` | C2 | planned |
@@ -257,6 +257,21 @@ confirm live before B1 ships against them):**
   hand-rolled WS-over-UDS client; the stdio-child topology requires none.
   Phase B is halted pending the user's transport/topology decision (recorded
   below in `## Notes` once answered).
+
+**Post-spike transport decision (2026-07-02, native picker):** the user chose
+**"WS-over-unix client"** — hand-roll the WebSocket CLIENT framing (HTTP
+Upgrade + RFC6455 masked client frames, text opcode, ping→pong, close) over
+`UnixStream`, zero new crates (randomness for the key/mask from
+`/dev/urandom`; the `Sec-WebSocket-Accept` SHA1 check is skipped — local
+socket, we only require the `101` status line). This supersedes the draft's
+"WS is OUT OF SCOPE" line: WS **framing over the unix socket** is now in
+scope; `ws://` TCP, TLS, and `--remote`-side work remain out of scope. B1's
+client and B6's fake server speak WS-over-UDS accordingly; the shared-server
+topology (user's TUI attached via `codex --remote unix://PATH`) is the primary
+live leg. Additional derived requirements: after `inject_items`, `--auto-turn`
+waits ~5s before `turn/start` (the settle gotcha), and watch may detach after
+observing `turn/started` (the turn runs server-side). Mail-loss safety: drain
+atomically, deliver, and RE-ENQUEUE drained messages if delivery fails.
 
 The **injected item** is the existing fenced block: `hook.rs`'s `mail_block`
 (hook.rs:101) wraps mail in `<session-relay-mail>…</session-relay-mail>` labelled
