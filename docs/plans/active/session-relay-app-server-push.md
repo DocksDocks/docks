@@ -305,6 +305,11 @@ atomically, deliver, and RE-ENQUEUE drained messages if delivery fails.
   turns — the hook path and watch's drain are race-safe by design (whoever
   drains first wins; the other sees empty and emits nothing).
 
+**Release decision (2026-07-02, native picker):** the user chose **"Push +
+release, auto-turn as built"** — 0.4.0 ships `--auto-turn` with the scoped
+elicitation policy (auto-accept `bus` only, auto-decline every other MCP
+server), superseding the STOP condition's park-`--auto-turn` fallback.
+
 The **injected item** is the existing fenced block: `hook.rs`'s `mail_block`
 (hook.rs:101) wraps mail in `<session-relay-mail>…</session-relay-mail>` labelled
 UNTRUSTED DATA, with `defuse` (hook.rs:59) neutralizing fence-breakout in each
