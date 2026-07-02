@@ -1,10 +1,11 @@
 ---
 title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
-status: ongoing
+status: in_review
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T16:58:42-03:00"
+updated: "2026-07-02T17:07:28-03:00"
 started_at: "2026-07-02T16:11:57-03:00"
+in_review_since: "2026-07-02T17:07:28-03:00"
 assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
 affected_paths:
@@ -198,7 +199,7 @@ the check — same as `context-tree-nudge`.
 | 7 | Wire the `UserPromptSubmit` Codex hook (shell form) | `plugins/session-relay/hooks/codex-hooks.json` | 4 | done |
 | 8 | Extend the black-box self-test with 5 push-delivery checks | `plugins/session-relay/test/selftest.mjs` | 4,6,7 | done |
 | 9 | Rebuild 4-arch binaries, commit into `bin/` + `SHA256SUMS` | `.github/workflows/build-binaries.yml`, `plugins/session-relay/bin/` | 1-8 | done |
-| 10 | Release session-relay `0.3.0` (minor) | via `scripts/release.mjs --plugin session-relay minor` (bumps both `plugin.json`s + marketplace) | 9 | planned |
+| 10 | Release session-relay `0.3.0` (minor) | via `scripts/release.mjs --plugin session-relay minor` (bumps both `plugin.json`s + marketplace) | 9 | done |
 
 Step detail for the non-obvious rows:
 
@@ -508,10 +509,17 @@ to proceed; started immediately after.
   circuit", msg `f3bac83a-…`, sender id correctly attributed); on the Claude
   side BOTH paths surfaced the reply — the armed Monitor fired instantly AND
   the prompt-drain hook injected it fenced, with no duplication (atomic
-  drain). **Pending: live leg 6** — a fresh interactive Claude session
-  auto-arming its Monitor from the SessionStart nudge alone (the Monitor that
-  fired above was armed manually in the executing session). Status stays
-  `ongoing` until leg 6 runs.
+  drain). **Live leg 6 (Claude) PASSED 2026-07-02 ~20:10Z:** a fresh
+  interactive Claude session `160c9b3f-eeea-4d1d-a4bb-ab9957b8dd41` opened in
+  this repo registered via its SessionStart hook; after its FIRST user turn it
+  self-armed a persistent mailbox Monitor purely from the hook nudge —
+  objectively confirmed by a pgrep watcher in the executing session detecting
+  the new `tail` process on that session's mailbox path BEFORE any mail was
+  sent; claude-main then sent a message containing the token "beacon" addressed
+  by id; the new session announced the message to the user unprompted, and the
+  user confirmed in chat ("it worked, it said beacon"). With this, all 9
+  acceptance criteria are verified (1–5, 8, 9 by command earlier; 7 via the
+  Codex round-trip earlier today; 6 now).
 - **Execution deviations (2026-07-02, steps 1–8):** (a) `selftest.mjs`
   `resolveBin` now prefers the fresh `rust/target/<host-triple>/release/relay`
   build over the committed `bin/relay-<triple>` — mid-development the committed
