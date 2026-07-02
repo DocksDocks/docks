@@ -1,10 +1,10 @@
 ---
 title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
-status: planned
+status: ongoing
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T16:03:07-03:00"
-started_at: null
+updated: "2026-07-02T16:11:57-03:00"
+started_at: "2026-07-02T16:11:57-03:00"
 assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
 affected_paths:
