@@ -1,0 +1,119 @@
+---
+title: Give session-relay per-session identity (parked stub)
+goal: Decide and implement how the session-relay bus resolves "which session am I?" so two sessions sharing one project dir no longer mis-attribute whoami, inbox, and sender identity.
+status: planned
+created: "2026-07-02T16:02:39-03:00"
+updated: "2026-07-02T16:02:39-03:00"
+started_at: null
+assignee: null
+tags: [session-relay, identity, bus, rust, exploration, parked]
+affected_paths:
+  - plugins/session-relay/rust/src/bus.rs
+  - plugins/session-relay/rust/src/hook.rs
+  - plugins/session-relay/rust/src/store.rs
+  - plugins/session-relay/.claude-plugin/plugin.json
+related_plans: [session-relay-auto-inbox-push, session-relay-cross-tool-bus]
+review_status: null
+planned_at_commit: "c70605356d4fe3327b8f5c24ec5e658eb73e17bd"
+---
+
+# Give session-relay per-session identity (parked stub)
+
+## Goal
+
+Make the session-relay bus resolve **which session is calling** correctly when two or more sessions share a single project directory (the common claude+codex pairing, or two same-tool sessions). Today identity is derived from a per-directory marker, so the last hook-runner in a dir silently claims that dir's identity — breaking `whoami`, inbox targeting, and sender attribution for every other session in the same dir. Pick a direction from the candidates below, then implement it within the plugin's zero-new-crate budget and 4-arch rebuild/release flow. This stub parks the problem with its live-verified evidence so a future session starts warm; it does **not** decide the direction.
+
+## Context & rationale
+
+Live-verified evidence (2026-07-02, session-relay v0.2.2), recorded as given:
+
+- **The mechanism.** The SessionStart hook writes `store::set_marker(cwd, session_id)` on **every** start — including resume and compact re-fires (`plugins/session-relay/rust/src/hook.rs:89`). The marker is keyed by cwd only (`plugins/session-relay/rust/src/store.rs:5` — "markers/<cwd> the session id last registered for a project dir"). So the last hook-runner in a directory owns that directory's identity.
+- **Why the MCP server can't just know its own id.** MCP servers receive no session id from either runtime. The bus derives identity from the cwd marker via a `self_id` closure (`plugins/session-relay/rust/src/bus.rs:157` — `store::id_for_dir(pdir)`). It reads the project dir from `RELAY_PROJECT_DIR` on Claude (set in `plugins/session-relay/.claude-plugin/plugin.json:30` = `${CLAUDE_PROJECT_DIR}`), falling back to process cwd on Codex, which passes MCP children no env at all (`bus.rs:82-94`).
+- **Consequence — two live incidents today in `/home/docks/projects/docks`:**
+  - A Claude session's compact at 15:24 -03 re-ran its SessionStart hook and re-claimed the marker; the live Codex session's bus send at 15:59 -03 self-attributed as `claude-main` (msg id `fc4dea3f-d4cd-4ec2-a36b-50ed2758cebb` — delivered fine, but `from` label wrong). Sender attribution flows through `bus.rs:220-223` (`from_id = self_id()`), which is exactly the marker-derived value.
+  - Earlier, a dead Codex probe session held the marker, so the user's live Codex session answered "check your inbox" with the wrong identity (id `019f2403-…`), requiring manual marker healing.
+- **Interaction with the planned `session-relay-auto-inbox-push` plan.** That plan's Monitor nudge targets the correct mailbox because the *hook* knows `session_id` (read from stdin at `hook.rs:75`). Only the *MCP bus process* lacks identity. Any fix here must not regress that plan, and should ideally hand the bus the same id the hook already has.
+- **Partial plumbing already exists.** `whoami` already accepts an optional `id` override that falls back to `self_id` (`bus.rs:188` — `arg_str(args, "id").or_else(self_id)`; the tool schema exposes it at `bus.rs:34`). `send` does **not** yet accept a caller-supplied sender id — it always uses `self_id()`. Candidate (b) below builds on this existing seam.
+
+## Environment & how-to-run
+
+- **Language/runtime:** Rust (static musl/darwin binaries). Crate deps are deliberately minimal — `tinyjson` + `rustix` only (`plugins/session-relay/rust/Cargo.toml:10-11`). The release profile requires `codegen-units=1` for the reproducible-rebuild check (`Cargo.toml:13-20`).
+- **Build:** `cd plugins/session-relay/rust && cargo build --release`. Shipped binaries are 4-arch: `aarch64-apple-darwin`, `aarch64-unknown-linux-musl`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` (see `plugins/session-relay/bin/`, checksummed by `bin/SHA256SUMS`). Any code change requires rebuilding + rechecksumming all four before release.
+- **Self-test:** `node plugins/session-relay/test/selftest.mjs` exercises the bus end to end.
+- **Repo gate:** `node scripts/ci.mjs` must exit 0 before commit (guards + scorers; session-relay is self-versioned and gated by its own section).
+- The exact multi-arch rebuild/release commands live in the plugin's release flow — confirm them at step time before shipping a binary change; do not hand-edit `bin/` artifacts.
+
+## Steps
+
+| # | Task | Files | Depends | Status |
+|---|---|---|---|---|
+| 1 | Reproduce the mis-attribution deterministically: two sessions (claude+codex, then two same-tool) in one dir, capture whoami/inbox/send `from` divergence as a failing selftest or scripted repro | notes → this plan; maybe `plugins/session-relay/test/selftest.mjs` | — | planned |
+| 2 | Evaluate candidates (a)/(b)/(c) against: correctness for both same-dir cases, zero-new-crate budget, 4-arch rebuild cost, and no regression to `session-relay-auto-inbox-push`; record findings | notes → this plan | 1 | planned |
+| 3 | Decide the direction via the open question below (surface through the native picker); encode the decision + rationale here | this plan | 2 | planned |
+| 4 | Implement per the decision, rebuild all 4 arch binaries + refresh `SHA256SUMS`, extend selftest to cover multi-session identity, run the repo gate | TBD by step 3 (likely `bus.rs`, `hook.rs`, `store.rs`, `plugin.json`, `bin/*`) | 3 | planned |
+
+## Acceptance criteria
+
+- Step 1 produces a recorded, reproducible failure (script or failing test) showing wrong `whoami`/`from`/inbox identity for a second same-dir session.
+- Step 2's candidate comparison is recorded here with the trade-offs, each grounded in a `file:line` or a measured cost.
+- Step 3's decision is encoded in this plan with rationale; the open question is removed.
+- If step 4 implements: the step-1 repro passes; `node plugins/session-relay/test/selftest.mjs` exits 0; `node scripts/ci.mjs` exits 0; all four `bin/` binaries rebuilt and `bin/SHA256SUMS` refreshed; no new crate added to `Cargo.toml`. If the decision is "don't fix now", this plan moves to `finished/` as decided-not-to-build with the reasoning kept.
+
+## Interfaces & data shapes
+
+Deferred to step 3 — the chosen candidate defines the contract. Sketch for a cold reader:
+
+- **(a)** marker key becomes `(cwd, tool)` instead of `cwd`; `store::set_marker`/`id_for_dir` gain a `tool` param; lookup falls back to the dir-only marker for old entries.
+- **(b)** `send` (and any other identity-taking tool) gains an optional `self_id`/`from` param mirroring the existing `whoami` `id` override (`bus.rs:34,188`); the SessionStart hook injects the session's bus id into agent context so the agent can pass it explicitly; the MCP server validates the supplied id against the registry before trusting it.
+- **(c)** rejected shape retained for the record — see Out of scope.
+
+## Out of scope / do-NOT-touch
+
+- **Candidate (c) — process-lineage sniffing** (walk parent PIDs to find the owning session): recorded as a likely-reject, not a work item. Fragile, tool-version-dependent, and OS-specific; do not build it without new evidence that (a)/(b) are both infeasible.
+- Do **not** change the `session-relay-auto-inbox-push` design — its hook-side mailbox path is already correct; this plan only touches how the *bus process* learns identity.
+- Do **not** add a new crate to satisfy this (zero-new-crate budget, see Global constraints).
+- Do **not** hand-edit the compiled `bin/` binaries or `SHA256SUMS` — regenerate them through the build/release flow.
+
+## Global constraints
+
+- **Zero new crates.** Deps stay `tinyjson` + `rustix` only (`Cargo.toml:10-11`).
+- **4-arch rebuild.** Any source change ships as all four target binaries with a refreshed `SHA256SUMS`.
+- **Reproducible-rebuild profile.** Keep `codegen-units=1`, `lto=true`, `panic=abort`, `strip=true` (`Cargo.toml:15-20`).
+- **MCP servers get no session id from either runtime**, and Codex passes MCP children no env at all — the fix cannot assume the bus process can read its own session id from the environment.
+
+## Cold-handoff checklist
+
+1. **File manifest** — ✓ candidate blast radius listed (`bus.rs`, `hook.rs`, `store.rs`, `plugin.json`, `bin/*`); exact per-line edits are the step-3 decision output.
+2. **Environment & commands** — ✓ build (`cargo build --release`), selftest, and repo gate given with paths; exact multi-arch release commands flagged for step-time confirmation.
+3. **Interface & data contracts** — partial by design: sketched per-candidate above; the chosen contract is fixed at step 3.
+4. **Executable acceptance** — ✓ for steps 1–3 (recorded repro + encoded decision); step-4 commands attach once the shape is chosen.
+5. **Out of scope** — ✓ candidate (c), the auto-inbox-push design, new crates, and hand-edited binaries all named positively.
+6. **Decision rationale** — ✓ the marker-is-cwd-keyed mechanism and why the MCP server can't self-identify are in Context, each with `file:line`.
+7. **Known gotchas** — ✓ compact/resume re-fires the hook and re-claims the marker; dead sessions can hold a stale marker; Codex passes no env to MCP children.
+8. **Global constraints verbatim** — ✓ zero-new-crate, 4-arch rebuild, reproducible-rebuild profile, no-session-id-to-MCP.
+9. **No undefined terms / forward refs** — ✓ TBDs are explicit step-3/step-4 outputs, not silent gaps.
+
+## Open questions
+
+- `direction` (choice, decided at step 3): **(a)** key the marker by `(dir, tool)` — fixes the common claude+codex same-dir case with a small, backward-compatible change, but two **same-tool** sessions in one dir stay ambiguous · **(b)** identity handshake — SessionStart hook injects "your bus identity is `<id>`" into context (it already reads `session_id` from stdin), agents pass that id explicitly to bus tools, MCP server validates against the registry; exact but model-mediated `(recommended — only candidate that disambiguates two same-tool sessions)` · **(c)** process-lineage sniffing — walk parent PIDs; fragile, tool-version-dependent, likely reject · custom allowed. NEEDS CLARIFICATION — blocked on steps 1–2 findings.
+
+## Self-review
+
+Score: 60/100 (parked-stub tier: one weighted score + single critique pass, no iteration). Standalone executability and Executable acceptance score low **on purpose** — the deliverable shape is itself the step-3 decision, so step-4 paths and commands can't be pinned yet; the stub's job is to preserve the live evidence (every mechanism claim carries a `file:line` opened this session), the two incident records, the three candidates with trade-offs, and the hard constraints (zero-new-crate, 4-arch) so a future session starts warm rather than re-deriving them. Critique pass caught and fixed: (1) the first draft asserted the bug from memory — now every mechanism line cites `hook.rs`/`store.rs`/`bus.rs`/`plugin.json` verified this session; (2) it missed that `whoami` already has an `id` override, which materially changes candidate (b)'s cost — now recorded at `bus.rs:34,188`; (3) step 4 had no gate — now conditioned on the step-1 repro passing, selftest + `ci.mjs` green, all 4 binaries rebuilt, and no new crate; (4) the "don't fix" outcome now has an explicit terminal path (`finished/` as decided-not-to-build).
+
+## Review
+
+(filled by plan-review on completion)
+
+## Sources
+
+- `plugins/session-relay/rust/src/hook.rs:75` — hook reads `session_id` from stdin (basis for candidate (b)).
+- `plugins/session-relay/rust/src/hook.rs:89` — `store::set_marker(&dir, &id)` runs on every SessionStart, including resume/compact.
+- `plugins/session-relay/rust/src/store.rs:5` — marker is keyed by cwd only ("markers/<cwd> the session id last registered for a project dir").
+- `plugins/session-relay/rust/src/bus.rs:157` — `self_id = || store::id_for_dir(pdir)`: identity derived from the dir marker.
+- `plugins/session-relay/rust/src/bus.rs:188` — `whoami` already accepts an optional `id` override falling back to `self_id`.
+- `plugins/session-relay/rust/src/bus.rs:220-223` — `send` sets `from` from `self_id()` — the path that mis-attributed msg `fc4dea3f-…`.
+- `plugins/session-relay/rust/src/bus.rs:82-94` — project dir read from `RELAY_PROJECT_DIR`, fallback to process cwd (Codex has no MCP env).
+- `plugins/session-relay/.claude-plugin/plugin.json:30` — `RELAY_PROJECT_DIR` = `${CLAUDE_PROJECT_DIR}`.
+- `plugins/session-relay/rust/Cargo.toml:10-20` — deps (`tinyjson`, `rustix`) + reproducible-rebuild release profile (zero-new-crate + 4-arch constraints).
+- `plugins/session-relay/bin/` — the 4 shipped arch binaries + `SHA256SUMS`.
