@@ -3,7 +3,7 @@ title: session-relay — spawn a new full-context agent session (relay spawn)
 goal: Add `relay spawn <dir>`, a verb that creates a NEW persistent Claude/Codex session in any project dir — full CLAUDE.md/skills/plugins context — and converses with it over the bus, no manual session management.
 status: ongoing
 created: "2026-07-02T17:32:36-03:00"
-updated: "2026-07-02T20:23:42-03:00"
+updated: "2026-07-02T20:29:39-03:00"
 started_at: "2026-07-02T20:23:42-03:00"
 assignee: claude
 tags: [session-relay, spawn, rust, cross-tool, claude, codex, multi-agent]
@@ -181,11 +181,11 @@ resumable**, not a long-lived process. The full loop:
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
 | A0 | Confirm `session-relay-app-server-push` has shipped (`ls docs/plans/finished/*app-server-push*`); if not, STOP — this plan is queued behind it. Re-read that plan's `## Interfaces & data shapes` for the Codex app-server `thread/start` spike outcome | `docs/plans/finished/` (read), this file | — | done |
-| A1 | Verify `claude` + `codex` on PATH; record `claude --version` / `codex --version` and each CLI's relevant `--help` sections | this file (`## Interfaces & data shapes`) | A0 | planned |
-| A2 | Live (DOCS-ONLY probe — NOT the spawn launch): `claude -p "say READY" --output-format json` with `cwd=<scratch>`; record the EXACT key path carrying the session id. This documents the shape for the SKILL only — spawn launches DETACHED with null stdout and never reads it, so `--output-format json` is NOT on the child argv (S2 in `## Self-review`); birth is confirmed via marker-diff / pre-mint resolve | scratch + this file | A1 | planned |
-| A3 | **Load-bearing:** does a headless `claude -p` run FIRE the SessionStart hook (self-register on the bus)? Spawn a `-p` child in a scratch project with the session-relay plugin active; check the registry/marker gains a new id. AND does `claude -p --session-id <uuid>` accept a pre-minted id? Record both yes/no | scratch + this file | A1 | planned |
-| A4 | Live: `codex exec --json "say READY"` with `cwd=<scratch>`; record the session-id location (session_configured event / rollout filename), whether `codex exec` fires the Codex SessionStart hook, whether it accepts a pre-set id flag, AND whether a fresh `codex exec` still refuses a non-git `<dir>` without `--skip-git-repo-check` (known live-true — record the current bypass flag so B1's codex argv can add it when `<dir>` isn't a git repo) | scratch + this file | A1 | planned |
-| A5 | Pin the EXACT flag mappings for the resolved **asymmetric** posture (S3): Codex default = its Auto preset (`--sandbox workspace-write` + auto-approvals — current `--sandbox`/`--ask-for-approval`/`--full-auto` values); Claude default = full-permission headless mode (current `--permission-mode bypassPermissions` value or equivalent) — Claude has NO middle auto tier and the user rejected `acceptEdits`, so if the only options are acceptEdits vs bypass, confirm bypass+guardrail-rules is right (else surface to the user). Also record `--read-only` (down, BOTH tools) and `--full-access` (up, **codex-only** — Claude is already full). Do not guess — inventory live from each CLI's `--help` | scratch + this file (`## Interfaces & data shapes`) | A1 | planned |
+| A1 | Verify `claude` + `codex` on PATH; record `claude --version` / `codex --version` and each CLI's relevant `--help` sections | this file (`## Interfaces & data shapes`) | A0 | done |
+| A2 | Live (DOCS-ONLY probe — NOT the spawn launch): `claude -p "say READY" --output-format json` with `cwd=<scratch>`; record the EXACT key path carrying the session id. This documents the shape for the SKILL only — spawn launches DETACHED with null stdout and never reads it, so `--output-format json` is NOT on the child argv (S2 in `## Self-review`); birth is confirmed via marker-diff / pre-mint resolve | scratch + this file | A1 | done |
+| A3 | **Load-bearing:** does a headless `claude -p` run FIRE the SessionStart hook (self-register on the bus)? Spawn a `-p` child in a scratch project with the session-relay plugin active; check the registry/marker gains a new id. AND does `claude -p --session-id <uuid>` accept a pre-minted id? Record both yes/no | scratch + this file | A1 | done |
+| A4 | Live: `codex exec --json "say READY"` with `cwd=<scratch>`; record the session-id location (session_configured event / rollout filename), whether `codex exec` fires the Codex SessionStart hook, whether it accepts a pre-set id flag, AND whether a fresh `codex exec` still refuses a non-git `<dir>` without `--skip-git-repo-check` (known live-true — record the current bypass flag so B1's codex argv can add it when `<dir>` isn't a git repo) | scratch + this file | A1 | done |
+| A5 | Pin the EXACT flag mappings for the resolved **asymmetric** posture (S3): Codex default = its Auto preset (`--sandbox workspace-write` + auto-approvals — current `--sandbox`/`--ask-for-approval`/`--full-auto` values); Claude default = full-permission headless mode (current `--permission-mode bypassPermissions` value or equivalent) — Claude has NO middle auto tier and the user rejected `acceptEdits`, so if the only options are acceptEdits vs bypass, confirm bypass+guardrail-rules is right (else surface to the user). Also record `--read-only` (down, BOTH tools) and `--full-access` (up, **codex-only** — Claude is already full). Do not guess — inventory live from each CLI's `--help` | scratch + this file (`## Interfaces & data shapes`) | A1 | done |
 | B1 | New module `spawn.rs`: DETACHED launch — `std::process::Command` with null stdin+stdout, `CommandExt::process_group(0)`, `.spawn()` (NEVER `.output()`); child **stderr → a temp log** `<store home>/spawn-logs/<id-or-launch-uuid>.stderr` (S5 — a fast-failing child stays diagnosable, NOT a null stderr); per-tool child argv from A2–A5 with the **asymmetric** default (Codex Auto preset; Claude `bypassPermissions`), `--read-only` down on both, `--full-access` codex-only, `--` prompt fence, and **no `--output-format json` / `--json`** (S2); binary overridable via `RELAY_SPAWN_CMD_CLAUDE` / `RELAY_SPAWN_CMD_CODEX` | `plugins/session-relay/rust/src/spawn.rs` (new) | A2–A5 | planned |
 | B2 | Birth confirmation: pre-snapshot the marker for `<dir>` (or, when the tool accepts a pre-set id, mint via `store::uuid_v4` and watch for that exact id); poll `store::id_for_dir`/`store::resolve` every ~250ms up to `--timeout` (default 30s); on birth, `store::register(name, id, dir, tool)`; on timeout, exit non-zero with a message that NAMES the child's stderr log path (S5) AND a `relay discover` hint | `plugins/session-relay/rust/src/spawn.rs` (reuses `store.rs:378 id_for_dir`, `:362 resolve`, `:308 register`, `:149 is_uuid`, `:97 uuid_v4`, `:26 home_dir`) | B1 | planned |
 | B3 | Arg parsing + dispatch: `spawn <dir> [--tool][--name][--reply-to][--timeout][--read-only][--full-access][--dry] [--] <task>` via `cli::Args` (`flag`/`has`/`positionals`/`message_after_sep`); add a NEW `spawn` arm to `main.rs`'s dispatch match (dispatching `relay::spawn::run`, not the `cli::run` tuple) + `pub mod spawn;` to `lib.rs` | `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/main.rs:12-17`, `plugins/session-relay/rust/src/lib.rs:5` | B1, B2 | planned |
@@ -198,6 +198,47 @@ resumable**, not a long-lived process. The full loop:
 | C3 | Release: `node scripts/release.mjs --plugin session-relay minor` (bumps the 3 manifests in lockstep, tags, waits for tag-CI, cuts the Release) | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` | C2 | planned |
 
 ## Interfaces & data shapes
+
+### Phase A findings (2026-07-02, live-verified: claude 2.1.198, codex-cli 0.142.5)
+
+- **A2 ✓ (docs-only):** `claude -p … --output-format json` result is a single JSON
+  object; the session id is the top-level **`.session_id`** key. (`total_cost_usd`
+  appears in the JSON even under subscription OAuth — informational, not API billing.)
+- **A3 ✓✓:** headless `claude -p` **FIRES the SessionStart hook** (registry gained the
+  child id + the `-tmp-spawn-scratch` marker), and **`--session-id <uuid>` pre-mint
+  WORKS** (result `.session_id` == the minted uuid). → Claude birth path = pre-mint +
+  watch for that exact id.
+- **A4 ✓:** `codex exec --json` first event is `{"type":"thread.started","thread_id":…}`
+  (docs-only — spawn never reads child stdout). Headless `codex exec` **FIRES the Codex
+  SessionStart hook** (registry gained the codex child for the same dir). **No pre-set-id
+  flag exists on `codex exec`** (full `--help` inventoried) → Codex birth path =
+  marker-diff watch. `--skip-git-repo-check` is current and REQUIRED for a non-git dir.
+- **A5 ✓ — flag inventory + SUPERSEDING posture decision.** Claude 2.1.198's
+  `--permission-mode` choices are `acceptEdits, auto, bypassPermissions, default,
+  dontAsk, plan` — **`auto` now exists** ("auto-approves tool calls with background
+  safety checks", research preview; docs: code.claude.com/docs/en/permissions), which
+  voids the asymmetric posture's premise ("Claude has no middle auto tier"). `dontAsk`
+  auto-denies (useless unattended). Codex `codex exec -s/--sandbox` values:
+  `read-only, workspace-write, danger-full-access`; exec has no approvals flag
+  (headless never prompts). **User decision (2026-07-02, native picker): "Symmetric:
+  Claude auto"** — supersedes the asymmetric mapping everywhere it appears in this plan:
+
+  | `relay spawn` flag | Claude child | Codex child |
+  |---|---|---|
+  | (default) | `--permission-mode auto` | `--sandbox workspace-write` |
+  | `--read-only` | `--permission-mode plan` | `--sandbox read-only` |
+  | `--full-access` | `--permission-mode bypassPermissions` | `--sandbox danger-full-access` |
+
+  Both opt flags now apply to **BOTH tools** (`--full-access` is no longer codex-only).
+  Guardrail rules stay injected on every spawn regardless of flag. NEVER pass
+  `--dangerously-*` variants.
+
+**Verbatim child argv (final, from the findings above):**
+
+| Tool | Launch (cwd=`<dir>`, DETACHED, null stdin+stdout, stderr→spawn-log) |
+|---|---|
+| claude | `claude -p --session-id <minted-uuid> --permission-mode <auto\|plan\|bypassPermissions> -- <prompt>` |
+| codex | `codex exec --sandbox <workspace-write\|read-only\|danger-full-access> [--skip-git-repo-check] -- <prompt>` |
 
 **`relay spawn` CLI contract:**
 
