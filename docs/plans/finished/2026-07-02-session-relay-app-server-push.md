@@ -1,9 +1,9 @@
 ---
 title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
-status: in_review
+status: finished
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T20:08:29-03:00"
+updated: "2026-07-02T20:14:08-03:00"
 started_at: "2026-07-02T17:58:51-03:00"
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
@@ -21,9 +21,10 @@ affected_paths:
   - plugins/session-relay/.codex-plugin/plugin.json
   - .claude-plugin/marketplace.json
 related_plans: [session-relay-auto-inbox-push, session-relay-rust-port, session-relay-cross-tool-bus]
-review_status: null
+review_status: passed
 in_review_since: "2026-07-02T20:08:29-03:00"
 planned_at_commit: 0aa20e4c2e8d3416bb385ec479bd51fd8b850c91
+ship_commit: 765c32f1a00529756a96280b86f7f5780224e43f
 ---
 
 # session-relay — app-server push into a live Codex thread (relay watch)
@@ -613,7 +614,11 @@ unchanged per the user's decision. Plan started (`→ ongoing`) immediately afte
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — `relay watch` (WS-over-UDS app-server client) ships: all 16 steps `done`; injects the fenced UNTRUSTED-DATA `mail_block` by default, `--auto-turn` starts a neutral-nudge `turn/start` and stays attached (`pump_turn`) answering `mcpServer/elicitation/request` (accept `bus`, decline others), non-codex targets fall back to the `wake` doorbell — the last delivery-matrix cell (live Codex, zero-keystroke push) closed and released as 0.4.0.
+- **Regressions:** none — full lib suite `20 passed` (incl. exactly 7 `watch::tests::*`), integration `bus_smoke`/`lock_race` green, selftest `48 checks` (was 44); `cli.rs`/`hook.rs`/`lib.rs`/`main.rs` changes are the pinned B2/B3 reuse promotions (`pub(crate)` on `DEFAULT_NUDGE`/`Args::has`/`defuse`/`mail_block`, `BOOL_FLAGS` +`auto-turn,once,all`, `pub mod watch;`, `watch` dispatch) — no behavior change to existing paths. No code scope drift: every `affected_paths` entry is in the diff and no code file outside it changed (the three other `docs/plans/active/*.md` in the range are unrelated concurrent plans, not this scope).
+- **CI:** pass — `node scripts/ci.mjs` exit 0 (`All ci.mjs checks passed`), `cargo fmt --check` + `cargo clippy --all-targets -D warnings` clean, all three manifests read `0.4.0`, tag `session-relay--v0.4.0` → release commit `f1ed5f3` with tag-CI run 28627208074 `success`, committed binaries provenance run 28627101606 @ `5fd25b1`, SHA256SUMS verify (4). One non-fatal `⚠` (host rebuild digest differs) is expected local path/linker variance — real CI enforces byte-identity in the build-binaries image. Live end-to-end leg (auto-turn 36s/exit 0/echoed "VICTOR"; inject-only durable-persist grep) is attested by the main session in `### Phase B live-leg findings` and covered deterministically by the `fake-app-server.mjs` selftest paths; not independently re-driven here (needs a live Codex thread under subscription auth). STOP handled correctly: the A5 park-`--auto-turn` fallback was superseded — the live wedge (MCP `elicitation/request`, which `approvalPolicy:"never"` does NOT cover — it only auto-rejects shell approvals) was fixed in B7 and the user blessed shipping via native picker ("Push + release, auto-turn as built"), both recorded in-plan.
+- **Follow-ups:** none — optional `--notify <cmd>` rider is parked by design; related work already tracked in `session-relay-spawn` / `session-relay-per-session-identity` drafts.
+- Filed by: plan-review on 2026-07-02T20:09:16-03:00
 
 ## Sources
 
