@@ -3,7 +3,7 @@ title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
 status: in_review
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T17:07:28-03:00"
+updated: "2026-07-02T17:09:56-03:00"
 started_at: "2026-07-02T16:11:57-03:00"
 in_review_since: "2026-07-02T17:07:28-03:00"
 assignee: claude
@@ -21,7 +21,7 @@ affected_paths:
   - plugins/session-relay/.codex-plugin/plugin.json
   - .claude-plugin/marketplace.json
 related_plans: [session-relay-cross-tool-bus, session-relay-auto-discovery, session-relay-rust-port]
-review_status: null
+review_status: passed
 planned_at_commit: "d985799413457f905e20067be27bb4c453cf0889"
 ---
 
@@ -455,7 +455,11 @@ to proceed; started immediately after.
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — both push paths shipped and live-verified: a fresh Claude session arms a persistent Monitor watch from the SessionStart nudge (leg 6, pgrep-confirmed `tail` before any mail, "beacon" announced unprompted) and Codex drains on `UserPromptSubmit` (leg 7, msg `f3bac83a` token "circuit", both Claude paths surfaced the reply with no duplication). All 9 acceptance criteria pass; the emit matrix in `render_context` (hook.rs:136-157) matches the planned matrix cell-for-cell.
+- **Regressions:** none — `store::drain`/`with_lock`/`defuse` untouched; doorbell (`relay wake`) untouched; `cargo fmt`/`clippy -D warnings` clean; 13 lib tests pass.
+- **CI:** pass — `node scripts/ci.mjs` exit 0 (one expected local-only warning: "session-relay host rebuild digest differs from committed relay-x86_64-unknown-linux-musl — CI enforces byte-identity ... locally this is expected path/linker variance")
+- **Follow-ups:** none — the live-Codex-idle gap is already captured out-of-scope as `session-relay-watch`; nothing new surfaced by this review.
+- Filed by: plan-review on 2026-07-02T17:09:56-03:00
 
 ## Sources
 
