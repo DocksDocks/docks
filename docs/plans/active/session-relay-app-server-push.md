@@ -3,7 +3,7 @@ title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
 status: planned
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T17:48:46-03:00"
+updated: "2026-07-02T17:56:29-03:00"
 started_at: null
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
@@ -337,6 +337,92 @@ checks and the fixes they forced:
 - Residual −9: the exact app-server param names (`approvalPolicy` casing,
   `inject_items` item schema) are unverifiable until Phase A runs — deliberately
   deferred, not guessable; the plan gates B1 on recording them.
+
+### Draft red-team — 2026-07-02T17:56:29-03:00 (fresh-context plan-review, big/risky pass)
+
+Verdict: **fix-first.** Spike-first discipline, STOP framing, and evidence
+hygiene are strong (all 24 `file:line` anchors re-opened and verified accurate;
+version math 0.3.0→0.4.0 confirmed in all three manifests; no drift in the
+in-scope Rust/selftest files since `planned_at_commit` — only plan-file commits
+sit between). The holes are in the *reuse mechanics* the inline self-review
+couldn't catch without running the code.
+
+HIGH — bake a false assumption or derail Phase A/B:
+1. **Framing mislabeled "Certain (JSON-RPC 2.0 spec)."** (`## Interfaces`, the
+   "every message is a line of JSON" claim.) JSON-RPC 2.0 is transport-agnostic
+   and defines message *objects*, never wire framing — line-delimited vs
+   `Content-Length`-prefixed (LSP-style) is exactly what a codex-app-server spike
+   must PIN. As written, A2's "newline-delimited" scratch client, B1's "line
+   framing via tinyjson," and B6's fake server all silently assume line framing.
+   Fix: reclassify framing as spike-verified; add to A2's acceptance "record
+   whether frames are newline-delimited or Content-Length-prefixed"; gate B1's
+   framing on that; extend the "observed contradicts documented → re-derive
+   B1–B4" STOP to cover framing, not just param/result shapes.
+2. **B6 fake-app-server is a `spawnSync` deadlock.** An in-process
+   `net.createServer` cannot accept/respond while `spawnSync(relay watch)` blocks
+   the libuv event loop — the watch client's request→response handshake hangs
+   (unlike `runBus`, which pre-writes all stdin and reads stdout only AFTER exit,
+   needing no live peer). Fix: run the fake server as a SEPARATE process (a
+   standalone `test/fake-app-server.mjs` spawned detached before the sync watch
+   call, recording received frames to a file the test asserts on), OR invoke
+   watch with async `spawn` and drive the in-process server. Current phrasing
+   ("node `net.createServer`" alongside the existing sync harness) would hang the
+   selftest.
+3. **`relay watch --id … --server …` lands on the WAKE FALLBACK, not
+   inject_items.** Reachability requires `tool == "codex"`, but the `--id` path
+   (mirroring `cli::explicit_target`, cli.rs:94) defaults `tool` to `claude`
+   unless `--tool` is passed — and both the B6 command and the live-leg command
+   omit `--tool codex`. As written they exercise the fallback, contradicting the
+   "assert the fake server received inject_items" acceptance. Fix: infer
+   `tool=codex` when `--server`/`RELAY_APP_SERVER` is set (cleanest), or add
+   `--tool codex` to every watch invocation and register the B6 fake target as
+   codex.
+
+MEDIUM — concrete compile/parse gaps a weak executor hits:
+4. **`cli::Args::has` is PRIVATE.** (`## Interfaces` lists `flag`/`has`/
+   `positionals` as reused; cli.rs:42.) `flag`+`positionals` are `pub(crate)`,
+   `has` is not — watch.rs cannot call `args.has("auto-turn")` without promoting
+   `has` to `pub(crate)`. Add an explicit step (mirror of B2), cli.rs:42.
+5. **`BOOL_FLAGS = ["dry","json"]` mis-parses watch's new bool flags.** (cli.rs:23;
+   B3.) `positionals()` treats any `--x` NOT in `BOOL_FLAGS` as a value flag and
+   skips the next token, so `--auto-turn`/`--once`/`--all` corrupt target
+   resolution (`watch --auto-turn codex-C` drops the target). Extend `BOOL_FLAGS`
+   with `auto-turn`,`once`,`all` (cli.rs:23) — a cli.rs edit no step names.
+   (`has()` still detects them; `positionals()` is what mis-consumes.)
+6. **New module `watch.rs` is never declared.** lib.rs is `pub mod bus/cli/
+   discover/hook/store` — no `watch`. `affected_paths` lists lib.rs but no step
+   adds `pub mod watch;`, so the module won't compile in. Add it to B1's task.
+7. **B4 is missing its dependency on B2.** B4 delivers via the fenced `mail_block`
+   that B2 promotes to `pub(crate)`; B4 Depends is "B1, B3" — must include B2, or
+   delivery references a still-private symbol.
+8. **`--auto-turn` unattended completion is asserted but never spiked.** A5 only
+   checks turn/start streams ≥1 event with a neutral nudge; it does NOT verify an
+   unattended turn with `approval-policy never` runs to completion without hanging
+   on an approval elicitation (the exact risk the gotcha names). Add a live check
+   + a named STOP ("turn/start hangs on approval despite never-policy →
+   `--auto-turn` not shippable this plan").
+
+LOW — clarity / observability:
+9. **inject_items "surface with zero keystrokes" is not directly observable in
+   default mode.** A bare inject into an idle headless thread emits nothing;
+   "surface" shows only via a follow-up turn (as A4 does) or an attached TUI
+   (topology b, A6-gated). Clarify the live-leg's observation method per mode.
+10. **A2 hardcodes `--listen unix:///…` though the transport flag is unverified.**
+    A1 fetches docs but isn't tasked to record the exact launch/`--listen` syntax;
+    A2 states it as fact. Add "record the exact launch + `--listen` syntax" to A1
+    and mark A2's command "(exact flag per A1)".
+11. (Observation, NOT a fix — do not re-litigate "halt at spike, reassess.") The
+    ws-only HALT is broader than the technical need: topology (a) headless/hosted
+    over unix — the plan's own live-leg — works regardless of `--remote`
+    transport. The HALT is a user-chosen reassessment checkpoint, not proof the
+    core deliverable is dead on ws-only; make sure a cold executor reads it that
+    way.
+
+Not changed here: no stale anchors were found (all verified), and the framing
+fix (#1) spans A2/B1/B6/STOP — editing one sentence would leave the plan
+internally inconsistent, so it is handed back as a finding rather than
+half-applied. Findings #1–#7 are targeted patches to `## Interfaces`, three
+steps, and the cli.rs/lib.rs reuse surfaces — no architectural re-draft needed.
 
 ## Cold-handoff checklist
 
