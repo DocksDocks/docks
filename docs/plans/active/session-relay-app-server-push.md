@@ -3,7 +3,7 @@ title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
 status: ongoing
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T19:07:29-03:00"
+updated: "2026-07-02T19:47:09-03:00"
 started_at: "2026-07-02T17:58:51-03:00"
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
@@ -161,6 +161,7 @@ Cite these in code comments and the release notes.
 | B4 | Delivery: reachable iff (inferred/explicit) `tool==codex` AND socket connects — default `thread/inject_items` (fenced block from B2's `mail_block`); `--auto-turn` `turn/start` (neutral nudge + `approval-policy never`); non-reachable target → `relay wake` fallback (print the fallback command in `--dry`, spawn the doorbell live) | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/cli.rs:291` (wake reuse) | B1, B2, B3 | done |
 | B5 | Rust unit tests in `watch.rs`: JSON-RPC request framing, inject-items vs turn/start param construction, the reachable/`--auto-turn`/fallback decision matrix | `plugins/session-relay/rust/src/watch.rs` (`#[cfg(test)]`) | B1–B4 | done |
 | B6 | Selftest: add a standalone `test/fake-app-server.mjs` (unix-socket JSON-RPC, records received frames to a file, canned replies) **spawned DETACHED** before the sync watch call — an in-process `net.createServer` deadlocks `spawnSync(relay watch)`; run `relay watch --id <id> --server <sock> --once` (+ a `--auto-turn` case) with the target **registered `tool=codex` (or `--tool codex`)** so it hits inject_items not the wake fallback; assert the recorded frames contain a fenced `inject_items` (default) / neutral `turn/start` (auto-turn); grow the check count | `plugins/session-relay/test/selftest.mjs`, `plugins/session-relay/test/fake-app-server.mjs` | B1–B5 | done |
+| B7 | Elicitation fix (from the live-leg wedge): `pump_turn` in `watch.rs` — after `turn/start`, stay attached until `turn/completed`/`turn/failed` (cap `RELAY_TURN_WAIT_MS`, default 300000), answering `mcpServer/elicitation/request` with `{action:"accept"}` for `serverName=="bus"` / `{action:"decline"}` otherwise; fake-app-server emits an elicitation before completing; selftest asserts the answer | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/selftest.mjs` | B1–B6 | done |
 | C1 | Update `SKILL.md`: document the `codex app-server` + `relay watch` + `codex --remote` workflow and the new delivery-matrix cell; bump `metadata.updated` + recompute `content_hash` via the project's skill validators | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B6 | planned |
 | C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | planned |
 | C3 | Release: `node scripts/release.mjs --plugin session-relay minor` → 0.4.0 (bumps the 3 manifests in lockstep, tags, waits for tag-CI, cuts the Release) | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` | C2 | planned |
@@ -273,6 +274,37 @@ waits ~5s before `turn/start` (the settle gotcha), and watch may detach after
 observing `turn/started` (the turn runs server-side). Mail-loss safety: drain
 atomically, deliver, and RE-ENQUEUE drained messages if delivery fails.
 
+### Phase B live-leg findings (2026-07-02, live-verified against a real app-server)
+
+- **Detach-after-`turn/started` is WRONG for `--auto-turn` — superseded.** An MCP
+  tool call inside the turn raises `mcpServer/elicitation/request` — a
+  server→client JSON-RPC REQUEST (`params.serverName`, `mode:"form"`,
+  `_meta.codex_approval_kind:"mcp_tool_call"`, `_meta.persist:["session","always"]`)
+  — **regardless of `approvalPolicy:"never"`** ("never" only auto-rejects SHELL
+  approvals: observed `Rejected("approval required by policy, but AskForApproval
+  is set to Never")` for `exec_command`, which does NOT wedge). With no client
+  attached, the thread flips to `activeFlags:["waitingOnApproval"]` and wedges
+  forever (reproduced twice; wedged 10+ min). The nudge itself triggers this:
+  it tells the model to call the bus `inbox` tool.
+- **Fix (implemented in B7):** watch stays attached after `turn/start`, pumping
+  events until `turn/completed`/`turn/failed` (cap `RELAY_TURN_WAIT_MS`, default
+  300000), answering elicitations with `{action:"accept"}` for
+  `serverName=="bus"` only (store-local tools) and `{action:"decline"}` for any
+  other server — a declined call fails cleanly and the turn continues. Response
+  schema verified: a malformed answer logs
+  `failed to deserialize McpServerElicitationRequestResponse: missing field
+  'action'` (yet still un-wedges as a decline); `{action:"accept"}` →
+  `mcpToolCall` item `status:"completed"` with a real result.
+- **End-to-end proof (fixed binary):** `relay send --id <thread>` then
+  `relay watch --id <thread> --server <sock> --once --auto-turn` → 36s attached,
+  exit 0; thread's final answer echoed the fenced mail's magic word ("VICTOR")
+  and reported its `inbox` call returned empty (watch drains before injecting —
+  correct). Inject-only leg: fenced mail persisted durably in the thread's own
+  rollout file (grep-verified).
+- v0.3.0 hooks (session-start + user-prompt-submit) fire inside app-server
+  turns — the hook path and watch's drain are race-safe by design (whoever
+  drains first wins; the other sees empty and emits nothing).
+
 The **injected item** is the existing fenced block: `hook.rs`'s `mail_block`
 (hook.rs:101) wraps mail in `<session-relay-mail>…</session-relay-mail>` labelled
 UNTRUSTED DATA, with `defuse` (hook.rs:59) neutralizing fence-breakout in each
@@ -373,7 +405,11 @@ Phase B/C (executable):
   on the next delivery rather than assuming it is still loaded.
 - **Approvals hang unattended turns.** `--auto-turn`'s `turn/start` MUST set
   `approval-policy never` (or the equivalent app-server param A1 records) or the
-  turn blocks on an approval elicitation that no human will answer.
+  turn blocks on an approval elicitation that no human will answer. **Live-leg
+  addendum:** "never" does NOT cover MCP tool calls — those elicit the CONNECTED
+  CLIENT via `mcpServer/elicitation/request`, so watch must stay attached and
+  answer (accept `bus`, decline others) until `turn/completed` (see Phase B
+  live-leg findings).
 - **Guardian may refuse mail-driven actions.** Keep mail fenced UNTRUSTED; the
   `--auto-turn` nudge is neutral ("you have new session-relay mail; read your
   inbox") — never mail content as an instruction. Same posture as `relay wake`'s
@@ -598,4 +634,5 @@ unchanged per the user's decision. Plan started (`→ ongoing`) immediately afte
   Verified current: both `plugin.json`s read `0.3.0`.
 - Supersedes the parked `session-relay-watch` idea (external daemon + desktop
   notification); this app-server client is the maintainer-endorsed mechanism.
-- Selftest check count (fill during B6): before `<N>` → after `<N+k>`.
+- Selftest check count: before **44** → after **48** (4 new watch checks: inject,
+  auto-turn+elicitation, wake fallback, re-enqueue-on-unreachable).
