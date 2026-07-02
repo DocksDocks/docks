@@ -1,9 +1,9 @@
 ---
 title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
-status: in_review
+status: finished
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T17:09:56-03:00"
+updated: "2026-07-02T17:13:23-03:00"
 started_at: "2026-07-02T16:11:57-03:00"
 in_review_since: "2026-07-02T17:07:28-03:00"
 assignee: claude
@@ -23,6 +23,7 @@ affected_paths:
 related_plans: [session-relay-cross-tool-bus, session-relay-auto-discovery, session-relay-rust-port]
 review_status: passed
 planned_at_commit: "d985799413457f905e20067be27bb4c453cf0889"
+ship_commit: "3bea1a6f90b4a6f868a45ba5ef72d9bd648cf934"
 ---
 
 # session-relay — push inbox delivery (no user ask)
