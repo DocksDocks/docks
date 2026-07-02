@@ -3,7 +3,7 @@ title: session-relay — spawn a new full-context agent session (relay spawn)
 goal: Add `relay spawn <dir>`, a verb that creates a NEW persistent Claude/Codex session in any project dir — full CLAUDE.md/skills/plugins context — and converses with it over the bus, no manual session management.
 status: planned
 created: "2026-07-02T17:32:36-03:00"
-updated: "2026-07-02T17:48:59-03:00"
+updated: "2026-07-02T17:59:13-03:00"
 started_at: null
 assignee: claude
 tags: [session-relay, spawn, rust, cross-tool, claude, codex, multi-agent]
@@ -172,15 +172,15 @@ resumable**, not a long-lived process. The full loop:
 | A1 | Verify `claude` + `codex` on PATH; record `claude --version` / `codex --version` and each CLI's relevant `--help` sections | this file (`## Interfaces & data shapes`) | A0 | planned |
 | A2 | Live: `claude -p "say READY" --output-format json` with `cwd=<scratch>`; capture the result JSON; record the EXACT key path carrying the session id (skill notes `.result` is the reply — pin the session-id key) | scratch + this file | A1 | planned |
 | A3 | **Load-bearing:** does a headless `claude -p` run FIRE the SessionStart hook (self-register on the bus)? Spawn a `-p` child in a scratch project with the session-relay plugin active; check the registry/marker gains a new id. AND does `claude -p --session-id <uuid>` accept a pre-minted id? Record both yes/no | scratch + this file | A1 | planned |
-| A4 | Live: `codex exec --json "say READY"` with `cwd=<scratch>`; record the session-id location (session_configured event / rollout filename), whether `codex exec` fires the Codex SessionStart hook, and whether it accepts a pre-set id flag | scratch + this file | A1 | planned |
+| A4 | Live: `codex exec --json "say READY"` with `cwd=<scratch>`; record the session-id location (session_configured event / rollout filename), whether `codex exec` fires the Codex SessionStart hook, whether it accepts a pre-set id flag, AND whether a fresh `codex exec` still refuses a non-git `<dir>` without `--skip-git-repo-check` (known live-true — record the current bypass flag so B1's codex argv can add it when `<dir>` isn't a git repo) | scratch + this file | A1 | planned |
 | A5 | Pin the EXACT flag mappings for the **auto-mode default** (the resolved posture): the current "auto" working mode per tool — Codex the Auto preset / `workspace-write` + auto-approvals (`--sandbox`/`--ask-for-approval`/`--full-auto` current values), Claude the closest auto-accepting mode (`--permission-mode` current values). Also record the `--full-access` (up) and `--read-only` (down) flag mappings. Do not guess — inventory live from each CLI's `--help` | scratch + this file (`## Interfaces & data shapes`) | A1 | planned |
 | B1 | New module `spawn.rs`: DETACHED launch — `std::process::Command` with null stdio + `CommandExt::process_group(0)`, `.spawn()` (NEVER `.output()`); per-tool child argv from A2–A5, defaulting to the **auto-mode** flags (`--full-access` opts up, `--read-only` opts down) + `--` prompt fence; binary overridable via `RELAY_SPAWN_CMD_CLAUDE` / `RELAY_SPAWN_CMD_CODEX` | `plugins/session-relay/rust/src/spawn.rs` (new) | A2–A5 | planned |
 | B2 | Birth confirmation: pre-snapshot the marker for `<dir>` (or, when the tool accepts a pre-set id, mint via `store::uuid_v4` and watch for that exact id); poll `store::id_for_dir`/`store::resolve` every ~250ms up to `--timeout` (default 30s); on birth, `store::register(name, id, dir, tool)`; on timeout, exit non-zero with a `relay discover` hint | `plugins/session-relay/rust/src/spawn.rs` (reuses `store.rs:378 id_for_dir`, `:362 resolve`, `:308 register`, `:149 is_uuid`, `:97 uuid_v4`) | B1 | planned |
 | B3 | Arg parsing + dispatch: `spawn <dir> [--tool][--name][--reply-to][--timeout][--full-access][--dry] [--] <task>` via `cli::Args` (`flag`/`has`/`positionals`/`message_after_sep`); add `spawn` to `main.rs` match + `pub mod spawn;` to `lib.rs` | `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/main.rs:12-17`, `plugins/session-relay/rust/src/lib.rs:5` | B1, B2 | planned |
-| B4 | First-prompt standing prefix: resolve `--reply-to` (default = registry name for the spawn cwd via `store::id_for_dir(cwd)`); build `<prefix> + <task>` (trusted — NOT fenced as untrusted mail). The prefix MUST embed the **guardrail rules block VERBATIM** from `## Interfaces & data shapes` (branch-only, no live/production mutations, ask-parent-before-destructive) — a pinned deliverable, injected on EVERY spawn regardless of `--full-access`/`--read-only`; `--dry` prints resolved tool/cmd/args/cwd/prompt (mirrors `wake --dry`, cli.rs:354-375) | `plugins/session-relay/rust/src/spawn.rs` | B3 | planned |
+| B4 | First-prompt standing prefix: resolve `--reply-to` (default = the spawn cwd's registered session — `store::id_for_dir(cwd)` returns an **id**, then `store::resolve(id).name`; **fall back to that raw id** when the parent is unnamed, since an id is a valid `send`/`peek` target); build `<prefix> + <task>` (trusted — NOT fenced as untrusted mail). The prefix MUST embed the **guardrail rules block VERBATIM** from `## Interfaces & data shapes` (branch-only, no live/production mutations, ask-parent-before-destructive) — a pinned deliverable, injected on EVERY spawn regardless of `--full-access`/`--read-only`; `--dry` prints resolved tool/cmd/args/cwd/prompt (mirrors `wake --dry`, cli.rs:354-375) | `plugins/session-relay/rust/src/spawn.rs` | B3 | planned |
 | B5 | Tool default: `--tool` omitted → default `claude` + a printed note (`IsTerminal` gate optional); the picker lives in the SKILL, not the CLI | `plugins/session-relay/rust/src/spawn.rs` | B3 | planned |
 | B6 | Rust unit tests (`#[cfg(test)]` in `spawn.rs`): per-tool argv incl. auto-mode / `--full-access` / `--read-only` flags, `--` prompt fencing (a dash-leading task stays the final positional), prefix text names `--reply-to` AND embeds all three guardrail rule lines verbatim (asserted for auto + `--full-access` + `--read-only`), default-tool note, `--reply-to` resolution | `plugins/session-relay/rust/src/spawn.rs` | B1–B5 | planned |
-| B7 | Selftest (fake child — NO real claude/codex in CI): a stub via `RELAY_SPAWN_CMD_CLAUDE` that runs `relay hook` to simulate the child's birth registration; run `relay spawn <dir> --tool claude --name w1 --timeout 5 -- "task"`; assert spawn detects birth, registers `w1`, `roster` shows it, and `send w1` queues. Grow the check count | `plugins/session-relay/test/selftest.mjs` | B1–B6 | planned |
+| B7 | Selftest (fake child — NO real claude/codex in CI): a stub via `RELAY_SPAWN_CMD_CLAUDE` that runs `relay hook` to simulate the child's birth registration; run `relay spawn <dir> --tool claude --name w1 --timeout 5 -- "task"`; assert spawn detects birth, registers `w1`, `roster` shows it, and `send w1` queues. Add `RELAY_SPAWN_CMD_CLAUDE`/`RELAY_SPAWN_CMD_CODEX` to `selftest.mjs`'s `envFor` scrub list (`:49`, alongside `RELAY_NO_WATCH`) for hermeticity, and confirm B1 does NOT `.env_clear()` so the stub child inherits `SESSION_RELAY_HOME` and writes into the throwaway store. Grow the check count | `plugins/session-relay/test/selftest.mjs` | B1–B6 | planned |
 | C1 | SKILL.md: document `relay spawn` — the new-session-vs-subagent distinction, the tool-picker guidance (ask when `--tool` omitted, interactive), the permission posture + `--full-access`, and the reply-to loop; bump `metadata.updated` + recompute `content_hash` via the project's skill validators, if present | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B7 | planned |
 | C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | planned |
 | C3 | Release: `node scripts/release.mjs --plugin session-relay minor` (bumps the 3 manifests in lockstep, tags, waits for tag-CI, cuts the Release) | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` | C2 | planned |
@@ -286,7 +286,9 @@ Phase B/C (executable):
   and a prompt containing the standing prefix naming the reply-to parent + `do X`.
 - `relay spawn <dir> --dry -- "do X"` (no `--tool`) prints a "defaulting to claude" note
   and tool=`claude`.
-- **Live leg (the real proof):** from this repo,
+- **Live leg (the real proof):** preconditions — `mkdir -p /tmp/spawn-scratch`, and the
+  parent (this session) is registered under the name `<parent>` (`relay whoami` / `register`)
+  so `send`/`peek <parent>` resolve; then from this repo,
   `relay spawn /tmp/spawn-scratch --tool claude --name worker1 -- "create HELLO.txt
   containing hi, then report done to <parent> via the session-relay send tool"` →
   within the timeout `relay roster` lists `worker1`; the child creates
@@ -347,6 +349,22 @@ Phase B/C (executable):
   do not code against remembered flag names (`## STOP conditions`).
 - **Version depends on queue order** — 0.4.0 if this ships before app-server-push,
   0.5.0 if after (`## Notes`).
+- **Codex refuses a non-git `<dir>`.** A fresh `codex exec` errors in a directory with no
+  git repo unless `--skip-git-repo-check` is passed (live-true on codex-cli 0.142.5; A4
+  records the current flag). B1's codex argv must add it when `<dir>` isn't a git repo —
+  and note guardrail rule 1 ("separate git branch") presupposes a repo, so it is a no-op
+  in a non-git `<dir>`. (The live leg uses `--tool claude`, which sidesteps this.)
+- **Named workers persist in the registry; `discover`'s window does NOT reap them.** The
+  mtime liveness cutoff (`discover.rs:209`) only filters `discover`'s live-scan of the raw
+  session stores — it never prunes `registry.json`. Because spawn's whole job is
+  `register(--name)`, every spawned worker leaves a PERMANENT named entry that `roster`
+  keeps listing after the one-shot child dies. This is accepted (no reaper this plan), but
+  it is a registry-accumulation fact distinct from the discover-liveness rationale in
+  `## Context`; do not expect `roster` to self-clean.
+- **Every real spawn is a billable agent session.** A spawned `claude`/`codex` child loads
+  full project context and runs a real task — it consumes API tokens/credits like any
+  session (heavier than a `relay wake`, which resumes an existing one). Run the live leg
+  deliberately, once; do not spawn in loops.
 
 ## Global constraints
 
@@ -411,6 +429,105 @@ fixes they forced:
   until Phase A runs on the installed CLIs (deliberately deferred, not guessable); B1
   is gated on recording them.
 
+### Draft red-team (2026-07-02, fresh-context adversarial pass)
+
+Verdict: **ready-when-queue-opens** — the plan is executable and well-gated; no
+factual error blocks starting it once `app-server-push` ships. The clear factual
+errors below were fixed inline this pass; the structural items are hardening to apply
+at start (the plan is queued, so lazy is fine — but they change deliverables, so they
+stay findings rather than silent edits). Ranked by severity.
+
+**S1 — Goal-coverage gap: the reply loop assumes session-relay is available IN `<dir>`
+(structural — apply at start).** The standing prefix (`## Interfaces`) tells the child to
+"report to `<reply-to>` via the session-relay skill's send tool." A fresh child in an
+*arbitrary* project (the headline goal: "spawn in ANY project dir") only has that skill /
+the bus MCP tools if session-relay is installed/enabled THERE. Two halves both assume it:
+(a) birth self-registration needs the child's SessionStart hook to fire, which needs the
+plugin in `<dir>` (the pre-mint + parent-side-register fallback covers this); but (b) the
+child REPLYING over the bus is NOT covered by pre-mint — with no session-relay in `<dir>`,
+the child literally cannot `send`. Fix: inject the **absolute `relay` binary path** into the
+prefix as the primary reply mechanism (`<abs>/relay send "<reply-to>" -- "…"`), so the loop
+works regardless of `<dir>`'s plugins — spawn IS that binary, so it already knows the path;
+keep the skill/MCP send as the nicety. Alternatively scope the goal to "any dir where
+session-relay is available." Without one of these, the goal ("worker in another project
+reports back over the bus") is only met for session-relay-equipped projects.
+
+**S2 — A2's session-id-key finding + `--output-format json` on the child argv are orphaned
+by the null-stdio detach (structural — reconcile at start).** B1 launches DETACHED with null
+stdio, and the birth state machine (`## Interfaces`) confirms birth via marker-diff or
+pre-mint `resolve` ONLY — it never reads the child's stdout. So A2's recorded session-id JSON
+key is unreadable by spawn, and `--output-format json` on a fire-and-forget child has no
+consumer (the child transcript persists on disk regardless of output format). Reconcile:
+either (i) drop `--output-format json` from the detached child argv and mark A2 as
+docs-only / SKILL-only, or (ii) if the id is meant to be captured from the child, specify a
+first-line `stream-json` handshake read BEFORE backgrounding — which is incompatible with
+pure null stdout and must be designed explicitly. As written, A2 and the birth path
+contradict each other.
+
+**S3 — Claude has no Codex-style "Auto" preset; the user explicitly rejected `acceptEdits`
+(moderate — surface at A5).** The resolved posture is symmetric ("each tool's native auto
+working mode"), but Codex has a clean Auto preset while Claude's `--permission-mode` ladder
+is `default` / `acceptEdits` / `plan` / `bypassPermissions` with no middle "auto" tier. The
+user's verbatim words say "auto mode maybe? **instead of acceptedits**" — so A5 landing on
+`acceptEdits` contradicts the user, and the only more-autonomous option
+(`bypassPermissions`) is effectively full access, colliding with `--full-access` being the
+opt-UP. A5 must handle "no clean Claude auto tier": document the chosen mapping and, if it
+can only be acceptEdits or bypass, surface it to the user rather than silently pick. Consider
+an `## Open question` for the Claude side specifically.
+
+**S4 — B7 fake-child stub under-pinned beyond the seam (moderate; scrub-list fixed inline).**
+The `RELAY_SPAWN_CMD_*` seam is pinned, but the stub itself needs: (a) it is a small
+executable written to a temp path that `RELAY_SPAWN_CMD_CLAUDE` points at; (b) how it derives
+the session id — parse its own `--session-id <uuid>` argv (pre-mint path, only if A3
+confirms) vs mint one (marker-watch path) — which determines WHICH birth path the selftest
+exercises, so the stub must match the compiled default; (c) it re-invokes the same `relay`
+binary's `hook` verb with a `{session_id, cwd, source:"startup"}` JSON on stdin (model:
+`selftest.mjs:91-93`). The `envFor` scrub-list edit + "B1 must not `.env_clear()`" were added
+to B7 inline this pass; the id-derivation choice still needs pinning against A3's outcome.
+
+**S5 — Detached + null stdio makes child-startup failures invisible (moderate — failure
+mode).** `.spawn()` catches exec-not-found, but a child that execs then dies fast (bad
+flag, auth failure, non-git codex dir) writes its error to a null stderr, so spawn can only
+report a generic 30 s `--timeout` with no cause. Consider redirecting the child's stderr to a
+temp log (not a pipe — no reader) so the timeout branch can point at it. Improves cold
+diagnosability of the single most likely first-run failure.
+
+**Fixed inline this pass (factual):**
+- `--reply-to` default mechanics — `store::id_for_dir(cwd)` returns an **id**, not a name;
+  corrected B4 + `## Notes` to resolve→`.name` with an id fallback (a raw id is a valid
+  `send`/`peek` target).
+- Codex non-git-dir refusal — added to A4 (record the current `--skip-git-repo-check` state)
+  and a `## Known gotchas` bullet; noted guardrail rule 1 presupposes a repo.
+- Registry accumulation vs discover window — added a gotcha clarifying that `discover`'s
+  mtime cutoff filters only the live-scan and never prunes the named `registry.json` entry
+  spawn creates, so `roster` keeps dead workers (the `## Context` "registry hygiene" bullet
+  overstates self-cleanup for NAMED registrations).
+- Spawn cost — added a gotcha: every real spawn is a billable full agent session; run the
+  live leg once, never in loops.
+- Live-leg preconditions — added `mkdir -p /tmp/spawn-scratch` + "parent registered as
+  `<parent>`" so `send`/`peek <parent>` resolve.
+
+**Minor (optional, not fixed):**
+- `affected_paths` lists `cli.rs`/`store.rs`, which are reused READ-ONLY (unchanged) — a
+  completion/finished scope-drift check will flag them as "in affected_paths but not
+  changed." Drop them or annotate "read-only reuse."
+- B3 "add `spawn` to `main.rs` match" = a NEW arm dispatching `relay::spawn::run`, not an
+  append to the `cli::run` tuple (whose `match cmd` has no `spawn` arm). Low risk; the wording
+  is clear enough given `spawn.rs` is its own module.
+- Cited `main.rs:12-17` / `:15` line numbers will shift once `app-server-push` adds `watch`;
+  the drift STOP already forces reconciliation, so no fix — noted for the executor.
+
+Confirmed solid (no action): A0 cross-plan coupling is a bounded re-check (ls-shipped +
+re-read one section for one finding, not an open dependency); the version note is correctly
+CONDITIONAL (0.4.0/0.5.0) and C3 uses `release.mjs … minor` which auto-bumps from the live
+manifest — no hardcoded target; the perm-posture is encoded as BOTH a verbatim user quote
+(`## Context`) AND a pinned templated deliverable (`## Interfaces` prefix + `## Global
+constraints`, implemented by B4, tested by B6); dependency order is acyclic (A0→A1→A2–A5→
+B1→…→C3, no step consumes a later one); the trusted-vs-untrusted prompt distinction is
+correct; STOP conditions are named and plan-specific; cited `file:line` refs re-verified
+this session (cli.rs, store.rs, hook.rs, discover.rs, selftest.mjs, Cargo.toml:9-11,
+plugin.json 0.3.0) all resolve as claimed.
+
 ## Cold-handoff checklist
 
 1. **File manifest** — present: new `spawn.rs`; edited `main.rs:12-17`, `lib.rs:5`,
@@ -468,5 +585,7 @@ fixes they forced:
   (app-server-push is also a minor). Confirm the current manifest version at Phase C.
 - Selftest check count (fill during B7): before `<N>` → after `<N+k>`.
 - The `--reply-to` default resolves the parent's own bus name via
-  `store::id_for_dir(<spawn cwd>)`; if the parent isn't registered/named, the SKILL tells
-  an interactive agent to `whoami` and pass `--reply-to <own name>` explicitly.
+  `store::id_for_dir(<spawn cwd>)` → `store::resolve(id).name` (`id_for_dir` returns an
+  **id**, not a name — resolve it; fall back to the id if the parent is unnamed). If the
+  parent isn't registered/named, the SKILL tells an interactive agent to `whoami` and pass
+  `--reply-to <own name>` explicitly.
