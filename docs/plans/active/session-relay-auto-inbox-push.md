@@ -3,7 +3,7 @@ title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
 status: ongoing
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T16:28:34-03:00"
+updated: "2026-07-02T16:38:24-03:00"
 started_at: "2026-07-02T16:11:57-03:00"
 assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
@@ -493,6 +493,18 @@ to proceed; started immediately after.
   `discover` liveness accuracy at no extra cost.
 - Follow-up idea captured, not scheduled: `session-relay-watch` (external daemon +
   desktop notification for the live-Codex-idle gap).
+- **Acceptance progress (2026-07-02, post-release):** criteria 1–5, 8, 9 all
+  verified by command (selftest 44 checks; cargo test 13 incl. the 6 new
+  `hook::tests`; ci.mjs exit 0; exactly two `UserPromptSubmit` hook wirings;
+  `RELAY_NO_WATCH` read; tag `session-relay--v0.3.0` + GitHub Release live;
+  release body carries the re-trust caveat). Consumer caches upgraded on this
+  machine: Claude 0.2.1→0.3.0 (`claude plugin update`, applies on restart),
+  Codex 0.2.2→0.3.0 (`codex plugin add` re-resolve). Codex SessionStart hook
+  verified live post-upgrade (headless probe registered; unchanged definition
+  kept its `trusted_hash`). **Pending: live legs 6 (fresh interactive Claude
+  session → Monitor fires on mail) and 7 (Codex UserPromptSubmit needs the
+  user's one-time interactive `/hooks` re-trust, then the between-turns mail
+  test).** Status stays `ongoing` until both legs run.
 - **Execution deviations (2026-07-02, steps 1–8):** (a) `selftest.mjs`
   `resolveBin` now prefers the fresh `rust/target/<host-triple>/release/relay`
   build over the committed `bin/relay-<triple>` — mid-development the committed
