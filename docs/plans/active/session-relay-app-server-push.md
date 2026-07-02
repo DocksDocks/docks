@@ -3,7 +3,7 @@ title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
 status: ongoing
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T19:57:41-03:00"
+updated: "2026-07-02T20:06:33-03:00"
 started_at: "2026-07-02T17:58:51-03:00"
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
@@ -163,7 +163,7 @@ Cite these in code comments and the release notes.
 | B6 | Selftest: add a standalone `test/fake-app-server.mjs` (unix-socket JSON-RPC, records received frames to a file, canned replies) **spawned DETACHED** before the sync watch call — an in-process `net.createServer` deadlocks `spawnSync(relay watch)`; run `relay watch --id <id> --server <sock> --once` (+ a `--auto-turn` case) with the target **registered `tool=codex` (or `--tool codex`)** so it hits inject_items not the wake fallback; assert the recorded frames contain a fenced `inject_items` (default) / neutral `turn/start` (auto-turn); grow the check count | `plugins/session-relay/test/selftest.mjs`, `plugins/session-relay/test/fake-app-server.mjs` | B1–B5 | done |
 | B7 | Elicitation fix (from the live-leg wedge): `pump_turn` in `watch.rs` — after `turn/start`, stay attached until `turn/completed`/`turn/failed` (cap `RELAY_TURN_WAIT_MS`, default 300000), answering `mcpServer/elicitation/request` with `{action:"accept"}` for `serverName=="bus"` / `{action:"decline"}` otherwise; fake-app-server emits an elicitation before completing; selftest asserts the answer | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/selftest.mjs` | B1–B6 | done |
 | C1 | Update `SKILL.md`: document the `codex app-server` + `relay watch` + `codex --remote` workflow and the new delivery-matrix cell; bump `metadata.updated` + recompute `content_hash` via the project's skill validators | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | B1–B6 | done |
-| C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | planned |
+| C2 | Rebuild the 4 binaries: dispatch `build-binaries.yml`, download artifacts, commit into `bin/` (mode 100755) + regenerate `SHA256SUMS` | `.github/workflows/build-binaries.yml` (dispatch only), `plugins/session-relay/bin/` | C1 | done |
 | C3 | Release: `node scripts/release.mjs --plugin session-relay minor` → 0.4.0 (bumps the 3 manifests in lockstep, tags, waits for tag-CI, cuts the Release) | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json` | C2 | planned |
 
 ## Interfaces & data shapes
