@@ -3,7 +3,7 @@ title: session-relay — spawn a new full-context agent session (relay spawn)
 goal: Add `relay spawn <dir>`, a verb that creates a NEW persistent Claude/Codex session in any project dir — full CLAUDE.md/skills/plugins context — and converses with it over the bus, no manual session management.
 status: ongoing
 created: "2026-07-02T17:32:36-03:00"
-updated: "2026-07-02T20:55:15-03:00"
+updated: "2026-07-02T20:58:11-03:00"
 started_at: "2026-07-02T20:23:42-03:00"
 assignee: claude
 tags: [session-relay, spawn, rust, cross-tool, claude, codex, multi-agent]
@@ -244,6 +244,18 @@ injected PRIMARY abs-relay command (`fromName:"cli"`), where the parent's
 Monitor watch pushed it into the live session — the complete zero-keystroke
 loop. The worker also honored the guardrail nuance unprompted ("not a git
 repository, so no branch/commit was involved").
+
+**Codex leg (same day, on the user's ask):** `relay spawn /tmp/spawn-scratch
+--tool codex --name worker2 --reply-to docks-builder -- "read HELLO.txt …"` →
+birth via the marker-diff path in **2.5s**; ~40s later the reply "hi" (the
+file's exact content) arrived — delivered via the **bus MCP send** with proper
+attribution (`fromName:"worker2"`, `from:<its id>`), unlike the claude worker's
+CLI-path (`fromName:"cli"`). Finding: headless `codex exec` calls the bus MCP
+tools unattended (no elicitation hang outside app-server), and the
+workspace-write sandbox doesn't block replies — the MCP server process runs
+outside the exec sandbox, so the CLI-send lock-file restriction is moot when
+session-relay's MCP is available; the prompt's PRIMARY/secondary ordering
+already covers the fallback.
 
 **Verbatim child argv (final, from the findings above):**
 
