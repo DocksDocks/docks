@@ -3,7 +3,7 @@ title: session-relay — app-server push into a live Codex thread (relay watch)
 goal: Add `relay watch`, a Codex app-server JSON-RPC client that pushes relay mail into a LIVE Codex thread with zero user keystrokes — closing the last delivery-matrix cell.
 status: planned
 created: "2026-07-02T17:26:42-03:00"
-updated: "2026-07-02T17:26:42-03:00"
+updated: "2026-07-02T17:48:46-03:00"
 started_at: null
 assignee: claude
 tags: [session-relay, codex, app-server, json-rpc, rust, push-delivery, watch]
@@ -98,9 +98,9 @@ Cite these in code comments and the release notes.
   (`plugins/session-relay/rust/Cargo.toml:9-11`). Therefore **transport preference
   = unix socket** (`std::os::unix::net::UnixStream` + hand-rolled line-delimited
   JSON-RPC is trivial) or a **stdio-spawned child `app-server`**. Hand-rolling
-  WebSocket framing is scope-risk → **WS is OUT OF SCOPE** unless Phase A proves
-  `--remote` is ws-only AND the user then explicitly opts in (see `## Open questions`
-  + `## STOP conditions`).
+  WebSocket framing is scope-risk → **WS is OUT OF SCOPE**. Resolved decision: if
+  Phase A proves `--remote` is ws-only, **HALT after Phase A and reassess with the
+  user** — never hand-roll WS, never silently ship unix-only (see `## STOP conditions`).
 - **Two delivery modes.** Default = `thread/inject_items` with the existing
   UNTRUSTED-DATA fence (mail waits in the thread's context; the model sees it at
   its next turn — safe, no approvals implications). Opt-in `--auto-turn` =
@@ -153,7 +153,7 @@ Cite these in code comments and the release notes.
 | A3 | `thread/resume` an existing CLI session id read from `/home/docks/.codex/sessions/**`; confirm the thread loads; record request + result shape | scratch + this file | A2 | planned |
 | A4 | `thread/inject_items` a fenced UNTRUSTED-DATA test item into the resumed thread WITHOUT starting a turn; confirm it lands in model-visible history (observe by a follow-up `turn/start` whose model reply references it, or the thread state event); record shape | scratch + this file | A3 | planned |
 | A5 | `turn/start` a turn carrying only a neutral doorbell nudge; capture the event stream (event type names + turn id); record shape | scratch + this file | A4 | planned |
-| A6 | Live-verify whether `codex --remote` accepts `unix://` or ONLY `ws://` (attach a TUI to the spike socket); record the finding. **If ws-only → the `## Open questions` WS-fallback decision governs** | scratch + this file | A2 | planned |
+| A6 | Live-verify whether `codex --remote` accepts `unix://` or ONLY `ws://` (attach a TUI to the spike socket); record the finding. **If ws-only → HALT after Phase A and reassess with the user (`## STOP conditions`)** | scratch + this file | A2 | planned |
 | B1 | New module `watch.rs`: a minimal JSON-RPC-over-`UnixStream` client (connect, `rpc_call(method, params) -> Result<JsonValue,String>`, line framing via `tinyjson`) + the poll loop | `plugins/session-relay/rust/src/watch.rs` | A2–A5 | planned |
 | B2 | Make the fence reusable: promote `mail_block`/`defuse` in `hook.rs` to `pub(crate)` so `watch.rs` reuses the exact UNTRUSTED-DATA block (no duplicate fence) | `plugins/session-relay/rust/src/hook.rs:59,101` | — | planned |
 | B3 | `watch <nameOrId>… \| --all` arg parsing (reuse `cli::Args`), target resolution via `store::resolve`, per-target mailbox polling via `store::peek`+`store::drain`; `--server`/`RELAY_APP_SERVER`, `--auto-turn`, `--once`, `--dry` | `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/main.rs:15` | B1, B2 | planned |
@@ -241,8 +241,9 @@ Phase B/C (executable):
 
 ## Out of scope / do-NOT-touch
 
-- **WebSocket transport / framing** — out unless the A6 spike proves `--remote` is
-  ws-only AND the user opts in (`## Open questions`). Do not hand-roll WS otherwise.
+- **WebSocket transport / framing** — out of scope. If the A6 spike proves
+  `--remote` is ws-only, HALT and reassess with the user (`## STOP conditions`);
+  never hand-roll WS in this plan.
 - **The Codex hook definitions** (`plugins/session-relay/hooks/`) — `watch` is
   CLI-side; hooks do NOT change, so **no hook re-trust caveat** is needed in the
   release notes (contrast: a hook-definition change would require one).
@@ -299,9 +300,11 @@ Phase B/C (executable):
 
 ## STOP conditions
 
-- **A6 shows `codex --remote` is ws-only** AND the delivered scope requires the
-  interactive-TUI + zero-keystroke-push combo → STOP; the WS-fallback open
-  question governs (hand-rolled WS is out of scope by default).
+- **A6 shows `codex --remote` is ws-only (no `unix://`)** → **HALT after Phase A**;
+  put the findings + options on the table and reassess WITH THE USER before any
+  Phase B work. Do NOT silently ship a unix-only push path, and do NOT hand-roll a
+  WebSocket client. (Resolved decision from the drafting session, ws-fallback
+  question: "halt at spike, reassess".)
 - **Phase A cannot resume a stored thread** (`thread/resume` errors on a real
   session id) → STOP and report; the whole push path depends on it.
 - **In-scope files drifted since `planned_at_commit`** — run
@@ -311,19 +314,6 @@ Phase B/C (executable):
 - **The observed app-server JSON shapes contradict the documented table** → update
   `## Interfaces & data shapes` and re-derive B1–B4 before coding; never ship
   against the guessed table.
-
-## Open questions
-
-- **id:** `ws-fallback` · **type:** choice (custom allowed) · resolved-by-spike
-  (A6). If the Phase A spike proves `codex --remote` is **ws-only** (no `unix://`),
-  how should the interactive-TUI + zero-keystroke-push combo be handled?
-  - **Keep WS out of scope; ship unix-socket push for headless/hosted threads
-    only, and document `codex --remote` as ws-transport for the interactive combo
-    without implementing a WS client** *(recommended)* — honors the zero-new-crates
-    budget; the headless topology already delivers the goal.
-  - Opt into a hand-rolled WebSocket client in THIS plan (scope + risk increase;
-    still no new crate, but non-trivial framing).
-  - Halt at Phase A and reassess scope with fresh findings.
 
 ## Self-review
 
@@ -340,9 +330,10 @@ checks and the fixes they forced:
   a concrete send→surface assertion.
 - **Failure mode (10):** added `## STOP conditions` for the ws-only branch, a
   failed `thread/resume`, and drift.
-- **Assumption → question (6):** the single genuine unknown (WS fallback) is the
-  lone `## Open question`, resolved-by-spike; everything else is pinned by the
-  verbatim design decisions.
+- **Assumption → question (6):** the single genuine unknown (WS fallback) was
+  surfaced and resolved by the user — "halt at spike, reassess" — now a named
+  `## STOP conditions` entry (no open questions remain); everything else is pinned
+  by the verbatim design decisions.
 - Residual −9: the exact app-server param names (`approvalPolicy` casing,
   `inject_items` item schema) are unverifiable until Phase A runs — deliberately
   deferred, not guessable; the plan gates B1 on recording them.
@@ -368,8 +359,8 @@ checks and the fixes they forced:
 8. **Global constraints verbatim** — present: zero-crates, ci-green, committed-
    binary provenance, version lockstep, skill line cap.
 9. **No undefined terms / forward refs** — pass: every type/verb is defined here
-   or cited in read code; the one unknown is explicitly an open question, not a
-   silent TODO.
+   or cited in read code; the one unknown (WS fallback) is now a named halt-at-spike
+   `## STOP conditions` entry, not a silent TODO.
 
 ## Review
 
