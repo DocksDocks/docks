@@ -3,9 +3,9 @@ title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
 status: planned
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T15:29:47-03:00"
+updated: "2026-07-02T15:39:59-03:00"
 started_at: null
-assignee: null
+assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
 affected_paths:
   - plugins/session-relay/rust/src/hook.rs
@@ -363,17 +363,6 @@ body: (a) how `--event` coexists with the `codex` tool tag → Interfaces + Step
 (c) the empty-inbox × `RELAY_NO_WATCH` behavior → the emit matrix. The only residue
 needing a human is the executor/assignee.
 
-## Open questions
-
-- **id:** executor
-  **type:** choice
-  **text:** Who executes this plan when it moves to `ongoing`? (`assignee` is
-  currently `null`.)
-  **options:**
-  - Self-execute in the main session (recommended) — one self-contained Rust
-    crate + JSON + a test; scope is small and well-specified.
-  - Assign a named project agent — provide the agent name (custom allowed).
-
 ## Review
 
 (filled by plan-review on completion)
@@ -406,6 +395,10 @@ needing a human is the executor/assignee.
 
 ## Notes
 
+- **Executor decided 2026-07-02** (open-question `executor`, answered via the
+  native picker): **self-execute here** — the main Claude Code session runs this
+  plan when the user says go. Recorded as `assignee: claude` (this repo's value
+  for main-session self-execution, matching `session-relay-rust-port`).
 - Bonus side effect of Step 4: `register` runs on every `UserPromptSubmit`, so a
   Codex/Claude session's registry `last_seen` refreshes on each prompt — improves
   `discover` liveness accuracy at no extra cost.
