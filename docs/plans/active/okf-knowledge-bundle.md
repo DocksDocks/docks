@@ -3,7 +3,7 @@ title: Evaluate OKF knowledge bundles for consumer projects (parked stub)
 goal: Decide whether docks ships an op/skill that seeds an OKF-conformant knowledge/ bundle (project facts as an LLM-wiki) wired into context-tree — and implement it if yes.
 status: planned
 created: "2026-07-01T17:56:26-03:00"
-updated: "2026-07-01T17:56:26-03:00"
+updated: "2026-07-02T17:34:25-03:00"
 started_at: null
 assignee: null
 tags: [okf, knowledge, skills, exploration, parked]
@@ -59,6 +59,8 @@ Docks organizes **conventions** (skills, AGENTS.md nodes); OKF bundles organize 
 ## Self-review
 
 Score: 58/100 (parked-stub tier: one score + single critique pass, no iteration). Intentionally under-specified: Standalone executability and Executable acceptance score low because the deliverable shape is itself the step-3 decision — the stub's job is to preserve the idea, the sources, and the already-made negative decisions (no skill/AGENTS.md retrofit) so a future session starts warm. Critique pass caught: the original draft let step 4 float with no gate — now conditioned on the scorer floor + ci.mjs; and the "don't ship" outcome now has an explicit terminal path (finished/ as decided-not-to-build).
+
+**Draft-review addendum (2026-07-02, parked-stub tier — one adversarial pass, no hill-climb):** Re-verified sound and NOT obsoleted now that [[knowledge-format-lint-and-citations]] has fully shipped (`finished/2026-07-01-knowledge-format-lint-and-citations.md`, `ship_commit 9e7a732`; the wiki-link + `related_plans` entry now resolve under `finished/`, not `active/`). Premises hold: the OKF/Karpathy prior-art citations this stub leans on landed verbatim at `context-tree/SKILL.md:13` + `write-skill/SKILL.md:184`, and the negative decisions (no OKF frontmatter on skills/AGENTS.md) are locked into that shipped plan's Out-of-scope. The stub's own deliverable — a seeded OKF `knowledge/` bundle — remains untouched (no `knowledge/` dir, no OKF bundle skill in the tree), i.e. exactly the "separate, larger option the maintainer did not select" the shipped plan left out of scope; the `shape` open question (a/b/c) is still genuinely open, blocked on steps 1–2 findings. Cold entry point unchanged: steps 1–2 are read-only research needing only WebFetch. **One stale anchor corrected:** the Context parking rationale "the Rust port takes priority" is superseded — that port shipped (`finished/2026-07-02-session-relay-rust-port.md`, v0.2.1→v0.2.2); the stub stays validly parked, now behind newer session-relay work rather than the rust port.
 
 ## Review
 
