@@ -3,7 +3,7 @@ title: Give session-relay per-session identity (parked stub)
 goal: Decide and implement how the session-relay bus resolves "which session am I?" so two sessions sharing one project dir no longer mis-attribute whoami, inbox, and sender identity.
 status: planned
 created: "2026-07-02T16:02:39-03:00"
-updated: "2026-07-02T16:02:39-03:00"
+updated: "2026-07-02T16:10:11-03:00"
 started_at: null
 assignee: null
 tags: [session-relay, identity, bus, rust, exploration, parked]
@@ -48,7 +48,7 @@ Live-verified evidence (2026-07-02, session-relay v0.2.2), recorded as given:
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
 | 1 | Reproduce the mis-attribution deterministically: two sessions (claude+codex, then two same-tool) in one dir, capture whoami/inbox/send `from` divergence as a failing selftest or scripted repro | notes → this plan; maybe `plugins/session-relay/test/selftest.mjs` | — | planned |
-| 2 | Evaluate candidates (a)/(b)/(c) against: correctness for both same-dir cases, zero-new-crate budget, 4-arch rebuild cost, and no regression to `session-relay-auto-inbox-push`; record findings | notes → this plan | 1 | planned |
+| 2 | Research to confirm/refute candidate (b) (the user's working hypothesis, 2026-07-02): does the SessionStart `additionalContext` reliably inject the bus id into agent context on **both** runtimes, and can agents be relied on to pass it back to `send`? Verify the Codex `additionalContext`/session-id surface against current docs (context7 → docs; per repo memory, Codex hook/MCP facts are post-Jan-2026 — re-fetch, don't assert from training). Also cost (a)/(c) for the comparison | notes → this plan | 1 | planned |
 | 3 | Decide the direction via the open question below (surface through the native picker); encode the decision + rationale here | this plan | 2 | planned |
 | 4 | Implement per the decision, rebuild all 4 arch binaries + refresh `SHA256SUMS`, extend selftest to cover multi-session identity, run the repo gate | TBD by step 3 (likely `bus.rs`, `hook.rs`, `store.rs`, `plugin.json`, `bin/*`) | 3 | planned |
 
@@ -95,7 +95,7 @@ Deferred to step 3 — the chosen candidate defines the contract. Sketch for a c
 
 ## Open questions
 
-- `direction` (choice, decided at step 3): **(a)** key the marker by `(dir, tool)` — fixes the common claude+codex same-dir case with a small, backward-compatible change, but two **same-tool** sessions in one dir stay ambiguous · **(b)** identity handshake — SessionStart hook injects "your bus identity is `<id>`" into context (it already reads `session_id` from stdin), agents pass that id explicitly to bus tools, MCP server validates against the registry; exact but model-mediated `(recommended — only candidate that disambiguates two same-tool sessions)` · **(c)** process-lineage sniffing — walk parent PIDs; fragile, tool-version-dependent, likely reject · custom allowed. NEEDS CLARIFICATION — blocked on steps 1–2 findings.
+- `direction` (choice, decided at step 3): **(a)** key the marker by `(dir, tool)` — fixes the common claude+codex same-dir case with a small, backward-compatible change, but two **same-tool** sessions in one dir stay ambiguous · **(b)** identity handshake — SessionStart hook injects "your bus identity is `<id>`" into context (it already reads `session_id` from stdin), agents pass that id explicitly to bus tools, MCP server validates against the registry; exact but model-mediated `(recommended — working hypothesis per user 2026-07-02; only candidate that disambiguates two same-tool sessions)` · **(c)** process-lineage sniffing — walk parent PIDs; fragile, tool-version-dependent, likely reject · custom allowed. NEEDS CLARIFICATION — user leans (b) but wants steps 1–2 to **confirm it works** before committing; decision stays at step 3.
 
 ## Self-review
 
@@ -104,6 +104,10 @@ Score: 60/100 (parked-stub tier: one weighted score + single critique pass, no i
 ## Review
 
 (filled by plan-review on completion)
+
+## Notes
+
+- **2026-07-02** — User reviewed the `direction` question via the native picker and chose to **defer the decision** (it stays open, decided at step 3) while naming a working hypothesis: *"i think defering is proper, but identity handshake makes sense, just make the research to confirm."* So candidate (b) (identity handshake) is the lead direction, and step 2 is now scoped to confirm-or-refute it specifically — chiefly whether SessionStart `additionalContext` reliably injects the bus id into agent context on both runtimes and whether agents can be relied on to pass it back to `send`. Candidates (a) and (c) remain live only as fallbacks if the research refutes (b).
 
 ## Sources
 
