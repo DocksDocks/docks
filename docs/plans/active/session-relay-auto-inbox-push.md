@@ -3,7 +3,7 @@ title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
 status: ongoing
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T16:20:03-03:00"
+updated: "2026-07-02T16:28:34-03:00"
 started_at: "2026-07-02T16:11:57-03:00"
 assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
@@ -197,7 +197,7 @@ the check — same as `context-tree-nudge`.
 | 6 | Wire the `UserPromptSubmit` Claude hook (exec form) | `plugins/session-relay/hooks/hooks.json` | 4 | done |
 | 7 | Wire the `UserPromptSubmit` Codex hook (shell form) | `plugins/session-relay/hooks/codex-hooks.json` | 4 | done |
 | 8 | Extend the black-box self-test with 5 push-delivery checks | `plugins/session-relay/test/selftest.mjs` | 4,6,7 | done |
-| 9 | Rebuild 4-arch binaries, commit into `bin/` + `SHA256SUMS` | `.github/workflows/build-binaries.yml`, `plugins/session-relay/bin/` | 1-8 | planned |
+| 9 | Rebuild 4-arch binaries, commit into `bin/` + `SHA256SUMS` | `.github/workflows/build-binaries.yml`, `plugins/session-relay/bin/` | 1-8 | done |
 | 10 | Release session-relay `0.3.0` (minor) | via `scripts/release.mjs --plugin session-relay minor` (bumps both `plugin.json`s + marketplace) | 9 | planned |
 
 Step detail for the non-obvious rows:
