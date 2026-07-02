@@ -1,9 +1,9 @@
 ---
 title: Port session-relay to a single Rust binary (zero-runtime, both tools)
 goal: Replace session-relay's Node payload with one static Rust `relay` binary (4 committed arches + sh launcher) so a Codex host needs no Node, enabling kernel flock locking.
-status: in_review
+status: finished
 created: "2026-07-01T15:56:09-03:00"
-updated: "2026-07-02T13:06:09-03:00"
+updated: "2026-07-02T13:30:50-03:00"
 started_at: "2026-07-01T17:56:26-03:00"
 assignee: claude
 tags: [rust, session-relay, plugin, cross-tool, build, ci]
@@ -32,7 +32,8 @@ affected_paths:
   - scripts/release.mjs
   - .gitignore
 related_plans: [session-relay-cross-tool-bus, session-relay-auto-discovery]
-review_status: partial
+review_status: passed
+ship_commit: "f7dad9b7dcbfd67d9acaa3cd85432d25175fdd0b"
 in_review_since: "2026-07-01T20:07:05-03:00"
 planned_at_commit: "7ee6a0de28bdae9109282cfba3acc5803df69242"
 ---
@@ -202,11 +203,11 @@ Red-team caught and fixed: (1) **no producer for the two darwin binaries** — r
 
 ## Review
 
-- **Goal met:** partial — every headless acceptance criterion passes: `cargo build --release --locked`, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` (incl. the cross-process `concurrent_writers_no_lost_or_torn_writes` lock race + `legacy_lock_dir_is_migrated_to_a_file`) all exit 0; `node scripts/ci.mjs` is green; the 39-check selftest PASSes through `bin/relay` (no `spawnSync('node')`, no `import lib/store`); all four manifests are flipped per the Interfaces table (Claude `plugin.json`/​`hooks.json` on `${CLAUDE_PLUGIN_ROOT}`, Codex `bus.mcp.json` on native `${PLUGIN_ROOT}` with zero `CLAUDE_PLUGIN_ROOT`, no `command:"node"`); all 4 arch binaries + launcher are committed `100755` with `sha256sum -c` all OK; the five Node `.mjs` are deleted with no live code references (only plan-doc + Rust `// port of …` mentions remain); tag-CI glob broadened to `*--v*`. Two criteria are inherently un-runnable headlessly and remain OPEN: the **live cross-tool round-trip** on real Claude+Codex sessions, and the **Codex `${PLUGIN_ROOT}` command-field substitution on a real install** (carries a STOP condition) — clear both on live sessions before ship.
+- **Goal met:** yes — every headless acceptance criterion passes: `cargo build --release --locked`, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` (incl. the cross-process `concurrent_writers_no_lost_or_torn_writes` lock race + `legacy_lock_dir_is_migrated_to_a_file`) all exit 0; `node scripts/ci.mjs` is green; the 39-check selftest PASSes through `bin/relay` (no `spawnSync('node')`, no `import lib/store`); all four manifests are flipped per the Interfaces table (Claude `plugin.json`/​`hooks.json` on `${CLAUDE_PLUGIN_ROOT}`, Codex `bus.mcp.json` on native `${PLUGIN_ROOT}` with zero `CLAUDE_PLUGIN_ROOT`, no `command:"node"`); all 4 arch binaries + launcher are committed `100755` with `sha256sum -c` all OK; the five Node `.mjs` are deleted with no live code references (only plan-doc + Rust `// port of …` mentions remain); tag-CI glob broadened to `*--v*`. **Both live legs CLEARED 2026-07-02 (v0.2.1 shipped bits, this machine):** (1) the Codex `${PLUGIN_ROOT}` STOP **fired** — Codex 0.142.5 substitutes no variable in MCP config and exports no `PLUGIN_ROOT` to MCP children — and was resolved with the plan's prescribed sh fallback (direct server map + env-first cache-glob, released as 0.2.1); the bus then handshakes live (`[session-relay/bus] ready`, `serverInfo: session-relay-bus`, `whoami`/`roster` answering in real `codex exec` sessions). (2) The **live round-trip** ran end-to-end: this Claude session registered as `claude-main` via `bin/relay register`, queued `SECRET=mango42` via `bin/relay send`, `bin/relay wake` resumed the hook-registered codex session (`019f23a8-…`, registered by the trusted SessionStart hook from `/home/docks/projects/docks`), which read the mail and replied via its **bus MCP `send` tool** — `PONG mango42 from codex` landed back in claude-main's inbox. Goal met → **yes**.
 - **Regressions:** none — no code/gate criterion failed; the local host-rebuild digest mismatch is the plan's designed CI-only byte-identity gate (warn locally, enforced only under `process.env.CI`), not a regression.
 - **CI:** pass — `node scripts/ci.mjs` exits 0, ends `✔ All ci.mjs checks passed — 2 plugin(s) + repo-wide; safe to release.`
-- **Follow-ups:** session-relay-binary-commit-bot, context-tree-nudge-rust-port, session-relay-windows-arch, session-relay-tag-time-arch-verify
-- Filed by: plan-review (completion review, in_review) on 2026-07-01T20:12:14-03:00
+- **Follow-ups:** session-relay-binary-commit-bot, context-tree-nudge-rust-port, session-relay-windows-arch, session-relay-tag-time-arch-verify, codex-doorbell-nongit-dir (`codex exec resume` refuses a non-git cwd without `--skip-git-repo-check` — same limitation existed in the Node doorbell), recheck-codex-19372 (drop the cache-glob for native `${PLUGIN_ROOT}` when upstream fixes substitution)
+- Filed by: plan-review (completion review, in_review) on 2026-07-01T20:12:14-03:00; live-leg verification + amendment by claude (main session) on 2026-07-02T13:30:26-03:00
 
 ## Mistakes & Dead Ends
 
