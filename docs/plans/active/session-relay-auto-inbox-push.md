@@ -135,9 +135,16 @@ New/changed signatures the tasks cross:
 - **`plugins/session-relay/rust/src/hook.rs`** — new shapes:
   - `enum HookEvent { SessionStart, Prompt }`.
   - `pub fn run(args: &[String]) -> !` (was `run(tool_arg: Option<&str>)`).
-    Parse via `cli::Args(args.to_vec())`: `tool = "codex"` iff the first
-    positional == `"codex"` else `"claude"`; `event = Prompt` iff
-    `args.flag("event") == Some("prompt")` else `SessionStart`.
+    Because `run` diverges (`-> !`, exits the process) it is not unit-testable,
+    so the tool/event derivation is factored into a **pure** helper `run` calls:
+  - `fn parse_invocation(args: &[String]) -> (&'static str /* tool */, HookEvent)`
+    — via `cli::Args(args.to_vec())`: `tool = "codex"` iff the first positional
+    == `"codex"` else `"claude"`; `event = Prompt` iff `args.flag("event") ==
+    Some("prompt")` else `SessionStart`. **Read positionals from index 0**:
+    `main.rs` passes `&argv[1..]`, already stripped of the `"hook"` verb, so the
+    `codex` tag sits at positional 0 — do NOT copy cli.rs's own `positionals(1)`
+    idiom (that skips a leading verb this slice no longer has). Both `run` and the
+    Step-5 parse test call `parse_invocation` directly.
   - Pure, unit-testable emit decision — factor the matrix out of `inner`:
     `fn render_context(tool: &str, event: HookEvent, msgs: &[JsonValue],
     no_watch: bool, mailbox_path: &str) -> Option<String>`. `None` ⇒ emit nothing
@@ -207,8 +214,11 @@ Step detail for the non-obvious rows:
   name maps to `"UserPromptSubmit"`; (b) `Prompt` + empty → `None`; (c) `claude` +
   `SessionStart` + empty → `Some` containing the nudge + the mailbox path; (d)
   `codex` + `SessionStart` + empty → `None`; (e) `claude` + `SessionStart` +
-  non-empty + `no_watch=true` → `Some` *without* the nudge. Plus one parse test:
-  `Args(["codex","--event","prompt"])` → tool codex, event Prompt.
+  non-empty + `no_watch=true` → `Some` *without* the nudge. Plus one parse test
+  calling the pure helper directly:
+  `parse_invocation(&["codex".into(), "--event".into(), "prompt".into()])`
+  → `("codex", HookEvent::Prompt)`; and `parse_invocation(&[])` → `("claude",
+  HookEvent::SessionStart)` (the default-event, no-tag case).
 - **Step 6** — add a sibling `"UserPromptSubmit"` array to `hooks.json` mirroring
   the SessionStart exec entry, with `"args": ["hook","--event","prompt"]`.
 - **Step 7** — add a `"UserPromptSubmit"` array to `codex-hooks.json` mirroring
@@ -224,8 +234,13 @@ Step detail for the non-obvious rows:
   4. `relay hook codex` (SessionStart) with an empty inbox → **empty stdout**.
   5. `relay hook` (claude, SessionStart) with an empty inbox and
      `RELAY_NO_WATCH=1` in the env → **empty stdout** (nudge suppressed; nothing
-     else to emit). Note: `envFor` in the self-test currently scrubs a fixed key
-     list (`selftest.mjs:41-45`); pass `RELAY_NO_WATCH` via the per-spawn `extra`.
+     else to emit). Set it via the per-spawn `extra` env, which is spread AFTER
+     the deletes in `envFor` so it overrides the scrub.
+  Also amend `envFor` (`selftest.mjs:41-45`): **add `RELAY_NO_WATCH` to the
+  delete-list** alongside the other host vars. Without this, a developer/CI host
+  that exports `RELAY_NO_WATCH=1` would leak into checks #3/#4 and suppress the
+  nudge, flaking check #3 (nudge-present) — not just check #5. Check #5 still
+  works because its `extra` is spread after the deletes.
 - **Step 9** — `build-binaries.yml` is `workflow_dispatch`-only and must run from
   the **default branch**; it produces the 4 target binaries as artifacts. Download
   them, copy into `plugins/session-relay/bin/` mode `100755`, regenerate
@@ -236,6 +251,18 @@ Step detail for the non-obvious rows:
   tag-CI, then `gh release create`. `release.mjs` refuses to tag unless all 4
   target binaries + the launcher are committed executable with a verifying
   `SHA256SUMS` (`release.mjs:64-66`).
+- **Step 10b (release-notes caveat — executable sub-step).** `release.mjs`
+  auto-generates the release body from commit subjects only
+  (`release.mjs:159`, `git log PREV..HEAD --pretty=format:- %s`), so the Codex
+  `trusted_hash` re-trust caveat (gotcha 1) would never reach consumers. After
+  `gh release create`, append it to the published body:
+  `gh release edit session-relay--v0.3.0 --notes-file <file>` (or
+  `gh release view … --json body -q .body` → append → `--notes-file -`), adding
+  the line: *"Codex users must re-trust the plugin hooks after upgrading
+  (`/hooks` in an interactive session) — hook definitions changed and headless
+  `codex exec` silently skips untrusted hooks."*
+  **Done-condition:** `gh release view session-relay--v0.3.0 --json body -q .body
+  | rg -q "re-trust"` exits 0.
 
 ## Acceptance criteria
 
@@ -257,6 +284,9 @@ Step detail for the non-obvious rows:
    injected developer context.
 8. After release: `git tag --list 'session-relay--v0.3.0'` is non-empty and the
    GitHub Release exists.
+9. Release-notes caveat present:
+   `gh release view session-relay--v0.3.0 --json body -q .body | rg -q "re-trust"`
+   exits 0 (the Codex re-trust caveat landed in the published body — Step 10b).
 
 ## Out of scope / do-NOT-touch
 
@@ -283,8 +313,8 @@ Step detail for the non-obvious rows:
    `~/.codex/config.toml` `[hooks.state]`; a new/changed hook definition requires
    the consumer to re-trust via an interactive session (`/hooks`). Headless
    `codex exec` **silently skips untrusted hooks** — so the live Codex leg (and
-   any consumer) must re-trust after upgrading. **Call this out in the v0.3.0
-   release notes.**
+   any consumer) must re-trust after upgrading. Operationalized in **Step 10b**
+   (append the caveat to the published release body; acceptance #9).
 2. **Hooks cannot call Monitor.** The nudge is delivered as `additionalContext`
    read on the model's first turn — there is no way for the hook process itself to
    arm a harness tool. Graceful degradation is built into the nudge wording ("if
@@ -301,8 +331,10 @@ Step detail for the non-obvious rows:
    is confirmed only on the live leg (acceptance #7). Claude ignores unknown
    `hookEventName` values gracefully; the field mirrors Claude's own contract.
 6. **Self-test env scrubbing.** `envFor` (`selftest.mjs:41-45`) deletes a fixed
-   key set and does not pass `RELAY_NO_WATCH` through by default — set it in the
-   per-spawn `extra` env for check #5, or it will leak from the host and flake.
+   key set; Step 8 **adds `RELAY_NO_WATCH` to that delete-list** so a host
+   exporting `RELAY_NO_WATCH=1` can't leak into the nudge-present checks (#3/#4)
+   and flake them. Check #5 re-enables it via the per-spawn `extra` env, which is
+   spread AFTER the deletes and therefore overrides the scrub.
 
 ## Global constraints
 
@@ -411,6 +443,14 @@ inferable but unstated. (b) "Prompt-turn overhead must stay zero" is CONTEXT-onl
 ("hook [codex]") go stale after `--event` — cosmetic. (d) context7 was unavailable to this
 review agent; the Claude `UserPromptSubmit` `additionalContext` claim is grounded on the
 identical, already-shipped in-repo SessionStart path rather than a fresh doc fetch.
+
+**Fixes applied 2026-07-02T16:11:57-03:00 (all three fix-first items + non-blocking note a):**
+(1) `envFor` gains `RELAY_NO_WATCH` in its delete-list — Step 8 + gotcha 6. (2) pure
+`fn parse_invocation(args) -> (tool, HookEvent)` added to Interfaces, called by `run` and the
+Step-5 parse test; positionals read from index 0 (main.rs strips the `hook` verb) is now
+stated, not just inferable. (3) Step 10b operationalizes the Codex re-trust caveat via
+`gh release edit` with a `rg -q "re-trust"` done-condition + acceptance #9. Verdict cleared
+to proceed; started immediately after.
 
 ## Review
 
