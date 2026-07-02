@@ -3,7 +3,7 @@ title: session-relay — push inbox delivery (no user ask)
 goal: Surface relay mail without the user asking — a Claude Monitor watch armed via a SessionStart nudge, plus a UserPromptSubmit drain on both tools
 status: ongoing
 created: "2026-07-02T15:29:47-03:00"
-updated: "2026-07-02T16:38:24-03:00"
+updated: "2026-07-02T16:58:42-03:00"
 started_at: "2026-07-02T16:11:57-03:00"
 assignee: claude
 tags: [session-relay, hooks, push-delivery, monitor, codex, rust, userpromptsubmit]
@@ -501,10 +501,17 @@ to proceed; started immediately after.
   machine: Claude 0.2.1→0.3.0 (`claude plugin update`, applies on restart),
   Codex 0.2.2→0.3.0 (`codex plugin add` re-resolve). Codex SessionStart hook
   verified live post-upgrade (headless probe registered; unchanged definition
-  kept its `trusted_hash`). **Pending: live legs 6 (fresh interactive Claude
-  session → Monitor fires on mail) and 7 (Codex UserPromptSubmit needs the
-  user's one-time interactive `/hooks` re-trust, then the between-turns mail
-  test).** Status stays `ongoing` until both legs run.
+  kept its `trusted_hash`). **Live leg 7 (Codex) PASSED 2026-07-02 ~19:58Z:**
+  fresh trusted Codex session `019f2465-…` in this repo received claude-main's
+  mail via the UserPromptSubmit drain (no inbox ask) and replied over the bus
+  with the verification token ("Codex received the relay mail and confirms
+  circuit", msg `f3bac83a-…`, sender id correctly attributed); on the Claude
+  side BOTH paths surfaced the reply — the armed Monitor fired instantly AND
+  the prompt-drain hook injected it fenced, with no duplication (atomic
+  drain). **Pending: live leg 6** — a fresh interactive Claude session
+  auto-arming its Monitor from the SessionStart nudge alone (the Monitor that
+  fired above was armed manually in the executing session). Status stays
+  `ongoing` until leg 6 runs.
 - **Execution deviations (2026-07-02, steps 1–8):** (a) `selftest.mjs`
   `resolveBin` now prefers the fresh `rust/target/<host-triple>/release/relay`
   build over the committed `bin/relay-<triple>` — mid-development the committed
