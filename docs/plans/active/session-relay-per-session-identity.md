@@ -1,11 +1,11 @@
 ---
 title: Give session-relay per-session identity (parked stub)
 goal: Decide and implement how the session-relay bus resolves "which session am I?" so two sessions sharing one project dir no longer mis-attribute whoami, inbox, and sender identity.
-status: planned
+status: ongoing
 created: "2026-07-02T16:02:39-03:00"
-updated: "2026-07-03T12:51:18-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-03T12:58:58-03:00"
+started_at: "2026-07-03T12:58:58-03:00"
+assignee: claude
 tags: [session-relay, identity, bus, rust, exploration, parked]
 affected_paths:
   - plugins/session-relay/rust/src/bus.rs
