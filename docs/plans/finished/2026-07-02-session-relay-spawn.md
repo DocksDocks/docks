@@ -1,9 +1,9 @@
 ---
 title: session-relay — spawn a new full-context agent session (relay spawn)
 goal: Add `relay spawn <dir>`, a verb that creates a NEW persistent Claude/Codex session in any project dir — full CLAUDE.md/skills/plugins context — and converses with it over the bus, no manual session management.
-status: in_review
+status: finished
 created: "2026-07-02T17:32:36-03:00"
-updated: "2026-07-02T22:11:36-03:00"
+updated: "2026-07-02T22:30:01-03:00"
 started_at: "2026-07-02T20:23:42-03:00"
 assignee: claude
 tags: [session-relay, spawn, rust, cross-tool, claude, codex, multi-agent]
@@ -20,9 +20,10 @@ affected_paths:
   - plugins/session-relay/.codex-plugin/plugin.json
   - .claude-plugin/marketplace.json
 related_plans: [session-relay-app-server-push, session-relay-per-session-identity, session-relay-cross-tool-bus, session-relay-auto-discovery]
-review_status: null
+review_status: passed
 in_review_since: "2026-07-02T22:11:36-03:00"
 planned_at_commit: c3be09c29f3d9588aa9dad2b2434585f957741d4
+ship_commit: 8bb205ced9fc627341a672790e0441e002d854e0
 ---
 
 # session-relay — spawn a new full-context agent session (relay spawn)
@@ -114,7 +115,7 @@ requested `--name`, and hand back a worker the parent already knows how to talk 
   User's verbatim words: *"auto mode maybe? instead of acceptedits? or full access but
   we state some rules, like it always have to use another branch and never modify real
   live files like production via ssh and etc, only probes via ssh and scripts that do
-  stuff like that."* Interpreted policy to implement (**asymmetric** — the two CLIs have
+  stuff like that."* Interpreted policy to implement (**asymmetric** — SUPERSEDED at A5 by the symmetric mapping in `### Phase A findings`; kept for the original rationale — the two CLIs have
   different permission models, so "auto mode … or full access but we state some rules" maps
   differently per tool):
   - **Codex default = its native Auto preset** (`workspace-write` sandbox + auto-approvals;
@@ -702,7 +703,11 @@ the plan carries **zero unresolved structural findings**:
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — `relay spawn <dir>` births a full-context Claude/Codex worker (pre-mint birth for claude, marker-diff for codex), self-registers it on the bus, and the parent resumes over `send`/`wake`; all 16 `## Steps` are `done`, both live legs are recorded (claude 0.5s, codex 2.5s), and the detached/guardrail/reply-loop contract is verified in `spawn.rs` + selftest + a live `--dry`.
+- **Regressions:** none — `store.rs` is in `affected_paths` but unchanged (expected read-only reuse; the plan's own red-team pre-annotated this — not scope drift). Sibling `session-relay-app-server-push` changes in the same `planned_at_commit..HEAD` range (`watch.rs`, `fake-app-server.mjs`, `hook.rs`) are out of this plan's scope and excluded.
+- **CI:** pass — `node scripts/ci.mjs` → "All ci.mjs checks passed — 2 plugin(s) + repo-wide"; `cargo fmt --check` + `cargo clippy --all-targets -D warnings` clean, `cargo test` 24 passed (incl. 4 `spawn::tests`), `selftest.mjs` 52 checks (was 48). One non-fatal `⚠` on the local binary rebuild digest = documented path/linker variance; committed bins verify against `SHA256SUMS`, version lockstep 0.5.0 across all 3 manifests, tag `session-relay--v0.5.0` present.
+- **Follow-ups:** none — the asymmetric→symmetric permission-posture supersession is recorded in the A5 findings block (scoped "everywhere it appears in this plan") and the shipped `spawn.rs` implements the final symmetric mapping; the still-asymmetric `## Context` posture bullet is a cosmetic doc-consistency nit, not a code defect.
+- Filed by: plan-review on 2026-07-02T22:12:04-03:00
 
 ## Sources
 
