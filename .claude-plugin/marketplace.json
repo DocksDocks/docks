@@ -64,6 +64,34 @@
         "cross-tool",
         "codex"
       ]
+    },
+    {
+      "name": "effect-kit",
+      "source": "./plugins/effect-kit",
+      "description": "Cross-tool Effect-TS skill kit: repo setup (effect-ts-setup), idiomatic Effect 3.x patterns (effect-ts-specialist), and Fastify/Next.js/React → Effect porting (effect-ts-port).",
+      "version": "0.1.1",
+      "author": {
+        "name": "Eduardo Marquez"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/DocksDocks/docks",
+      "repository": "https://github.com/DocksDocks/docks",
+      "keywords": [
+        "effect",
+        "effect-ts",
+        "typescript",
+        "skills",
+        "cross-tool",
+        "codex"
+      ],
+      "category": "engineering-workflows",
+      "tags": [
+        "effect",
+        "typescript",
+        "cross-tool",
+        "skills",
+        "codex"
+      ]
     }
   ]
 }

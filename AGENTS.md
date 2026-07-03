@@ -22,6 +22,7 @@ node scripts/ci.mjs                                  # guards + scorers — must
 │   ├── agents/   (Claude-only)       plan-manager + plan-review thin opus plan-lifecycle wrappers
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
 ├── plugins/session-relay/            2nd plugin (cross-tool: Claude + Codex): cross-session/cross-project/cross-tool agent message bus — MCP bus server + shared SessionStart hook + relay CLI; self-versioned, gated by its own ci.mjs section
+├── plugins/effect-kit/               3rd plugin (cross-tool): Effect-TS skill kit — effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
@@ -42,6 +43,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `plugins/session-relay/AGENTS.md` | the relay plugin — layout, binary-release discipline, its CI gates |
+| `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x version-pinned conventions |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 
