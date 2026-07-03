@@ -3,7 +3,7 @@ title: Executable claims — behavior/automation claims carry an exercising cue
 goal: Shipped skill prompts require every "X enforces/automates/blocks Y" claim to carry a verify cue that EXERCISES the behavior, so generated artifacts are born auditable; fix the two recorded guard/doc bugs; retrofit this repo's nodes.
 status: in_review
 created: "2026-07-03T16:18:19-03:00"
-updated: "2026-07-03T16:30:29-03:00"
+updated: "2026-07-03T16:31:38-03:00"
 started_at: "2026-07-03T16:18:19-03:00"
 in_review_since: "2026-07-03T16:30:29-03:00"
 assignee: claude
@@ -21,7 +21,7 @@ affected_paths:
   - plugins/docks/skills/AGENTS.md
   - scripts/AGENTS.md
 related_plans: [durable-anchors]
-review_status: null
+review_status: passed
 planned_at_commit: "e0b220e0c1a7bd82b69ecf85767c82b13e02726c"
 ---
 
@@ -85,7 +85,11 @@ Score: 88/100 (normal tier, one pass — actionability and executable acceptance
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 6 steps `done`; the behavior-claim exercising-cue rule shipped into `durable-anchors.md` (new "Behavior claims — cue must EXERCISE" section) and propagated to the context-tree (`conflict-resolution.md`, `node-template.md`, `SKILL.md`) and skill-agent-pipeline (`content-auditor.md`, `skills-builder.md`) audit/authoring surfaces; both recorded bugs fixed (`no-author-scripts.mjs` PATTERN now `scripts/(ci|release)\.(sh|mjs)`; `.github/AGENTS.md` Renovate/Dependabot sentence removed); 4 repo nodes retrofitted with executable `verify:` cues, each exercised once (log present).
+- **Regressions:** none — CI green; the two unannounced changes (`write-skill/SKILL.md`, `skill-agent-pipeline/SKILL.md`) are `content_hash` frontmatter bumps from the hash-sync of their edited references, not behavior drift.
+- **CI:** pass — `node scripts/ci.mjs -q` → exit 0 ("✔ All ci.mjs checks passed — 2 plugin(s) + repo-wide; safe to release.").
+- **Follow-ups:** none — the four sibling durable-anchors follow-ups (`session-relay-context-node`, `skills-agents-name-desc-required`, `agents-score-constraint-floor`, `ci-mjs-stale-bash-comment`) stay parked out of scope, verified untouched.
+- Filed by: plan-review (completion) @ 2026-07-03T16:31:38-03:00
 
 ## Sources
 
