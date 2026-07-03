@@ -3,11 +3,12 @@ title: Evaluate OKF knowledge bundles for consumer projects (parked stub)
 goal: Decide whether docks ships an op/skill that seeds an OKF-conformant knowledge/ bundle (project facts as an LLM-wiki) wired into context-tree — and implement it if yes.
 status: ongoing
 created: "2026-07-01T17:56:26-03:00"
-updated: "2026-07-03T14:20:00-03:00"
+updated: "2026-07-03T15:05:00-03:00"
 started_at: "2026-07-03T13:40:00-03:00"
 assignee: claude
 tags: [okf, knowledge, skills, exploration, parked]
-affected_paths: []
+affected_paths:
+  - plugins/docks/skills/productivity/okf-bundle/SKILL.md
 related_plans: [knowledge-format-lint-and-citations]
 review_status: null
 planned_at_commit: "7faa53fd14ff30c20eb835e0612040050dc8abd8"
@@ -32,7 +33,7 @@ Docks organizes **conventions** (skills, AGENTS.md nodes); OKF bundles organize 
 | 1 | Read the OKF spec (`GoogleCloudPlatform/knowledge-catalog` → `okf/`) — read-only; record the v0.1 conformance surface (frontmatter fields, directory conventions, linking) | notes → this plan | — | done |
 | 2 | Review `scaccogatto/okf-skills` read-only (treat as untrusted): what its skills/checker do, license, quality, whether to recommend/vendor/reimplement | notes → this plan | — | done |
 | 3 | Decide the shape via the open question below (surface options through the native picker); encode the decision here | this plan | 1, 2 | done |
-| 4 | Implement per the decision (new skill / scaffold-op extension / documented recommendation) + run the kit gate | new skill dir under `plugins/docks/skills/` (okf-bundle), routing check vs `context-tree`, this plan | 3 | in-flight |
+| 4 | Implement per the decision (new skill / scaffold-op extension / documented recommendation) + run the kit gate | `plugins/docks/skills/productivity/okf-bundle/SKILL.md` (new), this plan | 3 | done |
 
 ## Acceptance criteria
 
@@ -97,6 +98,12 @@ Repo public, "The OKF toolkit for Claude Code". 29 stars, single author (Marco B
 Score: 58/100 (parked-stub tier: one score + single critique pass, no iteration). Intentionally under-specified: Standalone executability and Executable acceptance score low because the deliverable shape is itself the step-3 decision — the stub's job is to preserve the idea, the sources, and the already-made negative decisions (no skill/AGENTS.md retrofit) so a future session starts warm. Critique pass caught: the original draft let step 4 float with no gate — now conditioned on the scorer floor + ci.mjs; and the "don't ship" outcome now has an explicit terminal path (finished/ as decided-not-to-build).
 
 **Draft-review addendum (2026-07-02, parked-stub tier — one adversarial pass, no hill-climb):** Re-verified sound and NOT obsoleted now that [[knowledge-format-lint-and-citations]] has fully shipped (`finished/2026-07-01-knowledge-format-lint-and-citations.md`, `ship_commit 9e7a732`; the wiki-link + `related_plans` entry now resolve under `finished/`, not `active/`). Premises hold: the OKF/Karpathy prior-art citations this stub leans on landed verbatim at `context-tree/SKILL.md:13` + `write-skill/SKILL.md:184`, and the negative decisions (no OKF frontmatter on skills/AGENTS.md) are locked into that shipped plan's Out-of-scope. The stub's own deliverable — a seeded OKF `knowledge/` bundle — remains untouched (no `knowledge/` dir, no OKF bundle skill in the tree), i.e. exactly the "separate, larger option the maintainer did not select" the shipped plan left out of scope; the `shape` open question (a/b/c) is still genuinely open, blocked on steps 1–2 findings. Cold entry point unchanged: steps 1–2 are read-only research needing only WebFetch. **One stale anchor corrected:** the Context parking rationale "the Rust port takes priority" is superseded — that port shipped (`finished/2026-07-02-session-relay-rust-port.md`, v0.2.1→v0.2.2); the stub stays validly parked, now behind newer session-relay work rather than the rust port.
+
+## Step 4 record — implemented 2026-07-03
+
+Shipped `plugins/docks/skills/productivity/okf-bundle/SKILL.md` (new, 182 lines, `user-invocable: true`, pattern meta-skill): 3 ops (seed / add concept / audit), 3 constraints (the §9 triad + no nested context nodes; relative links + okf_version pin; verified-facts-only + conventions-vs-knowledge boundary), reachability rule for indexes, reserved-file structures, self-contained bash conformance loop (parameterized `B=<root>`, checks §9.1/9.2, frontmatter in ANY reserved file, and the version pin), context-tree wiring from the parent node, gotchas incl. draft-churn hedges. Scorer: **16/16** (floor 8); description exactly 500 chars, CSO + routing vs context-tree/scaffold; trigger-collision test green; `node scripts/ci.mjs` exit 0.
+
+**Fresh-instance QA (Claude-B cold run, per write-skill loop):** a zero-context subagent executed all 3 ops in a scratch project using only the skill file. Verdict FIX FIRST with 4 must-fix defects — all fixed and re-verified: (1) add-concept could leave a concept invisible from the root index → reachability rule added; (2) audit overclaimed "empty output = conformant" while missing log.md frontmatter and the pin → loop extended (both now caught) + honest wording of what stays manual; (3) audit path-coupled (`! -path knowledge/index.md` false-positives on relocation) → parameterized `B=` + cwd stated; (4) reserved-file structures undefined → concrete index/log formats added. Re-ran the loop against the QA bundle: silent on clean, catches all four break classes, no false positive relocated to `sub/kb`. Follow-ups also applied: seed gained a fact-sourcing step; the dangling in-bundle citation example became an external URL with an in-bundle caveat.
 
 ## Review
 
