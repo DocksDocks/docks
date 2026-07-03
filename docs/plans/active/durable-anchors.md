@@ -4,7 +4,7 @@ goal: Generator skills (skill-agent-pipeline, context-tree, write-skill, okf-bun
 status: in_review
 in_review_since: "2026-07-03T15:01:23-03:00"
 created: "2026-07-03T14:21:10-03:00"
-updated: "2026-07-03T15:01:23-03:00"
+updated: "2026-07-03T15:01:45-03:00"
 started_at: "2026-07-03T14:35:20-03:00"
 assignee: claude
 tags: [skills, context-tree, skill-agent-pipeline, okf, drift, conventions]
@@ -25,7 +25,7 @@ affected_paths:
   - scripts/skills/durable-anchors.mjs
   - scripts/ci.mjs
 related_plans: [okf-knowledge-bundle]
-review_status: null
+review_status: passed
 planned_at_commit: "18d69a448b22edebea44b976af3baf654916b612"
 ---
 
@@ -150,7 +150,11 @@ Score: 93/100 · trajectory 82→93 · stopped: plateau (residual gated on the `
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — generators no longer bake `file:line` into long-lived artifacts; the durable-anchor grammar (`path` — `symbol` — purpose — `verify:` command), the re-verify-cue discipline, and the hard-fail guard all shipped across write-skill, skill-agent-pipeline, context-tree, and okf-bundle. Every acceptance criterion was executed green (guard clean + negative test, mandate string removed, `line-anchor` class in both audit procedures, scorer floors, full CI, human-docs-workflow removed with zero residual refs).
+- **Regressions:** none — `node scripts/ci.mjs` exits 0 (all repo-wide + per-plugin gates); durable-anchors guard passes on 104 long-lived docs and correctly fails a planted `scripts/ci.mjs:12` anchor (exit 1, naming the file). Scope-drift check: all 15 `affected_paths` present in the `planned_at_commit..HEAD` diff; unannounced changes are the v0.8.0 release bumps + on-goal guard docs (`skills/AGENTS.md`, `scripts/AGENTS.md`) + documented dogfood fixes (`AGENTS.md` Node 24, `major-folder-heuristics.md`, `.gitkeep`).
+- **CI:** pass — `node scripts/ci.mjs` exit 0 (2 plugins + repo-wide; the session-relay host-rebuild-digest ⚠ is benign local linker/path variance, non-fatal).
+- **Follow-ups:** no-author-scripts-mjs-entrypoints, github-agents-renovate-mismatch, session-relay-context-node, skills-agents-name-desc-required, agents-score-constraint-floor, ci-mjs-stale-bash-comment — the six dogfood-audit drifted-claim findings the plan deliberately deferred as out-of-scope (recorded, not fixed).
+- Filed by: plan-review on 2026-07-03T15:01:45-03:00
 
 ## Sources
 
