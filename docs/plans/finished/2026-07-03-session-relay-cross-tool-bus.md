@@ -1,9 +1,9 @@
 ---
 title: session-relay v2 — cross-tool Codex↔Claude agent bus
 goal: Evolve the Claude-only session-relay plugin into a tool-agnostic bus so a Codex session and a Claude Code session register on one shared MCP mailbox and exchange message+reply both ways
-status: in_review
+status: finished
 created: "2026-06-30T01:02:14-03:00"
-updated: "2026-07-03T16:51:47-03:00"
+updated: "2026-07-03T16:58:21-03:00"
 started_at: "2026-06-30T01:18:08-03:00"
 assignee: null
 tags: [session-relay, cross-tool, codex, mcp, multi-agent]
@@ -21,6 +21,7 @@ affected_paths:
   - scripts/ci.mjs
 related_plans: []
 review_status: passed
+ship_commit: "f9a67554c1bfdc344df6f6db2df15d1e106e1e2c"
 planned_at_commit: "96243021203a362fd3db4e1ef92e168230641c73"
 in_review_since: "2026-06-30T01:49:19-03:00"
 ---

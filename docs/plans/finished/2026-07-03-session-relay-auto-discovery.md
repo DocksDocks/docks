@@ -1,9 +1,9 @@
 ---
 title: session-relay — auto-discover the running session
 goal: Let an agent auto-resolve "my other running session" with no id and no prior registration, by scanning the raw on-disk Claude/Codex session stores
-status: in_review
+status: finished
 created: "2026-06-30T13:43:15-03:00"
-updated: "2026-07-03T16:51:56-03:00"
+updated: "2026-07-03T16:58:21-03:00"
 started_at: "2026-06-30T13:43:15-03:00"
 assignee: null
 tags: [session-relay, discover, cross-tool, auto-resolve, codex]
@@ -15,6 +15,7 @@ affected_paths:
   - plugins/session-relay/test/selftest.mjs
 related_plans: [session-relay-cross-tool-bus]
 review_status: passed
+ship_commit: "f9a67554c1bfdc344df6f6db2df15d1e106e1e2c"
 planned_at_commit: "30d055d427b92f06ed9da4749d92dc487f9d3435"
 in_review_since: "2026-06-30T13:43:15-03:00"
 ---

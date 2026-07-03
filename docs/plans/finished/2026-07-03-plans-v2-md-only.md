@@ -1,9 +1,9 @@
 ---
 title: Plans system v2 — lean, .md-only, self-reviewing
 goal: Replace the 5-folder + committed-HTML plan system with active/+finished/, status-as-a-field, .md-only tracking, on-demand visual HTML for visual decisions, and a baked-in draft→self-review→open-questions loop
-status: in_review
+status: finished
 created: "2026-06-14T05:02:06+00:00"
-updated: "2026-07-03T16:52:12-03:00"
+updated: "2026-07-03T16:58:21-03:00"
 in_review_since: "2026-07-03T16:50:58-03:00"
 started_at: "2026-06-14T05:09:31+00:00"
 assignee: null
@@ -22,6 +22,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-sidecar/
 related_plans: []
 review_status: passed
+ship_commit: "f9a67554c1bfdc344df6f6db2df15d1e106e1e2c"
 ---
 
 # Plans system v2 — lean, .md-only, self-reviewing

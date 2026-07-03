@@ -1,9 +1,9 @@
 ---
 title: Add repo-local Codex plan lifecycle agents
 goal: Add project-scoped Codex custom agents that mirror the repo's Claude plan-manager and plan-review wrappers, then document the plugin-vs-project-agent boundary.
-status: in_review
+status: finished
 created: "2026-06-23T19:52:26-03:00"
-updated: "2026-07-03T16:51:36-03:00"
+updated: "2026-07-03T16:58:21-03:00"
 started_at: "2026-06-23T19:52:26-03:00"
 in_review_since: "2026-06-23T19:52:26-03:00"
 assignee: null
@@ -15,6 +15,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
 related_plans: []
 review_status: passed
+ship_commit: "f9a67554c1bfdc344df6f6db2df15d1e106e1e2c"
 planned_at_commit: 1e56d8995ac0438472b317858a9b225e4e684d3f
 ---
 
