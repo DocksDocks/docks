@@ -3,7 +3,7 @@ title: Give session-relay per-session identity (parked stub)
 goal: Decide and implement how the session-relay bus resolves "which session am I?" so two sessions sharing one project dir no longer mis-attribute whoami, inbox, and sender identity.
 status: ongoing
 created: "2026-07-02T16:02:39-03:00"
-updated: "2026-07-03T13:03:00-03:00"
+updated: "2026-07-03T13:05:49-03:00"
 started_at: "2026-07-03T12:58:58-03:00"
 assignee: claude
 tags: [session-relay, identity, bus, rust, exploration, parked]
@@ -52,7 +52,7 @@ Live-verified evidence (2026-07-02, session-relay v0.2.2), recorded as given:
 |---|---|---|---|---|
 | 1 | Reproduce the mis-attribution deterministically: two sessions (claude+codex, then two same-tool) in one dir, capture whoami/inbox/send `from` divergence as a failing selftest or scripted repro | notes → this plan; maybe `plugins/session-relay/test/selftest.mjs` | — | done |
 | 2 | Research to confirm/refute candidate (b) (the user's working hypothesis, 2026-07-02): does the SessionStart/UserPromptSubmit `additionalContext` reliably inject the bus id into agent context on **both** runtimes, and can agents be relied on to pass it back to `send`? Verify the Codex `additionalContext`/session-id surface against current docs (context7 → docs; per repo memory, Codex hook/MCP facts are post-Jan-2026 — re-fetch, don't assert from training). **Now also scope in the two v0.4.0/v0.5.0 findings (see Notes 2026-07-03):** (i) the `relay spawn` **pre-mint** injection point — for a claude spawn the child's bus id is minted (`--session-id <uuid>`) and knowable at prompt-build time, a deterministic (non-model-mediated) place to inject "your bus id is `<id>`"; codex spawn has no pre-mint (marker-diff birth) so it still needs the hook path; (ii) the **CLI `send` attribution gap** (`cli.rs:242` hardcodes `fromName:"cli"`, `from:null`) — a SECOND identity-loss site distinct from the marker-derived MCP `send`, exercised by spawned claude workers' PRIMARY reply command. Also cost (a)/(c) for the comparison | notes → this plan | 1 | done |
-| 3 | Decide the direction via the open question below (surface through the native picker); encode the decision + rationale here | this plan | 2 | planned |
+| 3 | Decide the direction via the open question below (surface through the native picker); encode the decision + rationale here | this plan | 2 | done |
 | 4 | Implement per the decision; extend selftest to cover multi-session identity; produce the 4 arch binaries via the **release flow** (dispatch `build-binaries.yml` → download artifacts → commit into `bin/` + regenerate `SHA256SUMS`, then `scripts/release.mjs --plugin session-relay minor`) — NOT a local `cargo build`; run the repo gate | TBD by step 3 (likely `bus.rs`, `cli.rs`, `hook.rs`, `store.rs`, `plugin.json`, `bin/*`) | 3 | planned |
 
 ## Acceptance criteria
@@ -98,7 +98,33 @@ Deferred to step 3 — the chosen candidate defines the contract. Sketch for a c
 
 ## Open questions
 
-- `direction` (choice, decided at step 3): **(a)** key the marker by `(dir, tool)` — fixes the common claude+codex same-dir case with a small, backward-compatible change, but two **same-tool** sessions in one dir stay ambiguous · **(b)** identity handshake — SessionStart hook injects "your bus identity is `<id>`" into context (it already reads `session_id` from stdin), agents pass that id explicitly to bus tools, MCP server validates against the registry; exact but model-mediated `(recommended — working hypothesis per user 2026-07-02; only candidate that disambiguates two same-tool sessions)` · **(c)** process-lineage sniffing — walk parent PIDs; fragile, tool-version-dependent, likely reject · custom allowed. NEEDS CLARIFICATION — user leans (b) but wants steps 1–2 to **confirm it works** before committing; decision stays at step 3.
+**RESOLVED (2026-07-03, native picker): direction = (b) identity handshake.**
+The user confirmed (b) after steps 1–2 delivered the deterministic repro and the
+confirming research. Implementation contract (step 4):
+
+1. `bus.rs` — `send` gains optional `from` (name-or-uuid → `store::resolve`,
+   must be registered; invalid → tool error so the agent corrects; absent →
+   marker fallback = today's behavior). `inbox` gains the same optional `id`
+   (correctness, not auth — the store is single-user-trust and the CLI can
+   already drain any mailbox). Tool descriptions teach agents to pass them.
+2. `hook.rs` — every SessionStart (startup/resume/compact, BOTH tools) injects
+   an identity line: "Your session-relay bus id is `<id>`…; pass from:`<id>`
+   when sending". This CHANGES the codex empty-SessionStart no-output invariant
+   (justified: the beacon mis-attribution incident was codex; once-per-start
+   cost only) — update `codex_sessionstart_with_empty_inbox_emits_nothing`.
+   The prompt-event empty-inbox no-output invariant is UNCHANGED (watch.rs
+   depends on it). `mail_block` gains a recipient-identity trailer (signature
+   gains the recipient id — `watch.rs` passes its target id; shared fence
+   unchanged).
+3. `cli.rs` — `send` gains `--from <nameOrId>` (value flag, no BOOL_FLAGS
+   change); resolves + stamps `from`/`fromName`; invalid → die. Absent →
+   `fromName:"cli"` as today.
+4. `spawn.rs` — the claude child's injected PRIMARY reply command becomes
+   `<abs-relay> send "<reply-to>" --from <premint-id> -- "…"` (deterministic);
+   codex children rely on their own hook's identity line + MCP `from`.
+5. `selftest.mjs` — the alice/bob repro becomes passing checks (explicit-from
+   MCP send, explicit-id inbox, CLI `--from`, spawn prompt carries `--from`,
+   SessionStart identity lines on both tools, mail-trailer identity).
 
 ## Self-review
 
