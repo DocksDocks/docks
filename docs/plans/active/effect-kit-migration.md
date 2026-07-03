@@ -3,7 +3,7 @@ title: Migrate effect-kit into the docks multi-plugin repo
 goal: Move the effect-kit plugin payload from ~/projects/effect-kit into plugins/effect-kit/ here, wire it into the registry-driven CI/release/marketplace machinery, and retire the standalone repo.
 status: in_review
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-03T17:57:31-03:00"
+updated: "2026-07-03T17:58:21-03:00"
 started_at: "2026-07-03T17:35:57-03:00"
 in_review_since: "2026-07-03T17:57:31-03:00"
 assignee: claude
@@ -16,7 +16,7 @@ affected_paths:
   - AGENTS.md
   - scripts/AGENTS.md
 related_plans: [effect-kit-upgrade-review]
-review_status: null
+review_status: passed
 planned_at_commit: "2fb11fab830bce13a5940e00bfc553f808ae9f2e"
 ---
 
@@ -139,7 +139,11 @@ Score: 86→93/100 · trajectory 86→93 · stopped: plateau after applying the 
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — payload migrated under `plugins/effect-kit/`, the `scripts/lib/plugins.mjs` descriptor + both marketplace catalog entries wired, the `skills/AGENTS.md`+root-`AGENTS.md` nodes rewritten, and the standalone repo archived behind a pointer README; all 8 acceptance criteria pass and full `node scripts/ci.mjs` is green across 3 plugins.
+- **Regressions:** none — `scripts/ci.mjs`/`scripts/release.mjs` untouched in the diff (the modularity claim holds: adding a plugin was a descriptor + two catalog entries, no orchestrator edit); docks `0.9.0` + session-relay `0.6.0` unmoved; payload-parity diff vs the source repo is limited to the recorded deviation (2 SKILL.md `content_hash`/`updated` backfills, 2 reference `## Contents` TOCs, the planned `skills/AGENTS.md` node) — no skill CONTENT change.
+- **CI:** pass — `node scripts/ci.mjs -q` exit 0 ("All ci.mjs checks passed — 3 plugin(s) + repo-wide; safe to release."). Lockstep triple agrees at `0.2.0` across both `plugin.json`s and the Claude catalog; catalog entry carries no `dependencies`/`allowCrossMarketplaceDependenciesOn`.
+- **Follow-ups:** none — deferred skill-content currency is already tracked as `effect-kit-upgrade-review`.
+- Filed by: plan-review on 2026-07-03T17:58:21-03:00
 
 ## Sources
 
