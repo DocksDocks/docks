@@ -1,9 +1,10 @@
 ---
 title: Durable anchors — concept refs + re-verify cues in generated artifacts
 goal: Generator skills (skill-agent-pipeline, context-tree, write-skill, okf-bundle) stop baking file:line anchors into long-lived artifacts; they anchor by path+symbol+purpose with re-verify cues, so forgotten updates degrade safely instead of misleading agents.
-status: ongoing
+status: in_review
+in_review_since: "2026-07-03T15:01:23-03:00"
 created: "2026-07-03T14:21:10-03:00"
-updated: "2026-07-03T15:12:00-03:00"
+updated: "2026-07-03T15:01:23-03:00"
 started_at: "2026-07-03T14:35:20-03:00"
 assignee: claude
 tags: [skills, context-tree, skill-agent-pipeline, okf, drift, conventions]
@@ -72,7 +73,7 @@ The fix has three parts: (1) a **durable-anchor grammar** for long-lived artifac
 | 5 | Remove `human-docs-workflow` (user decision): `git rm -r plugins/docks/skills/engineering/human-docs-workflow/`; re-route inbound refs — skill-agent-pipeline description's "Not for prose docs like README/AGENTS.md (use human-docs-workflow)" → "(READMEs out of scope; AGENTS.md/CLAUDE.md → context-tree)" and its routing-table row `README / AGENTS.md / CLAUDE.md / prose docs` → `context-tree` for node files / out-of-scope for README prose; delete the `human-docs-workflow` row from `plugins/docks/README.md`. Leave `docs/authoring-audits.md` untouched (historical) | `plugins/docks/skills/engineering/human-docs-workflow/` (deleted), `…/skill-agent-pipeline/SKILL.md`, `plugins/docks/README.md` | 2 | done |
 | 6 | Mechanical guard `scripts/skills/durable-anchors.mjs`: scan shipped skill bodies + `references/` (docks + session-relay plugins) and repo AGENTS.md nodes for `path:NN` tokens where `path` resolves against the repo root → report `file → anchor`; exit 1 on any hit (fictional paths don't resolve → exempt by construction). Wire into `scripts/ci.mjs` beside the other skills guards. Severity: HARD FAIL (decided) | `scripts/skills/durable-anchors.mjs` (new), `scripts/ci.mjs` | 1 | done |
 | 7 | Dogfood on this repo: run the NEW guard (expect clean per the audit; fix any hit), run the UPDATED context-tree `audit` op over all 5 nodes + root, and the updated content-audit procedure over 2 sampled shipped skills — convert any live line anchors found, verify every re-verify cue's command actually re-derives the fact | repo AGENTS.md nodes + any files flagged | 2,3,4,5,6 | done |
-| 8 | Gate + ship: `content-hash.mjs --backfill`, `metadata.updated` bumps on all touched skills, scorer floors green, `node scripts/ci.mjs` exit 0, commit; release `docks` minor (gated on user approval via picker) | manifests via `scripts/release.mjs` | 7 | in-flight |
+| 8 | Gate + ship: `content-hash.mjs --backfill`, `metadata.updated` bumps on all touched skills, scorer floors green, `node scripts/ci.mjs` exit 0, commit; release `docks` minor (gated on user approval via picker) | manifests via `scripts/release.mjs` | 7 | done |
 
 ## Interfaces & data shapes
 
