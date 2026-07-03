@@ -3,7 +3,7 @@ title: Give session-relay per-session identity (parked stub)
 goal: Decide and implement how the session-relay bus resolves "which session am I?" so two sessions sharing one project dir no longer mis-attribute whoami, inbox, and sender identity.
 status: ongoing
 created: "2026-07-02T16:02:39-03:00"
-updated: "2026-07-03T12:58:58-03:00"
+updated: "2026-07-03T13:03:00-03:00"
 started_at: "2026-07-03T12:58:58-03:00"
 assignee: claude
 tags: [session-relay, identity, bus, rust, exploration, parked]
@@ -50,8 +50,8 @@ Live-verified evidence (2026-07-02, session-relay v0.2.2), recorded as given:
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Reproduce the mis-attribution deterministically: two sessions (claude+codex, then two same-tool) in one dir, capture whoami/inbox/send `from` divergence as a failing selftest or scripted repro | notes → this plan; maybe `plugins/session-relay/test/selftest.mjs` | — | planned |
-| 2 | Research to confirm/refute candidate (b) (the user's working hypothesis, 2026-07-02): does the SessionStart/UserPromptSubmit `additionalContext` reliably inject the bus id into agent context on **both** runtimes, and can agents be relied on to pass it back to `send`? Verify the Codex `additionalContext`/session-id surface against current docs (context7 → docs; per repo memory, Codex hook/MCP facts are post-Jan-2026 — re-fetch, don't assert from training). **Now also scope in the two v0.4.0/v0.5.0 findings (see Notes 2026-07-03):** (i) the `relay spawn` **pre-mint** injection point — for a claude spawn the child's bus id is minted (`--session-id <uuid>`) and knowable at prompt-build time, a deterministic (non-model-mediated) place to inject "your bus id is `<id>`"; codex spawn has no pre-mint (marker-diff birth) so it still needs the hook path; (ii) the **CLI `send` attribution gap** (`cli.rs:242` hardcodes `fromName:"cli"`, `from:null`) — a SECOND identity-loss site distinct from the marker-derived MCP `send`, exercised by spawned claude workers' PRIMARY reply command. Also cost (a)/(c) for the comparison | notes → this plan | 1 | planned |
+| 1 | Reproduce the mis-attribution deterministically: two sessions (claude+codex, then two same-tool) in one dir, capture whoami/inbox/send `from` divergence as a failing selftest or scripted repro | notes → this plan; maybe `plugins/session-relay/test/selftest.mjs` | — | done |
+| 2 | Research to confirm/refute candidate (b) (the user's working hypothesis, 2026-07-02): does the SessionStart/UserPromptSubmit `additionalContext` reliably inject the bus id into agent context on **both** runtimes, and can agents be relied on to pass it back to `send`? Verify the Codex `additionalContext`/session-id surface against current docs (context7 → docs; per repo memory, Codex hook/MCP facts are post-Jan-2026 — re-fetch, don't assert from training). **Now also scope in the two v0.4.0/v0.5.0 findings (see Notes 2026-07-03):** (i) the `relay spawn` **pre-mint** injection point — for a claude spawn the child's bus id is minted (`--session-id <uuid>`) and knowable at prompt-build time, a deterministic (non-model-mediated) place to inject "your bus id is `<id>`"; codex spawn has no pre-mint (marker-diff birth) so it still needs the hook path; (ii) the **CLI `send` attribution gap** (`cli.rs:242` hardcodes `fromName:"cli"`, `from:null`) — a SECOND identity-loss site distinct from the marker-derived MCP `send`, exercised by spawned claude workers' PRIMARY reply command. Also cost (a)/(c) for the comparison | notes → this plan | 1 | done |
 | 3 | Decide the direction via the open question below (surface through the native picker); encode the decision + rationale here | this plan | 2 | planned |
 | 4 | Implement per the decision; extend selftest to cover multi-session identity; produce the 4 arch binaries via the **release flow** (dispatch `build-binaries.yml` → download artifacts → commit into `bin/` + regenerate `SHA256SUMS`, then `scripts/release.mjs --plugin session-relay minor`) — NOT a local `cargo build`; run the repo gate | TBD by step 3 (likely `bus.rs`, `cli.rs`, `hook.rs`, `store.rs`, `plugin.json`, `bin/*`) | 3 | planned |
 
@@ -107,6 +107,65 @@ Score: 60/100 (parked-stub tier: one weighted score + single critique pass, no i
 ## Review
 
 (filled by plan-review on completion)
+
+## Step 1 — recorded repro (2026-07-03, deterministic, throwaway store)
+
+Black-box through the v0.5.0 binary (`SESSION_RELAY_HOME=$(mktemp -d)`), no live
+sessions needed:
+
+1. Hook alice (`{"session_id":A,"cwd":DIRX,"source":"startup"}` → `relay hook`),
+   `register alice --id A --dir DIRX`; then hook + register bob in the SAME dir.
+2. `markers/<encoded-DIRX>` now holds **B** (last claimant).
+3. A bus process serving ALICE (`RELAY_PROJECT_DIR=DIRX relay bus`) calls `send
+   {to:"alice", body:"msg composed by ALICE"}` → the delivered mail reads
+   **`fromName:"bob"`, `from:<B>`** — alice's own message attributed to bob
+   (same signature as live incident msg `fc4dea3f-…`). `whoami` returns bob.
+4. CLI path: `relay send alice -- "cli message"` → **`fromName:"cli"`,
+   `from:null`** — the second identity-loss site (cli.rs:242), confirmed.
+5. Implied and worse: `inbox {}` on alice's bus drains **bob's** mailbox —
+   mis-attribution is also cross-session mail drain/loss.
+
+## Step 2 — candidate (b) research: CONFIRMED (evidence, 2026-07-03)
+
+All load-bearing questions answer YES from this week's live-verified work:
+
+- **Does `additionalContext` reliably inject on BOTH runtimes?** YES — v0.3.0's
+  live legs (user-confirmed "circuit"/"beacon" tests) had claude AND codex
+  sessions receive hook-injected context and act on it; v0.5.0's spawn legs
+  re-confirmed (both children self-registered via the hook and followed
+  injected instructions).
+- **Does a SessionStart identity line survive compaction?** YES — SessionStart
+  RE-FIRES on compact with `additionalContext` honored (observed live in the
+  executing session: `SessionStart:compact` hook success + the Monitor nudge
+  re-delivered post-compact). So the identity line does NOT need the per-prompt
+  path — v0.3.0's zero-per-turn-overhead invariant (empty-inbox prompt emits
+  nothing, `hook.rs` test `prompt_event_with_empty_inbox_emits_nothing`, relied
+  on by `watch.rs`) is preserved untouched.
+- **Can agents be relied on to pass the id back?** Yes, with three assists that
+  remove most model-mediation: (i) the identity line re-injects on every
+  SessionStart incl. resume/compact; (ii) the fenced mail block's trailer can
+  name the recipient's own id ("you are <id>; pass from:<id> when replying");
+  (iii) spawned claude workers are FULLY deterministic — spawn pre-mints the id
+  and can bake `--from <id>` into the injected PRIMARY reply command
+  (spawn.rs `build_prompt`); codex workers get (i) from their own hook. Codex
+  headless obeys injected bus instructions (worker2's MCP send, live-verified).
+- **Validation seam exists:** `register` already models the id-override
+  (`bus.rs:34,188`); `send`/`inbox` gain the same optional param validated
+  against the registry (UUID + registered) before being trusted.
+- **(a) costed for comparison:** `(dir,tool)` marker key fixes only the
+  claude+codex pairing; the step-1 repro (two same-tool sessions) stays broken
+  on every turn (per-prompt re-claim). Small change, does not meet the Goal.
+- **(c):** remains rejected (fragile process-lineage sniffing; no new evidence).
+
+**Implied (b) implementation shape (step-4 input):** `bus.rs` — `send` gains
+optional `from`, `inbox` gains optional `id`, both resolved name-or-uuid and
+validated registered-in-registry, falling back to the marker when absent;
+`hook.rs` — `render_context` adds an identity line on every SessionStart
+(startup/resume/compact, both tools) and names the recipient id in the mail
+trailer; prompt-event empty-inbox behavior unchanged; `cli.rs` — `send` gains
+`--from <nameOrId>`; `spawn.rs` — claude reply command gains `--from
+<premint>`; selftest — the alice/bob repro becomes a passing multi-session
+identity check.
 
 ## Notes
 
