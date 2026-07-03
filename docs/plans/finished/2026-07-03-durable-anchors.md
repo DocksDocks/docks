@@ -1,10 +1,10 @@
 ---
 title: Durable anchors — concept refs + re-verify cues in generated artifacts
 goal: Generator skills (skill-agent-pipeline, context-tree, write-skill, okf-bundle) stop baking file:line anchors into long-lived artifacts; they anchor by path+symbol+purpose with re-verify cues, so forgotten updates degrade safely instead of misleading agents.
-status: in_review
+status: finished
 in_review_since: "2026-07-03T15:01:23-03:00"
 created: "2026-07-03T14:21:10-03:00"
-updated: "2026-07-03T15:01:45-03:00"
+updated: "2026-07-03T15:05:37-03:00"
 started_at: "2026-07-03T14:35:20-03:00"
 assignee: claude
 tags: [skills, context-tree, skill-agent-pipeline, okf, drift, conventions]
@@ -26,6 +26,7 @@ affected_paths:
   - scripts/ci.mjs
 related_plans: [okf-knowledge-bundle]
 review_status: passed
+ship_commit: "2c21065fb83099ba5b42120eae2f0ddb9853f691"
 planned_at_commit: "18d69a448b22edebea44b976af3baf654916b612"
 ---
 
