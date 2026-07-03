@@ -3,7 +3,7 @@ title: Durable-anchors follow-ups — 4 recorded drift findings
 goal: Close the four dogfood-audit findings deferred by durable-anchors — session-relay context node, skills-node name/description truth, agents-score floor wording, ci.mjs stale bash comment.
 status: in_review
 created: "2026-07-03T16:42:26-03:00"
-updated: "2026-07-03T16:45:39-03:00"
+updated: "2026-07-03T16:46:45-03:00"
 started_at: "2026-07-03T16:42:26-03:00"
 in_review_since: "2026-07-03T16:45:39-03:00"
 assignee: claude
@@ -15,7 +15,7 @@ affected_paths:
   - plugins/docks/skills/AGENTS.md
   - scripts/ci.mjs
 related_plans: [durable-anchors, executable-claims]
-review_status: null
+review_status: passed
 planned_at_commit: "a15234528032b7302987a8c6aba2fd70031caf98"
 ---
 
@@ -79,7 +79,11 @@ Score: 90/100 (small tier, one pass). Caught: (a) the initial draft had the new 
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all four drift findings closed. New node `plugins/session-relay/AGENTS.md` (+ `CLAUDE.md` = `@AGENTS.md`) present with root Context-tree row; skills-node `name`/`description` now say **required** (matches `validate-skills.mjs` `validateCommon`, which errors on missing/empty for both — lines 90, 104); the "mechanically needs 2 constraint blocks" claim replaced with the truthful floor arithmetic (matches `score.mjs:53` `Math.min(2, count)`, floor 14/max 15); the `ci.mjs` shell-lint comment now reflects `shellHooks(p)` (matches `plugins.mjs:95-105` — hooks/*.sh + rust launcher `bin/relay`). New node cold-read clean: 32 lines, no live path:NN anchors (durable-anchors green), behavior claims carry probes; facts verified against repo (four `bin/relay-<triple>` binaries, both hooks configs carry SessionStart+UserPromptSubmit, `test/` holds selftest.mjs + fake-app-server.mjs, `selftest` descriptor path matches `plugins.mjs:48`).
+- **Regressions:** none — out-of-scope held: no plugin.json/marketplace.json touched, `score.mjs` and `validate-skills.mjs` unchanged, `ci.mjs` change is comment-only (two lines).
+- **CI:** pass — `node scripts/ci.mjs -q` exit 0 ("All ci.mjs checks passed — 2 plugin(s) + repo-wide"); `tree/guard` 7 nodes valid; `durable-anchors` 105 docs incl. the new node. SHA256SUMS corruption probe already exercised this session (logged in Cue exercise log); `git status --porcelain plugins/session-relay/bin/SHA256SUMS` empty — not re-run.
+- **Follow-ups:** none
+- Filed by: plan-review on 2026-07-03T16:46:45-03:00
 
 ## Sources
 
