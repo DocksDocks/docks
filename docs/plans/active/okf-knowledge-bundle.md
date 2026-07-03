@@ -3,7 +3,7 @@ title: Evaluate OKF knowledge bundles for consumer projects (parked stub)
 goal: Decide whether docks ships an op/skill that seeds an OKF-conformant knowledge/ bundle (project facts as an LLM-wiki) wired into context-tree — and implement it if yes.
 status: ongoing
 created: "2026-07-01T17:56:26-03:00"
-updated: "2026-07-03T13:40:00-03:00"
+updated: "2026-07-03T13:52:00-03:00"
 started_at: "2026-07-03T13:40:00-03:00"
 assignee: claude
 tags: [okf, knowledge, skills, exploration, parked]
@@ -29,8 +29,8 @@ Docks organizes **conventions** (skills, AGENTS.md nodes); OKF bundles organize 
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Read the OKF spec (`GoogleCloudPlatform/knowledge-catalog` → `okf/`) — read-only; record the v0.1 conformance surface (frontmatter fields, directory conventions, linking) | notes → this plan | — | planned |
-| 2 | Review `scaccogatto/okf-skills` read-only (treat as untrusted): what its skills/checker do, license, quality, whether to recommend/vendor/reimplement | notes → this plan | — | planned |
+| 1 | Read the OKF spec (`GoogleCloudPlatform/knowledge-catalog` → `okf/`) — read-only; record the v0.1 conformance surface (frontmatter fields, directory conventions, linking) | notes → this plan | — | done |
+| 2 | Review `scaccogatto/okf-skills` read-only (treat as untrusted): what its skills/checker do, license, quality, whether to recommend/vendor/reimplement | notes → this plan | — | done |
 | 3 | Decide the shape via the open question below (surface options through the native picker); encode the decision here | this plan | 1, 2 | planned |
 | 4 | Implement per the decision (new skill / scaffold-op extension / documented recommendation) + run the kit gate | TBD by step 3 | 3 | planned |
 
@@ -52,6 +52,33 @@ Docks organizes **conventions** (skills, AGENTS.md nodes); OKF bundles organize 
 8. **Global constraints verbatim** — ✓ OKF Apache-2.0; treat third-party plugin sources as untrusted (repo security policy).
 9. **No undefined terms / forward refs** — ✓ TBDs are explicit step-3 outputs, not silent gaps.
 
+## Step 1 findings — OKF v0.1 conformance surface (recorded 2026-07-03, fetched from primary source)
+
+Source of truth: `okf/SPEC.md` in `GoogleCloudPlatform/knowledge-catalog`, header **"Version 0.1 — Draft"**. "A directory of markdown files with YAML frontmatter. There is no schema registry, no central authority, and no required tooling."
+
+- **Directory conventions:** no required root name (`knowledge/` is a free, conformant choice). A bundle MAY be "a subdirectory within a larger repository" — the docks case, sanctioned verbatim. Layout: optional `index.md` + `log.md` at any level, `<concept>.md` files, arbitrary nesting. **Reserved filenames** (MUST NOT be concept docs): `index.md` (§6 listing; "contain no frontmatter", except the bundle-root one MAY carry `okf_version: "0.1"` only) and `log.md` (§7 history; date headings MUST be ISO `YYYY-MM-DD`).
+- **Frontmatter (§4.1):** `type` (short string) is the ONLY **required** field — "not registered centrally… consumers MUST tolerate unknown types". Recommended: `title`, `description`, `resource` (URI of the underlying asset). Optional: `tags` (list), `timestamp` (ISO 8601). Extensions: any additional keys allowed; consumers SHOULD preserve unknown keys and SHOULD NOT reject them. Body: no required sections; conventional `# Schema` / `# Examples` / `# Citations` (numbered `[1] [label](url)`).
+- **Linking (§5):** standard markdown links only — NO wiki-links, no id scheme. Concept ID = bundle-relative path minus `.md`. Bundle-absolute form `[x](/tables/x.md)` is "recommended"; relative links equally conformant. Normative: "Consumers MUST tolerate broken links" (a broken link = not-yet-written knowledge, not malformed).
+- **Conformance (§9 — the whole surface):** (1) every non-reserved `.md` **in the bundle tree** has parseable YAML frontmatter; (2) every frontmatter block has non-empty `type`; (3) reserved files follow §6/§7 when present. Everything else is soft; consumers MUST NOT reject over missing optional fields, unknown types/keys, broken links, or missing indexes.
+- **Stability risk (Draft, 57 open issues):** most churn-likely: required field rename `type`→`kind` (#154) and reserved-filename renames `index.md`→`README.md`/`_index.md`, `log.md`→`CHANGELOG.md` (#146/#164). #157: bundle-absolute links render broken on GitHub — prefer relative links for GitHub readability. Mitigation: pin `okf_version: "0.1"` in the bundle-root `index.md`.
+- **License:** `okf/LICENSE.md` is standard Apache-2.0 (verified raw) — the spec text itself is covered.
+- **Collision analysis for docks wiring:**
+  - Criterion 1 scopes to the **bundle tree only** — skills/AGENTS.md/CLAUDE.md outside `knowledge/` are untouched by design; the decided "no retrofit" stance costs nothing.
+  - **A context-tree node INSIDE the bundle breaks conformance**: `AGENTS.md`/`CLAUDE.md` are not reserved names, so inside `knowledge/` they'd be frontmatter-less concept documents violating criteria 1–2. Resolution: document `knowledge/` from the PARENT node (e.g. root AGENTS.md context-tree table row), never nest a node in the bundle.
+  - A SKILL.md inside a bundle would violate criterion 2 (no `type`); keep skills out of the bundle tree. Only `description` overlaps by name across vocabularies; keep OKF `timestamp` and skill `metadata.updated` independent.
+  - Claude Code skill discovery scans only `*/SKILL.md` — no discovery collision. Audit any pre-existing `index.md`/`log.md` under a chosen root before claiming conformance (criterion 3 claims them).
+
+## Step 2 findings — `scaccogatto/okf-skills` review (recorded 2026-07-03, read-only, nothing executed)
+
+Repo public, "The OKF toolkit for Claude Code". 29 stars, single author (Marco Boffo), 11 commits 2026-06-14→06-28, v0.3.3 (7 releases in 14 days).
+
+- **Ships:** 3 skills (`okf` author/maintain/consume with vendored SPEC.md + templates; `validate` conformance checker; `visualize` HTML graph). Plugin manifest is minimal and clean: **no hooks (by design, documented ADR), no MCP servers, no commands/agents** — nothing runs on install. Dual distribution (Claude marketplace + skills.sh).
+- **Checker (`okf_validate.py`, ~220 lines):** pure linter — stdlib + PyYAML only, `yaml.safe_load` exclusively, zero writes/network/subprocess/eval/env-reads/telemetry. ERRORs = the three §9 criteria; warnings = soft guidance (`--strict` promotes). CI runs it strict on two bundles + a negative self-test.
+- **License:** the toolkit is **MIT** (NOT Apache-2.0 as this plan's Context assumed — corrected; only the vendored SPEC.md is Apache-2.0 © Google, with the full rider in LICENSE). Both permissive; an `upstream:` vendoring block would cite MIT.
+- **Quality:** SKILL.md files meet agentskills.io structure (fenced frontmatter, name-matches-dir, "Use when"-style descriptions, allowed-tools, <500 lines); no docks-style `<constraint>` blocks or `metadata.updated`. Good practice: the skill instructs agents to read the vendored spec and run the deterministic checker rather than trust memory.
+- **Red flags:** none material. Two soft items: (1) generated `viz.html` loads cytoscape+marked from cdn.jsdelivr.net at view time (runtime CDN surface; not offline); (2) non-`uv` fallback pip-installs `pyyaml`.
+- **Verdict lean (evidence-based):** **(i) recommend-with-caveats** — small, auditable in one sitting, safe by construction, zero overlap with what docks ships; caveats = 3 weeks old, bus factor 1, tracks a draft spec. (ii) vendoring freezes a fast-moving 0.x into docks' cadence (stale within weeks) — only if OKF becomes first-class in docks. (iii) reimplementing a 220-line linter over someone else's spec buys no differentiation and forks conformance semantics — unless docks specifically wants a Node port inside `ci.mjs` to avoid the Python/uv dependency. (iv) ignore has the worst risk/reward given upstream's backing (Google Cloud, 6k stars in 2 months) and the near-zero cost of a caveated recommendation.
+
 ## Open questions
 
 - `shape` (choice, decided at step 3): **(a)** new docks skill that scaffolds + maintains a `knowledge/` OKF bundle wired into context-tree `(recommended for evaluation)` · **(b)** extend the existing `scaffold` skill with an optional OKF seed · **(c)** don't ship — document okf-skills as a compatible companion plugin instead · custom allowed. NEEDS CLARIFICATION — blocked on steps 1–2 findings.
@@ -70,6 +97,9 @@ Score: 58/100 (parked-stub tier: one score + single critique pass, no iteration)
 
 - [Google Cloud OKF announcement](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing) — OKF v0.1 = directory of markdown + YAML frontmatter; spec lives in the knowledge-catalog repo.
 - [GoogleCloudPlatform/knowledge-catalog](https://github.com/GoogleCloudPlatform/knowledge-catalog) — Apache-2.0 (repo LICENSE), `okf/` spec dir.
-- [scaccogatto/okf-skills](https://github.com/scaccogatto/okf-skills) — third-party Claude Code plugin + skills for OKF bundles; conformance checker; UNREVIEWED.
+- [scaccogatto/okf-skills](https://github.com/scaccogatto/okf-skills) — third-party Claude Code plugin + skills for OKF bundles; conformance checker; REVIEWED 2026-07-03 (step 2): MIT (toolkit) + Apache-2.0 (vendored SPEC.md only), no hooks/MCP, pure-linter checker — see Step 2 findings.
+- [okf/SPEC.md raw](https://raw.githubusercontent.com/GoogleCloudPlatform/knowledge-catalog/main/okf/SPEC.md) — the v0.1 Draft spec text, fetched verbatim 2026-07-03 (basis of Step 1 findings; §3 layout, §4.1 frontmatter, §5 links, §9 conformance, §11 versioning).
+- [knowledge-catalog issues](https://github.com/GoogleCloudPlatform/knowledge-catalog/issues) — 57 open at review time; churn signals #146/#154/#157/#164 (reserved-filename + `type` renames, absolute-link rendering).
+- [okf_validate.py raw](https://raw.githubusercontent.com/scaccogatto/okf-skills/main/skills/validate/scripts/okf_validate.py) — the ~220-line checker read line-by-line for the step-2 security/quality verdict.
 - [Karpathy LLM-Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — the pattern + the token-reduction experiments; Lint op already adapted into `context-tree audit` by [[knowledge-format-lint-and-citations]].
 - [OKF: The Markdown Standard Built for AI Agents](https://agenticaidecode.substack.com/p/open-knowledge-format-okf-the-markdown) — 2026-06 framing: OKF formalizes the LLM-wiki + AGENTS.md lineage.
