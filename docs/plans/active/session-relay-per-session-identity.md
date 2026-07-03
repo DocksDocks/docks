@@ -4,7 +4,7 @@ goal: Decide and implement how the session-relay bus resolves "which session am 
 status: in_review
 in_review_since: "2026-07-03T13:33:00-03:00"
 created: "2026-07-02T16:02:39-03:00"
-updated: "2026-07-03T13:33:00-03:00"
+updated: "2026-07-03T13:27:56-03:00"
 started_at: "2026-07-03T12:58:58-03:00"
 assignee: claude
 tags: [session-relay, identity, bus, rust, exploration, parked]
@@ -15,7 +15,7 @@ affected_paths:
   - plugins/session-relay/rust/src/cli.rs
   - plugins/session-relay/.claude-plugin/plugin.json
 related_plans: [session-relay-auto-inbox-push, session-relay-cross-tool-bus]
-review_status: null
+review_status: passed
 planned_at_commit: "c70605356d4fe3327b8f5c24ec5e658eb73e17bd"
 ---
 
@@ -133,7 +133,11 @@ Score: 60/100 (parked-stub tier: one weighted score + single critique pass, no i
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — shared-dir mis-attribution is closed by the (b) identity handshake. `send` gains a registry-validated `from` and `inbox` a validated `id` (`bus.rs` — unknown → soft tool error, absent → marker fallback unchanged); `cli.rs` `send` gains `--from <name-or-id>` (`cli.rs:237-259` — unknown → `die`, absent → `fromName:"cli"`); `spawn.rs build_prompt` bakes `--from <premint>` into the claude worker's PRIMARY reply command; every SessionStart on both tools injects the session's own bus id (`hook.rs render_context`) and the fenced mail trailer names the recipient id (`hook.rs mail_block`, `watch.rs:196`). The dir-marker fallback is preserved for single-session dirs (back-compat). Live leg proved marker-independence: a spawned claude worker replied `from:5f8a76ad-213a-4301-a207-1c57269b9337` / `fromName:"w-id"` after the dir marker was stomped with a decoy id (0.5.0 produced `fromName:"cli"`, `from:null`). Residual by design: non-spawn interactive sessions rely on the agent honoring the injected identity line (the accepted model-mediation of (b), decided at step 3); the spawn path is fully deterministic.
+- **Regressions:** none — `cargo test` 29/29 (26 unit incl. the 3 new identity tests + `bus_smoke` + 2 `lock_race`), `cargo clippy --all-targets -D warnings` + `cargo fmt --check` clean, selftest **62 checks** (was 52; +10 alice/bob identity matrix), zero new crate (`Cargo.toml` deps still `tinyjson` + `rustix`). The `prompt_event_with_empty_inbox_emits_nothing` invariant that `watch.rs` depends on is unchanged. Scope: `store.rs` is in `affected_paths` but untouched (candidate (b) reused `store::resolve`/`drain`; only candidate (a) would have needed it — benign), and `spawn.rs`/`watch.rs` changed without being in the frontmatter array though both are named in the step-4 contract (Open questions §4–5).
+- **CI:** pass — `node scripts/ci.mjs` exit 0, all checks green (session-relay 0.6.0, bin checksums verify 4 listed, cargo fmt/clippy clean); one benign ⚠ host-rebuild digest variance (CI enforces byte-identity via the same image as build-binaries; locally expected path/linker variance). Tag `session-relay--v0.6.0` present; tag-CI green on release.
+- **Follow-ups:** none.
+- Filed by: plan-review on 2026-07-03T13:27:56-03:00
 
 ## Step 1 — recorded repro (2026-07-03, deterministic, throwaway store)
 
