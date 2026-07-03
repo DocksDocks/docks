@@ -1,9 +1,10 @@
 ---
 title: Evaluate OKF knowledge bundles for consumer projects (parked stub)
 goal: Decide whether docks ships an op/skill that seeds an OKF-conformant knowledge/ bundle (project facts as an LLM-wiki) wired into context-tree — and implement it if yes.
-status: ongoing
+status: in_review
+in_review_since: "2026-07-03T15:08:00-03:00"
 created: "2026-07-01T17:56:26-03:00"
-updated: "2026-07-03T15:05:00-03:00"
+updated: "2026-07-03T15:08:00-03:00"
 started_at: "2026-07-03T13:40:00-03:00"
 assignee: claude
 tags: [okf, knowledge, skills, exploration, parked]
