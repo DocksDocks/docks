@@ -64,6 +64,8 @@ else warn(`${CODEX_MARKETPLACE} missing — Codex distribution not configured (o
 
 section('repo-wide guards');
 nodeOk(['scripts/tree/guard.mjs']) ? ok('tree/guard passed (context-tree node pairs)') : fail("tree/guard failed (run 'node scripts/tree/guard.mjs')");
+nodeOk(['scripts/skills/durable-anchors.mjs']) ? ok('durable-anchors passed (no live file:line anchors in long-lived docs)')
+  : fail("durable-anchors failed (run 'node scripts/skills/durable-anchors.mjs')");
 
 section('skill-maintainer idempotency');
 nodeOk(['tests/idempotency.mjs']) ? ok('skill content_hash determinism; maintainer re-run is a no-op')

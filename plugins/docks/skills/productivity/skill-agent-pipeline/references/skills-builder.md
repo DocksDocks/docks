@@ -1,6 +1,6 @@
 # Phase 3 — Skills Builder
 
-Draft complete `SKILL.md` bodies and `references/` files for every delta the categorizer proposed, using Phase 2b's `file:line` evidence.
+Draft complete `SKILL.md` bodies and `references/` files for every delta the categorizer proposed, using Phase 2b's `file:line` evidence — **converted to durable anchors** in what you emit (2b notes are point-in-time evidence; the skill you write outlives them).
 
 <constraint>
 References split is mandatory. If a drafted SKILL.md body would exceed 310 lines, move the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. Past ~310 lines, content falls outside the post-compaction re-attachment window and is silently dropped. The verifier (Phase 6) hard-fails a 310–500 line body with no `references/`.
@@ -26,11 +26,24 @@ metadata:
 
 ## Body structure (≤310 lines, then split)
 
-Title → `<constraint>` block (2–4 rules) → `## When to Use` → `## Core Patterns` (tables, code, file:line) → `## Key Decisions` → `## Gotchas` → `## References`.
+Title → `<constraint>` block (2–4 rules) → `## When to Use` → `## Core Patterns` (tables, code, durable anchors) → `## Key Decisions` → `## Gotchas` → `## References`.
 
 ## AI-optimization rules
 
-Critical constraints at START, gotchas at END (U-shaped attention). Tables for comparisons, bullets for sequences — no prose paragraphs. Every claim has a `file:line`. Positive framing ("Use `const`, not `var`"). Code blocks from actual source. No slop ("important to note", inflated adjectives). `| Good | Bad | Why |` tables for fragile rules.
+Critical constraints at START, gotchas at END (U-shaped attention). Tables for comparisons, bullets for sequences — no prose paragraphs. Every claim carries a durable anchor (below). Positive framing ("Use `const`, not `var`"). Code blocks from actual source. No slop ("important to note", inflated adjectives). `| Good | Bad | Why |` tables for fragile rules.
+
+## Durable anchors (what the emitted body cites)
+
+A generated skill outlives the commit it was written at, so bare `file:line` anchors rot on the next edit and then mislead. Emit the durable form instead:
+
+```text
+`<path>` — `<symbol or config key>` — <one-line purpose> (verify: `<command that re-derives it>`)
+```
+
+- Convert every 2b `file:line` note to this grammar; line numbers survive ONLY inside clearly-fictional teaching examples (paths that don't exist in the project).
+- Volatile facts (versions, counts, thresholds, ports, flag defaults) always carry their `verify:` command — a reader re-derives before relying.
+- Include one stale-tolerance line in each generated body: "Pointers here name concepts, not coordinates — if a path or symbol has moved, trust the stated purpose and re-locate it (grep the symbol) before acting."
+- Self-check before handing to Phase 6: `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over the drafted files; any hit whose path exists in the project is a live line anchor — convert it.
 
 ## Codex + Claude frontmatter rules
 

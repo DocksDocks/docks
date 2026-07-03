@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-01"
-  content_hash: "1f4ee9d90eb02455ec6d6e7d3c8050ecb48660bc06f8b99593cecc8f593bb779"
+  updated: "2026-07-03"
+  content_hash: "fa64439771c6ee187edfc52facb5383a2a25c58e79fe998b91820b8808b02a16"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -34,7 +34,7 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 |---|---|---|
 | `context-tree init` | First-time scaffold: detect major folders, propose the node list, await approval, write every pair, insert the "Context tree" section into root `AGENTS.md`. Idempotent — re-running detects existing nodes and leaves them. | yes (after approval) |
 | `context-tree audit` | Read-only. Report drift: nodes missing a CLAUDE.md pair, CLAUDE.md that isn't `@AGENTS.md`-only, AGENTS.md claims that no longer match **current source** (every path/snippet/identifier/count verified by reading — not just file existence), folders that newly qualify as nodes — plus the graph **Lint**: contradictions between nodes, orphan nodes with no inbound link, concepts mentioned but lacking a node, missing cross-references, web-fillable data gaps. | no |
-| `context-tree refresh <folder>` | Regenerate one node from current disk state. Calls the `skill-maintenance` `--check-only` predicate first; if nothing semantic changed, it's a no-op (no write). | only if changed |
+| `context-tree refresh <folder>` | Regenerate one node from current disk state. First re-derive whether anything SEMANTIC changed in the folder (compare the node's claims against current source, the same check `audit` runs); if nothing did, it's a no-op (no write). | only if changed |
 | `context-tree refresh` | Regenerate every node (use when the convention itself changes). Same approval gate as `init`. | yes (after approval) |
 
 ## Plan lifecycle handoff
@@ -79,6 +79,14 @@ Frontmatter: name matches dir, description starts "Use when…", ≤500 chars.
 Body ≤500 lines (sweet spot 80–310). Run the repo's own lint + tests before commit.
 ```
 
+**Durable anchors — how a node references code.** Nodes are long-lived: a bare `path:42`
+line anchor rots on the next edit above it and then misleads. Anchor by
+`` `path` — `symbol/config key` — purpose (verify: `command`) ``; give every volatile fact
+(count, floor, version, path) the command that re-derives it; line numbers survive only in
+clearly-fictional teaching examples. Each emitted node carries one stale-tolerance line:
+"Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated
+purpose and re-locate it (grep the symbol) before acting."
+
 ```markdown
 <!-- BAD — AGENTS.md with no CLAUDE.md sibling: invisible to Claude Code -->
 scripts/AGENTS.md          (alone)
@@ -100,7 +108,7 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 
 ## Workflow — `refresh` / `audit`
 
-- `audit` walks tracked nodes and verifies every source-anchored claim (path/file:line, snippet, identifier, count) against **current source** — content, not just existence — re-derived from disk and ignoring git history; it reports drift with the count of claims checked, and never writes. After the per-claim pass it runs the cross-node **graph Lint**: contradictions between nodes (two nodes asserting incompatible rules), orphan nodes with no inbound link (unreferenced by the root Context-tree table or any sibling), concepts mentioned but lacking a node, missing cross-references, and web-fillable data gaps. Full procedure: [`references/conflict-resolution.md`](references/conflict-resolution.md). Use it to decide whether a `refresh` is warranted.
+- `audit` walks tracked nodes and verifies every source-anchored claim (path, symbol, snippet, identifier, count — and any live `path:NN` line anchor, which is itself a `line-anchor` finding: convert to the durable form, don't just re-point the number) against **current source** — content, not just existence — re-derived from disk and ignoring git history; it reports drift with the count of claims checked, and never writes. After the per-claim pass it runs the cross-node **graph Lint**: contradictions between nodes (two nodes asserting incompatible rules), orphan nodes with no inbound link (unreferenced by the root Context-tree table or any sibling), concepts mentioned but lacking a node, missing cross-references, and web-fillable data gaps. Full procedure: [`references/conflict-resolution.md`](references/conflict-resolution.md). Use it to decide whether a `refresh` is warranted.
 - `refresh <folder>` regenerates one node only if the maintainer's content predicate says something semantic changed (avoids hook write-loops). `refresh` (no arg) re-runs the full convention across every node behind the approval gate.
 
 Drift handling, existing-file merges, and the already-a-node detection live in [`references/conflict-resolution.md`](references/conflict-resolution.md).
@@ -133,8 +141,9 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
 | Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + the pair check, prune root LAST (Phase B). |
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
-| Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must call the maintainer `--check-only` predicate and no-op when nothing semantic changed. |
-| `audit` passed a node as "no drift" on a file-exists check | Existence ≠ accuracy — a renamed validator, changed floor, or moved file:line stays hidden. `audit` verifies every claim's content against current source and states the count checked. |
+| Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must first re-derive whether anything semantic changed and no-op when nothing did. |
+| `audit` passed a node as "no drift" on a file-exists check | Existence ≠ accuracy — a renamed validator or changed floor sails through. `audit` verifies every claim's content against current source and states the count checked. |
+| Node cites a live `path:NN` line anchor | It rots on the next edit. Convert to the durable form — `` `path` — `symbol` — purpose (verify: `command`) `` — and keep line numbers only on fictional example paths. |
 | AGENTS.md grew past 500 lines | Past the node-body ceiling (Anthropic's doc max). Split the folder or tighten to keep every node ≤500 lines. |
 
 ## When NOT to use
@@ -150,4 +159,4 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 - [`references/node-template.md`](references/node-template.md) — the AGENTS.md skeleton, the CLAUDE.md one-liner, the root "Context tree" section, the self-sufficiency checklist.
 - [`references/conflict-resolution.md`](references/conflict-resolution.md) — existing-file detection, drift/audit logic, merge-vs-overwrite, no-op refresh.
 - [`references/data-preservation.md`](references/data-preservation.md) — the section-inventory algorithm, per-section relocation table, two-phase write, and the verbatim verification snippet (self-contained; the kit pattern is in `write-skill/references/data-preservation.md`).
-- Companion: `plan-manager` (durable plan for risky user-triggered fixes) · `skill-maintenance` (`--check-only` content predicate the refresh op reuses) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).
+- Companion: `plan-manager` (durable plan for risky user-triggered fixes) · `skill-maintenance` (the update-only-when-meaning-changed discipline the refresh op mirrors) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).

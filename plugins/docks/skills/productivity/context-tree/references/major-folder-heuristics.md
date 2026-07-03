@@ -37,6 +37,6 @@ Prefer ONE node per major folder, not one per subfolder. Roll child conventions 
 
 ## This repo's nodes (dogfood reference)
 
-`docs/plans/` (exists) · `plugins/docks/skills/` · `plugins/docks/agents/` · `scripts/` · `.github/`.
+`docs/plans/` · `docs/scaffold/` · `plugins/docks/skills/` · `scripts/` · `.github/`.
 
-Deferred: `docs/scaffold/` (lands with the scaffold plan; picked up on next refresh). Not a node: `plugins/docks/commands/` (removed by pipelines-to-skills), `docs/plans/_assets/` (data).
+Not a node: `plugins/docks/agents/` — `claude plugin validate --strict` lints every `*.md` under a plugin's `agents/` as a subagent, so an AGENTS.md pair there fails validation; its authoring rules live in the repo root file instead. A tool that lints every markdown file in a folder makes that folder node-ineligible — check before scaffolding.

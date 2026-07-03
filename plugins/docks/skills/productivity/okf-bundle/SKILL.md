@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-07-03"
-  content_hash: "e70dc6d5bb89480f6f81152c5375f4e468533ab816a3578eea571b3540e96bcf"
+  content_hash: "8c0e0a7edeb339e568d64e3cb8829d4890fcb6fd56ac62f5e82da42198cc3f1b"
 ---
 
 # OKF knowledge bundle — project facts as an LLM-wiki
@@ -117,6 +117,8 @@ the identity sidecar, never per-user. Rate limit 50 rps per caller.
 (In-bundle citation targets are fine too — but any `references/*.md` file inside the bundle is a concept document like any other and needs `type` frontmatter.)
 
 Body sections are free-form; `# Schema`, `# Examples`, `# Citations` are the spec's conventional headings — use them when they apply. Concept identity is the path minus `.md` (`services/billing-api`), so renames are link-breaking: update inbound links when moving a file (broken links are *conformant* — the spec treats them as not-yet-written knowledge — but they're still rot).
+
+**Volatile facts carry their re-derivation source.** A concept outlives the state it records, so any fact that can silently change (a rate limit, a version, a count, an endpoint) names where it re-derives — the `resource` URI, a command, or a `# Citations` entry — and the concept's `timestamp` bumps when the fact does. A fact with no re-derivation source is either stable (state it plainly) or should be omitted. Seed the bundle-root `index.md` listing with one standing line for readers: facts here were true at each concept's `timestamp` — re-verify volatile values against their stated source before acting on them.
 
 ## Wiring into the context tree
 

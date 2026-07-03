@@ -1,11 +1,11 @@
 ---
 name: skill-agent-pipeline
-description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, caps, staleness, coverage gaps), a content-accuracy audit verifying every file:line ref and snippet against current source, pattern extraction with evidence, and SKILL.md authoring + references/ splits. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form; phases gate through the plan lifecycle. Not for prose docs like README/AGENTS.md (use human-docs-workflow)."
+description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, caps, staleness, coverage gaps), a content-accuracy audit verifying every ref and snippet against current source, pattern extraction with evidence, and SKILL.md authoring + references/ splits with durable (symbol+purpose) anchors. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form; phases gate through the plan lifecycle. Not for AGENTS.md/CLAUDE.md nodes (use context-tree) or README prose."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-06-14"
-  content_hash: "3118e89e9b57cc712d2771bbc1ad88e606528d15be406f4bf75b822fbeb8db19"
+  updated: "2026-07-03"
+  content_hash: "50bc0a6228a9ed9c46693bf377da07922232174d8e288f71a945954c014fba60"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -34,7 +34,7 @@ Approval via the plan lifecycle, not Plan Mode. Write the full skills/agents pla
 
 | Situation | Use instead |
 |---|---|
-| README / AGENTS.md / CLAUDE.md / prose docs | `human-docs-workflow` |
+| AGENTS.md / CLAUDE.md context nodes | `context-tree` (README and other human prose are out of the kit's scope) |
 | Writing one skill by hand | `write-skill` |
 | Multi-tool AGENTS.md ↔ skills symlink bridging | `multi-tool-bridge` |
 | Security / refactor analysis | `security` / `refactor` |

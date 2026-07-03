@@ -61,7 +61,8 @@ No node may be reported drift-free without stating how many claims were opened a
 
 | Claim type | Example in a node | Verify by |
 |---|---|---|
-| path / file:line ref | `` `src/db.ts:42` ``, `` `Makefile:18` `` | read it; confirm it says what the node asserts — not just that it resolves |
+| path / file:line ref | `` `src/db.ts:42` ``, `` `Makefile:18` `` | read it; confirm it says what the node asserts — not just that it resolves. A live `path:NN` whose path exists is ALSO a `line-anchor` finding in its own right (see verdicts) even when currently accurate |
+| durable anchor | `` `path` — `symbol` — purpose (verify: `cmd`) `` | grep the symbol (defined, matching purpose) and RUN the `verify:` command — confirm it re-derives the stated fact |
 | code / command snippet | a fenced `bash`/`md` block, a CLI invocation | grep or run it; confirm it still appears / still works |
 | named identifier | a validator, script target, env var, config key, function | grep the symbol; confirm it is DEFINED, not merely named |
 | count / threshold | "5 validators", "floor 8", "≤500 lines" | re-derive the number from source; confirm it still matches |
@@ -71,7 +72,7 @@ Soft prose (rationale, "prefer X" advice) has no source anchor — mark it `unve
 
 ### Verdict per claim
 
-`confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (count/threshold/behaviour wrong) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
+`confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (count/threshold/behaviour wrong) · `line-anchor` (live `path:NN` in the node — even if accurate today it rots on the next edit; fix = convert to the durable `` `path` — `symbol` — purpose (verify: `cmd`) `` form, never just re-point the number; fictional example paths exempt) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
 
 ### Graph Lint (cross-node health — after the per-claim pass)
 
@@ -95,7 +96,7 @@ Output per node: `claims checked | confirmed | broken-ref | stale-snippet | fict
 
 ## No-op refresh (hook safety)
 
-`refresh <folder>` is called by the `PostToolUse` hook on every edit inside a node. It MUST be a no-op when nothing semantic changed, or the hook write-loops. Reuse the `skill-maintenance` content-predicate pattern:
+The `PostToolUse` hook nudges the agent (via injected context) to run `refresh <folder>` after every edit inside a node — it never invokes refresh itself. `refresh` MUST therefore be a no-op when nothing semantic changed, or the nudge-refresh cycle write-loops. Reuse the `skill-maintenance` update-only-when-meaning-changed pattern:
 
 ```bash
 # only rewrite when the derived content actually differs from disk

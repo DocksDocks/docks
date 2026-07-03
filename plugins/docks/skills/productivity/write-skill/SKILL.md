@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-01"
-  content_hash: "89d9540ede6d92fe41ac8a7d192214b8b7a047b36bba8832f629a46fc6b8bc62"
+  updated: "2026-07-03"
+  content_hash: "8544c1858856756274f219a7dd958acdfe7b463be951527ca5b422c0d76b51c5"
 ---
 
 # Write a Skill (docks conventions)
@@ -154,6 +154,16 @@ Match prescriptiveness to fragility, not to how much you know about the task. Fr
 
 Writing ALWAYS/NEVER in caps is the yellow flag: state the consequence instead ("two-phase write, because a halt mid-relocation loses content"). A rule carrying its why survives paraphrase, model upgrades, and the edge cases the caps-lock version never anticipated.
 
+## Durable anchors (how skill bodies reference code)
+
+Skill bodies and `references/` are long-lived: they outlive the commit they cite, so a bare
+`path:42` line anchor is one edit away from misleading the next agent. Anchor by
+`` `path` — `symbol` — purpose (verify: `command`) `` instead; give every volatile fact
+(version, count, floor, path) the cue that re-derives it; keep `file:line` only inside
+clearly-fictional teaching examples and in point-in-time OUTPUT formats a skill documents
+(review findings, plan evidence). Full grammar, artifact-class table, and the inline
+self-check: [`references/durable-anchors.md`](references/durable-anchors.md).
+
 ## Common authoring traps
 
 | Trap | Fix |
@@ -169,6 +179,7 @@ Writing ALWAYS/NEVER in caps is the yellow flag: state the consequence instead (
 | Mixed terminology — "field"/"box"/"element" for the same thing | Pick one term and use it throughout; the model treats synonyms as potentially distinct concepts. |
 | Dated conditionals — "before Aug 2025 use the old API" | Document the current method; park legacy in a collapsed "old patterns" block. |
 | Bare MCP tool names (`create_issue`) | Fully qualify as `Server:tool` (`GitHub:create_issue`) — bare names misresolve when several servers are connected. |
+| Live `path:NN` line anchor in the body | It rots on the next edit above that line. Use the durable grammar (`references/durable-anchors.md`); line numbers only on fictional example paths. |
 
 ## Transforming skills (split / migrate / rewrite existing content)
 

@@ -48,6 +48,7 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 | Validation loop | do → run validator → fix → repeat |
 | `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each); a reference > 100 lines with 3+ headings needs a `## Contents` TOC (`refs-guard.mjs`, Anthropic best-practice) |
 | `scripts/` / `assets/` bundle | executable helpers every invocation would re-derive (execution is token-free) / copy-only output templates; neither is content-hashed — bump `metadata.updated` manually when they change |
+| Durable anchors | skill bodies are long-lived: reference code as `` `path` — `symbol` — purpose (verify: `command`) ``, never a live `path:NN` line anchor (CI's repo-wide durable-anchors guard fails on any `path:NN` whose path resolves; fictional example paths pass). Volatile facts (counts, floors, versions) carry their re-derivation command. Full grammar: write-skill's `references/durable-anchors.md` |
 
 Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment (~5,000 tokens) may silently drop content.
 

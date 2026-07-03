@@ -7,7 +7,7 @@ This root file stays **repo-wide**. Per-area authoring details — skill/agent f
 ## Commands
 
 ```bash
-corepack enable && pnpm install --frozen-lockfile   # one-time setup (Node 22.x; pnpm via corepack)
+corepack enable && pnpm install --frozen-lockfile   # one-time setup (Node 24, matching CI's node-version; pnpm via corepack)
 node scripts/ci.mjs                                  # guards + scorers — must be green before any commit
 ```
 

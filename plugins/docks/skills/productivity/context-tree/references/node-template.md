@@ -20,10 +20,16 @@ editing.>
 
 ## Conventions
 <The rules that govern this folder — restated, not referenced. Tables and
-BAD/GOOD beat prose.>
+BAD/GOOD beat prose. Anchor code by `path` — `symbol` — purpose
+(verify: `command`), never by bare `path:NN` line numbers; give every
+volatile fact (count, floor, version) its re-derivation command.>
 
 ## Gotchas
 <Concrete corrections specific to this folder, if any.>
+
+Pointers here name concepts, not coordinates — if a path or symbol has moved,
+trust the stated purpose and re-locate it (grep the symbol) before acting;
+treat `verify:` commands as the source of truth for volatile values.
 
 <!-- machine-readable drift aid — `audit` reads `sources:` to scope its content check -->
 ## tree (metadata)
@@ -37,6 +43,7 @@ Keep it ≤500 lines (Anthropic doc max; distinct from the SKILL.md 310 sweet sp
 
 - [ ] No "see root", "refer to parent", or "as described elsewhere" pointers
 - [ ] Every rule a reader needs to edit here is stated in THIS file
+- [ ] No live `path:NN` line anchors — durable anchors + `verify:` cues on volatile facts; the stale-tolerance line is present
 - [ ] Reads correctly if it's the ONLY context file loaded (the `--continue` test)
 - [ ] CLAUDE.md sibling exists and is `@AGENTS.md`-only
 - [ ] AGENTS.md ≤500 lines
@@ -57,7 +64,7 @@ Edit the node, not this list, when a folder's rules change.
 |---|---|
 | `docs/plans/` | plan lifecycle + frontmatter schema |
 | `plugins/docks/skills/` | skill authoring + scoring |
-| `plugins/docks/agents/` | agent authoring |
+| `docs/scaffold/` | scaffold spec + templates |
 | `scripts/` | validator / CI tooling contract |
 | `.github/` | CI workflow triggers |
 ```

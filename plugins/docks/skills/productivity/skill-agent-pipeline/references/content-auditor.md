@@ -33,6 +33,7 @@ Soft prose with no source anchor — heuristics, style advice ("prefer early ret
 | `stale-snippet` | snippet exists in source but the text has drifted |
 | `fictional-api` | identifier asserted to exist is NOT defined anywhere (e.g. `getEntry()`, `ApiClient.processPayment`) |
 | `drifted-description` | identifier exists but is shaped / behaves differently than described |
+| `line-anchor` | a live `path:NN` in a long-lived body (the path resolves in the project) — even if currently accurate, it rots on the next edit; fix = CONVERT to a durable anchor (`path` — `symbol` — purpose — `verify:` command), not just re-point the number. Fictional example paths are exempt. |
 | `unverifiable` | soft/heuristic claim, no source anchor — not counted as drift |
 
 ## Procedure — per existing skill (`SKILL.md` + every `references/*.md`)

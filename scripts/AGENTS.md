@@ -23,7 +23,7 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `install` | the consumer install snippet for the GitHub Release notes |
 
-`ci.mjs` is **registry-driven**: it runs repo-wide checks **once** (workflow YAML, both marketplace catalogs, tree/guard, idempotency, shellcheck over all plugins, scaffold), then a **capability-driven per-plugin gate** (`gatePlugin`) for each present plugin — a check fires only when its capability is declared, so a skills-only plugin and a skills+agents+selftest plugin share one code path. Flags: `-q` (quiet), `--list` (print the registry + presence), `--plugin <name>` (gate just that one; repo-wide checks still run). Versions are **per-plugin and independent** — `release.mjs` targets exactly one plugin via `--plugin` (default `docks`).
+`ci.mjs` is **registry-driven**: it runs repo-wide checks **once** (workflow YAML, both marketplace catalogs, tree/guard, durable-anchors, idempotency, shellcheck over all plugins, scaffold), then a **capability-driven per-plugin gate** (`gatePlugin`) for each present plugin — a check fires only when its capability is declared, so a skills-only plugin and a skills+agents+selftest plugin share one code path. Flags: `-q` (quiet), `--list` (print the registry + presence), `--plugin <name>` (gate just that one; repo-wide checks still run). Versions are **per-plugin and independent** — `release.mjs` targets exactly one plugin via `--plugin` (default `docks`).
 
 ## Validators (orchestrated by ci.mjs)
 
@@ -37,6 +37,7 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `skills/content-hash.mjs` | `metadata.updated` idempotency baseline | `--check-only` gate |
 | `skills/transform-guard.mjs` | curated transformers carry a preservation `<constraint>` + `## Verification`; pending-allowlist warns, regression fails | pass/warn |
 | `skills/no-author-scripts.mjs` | shipped SKILL.md + references/ + agent bodies must not name docks author scripts; allowlist: `scaffold`, `write-skill`. Takes `<skills-dir> [agents-dir]` args so `gatePlugin` scopes it per-plugin (agents scanned only when given) | pass/fail |
+| `skills/durable-anchors.mjs` | repo-wide (runs once): long-lived docs — every shipped skill body/reference + every AGENTS.md node outside docs/plans/ (point-in-time by contract) — carry no LIVE `file:line` anchors (a `path:NN` whose path resolves in the repo fails; fictional example paths pass by non-resolution). Fix = the durable grammar: `` `path` — `symbol` — purpose (verify: `command`) `` | pass/fail |
 | `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, model declared | pass/fail |
 | `agents/score.mjs` | agent quality (max 15) | per-file ≥14; total = N×14 |
 | `tree/guard.mjs` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |

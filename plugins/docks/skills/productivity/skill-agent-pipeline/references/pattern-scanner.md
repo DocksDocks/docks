@@ -6,6 +6,8 @@ Extract concrete codebase patterns, conventions, and decisions with `file:line` 
 Evidence requirement: every finding carries a `file:line` reference plus a verifiable excerpt or pattern signature. Abstract observations ("good error handling", "uses async") without a source anchor are noise the builder cannot act on. If you cannot point at it, omit it.
 </constraint>
 
+Scope note: 2b findings are point-in-time WORKING NOTES consumed by the builder in this same run — `file:line` precision is correct here. The builder (Phase 3) converts them to durable anchors (`path` — `symbol` — purpose — `verify:` command) in the long-lived skill bodies it emits; line numbers never land in a generated SKILL.md.
+
 ## Five extraction domains
 
 | Domain | Look for |
