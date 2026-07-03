@@ -1,11 +1,12 @@
 ---
 title: Executable claims — behavior/automation claims carry an exercising cue
 goal: Shipped skill prompts require every "X enforces/automates/blocks Y" claim to carry a verify cue that EXERCISES the behavior, so generated artifacts are born auditable; fix the two recorded guard/doc bugs; retrofit this repo's nodes.
-status: in_review
+status: finished
 created: "2026-07-03T16:18:19-03:00"
-updated: "2026-07-03T16:31:38-03:00"
+updated: "2026-07-03T16:37:36-03:00"
 started_at: "2026-07-03T16:18:19-03:00"
 in_review_since: "2026-07-03T16:30:29-03:00"
+ship_commit: "8824065234facc2cd31cf94b06a85eb96caa17b3"
 assignee: claude
 tags: [skills, context-tree, write-skill, skill-agent-pipeline, drift, conventions]
 affected_paths:
