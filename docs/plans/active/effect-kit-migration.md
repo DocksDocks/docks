@@ -1,10 +1,10 @@
 ---
 title: Migrate effect-kit into the docks multi-plugin repo
 goal: Move the effect-kit plugin payload from ~/projects/effect-kit into plugins/effect-kit/ here, wire it into the registry-driven CI/release/marketplace machinery, and retire the standalone repo.
-status: planned
+status: ongoing
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-03T17:33:55-03:00"
-started_at: null
+updated: "2026-07-03T17:35:57-03:00"
+started_at: "2026-07-03T17:35:57-03:00"
 assignee: claude
 tags: [effect-kit, multi-plugin, marketplace, migration]
 affected_paths:
