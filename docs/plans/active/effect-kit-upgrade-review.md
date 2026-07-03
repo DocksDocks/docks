@@ -3,7 +3,7 @@ title: effect-kit post-migration review + upgrade roadmap
 goal: After the migration lands, audit the three Effect skills' current state (API currency, descriptions, conventions) against live Effect 3.x docs and docks conventions, then propose and ship an agreed upgrade round.
 status: planned
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-03T17:07:03-03:00"
+updated: "2026-07-03T17:33:55-03:00"
 started_at: null
 assignee: claude
 tags: [effect-kit, audit, effect-ts, upgrade]
@@ -28,6 +28,8 @@ The migration plan deliberately moves the payload byte-faithfully — content qu
 ## Context & rationale
 
 - **Why a separate plan** (maintainer decision, 2026-07-03): migration diff stays mechanical/reviewable; content changes get their own review cycle and release.
+- **Effect-only scope** (maintainer decision, 2026-07-03): effect-kit is and stays an Effect-TS-only plugin. Every audit finding, fix, and step-4 roadmap candidate must target the Effect ecosystem (the `effect` package and official `Effect-TS`-org `@effect/*` / `@effect-atom/*` packages). Anything non-Effect that surfaces during the audit routes to docks (or a future plugin of its own) as a follow-up — it is never added here.
+- **No pre-researched claims in this draft**: the version-specific package names cited here are quoted from effect-kit's own `skills/AGENTS.md` grounding rule, not from memory. ALL currency judgments happen in step 1 against live docs (context7 / effect.website) — nothing in this plan pre-decides what is stale or what is missing.
 - **Known deferred item inherited from migration**: cross-plugin trigger near-misses — the mechanical collision test is per-plugin only, so effect-ts-* descriptions were never checked against docks' engineering siblings (typescript/react/test skills share vocabulary).
 - **Known starting scores**: effect-ts-port 16, effect-ts-setup 14, effect-ts-specialist 16 (docks bundled scorer, engineering floor 10) — headroom exists on setup.
 - **The skills' own grounding rule** (from their node): version-specific API claims (`effect/Schema`, `@effect/platform` HttpApi, `@effect-atom/atom-react`) must be verified against current docs before changing — this plan's audit step IS that verification, run via context7/official docs, never from training data.
@@ -43,7 +45,7 @@ Requires [[effect-kit-migration]] shipped. Gates: `node scripts/ci.mjs --plugin 
 | 1 | API-currency audit: for each of the 3 skills + 12 references, verify every version-specific claim against CURRENT Effect 3.x docs (context7 first); classify findings per the content-audit taxonomy (confirmed / drifted / stale-snippet / fictional-api) with the claim text + the doc evidence | audit notes in this plan's `## Notes` | — | planned |
 | 2 | Conventions audit: durable-anchors pass (guard already enforces `path:NN`; manually check for uncued volatile facts + behavior claims without exercising probes), description CSO + manual near-miss pass against docks engineering siblings (3 near-miss prompts each, routing via "Not for…" clauses) | same | — | planned |
 | 3 | Fix round: apply every `drifted`/`stale-snippet`/`fictional-api` finding + convention gaps; lift effect-ts-setup toward 16 only if the rubric points are honest content (never padding); bump `metadata.updated` + hash backfill | the 3 skill dirs | 1,2 | planned |
-| 4 | Upgrade roadmap: propose candidate additions grounded in audit gaps (e.g. references for newer Effect surfaces the skills don't cover — candidates to be derived from step 1 evidence, not assumed); present via the open-questions picker; implement ONLY what the user selects | proposal in `## Open questions`, then chosen dirs | 1,2 | planned |
+| 4 | Upgrade roadmap (Effect-only): propose candidate additions grounded in audit gaps — Effect-ecosystem surfaces the skills don't cover, derived from step-1 evidence against live docs, never assumed from memory; each candidate names its official package + the doc page proving it exists. Present via the open-questions picker; implement ONLY what the user selects; non-Effect ideas are recorded as follow-ups elsewhere, never implemented here | proposal in `## Open questions`, then chosen dirs | 1,2 | planned |
 | 5 | Gates + release: `node scripts/ci.mjs` exit 0; release `effect-kit` minor (user-gated picker) | manifests via release.mjs | 3,4 | planned |
 
 ## Acceptance criteria
@@ -59,6 +61,7 @@ Requires [[effect-kit-migration]] shipped. Gates: `node scripts/ci.mjs --plugin 
 - The migration mechanics (registry, catalogs, node wiring) — [[effect-kit-migration]]'s territory; if the audit finds a migration defect, file it back as a finding, don't fix silently here.
 - docks / session-relay skills — even where a near-miss fix could also be made on the docks side, prefer the effect-kit description; touching a docks skill triggers its own release cycle (flag it as a follow-up instead).
 - Rewriting skills to new Effect MAJORS (4.x if it exists by then) — that's a rewrite plan, not an audit; this plan tracks 3.x currency only.
+- Anything outside the Effect ecosystem — no general-TypeScript, framework, or tooling skills land in effect-kit; the plugin's scope is Effect-TS, full stop. Non-Effect candidates the audit surfaces become follow-up notes for docks or a new plugin.
 
 ## Known gotchas
 

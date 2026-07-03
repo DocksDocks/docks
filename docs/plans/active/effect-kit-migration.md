@@ -3,7 +3,7 @@ title: Migrate effect-kit into the docks multi-plugin repo
 goal: Move the effect-kit plugin payload from ~/projects/effect-kit into plugins/effect-kit/ here, wire it into the registry-driven CI/release/marketplace machinery, and retire the standalone repo.
 status: planned
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-03T17:07:03-03:00"
+updated: "2026-07-03T17:33:55-03:00"
 started_at: null
 assignee: claude
 tags: [effect-kit, multi-plugin, marketplace, migration]
@@ -46,13 +46,13 @@ Do the migration on a feature branch (`plan/effect-kit-migration`) and open a PR
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Copy the payload: `cp -r ~/projects/effect-kit/plugins/effect-kit plugins/` (method per OQ1; payload = both plugin manifests + `skills/` incl. the node pair). Verify file count matches source (`find ... \| wc -l` both sides) | `plugins/effect-kit/` (new) | — | planned |
+| 1 | Copy the payload: `cp -r ~/projects/effect-kit/plugins/effect-kit plugins/` (plain copy — DECIDED OQ1; history stays in the archived repo; payload = both plugin manifests + `skills/` incl. the node pair). Verify file count matches source (`find ... \| wc -l` both sides) | `plugins/effect-kit/` (new) | — | planned |
 | 2 | Registry descriptor in `scripts/lib/plugins.mjs`: `{ name: 'effect-kit', root: 'plugins/effect-kit', skills: 'plugins/effect-kit/skills', agents: null, codex: true, selftest: null, rust: null, extraJson: [], transformGuard: false, install: '/plugin marketplace update docks\n/plugin install effect-kit@docks' }` | `scripts/lib/plugins.mjs` | 1 | planned |
 | 3 | Marketplace entries: `.claude-plugin/marketplace.json` gains the effect-kit plugin entry (source `./plugins/effect-kit`, version matching both plugin.jsons — lockstep gate); `.agents/plugins/marketplace.json` gains the Codex entry (local source path + policy block, mirroring the session-relay entry shape via the `codex-plugin-mirror` project skill) | both catalogs | 2 | planned |
 | 4 | Rewrite `plugins/effect-kit/skills/AGENTS.md`: (a) replace `bash scripts/skills/guard.sh plugins/effect-kit/skills` → `node scripts/ci.mjs --plugin effect-kit`; (b) append one line — `Full authoring contract (frontmatter, CSO, scoring, content-hash idempotency, durable-anchors grammar): see plugins/docks/skills/AGENTS.md`; (c) add NO `path:NN` live anchor (durable-anchors is repo-wide). Root `AGENTS.md`: add a `plugins/effect-kit/` block to the Repository-scope tree, and the row `\| plugins/effect-kit/skills/AGENTS.md \| effect-kit skill authoring — Effect 3.x version-pinned conventions \|` to the Context-tree table | `plugins/effect-kit/skills/AGENTS.md`, `AGENTS.md` | 1 | planned |
 | 5 | Modularity checklist (maintainer requirement): `scripts/AGENTS.md` multi-plugin section gains the concrete "adding plugin N+1" checklist — descriptor fields → two catalog entries → optional context node → `--plugin` release; each item naming its gate | `scripts/AGENTS.md` | 2,3 | planned |
 | 6 | Gates: `node scripts/skills/content-hash.mjs --check-only plugins/effect-kit/skills` (backfill if the old repo's hash algorithm drifted); full `node scripts/ci.mjs` exit 0; exercise the lockstep cue once for effect-kit (bump one manifest alone → `--plugin effect-kit` must fail; revert); commit | — | 1–5 | planned |
-| 7 | Release + retire (per OQ2/OQ3): release effect-kit from THIS repo (`node scripts/release.mjs --plugin effect-kit <bump>`, user-gated picker as always); then the old repo gets its pointer/archival treatment | manifests; DocksDocks/effect-kit | 6 | planned |
+| 7 | Release + retire (DECIDED OQ2/OQ3): after the PR merges, release `effect-kit--v0.2.0` (`node scripts/release.mjs --plugin effect-kit minor`, user-gated picker as always); then retire the old repo — final commit there rewriting its README to point at the docks marketplace (`/plugin marketplace add DocksDocks/docks` → `/plugin install effect-kit@docks`), then `gh repo archive DocksDocks/effect-kit --yes` (read-only, reversible; old tags/releases stay visible) | manifests; DocksDocks/effect-kit | 6 | planned |
 
 ## Interfaces & data shapes
 
@@ -116,17 +116,17 @@ Do the migration on a feature branch (`plan/effect-kit-migration`) and open a PR
 
 ## Cold-handoff checklist
 
-1–9: file manifest ✓ · environment & commands ✓ · contracts ✓ (descriptor literal, lockstep triple, tag format) · executable acceptance ✓ · out-of-scope ✓ · rationale ✓ (audit facts + what-doesn't-migrate reasoning) · gotchas ✓ · constraints verbatim ✓ (modularity quote in Goal) · no TBDs (OQ1–3 are explicit open questions, not silent gaps) ✓.
+1–9: file manifest ✓ · environment & commands ✓ · contracts ✓ (descriptor literal, both catalog entries verbatim, lockstep triple, tag format) · executable acceptance ✓ · out-of-scope ✓ · rationale ✓ (audit facts + what-doesn't-migrate reasoning) · gotchas ✓ · constraints verbatim ✓ (modularity quote in Goal) · no TBDs (OQ1–3 decided and encoded above) ✓.
 
-## Open questions
+## Decisions (open questions resolved 2026-07-03, via picker)
 
-- **id: OQ1 — copy method** (choice): (a) **plain `cp -r` of the payload, one migration commit here; history stays in the archived repo** *(recommended — the payload is 4 commits old, history is thin, and docks' plan/release records are the durable trail)*; (b) `git subtree add` to graft full history into docks. custom allowed.
-- **id: OQ2 — old repo fate** (choice): (a) **archive DocksDocks/effect-kit on GitHub + final commit rewriting its README to point at the docks marketplace** *(recommended; needs `gh repo archive` — reversible)*; (b) leave it as-is with only the README pointer; (c) other. (Deletion is off the table — destructive.)
-- **id: OQ3 — first release from here** (choice): (a) **bump minor → `effect-kit--v0.2.0` immediately after migration so consumers get the new marketplace coordinates** *(recommended)*; (b) keep 0.1.1 in-tree, release only on the next content change (note: consumers on the old marketplace never see updates until they switch).
+- **OQ1 copy method → plain `cp -r`** — one migration commit here; the old repo (4 commits) remains the history archive; docks' plan/release records are the durable trail forward.
+- **OQ2 old repo fate → archive + pointer README** — final commit redirects to the docks marketplace, then `gh repo archive` (read-only, reversible; tags/releases stay visible).
+- **OQ3 first release → `effect-kit--v0.2.0`** — minor bump immediately after the migration PR merges, so consumers get the new marketplace coordinates.
 
 ## Self-review
 
-Score: 86→93/100 · trajectory 86→93 · stopped: plateau after applying the fresh-context draft review (big-plan tier). The reviewer independently re-verified the audit claims against the source repo (descriptor fields exact, trigger-collision per-plugin confirmed, dependency-field placement semantics confirmed) and caught 5 defects, all applied verbatim: D1 both catalog entries now verbatim in Interfaces (full field set matching repo convention; `author.name` "Eduardo Marquez" for catalog consistency); D2 the no-`dependencies`-in-catalog rule added as a gotcha; D3 step 4 rewritten paste-ready; D4 feature-branch + PR flow made explicit in Environment; D5 the source docs/plans correctly described as a legacy v1 five-folder layout. Remaining residual is gated on OQ1–3, not on rewriting.
+Score: 86→93/100 · trajectory 86→93 · stopped: plateau after applying the fresh-context draft review (big-plan tier). The reviewer independently re-verified the audit claims against the source repo (descriptor fields exact, trigger-collision per-plugin confirmed, dependency-field placement semantics confirmed) and caught 5 defects, all applied verbatim: D1 both catalog entries now verbatim in Interfaces (full field set matching repo convention; `author.name` "Eduardo Marquez" for catalog consistency); D2 the no-`dependencies`-in-catalog rule added as a gotcha; D3 step 4 rewritten paste-ready; D4 feature-branch + PR flow made explicit in Environment; D5 the source docs/plans correctly described as a legacy v1 five-folder layout. OQ1–3 were subsequently answered via the picker and encoded under `## Decisions` — no residual guesses remain.
 
 ## Review
 
