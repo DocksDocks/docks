@@ -18,7 +18,7 @@ const AGENTS_DIR = argSkills
   : path.join(REPO_DIR, 'plugins/docks/agents');
 const ALLOWLIST = ['scaffold', 'write-skill'];
 
-const PATTERN = /scripts\/(ci|release)\.sh|scripts\/(skills|agents|tree|scaffold|config|lib)\/|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
+const PATTERN = /scripts\/(ci|release)\.(sh|mjs)|scripts\/(skills|agents|tree|scaffold|config|lib)\/|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
 
 function walk(dir, filter, out = []) {
   let entries;

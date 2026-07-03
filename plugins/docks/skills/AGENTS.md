@@ -16,7 +16,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 
 ## Description (the thing that gets matched)
 
-1. **Lead with "Use when …"** — the guard enforces this prefix.
+1. **Lead with "Use when …"** — the guard enforces this prefix (verify: temporarily reword one description to drop the prefix → `node scripts/skills/guard.mjs` must fail on it; revert).
 2. **Key use case first** — the combined description is truncated at 1,536 chars in the listing; the first ~100 chars matter most.
 3. **≤500 chars** for full scorer credit (≤500 = 2 pts, ≤1,000 = 1, else 0; hard cap 1,024).
 4. **Concrete trigger keywords**, not capability prose. "Use when running pnpm audit, pip-audit…" beats "Use when working with dependency security." Move "Covers X, Y, Z" enumerations into the body.
@@ -48,7 +48,7 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 | Validation loop | do → run validator → fix → repeat |
 | `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each); a reference > 100 lines with 3+ headings needs a `## Contents` TOC (`refs-guard.mjs`, Anthropic best-practice) |
 | `scripts/` / `assets/` bundle | executable helpers every invocation would re-derive (execution is token-free) / copy-only output templates; neither is content-hashed — bump `metadata.updated` manually when they change |
-| Durable anchors | skill bodies are long-lived: reference code as `` `path` — `symbol` — purpose (verify: `command`) ``, never a live `path:NN` line anchor (CI's repo-wide durable-anchors guard fails on any `path:NN` whose path resolves; fictional example paths pass). Volatile facts (counts, floors, versions) carry their re-derivation command. Full grammar: write-skill's `references/durable-anchors.md` |
+| Durable anchors | skill bodies are long-lived: reference code as `` `path` — `symbol` — purpose (verify: `command`) ``, never a live `path:NN` line anchor (CI's repo-wide durable-anchors guard fails on any `path:NN` whose path resolves — verify: append a `<real-repo-path>:1` anchor to a body → `node scripts/skills/durable-anchors.mjs` exits 1 naming it; revert). Volatile facts (counts, floors, versions) carry their re-derivation command; behavior claims ("X enforces Y") carry a should-fail probe or aren't written. Full grammar: write-skill's `references/durable-anchors.md` |
 
 Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment (~5,000 tokens) may silently drop content.
 

@@ -44,6 +44,7 @@ Keep it ≤500 lines (Anthropic doc max; distinct from the SKILL.md 310 sweet sp
 - [ ] No "see root", "refer to parent", or "as described elsewhere" pointers
 - [ ] Every rule a reader needs to edit here is stated in THIS file
 - [ ] No live `path:NN` line anchors — durable anchors + `verify:` cues on volatile facts; the stale-tolerance line is present
+- [ ] Every "X enforces/automates/blocks Y" claim carries a cue that EXERCISES the behavior (should-fail probe), not an existence check — or the claim is cut
 - [ ] Reads correctly if it's the ONLY context file loaded (the `--continue` test)
 - [ ] CLAUDE.md sibling exists and is `@AGENTS.md`-only
 - [ ] AGENTS.md ≤500 lines

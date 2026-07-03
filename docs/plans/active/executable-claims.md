@@ -1,10 +1,11 @@
 ---
 title: Executable claims — behavior/automation claims carry an exercising cue
 goal: Shipped skill prompts require every "X enforces/automates/blocks Y" claim to carry a verify cue that EXERCISES the behavior, so generated artifacts are born auditable; fix the two recorded guard/doc bugs; retrofit this repo's nodes.
-status: ongoing
+status: in_review
 created: "2026-07-03T16:18:19-03:00"
-updated: "2026-07-03T16:18:19-03:00"
+updated: "2026-07-03T16:30:29-03:00"
 started_at: "2026-07-03T16:18:19-03:00"
+in_review_since: "2026-07-03T16:30:29-03:00"
 assignee: claude
 tags: [skills, context-tree, write-skill, skill-agent-pipeline, drift, conventions]
 affected_paths:
@@ -44,12 +45,20 @@ Same gate stack as [[durable-anchors]]: `node scripts/ci.mjs` (full gate) · sco
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Convention: extend `durable-anchors.md` with the **behavior-claim rule** — claims of the form "X enforces/automates/blocks/validates/updates Y" are volatile facts; cue = a command that EXERCISES the behavior (should-fail probe), with BAD/GOOD | `plugins/docks/skills/productivity/write-skill/references/durable-anchors.md` | — | planned |
-| 2 | context-tree: node-authoring rule + template checklist row gain the behavior-claim cue requirement; audit claim table gains a `behavior claim` row (verify by exercising, not existence) | `…/context-tree/SKILL.md`, `…/references/node-template.md`, `…/references/conflict-resolution.md` | 1 | planned |
-| 3 | skill-agent-pipeline: `content-auditor.md` claim table gains the behavior-claim row; `skills-builder.md` durable-anchor block gains the one-line rule for emitted bodies | 2 files under `…/skill-agent-pipeline/references/` | 1 | planned |
-| 4 | Bug fixes: `no-author-scripts.mjs` PATTERN gains `scripts/(ci\|release)\.mjs`; `.github/AGENTS.md` Renovate sentence → truthful manual-bump statement with an exercising cue | `scripts/skills/no-author-scripts.mjs`, `.github/AGENTS.md` | — | planned |
-| 5 | Retrofit: concrete exercising cues on the enforcement/automation claims in root `AGENTS.md`, `plugins/docks/skills/AGENTS.md`, `scripts/AGENTS.md`, `.github/AGENTS.md`; run each cue once and record | the 4 nodes | 1,4 | planned |
-| 6 | Gates (hash backfill, scorer floors, `ci.mjs`) + release docks minor (user-gated) | manifests via release.mjs | 2,3,5 | planned |
+| 1 | Convention: extend `durable-anchors.md` with the **behavior-claim rule** — claims of the form "X enforces/automates/blocks/validates/updates Y" are volatile facts; cue = a command that EXERCISES the behavior (should-fail probe), with BAD/GOOD | `plugins/docks/skills/productivity/write-skill/references/durable-anchors.md` | — | done |
+| 2 | context-tree: node-authoring rule + template checklist row gain the behavior-claim cue requirement; audit claim table gains a `behavior claim` row (verify by exercising, not existence) | `…/context-tree/SKILL.md`, `…/references/node-template.md`, `…/references/conflict-resolution.md` | 1 | done |
+| 3 | skill-agent-pipeline: `content-auditor.md` claim table gains the behavior-claim row; `skills-builder.md` durable-anchor block gains the one-line rule for emitted bodies | 2 files under `…/skill-agent-pipeline/references/` | 1 | done |
+| 4 | Bug fixes: `no-author-scripts.mjs` PATTERN gains `scripts/(ci\|release)\.mjs`; `.github/AGENTS.md` Renovate sentence → truthful manual-bump statement with an exercising cue | `scripts/skills/no-author-scripts.mjs`, `.github/AGENTS.md` | — | done |
+| 5 | Retrofit: concrete exercising cues on the enforcement/automation claims in root `AGENTS.md`, `plugins/docks/skills/AGENTS.md`, `scripts/AGENTS.md`, `.github/AGENTS.md`; run each cue once and record | the 4 nodes | 1,4 | done |
+| 6 | Gates (hash backfill, scorer floors, `ci.mjs`) — the docks-minor release itself is the user-gated ship action, not reviewable work (reworded from "gates + release" for a truthful all-done state; release command in Environment) | manifests via release.mjs | 2,3,5 | done |
+
+## Cue exercise log (2026-07-03, acceptance: every retrofit cue run once)
+
+- **no-author-scripts `.mjs` entry-point probe** — appended `probe: run node scripts/ci.mjs here` to `okf-bundle/SKILL.md` → `node scripts/skills/no-author-scripts.mjs plugins/docks/skills plugins/docks/agents` exited 1 naming `okf-bundle/SKILL.md:185`; sed-reverted → PASSED.
+- **durable-anchors live-anchor probe** — appended a `` `scripts/ci.mjs:1` `` anchor to `okf-bundle/SKILL.md` → `node scripts/skills/durable-anchors.mjs` exited 1: "live line anchor"; sed-reverted → PASSED (104 docs clean).
+- **CSO prefix probe** — sed-dropped the `Use when` prefix from okf-bundle's description → `node scripts/skills/guard.mjs` FAILED: "description must start with `Use when`"; reverted → PASSED.
+- **version-lockstep probe** — bumped `plugins/docks/.claude-plugin/plugin.json` alone to 0.8.1 → `node scripts/ci.mjs --plugin docks -q` FAILED: "docks version drift: plugin.json=0.8.1 marketplace.json=0.8.0"; reverted → clean.
+- Gotcha confirmed again: one retrofit cue initially embedded a literal resolving `path:NN` example inside `plugins/docks/skills/AGENTS.md` — the durable-anchors guard would self-flag it; rephrased as `<real-repo-path>:1`.
 
 ## Acceptance criteria
 

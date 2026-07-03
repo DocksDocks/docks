@@ -21,6 +21,7 @@ Per-finding reproduction is mandatory. Before a drift finding lands, re-open the
 | file:line / path ref | `src/db.ts:42`, `routes/checkout.ts` | read the line/file; confirm it says what the artifact asserts — not merely that it resolves |
 | code snippet from source | a fenced block attributed to a file | grep the snippet; confirm it still appears (reformat OK, logic drift NOT) |
 | named identifier | function / class / method / env var / route / config key / CLI command | grep the symbol; confirm it is DEFINED, not just mentioned |
+| behavior claim | "guard X enforces Y", "CI validates Z", "W updates automatically" | EXERCISE it — feed the tool an input it claims to reject/handle and confirm it does (should-fail probe); a green existence-run proves nothing about coverage |
 
 Soft prose with no source anchor — heuristics, style advice ("prefer early returns"), rationale — is **not** a checkable claim. Mark it `unverifiable`; never bucket it as drift.
 

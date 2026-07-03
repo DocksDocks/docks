@@ -63,6 +63,7 @@ No node may be reported drift-free without stating how many claims were opened a
 |---|---|---|
 | path / file:line ref | `` `src/db.ts:42` ``, `` `Makefile:18` `` | read it; confirm it says what the node asserts — not just that it resolves. A live `path:NN` whose path exists is ALSO a `line-anchor` finding in its own right (see verdicts) even when currently accurate |
 | durable anchor | `` `path` — `symbol` — purpose (verify: `cmd`) `` | grep the symbol (defined, matching purpose) and RUN the `verify:` command — confirm it re-derives the stated fact |
+| behavior claim | "guard X enforces Y", "CI validates Z", "W is automated" | EXERCISE it — feed the tool an input it claims to reject/handle and confirm it actually does (a should-fail probe); existence/green-run proves nothing about coverage. No probe possible → flag the claim itself |
 | code / command snippet | a fenced `bash`/`md` block, a CLI invocation | grep or run it; confirm it still appears / still works |
 | named identifier | a validator, script target, env var, config key, function | grep the symbol; confirm it is DEFINED, not merely named |
 | count / threshold | "5 validators", "floor 8", "≤500 lines" | re-derive the number from source; confirm it still matches |

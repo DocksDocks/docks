@@ -42,6 +42,7 @@ A generated skill outlives the commit it was written at, so bare `file:line` anc
 
 - Convert every 2b `file:line` note to this grammar; line numbers survive ONLY inside clearly-fictional teaching examples (paths that don't exist in the project).
 - Volatile facts (versions, counts, thresholds, ports, flag defaults) always carry their `verify:` command — a reader re-derives before relying.
+- Behavior claims ("X enforces/validates/automates Y") get a cue that EXERCISES the behavior (a should-fail probe), never an existence check — a tool can exist and pass while doing less than the sentence says. Unprobeable behavior claims are omitted.
 - Include one stale-tolerance line in each generated body: "Pointers here name concepts, not coordinates — if a path or symbol has moved, trust the stated purpose and re-locate it (grep the symbol) before acting."
 - Self-check before handing to Phase 6: `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over the drafted files; any hit whose path exists in the project is a live line anchor — convert it.
 

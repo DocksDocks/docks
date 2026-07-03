@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-07-03"
-  content_hash: "fa64439771c6ee187edfc52facb5383a2a25c58e79fe998b91820b8808b02a16"
+  content_hash: "6b674bb7e9445e0d7ff738903ecd51f28300b94c6b83c4a6c9d78972389366c6"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -86,6 +86,12 @@ line anchor rots on the next edit above it and then misleads. Anchor by
 clearly-fictional teaching examples. Each emitted node carries one stale-tolerance line:
 "Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated
 purpose and re-locate it (grep the symbol) before acting."
+
+**Behavior claims need an exercising cue.** "Guard X enforces Y" / "Z is automated" is the
+drift that hides longest: the tool exists, runs, and passes while doing less than the
+sentence says. Its cue must EXERCISE the behavior — a should-fail probe ("add a violating
+line → the guard run must fail naming it; revert"), never an existence check. A behavior
+claim with no probe is not written into a node.
 
 ```markdown
 <!-- BAD — AGENTS.md with no CLAUDE.md sibling: invisible to Claude Code -->

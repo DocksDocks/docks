@@ -1,5 +1,14 @@
 # Durable anchors — how long-lived artifacts reference code
 
+## Contents
+
+- [Artifact classes](#artifact-classes)
+- [The durable-anchor grammar](#the-durable-anchor-grammar)
+- [Re-verify cues for volatile facts](#re-verify-cues-for-volatile-facts)
+- [Behavior claims — cue must EXERCISE, not check existence](#behavior-claims--cue-must-exercise-not-check-existence)
+- [Stale-tolerance line](#stale-tolerance-line)
+- [Self-check (inline, no tooling required)](#self-check-inline-no-tooling-required)
+
 Line numbers are the first thing to rot: every edit above a cited line shifts it, and a
 stale-but-confident `file:42` actively misleads the next agent, while a purpose/symbol
 anchor degrades into a still-useful search hint. So anchor form follows artifact class.
@@ -47,6 +56,28 @@ GOOD — The selftest prints its check count on PASS (verify: `node test/selftes
 
 If a fact has no re-derivation source, either it is not volatile (state it plainly) or it
 should not be asserted (omit it, or mark it explicitly unverified).
+
+## Behavior claims — cue must EXERCISE, not check existence
+
+A claim about what a tool DOES — "X enforces Y", "X blocks Y", "CI validates Y",
+"Z updates this automatically" — is the most dangerous volatile fact: the tool can exist,
+run, and pass while doing less than the sentence says. An existence check can't see that;
+only feeding the tool an input it claims to handle can. So a behavior claim's cue is a
+**should-fail probe** (or should-catch probe), and a behavior claim you can't probe doesn't
+get written:
+
+```markdown
+BAD  — Author-script references are blocked by the lint guard.
+       (existence-shaped: the guard exists and passes — proves nothing about coverage)
+GOOD — Author-script references are blocked by the lint guard
+       (verify: add `node tools/lint.mjs` to a doc body → the guard run must FAIL naming it; revert).
+BAD  — Dependency-pin updates are automated.
+GOOD — Dependency pins are bumped manually when upgrading
+       (verify: `ls .github/dependabot.yml renovate.json` → none exist — no automation to rely on).
+```
+
+This is how enforcement rot hides: the doc keeps promising, the tool quietly under-delivers,
+and every existence-level audit passes both. The probe is the only witness.
 
 ## Stale-tolerance line
 
