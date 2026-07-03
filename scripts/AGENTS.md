@@ -25,6 +25,16 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 
 `ci.mjs` is **registry-driven**: it runs repo-wide checks **once** (workflow YAML, both marketplace catalogs, tree/guard, durable-anchors, idempotency, shellcheck over all plugins, scaffold), then a **capability-driven per-plugin gate** (`gatePlugin`) for each present plugin — a check fires only when its capability is declared, so a skills-only plugin and a skills+agents+selftest plugin share one code path. Flags: `-q` (quiet), `--list` (print the registry + presence), `--plugin <name>` (gate just that one; repo-wide checks still run). Versions are **per-plugin and independent** — `release.mjs` targets exactly one plugin via `--plugin` (default `docks`).
 
+### Adding plugin N+1 (the whole checklist — no orchestrator edits)
+
+1. **Payload** at `plugins/<name>/` — `.claude-plugin/plugin.json` (+ `.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
+2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — declare only the capabilities that exist (`agents`/`selftest`/`rust` take `null`, `extraJson` `[]` when absent); include the `install` snippet for release notes.
+3. **Two catalog entries**: `.claude-plugin/marketplace.json` (name/source/version — version in lockstep with both manifests) and `.agents/plugins/marketplace.json` (local-source + policy block) for Codex.
+4. **Optional context node** (`plugins/<name>/AGENTS.md` + one-line `CLAUDE.md`) when the plugin carries conventions of its own — `tree/guard` enforces the pair; the durable-anchors guard scans it.
+5. Verify: `node scripts/ci.mjs --list` shows the plugin; full `node scripts/ci.mjs` green; release with `node scripts/release.mjs --plugin <name> <bump>` (tag `<name>--v<X.Y.Z>`).
+
+If a new plugin seems to need an edit to `ci.mjs`/`release.mjs`, the descriptor contract is being violated — extend the capability model in `lib/plugins.mjs` instead of special-casing the orchestrators.
+
 ## Validators (orchestrated by ci.mjs)
 
 | Script | Purpose | Floor |

@@ -64,6 +64,18 @@ export const PLUGINS = [
     transformGuard: false,
     install: '/plugin marketplace update docks\n/plugin install session-relay@docks',
   },
+  {
+    name: 'effect-kit',
+    root: 'plugins/effect-kit',
+    skills: 'plugins/effect-kit/skills',
+    agents: null,
+    codex: true,
+    selftest: null,
+    rust: null,
+    extraJson: [],
+    transformGuard: false,
+    install: '/plugin marketplace update docks\n/plugin install effect-kit@docks',
+  },
 ];
 
 // Shared catalogs (one entry per plugin, matched by name).

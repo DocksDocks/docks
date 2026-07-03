@@ -3,7 +3,7 @@ title: Migrate effect-kit into the docks multi-plugin repo
 goal: Move the effect-kit plugin payload from ~/projects/effect-kit into plugins/effect-kit/ here, wire it into the registry-driven CI/release/marketplace machinery, and retire the standalone repo.
 status: ongoing
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-03T17:35:57-03:00"
+updated: "2026-07-03T17:47:02-03:00"
 started_at: "2026-07-03T17:35:57-03:00"
 assignee: claude
 tags: [effect-kit, multi-plugin, marketplace, migration]
@@ -46,12 +46,12 @@ Do the migration on a feature branch (`plan/effect-kit-migration`) and open a PR
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Copy the payload: `cp -r ~/projects/effect-kit/plugins/effect-kit plugins/` (plain copy — DECIDED OQ1; history stays in the archived repo; payload = both plugin manifests + `skills/` incl. the node pair). Verify file count matches source (`find ... \| wc -l` both sides) | `plugins/effect-kit/` (new) | — | planned |
-| 2 | Registry descriptor in `scripts/lib/plugins.mjs`: `{ name: 'effect-kit', root: 'plugins/effect-kit', skills: 'plugins/effect-kit/skills', agents: null, codex: true, selftest: null, rust: null, extraJson: [], transformGuard: false, install: '/plugin marketplace update docks\n/plugin install effect-kit@docks' }` | `scripts/lib/plugins.mjs` | 1 | planned |
-| 3 | Marketplace entries: `.claude-plugin/marketplace.json` gains the effect-kit plugin entry (source `./plugins/effect-kit`, version matching both plugin.jsons — lockstep gate); `.agents/plugins/marketplace.json` gains the Codex entry (local source path + policy block, mirroring the session-relay entry shape via the `codex-plugin-mirror` project skill) | both catalogs | 2 | planned |
-| 4 | Rewrite `plugins/effect-kit/skills/AGENTS.md`: (a) replace `bash scripts/skills/guard.sh plugins/effect-kit/skills` → `node scripts/ci.mjs --plugin effect-kit`; (b) append one line — `Full authoring contract (frontmatter, CSO, scoring, content-hash idempotency, durable-anchors grammar): see plugins/docks/skills/AGENTS.md`; (c) add NO `path:NN` live anchor (durable-anchors is repo-wide). Root `AGENTS.md`: add a `plugins/effect-kit/` block to the Repository-scope tree, and the row `\| plugins/effect-kit/skills/AGENTS.md \| effect-kit skill authoring — Effect 3.x version-pinned conventions \|` to the Context-tree table | `plugins/effect-kit/skills/AGENTS.md`, `AGENTS.md` | 1 | planned |
-| 5 | Modularity checklist (maintainer requirement): `scripts/AGENTS.md` multi-plugin section gains the concrete "adding plugin N+1" checklist — descriptor fields → two catalog entries → optional context node → `--plugin` release; each item naming its gate | `scripts/AGENTS.md` | 2,3 | planned |
-| 6 | Gates: `node scripts/skills/content-hash.mjs --check-only plugins/effect-kit/skills` (backfill if the old repo's hash algorithm drifted); full `node scripts/ci.mjs` exit 0; exercise the lockstep cue once for effect-kit (bump one manifest alone → `--plugin effect-kit` must fail; revert); commit | — | 1–5 | planned |
+| 1 | Copy the payload: `cp -r ~/projects/effect-kit/plugins/effect-kit plugins/` (plain copy — DECIDED OQ1; history stays in the archived repo; payload = both plugin manifests + `skills/` incl. the node pair). Verify file count matches source (`find ... \| wc -l` both sides) | `plugins/effect-kit/` (new) | — | done |
+| 2 | Registry descriptor in `scripts/lib/plugins.mjs`: `{ name: 'effect-kit', root: 'plugins/effect-kit', skills: 'plugins/effect-kit/skills', agents: null, codex: true, selftest: null, rust: null, extraJson: [], transformGuard: false, install: '/plugin marketplace update docks\n/plugin install effect-kit@docks' }` | `scripts/lib/plugins.mjs` | 1 | done |
+| 3 | Marketplace entries: `.claude-plugin/marketplace.json` gains the effect-kit plugin entry (source `./plugins/effect-kit`, version matching both plugin.jsons — lockstep gate); `.agents/plugins/marketplace.json` gains the Codex entry (local source path + policy block, mirroring the session-relay entry shape via the `codex-plugin-mirror` project skill) | both catalogs | 2 | done |
+| 4 | Rewrite `plugins/effect-kit/skills/AGENTS.md`: (a) replace `bash scripts/skills/guard.sh plugins/effect-kit/skills` → `node scripts/ci.mjs --plugin effect-kit`; (b) append one line — `Full authoring contract (frontmatter, CSO, scoring, content-hash idempotency, durable-anchors grammar): see plugins/docks/skills/AGENTS.md`; (c) add NO `path:NN` live anchor (durable-anchors is repo-wide). Root `AGENTS.md`: add a `plugins/effect-kit/` block to the Repository-scope tree, and the row `\| plugins/effect-kit/skills/AGENTS.md \| effect-kit skill authoring — Effect 3.x version-pinned conventions \|` to the Context-tree table | `plugins/effect-kit/skills/AGENTS.md`, `AGENTS.md` | 1 | done |
+| 5 | Modularity checklist (maintainer requirement): `scripts/AGENTS.md` multi-plugin section gains the concrete "adding plugin N+1" checklist — descriptor fields → two catalog entries → optional context node → `--plugin` release; each item naming its gate | `scripts/AGENTS.md` | 2,3 | done |
+| 6 | Gates: `node scripts/skills/content-hash.mjs --check-only plugins/effect-kit/skills` (backfill if the old repo's hash algorithm drifted); full `node scripts/ci.mjs` exit 0; exercise the lockstep cue once for effect-kit (bump one manifest alone → `--plugin effect-kit` must fail; revert); commit | — | 1–5 | done |
 | 7 | Release + retire (DECIDED OQ2/OQ3): after the PR merges, release `effect-kit--v0.2.0` (`node scripts/release.mjs --plugin effect-kit minor`, user-gated picker as always); then retire the old repo — final commit there rewriting its README to point at the docks marketplace (`/plugin marketplace add DocksDocks/docks` → `/plugin install effect-kit@docks`), then `gh repo archive DocksDocks/effect-kit --yes` (read-only, reversible; old tags/releases stay visible) | manifests; DocksDocks/effect-kit | 6 | planned |
 
 ## Interfaces & data shapes
@@ -123,6 +123,12 @@ Do the migration on a feature branch (`plan/effect-kit-migration`) and open a PR
 - **OQ1 copy method → plain `cp -r`** — one migration commit here; the old repo (4 commits) remains the history archive; docks' plan/release records are the durable trail forward.
 - **OQ2 old repo fate → archive + pointer README** — final commit redirects to the docks marketplace, then `gh repo archive` (read-only, reversible; tags/releases stay visible).
 - **OQ3 first release → `effect-kit--v0.2.0`** — minor bump immediately after the migration PR merges, so consumers get the new marketplace coordinates.
+
+## Notes — execution record (2026-07-03)
+
+- Steps 1–6 executed on branch `plan/effect-kit-migration`. File-count parity 19=19; hashes were already in sync (`--check-only`: 3× unchanged — same hasher lineage).
+- **On-goal deviation:** docks' refs-guard TOC rule (added after the fork) failed two references >100 lines (`effect-ts-port/references/react.md`, `effect-ts-specialist/references/services-and-layers.md`) — added `## Contents` TOCs, bumped both skills' `metadata.updated`, re-backfilled hashes. Payload-parity diff therefore shows exactly: the AGENTS.md node (planned), 2 reference TOCs + 2 SKILL.md hash/updated bumps (this deviation).
+- Cue exercises: lockstep probe fired on BOTH axes (`plugin.json=0.1.2 marketplace.json=0.1.1` AND `codex=0.1.1 claude=0.1.2`), reverted clean. Full `node scripts/ci.mjs` → "All ci.mjs checks passed — 3 plugin(s) + repo-wide". Scorer 16/14/16.
 
 ## Self-review
 
