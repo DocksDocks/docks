@@ -1,11 +1,12 @@
 ---
 title: Durable-anchors follow-ups — 4 recorded drift findings
 goal: Close the four dogfood-audit findings deferred by durable-anchors — session-relay context node, skills-node name/description truth, agents-score floor wording, ci.mjs stale bash comment.
-status: in_review
+status: finished
 created: "2026-07-03T16:42:26-03:00"
-updated: "2026-07-03T16:46:45-03:00"
+updated: "2026-07-03T16:49:22-03:00"
 started_at: "2026-07-03T16:42:26-03:00"
 in_review_since: "2026-07-03T16:45:39-03:00"
+ship_commit: "745bda4fe1089a17cadf288b96cdf9f1faaeb88a"
 assignee: claude
 tags: [context-tree, drift, docs, ci]
 affected_paths:
