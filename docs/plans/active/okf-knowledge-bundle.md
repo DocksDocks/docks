@@ -3,7 +3,7 @@ title: Evaluate OKF knowledge bundles for consumer projects (parked stub)
 goal: Decide whether docks ships an op/skill that seeds an OKF-conformant knowledge/ bundle (project facts as an LLM-wiki) wired into context-tree — and implement it if yes.
 status: ongoing
 created: "2026-07-01T17:56:26-03:00"
-updated: "2026-07-03T13:52:00-03:00"
+updated: "2026-07-03T14:20:00-03:00"
 started_at: "2026-07-03T13:40:00-03:00"
 assignee: claude
 tags: [okf, knowledge, skills, exploration, parked]
@@ -31,8 +31,8 @@ Docks organizes **conventions** (skills, AGENTS.md nodes); OKF bundles organize 
 |---|---|---|---|---|
 | 1 | Read the OKF spec (`GoogleCloudPlatform/knowledge-catalog` → `okf/`) — read-only; record the v0.1 conformance surface (frontmatter fields, directory conventions, linking) | notes → this plan | — | done |
 | 2 | Review `scaccogatto/okf-skills` read-only (treat as untrusted): what its skills/checker do, license, quality, whether to recommend/vendor/reimplement | notes → this plan | — | done |
-| 3 | Decide the shape via the open question below (surface options through the native picker); encode the decision here | this plan | 1, 2 | planned |
-| 4 | Implement per the decision (new skill / scaffold-op extension / documented recommendation) + run the kit gate | TBD by step 3 | 3 | planned |
+| 3 | Decide the shape via the open question below (surface options through the native picker); encode the decision here | this plan | 1, 2 | done |
+| 4 | Implement per the decision (new skill / scaffold-op extension / documented recommendation) + run the kit gate | new skill dir under `plugins/docks/skills/` (okf-bundle), routing check vs `context-tree`, this plan | 3 | in-flight |
 
 ## Acceptance criteria
 
@@ -79,9 +79,18 @@ Repo public, "The OKF toolkit for Claude Code". 29 stars, single author (Marco B
 - **Red flags:** none material. Two soft items: (1) generated `viz.html` loads cytoscape+marked from cdn.jsdelivr.net at view time (runtime CDN surface; not offline); (2) non-`uv` fallback pip-installs `pyyaml`.
 - **Verdict lean (evidence-based):** **(i) recommend-with-caveats** — small, auditable in one sitting, safe by construction, zero overlap with what docks ships; caveats = 3 weeks old, bus factor 1, tracks a draft spec. (ii) vendoring freezes a fast-moving 0.x into docks' cadence (stale within weeks) — only if OKF becomes first-class in docks. (iii) reimplementing a 220-line linter over someone else's spec buys no differentiation and forks conformance semantics — unless docks specifically wants a Node port inside `ci.mjs` to avoid the Python/uv dependency. (iv) ignore has the worst risk/reward given upstream's backing (Google Cloud, 6k stars in 2 months) and the near-zero cost of a caveated recommendation.
 
-## Open questions
+## Step 3 decision — RESOLVED: implement Google's OKF natively as shape (a)
 
-- `shape` (choice, decided at step 3): **(a)** new docks skill that scaffolds + maintains a `knowledge/` OKF bundle wired into context-tree `(recommended for evaluation)` · **(b)** extend the existing `scaffold` skill with an optional OKF seed · **(c)** don't ship — document okf-skills as a compatible companion plugin instead · custom allowed. NEEDS CLARIFICATION — blocked on steps 1–2 findings.
+**User direction (2026-07-03, verbatim):** *"i wanted the OKF from google, and i wanted you to implement it, use agent-browser skill to search properly. use opus agents to research for you."* — i.e. IMPLEMENT (rules out (c) companion-only and (d) re-park); the docks deliverable targets **Google's** OKF spec directly. Shape **(a)** (new docks skill, not a scaffold-only extension) chosen because it reaches EXISTING consumer projects, not just newly scaffolded ones.
+
+**Canonical-identity verification (2026-07-03, two opus agents, live browsing via agent-browser):** the official Google Cloud announcement (2026-06-12, authors Sam McVeety + Amir Hormati, Google Cloud Data Cloud team) links the spec to exactly `github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf` ("The repo, the spec, and the sample bundles are available in GitHub"). No Google-owned OKF site exists beyond that repo. Lookalikes found and ruled out: **Open Knowledge Foundation** (okfn.org — unrelated nonprofit, the classic OKF/OKFN abbreviation), **okf.md** (third-party MIT community docs site that itself names Google's repo as canonical), **openknowledgeformat.com** (third-party builder guide), **okf.kr** (unrelated Korean company). The spec deep-read agent independently re-derived the Step 1 surface from the live pages — **identical on every point** (required `type`, reserved `index.md`/`log.md`, §9 clause verbatim, Apache-2.0). New facts from the browse: Google's own sample bundles use RELATIVE links (deviating from the spec's "recommended" absolute form; open PR #165 proposes flipping that recommendation — reinforces our relative-links choice) and don't set `okf_version` in their root indexes (we still pin it — §11 permits and it hedges draft churn); the repo README carries the standard GoogleCloudPlatform OSS disclaimer "not an official Google product"; issue #43 proposes giving OKF its own repo (watch for a canonical-home move).
+
+**Implementation contract (step 4):**
+1. New cross-tool skill `plugins/docks/skills/<category>/okf-bundle/` — seeds and maintains an OKF v0.1 bundle at `knowledge/` in consumer projects: root `index.md` (frontmatter = `okf_version: "0.1"` only), starter concept(s) with `type` (+ recommended `title`/`description`/`tags`/`timestamp`), optional `log.md` (ISO date headings).
+2. Conformance discipline embedded in the skill (the §9 three criteria as a validation loop) — docks ships NO checker script; relative links throughout (GitHub-safe, matches Google's own samples).
+3. Context-tree wiring FROM THE PARENT node (a row in the root AGENTS.md pointing at `knowledge/`); NEVER an AGENTS.md/CLAUDE.md inside the bundle tree (breaks §9 criteria 1–2 — verified twice).
+4. Routing vs `context-tree` skill (conventions vs knowledge split) so the overlap guard passes; CSO description with "Use when…" + "Not …".
+5. Gate: skill scorer per-file floor + `node scripts/skills/content-hash.mjs --backfill plugins/docks/skills` + `node scripts/ci.mjs` exit 0.
 
 ## Self-review
 
