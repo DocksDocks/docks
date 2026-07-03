@@ -1,9 +1,10 @@
 ---
 title: Migrate CI validators from bash to .mjs (parity-gated)
 goal: Port the parsing-heavy CI validators from bash to Node .mjs — one at a time, each gated by a parity check that proves identical output — keeping the calibrated scorers/hashers byte-identical and the bash orchestrators in place
-status: ongoing
+status: in_review
 created: "2026-06-14T05:49:26+00:00"
-updated: "2026-06-14T06:00:38+00:00"
+updated: "2026-07-03T16:50:58-03:00"
+in_review_since: "2026-07-03T16:50:58-03:00"
 started_at: "2026-06-14T06:00:38+00:00"
 assignee: null
 tags: [tooling, ci, dx]

@@ -1,9 +1,10 @@
 ---
 title: Plans system v2 — lean, .md-only, self-reviewing
 goal: Replace the 5-folder + committed-HTML plan system with active/+finished/, status-as-a-field, .md-only tracking, on-demand visual HTML for visual decisions, and a baked-in draft→self-review→open-questions loop
-status: ongoing
+status: in_review
 created: "2026-06-14T05:02:06+00:00"
-updated: "2026-06-14T05:09:31+00:00"
+updated: "2026-07-03T16:50:58-03:00"
+in_review_since: "2026-07-03T16:50:58-03:00"
 started_at: "2026-06-14T05:09:31+00:00"
 assignee: null
 tags: [meta, dogfood, plans-v2]
