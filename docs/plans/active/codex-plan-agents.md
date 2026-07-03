@@ -3,7 +3,7 @@ title: Add repo-local Codex plan lifecycle agents
 goal: Add project-scoped Codex custom agents that mirror the repo's Claude plan-manager and plan-review wrappers, then document the plugin-vs-project-agent boundary.
 status: in_review
 created: "2026-06-23T19:52:26-03:00"
-updated: "2026-06-23T20:02:09-03:00"
+updated: "2026-07-03T16:51:36-03:00"
 started_at: "2026-06-23T19:52:26-03:00"
 in_review_since: "2026-06-23T19:52:26-03:00"
 assignee: null
@@ -89,4 +89,5 @@ Score: 91/100 - trajectory 87->91 - stopped: single critique pass.
 - **Regressions:** none
 - **CI:** pass - `node scripts/ci.mjs` exited 0; TOML parse and `node scripts/skills/content-hash.mjs --check-only` also passed.
 - **Follow-ups:** none
-- Filed by: plan-review on 2026-06-23T20:02:09-03:00
+- **Re-verified at HEAD 178884b on 2026-07-03T16:51:36-03:00** — criteria still hold: both `.codex/agents/*.toml` contain `name`/`description`/`developer_instructions`; `AGENTS.md` plugin-vs-project boundary (lines 22/28/52-57) intact after its e177040 edit; `plan-manager/SKILL.md` dispatch (lines 69/121) still covers Codex custom-agent handoff with inline fallback; content-hash green (SKILL.md last touched a498691, an ancestor of the e177040 green baseline). CI not re-run — full `node scripts/ci.mjs -q` verified green at e177040 this session; only 3 plan-file commits since, none in this plan's scope.
+- Filed by: plan-review on 2026-06-23T20:02:09-03:00; re-verified 2026-07-03T16:51:36-03:00

@@ -3,7 +3,7 @@ title: Migrate CI validators from bash to .mjs (parity-gated)
 goal: Port the parsing-heavy CI validators from bash to Node .mjs — one at a time, each gated by a parity check that proves identical output — keeping the calibrated scorers/hashers byte-identical and the bash orchestrators in place
 status: in_review
 created: "2026-06-14T05:49:26+00:00"
-updated: "2026-07-03T16:50:58-03:00"
+updated: "2026-07-03T16:52:05-03:00"
 in_review_since: "2026-07-03T16:50:58-03:00"
 started_at: "2026-06-14T06:00:38+00:00"
 assignee: null
@@ -23,7 +23,7 @@ affected_paths:
   - .github/workflows/ci.yml
   - plugins/docks/skills/productivity/write-skill/scripts/skill-guard.sh
 related_plans: [plans-v2-md-only]
-review_status: null
+review_status: passed
 ---
 
 # Migrate CI validators from bash to .mjs (parity-gated)
@@ -107,4 +107,8 @@ User decisions are recorded under `## Decisions` below.
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — parsing-heavy validators are `.mjs` and single-language tooling is realized at HEAD; zero author-side bash remains (`find scripts -name '*.sh'` → none). Goal EXCEEDED: the orchestrators (`ci.mjs`, `release.mjs`) and the context-tree hook were also ported, and the scorer was single-sourced via the D-2 collapse into the bundled `write-skill/scripts/skill-guard.mjs` (scorer lines 37–59, `score --per-file` mode line 156, driven by `ci.mjs:220`). Superseded-not-regressed: criterion #2's `scripts/skills/score.mjs` (folded into the bundle per D-2/D-4) and criterion #1's `tests/parity.mjs` (retired once all `.sh` were deleted — nothing left to diff; `tests/idempotency.mjs` is the standing hash-stability proxy).
+- **Regressions:** none — content_hash/score stability held: `content-hash.mjs --check-only` is wired at `ci.mjs:213` and `tests/idempotency.mjs` asserts every stored hash in sync (zero would-bump, no `metadata.updated` churn).
+- **CI:** pass — full gate (`node scripts/ci.mjs`) verified green at commit e177040 this session (per dispatching orchestrator); HEAD 178884b adds only plan-file edits, so the attestation still holds. Not re-run here per read-only review constraints. `ci.yml:48` runs `node scripts/ci.mjs` directly (no drift).
+- **Follow-ups:** none — the `release.mjs` tag/GH-release path still wants a smoke-test on the next real release, already tracked in D-1; it rides the next version bump, no new plan needed.
+- Filed by: plan-review on 2026-07-03T16:52:05-03:00

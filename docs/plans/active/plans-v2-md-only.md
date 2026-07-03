@@ -3,7 +3,7 @@ title: Plans system v2 — lean, .md-only, self-reviewing
 goal: Replace the 5-folder + committed-HTML plan system with active/+finished/, status-as-a-field, .md-only tracking, on-demand visual HTML for visual decisions, and a baked-in draft→self-review→open-questions loop
 status: in_review
 created: "2026-06-14T05:02:06+00:00"
-updated: "2026-07-03T16:50:58-03:00"
+updated: "2026-07-03T16:52:12-03:00"
 in_review_since: "2026-07-03T16:50:58-03:00"
 started_at: "2026-06-14T05:09:31+00:00"
 assignee: null
@@ -21,7 +21,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-review/SKILL.md
   - plugins/docks/skills/productivity/plan-sidecar/
 related_plans: []
-review_status: null
+review_status: passed
 ---
 
 # Plans system v2 — lean, .md-only, self-reviewing
@@ -112,4 +112,8 @@ Dogfooding the loop — holes caught while drafting and how they were resolved:
 
 ## Review
 
-(filled by plan-review on completion)
+Goal met: yes — the v2 plan system this plan proposed is the one the repo now runs on; verified at HEAD 178884b: two-folder `active/`+`finished/` with tracked `.gitkeep`s, no `planned/ongoing/blocked/scheduled/` dirs, no tracked `_views/_assets/_open_questions/index.html` or `.js`, `docs/plans/AGENTS.md` carries status-as-field + scored self-review rubric + native-picker open questions + status-specific age tokens, and `plan-init`/`plan-manager`/`plan-review` implement it (draft→self-review→open-questions loop in plan-manager Step 6; V1→V2 idempotent migration in plan-init Step 2/4b; deprecation flag in plan-manager:59). `plan-sidecar` deleted per D-2, no lingering refs. AC1–AC5 all verified; later work extended the contract with `in_review` status + `planned_at_commit` (added AFTER this plan — extensions, not regressions).
+Regressions: none — every changed path verified read-only; forbidden-ref scan clean (all `_views/_assets/dashboard` grep hits are migration-detection machinery or explicit negations, not live references).
+CI: pass — full `node scripts/ci.mjs` verified green by the orchestrator at commit e177040 this session; not re-run here per read-only review scope. (The plan's AC6 wording `bash scripts/ci.sh` predates the ci.mjs port — stale wording, not a failure.)
+Follow-ups: none.
+Filed by: 2026-07-03T16:52:12-03:00

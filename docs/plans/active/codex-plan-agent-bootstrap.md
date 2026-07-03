@@ -3,7 +3,7 @@ title: Bootstrap Codex plan agents
 goal: Add Codex repo-local plan-agent bootstrap support without changing Claude plugin subagent behavior.
 status: in_review
 created: "2026-06-23T20:15:44-03:00"
-updated: "2026-06-23T20:23:17-03:00"
+updated: "2026-07-03T16:51:30-03:00"
 started_at: "2026-06-23T20:17:14-03:00"
 in_review_since: "2026-06-23T20:23:17-03:00"
 assignee: null
@@ -90,9 +90,10 @@ Score: 92/100 · trajectory 92 · stopped: first pass above threshold.
 
 - **Goal met:** yes — `plan-init`, scaffold, plan lifecycle skills, and READMEs now cover repo-local Codex plan-agent wrappers while preserving Claude-only plugin-shipped agents.
 - **Regressions:** none
-- **CI:** pass (`node scripts/ci.mjs`)
+- **CI:** pass — full `node scripts/ci.mjs -q` verified green at commit e177040 this session; only plan-file commits (`docs/plans/*.md`) landed between e177040 and HEAD, so CI carries forward.
 - **Follow-ups:** none
-- Filed by: plan-review on 2026-06-23T20:23:17-03:00
+- Re-verified at HEAD 178884b on 2026-07-03T16:51:30-03:00 — criteria still hold (`.codex/agents/*.toml` + scaffold templates present, `.codex-plugin/plugin.json` ships skills+hooks only, plan-init/plan-manager/plan-review + plans template all describe Codex dispatch with inline fallback, no stale "cannot dispatch"/"skills only" README wording).
+- Filed by: plan-review on 2026-06-23T20:23:17-03:00 · re-verified 2026-07-03T16:51:30-03:00
 
 ## Sources
 

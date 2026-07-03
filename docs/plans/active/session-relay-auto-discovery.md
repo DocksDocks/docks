@@ -3,7 +3,7 @@ title: session-relay — auto-discover the running session
 goal: Let an agent auto-resolve "my other running session" with no id and no prior registration, by scanning the raw on-disk Claude/Codex session stores
 status: in_review
 created: "2026-06-30T13:43:15-03:00"
-updated: "2026-06-30T13:43:15-03:00"
+updated: "2026-07-03T16:51:56-03:00"
 started_at: "2026-06-30T13:43:15-03:00"
 assignee: null
 tags: [session-relay, discover, cross-tool, auto-resolve, codex]
@@ -14,7 +14,7 @@ affected_paths:
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - plugins/session-relay/test/selftest.mjs
 related_plans: [session-relay-cross-tool-bus]
-review_status: null
+review_status: passed
 planned_at_commit: "30d055d427b92f06ed9da4749d92dc487f9d3435"
 in_review_since: "2026-06-30T13:43:15-03:00"
 ---
@@ -136,7 +136,11 @@ Key facts that shaped the parser (verified live against real stores):
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — the capability exists and runs: a live read-only `relay discover` found this very session (id `a65ddd8c…`, `cwd=/home/docks/projects/docks` read from file **content**, not the lossy dir name) with the spec row shape `{tool,id,cwd,name,registered,lastActivity,ageSec,active}`, no id and no prior registration required. All 6 steps landed; the implementation was ported Node→Rust (commit `08c400e`, releases through v0.6.0) — the goal is the capability, and it is met.
+- **Regressions:** none. Scope note (renames, not gaps): 3 of 5 `affected_paths` — `lib/discover.mjs`, `mcp/bus.mjs`, `skills/.../scripts/relay.mjs` — were deleted and their behavior relocated to `rust/src/discover.rs`, `rust/src/bus.rs`, `rust/src/cli.rs`; `SKILL.md` (+138) and `test/selftest.mjs` (+590) remain and changed. Step-6 hardening all present in the port: UUID gate (discover.rs:237, cli.rs:92/347), window-before-content stat pass (discover.rs:211-220), `isFile` guard (discover.rs:145), head-read pop guard (discover.rs:76-78), `--` end-of-options doorbell (cli.rs:356-374), finite `--within` (cli.rs:126-130), MCP `discover` tool (bus.rs:72-77,317).
+- **CI:** pass — not re-run here (5 concurrent reviews); orchestrator verified full `node scripts/ci.mjs` green at commit `e177040` this session, and the plugin's 62-check selftest ran green during today's session-relay v0.6.0 release.
+- **Follow-ups:** none — optional hygiene only: repoint this plan's `affected_paths`/acceptance from the deleted `.mjs` surface to `rust/src/*.rs` before archiving.
+- Filed by: plan-review on 2026-07-03T16:51:56-03:00
 
 ## Notes
 

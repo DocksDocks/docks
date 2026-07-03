@@ -3,7 +3,7 @@ title: session-relay v2 — cross-tool Codex↔Claude agent bus
 goal: Evolve the Claude-only session-relay plugin into a tool-agnostic bus so a Codex session and a Claude Code session register on one shared MCP mailbox and exchange message+reply both ways
 status: in_review
 created: "2026-06-30T01:02:14-03:00"
-updated: "2026-06-30T01:50:39-03:00"
+updated: "2026-07-03T16:51:47-03:00"
 started_at: "2026-06-30T01:18:08-03:00"
 assignee: null
 tags: [session-relay, cross-tool, codex, mcp, multi-agent]
@@ -213,11 +213,11 @@ well-scoped, first score ≥ 85 so no hill-climb loop).
 
 ## Review
 
-- **Goal met:** yes — cross-tool bus works both ways: Step 11 live round-trip recorded PASSED (Claude→Codex `MANGO`, Codex→Claude `PAPAYA-FROM-CODEX`, roster showed `[codex]`+`[claude]`); Phase 1 criteria re-reproduced this turn (selftest 15 checks, `roster()[0].tool` prints `codex`); Claude path preserved (doorbell argv unchanged, hook defaults `tool=claude`, `SESSION_RELAY_HOME` alias kept).
-- **Regressions:** none — `relay.mjs` Claude doorbell (`claude -p --resume --output-format json`) and the Claude `hooks/hooks.json` (calls `session-start.mjs` with no arg → `tool=claude`) are unchanged; the `~/.claude/session-relay` → `~/.agent-relay` home move strands no users (v1 is unshipped, on `feat/session-relay-cross-session-bus`) and keeps `SESSION_RELAY_HOME` as a back-compat alias.
-- **CI:** pass — `node scripts/ci.mjs` → `✔ All ci.mjs checks passed` (incl. the 5 new session-relay Codex-parity checks: codex plugin.json valid + version-match, marketplace entry present, codex-hooks.json + bus.mcp.json JSON-valid); `node plugins/session-relay/test/selftest.mjs` → `PASS: session-relay self-test — 15 checks`.
-- **Follow-ups:** ~~session-relay-claude-manifest-cross-tool-desc~~ — RESOLVED inline this PR: the Claude-side `plugins/session-relay/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` descriptions/keywords/tags now read cross-tool (Claude Code + Codex), matching the Codex manifests.
-- Filed by: plan-review on 2026-06-30T01:50:39-03:00
+- **Goal met:** yes — **Re-verified at HEAD 178884b on 2026-07-03T16:51:47-03:00 — capability intact through the Rust port (v0.6.0).** The cross-tool bus still stands after the bash→Rust move: both tools register on ONE shared on-disk mailbox (fixed tool-neutral home `~/.agent-relay`, `AGENT_RELAY_HOME`/`SESSION_RELAY_HOME` alias — `store.rs:26-35`) reached through one `relay bus` MCP server (Claude `.claude-plugin` map + Codex `.codex-plugin/bus.mcp.json` direct-map). Codex SessionStart auto-registers `tool=codex` (`hooks/codex-hooks.json` → `relay hook codex`; `hook.rs:42-45,200`), Claude `tool=claude` (`hooks/hooks.json` → `relay hook`); the doorbell stays tool-aware — `wake` dispatches `codex exec resume <id> --json` vs `claude -p --resume <id> --output-format json` on `target.tool` (`cli.rs:357-378`); registry carries the `tool` field, `claude` default (`store.rs:226,260,308-335`). Original Step-11 live round-trip (Claude→Codex `MANGO`, Codex→Claude `PAPAYA-FROM-CODEX`) holds and was hardened v0.2.1→v0.6.0 (live-verified Codex MCP direct-map, push-delivery, `relay watch` live-leg).
+- **Regressions:** none — implementation MOVED, not lost. The `.mjs` seams this plan cites (`lib/store.mjs`, `mcp/bus.mjs`, `skills/.../scripts/relay.mjs`) are folded into the single `relay` Rust binary — every named capability has a Rust home. Stale-by-move only (cosmetic, not a defect): `affected_paths` + the Phase-1 `import('./lib/store.mjs')` one-liner + the `selftest — 15 checks` count all name the pre-port layout (store.mjs→store.rs, `relay.mjs wake`→`relay wake`, 15→62 selftest checks). Judged by capability, not file layout, as instructed — the goal capability is intact.
+- **CI:** pass (cited, not re-run) — read-only re-verify with 5 concurrent reviews barred running `node scripts/ci.mjs`/selftest. Orchestrator verified `node scripts/ci.mjs -q` green at e177040 this session (only plan-file commits since; HEAD 178884b); the session-relay selftest (62 checks) ran green during today's v0.6.0 release.
+- **Follow-ups:** none blocking. Optional housekeeping (NOT created): refresh this plan's `affected_paths` + Phase-1 acceptance one-liner to the Rust layout (`store.rs`/`cli.rs`/`hook.rs`; `relay register --tool codex` + `relay list`) so the archived plan matches the shipped binary.
+- Filed by: plan-review (re-verify at HEAD 178884b) on 2026-07-03T16:51:47-03:00 — original review 2026-06-30T01:50:39-03:00
 
 ## Sources
 
