@@ -1,10 +1,11 @@
 ---
 title: Durable-anchors follow-ups — 4 recorded drift findings
 goal: Close the four dogfood-audit findings deferred by durable-anchors — session-relay context node, skills-node name/description truth, agents-score floor wording, ci.mjs stale bash comment.
-status: ongoing
+status: in_review
 created: "2026-07-03T16:42:26-03:00"
-updated: "2026-07-03T16:42:26-03:00"
+updated: "2026-07-03T16:45:39-03:00"
 started_at: "2026-07-03T16:42:26-03:00"
+in_review_since: "2026-07-03T16:45:39-03:00"
 assignee: claude
 tags: [context-tree, drift, docs, ci]
 affected_paths:
@@ -41,12 +42,17 @@ Evidence, each re-verified this session:
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | New context node `plugins/session-relay/AGENTS.md` (+ one-line `CLAUDE.md` = `@AGENTS.md`): layout map (rust/ crate → bin/ four target binaries + `relay` sh launcher + SHA256SUMS, hooks/, skills/, test/ selftest), the binary-release discipline (binaries come ONLY from build-binaries.yml artifacts committed before tagging — never a local build), version lockstep, selftest + fake-app-server commands. Durable anchors only; volatile facts carry verify cues; behavior claims carry exercising probes or are omitted | `plugins/session-relay/AGENTS.md` (new), `plugins/session-relay/CLAUDE.md` (new) | — | planned |
-| 2 | Root `AGENTS.md` Context tree table gains the `plugins/session-relay/AGENTS.md` row | `AGENTS.md` | 1 | planned |
-| 3 | `plugins/docks/skills/AGENTS.md` frontmatter table: `name` and `description` rows → required (matching `validateCommon`), keeping the format rules | `plugins/docks/skills/AGENTS.md` | — | planned |
-| 4 | Root `AGENTS.md` agents-score wording: "mechanically needs 2 `<constraint>` blocks" → truthful floor arithmetic (14/15 = one point of slack; 2 blocks safe default) | `AGENTS.md` | — | planned |
-| 5 | `scripts/ci.mjs` shell-lint comment: "currently a no-op (zero bash in the repo)" → reflects that `shellHooks(p)` feeds session-relay's `bin/relay` launcher (and any `hooks/*.sh`) to shellcheck | `scripts/ci.mjs` | — | planned |
-| 6 | Gates: `node scripts/ci.mjs` exit 0 (tree pair + durable-anchors over the new node); commit + push (no release) | — | 1–5 | planned |
+| 1 | New context node `plugins/session-relay/AGENTS.md` (+ one-line `CLAUDE.md` = `@AGENTS.md`): layout map (rust/ crate → bin/ four target binaries + `relay` sh launcher + SHA256SUMS, hooks/, skills/, test/ selftest), the binary-release discipline (binaries come ONLY from build-binaries.yml artifacts committed before tagging — never a local build), version lockstep, selftest + fake-app-server commands. Durable anchors only; volatile facts carry verify cues; behavior claims carry exercising probes or are omitted | `plugins/session-relay/AGENTS.md` (new), `plugins/session-relay/CLAUDE.md` (new) | — | done |
+| 2 | Root `AGENTS.md` Context tree table gains the `plugins/session-relay/AGENTS.md` row | `AGENTS.md` | 1 | done |
+| 3 | `plugins/docks/skills/AGENTS.md` frontmatter table: `name` and `description` rows → required (matching `validateCommon`), keeping the format rules | `plugins/docks/skills/AGENTS.md` | — | done |
+| 4 | Root `AGENTS.md` agents-score wording: "mechanically needs 2 `<constraint>` blocks" → truthful floor arithmetic (14/15 = one point of slack; 2 blocks safe default) | `AGENTS.md` | — | done |
+| 5 | `scripts/ci.mjs` shell-lint comment: "currently a no-op (zero bash in the repo)" → reflects that `shellHooks(p)` feeds session-relay's `bin/relay` launcher (and any `hooks/*.sh`) to shellcheck | `scripts/ci.mjs` | — | done |
+| 6 | Gates: `node scripts/ci.mjs` exit 0 (tree pair + durable-anchors over the new node); commit + push (no release) | — | 1–5 | done |
+
+## Cue exercise log (2026-07-03)
+
+- **SHA256SUMS probe** (the new node's constraint cue) — flipped the first hex char of `plugins/session-relay/bin/SHA256SUMS` → `node scripts/ci.mjs --plugin session-relay -q` FAILED: "session-relay bin checksum failures: relay-x86_64-apple-darwin (checksum mismatch)"; reverted → `git status` clean, full CI green.
+- Acceptance greps all ran: tree/guard 7 nodes valid, pair present, root row present, the three stale phrases gone (each grep exit 1), `node scripts/ci.mjs -q` exit 0 (durable-anchors guard scans the new node — 105 docs).
 
 ## Acceptance criteria
 

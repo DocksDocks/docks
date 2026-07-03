@@ -41,6 +41,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | `docs/plans/AGENTS.md` | plan frontmatter schema, lifecycle transitions, 3-tier pretty-print contract |
 | `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
+| `plugins/session-relay/AGENTS.md` | the relay plugin — layout, binary-release discipline, its CI gates |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 
@@ -61,7 +62,7 @@ The `agents/` folder deliberately carries **no context-tree node** (hence its ab
 - **Frontmatter:** `name` (required, kebab-case, matches filename, no `anthropic`/`claude` substring); `description` (required, with the "Not …" clause); `model` (`sonnet`/`opus`/`haiku`/full-ID/`inherit` — resolution: env `CLAUDE_CODE_SUBAGENT_MODEL` → per-invocation → frontmatter → parent); `tools` (allowlist; omitted = inherit all). For plugin-shipped agents, `hooks`/`mcpServers`/`permissionMode` are silently ignored for security — use `.claude/agents/` when you need those.
 - **Body (≤500; sweet spot 60–300):** same patterns as skills (`<constraint>` blocks — up to 2 rewarded — lookup tables, BAD/GOOD, gotchas, validation loop); structure as context-acknowledgment (step 1), then `## Workflow`, `## Output Format`, `## Anti-Hallucination Checks`, `## Success Criteria`.
 - **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step — they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.mjs` scans agent bodies alongside shipped skills (verify: append a line naming `node scripts/ci.mjs` to a non-allowlisted skill body → the guard run must FAIL naming that file; revert).
-- **Validators:** `node scripts/agents/guard.mjs` (structural) + `node scripts/agents/score.mjs --per-file` (max 15, per-file floor 14 — mechanically needs 2 `<constraint>` blocks); both run inside `scripts/ci.mjs`. Floors detailed in `scripts/AGENTS.md`.
+- **Validators:** `node scripts/agents/guard.mjs` (structural) + `node scripts/agents/score.mjs --per-file` (max 15, per-file floor 14 — one point of slack total, so 2 `<constraint>` blocks are the safe default: the constraint bucket caps at 2 pts and a single block already spends the slack); both run inside `scripts/ci.mjs`. Floors detailed in `scripts/AGENTS.md`.
 - **Sources:** [sub-agents](https://code.claude.com/docs/en/sub-agents) · [plugins-reference](https://code.claude.com/docs/en/plugins-reference).
 
 ## Plans

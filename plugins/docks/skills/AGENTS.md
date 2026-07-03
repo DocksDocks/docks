@@ -27,8 +27,8 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 
 | Field | Rule |
 |---|---|
-| `name` | optional (dir-name fallback); ≤64 chars, `[a-z0-9-]+`, must match parent dir |
-| `description` | recommended; ≤1,024 hard cap; ≤500 for full credit; starts "Use when" |
+| `name` | **required** (kit CI errors on missing/empty); ≤64 chars, `[a-z0-9-]+`, must match parent dir |
+| `description` | **required** (kit CI errors on missing/empty); ≤1,024 hard cap; ≤500 for full credit; starts "Use when" |
 | `user-invocable` | `true` for slash-command-style skills, else `false` |
 | `metadata.updated` | `YYYY-MM-DD`; bump only on a real content change |
 | `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.mjs --backfill` |

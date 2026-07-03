@@ -71,8 +71,8 @@ section('skill-maintainer idempotency');
 nodeOk(['tests/idempotency.mjs']) ? ok('skill content_hash determinism; maintainer re-run is a no-op')
   : fail('skill-maintainer idempotency failed (run: node tests/idempotency.mjs)');
 
-// shell lint — currently a no-op (zero bash in the repo); the glob is kept so a
-// future plugins/*/hooks/*.sh would still be linted. Self-skips without shellcheck.
+// shell lint — shellHooks(p) collects each plugin's hooks/*.sh plus a rust
+// capability's sh launcher (today: session-relay's bin/relay). Self-skips without shellcheck.
 section('shell lint');
 const bashFiles = PLUGINS.filter((p) => fs.existsSync(p.root)).flatMap(shellHooks);
 if (bashFiles.length === 0) ok('no bash to lint (all tooling is Node .mjs)');
