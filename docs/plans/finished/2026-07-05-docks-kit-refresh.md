@@ -1,10 +1,11 @@
 ---
 title: docks kit refresh — fix the 26-skill staleness audit findings, routing clauses, release
 goal: Apply every finding from the 2026-07-05 six-auditor sweep of plugins/docks/skills (external drift, v1-plans residue, broken snippets, routing gaps, structural nits), keep codex-facts.mjs in lockstep, and ship a docks minor.
-status: in_review
+status: finished
 created: "2026-07-05T18:10:32-03:00"
-updated: "2026-07-05T19:25:19-03:00"
+updated: "2026-07-05T19:55:00-03:00"
 in_review_since: "2026-07-05T19:21:50-03:00"
+ship_commit: "386fe33432e2a9c3a0d832103722a0a7db43c937"
 started_at: "2026-07-05T18:31:55-03:00"
 assignee: claude
 tags: [docks, audit, staleness, skills, refresh]
