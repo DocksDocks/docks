@@ -19,7 +19,7 @@ pnpm add -D @effect/language-service     # or npm i -D / bun add -d
 }
 ```
 
-The plugin accepts options (all optional): `diagnostics`, `diagnosticSeverity`, `refactors`, `quickinfo`, `completions`, `goto`, `inlays`, `barrelImportPackages`, `namespaceImportPackages`. Start with the bare `{ "name": "@effect/language-service" }` and tune later.
+The plugin accepts options (all optional): `diagnostics`, `diagnosticSeverity`, `refactors`, `quickinfo`, `completions`, `goto`, `inlays`, `barrelImportPackages`, `namespaceImportPackages`, and more — the `$schema` above is the authoritative, current list. Start with the bare `{ "name": "@effect/language-service" }` and tune later.
 
 ## 3. Point the editor at the workspace TypeScript
 
@@ -48,7 +48,9 @@ pnpm exec effect-language-service patch     # one-off
 { "scripts": { "prepare": "effect-language-service patch" } }
 ```
 
-CLI verbs: `setup`, `config`, `patch`, `unpatch`, `check`, `diagnostics`, `quickfixes`, `codegen`, `overview`, `layerinfo`.
+Verify the patch took: `tsc --noEmit` on a file with a floating effect now reports the Effect diagnostic (`unpatch` reverts it).
+
+CLI verbs: `setup`, `config`, `patch`, `unpatch`, `check`, `diagnostics`, `quickfixes`, `codegen`, `overview`, `layerinfo` (re-derive with `pnpm exec effect-language-service --help`).
 
 ## 5. Per-line control
 
@@ -67,4 +69,4 @@ CLI verbs: `setup`, `config`, `patch`, `unpatch`, `check`, `diagnostics`, `quick
 | **Effect-native** (migration) | `processEnvInEffect` → `Config`, `globalFetchInEffect` → Effect HTTP, `globalConsoleInEffect` → `Effect.log`, `globalDateInEffect` → `Clock`/`DateTime`, `globalRandom` → `Random`, `globalTimersInEffect` → `Effect.sleep`/`Schedule`, `instanceOfSchema` → `Schema.is` |
 | **Style** | `effectDoNotation` (prefer `Effect.gen`/`Effect.fn`), `schemaStructWithTag` → `Schema.TaggedStruct`, `unnecessaryEffectGen`, `unnecessaryPipe` |
 
-Plus refactors/codegens: async-function → `Effect.gen`/`Effect.fn`, `Effect.Service` ↔ `Context.Tag` conversion, "Layer Magic" auto-composition, structural-type → `Schema`, and a mermaid Layer-graph in quickinfo. These are the same anti-patterns the `effect-ts-specialist` skill warns about — the LSP enforces them mechanically.
+Plus refactors/codegens: async-function → `Effect.gen`/`Effect.fn`, `Effect.Service` ↔ `Context.Tag` conversion, "Layer Magic" auto-composition, structural-type → `Schema`, and a mermaid Layer-graph in quickinfo. These are the same anti-patterns the `effect-ts-specialist` skill warns about — the LSP enforces them mechanically. Rule names move with the plugin: re-derive the current catalog with `pnpm exec effect-language-service diagnostics`, and exercise any single rule via a scratch-file repro + `pnpm exec effect-language-service check`.

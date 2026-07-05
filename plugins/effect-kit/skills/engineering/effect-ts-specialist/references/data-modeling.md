@@ -59,8 +59,9 @@ Brand nearly every domain primitive (ids, emails, slugs, money). It's the cheape
 ```ts
 // from unknown (HTTP body, queue message):
 const user = yield* Schema.decodeUnknown(User)(payload)        // Effect<User, ParseError>
+// sync variant — plain value, throws ParseError; NOT an Effect (no yield*), trusted input only:
+const user2 = Schema.decodeUnknownSync(User)(payload)
 // from a JSON string in one step:
-const user = yield* Schema.decodeUnknownSync                   // sync variant throws ParseError
 const cfg  = yield* Schema.decode(Schema.parseJson(Settings))(rawString)
 // encode back to the wire shape:
 const wire = yield* Schema.encode(User)(user)

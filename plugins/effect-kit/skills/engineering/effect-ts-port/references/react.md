@@ -15,7 +15,8 @@ The React binding is **`@effect-atom/atom-react`** (`tim-smart/effect-atom`, MIT
 ## Install + (optional) provider
 
 ```bash
-pnpm add @effect-atom/atom-react        # peers: effect ^3.19, react >=18 <20
+pnpm add @effect-atom/atom-react        # peers: effect ^3.19, react >=18 <20 — moves;
+                                        # verify: npm info @effect-atom/atom-react peerDependencies
 ```
 
 No provider is required — hooks fall back to a default registry. Wrap with `RegistryProvider` only for SSR initial values or custom GC config:
@@ -46,6 +47,8 @@ Derived/computed atoms take a getter; they recompute when any `get(...)` depende
 const doubledAtom = Atom.make((get) => get(countAtom) * 2)
 const label       = Atom.map(countAtom, (n) => `Count: ${n}`)
 ```
+
+Atoms are ephemeral by default — when the last subscriber unmounts, the state resets; wrap with `Atom.keepAlive` when it must survive (e.g. across route changes).
 
 ## Server/async state — Effect-backed atoms + `Result`
 

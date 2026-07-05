@@ -4,8 +4,8 @@ description: "Use when bootstrapping Effect-TS in a repo — detect the package 
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-03"
-  content_hash: "533b5b4341d872fca01fb6ea127c98b46398b07e6666fc8d0368565eb3d24694"
+  updated: "2026-07-05"
+  content_hash: "d17f67f804a0b166aacef1800f92ce066c7736011e82d3717c76ed6d3789c37b"
 ---
 
 # Effect-TS Setup (one-time repo bootstrap)
@@ -17,7 +17,7 @@ Gate every mutation behind explicit confirmation. Before initializing a project,
 </constraint>
 
 <constraint>
-Target **Effect 3.x stable**. Install with NO version pin (let the package manager take latest 3.x). `Schema` lives in **`effect/Schema`** — NEVER install `@effect/schema` (deprecated, folded into core in 3.10). The source-reference clone (Step 7) is **`Effect-TS/effect`** (the v3 monorepo), not `effect-smol` (that's the v4 beta).
+Target **Effect 3.x stable**. Install with NO version pin (let the package manager take latest 3.x). `Schema` lives in **`effect/Schema`** — NEVER install `@effect/schema` (deprecated, folded into core in 3.10). The source-reference clone (Step 7) is **`Effect-TS/effect`** (the v3 monorepo), not `effect-smol` (the v4 beta at last check — re-verify with `npm info effect dist-tags` before relying on this).
 </constraint>
 
 <constraint>

@@ -55,7 +55,9 @@ import { Schema } from "effect"
 // 1. declare the spec (endpoints carry Schema for path/body/success/error)
 const UsersApi = HttpApi.make("api").add(
   HttpApiGroup.make("users")
-    .add(HttpApiEndpoint.get("getUser", "/users/:id").addSuccess(User))
+    .add(HttpApiEndpoint.get("getUser", "/users/:id")
+      .setPath(Schema.Struct({ id: Schema.String }))   // gives the handler a typed `path.id`
+      .addSuccess(User))
     .add(HttpApiEndpoint.post("createUser", "/users").setPayload(CreateUser).addSuccess(User)),
 )
 
@@ -77,4 +79,4 @@ const UsersLive = HttpApiBuilder.group(UsersApi, "users", (handlers) =>
 
 - Hot path you can't risk → **Wrap**, ship, move on.
 - A route group you're already reworking, or one that needs a typed client/OpenAPI → **Replace** with HttpApi.
-- You can mix: Fastify mounts the platform web handler for some groups while others stay native during the transition.
+- You can mix during a transition, but there is no official Fastify mount for platform web handlers (`(Request) => Promise<Response>` vs Fastify's Node req/reply) — run replaced groups on their own server/prefix, or write a small manual bridge.

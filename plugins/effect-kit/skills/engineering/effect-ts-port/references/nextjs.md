@@ -20,8 +20,9 @@ Import this from every route/action. It's reused across invocations within a war
 import { Cause, Exit } from "effect"
 import { runtime } from "@/lib/runtime"
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const exit = await runtime.runPromiseExit(getUser(params.id))
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params                        // Next 15+: params is a Promise
+  const exit = await runtime.runPromiseExit(getUser(id))
   if (Exit.isSuccess(exit)) return Response.json(exit.value)
   const f = Cause.failureOption(exit.cause)
   const status = f._tag === "Some" && f.value._tag === "UserNotFound" ? 404 : 500
@@ -50,10 +51,14 @@ When the route is a whole `HttpApp` (built from `@effect/platform` `HttpApiBuild
 import { HttpApp } from "@effect/platform"
 import { runtime } from "@/lib/runtime"
 
-const handler = HttpApp.toWebHandlerRuntime(runtime)(httpApp)   // (req: Request) => Promise<Response>
-export const POST = (req: Request) => handler(req)
+// toWebHandlerRuntime takes a plain Runtime — unwrap the ManagedRuntime first (async)
+const handlerPromise = runtime
+  .runtime()
+  .then((rt) => HttpApp.toWebHandlerRuntime(rt)(httpApp))       // (req: Request) => Promise<Response>
+export const POST = async (req: Request) => (await handlerPromise)(req)
 // inside httpApp: HttpServerRequest.schemaBodyJson(CreateUser) parses+validates the body,
-// HttpServerResponse.json(...) responds; tagged errors map to status automatically.
+// HttpServerResponse.json(...) responds. Automatic tagged-error → status mapping is an HttpApi
+// feature (declare `.addError(E, { status })`); a plain HttpRouter needs explicit mapping.
 ```
 
 ## Server actions

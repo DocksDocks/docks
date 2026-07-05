@@ -1,11 +1,11 @@
 ---
 name: effect-ts-specialist
-description: "Use when writing or reviewing idiomatic Effect-TS (`effect` 3.x) — services & layers (`Context.Tag`/`Effect.Service`), dependency injection, tagged errors (`Data.TaggedError`/`Schema.TaggedError`), `effect/Schema` data modeling, `Config`, running effects (`Effect.runPromise`/`ManagedRuntime`), `Scope` resources, `@effect/vitest`+`TestClock` testing. Not for porting a Fastify/Next/React app (use effect-ts-port) or first-time repo bootstrap (use effect-ts-setup)."
+description: "Use when writing or reviewing Effect-TS (`effect` 3.x) — services & layers (`Context.Tag`/`Effect.Service`, DI for a hard-coded SDK), tagged errors, `effect/Schema` data modeling (`Schema.brand` IDs, validating external input/env), `Config`, `ManagedRuntime`, `Scope` resources, `@effect/vitest` testing (`TestClock`, mock service layers), `@effect/language-service` diagnostics. Not for porting a Fastify/Next/React app (use effect-ts-port) or first-time repo bootstrap (use effect-ts-setup)."
 user-invocable: false
 metadata:
   pattern: patterns-reference
-  updated: "2026-07-03"
-  content_hash: "7f5ffc3c888330facd797868d588c74a661ab4dd5c6876fe5a5296d28a4d6681"
+  updated: "2026-07-05"
+  content_hash: "61ae9d86c3c9c4e16de7b5c71aa36b1c79e65abe9cbd54a4281567076f0f76f6"
 ---
 
 # Effect-TS Specialist (idiomatic Effect 3.x)
@@ -114,7 +114,7 @@ Topics roughly correspond to the reference files below. Absence of these tools i
 | `installing @effect/schema` | Deprecated package, wrong types | Import from `effect/Schema` (core since 3.10) |
 | Plain `JSON.parse` of external input | Unvalidated `any` | `Schema.decodeUnknown` / `Schema.parseJson` |
 
-Install the **`@effect/language-service`** tsconfig plugin (the `effect-ts-setup` skill wires it) — it catches most of the above at edit time.
+Install the **`@effect/language-service`** tsconfig plugin (the `effect-ts-setup` skill wires it) — it catches most of the above at edit time. Rule names here and in the references move with the plugin: exercise a claim by reproducing the anti-pattern in a scratch file and confirming the diagnostic appears (or run `pnpm exec effect-language-service check`).
 
 ## References
 

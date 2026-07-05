@@ -76,9 +76,11 @@ program.pipe(Effect.catchAllCause((cause) => Effect.logError(cause)))
 ```ts
 import { Effect, Schedule } from "effect"
 query(id).pipe(
-  Effect.retry(Schedule.exponential("100 millis").pipe(Schedule.compose(Schedule.recurs(3)))),
+  // intersect keeps the backoff AND caps the tries (compose would pick the shorter — zero — delay)
+  Effect.retry(Schedule.exponential("100 millis").pipe(Schedule.intersect(Schedule.recurs(3)))),
   Effect.timeout("5 seconds"),     // adds TimeoutException to E
 )
+// simple bounded retry without backoff:  Effect.retry(query(id), { times: 3 })
 ```
 
 ## Checklist

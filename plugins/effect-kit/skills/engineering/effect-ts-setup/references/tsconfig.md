@@ -40,7 +40,7 @@ Effect leans on precise types — a strict tsconfig is what makes the requiremen
 }
 ```
 
-`exactOptionalPropertyTypes` + `strict` are the load-bearing flags — they make `Schema` optional fields and the error channel behave as written.
+`exactOptionalPropertyTypes` + `strict` are the load-bearing flags — they make `Schema` optional fields and the error channel behave as written (with EOPT off, optional fields accept `undefined` statically yet can fail at decode — the Schema introduction docs demo this).
 
 ## Rule of thumb: who compiles your code?
 
@@ -69,4 +69,4 @@ Each package extends a shared `tsconfig.base.json` and the root composes them wi
 
 - If the repo has no `tsconfig.json`, create one with the baseline above (pick the bundler vs `tsc` row by project type).
 - Don't silently flip a setting the user set differently (e.g. they intentionally disabled `noUnusedLocals`) — surface the diff and let them choose.
-- `skipLibCheck: true` is recommended for speed; it does not weaken your own code's type-checking.
+- `skipLibCheck: true` is recommended for speed; it skips checking `.d.ts` files only — your own code's type-checking is unaffected (per the TS docs).

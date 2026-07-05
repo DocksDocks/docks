@@ -1,11 +1,11 @@
 ---
 name: effect-ts-port
-description: "Use when porting an existing TypeScript codebase to Effect-TS (3.x) — Fastify routes, Next.js App Router handlers / server actions, or React components. Detects the framework, asks scope, writes a tiered incremental-migration plan to docs/plans/ (via plan-manager), then migrates one boundary at a time (`Effect.tryPromise` + `ManagedRuntime`), test-gated. Not for first-time Effect setup (use effect-ts-setup) or writing fresh Effect patterns (use effect-ts-specialist)."
+description: "Use when porting an existing TypeScript codebase to Effect-TS (3.x) — Fastify routes, Next.js App Router handlers / server actions, or React components (`useState`/`useEffect` state → `@effect-atom/atom-react`). Detects the framework, asks scope, writes a tiered migration plan to docs/plans/, then migrates one boundary at a time (`Effect.tryPromise` + `ManagedRuntime`), test-gated. Not for first-time Effect setup (use effect-ts-setup) or writing fresh Effect patterns (use effect-ts-specialist)."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-03"
-  content_hash: "bb722d7c03d2027c09f840fbfffdb9cef1b30d6efafa203880db03776f6d73d2"
+  updated: "2026-07-05"
+  content_hash: "aa6542a7de691f704cb1d68c60c92fc4412a337dddc963f182326a95933ae0cd"
 ---
 
 # Effect-TS Port (cross-tool pipeline)
@@ -61,8 +61,10 @@ Run in order. Each phase reads its reference (where listed), then writes output 
 ## The plan file (IPC + deliverable)
 
 ```text
-docs/plans/planned/<YYYYMMDD>-effect-port-<scope>.md   (preferred — tracked by plan-manager)
-docs/effect-port-<YYYYMMDD>.md                          (fallback when docs/plans/ is absent)
+docs/plans/active/effect-port-<scope>.md   (preferred — tracked by plan-manager; status lives in
+                                            frontmatter, not the path — confirm the layout against
+                                            the project's docs/plans/AGENTS.md)
+docs/effect-port-<YYYYMMDD>.md             (fallback when docs/plans/ is absent)
 ```
 
 Write as you go — never hold all phase output in context and dump at the end. The plan's `## Steps` table is the slice list; `## Mistakes & Dead Ends` records every `REVERTED:` slice so a resumed run skips known dead ends.
@@ -124,13 +126,15 @@ Write `## Phase 5: Verification`: type-check clean, tests green (vs the Phase 4 
 
 ```ts
 // BAD — a fresh runtime per request: every layer (pools, clients) is rebuilt and leaked
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  return Response.json(await Effect.runPromise(getUser(params.id).pipe(Effect.provide(MainLive))))
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params                      // Next 15+: params is a Promise
+  return Response.json(await Effect.runPromise(getUser(id).pipe(Effect.provide(MainLive))))
 }
 // GOOD — one module-scope ManagedRuntime; handlers run through it and stay R-free
 import { runtime } from "@/lib/runtime"            // ManagedRuntime.make(MainLive), built once
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  return Response.json(await runtime.runPromise(getUser(params.id)))
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  return Response.json(await runtime.runPromise(getUser(id)))
 }
 ```
 

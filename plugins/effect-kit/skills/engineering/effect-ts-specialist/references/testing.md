@@ -35,7 +35,7 @@ it.effect("times out after 5s without blocking the test", () =>
   Effect.gen(function* () {
     const fiber = yield* Effect.fork(slowOp.pipe(Effect.timeout("5 seconds")))
     yield* TestClock.adjust("5 seconds")        // virtual time jump — test runs instantly
-    const exit = yield* Fiber.join(fiber)
+    const exit = yield* Fiber.await(fiber)      // Exit — Fiber.join would re-raise the failure
     expect(exit._tag).toBe("Failure")
   }))
 ```
@@ -62,6 +62,6 @@ Define a static `testLayer` next to a service's real `layer` for reuse. **Provid
 
 ## Notes
 
-- Logging is suppressed by default under `it.effect`; re-enable with a `Logger` layer or switch to `it.live` to see logs.
-- Assert on `Exit` (`Effect.runPromiseExit` / `Fiber.join`) when testing the failure channel — don't let a typed error throw.
+- Logging is suppressed by default under `it.effect` (verify: `Effect.log` prints nothing there, but does under `it.live`); re-enable with a `Logger` layer or switch to `it.live`.
+- Assert on `Exit` (`Effect.runPromiseExit` / `Fiber.await` / `Effect.exit`) when testing the failure channel — `Fiber.join` re-raises the failure instead of yielding an Exit.
 - The test script should run `vitest` (not `bun test`); pin `@effect/vitest` to match your `effect` version.

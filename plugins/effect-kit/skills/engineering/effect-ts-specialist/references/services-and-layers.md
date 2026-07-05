@@ -53,7 +53,7 @@ const SystemClockLive = Layer.succeed(Clock, { now: Effect.sync(() => Date.now()
 const TestClockLive   = Layer.succeed(Clock, { now: Effect.succeed(0) })
 ```
 
-Pick `Context.Tag` when you want to sketch the interface before any impl, or swap implementations (prod vs test, multiple backends). Pick `Effect.Service` for the common "one impl, give me a default layer" case. The `@effect/language-service` ships a refactor that converts between the two.
+Pick `Context.Tag` when you want to sketch the interface before any impl, or swap implementations (prod vs test, multiple backends). Pick `Effect.Service` for the common "one impl, give me a default layer" case. The `@effect/language-service` ships a refactor that converts between the two (list the current refactors with `pnpm exec effect-language-service overview`).
 
 ## Rules that keep `R` clean
 
