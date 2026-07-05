@@ -3,7 +3,7 @@ title: effect-kit post-migration review + upgrade roadmap
 goal: After the migration lands, audit the three Effect skills' current state (API currency, descriptions, conventions) against live Effect 3.x docs and docks conventions, then propose and ship an agreed upgrade round.
 status: in_review
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-05T17:40:17-03:00"
+updated: "2026-07-05T17:41:00-03:00"
 started_at: "2026-07-05T16:36:25-03:00"
 in_review_since: "2026-07-05T17:40:17-03:00"
 assignee: claude
@@ -14,7 +14,7 @@ affected_paths:
   - plugins/effect-kit/skills/engineering/effect-ts-port/
   - plugins/effect-kit/skills/AGENTS.md
 related_plans: [effect-kit-migration]
-review_status: null
+review_status: passed
 planned_at_commit: "08c8e06c6a3b18e255c7bb702366738051fb11fd"
 ---
 
@@ -89,7 +89,11 @@ Fresh-context draft review (plan-review Mode 0, 2026-07-05, at start): 88/100 �
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 5 acceptance criteria verified against the `08c8e06..HEAD` diff: 167-claim audit recorded in `## Notes` with zero unchecked; all 10 defects (4 drifted + 6 stale-snippet) reproduced-fixed in the fix round (85b5e78); scorer holds baselines port 16 / setup 14 / specialist 16 (ran this turn, no regression); step-4 additions (http-api.md, effect-rpc.md, react.md lifecycle/SSR) match the user picker recorded in `## Context & rationale`, nothing extra; `node scripts/ci.mjs` exit 0.
+- **Regressions:** none — every changed file is under `plugins/effect-kit/` + the 3 release manifests + this plan file; no docks/session-relay skill touched (Out-of-scope honored). `affected_paths` lists `plugins/effect-kit/skills/AGENTS.md` but it was not modified — a benign planned-but-unneeded touch, not drift.
+- **CI:** pass — `node scripts/ci.mjs` exit 0 (3 plugins + repo-wide; "effect-kit no unrouted high-overlap skill pair" and "effect-kit skill content_hash in sync" both green).
+- **Follow-ups:** none required to ship — routed items already recorded in `## Notes` (docks `tdd-workflow` migration-exclusion clause; docks-side Next.js sync-`params` currency sweep; TypeScript-currency checks). Suggested slugs if adopted: `docks-tdd-migration-exclusion`, `docks-nextjs-params-currency-sweep`.
+- Filed by: plan-review · 2026-07-05T17:41:00-03:00
 
 ## Notes
 
