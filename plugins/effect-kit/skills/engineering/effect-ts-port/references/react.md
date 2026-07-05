@@ -9,6 +9,7 @@ The React binding is **`@effect-atom/atom-react`** (`tim-smart/effect-atom`, MIT
 - [Server/async state — Effect-backed atoms + `Result`](#serverasync-state--effect-backed-atoms--result)
 - [Services & layers in components — `Atom.runtime`](#services--layers-in-components--atomruntime)
 - [Actions / mutations — `Atom.fn`](#actions--mutations--atomfn)
+- [Lifecycle, registry & SSR](#lifecycle-registry--ssr)
 - [Migration map](#migration-map)
 - [Slicing](#slicing)
 
@@ -106,6 +107,22 @@ function NewUser() {
 ```
 
 Keyed atoms: `const todoAtom = Atom.family((id: string) => runtimeAtom.atom(getTodo(id)))` → `useAtomValue(todoAtom(id))`.
+
+## Lifecycle, registry & SSR
+
+- **Idle disposal:** with no provider, the default registry keeps unused (zero-subscriber) atom state for 400 ms; under a `RegistryProvider` there is NO default TTL — unused atoms dispose immediately unless you pass `defaultIdleTTL` (ms). Per-atom: `Atom.setIdleTTL(duration)`; `Atom.keepAlive` opts out of disposal entirely (`Atom.autoDispose` reverts it).
+- **SSR/hydration:** mark atoms `Atom.serializable({ key, schema })`, `Hydration.dehydrate(registry)` on the server, `<HydrationBoundary state={…}>` on the client — imported from the subpath `@effect-atom/atom-react/ReactHydration` (NOT re-exported from the index). No official end-to-end Next.js recipe exists yet — verify the flow against the effect-atom source before relying on it.
+- **Client bridges:** `AtomHttpApi.Tag` wraps an `@effect/platform` `HttpApiClient`, `AtomRpc.Tag` wraps an `@effect/rpc` client — both expose `.query(…)`/`.mutation(…)` atoms with `reactivityKeys` invalidation (the component-side counterpart of `http-api.md` / `effect-rpc.md`):
+
+```tsx
+class CountClient extends AtomHttpApi.Tag<CountClient>()("CountClient", {
+  api: Api, httpClient: FetchHttpClient.layer, baseUrl: "http://localhost:3000",
+}) {}
+const count = useAtomValue(CountClient.query("counter", "count", { reactivityKeys: ["count"] }))
+const increment = useAtomSet(CountClient.mutation("counter", "increment"))
+```
+
+- **Outside React:** `Registry.make(…)` + `registry.get/set/subscribe` drive the same atoms imperatively (tests, scripts).
 
 ## Migration map
 

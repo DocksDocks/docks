@@ -79,7 +79,7 @@ Same runtime, same pattern — the action body is an Effect run through `runtime
 - **Serverless / cold starts**: the module-scope runtime is reused within a warm lambda but rebuilt on cold start. Keep `MainLive` construction cheap; lazy-init expensive resources inside services.
 - **Edge runtime**: not all Node platform layers run on the edge — use `@effect/platform` (web) layers, not `@effect/platform-node`, for edge routes.
 - **Dev HMR**: a module-scope runtime can survive HMR and leak; guard with a `globalThis` singleton in dev, and `runtime.dispose()` on teardown.
-- **RPC alternative**: `@effect/rpc` can replace a tRPC layer in the App Router (a typed effectful RPC client) — a Track-B-style move, plan it as a structural slice.
+- **RPC alternative**: `@effect/rpc` can replace a tRPC layer in the App Router (a typed effectful RPC client) — a Track-B-style move, plan it as a structural slice; contract + serve + client shapes: `references/effect-rpc.md`.
 
 ## Slicing
 

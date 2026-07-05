@@ -71,7 +71,7 @@ const UsersLive = HttpApiBuilder.group(UsersApi, "users", (handlers) =>
 // 3. serve (Node): HttpApiBuilder.api(UsersApi) + a platform HttpServer layer
 ```
 
-> The exact HttpApi DSL (method chains, `HttpApiSchema.param`, error mapping) moves between `@effect/platform` minors — verify the current shape via context7 (`@effect/platform`) or the docs before writing it. Tagged errors added with `.addError(...)` map to HTTP status codes automatically.
+> The exact HttpApi DSL (method chains, `HttpApiSchema.param`, error mapping) moves between `@effect/platform` minors — current verified shapes (declare / implement / serve / client / errors) live in `references/http-api.md`; re-verify via context7 (`@effect/platform`) before writing it. Tagged errors added with `.addError(...)` (or a status annotation on the error class) map to HTTP status codes automatically; unannotated errors default to 500.
 
 `effect-http` (sukovanej) was the precursor and is **deprecated** (2024) in favor of HttpApi — don't target it. Migration of names: `Api`→`HttpApi`, `ApiGroup`→`HttpApiGroup`, `ApiEndpoint`→`HttpApiEndpoint`, `RouterBuilder`→`HttpApiBuilder`.
 

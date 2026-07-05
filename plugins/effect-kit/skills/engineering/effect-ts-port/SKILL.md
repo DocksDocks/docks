@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-07-05"
-  content_hash: "aa6542a7de691f704cb1d68c60c92fc4412a337dddc963f182326a95933ae0cd"
+  content_hash: "ac4932cbed5f27be21f68248c84ac7652f39edea598ef667a68f19d9a64b2b39"
 ---
 
 # Effect-TS Port (cross-tool pipeline)
@@ -119,8 +119,10 @@ Write `## Phase 5: Verification`: type-check clean, tests green (vs the Phase 4 
 |---|---|
 | Incremental strategy, the run boundary, what to port first, `Effect.tryPromise` | `references/boundary-strategy.md` |
 | Fastify handlers (wrap) and `@effect/platform` HttpApi (replace) | `references/fastify.md` |
+| HttpApi current DSL — declare / implement / serve / client / error-status mapping | `references/http-api.md` |
+| `@effect/rpc` typed RPC (tRPC replacement): contract, HTTP serve, client | `references/effect-rpc.md` |
 | Next.js App Router route handlers, server actions, module-scope runtime | `references/nextjs.md` |
-| React via `@effect-atom/atom-react` (atoms, `Result`, `Atom.runtime`) | `references/react.md` |
+| React via `@effect-atom/atom-react` (atoms, `Result`, `Atom.runtime`, SSR/lifecycle) | `references/react.md` |
 
 ## Boundary pattern — the mistake that breaks ports
 
