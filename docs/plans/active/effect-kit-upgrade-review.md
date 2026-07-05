@@ -1,10 +1,10 @@
 ---
 title: effect-kit post-migration review + upgrade roadmap
 goal: After the migration lands, audit the three Effect skills' current state (API currency, descriptions, conventions) against live Effect 3.x docs and docks conventions, then propose and ship an agreed upgrade round.
-status: planned
+status: ongoing
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-03T17:33:55-03:00"
-started_at: null
+updated: "2026-07-05T16:36:25-03:00"
+started_at: "2026-07-05T16:36:25-03:00"
 assignee: claude
 tags: [effect-kit, audit, effect-ts, upgrade]
 affected_paths:
@@ -14,7 +14,7 @@ affected_paths:
   - plugins/effect-kit/skills/AGENTS.md
 related_plans: [effect-kit-migration]
 review_status: null
-planned_at_commit: "2fb11fab830bce13a5940e00bfc553f808ae9f2e"
+planned_at_commit: "08c8e06c6a3b18e255c7bb702366738051fb11fd"
 ---
 
 # effect-kit post-migration review + upgrade roadmap
@@ -38,12 +38,14 @@ The migration plan deliberately moves the payload byte-faithfully — content qu
 
 Requires [[effect-kit-migration]] shipped. Gates: `node scripts/ci.mjs --plugin effect-kit` · scorer `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file plugins/effect-kit/skills` · hash sync `node scripts/skills/content-hash.mjs --backfill plugins/effect-kit/skills` · docs research via context7 (`resolve-library-id` → `query-docs` for effect, @effect/platform, @effect-atom/atom-react) with WebFetch on effect.website as fallback · release `node scripts/release.mjs --plugin effect-kit minor` (user-gated).
 
+Review-base note: scaffolded at `2fb11fab` (pre-migration, by design — the plugin didn't exist in-repo yet). On Start, `planned_at_commit` was re-baselined to the HEAD current at start: the completion review diffs `planned_at_commit..HEAD`, and the pre-migration base would wrongly ingest the entire effect-kit migration diff as this plan's work.
+
 ## Steps
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | API-currency audit: for each of the 3 skills + 12 references, verify every version-specific claim against CURRENT Effect 3.x docs (context7 first); classify findings per the content-audit taxonomy (confirmed / drifted / stale-snippet / fictional-api) with the claim text + the doc evidence | audit notes in this plan's `## Notes` | — | planned |
-| 2 | Conventions audit: durable-anchors pass (guard already enforces `path:NN`; manually check for uncued volatile facts + behavior claims without exercising probes), description CSO + manual near-miss pass against docks engineering siblings (3 near-miss prompts each, routing via "Not for…" clauses) | same | — | planned |
+| 1 | API-currency audit: for each of the 3 skills + 12 references, verify every version-specific claim against CURRENT Effect 3.x docs (context7 first); classify findings per the content-audit taxonomy (confirmed / drifted / stale-snippet / fictional-api) with the claim text + the doc evidence | audit notes in this plan's `## Notes` | — | in-flight |
+| 2 | Conventions audit: durable-anchors pass (guard already enforces `path:NN`; manually check for uncued volatile facts + behavior claims without exercising probes), description CSO + manual near-miss pass against docks engineering siblings (3 near-miss prompts each, routing via "Not for…" clauses) | same | — | in-flight |
 | 3 | Fix round: apply every `drifted`/`stale-snippet`/`fictional-api` finding + convention gaps; lift effect-ts-setup toward 16 only if the rubric points are honest content (never padding); bump `metadata.updated` + hash backfill | the 3 skill dirs | 1,2 | planned |
 | 4 | Upgrade roadmap (Effect-only): propose candidate additions grounded in audit gaps — Effect-ecosystem surfaces the skills don't cover, derived from step-1 evidence against live docs, never assumed from memory; each candidate names its official package + the doc page proving it exists. Present via the open-questions picker; implement ONLY what the user selects; non-Effect ideas are recorded as follow-ups elsewhere, never implemented here | proposal in `## Open questions`, then chosen dirs | 1,2 | planned |
 | 5 | Gates + release: `node scripts/ci.mjs` exit 0; release `effect-kit` minor (user-gated picker) | manifests via release.mjs | 3,4 | planned |
@@ -69,6 +71,10 @@ Requires [[effect-kit-migration]] shipped. Gates: `node scripts/ci.mjs --plugin 
 - The skills' example code blocks are teaching artifacts — verify the APIs they call exist, but don't churn style; surgical fixes only.
 - Every content edit needs `metadata.updated` + hash backfill or the idempotency gate fails.
 
+## STOP conditions
+
+- If a content fix drops any skill below its baseline (port 16 / setup 14 / specialist 16) or breaks `node scripts/ci.mjs`, revert that specific edit and re-audit the claim before re-applying — never lower a baseline or loosen a validator to pass.
+
 ## Cold-handoff checklist
 
 1–9: file manifest ✓ · environment & commands ✓ (incl. research tooling) · contracts ✓ (audit taxonomy + evidence-table shape) · executable acceptance ✓ · out-of-scope ✓ · rationale ✓ · gotchas ✓ · constraints ✓ (user-picked additions only; blocked on migration) · no TBDs — step 4's candidates are derived at execution time by design, recorded as such ✓.
@@ -77,12 +83,14 @@ Requires [[effect-kit-migration]] shipped. Gates: `node scripts/ci.mjs --plugin 
 
 Score: 87/100 (normal tier, one pass — first score ≥85, no hill-climb). Strongest: executable acceptance (audit-evidence table + scorer non-regression + user-picked-only additions) and the explicit blocked-on-migration gate. Known softness, accepted by design: step 4's upgrade candidates are derived from step-1 evidence at execution time rather than pre-enumerated — pre-guessing Effect surface gaps from memory would violate the research-before-implementation rule the skills themselves mandate.
 
+Fresh-context draft review (plan-review Mode 0, 2026-07-05, at start): 88/100 — verdict "start after edits". Applied: `planned_at_commit` re-baselined to post-migration HEAD (completion-review diff integrity), baseline scorer source made in-repo/re-runnable, STOP condition added for the mutating steps.
+
 ## Review
 
 (filled by plan-review on completion)
 
 ## Sources
 
-- Pre-migration scorer run: 16/14/16 over `~/projects/effect-kit/plugins/effect-kit/skills` (this session).
+- Baseline scorer run (in-repo, verified at start): effect-ts-port 16 / effect-ts-setup 14 / effect-ts-specialist 16 via `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file plugins/effect-kit/skills`.
 - `~/projects/effect-kit/plugins/effect-kit/skills/AGENTS.md` — the grounding rule for version-specific claims (read this session).
 - `docs/plans/active/effect-kit-migration.md` — the deferred cross-plugin near-miss item this plan inherits.
