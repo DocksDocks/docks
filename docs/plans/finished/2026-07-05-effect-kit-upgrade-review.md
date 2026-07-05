@@ -1,11 +1,12 @@
 ---
 title: effect-kit post-migration review + upgrade roadmap
 goal: After the migration lands, audit the three Effect skills' current state (API currency, descriptions, conventions) against live Effect 3.x docs and docks conventions, then propose and ship an agreed upgrade round.
-status: in_review
+status: finished
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-05T17:41:00-03:00"
+updated: "2026-07-05T19:55:00-03:00"
 started_at: "2026-07-05T16:36:25-03:00"
 in_review_since: "2026-07-05T17:40:17-03:00"
+ship_commit: "2e5ae8d6e0e0a74b4fb0e0cd90f3c4f2ac52cc0d"
 assignee: claude
 tags: [effect-kit, audit, effect-ts, upgrade]
 affected_paths:
