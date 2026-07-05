@@ -136,6 +136,6 @@ let env: Env = envy::from_env()?;
 
 ## References
 
-- Rust Book — newtype pattern: https://doc.rust-lang.org/book/ch20-04-advanced-types.html
+- Rust Book — newtype pattern: https://doc.rust-lang.org/book/ch20-03-advanced-types.html
 - `serde` documentation: https://serde.rs/
 - `envy` crate: https://docs.rs/envy/

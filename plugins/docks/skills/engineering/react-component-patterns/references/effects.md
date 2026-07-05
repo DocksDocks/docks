@@ -152,6 +152,8 @@ useEffect(() => setMounted(true), [])
 return mounted ? <ClientOnly /> : null
 
 // GOOD — Next.js dynamic import with ssr:false
+// Next 15+: `ssr: false` is Client-Component-only — call it in a "use client" file
+// (a Server Component rejects it at build time)
 import dynamic from "next/dynamic"
 const ClientOnly = dynamic(() => import("./client-only"), { ssr: false })
 ```

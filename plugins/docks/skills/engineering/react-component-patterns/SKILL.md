@@ -9,8 +9,8 @@ paths:
   - "**/*.js"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-27"
-  content_hash: "bf01516cf23f85d1d017e56bbe3e76e9c9516808b579e45ad2638c4a056e031d"
+  updated: "2026-07-05"
+  content_hash: "3d072bda6e6c785eaf4758a5c84348b25b1545ad3591221158a5dca7c9bbf5ee"
 ---
 
 # React Component Patterns
@@ -105,5 +105,5 @@ The full anti-pattern → replacement table for effects lives in [`references/ef
 - React 19 `use client` (serialization rules): https://react.dev/reference/rsc/use-client
 - Next.js Server and Client Components: https://nextjs.org/docs/app/getting-started/server-and-client-components
 - `useSyncExternalStore`: https://react.dev/reference/react/useSyncExternalStore
-- Radix UI Slot source: https://github.com/radix-ui/primitives/blob/main/packages/react/slot/src/Slot.tsx
+- Radix UI Slot source: https://github.com/radix-ui/primitives/blob/main/packages/react/slot/src/slot.tsx
 - TanStack Table headless docs: https://tanstack.com/table/latest/docs/introduction

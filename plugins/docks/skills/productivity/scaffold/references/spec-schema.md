@@ -50,6 +50,8 @@ templated_files:
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
 ```
 
+This block shows the entry shape, not a complete inventory. Setup mode should copy the live spec's `templated_files` list after verifying each template exists.
+
 The three versioned manifests (`plugin.json`, codex `plugin.json`, claude `marketplace.json`) must agree on `version` — `scripts/scaffold/test.mjs` enforces this on the rendered output.
 
 ## `tree_nodes`

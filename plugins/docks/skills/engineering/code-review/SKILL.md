@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-23"
-  content_hash: "23578929fb71e0d159dbd3d4a71f3cec72335b94a8a62c0a0faf052fa53a6b98"
+  updated: "2026-07-05"
+  content_hash: "30559a9cc744e94d376332df7657cb4198b46db40671a2a8290308da8e88167d"
 ---
 
 # Code Review
@@ -23,7 +23,7 @@ The review phase is READ-ONLY. Don't apply fixes during analysis — produce the
 </constraint>
 
 <constraint>
-Two-axis mode (optional) — activate when reviewing changes since a fixed point AND a spec source exists (a related plan in `docs/plans/{ongoing,blocked,finished}/<slug>.md`, an issue link in a commit message, a PRD path passed by the user, or any `specs/`/`docs/` file matching the branch name). Run two passes and report them under separate `## Standards` and `## Spec` headings — **do NOT merge or rerank findings across axes**. A change can pass Standards and fail Spec (correct code, wrong feature) or pass Spec and fail Standards (right feature, wrong conventions); merging hides exactly those crossings. See the "Two-Axis Mode" section below. Skip activation if no spec source exists — single-axis Standards review is the default.
+Two-axis mode (optional) — activate when reviewing changes since a fixed point AND a spec source exists (a related plan in `docs/plans/active/<slug>.md` or `docs/plans/finished/<YYYY-MM-DD>-<slug>.md`, an issue link in a commit message, a PRD path passed by the user, or any `specs/`/`docs/` file matching the branch name). Run two passes and report them under separate `## Standards` and `## Spec` headings — **do NOT merge or rerank findings across axes**. A change can pass Standards and fail Spec (correct code, wrong feature) or pass Spec and fail Standards (right feature, wrong conventions); merging hides exactly those crossings. See the "Two-Axis Mode" section below. Skip activation if no spec source exists — single-axis Standards review is the default.
 </constraint>
 
 <constraint>
@@ -101,7 +101,7 @@ Before listing a finding, run these checks:
 
 Reject findings that fail these checks. A short list of solid findings beats a long list of shaky ones.
 
-Reject for missing **evidence**, never for low severity or imperfect **confidence**. Current Opus models follow conservative filters literally — told "only report what you're sure about", they investigate, find the bug, then silently decline to report it. A finding with real evidence but uncertain exploitability gets reported with an explicit confidence label (`confidence: low|medium|high`) so the user or a downstream verification pass does the filtering.
+Reject for missing **evidence**, never for low severity or imperfect **confidence**. Opus-family models follow conservative filters literally — told "only report what you're sure about", they investigate, find the bug, then silently decline to report it. A finding with real evidence but uncertain exploitability gets reported with an explicit confidence label (`confidence: low|medium|high`) so the user or a downstream verification pass does the filtering.
 
 ### Step 5 — Report (and optionally fix)
 
@@ -123,6 +123,8 @@ If the user approves fixes:
 3. If a fix breaks a test or introduces a regression, **revert with `git restore`** and report the revert — don't try to fix the fix in the same review cycle
 4. After all approved fixes land, re-run the full check suite and report final state
 
+Inline apply covers single-file, low-blast-radius fixes only. Hand cross-file or architectural findings to the `fix-workflow` skill as a findings list — it tiers fixes by blast radius and pre-declares revert triggers per change.
+
 ## Two-Axis Mode (Standards + Spec)
 
 When the trigger above fires, run the review on two axes and report them side-by-side without merging.
@@ -130,7 +132,7 @@ When the trigger above fires, run the review on two axes and report them side-by
 **Axis 1 — Standards.** Does the diff follow the project's documented conventions? Source: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/adr/*`, any `STYLE.md`/`STANDARDS.md`, plus the skill set under `.claude/skills/`. **Skip what tooling already enforces** (eslint/biome/prettier/tsc/ruff/clippy/gofmt) — note their presence but don't re-derive what `npx tsc --noEmit` would flag in 2 seconds.
 
 **Axis 2 — Spec.** Does the diff faithfully implement what was asked? Source priority:
-1. A plan file in `docs/plans/{ongoing,blocked,finished}/<slug>.md` matching the branch / commit message — read its `Goal` and `Steps`.
+1. A plan file in `docs/plans/active/<slug>.md` (live) or `docs/plans/finished/<YYYY-MM-DD>-<slug>.md` (shipped) matching the branch / commit message — read its `Goal` and `Steps`.
 2. Issue references in commit messages (`#123`, `Closes #45`) — fetch via `gh issue view 123` if the repo has GitHub.
 3. A PRD/spec path passed by the user as the explicit spec source.
 4. A `specs/` / `docs/<feature>.md` file matching the branch name.
@@ -206,6 +208,6 @@ MEDIUM · Maintainability · src/api/orders.ts:45-62
 
 ## References
 
-- Pairs with: `/security` for OWASP Top 10 coverage with adversarial perspective; `/refactor` for SOLID and dead-code analysis at scale; `lint-no-suppressions` if your fix would otherwise involve silencing a linter rule
+- Pairs with: the `security` skill for OWASP Top 10 coverage with adversarial perspective; the `refactor` skill for SOLID and dead-code analysis at scale; `lint-no-suppressions` if your fix would otherwise involve silencing a linter rule
 - Per-axis finding catalogs: `references/security.md`, `references/perf.md`, `references/maintainability.md`
 - OWASP Top 10 vocabulary: https://owasp.org/Top10/

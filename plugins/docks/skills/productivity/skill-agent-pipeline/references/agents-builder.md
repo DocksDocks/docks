@@ -16,7 +16,7 @@ name: kebab-case-name
 description: <CSO, 3rd person, ≤1024 chars, includes scope exclusion>
 tools: <minimal — only what the agent needs>
 model: opus
-maxTurns: 100
+maxTurns: 100   # volatile key — re-verify against the sub-agents doc (code.claude.com/docs/en/sub-agents) before emitting
 ---
 ```
 

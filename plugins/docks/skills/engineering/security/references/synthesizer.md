@@ -7,7 +7,7 @@ Per-finding reproduction is mandatory. For each surviving finding: (1) re-search
 </constraint>
 
 <constraint>
-Verify any remediation library API (helmet, cors, csurf, bcrypt, argon2, passport, …) against current docs before recommending it. A fix with a wrong API is worse than no fix.
+Verify any remediation library API (helmet, cors, csrf-csrf, bcrypt, argon2, passport, …) against current docs before recommending it. A fix with a wrong API is worse than no fix.
 </constraint>
 
 ## Passes (in order)

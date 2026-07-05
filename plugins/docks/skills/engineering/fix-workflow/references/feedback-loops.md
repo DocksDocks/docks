@@ -66,7 +66,7 @@ Do **not** proceed to hypothesise without a loop. Generating hypotheses against 
 | Anti-pattern | Better |
 |---|---|
 | "I'll add `console.log` and re-run the full suite" | Targeted log with a tag (`[DEBUG-a4f2]`) so cleanup is one grep, run only the specific test |
-| Log-everything-and-grep | One probe per Phase 3 hypothesis, mapped to its prediction |
+| Log-everything-and-grep | One probe per hypothesis, mapped to its prediction, inside the Step 2 loop |
 | Re-run the same flaky test and hope | Stress-loop 100× to raise the rate, OR pin timing/RNG/clock to make it deterministic |
 | "Reproduced it on my machine" with no captured artifact | Save the inputs (curl command, payload file, env vars) so the loop survives session restart |
 | Perf regression debugged via logs | Logs lie about perf. Establish a baseline measurement (timing harness, `performance.now()`, profiler, query plan), then bisect against the baseline. |
@@ -75,7 +75,7 @@ Do **not** proceed to hypothesise without a loop. Generating hypotheses against 
 
 ## Gotchas
 
-- **`[DEBUG-prefix]` tagging is load-bearing for cleanup.** Untagged debug logs survive into production. A grep for your prefix at Phase 6 is one command; reading the diff line-by-line is not.
+- **`[DEBUG-prefix]` tagging is load-bearing for cleanup.** Untagged debug logs survive into production. A grep for your prefix at Step 6's final verification sweep is one command; reading the diff line-by-line is not.
 - **The "correct seam" for the regression test isn't always where the bug surfaced.** If the bug needs 3 callers in sequence, a unit test on the 3rd caller is false confidence. If no correct seam exists, that's itself a finding — flag it for the `refactor` skill (see `solid/references/depth-and-seams.md`).
 - **Performance loops measure what they measure.** A 1% regression on a hot path matters; a 50% regression on cold init at boot may not. Baseline the right scenario.
 - **Loop construction time is fix-completion time.** A 20-min investment in a 2-sec deterministic loop beats a 2-min investment in a 90-sec flaky one — the difference compounds across every iteration of the fix.
@@ -84,6 +84,6 @@ Do **not** proceed to hypothesise without a loop. Generating hypotheses against 
 ## References
 
 - Parent: `fix-workflow/SKILL.md` — Step 0 (this constraint) and Step 2 (Reproduce, which consumes the loop you build here).
-- Companion: `tdd-workflow` — the regression test you write at Phase 5 follows the same red-green-refactor discipline.
+- Companion: `tdd-workflow` — the regression test you write at Step 2 (Reproduce) follows the same red-green-refactor discipline.
 - Companion: `solid/references/depth-and-seams.md` — when "no correct seam exists" is the finding, that's an architecture signal.
 - Source attribution: framing from Matt Pocock's `diagnose` skill (MIT, `github.com/mattpocock/skills/blob/main/skills/engineering/diagnose/SKILL.md`).

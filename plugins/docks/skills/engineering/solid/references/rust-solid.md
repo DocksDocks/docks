@@ -68,7 +68,7 @@ use std::sync::LazyLock;   // std since Rust 1.80 — no once_cell dependency ne
 
 type Formatter = fn(&Event) -> String;
 
-static FORMATTERS: Lazy<HashMap<&'static str, Formatter>> = Lazy::new(|| {
+static FORMATTERS: LazyLock<HashMap<&'static str, Formatter>> = LazyLock::new(|| {
     let mut m = HashMap::new();
     m.insert("user_invited",       (|e: &Event| format!("{} invited {}", e.actor, e.target)) as Formatter);
     m.insert("role_changed",       |e: &Event| format!("{} changed role", e.actor));

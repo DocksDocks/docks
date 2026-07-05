@@ -65,12 +65,14 @@ Edit the node, not this list, when a folder's rules change.
 |---|---|
 | `docs/plans/` | plan lifecycle + frontmatter schema |
 | `plugins/docks/skills/` | skill authoring + scoring |
+| `plugins/effect-kit/skills/` | effect-kit skill authoring |
+| `plugins/session-relay/` | relay plugin: bus server + hook + CLI |
 | `docs/scaffold/` | scaffold spec + templates |
 | `scripts/` | validator / CI tooling contract |
 | `.github/` | CI workflow triggers |
 ```
 
-The list is breadcrumbs only — the authoritative content is in each node, so the root stays sparse.
+The list is breadcrumbs only — the authoritative content is in each node, so the root stays sparse. Re-derive the current set with `find . -name CLAUDE.md -not -path "*/node_modules/*"` (every hit except the root file is a node).
 
 ## Per-section relocation table (the approval gate)
 

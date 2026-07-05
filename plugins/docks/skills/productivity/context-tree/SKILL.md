@@ -1,11 +1,11 @@
 ---
 name: context-tree
-description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh folder / refresh all. Not for single-root-context repos, generic doc generation, or docs/plans/ which is already a node."
+description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh folder / refresh all. Not for single-root-context repos, CLAUDE.md↔AGENTS.md canonicalization/multi-tool setup (use multi-tool-bridge), generic doc generation, or docs/plans/ which is already a node."
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-03"
-  content_hash: "6b674bb7e9445e0d7ff738903ecd51f28300b94c6b83c4a6c9d78972389366c6"
+  updated: "2026-07-05"
+  content_hash: "a762a748f2e40ceee5dffb2a731503b2f89fa585e428aaf6fb568ad1f6ae1c39"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md

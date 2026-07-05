@@ -11,8 +11,8 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-14"
-  content_hash: "6256b6b19148c72ee9a3516acfafe80ed4fbb13d2146a5f0ba7f5111aa3775d7"
+  updated: "2026-07-05"
+  content_hash: "74c4701d627121b99f58d1e71065e2c45fbd318db0692cc263f4bc4d95807181"
 ---
 
 # Type-Safety Discipline
@@ -272,6 +272,8 @@ Boundaries get parsers, not casts. Inside the typed core, never use `as` (or equ
 TypeScript `class` is justified in exactly three cases: (a) `Error` subtypes (`class NotFoundError extends Error` — preserves stack + `instanceof`), (b) long-lived stateful objects with invariants + a lifecycle (connection pool, parser, FSM, cache with eviction), (c) framework-mandated shapes (NestJS `@Injectable`, TypeORM/Mikro-ORM entities, `class-validator` DTOs). Default to a top-level function or factory closure for everything else — class instances don't tree-shake well, don't serialize across RSC/JSON/`structuredClone`, and tempt the inheritance hierarchies the `solid` skill flags. Full BAD/GOOD + anti-pattern table in [`references/typescript-class-vs-function.md`](references/typescript-class-vs-function.md).
 </constraint>
 
+Maintenance twin: this three-case gate is restated in the `solid` skill and in the `refactor` skill's `references/solid-analyzer.md` — a change to the case list must land in all three homes in the same commit.
+
 ## Decision Tree — When You're Stuck
 
 1. **Tempted to write `any` / `Any` / `object`?** → Use the typed-but-opaque equivalent and narrow. If the shape is dynamic, parse at the boundary.
@@ -303,6 +305,6 @@ TypeScript `class` is justified in exactly three cases: (a) `Error` subtypes (`c
 - TypeScript handbook — `unknown` vs `any`: https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#unknown
 - TypeScript handbook — discriminated unions + `never`: https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions
 - TypeScript 4.9 — `satisfies` operator: https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator
-- Rust Book — newtype pattern: https://doc.rust-lang.org/book/ch20-04-advanced-types.html
+- Rust Book — newtype pattern: https://doc.rust-lang.org/book/ch20-03-advanced-types.html
 - Kotlin value classes: https://kotlinlang.org/docs/inline-classes.html
 - Python `typing.NewType`: https://docs.python.org/3/library/typing.html#newtype

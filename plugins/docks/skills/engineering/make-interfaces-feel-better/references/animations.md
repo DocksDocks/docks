@@ -251,7 +251,7 @@ function IconButton({ isActive, ActiveIcon, InactiveIcon }) {
           className={cn(
             "absolute inset-0 flex items-center justify-center",
             "transition-[opacity,filter,scale] duration-300",
-            "cubic-bezier(0.2, 0, 0, 1)",
+            "ease-[cubic-bezier(0.2,0,0,1)]",
             isActive
               ? "scale-100 opacity-100 blur-0"
               : "scale-[0.25] opacity-0 blur-[4px]"
@@ -262,7 +262,7 @@ function IconButton({ isActive, ActiveIcon, InactiveIcon }) {
         <div
           className={cn(
             "transition-[opacity,filter,scale] duration-300",
-            "cubic-bezier(0.2, 0, 0, 1)",
+            "ease-[cubic-bezier(0.2,0,0,1)]",
             isActive
               ? "scale-[0.25] opacity-0 blur-[4px]"
               : "scale-100 opacity-100 blur-0"

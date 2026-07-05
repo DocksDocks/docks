@@ -20,7 +20,7 @@ poetry update <pkg>                         # Patch+minor within constraints
 poetry add <pkg>@^X                         # Lift constraint to upgrade major
 
 # pipenv
-pipenv check                                # Audit (delegates to safety)
+pipenv scan                                 # Audit (delegates to safety; the old `check` subcommand is unsupported since 2025-06)
 pipenv graph                                # Transitive trace
 pipenv update <pkg>
 
@@ -30,8 +30,8 @@ uv export --format requirements-txt | pip-audit -r /dev/stdin   # uv has no audi
 uv tree
 
 # safety (third-party scanner, broader DB)
-pip install safety
-safety check --full-report
+pip install safety                          # Safety 3 requires an account: `safety auth login` (or an API key)
+safety scan                                 # Safety 3 command (the v2 `check` command was removed)
 ```
 
 Full check suite after every upgrade:

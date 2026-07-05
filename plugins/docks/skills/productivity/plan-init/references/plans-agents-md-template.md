@@ -2,6 +2,8 @@
 
 Verbatim content to write at `docs/plans/AGENTS.md` (cross-tool — Codex, Claude Code, OpenCode, VS Code Copilot all read AGENTS.md when present). The bootstrap also writes a one-line `docs/plans/CLAUDE.md` containing `@AGENTS.md` so Claude Code's nested-directory discovery picks up the same content. The example datetimes below are illustrative — write the block as-is.
 
+Deliberate divergence: the template's `## Runtime agent dispatch` section ships to consumers but is absent from the docks repo's own `docs/plans/AGENTS.md` (the kit documents its wrappers in its root file instead) — don't "fix" the mismatch by deleting the section here.
+
 ````markdown
 # AGENTS.md — docs/plans/
 

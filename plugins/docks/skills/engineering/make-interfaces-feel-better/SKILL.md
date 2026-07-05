@@ -4,12 +4,14 @@ description: "Use when building or reviewing UI components; fixing positioning t
 user-invocable: true
 metadata:
   pattern: upstream-adapted
-  updated: "2026-06-14"
+  updated: "2026-07-05"
   upstream:
     source: https://github.com/jakubkrehel/make-interfaces-feel-better
     license: MIT
     vendored_at: "2026-04-20"
-  content_hash: "0c2c7baf699d70408b9729eec4cdeb875356398c09eb0ca61f3b62991fb33826"
+    patches:
+      - "2026-07-05: animations.md easing string → ease-[cubic-bezier(...)] — upstream snippet emits a non-class"
+  content_hash: "9f30aa3921141efc3b63c51a1b07374776687141ab549845a3cbc45b0bd9d161"
 ---
 
 # Details that make interfaces feel better

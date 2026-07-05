@@ -1,6 +1,6 @@
 # Phase 1 — Exploration
 
-Map the project profile and enumerate everything that already exists. This feeds the categorizer (2a), pattern scanner (2b), and — on Claude — the role mapper (4a).
+Map the project profile and enumerate everything that already exists. This feeds the categorizer (2a), pattern scanner (2b), and the role mapper (4a).
 
 <constraint>
 Enumerate, don't diagnose. Record what exists (files, frontmatter, structure). Do NOT judge quality or propose changes — that is Phase 2a/2b. List concerns as located facts only.

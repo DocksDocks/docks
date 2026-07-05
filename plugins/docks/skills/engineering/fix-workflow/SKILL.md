@@ -4,14 +4,14 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-27"
-  content_hash: "6cc7287eeba45b52a1409874751961ec34044da24eb4909204358eb0092a63b9"
+  updated: "2026-07-05"
+  content_hash: "3b073c3bd728a7e04e870bf4f140947c1a4f99408262fb9d49d587649ffb8662"
 ---
 
 # Fix Workflow
 
 <constraint>
-Before anything else: build a feedback loop. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause — bisection, hypothesis testing, and instrumentation all just consume that signal. Without one, "fixing" is speculation. The full ranked menu of 10 loop-construction methods, plus iteration rules, non-deterministic-bug handling, and the "when you genuinely cannot build a loop" stop-and-ask procedure live in [`references/feedback-loops.md`](references/feedback-loops.md). Read it before Step 2 (Reproduce). Spend disproportionate effort here — a 2-second deterministic loop is a debugging superpower; a 90-second flaky one is barely better than nothing.
+Step 0 — before anything else: build a feedback loop. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause — bisection, hypothesis testing, and instrumentation all just consume that signal. Without one, "fixing" is speculation. The full ranked menu of 10 loop-construction methods, plus iteration rules, non-deterministic-bug handling, and the "when you genuinely cannot build a loop" stop-and-ask procedure live in [`references/feedback-loops.md`](references/feedback-loops.md). Read it before Step 2 (Reproduce). Spend disproportionate effort here — a 2-second deterministic loop is a debugging superpower; a 90-second flaky one is barely better than nothing.
 </constraint>
 
 <constraint>
@@ -184,7 +184,7 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 ## References
 
 - Companion skills: `dep-vuln-workflow`, `lint-no-suppressions`, `code-review`, `tdd-workflow`
-- Companion commands: `/security`, `/refactor`
+- Companion pipeline skills: `security`, `refactor` (cross-tool pipelines — no slash command)
 - Per-finding-type templates: `references/security-fix-templates.md`, `references/perf-fix-templates.md`, `references/bug-fix-templates.md`
 - Feedback-loop construction (Step 0): `references/feedback-loops.md`
 - Framing for feedback-loops.md adapted from Matt Pocock's `diagnose` skill (MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnose/SKILL.md

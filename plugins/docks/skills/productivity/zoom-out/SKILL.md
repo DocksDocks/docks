@@ -4,8 +4,8 @@ description: "Use when tunneling in code-level detail and you need a system-leve
 user-invocable: true
 metadata:
   pattern: micro-skill
-  updated: "2026-06-10"
-  content_hash: "db1de8a03f7cf2a5fd26e3c7740c5748df332df0ca3785a33dce1382fede1f9b"
+  updated: "2026-07-05"
+  content_hash: "178ae11f7be487c7c59cbe64ba01e8769f1fb0b003b334a0453ca4c4fe694c8e"
 ---
 
 # Zoom Out
@@ -17,7 +17,7 @@ The output of a zoom-out is a MAP, not a write-up. Aim for a labelled diagram (f
 </constraint>
 
 <constraint>
-Use the project's domain vocabulary first. If `.claude/skills/solid/references/depth-and-seams.md` exists, the structural vocabulary is locked to Module / Interface / Implementation / Depth / Seam / Adapter — use those terms exactly, don't drift into "component," "service," "API," "wrapper," "boundary." Domain nouns come from the project's `AGENTS.md` / `CLAUDE.md` / `CONTEXT.md` (whichever exists) — use those rather than inventing labels.
+Use the project's domain vocabulary first. If the `solid` skill's depth-and-seams vocabulary is available (its `references/depth-and-seams.md`), the structural vocabulary is locked to Module / Interface / Implementation / Depth / Seam / Adapter — use those terms exactly, don't drift into "component," "service," "API," "wrapper," "boundary." Domain nouns come from the project's `AGENTS.md` / `CLAUDE.md` / `CONTEXT.md` (whichever exists) — use those rather than inventing labels.
 </constraint>
 
 <constraint>

@@ -127,16 +127,16 @@ pub extern "C" fn ffi_call(a: i32, b: i32, c: i32, d: i32, e: i32, f: i32, g: i3
 
 | Syntax | Scope |
 |---|---|
-| `//nolint:errcheck // reason` | Same line; reason **required** by default when `nolintlint` is on |
+| `//nolint:errcheck // reason` | Same line; reason enforced when `nolintlint` runs with `require-explanation: true` (defaults **false** — opt in) |
 | `//nolint:errcheck,govet // reason` | Multiple linters |
 | `//nolint:all` | All linters (avoid) |
-| `linters-settings.<linter>.<flag>` in `.golangci.yml` | Project-wide |
+| `linters: settings: <linter>: <flag>` in `.golangci.yml` (golangci-lint v2 schema) | Project-wide |
 
 ```go
 _, _ = file.Write(buf) //nolint:errcheck // best-effort log flush at shutdown
 ```
 
-`nolintlint` is the meta-linter that enforces the reason requirement on `//nolint:` directives. Keep it on.
+`nolintlint` is the meta-linter that polices `//nolint:` directives — set its `require-explanation: true` (off by default) to make the same-line reason mandatory. Keep both on.
 
 ## shellcheck (bash / sh)
 

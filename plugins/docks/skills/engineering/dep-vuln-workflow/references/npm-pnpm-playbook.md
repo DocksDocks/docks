@@ -94,4 +94,4 @@ The upgrade exposed a real anti-pattern; the lint rule did its job.
 - `../SKILL.md` — universal playbook (severity, exposure filter, split strategy, cadence)
 - `lint-no-suppressions` skill — never silence new lint rules surfaced by an upgrade
 - pnpm audit docs: https://pnpm.io/cli/audit
-- Next.js upgrade guides: https://nextjs.org/docs/app/building-your-application/upgrading
+- Next.js upgrade guides: https://nextjs.org/docs/app/guides/upgrading

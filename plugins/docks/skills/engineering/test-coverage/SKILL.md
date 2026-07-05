@@ -4,8 +4,8 @@ description: Use when writing tests for code that ALREADY EXISTS — adding cove
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-14"
-  content_hash: "95ef8125d01f6333345044dfa1658deee7b4b64fec19f90e7d5c9ae3d30c96aa"
+  updated: "2026-07-05"
+  content_hash: "18909c0760754e31b02673d15827d0bd3df21ca75a0598e61b6ce8f94bc19c1b"
 ---
 
 # Test Coverage Generation

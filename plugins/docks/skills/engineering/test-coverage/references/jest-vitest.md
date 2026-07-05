@@ -132,7 +132,7 @@ Stable knobs (recent majors):
 
 | Vitest | Jest | What |
 |---|---|---|
-| `--pool=threads` (default) / `--pool=forks` | n/a (always forks) | Threads = faster, shared globals; forks = isolated but slower |
+| `--pool=forks` (default since Vitest 2.0) / `--pool=threads` | n/a (always forks) | Forks = isolated but slower; threads = faster, shared globals |
 | `--poolOptions.threads.maxThreads=N` | `--maxWorkers=N` or `--maxWorkers=50%` | Cap parallel workers; CI default leaves room for runner overhead |
 | `--no-isolate` | n/a | Reuse same context across files in a worker — fast but module state leaks |
 | `--shard=1/4` | `--shard=1/4` | Run 1 of 4 disjoint slices; ideal for CI matrix |

@@ -9,7 +9,7 @@ Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers s
 cargo install cargo-audit
 cargo audit                                  # Scan Cargo.lock
 cargo audit --deny warnings                  # Treat unmaintained as error
-cargo audit fix                              # Apply non-breaking fixes
+cargo audit fix                              # Apply non-breaking fixes — needs `cargo install cargo-audit --features=fix`
 
 # cargo-outdated (third-party)
 cargo install cargo-outdated

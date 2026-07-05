@@ -1,11 +1,11 @@
 ---
 name: multi-tool-bridge
-description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code + others) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, and rewrites the project CLAUDE.md (./CLAUDE.md or ./.claude/CLAUDE.md) to @AGENTS.md while preserving Claude-specific content (content-classified). Idempotent. Not for setting up docs/plans/ (use plan-init) or porting Claude subagents to Codex TOML (format mismatch).
+description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, and rewrites the project CLAUDE.md to @AGENTS.md preserving Claude-specific content (content-classified). Idempotent. Not for docs/plans/ setup (use plan-init), splitting per-area rules into AGENTS.md nodes (use context-tree), or porting Claude subagents to Codex TOML (use skill-agent-pipeline).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-27"
-  content_hash: "06186d2677e55731011da678ddd437ee0c1c326ba297f59c499c5cce086ca96e"
+  updated: "2026-07-05"
+  content_hash: "c802c0bc875f0d86a3675f41c5dfe6253281a2ad64d8541d04524984769e2b96"
 ---
 
 # Multi-Tool Agent Bridge
@@ -63,7 +63,7 @@ test -d .claude/agents       && echo "EXISTS .claude/agents/"   || echo "MISSING
 test -d .claude/rules        && echo "EXISTS .claude/rules/"    || echo "MISSING .claude/rules/"
 ```
 
-A project CLAUDE.md is valid at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.md` (Claude Code loads and concatenates both when both exist — neither overrides the other). Record which of the two exist; the rewrite target is decided in Step 5.
+A project CLAUDE.md is valid at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.md` (Claude Code loads and concatenates both when both exist — neither overrides the other). Record which of the two exist; the rewrite target is decided in Step 5. `.claude/rules/` is inventoried as a Claude-specific rules directory — that claim is volatile; re-verify it against the current memory docs (<https://code.claude.com/docs/en/memory>) before reporting it in Step 7.
 
 Enumerate `.claude/skills/*/SKILL.md` via Glob. For each, capture the skill name (directory basename). These are the migration candidates.
 
@@ -104,7 +104,7 @@ After classification (or in greenfield/plugin-author layouts where classificatio
 | .claude/skills/code-review → .agents/skills/...     | MIGRATE+SYMLINK | found in .claude/skills/        |
 | CLAUDE.md                                           | REWRITE+@IMPORT | exists, content split approved  |
 | .claude/agents/                                     | SURFACE ONLY    | Codex .toml format mismatch     |
-| .claude/rules/ (2 files)                            | SURFACE ONLY    | Claude-specific loader          |
+| .claude/rules/ (2 files)                            | SURFACE ONLY    | Claude-specific loader (re-verify: memory docs) |
 ```
 
 `SURFACE ONLY` means: list with one-line summaries in the final report, do NOT touch.
@@ -206,4 +206,4 @@ Final report (markdown):
 
 - `references/agents-md-template.md` — the AGENTS.md scaffold for greenfield writes, agents.md-spec-compliant
 - `references/claude-md-classification.md` — keyword rules and section-by-section heuristics for splitting existing CLAUDE.md content
-- Companion: when porting Claude subagents to Codex (`.claude/agents/*.md` → `.codex/agents/*.toml`), use a separate skill — format mismatch and model-name translation make symlinks unsuitable. Out of scope here.
+- Companion: when porting Claude subagents to Codex (`.claude/agents/*.md` → `.codex/agents/*.toml`), use the `skill-agent-pipeline` skill — its Phase 5 drafts every agent in BOTH formats; format mismatch and model-name translation make symlinks unsuitable. Out of scope here.

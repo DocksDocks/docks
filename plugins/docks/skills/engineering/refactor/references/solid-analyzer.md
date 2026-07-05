@@ -40,3 +40,5 @@ Strategy, Factory, Adapter, Extract Class/Module, Split Interface, Dependency In
 |---|---|
 | Flagging a 2-case switch as an OCP violation | Reserve OCP for chains that genuinely grow per variant; small switches are fine |
 | Suggesting a new TS class without a justification | Name the sweet-spot exception or switch to the function form |
+
+Maintenance: the per-principle rubric here is a condensed twin of the `solid` skill's, and the TS class-justification gate above twins with `solid` and `type-safety-discipline` (§9 + its `references/typescript-class-vs-function.md`) — a change to any copy must land in the others in the same commit.

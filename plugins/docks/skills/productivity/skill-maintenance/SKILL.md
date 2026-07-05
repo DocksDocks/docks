@@ -1,11 +1,11 @@
 ---
 name: skill-maintenance
-description: "Use when project-local SKILL.md files need validation or refresh after source changes, Codex skipped a skill due to invalid YAML or description over 1024 chars, .agents/skills and .claude/skills drift, or stale source_files/metadata.updated/content_hash require no-op maintenance. Not for authoring new Docks plugin skills (use write-skill) or prose docs."
+description: "Use when project-local SKILL.md files need validation or refresh after source changes, Codex skipped a skill due to invalid YAML or description over 1024 chars, .agents/skills and .claude/skills drift, or stale source_files/metadata.updated/content_hash require no-op maintenance. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-07-01"
-  content_hash: "c65c2833b37031edb7189a69fe2b8a905a5f07fec7d18c1527d520e5d8811177"
+  updated: "2026-07-05"
+  content_hash: "f93e5a4d42153056c333f3381d04bbb85242309be850b16a268f82f930ec56e2"
 ---
 
 # Skill Maintenance
@@ -147,7 +147,8 @@ Use the narrowest available command:
 # frontmatter guard + 16-pt score, no kit tooling needed (--strict for kit conventions):
 node <docks-plugin>/skills/productivity/write-skill/scripts/skill-guard.mjs validate .agents/skills
 
-# generic Codex loader check
+# generic Codex loader check (debug subcommands move between releases —
+# confirm the surface first: codex debug --help)
 codex debug prompt-input | sed -n '/Skipped loading/,/Available skills/p'
 
 # Generic filesystem check

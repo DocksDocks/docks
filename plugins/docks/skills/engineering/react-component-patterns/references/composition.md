@@ -97,7 +97,9 @@ import { cloneElement, isValidElement } from "react";
 type SlotProps = { children: React.ReactNode } & Record<string, unknown>;
 
 export function Slot({ children, ...rest }: SlotProps) {
-  if (isValidElement(children)) {
+  // @types/react 19: bare isValidElement() narrows props to `unknown`, which breaks the
+  // spread — narrow the element type explicitly (or cast children.props) so the merge typechecks.
+  if (isValidElement<Record<string, unknown>>(children)) {
     return cloneElement(children, { ...rest, ...children.props });
   }
   return null;
@@ -313,6 +315,6 @@ function Input({ ref, ...props }: Props & { ref?: React.Ref<HTMLInputElement> })
 
 ## References
 
-- Radix UI Slot source: https://github.com/radix-ui/primitives/blob/main/packages/react/slot/src/Slot.tsx
+- Radix UI Slot source: https://github.com/radix-ui/primitives/blob/main/packages/react/slot/src/slot.tsx
 - TanStack Table headless docs: https://tanstack.com/table/latest/docs/introduction
 - React 19 ref-as-prop release notes: https://react.dev/blog/2024/12/05/react-19#ref-as-a-prop

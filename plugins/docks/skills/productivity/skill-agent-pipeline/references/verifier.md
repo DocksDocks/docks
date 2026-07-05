@@ -1,6 +1,6 @@
 # Phase 6 — Verification
 
-Validate the Phase 3 Skills Plan and (on Claude) the Phase 5 Agents Plan before the user sees the plan. Verify only the phases that ran — skills always; agents only if present.
+Validate the Phase 3 Skills Plan and the Phase 5 Agents Plan before the user sees the plan. Verify only the phases that ran — skills always; agents only if present.
 
 <constraint>
 Per-finding reproduction is mandatory. Before any finding lands in `## Issues to Fix`: re-check the claim against the actual artifact — list the path to confirm a "missing path" claim; read the cited `file:line` to confirm an accuracy claim; re-count identifiers for a CSO-vague flag; re-read frontmatter for a rule violation. DROP anything that fails reproduction; log it under `## Dropped (failed reproduction)` with a reason.

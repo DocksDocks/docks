@@ -20,7 +20,7 @@ skill set or cleaning up local maintenance skills.
 |---|---|---|
 | `invalid YAML: mapping values are not allowed` | Unquoted `: ` inside a frontmatter scalar | Quote `description` or use a block scalar |
 | `invalid description: exceeds maximum length of 1024 characters` | Description is carrying body/reference detail | Keep trigger words, move detail below frontmatter |
-| Skill does not appear in Codex prompt input | Bad frontmatter, wrong skill root, or plugin not installed | Validate YAML, list roots, run `codex plugin list` |
+| Skill does not appear in Codex prompt input | Bad frontmatter, wrong skill root, or plugin not installed | Validate YAML, list roots, run `codex plugin list` (subcommand set moves between releases — confirm via `codex --help` first) |
 | Claude sees skill but Codex skips it | Claude path symlink works, but `.agents/skills` copy is invalid | Validate canonical `.agents/skills` content |
 | Codex sees local duplicate and plugin skill | Project-local skill shadows or duplicates plugin behavior | Compare content, keep only project-specific local rules |
 
@@ -109,6 +109,7 @@ When a project has no validator, use direct inspection:
 
 ```bash
 find .agents/skills .claude/skills -name SKILL.md -maxdepth 3 -print 2>/dev/null
+# codex debug surface moves between releases — confirm via codex debug --help first
 codex debug prompt-input | grep -A20 'Skipped loading' || true
 ```
 

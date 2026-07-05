@@ -1,11 +1,11 @@
 ---
 name: tdd-workflow
-description: Use when the user asks for TDD, test-driven development, test-first workflow, "write the test first then implement", "spec it out with tests", red-green-refactor, or describes a feature as input/output pairs and wants tests to drive the implementation. Also use when adding NEW behavior with no existing test coverage and the user wants tests to act as the spec. Not for adding tests to existing implemented code (that's coverage-driven — use the test-coverage skill instead).
+description: Use when the user asks for TDD, test-first, "write the test first then implement", "spec it out with tests", red-green-refactor, or describes a feature as input/output pairs and wants tests to drive the implementation. Also for NEW behavior with no test coverage where tests act as the spec. Not for adding tests to existing code (use test-coverage). Not for migrations/ports ("failing test per route before porting") — characterization, not spec; use the porting skill or test-coverage.
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-05-06"
-  content_hash: "f944d63b4c39fc1e1f898a7a53770d1a4f8192dc8664a17ebe7dab821d356b88"
+  updated: "2026-07-05"
+  content_hash: "fde4faf4646f87a3dfa58d34169f4f212da9012e9fa95faf433f5eb6076e1464"
 ---
 
 # Test-Driven Development Workflow
@@ -19,10 +19,10 @@ TDD is an ORDERING contract, not a label. Production code MUST NOT be written be
 - User says "TDD", "test-first", "write the spec as tests", "red-green-refactor", or "describe this with input/output pairs"
 - New feature work where the user can articulate the expected behavior in concrete examples before any code exists
 - Bug fix where the user wants a regression test written first that reproduces the bug, then the fix
-- Refactoring with safety net — pin the current behavior with tests *before* changing the implementation
 
 NOT for:
 - Adding tests to code that already works (use coverage-driven test generation — different skill)
+- Refactoring with a safety net — pinning current behavior with tests before changing the implementation is characterization of EXISTING code, which is coverage-driven (use the test-coverage skill)
 - Exploratory spikes / one-shot scripts where the spec genuinely doesn't exist yet
 - Pure debugging where you already have a failing test from CI
 
@@ -131,7 +131,7 @@ Each phase boundary should produce a brief status line so the user knows where y
 
 ## When the Test Framework's Failing Baseline Is Ambiguous
 
-Some frameworks (e.g., older Jest, certain Python configurations) report "0 tests run" when imports fail, instead of a clear compile/import error. This makes Phase 2 ambiguous.
+Some frameworks (e.g., older Jest, certain Python configurations) report "0 tests run" when imports fail, instead of a clear compile/import error. This makes Phase 2 ambiguous. The exact failure shape drifts across framework versions — verify YOUR runner's behavior with a deliberate broken-import probe (a should-fail run against a file importing a nonexistent module) before trusting the baseline.
 
 Mitigations:
 - Run the test file directly, not the full suite, so import errors surface clearly
@@ -151,5 +151,5 @@ Skip Phase 2 and you cannot distinguish "test passes because feature works" from
 ## References
 
 - Kent Beck, "Test-Driven Development By Example" — the canonical sequence
-- Cursor agent best-practices (test-first recipe): https://cursor.com/blog/agent-best-practices
+- Cursor agent best-practices (test-first recipe): https://cursor.com/blog/agent-best-practices — blog URLs drift; re-verify the link resolves before citing it
 - Agentic best-practice applied (model-agnostic): linter-loop 3-strike — stop after the third failed attempt on the same test; the diagnosis is more often wrong than the code

@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-06-23"
-  content_hash: "3da2671dadd9d0a4189d4bc1e6a1074ae259c4dbf4c5a25e1825ef37429f2ac7"
+  updated: "2026-07-05"
+  content_hash: "417d087b83ef283b7c6b6271828d55b1f6ae4f9663547426b59c3fd17af51bbd"
 ---
 
 # Refactor (cross-tool pipeline)

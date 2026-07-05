@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-03"
-  content_hash: "30140ea74cdfa3e452211c6d4cf26feb16535b2eb8195c427f670ac82f503e18"
+  updated: "2026-07-05"
+  content_hash: "e2537f7c1ffa80e641f93ddbe94aa84442ae4bdd304385e683fe5506f6cac39c"
 ---
 
 # Write a Skill (docks conventions)
@@ -15,7 +15,7 @@ The description is the only thing your agent sees when deciding which skill to l
 This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in the bundled `scripts/skill-guard.mjs` (the single source the kit CI also scores with), the structural guards in `scripts/skills/guard.mjs`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
 
 <constraint>
-Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `node scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also uses — before considering the description done.
+Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also uses — before considering the description done.
 </constraint>
 
 <constraint>
@@ -70,7 +70,7 @@ metadata:
 | 8 | Code fence with language tag | 1 | ` ```ts `, ` ```bash `, etc. — not bare ` ``` ` |
 | 9 | Body 80–310 lines | 2 | sweet spot; either side loses the 2 pts |
 
-**Per-file floor (per category):** engineering 10, productivity 8, internal 8 (`scripts/config/scoring.json`). CI fails any skill below its category floor. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
+**Per-file floor (per category):** engineering 10, productivity 8 (`scripts/config/scoring.json`). CI fails any skill below its category floor. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
 
 ## The authoring loop
 
@@ -187,7 +187,7 @@ A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no 
 
 ## When this skill does NOT apply
 
-- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The CLAUDE.md "Authoring skills & agents" section is the source of truth for agents.
+- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The root `AGENTS.md` `## Authoring agents` section is the source of truth for agents.
 - Modifying an existing skill — read it first, preserve constraint blocks, bump `metadata.updated`, re-score before commit.
 
 ## Source attribution

@@ -1,11 +1,11 @@
 ---
 name: skill-agent-pipeline
-description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, caps, staleness, coverage gaps), a content-accuracy audit verifying every ref and snippet against current source, pattern extraction with evidence, and SKILL.md authoring + references/ splits with durable (symbol+purpose) anchors. Emits agents in BOTH Claude (.claude/agents/*.md) and Codex (.codex/agents/*.toml) form; phases gate through the plan lifecycle. Not for AGENTS.md/CLAUDE.md nodes (use context-tree) or README prose."
+description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, caps, staleness, coverage gaps), ref/snippet accuracy audit vs current source, pattern extraction with evidence, SKILL.md + references/ authoring with durable anchors. Emits BOTH .claude/agents/*.md and .codex/agents/*.toml agents; phases gate through the plan lifecycle. Not for AGENTS.md nodes (use context-tree), single-skill refresh after source changes (use skill-maintenance), or README prose."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-03"
-  content_hash: "4e85c83207c7807108a89b81cbe56d997645c496a6401a28a5ec155de30f1f26"
+  updated: "2026-07-05"
+  content_hash: "48f92fe4356a9e3921792b24c7c81473e33bbf43f73e95a176178a8ca56c45ca"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -21,7 +21,7 @@ Agents are emitted in BOTH formats, on every runtime. Phases 4a/4b/5 draft each 
 </constraint>
 
 <constraint>
-Approval via the plan lifecycle, not Plan Mode. Write the full skills/agents plan to a `docs/plans/` file and surface it — do NOT call `ExitPlanMode` (Claude-only). Tell the user: "review and say `start <slug>` to implement." Implementation (Phase 8) runs only after the user starts the plan. If `docs/plans/` is absent, run `plan-init` first.
+Approval via the plan lifecycle, not Plan Mode. Write the full skills/agents plan to a `docs/plans/` file and surface it — do NOT call `ExitPlanMode` (Claude-only). Tell the user: "review and say `start <slug>` to implement." Implementation (Phase 7) runs only after the user starts the plan. If `docs/plans/` is absent, run `plan-init` first.
 </constraint>
 
 ## When to use
@@ -91,7 +91,7 @@ Phases 1–6 are read-only. After Phase 6:
 
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
 2. Surface it: report the counts and tell the user "review `docs/plans/active/<slug>.md` and say `start <slug>` to implement."
-3. On `start`, run **Phase 8 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents AND any SKILL.md being split into `references/`, back up the original first (`<name>.md.bak`, plus each new `references/*.md` for a split) and copy relocated prose **verbatim** (reformat OK, reword NOT); apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, `git rm` it after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
+3. On `start`, run **Phase 7 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents AND any SKILL.md being split into `references/`, back up the original first (`<name>.md.bak`, plus each new `references/*.md` for a split) and copy relocated prose **verbatim** (reformat OK, reword NOT); apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, `git rm` it after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
 4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `multi-tool-bridge` skill's job.
 
 ## References

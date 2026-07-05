@@ -25,7 +25,7 @@ go get <module>@vX.Y.Z                       # Pin
 go get -u ./...                              # Upgrade all (patch+minor)
 
 # osv-scanner (Google's cross-ecosystem, no reachability)
-osv-scanner -L go.sum
+osv-scanner scan source -L go.sum            # v2 CLI; flags drift — verify with `osv-scanner scan --help`
 ```
 
 Full check suite after every upgrade:
@@ -68,7 +68,7 @@ if err != nil {
 }
 ```
 
-`nolintlint` (golangci-lint's meta-linter) enforces a same-line reason: `//nolint:errcheck // reason here`. Keep it on. See `lint-no-suppressions`.
+`nolintlint` (golangci-lint's meta-linter) polices `//nolint:` directives — set `require-explanation: true` (defaults **false**, opt in) to make the same-line reason `//nolint:errcheck // reason here` mandatory. Keep both on. See `lint-no-suppressions`.
 
 ## Go Gotchas
 

@@ -4,13 +4,13 @@ description: "Use when tuning Claude Code or Codex for maximum model capability 
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-10"
-  content_hash: "231ee20876aa0978d8c759a2fd04296230d6610201b4d3f26b35518d58642db1"
+  updated: "2026-07-05"
+  content_hash: "b15d8d7339a55923092afebd600cb10800c635264788e0eb4aa0b88b9bee0898"
 ---
 
 # Capability Tuning (Claude Code + Codex)
 
-Most setups run below the model's ceiling: defaults pick a mid-tier model, mid effort, capped context, and instruction files that either starve the model or drown it. This skill is the checklist for the opposite posture — "I don't care about token spend, give me the best the harness can do" — for both Claude Code and Codex, plus the context-engineering rules that make the extra capability actually land. Facts verified against live docs and the openai/codex source on 2026-06-10.
+Most setups run below the model's ceiling: defaults pick a mid-tier model, mid effort, capped context, and instruction files that either starve the model or drown it. This skill is the checklist for the opposite posture — "I don't care about token spend, give me the best the harness can do" — for both Claude Code and Codex, plus the context-engineering rules that make the extra capability actually land. Facts verified against live docs and the openai/codex source on 2026-07-05.
 
 <constraint>
 Config keys drift fast in both harnesses. Before writing a settings.json or config.toml key you have not verified THIS session, check the live reference (code.claude.com/docs/en/settings + /model-config; developers.openai.com/codex/config-reference) — a key that worked in early 2026 may be renamed, deprecated, or session-only today. Never invent keys from memory.
@@ -29,14 +29,14 @@ More instructions ≠ more capability. Context engineering is "filling the conte
 | Capability lever | Claude Code | Codex |
 |---|---|---|
 | Frontier model | `"model": "fable"` (or `"best"` alias) | `model = "gpt-5.5"` |
-| Effort ceiling | `"effortLevel": "xhigh"` (`max`/`ultracode` are session-only via `/effort`) | `model_reasoning_effort = "xhigh"` (no level above it; Claude `max` maps to `xhigh`) |
+| Effort ceiling | `"effortLevel": "xhigh"` (`max` persists via `CLAUDE_CODE_EFFORT_LEVEL` env; `ultracode` via `/effort`) | `model_reasoning_effort = "xhigh"` (no level above it; Claude `max` maps to `xhigh`) |
 | Thinking | `"alwaysThinkingEnabled": true` (effort is the real control on adaptive models) | covered by reasoning effort |
-| Long context | Fable 5 / Opus 4.8 are 1M-by-default on the API; `opus[1m]` alias for plans | window auto-resolved from model catalog |
+| Long context | Fable 5 / Opus 4.8 / Sonnet 5 are 1M-by-default on the API; `opus[1m]` alias for plans | window auto-resolved from model catalog |
 | Web research | WebSearch/WebFetch tools | `web_search = "live"` + `[tools.web_search] context_size = "high"` |
 | Unblocked sandbox work | `permissions.allow` list for known-safe commands | `sandbox_mode = "workspace-write"` + `network_access = true` |
-| Subagent quality | leave `CLAUDE_CODE_SUBAGENT_MODEL` unset/`inherit` so per-agent `model:` is honored | `[agents.roles.*]` per-role config; mini model only on grunt roles |
+| Subagent quality | leave `CLAUDE_CODE_SUBAGENT_MODEL` unset/`inherit` so per-agent `model:` is honored | per-agent TOML files in `~/.codex/agents/` / `.codex/agents/`; mini model only on grunt roles |
 | Second opinion | `"advisorModel": "opus"` | spawn a reviewer role agent |
-| Instruction budget | root CLAUDE.md < 200 lines; lazy `.claude/rules/` with `paths:` | raise `project_doc_max_bytes` (default 32 KiB, truncates silently) |
+| Instruction budget | root CLAUDE.md < 200 lines; lazy `.claude/rules/` with `paths:` | raise `project_doc_max_bytes` (default 32 KiB — no longer documented, re-verify; truncates silently) |
 | Long-task headroom | `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` env | `tool_output_token_limit`, `model_auto_compact_token_limit` |
 
 ## Claude Code — capability template
@@ -68,10 +68,11 @@ More instructions ≠ more capability. Context engineering is "filling the conte
 Key facts (full key-by-key table: `references/claude-code-config.md`):
 
 - `"fable"` is NOT the default on any plan — it must be opted into (`/model fable`, the setting, or `"best"` = Fable 5 where available, else latest Opus).
-- Settings accept `effortLevel` up to `xhigh`; `max` ("no constraint on token spending", overthinking-prone) and `ultracode` (xhigh + dynamic-workflow orchestration) exist but are per-session (`/effort`, `--effort`).
-- Effort replaced thinking budgets: Opus 4.7+/4.8 and Fable 5 are adaptive-only. `MAX_THINKING_TOKENS` is dead on them, and thinking cannot be disabled on Fable 5 at all.
+- Settings accept `effortLevel` up to `xhigh`; `max` ("no constraint on token spending", overthinking-prone) persists via the `CLAUDE_CODE_EFFORT_LEVEL` env var; `ultracode` (xhigh + dynamic-workflow orchestration) is reachable only via `/effort` or `--settings '{"ultracode":true}'` — not `--effort`/env.
+- Effort replaced thinking budgets: Opus 4.7+/4.8 and Fable 5 are adaptive-only — the `MAX_THINKING_TOKENS` budget is dead on them. Nuance: `MAX_THINKING_TOKENS=0` still works as a thinking kill-switch on the API for Opus 4.7/4.8/Sonnet 5; thinking cannot be disabled on Fable 5 at all.
 - Only the literal keyword `ultrathink` still triggers deeper one-off reasoning — "think hard" is plain text now.
-- `/fast` (research preview) serves the same Opus weights ~2.5× faster at premium pricing — speed lever, not a quality downgrade.
+- `/fast` (research preview) serves the same Opus weights ~2.5× faster at premium pricing — speed lever, not a quality downgrade. Opus 4.8 only now (Opus 4.7 deprecated 2026-06-25, removed 2026-07-24).
+- `MAX_MCP_OUTPUT_TOKENS` (in the template above) is absent from the current env-vars doc — re-verify at code.claude.com/docs/en/env-vars before leaning on it.
 
 ## Codex — capability template
 
@@ -96,13 +97,19 @@ project_doc_max_bytes = 131072
 
 [agents]
 max_depth = 1
+```
 
-[profiles.max]
+Profiles are overlay files, not `[profiles.*]` tables: `codex --profile <name>` loads `~/.codex/config.toml`, then `~/.codex/<name>.config.toml` on top.
+
+```toml
+# ~/.codex/max.config.toml — overlaid by `codex --profile max`
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 web_search = "live"
+```
 
-[profiles.cheap-subagent]
+```toml
+# ~/.codex/cheap-subagent.config.toml — overlaid by `codex --profile cheap-subagent`
 model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 ```
@@ -110,9 +117,9 @@ model_reasoning_effort = "medium"
 Key facts (full table: `references/codex-config.md`):
 
 - The `-codex` model line ended at gpt-5.3-codex — mainline gpt-5.4/5.5 absorbed it. `gpt-5.5` is the current frontier; there is no `gpt-5.5-codex`.
-- `model_reasoning_effort` accepts `none|minimal|low|medium|high|xhigh`. `xhigh` is the ceiling — Codex's own migration tooling maps Claude's `max` effort to `xhigh`.
+- `model_reasoning_effort` accepts `minimal|low|medium|high|xhigh` — `none` is no longer in this set; it survives only on `plan_mode_reasoning_effort`. `xhigh` is the ceiling (model-dependent — not every model exposes it); Codex's own migration tooling maps Claude's `max` effort to `xhigh`.
 - Web search is on by default in `cached` mode; `"live"` forces fresh results. The old `tools.web_search = true` boolean is deprecated.
-- `project_doc_max_bytes` (default 32 KiB) caps ALL merged AGENTS.md content and truncates silently — a rich instruction tree loses its tail with no warning. Raise it.
+- `project_doc_max_bytes` (default 32 KiB — the default is no longer documented; re-verify at developers.openai.com/codex/config-reference) caps ALL merged AGENTS.md content and truncates silently — a rich instruction tree loses its tail with no warning. Raise it.
 - Skills load from `.agents/skills/` (repo) and `~/.agents/skills/` (user); `~/.codex/skills` is deprecated.
 
 ## Instruction files — where capability is won or lost
@@ -159,13 +166,13 @@ Cross-model phrasing rules (verified against the model prompting guides):
 
 | Gotcha | Reality |
 |---|---|
-| "Set MAX_THINKING_TOKENS high for more thinking" | Dead on Opus 4.7+/Fable 5 — adaptive only; effort is the control |
+| "Set MAX_THINKING_TOKENS high for more thinking" | Budget semantics dead on Opus 4.7+/Fable 5 — adaptive only; effort is the control. `=0` still kill-switches thinking on Opus 4.7/4.8/Sonnet 5 (not Fable 5) |
 | "Claude Code reads AGENTS.md natively" | It reads CLAUDE.md only; `@AGENTS.md` import or symlink is the documented bridge |
-| "Codex trims the skills catalog tail-first at 8,000 chars" | Budget is 2% of the context window in tokens (8,000 chars only when the window is unknown); descriptions truncate EVENLY, no skill is dropped |
+| "Codex trims the skills catalog tail-first at 8,000 chars" | Budget is 2% of the context window in tokens (8,000 chars only when the window is unknown); descriptions truncate EVENLY first, but Codex may still omit skills from the initial list with a warning |
 | "Nested instruction files always survive compaction" | Root CLAUDE.md + unscoped rules re-inject after compaction; nested CLAUDE.md and `paths:`-scoped rules are lost until a matching file is read again |
-| "opusplan = best of everything" | Its plan-mode Opus phase is capped at 200K — the 1M upgrade doesn't extend to it |
-| "[1m] works on every model string" | Documented aliases are `opus[1m]` / `sonnet[1m]`; Fable 5 and Opus 4.8/4.7 are already 1M-by-default on the API |
-| "Subagents default to a cheap model" | Custom subagents default to `inherit`; only the built-in Explore agent pins Haiku |
+| "opusplan's plan phase is stuck at 200K" | Reversed: the plan phase uses the Opus model's window — it gets the 1M upgrade; `opusplan[1m]` exists to force it |
+| "[1m] works on every model string" | Documented aliases are `opus[1m]` / `sonnet[1m]`; Fable 5, Opus 4.8/4.7, and Sonnet 5 are already 1M-by-default on the API — Sonnet 5 is always-1M (no `[1m]` suffix, no usage credits, auto-compacts ~967K), so `sonnet[1m]` is a no-op |
+| "Subagents default to a cheap model" | Custom subagents default to `inherit`; since v2.1.198 the built-in Explore agent inherits the conversation model (capped at Opus) — a custom `Explore` agent with `model: haiku` restores the old pin |
 
 ## Verification loop
 

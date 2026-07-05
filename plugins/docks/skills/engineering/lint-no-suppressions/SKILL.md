@@ -4,8 +4,8 @@ description: "Use when a linter or type-checker flags an error; when tempted to 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-14"
-  content_hash: "2d60d75a386c3516369dfb8c9164e4da2e8df13f9795d9eaea7068e3808a59ef"
+  updated: "2026-07-05"
+  content_hash: "7f290ca7856a268f99d89a549e821a9870ac92b5982f39c2450e32228ddbcb5a"
 ---
 
 # Never Suppress Lint / Type Errors
@@ -101,4 +101,4 @@ CI must enforce the suppression block too. Client-side hooks are bypassable with
 - mypy error codes (use the bracketed form): https://mypy.readthedocs.io/en/stable/error_code_list.html
 - ruff rule reference: https://docs.astral.sh/ruff/rules/
 - clippy lint list: https://rust-lang.github.io/rust-clippy/master/
-- golangci-lint `nolintlint` (requires reason on `//nolint:`): https://golangci-lint.run/usage/linters/#nolintlint
+- golangci-lint `nolintlint` (set `require-explanation: true` to require a reason on `//nolint:`): https://golangci-lint.run/usage/linters/#nolintlint

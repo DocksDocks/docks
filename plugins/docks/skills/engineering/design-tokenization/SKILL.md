@@ -1,11 +1,11 @@
 ---
 name: design-tokenization
-description: Use when working with colors, Tailwind classes, CSS custom properties, brand colors (WhatsApp / Stripe / Google / Spotify), dark mode setup, the bg-X / text-on-X paired-token contract, soft tints (X-tint family vs alpha-modifier), :root vs .dark token parity, or @source/@custom-variant in Tailwind v4. Also use when auditing for hex literals, migrating to tokens, or deciding if a new color is semantic, brand, or wrong.
+description: Use when working with colors, Tailwind classes, CSS custom properties, brand colors (WhatsApp / Stripe / Google / Spotify), dark mode setup, the bg-X / text-on-X paired-token contract, soft tints (X-tint family vs alpha-modifier), :root vs .dark token parity, or @source/@custom-variant in Tailwind v4. Also use when auditing for hex literals, migrating to tokens, or deciding if a new color is semantic, brand, or wrong. Not for spacing/motion/radius polish (use make-interfaces-feel-better).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-27"
-  content_hash: "7fe626ac9ec19bbd2ecc4d23fd8ba555d148aae05c1b05fb7d03fee84804879c"
+  updated: "2026-07-05"
+  content_hash: "cbc4d124f24a20cc277f52d3eee617dad1d66e83c88cb23dc5034e0786dd6e7a"
 ---
 
 # Design Tokenization

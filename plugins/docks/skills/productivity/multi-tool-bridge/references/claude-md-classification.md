@@ -118,14 +118,9 @@ This skill scopes to the **project-level** CLAUDE.md only. User-level CLAUDE.md 
 
 ## Verification heuristic for the proposed split
 
-Before applying the rewrite, the skill computes:
+The primary check is **per-section presence** (the same contract as the skill's Anti-Hallucination block): after the rewrite, every `^#{1,3}` section of the source CLAUDE.md must appear in the new CLAUDE.md or the new AGENTS.md — a missing section that wasn't an explicit user `DROP` means content was lost. Pair it with a **net-shrink tripwire**: the split adds scaffolding (the `@AGENTS.md` import line, the `## Claude Code` heading), so combined `lines_after` must be ≥ `lines_before`; any net shrink → STOP, restore from the Step 5 backup. A byte-/line-percentage floor is NOT the loss check — scaffolding keeps output ≥100% of input, so a dropped section hides under it.
 
-- `lines_before = wc -l CLAUDE.md`
-- `lines_after = wc -l <new CLAUDE.md> + wc -l <new AGENTS.md>`
-- If `lines_after < lines_before * 0.95` → STOP, report potential content loss
-- If `lines_after > lines_before * 1.15` → STOP, report potential content duplication
-
-The 5% / 15% tolerances allow for the `@AGENTS.md` import line, blank-line normalization, and minor heading adjustments — but catch accidental section deletion or duplication.
+Secondary duplication tripwire only: if `lines_after > lines_before * 1.15`, STOP and check whether a section landed in BOTH files — the ~15% tolerance covers the import line, blank-line normalization, and minor heading adjustments, but flags accidental double-placement.
 
 ## Sources
 

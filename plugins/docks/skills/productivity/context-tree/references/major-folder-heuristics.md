@@ -37,6 +37,6 @@ Prefer ONE node per major folder, not one per subfolder. Roll child conventions 
 
 ## This repo's nodes (dogfood reference)
 
-`docs/plans/` · `docs/scaffold/` · `plugins/docks/skills/` · `scripts/` · `.github/`.
+`docs/plans/` · `docs/scaffold/` · `plugins/docks/skills/` · `plugins/effect-kit/skills/` · `plugins/session-relay/` · `scripts/` · `.github/`. The set drifts as plugins land — re-derive it with `find . -name CLAUDE.md -not -path "*/node_modules/*"` (every hit except the root file is a node).
 
 Not a node: `plugins/docks/agents/` — `claude plugin validate --strict` lints every `*.md` under a plugin's `agents/` as a subagent, so an AGENTS.md pair there fails validation; its authoring rules live in the repo root file instead. A tool that lints every markdown file in a folder makes that folder node-ineligible — check before scaffolding.
