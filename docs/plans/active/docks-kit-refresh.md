@@ -1,10 +1,10 @@
 ---
 title: docks kit refresh — fix the 26-skill staleness audit findings, routing clauses, release
 goal: Apply every finding from the 2026-07-05 six-auditor sweep of plugins/docks/skills (external drift, v1-plans residue, broken snippets, routing gaps, structural nits), keep codex-facts.mjs in lockstep, and ship a docks minor.
-status: planned
+status: ongoing
 created: "2026-07-05T18:10:32-03:00"
-updated: "2026-07-05T18:10:32-03:00"
-started_at: null
+updated: "2026-07-05T18:31:55-03:00"
+started_at: "2026-07-05T18:31:55-03:00"
 assignee: claude
 tags: [docks, audit, staleness, skills, refresh]
 affected_paths:
@@ -25,7 +25,8 @@ On 2026-07-05 a six-auditor sweep read all 26 docks skills (4,352 body lines + 7
 
 ## Context & rationale
 
-- **User decision (2026-07-05, verbatim):** "yes i approve everything, include the substantial fixes as well in the plan, everything noted is important." Remaining choices (caveman remove-vs-narrow, coverage-gap skills, release) are `## Open questions`.
+- **User decision (2026-07-05, verbatim):** "yes i approve everything, include the substantial fixes as well in the plan, everything noted is important."
+- **OQ answers (user via picker, 2026-07-05):** caveman → **remove entirely** · coverage gaps → **"create a separate plan for both"** (verbatim custom answer; commit-discipline + a11y live in [[docks-skill-gaps]], NOT in this plan) · release → **ship docks minor** on green · start → immediately.
 - **Why one plan:** the findings interlock — codex-facts.mjs pins facts in two skills, so guard + docs must move in one commit (step 1); OWASP renumber spans two skills' twin catalogs; routing clauses must land together so the near-miss re-run is meaningful.
 - **Audit provenance:** all findings were produced this session by six fresh-context auditors that read every file and verified external claims against live docs (sources in `## Sources`). Claim classes: stale-internal (repo moved), stale-external/drifted (world moved, with the current truth captured in `## Notes`), stale-snippet (broken as written), uncued-volatile (fact fine today, no re-verify cue).
 - **Vendored-skill protocol (decided, minor):** `make-interfaces-feel-better` is vendored (upstream jakubkrehel, body verbatim per root AGENTS.md). Its confirmed-broken easing snippet gets a **local patch + a `patches:` note appended to the upstream block** documenting the deviation — silent divergence and leaving a broken snippet are both worse. `caveman` (vendored, mattpocock) is handled by OQ-1.
@@ -46,8 +47,8 @@ Node 24 + pnpm via corepack (`corepack enable && pnpm install --frozen-lockfile`
 | 4 | **tdd-workflow refresh** — description → the 487-char rewrite in `## Notes` §4 (adds migration exclusion + keeps ≤500); reword the refactoring-safety-net bullet to route to test-coverage; add version bound/probe cue to the "0 tests run" claim; cue the Cursor link | plugins/docks/skills/engineering/tdd-workflow/SKILL.md | — | planned |
 | 5 | **Authoring/meta batch** — write-skill phantom category + dead pointer; skill-agent-pipeline "on Claude" leftovers + phase-numbering footnote; multi-tool-bridge classification-reference verification rewrite (per-section presence primary, byte-% demoted) + TOML-porting pointer; skill-maintenance codex CLI cues; context-tree node-list refresh + re-derive cue; plan-init Codex-TOML relocation to references/ + template-divergence note; scaffold spec-schema disclaimer; fix-workflow phase→step renumber + wording nits; zoom-out consumer-path phrasing; the 3 structural twin/sync notes (SOLID-rubric twin, TS class-gate ×3 twins, hill-climb-params ×4 sync-rule extension in plugins/docks/skills/AGENTS.md) | files per `## Notes` §5 + "Structural drift surfaces" | — | planned |
 | 6 | **Routing clauses** — 5 mutual/one-sided "Not for…" description edits (skill-agent-pipeline↔skill-maintenance, multi-tool-bridge↔context-tree, design-tokenization→MIFB); verify each stays ≤500 chars (count with `node -e`); re-run the 5 near-miss prompts from `## Notes` §6 — all must route unambiguously; collision matrix green | the 5 SKILL.md frontmatter descriptions | 1-5 | planned |
-| 7 | **caveman action (per OQ-1)** — remove the skill dir entirely (collision/scorer floors are count-derived, they self-adjust), OR narrow its triggers to explicit invocations only (drop "be brief"/"less tokens") | plugins/docks/skills/productivity/caveman/ | 6 | planned |
-| 8 | **Coverage-gap skills (per OQ-2)** — if selected: author `commit-discipline` and/or an a11y skill via the write-skill pipeline (CSO, ≤500-char description, references as needed, scorer ≥ floor); if deferred: record as parked-idea stub plans instead | plugins/docks/skills/engineering/ or productivity/ (new dirs) | 6 | planned |
+| 7 | **caveman removal (OQ answered: remove)** — `git rm -r` the skill dir; collision/scorer floors are count-derived and self-adjust; verify no dangling references (`grep -rn caveman plugins/docks .claude-plugin` → only historical plan/finished mentions allowed) | plugins/docks/skills/productivity/caveman/ | 6 | planned |
+| 8 | **Coverage-gap skills (OQ answered: separate plan)** — N/A here; both skills (commit-discipline + a11y) are scoped in [[docks-skill-gaps]] (`docs/plans/active/docks-skill-gaps.md`), scaffolded alongside this plan | — | — | skipped |
 | 9 | **Gates + release** — `metadata.updated` bumps verified on every touched skill; hash backfill; scorer ≥ baseline per file (Context table); full `node scripts/ci.mjs` exit 0; release docks minor per OQ-3 (`--dry-run` first) | manifests via release.mjs | 1-8 | planned |
 
 ## Interfaces & data shapes
@@ -97,12 +98,6 @@ Node 24 + pnpm via corepack (`corepack enable && pnpm install --frozen-lockfile`
 ## Cold-handoff checklist
 
 1 file manifest ✓ (steps name paths; `## Notes` carries every file:line) · 2 environment & commands ✓ · 3 contracts ✓ (codex-facts pin contract, description constraints, upstream-patches shape) · 4 executable acceptance ✓ (greps + scorer + ci + tag) · 5 out-of-scope ✓ · 6 decision rationale ✓ (Context) · 7 gotchas ✓ · 8 global constraints ✓ (floors never loosened; ≤500 descriptions; hash discipline) · 9 no undefined terms ✓ — steps 7/8 branch on OQ answers by design, recorded as such.
-
-## Open questions
-
-- id: `caveman` · type: choice — **caveman: remove or narrow?** Audit verdict: weakest skill in the kit (score 12, nothing references it, one-line-instruction value, over-broad triggers that lock a sticky mode). Options: **remove entirely (recommended)** — delete the dir, floors self-adjust · narrow — keep, triggers reduced to explicit "caveman"/"/caveman" only.
-- id: `coverage-gaps` · type: choice (multi) — **Author the two missing skills in this round?** `commit-discipline` (commit/PR hygiene has no owner; four skills legislate it in passing) · `a11y` (kit owns UI polish with zero accessibility coverage) · **defer both to their own plans (recommended** — keeps this a refresh; new skills deserve the full write-skill cycle**)**.
-- id: `release` · type: choice — **Release docks minor (v0.9.0 → v0.10.0) when steps 1-8 are green?** ship (recommended) · hold.
 
 ## Self-review
 
