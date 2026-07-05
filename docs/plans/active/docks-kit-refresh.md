@@ -1,9 +1,10 @@
 ---
 title: docks kit refresh — fix the 26-skill staleness audit findings, routing clauses, release
 goal: Apply every finding from the 2026-07-05 six-auditor sweep of plugins/docks/skills (external drift, v1-plans residue, broken snippets, routing gaps, structural nits), keep codex-facts.mjs in lockstep, and ship a docks minor.
-status: ongoing
+status: in_review
 created: "2026-07-05T18:10:32-03:00"
-updated: "2026-07-05T19:17:07-03:00"
+updated: "2026-07-05T19:21:50-03:00"
+in_review_since: "2026-07-05T19:21:50-03:00"
 started_at: "2026-07-05T18:31:55-03:00"
 assignee: claude
 tags: [docks, audit, staleness, skills, refresh]
@@ -49,7 +50,7 @@ Node 24 + pnpm via corepack (`corepack enable && pnpm install --frozen-lockfile`
 | 6 | **Routing clauses** — 5 mutual/one-sided "Not for…" description edits (skill-agent-pipeline↔skill-maintenance, multi-tool-bridge↔context-tree, design-tokenization→MIFB); verify each stays ≤500 chars (count with `node -e`); re-run the 5 near-miss prompts from `## Notes` §6 — all must route unambiguously; collision matrix green | the 5 SKILL.md frontmatter descriptions | 1-5 | done |
 | 7 | **caveman removal (OQ answered: remove)** — `git rm -r` the skill dir; collision/scorer floors are count-derived and self-adjust; verify no dangling references (`grep -rn caveman plugins/docks .claude-plugin` → only historical plan/finished mentions allowed) | plugins/docks/skills/productivity/caveman/ | 6 | done |
 | 8 | **Coverage-gap skills (OQ answered: separate plan)** — N/A here; both skills (commit-discipline + a11y) are scoped in [[docks-skill-gaps]] (`docs/plans/active/docks-skill-gaps.md`), scaffolded alongside this plan | — | — | skipped |
-| 9 | **Gates + release** — `metadata.updated` bumps verified on every touched skill; hash backfill; scorer ≥ baseline per file (Context table); full `node scripts/ci.mjs` exit 0; release docks minor per OQ-3 (`--dry-run` first) | manifests via release.mjs | 1-8 | planned |
+| 9 | **Gates + release** — `metadata.updated` bumps verified on every touched skill; hash backfill; scorer ≥ baseline per file (Context table); full `node scripts/ci.mjs` exit 0; release docks minor per OQ-3 (`--dry-run` first) | manifests via release.mjs | 1-8 | done |
 
 ## Interfaces & data shapes
 
@@ -230,3 +231,4 @@ OWASP catalog ×2 (step 2 adds twin pointers) · SOLID rubric ×2 (refactor/refe
 - Repo ground truth read this session: docs/plans/AGENTS.md · docs/scaffold/{AGENTS.md,spec.yaml} · scripts/AGENTS.md · scripts/config/scoring.json · scripts/skills/codex-facts.mjs · plugins/docks/skills/AGENTS.md · root AGENTS.md.
 - Baseline scorer run at `2e5ae8d` (Context table): all 16 except caveman 12, skill-agent-pipeline 15.
 - Step-7 record (2026-07-05): `git rm -r plugins/docks/skills/productivity/caveman/` done; the one non-historical dangling ref (`plugins/docks/README.md:54` productivity listing) cleaned; collision test → "PASSED: 25 skills, 4 high-overlap pair(s) all routed"; post-removal scorer: all 25 files 16/16 (≥ every baseline; skill-agent-pipeline 15→16 via the ≤500 description); full `node scripts/ci.mjs` green.
+- Step-9 record (2026-07-05): hash backfill ran pre-commit (22 skills rewritten); `release.mjs --plugin docks minor --dry-run` clean, then real run → **docks v0.10.0** released, tag `docks--v0.10.0`, tag-CI validate job green in 47s, GitHub Release <https://github.com/DocksDocks/docks/releases/tag/docks--v0.10.0>. Work commits: `2db4383` (steps 1–6) · `2c4924b` (step 7) · `cc63ed2` (release bump).
