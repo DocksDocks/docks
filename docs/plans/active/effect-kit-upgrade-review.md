@@ -79,6 +79,15 @@ Review-base note: scaffolded at `2fb11fab` (pre-migration, by design — the plu
 
 1–9: file manifest ✓ · environment & commands ✓ (incl. research tooling) · contracts ✓ (audit taxonomy + evidence-table shape) · executable acceptance ✓ · out-of-scope ✓ · rationale ✓ · gotchas ✓ · constraints ✓ (user-picked additions only; blocked on migration) · no TBDs — step 4's candidates are derived at execution time by design, recorded as such ✓.
 
+## Open questions
+
+- id: `step4-additions` · type: choice (multi-select, custom allowed) — **Which audit-grounded additions should land in this upgrade round?** All candidates are Effect-ecosystem only and derive from step-1 evidence (package + doc existence verified 2026-07-05):
+  - `http-api` *(recommended)* — a dedicated `@effect/platform` HttpApi reference under effect-ts-port (endpoint path/payload/success schemas, `.addError` status annotations, serve layers, the derived type-safe client). Evidence: the audit's only drift cluster was the HttpApi DSL (3 of 10 defects), and fastify.md self-flags its DSL sketch as approximate.
+  - `effect-rpc` — an `@effect/rpc` reference under effect-ts-port (typed effectful RPC, the tRPC-replacement slice). Evidence: named at nextjs.md:77 as a structural move with zero depth behind it; npm `@effect/rpc` 0.75.1, Effect-TS org, verified this session.
+  - `atom-lifecycle` — expand port/references/react.md with effect-atom registry/lifecycle/SSR surfaces (RegistryProvider `defaultIdleTTL`, `Hydration`, `AtomHttpApi`/`AtomRpc` re-exports, fuller `keepAlive` semantics). Evidence: audit read these in the package index/README; the skill leaves them uncovered.
+  - `none` — ship the fix round only.
+- id: `release` · type: choice — **Release effect-kit minor (0.2.0 → 0.3.0) once selections land?** `node scripts/release.mjs --plugin effect-kit minor` *(recommended)* / hold.
+
 ## Self-review
 
 Score: 87/100 (normal tier, one pass — first score ≥85, no hill-climb). Strongest: executable acceptance (audit-evidence table + scorer non-regression + user-picked-only additions) and the explicit blocked-on-migration gate. Known softness, accepted by design: step 4's upgrade candidates are derived from step-1 evidence at execution time rather than pre-enumerated — pre-guessing Effect surface gaps from memory would violate the research-before-implementation rule the skills themselves mandate.
