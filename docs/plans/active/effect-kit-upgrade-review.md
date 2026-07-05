@@ -1,10 +1,11 @@
 ---
 title: effect-kit post-migration review + upgrade roadmap
 goal: After the migration lands, audit the three Effect skills' current state (API currency, descriptions, conventions) against live Effect 3.x docs and docks conventions, then propose and ship an agreed upgrade round.
-status: ongoing
+status: in_review
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-05T17:27:46-03:00"
+updated: "2026-07-05T17:40:17-03:00"
 started_at: "2026-07-05T16:36:25-03:00"
+in_review_since: "2026-07-05T17:40:17-03:00"
 assignee: claude
 tags: [effect-kit, audit, effect-ts, upgrade]
 affected_paths:
@@ -48,8 +49,8 @@ Review-base note: scaffolded at `2fb11fab` (pre-migration, by design — the plu
 | 1 | API-currency audit: for each of the 3 skills + 12 references, verify every version-specific claim against CURRENT Effect 3.x docs (context7 first); classify findings per the content-audit taxonomy (confirmed / drifted / stale-snippet / fictional-api) with the claim text + the doc evidence | audit notes in this plan's `## Notes` | — | done |
 | 2 | Conventions audit: durable-anchors pass (guard already enforces `path:NN`; manually check for uncued volatile facts + behavior claims without exercising probes), description CSO + manual near-miss pass against docks engineering siblings (3 near-miss prompts each, routing via "Not for…" clauses) | same | — | done |
 | 3 | Fix round: apply every `drifted`/`stale-snippet`/`fictional-api` finding + convention gaps; lift effect-ts-setup toward 16 only if the rubric points are honest content (never padding); bump `metadata.updated` + hash backfill | the 3 skill dirs | 1,2 | done |
-| 4 | Upgrade roadmap (Effect-only): propose candidate additions grounded in audit gaps — Effect-ecosystem surfaces the skills don't cover, derived from step-1 evidence against live docs, never assumed from memory; each candidate names its official package + the doc page proving it exists. Present via the open-questions picker; implement ONLY what the user selects; non-Effect ideas are recorded as follow-ups elsewhere, never implemented here | proposal in `## Open questions`, then chosen dirs | 1,2 | in-flight |
-| 5 | Gates + release: `node scripts/ci.mjs` exit 0; release `effect-kit` minor (user-gated picker) | manifests via release.mjs | 3,4 | planned |
+| 4 | Upgrade roadmap (Effect-only): propose candidate additions grounded in audit gaps — Effect-ecosystem surfaces the skills don't cover, derived from step-1 evidence against live docs, never assumed from memory; each candidate names its official package + the doc page proving it exists. Present via the open-questions picker; implement ONLY what the user selects; non-Effect ideas are recorded as follow-ups elsewhere, never implemented here | proposal in `## Open questions`, then chosen dirs | 1,2 | done |
+| 5 | Gates + release: `node scripts/ci.mjs` exit 0; release `effect-kit` minor (user-gated picker) | manifests via release.mjs | 3,4 | done |
 
 ## Acceptance criteria
 
