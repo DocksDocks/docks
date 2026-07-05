@@ -3,7 +3,7 @@ title: effect-kit post-migration review + upgrade roadmap
 goal: After the migration lands, audit the three Effect skills' current state (API currency, descriptions, conventions) against live Effect 3.x docs and docks conventions, then propose and ship an agreed upgrade round.
 status: ongoing
 created: "2026-07-03T17:07:03-03:00"
-updated: "2026-07-05T17:06:09-03:00"
+updated: "2026-07-05T17:27:46-03:00"
 started_at: "2026-07-05T16:36:25-03:00"
 assignee: claude
 tags: [effect-kit, audit, effect-ts, upgrade]
@@ -33,6 +33,7 @@ The migration plan deliberately moves the payload byte-faithfully — content qu
 - **Known deferred item inherited from migration**: cross-plugin trigger near-misses — the mechanical collision test is per-plugin only, so effect-ts-* descriptions were never checked against docks' engineering siblings (typescript/react/test skills share vocabulary).
 - **Known starting scores**: effect-ts-port 16, effect-ts-setup 14, effect-ts-specialist 16 (docks bundled scorer, engineering floor 10) — headroom exists on setup.
 - **The skills' own grounding rule** (from their node): version-specific API claims (`effect/Schema`, `@effect/platform` HttpApi, `@effect-atom/atom-react`) must be verified against current docs before changing — this plan's audit step IS that verification, run via context7/official docs, never from training data.
+- **Step-4 selections** (user via picker, 2026-07-05): all three audit-grounded additions — `http-api` reference + `effect-rpc` reference (effect-ts-port), `atom-lifecycle` expansion of react.md; **release**: ship effect-kit minor once they land. Content grounded in fresh research (platform 0.96.2, rpc 0.75.1, atom-react 0.5.0 — README/source-verified 2026-07-05).
 
 ## Environment & how-to-run
 
@@ -78,15 +79,6 @@ Review-base note: scaffolded at `2fb11fab` (pre-migration, by design — the plu
 ## Cold-handoff checklist
 
 1–9: file manifest ✓ · environment & commands ✓ (incl. research tooling) · contracts ✓ (audit taxonomy + evidence-table shape) · executable acceptance ✓ · out-of-scope ✓ · rationale ✓ · gotchas ✓ · constraints ✓ (user-picked additions only; blocked on migration) · no TBDs — step 4's candidates are derived at execution time by design, recorded as such ✓.
-
-## Open questions
-
-- id: `step4-additions` · type: choice (multi-select, custom allowed) — **Which audit-grounded additions should land in this upgrade round?** All candidates are Effect-ecosystem only and derive from step-1 evidence (package + doc existence verified 2026-07-05):
-  - `http-api` *(recommended)* — a dedicated `@effect/platform` HttpApi reference under effect-ts-port (endpoint path/payload/success schemas, `.addError` status annotations, serve layers, the derived type-safe client). Evidence: the audit's only drift cluster was the HttpApi DSL (3 of 10 defects), and fastify.md self-flags its DSL sketch as approximate.
-  - `effect-rpc` — an `@effect/rpc` reference under effect-ts-port (typed effectful RPC, the tRPC-replacement slice). Evidence: named at nextjs.md:77 as a structural move with zero depth behind it; npm `@effect/rpc` 0.75.1, Effect-TS org, verified this session.
-  - `atom-lifecycle` — expand port/references/react.md with effect-atom registry/lifecycle/SSR surfaces (RegistryProvider `defaultIdleTTL`, `Hydration`, `AtomHttpApi`/`AtomRpc` re-exports, fuller `keepAlive` semantics). Evidence: audit read these in the package index/README; the skill leaves them uncovered.
-  - `none` — ship the fix round only.
-- id: `release` · type: choice — **Release effect-kit minor (0.2.0 → 0.3.0) once selections land?** `node scripts/release.mjs --plugin effect-kit minor` *(recommended)* / hold.
 
 ## Self-review
 
