@@ -3,7 +3,7 @@ title: docks kit refresh — fix the 26-skill staleness audit findings, routing 
 goal: Apply every finding from the 2026-07-05 six-auditor sweep of plugins/docks/skills (external drift, v1-plans residue, broken snippets, routing gaps, structural nits), keep codex-facts.mjs in lockstep, and ship a docks minor.
 status: in_review
 created: "2026-07-05T18:10:32-03:00"
-updated: "2026-07-05T19:21:50-03:00"
+updated: "2026-07-05T19:25:19-03:00"
 in_review_since: "2026-07-05T19:21:50-03:00"
 started_at: "2026-07-05T18:31:55-03:00"
 assignee: claude
@@ -14,7 +14,7 @@ affected_paths:
   - scripts/skills/codex-facts.mjs
   - .claude-plugin/marketplace.json
 related_plans: [effect-kit-upgrade-review]
-review_status: null
+review_status: passed
 planned_at_commit: "2e5ae8d6e0e0a74b4fb0e0cd90f3c4f2ac52cc0d"
 ---
 
@@ -106,7 +106,11 @@ Fresh-context draft review (plan-review Mode 0, 2026-07-05): **87/100** — verd
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all 8 substantive steps `done` (step 8 `skipped` by design, routed to [[docks-skill-gaps]] per OQ-2); every acceptance grep 0-hits as specified, scorer 25/25 files ≥ baseline (all 16; skill-agent-pipeline 15→16), collision green, `node scripts/ci.mjs` exit 0, docks v0.10.0 shipped.
+- **Regressions:** none — clean working tree; no unannounced changes outside `affected_paths` + `plugins/docks/README.md` (step-7 dangling-ref cleanup); the interleaved effect-kit-upgrade-review commits in the range are out of this plan's scope and untouched here.
+- **CI:** pass — `node scripts/ci.mjs` → "All ci.mjs checks passed — 3 plugin(s) + repo-wide" (exit 0); tag-CI `validate` [ok] for `docks--v0.10.0`.
+- **Follow-ups:** none — the step-8 coverage gaps (commit-discipline + a11y) are already tracked in `docs/plans/active/docks-skill-gaps.md`; no new plan needed.
+- Filed by: plan-review on 2026-07-05T19:25:19-03:00
 
 ## Notes — finding → fix map (the executor's worklist)
 
