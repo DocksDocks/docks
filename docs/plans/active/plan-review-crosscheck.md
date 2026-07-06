@@ -3,7 +3,7 @@ title: optional codex + claude cross-check in the plan lifecycle
 goal: Teach plan-manager and plan-review to offer an optional cross-tool second opinion — "review this plan with codex + claude?" — via the native question picker, gated on the Codex CLI being installed and logged in, dispatching a pinned-model Codex review (gpt-5.5 xhigh, read-only) alongside the Claude-side review and merging attributed findings back into the plan.
 status: planned
 created: "2026-07-06T19:33:07-03:00"
-updated: "2026-07-06T19:33:07-03:00"
+updated: "2026-07-06T19:43:19-03:00"
 started_at: null
 assignee: null
 tags: [docks, plan-manager, plan-review, codex, cross-check]
@@ -32,7 +32,7 @@ Plan reviews today are single-model: the drafting Claude self-reviews, and plan-
 - **Consumer-safety (shipped-skill constraints)**: plan-manager/plan-review ship to consumer repos. The crosscheck wording must (a) reference Codex generically and degrade gracefully when absent; (b) name **no docks author scripts**; (c) use durable anchors only (no `path:NN`); (d) keep the offer wording readable as plain prose for the Codex runtime (which reads bodies as plain markdown). In the Codex runtime the picker is `ask_user_question`; the reverse direction (Codex session cross-checking with Claude) uses `claude -p --model opus --effort max` one-shot, gated on `command -v claude`.
 - **Return-only contract preserved**: for draft reviews, plan-manager stays the sole writer — the Codex reviewer's stdout is ingested by the orchestrating agent and recorded into `## Self-review` (draft) or merged into the `## Review` block (completion), attributed per finding. plan-review's "idempotent replace" and "per-finding reproduction" constraints apply unchanged; a codex-attributed finding that fails reproduction is dropped like any other.
 - **Four-home contract sync** (per `plugins/docks/skills/AGENTS.md`): if the crosscheck changes the plans contract (new attributed-findings format in `## Self-review`/`## Review`), the same change lands in plan-manager, plan-review, this repo's `docs/plans/AGENTS.md`, AND plan-init's `references/plans-agents-md-template.md` in the same commit.
-- **Dependency on plan 1 is conditional**: a one-shot `codex exec` review needs nothing from session-relay. Only if the user picks the full 2-round debate form (open question below) does this plan depend on [[relay-spawn-model-discipline]] shipping first (it needs `relay spawn --model/--effort`).
+- **User decisions (picker, 2026-07-06)**: (1) **Offer point: on `start <slug>`** (pre-execution) **+ on-demand** "cross-check <slug>" anytime. (2) **Review form: one-shot `codex exec`** — orchestrator merges attributed findings; NO session-relay dependency, so this plan does not wait on [[relay-spawn-model-discipline]]. (3) **Completion review also gets the offer** — when plan-manager Step 8 dispatches the completion review with codex available, ask "include a codex second opinion?" in the same picker turn.
 
 ## Environment & how-to-run
 
@@ -45,8 +45,8 @@ Plan reviews today are single-model: the drafting Claude self-reviews, and plan-
 
 | # | Step | Status |
 |---|---|---|
-| 1 | `plan-manager/SKILL.md`: add the crosscheck offer at the chosen offer point(s) (open question) — availability gate (`command -v codex` + `codex login status`, generic wording), picker question, dispatch of the Codex leg per the Interfaces block, ingest of attributed findings into `## Self-review` (plan-manager remains sole writer); bump `metadata.updated` | todo |
-| 2 | `plan-review/SKILL.md`: add a `## Cross-tool second opinion` section — how a crosscheck finding is verified (per-finding reproduction applies), how attribution renders in the `## Review` block, and the reverse (Codex-runtime) leg using `claude -p --model opus --effort max`; bump `metadata.updated` | todo |
+| 1 | `plan-manager/SKILL.md`: crosscheck offer (a) on `start <slug>` before dispatch, (b) on-demand via a "cross-check <slug>" intent row in Step 1's table, (c) alongside the Step-8 completion-review dispatch — availability gate (`command -v codex` + `codex login status`, generic wording), picker question, one-shot Codex leg per the Interfaces block, ingest of attributed findings into `## Self-review` (plan-manager remains sole writer); bump `metadata.updated` | todo |
+| 2 | `plan-review/SKILL.md`: add a `## Cross-tool second opinion` section — one-shot leg only (no bus), how a crosscheck finding is verified (per-finding reproduction applies), how attribution renders in the `## Review` block for completion reviews, and the reverse (Codex-runtime) leg using `claude -p --model opus --effort max`; bump `metadata.updated` | todo |
 | 3 | Contract sync: mirror the attributed-findings format into `docs/plans/AGENTS.md` and `plan-init/references/plans-agents-md-template.md` (same commit as steps 1–2 if format changes; else record `N/A — no contract change`) | todo |
 | 4 | Refresh skill content hashes (author-side backfill), run the docks CI gate green — scorer floors hold, no-author-scripts + durable-anchors + collision guards pass | todo |
 | 5 | Live smoke: run the crosscheck end-to-end on a real draft plan in this repo (offer → yes → codex leg returns findings → attributed ingest) and paste the resulting `## Self-review` excerpt into this plan's `## Notes` | todo |
@@ -54,7 +54,7 @@ Plan reviews today are single-model: the drafting Claude self-reviews, and plan-
 
 ## Interfaces & data shapes
 
-Codex review leg (one-shot form — subject to the review-form open question):
+Codex review leg (one-shot form — decided):
 
 ```bash
 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh \
@@ -100,26 +100,7 @@ Offer gate pseudocode (skill prose, tool-generic): available = codex on PATH AND
 
 ## Self-review
 
-Score: 86/100 · trajectory 86 · stopped: single pass (6 steps, no risk-flagged step, first score ≥85). Weakest axes: offer-point and review-form are user choices — held as open questions, not guessed.
-
-## Open questions
-
-- id: offer-point
-  choice: Where does the crosscheck offer fire?
-  options:
-    - on `start <slug>` (pre-execution) + on-demand "cross-check <slug>" anytime (recommended — matches "before starting the plan we can ask")
-    - draft self-review time (big/risky plans) + on-demand
-    - all three: draft, start, and completion review (most coverage, most prompts)
-- id: review-form
-  choice: What form does the Codex leg take?
-  options:
-    - one-shot `codex exec` review, merged by the orchestrator (recommended — cheaper, no session-relay dependency, works today)
-    - full 2-round session-relay debate into Debate sections (deeper; depends on relay-spawn-model-discipline shipping first)
-- id: completion-too
-  choice: Should the completion review (status in_review) also get the offer?
-  options:
-    - yes — second opinion on "goal met vs diff" too (recommended)
-    - no — pre-start/draft only for now; extend later if useful
+Score: 86/100 · trajectory 86 · stopped: single pass (6 steps, no risk-flagged step, first score ≥85). All three open questions answered via picker 2026-07-06 (all recommended options) and encoded into Context/Steps — none remain.
 
 ## Review
 
