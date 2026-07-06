@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-05"
-  content_hash: "bbceaf3b35025a6909587bb05acbfb207e23dd85b1822f1fdcd280fdb89c41df"
+  content_hash: "0514073862e01230a88f3c0c0013e51766f828a461f02d03cb921255ab1bf313"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
@@ -69,7 +69,7 @@ If a major bump breaks an upstream plugin that you cannot control:
 
 ## Split Strategy — Security vs Hygiene
 
-Always two commits minimum. Commit A (security) must stand alone — small diff, easy to cherry-pick to a release branch. Commit B (hygiene) can be reverted without affecting A.
+Always two commits minimum. Commit A (security) must stand alone — small diff, easy to cherry-pick to a release branch. Commit B (hygiene) can be reverted without affecting A. Generic commit hygiene beyond this security-vs-hygiene axis — atomic splits, messages, PR descriptions, squash vs rebase — lives in the `commit-discipline` skill.
 
 ```text
 # GOOD — split into two independently revertable units

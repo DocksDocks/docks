@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-07-05"
-  content_hash: "417d087b83ef283b7c6b6271828d55b1f6ae4f9663547426b59c3fd17af51bbd"
+  content_hash: "a9869c4ee2ac9d72267267c7d874450b3251139d22128e00c7530ef770ed88c8"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -38,6 +38,7 @@ Implementation discipline (Phases 7–8). ONE refactoring at a time — never ba
 | One known bug to fix | `fix-workflow` |
 | Dependency / CVE triage | `dep-vuln-workflow` |
 | Style / maintainability review only | `code-review` |
+| Commit-splitting / PR hygiene beyond the per-change revert protocol | `commit-discipline` |
 
 ## Pipeline
 

@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-05"
-  content_hash: "3b073c3bd728a7e04e870bf4f140947c1a4f99408262fb9d49d587649ffb8662"
+  content_hash: "2054bd0ec86d0c9eb5b456127512ebb350477b5bc02b44cdcb0783bb0c7b94d8"
 ---
 
 # Fix Workflow
@@ -169,6 +169,7 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 | Situation | Skill / command |
 |---|---|
 | Lint or type errors flagged, tempted to add suppressions | `lint-no-suppressions` (always fix root cause) |
+| Splitting fix work into reviewable commits, messages, PR descriptions | `commit-discipline` (generic commit/PR hygiene; tier grouping stays here) |
 | CVE / GHSA advisory, package upgrade decision | `dep-vuln-workflow` (severity triage + ecosystem-readiness) |
 | Code review surfaced findings, want them fixed | This skill — `code-review` produces the input list |
 | Adversarial security audit needed first | `security` skill (sequential OWASP pipeline), then this skill on the findings |
