@@ -1,11 +1,12 @@
 ---
 title: docks skill gaps — author commit-discipline + a11y skills
 goal: Fill the two coverage gaps the 2026-07-05 kit audit surfaced — a commit/PR-hygiene skill (no current owner) and an accessibility skill (missing from the UI-polish trio) — each through the full write-skill authoring cycle.
-status: in_review
+status: finished
 created: "2026-07-05T18:31:55-03:00"
-updated: "2026-07-05T21:34:27-03:00"
+updated: "2026-07-05T21:37:24-03:00"
 started_at: "2026-07-05T20:47:46-03:00"
 in_review_since: "2026-07-05T21:32:54-03:00"
+ship_commit: "bf814dc9fa0af7689e06e5d1237c5a96e109a7ef"
 assignee: claude
 tags: [docks, skills, authoring, coverage-gap]
 affected_paths:
