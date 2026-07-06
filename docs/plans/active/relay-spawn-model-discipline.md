@@ -38,6 +38,7 @@ planned_at_commit: "be438d6bb890e541efce42990ba952e76d662cf5"
 - **Live-verified flag facts (this session, 2026-07-06, claude 2.x / codex 0.142.x)**:
   - `claude --help` lists `--model <model>` and `--effort <level>`; invalid effort probe returned `Valid values: low, medium, high, xhigh, max`.
   - `codex exec --strict-config -c model_reasoning_effort=xhigh -s read-only -- "Reply with exactly: ok"` exited 0 and replied `ok` — the config key is accepted under strict config; `-m/--model` is in `codex exec --help`.
+- **No CLI turn cap exists** (verified 2026-07-06: `claude --help` has no `--max-turns`; it's an Agent-SDK-only option, and `--max-budget-usd` only applies to API billing, not subscriptions). Skill guidance must NOT recommend `--max-turns`; the practical cost bound for a wake is model/effort pins + a narrow doorbell nudge ("drain inbox, reply, stop"). Machine check 2026-07-06: `ANTHROPIC_API_KEY` unset — wakes/spawns bill the subscription, as required.
 - **Why sequential debate rounds**: two detached workers doing read-modify-write on one plan file will clobber each other; there is no file lock. Turn-taking over the bus (A writes → reports → orchestrator wakes B) is both safe and what makes it a debate instead of two monologues.
 - **No cli.rs changes needed**: `Args::positionals()` (`rust/src/cli.rs:54-72`) auto-skips the value of any `--flag` not in `BOOL_FLAGS` — `--model x`/`--effort y` parse correctly with zero parser edits. Do NOT add them to `BOOL_FLAGS`.
 
