@@ -3,7 +3,7 @@ title: docks skill gaps — author commit-discipline + a11y skills
 goal: Fill the two coverage gaps the 2026-07-05 kit audit surfaced — a commit/PR-hygiene skill (no current owner) and an accessibility skill (missing from the UI-polish trio) — each through the full write-skill authoring cycle.
 status: in_review
 created: "2026-07-05T18:31:55-03:00"
-updated: "2026-07-05T21:32:54-03:00"
+updated: "2026-07-05T21:34:27-03:00"
 started_at: "2026-07-05T20:47:46-03:00"
 in_review_since: "2026-07-05T21:32:54-03:00"
 assignee: claude
@@ -12,7 +12,7 @@ affected_paths:
   - plugins/docks/skills/engineering/
   - plugins/docks/skills/productivity/
 related_plans: [docks-kit-refresh]
-review_status: null
+review_status: passed
 planned_at_commit: "cf00b5c73e67b69cb0c2351251a6b9bb07c98a04"
 ---
 
@@ -87,7 +87,12 @@ Score: 86/100 at scaffold (parked-tier single pass). A fresh-context draft audit
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — both coverage gaps closed: `commit-discipline` + `accessibility` authored via the write-skill cycle (both 16/16, engineering floor 10), three single-line pointers wired FROM dep-vuln-workflow/fix-workflow/refactor with no body restructuring, and both boundary fences hold under independent grep.
+- **Regressions:** none — `node scripts/ci.mjs` → exit 0 ("All ci.mjs checks passed — 3 plugin(s) + repo-wide"); collision test green (27 skills, 4 high-overlap pairs all routed); the adversarial-confirmed `Closes #N`/`Fixes #N` default-branch qualifier fix is present (commit-discipline SKILL.md, "Linked issues").
+- **Boundary fences (grep-verified, not trusted from Notes):** accessibility touch-target/contrast grep → 1 hit, the "Companion skills" routing label ("hit areas"), zero sizing values and zero contrast ratios; the 2.5.8 target-size row routes to make-interfaces-feel-better and 1.4.x contrast audits route to design-tokenization. commit-discipline plan-ref grep → 0 hits (no plan-manager / docs/plans / plan file). Both descriptions carry the required "Not for…" clauses.
+- **CI:** pass
+- **Follow-ups:** none — release fold is deliberately user-gated/deferred to the next docks release and is NOT a completion gap (plan goal = author + wire + gate, met independent of release timing).
+- Filed by: plan-review on 2026-07-05T21:34:27-03:00
 
 ## Sources
 
