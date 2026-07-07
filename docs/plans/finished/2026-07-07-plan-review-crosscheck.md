@@ -1,9 +1,10 @@
 ---
 title: optional codex + claude cross-check in the plan lifecycle
 goal: Teach plan-manager and plan-review to offer an optional cross-tool second opinion — "review this plan with codex + claude?" — via the native question picker, gated on the Codex CLI being installed and logged in, dispatching a pinned-model Codex review (gpt-5.5 xhigh, read-only) alongside the Claude-side review and merging attributed findings back into the plan.
-status: in_review
+status: finished
 created: "2026-07-06T19:33:07-03:00"
-updated: "2026-07-07T00:17:39-03:00"
+updated: "2026-07-07T00:18:36-03:00"
+ship_commit: "745a269c7a0af1da9b7764064a3f20d0938e193e"
 in_review_since: "2026-07-07T00:15:25-03:00"
 started_at: "2026-07-06T22:00:26-03:00"
 assignee: crosscheck-worker (codex, via session-relay)
