@@ -3,7 +3,7 @@ title: relay token efficiency — usage visibility + wake discipline + lean boot
 goal: Make session-relay's subscription burn visible and bounded on BOTH tools — token-discipline rules in the skill (wake-model tiering, never doorbell the main session, fresh-spawn-over-long-wake, scoped nudges, batch-then-wake), a per-wake usage summary printed by the relay binary, and a researched lean-boot option for spawned/woken children.
 status: planned
 created: "2026-07-06T21:06:46-03:00"
-updated: "2026-07-06T21:18:00-03:00"
+updated: "2026-07-06T21:56:20-03:00"
 started_at: null
 assignee: null
 tags: [session-relay, token-efficiency, codex, claude, wake, spawn]
@@ -48,7 +48,7 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
   - *Probe argv fidelity (finding 4)*: usage shapes are captured from the REAL code-path argv — wake shapes via `claude -p --resume <scratch-session>` / `codex exec resume <scratch-thread>` on purpose-made tiny scratch sessions, not bare one-shots.
   - *Fixtures (finding 6)*: checked-in files at `plugins/session-relay/test/fixtures/wake-usage-{claude,codex}.json`, captured verbatim then redacted ONLY of message text and machine paths (token/cost fields and structure stay exact); Rust unit tests embed them via `include_str!`.
   - *`relay watch --auto-turn` (finding 7)*: it DOES bill the ChatGPT subscription (app-server turns) — explicitly out of scope here because it is codex-billed and turn-scoped by design, not because it is free.
-  - *`--lean` touchpoints (finding 8)*: if shipped, the flag is boolean — it MUST be added to `BOOL_FLAGS` in `cli.rs` (unlike the value flags), plus: both USAGE strings, `main.rs` usage line, `--dry` JSON assertions per tool, the skill's Anti-hallucination flag lists, and the selftest env scrub list.
+  - *`--lean` touchpoints (finding 8, refined by the 2nd review)*: `--lean` applies to **both verbs** — threaded through `child_args` in `spawn.rs` (spawn) AND `doorbell_args` in `cli.rs` (wake), matching the functional probes which exercise both paths. The flag is boolean — `BOOL_FLAGS` in `cli.rs` is a fixed-size array (`[&str; 7]` today) so adding `"lean"` requires bumping the size annotation to 8, or the build fails. Usage surfaces are THREE, not two: the `USAGE` const in `spawn.rs`, the inline wake usage string in `cli.rs`'s die call, and the top-level usage line in `main.rs`. Plus: `--dry` JSON assertions per tool per verb, the skill's Anti-hallucination flag lists, and the selftest env scrub list.
   - *Measurement spec (finding 9)*: per variant take the MEDIAN of 3 runs, each from a fresh scratch cwd (cold cache), fixed run order baseline→lever1→lever2, `claude --version`/`codex --version` recorded in Notes; ship gate = ≥25% relative AND ≥5,000 absolute input-token cut on the median.
 
 ## Environment & how-to-run
@@ -60,7 +60,7 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Capture usage-output shapes from the REAL code-path argv: create a tiny scratch claude session (`claude -p --session-id <new-uuid> -- "say ok"` in a scratch dir), then probe `claude -p --resume <that-id> --model sonnet --effort low --output-format json -- "Reply with exactly: ok"`; same for codex via `codex exec -s read-only -c model_reasoning_effort=low --json -- "say ok"` then `codex exec resume <thread-id> --json -- "Reply with exactly: ok"`. Commit redacted-per-policy captures as `plugins/session-relay/test/fixtures/wake-usage-claude.json` + `wake-usage-codex.json`; record field names + CLI versions in `## Notes` before writing any Rust | todo |
+| 1 | Capture usage-output shapes from the REAL code-path argv. Claude: `claude -p --session-id <new-uuid> -- "say ok"` in a scratch dir, then `claude -p --resume <that-id> --model sonnet --effort low --output-format json -- "Reply with exactly: ok"` — `-p` sessions ARE resumable by id (documented in the session-relay SKILL's Anti-hallucination section: "`-p`/SDK sessions aren't in the picker but are resumable by id — exactly how the doorbell reaches them"); if the resume nonetheless fails, STOP per STOP conditions. Codex: `codex exec -s read-only -c model_reasoning_effort=low --json -- "say ok"`, extract the thread id from the **`thread.started` event** in the JSONL stream (the id also appears in the rollout filename and equals the hook's `session_id` — same source, session-relay SKILL Cross-tool section), then `codex exec resume <thread-id> --json -- "Reply with exactly: ok"`. Commit redacted-per-policy captures as `plugins/session-relay/test/fixtures/wake-usage-claude.json` + `wake-usage-codex.json`; record field names + CLI versions in `## Notes` before writing any Rust | todo |
 | 2 | Rust wake changes in `cli.rs`: (a) replace the lossy stdout echo with raw `stdout().write_all(&out.stdout)` (byte pass-through, no newline mutation); (b) add `RELAY_WAKE_CMD_CLAUDE`/`RELAY_WAKE_CMD_CODEX` env overrides in `doorbell_args`' command choice; (c) parse the captured stdout per step-1 shapes and print one stderr line `[relay wake] <tool>: <in> in (<cached> cached) / <out> out[, $<cost>]`; parse failure → no line, exit code and stdout unchanged. Unit tests `include_str!` the step-1 fixtures + no-trailing-newline and invalid-UTF-8 stdout cases | todo |
 | 3 | SKILL.md: add a `## Token discipline` section with the five rules (cross-tool wording, dated model examples, one BAD/GOOD wake pair); bump `metadata.updated`, refresh hash | todo |
 | 4 | Lean-boot measurement per the Context spec (median of 3, fresh scratch cwd each run, fixed order, versions recorded): claude baseline vs `--strict-mcp-config` vs `--setting-sources user`; codex baseline vs `--ignore-user-config`. Ship gate = ≥25% relative AND ≥5k absolute median input-token cut AND the functional-safety probes pass (lean child registers on the bus within birth timeout; lean wake drains a queued message). If shipped: `--lean` per-tool mapping recorded in Interfaces first, `BOOL_FLAGS` entry, both USAGE strings + `main.rs` usage, skill flag lists, selftest scrub list. If not: medians + verdict in `## Notes` and one line in the skill section | todo |
@@ -69,7 +69,7 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
 
 ## Interfaces & data shapes
 
-Usage line (stderr, one line, best-effort):
+Usage line (stderr, one line, best-effort). **Omission rule**: the `(<n> cached)` segment renders only when the parsed payload carries a cached-tokens field, and `, $<cost>` only when a cost field is present — never render zero-placeholders like `(0 cached)` or a bare `$` (codex payloads typically lack both):
 
 ```
 [relay wake] claude: 142310 in (3200 cached) / 1180 out, $0.9421
@@ -81,6 +81,12 @@ Lean-flag mapping (ONLY if step 4's gate passes; exact flags fixed by step 4's m
 | relay flag | claude argv (candidates) | codex argv (candidate) |
 |---|---|---|
 | `--lean` | `--strict-mcp-config` and/or `--setting-sources <winning subset>` | `--ignore-user-config` |
+
+## STOP conditions
+
+- Step 1: the scratch claude session does not resume by id (contradicting the documented doorbell behavior), OR no `thread.started` id can be extracted from the codex `--json` stream → STOP and report to the user with the raw output; do not improvise alternate probe shapes (each retry bills the subscription).
+- Step 2a (stdout echo change): if any selftest byte-identity assertion fails against real-CLI output shapes after the raw `write_all` switch, revert the echo commit and STOP — callers may depend on behavior the fixtures didn't capture.
+- Step 4: any lean variant that fails a functional-safety probe (child fails to register / wake fails to drain) is disqualified immediately regardless of its token cut — never ship a lever that breaks the bus.
 
 ## Acceptance criteria
 
@@ -111,8 +117,9 @@ Lean-flag mapping (ONLY if step 4's gate passes; exact flags fixed by step 4's m
 
 ## Self-review
 
-Score: 87→93/100 · trajectory 87→93 · stopped: post-cross-check ingest.
+Score: 91/100 · trajectory 87→93→83→91 · stopped: after second external review (both external passes ingested).
 Cross-check (2026-07-06): [codex gpt-5.5 xhigh, read-only, 161k tokens] 10 findings (4 high / 5 med / 1 low) — ALL accepted and encoded: spawn-visibility overreach narrowed (1), stdout byte pass-through made an explicit code change with UTF-8/newline fixtures (2), lean gate extended with functional-safety probes (3), probes moved to real resume argv (4), `RELAY_WAKE_CMD_*` test seam added (5), fixture paths + redaction policy fixed (6), watch-auto-turn rationale corrected (7), `--lean` touchpoints enumerated incl. `BOOL_FLAGS` (8), measurement statistic + absolute floor defined (9), release flow inlined verbatim (10). [claude] independently verified findings 2, 3, and 5 against `cli.rs`/`spawn.rs` before accepting.
+Second pass (2026-07-06): [claude plan-review, fresh context] scored the post-codex draft 83/100 with 8 findings targeting exactly the axes codex didn't probe (failure mode, assumption→question) — ALL accepted: codex thread-id capture pinned to the `thread.started` event (1), claude `-p` resumability grounded in the shipped skill's documented doorbell behavior + STOP fallback (2), `--lean` surface fixed to both verbs with both builder functions named (3), usage surfaces corrected to three (4), `## STOP conditions` added incl. stdout-change revert trigger (5), `BOOL_FLAGS` fixed-size-array bump noted (6), usage-line omission rule stated (7), the two open assumptions resolved as evidence-plus-STOP rather than silent defaults (8). Release-coupling note: `session-relay--v0.7.0` now exists, so this ships as v0.8.0.
 
 ## Notes
 
