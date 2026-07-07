@@ -1,11 +1,11 @@
 ---
 title: relay token efficiency — usage visibility + wake discipline + lean boot (Claude & Codex)
 goal: Make session-relay's subscription burn visible and bounded on BOTH tools — token-discipline rules in the skill (wake-model tiering, never doorbell the main session, fresh-spawn-over-long-wake, scoped nudges, batch-then-wake), a per-wake usage summary printed by the relay binary, and a researched lean-boot option for spawned/woken children.
-status: planned
+status: ongoing
 created: "2026-07-06T21:06:46-03:00"
-updated: "2026-07-06T21:56:20-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-06T23:06:54-03:00"
+started_at: "2026-07-06T23:06:54-03:00"
+assignee: relay-eff-worker (codex, via session-relay)
 tags: [session-relay, token-efficiency, codex, claude, wake, spawn]
 affected_paths:
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
