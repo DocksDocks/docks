@@ -3,7 +3,7 @@ title: optional codex + claude cross-check in the plan lifecycle
 goal: Teach plan-manager and plan-review to offer an optional cross-tool second opinion — "review this plan with codex + claude?" — via the native question picker, gated on the Codex CLI being installed and logged in, dispatching a pinned-model Codex review (gpt-5.5 xhigh, read-only) alongside the Claude-side review and merging attributed findings back into the plan.
 status: in_review
 created: "2026-07-06T19:33:07-03:00"
-updated: "2026-07-07T00:15:25-03:00"
+updated: "2026-07-07T00:17:39-03:00"
 in_review_since: "2026-07-07T00:15:25-03:00"
 started_at: "2026-07-06T22:00:26-03:00"
 assignee: crosscheck-worker (codex, via session-relay)
@@ -14,7 +14,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md
   - docs/plans/AGENTS.md
 related_plans: [relay-spawn-model-discipline]
-review_status: null
+review_status: passed
 planned_at_commit: "fc76121f985d1503e41930f9acdfb6d745d0eb5f"
 ---
 
@@ -137,4 +137,9 @@ DISAGREEMENT: execution readiness — [codex] "not execution-ready; fix the high
 
 ## Review
 
-(placeholder — completion review writes here)
+- **Goal met:** yes — all 6 steps land as an additive, tool-generic cross-tool second-opinion contract: plan-manager gains the picker-gated offer (start / on-demand `cross-check <slug>` / Step-8 completion) with the availability gate, one-shot pinned Codex leg, and attributed ingest; plan-review gains `## Cross-tool second opinion` (draft + completion + reverse-claude legs, per-finding reproduction, collect-then-compose) and the optional `Cross-check` line in the Review block; the attributed-findings format is mirrored verbatim into all four contract homes.
+- **Regressions:** none — net diff (fc76121..HEAD, restricted to affected_paths) is +139/-10 of prose/skill-body additions; working tree clean; no behavioral code touched.
+- **CI:** pass — `node scripts/ci.mjs --plugin docks` → "✔ All ci.mjs checks passed — plugin 'docks' + repo-wide; safe to release." (no-author-scripts + durable-anchors + content_hash-in-sync all green; plan-manager and plan-review each score 16, ≥ the 14 aim; docks version agrees 0.12.0 across claude/codex/marketplace manifests, tag `docks--v0.12.0` present).
+- **Cross-check:** Cross-check (2026-07-06): [claude plan-review, fresh context] 10 findings (3 high / 4 med / 3 low) — 10 accepted, 0 rejected; and [codex gpt-5.5 xhigh] 8 findings (5 high / 3 med) — 7 accepted, 1 partially accepted — both recorded and attributed in `## Self-review`; accepted here as the plan's two second opinions per user direction to ship without a new leg. [claude] independently verified findings 4 and 5 of the codex pass against source (`--permission-mode plan` in plan-review's reverse leg; the enumerated Review-block schema lines) before accepting. DISAGREEMENT: execution readiness — [codex] "not execution-ready, fix high-severity contracts before starting" / [claude] draft scored 88 and execution had begun in parallel. Kept: repair-in-place on the executing branch — decided by the orchestrating agent, because all 8 defects were additive fixes needing no step redone.
+- **Follow-ups:** none
+- Filed by: plan-review on 2026-07-07T00:17:39-03:00
