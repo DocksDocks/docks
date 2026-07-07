@@ -1,9 +1,9 @@
 ---
 title: relay token efficiency — usage visibility + wake discipline + lean boot (Claude & Codex)
 goal: Make session-relay's subscription burn visible and bounded on BOTH tools — token-discipline rules in the skill (wake-model tiering, never doorbell the main session, fresh-spawn-over-long-wake, scoped nudges, batch-then-wake), a per-wake usage summary printed by the relay binary, and a researched lean-boot option for spawned/woken children.
-status: blocked
+status: ongoing
 created: "2026-07-06T21:06:46-03:00"
-updated: "2026-07-06T23:09:31-03:00"
+updated: "2026-07-06T23:15:01-03:00"
 started_at: "2026-07-06T23:06:54-03:00"
 assignee: relay-eff-worker (codex, via session-relay)
 tags: [session-relay, token-efficiency, codex, claude, wake, spawn]
@@ -16,8 +16,6 @@ affected_paths:
 related_plans: [relay-spawn-model-discipline, plan-review-crosscheck]
 review_status: null
 planned_at_commit: "79aad728aa61a3cc534d6184ad370471651a7338"
-blocked_reason: "Step 1 STOP: Claude scratch -p session did not resume by id; orchestrator decision needed before any alternate probe shape."
-blocked_since: "2026-07-06T23:09:31-03:00"
 ---
 
 # relay token efficiency — usage visibility + wake discipline + lean boot
@@ -62,7 +60,7 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Capture usage-output shapes from the REAL code-path argv. Claude: `claude -p --session-id <new-uuid> -- "say ok"` in a scratch dir, then `claude -p --resume <that-id> --model sonnet --effort low --output-format json -- "Reply with exactly: ok"` — `-p` sessions ARE resumable by id (documented in the session-relay SKILL's Anti-hallucination section: "`-p`/SDK sessions aren't in the picker but are resumable by id — exactly how the doorbell reaches them"); if the resume nonetheless fails, STOP per STOP conditions. Codex: `codex exec -s read-only -c model_reasoning_effort=low --json -- "say ok"`, extract the thread id from the **`thread.started` event** in the JSONL stream (the id also appears in the rollout filename and equals the hook's `session_id` — same source, session-relay SKILL Cross-tool section), then `codex exec resume <thread-id> --json -- "Reply with exactly: ok"`. Commit redacted-per-policy captures as `plugins/session-relay/test/fixtures/wake-usage-claude.json` + `wake-usage-codex.json`; record field names + CLI versions in `## Notes` before writing any Rust | blocked |
+| 1 | Capture usage-output shapes from the REAL code-path argv. Claude: `claude -p --session-id <new-uuid> -- "say ok"` in a scratch dir, then `claude -p --resume <that-id> --model sonnet --effort low --output-format json -- "Reply with exactly: ok"` — `-p` sessions ARE resumable by id (documented in the session-relay SKILL's Anti-hallucination section: "`-p`/SDK sessions aren't in the picker but are resumable by id — exactly how the doorbell reaches them"); if the resume nonetheless fails, STOP per STOP conditions. Codex: `codex exec -s read-only -c model_reasoning_effort=low --json -- "say ok"`, extract the thread id from the **`thread.started` event** in the JSONL stream (the id also appears in the rollout filename and equals the hook's `session_id` — same source, session-relay SKILL Cross-tool section), then `codex exec resume <thread-id> --json -- "Reply with exactly: ok"`. Commit redacted-per-policy captures as `plugins/session-relay/test/fixtures/wake-usage-claude.json` + `wake-usage-codex.json`; record field names + CLI versions in `## Notes` before writing any Rust | done |
 | 2 | Rust wake changes in `cli.rs`: (a) replace the lossy stdout echo with raw `stdout().write_all(&out.stdout)` (byte pass-through, no newline mutation); (b) add `RELAY_WAKE_CMD_CLAUDE`/`RELAY_WAKE_CMD_CODEX` env overrides in `doorbell_args`' command choice; (c) parse the captured stdout per step-1 shapes and print one stderr line `[relay wake] <tool>: <in> in (<cached> cached) / <out> out[, $<cost>]`; parse failure → no line, exit code and stdout unchanged. Unit tests `include_str!` the step-1 fixtures + no-trailing-newline and invalid-UTF-8 stdout cases | todo |
 | 3 | SKILL.md: add a `## Token discipline` section with the five rules (cross-tool wording, dated model examples, one BAD/GOOD wake pair); bump `metadata.updated`, refresh hash | todo |
 | 4 | Lean-boot measurement per the Context spec (median of 3, fresh scratch cwd each run, fixed order, versions recorded): claude baseline vs `--strict-mcp-config` vs `--setting-sources user`; codex baseline vs `--ignore-user-config`. Ship gate = ≥25% relative AND ≥5k absolute median input-token cut AND the functional-safety probes pass (lean child registers on the bus within birth timeout; lean wake drains a queued message). If shipped: `--lean` per-tool mapping recorded in Interfaces first, `BOOL_FLAGS` entry, both USAGE strings + `main.rs` usage, skill flag lists, selftest scrub list. If not: medians + verdict in `## Notes` and one line in the skill section | todo |
@@ -136,6 +134,12 @@ Second pass (2026-07-06): [claude plan-review, fresh context] scored the post-co
     ```
 
   - This matches the Step 1 STOP condition, so no alternate probe shape was attempted and steps 2-5 were not started.
+- **2026-07-06T23:06 (orchestrator) — STOP root-caused as a sandbox artifact, unblocked:**
+  - The worker runs under codex `--sandbox workspace-write` (relay spawn default), which blocks writes outside the workspace — including `~/.claude/projects/`. Evidence: the seed's project dir exists under `~/.claude/projects/` but contains NO `39c0c666….jsonl` transcript (`find ~/.claude/projects -name "39c0c666*"` → empty), so the seed was never persisted and `--resume` correctly found nothing. The doorbell mechanism is NOT contradicted.
+  - Orchestrator (unsandboxed) re-ran the exact step-1 argv: claude seed `--session-id 637eb034-986d-4352-b2b6-9bf65724cebf` → `ok`; resume with `--model sonnet --effort low --output-format json` → exit 0. Codex seed → `thread.started` id `019f3a5a-0f19-7d22-9d86-15efecc1e1a0`; `codex exec resume <id> --json` → exit 0 (`--skip-git-repo-check` added on both codex legs — scratch dir is not a git repo).
+  - **Field names (step-1 deliverable):** claude (single JSON object, `type:"result"`): `usage.input_tokens`, `usage.cache_read_input_tokens`, `usage.cache_creation_input_tokens`, `usage.output_tokens`, `total_cost_usd`. codex (JSONL, `type:"turn.completed"` event): `usage.input_tokens`, `usage.cached_input_tokens`, `usage.output_tokens`, `usage.reasoning_output_tokens`. NOTE: codex DOES carry a cached field (`cached_input_tokens`) — the Interfaces omission rule stands (render segments on field presence); only cost is codex-absent. CLI versions: claude 2.1.202, codex-cli 0.142.5.
+  - Fixtures committed at `plugins/session-relay/test/fixtures/wake-usage-{claude,codex}.json`, verbatim except reply text redacted (`"<redacted>"`); no machine paths present.
+  - **Execution split going forward:** worker (sandboxed) does steps 2, 3, 5 — no live probes needed. Step 4 (lean measurement + functional-safety probes) moves to the orchestrator: its wake-drain probe needs `~/.claude` persistence, which the worker sandbox cannot provide.
 
 ## Review
 
