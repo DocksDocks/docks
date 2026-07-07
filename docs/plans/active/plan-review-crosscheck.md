@@ -3,7 +3,7 @@ title: optional codex + claude cross-check in the plan lifecycle
 goal: Teach plan-manager and plan-review to offer an optional cross-tool second opinion — "review this plan with codex + claude?" — via the native question picker, gated on the Codex CLI being installed and logged in, dispatching a pinned-model Codex review (gpt-5.5 xhigh, read-only) alongside the Claude-side review and merging attributed findings back into the plan.
 status: ongoing
 created: "2026-07-06T19:33:07-03:00"
-updated: "2026-07-06T22:00:26-03:00"
+updated: "2026-07-06T22:13:50-03:00"
 started_at: "2026-07-06T22:00:26-03:00"
 assignee: crosscheck-worker (codex, via session-relay)
 tags: [docks, plan-manager, plan-review, codex, cross-check]
@@ -46,10 +46,10 @@ Plan reviews today are single-model: the drafting Claude self-reviews, and plan-
 
 | # | Step | Status |
 |---|---|---|
-| 1 | `plan-manager/SKILL.md`: crosscheck offer (a) on `start <slug>` before dispatch, (b) on-demand via a "cross-check <slug>" intent row in Step 1's table, (c) alongside the Step-8 completion-review dispatch — availability gate (`command -v codex` + `codex login status`, generic wording), picker question, one-shot Codex leg per the Interfaces block, ingest of attributed findings into `## Self-review` (plan-manager remains sole writer); bump `metadata.updated` | todo |
-| 2 | `plan-review/SKILL.md`: add a `## Cross-tool second opinion` section — one-shot leg only (no bus), how a crosscheck finding is verified (per-finding reproduction applies), how attribution renders in the `## Review` block for completion reviews, and the reverse (Codex-runtime) leg using `claude -p --model opus --effort max`; bump `metadata.updated` | todo |
-| 3 | Contract sync — **unconditional** (steps 1–2 introduce a new attributed-findings format, so the four-home rule is already triggered): mirror the pinned format from Interfaces verbatim into `docs/plans/AGENTS.md` and `plan-init/references/plans-agents-md-template.md`, same commit as steps 1–2 | todo |
-| 4 | Refresh skill content hashes (author-side backfill), run the docks CI gate green — scorer floors hold, no-author-scripts + durable-anchors + collision guards pass | todo |
+| 1 | `plan-manager/SKILL.md`: crosscheck offer (a) on `start <slug>` before dispatch, (b) on-demand via a "cross-check <slug>" intent row in Step 1's table, (c) alongside the Step-8 completion-review dispatch — availability gate (`command -v codex` + `codex login status`, generic wording), picker question, one-shot Codex leg per the Interfaces block, ingest of attributed findings into `## Self-review` (plan-manager remains sole writer); bump `metadata.updated` | done |
+| 2 | `plan-review/SKILL.md`: add a `## Cross-tool second opinion` section — one-shot leg only (no bus), how a crosscheck finding is verified (per-finding reproduction applies), how attribution renders in the `## Review` block for completion reviews, and the reverse (Codex-runtime) leg using `claude -p --model opus --effort max`; bump `metadata.updated` | done |
+| 3 | Contract sync — **unconditional** (steps 1–2 introduce a new attributed-findings format, so the four-home rule is already triggered): mirror the pinned format from Interfaces verbatim into `docs/plans/AGENTS.md` and `plan-init/references/plans-agents-md-template.md`, same commit as steps 1–2 | done |
+| 4 | Refresh skill content hashes (author-side backfill), run the docks CI gate green — scorer floors hold, no-author-scripts + durable-anchors + collision guards pass | done |
 | 5 | Live smoke: run the crosscheck end-to-end on a real draft plan in this repo (offer → yes → codex leg returns findings → attributed ingest) and paste the resulting `## Self-review` excerpt into this plan's `## Notes` | todo |
 | 6 | Release docks minor; verify manifest lockstep (`.claude-plugin` + `.codex-plugin` + marketplace catalogs) | todo |
 
@@ -64,11 +64,13 @@ timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -
 
 (`-s read-only` makes file writes impossible; the fixed `-m`/`-c` pins are the never-inherit discipline from [[relay-spawn-model-discipline]], written as a dated 2026-07 recommendation — consumer skills carry the "check your own tier list" caveat so staleness is visible.)
 
-Reverse leg (Codex-runtime session cross-checking with Claude), live-verified 2026-07-06 (`claude -p --model opus --effort max -- "Reply with exactly: ok"` → `ok`):
+Reverse leg (Codex-runtime session cross-checking with Claude), live-verified 2026-07-06 (`claude -p --model opus --effort max -- "Reply with exactly: ok"` → `ok`); `--permission-mode plan` added per codex cross-check finding 4 — a bare `-p` inherits whatever tool permissions the machine's settings grant, so the read-only property must be pinned by flag:
 
 ```bash
-timeout 600 claude -p --model opus --effort max -- "<same fixed rubric text + plan path>"
+timeout 600 claude -p --permission-mode plan --model opus --effort max -- "<same fixed rubric text + plan path>"
 ```
+
+Completion-review leg (codex cross-check finding 1): a completion second opinion judges the diff (`git diff <planned_at_commit>..HEAD -- <affected paths>`) against goal + acceptance criteria — never the draft rubric. Its pinned command lives in plan-review's `## Cross-tool second opinion`; ordering is collect-then-compose (findings gathered and reproduced BEFORE the single `## Review` block is composed — finding 2).
 
 Attributed ingest format — **pinned now, verbatim into all four contract homes** (step 3):
 
@@ -119,6 +121,8 @@ Offer gate (skill prose, tool-generic): available = codex on PATH AND `codex log
 
 Score: 88/100 · trajectory 86→69→88 · stopped: post-external-review rewrite (initial self 86; fresh-context draft review scored 69 with 10 findings; all addressed).
 Cross-check (2026-07-06): [claude plan-review, fresh context] 10 findings (3 high / 4 med / 3 low) — ALL accepted: attributed-line grammar + rubric text pinned verbatim (1, 2), plan passed by file path never shell-inlined (2), `## STOP conditions` added for accepted-then-failing legs (3), reverse claude leg live-probed → `ok` (4), step 3 made unconditional (5), reconciliation rule with named decision-maker + picker escalation (6), risk mis-tiering acknowledged — this external pass was the correction (7), model pins kept but framed as dated recommendations with staleness caveat (8), env-gated acceptance flagged read-not-rerun (9), `--skip-git-repo-check` rationale + offer-before-dispatch ordering stated (10). Earlier picker decisions (offer points, one-shot form, completion-too) unchanged.
+Cross-check (2026-07-06): [codex gpt-5.5 xhigh] 8 findings (5 high / 3 med) — 7 accepted, 1 partially accepted (7: strict machine-parseable output schema rejected — the pinned rubric already forces a numbered severity list and these are prose skill contracts; its id-ambiguity point accepted as the "finding ids are the reviewer's list numbers" bullet). Accepted: completion-review leg gets its own diff-vs-goal rubric, never the draft rubric (1); Step 8 ordering pinned as collect-then-compose, single `## Review` writer (2); plan-manager's shell-avoidance list gains a narrow crosscheck exception for the probes + reviewer legs (3); reverse claude leg pinned with `--permission-mode plan` — bare `-p` inherits machine settings permissions (4); both contract homes' `## Review` schema lines now name the optional Cross-check bullet (5); tag-swap rule for Codex-runtime attribution (6); `timeout 600` marked GNU-coreutils-dependent with a macOS fallback (8). [claude] independently verified 4 (`claude --help` lists `--permission-mode`) and 5 (both schema lines enumerated only the original five) against source before accepting; all fixes applied on the executing branch after worker steps 1–4, mirrored across the four contract homes.
+DISAGREEMENT: execution readiness — [codex] "not execution-ready; fix the high-severity contracts before starting implementation" / [claude] draft scored 88 and execution had already started in parallel. Kept: repair-in-place on the executing branch — decided by the orchestrating agent, because all 8 defects were additive fixes on top of steps 1–4 (no step needed redoing) and the lifecycle rule says a review leg never blocks a transition.
 
 ## Review
 
