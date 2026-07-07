@@ -4,8 +4,8 @@ description: Use when a plan's steps all complete (status in_review) or it reach
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-27"
-  content_hash: "52cd6f75bc170b4fcf6b17ef8c5471a8b42e9278219e3b086b2ea36060b18da3"
+  updated: "2026-07-06"
+  content_hash: "b17041814049aad56b852e9f553f8916d658cfe82686de9caeae4640826ce888"
 ---
 
 # Plan Review
@@ -92,6 +92,41 @@ Fired automatically when all `## Steps` reach `done` (plan-manager Step 8) — t
 
 Acceptance-criteria verification, the CI gate, the idempotent `## Review` write, and per-finding reproduction are identical to Finished review.
 
+## Cross-tool second opinion
+
+This is a one-shot reviewer leg only, not a bus/session workflow. Run it only after the user accepted the offer from `plan-manager` or directly asked for a cross-tool second opinion. The alternate reviewer reads the plan path in a read-only process and returns findings; it never edits files. As of 2026-07, the recommended model pins below are dated defaults; check the current tier list before changing them, but keep explicit model/effort pins rather than inheriting ambient runtime defaults.
+
+Claude-side run, Codex reviewer available = `command -v codex` succeeds AND `codex login status` exits 0. If either fails at offer time, skip silently with no offer, no error, and no codex mention.
+
+```bash
+timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -- \
+  "You are an independent plan reviewer red-teaming a draft before execution. Read <plan path> fully, plus any file it cites in affected_paths. Red-team it: (1) missed failure modes, wrong assumptions, cheaper alternatives; (2) steps whose done-condition is vague or unverifiable; (3) anything a cold executor with only this file would have to guess. Do NOT rewrite the plan. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
+```
+
+Codex-runtime reverse leg, Claude reviewer available = `command -v claude` succeeds:
+
+```bash
+timeout 600 claude -p --model opus --effort max -- "<same fixed rubric text + plan path>"
+```
+
+Per-finding reproduction applies to cross-tool findings exactly as it applies to local findings. A `[codex]` finding in a completion review is not accepted until this skill independently re-reads the cited source, re-runs the failing narrow command when relevant, and confirms the defect still exists. Drop unreproduced findings under "Dropped (failed reproduction)" instead of rendering them as regressions.
+
+Attributed ingest format:
+
+```markdown
+Cross-check (<YYYY-MM-DD>): [codex <model> <effort>] <N> findings (<sev breakdown>) — <accepted count> accepted, <rejected count> rejected (one-line reason each); [claude] independently verified <finding ids> against source before accepting.
+DISAGREEMENT: <topic> — [codex] <position> / [claude] <position>. Kept: <choice> — decided by <the orchestrating agent | user via picker>, because <one line>.
+```
+
+- Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
+- **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
+
+STOP conditions:
+
+- Codex leg errors, times out (600s), or returns unparseable output AFTER the user accepted → record `Cross-check attempted <date>: codex leg failed (<one-line reason>)` in the plan, continue with the Claude-only review, and NEVER block the lifecycle transition on the failed leg.
+- Same rule mirrored for the reverse (claude) leg in a Codex runtime.
+- `codex login status` non-zero at offer time → no offer, no error, no codex mention (silent skip is the designed path, not a failure).
+
 ## Finished review
 
 ### Step 1 — Anchor + verify scope
@@ -152,6 +187,7 @@ Build the structured Review block:
 - **Goal met:** yes | partial | no — <one-line reasoning>
 - **Regressions:** none | <list with file:line>
 - **CI:** pass | fail (<first failing line>) | n/a
+- **Cross-check:** none | Cross-check (<YYYY-MM-DD>): [codex <model> <effort>] <N> findings (<sev breakdown>) — <accepted count> accepted, <rejected count> rejected (one-line reason each); [claude] independently verified <finding ids> against source before accepting.
 - **Follow-ups:** none | <suggested slug 1>, <suggested slug 2>
 - Filed by: plan-review on <ISO timestamp>
 ```
@@ -194,7 +230,7 @@ If "Follow-ups" lists any suggested slugs, end the response with a single senten
 - Before claiming a `[x]` criterion is verified, you MUST have read the relevant changed code OR grepped for evidence — not just trusted the checkbox.
 - Before claiming "CI pass", you MUST have run the project's CI command and seen exit code 0 in this turn.
 - Before claiming "CI fail", you MUST have captured the first failing line verbatim from the output.
-- Before claiming `## Review` was written, re-`Read` the file and confirm the new block is present with all five lines (Goal met, Regressions, CI, Follow-ups, Filed by).
+- Before claiming `## Review` was written, re-`Read` the file and confirm the new block is present with all required lines (Goal met, Regressions, CI, Follow-ups, Filed by) plus Cross-check when a second opinion was accepted.
 - Before claiming `review_status` is set, re-`Read` the frontmatter and confirm the new value.
 - If the plan mentions a framework/library and you need to verify the implementation against current docs, use **resolve-library-id → query-docs** via context7 — don't trust training-data assumptions about framework conventions.
 
