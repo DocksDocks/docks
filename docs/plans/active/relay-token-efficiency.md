@@ -3,7 +3,7 @@ title: relay token efficiency — usage visibility + wake discipline + lean boot
 goal: Make session-relay's subscription burn visible and bounded on BOTH tools — token-discipline rules in the skill (wake-model tiering, never doorbell the main session, fresh-spawn-over-long-wake, scoped nudges, batch-then-wake), a per-wake usage summary printed by the relay binary, and a researched lean-boot option for spawned/woken children.
 status: planned
 created: "2026-07-06T21:06:46-03:00"
-updated: "2026-07-06T21:06:46-03:00"
+updated: "2026-07-06T21:18:00-03:00"
 started_at: null
 assignee: null
 tags: [session-relay, token-efficiency, codex, claude, wake, spawn]
@@ -25,8 +25,8 @@ planned_at_commit: "79aad728aa61a3cc534d6184ad370471651a7338"
 Session-relay wakes and spawns burn subscription usage invisibly, and the Claude side burns fastest (research-confirmed in [[relay-spawn-model-discipline]]: a `-p --resume` wake reprocesses the target's full transcript uncached whenever the git snapshot moved or the cache TTL lapsed). Three deliverables, each covering **both** tools:
 
 1. **Skill token-discipline rules** — five usage rules stated once, cross-tool, in the session-relay skill.
-2. **Per-wake usage visibility** — `relay wake` prints a one-line token summary after each doorbell turn, turning "it feels expensive" into a number.
-3. **Lean boot (researched, then ship-or-document)** — measure what actually cuts a child's fixed boot cost per tool; ship a flag only if the measurement justifies it.
+2. **Per-wake usage visibility** — `relay wake` prints a one-line token summary after each doorbell turn, turning "it feels expensive" into a number. **Wake only**: `relay spawn` children are detached with null stdout by design, so spawn burn is bounded by guidance + model pins, not measured (codex review finding 1).
+3. **Lean boot (researched, then ship-or-document)** — measure what actually cuts a child's fixed boot cost per tool; ship a flag only if the measurement AND functional-safety probes justify it.
 
 ## Context & rationale
 
@@ -40,7 +40,16 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
   5. *Batch sends, wake once*: `send` costs nothing; each wake costs boot + transcript.
 - **Usage-line (deliverable 2) principle**: the doorbell already captures the child's stdout. Claude `--output-format json` carries usage fields; Codex `--json` emits JSONL events carrying token counts. Exact field names are **step 1's job to verify with live probes** — do not code against remembered shapes. The summary prints to **stderr** (stdout pass-through must stay byte-identical for callers parsing the reply), and a parse failure degrades silently to today's behavior.
 - **Lean boot (deliverable 3) is measure-first**: candidate levers — Claude `--strict-mcp-config` (skip MCP servers), `--setting-sources` (skip project settings/plugins); Codex `--ignore-user-config`. A flag ships ONLY if measurement shows a worthwhile cut (defined in step 4); otherwise the finding lands as skill guidance ("what's not worth it" is a valid outcome).
-- **Release coupling**: if session-relay v0.7.0 is still unreleased when this plan's binary work lands, both can ship in one release; otherwise this is v0.8.0. Binary discipline identical to the parent plan (workflow-built binaries only).
+- **Release coupling**: decide with `git tag -l 'session-relay--v0.7.0'` — empty means 0.7.0 is unshipped and this work rides it; non-empty means this is v0.8.0. Binary discipline (verbatim from `plugins/session-relay/AGENTS.md`): merge code → dispatch `.github/workflows/build-binaries.yml` (workflow_dispatch) → `gh run download <id>` artifacts, commit the 4 `bin/relay-<triple>` binaries + rebuilt `SHA256SUMS` (concatenate the per-runner `SHA256SUMS-*.part` files) → `node scripts/ci.mjs` green → release only with explicit user authorization. **Never commit a locally built binary.**
+- **Codex cross-check decisions (review 2026-07-06, all 10 findings accepted)**:
+  - *Byte pass-through (finding 2)*: today's wake path runs child stdout through `String::from_utf8_lossy` and appends a missing newline — step 2 explicitly changes it to raw `stdout().write_all(&out.stdout)`, with no-trailing-newline and invalid-UTF-8 fixtures proving stdout is untouched.
+  - *Wake test seam (finding 5)*: `doorbell_args` hardcodes the `claude`/`codex` commands — step 2 adds `RELAY_WAKE_CMD_CLAUDE`/`RELAY_WAKE_CMD_CODEX` env overrides mirroring the spawn ones, which is also what the selftest stubs use. Both names join the selftest `envFor` scrub list.
+  - *Lean functional-safety gate (finding 3)*: `--setting-sources`/`--strict-mcp-config` can drop the session-relay plugin itself from the child — killing its SessionStart registration and inbox drain. Step 4's gate therefore requires BOTH the token cut AND functional probes: a lean-spawned child must still register on the bus within the birth timeout, and a lean wake must still drain a queued message.
+  - *Probe argv fidelity (finding 4)*: usage shapes are captured from the REAL code-path argv — wake shapes via `claude -p --resume <scratch-session>` / `codex exec resume <scratch-thread>` on purpose-made tiny scratch sessions, not bare one-shots.
+  - *Fixtures (finding 6)*: checked-in files at `plugins/session-relay/test/fixtures/wake-usage-{claude,codex}.json`, captured verbatim then redacted ONLY of message text and machine paths (token/cost fields and structure stay exact); Rust unit tests embed them via `include_str!`.
+  - *`relay watch --auto-turn` (finding 7)*: it DOES bill the ChatGPT subscription (app-server turns) — explicitly out of scope here because it is codex-billed and turn-scoped by design, not because it is free.
+  - *`--lean` touchpoints (finding 8)*: if shipped, the flag is boolean — it MUST be added to `BOOL_FLAGS` in `cli.rs` (unlike the value flags), plus: both USAGE strings, `main.rs` usage line, `--dry` JSON assertions per tool, the skill's Anti-hallucination flag lists, and the selftest env scrub list.
+  - *Measurement spec (finding 9)*: per variant take the MEDIAN of 3 runs, each from a fresh scratch cwd (cold cache), fixed run order baseline→lever1→lever2, `claude --version`/`codex --version` recorded in Notes; ship gate = ≥25% relative AND ≥5,000 absolute input-token cut on the median.
 
 ## Environment & how-to-run
 
@@ -51,12 +60,12 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Verify usage-output shapes with one tiny live probe per tool: `claude -p --model sonnet --effort low --output-format json -- "Reply with exactly: ok"` → record the exact `usage` / cost field names + a sanitized fixture; `codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=low --json -- "Reply with exactly: ok"` → record which JSONL event carries token counts + fixture. Paste both shapes into `## Notes` before writing any Rust | todo |
-| 2 | Rust usage summary in the wake path (`cli.rs`, after the doorbell `Command` output is captured): parse per step-1 shapes, print one stderr line `[relay wake] <tool>: <in> in (<cached> cached) / <out> out[, $<cost>]`; stdout pass-through byte-identical; parse failure → no line, no error. Unit tests feed the step-1 fixtures | todo |
+| 1 | Capture usage-output shapes from the REAL code-path argv: create a tiny scratch claude session (`claude -p --session-id <new-uuid> -- "say ok"` in a scratch dir), then probe `claude -p --resume <that-id> --model sonnet --effort low --output-format json -- "Reply with exactly: ok"`; same for codex via `codex exec -s read-only -c model_reasoning_effort=low --json -- "say ok"` then `codex exec resume <thread-id> --json -- "Reply with exactly: ok"`. Commit redacted-per-policy captures as `plugins/session-relay/test/fixtures/wake-usage-claude.json` + `wake-usage-codex.json`; record field names + CLI versions in `## Notes` before writing any Rust | todo |
+| 2 | Rust wake changes in `cli.rs`: (a) replace the lossy stdout echo with raw `stdout().write_all(&out.stdout)` (byte pass-through, no newline mutation); (b) add `RELAY_WAKE_CMD_CLAUDE`/`RELAY_WAKE_CMD_CODEX` env overrides in `doorbell_args`' command choice; (c) parse the captured stdout per step-1 shapes and print one stderr line `[relay wake] <tool>: <in> in (<cached> cached) / <out> out[, $<cost>]`; parse failure → no line, exit code and stdout unchanged. Unit tests `include_str!` the step-1 fixtures + no-trailing-newline and invalid-UTF-8 stdout cases | todo |
 | 3 | SKILL.md: add a `## Token discipline` section with the five rules (cross-tool wording, dated model examples, one BAD/GOOD wake pair); bump `metadata.updated`, refresh hash | todo |
-| 4 | Lean-boot measurement (both tools, from a scratch dir): run the step-1 claude probe 3× each — baseline, `--strict-mcp-config`, `--setting-sources user` — and compare `usage` input tokens; same for codex baseline vs `--ignore-user-config` via its token event. Decision gate: any lever cutting ≥25% of the child's fixed input tokens ships as a `--lean` pass-through on spawn+wake (per-tool mapping recorded in Interfaces before coding); below that, record numbers in `## Notes` and fold the finding into the skill section instead | todo |
-| 5 | selftest: fixture-driven checks for the usage line (fake child echoing a canned JSON reply via `RELAY_SPAWN_CMD_*`-style stub) and, if `--lean` ships, `--dry` argv assertions per tool | todo |
-| 6 | `node scripts/ci.mjs --plugin session-relay` green; dispatch `build-binaries.yml`, commit workflow binaries + `SHA256SUMS`; version bump rides the next session-relay release (with 0.7.0 if unshipped, else 0.8.0) — release itself needs explicit user authorization | todo |
+| 4 | Lean-boot measurement per the Context spec (median of 3, fresh scratch cwd each run, fixed order, versions recorded): claude baseline vs `--strict-mcp-config` vs `--setting-sources user`; codex baseline vs `--ignore-user-config`. Ship gate = ≥25% relative AND ≥5k absolute median input-token cut AND the functional-safety probes pass (lean child registers on the bus within birth timeout; lean wake drains a queued message). If shipped: `--lean` per-tool mapping recorded in Interfaces first, `BOOL_FLAGS` entry, both USAGE strings + `main.rs` usage, skill flag lists, selftest scrub list. If not: medians + verdict in `## Notes` and one line in the skill section | todo |
+| 5 | selftest: wake usage-line checks via `RELAY_WAKE_CMD_*` stubs echoing the committed fixtures (assert stderr line present AND stdout byte-identical to stub output, incl. the no-trailing-newline case); garbage-stdout stub → no usage line, same exit; if `--lean` shipped, `--dry` argv assertions per tool | todo |
+| 6 | `node scripts/ci.mjs --plugin session-relay` green; then the binary + release flow exactly as inlined in Context ("Release coupling") — version decided by `git tag -l 'session-relay--v0.7.0'`; the public release step needs explicit user authorization | todo |
 
 ## Interfaces & data shapes
 
@@ -75,15 +84,15 @@ Lean-flag mapping (ONLY if step 4's gate passes; exact flags fixed by step 4's m
 
 ## Acceptance criteria
 
-- Step-1 fixtures recorded verbatim in `## Notes` (both tools) before any parsing code exists.
-- With a stubbed child returning the claude fixture: `relay wake … 2>&1` shows the `[relay wake] claude: …` line on stderr AND stdout is byte-identical to the stub's output. Same for the codex fixture. Stub returning garbage → no usage line, exit code unchanged.
+- Step-1 fixtures committed at `plugins/session-relay/test/fixtures/wake-usage-{claude,codex}.json` (field structure verbatim, redaction per policy) with field names + CLI versions in `## Notes`, before any parsing code exists.
+- With a `RELAY_WAKE_CMD_*` stub returning the claude fixture: `relay wake …` shows the `[relay wake] claude: …` line on stderr AND stdout is **byte-identical** to the stub's output (proven for a no-trailing-newline payload). Same for the codex fixture. Stub returning garbage → no usage line, exit code unchanged.
 - SKILL.md `## Token discipline` present with all five rules; `content-hash --check-only` clean; skill still scores ≥ the productivity floor via the repo gate.
 - Step 4 outcome recorded either way: shipped `--lean` mapping + `--dry` argv proof, or measured numbers + "not worth a flag" note in `## Notes` and the skill.
 - `cargo test` + selftest + `node scripts/ci.mjs --plugin session-relay` green.
 
 ## Out of scope / do-NOT-touch
 
-- No changes to `send`/`inbox`/`watch` paths — they are already token-free or codex-side.
+- No changes to `send`/`inbox` (token-free file ops) or `watch` — note `watch --auto-turn` DOES bill the ChatGPT subscription; it stays out of scope because it is codex-billed and turn-scoped by design, not because it is free.
 - No auto-tiering in the binary (guessing wake intent belongs to the agent via the skill, not to Rust).
 - No personal config (env vars, dotfiles) — consumer-side, DocksDocks/public.
 - Release execution (public tag) stays user-authorized, per the parent plan's precedent.
@@ -102,7 +111,8 @@ Lean-flag mapping (ONLY if step 4's gate passes; exact flags fixed by step 4's m
 
 ## Self-review
 
-Score: 87/100 · trajectory 87 · stopped: single pass (6 steps, no risk flag, ≥85). Cross-check: pending — codex red-team runs after this draft commits; its findings will be ingested here attributed.
+Score: 87→93/100 · trajectory 87→93 · stopped: post-cross-check ingest.
+Cross-check (2026-07-06): [codex gpt-5.5 xhigh, read-only, 161k tokens] 10 findings (4 high / 5 med / 1 low) — ALL accepted and encoded: spawn-visibility overreach narrowed (1), stdout byte pass-through made an explicit code change with UTF-8/newline fixtures (2), lean gate extended with functional-safety probes (3), probes moved to real resume argv (4), `RELAY_WAKE_CMD_*` test seam added (5), fixture paths + redaction policy fixed (6), watch-auto-turn rationale corrected (7), `--lean` touchpoints enumerated incl. `BOOL_FLAGS` (8), measurement statistic + absolute floor defined (9), release flow inlined verbatim (10). [claude] independently verified findings 2, 3, and 5 against `cli.rs`/`spawn.rs` before accepting.
 
 ## Notes
 
