@@ -1,10 +1,11 @@
 ---
 title: relay spawn model/effort pinning + red-team pair-spawn pattern
 goal: Give `relay spawn` AND `relay wake` explicit `--model`/`--effort` flags (per-tool argv mapping) so spawned workers and doorbell wakes never silently run on the top-tier interactive default (Fable), encode a never-Fable model-discipline rule in the session-relay skill, and document a two-worker red-team debate pattern (Codex gpt-5.5 xhigh vs Claude opus max) that writes into a plan-manager plan.
-status: in_review
+status: finished
 created: "2026-07-06T19:26:49-03:00"
-updated: "2026-07-06T21:32:47-03:00"
+updated: "2026-07-06T21:45:42-03:00"
 in_review_since: "2026-07-06T21:31:42-03:00"
+ship_commit: "57541075ecbf3cf788ccd02c7128177cd9edd738"
 started_at: "2026-07-06T20:05:55-03:00"
 assignee: relay-md-worker (codex, via session-relay)
 tags: [session-relay, spawn, model-discipline, red-team]
