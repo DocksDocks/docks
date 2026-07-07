@@ -1,9 +1,10 @@
 ---
 title: relay spawn model/effort pinning + red-team pair-spawn pattern
 goal: Give `relay spawn` AND `relay wake` explicit `--model`/`--effort` flags (per-tool argv mapping) so spawned workers and doorbell wakes never silently run on the top-tier interactive default (Fable), encode a never-Fable model-discipline rule in the session-relay skill, and document a two-worker red-team debate pattern (Codex gpt-5.5 xhigh vs Claude opus max) that writes into a plan-manager plan.
-status: ongoing
+status: in_review
 created: "2026-07-06T19:26:49-03:00"
-updated: "2026-07-06T20:13:55-03:00"
+updated: "2026-07-06T21:31:42-03:00"
+in_review_since: "2026-07-06T21:31:42-03:00"
 started_at: "2026-07-06T20:05:55-03:00"
 assignee: relay-md-worker (codex, via session-relay)
 tags: [session-relay, spawn, model-discipline, red-team]
@@ -61,7 +62,7 @@ planned_at_commit: "be438d6bb890e541efce42990ba952e76d662cf5"
 | 3 | SKILL.md: (a) model-discipline guidance covering **spawn AND wake** — a `<constraint>`-grade rule: relay children and doorbell wakes run unsupervised and reprocess full transcripts; ALWAYS pin `--model`/`--effort`; **never Fable / the top interactive tier** for a relay child or wake; recommended pins as dated current-recommendation examples (`--model opus --effort max` / `--model gpt-5.5 --effort xhigh`, "as of 2026-07 — check your own tier list"); (b) add `--model`, `--effort` to BOTH the `relay wake` and `relay spawn` flag lists in `## Anti-hallucination`; (c) new `## Red-team pair spawn` section per the Interfaces block below; (d) rewrite the "Ask the tool first" spawn rule: when a standing tool preference exists (`RELAY_SPAWN_TOOL` env, user config, or session memory), use it WITHOUT asking; ask only when no preference is discoverable; (e) bump `metadata.updated`, refresh the content hash per the skills gate | done |
 | 4 | `node scripts/ci.mjs --plugin session-relay` green (binary byte-compare warn-only locally is expected); commit code + skill | done |
 | 5 | Dispatch `build-binaries.yml`, download the 4 target binaries + launcher checksums, commit `bin/*` + `SHA256SUMS`; re-run ci green. Done twice: run 28830260388, then run 28830994483 after the codex-first fallback amendment (user, 2026-07-06 — bare-CLI fallback is codex when its CLI resolves on PATH/`RELAY_SPAWN_CMD_CODEX`, else claude). All three resolution paths smoke-verified on the committed binary | done |
-| 6 | `node scripts/release.mjs --plugin session-relay minor`; verify tag + lockstep versions (`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, marketplace catalogs via codex-plugin-mirror if prompted) | todo — awaiting user authorization (publishes a public release; auto-mode denied 2026-07-06) |
+| 6 | `node scripts/release.mjs --plugin session-relay minor`; verify tag + lockstep versions (`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, marketplace catalogs via codex-plugin-mirror if prompted) | done — user-authorized 2026-07-06; tag `session-relay--v0.7.0`, tag-CI green, release https://github.com/DocksDocks/docks/releases/tag/session-relay--v0.7.0 |
 
 ## Interfaces & data shapes
 
