@@ -3,7 +3,7 @@ title: relay token efficiency — usage visibility + wake discipline + lean boot
 goal: Make session-relay's subscription burn visible and bounded on BOTH tools — token-discipline rules in the skill (wake-model tiering, never doorbell the main session, fresh-spawn-over-long-wake, scoped nudges, batch-then-wake), a per-wake usage summary printed by the relay binary, and a researched lean-boot option for spawned/woken children.
 status: in_review
 created: "2026-07-06T21:06:46-03:00"
-updated: "2026-07-07T00:15:25-03:00"
+updated: "2026-07-07T00:17:29-03:00"
 in_review_since: "2026-07-07T00:15:25-03:00"
 started_at: "2026-07-06T23:06:54-03:00"
 assignee: relay-eff-worker (codex, via session-relay)
@@ -15,7 +15,7 @@ affected_paths:
   - plugins/session-relay/test/selftest.mjs
   - plugins/session-relay/bin/
 related_plans: [relay-spawn-model-discipline, plan-review-crosscheck]
-review_status: null
+review_status: passed
 planned_at_commit: "79aad728aa61a3cc534d6184ad370471651a7338"
 ---
 
@@ -157,4 +157,9 @@ Second pass (2026-07-06): [claude plan-review, fresh context] scored the post-co
 
 ## Review
 
-(placeholder — completion review writes here)
+- **Goal met:** yes — all three deliverables landed for both tools: five token-discipline rules in the skill (`## Token discipline`), a wake-only stderr usage line with raw byte-identical stdout pass-through (`cli.rs`), and a measure-first no-ship of `--lean` (codex `--ignore-user-config` cut ~41% input but dropped the child's bus registration, disqualified per STOP-3). Every `[x]` acceptance criterion is evidence-verified against the diff.
+- **Regressions:** none — `cargo test` 39 passed, selftest 70 checks, `ci.mjs` green. `spawn.rs` is listed in `affected_paths` but legitimately untouched: it was slated to change only if `--lean` shipped, which step 4 disqualified; the Interfaces lean table is correctly left unshipped and the skill carries the guidance paragraph instead.
+- **CI:** pass — `node scripts/ci.mjs --plugin session-relay` all checks passed at v0.8.0; the host-rebuild digest warning is documented expected local path/linker variance (tag `session-relay--v0.8.0` already verified byte-identity in tag-CI).
+- **Cross-check:** [codex gpt-5.5 xhigh] 10 findings (4 high / 5 med / 1 low) + [claude fresh-context] 8 findings, all accepted and encoded per `## Self-review` — referenced as the accepted second opinions; no new review leg run (user directed ship).
+- **Follow-ups:** none
+- Filed by: plan-review on 2026-07-07T00:17:29-03:00
