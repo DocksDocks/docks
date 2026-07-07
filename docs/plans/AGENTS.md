@@ -130,7 +130,8 @@ headings:
 
 The first body line repeats the title as `# <Title>`. `plan-review` fills
 `## Review` with: `Goal met: yes|partial|no`, `Regressions`, `CI`,
-`Follow-ups`, `Filed by`.
+`Follow-ups`, `Filed by`, plus an optional `Cross-check` bullet when a
+cross-tool second opinion was accepted (grammar below).
 
 ### Cold-handoff checklist — the required-content gate
 
@@ -241,6 +242,8 @@ DISAGREEMENT: <topic> — [codex] <position> / [claude] <position>. Kept: <choic
 ```
 
 - Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
+- Finding ids are the alternate reviewer's own list numbers — its numbered list is the id space; no separate scheme.
+- In a Codex runtime the tags swap: `[claude <model> <effort>]` is the reviewer, `[codex] independently verified …` the orchestrator.
 - **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
 
 ## Open questions — bounded decisions for the user

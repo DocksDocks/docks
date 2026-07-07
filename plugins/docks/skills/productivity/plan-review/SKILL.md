@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-06"
-  content_hash: "b17041814049aad56b852e9f553f8916d658cfe82686de9caeae4640826ce888"
+  content_hash: "62f865c5d5dca0377180a81f5db6464eb638d239153d9e2d387d9cba3970f228"
 ---
 
 # Plan Review
@@ -98,18 +98,29 @@ This is a one-shot reviewer leg only, not a bus/session workflow. Run it only af
 
 Claude-side run, Codex reviewer available = `command -v codex` succeeds AND `codex login status` exits 0. If either fails at offer time, skip silently with no offer, no error, and no codex mention.
 
+Draft-review leg (plan not yet executing):
+
 ```bash
 timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -- \
   "You are an independent plan reviewer red-teaming a draft before execution. Read <plan path> fully, plus any file it cites in affected_paths. Red-team it: (1) missed failure modes, wrong assumptions, cheaper alternatives; (2) steps whose done-condition is vague or unverifiable; (3) anything a cold executor with only this file would have to guess. Do NOT rewrite the plan. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
 ```
 
-Codex-runtime reverse leg, Claude reviewer available = `command -v claude` succeeds:
+Completion-review leg — a completion second opinion judges the DIFF against the goal; never reuse the draft rubric here:
 
 ```bash
-timeout 600 claude -p --model opus --effort max -- "<same fixed rubric text + plan path>"
+timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -- \
+  "You are an independent completion reviewer. Read <plan path> fully, then run: git diff <planned_at_commit>..HEAD -- <affected paths>, and read the changed files. Judge delivered-vs-goal: (1) each acceptance criterion met or unmet, with evidence; (2) regressions or scope creep in the diff; (3) steps marked done that the diff does not substantiate. Do NOT edit anything. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
 ```
 
-Per-finding reproduction applies to cross-tool findings exactly as it applies to local findings. A `[codex]` finding in a completion review is not accepted until this skill independently re-reads the cited source, re-runs the failing narrow command when relevant, and confirms the defect still exists. Drop unreproduced findings under "Dropped (failed reproduction)" instead of rendering them as regressions.
+Codex-runtime reverse leg, Claude reviewer available = `command -v claude` succeeds. `--permission-mode plan` keeps the leg read-only — a bare `-p` inherits whatever tool permissions the machine's settings grant:
+
+```bash
+timeout 600 claude -p --permission-mode plan --model opus --effort max -- "<same fixed rubric text + plan path>"
+```
+
+The `timeout 600` prefix needs GNU coreutils (absent on stock macOS): drop the prefix there and enforce the same 600-second budget with the runtime's own command timeout.
+
+Per-finding reproduction applies to cross-tool findings exactly as it applies to local findings. A `[codex]` finding in a completion review is not accepted until this skill independently re-reads the cited source, re-runs the failing narrow command when relevant, and confirms the defect still exists. Drop unreproduced findings under "Dropped (failed reproduction)" instead of rendering them as regressions. Ordering is collect-then-compose: gather and reproduce cross-tool findings BEFORE composing `## Review` — the block is written once, by this skill alone; never splice findings into an already-written block.
 
 Attributed ingest format:
 
@@ -119,6 +130,8 @@ DISAGREEMENT: <topic> — [codex] <position> / [claude] <position>. Kept: <choic
 ```
 
 - Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
+- Finding ids are the alternate reviewer's own list numbers — its numbered list is the id space; no separate scheme.
+- In a Codex runtime the tags swap: `[claude <model> <effort>]` is the reviewer, `[codex] independently verified …` the orchestrator.
 - **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
 
 STOP conditions:

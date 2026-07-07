@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-06"
-  content_hash: "7e5d86e1955e999252717fff55f9b6e71686b25d5ca0dc4ceeaa60a803be30c8"
+  content_hash: "e7de8c74097e8323c3bd1bf7f6124b94532be790405aa18eca83880563874597"
 ---
 
 # Plan Manager
@@ -37,7 +37,7 @@ previews so the user never opens a plan file. A plan's lifecycle stage is its
 
 ## Multi-occupancy + shell-avoidance
 
-`active/` holds any number of plans at any status — never tell the user to finish one first. Use `Glob` for enumeration (not `find`/`ls`/`for`), `Read` for contents (not `cat`), `Grep` for search; reserve `Bash` for `date`, `git mv`/`git add`/`git commit`/`git rm`, `git status`, and read-only `test`.
+`active/` holds any number of plans at any status — never tell the user to finish one first. Use `Glob` for enumeration (not `find`/`ls`/`for`), `Read` for contents (not `cat`), `Grep` for search; reserve `Bash` for `date`, `git mv`/`git add`/`git commit`/`git rm`, `git status`, read-only `test`, and — solely for the cross-tool second opinion — the availability probes (`command -v`, `codex login status`) plus the pinned one-shot reviewer legs.
 
 ## Optional cross-tool second opinion
 
@@ -48,6 +48,8 @@ timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -
   "You are an independent plan reviewer red-teaming a draft before execution. Read <plan path> fully, plus any file it cites in affected_paths. Red-team it: (1) missed failure modes, wrong assumptions, cheaper alternatives; (2) steps whose done-condition is vague or unverifiable; (3) anything a cold executor with only this file would have to guess. Do NOT rewrite the plan. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
 ```
 
+This block is the draft-review leg. The completion-review leg (different rubric — it judges the diff against the goal, never the draft rubric) and the reverse Codex-runtime leg are pinned in plan-review's `## Cross-tool second opinion`. The `timeout 600` prefix needs GNU coreutils (absent on stock macOS): drop the prefix there and enforce the same 600-second budget with the runtime's own command timeout.
+
 Attributed ingest format:
 
 ```markdown
@@ -56,6 +58,8 @@ DISAGREEMENT: <topic> — [codex] <position> / [claude] <position>. Kept: <choic
 ```
 
 - Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
+- Finding ids are the alternate reviewer's own list numbers — its numbered list is the id space; no separate scheme.
+- In a Codex runtime the tags swap: `[claude <model> <effort>]` is the reviewer, `[codex] independently verified …` the orchestrator.
 - **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
 
 STOP conditions:
@@ -152,7 +156,7 @@ Encode each answer into the plan (rationale → `## Context`/`## Notes`; scope �
 
 When all `## Steps` reach `done`, transition to `in_review` (Step 5) and dispatch `plan-review` through the current runtime when a resolved agent and explicit delegation/policy allow it (Claude: `Agent(subagent_type="plan-review", prompt=<plan-path>)`; Codex: project `.codex/agents/plan-review.toml` custom-agent handoff). If no resolved agent or delegation permission exists, run the `plan-review` skill inline.
 
-Before dispatching completion review, run the optional cross-tool second-opinion offer in the same picker turn. If accepted, run the one-shot reviewer alongside the normal completion review. The second-opinion process stays read-only; accepted findings render as a `- **Cross-check:** …` bullet inside `## Review` using the attributed grammar, and any codex-attributed finding must be independently reproduced before acceptance. If the accepted leg hits a STOP condition, record the attempted-failure line in the plan and continue the Claude-only completion review.
+Before dispatching completion review, run the optional cross-tool second-opinion offer in the same picker turn. If accepted, the flow is collect-then-compose: run the one-shot reviewer (plan-review's completion-review leg, not the draft rubric) and gather its findings FIRST, hand them to the completion review for per-finding reproduction, and only then let plan-review compose the single `## Review` block once — one writer, never a post-hoc edit splicing findings into an already-written block. The second-opinion process stays read-only; accepted findings render as a `- **Cross-check:** …` bullet inside `## Review` using the attributed grammar. If the accepted leg hits a STOP condition, record the attempted-failure line in the plan and continue the Claude-only completion review.
 
 The **completion mode** diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, and the file stays in `active/`. Re-render Tier-3 and auto-commit. Surface the verdict: on `passed`, "reviewed — say `ship <slug>` to archive"; on `partial`/`regressed`, route back to `ongoing` with the findings. **Ship no longer re-dispatches review** — the completion review is the review (re-run at ship only if HEAD moved).
 
