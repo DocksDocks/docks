@@ -1,9 +1,10 @@
 ---
 title: relay token efficiency — usage visibility + wake discipline + lean boot (Claude & Codex)
 goal: Make session-relay's subscription burn visible and bounded on BOTH tools — token-discipline rules in the skill (wake-model tiering, never doorbell the main session, fresh-spawn-over-long-wake, scoped nudges, batch-then-wake), a per-wake usage summary printed by the relay binary, and a researched lean-boot option for spawned/woken children.
-status: ongoing
+status: in_review
 created: "2026-07-06T21:06:46-03:00"
-updated: "2026-07-06T23:27:06-03:00"
+updated: "2026-07-07T00:15:25-03:00"
+in_review_since: "2026-07-07T00:15:25-03:00"
 started_at: "2026-07-06T23:06:54-03:00"
 assignee: relay-eff-worker (codex, via session-relay)
 tags: [session-relay, token-efficiency, codex, claude, wake, spawn]
@@ -65,7 +66,7 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
 | 3 | SKILL.md: add a `## Token discipline` section with the five rules (cross-tool wording, dated model examples, one BAD/GOOD wake pair); bump `metadata.updated`, refresh hash | done |
 | 4 | Lean-boot measurement per the Context spec (median of 3, fresh scratch cwd each run, fixed order, versions recorded): claude baseline vs `--strict-mcp-config` vs `--setting-sources user`; codex baseline vs `--ignore-user-config`. Ship gate = ≥25% relative AND ≥5k absolute median input-token cut AND the functional-safety probes pass (lean child registers on the bus within birth timeout; lean wake drains a queued message). If shipped: `--lean` per-tool mapping recorded in Interfaces first, `BOOL_FLAGS` entry, both USAGE strings + `main.rs` usage, skill flag lists, selftest scrub list. If not: medians + verdict in `## Notes` and one line in the skill section | done |
 | 5 | selftest: wake usage-line checks via `RELAY_WAKE_CMD_*` stubs echoing the committed fixtures (assert stderr line present AND stdout byte-identical to stub output, incl. the no-trailing-newline case); garbage-stdout stub → no usage line, same exit; if `--lean` shipped, `--dry` argv assertions per tool | done |
-| 6 | `node scripts/ci.mjs --plugin session-relay` green; then the binary + release flow exactly as inlined in Context ("Release coupling") — version decided by `git tag -l 'session-relay--v0.7.0'`; the public release step needs explicit user authorization | todo |
+| 6 | `node scripts/ci.mjs --plugin session-relay` green; then the binary + release flow exactly as inlined in Context ("Release coupling") — version decided by `git tag -l 'session-relay--v0.7.0'`; the public release step needs explicit user authorization | done |
 
 ## Interfaces & data shapes
 

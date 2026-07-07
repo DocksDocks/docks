@@ -1,9 +1,10 @@
 ---
 title: optional codex + claude cross-check in the plan lifecycle
 goal: Teach plan-manager and plan-review to offer an optional cross-tool second opinion — "review this plan with codex + claude?" — via the native question picker, gated on the Codex CLI being installed and logged in, dispatching a pinned-model Codex review (gpt-5.5 xhigh, read-only) alongside the Claude-side review and merging attributed findings back into the plan.
-status: ongoing
+status: in_review
 created: "2026-07-06T19:33:07-03:00"
-updated: "2026-07-06T22:13:50-03:00"
+updated: "2026-07-07T00:15:25-03:00"
+in_review_since: "2026-07-07T00:15:25-03:00"
 started_at: "2026-07-06T22:00:26-03:00"
 assignee: crosscheck-worker (codex, via session-relay)
 tags: [docks, plan-manager, plan-review, codex, cross-check]
@@ -51,7 +52,7 @@ Plan reviews today are single-model: the drafting Claude self-reviews, and plan-
 | 3 | Contract sync — **unconditional** (steps 1–2 introduce a new attributed-findings format, so the four-home rule is already triggered): mirror the pinned format from Interfaces verbatim into `docs/plans/AGENTS.md` and `plan-init/references/plans-agents-md-template.md`, same commit as steps 1–2 | done |
 | 4 | Refresh skill content hashes (author-side backfill), run the docks CI gate green — scorer floors hold, no-author-scripts + durable-anchors + collision guards pass | done |
 | 5 | Live smoke: run the crosscheck end-to-end on a real draft plan in this repo (offer → yes → codex leg returns findings → attributed ingest) and paste the resulting `## Self-review` excerpt into this plan's `## Notes` | done |
-| 6 | Release docks minor; verify manifest lockstep (`.claude-plugin` + `.codex-plugin` + marketplace catalogs) | todo |
+| 6 | Release docks minor; verify manifest lockstep (`.claude-plugin` + `.codex-plugin` + marketplace catalogs) | done |
 
 ## Interfaces & data shapes
 
