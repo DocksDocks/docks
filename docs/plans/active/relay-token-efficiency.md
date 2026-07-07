@@ -1,9 +1,9 @@
 ---
 title: relay token efficiency — usage visibility + wake discipline + lean boot (Claude & Codex)
 goal: Make session-relay's subscription burn visible and bounded on BOTH tools — token-discipline rules in the skill (wake-model tiering, never doorbell the main session, fresh-spawn-over-long-wake, scoped nudges, batch-then-wake), a per-wake usage summary printed by the relay binary, and a researched lean-boot option for spawned/woken children.
-status: ongoing
+status: blocked
 created: "2026-07-06T21:06:46-03:00"
-updated: "2026-07-06T23:06:54-03:00"
+updated: "2026-07-06T23:09:31-03:00"
 started_at: "2026-07-06T23:06:54-03:00"
 assignee: relay-eff-worker (codex, via session-relay)
 tags: [session-relay, token-efficiency, codex, claude, wake, spawn]
@@ -16,6 +16,8 @@ affected_paths:
 related_plans: [relay-spawn-model-discipline, plan-review-crosscheck]
 review_status: null
 planned_at_commit: "79aad728aa61a3cc534d6184ad370471651a7338"
+blocked_reason: "Step 1 STOP: Claude scratch -p session did not resume by id; orchestrator decision needed before any alternate probe shape."
+blocked_since: "2026-07-06T23:09:31-03:00"
 ---
 
 # relay token efficiency — usage visibility + wake discipline + lean boot
@@ -60,7 +62,7 @@ Session-relay wakes and spawns burn subscription usage invisibly, and the Claude
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Capture usage-output shapes from the REAL code-path argv. Claude: `claude -p --session-id <new-uuid> -- "say ok"` in a scratch dir, then `claude -p --resume <that-id> --model sonnet --effort low --output-format json -- "Reply with exactly: ok"` — `-p` sessions ARE resumable by id (documented in the session-relay SKILL's Anti-hallucination section: "`-p`/SDK sessions aren't in the picker but are resumable by id — exactly how the doorbell reaches them"); if the resume nonetheless fails, STOP per STOP conditions. Codex: `codex exec -s read-only -c model_reasoning_effort=low --json -- "say ok"`, extract the thread id from the **`thread.started` event** in the JSONL stream (the id also appears in the rollout filename and equals the hook's `session_id` — same source, session-relay SKILL Cross-tool section), then `codex exec resume <thread-id> --json -- "Reply with exactly: ok"`. Commit redacted-per-policy captures as `plugins/session-relay/test/fixtures/wake-usage-claude.json` + `wake-usage-codex.json`; record field names + CLI versions in `## Notes` before writing any Rust | todo |
+| 1 | Capture usage-output shapes from the REAL code-path argv. Claude: `claude -p --session-id <new-uuid> -- "say ok"` in a scratch dir, then `claude -p --resume <that-id> --model sonnet --effort low --output-format json -- "Reply with exactly: ok"` — `-p` sessions ARE resumable by id (documented in the session-relay SKILL's Anti-hallucination section: "`-p`/SDK sessions aren't in the picker but are resumable by id — exactly how the doorbell reaches them"); if the resume nonetheless fails, STOP per STOP conditions. Codex: `codex exec -s read-only -c model_reasoning_effort=low --json -- "say ok"`, extract the thread id from the **`thread.started` event** in the JSONL stream (the id also appears in the rollout filename and equals the hook's `session_id` — same source, session-relay SKILL Cross-tool section), then `codex exec resume <thread-id> --json -- "Reply with exactly: ok"`. Commit redacted-per-policy captures as `plugins/session-relay/test/fixtures/wake-usage-claude.json` + `wake-usage-codex.json`; record field names + CLI versions in `## Notes` before writing any Rust | blocked |
 | 2 | Rust wake changes in `cli.rs`: (a) replace the lossy stdout echo with raw `stdout().write_all(&out.stdout)` (byte pass-through, no newline mutation); (b) add `RELAY_WAKE_CMD_CLAUDE`/`RELAY_WAKE_CMD_CODEX` env overrides in `doorbell_args`' command choice; (c) parse the captured stdout per step-1 shapes and print one stderr line `[relay wake] <tool>: <in> in (<cached> cached) / <out> out[, $<cost>]`; parse failure → no line, exit code and stdout unchanged. Unit tests `include_str!` the step-1 fixtures + no-trailing-newline and invalid-UTF-8 stdout cases | todo |
 | 3 | SKILL.md: add a `## Token discipline` section with the five rules (cross-tool wording, dated model examples, one BAD/GOOD wake pair); bump `metadata.updated`, refresh hash | todo |
 | 4 | Lean-boot measurement per the Context spec (median of 3, fresh scratch cwd each run, fixed order, versions recorded): claude baseline vs `--strict-mcp-config` vs `--setting-sources user`; codex baseline vs `--ignore-user-config`. Ship gate = ≥25% relative AND ≥5k absolute median input-token cut AND the functional-safety probes pass (lean child registers on the bus within birth timeout; lean wake drains a queued message). If shipped: `--lean` per-tool mapping recorded in Interfaces first, `BOOL_FLAGS` entry, both USAGE strings + `main.rs` usage, skill flag lists, selftest scrub list. If not: medians + verdict in `## Notes` and one line in the skill section | todo |
@@ -123,7 +125,17 @@ Second pass (2026-07-06): [claude plan-review, fresh context] scored the post-co
 
 ## Notes
 
-(step-1 fixtures and step-4 measurements land here)
+- **2026-07-06T23:09:31-03:00 - STOP Step 1 (Claude resume by id failed):**
+  - CLI versions checked before the probe: `claude --version` -> `2.1.202 (Claude Code)`; `codex --version` -> `codex-cli 0.142.5` (with a PATH-alias warning caused by the read-only sandbox).
+  - Scratch directory: `/tmp/relay-token-efficiency/claude-39c0c666-3336-4701-be05-2a40ecc1fb52`.
+  - Seed command: `claude -p --session-id 39c0c666-3336-4701-be05-2a40ecc1fb52 -- "say ok"` returned exit code 0 and stdout `ok`.
+  - Required resume command: `claude -p --resume 39c0c666-3336-4701-be05-2a40ecc1fb52 --model sonnet --effort low --output-format json -- "Reply with exactly: ok"` returned exit code 1 with raw stderr:
+
+    ```text
+    No conversation found with session ID: 39c0c666-3336-4701-be05-2a40ecc1fb52
+    ```
+
+  - This matches the Step 1 STOP condition, so no alternate probe shape was attempted and steps 2-5 were not started.
 
 ## Review
 
