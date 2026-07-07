@@ -3,7 +3,7 @@ title: relay spawn model/effort pinning + red-team pair-spawn pattern
 goal: Give `relay spawn` AND `relay wake` explicit `--model`/`--effort` flags (per-tool argv mapping) so spawned workers and doorbell wakes never silently run on the top-tier interactive default (Fable), encode a never-Fable model-discipline rule in the session-relay skill, and document a two-worker red-team debate pattern (Codex gpt-5.5 xhigh vs Claude opus max) that writes into a plan-manager plan.
 status: in_review
 created: "2026-07-06T19:26:49-03:00"
-updated: "2026-07-06T21:31:42-03:00"
+updated: "2026-07-06T21:32:47-03:00"
 in_review_since: "2026-07-06T21:31:42-03:00"
 started_at: "2026-07-06T20:05:55-03:00"
 assignee: relay-md-worker (codex, via session-relay)
@@ -15,7 +15,7 @@ affected_paths:
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - plugins/session-relay/bin/
 related_plans: [plan-review-crosscheck]
-review_status: null
+review_status: passed
 planned_at_commit: "be438d6bb890e541efce42990ba952e76d662cf5"
 ---
 
@@ -121,4 +121,8 @@ Score: 88/100 · trajectory 88 · stopped: single pass (≤6 steps, no risk flag
 
 ## Review
 
-(placeholder — completion review writes here)
+- **Goal met:** yes — both `relay spawn` and `relay wake` gained per-tool `--model`/`--effort` pass-through (claude `--model/--effort`, codex `-m/-c model_reasoning_effort=`), verified live on the committed `bin/relay-x86_64-unknown-linux-musl`: flags land before the `--` fence (spawn) and after `--resume <id>` (wake); no-flag argv injects no default model. SKILL.md carries the never-Fable `<constraint>`, the dated pins, the wake+spawn flag lists, and the `## Red-team pair spawn` section. `RELAY_SPAWN_TOOL` resolution verified (codex→codex no tool-note; bogus→dies naming `claude|codex`; unset→codex-first fallback with codex-absent→claude-with-note).
+- **Regressions:** none — `cargo test` 31 unit + 3 integration pass; `cargo fmt --check` + `clippy -D warnings` clean; `selftest.mjs` PASS.
+- **CI:** pass — `node scripts/ci.mjs --plugin session-relay` exit 0; the lone `⚠ host rebuild digest differs` is the expected local path/linker variance (tag-CI verified byte-identity on the build image), not a regression.
+- **Follow-ups:** none — the two model-tiering follow-ups (`plan-review-crosscheck` docks gate; personal tier-list → DocksDocks/public) are already recorded in-plan; no new slug needed.
+- Filed by: plan-review on 2026-07-06T21:32:47-03:00
