@@ -1,13 +1,13 @@
-# Codex — capability key reference (verified 2026-07-05)
+# Codex — capability key reference (verified 2026-07-09)
 
-Sources: openai/codex source @ main (config_toml.rs, profile_toml.rs, openai_models.rs, agents_md.rs, core-skills/loader.rs + render.rs) cross-checked with developers.openai.com/codex/{config-reference, models, subagents, skills, guides/agents-md}. The old GitHub `docs/config.md` is a stub — the live config-reference pages are canonical.
+Sources: openai/codex source @ main (config_toml.rs, profile_toml.rs, openai_models.rs, agents_md.rs, core-skills/loader.rs + render.rs) cross-checked with the live docs — developers.openai.com/codex/* now 308-redirects to learn.chatgpt.com/docs/* (config-reference, models, subagents, skills, agents-md). The old GitHub `docs/config.md` is a stub — the live config-reference pages are canonical.
 
 ## Model & effort
 
 | Key | Effect |
 |---|---|
-| `model` | `"gpt-5.5"` is the current frontier and recommended default. The `-codex` checkpoint line ended at `gpt-5.3-codex` (merged into mainline at 5.4) — there is no gpt-5.4/5.5-codex. `gpt-5.4-mini` = cheap/fast tier; `gpt-5.3-codex-spark` = near-instant research preview. |
-| `model_reasoning_effort` | `"minimal"`/`"low"`/`"medium"`/`"high"`/`"xhigh"` — `"none"` is no longer valid here (it survives only on `plan_mode_reasoning_effort`). `xhigh` is the ceiling and model-dependent (not every model exposes it); Codex's external-agent migration maps Claude `max` → `xhigh`. |
+| `model` | `"gpt-5.6-sol"` is the current frontier and recommended default (family: `"gpt-5.6-terra"` = balanced, `"gpt-5.6-luna"` = fast/cheapest; `"gpt-5.5"` = previous-gen frontier). The `-codex` checkpoint line ended at `gpt-5.3-codex` (merged into mainline at 5.4) — there is no newer `-codex` variant. `gpt-5.4-mini` = cheap/fast tier; `gpt-5.3-codex-spark` = near-instant research preview. |
+| `model_reasoning_effort` | `"minimal"`/`"low"`/`"medium"`/`"high"`/`"xhigh"` — `"none"` is no longer valid here (it survives only on `plan_mode_reasoning_effort`). `xhigh` is the config ceiling and model-dependent (not every model exposes it); Codex's external-agent migration maps Claude `max` → `xhigh`. The models page lists product-side `Max` (settings-gated) and `Ultra` (subagent mode) above it — not config.toml values as of 2026-07-09; re-verify before pinning. |
 | `plan_mode_reasoning_effort` | Separate effort for plan/collaboration mode; additionally accepts `"none"` (no reasoning) — the only key where `none` remains valid. |
 | `model_reasoning_summary` | `"auto"`/`"concise"`/`"detailed"`/`"none"`. |
 | `model_verbosity` | `"low"`/`"medium"`/`"high"` (GPT-5-family final-text verbosity). |
@@ -31,7 +31,7 @@ Sources: openai/codex source @ main (config_toml.rs, profile_toml.rs, openai_mod
 | `[agents] max_depth` | Nesting depth, root = 0, default 1 — one level of dispatch works out of the box; deeper fan-out is a deliberate (costly) opt-in. |
 | `[agents] max_threads` | Concurrent agent-thread cap (docs cite default 6). |
 | Custom agents (standalone TOML) | Built-in role names `default`/`worker`/`explorer` hold, but the mechanism is standalone agent TOML files in `~/.codex/agents/` (personal) or `.codex/agents/` (project) — not `[agents.roles.<name>]` tables. Each file: `name`/`description`/`developer_instructions` + inheritable `model`, `model_reasoning_effort`, `sandbox_mode`, `mcp_servers`, `skills.config`. |
-| Profiles (overlay files) | `codex --profile <name>` loads `~/.codex/config.toml` then overlays `~/.codex/<name>.config.toml` — not `[profiles.<name>]` tables. A `max` overlay (gpt-5.5 + xhigh + live search) and a `cheap-subagent` overlay (gpt-5.4-mini + medium) cover both ends. |
+| Profiles (overlay files) | `codex --profile <name>` loads `~/.codex/config.toml` then overlays `~/.codex/<name>.config.toml` — not `[profiles.<name>]` tables. A `max` overlay (gpt-5.6-sol + xhigh + live search) and a `cheap-subagent` overlay (gpt-5.6-luna or gpt-5.4-mini + medium) cover both ends. |
 
 ## Instruction files (AGENTS.md)
 

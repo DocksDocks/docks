@@ -10,7 +10,7 @@ customization points.
 ```toml
 name = "plan-manager"
 description = "Use when Docks plan operations need isolated Codex context: list/show/start/block/ship/scaffold/fire scheduled plans in docs/plans. Not for plan-review verification."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
@@ -63,7 +63,7 @@ dispatch needed back to the main thread.
 ```toml
 name = "plan-review"
 description = "Use when a Docks plan needs isolated Codex verification: draft review, completion review at in_review, or finished-plan review. Not for general code review."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """

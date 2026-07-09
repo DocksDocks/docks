@@ -41,16 +41,16 @@ One agent per TOML file at `.codex/agents/<name>.toml` (project scope; `~/.codex
 | `model` | `model` | per the model map |
 | — | `model_reasoning_effort` / `nickname_candidates` | optional Codex-only; omit unless asked |
 
-### Model map (confirmed: `opus → gpt-5.5`; the rest are defaults — confirm per project)
+### Model map (confirmed: `opus → gpt-5.6-sol`; the rest are defaults — confirm per project)
 
 | Claude `model` | Codex `model` | Note |
 |---|---|---|
-| `opus` | `gpt-5.5` | frontier tier (confirmed) |
-| `sonnet` | `gpt-5.4` | mainline standard — absorbed the codex line at 5.4 (alt `gpt-5.3-codex`, being sunset) — project-configurable |
-| `haiku` | `gpt-5.4-mini` | mini tier — project-configurable |
+| `opus` | `gpt-5.6-sol` | frontier tier (confirmed; `gpt-5.5` is the previous-gen frontier) |
+| `sonnet` | `gpt-5.6-terra` | balanced tier — competitive with gpt-5.5 at lower cost (alt `gpt-5.4`, still current) — project-configurable |
+| `haiku` | `gpt-5.6-luna` | fast/cheapest family tier (alt `gpt-5.4-mini`, still current) — project-configurable |
 | `inherit` / absent | omit `model` | inherits the parent Codex session |
 
-Valid Codex model IDs: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2` (`gpt-5.3-codex` and `gpt-5.2` are now flagged deprecated on the models page — historical mentions only, never recommend them in emitted TOML; mainline 5.4+ absorbed the codex tuning). If the project pins a Codex model in `config.toml`, prefer that over the default map.
+Valid Codex model IDs: `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark` (`gpt-5.3-codex` and `gpt-5.2` are flagged deprecated on the models page — historical mentions only, never recommend them in emitted TOML; mainline 5.4+ absorbed the codex tuning). If the project pins a Codex model in `config.toml`, prefer that over the default map.
 
 ## Worked example
 
@@ -83,12 +83,12 @@ Per agent: `### File: .codex/agents/<name>.toml` + full TOML. For an `Agent`-dis
 
 ## Sources
 
-Codex facts confirmed against the official docs (2026-05-27; effort set + model map re-verified 2026-07-05 against the live docs) — re-verify here before editing the schema / translation / model tables above:
+Codex facts confirmed against the official docs (2026-05-27; effort set + model map re-verified 2026-07-09 against the live docs — the developers.openai.com/codex/* URLs below now 308-redirect to learn.chatgpt.com/docs/* and still resolve) — re-verify here before editing the schema / translation / model tables above:
 
 - <https://developers.openai.com/codex/subagents> — `.codex/agents/*.toml` schema: required `name`/`description`/`developer_instructions`; optional keys; built-in `default`/`worker`/`explorer`; one agent per file; project `.codex/agents/` vs personal `~/.codex/agents/`.
 - <https://developers.openai.com/codex/config-reference> — `agents.max_depth` (default 1 → single-level child dispatch ports, deeper nesting capped), `agents.max_threads` (6), `agents.job_max_runtime_seconds` (1800, `spawn_agents_on_csv` wall-clock), `model_reasoning_effort` set (`minimal`/`low`/`medium`/`high`/`xhigh`).
 - <https://developers.openai.com/codex/sandbox> — canonical `sandbox_mode` values (`read-only`/`workspace-write`/`danger-full-access`).
-- <https://developers.openai.com/codex/models> — valid model IDs (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2`).
+- <https://developers.openai.com/codex/models> — valid model IDs (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`; deprecated: `gpt-5.3-codex`, `gpt-5.2`).
 - <https://developers.openai.com/codex/skills> — Codex discovers agentskills.io skills from `.agents/skills` (CWD→repo-root walk); `[[skills.config]]` in `config.toml` enables/disables them.
 - <https://code.claude.com/docs/en/sub-agents> — the source Claude `.claude/agents/*.md` frontmatter (`name`/`description`/`tools`/`model`/`maxTurns`) this translation reads from; note Claude's own one-level subagent limit is a Claude-side fact that does NOT transfer to Codex, which dispatches one level via `agents.max_depth: 1`.
 

@@ -4,8 +4,8 @@ description: Use when bootstrapping the docs/plans/ convention in a new or exist
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "db3f3d8be31d58ce047c9b8b780409e9aba73b4a5b5047ef294e29d191f83094"
+  updated: "2026-07-09"
+  content_hash: "f27157115308a263084396fd58e4341d733f9dc3ed7c1e40db3180758be78877"
 ---
 
 # Plans Directory Bootstrapper

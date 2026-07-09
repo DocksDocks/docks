@@ -1,11 +1,11 @@
 ---
 name: capability-tuning
-description: "Use when tuning Claude Code or Codex for maximum model capability — choosing model (fable/best, gpt-5.5), effort (effortLevel / model_reasoning_effort xhigh), thinking toggles, 1M context, web_search, sandbox network access, subagent model pinning, AGENTS.md/CLAUDE.md size budgets, or compaction triggers. Grounded in context engineering (Karpathy's method). Not for authoring skills (write-skill) or multi-tool repo layout (multi-tool-bridge)."
+description: "Use when tuning Claude Code or Codex for maximum model capability — choosing model (fable/best, gpt-5.6-sol), effort (effortLevel / model_reasoning_effort xhigh), thinking toggles, 1M context, web_search, sandbox network access, subagent model pinning, AGENTS.md/CLAUDE.md size budgets, or compaction triggers. Grounded in context engineering (Karpathy's method). Not for authoring skills (write-skill) or multi-tool repo layout (multi-tool-bridge)."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "b15d8d7339a55923092afebd600cb10800c635264788e0eb4aa0b88b9bee0898"
+  updated: "2026-07-09"
+  content_hash: "ab7b747f54a22492271085705e0efbbb52602894b1baddff7fac4af88bf9bc99"
 ---
 
 # Capability Tuning (Claude Code + Codex)
@@ -28,7 +28,7 @@ More instructions ≠ more capability. Context engineering is "filling the conte
 
 | Capability lever | Claude Code | Codex |
 |---|---|---|
-| Frontier model | `"model": "fable"` (or `"best"` alias) | `model = "gpt-5.5"` |
+| Frontier model | `"model": "fable"` (or `"best"` alias) | `model = "gpt-5.6-sol"` |
 | Effort ceiling | `"effortLevel": "xhigh"` (`max` persists via `CLAUDE_CODE_EFFORT_LEVEL` env; `ultracode` via `/effort`) | `model_reasoning_effort = "xhigh"` (no level above it; Claude `max` maps to `xhigh`) |
 | Thinking | `"alwaysThinkingEnabled": true` (effort is the real control on adaptive models) | covered by reasoning effort |
 | Long context | Fable 5 / Opus 4.8 / Sonnet 5 are 1M-by-default on the API; `opus[1m]` alias for plans | window auto-resolved from model catalog |
@@ -79,7 +79,7 @@ Key facts (full key-by-key table: `references/claude-code-config.md`):
 `~/.codex/config.toml`:
 
 ```toml
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
 plan_mode_reasoning_effort = "xhigh"
 model_reasoning_summary = "detailed"
@@ -103,7 +103,7 @@ Profiles are overlay files, not `[profiles.*]` tables: `codex --profile <name>` 
 
 ```toml
 # ~/.codex/max.config.toml — overlaid by `codex --profile max`
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
 web_search = "live"
 ```
@@ -116,8 +116,8 @@ model_reasoning_effort = "medium"
 
 Key facts (full table: `references/codex-config.md`):
 
-- The `-codex` model line ended at gpt-5.3-codex — mainline gpt-5.4/5.5 absorbed it. `gpt-5.5` is the current frontier; there is no `gpt-5.5-codex`.
-- `model_reasoning_effort` accepts `minimal|low|medium|high|xhigh` — `none` is no longer in this set; it survives only on `plan_mode_reasoning_effort`. `xhigh` is the ceiling (model-dependent — not every model exposes it); Codex's own migration tooling maps Claude's `max` effort to `xhigh`.
+- The `-codex` model line ended at gpt-5.3-codex — mainline gpt-5.4+ absorbed it. `gpt-5.6-sol` is the current frontier (family: `gpt-5.6-sol`/`gpt-5.6-terra`/`gpt-5.6-luna`; `gpt-5.5` is previous-gen); there is no `-codex` variant.
+- `model_reasoning_effort` accepts `minimal|low|medium|high|xhigh` — `none` is no longer in this set; it survives only on `plan_mode_reasoning_effort`. `xhigh` is the config ceiling (model-dependent — not every model exposes it); Codex's own migration tooling maps Claude's `max` effort to `xhigh`. The models page lists product-side `Max` (settings-gated) and `Ultra` (subagent mode) levels above it — not valid config.toml values as of 2026-07-09; re-verify before pinning.
 - Web search is on by default in `cached` mode; `"live"` forces fresh results. The old `tools.web_search = true` boolean is deprecated.
 - `project_doc_max_bytes` (default 32 KiB — the default is no longer documented; re-verify at developers.openai.com/codex/config-reference) caps ALL merged AGENTS.md content and truncates silently — a rich instruction tree loses its tail with no warning. Raise it.
 - Skills load from `.agents/skills/` (repo) and `~/.agents/skills/` (user); `~/.codex/skills` is deprecated.

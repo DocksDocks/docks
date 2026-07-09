@@ -25,7 +25,7 @@ let errors = 0;
 const fail = (m) => { console.error(`FAIL: ${m}`); errors += 1; };
 
 // 1. every gpt-5* token is a real Codex model id
-const CODEX_MODELS = 'gpt-5.5 gpt-5.4 gpt-5.4-mini gpt-5.3-codex gpt-5.3-codex-spark gpt-5.2';
+const CODEX_MODELS = 'gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna gpt-5.5 gpt-5.4 gpt-5.4-mini gpt-5.3-codex gpt-5.3-codex-spark gpt-5.2';
 const allowed = new Set(CODEX_MODELS.split(' '));
 const toks = [...new Set(doc.match(/gpt-5\.[0-9]+(-[a-z]+)*/g) || [])].sort();
 for (const tok of toks) {

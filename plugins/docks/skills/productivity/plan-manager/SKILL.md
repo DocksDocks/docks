@@ -4,8 +4,8 @@ description: Use when the user asks to list plans, show/start/block/ship a plan,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-06"
-  content_hash: "e7de8c74097e8323c3bd1bf7f6124b94532be790405aa18eca83880563874597"
+  updated: "2026-07-09"
+  content_hash: "70207cbdf02bdeb1d4e168f32e9df77c86e73e0f0f9120215a27ca9801ba58e6"
 ---
 
 # Plan Manager
@@ -44,7 +44,7 @@ previews so the user never opens a plan file. A plan's lifecycle stage is its
 Offer this only after the availability gate passes. Use neutral picker wording such as "Include a cross-tool second opinion before proceeding?" with yes/no choices; declining changes nothing. Accepting runs a one-shot reviewer and then `plan-manager` ingests accepted findings into the plan with attribution before the lifecycle step continues. As of 2026-07, the recommended Codex leg is pinned below; check the current model tier list before changing it, but never inherit an ambient model or effort setting.
 
 ```bash
-timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -- \
+timeout 600 codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort=xhigh -- \
   "You are an independent plan reviewer red-teaming a draft before execution. Read <plan path> fully, plus any file it cites in affected_paths. Red-team it: (1) missed failure modes, wrong assumptions, cheaper alternatives; (2) steps whose done-condition is vague or unverifiable; (3) anything a cold executor with only this file would have to guess. Do NOT rewrite the plan. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
 ```
 

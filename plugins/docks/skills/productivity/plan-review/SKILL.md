@@ -4,8 +4,8 @@ description: Use when a plan's steps all complete (status in_review) or it reach
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-06"
-  content_hash: "62f865c5d5dca0377180a81f5db6464eb638d239153d9e2d387d9cba3970f228"
+  updated: "2026-07-09"
+  content_hash: "bbc1a87901c828ba2e4726924f3553282a9a3027976efe33410d34c5fa0ad52d"
 ---
 
 # Plan Review
@@ -101,14 +101,14 @@ Claude-side run, Codex reviewer available = `command -v codex` succeeds AND `cod
 Draft-review leg (plan not yet executing):
 
 ```bash
-timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -- \
+timeout 600 codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort=xhigh -- \
   "You are an independent plan reviewer red-teaming a draft before execution. Read <plan path> fully, plus any file it cites in affected_paths. Red-team it: (1) missed failure modes, wrong assumptions, cheaper alternatives; (2) steps whose done-condition is vague or unverifiable; (3) anything a cold executor with only this file would have to guess. Do NOT rewrite the plan. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
 ```
 
 Completion-review leg — a completion second opinion judges the DIFF against the goal; never reuse the draft rubric here:
 
 ```bash
-timeout 600 codex exec -s read-only -m gpt-5.5 -c model_reasoning_effort=xhigh -- \
+timeout 600 codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort=xhigh -- \
   "You are an independent completion reviewer. Read <plan path> fully, then run: git diff <planned_at_commit>..HEAD -- <affected paths>, and read the changed files. Judge delivered-vs-goal: (1) each acceptance criterion met or unmet, with evidence; (2) regressions or scope creep in the diff; (3) steps marked done that the diff does not substantiate. Do NOT edit anything. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
 ```
 
