@@ -3,7 +3,7 @@ title: Relay notification reliability — spawn completion signal + lock-based u
 goal: Close the three orchestration gaps found 2026-07-10 — fire-and-forget spawn, undetectable dead mailbox watcher, and unguarded wake-while-live — with a child-wait completion signal, one lock-holding watcher implementation for both tools, and a doctor command.
 status: in_review
 created: "2026-07-10T04:03:30-03:00"
-updated: "2026-07-10T12:10:40-03:00"
+updated: "2026-07-10T12:38:12-03:00"
 started_at: "2026-07-10T11:13:07-03:00"
 assignee: relay-reliability-worker
 in_review_since: "2026-07-10T11:44:24-03:00"
@@ -15,6 +15,7 @@ affected_paths:
   - plugins/session-relay/rust/src/bus.rs
   - plugins/session-relay/rust/src/store.rs
   - plugins/session-relay/rust/src/hook.rs
+  - plugins/session-relay/rust/src/sha256.rs
   - plugins/session-relay/rust/src/watch.rs
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - plugins/session-relay/test/selftest.mjs
@@ -63,7 +64,7 @@ After this plan: `relay spawn --watch` blocks on the actual child process and re
 - **Status probe** (in `store.rs`, reused by `bus.rs` send and doctor): open EXISTING file only; classify `ENOENT → never`, `EWOULDBLOCK → live`, transient successful acquisition (released immediately) `→ dead`, any other IO/permission/unsupported error `→ unknown` (never lie toward dead). Watcher startup retries acquisition for a short bounded window (~2 s) so a status probe's transient hold is not misread as a duplicate watcher.
 - **`recipient_watch`** in the MCP bus `send` tool result (bus.rs, after enqueue): always present, value `"live"|"dead"|"never"|"unknown"`. CLI `relay send` stdout stays byte-identical (`queued -> <name>`); no new CLI output surface in this plan.
 - **`relay watch --follow <session-id>`**: acquires the session's watcher lock (RAII guard held for process life), then tails the mailbox with `tail -n0 -F` semantics — skip preexisting bytes at startup, buffer partial lines, emit each complete JSONL line verbatim to stdout, reopen after delete/recreate and handle truncation/inode replacement. Diagnostics to stderr only. Runs until killed. This is the command the SessionStart hook nudge (hook.rs `render_context`) tells Claude to arm as its Monitor, rendered as `<current relay executable> watch --follow <session-id>`.
-  - Same-inode truncate/regrow detection compares a 64-byte anchor immediately before the consumed offset; anchor change resets the reader to byte 0 before emitting. A permanent stdout write/flush failure is fatal: the watcher reports the error to stderr, exits nonzero, and releases its liveness lock rather than remaining falsely `live`.
+  - Same-inode truncate/regrow detection keeps an incremental SHA-256 digest of the entire consumed prefix plus a size/mtime/ctime snapshot. Idle polls with unchanged metadata do no hashing; after metadata changes, the watcher recomputes the consumed-prefix digest and resets to byte 0 on mismatch before emitting. A permanent stdout write/flush failure is fatal: the watcher reports the error to stderr, exits nonzero, and releases its liveness lock rather than remaining falsely `live`.
   - Existing Codex/multi-target watch path: acquires one guard per resolved target after target resolution, retained across the outer poll loop. Duplicate policy: explicit single target already live → fail; `--all` skips already-live targets and watches the remainder. `--once` holds transiently (its tombstone reads `dead` afterward, correctly).
   - Watch tool metadata is validated as exactly `claude|codex` before lock acquisition. A fallback `relay wake` exit 3 is not marked woken: the outer watcher loop retries that target after 2/4/8/16/30 s delays (30 s cap, one attempt per poll, no inner retry loop) until the durable mailbox drains; wake argv stays unchanged.
   - Optional progress timestamp: the watcher atomically updates a status/progress stamp the doctor can WARN on (alive-but-stuck detection); it is NEVER the live/dead truth.
@@ -77,7 +78,7 @@ After this plan: `relay spawn --watch` blocks on the actual child process and re
 |---|---|---|---|---|
 | 1 | Lock substrate: home-derived lock paths, RAII exclusive-lock guard (rustix `NonBlockingLockExclusive`), metadata write-after-acquire with private perms, four-way status probe (`never/live/dead/unknown`), bounded acquire-retry, no-unlink hygiene | `rust/src/store.rs` | — | done |
 | 2 | `spawn --watch`: retain Child, `try_wait` during birth wait, `wait` after, exit mapping incl. 128+signal, one-line outcome, fire-and-forget preserved on parent interrupt; BOOL_FLAGS `watch` | `rust/src/spawn.rs`, `rust/src/cli.rs` | — | done |
-| 3 | Unified watcher: `--follow` mode in `watch.rs::run` (flag parsed before server/target resolution; dedicated `follow_mailbox` loop with tail `-n0 -F` semantics), per-target guards in the Codex path (dup policy, `--once` transient), progress stamp; hook nudge → `<relay-exe> watch --follow <id>`; `recipient_watch` in bus `send` result | `rust/src/watch.rs`, `rust/src/hook.rs`, `rust/src/bus.rs` | 1 | done |
+| 3 | Unified watcher: `--follow` mode in `watch.rs::run` (flag parsed before server/target resolution; dedicated `follow_mailbox` loop with tail `-n0 -F` semantics), per-target guards in the Codex path (dup policy, `--once` transient), progress stamp; hook nudge → `<relay-exe> watch --follow <id>`; `recipient_watch` in bus `send` result | `rust/src/watch.rs`, `rust/src/sha256.rs`, `rust/src/hook.rs`, `rust/src/bus.rs` | 1 | done |
 | 4 | Wake resume lock: wake wrapper acquires/holds resume lock around `Command::output`; refusal exit 3 + stderr with best-effort pid/age | `rust/src/cli.rs` | 1 | done |
 | 5 | `relay doctor`: verb in `main.rs` dispatcher + usage; checks per Interfaces (reuse store probes; re-arm fix string from the hook renderer); `--id` identity | `rust/src/main.rs`, `rust/src/cli.rs` (or a new `doctor.rs` — implementer's choice, named in the commit) | 1, 3 | done |
 | 6 | Selftests for AC1–AC5 (separate-OS-process lock assertions; delayable/exit-configurable fake child; follow-semantics cases) + SKILL.md delivery-matrix rows (dead-watcher row, doctor, `spawn --watch`, wake refusal, NFS caveat, old-raw-tail sessions read `dead`/`never` until restart) + `metadata.updated`; full gate green | `test/selftest.mjs`, `skills/productivity/session-relay/SKILL.md` | 1–5 | done |
@@ -89,7 +90,7 @@ All are selftest cases (exact expectations; run via `node plugins/session-relay/
 - [x] **AC1 spawn --watch**: stub child that delays then exits 0 → stdout matches `spawned <name>; first turn complete`, relay exit 0. Stub exiting 7 → stdout contains `failed (exit 7)`, relay exit 7. Stub failing before birth registration → prompt nonzero return (well under the birth timeout). Without `--watch`: immediate post-registration return (existing behavior pinned).
 - [x] **AC2 wake refusal**: with the resume lock held by a live separate stub process, `relay wake <name>` exits 3 and stderr contains `wake refused`; after the stub is killed, wake proceeds; doorbell argv byte-unchanged against the pinned expectation. A long-running `relay watch` first observes that refusal, retains queued mail, then retries after lock release and the stub hook drains the mailbox.
 - [x] **AC3 liveness**: a separate-process `relay watch --follow` holding the lock → MCP `tools/call` send result contains `"recipient_watch":"live"`; SIGKILL the watcher → next send `"dead"`; never-armed session → `"never"`; forced probe IO error (permissions) → `"unknown"`. CLI `relay send` stdout byte-unchanged. All live/dead assertions use separate OS processes (same-process flock re-lock is not portable).
-- [x] **AC4 follow semantics**: appended line emitted verbatim; preexisting mailbox content skipped at startup; delete/recreate of the mailbox file → follow resumes on the new inode; a partial line is flushed only once its newline arrives; same-inode truncate/regrow beyond the prior offset emits the complete replacement line; closed stdout makes the watcher release its lock; invalid `--tool` exits 1 before creating lock metadata.
+- [x] **AC4 follow semantics**: appended line emitted verbatim; preexisting mailbox content skipped at startup; delete/recreate of the mailbox file → follow resumes on the new inode; a partial line is flushed only once its newline arrives; same-inode truncate/regrow beyond the prior offset emits the complete replacement line; equal-length and longer replacements that preserve the prior 64-byte suffix still emit the full replacement; closed stdout makes the watcher release its lock; invalid `--tool` exits 1 before creating lock metadata.
 - [x] **AC5 doctor**: healthy session (live watcher) → all PASS, exit 0; killed watcher → exit 1 with a FAIL watcher line whose re-arm command is string-equal to the hook nudge render; two sessions sharing a dir → `doctor --id` resolves each correctly, and no `--id` prints the single-session-only fallback notice; unknown named `--id` exits 1 with `FAIL identity: … — fix: relay list`.
 - [x] **AC6**: `node scripts/ci.mjs --plugin session-relay` green (fmt, clippy `-D warnings`, selftest, checksums, skills gate).
 
@@ -112,6 +113,7 @@ All are selftest cases (exact expectations; run via `node plugins/session-relay/
 - **Scoped wake guarantee**: user-launched resumes (`codex exec resume`, `claude --resume`, TUI, older relay binaries) hold no lock; there is also a narrow SIGKILL-the-wrapper/child-survives hole — do not claim stronger coverage in docs.
 - **Old sessions still running raw `tail`** read `never`/`dead` until their next SessionStart re-arm — accurate and self-healing; delivery-matrix row explains it.
 - **Status-probe transient hold**: a probe briefly acquires a dead lock; watcher startup's bounded retry absorbs the race.
+- **Full-prefix verification cost is unavoidable for arbitrary rewrites**: without trusted writer metadata, a prefix rewrite plus growth is indistinguishable from append unless the consumed bytes are reread. The watcher therefore skips hashing on idle metadata-stable polls but accepts O(consumed-prefix) verification after each real metadata change; do not “optimize” this back to suffix sampling or O(new-bytes)-only hashing.
 
 ## Global constraints
 
@@ -134,7 +136,7 @@ All are selftest cases (exact expectations; run via `node plugins/session-relay/
 4. Executable acceptance — AC1–AC6 with exact commands/expected output/exit codes. ✔
 5. Out of scope — stated positively per surface. ✔
 6. Decision rationale — lock-vs-mtime, unified watcher, refuse-not-queue, PID-as-metadata in Context. ✔
-7. Known gotchas — eight, each from a reviewed failure mode. ✔
+7. Known gotchas — nine, each from a reviewed failure mode. ✔
 8. Global constraints verbatim — rustix pin, binary discipline, lockstep rule. ✔
 9. No undefined terms / forward refs — all names resolve to files in affected_paths or cited docs. ✔
 
@@ -152,7 +154,8 @@ All are selftest cases (exact expectations; run via `node plugins/session-relay/
 
 ## Fix Round Notes
 
-- **2026-07-10T12:10:40-03:00 — completion review round 1:** fixed all five reproduced findings while retaining `status: in_review`: (1) exit-3 wake refusal now schedules capped exponential retries and only successful wake marks a target woken; (2) permanent follow-output failure terminates and releases the lock; (3) a consumed-content anchor detects rapid same-inode truncate/regrow; (4) watcher tool metadata is validated before lock acquisition; (5) unknown doctor identity names the actionable `relay list` command. Black-box regressions were added for every disposition; the full relay gate is the round's commit gate.
+- **2026-07-10T12:10:40-03:00 — completion review round 1:** fixed all five reproduced findings while retaining `status: in_review`: (1) exit-3 wake refusal now schedules capped exponential retries and only successful wake marks a target woken; (2) permanent follow-output failure terminates and releases the lock; (3) an initial consumed-content anchor detected rapid same-inode truncate/regrow (refined after preserved-suffix review in round 2); (4) watcher tool metadata is validated before lock acquisition; (5) unknown doctor identity names the actionable `relay list` command. Black-box regressions were added for every disposition; the full relay gate is the round's commit gate.
+- **2026-07-10T12:38:12-03:00 — completion review round 2:** replaced the insufficient 64-byte suffix anchor with dependency-free, in-tree incremental SHA-256 plus size/mtime/ctime snapshots. The new red-first regression covers both equal-length and longer same-inode replacements that preserve the old suffix; standard SHA-256 vectors pin the hasher. Correctness intentionally takes O(consumed-prefix) work after metadata changes because arbitrary prior-prefix mutation cannot be detected from only new bytes; idle polls remain hash-free.
 
 ## Review
 
