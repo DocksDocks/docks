@@ -3,7 +3,7 @@ title: Relay notification reliability — spawn completion signal + lock-based u
 goal: Close the three orchestration gaps found 2026-07-10 — fire-and-forget spawn, undetectable dead mailbox watcher, and unguarded wake-while-live — with a child-wait completion signal, one lock-holding watcher implementation for both tools, and a doctor command.
 status: in_review
 created: "2026-07-10T04:03:30-03:00"
-updated: "2026-07-10T12:38:12-03:00"
+updated: "2026-07-10T12:49:58-03:00"
 started_at: "2026-07-10T11:13:07-03:00"
 assignee: relay-reliability-worker
 in_review_since: "2026-07-10T11:44:24-03:00"
@@ -17,10 +17,11 @@ affected_paths:
   - plugins/session-relay/rust/src/hook.rs
   - plugins/session-relay/rust/src/sha256.rs
   - plugins/session-relay/rust/src/watch.rs
+  - plugins/session-relay/rust/src/lib.rs
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - plugins/session-relay/test/selftest.mjs
 related_plans: []
-review_status: null
+review_status: passed
 planned_at_commit: 579b55cd7af213355267c13a4a4317bf2d98e66f
 ---
 
@@ -159,7 +160,12 @@ All are selftest cases (exact expectations; run via `node plugins/session-relay/
 
 ## Review
 
-(filled by plan-review on completion)
+- **Goal met:** yes — all three gaps closed and verified in the diff. `spawn --watch` retains the `Child` and mirrors its exit (spawn.rs; AC1 tests 774/783/792/803); one lock-holding `relay watch --follow` is the liveness truth surfaced as `recipient_watch` in the MCP send result (bus.rs:264-270, store::watcher_status; AC3 test 891); `relay wake` acquires the resume lock and refuses with exit 3 (cli.rs:737; AC2 test 815); `relay doctor` verifies the receive path (AC5 tests 1057/1099). All 6 acceptance criteria evidence-backed against changed code, not checkboxes.
+- **Regressions:** none functional. One undeclared-but-benign path: `plugins/session-relay/rust/src/lib.rs` (+1, `pub(crate) mod sha256;`) is not listed in `affected_paths` — required to wire the declared new `sha256.rs`. No bin/, manifests, marketplaces, workflows, or release tooling touched (out-of-scope surfaces intact).
+- **CI:** pass — `node scripts/ci.mjs --plugin session-relay` exit 0 (fmt/clippy `-D warnings`/checksums/skills gate + self-test all green; host-binary digest variance is warning-only locally as documented). `cargo test --all-targets` 43 passed / 0 failed (up from 40 — round-2 added three red-first regressions).
+- **Cross-check:** [codex gpt-5.6-sol xhigh] impl review at 0631934 — 5 findings (1 high, 2 med, 2 low), verdict NOT READY; fix round 1 (c3ebbf5) [codex gpt-5.6-sol xhigh] focused re-verify — 4/5 FIXED, finding 3 refined NOT-FIXED (64-byte suffix anchor misses suffix-preserving prefix rewrites); fix round 2 (167a8dd) replaced the anchor with a full consumed-prefix SHA-256 (FIPS `abc`/multi-block/million-a vectors pin the hasher) gated on a size/mtime/ctime snapshot, plus a red-first regression covering equal-length AND longer suffix-preserving same-inode replacements (selftest 964). [claude] re-reproduced this turn: watch.rs `followed_content_changed`/`digest_followed_prefix` re-digest the whole consumed prefix on metadata change and reset to byte 0 on mismatch (idle polls skip hashing); HIGH fix confirmed — exit 3 → `Refused`, not marked woken, backoff 2/4/8/16/30s capped (watch.rs:266-284, 595); finding-2 permanent-stdout-failure → `die` releases the lock (test 1018). All 6 codex findings + the refinement closed. The worker's STOP-condition escalation (incremental-only detection is impossible) and the O(consumed-prefix) rationale are recorded in `## Fix Round Notes` / `## Known gotchas`.
+- **Follow-ups:** none — optionally add `rust/src/lib.rs` to `affected_paths` at ship (one-line frontmatter edit, no code impact).
+- **Filed by:** 2026-07-10T12:49:58-03:00
 
 ## Sources
 
