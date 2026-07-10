@@ -3,7 +3,7 @@ title: Relay notification reliability — spawn completion signal + doorbell liv
 goal: Close the two orchestration gaps found 2026-07-10 — relay spawn is fire-and-forget with no completion signal, and a dead mailbox watcher is undetectable — so detached workers and long-running orchestrator sessions never depend on a user turn to surface finished work.
 status: planned
 created: "2026-07-10T04:03:30-03:00"
-updated: "2026-07-10T04:03:30-03:00"
+updated: "2026-07-10T05:21:18-03:00"
 started_at: null
 assignee: null
 tags: [session-relay, reliability, doorbell, follow-up]
@@ -33,6 +33,7 @@ After this plan: a spawn caller can opt into a completion event; any sender can 
 
 - Incident (2026-07-10, docks-kit overnight orchestration): the orchestrator's mailbox Monitor died during a /tmp ENOSPC crash and was never re-armed; later, a detached `relay spawn` worker (statusline-worker) finished a plan draft at 06:36Z and its bus reply sat undelivered ~25 minutes until the user happened to type. All mail was durably queued (no loss) — the gap is latency/visibility, not integrity.
 - The doorbell today is sender-side only (`relay wake` spawns a headless resume; cli.rs `doorbell_args`, ~line 142). Receiver-side liveness has no representation in the store: `roster` shows last-seen but nothing about the watch.
+- Second incident (2026-07-10, same night): `relay wake` on a session whose previous resume process was still alive (mid-turn, polling its inbox for an approval) started a SECOND concurrent `codex exec resume` of the same session — two processes racing in one shared worktree, duplicate work reports, near-miss on conflicting edits. Wake needs a per-session liveness/lock check: refuse (or queue the doorbell) when a resume process is already running. This becomes Step 1b below at implementation time — fold it into Step 1's spawn/wake surface work.
 - The skill's delivery matrix (SKILL.md ~lines 44-46) documents "live, between turns → Monitor mailbox watch / next prompt" — this plan adds the missing row: what happens when the watch is dead, and how to detect it.
 
 ## Steps
