@@ -3,7 +3,7 @@ title: Relay notification reliability — spawn completion signal + lock-based u
 goal: Close the three orchestration gaps found 2026-07-10 — fire-and-forget spawn, undetectable dead mailbox watcher, and unguarded wake-while-live — with a child-wait completion signal, one lock-holding watcher implementation for both tools, and a doctor command.
 status: ongoing
 created: "2026-07-10T04:03:30-03:00"
-updated: "2026-07-10T11:31:43-03:00"
+updated: "2026-07-10T11:40:16-03:00"
 started_at: "2026-07-10T11:13:07-03:00"
 assignee: relay-reliability-worker
 tags: [session-relay, reliability, doorbell, follow-up]
@@ -77,18 +77,18 @@ After this plan: `relay spawn --watch` blocks on the actual child process and re
 | 3 | Unified watcher: `--follow` mode in `watch.rs::run` (flag parsed before server/target resolution; dedicated `follow_mailbox` loop with tail `-n0 -F` semantics), per-target guards in the Codex path (dup policy, `--once` transient), progress stamp; hook nudge → `<relay-exe> watch --follow <id>`; `recipient_watch` in bus `send` result | `rust/src/watch.rs`, `rust/src/hook.rs`, `rust/src/bus.rs` | 1 | done |
 | 4 | Wake resume lock: wake wrapper acquires/holds resume lock around `Command::output`; refusal exit 3 + stderr with best-effort pid/age | `rust/src/cli.rs` | 1 | done |
 | 5 | `relay doctor`: verb in `main.rs` dispatcher + usage; checks per Interfaces (reuse store probes; re-arm fix string from the hook renderer); `--id` identity | `rust/src/main.rs`, `rust/src/cli.rs` (or a new `doctor.rs` — implementer's choice, named in the commit) | 1, 3 | done |
-| 6 | Selftests for AC1–AC5 (separate-OS-process lock assertions; delayable/exit-configurable fake child; follow-semantics cases) + SKILL.md delivery-matrix rows (dead-watcher row, doctor, `spawn --watch`, wake refusal, NFS caveat, old-raw-tail sessions read `dead`/`never` until restart) + `metadata.updated`; full gate green | `test/selftest.mjs`, `skills/productivity/session-relay/SKILL.md` | 1–5 | planned |
+| 6 | Selftests for AC1–AC5 (separate-OS-process lock assertions; delayable/exit-configurable fake child; follow-semantics cases) + SKILL.md delivery-matrix rows (dead-watcher row, doctor, `spawn --watch`, wake refusal, NFS caveat, old-raw-tail sessions read `dead`/`never` until restart) + `metadata.updated`; full gate green | `test/selftest.mjs`, `skills/productivity/session-relay/SKILL.md` | 1–5 | done |
 
 ## Acceptance criteria
 
 All are selftest cases (exact expectations; run via `node plugins/session-relay/test/selftest.mjs`, and the full `node scripts/ci.mjs --plugin session-relay` must be green):
 
-- [ ] **AC1 spawn --watch**: stub child that delays then exits 0 → stdout matches `spawned <name>; first turn complete`, relay exit 0. Stub exiting 7 → stdout contains `failed (exit 7)`, relay exit 7. Stub failing before birth registration → prompt nonzero return (well under the birth timeout). Without `--watch`: immediate post-registration return (existing behavior pinned).
-- [ ] **AC2 wake refusal**: with the resume lock held by a live separate stub process, `relay wake <name>` exits 3 and stderr contains `wake refused`; after the stub is killed, wake proceeds; doorbell argv byte-unchanged against the pinned expectation.
-- [ ] **AC3 liveness**: a separate-process `relay watch --follow` holding the lock → MCP `tools/call` send result contains `"recipient_watch":"live"`; SIGKILL the watcher → next send `"dead"`; never-armed session → `"never"`; forced probe IO error (permissions) → `"unknown"`. CLI `relay send` stdout byte-unchanged. All live/dead assertions use separate OS processes (same-process flock re-lock is not portable).
-- [ ] **AC4 follow semantics**: appended line emitted verbatim; preexisting mailbox content skipped at startup; delete/recreate of the mailbox file → follow resumes on the new inode; a partial line is flushed only once its newline arrives.
-- [ ] **AC5 doctor**: healthy session (live watcher) → all PASS, exit 0; killed watcher → exit 1 with a FAIL watcher line whose re-arm command is string-equal to the hook nudge render; two sessions sharing a dir → `doctor --id` resolves each correctly, and no `--id` prints the single-session-only fallback notice.
-- [ ] **AC6**: `node scripts/ci.mjs --plugin session-relay` green (fmt, clippy `-D warnings`, selftest, checksums, skills gate).
+- [x] **AC1 spawn --watch**: stub child that delays then exits 0 → stdout matches `spawned <name>; first turn complete`, relay exit 0. Stub exiting 7 → stdout contains `failed (exit 7)`, relay exit 7. Stub failing before birth registration → prompt nonzero return (well under the birth timeout). Without `--watch`: immediate post-registration return (existing behavior pinned).
+- [x] **AC2 wake refusal**: with the resume lock held by a live separate stub process, `relay wake <name>` exits 3 and stderr contains `wake refused`; after the stub is killed, wake proceeds; doorbell argv byte-unchanged against the pinned expectation.
+- [x] **AC3 liveness**: a separate-process `relay watch --follow` holding the lock → MCP `tools/call` send result contains `"recipient_watch":"live"`; SIGKILL the watcher → next send `"dead"`; never-armed session → `"never"`; forced probe IO error (permissions) → `"unknown"`. CLI `relay send` stdout byte-unchanged. All live/dead assertions use separate OS processes (same-process flock re-lock is not portable).
+- [x] **AC4 follow semantics**: appended line emitted verbatim; preexisting mailbox content skipped at startup; delete/recreate of the mailbox file → follow resumes on the new inode; a partial line is flushed only once its newline arrives.
+- [x] **AC5 doctor**: healthy session (live watcher) → all PASS, exit 0; killed watcher → exit 1 with a FAIL watcher line whose re-arm command is string-equal to the hook nudge render; two sessions sharing a dir → `doctor --id` resolves each correctly, and no `--id` prints the single-session-only fallback notice.
+- [x] **AC6**: `node scripts/ci.mjs --plugin session-relay` green (fmt, clippy `-D warnings`, selftest, checksums, skills gate).
 
 ## Out of scope / do-NOT-touch
 
