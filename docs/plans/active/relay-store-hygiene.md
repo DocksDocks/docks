@@ -3,7 +3,7 @@ title: Session-relay store hygiene — inactivity GC, spawn-log bounding, long-r
 goal: Give ~/.agent-relay self-cleanup (14d-inactive sessions self-delete), bound the unbounded spawn-log growth, and audit/fix memory behavior of the relay's long-running loops.
 status: ongoing
 created: "2026-07-10T18:26:49-03:00"
-updated: "2026-07-10T19:44:05-03:00"
+updated: "2026-07-10T19:51:17-03:00"
 started_at: "2026-07-10T18:28:20-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, hygiene, gc]
@@ -52,7 +52,7 @@ The shared store `~/.agent-relay/` grows without bound and holds state for sessi
 |---|------|--------|
 | 1 | Memory/growth audit of the long-runners with MEASUREMENTS in `## Notes`: (a) `relay bus` RSS across a scripted 500-message send/inbox session; (b) `relay watch` doorbell RSS across ≥30min simulated polling with a growing-then-drained mailbox; (c) `--follow` RSS across a large appended mailbox incl. one pathological no-newline line ≥8MB (documents the known unbounded `pending` case: cap or accept with a recorded bound); (d) confirm/refute the per-tick full-mailbox `peek` read as a growth/IO concern given drain-truncation. Fix what is real; record verdicts per item. | done |
 | 2 | Inactivity GC in `store.rs` (single entry point `store::gc(now)`): a session is GC-eligible when ALL its surfaces are older than the threshold (registry `last_seen` when present, plus mtimes of its mailbox/markers/watcher-offset/lock/spawn-log files) AND its watcher lock and resume lock are NOT currently held (held lock = active regardless of age). Eligible → remove its registry entry, mailbox file, cwd markers, watcher offset+lock files, spawn-log files. Orphan surfaces without registry entries age out by mtime alone. Threshold: 14d default, `AGENT_RELAY_GC_DAYS` override (`0` = disabled). Trigger: `relay hook` (both tools) and `relay bus` startup, throttled via `gc-stamp` mtime (≥6h between sweeps); never GC the invoking session's own id. GC only relay-owned paths inside the store root — refuse to operate if the store root resolves outside `$HOME`/`AGENT_RELAY_HOME`. | done |
-| 3 | Spawn-log bounding in `spawn.rs`: cap live growth (streaming tail-cap or size-capped writer — child stderr must keep flowing; document the chosen mechanism) so a single spawn log cannot exceed ~4MB, keeping the newest content (the diagnostic tail). Existing oversized logs are handled by Step 2's age GC; additionally `relay spawn` truncates ITS OWN target log file at spawn start (already `File::create` — verify). | pending |
+| 3 | Spawn-log bounding in `spawn.rs`: cap live growth (streaming tail-cap or size-capped writer — child stderr must keep flowing; document the chosen mechanism) so a single spawn log cannot exceed ~4MB, keeping the newest content (the diagnostic tail). Existing oversized logs are handled by Step 2's age GC; additionally `relay spawn` truncates ITS OWN target log file at spawn start (already `File::create` — verify). | done |
 | 4 | Selftest coverage (extend `test/selftest.mjs`, `AGENT_RELAY_HOME` sandbox): seeded store with (i) aged-out session (fake old mtimes + old `last_seen`) → GC removes exactly its surfaces; (ii) aged-out but HELD watcher lock → survives; (iii) young session → survives; (iv) invoker's own session aged → survives; (v) `AGENT_RELAY_GC_DAYS=0` → no-op; (vi) gc-stamp throttle honored; (vii) spawn-log cap enforced. Re-derive the selftest count from its summary line. | pending |
 | 5 | Docs: update the `session-relay` skill + plugin AGENTS.md sections that describe the store (new GC behavior, env knob, spawn-log cap); `node scripts/ci.mjs --plugin session-relay` fully green (PATH note above). | pending |
 
@@ -107,9 +107,12 @@ The GC safety clarification from the orchestrator: `store::gc(now, self_id: Opti
 
 Step 2 manual proof used `/tmp/relay-gc-proof-f1q6ED`: one aged session's exact mailbox, marker, watcher lock+progress, resume lock, spawn log, registry entry, and name were removed; young, invoking-self, and aged-with-held-watcher-lock sessions survived with every surface; a fresh `gc-stamp` preserved a newly aged session on the immediate second bus startup. The proof returned `{ "pass": true }`.
 
+Step 3 mechanism: `relay spawn` synchronously `File::create`s its unique target (preserving the truncate-at-start contract), starts a hidden relay stderr-pump process, and passes that pump's stdin to the detached child. The pump reads fixed 64 KiB chunks; after the file crosses 4 MiB it compacts to the newest 3 MiB, so live size stays at approximately 4 MiB while stderr continues flowing after the parent returns. Once a Codex child registers, its initially random log name is renamed to the born session id so GC can correlate it. Direct proof streamed 6 MiB plus `TAILMARKER`: final size 4,071,434 bytes and the newest marker remained intact.
+
 ## Mistakes & Dead Ends
 
 - **2026-07-10T19:02:00-03:00**: The first 30-minute controller captured a 15 MiB `relay inbox` response with Node `spawnSync`; its default output buffer terminated the controller at drain and the process group was reaped at ~29 minutes. The mailbox had drained, but the duration was not rounded up or accepted. Re-ran with inbox stdout discarded, per-minute samples persisted independently, and an explicit 1,800,000 ms completion interval; the corrected run completed 30.01 minutes.
+- **2026-07-10T19:50:00-03:00**: The first spawn-pump gate hung on the existing timeout fixture because the parent `Command` retained a duplicate stderr-pipe writer while waiting for the pump. Stopped the failed gate, dropped `Command` immediately after spawning the child, and re-ran fmt/clippy/tests before retrying the full gate.
 
 ## Review
 
