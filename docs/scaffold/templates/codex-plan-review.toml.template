@@ -1,6 +1,6 @@
 name = "plan-review"
 description = "Use when a Docks plan needs isolated Codex verification: draft review, completion review at in_review, or finished-plan review. Not for general code review."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
