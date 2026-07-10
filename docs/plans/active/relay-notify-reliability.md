@@ -3,7 +3,7 @@ title: Relay notification reliability — spawn completion signal + lock-based u
 goal: Close the three orchestration gaps found 2026-07-10 — fire-and-forget spawn, undetectable dead mailbox watcher, and unguarded wake-while-live — with a child-wait completion signal, one lock-holding watcher implementation for both tools, and a doctor command.
 status: ongoing
 created: "2026-07-10T04:03:30-03:00"
-updated: "2026-07-10T11:13:07-03:00"
+updated: "2026-07-10T11:16:15-03:00"
 started_at: "2026-07-10T11:13:07-03:00"
 assignee: relay-reliability-worker
 tags: [session-relay, reliability, doorbell, follow-up]
@@ -72,7 +72,7 @@ After this plan: `relay spawn --watch` blocks on the actual child process and re
 
 | # | Task | Files | Depends | Status |
 |---|---|---|---|---|
-| 1 | Lock substrate: home-derived lock paths, RAII exclusive-lock guard (rustix `NonBlockingLockExclusive`), metadata write-after-acquire with private perms, four-way status probe (`never/live/dead/unknown`), bounded acquire-retry, no-unlink hygiene | `rust/src/store.rs` | — | planned |
+| 1 | Lock substrate: home-derived lock paths, RAII exclusive-lock guard (rustix `NonBlockingLockExclusive`), metadata write-after-acquire with private perms, four-way status probe (`never/live/dead/unknown`), bounded acquire-retry, no-unlink hygiene | `rust/src/store.rs` | — | done |
 | 2 | `spawn --watch`: retain Child, `try_wait` during birth wait, `wait` after, exit mapping incl. 128+signal, one-line outcome, fire-and-forget preserved on parent interrupt; BOOL_FLAGS `watch` | `rust/src/spawn.rs`, `rust/src/cli.rs` | — | planned |
 | 3 | Unified watcher: `--follow` mode in `watch.rs::run` (flag parsed before server/target resolution; dedicated `follow_mailbox` loop with tail `-n0 -F` semantics), per-target guards in the Codex path (dup policy, `--once` transient), progress stamp; hook nudge → `<relay-exe> watch --follow <id>`; `recipient_watch` in bus `send` result | `rust/src/watch.rs`, `rust/src/hook.rs`, `rust/src/bus.rs` | 1 | planned |
 | 4 | Wake resume lock: wake wrapper acquires/holds resume lock around `Command::output`; refusal exit 3 + stderr with best-effort pid/age | `rust/src/cli.rs` | 1 | planned |
