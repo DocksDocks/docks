@@ -3,7 +3,7 @@ title: Session-relay store hygiene — inactivity GC, spawn-log bounding, long-r
 goal: Give ~/.agent-relay self-cleanup (14d-inactive sessions self-delete), bound the unbounded spawn-log growth, and audit/fix memory behavior of the relay's long-running loops.
 status: ongoing
 created: "2026-07-10T18:26:49-03:00"
-updated: "2026-07-10T20:38:45-03:00"
+updated: "2026-07-10T20:51:38-03:00"
 started_at: "2026-07-10T18:28:20-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, hygiene, gc]
@@ -109,7 +109,7 @@ Step 2 manual proof used `/tmp/relay-gc-proof-f1q6ED`: one aged session's exact 
 
 Step 3 mechanism: `relay spawn` synchronously `File::create`s its unique target (preserving the truncate-at-start contract), starts a hidden relay stderr-pump process, and passes that pump's stdin to the detached child. The pump reads fixed 64 KiB chunks; after the file crosses 4 MiB it compacts to the newest 3 MiB, so live size stays at approximately 4 MiB while stderr continues flowing after the parent returns. Once a Codex child registers, its initially random log name is renamed to the born session id so GC can correlate it. Direct proof streamed 6 MiB plus `TAILMARKER`: final size 4,071,434 bytes and the newest marker remained intact.
 
-Step 4 current selftest re-derived summary after Fix Round 2: `PASS: session-relay self-test — 92 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`.
+Step 4 current selftest re-derived summary after Fix Round 3: `PASS: session-relay self-test — 94 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`.
 
 Step 5 skill maintenance changed only the affected shipped session-relay skill and plugin-local conventions. The skill remains 308 lines; frontmatter is valid for Codex and Claude, its refreshed `content_hash` is idempotent (`unchanged productivity/session-relay`), and `status: ongoing` / `review_status: null` remain unchanged for the orchestrator's independent review.
 
@@ -128,6 +128,12 @@ Independent review confirmed the Round 1 fixes, then found two medium gaps intro
 Second, final deletion revalidated only device/inode even though the detached spawn-log pump writes without the store lock. GC now records size plus mtime, performs a whole-candidate freshness preflight immediately before the first unlink, and skips the candidate intact if any surface changed or disappeared. Per-file unlink revalidation checks the same snapshot again. A Rust regression refreshes a surface after enumeration and proves the candidate fails preflight without deletion.
 
 The live pump additionally acquires a shared `locks/spawn-pump.lock` before opening or writing its log. Acquisition is serialized through the global store lock; GC probes the pump lock exclusively while holding that same global lock and preserves every spawn-log candidate while any pump is active. This closes the residual preflight/unlink window and remains correct when a Codex spawn log is renamed from its provisional UUID to the born session UUID. A black-box regression holds the hidden pump open and verifies a fully aged candidate survives intact.
+
+### Fix Round 3 — unknown-marker fail-closed and per-log pump locks
+
+Independent review confirmed both Round 2 fixes and found two remaining scope errors. Fresh unreadable or invalid markers were omitted from inventory, which could make an otherwise-aged session appear fully old. Marker entries are now statted before their content is read. A valid UUID marker remains a normal candidate surface; an aged unknown marker is ignored and preserved; a fresh unknown marker is matched by its encoded cwd name to registry entries and participates as a fresh surface, conservatively suppressing deletion of that whole session. The black-box regression makes a legitimate session marker fresh and mode 000 after aging every other surface, then proves every surface and the registry entry survive.
+
+The Round 2 global pump lock was also over-broad: any pump protected every historical candidate with a spawn log. It is replaced by a shared flock on each pump's own log inode. The pump opens and locks its log while holding the global store lock, while GC takes and holds a nonblocking exclusive flock on each candidate's own spawn log through the whole-candidate preflight and unlink sequence. A new pump therefore cannot open/write during a sweep; a live pump protects only its own inode; rename preserves the inode lock; and process exit releases it automatically. Regressions prove an unrelated aged spawn-log candidate is collected while log A's pump is live, and prove a provisional log renamed to a born session UUID remains protected under the born name.
 
 ## Mistakes & Dead Ends
 
