@@ -1,11 +1,11 @@
 ---
 title: Relay notification reliability — spawn completion signal + lock-based unified watcher liveness
 goal: Close the three orchestration gaps found 2026-07-10 — fire-and-forget spawn, undetectable dead mailbox watcher, and unguarded wake-while-live — with a child-wait completion signal, one lock-holding watcher implementation for both tools, and a doctor command.
-status: planned
+status: ongoing
 created: "2026-07-10T04:03:30-03:00"
-updated: "2026-07-10T11:10:33-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-10T11:13:07-03:00"
+started_at: "2026-07-10T11:13:07-03:00"
+assignee: relay-reliability-worker
 tags: [session-relay, reliability, doorbell, follow-up]
 affected_paths:
   - plugins/session-relay/rust/src/main.rs
