@@ -3,7 +3,7 @@ title: Session-relay store hygiene — inactivity GC, spawn-log bounding, long-r
 goal: Give ~/.agent-relay self-cleanup (14d-inactive sessions self-delete), bound the unbounded spawn-log growth, and audit/fix memory behavior of the relay's long-running loops.
 status: ongoing
 created: "2026-07-10T18:26:49-03:00"
-updated: "2026-07-10T19:58:54-03:00"
+updated: "2026-07-10T20:20:53-03:00"
 started_at: "2026-07-10T18:28:20-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, hygiene, gc]
@@ -103,15 +103,23 @@ Doorbell post-drain RSS stayed exactly 12,604 KiB for every persisted minute 15�
 
 Post-fix probes: the same fresh 8 MiB + 1 byte follow fixture measured 2,732 KiB start, 11,056 KiB pending, and 11,056 KiB after newline (bounded and no completion-time doubling). A doorbell watcher polling a 12 MiB mailbox for 6.5 seconds measured 2,728 → 2,792 KiB RSS and only 13,550 bytes of `rchar`, rather than rereading the 12 MiB file every tick.
 
-The GC safety clarification from the orchestrator: `store::gc(now, self_id: Option<&str>)` is the approved entry point. Hook passes its event session id; bus passes its marker-resolved id when known; `None` still runs GC. An explicit `AGENT_RELAY_HOME` or legacy `SESSION_RELAY_HOME` authorizes that root (including `/tmp`); otherwise the canonical store root must remain beneath canonical `$HOME`. Every known-surface deletion is checked lexically and after symlink resolution, the store root itself is never removed, and registry entries are removed last.
+The GC safety clarification from the orchestrator: `store::gc(now, self_id: Option<&str>)` is the approved entry point. Hook passes its event session id; bus passes its marker-resolved id when known; `None` still runs GC. An explicit `AGENT_RELAY_HOME` or legacy `SESSION_RELAY_HOME` authorizes that root (including `/tmp`); otherwise the canonical store root must remain beneath canonical `$HOME`. The store root and each present surface directory are opened and pinned with no-follow directory descriptors before the GC-only lock can create or mutate anything. Every deletion is an inode-revalidated `unlinkat` relative to its pinned surface directory; the store root itself is never removed, and registry entries are removed last.
 
 Step 2 manual proof used `/tmp/relay-gc-proof-f1q6ED`: one aged session's exact mailbox, marker, watcher lock+progress, resume lock, spawn log, registry entry, and name were removed; young, invoking-self, and aged-with-held-watcher-lock sessions survived with every surface; a fresh `gc-stamp` preserved a newly aged session on the immediate second bus startup. The proof returned `{ "pass": true }`.
 
 Step 3 mechanism: `relay spawn` synchronously `File::create`s its unique target (preserving the truncate-at-start contract), starts a hidden relay stderr-pump process, and passes that pump's stdin to the detached child. The pump reads fixed 64 KiB chunks; after the file crosses 4 MiB it compacts to the newest 3 MiB, so live size stays at approximately 4 MiB while stderr continues flowing after the parent returns. Once a Codex child registers, its initially random log name is renamed to the born session id so GC can correlate it. Direct proof streamed 6 MiB plus `TAILMARKER`: final size 4,071,434 bytes and the newest marker remained intact.
 
-Step 4 selftest re-derived summary: `PASS: session-relay self-test — 88 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`.
+Step 4 selftest re-derived summary after Fix Round 1: `PASS: session-relay self-test — 91 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`.
 
 Step 5 skill maintenance changed only the affected shipped session-relay skill and plugin-local conventions. The skill remains 308 lines; frontmatter is valid for Codex and Claude, its refreshed `content_hash` is idempotent (`unchanged productivity/session-relay`), and `status: ongoing` / `review_status: null` remain unchanged for the orchestrator's independent review.
+
+### Fix Round 1 — GC deletion safety
+
+Independent review found three safety gaps in the first GC implementation. The generic store lock called `ensure_dirs`, so GC could follow and chmod a symlinked `watchers/` or `locks/` directory before validating deletion paths. Pathname enumeration plus `canonicalize`/`remove_file` also left a check/use window in which a surface directory could redirect deletion outside the store. Finally, filename suffixes alone allowed non-UUID foreign files to be claimed as relay surfaces.
+
+The fix uses a GC-only `.lock` acquisition that never calls `ensure_dirs`; the canonical root and all present surface directories are pinned with `open`/`openat(O_DIRECTORY | O_NOFOLLOW)` before the lock file is created. Enumeration uses the pinned directory descriptors. Candidates require exact UUID-backed mailbox/watcher/resume/spawn filenames, or a valid UUID inside a regular marker file. Deletion revalidates the recorded device/inode and uses descriptor-relative `unlinkat`; registry and stamp reads/writes are likewise rooted at the pinned store descriptor. Held watcher/resume locks are probed through the pinned directories, preserving the all-surfaces-aged, no-held-locks, never-self eligibility rule.
+
+Three black-box bus-entry regressions cover the findings: a symlinked external `watchers/` directory causes GC refusal before `.lock` creation while its target file and mode remain unchanged; aged foreign non-UUID files survive in all five surface directories; and a `mailbox/` symlink to an internal future/victim layout cannot delete the aged UUID-shaped victim. All tests use per-case throwaway `AGENT_RELAY_HOME` roots.
 
 ## Mistakes & Dead Ends
 
