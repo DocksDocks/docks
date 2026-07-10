@@ -30,10 +30,13 @@
 
 use crate::cli::{Args, DEFAULT_NUDGE};
 use crate::hook;
+use crate::sha256::Sha256;
 use crate::store;
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tinyjson::JsonValue;
 
@@ -41,6 +44,7 @@ const POLL_MS: u64 = 2000;
 const DEFAULT_SETTLE_MS: u64 = 5000;
 const DEFAULT_TURN_WAIT_MS: u64 = 300_000;
 const RPC_TIMEOUT_SECS: u64 = 20;
+const WAKE_RETRY_MAX_MS: u64 = 30_000;
 
 fn die(msg: &str) -> ! {
     eprintln!("{msg}");
@@ -59,6 +63,47 @@ enum Mode {
     Wake,
 }
 
+struct FollowFile {
+    file: std::fs::File,
+    dev: u64,
+    ino: u64,
+    pending: Vec<u8>,
+    prefix_hash: Sha256,
+    snapshot: FileSnapshot,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileSnapshot {
+    len: u64,
+    mtime: i64,
+    mtime_nsec: i64,
+    ctime: i64,
+    ctime_nsec: i64,
+}
+
+impl FileSnapshot {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
+        Self {
+            len: metadata.len(),
+            mtime: metadata.mtime(),
+            mtime_nsec: metadata.mtime_nsec(),
+            ctime: metadata.ctime(),
+            ctime_nsec: metadata.ctime_nsec(),
+        }
+    }
+}
+
+struct WakeRetry {
+    refusals: u32,
+    next_at: Instant,
+}
+
+enum WakeOutcome {
+    Delivered,
+    Refused,
+    Failed,
+}
+
 // Reachability: only a codex session hosted under an app-server can take a
 // push; everything else gets the doorbell. `--server` implies tool=codex on
 // the --id path (an unregistered id would otherwise default to claude and
@@ -68,6 +113,12 @@ fn decide(tool: &str, server: Option<&str>) -> Mode {
         Mode::Push
     } else {
         Mode::Wake
+    }
+}
+
+fn validate_tool(tool: &str) {
+    if !matches!(tool, "claude" | "codex") {
+        die(&format!("--tool must be claude|codex, got: {tool}"));
     }
 }
 
@@ -114,6 +165,19 @@ fn resolve_targets(args: &Args, server: Option<&str>) -> Vec<Target> {
 
 pub fn run(raw: Vec<String>) -> ! {
     let args = Args(raw);
+    if let Some(id) = args.flag("follow") {
+        if !store::is_uuid(id) {
+            die(&format!("--follow must be a session UUID, got: {id}"));
+        }
+        if args.has("all") || args.has("once") || args.flag("server").is_some() {
+            die("--follow cannot be combined with --all, --once, or --server");
+        }
+        let tool = args.flag("tool").unwrap_or("claude");
+        validate_tool(tool);
+        let _guard = store::acquire_watcher_lock(id, tool, "follow")
+            .unwrap_or_else(|e| die(&format!("cannot follow {id}: {e}")));
+        follow_mailbox(id);
+    }
     let server = args.flag("server").map(str::to_string).or_else(|| {
         std::env::var("RELAY_APP_SERVER")
             .ok()
@@ -134,15 +198,44 @@ pub fn run(raw: Vec<String>) -> ! {
         );
     }
 
+    let mut guards = Vec::new();
+    let mut active_targets = Vec::new();
+    for target in targets {
+        validate_tool(&target.tool);
+        if dry {
+            active_targets.push(target);
+            continue;
+        }
+        let mode = if once { "once" } else { "doorbell" };
+        match store::acquire_watcher_lock(&target.id, &target.tool, mode) {
+            Ok(guard) => {
+                guards.push(guard);
+                active_targets.push(target);
+            }
+            Err(store::LockAcquireError::Busy(_)) if args.has("all") => {
+                eprintln!("[relay watch] skipping {}: watcher already live", target.id);
+            }
+            Err(e) => die(&format!("cannot watch {}: {e}", target.id)),
+        }
+    }
+    if active_targets.is_empty() {
+        std::process::exit(0);
+    }
+
     // A woken target keeps its mail until its own hook drains it — don't
     // re-ring the doorbell every poll tick while that is in flight.
     let mut woken: HashSet<String> = HashSet::new();
+    let mut wake_retries: HashMap<String, WakeRetry> = HashMap::new();
     let mut had_error = false;
     loop {
-        for t in &targets {
+        for t in &active_targets {
+            if let Err(e) = store::update_watcher_progress(&t.id) {
+                eprintln!("[relay watch] progress update for {} failed: {e}", t.id);
+            }
             let pending = store::peek(&t.id);
             if pending.is_empty() {
                 woken.remove(&t.id);
+                wake_retries.remove(&t.id);
                 continue;
             }
             match decide(&t.tool, server.as_deref()) {
@@ -159,13 +252,210 @@ pub fn run(raw: Vec<String>) -> ! {
                     if woken.contains(&t.id) {
                         continue;
                     }
-                    wake_fallback(t, dry);
-                    woken.insert(t.id.clone());
+                    if wake_retries
+                        .get(&t.id)
+                        .is_some_and(|retry| Instant::now() < retry.next_at)
+                    {
+                        continue;
+                    }
+                    match wake_fallback(t, dry) {
+                        WakeOutcome::Delivered => {
+                            wake_retries.remove(&t.id);
+                            woken.insert(t.id.clone());
+                        }
+                        WakeOutcome::Refused => {
+                            if once {
+                                had_error = true;
+                                continue;
+                            }
+                            let retry = wake_retries.entry(t.id.clone()).or_insert(WakeRetry {
+                                refusals: 0,
+                                next_at: Instant::now(),
+                            });
+                            retry.refusals = retry.refusals.saturating_add(1);
+                            let shift = retry.refusals.saturating_sub(1).min(4);
+                            let delay_ms = POLL_MS
+                                .saturating_mul(1_u64 << shift)
+                                .min(WAKE_RETRY_MAX_MS);
+                            retry.next_at = Instant::now() + Duration::from_millis(delay_ms);
+                            eprintln!(
+                                "[relay watch] wake fallback for {} refused; retrying in {}ms",
+                                t.id, delay_ms
+                            );
+                        }
+                        WakeOutcome::Failed => {
+                            wake_retries.remove(&t.id);
+                            woken.insert(t.id.clone());
+                            had_error = true;
+                        }
+                    }
                 }
             }
         }
         if once {
             std::process::exit(if had_error { 1 } else { 0 });
+        }
+        std::thread::sleep(Duration::from_millis(POLL_MS));
+    }
+}
+
+fn read_follow_bytes(state: &mut FollowFile, out: &mut impl Write) -> Result<(), String> {
+    let mut added = Vec::new();
+    state
+        .file
+        .read_to_end(&mut added)
+        .map_err(|e| format!("read followed mailbox: {e}"))?;
+    state.prefix_hash.update(&added);
+    state.pending.extend_from_slice(&added);
+    while let Some(end) = state.pending.iter().position(|b| *b == b'\n') {
+        let line: Vec<u8> = state.pending.drain(..=end).collect();
+        out.write_all(&line)
+            .and_then(|()| out.flush())
+            .map_err(|e| format!("write followed mailbox line: {e}"))?;
+    }
+    let metadata = state
+        .file
+        .metadata()
+        .map_err(|e| format!("stat followed mailbox after read: {e}"))?;
+    state.snapshot = FileSnapshot::from_metadata(&metadata);
+    Ok(())
+}
+
+fn digest_followed_prefix(
+    state: &mut FollowFile,
+    prefix_len: u64,
+) -> Result<Option<[u8; 32]>, String> {
+    let offset = state
+        .file
+        .stream_position()
+        .map_err(|e| format!("read followed mailbox position: {e}"))?;
+    state
+        .file
+        .seek(SeekFrom::Start(0))
+        .map_err(|e| format!("seek followed mailbox prefix: {e}"))?;
+
+    let mut hasher = Sha256::new();
+    let mut remaining = prefix_len;
+    let mut buffer = [0_u8; 8192];
+    let result = loop {
+        if remaining == 0 {
+            break Ok(Some(hasher.digest()));
+        }
+        let want = remaining.min(buffer.len() as u64) as usize;
+        match state.file.read(&mut buffer[..want]) {
+            Ok(0) => break Ok(None),
+            Ok(read) => {
+                hasher.update(&buffer[..read]);
+                remaining -= read as u64;
+            }
+            Err(e) => break Err(format!("read followed mailbox prefix: {e}")),
+        }
+    };
+    state
+        .file
+        .seek(SeekFrom::Start(offset))
+        .map_err(|e| format!("restore followed mailbox position: {e}"))?;
+    result
+}
+
+fn followed_content_changed(
+    state: &mut FollowFile,
+    metadata: &std::fs::Metadata,
+) -> Result<bool, String> {
+    if state.snapshot == FileSnapshot::from_metadata(metadata) {
+        return Ok(false);
+    }
+    let offset = state
+        .file
+        .stream_position()
+        .map_err(|e| format!("read followed mailbox position: {e}"))?;
+    if metadata.len() < offset {
+        return Ok(true);
+    }
+    let actual = digest_followed_prefix(state, offset)?;
+    Ok(actual.is_none_or(|digest| digest != state.prefix_hash.digest()))
+}
+
+fn open_follow_file(path: &Path, skip_existing: bool) -> Result<FollowFile, String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("open followed mailbox {}: {e}", path.display()))?;
+    let mut prefix_hash = Sha256::new();
+    if skip_existing {
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|e| format!("read existing mailbox {}: {e}", path.display()))?;
+            if read == 0 {
+                break;
+            }
+            prefix_hash.update(&buffer[..read]);
+        }
+    }
+    let metadata = file
+        .metadata()
+        .map_err(|e| format!("restat followed mailbox {}: {e}", path.display()))?;
+    Ok(FollowFile {
+        file,
+        dev: metadata.dev(),
+        ino: metadata.ino(),
+        pending: Vec::new(),
+        prefix_hash,
+        snapshot: FileSnapshot::from_metadata(&metadata),
+    })
+}
+
+fn follow_mailbox(id: &str) -> ! {
+    let path: PathBuf = store::mailbox_path(id);
+    let mut skip_first_open = path.exists();
+    let mut state: Option<FollowFile> = None;
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    loop {
+        if let Err(e) = store::update_watcher_progress(id) {
+            eprintln!("[relay watch] progress update for {id} failed: {e}");
+        }
+        match std::fs::metadata(&path) {
+            Ok(metadata) => {
+                let replaced = state
+                    .as_ref()
+                    .map(|s| s.dev != metadata.dev() || s.ino != metadata.ino())
+                    .unwrap_or(true);
+                if replaced {
+                    match open_follow_file(&path, skip_first_open) {
+                        Ok(opened) => {
+                            state = Some(opened);
+                            skip_first_open = false;
+                        }
+                        Err(e) => eprintln!("[relay watch] {e}"),
+                    }
+                } else if let Some(current) = state.as_mut() {
+                    let content_changed =
+                        followed_content_changed(current, &metadata).unwrap_or_else(|e| die(&e));
+                    if content_changed {
+                        current
+                            .file
+                            .seek(SeekFrom::Start(0))
+                            .unwrap_or_else(|e| die(&format!("reset followed mailbox: {e}")));
+                        current.pending.clear();
+                        current.prefix_hash = Sha256::new();
+                    }
+                }
+                if let Some(current) = state.as_mut() {
+                    if let Err(e) = read_follow_bytes(current, &mut out) {
+                        die(&e);
+                    }
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(current) = state.as_mut() {
+                    if let Err(e) = read_follow_bytes(current, &mut out) {
+                        die(&e);
+                    }
+                }
+                state = None;
+            }
+            Err(e) => eprintln!("[relay watch] stat {}: {e}", path.display()),
         }
         std::thread::sleep(Duration::from_millis(POLL_MS));
     }
@@ -278,7 +568,7 @@ fn elicitation_action(server_name: &str) -> &'static str {
 
 // Doorbell fallback via self-exec: `wake` lives in cli::run, which never
 // returns, so reuse it as a child process rather than a call.
-fn wake_fallback(t: &Target, dry: bool) {
+fn wake_fallback(t: &Target, dry: bool) -> WakeOutcome {
     if dry {
         println!(
             "{}",
@@ -288,7 +578,7 @@ fn wake_fallback(t: &Target, dry: bool) {
                 ("tool", &t.tool)
             ])
         );
-        return;
+        return WakeOutcome::Delivered;
     }
     let exe = std::env::current_exe().unwrap_or_else(|_| "relay".into());
     let mut c = std::process::Command::new(exe);
@@ -301,12 +591,19 @@ fn wake_fallback(t: &Target, dry: bool) {
         c.arg("--dir").arg(d);
     }
     match c.status() {
-        Ok(s) if s.success() => {}
-        Ok(s) => eprintln!("[relay watch] wake fallback for {} exited {s}", t.id),
-        Err(e) => eprintln!(
-            "[relay watch] wake fallback for {} failed to spawn: {e}",
-            t.id
-        ),
+        Ok(s) if s.success() => WakeOutcome::Delivered,
+        Ok(s) if s.code() == Some(3) => WakeOutcome::Refused,
+        Ok(s) => {
+            eprintln!("[relay watch] wake fallback for {} exited {s}", t.id);
+            WakeOutcome::Failed
+        }
+        Err(e) => {
+            eprintln!(
+                "[relay watch] wake fallback for {} failed to spawn: {e}",
+                t.id
+            );
+            WakeOutcome::Failed
+        }
     }
 }
 
