@@ -3,7 +3,7 @@ title: Session-relay store hygiene — inactivity GC, spawn-log bounding, long-r
 goal: Give ~/.agent-relay self-cleanup (14d-inactive sessions self-delete), bound the unbounded spawn-log growth, and audit/fix memory behavior of the relay's long-running loops.
 status: ongoing
 created: "2026-07-10T18:26:49-03:00"
-updated: "2026-07-10T18:28:20-03:00"
+updated: "2026-07-10T19:37:35-03:00"
 started_at: "2026-07-10T18:28:20-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, hygiene, gc]
@@ -50,7 +50,7 @@ The shared store `~/.agent-relay/` grows without bound and holds state for sessi
 
 | # | Task | Status |
 |---|------|--------|
-| 1 | Memory/growth audit of the long-runners with MEASUREMENTS in `## Notes`: (a) `relay bus` RSS across a scripted 500-message send/inbox session; (b) `relay watch` doorbell RSS across ≥30min simulated polling with a growing-then-drained mailbox; (c) `--follow` RSS across a large appended mailbox incl. one pathological no-newline line ≥8MB (documents the known unbounded `pending` case: cap or accept with a recorded bound); (d) confirm/refute the per-tick full-mailbox `peek` read as a growth/IO concern given drain-truncation. Fix what is real; record verdicts per item. | pending |
+| 1 | Memory/growth audit of the long-runners with MEASUREMENTS in `## Notes`: (a) `relay bus` RSS across a scripted 500-message send/inbox session; (b) `relay watch` doorbell RSS across ≥30min simulated polling with a growing-then-drained mailbox; (c) `--follow` RSS across a large appended mailbox incl. one pathological no-newline line ≥8MB (documents the known unbounded `pending` case: cap or accept with a recorded bound); (d) confirm/refute the per-tick full-mailbox `peek` read as a growth/IO concern given drain-truncation. Fix what is real; record verdicts per item. | done |
 | 2 | Inactivity GC in `store.rs` (single entry point `store::gc(now)`): a session is GC-eligible when ALL its surfaces are older than the threshold (registry `last_seen` when present, plus mtimes of its mailbox/markers/watcher-offset/lock/spawn-log files) AND its watcher lock and resume lock are NOT currently held (held lock = active regardless of age). Eligible → remove its registry entry, mailbox file, cwd markers, watcher offset+lock files, spawn-log files. Orphan surfaces without registry entries age out by mtime alone. Threshold: 14d default, `AGENT_RELAY_GC_DAYS` override (`0` = disabled). Trigger: `relay hook` (both tools) and `relay bus` startup, throttled via `gc-stamp` mtime (≥6h between sweeps); never GC the invoking session's own id. GC only relay-owned paths inside the store root — refuse to operate if the store root resolves outside `$HOME`/`AGENT_RELAY_HOME`. | pending |
 | 3 | Spawn-log bounding in `spawn.rs`: cap live growth (streaming tail-cap or size-capped writer — child stderr must keep flowing; document the chosen mechanism) so a single spawn log cannot exceed ~4MB, keeping the newest content (the diagnostic tail). Existing oversized logs are handled by Step 2's age GC; additionally `relay spawn` truncates ITS OWN target log file at spawn start (already `File::create` — verify). | pending |
 | 4 | Selftest coverage (extend `test/selftest.mjs`, `AGENT_RELAY_HOME` sandbox): seeded store with (i) aged-out session (fake old mtimes + old `last_seen`) → GC removes exactly its surfaces; (ii) aged-out but HELD watcher lock → survives; (iii) young session → survives; (iv) invoker's own session aged → survives; (v) `AGENT_RELAY_GC_DAYS=0` → no-op; (vi) gc-stamp throttle honored; (vii) spawn-log cap enforced. Re-derive the selftest count from its summary line. | pending |
@@ -88,7 +88,26 @@ Score: 94/100 · trajectory 94 · stopped: single-pass (5 steps, no risk-flagged
 
 ## Notes
 
-(Step 1 measurement table lands here.)
+### Step 1 memory and growth measurements
+
+All processes used the source-matching release binary and an explicit throwaway `AGENT_RELAY_HOME` under `/tmp`; no measurement touched `~/.agent-relay`. RSS values come from `/proc/<pid>/status` (`VmRSS`).
+
+| Component | Scenario | RSS start | RSS end / peak | Verdict |
+|---|---|---:|---:|---|
+| `relay bus` | One persistent MCP server, 500 cycles of a 1 KiB `send` followed by explicit-recipient `inbox` (1,000 tool calls) | 2,540 KiB | 2,740 KiB end and peak; flat from cycle 200 through 500 | **Bounded; no fix.** Per-request allocations are released and the process reaches a stable plateau. |
+| `relay watch` doorbell | 30.01 minutes wall clock; append 1 MiB/min for 15 samples, drain, then poll an empty mailbox through the end | 2,712 KiB | 12,604 KiB end; 29,904 KiB peak at a 12,583,167-byte mailbox | **Fixed.** RSS did not grow after drain, so this was not retained-map leakage; the poll loop now uses file metadata instead of whole-mailbox parsing. |
+| `relay watch --follow` | Fresh watcher; append one 8 MiB + 1 byte record without a newline, then append the newline | 2,632 KiB | 10,828 KiB while pending; 19,020 KiB after whole-line clone/drain | **Bounded/fixed.** Reads now stream in 64 KiB chunks; an incomplete record is capped at 8 MiB and an overlong record is discarded through its newline without a completion-time clone. |
+| Doorbell `peek` I/O | Same 30.01-minute run, `/proc/<pid>/io` | 2,712 KiB RSS; `rchar` 9,760 | `rchar` 3,146,864,933 at drain and 3,146,866,849 at end | **Confirmed I/O concern.** The growing phase reread about 2.93 GiB from cache (`read_bytes` stayed 0); 15 empty minutes added only 1,916 bytes. Replace the parse with a metadata-only presence check. |
+
+Doorbell post-drain RSS stayed exactly 12,604 KiB for every persisted minute 15–30.01. The `woken` and `wake_retries` maps are target-bounded and showed no growth. Chosen follow bound: retain at most 8 MiB of an incomplete JSONL record, drop the remainder through its newline with one warning, then resume normal delivery; complete records within that bound remain byte-identical.
+
+Post-fix probes: the same fresh 8 MiB + 1 byte follow fixture measured 2,732 KiB start, 11,056 KiB pending, and 11,056 KiB after newline (bounded and no completion-time doubling). A doorbell watcher polling a 12 MiB mailbox for 6.5 seconds measured 2,728 → 2,792 KiB RSS and only 13,550 bytes of `rchar`, rather than rereading the 12 MiB file every tick.
+
+The GC safety clarification from the orchestrator: `store::gc(now, self_id: Option<&str>)` is the approved entry point. Hook passes its event session id; bus passes its marker-resolved id when known; `None` still runs GC. An explicit `AGENT_RELAY_HOME` or legacy `SESSION_RELAY_HOME` authorizes that root (including `/tmp`); otherwise the canonical store root must remain beneath canonical `$HOME`. Every known-surface deletion is checked lexically and after symlink resolution, the store root itself is never removed, and registry entries are removed last.
+
+## Mistakes & Dead Ends
+
+- **2026-07-10T19:02:00-03:00**: The first 30-minute controller captured a 15 MiB `relay inbox` response with Node `spawnSync`; its default output buffer terminated the controller at drain and the process group was reaped at ~29 minutes. The mailbox had drained, but the duration was not rounded up or accepted. Re-ran with inbox stdout discarded, per-minute samples persisted independently, and an explicit 1,800,000 ms completion interval; the corrected run completed 30.01 minutes.
 
 ## Review
 
