@@ -1,11 +1,11 @@
 ---
 title: relay live-view — watch and co-drive relay conversations from open chats
 goal: Make relay traffic visible live inside the user's own open sessions — codex via app-server-native delivery (shared-thread co-driving, split-brain eliminated), claude via an experimental relay channel.
-status: planned
+status: ongoing
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-10T19:18:24-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-10T21:50:05-03:00"
+started_at: "2026-07-10T21:50:05-03:00"
+assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, app-server, channels, live-view]
 affected_paths:
   - plugins/session-relay/rust/src/watch.rs
@@ -22,7 +22,7 @@ related_plans:
   - relay-attach-command.md
   - relay-store-hygiene.md
 review_status: null
-planned_at_commit: 866312af540b905b9a5cb4e96f9bb2b41d1b2a10
+planned_at_commit: 52227e92e165183ea0b5e5111dda7d4b734808d3
 ---
 
 ## Goal
@@ -44,7 +44,12 @@ User desire (2026-07-10): "if I already have a session open... talk to the relay
 - Repo `/home/vagrant/projects/docks`; branch `codex/relay-live-view`; never push; no `bin/` commits.
 - `export PATH="$HOME/.cargo/bin:$PATH"`; gate `node scripts/ci.mjs --plugin session-relay`; selftest sandboxes via `AGENT_RELAY_HOME`; `test/fake-app-server.mjs` already stubs the WS protocol for watch-leg tests — extend it rather than requiring a real codex.
 - Live verification against a REAL `codex app-server --listen unix://…` is required for the codex track's acceptance (this box has codex 0.144.1); use a throwaway CODEX_HOME.
-- Expected drift at dispatch: `relay-store-hygiene` and `relay-attach-command` merge first. store-hygiene's `affected_paths` include **`watch.rs` and `spawn.rs`** (doorbell-loop memory audit + spawn-log cap) — the exact files Step 1 refactors (extract `appserver.rs` from watch.rs) and Step 4 rewrites (spawn.rs) — plus store.rs/cli.rs/main.rs/selftest/skill churn; attach adds cli.rs/main.rs/store.rs/selftest. Drift check, read merged code, reconcile; the watch.rs/spawn.rs overlap is the highest-risk merge (preserve any memory fixes landed there).
+- Drift base UPDATED to `52227e9` — BOTH prerequisite plans have now MERGED to main (store-hygiene at 072c830, attach at 52227e9). READ the merged code before starting; the landed changes you build on:
+  - `watch.rs` (Step 1 refactors this): the doorbell loop now does a **metadata-only presence poll** (`FileSnapshot::from_metadata`) instead of the old whole-mailbox parse, and `--follow` has an **8 MiB incomplete-record cap** with 64 KiB streaming reads. Your `appserver.rs` extraction must preserve these — do not reintroduce the whole-mailbox reparse.
+  - `spawn.rs` (Step 4 rewrites this): spawn now runs a **detached stderr-pump** that caps each log at ~4 MiB (newest 3 MiB) and holds a **per-log liveness flock** GC treats as active; a Codex child's log is **renamed to the born session id**. The app-server spawn path (`thread/start`, no `codex exec`) must keep the log-cap + GC-correlation properties or explicitly note their N/A.
+  - `store.rs`: owns the GC, `is_uuid`, resume-lock probe, and the registry `Entry` schema — REUSE these; Step 2's `server` field is a new `Entry` addition (default `None`, back-compat with the GC/legacy readers).
+  - `cli.rs`: attach added a strict per-verb parser and the exit-3/exit-4 lock semantics — follow that parsing discipline for any new verb; `main.rs` header is the multi-call contract.
+  Run the drift check (`git diff --stat 866312a..52227e9 -- plugins/session-relay/`) to see the full delta, then reconcile.
 
 ## Steps
 
