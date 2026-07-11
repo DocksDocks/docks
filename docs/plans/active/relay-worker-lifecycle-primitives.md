@@ -3,7 +3,7 @@ title: Build relay worker lifecycle primitives
 goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
 status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T13:26:05-03:00"
+updated: "2026-07-11T13:36:18-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
@@ -384,11 +384,41 @@ pub struct CgroupBoundary {
     pub worker_dir_mode: u32,
     pub relative_path: String,
     pub generation_component: String,
-    pub cgroup_namespace_ino: u64,
-    pub confinement: CgroupConfinementReceipt,
+    // Option A split: cooperative receipt is MANDATORY for a ConfinedCgroupCooperative
+    // WorkerTree (both Claude and Codex); the anti-escape filter is an OPTIONAL Claude-only
+    // add-on. Cooperative-receipt failure disables WorkerTree for that runtime; filtered-
+    // hardening failure disables ONLY the Claude hardening layer.
+    pub cooperative: CgroupCooperativeReceipt,
+    pub filtered_hardening: Option<FilteredCgroupHardeningReceipt>,
 }
 
-pub struct CgroupConfinementReceipt {
+pub enum GatedPlacementMode {
+    Clone3IntoCgroup, // clone3(CLONE_INTO_CGROUP): runtime is born directly in the leaf
+    PreExecStopGo,    // pre-exec stop/GO: manager moves+verifies before any runtime code runs
+}
+
+// MANDATORY for every ConfinedCgroupCooperative WorkerTree, both runtimes. Contains no
+// namespace/seccomp requirement: cgroup membership is namespace-independent, so cgroup.kill
+// on a domain leaf reaches even a bwrap-nested descendant.
+pub struct CgroupCooperativeReceipt {
+    pub gated_placement: GatedPlacementMode,
+    pub no_runtime_code_before_membership: bool, // closes the spawn-then-move race
+    pub leaf_membership_verified: bool,
+    pub cgroup_type_domain: bool,                // must be "domain"
+    pub cgroup_kill_writable: bool,              // fail-closed if threaded (EOPNOTSUPP)
+    pub freeze_frozen_observed: bool,            // cgroup.freeze -> cgroup.events frozen=1
+    pub killed: bool,                            // cgroup.kill written
+    pub populated_zero: bool,                    // cgroup.events populated=0 after kill
+    pub no_surviving_host_pid_under_leaf: bool,
+    pub cooperative_probe_sha256: String,        // A5b cooperative-gate transcript
+    pub setup_transcript_sha256: String,
+    _sealed: lifecycle::Sealed,
+}
+
+// OPTIONAL Claude-only defense-in-depth. Failure disables ONLY this layer, never the
+// cooperative WorkerTree. Codex is expected to lack this (bwrap needs the denied syscalls).
+pub struct FilteredCgroupHardeningReceipt {
+    pub cgroup_namespace_ino: u64,
     pub moved_before_cgroup_unshare: bool,
     pub cgroup_root_is_worker_leaf: bool,
     pub new_user_mount_pid_cgroup_namespaces: bool,
@@ -406,23 +436,22 @@ pub struct CgroupConfinementReceipt {
     pub ordinary_spawn_probe_sha256: String,
     pub namespace_mount_seccomp_sha256: String,
     pub pre_go_escape_probe_sha256: String,
-    pub setup_transcript_sha256: String,
     _sealed: lifecycle::Sealed,
 }
 ```
 
 `ProcessIdentityRecord` is durable observation/recovery input; `SignalHandle` is live, non-serializable authority. Linux pidfd recovery order is **open pidfd first, then read/compare the generation while the fd pins the task**, then signal via pidfd. If pidfd open fails or the pinned observation mismatches, do not raw-signal. On Darwin and Linux without pidfd, recovery produces `ObservationOnly` and returns unconfirmed. A live supervisor may safely act through its unreaped `Child` only when its instance id matches the record; once reaped/dropped/restarted, that authority is gone. `killpg` is permitted only while an unreaped owned group leader prevents PGID reuse, and it proves group scope only—not escaped descendants or WorkerTree.
 
-Managed launch uses `__managed-child-exec` with this executable strong-cgroup setup contract:
+Managed launch uses `__managed-child-exec` with this executable cgroup setup contract (mandatory cooperative steps + optional Claude-only `FilteredCgroupHardening`):
 
-1. **Preflight or fail closed.** Require Linux cgroup v2 with `cgroup.kill`, a writable delegation that permits create/move, cgroup+mount+PID namespaces, either current-user-namespace `CAP_SYS_ADMIN` or enabled unprivileged user namespaces with uid/gid mapping, fresh proc mounting, `no_new_privs`, and seccomp filtering. If any probe fails, record `ObservationOnly`/`Unconfirmed`; never partially label the backend `ConfinedCgroup`.
+1. **Preflight or fail closed (cooperative = mandatory; filter = optional Claude-only).** For the **cooperative** tier (both runtimes) require Linux cgroup v2, a **`domain`** worker leaf with writable `cgroup.kill` (fail closed on threaded → `EOPNOTSUPP`), a writable delegation permitting create/move, and a gated-placement capability (`clone3 CLONE_INTO_CGROUP` or a pre-exec stop/GO handshake). If any cooperative probe fails, record `ObservationOnly`/`Unconfirmed` and never label the backend `ConfinedCgroup`. The **`FilteredCgroupHardening`** add-on additionally requires cgroup+mount+PID namespaces, either current-user-namespace `CAP_SYS_ADMIN` or enabled unprivileged user namespaces with uid/gid mapping, fresh proc mounting, `no_new_privs`, and seccomp filtering; if any of these fail, record `filtered_hardening: None` (Claude loses only the extra layer; Codex is expected here) — this never reduces the cooperative WorkerTree.
 2. **Create and retain manager authority.** The manager creates `<manager-root>/<worker_id>-<generation>/`, opens the exact directory `O_PATH|O_DIRECTORY|O_CLOEXEC`, records mount/dev/inode/uid/mode/path/generation, and keeps that fd private. All `cgroup.procs`, `cgroup.freeze`, `cgroup.kill`, and `cgroup.events` access uses `openat` from this fd; no later path lookup is signaling authority.
-3. **Move before namespace root.** Spawn a trusted wrapper blocked on a private handshake pipe. Before the wrapper creates its cgroup namespace, the manager writes its pinned pid through the retained fd into the worker leaf and verifies membership. The wrapper must already be in the leaf when it calls `unshare(CLONE_NEWCGROUP)`, so `/` inside that namespace is the worker leaf rather than an ancestor.
-4. **Build an isolated view.** For the rootless path, the wrapper first creates a user namespace, pauses while the manager installs `setgroups=deny` and uid/gid maps, then creates private mount+cgroup+PID namespaces and forks the namespace PID 1. It makes mounts private, enumerates and detaches **every inherited procfs and cgroup2 mount**, mounts one fresh `/proc` for the new PID namespace, proves `/proc/<host-pid>/{fd,fdinfo,root,cwd}` grants no host authority, and mounts exactly one cgroup2 view at `/sys/fs/cgroup`, rooted at the worker leaf and remounted read-only/nosuid/nodev/noexec. The privileged path must produce the identical observable view/receipt.
-5. **Remove alternate authority before untrusted exec.** Explicitly close every non-allowlisted fd (including manager/cgroup/mount namespace fds) with close-range plus fresh-`/proc/self/fd` verification; retain only stdio and the GO pipe. Set `no_new_privs`, drop namespace capabilities, then install an architecture-validating seccomp filter. It accepts only `AUDIT_ARCH_X86_64` or `AUDIT_ARCH_AARCH64` matching the compiled target; on x86_64 it rejects every syscall number carrying `__X32_SYSCALL_BIT`. Because classic seccomp BPF cannot dereference the `clone3` pointer argument, deny `clone3` wholesale with **exactly `SECCOMP_RET_ERRNO | (ENOSYS & SECCOMP_RET_DATA)`**, never `EPERM`, kill, trap, or a generic deny action. This makes glibc `posix_spawn` take its verified legacy-`clone` fallback. On that legacy path, allow ordinary child flags but deny every namespace-creating flag. Deny `mount`, `umount2`, `fsopen`, `fsmount`, `open_tree`, `move_mount`, `mount_setattr`, `fsconfig`, `fspick`, `pivot_root`, `chroot`, `setns`, `unshare`, namespace-creating legacy `clone` flags, `ptrace`, `process_vm_writev`, and `pidfd_getfd`. Most of the latter controls are defense-in-depth after capability drop and the fresh PID/proc view; failure of the architecture/x32/clone3-return checks is independently fatal to strong containment.
+3. **Gated placement before any runtime code (mandatory, both runtimes).** Either spawn the runtime via `clone3(CLONE_INTO_CGROUP)` so it is born in the leaf, or spawn a trusted wrapper blocked on a private handshake pipe and, before it executes any runtime code or forks, have the manager write its pinned pid through the retained fd into the worker leaf and verify membership — this closes the spawn-then-move race. Verify `cgroup.type=domain` and writable `cgroup.kill` (fail closed on threaded). **(Claude-only `FilteredCgroupHardening` continues from here:)** the wrapper must already be in the leaf when it calls `unshare(CLONE_NEWCGROUP)`, so `/` inside that namespace is the worker leaf rather than an ancestor.
+4. **Build an isolated view (Claude-only `FilteredCgroupHardening`; Codex skips this and stays cooperative).** For the rootless path, the wrapper first creates a user namespace, pauses while the manager installs `setgroups=deny` and uid/gid maps, then creates private mount+cgroup+PID namespaces and forks the namespace PID 1. It makes mounts private, enumerates and detaches **every inherited procfs and cgroup2 mount**, mounts one fresh `/proc` for the new PID namespace, proves `/proc/<host-pid>/{fd,fdinfo,root,cwd}` grants no host authority, and mounts exactly one cgroup2 view at `/sys/fs/cgroup`, rooted at the worker leaf and remounted read-only/nosuid/nodev/noexec. The privileged path must produce the identical observable view/receipt.
+5. **Remove alternate authority before untrusted exec (Claude-only `FilteredCgroupHardening`).** Explicitly close every non-allowlisted fd (including manager/cgroup/mount namespace fds) with close-range plus fresh-`/proc/self/fd` verification; retain only stdio and the GO pipe. Set `no_new_privs`, drop namespace capabilities, then install an architecture-validating seccomp filter. It accepts only `AUDIT_ARCH_X86_64` or `AUDIT_ARCH_AARCH64` matching the compiled target; on x86_64 it rejects every syscall number carrying `__X32_SYSCALL_BIT`. Because classic seccomp BPF cannot dereference the `clone3` pointer argument, deny `clone3` wholesale with **exactly `SECCOMP_RET_ERRNO | (ENOSYS & SECCOMP_RET_DATA)`**, never `EPERM`, kill, trap, or a generic deny action. This makes glibc `posix_spawn` take its verified legacy-`clone` fallback. On that legacy path, allow ordinary child flags but deny every namespace-creating flag. Deny `mount`, `umount2`, `fsopen`, `fsmount`, `open_tree`, `move_mount`, `mount_setattr`, `fsconfig`, `fspick`, `pivot_root`, `chroot`, `setns`, `unshare`, namespace-creating legacy `clone` flags, `ptrace`, `process_vm_writev`, and `pidfd_getfd`. Most of the latter controls are defense-in-depth after capability drop and the fresh PID/proc view; failure of the architecture/x32/clone3-return checks is independently fatal to the filtered hardening layer only (Codex simply lacks it and stays on the cooperative tier), never to the cooperative WorkerTree.
 6. **Adversarial and compatibility gates, then GO.** Preserve the raw-syscall namespace-denial fixture in the exact namespaces: it must prove `clone3` creates no child and returns `-1/ENOSYS`; namespace flags through legacy `clone` remain denied; x32/mismatched-arch, ancestor/sibling write, remount, new namespace, inherited-fd, alternate proc/cgroup mount, and `/proc/<pid>/{fd,fdinfo,root,cwd}` attacks still fail. Separately, run A5b's **cooperative** gate for each real runtime: gated leaf placement (`CLONE_INTO_CGROUP`/stop-GO), the real sandbox (Codex's `bwrap`) tool child plus a nested-namespace double-forked grandchild, a host-PID-stays-under-leaf assertion, and `cgroup.freeze`→`cgroup.kill`→`populated 0`. Probe the direct attacks before/during fencing. Only a runtime passing the cooperative gate may receive GO with `ConfinedCgroupCooperative`; a runtime that cannot achieve gated placement or leaf containment records `ConfinedCgroup` unavailable. Claude additionally attempts the Claude-only filtered hardening; Codex is expected filtered-unavailable and remains cooperative-tier eligible. The raw-syscall namespace-denial fixture above is the `FilteredCgroupHardening` (Claude-only) proof. The manager re-verifies leaf membership and the receipt, then sends GO. Under the cooperative-worker threat model, freeze may establish a temporary stable view, but Fenced requires `cgroup.kill` plus `populated 0`; the cgroup is never thawed through release.
 
-The detached lifecycle supervisor is the cgroup manager and retains the exact directory fd until terminal release. Ordinary CLI exit/restart asks that supervisor to act; it does not reopen the path. If the supervisor or fd is lost, mount/dev/inode/path revalidation is observation only because the path/inode could have been recycled; this plan defines no fd-reconstruction/transfer path, so recovery remains `FencingUnconfirmed`. Any setup, fd-closure, namespace-root, procfs-authority, alternate-mount, seccomp-architecture/x32/clone3-return, real-runtime ordinary-spawn, escape-probe, or supervisor-authority failure makes WorkerTree unavailable for that runtime. This direct boundary does not claim to stop a deliberately adversarial same-user broker or service from creating a sibling process; every `CgroupTreeProof` is stamped `CooperativeWorkerV1` and diagnostics repeat that scope.
+The detached lifecycle supervisor is the cgroup manager and retains the exact directory fd until terminal release. Ordinary CLI exit/restart asks that supervisor to act; it does not reopen the path. If the supervisor or fd is lost, mount/dev/inode/path revalidation is observation only because the path/inode could have been recycled; this plan defines no fd-reconstruction/transfer path, so recovery remains `FencingUnconfirmed`. A **cooperative** failure — gated-placement/leaf-membership loss, a non-`domain` or non-writable `cgroup.kill` (threaded → `EOPNOTSUPP`), a freeze/kill/`populated 0` failure, a surviving host PID under the leaf, retained-fd loss, or supervisor-authority loss — makes WorkerTree unavailable for that runtime. A **filtered-hardening** failure (namespace-root, procfs-authority, alternate-mount, seccomp-architecture/x32/clone3-return, or escape-probe) records `filtered_hardening: None` and disables only the Claude-only layer, never the cooperative WorkerTree. This direct boundary does not claim to stop a deliberately adversarial same-user broker or service from creating a sibling process; every `CgroupTreeProof` is stamped `CooperativeWorkerV1` and diagnostics repeat that scope.
 
 ### 4. Exhaustive, scope-bound proof validation
 
@@ -453,9 +482,12 @@ pub struct EscapeProbeReceipt {
 
 pub struct EscapeAttempt {
     pub target: String,
-    pub denied_errno: i32,
-    pub membership_unchanged: bool,
+    pub denied_errno: i32,          // 0 on the cooperative tier (syscall not blocked); set only under FilteredCgroupHardening
+    pub membership_unchanged: bool, // the REQUIRED cooperative property: the attempt (incl. a legitimate bwrap namespace creation) did not change cgroup membership
 }
+// Cooperative `CgroupTreeProof`: every `EscapeAttempt` requires `membership_unchanged = true`
+// (a namespace creation is allowed but must not leave the leaf). `FilteredCgroupHardening`
+// (Claude-only) additionally requires `denied_errno` proving the syscall itself was blocked.
 
 pub struct ThreadQuiescence {
     pub thread_id: String,
