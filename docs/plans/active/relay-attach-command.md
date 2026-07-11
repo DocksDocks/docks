@@ -3,7 +3,7 @@ title: relay attach — hand a human the worker's chat
 goal: New `relay attach <nameOrId>` verb that safely hands the user the exact interactive-resume command (or execs it) for any relay session, plus documented attach recipes and the split-brain warning.
 status: ongoing
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-10T21:15:03-03:00"
+updated: "2026-07-10T21:27:17-03:00"
 started_at: "2026-07-10T21:03:47-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, attach, ux]
@@ -78,9 +78,15 @@ Score: 95/100 · trajectory 95 · stopped: single-pass (4 steps, no risk flag �
 
 Steps 1–3 use the hardened store's existing `is_uuid` and `resume_status` helpers without duplicating lock logic or touching `store.rs`. The future live-view integration is a pure optional `server` argument on command composition; current registry resolution deliberately passes `None` until that later plan adds the schema. Exact-id discovery scans the raw tool stores with a 100-year window and no row limit after registry resolution misses.
 
-TDD evidence: the red baseline produced three `attach_invocation` compile failures and the old top-level usage error for the black-box verb. The frozen specs then passed without assertion changes. Re-derived source-binary summary: `PASS: session-relay self-test — 98 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`.
+TDD evidence: the initial red baseline produced three `attach_invocation` compile failures and the old top-level usage error for the black-box verb. The frozen specs then passed without assertion changes. Current re-derived source-binary summary after Fix Round 1: `PASS: session-relay self-test — 100 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`.
 
 Step 4 updates only the affected shipped skill. The new section documents print and `--exec` takeover, exact manual Codex/Claude recipes, picker omission, exit-3 wake contention, and the split-brain warning byte-for-byte with CLI output. The skill is 326 lines; `content_hash` refresh wrote `61519e1e09352fb0e11710896c9ba69b791521a2adfce92a058a2949f30998a1`, and an immediate check reported `unchanged productivity/session-relay`. Per orchestrator instruction the plan remains `status: ongoing` and `review_status: null` for independent review.
+
+### Fix Round 1 — strict grammar and fail-closed lock probe
+
+Independent review found that attach inherited the permissive global `Args` behavior: extra operands were ignored and `Args::has("exec")` scanned beyond a bare `--`. Attach now owns a strict parser accepting exactly one target and at most one `--exec` before the terminator. `--exec` works before or after the target; extra operands, duplicate/unknown flags, and any operand after `--` produce the attach usage warning and exit 2. Execution is derived only from the parsed result. The red baseline was five missing-`parse_attach_args` compile errors plus a black-box extra-operand exit 0; the frozen parser and argv-recording regressions now pass.
+
+The resume-lock guard also now fails closed on `LockStatus::Unknown`. Confirmed live locks retain exit 3; an unprobeable lock exits 4, keeps the required split-brain warning, and directs the user to `relay doctor --id`, permission restoration, and stale-lock removal only after confirming no wake is running. A mode-000 sandbox lock regression proves attach refuses rather than printing or executing.
 
 ## Review
 
