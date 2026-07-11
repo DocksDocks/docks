@@ -3,7 +3,7 @@ title: Build relay worker lifecycle primitives
 goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
 status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T11:29:49-03:00"
+updated: "2026-07-11T12:50:48-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
@@ -775,7 +775,13 @@ Adversarial cold-read result: a cold executor need not invent binding serializat
 
 ## Open questions
 
-*(none — `threat-model-scope` resolved 2026-07-11: owner selected **Option 1, `CooperativeWorkerV1`**. Implementation and acceptance adopt the cooperative model; broker-assisted same-UID evasion is out of scope. See ## Threat model.)*
+- **Resolved 2026-07-11** — `threat-model-scope`: owner selected **Option 1, `CooperativeWorkerV1`**. Implementation and acceptance adopt the cooperative model; broker-assisted same-UID evasion is out of scope. See ## Threat model.
+
+- `codex-cooperative-cgroup-tier` (**choice**, custom allowed) — **NEW, from Step-1 real-runtime evidence; blocks the Steps 2-8 tier taxonomy.** The Step-1 probe (run by the orchestrator in the real authenticated env) proves an unanticipated fact: under the *exact anti-escape strong-cgroup filter* (which EPERM-denies `unshare`/`mount`/`CLONE_NEW*` to stop cgroup/namespace escape), **Claude passes** the real child+wait spawn (spawns tool children directly → `clone3`→`ENOSYS`→legacy `clone`, allowed), but **Codex fails**: codex wraps every tool `exec` in `bwrap`, which needs exactly `unshare(CLONE_NEWUSER)`+`mount`, so the filter kills it (`bwrap: No permissions to create new namespace`). Evidence: `spawn.codex.candidate-filter` `child_complete:false`, same `filter_sha256` as Claude's PASS. As written, A5b/A13 route codex → `strong_cgroup=unavailable` → codex workers can never select `ConfinedCgroup`/WorkerTree and fall to `ProcessOnly`. **Consequence the plan did not surface:** codex (gpt-5.6-sol) is the *primary fan-out worker*, so the cap's strongest kill-boundary — the reason these primitives exist — would not apply to the workers it most needs to control. The anti-escape filter is *not required* under the confirmed `CooperativeWorkerV1` (it defends against deliberate escape, already out of scope); the cgroup kill-boundary itself (delegated leaf + `cgroup.kill` + `populated 0` + freeze) contains codex's bwrap subtree without it.
+  - **Option A (recommended):** Split the tier taxonomy — add a **`ConfinedCgroupCooperative`** tier = delegated cgroup + `cgroup.kill`/freeze/`populated 0`, *without* the namespace-denying seccomp filter — that **both** runtimes (incl. codex) select under `CooperativeWorkerV1`; keep the anti-escape-filtered tier as a Claude-only adversarial hardening upgrade. Gives every worker a real kill-boundary consistent with the confirmed threat model. Cost: A5b/A13 split into "cooperative-cgroup-kill (both runtimes)" vs "anti-escape-filtered (Claude-only)"; Steps 5-8 and the tier enum grow one variant.
+  - **Option B:** Ship as-is — codex workers get only `ProcessOnly` (pidfd/PGID signals, no cgroup kill-boundary); only Claude workers get a cgroup tier. Simpler, but the primary worker gets the weakest containment and the fan-out cap under-delivers its core value for codex.
+  - **Option C:** Run codex workers with `--sandbox danger-full-access` (no bwrap) so codex can spawn under the anti-escape filter like Claude. **Not recommended** — strips codex's own sandbox, worse security posture, fights the tool's defaults.
+  - **Recommendation: Option A** — it is the direct consequence of the already-confirmed `CooperativeWorkerV1`: the anti-escape filter was B3 hardening the owner already scoped OUT ("adversarial isolation is a future plan"), and under V1 the cgroup kill-boundary alone is the boundary, filter or not.
 
 ## Self-review
 
