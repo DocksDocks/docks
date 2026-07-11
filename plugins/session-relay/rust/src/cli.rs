@@ -16,6 +16,7 @@
 // run from the target's registered project dir. `--dry` prints the command
 // instead of spawning.
 
+use crate::appserver;
 use crate::discover;
 use crate::hook;
 use crate::store;
@@ -25,6 +26,7 @@ use std::os::unix::process::CommandExt;
 use tinyjson::JsonValue;
 
 pub(crate) const DEFAULT_NUDGE: &str = "You have new session-relay mail. Use the session-relay skill: call inbox to read your pending messages and act on them.";
+const DEFAULT_TURN_SETTLE_MS: u64 = 5000;
 const BOOL_FLAGS: [&str; 8] = [
     "dry",
     "json",
@@ -89,6 +91,8 @@ struct Target {
     tool: String,
     name: Option<String>,
     last_seen: String,
+    server: Option<String>,
+    allow_bus: bool,
 }
 
 // A target built straight from flags — addresses a discovered session that was
@@ -109,16 +113,21 @@ fn explicit_target(args: &Args) -> Option<Target> {
         tool: args.flag("tool").unwrap_or("claude").to_string(),
         name: None,
         last_seen: "unregistered".to_string(),
+        server: None,
+        allow_bus: false,
     })
 }
 
 fn from_entry(e: store::Entry) -> Target {
+    let allow_bus = e.spawned_via.as_deref() == Some("app-server");
     Target {
         id: e.id,
         dir: e.dir,
         tool: e.tool,
         name: e.name,
         last_seen: e.last_seen,
+        server: e.server,
+        allow_bus,
     }
 }
 
@@ -251,6 +260,8 @@ fn discovered_target(id: &str) -> Option<Target> {
             tool: string("tool").unwrap_or_default(),
             name: string("name"),
             last_seen: string("lastActivity").unwrap_or_else(|| "unknown".to_string()),
+            server: None,
+            allow_bus: false,
         })
     })
 }
@@ -315,15 +326,12 @@ fn attach(args: &Args) -> ! {
         .dir
         .as_deref()
         .is_some_and(|dir| std::path::Path::new(dir).is_dir());
-    // The live-view plan will pass a registered app-server socket here once
-    // its optional `server` schema lands. Attach composition is ready now;
-    // current registry entries intentionally have no server field.
     let invocation = attach_invocation(
         &target.tool,
         &target.id,
         target.dir.as_deref(),
         dir_exists,
-        None,
+        target.server.as_deref(),
     )
     .unwrap_or_else(|e| {
         eprintln!("{ATTACH_WARNING}");
@@ -451,6 +459,31 @@ fn doctor(args: &Args) -> ! {
             "registration",
             "registry entry missing — fix: restart or resume the session",
         );
+    }
+
+    let configured_server = entry
+        .as_ref()
+        .and_then(|entry| entry.server.clone())
+        .or_else(|| {
+            std::env::var("RELAY_APP_SERVER")
+                .ok()
+                .filter(|value| !value.is_empty())
+        });
+    match configured_server {
+        Some(server) => match appserver::probe(&server) {
+            Ok(()) => doctor_line("PASS", "app-server", &format!("reachable {server}")),
+            Err(error) => {
+                failures += 1;
+                doctor_line(
+                    "FAIL",
+                    "app-server",
+                    &format!(
+                        "unreachable {server} ({error}) — fix: start the configured server or update registration"
+                    ),
+                );
+            }
+        },
+        None => doctor_line("PASS", "app-server", "not configured (doorbell fallback)"),
     }
 
     let mailbox = store::mailbox_path(&id);
@@ -593,6 +626,13 @@ fn doorbell_args(
     cargs.push("--".into());
     cargs.push(message.into());
     (wake_cmd(tool), cargs)
+}
+
+fn custom_wake_message(body: &str) -> JsonValue {
+    let mut msg: HashMap<String, JsonValue> = HashMap::new();
+    msg.insert("fromName".into(), JsonValue::from("relay wake".to_string()));
+    msg.insert("body".into(), JsonValue::from(body.to_string()));
+    JsonValue::from(msg)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -762,14 +802,20 @@ pub fn run(cmd: &str, raw: Vec<String>) -> ! {
             let pos = args.positionals(1);
             let (Some(name), Some(id)) = (pos.first(), args.flag("id")) else {
                 die(
-                    "usage: relay register <name> --id <uuid> [--dir <path>] [--tool claude|codex]",
+                    "usage: relay register <name> --id <uuid> [--dir <path>] [--tool claude|codex] [--server <unix-socket>]",
                 );
             };
             let dir = args
                 .flag("dir")
                 .map(str::to_string)
                 .unwrap_or_else(cwd_string);
-            match store::register(id, Some(&dir), Some(name), args.flag("tool")) {
+            match store::register(
+                id,
+                Some(&dir),
+                Some(name),
+                args.flag("tool"),
+                args.flag("server"),
+            ) {
                 Ok(e) => {
                     println!(
                         "registered {} [{}] -> {} @ {}",
@@ -879,7 +925,7 @@ pub fn run(cmd: &str, raw: Vec<String>) -> ! {
         "wake" => {
             let explicit = explicit_target(&args);
             let rest = args.positionals(1);
-            let message = {
+            let custom_message = {
                 let m = args.message_after_sep().unwrap_or_else(|| {
                     if explicit.is_some() {
                         rest.join(" ")
@@ -887,12 +933,11 @@ pub fn run(cmd: &str, raw: Vec<String>) -> ! {
                         rest.iter().skip(1).copied().collect::<Vec<_>>().join(" ")
                     }
                 });
-                if m.is_empty() {
-                    DEFAULT_NUDGE.to_string()
-                } else {
-                    m
-                }
+                (!m.is_empty()).then_some(m)
             };
+            let message = custom_message
+                .clone()
+                .unwrap_or_else(|| DEFAULT_NUDGE.to_string());
             let target = explicit.or_else(|| {
                 rest.first()
                     .and_then(|who| store::resolve(who))
@@ -915,6 +960,75 @@ pub fn run(cmd: &str, raw: Vec<String>) -> ! {
                     "refusing to wake: target id is not a session UUID: {}",
                     target.id
                 ));
+            }
+            let server = target.server.clone().or_else(|| {
+                std::env::var("RELAY_APP_SERVER")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+            });
+            if target.tool == "codex"
+                && !args.has("dry")
+                && server
+                    .as_deref()
+                    .is_some_and(|configured| appserver::probe(configured).is_ok())
+            {
+                let server = server.as_deref().unwrap();
+                if !store::mailbox_has_content(&target.id) && custom_message.is_none() {
+                    std::process::exit(0);
+                }
+                match appserver::thread_state(server, &target.id) {
+                    Ok(appserver::ThreadState::Active) => {
+                        eprintln!("wake refused: thread busy — nothing sent");
+                        std::process::exit(3);
+                    }
+                    Ok(appserver::ThreadState::Idle) => {}
+                    Err(e) => die(&format!("cannot read app-server thread status: {e}")),
+                }
+
+                let drained = store::drain(&target.id).unwrap_or_else(|e| die(&e));
+                let mut payload = drained.clone();
+                if let Some(custom) = custom_message.as_deref() {
+                    payload.push(custom_wake_message(custom));
+                }
+                if payload.is_empty() {
+                    std::process::exit(0);
+                }
+                let block = hook::mail_block(&payload, &target.id);
+                let settle_ms = std::env::var("RELAY_TURN_SETTLE_MS")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(DEFAULT_TURN_SETTLE_MS);
+                match appserver::deliver(
+                    server,
+                    &target.id,
+                    &block,
+                    true,
+                    settle_ms,
+                    target.allow_bus,
+                ) {
+                    Ok(appserver::DeliveryOutcome::Delivered) => std::process::exit(0),
+                    Ok(appserver::DeliveryOutcome::AckDeferred) => {
+                        eprintln!(
+                            "mail delivered to thread context; visible turn deferred — thread busy"
+                        );
+                        std::process::exit(3);
+                    }
+                    Err(appserver::DeliveryError::BeforeInject(e)) => {
+                        for message in &drained {
+                            if let Some(object) = message.get::<HashMap<String, JsonValue>>() {
+                                let _ = store::enqueue(&target.id, object);
+                            }
+                        }
+                        die(&format!(
+                            "app-server inject failed ({e}); queued mailbox mail re-enqueued"
+                        ));
+                    }
+                    Err(appserver::DeliveryError::AfterInject(e)) => {
+                        die(&format!(
+                            "mail delivered to thread context; visible acknowledgement failed: {e}"
+                        ));
+                    }
+                }
             }
             // Per-tool headless-resume doorbell, run from the target's project
             // dir. The untrusted message goes AFTER a `--` end-of-options
@@ -994,7 +1108,7 @@ pub fn run(cmd: &str, raw: Vec<String>) -> ! {
             std::process::exit(out.status.code().unwrap_or(0));
         }
         _ => die(
-            "usage: relay discover [--within min] [--tool t] | list | register <name> --id <uuid> [--dir <path>] | send <to> <msg> | inbox <who> | peek <who> | attach <who> [--exec] | wake <who> [--model m] [--effort e] [msg] | doctor [--id <session>]",
+            "usage: relay discover [--within min] [--tool t] | list | register <name> --id <uuid> [--dir <path>] [--server <sock>] | send <to> <msg> | inbox <who> | peek <who> | attach <who> [--exec] | wake <who> [--model m] [--effort e] [msg] | doctor [--id <session>]",
         ),
     }
 }

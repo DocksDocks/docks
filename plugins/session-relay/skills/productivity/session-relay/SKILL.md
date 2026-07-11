@@ -1,12 +1,12 @@
 ---
 name: session-relay
-description: "Use when one agent must reach, get a reply from, or hand a human the interactive chat for an agent in ANOTHER session, project, or tool (Claude Code ⇄ Codex): discover the session, send over the shared bus, wake it with a tool-aware doorbell, or print/exec the guarded `relay attach` takeover command. Not for in-session subagents/Task (same session only), Agent Teams' intra-team mailbox (can't span sessions), or Channels push (single session)."
+description: "Use when one agent must reach, get a reply from, or hand a human the interactive chat for an agent in ANOTHER session, project, or tool (Claude Code ⇄ Codex): discover, send over the shared bus, wake, attach, or opt into EXPERIMENTAL Claude channel push. Not for in-session subagents/Task (same session only) or Agent Teams' intra-team mailbox (can't span sessions)."
 user-invocable: true
 allowed-tools: Bash, Read
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-10"
-  content_hash: "61519e1e09352fb0e11710896c9ba69b791521a2adfce92a058a2949f30998a1"
+  updated: "2026-07-11"
+  content_hash: "df08a9bee008c439b3dabc0730d7d9c7e2667bd3619c04e0583ce0cc4fb30c43"
 ---
 
 # Session relay
@@ -130,11 +130,13 @@ The woken session's SessionStart hook injects the mail; with `-p` it processes i
 
 Run `<plugin>/bin/relay doctor --id <your-session-id-or-name>` after an environment crash or whenever mail seems delayed. `--id` is authoritative in shared project directories; without it, doctor prints a `single-session-only fallback` warning for the cwd marker it resolved.
 
-Doctor prints `PASS` / `WARN` / `FAIL` for registration, mailbox readability, watcher lock, watcher progress, relay-launched resume state, and store-lock health. Exit 0 means no failed checks. A dead or never-armed watcher fails with the exact re-arm command. A held watcher lock proves the watcher process is alive, not that it is making progress; a stale progress stamp is therefore a separate warning.
+Doctor prints `PASS` / `WARN` / `FAIL` for registration, mailbox readability, configured app-server reachability (WebSocket connect + initialize), watcher lock, watcher progress, relay-launched resume state, and store-lock health. Exit 0 means no failed checks. No configured app-server is a healthy doorbell-fallback state. A dead or never-armed watcher fails with the exact re-arm command. A held watcher lock proves the watcher process is alive, not that it is making progress; a stale progress stamp is therefore a separate warning.
 
 ## Attach to a session
 
 Use `relay attach <name-or-id>` when the human wants to take over a relay worker's interactive chat. Print mode is the default: it resolves registered names or exact discovered UUIDs, shows the session context, and prints the correct shell command. `relay attach <name-or-id> --exec` replaces relay with the interactive CLI; it refuses a stale/missing stored directory. A relay wake already holding `locks/resume-<id>.lock` makes attach exit 3.
+
+For a Codex entry registered with an app-server socket, attach prints/execs `codex --remote unix://<socket>` so the human joins the server-owned thread instead of starting a second rollout writer.
 
 ```bash
 relay attach worker             # inspect the exact command and context first
@@ -180,7 +182,55 @@ Both tools share **one** store and registry; every entry carries a `tool` field 
 - **Codex doorbell:** `codex exec resume <id> -m <model> -c model_reasoning_effort=<effort> --json -- "<nudge>"`. The id is the Codex thread id (it surfaces in the `thread.started` event and the rollout filename) and equals the hook's `session_id`. Unlike Claude, `codex exec resume` is **not** cwd-scoped.
 - **Install on Codex:** add the `session-relay` plugin from the Codex marketplace (ships the skill + the SessionStart hook). For the bus tools inside Codex, rely on the plugin's MCP wiring or run `codex mcp add bus -- <plugin>/bin/relay bus`. A Codex agent can also send with no MCP at all: `<plugin>/bin/relay send <to> "<msg>"`.
 
-## Zero-keystroke push into a live Codex thread (`relay watch`)
+## Live view
+
+### EXPERIMENTAL live push into an open Claude session (`relay channel`)
+
+Claude Code channels are a version-sensitive research preview (v2.1.80+;
+verified here on v2.1.207). The flag is intentionally opt-in and may be hidden
+from `claude --help`. This v1 uses Anthropic's manual `server:` development seam
+because session-relay is not on the curated plugin-channel allowlist:
+
+```bash
+# One-time: use the absolute launcher path from the installed plugin.
+claude mcp add --transport stdio --scope user session-relay-channel -- \
+  <plugin>/bin/relay channel
+
+# Start the open session that should receive relay mail live.
+claude --dangerously-load-development-channels server:session-relay-channel
+```
+
+The development flag bypasses only the research-preview channel allowlist. It
+does **not** bypass tool permissions or the organization-wide `channelsEnabled`
+policy. Check that policy before diagnosing a silent channel:
+
+- Pro and Max users outside an organization need no enablement step.
+- claude.ai Team/Enterprise requires an Owner to enable **Admin settings →
+  Claude Code → Channels**, or deploy managed `{ "channelsEnabled": true }`.
+- Anthropic Console API authentication permits channels by default unless the
+  organization deploys managed settings; then that managed key is required.
+- `channelsEnabled` is managed-only, not a user/project setting. File delivery
+  uses `/etc/claude-code/managed-settings.json` on Linux/WSL,
+  `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, or
+  `C:\Program Files\ClaudeCode\managed-settings.json` on Windows. The admin
+  console is the preferred organization-wide path.
+
+The channel binds only to Claude's exact `CLAUDE_CODE_SESSION_ID`, waits at most
+five seconds for that UUID's hook registration, and fails closed on a missing,
+unregistered, wrong-tool, or wrong-directory identity. It never uses the shared
+cwd marker. While live it holds the session's watcher flock, so
+UserPromptSubmit cannot steal the same mailbox; a crash or `SIGKILL` releases
+the lock and the normal hook resumes delivery automatically.
+
+Each mail record becomes one ordered `notifications/claude/channel` event. Its
+content reuses the same sentinel-defused **UNTRUSTED DATA** fence as hooks and
+Codex live delivery. The channel is deliberately one-way: no tools, reply tool,
+or permission-relay capability. Reply through the separate `bus` MCP server.
+Channel notifications have no acknowledgement, so delivery is at-most-once to
+the stdio transport, not proof that Claude processed the event. Events arrive
+only while the opted-in session remains open.
+
+### Zero-keystroke push into a live Codex thread (`relay watch`)
 
 The plain Codex TUI cannot be injected into; `codex app-server` is the
 maintainer-endorsed automation seam. Host (or attach) the target thread under an
@@ -190,19 +240,84 @@ app-server on a unix socket, then let `relay watch` deliver:
 codex app-server --listen unix://$HOME/.codex-app.sock   # socket must live under $HOME, not /tmp
 codex --remote unix://$HOME/.codex-app.sock              # optional: attach the normal TUI to the same server
 <plugin>/bin/relay watch <name>... --server $HOME/.codex-app.sock          # or --all; or RELAY_APP_SERVER env
+<plugin>/bin/relay register <name> --id <uuid> --tool codex --server $HOME/.codex-app.sock
+<plugin>/bin/relay spawn <project> --tool codex --server $HOME/.codex-app.sock --name worker --reply-to <me> -- "<task>"
 ```
+
+For the full human-visible spawn-and-co-drive flow, keep the server in its own
+terminal and run these in order:
+
+```bash
+# terminal 1: one server owns the rollout
+codex app-server --listen unix://$HOME/.codex-app.sock
+
+# terminal 2: birth the relay worker on that server, then join its thread
+<plugin>/bin/relay spawn <project> --tool codex --server $HOME/.codex-app.sock \
+  --model gpt-5.6-sol --effort xhigh --name worker --reply-to <me> -- "<task>"
+<plugin>/bin/relay attach worker --exec   # choose worker's thread in the remote TUI picker
+
+# terminal 3: after the TUI is attached
+<plugin>/bin/relay send worker --from <me> -- "<follow-up>"
+<plugin>/bin/relay wake worker
+```
+
+The attached TUI shows the neutral acknowledgement user row and the worker's
+normal responding turn live. It deliberately does not show the raw fenced mail
+row: that item is durable model context but the TUI ignores injected raw items.
+This is shared-thread co-driving, not transcript copying; do not also run
+`codex exec resume` for that worker.
+
+The raw Unix socket has no relay bearer-auth layer: filesystem access to the
+socket is the authentication boundary. Keep the socket and its parent directory
+user-only, never place it in a shared-writable directory, and do not proxy or
+forward it to an untrusted host. The untrusted-mail fence remains mandatory even
+on a private socket because other relay sessions still control mail content.
+
+Socket precedence is per-session registry `server` first, then the invocation's
+`--server`, then the store-wide `RELAY_APP_SERVER` fallback. A SessionStart hook
+refresh preserves the registered socket. `relay spawn --server <socket>` records
+the returned thread id itself with `spawned_via: app-server`, then starts the
+first worker turn on that same server-owned connection; no `codex exec` process
+or SessionStart hook is involved.
+With no configured socket, or when the configured socket cannot complete a
+WebSocket initialize handshake, watch/wake use the existing locked tool-aware
+doorbell. A reachable app-server always owns Codex delivery; even an explicit
+custom wake message uses the app-server path rather than starting a second
+`codex exec resume` writer. An empty-mailbox wake is a no-op only when that
+app-server is reachable; the no-server fallback keeps the legacy standalone
+doorbell behavior.
 
 - **Default mode** injects the fenced mail into the thread's history
   (`thread/inject_items`) — it persists durably and surfaces at the thread's next
-  turn; an attached TUI shows it live. No turn is started, so it costs nothing.
-- **`--auto-turn`** additionally starts a turn carrying the neutral doorbell nudge
-  (never mail content), `approvalPolicy: never`. Watch stays attached until the
-  turn completes because MCP tool calls elicit approval from the connected client
-  regardless of that policy: it accepts elicitations for the relay's own `bus`
-  server only (store-local tools) and declines every other server.
-- Targets that aren't app-server-reachable (Claude sessions, no `--server`,
-  socket down) fall back to the `relay wake` doorbell; mail is re-enqueued if a
-  push fails mid-flight. `--once` does a single poll+deliver+exit (cron/tests).
+  turn. Raw injected items are model-visible but do **not** render as an attached
+  TUI chat row. No turn is started, so it costs nothing.
+- **`--auto-turn` and app-server `wake`** add a best-effort visible response:
+  read `thread/read` first; an `active` thread is left untouched. After an idle
+  read, inject the fenced payload, settle, re-read immediately before
+  `turn/start`, and start only if still idle. The turn input is a neutral
+  acknowledgement and never copies mail. The worker's normal reply is the row
+  the attached TUI displays.
+- **This check is not atomic.** Codex app-server has no start-if-idle operation.
+  A simultaneous human `turn/start` can land after relay's second idle read and
+  produce two concurrent turns with interleaved output. The checks shrink that
+  window; they do not provide an absolute no-competing-turn guarantee.
+- **Inject is the delivery boundary.** Before a successful inject, failures
+  re-enqueue drained mail. After inject succeeds, the mailbox drain is final even
+  if the acknowledgement turn is busy or fails. Long-running watch remembers a
+  pending acknowledgement in memory and retries only that neutral turn on later
+  idle ticks; it never re-injects. `--once` succeeds once inject succeeds. Wake is
+  one-shot: first-read busy exits 3 without draining; second-read busy exits 3
+  after delivery with a distinct deferred message. Re-wake then sees an empty
+  mailbox and is a clean no-op.
+- **Accepted degradation:** if a thread stays busy forever, or watch dies while
+  an acknowledgement is pending, no visible relay-initiated turn fires. The mail
+  remains durable in model context and surfaces on the thread's next turn.
+- Watch stays attached to a started turn because MCP calls elicit approval from
+  the connected client regardless of `approvalPolicy: never`. Joined/foreign
+  threads decline every elicitation, including `bus`; only relay-spawned threads
+  may accept their own bus server once the registry origin marker is present.
+- Claude sessions and Codex entries without a reachable server use the locked
+  `relay wake` doorbell. `--once` does a single poll+deliver+exit (cron/tests).
 - Each long-running target holds `~/.agent-relay/watchers/<id>.lock`; `--all`
   skips targets already watched, while an explicit duplicate target fails.
   `--once` leaves a persistent tombstone that reads `dead` after it exits.
@@ -228,11 +343,24 @@ birth a real, resumable session there instead:
 - **Model discipline:** pass `--model`/`--effort` every time. As of 2026-07, use
   `--model opus --effort max` for a Claude child or `--model gpt-5.6-sol --effort
   xhigh` for a Codex child unless the user's current tier list says otherwise.
-- The child launches detached; spawn returns as soon as the child's own SessionStart
-  hook registers it on the bus (typically <1s), long before the task finishes. Its
-  first prompt carries a standing prefix: report results/questions to `--reply-to`
-  (default: this session's bus name) via the absolute relay binary path — so the
-  reply loop works even in a project where session-relay isn't installed.
+- With no app-server, the child launches detached and spawn returns as soon as
+  the child's SessionStart hook registers it on the bus (typically <1s), long
+  before the task finishes. With Codex `--server <socket>`, relay instead calls
+  `thread/start`, self-registers the returned id and relay-owned origin, builds
+  the first prompt with that id, and synchronously confirms `turn/start` before
+  returning. No `codex exec` process or hook runs on this path.
+- The first prompt carries a standing prefix: report results/questions to
+  `--reply-to` (default: this session's bus name) via the absolute relay binary
+  path — so the reply loop works even in a project where session-relay isn't
+  installed. App-server spawn includes `--from <returned-id>` directly because
+  there is no hook-provided identity line.
+- **App-server turn pump:** after confirming `turn/start`, foreground spawn
+  returns while a detached relay helper keeps the same connection alive for MCP
+  elicitations. `--watch` waits for that helper instead. The helper accepts
+  `bus` only because the relay registered the thread's origin before starting
+  the turn; joined/foreign threads still decline all elicitations. The existing
+  `--timeout` (30 seconds by default) is a hard pump cap: completion, socket/
+  protocol error, or timeout closes the connection and exits the helper.
 - **Completion signal:** add `--watch` to keep the spawn caller attached to the
   direct child process until its first turn exits. The relay exit mirrors the
   child and stdout reports `first turn complete` or `first turn failed`; without
@@ -310,7 +438,7 @@ cd "$(<plugin>/bin/relay list | awk '$1=="agent-B"{print $4}')" \
 - The only bus tools: `whoami`, `register`, `roster`, `send`, `inbox`, `discover`. If the tools aren't available, the plugin isn't enabled here.
 - `discover` infers liveness from session-file recency (mtime), not a live handshake — a just-idle session can still appear; a long-dead one won't (it falls outside the window).
 - There is no live session-to-session socket. Even `relay watch` is queue + push-into-thread: mail always lands in the shared store first, and only Codex-under-app-server targets take a push — Claude live delivery is the Monitor watch or the next prompt.
-- `relay watch` flags: `--server`, `--tool`, `--auto-turn`, `--once`, `--all`, `--dry`, `--id`, `--follow <id>`. `relay wake` flags: `--id`, `--dir`, `--tool`, `--model`, `--effort`, `--dry`. `relay spawn` flags: `--tool`, `--model`, `--effort`, `--name`, `--reply-to`, `--timeout`, `--read-only`, `--full-access`, `--watch`, `--dry`. `relay doctor` takes optional `--id <session-id-or-name>`. `relay send` identity flag: `--from <name-or-id>`. Do not invent others; there is no `--interval`, `--wait`, or daemon-mode config.
+- `relay watch` flags: `--server`, `--tool`, `--auto-turn`, `--once`, `--all`, `--dry`, `--id`, `--follow <id>`. `relay wake` flags: `--id`, `--dir`, `--tool`, `--model`, `--effort`, `--dry`. `relay spawn` flags: `--tool`, `--model`, `--effort`, `--name`, `--server`, `--reply-to`, `--timeout`, `--read-only`, `--full-access`, `--watch`, `--dry`. `relay register` accepts optional `--server <unix-socket>`. `relay doctor` takes optional `--id <session-id-or-name>`. `relay send` identity flag: `--from <name-or-id>`. Do not invent others; there is no `--interval`, `--wait`, or daemon-mode config.
 - `relay attach` takes one name-or-UUID and optional `--exec`; print mode is the default. There is no attach picker or co-driving mode.
 - Identity params: `send` takes optional `from`, `inbox` takes optional `id` — both must name a REGISTERED session (id or name) and both mean "act as / drain this session". There is no `--as`, no `sender:` field, and no way to send as an unregistered identity.
 

@@ -1,9 +1,11 @@
 // relay — session-relay's single binary. One executable, multi-call:
 //   relay bus                      MCP stdio server (manifest entry)
+//   relay channel                  EXPERIMENTAL one-way Claude channel MCP server
 //   relay hook [codex] [--event prompt]   SessionStart/UserPromptSubmit hook (register + drain inbox)
 //   relay discover|list|register|send|inbox|peek|attach|wake|doctor   CLI / attach / doorbell / health
 //   relay watch …                  poll mailboxes, push into live Codex threads via app-server
 //   relay __spawn-log-writer <id>  hidden bounded stderr pump for detached spawn
+//   relay __appserver-spawn-pump    hidden bounded app-server first-turn pump
 //   relay __stress …               hidden test helper (cross-process lock race)
 
 use std::collections::HashMap;
@@ -13,6 +15,7 @@ fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     match argv.first().map(String::as_str) {
         Some("bus") => relay::bus::run(),
+        Some("channel") => relay::channel::run(),
         Some("hook") => relay::hook::run(&argv[1..]),
         Some(
             cmd @ ("discover" | "list" | "register" | "send" | "inbox" | "peek" | "attach" | "wake"
@@ -26,6 +29,7 @@ fn main() {
             };
             relay::spawn::run_log_writer(id);
         }
+        Some("__appserver-spawn-pump") => relay::spawn::run_appserver_pump(),
         // __stress <recipient-id> <who> <k> — mirrors test/selftest.mjs's
         // stress worker: race k enqueues against k register upserts, plus one
         // unique-id register per iteration so a lost read-modify-write shows
@@ -43,14 +47,14 @@ fn main() {
                 msg.insert("from".into(), JsonValue::from(who.clone()));
                 msg.insert("body".into(), JsonValue::from(format!("{who}-{i}")));
                 relay::store::enqueue(recipient, &msg).unwrap_or_else(|e| die(&e));
-                relay::store::register(who, Some(&format!("/tmp/{who}")), Some(who), None)
+                relay::store::register(who, Some(&format!("/tmp/{who}")), Some(who), None, None)
                     .unwrap_or_else(|e| die(&e));
-                relay::store::register(&format!("{who}-op{i}"), Some("/tmp/x"), None, None)
+                relay::store::register(&format!("{who}-op{i}"), Some("/tmp/x"), None, None, None)
                     .unwrap_or_else(|e| die(&e));
             }
         }
         _ => die(
-            "usage: relay bus | hook [codex] [--event prompt] | discover [--within min] [--tool t] | list | register <name> --id <uuid> [--dir <path>] | send <to> [--] <msg> | inbox <who> | peek <who> | attach <who> [--exec] | wake <who> [--model m] [--effort e] [msg] | doctor [--id <session>] | watch <who>...|--all [--server <sock>] [--auto-turn] [--once] | spawn <dir> [--tool t] [--model m] [--effort e] [--name n] [--watch] [--] <task>",
+            "usage: relay bus | channel | hook [codex] [--event prompt] | discover [--within min] [--tool t] | list | register <name> --id <uuid> [--dir <path>] [--server <sock>] | send <to> [--] <msg> | inbox <who> | peek <who> | attach <who> [--exec] | wake <who> [--model m] [--effort e] [msg] | doctor [--id <session>] | watch <who>...|--all [--server <sock>] [--auto-turn] [--once] | spawn <dir> [--tool t] [--model m] [--effort e] [--name n] [--server <sock>] [--watch] [--] <task>",
         ),
     }
 }
