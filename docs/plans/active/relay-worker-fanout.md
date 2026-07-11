@@ -1,11 +1,13 @@
 ---
 title: Relay worker self-orchestration (fan-out sub-workers)
 goal: Safely let an isolated relay worker fan out two depth-1 worktree children, receive atomic handbacks, integrate them idempotently, and collect their lifecycle records.
-status: planned
+status: blocked
 created: "2026-07-10T22:57:23-03:00"
-updated: "2026-07-11T02:50:17-03:00"
+updated: "2026-07-11T03:24:50-03:00"
 started_at: null
 assignee: null
+blocked_reason: "Final independent red-team scored Draft-4 68/100 NOT-SAFE; the residual defects are fundamental limits of current relay/codex primitives (no durable app-server cancel, PID-reuse-unsafe identity, SessionStart hook cannot hard-block, re-entry surfaces not lifecycle-gated). User chose to build those primitives first. Blocked on relay-worker-lifecycle-primitives; resume as Draft-5 rebased on the new primitives."
+blocked_since: "2026-07-11T03:24:50-03:00"
 tags: [session-relay, orchestration, rust]
 affected_paths:
   - plugins/session-relay/rust/src/fanout.rs
@@ -23,6 +25,7 @@ affected_paths:
 related_plans:
   - relay-live-view
   - relay-store-hygiene
+  - relay-worker-lifecycle-primitives
 review_status: null
 planned_at_commit: c3d0564e3a7901934c31275829c4153d4ae2b87e
 ---
@@ -392,11 +395,20 @@ Run from repository root with `PATH="$HOME/.cargo/bin:$PATH"`. Each row is indep
 
 ## Open questions
 
-*(none — Draft-4 closes correctness defects without introducing a new user-visible fork; safe indefinite `Stopping` quarantine is the specified fallback when app-server cancellation is unavailable.)*
+*(none open — the one real fork, "weaken the hard cap vs. build the missing primitives," was decided by the user on 2026-07-11: **build primitives first** (`relay-worker-lifecycle-primitives`). The earlier claim that indefinite `Stopping` quarantine is a "safe" fallback was invalidated by the final red-team — it trades the cap for a permanent slot/worktree leak — and is superseded by that decision.)*
 
 ## Self-review
 
-**Status: dispatch-ready Draft-4.** Score: **97/100** · trajectory **59→82→91→95→97→97→97→97** · stopped: **plateau (K=3)**.
+> **AUTHORITATIVE OUTCOME (2026-07-11): BLOCKED, NOT dispatch-ready.** The author's 97/100 self-score below was **overruled** by a fresh independent red-team — exactly as Draft-3's local 99/100 was — which scored Draft-4 **68/100 NOT SAFE TO DISPATCH**. It confirmed 4 of 8 prior findings solidly closed (1 lease-renew CAS, 3 cap predicate, 5 merge/collect, 8 GC three-phase) but found the remaining defects are **fundamental limits of current relay/codex primitives**, verified against source by the orchestrator:
+> - **No durable app-server cancel/close** (`appserver.rs:50-76`) — "Idle" is a transient sample, not a fence.
+> - **Re-entry surfaces are not lifecycle-gated** (`watch.rs:558-590` `--auto-turn`, plus `wake`/resume) — they can reactivate a thread the reaper is about to declare terminal, with no version/lifecycle mutation → TOCTOU that admits a physical 3rd worker. `watch.rs` is not even in `affected_paths`.
+> - **Raw pid/pgid is not stable identity** — PID-reuse ABA + descendants can escape the tracked pgid.
+> - **SessionStart hook cannot hard-block** — Claude's contract continues the prompt after the hook timeout; a marker/hang barrier expires into first-prompt execution.
+> - **Indefinite `Stopping`/`Collecting`** trades the cap for a permanent slot/worktree leak (safety vs. liveness not both achieved), and a SIGKILL *inside* `git worktree remove` still strands `Collecting`.
+>
+> Blast radius is bounded (transient resource overage, per-worktree-contained writes, `collect` re-validates before integrating — not checkout corruption). **User decision (2026-07-11): build the missing primitives first** rather than weaken the hard-cap goal. Residuals are deferred to **`relay-worker-lifecycle-primitives`**; this plan resumes as **Draft-5 rebased on those primitives**. Full verdict archived in `## Review`.
+
+**Author self-score (SUPERSEDED — dispatch-ready Draft-4):** Score: **97/100** · trajectory **59→82→91→95→97→97→97→97** · stopped: **plateau (K=3)**.
 
 Weighted score: standalone executability **21/22**; actionability **16/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **12/12**; executable acceptance **12/12**; failure mode **8/10** (app-server has no shipped interrupt, so ambiguous/unreachable turns safely quarantine a slot and may require later operator recovery rather than guaranteeing progress); assumption→question **6/6**.
 
@@ -443,4 +455,21 @@ Prior review record: Draft-3's local 99/100 self-score was invalidated by the fr
 
 ## Review
 
-*(pending completion review)*
+*(No completion review — nothing shipped. Archived below: the final independent draft red-team that blocked dispatch.)*
+
+**Final independent red-team — Draft-4 (2026-07-11, gpt-5.6-sol xhigh, read-only):** 68/100, NOT SAFE TO DISPATCH. Verified commit `45f6d26`, re-traced store/spawn/appserver/hook/watch.
+
+*Prior 8 findings:* CLOSED — 1 (lease-renew CAS), 3 (cap predicate depth-1/id!=root), 5 (merge/collect rewritten-parent/empty-range), 8 (GC three-phase). STILL-OPEN — 2 (Collecting still has a permanent-stuck state if SIGKILL lands *inside* `git worktree remove`: path gone but git admin entry present, no protocol exit), 4 (physical fence not durable: raw pid/pgid PID-reuse ABA + pgid-escape; app-server Idle is transient not a fence), 6 (managed hook hang is bounded by the runtime's 600s/10m timeout, then the prompt may proceed), 7 (Idle permits Failed but `watch --auto-turn`/`wake` can reactivate an Idle thread between observation and CAS; unreachable→indefinite `Stopping` = permanent leak).
+
+*New Draft-4 defects:* HIGH-1 Idle→active TOCTOU breaks the hard cap (`watch.rs:558-590` starts a turn with no lifecycle/version mutation; `watch.rs` absent from `affected_paths`); HIGH-2 raw PID/PGID is not stable execution identity (need pidfd/start-time generation + escaped-descendant handling); HIGH-3 managed hook hang bounded by runtime timeout (fixtures can't prove real hook-timeout behavior); HIGH-4 Collecting mid-`git worktree remove` permanent state; MED-5 Stopping ownership handoff can livelock without a fence-owner lease; MED-6 indefinite Stopping contradicts the Goal (permanent slot leak vs. "reclaim every worktree").
+
+*Exact remaining must-fix list (→ inputs to `relay-worker-lifecycle-primitives`):*
+1. Runtime-verified hook abort that cannot time out into the first prompt (Claude + Codex).
+2. Generation-safe process identity (pidfd/start-time) + escaped-descendant handling; portable fallback.
+3. Durable app-server quiescence: cancel/close/fence the thread and reject all `wake`/`attach`/`watch`/`auto-turn` re-entry by managed lifecycle before releasing capacity.
+4. Bounded or explicit safe operator recovery for never-Idle/unreachable `Stopping`.
+5. Recover/transition partial `git worktree remove` administrative leftovers so every `Collecting` crash point has an exit.
+6. Fence-owner lease/steal rules to prevent `Stopping` recovery livelock.
+7. Strengthen A8/A12/A14/A15/A16 (PID reuse/escape, mid-git-remove crash, real-runtime hook timeout, non-reactivation, ordering-not-wallclock GC assertion); add `watch.rs`/`cli.rs` re-entry surfaces to `affected_paths`.
+
+Items 1–3 are general relay-core primitives → the `relay-worker-lifecycle-primitives` plan. Items 4–6 are fan-out-lifecycle-specific → Draft-5 of this plan, once the primitives land. Item 7 spans both.
