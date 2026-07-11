@@ -1,9 +1,9 @@
 ---
 title: relay live-view — watch and co-drive relay conversations from open chats
 goal: Make relay traffic visible live inside the user's own open sessions — codex via app-server-native delivery (shared-thread co-driving, split-brain eliminated), claude via an experimental relay channel.
-status: ongoing
+status: finished
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-11T00:20:29-03:00"
+updated: "2026-07-11T00:30:48-03:00"
 started_at: "2026-07-10T21:50:05-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, app-server, channels, live-view]
@@ -25,6 +25,7 @@ related_plans:
   - relay-store-hygiene.md
 review_status: passed
 planned_at_commit: 52227e92e165183ea0b5e5111dda7d4b734808d3
+ship_commit: e51ed8ffe84b366367b7c051af4ff0f451c258c5
 ---
 
 ## Goal
