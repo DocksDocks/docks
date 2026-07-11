@@ -3,7 +3,7 @@ title: Build relay worker lifecycle primitives
 goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
 status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T11:29:49-03:00"
+updated: "2026-07-11T11:57:25-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
@@ -802,6 +802,24 @@ Affirmed invariants are intentionally unchanged: publish-first Fencing prevents 
 ## Notes
 
 - Step 1 appends the committed harness git-blob hash, raw artifact hashes, exact runtime versions, 10-run timing samples, derived deadline, and capability verdicts here. Large raw protocol/hook transcripts remain in the harness-owned temporary artifact directory, not pasted into the plan.
+- Step-1 real-runtime capability results use the following compact format after A1 runs. Values come from the harness-owned hash-chained evidence artifact; do not hand-edit a verdict or paste the large schema/transcripts inline.
+
+  | Evidence artifact | Harness git blob | Evidence SHA-256 | Raw chain head | Claude version | Codex version | Attach samples | Derived deadline |
+  |---|---|---|---|---|---|---|---|
+  | `<temporary artifact path>` | `<git blob oid>` | `<sha256>` | `<sha256>` | `<exact version>` | `<exact version>` | `claude=[10 raw ms values]; codex=[10 raw ms values]` | `<ms>; within_20s=<true|false>` |
+
+  | Capability | Raw record ids | Required raw evidence | Verdict |
+  |---|---|---|---|
+  | Hook/runtime foundation | `runtime.*`, `hook.*`, `timing.*` | Exact versions; 12 hook rows; loaded hook path/hash; isolated auth/config/store/cwd; 10 contention samples per runtime | `<available|unavailable + reason>` |
+  | Shared/app-server protocol | `appserver.protocol.contract` | Exported protocol schema hash; initialize/method responses; stop/reject/flush/accepted+flushed watermark/ack/sync/reap contract; one 20s deadline | `shared_protocol=observation_only; protocol_tree=<available|unavailable + reason>` |
+  | Cgroup/namespace prerequisites | `host.cgroup-v2`, `host.namespace-isolation` | v2 delegation create/move/freeze/kill/populated-0; user+mount+PID+cgroup namespaces; detach-all inherited proc/cgroup mounts; fresh proc; read-only cgroup view; proc-pid-fd denial | `<available|unavailable + reason>` |
+  | Candidate seccomp policy | `host.seccomp-*` | Native audit arch; x32 rejection; exact BPF/policy hashes; raw `clone3=-1/ENOSYS` with no child; legacy namespace-clone denial | `<available|unavailable + reason>` |
+  | Claude ordinary spawn | `spawn.claude.candidate-filter` | Real Bash/tool invocation; descendant `child-complete`; ordered `wait-complete`; zero exit; child reaped; exact filter hash | `strong_cgroup=<available|unavailable + reason>` |
+  | Codex ordinary spawn | `spawn.codex.candidate-filter` | Real shell/tool invocation; descendant `child-complete`; ordered `wait-complete`; zero exit; child reaped; exact filter hash | `strong_cgroup=<available|unavailable + reason>` |
+  | Native process/runner observation | `host.native-process-and-runners` | Host process-generation row plus exact workflow runner/target rows | `observation_only` |
+  | Worker-tree scope | evidence summary | Machine-checked fixed label | `worker_tree_threat_model=cooperative` |
+
+- Step 1 remains at its STOP gate until the orchestrator runs `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/feasibility-probe.mjs --verify-current` outside the sandbox and replaces the placeholders above from the committed artifact. Unavailable tiers are valid fail-closed evidence; a schema/hash-chain failure or attach deadline above 20 seconds blocks Rust implementation.
 - Independent red-team trajectory: Draft-1 **56/100**; Draft-2 **74/100**; Draft-3 **80/100**; Draft-4 **93/100** after its final convergence pass. Draft-5 changes only the clone3 return action plus its feasibility/acceptance proof and reaches **95/100** without reopening affirmed invariants.
 
 ## Sources
