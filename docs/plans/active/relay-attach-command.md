@@ -1,10 +1,11 @@
 ---
 title: relay attach — hand a human the worker's chat
 goal: New `relay attach <nameOrId>` verb that safely hands the user the exact interactive-resume command (or execs it) for any relay session, plus documented attach recipes and the split-brain warning.
-status: ongoing
+status: in_review
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-10T21:37:27-03:00"
+updated: "2026-07-10T21:44:22-03:00"
 started_at: "2026-07-10T21:03:47-03:00"
+in_review_since: "2026-07-10T21:44:22-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, attach, ux]
 affected_paths:
@@ -17,7 +18,7 @@ affected_paths:
 related_plans:
   - relay-store-hygiene.md
   - relay-live-view.md
-review_status: null
+review_status: passed
 planned_at_commit: 072c830dfedec6de3288f06f3139909d17012d13
 ---
 
@@ -94,4 +95,9 @@ Independent review found that retaining `exec` in the global `BOOL_FLAGS` table 
 
 ## Review
 
-(placeholder — completion review writes this)
+- **Goal met:** yes — the safe `relay attach <nameOrId>` verb ships: registry-then-exact-id resolution (`cli.rs` `attach`/`discovered_target`), per-tool composition (`codex resume <id> -C <dir>` / `cd <dir> && claude --resume <id>` via `attach_invocation`), print-by-default with a name/tool/dir/last_seen context line + the split-brain warning, a guarded `--exec` process-replace (refuses a missing stored dir), and a documented "Attach to a session" skill section. All 4 acceptance criteria verified against the diff + selftest. (`affected_paths` lists `store.rs`, intentionally untouched — Step 1 scoped it as conditional and the plan reuses the merged store's existing `is_uuid`/`resume_status` helpers; declared, not drift. No unannounced changes; `bin/` diff empty.)
+- **Regressions:** none — Fix Round 1's `--exec`-leak-into-global-`BOOL_FLAGS` regression is closed: `BOOL_FLAGS` is back to `[&str; 8]` with `exec` removed (74c8453) and `selftest.mjs:169-173` asserts `send agent-B --exec must-not-send` → exit 1 (send usage), recipient inbox count 0. Attach owns a strict parser (exit 2 on extra operands / unknown flags / `--`-terminator `--exec`, `selftest.mjs:294-306`) and fails closed on an unprobeable resume lock (exit 4, `selftest.mjs:333-347`); a live-held lock still exits 3 (`selftest.mjs:1252-1255`).
+- **CI:** pass — `node scripts/ci.mjs --plugin session-relay` exit 0; cargo fmt/clippy legs ran, self-test 101 checks green. Only warning is the documented `⚠ host rebuild digest differs … locally this is expected path/linker variance`.
+- **Cross-check:** [codex gpt-5.6-sol high] across 3 review passes — initial NOT READY (2 MED: `--` terminator bypass + fail-open on `LockStatus::Unknown`) → fixed f500396; round-1 re-verify NOT READY (1 MED: `exec` leaked into global `BOOL_FLAGS`, altering other verbs' parsing) → fixed 74c8453; round-2 re-verify READY, findings none — final verdict READY. [claude] independently live-probed the verb in an `AGENT_RELAY_HOME` sandbox each round and re-verified every finding against source before accepting.
+- **Follow-ups:** none — the `server`-aware app-server branch is deliberately deferred to `relay-live-view`; `attach_invocation` already accepts the optional `server` arg (passes `None` today) so no rework is owed here.
+- Filed by: plan-review on 2026-07-10T21:44:22-03:00
