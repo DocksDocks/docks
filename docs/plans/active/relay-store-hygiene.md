@@ -1,10 +1,11 @@
 ---
 title: Session-relay store hygiene — inactivity GC, spawn-log bounding, long-runner memory audit
 goal: Give ~/.agent-relay self-cleanup (14d-inactive sessions self-delete), bound the unbounded spawn-log growth, and audit/fix memory behavior of the relay's long-running loops.
-status: ongoing
+status: in_review
 created: "2026-07-10T18:26:49-03:00"
-updated: "2026-07-10T20:51:38-03:00"
+updated: "2026-07-10T20:57:51-03:00"
 started_at: "2026-07-10T18:28:20-03:00"
+in_review_since: "2026-07-10T20:57:51-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, hygiene, gc]
 affected_paths:
@@ -20,7 +21,7 @@ affected_paths:
   - docs/plans/active/relay-store-hygiene.md
 related_plans:
   - finished/2026-07-10-relay-notify-reliability.md
-review_status: null
+review_status: passed
 planned_at_commit: 866312af540b905b9a5cb4e96f9bb2b41d1b2a10
 ---
 
@@ -142,4 +143,9 @@ The Round 2 global pump lock was also over-broad: any pump protected every histo
 
 ## Review
 
-(placeholder — completion review writes this)
+- **Goal met:** yes — all three deliverables landed: 14d inactivity GC (`store::gc(now, self_id)`, every store surface, all-surfaces-old + held-lock-safe, 6h `gc-stamp` throttle, never-self, `AGENT_RELAY_GC_DAYS` knob with `0`=off), spawn-log bounding (`spawn.rs` 4 MiB cap / newest-3 MiB compaction pump + `File::create` truncate-at-start), and the measured long-runner audit (`## Notes` RSS table for `relay bus`, doorbell, `--follow`, and doorbell `peek` I/O — bus bounded, follow capped at 8 MiB, doorbell poll switched to metadata-only). Every acceptance criterion verified against the diff.
+- **Regressions:** none — three adversarial fix rounds fully resolved (Round 1 symlink/TOCTOU in the deletion path; Round 2 sweep-abort DoS + mtime freshness race vs the lockless pump; Round 3 fresh-unreadable-marker fail-open + over-broad global pump lock). Re-read the hardened path: `O_DIRECTORY|O_NOFOLLOW`-pinned surface dirs, freshness preflight, per-log nonblocking exclusive flock, inode-revalidated `unlinkat`, registry removed last, never-self. Scope note: `affected_paths` lists `rust/src/cli.rs` (not needed — no change) and omits `plugins/session-relay/AGENTS.md` (doc-updated per Step 5) — both benign; the two other-session plan files in the range ride a shared branch and are out of scope.
+- **CI:** pass — `node scripts/ci.mjs --plugin session-relay` exit 0 (cargo fmt --check clean, clippy -D warnings clean, bin checksums verify 4/4, selftest 94 checks pass; the single `⚠ host rebuild digest differs` line is the documented local linker variance, enforced byte-identical only in CI, not a failure).
+- **Cross-check:** [codex gpt-5.6-sol xhigh] across 4 review passes, final verdict READY 0 findings; [claude] independently re-ran the full plugin gate green after each fix round and read the hardened deletion path.
+- **Follow-ups:** none
+- Filed by: plan-review on 2026-07-10T20:57:51-03:00
