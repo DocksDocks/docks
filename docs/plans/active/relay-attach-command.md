@@ -3,7 +3,7 @@ title: relay attach — hand a human the worker's chat
 goal: New `relay attach <nameOrId>` verb that safely hands the user the exact interactive-resume command (or execs it) for any relay session, plus documented attach recipes and the split-brain warning.
 status: ongoing
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-10T21:03:47-03:00"
+updated: "2026-07-10T21:12:32-03:00"
 started_at: "2026-07-10T21:03:47-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, attach, ux]
@@ -42,9 +42,9 @@ The user wants to open a relay worker's conversation in their own terminal ("via
 
 | # | Task | Status |
 |---|------|--------|
-| 1 | Add `relay attach <nameOrId>` to `cli.rs` + dispatcher (`main.rs` header contract comment): resolve via registry (name→id, tool, dir); if unregistered, fall back to discovery by exact id. Validate tool ∈ {claude, codex}. Compose the command: codex → `codex resume <id>` (append `-C <dir>` when the stored dir exists); claude → `cd <dir> && claude --resume <id>`. **Server-aware branch (coordinates with `relay-live-view`):** when the registration carries an app-server `server` field (schema added by that plan; treat as optional/absent until it merges), compose `codex --remote unix://<server>` guidance INSTEAD of `codex resume` — a raw `codex resume` against an app-server-owned thread re-opens the second-writer split-brain that plan exists to kill. Default behavior PRINTS the command plus a one-line context block (name, tool, dir, last_seen) and the hazard warning; `--exec` replaces the process with the command (codex from anywhere, claude after chdir; refuse `--exec` if the stored dir is missing). | pending |
-| 2 | Guardrails: exit 3 with a clear message when the relay resume lock for that id is currently held (a wake is in flight — attaching now would double-write; reuse the existing lock probe); ALWAYS print the split-brain warning (neither CLI locks sessions; attaching while automation drives the session interleaves two writers; prefer attach when the worker is idle — `relay doctor --id` shows watcher/lock state). Refuse ids that are not UUID-shaped (existing validation convention). | pending |
-| 3 | Selftest additions (`AGENT_RELAY_HOME` sandbox): name and id resolution; per-tool command composition incl. `-C`/cd forms; held-resume-lock → exit 3; missing dir → print-mode still works, `--exec` refuses; non-UUID rejection. Re-derive the selftest count from its summary line. | pending |
+| 1 | Add `relay attach <nameOrId>` to `cli.rs` + dispatcher (`main.rs` header contract comment): resolve via registry (name→id, tool, dir); if unregistered, fall back to discovery by exact id. Validate tool ∈ {claude, codex}. Compose the command: codex → `codex resume <id>` (append `-C <dir>` when the stored dir exists); claude → `cd <dir> && claude --resume <id>`. **Server-aware branch (coordinates with `relay-live-view`):** when the registration carries an app-server `server` field (schema added by that plan; treat as optional/absent until it merges), compose `codex --remote unix://<server>` guidance INSTEAD of `codex resume` — a raw `codex resume` against an app-server-owned thread re-opens the second-writer split-brain that plan exists to kill. Default behavior PRINTS the command plus a one-line context block (name, tool, dir, last_seen) and the hazard warning; `--exec` replaces the process with the command (codex from anywhere, claude after chdir; refuse `--exec` if the stored dir is missing). | done |
+| 2 | Guardrails: exit 3 with a clear message when the relay resume lock for that id is currently held (a wake is in flight — attaching now would double-write; reuse the existing lock probe); ALWAYS print the split-brain warning (neither CLI locks sessions; attaching while automation drives the session interleaves two writers; prefer attach when the worker is idle — `relay doctor --id` shows watcher/lock state). Refuse ids that are not UUID-shaped (existing validation convention). | done |
+| 3 | Selftest additions (`AGENT_RELAY_HOME` sandbox): name and id resolution; per-tool command composition incl. `-C`/cd forms; held-resume-lock → exit 3; missing dir → print-mode still works, `--exec` refuses; non-UUID rejection. Re-derive the selftest count from its summary line. | done |
 | 4 | Docs: `session-relay` skill gains an "Attach to a session" section — the `relay attach` verb, the manual per-tool recipes (exact commands from Context), the picker-omission caveat (#24502), and the split-brain warning verbatim. Full gate `node scripts/ci.mjs --plugin session-relay` green. | pending |
 
 ## Acceptance criteria
@@ -73,6 +73,12 @@ The user wants to open a relay worker's conversation in their own terminal ("via
 ## Self-review
 
 Score: 95/100 · trajectory 95 · stopped: single-pass (4 steps, no risk flag — read-mostly feature with print-default). Executability: exact commands, exit codes, and stub-based tests specified; the one judgment call left to the executor (whether a store.rs lock-probe helper is needed vs reusing cli.rs code) is harmless either way. No open questions — behavior was fixed by research facts and the user's request.
+
+## Notes
+
+Steps 1–3 use the hardened store's existing `is_uuid` and `resume_status` helpers without duplicating lock logic or touching `store.rs`. The future live-view integration is a pure optional `server` argument on command composition; current registry resolution deliberately passes `None` until that later plan adds the schema. Exact-id discovery scans the raw tool stores with a 100-year window and no row limit after registry resolution misses.
+
+TDD evidence: the red baseline produced three `attach_invocation` compile failures and the old top-level usage error for the black-box verb. The frozen specs then passed without assertion changes. Re-derived source-binary summary: `PASS: session-relay self-test — 98 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`.
 
 ## Review
 
