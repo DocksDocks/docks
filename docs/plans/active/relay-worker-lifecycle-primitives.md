@@ -1,32 +1,42 @@
 ---
 title: Build relay worker lifecycle primitives
-goal: Add verified hook abort, generation-safe process control, and lifecycle-gated app-server quiescence, with explicit fail-closed residuals on every target.
+goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
 status: planned
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T03:31:53-03:00"
+updated: "2026-07-11T04:25:38-03:00"
 started_at: null
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
 affected_paths:
   - plugins/session-relay/rust/src/appserver.rs
-  - plugins/session-relay/rust/src/watch.rs
-  - plugins/session-relay/rust/src/spawn.rs
+  - plugins/session-relay/rust/src/bus.rs
+  - plugins/session-relay/rust/src/channel.rs
   - plugins/session-relay/rust/src/cli.rs
   - plugins/session-relay/rust/src/hook.rs
-  - plugins/session-relay/rust/src/store.rs
-  - plugins/session-relay/rust/src/main.rs
   - plugins/session-relay/rust/src/lib.rs
   - plugins/session-relay/rust/src/lifecycle.rs
+  - plugins/session-relay/rust/src/main.rs
   - plugins/session-relay/rust/src/process_identity.rs
+  - plugins/session-relay/rust/src/spawn.rs
+  - plugins/session-relay/rust/src/store.rs
+  - plugins/session-relay/rust/src/watch.rs
   - plugins/session-relay/rust/Cargo.toml
   - plugins/session-relay/rust/Cargo.lock
   - plugins/session-relay/hooks/hooks.json
   - plugins/session-relay/hooks/codex-hooks.json
   - plugins/session-relay/test/fake-app-server.mjs
-  - plugins/session-relay/test/selftest.mjs
+  - plugins/session-relay/test/feasibility-probe.mjs
   - plugins/session-relay/test/lifecycle-smoke.mjs
-  - plugins/session-relay/test/runtime-hook-abort.mjs
+  - plugins/session-relay/test/process-signal-inventory.mjs
+  - plugins/session-relay/test/reentry-inventory.mjs
   - plugins/session-relay/test/runtime-appserver-quiescence.mjs
+  - plugins/session-relay/test/runtime-hook-abort.mjs
+  - plugins/session-relay/test/selftest.mjs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-schema.json
+  - plugins/session-relay/test/fixtures/process-signal-inventory.json
+  - plugins/session-relay/test/fixtures/reentry-inventory.json
+  - plugins/session-relay/test/fixtures/lifecycle-guard-bypass/Cargo.toml
+  - plugins/session-relay/test/fixtures/lifecycle-guard-bypass/src/main.rs
   - plugins/session-relay/AGENTS.md
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - .github/workflows/build-binaries.yml
@@ -40,50 +50,57 @@ planned_at_commit: 12cf2ea
 
 ## Goal
 
-Build three general, independently testable session-relay capabilities: (A) a real-runtime-verified managed SessionStart failure path that prevents a hook-born Claude or Codex CLI from processing its first prompt; (B) process identities that cannot signal a reused PID and that terminate every descendant the platform can authoritatively contain or identify; and (C) app-server turn interruption with confirmed quiescence plus a durable managed lifecycle consulted by every relay re-entry surface. Preserve ordinary unmanaged session behavior.
+Build three general, independently testable relay capabilities: (A) prevent a managed hook-born Claude or Codex CLI from processing its first prompt when attach fails; (B) signal processes only through a kernel-stable handle or an unreaped supervisor-owned child, and confirm a worker tree only behind an escape-proof containment boundary; and (C) cancel and prove every app-server thread/turn/terminal in a managed worker lineage while every relay drain, resume, injection, turn start, process launch, and attach consults a durable lifecycle.
 
-Success is deliberately capability-qualified. Linux with delegated cgroup v2 can provide authoritative descendant-tree quiescence. Darwin and Linux without cgroup delegation can provide generation-safe signaling and a tracked-descendant proof, but cannot prove that an already daemonized/reparented descendant was never missed. A shared external Codex app-server cannot safely be process-killed when its protocol is unreachable. Those cases must remain `FencingUnconfirmed`, refuse relay re-entry, retain capacity/resources, and report the exact operator action; they must never be described as quiescent.
+The result must distinguish **process-only**, **protocol-only**, and **worker-tree** evidence. Observation-only PID/start-time data, stable-looking descendant snapshots, a single interrupted turn, `thread/read idle`, root-process exit, or `cgroup.events populated 0` without anti-migration confinement can never release a worker-tree capacity slot. Unsupported or lost capabilities remain `FencingUnconfirmed`, continue refusing every relay re-entry/drain, survive GC, and expose bounded operator reconcile/abandon paths.
 
 ## Context & rationale
 
-- `docs/plans/active/relay-worker-fanout.md` is blocked on its final red-team items 1–3: runtime-verified hook abort, reuse-safe execution identity including process-group escape, and durable app-server quiescence plus lifecycle-gated re-entry. This plan supplies general relay-core primitives; fan-out is only the first consumer.
-- The current app-server wrapper is behind the protocol: `SpawnedThread` exposes only id/start/pump and discards the `turn/start` turn id. Current official Codex app-server documentation exposes `turn/interrupt {threadId,turnId}`, requires the client to wait for `turn/completed` with `status: "interrupted"`, and warns that interruption does not stop background terminals. This makes protocol-first cancellation buildable, but only after a version/schema and real-runtime spike.
-- Current ordinary SessionStart behavior is fail-open: `hook::run` catches every inner error and always exits 0. Current Codex hooks accept top-level `continue:false` for SessionStart; current Claude hooks say SessionStart exit 2 is non-blocking, while the universal JSON `continue:false` stops processing. Both runtimes time out command hooks and continue on hook failure, so an unbounded hook hang is not a gate.
-- Both plugins already install `UserPromptSubmit`. The managed design uses it as a second lifecycle check immediately before prompt processing: SessionStart must attach or return structured stop; UserPromptSubmit blocks any managed prompt whose lifecycle is not `Active`. A detached-supervisor dead-man fence is the last fallback. Ordinary sessions retain the existing log-and-exit-0 behavior.
-- Linux pidfds solve PID reuse only while the file descriptor remains open; a restarted supervisor still needs persisted generation evidence. `/proc/<pid>/stat` field 22 plus the kernel boot id supplies that evidence. On Darwin, Apple exposes pid, ppid, pgid, and start seconds/microseconds through `proc_bsdinfo`, but the `libproc` header labels these interfaces private and subject to change.
-- A process group is not a containment boundary: a descendant can call `setsid`/`setpgid`, and an exited parent reparents its children. Linux cgroup v2 `cgroup.kill` handles concurrent forks/migrations and `cgroup.events populated 0` proves the subtree empty. Darwin has no equivalent public unprivileged API. The portable fallback can only kill generation-verified members it observed.
-- Lifecycle gating needs a per-worker lock separate from the three-second global registry flock. A shared re-entry guard spans the external operation; fencing takes the exclusive guard, then performs short registry CAS operations. No process, git, sleep, or app-server RPC may execute while `store::with_lock` or `with_gc_lock` is held.
+- `relay-worker-fanout` is blocked on three general relay-core primitives. Its lifecycle-specific recovery/collection items remain out of scope; this plan provides only reusable attach, admission, process, quiescence, and reconciliation contracts.
+- Independent Draft-1 red-team verification confirmed the feasibility foundation: Codex app-server has `turn/interrupt {threadId,turnId}` and terminal `turn/completed interrupted`; Claude and Codex support SessionStart `continue:false` and UserPromptSubmit block; hook timeout is fail-open; Linux has pidfd, `/proc` field-22, cgroup v2 `cgroup.kill`/`populated 0`; rustix 1.1.4 gates pidfd to Linux; Darwin exposes `proc_bsdinfo`/`libproc`. Draft-2 does not reopen those facts. It fixes the unsafe completeness assumptions built on top of them.
+- A start-time comparison followed by raw `kill`/`killpg` is check-then-act: the target can exit and its PID/PGID can recycle between operations. Darwin `proc_bsdinfo` and Linux start-time fallback are therefore **observation only**, not generation-safe signal handles.
+- A delegated cgroup writable by the same user is not automatically a confinement boundary. A descendant can migrate to an ancestor/sibling before `cgroup.kill`; the worker cgroup then reports `populated 0` while the escaped process remains live. Strong cgroup proof requires a tested namespace/permission/sandbox boundary that denies escape, plus generation-bound path identity.
+- A read/write flock alone cannot bound fencing. A writer may starve behind new readers, and a reader may hold through a 300-second pump, unbounded wake, or `attach --exec`; CLOEXEC then drops the guard while the resumed CLI continues. Fence intent must publish before drain, new admissions must refuse without joining the reader queue, and every admitted operation must be cancelable and bounded.
+- Re-entry is broader than `watch --auto-turn`: current drains exist in CLI inbox, MCP inbox, channel, hook, watch, and wake. Current app-server status/ack/deliver call `thread/resume`; pending acknowledgement is its own turn-start path. The inventory must be mechanically complete, not a hand-counted list.
+- Codex CLI has no pre-minted session id. Managed state therefore needs a pre-launch `worker_id`, a pending token-hash index, and an atomic first-SessionStart binding to the discovered `runtime_session_id`. Duplicate SessionStart and resume are idempotent only for the exact bound identity; token replay to another identity is refused.
+- Current GC ages out registry entries and relay surfaces without a managed-state exemption. Every non-releasable managed record, pending attach, generation tombstone, fence marker, and lifecycle lock must be preserved regardless of age.
 
-### Feasibility verdict to carry into implementation
+## Feasibility and guarantee tiers
 
-| Primitive | Buildable contract | Irreducible residual / bounded blast radius |
+| Capability | Confirmed buildable path | What can never be claimed |
 |---|---|---|
-| A. Hook abort | **Conditionally yes.** Managed SessionStart returns exit-0 JSON with `continue:false` on attach failure; managed UserPromptSubmit independently blocks unless lifecycle is `Active`; a detached-supervisor dead-man kills the generation-safe CLI execution if attach does not commit before a 4-second deadline. Step 1 must prove actual Claude and Codex ordering/output behavior before retaining this design. | A runtime that skips/disables both hooks or changes their contracts can start the prompt before the supervisor fence. The engineered fallback window is **≤4 seconds nominal**, not a real-time scheduler guarantee. Managed fallback mode forbids full-access and confines writes to the worker sandbox/worktree; the supervisor retains the lifecycle slot until generation-safe quiescence is confirmed. |
-| B. Process identity | **Yes for a process; capability-dependent for a tree.** Linux uses live pidfd + persisted `(boot_id,pid,start_ticks)`; Darwin uses persisted `(pid,start_tvsec,start_tvusec)` after runtime/SDK verification. Every signal revalidates the generation. Linux cgroup v2 supplies authoritative descendant containment when delegated. | Darwin and non-delegated Linux cannot detect a descendant that daemonizes/reparents before the first observation. The tracked-tree fallback must return `UnconfirmedDescendants`, never `Quiescent`; consumers needing a hard physical cap must refuse that capability tier. Apple `libproc` is private and may force a future compatibility stop. |
-| C. App-server quiescence | **Yes while the current protocol and server are reachable.** Persist the `turnId`, send `turn/interrupt`, wait for the matching `turn/completed interrupted`, clean/list background terminals when the generated schema supports those experimental methods, then persist `Fenced`. Every relay re-entry takes a lifecycle guard and refuses `Fencing|Fenced|Terminal`. | Interruption does not stop background terminals. If terminal cleanup is unavailable/unconfirmed, or a shared external app-server is unreachable, relay cannot safely kill that shared server; state remains `FencingUnconfirmed`. Direct non-relay clients can still unarchive/start a Codex thread, so the guarantee is for relay-managed surfaces, not arbitrary app-server clients. |
+| Hook abort | Managed attach is the first short locked transaction; SessionStart returns structured stop on failure; UserPromptSubmit independently blocks non-Active workers; a detached supervisor retains an unreaped child handle and a measured deadline below the 30-second UserPromptSubmit minimum. | If both hooks are skipped/regress, the supervisor watchdog is a bounded best effort, not a hard scheduler guarantee. On a platform without worker-tree containment, killing the owned root does not prove descendants absent. |
+| Process signal | Linux: open pidfd **before** validating start generation, then signal that pinned task. Live supervisor: signal/kill an unreaped `Child` it still owns. Strong Linux tree: generation-bound, escape-proof cgroup boundary, then `cgroup.kill` and `populated 0`. | Darwin or Linux without pidfd after supervisor recovery must not raw-signal. PID/start-time is observation only. Process exit or owned process-group exit never proves an arbitrary worker tree. |
+| Cgroup tree | Create before CLI exec; bind exact mount/dev/inode/path to worker generation; hide/deny ancestor and sibling migration; adversarially prove writes to escape targets fail before and during fence. | A merely delegated user-writable subtree is unconfirmed even if `cgroup.kill` succeeds and `populated 0` is observed. |
+| App-server protocol | Interrupt exact persisted turns; recursively enumerate root/child thread lineage to a fixed point; prove persisted terminal status for every turn; paginate and empty background terminals for every thread. | One interrupted root turn or one empty terminal list is protocol-incomplete. Protocol quiescence alone is not physical worker-tree quiescence if child/daemon processes can escape bookkeeping. |
+| Worker-tree release | Exhaustive proof validation accepts only a strong confined-cgroup proof, or compound app-server lineage proof plus an authoritative process-containment proof for a relay-owned dedicated server. | Shared app-server, tracked descendant trees, stable snapshots, observation-only identities, and root-only proofs remain `FencingUnconfirmed`. |
 
 ## Environment & how-to-run
 
-- **Base/worktree:** repository root `/home/vagrant/projects/docks-primitives`, branch `codex/relay-worker-lifecycle-primitives`, plan base `12cf2ea`. Run acceptance A0 before implementation; reconcile any affected-path drift before editing.
-- **Toolchain:** Rust `1.85.0` from `plugins/session-relay/rust/rust-toolchain.toml`; locked `rustix 1.1.4`; Node 24 as used by repository CI. The four shipped targets are `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `x86_64-apple-darwin`, and `aarch64-apple-darwin`.
-- **Current-runtime evidence:** Step 1 records `codex --version`, `claude --version`, `uname -a`, generated Codex app-server JSON schema, effective hook timeout/config, cgroup v2 delegation, and Darwin SDK/libproc availability in this plan's `## Notes` before implementation continues.
+- **Checkout/base:** `/home/vagrant/projects/docks-primitives`, branch `codex/relay-worker-lifecycle-primitives`; Draft-1 commit `07ad2df`; drift base remains `12cf2ea` as required by the originating plan. Run A0 before implementation.
+- **Toolchain:** Rust `1.85.0`; locked rustix `1.1.4`; Node 24; committed Cargo lock. Targets: x86_64/aarch64 musl-linux and x86_64/aarch64 Darwin.
+- **Confirmed-source rule:** Step 1 codifies the already-confirmed red-team feasibility facts in a committed, runnable probe harness. It does not substitute hand-written booleans or re-argue the docs.
 - **Local commands:**
   ```bash
   export PATH="$HOME/.cargo/bin:$PATH"
   cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked
   node plugins/session-relay/test/selftest.mjs
-  node plugins/session-relay/test/lifecycle-smoke.mjs
+  node plugins/session-relay/test/lifecycle-smoke.mjs --all
+  node plugins/session-relay/test/reentry-inventory.mjs
   node scripts/ci.mjs --plugin session-relay
   ```
-- **Real-runtime probes:** require authenticated local `claude` and `codex` installations and use isolated temporary `HOME`/`CODEX_HOME`/relay stores. They must never use a production project or `~/.agent-relay`. Run them explicitly with `RELAY_REAL_RUNTIME_TEST=1`; absence of either runtime is a release blocker for this primitive, not a skipped pass.
-- **Platform matrix:** Linux unit/smoke tests run locally. Darwin behavior must run natively on both macOS target architectures: current GitHub labels are `macos-15-intel` for x86_64 and `macos-15` for arm64. Add native probe jobs to the producer workflow; its existing arm64-hosted cross-build of x86_64 alone does not validate `libproc` semantics. Step 1 re-verifies labels before editing because hosted images are time-sensitive.
-- **Binary discipline:** do not build or edit committed files under `plugins/session-relay/bin/` during implementation. The later artifact/release flow remains user-gated.
+- **Real runtime:** `runtime-hook-abort.mjs`, `runtime-appserver-quiescence.mjs`, and `feasibility-probe.mjs` create isolated temporary `HOME`, `CODEX_HOME`, plugin config, relay store, cwd, and sentinels. They must record the exact loaded hook path/hash and runtime version. Missing auth/runtime is failure for the real-runtime gate, never skip/pass.
+- **Probe evidence contract:** each capability row contains `runtime`, `runtime_version`, `platform`, `argv`, `started_at`, `finished_at`, `exit_status`, base64 or artifact-path `stdout`/`stderr`, artifact SHA-256, parser rule, and derived verdict. The harness rejects a verdict without matching raw evidence, rejects unknown/missing schema fields, verifies its own committed git-blob hash, and emits the raw-record hash chain. There is no editable pass/fail fixture.
+- **Measured attach deadline:** the probe runs 10 isolated cold starts per runtime including sequential store-lock contention. Set `managed_attach_deadline_ms = max_observed_ms + max(2000, ceil(max_observed_ms / 2))`; it must be `<= 20_000`, preserving at least 10 seconds below the 30-second UserPromptSubmit minimum. If the formula exceeds 20 seconds, STOP. Never lengthen the three-second global store lock.
+- **Cancellation bounds:** `managed_cancel_poll_ms = 100` and `managed_cancel_grace_ms = 5_000`. Every admitted blocking loop observes cancellation at least once per poll interval. At grace expiry, stop waiting, persist the still-active operation ids in `FencingUnconfirmed`, and hand them to `lifecycle status`; never extend the grace to obtain a green test. `pending_attach.expires_at` is launch time plus the measured `managed_attach_deadline_ms`, so claim-vs-expiry is decided by the one atomic claim transaction.
+- **Native platform matrix:** re-verify runner labels in Step 1, then run Darwin process probes natively on `macos-15-intel` and `macos-15`; cross-linking x86_64 on arm64 is not semantic verification.
+- **Binary discipline:** do not edit `plugins/session-relay/bin/`, manifest versions, marketplace versions, tags, or releases. Producer artifacts remain a later user-gated step.
 
 ## Interfaces & data shapes
 
-### 1. Managed lifecycle and linearizable re-entry
+### 1. Durable worker identity, pending attach, and lifecycle
 
-Add `rust/src/lifecycle.rs`; keep registry serialization and short CAS operations in `store.rs`. Existing entries without `managed` deserialize as unmanaged and preserve all current behavior.
+Managed lifecycle is keyed by a pre-launch UUIDv4 `worker_id`, never by the not-yet-known Codex session id. Extend registry storage backward-compatibly with `managed_workers`, `pending_managed`, `session_bindings`, and `managed_tombstones`; legacy entries remain unmanaged.
 
 ```rust
 pub enum ManagedState {
@@ -92,343 +109,562 @@ pub enum ManagedState {
     Fencing,
     FencingUnconfirmed,
     Fenced,
-    Terminal,
+    TerminalRetained,
+    TerminalReleasable,
 }
 
-pub enum ReentryKind {
-    SessionStart,
-    UserPromptSubmit,
+pub enum RequiredScope { ProcessOnly, ProtocolTree, WorkerTree }
+
+pub enum ExecutionBackend {
+    LinuxPidFdProcess,
+    SupervisorOwnedProcess,
+    SupervisorOwnedGroup,
+    ConfinedCgroup,
+    TrackedTree,
+    SharedAppServer,
+    DedicatedConfinedAppServer,
+    ObservationOnly,
+}
+
+pub struct ReleaseReceipt {
+    pub worker_id: String,
+    pub generation: String,
+    pub released_at: String,
+    pub mode: String,       // "proved" | "risk-accepted"
+    pub reason: String,
+    pub evidence_sha256: String,
+}
+
+pub struct PendingAttach {
+    pub worker_id: String,
+    pub generation: String,
+    pub token_sha256: String,
+    pub expected_runtime_session_id: Option<String>, // Claude Some; Codex None
+    pub expected_tool: String,
+    pub expected_cwd: String,
+    pub expires_at: String,
+}
+
+pub struct ManagedWorker {
+    pub worker_id: String,
+    pub generation: String,
+    pub runtime_session_id: Option<String>,
+    pub claimed_token_sha256: Option<String>,
+    pub tool: String,
+    pub cwd: String,
+    pub state: ManagedState,
+    pub version: String,                 // canonical checked u64 decimal string
+    pub required_scope: RequiredScope,
+    pub execution: ExecutionBackend,
+    pub process_identity: Option<ProcessIdentityRecord>,
+    pub appserver_lineage: Option<AppServerLineageRecord>,
+    pub fence_reason: Option<String>,
+    pub proof_gap: Option<String>,
+    pub release_receipt: Option<ReleaseReceipt>,
+}
+
+pub struct SessionBinding {
+    pub runtime_session_id: String,
+    pub worker_id: String,
+    pub generation: String,
+}
+
+pub struct ProcessIdentityRecord {
+    pub observation: ProcessObservation,
+    pub live_supervisor_instance_id: Option<String>,
+    pub cgroup_boundary: Option<CgroupBoundary>,
+    pub recorded_at: String,
+}
+
+pub struct AppServerLineageRecord {
+    pub authority: AppServerAuthority,
+    pub root_thread_id: String,
+    pub thread_edges: Vec<ThreadEdge>,
+    pub turn_ids: Vec<String>,
+    pub last_complete_page_hash: Option<String>,
+}
+
+pub enum AppServerAuthority {
+    SharedSocket { server: String },
+    DedicatedStdio { supervisor_instance_id: String, process: ProcessObservation },
+}
+
+pub struct ThreadEdge {
+    pub parent_thread_id: String,
+    pub child_thread_id: String,
+}
+```
+
+The launcher generates a 256-bit random raw token, persists only SHA-256, and passes `RELAY_MANAGED_WORKER_ID`, `RELAY_MANAGED_GENERATION`, and `RELAY_MANAGED_ATTACH_TOKEN` to the owned child. The raw token is never written to registry, logs, diagnostics, or argv. Its continued presence in the exact bound CLI environment is expected: before claim it authorizes one identity binding; after claim it is only an idempotency key for that same worker/generation/session/tool/canonical-cwd tuple and can never bind another tuple.
+
+`claim_managed_attach(token, runtime_session_id, tool, cwd)` is the **first** managed hook transaction and uses one `with_lock`: hash token; resolve `pending_managed[token_hash]`; validate generation/tool/canonical cwd/expiry and optional Claude id; require no conflicting `session_binding`; bind the Codex id if absent; write worker `Active`, Entry binding, session binding, and claimed-token hash; remove the pending row. Do not run GC, marker writes, ordinary register, inbox drain, RPC, or process work first. After Active, marker/ordinary registration/GC run as best-effort follow-ups and cannot undo the authoritative binding.
+
+Duplicate/resume semantics are exact:
+
+| Input | Result |
+|---|---|
+| Concurrent duplicate with same claimed token + same runtime id/generation/tool/cwd | Idempotent Active success; no version/state churn and no second claim. |
+| SessionStart resume without token + exact existing session binding/tool/cwd | Re-evaluate lifecycle: Active continues; any fenced/nonterminal-stop state emits structured stop. |
+| Claimed token with different runtime id/tool/cwd/generation | Refuse and audit; never rebind. |
+| Expired unclaimed token | Refuse; `Attaching→Fencing`; supervisor fences using retained handles. |
+| Token replay after bind to a second worker/id | Refuse and audit. |
+
+The closed transitions are `Attaching→Active|Fencing`; `Active→Fencing`; `Fencing→Fenced|FencingUnconfirmed`; `FencingUnconfirmed→Fencing` only through reconcile; `Fenced→TerminalRetained`; `TerminalRetained→TerminalReleasable` only through explicit owner release; `FencingUnconfirmed→TerminalReleasable` only through audited risk-accepting abandonment. No other transitions exist. Only `TerminalReleasable` may age out.
+
+### 2. Fence-intent admission, cancellation, and compile-time guards
+
+Every managed operation uses the authoritative lifecycle record plus a per-worker `activity.lock`. The atomically saved `ManagedState::Fencing` record is the fence-intent publication and linearization point; a separate generation-bound marker may cache it for fast refusal but is never authoritative:
+
+1. Under one short `with_lock`, validate generation and CAS `Active→Fencing` in the registry's atomic save; release the global lock. Only after that durable publication may code materialize a cache marker or begin drain. A crash between the CAS and cache creation remains fenced because every admission reads the authoritative record.
+2. `admit_operation` reads the authoritative state before touching `activity.lock`, acquires a shared activity guard only for Active/unmanaged work, then rechecks authoritative state + generation. A racer admitted before publication releases immediately after the recheck. A caller whose first state read occurs after publication refuses without joining the shared-reader queue.
+3. Fencer publishes cancellation after the CAS, then acquires the activity lock exclusively. Previously admitted operations must observe cancellation and release within their operation-specific bound. If exclusive drain misses `managed_cancel_grace_ms`, transition to `FencingUnconfirmed`; do not wait forever or claim Fenced.
+4. No global store lock is held while waiting, spawning, pumping, interrupting, or signaling.
+
+```rust
+pub enum OperationKind {
+    SessionStartDrain,
+    UserPromptDrain,
+    CliInboxDrain,
+    McpInboxDrain,
+    ChannelDeliver,
     WatchInject,
     WatchAutoTurn,
+    WatchAck,
+    WatchWakeFallback,
     WakeAppServer,
     WakeCli,
-    AttachPreview,
-    AttachExec,
+    AttachManaged,
     Deliver,
     InitialTurn,
 }
 
-pub struct ManagedLifecycle {
-    pub generation: String,       // UUIDv4; changes when a logical worker id is reused
-    pub version: u64,             // JSON decimal string; increment on every CAS
-    pub state: ManagedState,
-    pub reason: Option<String>,
-    pub attach: Option<ManagedAttach>,
-    pub execution: Option<ExecutionIdentity>,
-    pub appserver: Option<AppServerExecution>,
+pub struct ReentryGuard { /* private fields: worker/generation/kind/activity/deadline/cancel */ }
+pub struct FencePermit { /* generation-bound fence intent + exclusive activity guard */ }
+
+pub enum Admission {
+    Unmanaged(ReentryGuard),
+    Managed(ReentryGuard),
+    Refused { worker_id: String, state: ManagedState, reason: String },
 }
 
-pub struct ManagedAttach {
-    pub token_sha256: String,    // raw UUIDv4 token exists only in child env
-    pub generation: String,
-    pub expected_tool: String,   // claude | codex
-    pub expected_dir: String,    // canonical launch cwd
-    pub expires_at: String,      // RFC3339; rejected after deadline
-}
-
-pub struct AppServerExecution {
-    pub server: String,
-    pub thread_id: String,
-    pub turn_id: Option<String>,
-    pub server_process: Option<ProcessIdentity>, // only when relay owns a dedicated server
-    pub shared_server: bool,
-}
-
-pub enum ReentryDecision {
-    Unmanaged,
-    Allowed { generation: String, version: u64 },
-    Refused { state: ManagedState, reason: String },
-}
-
-pub struct ReentryGuard { /* owns a shared flock on lifecycle/<id>.lock */ }
-pub struct FenceGuard { /* owns the exclusive flock on lifecycle/<id>.lock */ }
-
-pub fn acquire_reentry(id: &str, kind: ReentryKind) -> Result<(ReentryDecision, Option<ReentryGuard>), String>;
-pub fn begin_fence(id: &str, expected_generation: &str, reason: &str) -> Result<FenceGuard, String>;
-pub fn finish_fence(guard: FenceGuard, proof: QuiescenceProof) -> Result<(), String>;
+pub fn admit_operation(session_or_worker: &str, kind: OperationKind) -> Result<Admission, String>;
+pub fn publish_fence(worker_id: &str, generation: &str, reason: &str) -> Result<FenceIntent, String>;
+pub fn drain_prior_operations(intent: FenceIntent) -> Result<FencePermit, DrainError>;
 ```
 
-Lock order is fixed: acquire per-worker lifecycle flock first; call `with_lock` only for read/CAS; release the global lock; perform process or RPC work while retaining only the per-worker guard. No code may acquire a lifecycle flock from inside `with_lock`/`with_gc_lock`. `WatchInject` is gated even though it does not start a turn, because it mutates managed thread history after a fence. `send` may still queue mail; delivery/drain/re-entry may not consume it while fenced.
-
-The transition table is closed: `Attaching→Active|Fencing`; `Active→Fencing`; `Fencing→Fenced` only with `QuiescenceProof`, otherwise `Fencing→FencingUnconfirmed`; `FencingUnconfirmed→Fencing` only for a new fence attempt; `Fenced→Terminal` only for the owning consumer's logical completion; `Terminal` has no outgoing transition. Normal re-entry is allowed only in `Active`. SessionStart's token-bound attach CAS is the sole special operation allowed in `Attaching`; it is not a general `ReentryGuard` bypass. `FencingUnconfirmed` is physically unproven but remains logically fenced: it refuses every re-entry exactly like `Fenced|Terminal`.
-
-The supervisor generates the raw attach UUID, stores only its SHA-256 plus expected generation/tool/canonical cwd/deadline, and passes the raw token through `RELAY_MANAGED_ATTACH_TOKEN`. The hook hashes the presented token with the existing internal SHA-256 helper, then atomically verifies every binding before attach CAS. A token is single-use after `Attaching→Active`; replay, tool/cwd mismatch, expiry, or generation mismatch is a managed stop. Never write the raw token to registry, logs, CLI output, or prompt context.
-
-### 2. Generation-safe process identity and containment tiers
-
-Add `rust/src/process_identity.rs`; enable rustix's current `process` feature only if Step 1 confirms the locked API on both musl architectures. The serializable identity is distinct from live OS handles.
+`ReentryGuard` constructors and fields remain private to `lifecycle.rs`. Change lower layers so bypasses fail compilation:
 
 ```rust
-pub enum StartGeneration {
-    Linux { boot_id: String, start_ticks: u64 },
-    Darwin { start_tvsec: u64, start_tvusec: u64 },
+store::drain_with_guard(id, &ReentryGuard)
+appserver::resume_with_guard(server, thread, &ReentryGuard)
+appserver::inject_with_guard(..., &ReentryGuard)
+appserver::start_turn_with_guard(..., &ReentryGuard)
+spawn::run_child_with_guard(..., &ReentryGuard)
+```
+
+No public/internal `store::drain(id)` or mutating app-server/process helper without a guard remains. Queue, peek, registry reads, and pure `thread/read` may remain allowed. The committed source-derived inventory maps every drain, app-server mutation, process creation/exec/signal, and pending acknowledgement callsite to an `OperationKind` or an explicit non-re-entry class (`FenceControl`, `UnmanagedOnly`, or `ReadOnly`) with rationale; CI fails on an unmapped or stale match.
+
+Every admitted external operation has a cancellation contract: WebSocket/socket reads poll cancellation with bounded read deadlines; settle sleep is interruptible; turn pumps interrupt on cancellation; wake/managed attach spawn a child, retain the unreaped `Child`, poll cancel, then kill/wait through that owned handle; watch fallback waits similarly. Managed `attach --exec` must **not** call `exec`. It spawns and waits under `AttachManaged`; plain managed attach prints no copyable resume command and instructs the user to use the guarded exec path. If a child cannot be canceled/reaped within the grace, fencing stays unconfirmed.
+
+### 3. Stable signal handles and containment proof
+
+```rust
+pub enum SignalHandle {
+    LinuxPidFd { fd: OwnedFd, expected: ProcessObservation },
+    SupervisorChild { child: Child, expected: ProcessObservation }, // unreaped
+    ConfinedCgroup { control: OwnedFd, boundary: CgroupBoundary },
+    ObservationOnly(ProcessObservation),
 }
 
-pub struct ProcessIdentity {
+pub struct ProcessObservation {
     pub pid: u32,
     pub pgid: Option<i32>,
     pub start: StartGeneration,
 }
 
-pub enum Containment {
-    LinuxCgroupV2 { relative_path: String },
-    TrackedTree { members: Vec<ProcessIdentity> },
+pub enum StartGeneration {
+    LinuxProcStartTicks(u64),
+    DarwinBsdStartTime { sec: i64, usec: i64 },
+    Unavailable,
 }
 
-pub struct ExecutionIdentity {
-    pub supervisor: ProcessIdentity,
-    pub root: ProcessIdentity,
-    pub containment: Containment,
+pub struct CgroupBoundary {
+    pub worker_id: String,
+    pub generation: String,
+    pub mount_id: u64,
+    pub manager_root_dev: u64,
+    pub manager_root_ino: u64,
+    pub worker_dir_dev: u64,
+    pub worker_dir_ino: u64,
+    pub worker_dir_owner_uid: u32,
+    pub worker_dir_mode: u32,
+    pub relative_path: String,
+    pub generation_component: String,
+    pub cgroup_namespace_ino: u64,
+    pub escape_control: CgroupEscapeControl,
 }
 
-pub struct IdentityMismatch {
-    pub expected: ProcessIdentity,
-    pub observed: Option<ProcessIdentity>, // None means PID absent
+pub enum CgroupEscapeControl {
+    NamespaceRootPlusReadOnlyMount,
+    SandboxDeniedCgroupFs,
 }
-
-pub struct LiveProcess { /* owns Linux pidfd; Darwin/fallback keeps verified identity */ }
-
-pub enum QuiescenceProof {
-    ProcessExited { identity: ProcessIdentity },
-    CgroupEmpty { relative_path: String },
-    AppServerInterrupted { thread_id: String, turn_id: String, background_terminals_empty: bool },
-}
-
-pub enum QuiescenceResult {
-    Confirmed(QuiescenceProof),
-    UnconfirmedDescendants { observed: Vec<ProcessIdentity>, reason: String },
-}
-
-pub fn capture(pid: u32, pgid: Option<i32>) -> Result<ProcessIdentity, String>;
-pub fn open_live(identity: &ProcessIdentity) -> Result<LiveProcess, IdentityMismatch>;
-pub fn refresh_descendants(root: &ProcessIdentity, known: &[ProcessIdentity]) -> Result<Vec<ProcessIdentity>, String>;
-pub fn terminate_and_confirm(execution: &ExecutionIdentity, grace: Duration) -> Result<QuiescenceResult, String>;
 ```
 
-On Linux, `LiveProcess` owns a pidfd and signals only through `pidfd_send_signal`; recovery first compares boot id/start ticks, then opens a new pidfd. If pidfd is unavailable (`ENOSYS`/unsupported kernel), generation comparison before and after `kill` is mandatory and the capability reports fallback. A delegated cgroup is created before the child can fork, `cgroup.kill` is used for fencing, and `cgroup.events populated 0` is the only authoritative tree proof. Never accept an arbitrary persisted cgroup path without verifying it remains beneath the discovered delegated base.
+`ProcessIdentityRecord` is durable observation/recovery input; `SignalHandle` is live, non-serializable authority. Linux pidfd recovery order is **open pidfd first, then read/compare the generation while the fd pins the task**, then signal via pidfd. If pidfd open fails or the pinned observation mismatches, do not raw-signal. On Darwin and Linux without pidfd, recovery produces `ObservationOnly` and returns unconfirmed. A live supervisor may safely act through its unreaped `Child` only when its instance id matches the record; once reaped/dropped/restarted, that authority is gone. `killpg` is permitted only while an unreaped owned group leader prevents PGID reuse, and it proves group scope only—not escaped descendants or WorkerTree.
 
-There must be no spawn→cgroup race. Add a hidden `relay __managed-child-exec` barrier used by managed CLI launch: the wrapper starts in its own process group with a control pipe, performs no fork, and blocks before exec. The parent captures/persists its generation-safe identity, moves that PID into the prepared cgroup (when available), verifies membership, then writes one `GO` byte; only then does the wrapper `exec` the exact Claude/Codex argv. EOF or any non-`GO` byte exits without exec. On Darwin/non-cgroup Linux the same barrier persists root identity before exec. The wrapper receives argv through already-constructed `Command` arguments, not through a shell or reparsed string.
+Managed launch uses `__managed-child-exec`: wrapper blocks before exec; parent persists worker/handle, establishes confinement, verifies exact membership/boundary, then sends `GO`. For cgroup strong tier, the child sees a cgroup namespace/mount/sandbox view in which writes that could move it above/outside the generation-bound worker subtree fail. The manager retains an fd to the exact cgroup control directory; recovery reopens only after matching mount/dev/inode/path/generation. Any mismatch or successful escape probe downgrades to observation-only/unconfirmed.
 
-On Darwin, Step 1 must compile and run a tiny `proc_pidinfo(PROC_PIDTBSDINFO)` probe before choosing FFI. Every signal compares `pbi_pid` and start timeval immediately beforehand; descendants are enumerated with `proc_listchildpids`, recursively captured by generation, then signaled individually plus by process group. The result remains unconfirmed if any observed generation changes, enumeration errors, or a root exits before a stable two-pass snapshot. Do not use a raw pid/pgid after mismatch.
-
-### 3. Hook abort protocol
-
-Refactor `hook::run` into ordinary and managed result handling without changing ordinary output bytes:
+### 4. Exhaustive, scope-bound proof validation
 
 ```rust
-pub enum HookDisposition {
-    Continue(Option<String>),
-    Stop { reason: String },
+pub enum ProcessProof {
+    PidFdExited { worker_id: String, generation: String, pid: u32 },
+    OwnedChildReaped { worker_id: String, generation: String, pid: u32 },
 }
 
-fn inner(tool: &str, event: HookEvent, input: &str) -> Result<HookDisposition, String>;
-fn managed_gate(id: &str, event: HookEvent, token: &str) -> Result<HookDisposition, String>;
+pub struct CgroupTreeProof {
+    pub worker_id: String,
+    pub generation: String,
+    pub boundary: CgroupBoundary,
+    pub escape_probe: EscapeProbeReceipt,
+    pub populated_zero_observed: bool,
+}
+
+pub struct EscapeProbeReceipt {
+    pub worker_id: String,
+    pub generation: String,
+    pub before_fence_attempts: Vec<EscapeAttempt>,
+    pub during_fence_attempts: Vec<EscapeAttempt>,
+    pub raw_evidence_sha256: String,
+}
+
+pub struct EscapeAttempt {
+    pub target: String,
+    pub denied_errno: i32,
+    pub membership_unchanged: bool,
+}
+
+pub struct ThreadQuiescence {
+    pub thread_id: String,
+    pub parent_thread_id: Option<String>,
+    pub turns: Vec<TurnTerminalProof>,
+    pub terminal_pages_sha256: String,
+    pub terminal_next_cursor_is_null: bool,
+}
+
+pub struct TurnTerminalProof {
+    pub turn_id: String,
+    pub persisted_status: String,
+    pub source: String, // "includeTurns" | "thread/turns/list"
+}
+
+pub struct ProtocolTreeProof {
+    pub root_thread_id: String,
+    pub lineage_hash: String,
+    pub threads: Vec<ThreadQuiescence>,
+    pub fixed_point_passes: u8, // exactly 2 identical complete passes
+}
+
+pub enum WorkerTreeProof {
+    ConfinedCgroup(CgroupTreeProof),
+    AppServerTreeAndContainment {
+        protocol: ProtocolTreeProof,
+        containment: CgroupTreeProof,
+    },
+}
+
+pub enum FenceEvidence {
+    ProcessOnly(ProcessProof),
+    ProtocolOnly(ProtocolTreeProof),
+    WorkerTree(WorkerTreeProof),
+    Unconfirmed { reason: String, observations: Vec<ProcessObservation> },
+}
+
+pub struct FenceIntent {
+    pub worker_id: String,
+    pub generation: String,
+    pub fencing_version: String,
+}
+
+pub enum DrainError {
+    TimedOut { prior_operations: Vec<String> },
+    StaleGeneration,
+    StateChanged,
+}
+
+pub enum FenceOutcome {
+    Confirmed { worker_id: String, generation: String, scope: RequiredScope },
+    Unconfirmed { worker_id: String, generation: String, reason: UnconfirmedReason },
+}
+
+pub enum UnconfirmedReason {
+    ObservationOnly,
+    UnconfirmedDescendants,
+    ContainmentMismatch,
+    ProtocolIncomplete,
+    LostAuthority,
+}
+
+pub fn finish_fence(worker: &ManagedWorker, evidence: FenceEvidence) -> Result<FenceOutcome, String>;
 ```
 
-- A valid supervisor-issued `RELAY_MANAGED_ATTACH_TOKEN` selects managed behavior. Do not infer managed mode from cwd/name or accept an unbound token.
-- SessionStart completes the token-bound `Attaching→Active` store CAS, verifies publication, disarms the supervisor dead-man, then emits context. Any attach error emits exit-0 JSON with top-level `continue:false`, `stopReason`, and the existing `hookSpecificOutput` shape, and requests immediate generation-safe fencing.
-- UserPromptSubmit calls `acquire_reentry(...UserPromptSubmit)`. For `Attaching|Fencing|FencingUnconfirmed|Fenced|Terminal`, emit the runtime's documented block JSON and do not drain mail. This is the second first-prompt barrier and also prevents a later resume from reviving a fenced worker.
-- Ordinary sessions continue to log inner errors and exit 0 exactly as today. Managed hook parse/token/store errors fail closed.
-- `hooks.json` and `codex-hooks.json` receive an explicit timeout only after Step 1 proves both parsers accept the same value. The dead-man deadline must be at least 1 second below the minimum verified platform timeout.
+`finish_fence(worker_snapshot, evidence)` exhaustively matches recorded generation, backend, and `required_scope`. `ProcessProof` can satisfy only `ProcessOnly`; `ProtocolTreeProof` only `ProtocolTree`; only `WorkerTreeProof` satisfies `WorkerTree`. A `TrackedTree` backend **always** returns `Unconfirmed` even when two snapshots look stable and every observed PID exits. Root exit is never promoted to tree proof. Unknown future evidence/backend variants fail closed.
 
-The dead-man is owned by the detached managed supervisor, not the hook or CLI group. It waits for the exact generation to become `Active`; attach error triggers immediate fence, while no commit triggers fence at 4 seconds. This keeps the guard alive if the hook or CLI group crashes. The 4-second value is a nominal product bound and may be increased only from Step 1 measurements while retaining the one-second hook-timeout margin and updating every acceptance fixture/documented residual.
+### 5. Hook attach and measured dead-man
 
-### 4. App-server interruption and quiescence
+Managed SessionStart performs only the atomic claim first. It does not run GC, marker, ordinary register, or drain before Active. On claim failure it returns exit-0 JSON with top-level `continue:false`/`stopReason`, records the error, and notifies the detached supervisor. UserPromptSubmit admits `UserPromptDrain`; non-Active state returns documented block JSON without draining. Ordinary unmanaged behavior remains byte-compatible and fail-open.
 
-Change `SpawnedThread::start_initial_turn` and acknowledgement turn start to retain the returned turn id. Generate the exact schema from the installed minimum-supported Codex in Step 1; do not hand-author method names or params beyond the verified schema.
+The supervisor holds the unreaped root child and, where available, strong cgroup control. Its deadline comes from the measured formula in Environment—not a hard-coded four seconds. Sequential contention tests queue multiple near-timeout store users and prove the attach claim is still first; failure blocks the prompt and fences, never lengthens `with_lock` beyond three seconds.
 
-```rust
-pub struct StartedTurn {
-    ws: WsConn,
-    thread_id: String,
-    turn_id: String,
-}
+The bounded race is explicit. When the installed hooks execute under their verified contracts, SessionStart stop or the 30-second-minimum UserPromptSubmit block keeps the prompt behind a watchdog deadline of at most 20 seconds, leaving at least 10 seconds for owned-child termination and wait. If the runtime skips both hooks or violates that contract, prompt execution may begin any time from CLI exec until the watchdog acts; the residual window is at most `managed_attach_deadline_ms` for a scheduled supervisor with a live owned-child handle, but it is not zero and cannot be a hard scheduler guarantee. Root termination is only ProcessOnly unless strong containment proves the tree.
 
-pub enum InterruptOutcome {
-    Interrupted(QuiescenceProof),
-    AlreadyTerminal(QuiescenceProof),
-    Unconfirmed(String),
-}
+### 6. App-server lineage, already-terminal recovery, and physical scope
 
-pub enum TurnTerminal {
-    Completed { status: String },
-    Failed { status: String },
-    Interrupted,
-}
+Persist every `turnId`. Fencing first blocks relay re-entry, then recursively proves the app-server lineage:
 
-impl StartedTurn {
-    pub fn pump(&mut self, timeout_ms: u64) -> Result<TurnTerminal, String>;
-    pub fn interrupt_and_confirm(&mut self, timeout_ms: u64) -> Result<InterruptOutcome, String>;
-}
+1. Interrupt the root's exact active turn and wait for matching `turn/completed interrupted` when connected.
+2. Enumerate descendants via paginated `thread/list` parent/ancestor filters to `nextCursor:null`; for each thread enumerate turns via `thread/read includeTurns:true` or paginated `thread/turns/list` and persist parent/thread/turn/status edges.
+3. Interrupt every active descendant turn; repeat lineage enumeration until **two complete identical passes** show no new descendants and every known turn terminal.
+4. For recovery after a notification was missed, accept only persisted exact-turn status from `includeTurns`/`turns/list`; `thread/read idle` alone is forbidden.
+5. For every thread, create/observe the real background-terminal test case, call clean, paginate list to `nextCursor:null`, and require empty. Repeat lineage enumeration after terminal cleanup.
+6. A real child-agent test creates a child-thread writer sentinel. A daemonized-process test attempts to escape terminal bookkeeping. If either writer continues or disappears from bookkeeping without authoritative containment, evidence is protocol-only/unconfirmed.
 
-pub fn interrupt_thread(
-    server: &str,
-    thread_id: &str,
-    turn_id: &str,
-    timeout_ms: u64,
-) -> Result<InterruptOutcome, String>;
+Shared app-server can at most produce `ProtocolTreeProof`; it cannot produce WorkerTree proof because its OS process is shared. WorkerTree proof requires a relay-owned **dedicated** `codex app-server` inside an escape-proof generation-bound cgroup, connected only through supervisor-owned stdio pipes with no socket listener, plus the full protocol proof and physical cgroup proof. The live unreaped app-server `Child`/stdio authority is tied to `supervisor_instance_id`; after supervisor loss the stdio protocol path is unrecoverable, so only the verified cgroup proof may confirm the tree. Killing a shared server is forbidden.
+
+### 7. GC retention and durable reconciliation
+
+GC eligibility is lifecycle-aware before surface deletion. `Attaching|Active|Fencing|FencingUnconfirmed|Fenced|TerminalRetained`, pending attaches, session bindings, generation tombstones, fence-intent markers, activity locks, and proof/audit records are non-GCable regardless of `last_seen` or mtime. Only `TerminalReleasable` with a valid `ReleaseReceipt` can enter the ordinary age check. Registry/session binding removal remains last, and tombstone removal is part of the same explicitly releasable candidate.
+
+Add CLI surfaces:
+
+```text
+relay lifecycle status <worker|session> --json
+relay lifecycle reconcile <worker> --generation <uuid> --json
+relay lifecycle release <worker> --generation <uuid> --proof-sha256 <hex>
+relay lifecycle abandon <worker> --generation <uuid> --reason <text> --i-understand-processes-may-still-be-running
 ```
 
-The live connection sends `turn/interrupt`, waits for the matching `turn/completed`, requires terminal status `interrupted` (or a separately verified already-terminal state), and only then handles background terminals. If generated schema includes `thread/backgroundTerminals/clean` and `list`, opt into `capabilities.experimentalApi`, clean, then list until empty. If those methods are absent/rejected or the list cannot be confirmed empty, return `Unconfirmed`; do not infer quiescence from `thread/read idle`, socket closure, pump exit, or elapsed time. After proof, optionally `thread/archive` and persist `Fenced`; archive is defense in depth, not the lifecycle authority.
-
-Recovery reconnects, resumes/subscribes, interrupts the persisted exact turn id, and waits for its terminal event. Only a recorded relay-owned **dedicated** app-server process may fall back to `terminate_and_confirm`. A shared external app-server (`shared_server=true`, the current common case) must never be killed because it can host unrelated threads.
+`status` reports state, backend/scope, retained handles, proof gap, last attempts, and exact recovery command. `reconcile` republishes fence intent and retries only authoritative evidence paths; it never raw-signals observation-only PIDs. Restore-same-server, reconnect/lineage proof, pidfd reopen, owned-child wait, or verified cgroup proof may succeed. Successful proof produces `Fenced`; closing retained handles/resources produces `TerminalRetained`. `release` requires exact generation and matching persisted proof hash, appends a proved `ReleaseReceipt`, and moves only `TerminalRetained→TerminalReleasable`. `abandon` is the sole risk-accepting capacity-release path: explicit generation + nonempty reason + exact acknowledgement flag, append-only risk-accepted receipt, transition to `TerminalReleasable`, and output **“NOT QUIESCENCE-PROVEN”**. It never produces Fenced/WorkerTree proof.
 
 ## Steps
 
-| # | Task | Files | Depends | Status | Done condition / failure trigger |
+| # | Task | Files | Depends | Status | Done condition / STOP trigger |
 |---|---|---|---|---|---|
-| 1 | **Feasibility spike before implementation:** record current/minimum Claude and Codex versions; generate Codex app-server schema; verify `turn/interrupt`, terminal notification shape, background-terminal clean/list, SessionStart/UserPromptSubmit ordering, `continue:false`/block behavior, timeout fail-open behavior, pidfd on both Linux musl architectures, cgroup delegation, and Darwin `libproc` generation/child enumeration on both Darwin architectures. Append the evidence and capability table to `## Notes`; resolve or escalate every conditional interface below before Rust edits. | `docs/plans/active/relay-worker-lifecycle-primitives.md` (Notes only), `/tmp/relay-lifecycle-spike-*` (untracked fixtures) | — | planned | Each probe has command, version, raw result path, and verdict. If either runtime cannot stop the first prompt through SessionStart + UserPromptSubmit, or the generated app-server lacks `turn/interrupt`, STOP and rewrite the plan around the best achievable substitute before editing Rust. |
-| 2 | Add backward-compatible managed lifecycle serialization, per-worker shared/exclusive flock guards, version/generation CAS, transition table, and fail-closed re-entry decisions. | `rust/src/lifecycle.rs` (new), `rust/src/store.rs:446-570,1208-1292`, `rust/src/lib.rs:1-10`, `rust/Cargo.toml`, `rust/Cargo.lock` | 1 | planned | Unit/race tests prove legacy entries are unmanaged, only `Active` admits normal re-entry, an exclusive fence linearizes after prior shared guards and before later ones, and global store lock remains available during a five-second guarded fake RPC. Any lifecycle-lock/global-lock inversion is a STOP defect. |
-| 3 | Implement generation-safe process capture/open/signal/wait and capability-tiered descendant termination: pidfd + persisted Linux generation, cgroup v2 strong containment, Darwin/non-cgroup tracked-tree fallback, and the barriered `__managed-child-exec` wrapper. Wire the detached supervisor and CLI child launch to capture identity/containment before `GO` and before reporting birth/start. | `rust/src/process_identity.rs` (new), `rust/src/spawn.rs:337-495,662-793`, `rust/src/main.rs:14-59`, `rust/src/store.rs`, `rust/src/lib.rs`, `rust/Cargo.toml`, `rust/Cargo.lock`, `.github/workflows/build-binaries.yml` | 1,2 | planned | Tests reject injected PID reuse, never signal a mismatched generation, prove the wrapper cannot exec/fork before identity+cgroup publication, kill a setsid descendant under delegated cgroup and prove `populated 0`, and return `UnconfirmedDescendants` (not success) for an escaped/reparented tracked-tree gap. Native Darwin tests validate start-time and child enumeration. If the child can fork before containment/identity publication, STOP. |
-| 4 | Implement managed hook abort: token-bound attach CAS, structured SessionStart stop, managed UserPromptSubmit lifecycle barrier, 4-second dead-man, and ordinary fail-open byte compatibility. | `rust/src/hook.rs:22-257`, `rust/src/spawn.rs`, `rust/src/store.rs`, `hooks/hooks.json`, `hooks/codex-hooks.json`, `test/runtime-hook-abort.mjs`, `test/selftest.mjs` | 1-3 | planned | Real Claude and Codex probes show attach failure and hook timeout never create the sentinel first-prompt side effect; unit tests prove ordinary sessions still exit 0/log errors and managed sessions do not drain mail while non-Active. If a real runtime reaches the sentinel, STOP and keep the primitive unshipped. |
-| 5 | Implement protocol-first app-server interruption: retain `turnId`, interrupt exact turn, wait for matching terminal notification, clean/list background terminals when supported, and use generation-safe process fallback only for a relay-owned dedicated server. | `rust/src/appserver.rs:50-76,84-164,198-241,537-617`, `rust/src/spawn.rs:337-495`, `test/fake-app-server.mjs`, `test/runtime-appserver-quiescence.mjs` | 1-3 | planned | Fake and real app-server tests prove `turn/interrupt` request shape/order, matching `turn/completed interrupted`, empty background terminal list, recovery reconnect, and `Unconfirmed` on unreachable shared server. `thread/read idle`, pump exit, or socket close alone must fail the proof. |
-| 6 | Gate every relay re-entry surface with the typed guard: hook start/prompt, watch inject/auto-turn/ack, app-server deliver, wake app-server/CLI resume, attach preview/exec, and initial turn. Queueing mail remains allowed. | `rust/src/watch.rs:186-330,555-605`, `rust/src/cli.rs:198-367,726-1075`, `rust/src/appserver.rs:84-164`, `rust/src/spawn.rs`, `rust/src/hook.rs`, `rust/src/main.rs:1-59`, `rust/src/lifecycle.rs` | 2,4,5 | planned | A table-driven test covers every `ReentryKind`; lifecycle smoke races fence against each surface and records zero post-fence `thread/resume`, `thread/inject_items`, `turn/start`, `codex exec resume`, `claude --resume`, or attach exec. If any caller can invoke `deliver` without a guard, STOP. |
-| 7 | Add deterministic cross-process/adversarial coverage for PID reuse, setsid/pgid escape, dead-man timeout, interrupt recovery, background terminals, fence/re-entry races, and global-lock non-blocking; extend existing selftest without weakening prior assertions. | `test/lifecycle-smoke.mjs` (new), `test/runtime-hook-abort.mjs` (new), `test/runtime-appserver-quiescence.mjs` (new), `test/fake-app-server.mjs`, `test/selftest.mjs`, `rust/src/*` unit tests | 2-6 | planned | Acceptance A1-A11 pass in isolated temp stores. Every helper cleans up in `finally`; a failed proof leaves diagnostic state but no untracked process. Wall-clock assertions are used only for lock exclusion, never as quiescence proof. |
-| 8 | Document capability tiers, managed lifecycle/refusal diagnostics, hook residual, app-server interruption/background-terminal caveat, and operator recovery; run full plugin and four-target gates. Do not rebuild committed binaries or release. | `plugins/session-relay/AGENTS.md`, `skills/productivity/session-relay/SKILL.md`, `rust/src/main.rs:1-59`, `.github/workflows/build-binaries.yml` | 1-7 | planned | Docs never call tracked-tree fallback or unreachable shared app-server quiescent; CLI errors name state/reason/recovery; A12-A15 pass. Any documentation promise stronger than the runtime capability table is a STOP defect. |
+| 1 | Codify the confirmed feasibility foundation in a committed probe harness and minimum capability-evidence schema: versions, raw argv/stdout/stderr/status/timestamps, loaded hook hash/path, per-runtime SessionStart/UserPromptSubmit allow/block/timeout matrix, exact app-server interrupt/terminal/background/list methods, pidfd/rustix gating, cgroup anti-migration capability, and native Darwin observation-only APIs. Emit a raw-record hash chain and harness git-blob hash; measure attach deadline. | `plugins/session-relay/test/feasibility-probe.mjs` (new), `plugins/session-relay/test/fixtures/lifecycle-capability-schema.json` (new), `docs/plans/active/relay-worker-lifecycle-primitives.md:Notes` | — | planned | A1 passes without editable pass/fail booleans. If measured deadline exceeds 20s, current runtime lacks an enumerated capability, raw evidence/schema/hash validation fails, or hook source cannot be proven isolated/loaded, STOP before Rust changes. |
+| 2 | Add worker-id/pending-token/session-binding schema, exact claim/duplicate/resume rules, lifecycle transitions, generation tombstones, release receipts, GC exemptions, and first-transaction managed attach. | `rust/src/lifecycle.rs` (new), `rust/src/store.rs:1023-1205,1208-1292`, `rust/src/hook.rs:195-240`, `rust/src/lib.rs`, `rust/Cargo.toml`, `rust/Cargo.lock` | 1 | planned | A2/A11 prove Codex atomic binding, duplicates/replay/expiry matrix, managed attach first transaction, and aged nonterminal retention. Any GC path can erase a non-releasable record/surface or any pre-claim GC/register/drain occurs: STOP. |
+| 3 | Implement publish-first authoritative Fencing state, bounded cancellation/drain, private typed `ReentryGuard`, complete source-derived inventory, and guard-required drain/mutation APIs across CLI/MCP/channel/hook/watch/appserver/spawn. Replace managed attach exec with spawn+wait under guard. Add a tiny fixture crate that intentionally calls the lower API without a guard; the inventory harness requires `cargo check` to fail for the private/missing guard. | `rust/src/lifecycle.rs`, `rust/src/store.rs`, `rust/src/appserver.rs`, `rust/src/bus.rs:283-315`, `rust/src/channel.rs:174-195`, `rust/src/cli.rs:269-367,885-903,925-1105`, `rust/src/hook.rs:195-240`, `rust/src/watch.rs:245-310,555-640`, `rust/src/spawn.rs`, `test/fixtures/lifecycle-guard-bypass/Cargo.toml` (new), `test/fixtures/lifecycle-guard-bypass/src/main.rs` (new), `test/reentry-inventory.mjs` (new), `test/fixtures/reentry-inventory.json` (new) | 2 | planned | A3/A9/A10 pass writer-starvation, crash-between-CAS-and-cache, 100ms cancellation polling/5s grace, exec-lifetime, complete drain, pending-ack, and compile-boundary cases. Any unguarded drain/mutator remains or a post-intent admission begins external work: STOP. |
+| 4 | Implement stable handle acquisition/signaling and scope-limited proofs: pidfd-open-then-validate, unreaped Child, observation-only recovery, barriered exec, generation-bound cgroup identity, and tested anti-migration boundary. Inventory every signal callsite; never raw-signal after observation-only validation. | `rust/src/process_identity.rs` (new), `rust/src/spawn.rs:337-495,662-793`, `rust/src/main.rs:14-59`, `rust/src/lifecycle.rs`, `rust/src/store.rs`, `test/process-signal-inventory.mjs` (new), `test/fixtures/process-signal-inventory.json` (new), `.github/workflows/build-binaries.yml` | 1-3 | planned | A4/A5 force exit+PID reuse between observation/action, pre/during-fence cgroup escape attempts, stable tracked snapshots, and supervisor restart. Any raw signal callsite lacks a stable-handle class, replacement receives a signal, worker escapes strong cgroup, or tracked tree returns confirmed: STOP. |
+| 5 | Implement managed hook abort with atomic claim first, exact idempotent resume, structured SessionStart stop, UserPromptSubmit drain gate, measured dead-man, and ordinary behavior compatibility. | `rust/src/hook.rs`, `rust/src/spawn.rs`, `rust/src/store.rs`, `hooks/hooks.json`, `hooks/codex-hooks.json`, `test/runtime-hook-abort.mjs` (new), `test/selftest.mjs` | 1-4 | planned | A6 proves the full Claude/Codex event×timeout matrix from isolated loaded hooks, absent sentinels, duplicate/bound identity behavior, and sequential contention. Any first-prompt sentinel appears: STOP. |
+| 6 | Implement exact-turn interruption, persisted already-terminal recovery, recursive paginated child-thread lineage to a two-pass fixed point, per-thread paginated background cleanup, child-writer/daemon sentinels, and compound protocol+physical proof. | `rust/src/appserver.rs:50-76,84-241,537-617`, `rust/src/spawn.rs:337-495`, `rust/src/lifecycle.rs`, `test/fake-app-server.mjs`, `test/runtime-appserver-quiescence.mjs` (new), `test/lifecycle-smoke.mjs` (new) | 1-4 | planned | A7/A8 prove live background/child writers stop, every page reaches null cursor, missed notifications recover from exact persisted turn status, shared server stays protocol-only, and daemon escape prevents WorkerTree proof. Any root-only or idle-only evidence reaches Fenced: STOP. |
+| 7 | Add durable lifecycle status/reconcile/release/abandon, audit receipts, explicit release transition, and diagnostics for shared-server loss, observation-only recovery, stale handles, and containment failure. | `rust/src/lifecycle.rs`, `rust/src/cli.rs`, `rust/src/main.rs`, `rust/src/store.rs`, `test/lifecycle-smoke.mjs` | 2-6 | planned | A12 proves safe reconcile, exact handoff diagnostics, proof-bound release, explicit abandonment wording/audit/generation checks, and no silent permanent leak. Any automatic risk acceptance or abandonment labeled quiescent: STOP. |
+| 8 | Add adversarial unit/cross-process/real-runtime matrices and source-inventory enforcement; preserve all existing relay tests and isolated cleanup. | `rust/src/appserver.rs`, `rust/src/hook.rs`, `rust/src/lifecycle.rs`, `rust/src/process_identity.rs`, `rust/src/spawn.rs`, `rust/src/store.rs`, `test/feasibility-probe.mjs`, `test/lifecycle-smoke.mjs`, `test/process-signal-inventory.mjs`, `test/reentry-inventory.mjs`, `test/runtime-hook-abort.mjs`, `test/runtime-appserver-quiescence.mjs`, `test/fake-app-server.mjs`, `test/selftest.mjs` | 2-7 | planned | A1-A14 pass; helpers clean children/stores in `finally`; externally observable sentinels and kernel/protocol evidence, not elapsed time alone, establish results. |
+| 9 | Document guarantee tiers, unsupported fallbacks, identity binding, admission/cancel, GC retention, recursive app-server scope, and operator recovery; run native target and full repo gates without binary/release changes. | `plugins/session-relay/AGENTS.md`, `skills/productivity/session-relay/SKILL.md`, `rust/src/main.rs`, `.github/workflows/build-binaries.yml` | 1-8 | planned | A15-A18 pass. Docs never call Darwin/start-time/tracked-tree/shared-server protocol evidence generation-safe or worker-quiescent. |
 
 ## Acceptance criteria
 
-Run from repository root with `PATH="$HOME/.cargo/bin:$PATH"`. Each criterion is independently executable after its dependency step; any unstated skip is failure.
+Run from repository root with `PATH="$HOME/.cargo/bin:$PATH"`. A criterion passes only with its stated evidence; skips, self-authored booleans, or empty fixtures fail.
 
 | ID | Criterion | Command | Expected output/result |
 |---|---|---|---|
-| A0 | Plan base and affected paths are reconciled before implementation. | `git diff --stat 12cf2ea..HEAD -- plugins/session-relay/rust/src plugins/session-relay/rust/Cargo.toml plugins/session-relay/rust/Cargo.lock plugins/session-relay/hooks plugins/session-relay/test plugins/session-relay/AGENTS.md plugins/session-relay/skills/productivity/session-relay/SKILL.md .github/workflows/build-binaries.yml` | Before source edits: only this plan is outside the path set, so stdout is empty and exit is 0. Later drift must match completed plan steps. |
-| A1 | Current protocol and hook contracts are captured, not assumed. | `test -f docs/plans/.relay-lifecycle-feasibility.json && jq -e '.codex.turn_interrupt == true and .codex.turn_completed_interrupted == true and .hooks.claude.first_prompt_blocked == true and .hooks.codex.first_prompt_blocked == true' docs/plans/.relay-lifecycle-feasibility.json` | Exit 0 and stdout `true`. The file is an untracked/generated local artifact referenced by Notes; false/missing stops implementation. |
-| A2 | Lifecycle schema and transition table are backward-compatible and fail closed. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked lifecycle_ -- --nocapture` | Exit 0; every `lifecycle_*` test is `ok`, including legacy-unmanaged, allowed-state table, stale generation/version, and refused-state diagnostics. |
-| A3 | Per-worker locks linearize fencing without holding the global store lock. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked lifecycle_lock_ -- --nocapture` | Exit 0; race tests show pre-fence shared guard completes before exclusive fence, post-fence guards refuse, and a concurrent store operation completes during a five-second fake RPC. |
-| A4 | PID reuse can never redirect a signal. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked process_identity_reuse_ -- --nocapture` | Exit 0; injected start-generation mismatch returns `IdentityMismatch`; fake signal recorder contains no signal for the replacement process. |
-| A5 | Descendant containment reports only proofs the platform supports. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked process_identity_descendants_ -- --nocapture` | Exit 0; delegated-cgroup fixture proves `CgroupEmpty`; tracked fallback kills observed setsid children but returns `UnconfirmedDescendants` when a fixture reparents before capture. |
-| A6 | Managed hook failure and timeout stop the first real prompt on both CLIs. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-hook-abort.mjs` | Exit 0 and exact final lines `PASS: claude managed attach failure stopped before first prompt`, `PASS: codex managed attach failure stopped before first prompt`, and `PASS: managed hook timeout stopped before first prompt`; sentinel files are absent. |
-| A7 | App-server interruption is a terminal-event proof, including background terminals. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-appserver-quiescence.mjs` | Exit 0 and final line `PASS: app-server turn interrupted, terminals empty, lifecycle fenced`; captured frames contain `turn/interrupt`, matching `turn/completed` status `interrupted`, terminal clean/list, then no later turn start. |
-| A8 | Fake app-server exercises success, ambiguity, and recovery deterministically. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case appserver` | Exit 0 and final line `PASS: lifecycle app-server cases`; unreachable shared server remains `FencingUnconfirmed`, reconnect interrupts the persisted turn id, and idle-only fixture is rejected. |
-| A9 | Every relay re-entry surface refuses after the fence linearization point. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry` | Exit 0 and final line `PASS: 10 managed re-entry surfaces fenced`; captured process/RPC log contains zero post-fence starts, resumes, attaches, injections, or deliveries while queued mail remains present. |
-| A10 | Hook/process adversarial cases clean up without relying on time as proof. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case process` | Exit 0 and final line `PASS: lifecycle process cases`; no fixture PID/generation remains live; non-authoritative fallback is reported unconfirmed. |
-| A11 | Existing relay behavior remains green. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked && node plugins/session-relay/test/selftest.mjs` | Exit 0; Rust reports all tests passed and selftest ends `PASS: session-relay self-test — <N> checks (binary: rust/target/debug/relay)` with the runtime-derived count. |
-| A12 | Formatting and warnings are clean. | `cargo fmt --manifest-path plugins/session-relay/rust/Cargo.toml --check && cargo clippy --manifest-path plugins/session-relay/rust/Cargo.toml --locked --all-targets -- -D warnings` | Both exit 0 with no formatting diff and no clippy warnings. |
-| A13 | All four shipped architectures compile and Darwin process probes run natively. | `gh workflow run build-binaries.yml --ref codex/relay-worker-lifecycle-primitives && gh run watch --exit-status "$(gh run list --workflow build-binaries.yml --branch codex/relay-worker-lifecycle-primitives --limit 1 --json databaseId --jq '.[0].databaseId')"` | Dispatch succeeds; Linux x86_64/aarch64 musl builds are green, `macos-15` arm64 builds/probes natively, and `macos-15-intel` x86_64 builds/probes natively. Do not download/commit artifacts in this plan. |
-| A14 | Plugin gates pass without touching committed binaries. | `node scripts/ci.mjs --plugin session-relay` | Exit 0 with session-relay Rust, hook JSON, skill, checksum, and selftest gates green; a documented local binary-byte warning is allowed, no failure is. |
-| A15 | The diff contains only planned source/tests/docs and no binary/release mutation. | `git diff --check 12cf2ea..HEAD && git diff --name-only 12cf2ea..HEAD | rg '^(plugins/session-relay/(rust/src|rust/Cargo\.(toml|lock)|hooks|test|AGENTS\.md|skills/productivity/session-relay/SKILL\.md)|\.github/workflows/build-binaries\.yml|docs/plans/active/relay-worker-lifecycle-primitives\.md)$' -v` | First command exits 0. Second prints nothing and exits 1 because there are no out-of-scope paths; no file under `plugins/session-relay/bin/` or manifest version is changed. |
+| A0 | Reconcile source drift before implementation. | `git diff --stat 12cf2ea..HEAD -- plugins/session-relay/rust plugins/session-relay/hooks plugins/session-relay/test plugins/session-relay/AGENTS.md plugins/session-relay/skills/productivity/session-relay/SKILL.md .github/workflows/build-binaries.yml` | Before implementation stdout is empty; plan-only commits are outside this path set. Any source drift is reconciled first. |
+| A1 | Full feasibility evidence comes from the committed harness. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/feasibility-probe.mjs --verify-current` | Exit 0; validates the minimum evidence schema; prints committed harness git-blob SHA and raw-record hash chain; records exact argv/stdout/stderr/status/timestamps, Claude/Codex versions, isolated loaded hook paths/hashes, all 12 runtime×event×allow/block/timeout hook rows, app-server interrupt/terminal/background/lineage method rows, pidfd/rustix/cgroup/Darwin rows, 10 timing samples per runtime, derived deadline `<=20000`, then `PASS: lifecycle feasibility matrix`. Missing/raw-mismatched evidence or a manually populated verdict exits nonzero. |
+| A2 | Pending identity binding is atomic and exact. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked managed_attach_ -- --nocapture` | Exit 0; rows pass for Claude prebound id, Codex unknown→bound id, concurrent duplicate, claimed-token duplicate, resume without token, replay-to-new-id, wrong id/tool/cwd/generation, expiry, and conflicting session binding. Exactly one claim commits. |
+| A3 | Fence intent prevents starvation and survives exec lifetime. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked lifecycle_admission_ -- --nocapture && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | Both exit 0; crash immediately after authoritative `Active→Fencing` save still refuses; adversarial callers whose first read follows intent never acquire activity; prior 300s-pump/wake fixtures poll cancel within 100ms and release within 5s; writer finishes bounded; managed attach spawns/waits and cancel-reaps its child; fixture crate's guardless lower-API call fails `cargo check` for missing/private `&ReentryGuard`; no managed path calls `exec`. |
+| A4 | No check-then-kill path can signal a recycled identity. | `node plugins/session-relay/test/process-signal-inventory.mjs && cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked stable_signal_ -- --nocapture` | Both exit 0; source-derived inventory classifies every raw signal callsite and rejects ObservationOnly/start-check+kill; a deterministic syscall race fixture exits the observed target and substitutes a sentinel identity before action, with zero signal attempts and unchanged sentinel bytes; real pidfd-open-before-validation targets only the pinned task; live unreaped-Child signaling affects only its owned child; Darwin/no-pidfd recovery returns Unconfirmed without signaling. |
+| A5 | Tree proof requires anti-migration confinement; tracked trees never confirm. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case containment` | Exit 0; worker escape writes to ancestor/sibling/alternate cgroupfs fail before and during fence; mount/dev/inode/owner/mode/path/generation mismatch fails proof; cgroup sentinel stops and exact retained boundary reports populated 0; plain delegated cgroup is Unconfirmed; **every** tracked-tree case (stable clean snapshot, observed setsid child, early reparent) returns `UnconfirmedDescendants`. |
+| A6 | Both real CLIs block every managed first-prompt failure mode. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-hook-abort.mjs --matrix` | Exit 0; for Claude and Codex, isolated logs prove exact hook file/hash loaded and rows pass for SessionStart attach failure, SessionStart timeout, UserPromptSubmit lifecycle block, UserPromptSubmit timeout + supervisor fence, duplicate SessionStart, and sequential lock contention; every sentinel is absent; final `PASS: 12 managed hook-abort rows`. |
+| A7 | Real app-server fencing stops root, child thread, and actual background writers. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-appserver-quiescence.mjs --matrix` | Exit 0; starts a root turn, child-agent thread writer, and real background terminal writer; interrupts exact turns; observes persisted terminal status; paginates descendants/turns/terminals to `nextCursor:null`; writer PIDs exit and sentinel sizes stop changing; shared-socket row proves ProtocolTree only; dedicated row proves stdio-only/no-listener ownership and, when strong cgroup containment is available, compound WorkerTree; daemon-escape row is Unconfirmed without that containment; final `PASS: app-server recursive quiescence matrix`. |
+| A8 | Missed-notification recovery uses persisted exact-turn evidence. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case appserver-recovery` | Exit 0; fake server emits completion before reconnect; recovery finds exact turn terminal through includeTurns/turns-list across multiple pages, reaches two identical lineage passes, and rejects idle-only, missing-turn, new-child-between-pass, partial-page, and nonempty-terminal fixtures. |
+| A9 | Re-entry inventory is source-derived and complete. | `node plugins/session-relay/test/reentry-inventory.mjs` | Exit 0; scans every `store::drain`, app-server mutation (`thread/resume`, inject, turn/thread start, interrupt, terminal clean), process creation/exec/signal, and pending-ack callsite; exact committed manifest covers all with no stale rows, classifies every non-re-entry exception with rationale, and prints `PASS: <N> classified lifecycle-sensitive callsites` using source-derived N (never a hard-coded expected count). |
+| A10 | Every gated surface refuses without consuming fenced mail or mutating runtime state. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix` | Exit 0; derives one row for every gated `OperationKind` in the A9 manifest, including hook SessionStart/UserPrompt, CLI/MCP inbox, channel delivery, watch inject/auto-turn/ack/wake fallback, wake app-server/CLI, managed attach, deliver, and initial turn; fenced rows emit no context/RPC/process, mailbox byte hash and app-server turn/thread counts are unchanged, while queue/peek remain allowed. Missing or extra manifest kinds fail. |
+| A11 | GC cannot erase a durable fence. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked managed_gc_ -- --nocapture` | Exit 0; 30-day-old Attaching/Active/Fencing/FencingUnconfirmed/Fenced/TerminalRetained plus pending/binding/tombstone/lock/fence/proof surfaces survive; only TerminalReleasable with valid receipt ages out atomically; registry/binding removal is last. |
+| A12 | Confirmed and unconfirmed states have explicit, audited operator paths. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reconcile` | Exit 0; status JSON names proof gap + exact command; restored shared server reconciles via persisted lineage; observation-only case does not signal; release refuses wrong generation/proof/state and accepts only matching TerminalRetained proof; bad generation/reason/ack refuses abandonment; valid explicit abandon appends a risk-accepted receipt, prints `NOT QUIESCENCE-PROVEN`, and becomes TerminalReleasable without Fenced proof. |
+| A13 | Proof validation is exhaustive and scope-safe. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked fence_proof_ -- --nocapture` | Exit 0; every backend×required-scope×evidence row is asserted; ProcessOnly cannot satisfy ProtocolTree/WorkerTree, ProtocolOnly cannot satisfy WorkerTree, tracked/root-exit never confirm WorkerTree, mismatched generation/boundary fails, unknown variant fails closed. |
+| A14 | Existing behavior remains green. | `cargo test --manifest-path plugins/session-relay/rust/Cargo.toml --locked && node plugins/session-relay/test/selftest.mjs` | Exit 0; all Rust tests pass and selftest ends with its runtime-derived PASS count. Ordinary unmanaged hook/output/CLI bytes remain compatible. |
+| A15 | Formatting and warnings are clean. | `cargo fmt --manifest-path plugins/session-relay/rust/Cargo.toml --check && cargo clippy --manifest-path plugins/session-relay/rust/Cargo.toml --locked --all-targets -- -D warnings` | Exit 0, no format diff, no warnings. |
+| A16 | Four architectures compile; Darwin observation semantics run natively. | `gh workflow run build-binaries.yml --ref codex/relay-worker-lifecycle-primitives && gh run watch --exit-status "$(gh run list --workflow build-binaries.yml --branch codex/relay-worker-lifecycle-primitives --limit 1 --json databaseId --jq '.[0].databaseId')"` | Linux x86_64/aarch64 musl builds green; native `macos-15-intel` and `macos-15` build/probe jobs green; Darwin reports observation-only after supervisor recovery. No artifacts are committed. |
+| A17 | Full plugin/repo gates pass. | `node scripts/ci.mjs` | Exit 0 with all repo/plugin guards, Rust, selftest, hooks, skills, and manifests green; documented local binary digest warning only. |
+| A18 | Diff is scoped and contains no binary/release mutation. | `git diff --check 12cf2ea..HEAD && git diff --name-only 12cf2ea..HEAD | rg '^(plugins/session-relay/(rust/src|rust/Cargo\.(toml|lock)|hooks|test|AGENTS\.md|skills/productivity/session-relay/SKILL\.md)|\.github/workflows/build-binaries\.yml|docs/plans/active/relay-worker-lifecycle-primitives\.md)$' -v` | First exits 0; second prints nothing/exits 1; no `plugins/session-relay/bin`, manifest version, marketplace version, or unrelated path changes. |
 
 ## Out of scope / do-NOT-touch
 
-- **Fan-out lifecycle items 4–6:** do not design or implement recovery for never-Idle `Stopping`, partial `git worktree remove`, or fence-owner lease/steal here. Those remain in `relay-worker-fanout` Draft-5 because their state machine and cleanup semantics are fan-out-specific.
-- **Fan-out cap/depth/handback/collection:** do not add reservation, cap, worktree, merge, handback, or collection code. This plan exposes general lifecycle/process/quiescence primitives only.
-- **Arbitrary-client enforcement:** do not claim relay can stop a human or third-party app-server client from directly unarchiving or starting a fenced Codex thread. Gate every relay-owned surface and document the boundary.
-- **Killing shared app-server:** do not terminate a server unless its exact generation-safe process identity is recorded as relay-owned and dedicated. A shared server may host unrelated threads.
-- **New privileged daemon/helper:** do not install a launchd service, systemd unit, root helper, kernel extension, or system-wide cgroup. Only use an already delegated user-writable cgroup v2 subtree.
-- **Committed binaries/version/release:** do not edit `plugins/session-relay/bin/`, plugin/marketplace versions, tags, or releases. Producer artifacts and release happen in a later user-authorized change.
-- **Unrelated store/GC/mail semantics:** preserve existing mailbox trust fencing, flat-file GC, lock timeout, discovery, and ordinary session behavior; do not refactor them opportunistically.
+- Fan-out-specific recovery for never-Idle `Stopping`, partial `git worktree remove`, fence-owner lease/steal, cap/depth, handback, merge, and collection remains in `relay-worker-fanout` Draft-5.
+- No raw kill fallback is added for Darwin/recovered non-pidfd Linux. Observation-only cleanup is intentionally incomplete and must remain unconfirmed.
+- No claim that a merely delegated cgroup is authoritative; privileged/system-wide cgroup setup, root helper, launchd service, kernel extension, or system daemon requires separate approval.
+- No claim that relay controls direct human/third-party app-server clients. Relay gates all of its own surfaces; external mutation remains outside the trust boundary. Only a relay-owned stdio-only dedicated server plus physical containment proves exclusivity.
+- Do not kill a shared app-server. Dedicated server containment is a separate capability selected by policy, never silently inferred.
+- Do not change ordinary unmanaged mailbox semantics, trust fencing, discovery, flat-file GC behavior for unmanaged entries, committed binaries, versions, tags, or releases.
+- Do not edit `plugins/session-relay/bin/**`: plan acceptance builds native targets but committing generated binaries would mix producer/release work into the source change.
+- Do not edit plugin manifests or `.claude-plugin/marketplace.json` / `.agents/plugins/marketplace.json`: no version or release is authorized by this implementation plan.
+- Do not edit `docs/plans/active/relay-worker-fanout.md`: its fan-out-specific lifecycle design consumes these primitives only after this plan ships.
 
 ## Known gotchas
 
-- `turn/interrupt` success response only means cancellation was requested; the matching terminal event is the completion proof. `thread/read idle` is a transient sample and insufficient.
-- App-server turn interruption does not terminate background terminals. Experimental clean without list/empty confirmation is also insufficient.
-- The current acknowledgement path starts a turn inside `deliver`; both the caller's pre-check and the internal post-settle start must carry the same lifecycle guard.
-- A pidfd is live, non-serializable supervisor state. Durable recovery always rechecks the persisted start generation before opening a new pidfd.
-- `Command::spawn` followed by a parent-side cgroup write is racy because the child can fork first. Managed launches must go through the blocking `__managed-child-exec` wrapper and verify membership before `GO`.
-- `/proc/<pid>/stat` parsing must locate the final `)` of `comm` before indexing field 22; process names can contain spaces and parentheses.
-- PID plus wall-clock start seconds is not enough on fast PID reuse. Linux uses boot-id + start ticks; Darwin uses seconds + microseconds and fails closed if unavailable.
-- Process groups do not include descendants after `setsid`; recursive PPID walks miss children that already reparented. Only cgroup v2 earns an authoritative tree proof in this plan.
-- Apple labels `libproc` process enumeration APIs private and subject to change. Native runtime tests are mandatory; successful cross-linking is not evidence of semantics.
-- Multiple matching hooks can run concurrently. The lifecycle gate must tolerate duplicate SessionStart/UserPromptSubmit invocations through versioned idempotent CAS.
-- The raw managed attach token is a bearer secret for one attach transition. Store only its SHA-256 and never place it in logs, plan artifacts, or prompts.
-- A command-hook timeout/failure is fail-open in both runtimes. Keep the managed dead-man below the verified timeout, and never weaken UserPromptSubmit's second gate.
-- Do not drain mail before the lifecycle decision; a refused wake/watch must leave queued mail durable.
-- `with_lock` gives up after three seconds. The 4-second dead-man budget leaves only one second beyond worst-case store contention; Step 1 must measure cold runtime startup and may increase both values while preserving at least a one-second margin below platform hook timeout.
+- Opening pidfd **after** a generation check still races; open first, then validate the pinned target.
+- An unreaped Child prevents PID reuse but does not prevent descendants escaping its process group. Its proof scope is explicit.
+- `populated 0` is true after a process migrates away. It is authoritative only together with a proven anti-migration boundary.
+- Flock writer fairness is not a safety primitive. Fence intent keeps post-intent readers out; cancellation bounds pre-intent readers.
+- `attach --exec` closes CLOEXEC locks. Managed attach must keep relay as the waiting parent.
+- `thread_state` currently calls `thread/resume`; status must use pure `thread/read` or an admitted resume.
+- `turn/interrupt` completion does not stop background terminals or child threads. Every thread/page/terminal needs evidence.
+- A daemonized process can evade app-server terminal bookkeeping. Without authoritative process containment, protocol proof is not WorkerTree proof.
+- Two identical lineage passes are not exclusive against another client. A dedicated-server WorkerTree proof also needs stdio-only ownership with no listener and authoritative physical containment.
+- A SessionStart token inherited or repeated for the exact bound session is an idempotency key, not a globally reusable attach credential.
+- Managed hook claim must precede current GC/marker/register/drain work. One nearly exhausted three-second lock attempt cannot be followed by more pre-Active lock paths.
+- Queue/peek are safe while fenced; drains are not. Refused drains must preserve mailbox bytes exactly.
+- GC must inspect lifecycle before deleting **any** candidate surface; preserving only the registry row after deleting locks/tombstones is insufficient.
+- Wall-clock stability of a sentinel is supporting evidence only; terminal/process exit and complete pagination remain authoritative.
 
 ## Global constraints
 
-- **“FEASIBILITY FIRST. Step 1 must be a research/feasibility spike; design only what the platforms actually allow.”**
-- Target all four shipped builds: **x86_64 + aarch64 musl-linux and x86_64 + aarch64 Darwin**.
-- **“never call git/process/RPC while holding with_lock/with_gc_lock.”** Sleeps and blocking waits are likewise forbidden under those global locks.
-- Preserve the three-second global store-flock critical-section contract.
-- Keep the primitives general and independently testable; fan-out is only a consumer.
-- Hook-born managed workers may not use full-access while fallback abort remains possible; the residual must stay confined to the worker sandbox/worktree.
-- Never treat raw pid/pgid, pump exit, socket close, elapsed time, or `thread/read idle` as quiescence proof.
-- Never weaken validator floors, existing security fencing, or binary provenance to pass CI.
+- **“FEASIBILITY FIRST. Step 1 must be a research/feasibility spike; design only what the platforms actually allow.”** Draft-2 codifies the independently confirmed facts in a committed executable harness rather than re-deriving them.
+- **“never call git/process/RPC while holding with_lock/with_gc_lock.”** Also never sleep or wait under those locks.
+- Keep the global store flock timeout exactly three seconds.
+- Target x86_64+aarch64 musl-linux and Darwin builds.
+- Fallback tiers can never claim a stronger scope than their evidence.
+- Keep primitives general and independently testable; fan-out is only the first consumer.
+- Managed fallback forbids full-access until hook abort and physical containment capabilities are proven for that runtime.
+- Never weaken validators, security fences, test assertions, or binary provenance.
 
 ## STOP conditions
 
-- Step 1 cannot demonstrate that both current supported Claude and Codex runtimes prevent the sentinel first-prompt effect using the documented SessionStart/UserPromptSubmit outputs. STOP before Rust edits and record the best achievable supervisor-only substitute plus its unbounded scheduler residual.
-- Generated minimum-supported Codex schema lacks `turn/interrupt`, omits `turnId`, or does not emit a matching terminal status. STOP and re-scope C to a dedicated-server process fence; do not invent RPCs.
-- Background-terminal clean/list is unavailable and a test can leave a terminal alive after interrupt. STOP the confirmed-quiescence claim; retain `FencingUnconfirmed` and resolve Open question `background-terminal-policy`.
-- A managed CLI can fork before its cgroup/process generation is persisted, or PID-reuse tests record any signal to the replacement generation. STOP; no consumer may release capacity on that path.
-- Darwin start generation or child enumeration is unavailable on either native architecture. STOP the Darwin confirmed-process claim and resolve Open question `darwin-containment-policy`.
-- Any re-entry caller can reach `thread/inject_items`, `turn/start`, a resume CLI, or attach exec without a lifecycle guard, or can use a stale guard after exclusive fencing. STOP before docs/CI.
-- Any app-server/process operation, sleep, or test double is called while `with_lock`/`with_gc_lock` is held. STOP and split select/CAS from external work.
-- Recovery proposes killing an unowned/shared app-server. STOP; keep the lifecycle fenced and surface operator recovery.
-- The only available “proof” is timeout, process-group absence, transient Idle, or clean worktree. STOP; persist unconfirmed state instead.
-- More than three attempts hit the same test/lint failure without a new diagnosis. STOP the loop, append `## Mistakes & Dead Ends`, and reassess.
+- Any observation/start-time check is followed by raw PID/PGID signal without a live pidfd, unreaped Child, or verified confined-cgroup handle.
+- A cgroup escape probe can migrate to ancestor/sibling, cgroupfs remains writable outside the worker root, or boundary mount/dev/inode/generation does not match.
+- Fence intent is not visible before reader drain, post-intent readers can start external work, a prior operation lacks cancellation, or managed attach still uses `exec`.
+- The source-derived inventory finds an unmapped drain/resume/inject/turn/process callsite, or lower-level APIs remain callable without a private `ReentryGuard`.
+- Codex first SessionStart can neither atomically bind its runtime id nor reject conflicting/replayed identity; duplicate/resume semantics differ from the table.
+- GC removes or makes unreachable any non-releasable worker, pending claim, session binding, tombstone, fence marker, lifecycle lock, proof, or audit surface.
+- `finish_fence` accepts root/process/protocol evidence for a recorded WorkerTree requirement, or any tracked-tree path returns confirmed.
+- App-server proof omits child-thread recursion, complete pagination, exact persisted already-terminal turn status, live terminal cleanup, or daemon-escape handling.
+- A1 can pass with fabricated booleans, A6 does not prove isolated hooks loaded, A7 never starts real writers, or A9 uses a fixed expected count.
+- Managed attach performs GC/register/marker/drain before the single claim transaction, deadline formula exceeds 20s, or global lock timeout is lengthened.
+- Shared-server loss has neither actionable status/reconcile nor explicit audited abandonment, or abandonment is presented as quiescence.
+- Three attempts repeat the same test/lint failure without a new diagnosis; append `## Mistakes & Dead Ends` and reassess.
 
 ## Open questions
+
+### atomic-non-pidfd-signaling-policy
+
+- **Type:** choice — NEEDS CLARIFICATION; custom allowed.
+- **Context:** PID/start-time revalidation does not close the signal TOCTOU on Darwin or non-pidfd Linux recovery.
+- **Options:**
+  1. **Never raw-signal after recovery (recommended):** act only through live pidfd, unreaped supervisor Child, or verified confined cgroup; otherwise remain unconfirmed.
+  2. Permit best-effort raw signaling after two checks (unsafe; collateral PID/PGID reuse remains possible).
+  3. Disable managed process fencing entirely on platforms without recoverable stable handles.
+
+### cgroup-anti-migration-threat-model
+
+- **Type:** choice — NEEDS CLARIFICATION; custom allowed.
+- **Context:** same-user delegation permits escape unless namespace/mount/sandbox policy denies ancestor/sibling migration and alternate cgroupfs access.
+- **Options:**
+  1. **Require namespace-root plus read-only/hidden cgroupfs and adversarial escape tests (recommended):** downgrade to unconfirmed when unavailable.
+  2. Accept sandbox-denied cgroupfs writes as the boundary when the exact sandbox contract is runtime-verified.
+  3. Treat plain delegated cgroup as strong (unsafe; rejected by Draft-2 threat model).
+
+### codex-pending-id-binding
+
+- **Type:** choice — NEEDS CLARIFICATION; custom allowed.
+- **Context:** Codex runtime session id appears only inside first SessionStart.
+- **Options:**
+  1. **Pending token-hash index + atomic first-id claim (recommended):** retain claimed hash only for exact duplicate idempotency; resume later uses session binding without requiring token.
+  2. Key lifecycle by cwd marker until id appears (unsafe in shared dirs and races another session).
+  3. Disable hook-born managed Codex and require app-server pre-known thread ids.
+
+### appserver-child-thread-policy
+
+- **Type:** choice — NEEDS CLARIFICATION; custom allowed.
+- **Context:** interrupting one turn does not stop child/subagent threads or daemonized writers.
+- **Options:**
+  1. **Recursive lineage proof plus dedicated confined server for WorkerTree (recommended):** shared server earns protocol-only evidence.
+  2. Runtime-disable child-agent spawning and process tools, but only if a current enforceable app-server contract is verified.
+  3. Treat root interruption as worker quiescence (unsafe).
+
+### fencing-unconfirmed-release-policy
+
+- **Type:** choice — NEEDS CLARIFICATION; custom allowed.
+- **Context:** shared-server loss or observation-only recovery can retain capacity indefinitely without operator action.
+- **Options:**
+  1. **Status + safe reconcile + explicit audited abandonment (recommended):** only abandonment may knowingly release without proof and must say NOT QUIESCENCE-PROVEN.
+  2. Never release without proof (safest but can permanently leak capacity/resources).
+  3. Auto-release after age/timeout (unsafe; time is not quiescence evidence).
 
 ### darwin-containment-policy
 
 - **Type:** choice — NEEDS CLARIFICATION; custom allowed.
-- **Context:** Darwin offers generation-safe individual process control through private `libproc`, but no public unprivileged cgroup-equivalent. A child that daemonizes before observation cannot be proven absent.
+- **Context:** `proc_bsdinfo` supplies observations, not an atomic signal handle or descendant containment.
 - **Options:**
-  1. **Ship tracked-tree as explicitly unconfirmed (recommended):** support ordinary process cleanup, but consumers requiring a hard physical cap (including fan-out) refuse Darwin unless a future authoritative containment backend exists.
-  2. Disable all managed worker lifecycle features on Darwin; keep only unmanaged relay behavior.
-  3. Expand scope to a separately approved launchd/privileged containment helper (not implementable under this plan's constraints).
+  1. **Observation-only Darwin after supervisor recovery (recommended):** live unreaped Child may be acted on process-only; hard WorkerTree consumers refuse Darwin.
+  2. Disable all managed lifecycle features on Darwin.
+  3. Expand scope to a separately approved privileged/launchd containment helper.
 
 ### background-terminal-policy
 
-- **Type:** choice — NEEDS CLARIFICATION after Step 1 schema/runtime probe; custom allowed.
-- **Context:** `turn/interrupt` explicitly leaves background terminals running. Current docs expose experimental clean/list methods, but minimum-version availability and stable opt-in must be verified.
+- **Type:** choice — NEEDS CLARIFICATION; custom allowed.
+- **Context:** clean + paginated list-empty is necessary but insufficient until child threads and daemonized descendants are addressed.
 - **Options:**
-  1. **Require clean + list-empty for confirmed quiescence (recommended):** otherwise remain `FencingUnconfirmed` and retain capacity until operator recovery/upgrade.
-  2. Treat interrupted turn as sufficient and document terminals as outside worker lifecycle (not recommended; weakens physical quiescence).
-  3. Require a relay-owned dedicated app-server for managed workers so protocol failure can fall back to process fencing (higher resource cost; separate scope decision).
+  1. **Require terminal-empty + recursive child lineage + authoritative process containment for WorkerTree (recommended).**
+  2. Accept terminal-empty + lineage as ProtocolTree only; consumers explicitly choose whether protocol scope suffices.
+  3. Treat root terminal-empty as WorkerTree proof (unsafe).
 
 ## Cold-handoff checklist
 
-1. **File manifest:** present — every step names exact files and current line ranges where editing an existing file.
-2. **Environment & commands:** present — base, toolchain, runtime prerequisites, local commands, real-runtime flags, and native target matrix are explicit.
-3. **Interface & data contracts:** present — lifecycle, guard, process identity, containment, proof, hook disposition, and app-server interruption shapes are defined.
-4. **Executable acceptance:** present — A0–A15 each specify a command and expected result.
-5. **Out of scope:** present — fan-out-specific items 4–6, shared-server kill, arbitrary clients, privileged helpers, binaries/releases, and unrelated cleanup are excluded with rationale.
-6. **Decision rationale:** present — protocol-first interrupt, dual hook gate, token binding, per-worker flock, barriered exec, pidfd+persistent generation, cgroup strong tier, and fail-closed residuals are justified.
-7. **Known gotchas:** present — timeout fail-open, terminal survival, pidfd persistence, `/proc` parsing, Darwin private API, process-group escape, duplicate hooks, and mail ordering are explicit.
-8. **Global constraints verbatim:** present — feasibility first, four targets, and no external work under store locks are copied from the task.
-9. **No undefined terms / forward refs:** present — every named state, proof, guard, capability tier, generated test, and open decision is defined here; no TODO/TBD placeholder remains.
+1. **File manifest:** present — each step names exact existing/new paths and current line ranges for cited callsites.
+2. **Environment & commands:** present — base, versions, four targets, isolated real-runtime setup, measured deadline formula, and exact gates are specified.
+3. **Interface & data contracts:** present — worker/session identity, pending claim, transitions, re-entry guards, fence intent, stable handles, scopes, proof types, lineage, GC, and operator APIs are explicit.
+4. **Executable acceptance:** present — A0–A18 are command + expected evidence, including adversarial matrices and source-derived counts.
+5. **Out of scope:** present — fan-out specifics, unsafe raw signaling, privileged helpers, arbitrary clients, shared-server kill, binaries/releases, and unrelated changes are excluded.
+6. **Decision rationale:** present — every non-obvious choice is tied to a red-team defect and failure mode.
+7. **Known gotchas:** present — all TOCTOU, migration, starvation/CLOEXEC, identity, GC, child-thread, terminal, drain, and timing traps are explicit.
+8. **Global constraints verbatim:** present — feasibility-first, no external work under locks, targets, and honest tiering are carried forward.
+9. **No undefined terms / forward refs:** present — every state, scope, guard, proof, receipt, test harness, and question is defined; no TODO/TBD remains.
 
-Adversarial cold-read result: a cold executor can start with Step 1 and knows which facts are provisional, which interfaces must be rewritten if probes disagree, what constitutes proof on each platform, and when to stop. The only decisions intentionally left unresolved are Darwin policy and background-terminal minimum support, both structured above rather than guessed.
+Adversarial cold-read result: a cold executor can implement each step without choosing an identity key, signal primitive, confinement claim, admission order, duplicate-token behavior, GC exemption, proof promotion, app-server recovery query, drain policy, or operator release rule. Remaining product/policy decisions are structured above and default to the fail-closed recommended option until answered.
 
 ## Self-review
 
-Score: **96/100** · trajectory **79→88→93→95→96→96→96→96** · stopped: **plateau (K=3)**.
+Score: **94/100** · trajectory **56→78→88→92→94→94→94→94** · stopped: **plateau (K=3)**.
 
-Weighted result: standalone executability **22/22**; actionability **16/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **12/12**; failure mode **9/10**; assumption→question **4/6**. The residual deductions are intentional: no portable Darwin descendant containment, no safe process-kill fallback for an unreachable shared app-server, hook watchdog timing is not a hard real-time guarantee, and two policy choices require the parent/user after the runtime spike.
+Weighted result: standalone executability **21/22**; actionability **15/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **11/12**; failure mode **9/10**; assumption→question **5/6**. Deductions remain because physical WorkerTree proof is intentionally unavailable on Darwin, recovered non-pidfd processes, tracked trees, and shared app-server; seven policy choices remain for the parent/user.
 
-The scored loop caught and corrected: (1) the initial design wrongly assumed app-server had no cancel RPC — current docs prove `turn/interrupt`; (2) interruption alone leaves background terminals, so clean/list-empty became part of proof; (3) pre-checking lifecycle before `deliver` left an Idle→turn-start TOCTOU, so a shared per-worker guard now spans the operation and fencing takes exclusive ownership; (4) pidfd alone was incorrectly treated as durable, so boot/start generation is persisted; (5) process-group kill was incorrectly treated as tree containment, so cgroup v2 is the only strong tree tier and portable fallbacks return unconfirmed; (6) SessionStart output alone did not cover hook timeout/crash, so UserPromptSubmit and a detached-supervisor dead-man were added; (7) a parent-side post-spawn cgroup move left a fork race, so managed launch now blocks in `__managed-child-exec` until identity and containment are published; (8) the attach token was initially unbound bearer state, so only a hash plus generation/tool/canonical-cwd/deadline is persisted; (9) the first interface omitted lifecycle transitions and named `IdentityMismatch`/`TurnTerminal` without shapes, so the closed table and missing types were added; (10) killing an unreachable shared app-server would affect unrelated threads, so that path is forbidden; (11) acceptance initially used fake hooks only, so authenticated real-runtime probes became release gates; (12) the Darwin matrix only cross-built Intel on arm64, so native `macos-15-intel` and `macos-15` probes became required; (13) a generated feasibility artifact was accidentally implied to be tracked, so A1 and Environment now identify it as untracked evidence summarized in Notes.
+The final three no-improvement rounds re-anchored on the rubric and independently checked: frontmatter/spine/A0–A18/question structure; one-to-one closure of nine HIGH plus two MED findings; and fallback-scope/residual/GC/operator contracts. All three held at 94 with no new plan defect.
+
+Draft-2 closure log:
+
+1. **HIGH-1 closed:** removed check-then-raw-kill; recovery acts only through pidfd-open-before-validation, unreaped Child, or verified cgroup; Darwin/non-pidfd is observation-only. A4 forces reuse between observation and action.
+2. **HIGH-2 closed:** cgroup proof now requires namespace/permission anti-migration, exact mount/dev/inode/path/generation binding, retained control fd, and adversarial escape tests; plain delegation is unconfirmed.
+3. **HIGH-3 closed:** fence intent publishes before drain; post-intent readers refuse; prior operations cancel boundedly; managed attach uses spawn+wait under guard, never exec. A3 covers starvation, long pump/wake, and exec lifetime.
+4. **HIGH-4 closed:** added `bus.rs`/`channel.rs`; inventory covers every drain and mutating app-server/process call, including WatchAck and wake fallback; lower APIs require a private `ReentryGuard`. A9 count is source-derived, A10 verifies mailbox bytes.
+5. **HIGH-5 closed:** separated worker/runtime ids, pending token-hash index, atomic Codex claim, session binding, and exact duplicate/resume/replay/expiry semantics. A2 is the full matrix.
+6. **HIGH-6 closed:** all non-releasable managed states and lifecycle surfaces are non-GCable; only TerminalReleasable + receipt may age out. A11 ages records 30 days.
+7. **HIGH-7 closed:** proofs are scope-bound and exhaustively validated; ProcessOnly/ProtocolOnly cannot satisfy WorkerTree; tracked trees always unconfirmed, including stable snapshots. A5/A13 enforce.
+8. **HIGH-8 closed:** app-server proof recursively paginates child lineage/turns/terminals to a two-pass fixed point; recovery uses exact persisted turn status; real child/background/daemon sentinels distinguish ProtocolTree from WorkerTree. Shared server is never physical proof.
+9. **HIGH-9 closed:** A1 executes a committed harness with code/raw hashes and the full capability matrix; A4–A10 are adversarial, isolated, externally observable, and source-derived rather than fabricated booleans/counts.
+10. **MED-1 closed:** managed claim is the first single short transaction; GC/register/marker/drain defer until Active; global lock remains three seconds; deadline is derived from 10 cold starts plus sequential contention and capped below 30 seconds.
+11. **MED-2 closed:** durable status/reconcile/abandon gives exact recovery handoff and an explicit audited risk-release path that never masquerades as quiescence. A12 covers both safe and risk-accepting paths.
 
 ## Notes
 
-Step 1 appends a dated capability table here before implementation. Record exact versions, commands, output artifact paths, and one of `supported | fallback | impossible` for: Claude SessionStart stop, Claude UserPromptSubmit block, Codex SessionStart stop, Codex UserPromptSubmit block, hook timeout behavior, app-server interrupt, terminal event correlation, background terminal clean/list, Linux pidfd, Linux cgroup delegation, and Darwin generation/child enumeration. Do not paste large generated schemas into this plan.
+- Step 1 appends the committed harness git-blob hash, raw artifact hashes, exact runtime versions, 10-run timing samples, derived deadline, and capability verdicts here. Large raw protocol/hook transcripts remain in the harness-owned temporary artifact directory, not pasted into the plan.
+- Draft-1 independent red-team score: 56/100, not dispatch-ready. Draft-2 treats all nine high and two medium findings as must-fix and retains the confirmed foundation without new API speculation.
 
 ## Sources
 
-- `docs/plans/active/relay-worker-fanout.md:456-473` — final red-team items 1–3 define these general primitives; items 4–6 remain fan-out-specific and item 7 requires shared strengthening.
-- `plugins/session-relay/rust/src/appserver.rs:50-76` — verified source fact: `SpawnedThread` currently has id/start/pump and no interrupt/cancel.
-- `plugins/session-relay/rust/src/appserver.rs:84-112,198-241,573-617` — delivery samples Idle then starts/pumps a turn; pump completion is event-based but does not retain terminal status or turn id.
-- `plugins/session-relay/rust/src/watch.rs:558-590` — verified source fact: watch drains/injects and may auto-start through `deliver` without lifecycle/version gating.
-- `plugins/session-relay/rust/src/cli.rs:269-367,925-1031` — attach preview/exec and app-server wake are independent re-entry surfaces; wake checks transient Idle then calls `deliver` with auto-turn.
-- `plugins/session-relay/rust/src/hook.rs:109-117,195-257` — verified source fact: hook catches inner errors and always exits 0; SessionStart currently registers/drains and emits context only.
-- `plugins/session-relay/rust/src/spawn.rs:337-495,424-431,662-793,713-724` — verified source fact: app-server pump and CLI child use independent process groups; the current supervisor retains only raw child handles while alive.
-- `plugins/session-relay/rust/src/store.rs:446-482,485-545,1208-1292` — verified source fact: global `with_lock` is a three-second kernel-flock critical section; Entry lacks lifecycle/execution identity; register is a locked read-modify-write.
-- `plugins/session-relay/rust/src/main.rs:14-59` — current multi-call routing identifies every CLI surface that must remain wired/documented.
-- [Codex hooks — common output and SessionStart](https://learn.chatgpt.com/docs/hooks#common-output-fields) — SessionStart supports `continue:false`; default command-hook timeout is 600 seconds and hook failures continue.
-- [Codex app-server API overview](https://learn.chatgpt.com/docs/app-server#api-overview) — current methods include `turn/interrupt`, thread archive/unsubscribe, and experimental background-terminal clean/list.
-- [OpenAI Codex app-server README — interrupt example](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#example-interrupt-an-active-turn) — exact `{threadId,turnId}` request; rely on `turn/completed interrupted`; background terminals survive interruption.
-- [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) — SessionStart exit 2 is non-blocking, universal `continue:false` stops processing, UserPromptSubmit can block, and command hooks time out rather than forming an unbounded gate.
-- [Linux `pidfd_open(2)`](https://man7.org/linux/man-pages/man2/pidfd_open.2.html) — pidfd is a pollable stable task reference (Linux 5.3+) and can be signaled with `pidfd_send_signal`.
-- [Linux `/proc/pid/stat(5)`](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html) — field 22 is process start time after boot in clock ticks.
-- [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) — `cgroup.kill` handles descendant trees/concurrent forks and `cgroup.events populated 0` is recursive emptiness evidence.
-- [rustix process API 1.1.4](https://docs.rs/rustix/1.1.4/rustix/process/) — `pidfd_open`/`pidfd_send_signal` require the `process` feature and are Linux-only; verify locked version during Step 1.
-- [Apple XNU `proc_bsdinfo`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h) — exposes pid/ppid/pgid and start seconds/microseconds.
-- [Apple XNU `libproc.h`](https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.h) — exposes process/child enumeration but labels the interfaces private and subject to change.
-- [Apple `killpg(2)`](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/killpg.2.html) — signals only the named process group, not descendants that leave it.
-- [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) — current native macOS labels are `macos-15-intel` for x86_64 and `macos-15` for arm64; Step 1 re-verifies before workflow edits.
+- `docs/plans/active/relay-worker-fanout.md:456-473` — final red-team splits general primitives (this plan) from fan-out-specific recovery.
+- `plugins/session-relay/rust/src/appserver.rs:50-76,84-164,198-241,573-617` — current id/start/pump wrapper; deliver/status/ack resume threads and start turns without cancellation/proof/guard contracts.
+- `plugins/session-relay/rust/src/bus.rs:283-315` — MCP inbox drains directly.
+- `plugins/session-relay/rust/src/channel.rs:174-195` — channel drains then emits context directly.
+- `plugins/session-relay/rust/src/cli.rs:269-367,885-903,925-1031` — attach exec replaces relay (dropping CLOEXEC guard); CLI inbox/wake drain and resume/start paths.
+- `plugins/session-relay/rust/src/hook.rs:109-117,195-240` — hook always exits 0; current managed-relevant work runs GC→marker→register→drain.
+- `plugins/session-relay/rust/src/spawn.rs:337-495,662-790` — app-server pump and CLI birth; Codex id is unknown until hook registration; parent owns Child only while this process lives.
+- `plugins/session-relay/rust/src/store.rs:446-482,485-545,1023-1205,1208-1292` — three-second flock, Entry shape, age-based GC with no managed exemption, and register transaction.
+- `plugins/session-relay/rust/src/watch.rs:245-310,555-640` — pending acknowledgement, mailbox drain/deliver, and wake fallback are distinct re-entry paths.
+- `plugins/session-relay/rust/src/main.rs:14-59` — multi-call routing to extend with lifecycle reconcile and hidden managed launcher.
+- [Codex hooks](https://learn.chatgpt.com/docs/hooks#common-output-fields) — independently reconfirmed SessionStart/common stop and UserPromptSubmit behavior; timeout failures are fail-open.
+- [Codex app-server](https://learn.chatgpt.com/docs/app-server#api-overview) — independently reconfirmed interrupt, persisted thread/turn reads, lineage filters, and background-terminal APIs.
+- [Codex interrupt example](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#example-interrupt-an-active-turn) — exact interrupt request and terminal event; background terminals survive interrupt.
+- [Linux pidfd](https://man7.org/linux/man-pages/man2/pidfd_open.2.html) and [`/proc/pid/stat`](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html) — stable fd vs observation-only start generation.
+- [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) — kill/populated semantics; Draft-2 adds the required anti-migration boundary rather than over-reading those primitives.
+- [Apple XNU process info](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h) and [`libproc.h`](https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.h) — Darwin observation fields/private enumeration, not an atomic signal handle.
 
 ## Review
 
