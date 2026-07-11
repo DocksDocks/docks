@@ -1,9 +1,9 @@
 ---
 title: relay attach — hand a human the worker's chat
 goal: New `relay attach <nameOrId>` verb that safely hands the user the exact interactive-resume command (or execs it) for any relay session, plus documented attach recipes and the split-brain warning.
-status: in_review
+status: finished
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-10T21:44:22-03:00"
+updated: "2026-07-10T21:48:46-03:00"
 started_at: "2026-07-10T21:03:47-03:00"
 in_review_since: "2026-07-10T21:44:22-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
@@ -19,6 +19,7 @@ related_plans:
   - relay-store-hygiene.md
   - relay-live-view.md
 review_status: passed
+ship_commit: 2f0b2f9616622e1d935b7974d3b4d314f1e8e58c
 planned_at_commit: 072c830dfedec6de3288f06f3139909d17012d13
 ---
 
