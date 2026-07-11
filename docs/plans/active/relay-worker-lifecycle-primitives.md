@@ -3,7 +3,7 @@ title: Build relay worker lifecycle primitives
 goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
 status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T14:43:21-03:00"
+updated: "2026-07-11T15:52:31-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
@@ -270,7 +270,6 @@ pub enum OperationKind {
     WakeAppServer,
     WakeCli,
     AttachResume,
-    Deliver,
     InitialTurn,
 }
 
