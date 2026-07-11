@@ -3,11 +3,12 @@ title: relay live-view — watch and co-drive relay conversations from open chat
 goal: Make relay traffic visible live inside the user's own open sessions — codex via app-server-native delivery (shared-thread co-driving, split-brain eliminated), claude via an experimental relay channel.
 status: ongoing
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-10T21:50:05-03:00"
+updated: "2026-07-10T21:58:21-03:00"
 started_at: "2026-07-10T21:50:05-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, app-server, channels, live-view]
 affected_paths:
+  - plugins/session-relay/rust/src/appserver.rs
   - plugins/session-relay/rust/src/watch.rs
   - plugins/session-relay/rust/src/cli.rs
   - plugins/session-relay/rust/src/spawn.rs
@@ -55,7 +56,7 @@ User desire (2026-07-10): "if I already have a session open... talk to the relay
 
 | # | Task | Status |
 |---|------|--------|
-| 1 | Refactor the WS/app-server client out of `watch.rs` into a shared module (e.g. `appserver.rs`) with no behavior change; `node scripts/ci.mjs --plugin session-relay` green before proceeding (pure-refactor gate). | pending |
+| 1 | Refactor the WS/app-server client out of `watch.rs` into a shared module (e.g. `appserver.rs`) with no behavior change; `node scripts/ci.mjs --plugin session-relay` green before proceeding (pure-refactor gate). | done |
 | 2 | Server configuration recording the socket path. Precedence: a per-registration `server` field on the registry `Entry` (set at `relay spawn --server <path>` / `relay register`) wins; the store-wide `RELAY_APP_SERVER` env (already read by `watch.rs:181-185` — reuse that name, do NOT introduce a second `AGENT_RELAY_*` variant) is the fallback. NOTE: `store::Entry` (store.rs:462-468) has no `server` field today — this is a registry-schema addition (add field + `to_json`/`from_json`, default `None` for legacy entries). `relay doctor` reports reachability (connect + initialize). Absence semantics documented in the skill. | pending |
 | 3a | Visible-injection INVESTIGATION (STOP-gated, no production code): against a real `codex app-server`, determine which `thread/inject_items` payload types render in an attached `codex --remote` TUI (Context fact: raw items are ignored). Also determine how to detect a turn-in-flight on a thread (thread status / loaded-list APIs) for the contention rule in 3b. STOP: mail findings + the chosen delivery design to the orchestrator and wait for confirmation before 3b. | pending |
 | 3b | App-server-native delivery per the confirmed 3a design: `relay wake` and `relay watch` doorbell prefer the app-server route when a socket is configured AND reachable — `thread/resume` + visible mail delivery + optional auto-turn — falling back to today's `codex exec resume` path (with its lock) when no server is configured OR the configured server is unreachable (per Step 2's probe; note `decide()` in watch.rs:111-117 currently routes on `server.is_some()` alone — this widens it). If no injected payload renders (3a), the fallback design: inject fenced mail (model-visible) + auto-turn whose nudge tells the worker to acknowledge mail receipt in its visible reply. **Turn contention rule:** before any relay-initiated `turn/start`, check the thread's turn state; a human/user turn in flight → skip and retry on the next tick, never fire a competing turn. **Elicitation trust rule:** auto-accept `bus` elicitations ONLY on threads the relay itself spawned (registry origin marker, Step 4); on joined/foreign threads decline ALL elicitations. | pending |
@@ -98,6 +99,10 @@ Score: 91/100 · trajectory 88→91 · stopped: plateau. Big/risky plan (7 steps
 Orchestrator ingest (2026-07-10): findings 3/5/6/9 encoded — Step 3 split into 3a (STOP-gated investigation incl. turn-state API) / 3b (delivery + turn-contention rule + tightened elicitation policy keyed to a new `spawned_via` origin marker); Step 4 now owns the hook-less birth/identity duties (self-register + first-turn guardrail prompt); Step 5 requires the bus MCP in the throwaway CODEX_HOME. Finding 7 resolved in `relay-attach-command` (server-aware attach). Finding 10 DECISION: Step 4 stays in scope — spawn-then-open is the user's explicit wish; the Step-3-only MVP is the recorded descope option if 3a/4 investigation explodes. Decided by the orchestrating agent.
 
 Draft cross-check (2026-07-10): [claude opus] 10 findings (3 high, 5 med, 2 low) — corrected the app-server env var to the shipped `RELAY_APP_SERVER` (Step 2, was `AGENT_RELAY_APP_SERVER`); resolved Step 3's reachability contradiction (fall back to the doorbell when a configured server is unreachable, not only when unconfigured); replaced Step 2's undecided env-vs-field "and/or" with a stated precedence and flagged the missing `server` field on the registry `Entry`; named watch.rs + spawn.rs in the drift note (both are in relay-store-hygiene's `affected_paths`, the highest-risk merge); added gotchas for co-drive turn contention, `bus`-by-name elicitation trust under a user-owned app-server, and the skipped SessionStart hook. Left as findings for the author (judgment-changing, not auto-applied): app-server birth/identity rework spanning Steps 4–5 (self-register + first-turn prompt + bus MCP in the throwaway CODEX_HOME); the elicitation-trust boundary; a turn-contention design/STOP; the relay-attach-command split-brain interaction (`codex resume` vs `codex --remote`); Step 3 over-bundling five deliverables around a mid-step STOP; and the leaner Step-3-only MVP scope.
+
+## Notes
+
+Step 1 pure-refactor gate: moved the Unix-socket WebSocket transport, JSON-RPC request/pump logic, app-server delivery flow, payload builders, and their six unit tests from `watch.rs` to the shared `appserver.rs` module. The metadata-only mailbox presence poll, 64 KiB follow reads, and 8 MiB incomplete-record cap remain in `watch.rs`. `cargo test --locked` stayed at 50 Rust tests total (47 unit + 1 bus smoke + 2 lock race), and the sandboxed source-binary summary remained `PASS: session-relay self-test — 101 checks (binary: rust/target/x86_64-unknown-linux-musl/release/relay)`. The full `node scripts/ci.mjs --plugin session-relay` gate passed with cargo fmt and clippy active; only the documented local host-build digest warning appeared.
 
 ## Review
 
