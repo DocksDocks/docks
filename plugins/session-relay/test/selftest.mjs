@@ -46,7 +46,7 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'session-relay-test-'));
 // (proves SESSION_RELAY_HOME still works), host discovery/store vars scrubbed.
 function envFor(extra = {}) {
   const env = { ...process.env };
-  for (const k of ['AGENT_RELAY_HOME', 'AGENT_RELAY_GC_DAYS', 'RELAY_CLAUDE_PROJECTS', 'RELAY_CODEX_SESSIONS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'RELAY_NO_WATCH', 'RELAY_APP_SERVER', 'RELAY_TURN_SETTLE_MS', 'RELAY_TURN_WAIT_MS', 'RELAY_SPAWN_CMD_CLAUDE', 'RELAY_SPAWN_CMD_CODEX', 'RELAY_WAKE_CMD_CLAUDE', 'RELAY_WAKE_CMD_CODEX', 'RELAY_SPAWN_TOOL', 'STUB_RELAY_BIN', 'STUB_TOOL', 'STUB_DELAY_MS', 'STUB_EXIT', 'STUB_SKIP_HOOK', 'STUB_STDERR_BYTES', 'WAKE_STUB_DELAY_MS']) delete env[k];
+  for (const k of ['AGENT_RELAY_HOME', 'AGENT_RELAY_GC_DAYS', 'RELAY_CLAUDE_PROJECTS', 'RELAY_CODEX_SESSIONS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'RELAY_NO_WATCH', 'RELAY_APP_SERVER', 'RELAY_TURN_SETTLE_MS', 'RELAY_TURN_WAIT_MS', 'RELAY_SPAWN_CMD_CLAUDE', 'RELAY_SPAWN_CMD_CODEX', 'RELAY_WAKE_CMD_CLAUDE', 'RELAY_WAKE_CMD_CODEX', 'RELAY_SPAWN_TOOL', 'STUB_RELAY_BIN', 'STUB_TOOL', 'STUB_DELAY_MS', 'STUB_EXIT', 'STUB_SKIP_HOOK', 'STUB_STDERR_BYTES', 'WAKE_STUB_DELAY_MS', 'ATTACH_STUB_OUTPUT']) delete env[k];
   return { ...env, SESSION_RELAY_HOME: HOME, ...extra };
 }
 const relay = (args, opts = {}) => spawnSync(BIN, args, { encoding: 'utf8', input: opts.input, cwd: opts.cwd, env: envFor(opts.env) });
@@ -166,6 +166,12 @@ check('inbox() returns then clears pending messages', () => {
   assert.equal(box.messages[0].body, 'second message');
   assert.equal(peek('agent-B').count, 0);
 });
+check('non-attach verbs still treat --exec as a value flag', () => {
+  const r = relay(['send', 'agent-B', '--exec', 'must-not-send']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /usage: relay send/);
+  assert.equal(peek('agent-B').count, 0);
+});
 
 // --- unknown recipient is a tool error, not a crash ---
 const res3 = runBus(dirA, [
@@ -222,6 +228,122 @@ check('wake --dry maps --model/--effort for codex and claude targets', () => {
   const resume = a.args.indexOf('--resume');
   assert.deepEqual(a.args.slice(resume, resume + 7), ['--resume', idA, '--model', 'opus', '--effort', 'max', '--output-format']);
   assert.ok(a.args.indexOf('--') > resume + 6, 'claude model flags stay before the prompt fence');
+});
+
+check('attach resolves registered names and ids into per-tool takeover commands', () => {
+  const byName = relay(['attach', 'codex-C']);
+  assert.equal(byName.status, 0, byName.stderr);
+  assert.match(byName.stdout, new RegExp(`command: codex resume ${idC} -C `));
+  assert.match(byName.stdout, /session: name=codex-C tool=codex dir=/);
+  assert.match(byName.stdout, /WARNING: split-brain risk/);
+
+  const byId = relay(['attach', idC]);
+  assert.equal(byId.status, 0, byId.stderr);
+  assert.match(byId.stdout, new RegExp(`command: codex resume ${idC} -C `));
+
+  const claude = relay(['attach', 'agent-A']);
+  assert.equal(claude.status, 0, claude.stderr);
+  assert.match(claude.stdout, new RegExp(`command: cd .* && claude --resume ${idA}`));
+  assert.match(claude.stdout, /WARNING: split-brain risk/);
+});
+
+const attachStubDir = path.join(HOME, 'attach-stubs');
+fs.mkdirSync(attachStubDir);
+const attachStub = `#!/usr/bin/env node
+const fs = require('node:fs');
+fs.writeFileSync(process.env.ATTACH_STUB_OUTPUT, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));
+`;
+for (const tool of ['codex', 'claude']) {
+  fs.writeFileSync(path.join(attachStubDir, tool), attachStub, { mode: 0o755 });
+}
+const attachPath = `${attachStubDir}${path.delimiter}${process.env.PATH}`;
+
+check('attach --exec replaces the process with exact codex and claude argv/cwd', () => {
+  const codexRecord = path.join(HOME, 'attach-codex.json');
+  const codex = relay(['attach', 'codex-C', '--exec'], {
+    env: { PATH: attachPath, ATTACH_STUB_OUTPUT: codexRecord },
+  });
+  assert.equal(codex.status, 0, codex.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(codexRecord, 'utf8')), {
+    argv: ['resume', idC, '-C', dirC],
+    cwd: process.cwd(),
+  });
+  assert.match(codex.stderr, /WARNING: split-brain risk/);
+
+  const codexBeforeRecord = path.join(HOME, 'attach-codex-before.json');
+  const codexBefore = relay(['attach', '--exec', 'codex-C'], {
+    env: { PATH: attachPath, ATTACH_STUB_OUTPUT: codexBeforeRecord },
+  });
+  assert.equal(codexBefore.status, 0, codexBefore.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(codexBeforeRecord, 'utf8')).argv, [
+    'resume', idC, '-C', dirC,
+  ]);
+
+  const claudeRecord = path.join(HOME, 'attach-claude.json');
+  const claude = relay(['attach', 'agent-A', '--exec'], {
+    env: { PATH: attachPath, ATTACH_STUB_OUTPUT: claudeRecord },
+  });
+  assert.equal(claude.status, 0, claude.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(claudeRecord, 'utf8')), {
+    argv: ['--resume', idA],
+    cwd: dirA,
+  });
+  assert.match(claude.stderr, /WARNING: split-brain risk/);
+});
+
+check('attach strictly rejects extra operands, unknown flags, and exec after --', () => {
+  const record = path.join(HOME, 'attach-strict.json');
+  for (const args of [
+    ['attach', 'codex-C', 'extra'],
+    ['attach', 'codex-C', '--bogus'],
+    ['attach', 'codex-C', '--', '--exec'],
+  ]) {
+    const r = relay(args, { env: { PATH: attachPath, ATTACH_STUB_OUTPUT: record } });
+    assert.equal(r.status, 2, `${args.join(' ')} exited ${r.status}: ${r.stderr}`);
+    assert.match(r.stderr, /usage: relay attach <nameOrId> \[--exec\]/);
+  }
+  assert.equal(fs.existsSync(record), false, '--exec after -- never replaced the process');
+});
+
+check('attach print mode tolerates a missing dir while --exec refuses it', () => {
+  const missingId = '53535353-5353-4353-8353-535353535353';
+  const missingDir = path.join(HOME, 'missing-attach-dir');
+  assert.equal(relay(['register', 'missing-attach', '--id', missingId, '--dir', missingDir, '--tool', 'codex']).status, 0);
+  const printed = relay(['attach', 'missing-attach']);
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.match(printed.stdout, new RegExp(`command: codex resume ${missingId}`));
+  assert.doesNotMatch(printed.stdout, / -C /);
+  assert.match(printed.stdout, /WARNING: split-brain risk/);
+
+  const record = path.join(HOME, 'attach-missing.json');
+  const executed = relay(['attach', 'missing-attach', '--exec'], {
+    env: { PATH: attachPath, ATTACH_STUB_OUTPUT: record },
+  });
+  assert.equal(executed.status, 1);
+  assert.match(executed.stderr, /stored dir does not exist/);
+  assert.equal(fs.existsSync(record), false);
+});
+
+check('attach rejects an unresolved non-UUID id', () => {
+  const r = relay(['attach', 'not-a-session-id']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /session UUID/);
+});
+
+check('attach fails closed when the resume lock cannot be probed', () => {
+  const unknownId = '54545454-5454-4454-8454-545454545454';
+  assert.equal(relay(['register', 'unknown-attach-lock', '--id', unknownId, '--dir', dirA]).status, 0);
+  const lock = path.join(HOME, 'locks', `resume-${unknownId}.lock`);
+  fs.writeFileSync(lock, '{}', { mode: 0o000 });
+  try {
+    const r = relay(['attach', 'unknown-attach-lock']);
+    assert.equal(r.status, 4);
+    assert.match(r.stderr, /attach refused: cannot verify resume lock state/);
+    assert.match(r.stderr, /relay doctor --id/);
+    assert.match(r.stderr, /WARNING: split-brain risk/);
+  } finally {
+    fs.chmodSync(lock, 0o600);
+  }
 });
 
 // --- wake usage visibility: stubs exercise the doorbell seam without billing real tools ---
@@ -1126,6 +1248,11 @@ check('wake refuses a concurrent relay-launched resume and proceeds after its lo
   waitFor(() => {
     try { return JSON.parse(fs.readFileSync(lock, 'utf8')).pid === active.child.pid; } catch { return false; }
   }, 'the first wake resume lock');
+
+  const attachRefused = relay(['attach', 'agent-A']);
+  assert.equal(attachRefused.status, 3);
+  assert.match(attachRefused.stderr, /attach refused: relay wake is in flight/);
+  assert.match(attachRefused.stderr, /WARNING: split-brain risk/);
 
   const refused = relay(['wake', 'agent-A', '--model', 'opus', '--effort', 'max'], {
     env: { RELAY_WAKE_CMD_CLAUDE: wakeStub },

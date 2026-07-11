@@ -7,6 +7,7 @@
 //   relay send <to> [--] <message...>            (or: send --id <id> [--] <message...>)
 //   relay inbox <nameOrId>
 //   relay peek <nameOrId>                        (read-only: inbox without draining)
+//   relay attach <nameOrId> [--exec]             (interactive human takeover)
 //   relay wake <nameOrId> [--model <m>] [--effort <e>] [--dry] [message...]
 //   relay wake --id <id> --dir <cwd> --tool <claude|codex> [--model <m>] [--effort <e>] [message...]
 //
@@ -20,6 +21,7 @@ use crate::hook;
 use crate::store;
 use std::collections::HashMap;
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use tinyjson::JsonValue;
 
 pub(crate) const DEFAULT_NUDGE: &str = "You have new session-relay mail. Use the session-relay skill: call inbox to read your pending messages and act on them.";
@@ -86,6 +88,7 @@ struct Target {
     dir: Option<String>,
     tool: String,
     name: Option<String>,
+    last_seen: String,
 }
 
 // A target built straight from flags — addresses a discovered session that was
@@ -105,6 +108,7 @@ fn explicit_target(args: &Args) -> Option<Target> {
         ),
         tool: args.flag("tool").unwrap_or("claude").to_string(),
         name: None,
+        last_seen: "unregistered".to_string(),
     })
 }
 
@@ -114,6 +118,7 @@ fn from_entry(e: store::Entry) -> Target {
         dir: e.dir,
         tool: e.tool,
         name: e.name,
+        last_seen: e.last_seen,
     }
 }
 
@@ -121,6 +126,237 @@ fn cwd_string() -> String {
     std::env::current_dir()
         .map(|d| d.to_string_lossy().into_owned())
         .unwrap_or_else(|_| ".".to_string())
+}
+
+const ATTACH_WARNING: &str = "WARNING: split-brain risk — neither CLI locks sessions; attaching while automation drives the session interleaves two writers. Prefer attach when the worker is idle; relay doctor --id <id> shows watcher/lock state.";
+
+struct AttachInvocation {
+    program: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+    rendered: String,
+}
+
+struct ParsedAttachArgs {
+    target: String,
+    execute: bool,
+}
+
+fn parse_attach_args(raw: &[String]) -> Result<ParsedAttachArgs, ()> {
+    let mut target = None;
+    let mut execute = false;
+    let mut options = true;
+    for arg in raw.iter().skip(1) {
+        if options && arg == "--" {
+            options = false;
+            continue;
+        }
+        if options && arg == "--exec" {
+            if execute {
+                return Err(());
+            }
+            execute = true;
+            continue;
+        }
+        if options && arg.starts_with('-') {
+            return Err(());
+        }
+        if arg.is_empty() {
+            return Err(());
+        }
+        if target.replace(arg.clone()).is_some() {
+            return Err(());
+        }
+    }
+    let Some(target) = target else {
+        return Err(());
+    };
+    Ok(ParsedAttachArgs { target, execute })
+}
+
+fn shell_word(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'_' | b'-'))
+    {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\"'\"'"))
+    }
+}
+
+fn attach_invocation(
+    tool: &str,
+    id: &str,
+    dir: Option<&str>,
+    dir_exists: bool,
+    server: Option<&str>,
+) -> Result<AttachInvocation, String> {
+    match tool {
+        "codex" => {
+            let mut args = if let Some(server) = server {
+                vec!["--remote".to_string(), format!("unix://{server}")]
+            } else {
+                vec!["resume".to_string(), id.to_string()]
+            };
+            if server.is_none() && dir_exists {
+                if let Some(dir) = dir {
+                    args.push("-C".to_string());
+                    args.push(dir.to_string());
+                }
+            }
+            let rendered = std::iter::once("codex".to_string())
+                .chain(args.iter().map(|arg| shell_word(arg)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            Ok(AttachInvocation {
+                program: "codex".to_string(),
+                args,
+                cwd: None,
+                rendered,
+            })
+        }
+        "claude" => {
+            let args = vec!["--resume".to_string(), id.to_string()];
+            let command = format!("claude --resume {}", shell_word(id));
+            let rendered = dir
+                .map(|dir| format!("cd {} && {command}", shell_word(dir)))
+                .unwrap_or(command);
+            Ok(AttachInvocation {
+                program: "claude".to_string(),
+                args,
+                cwd: dir.map(str::to_string),
+                rendered,
+            })
+        }
+        _ => Err(format!(
+            "attach target tool must be claude|codex, got: {tool}"
+        )),
+    }
+}
+
+fn discovered_target(id: &str) -> Option<Target> {
+    let rows = discover::discover(&discover::Options {
+        active_within_min: 100.0 * 365.25 * 24.0 * 60.0,
+        limit: usize::MAX,
+        ..Default::default()
+    });
+    rows.into_iter().find_map(|row| {
+        let object = row.get::<HashMap<String, JsonValue>>()?;
+        let string = |key: &str| object.get(key)?.get::<String>().cloned();
+        (string("id").as_deref() == Some(id)).then(|| Target {
+            id: id.to_string(),
+            dir: string("cwd"),
+            tool: string("tool").unwrap_or_default(),
+            name: string("name"),
+            last_seen: string("lastActivity").unwrap_or_else(|| "unknown".to_string()),
+        })
+    })
+}
+
+fn attach(args: &Args) -> ! {
+    let parsed = match parse_attach_args(&args.0) {
+        Ok(parsed) => parsed,
+        Err(()) => {
+            eprintln!("{ATTACH_WARNING}");
+            eprintln!("usage: relay attach <nameOrId> [--exec]");
+            std::process::exit(2);
+        }
+    };
+    let who = parsed.target.as_str();
+    let target = match store::resolve(who) {
+        Some(entry) => from_entry(entry),
+        None if store::is_uuid(who) => discovered_target(who).unwrap_or_else(|| {
+            eprintln!("{ATTACH_WARNING}");
+            die(&format!("unknown session UUID: {who}"));
+        }),
+        None => {
+            eprintln!("{ATTACH_WARNING}");
+            die(&format!("unknown session name or non-session UUID: {who}"));
+        }
+    };
+    if !store::is_uuid(&target.id) {
+        eprintln!("{ATTACH_WARNING}");
+        die(&format!(
+            "refusing to attach: target id is not a session UUID: {}",
+            target.id
+        ));
+    }
+    if !matches!(target.tool.as_str(), "claude" | "codex") {
+        eprintln!("{ATTACH_WARNING}");
+        die(&format!(
+            "attach target tool must be claude|codex, got: {}",
+            target.tool
+        ));
+    }
+    match store::resume_status(&target.id) {
+        store::LockStatus::Live => {
+            eprintln!("{ATTACH_WARNING}");
+            eprintln!(
+                "attach refused: relay wake is in flight for {} (resume lock held)",
+                target.name.as_deref().unwrap_or(&target.id)
+            );
+            std::process::exit(3);
+        }
+        store::LockStatus::Unknown => {
+            eprintln!("{ATTACH_WARNING}");
+            eprintln!(
+                "attach refused: cannot verify resume lock state for {}. Run relay doctor --id {} and restore lock access; remove a stale lock only after confirming no wake is running.",
+                target.name.as_deref().unwrap_or(&target.id),
+                target.id
+            );
+            std::process::exit(4);
+        }
+        store::LockStatus::Dead | store::LockStatus::Never => {}
+    }
+
+    let dir_exists = target
+        .dir
+        .as_deref()
+        .is_some_and(|dir| std::path::Path::new(dir).is_dir());
+    // The live-view plan will pass a registered app-server socket here once
+    // its optional `server` schema lands. Attach composition is ready now;
+    // current registry entries intentionally have no server field.
+    let invocation = attach_invocation(
+        &target.tool,
+        &target.id,
+        target.dir.as_deref(),
+        dir_exists,
+        None,
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("{ATTACH_WARNING}");
+        die(&e)
+    });
+
+    if parsed.execute {
+        eprintln!("{ATTACH_WARNING}");
+        let Some(_) = target.dir.as_deref().filter(|_| dir_exists) else {
+            die("attach --exec refused: stored dir does not exist");
+        };
+        let mut command = std::process::Command::new(&invocation.program);
+        command.args(&invocation.args);
+        if let Some(cwd) = invocation.cwd.as_deref() {
+            command.current_dir(cwd);
+        }
+        let error = command.exec();
+        die(&format!(
+            "attach --exec failed to replace process with {}: {error}",
+            invocation.program
+        ));
+    }
+
+    println!(
+        "session: name={} tool={} dir={} last_seen={}",
+        target.name.as_deref().unwrap_or("(unnamed)"),
+        target.tool,
+        target.dir.as_deref().unwrap_or("?"),
+        target.last_seen
+    );
+    println!("command: {}", invocation.rendered);
+    println!("{ATTACH_WARNING}");
+    std::process::exit(0);
 }
 
 fn lock_age(path: &std::path::Path) -> String {
@@ -450,6 +686,7 @@ fn wake_usage_line(tool: &str, stdout: &[u8]) -> Option<String> {
 pub fn run(cmd: &str, raw: Vec<String>) -> ! {
     let args = Args(raw);
     match cmd {
+        "attach" => attach(&args),
         "doctor" => doctor(&args),
         "discover" => {
             let within: f64 = args
@@ -757,7 +994,7 @@ pub fn run(cmd: &str, raw: Vec<String>) -> ! {
             std::process::exit(out.status.code().unwrap_or(0));
         }
         _ => die(
-            "usage: relay discover [--within min] [--tool t] | list | register <name> --id <uuid> [--dir <path>] | send <to> <msg> | inbox <who> | peek <who> | wake <who> [--model m] [--effort e] [msg] | doctor [--id <session>]",
+            "usage: relay discover [--within min] [--tool t] | list | register <name> --id <uuid> [--dir <path>] | send <to> <msg> | inbox <who> | peek <who> | attach <who> [--exec] | wake <who> [--model m] [--effort e] [msg] | doctor [--id <session>]",
         ),
     }
 }
@@ -882,5 +1119,89 @@ mod tests {
     #[test]
     fn parser_ignores_garbage_stdout() {
         assert_eq!(wake_usage_line("codex", b"not json"), None);
+    }
+
+    #[test]
+    fn attach_codex_uses_resume_and_existing_registered_dir() {
+        let attach = attach_invocation(
+            "codex",
+            "11111111-1111-4111-8111-111111111111",
+            Some("/tmp/project with space"),
+            true,
+            None,
+        )
+        .unwrap();
+        assert_eq!(attach.program, "codex");
+        assert_eq!(
+            attach.args,
+            strings(&[
+                "resume",
+                "11111111-1111-4111-8111-111111111111",
+                "-C",
+                "/tmp/project with space"
+            ])
+        );
+        assert_eq!(
+            attach.rendered,
+            "codex resume 11111111-1111-4111-8111-111111111111 -C '/tmp/project with space'"
+        );
+    }
+
+    #[test]
+    fn attach_claude_changes_to_the_registered_dir() {
+        let attach = attach_invocation(
+            "claude",
+            "22222222-2222-4222-8222-222222222222",
+            Some("/tmp/project with space"),
+            true,
+            None,
+        )
+        .unwrap();
+        assert_eq!(attach.program, "claude");
+        assert_eq!(
+            attach.args,
+            strings(&["--resume", "22222222-2222-4222-8222-222222222222"])
+        );
+        assert_eq!(attach.cwd.as_deref(), Some("/tmp/project with space"));
+        assert_eq!(
+            attach.rendered,
+            "cd '/tmp/project with space' && claude --resume 22222222-2222-4222-8222-222222222222"
+        );
+    }
+
+    #[test]
+    fn attach_codex_server_seam_prefers_remote_over_resume() {
+        let attach = attach_invocation(
+            "codex",
+            "33333333-3333-4333-8333-333333333333",
+            Some("/tmp/project"),
+            true,
+            Some("/tmp/codex app.sock"),
+        )
+        .unwrap();
+        assert_eq!(attach.program, "codex");
+        assert_eq!(
+            attach.args,
+            strings(&["--remote", "unix:///tmp/codex app.sock"])
+        );
+        assert_eq!(
+            attach.rendered,
+            "codex --remote 'unix:///tmp/codex app.sock'"
+        );
+    }
+
+    #[test]
+    fn attach_parser_accepts_one_target_and_exec_only_before_terminator() {
+        let before = parse_attach_args(&strings(&["attach", "--exec", "worker"])).unwrap();
+        assert_eq!(before.target, "worker");
+        assert!(before.execute);
+
+        let after = parse_attach_args(&strings(&["attach", "worker", "--exec"])).unwrap();
+        assert_eq!(after.target, "worker");
+        assert!(after.execute);
+
+        assert!(parse_attach_args(&strings(&["attach", "worker", "extra"])).is_err());
+        assert!(parse_attach_args(&strings(&["attach", "worker", "--bogus"])).is_err());
+        assert!(parse_attach_args(&strings(&["attach", "worker", "--", "--exec"])).is_err());
     }
 }
