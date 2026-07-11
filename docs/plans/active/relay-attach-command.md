@@ -1,11 +1,11 @@
 ---
 title: relay attach — hand a human the worker's chat
 goal: New `relay attach <nameOrId>` verb that safely hands the user the exact interactive-resume command (or execs it) for any relay session, plus documented attach recipes and the split-brain warning.
-status: planned
+status: ongoing
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-10T19:18:24-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-10T21:03:47-03:00"
+started_at: "2026-07-10T21:03:47-03:00"
+assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, attach, ux]
 affected_paths:
   - plugins/session-relay/rust/src/cli.rs
@@ -18,7 +18,7 @@ related_plans:
   - relay-store-hygiene.md
   - relay-live-view.md
 review_status: null
-planned_at_commit: 866312af540b905b9a5cb4e96f9bb2b41d1b2a10
+planned_at_commit: 072c830dfedec6de3288f06f3139909d17012d13
 ---
 
 ## Goal
@@ -36,7 +36,7 @@ The user wants to open a relay worker's conversation in their own terminal ("via
 
 - Repo `/home/vagrant/projects/docks`; branch `codex/relay-attach-command`; never push; no `bin/` commits.
 - `export PATH="$HOME/.cargo/bin:$PATH"`; gates: `node scripts/ci.mjs --plugin session-relay` (treat silent cargo-skip as failure); selftest standalone: `node plugins/session-relay/test/selftest.mjs`; tests use `AGENT_RELAY_HOME` sandboxes only.
-- Expected drift at dispatch: the `relay-store-hygiene` plan merges first and touches `store.rs`/`cli.rs`/selftest — run the drift check, read the merged code, reconcile (no shared logic expected beyond store helpers).
+- Drift base UPDATED to `072c830` (the shipped `relay-store-hygiene` merge — it heavily reworked `store.rs` with the GC/deletion path and touched `cli.rs`/`main.rs`/selftest, and `is_uuid`/lock helpers now live there). Read the merged `store.rs` before adding anything: reuse the existing `is_uuid` and resume-lock probe helpers rather than re-implementing them; the resume-lock file is `~/.agent-relay/locks/resume-<id>.lock` as before.
 
 ## Steps
 
