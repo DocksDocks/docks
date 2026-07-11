@@ -1,10 +1,10 @@
 ---
 title: Build relay worker lifecycle primitives
 goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
-status: planned
+status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T05:58:51-03:00"
-started_at: null
+updated: "2026-07-11T11:29:49-03:00"
+started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
 affected_paths:
@@ -78,7 +78,7 @@ These primitives defend a **cooperative worker**: the relay launches the user's 
 
 A deliberately adversarial same-UID worker is outside this guarantee. In particular, it can ask a same-user broker such as `systemd-run --user` / D-Bus `StartTransientUnit` to create or move a process into a sibling cgroup, or pass work/authority through an already-reachable same-user service or `SCM_RIGHTS`. That broker-assisted writer can survive `cgroup.kill` while the worker leaf reports `populated 0`; neither seccomp on the worker nor its cgroup namespace can revoke authority already held by the broker. The fan-out hard cap accepts this bounded cooperative scope; tests must not relabel broker escape as covered WorkerTree evidence.
 
-Adversarial-grade containment is a future, separately scoped capability requiring IPC and network namespace isolation, broker-socket denial, a complete service/FD handoff policy, and a full sandbox threat review. Cheap defense-in-depth in this plan still closes accidental/direct escape paths: architecture-validated seccomp, wholesale `clone3` denial returning `ENOSYS`, x86 x32 rejection, capability drop, inherited-fd closure, and a fresh PID/proc/cgroup view. The unresolved scope confirmation is recorded as `threat-model-scope` in Open questions; until changed by the owner, implementation and acceptance use the recommended cooperative model above and must label it in every WorkerTree proof/status response.
+Adversarial-grade containment is a future, separately scoped capability requiring IPC and network namespace isolation, broker-socket denial, a complete service/FD handoff policy, and a full sandbox threat review. Cheap defense-in-depth in this plan still closes accidental/direct escape paths: architecture-validated seccomp, wholesale `clone3` denial returning `ENOSYS`, x86 x32 rejection, capability drop, inherited-fd closure, and a fresh PID/proc/cgroup view. The owner confirmed **`CooperativeWorkerV1`** on 2026-07-11; implementation and acceptance use it and must label it in every WorkerTree proof/status response.
 
 ## Feasibility and guarantee tiers
 
@@ -106,7 +106,7 @@ Adversarial-grade containment is a future, separately scoped capability requirin
   ```
 - **Real runtime:** `runtime-hook-abort.mjs`, `runtime-appserver-quiescence.mjs`, and `feasibility-probe.mjs` create isolated temporary `HOME`, `CODEX_HOME`, plugin config, relay store, cwd, and sentinels. They must record the exact loaded hook path/hash and runtime version. Missing auth/runtime is failure for the real-runtime gate, never skip/pass.
 - **Authentication preflight:** before isolated-home tests, run `claude -p 'Print exactly RELAY_AUTH_OK'` and `codex exec --sandbox read-only 'Print exactly RELAY_AUTH_OK'`; each must exit 0 and print only the marker. Step 1 records, from current runtime docs/probes, the exact credential artifact or allowlisted secret-environment variable each CLI supports. The harness creates a mode-0700 temporary home/config, installs only test hook/plugin files, and either read-only references the supported credential artifact at its runtime-defined location or forwards the allowlisted secret variable by name. It never copies credential bytes into artifacts, logs paths/values/hashes, or broad-copies the user's config. If neither safe mechanism is available, STOP and report the runtime row unavailable; do not skip/pass or weaken home isolation.
-- **Pre-dispatch owner gate:** do not begin Step 1/Rust implementation until `threat-model-scope` is answered. Option 1 is the authored/recommended design; Options 2/3 change scope and require updating this plan first. Draft authoring/commit may proceed with the structured question open so the owner can answer it at handoff.
+- **Pre-dispatch owner gate:** RESOLVED 2026-07-11 — owner selected Option 1 (`CooperativeWorkerV1`). Implementation may proceed.
 - **Probe evidence contract:** each capability row contains `runtime`, `runtime_version`, `platform`, `argv`, `started_at`, `finished_at`, `exit_status`, base64 or artifact-path `stdout`/`stderr`, artifact SHA-256, parser rule, and derived verdict. The harness rejects a verdict without matching raw evidence, rejects unknown/missing schema fields, verifies its own committed git-blob hash, and emits the raw-record hash chain. There is no editable pass/fail fixture.
 - **Strong-tier spawn feasibility:** Step 1 prototypes the exact architecture-specific seccomp policy, records its BPF/policy hash, and runs authenticated real Claude and Codex beneath it. For each runtime, the harness first proves raw `clone3` returns `-1/ENOSYS` without creating a child, then requires a real shell/tool launch, an ordinary descendant, a wait, and an ordered completion sentinel. Step 4's installed filter must reproduce the same canonical policy and return action. A runtime without a safe legacy-`clone` fallback is recorded `strong_cgroup=unavailable` for that runtime; it is never allowed to advertise `ConfinedCgroup`/WorkerTree.
 - **Measured attach deadline:** the probe runs 10 isolated cold starts per runtime including sequential store-lock contention. Set `managed_attach_deadline_ms = max_observed_ms + max(2000, ceil(max_observed_ms / 2))`; it must be `<= 20_000`, preserving at least 10 seconds below the 30-second UserPromptSubmit minimum. If the formula exceeds 20 seconds, STOP. Never lengthen the three-second global store lock.
@@ -775,13 +775,7 @@ Adversarial cold-read result: a cold executor need not invent binding serializat
 
 ## Open questions
 
-### threat-model-scope
-
-- **Type:** choice — NEEDS CLARIFICATION (custom allowed)
-- **Context:** The buildable cgroup contract contains a cooperative relay-launched tree, including accidental direct escape attempts. A deliberately adversarial same-UID worker can delegate work to an already-authorized user broker/service outside the leaf; closing that requires materially broader IPC/network/service isolation. This is a pre-dispatch owner gate: no implementation starts until one option is selected. The authored design is Option 1; Options 2/3 require revising the Goal, proof types, steps, and acceptance before dispatch.
-- **Option 1 — Cooperative worker (recommended):** adopt `CooperativeWorkerV1` exactly as specified in Threat model; label proofs/status/docs and accept broker-assisted evasion as out of scope.
-- **Option 2 — Expand to adversarial isolation:** block implementation and author a separate prerequisite plan for IPC/network namespaces, broker-socket denial, service/FD handoff policy, and a full sandbox threat review.
-- **Option 3 — Disable WorkerTree:** ship ProcessOnly/ProtocolObservation primitives but keep WorkerTree and the fan-out hard cap unavailable until adversarial isolation exists.
+*(none — `threat-model-scope` resolved 2026-07-11: owner selected **Option 1, `CooperativeWorkerV1`**. Implementation and acceptance adopt the cooperative model; broker-assisted same-UID evasion is out of scope. See ## Threat model.)*
 
 ## Self-review
 
