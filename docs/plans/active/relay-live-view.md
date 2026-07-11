@@ -3,7 +3,7 @@ title: relay live-view — watch and co-drive relay conversations from open chat
 goal: Make relay traffic visible live inside the user's own open sessions — codex via app-server-native delivery (shared-thread co-driving, split-brain eliminated), claude via an experimental relay channel.
 status: ongoing
 created: "2026-07-10T19:18:24-03:00"
-updated: "2026-07-11T00:14:13-03:00"
+updated: "2026-07-11T00:20:29-03:00"
 started_at: "2026-07-10T21:50:05-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
 tags: [session-relay, rust, app-server, channels, live-view]
@@ -23,7 +23,7 @@ affected_paths:
 related_plans:
   - relay-attach-command.md
   - relay-store-hygiene.md
-review_status: null
+review_status: passed
 planned_at_commit: 52227e92e165183ea0b5e5111dda7d4b734808d3
 ---
 
@@ -202,4 +202,9 @@ Final verification remained `PASS: session-relay self-test — 117 checks (binar
 
 ## Review
 
-(placeholder — completion review writes this)
+- **Goal met:** yes — both live-view tracks are delivered by code + tests, not docs alone. Codex: `watch`/`wake` prefer the app-server route via `decide()` + reachability probe (`appserver::probe`), `spawn --server` births the thread under the server (`run_appserver_spawn` → `thread/start` → `register_with_origin spawned_via=app-server` → synchronous `turn/start` → detached pump), and Step 5's live proof asserts `target_codex_exec_resume_processes=0` + `single_rollout_writer rollout_files=1` (split-brain removed). Claude: `channel.rs` ships the EXPERIMENTAL one-way MCP channel (capability advert, one fenced event per mail, exact-UUID binding) with headless event-emission tests + a live `CLAUDE_CODE_SESSION_ID` env-contract probe.
+- **Regressions:** none — the watch.rs→appserver.rs extraction (~610 lines out, +713 in) preserved every behavior path: doorbell/`codex exec resume` fallback (`wake_fallback`, selftest 1111/1101), per-target watcher flock, exponential wake backoff (`WakeRetry`, capped 30s), the metadata-only presence poll, and the 8 MiB/64 KiB follow caps. `hook::mail_block` is byte-unchanged (0 hits in the hook.rs diff). Idempotency/contention contracts verified by tests: inject=delivered with no re-enqueue on deferred turn (BeforeInject re-enqueues, AfterInject does not; selftest 981-1004), wake exit-3 first-read-active mailbox-untouched vs. second-read-active distinct "visible turn deferred" wording (965-1004), watch pending-ack retries the turn only and never re-injects (1015-1074). Elicitation auto-accept is fail-closed on `spawned_via==app-server` only; joined threads decline even `bus` (appserver unit test + selftest 928). Channel meta carries only the validated `recipient_id`; no message body. The 3a cross-client turn race is documented as non-atomic in code + skill (SKILL.md L300-303), not hidden.
+- **CI:** pass — `node scripts/ci.mjs --plugin session-relay` exit 0 at HEAD `99be10a` (self-test 117 checks; cargo fmt + clippy -D warnings clean; only the expected local host-build digest warning). No `plugins/session-relay/bin/` changes in the review range.
+- **Cross-check:** none
+- **Follow-ups:** none
+- Filed by: plan-review on 2026-07-11T00:20:29-03:00
