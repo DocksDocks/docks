@@ -1,9 +1,9 @@
 ---
 title: Session-relay store hygiene — inactivity GC, spawn-log bounding, long-runner memory audit
 goal: Give ~/.agent-relay self-cleanup (14d-inactive sessions self-delete), bound the unbounded spawn-log growth, and audit/fix memory behavior of the relay's long-running loops.
-status: in_review
+status: finished
 created: "2026-07-10T18:26:49-03:00"
-updated: "2026-07-10T20:57:51-03:00"
+updated: "2026-07-10T21:01:47-03:00"
 started_at: "2026-07-10T18:28:20-03:00"
 in_review_since: "2026-07-10T20:57:51-03:00"
 assignee: relay-hygiene-worker (codex gpt-5.6-sol relay session)
@@ -22,6 +22,7 @@ affected_paths:
 related_plans:
   - finished/2026-07-10-relay-notify-reliability.md
 review_status: passed
+ship_commit: e85de9ddcfe96822230927cce62a53ce49a82f23
 planned_at_commit: 866312af540b905b9a5cb4e96f9bb2b41d1b2a10
 ---
 
