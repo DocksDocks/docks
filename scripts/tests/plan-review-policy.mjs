@@ -181,6 +181,13 @@ function testManagerSurfaces() {
   console.log('plan-manager prepare/dispatch/apply live/generated wrapper parity passed');
 }
 
+function testRelayBoundary() {
+  const relay = fs.readFileSync(path.join(ROOT, 'plugins/session-relay/skills/productivity/session-relay/SKILL.md'), 'utf8');
+  for (const marker of ['not** Docks\' canonical strong-default', 'sealed non-git read-only', 'rejected as a schema-v1 policy', 'future', 'approved release']) assert.match(relay, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  assert.match(relay, /ordinary collaborative debate/); assert.doesNotMatch(relay, /relay spawn.*canonical.*schema-v1/i);
+  console.log('session-relay schema-v1 rejection and future-mode boundary passed');
+}
+
 function testSelfDemo(planPath) {
   const raw = fs.readFileSync(path.resolve(ROOT, planPath), 'utf8');
   const match = raw.match(/^Bootstrap-review-record: (\{.*\})$/m); assert.ok(match, 'compact bootstrap record present');
@@ -197,7 +204,7 @@ try {
   else if (args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
   else if (args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
   else {
-    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces();
+    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary();
     console.log('plan-review-policy contract passed');
   }
 } catch (error) {
