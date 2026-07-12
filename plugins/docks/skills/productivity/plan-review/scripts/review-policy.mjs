@@ -13,7 +13,7 @@ const EXCLUDED_FRONTMATTER = new Set([
   'updated', 'status', 'started_at', 'in_review_since', 'blocked_reason',
   'blocked_since', 'assignee', 'review_status', 'ship_commit', 'review_waivers',
 ]);
-const MACHINE_RECORD = /^(?:Bootstrap-review-record|Review-receipt|Completion-review-receipt): /;
+const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt): (\{.*\})$/;
 const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_auth', 'unavailable_model', 'timed_out', 'platform_denied', 'failed_unparseable', 'unavailable_unknown']);
 const ATTEMPT_RESULTS = new Set(['passed', 'auth_failed', 'model_unavailable', 'deadline_exceeded', 'platform_denied', 'transient_transport', 'nonzero_exit', 'signaled', 'unparseable']);
 const SOURCES = new Set(['current_user', 'runtime_global', 'skill_default']);
@@ -122,14 +122,23 @@ export function parsePlan(bytes) {
 export function canonicalPlanView(bytes) {
   const { frontmatter, body } = parsePlan(bytes);
   const kept = Object.fromEntries(Object.entries(frontmatter).filter(([key]) => !EXCLUDED_FRONTMATTER.has(key)));
-  let machineRecords = 0;
-  const retained = body.split('\n').filter((line) => {
-    if (!MACHINE_RECORD.test(line)) return true;
-    machineRecords += 1;
-    if (line.includes('\n')) throw new Error('multiline machine record');
-    return false;
-  });
-  if (machineRecords > 3) throw new Error('duplicate machine records');
+  const counts = new Map(); let fence = null; const retained = [];
+  for (const line of body.split('\n')) {
+    const fenceMatch = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence === null && fenceMatch) {
+      fence = { marker: fenceMatch[2][0], length: fenceMatch[2].length };
+      retained.push(line); continue;
+    }
+    if (fence !== null && fenceMatch && fenceMatch[2][0] === fence.marker && fenceMatch[2].length >= fence.length && /^\s*$/.test(fenceMatch[3])) {
+      fence = null; retained.push(line); continue;
+    }
+    const record = fence === null ? MACHINE_RECORD.exec(line) : null;
+    if (!record) { retained.push(line); continue; }
+    const [, kind, payload] = record; const count = (counts.get(kind) || 0) + 1; counts.set(kind, count);
+    if (count > 1) throw new Error(`duplicate ${kind}`);
+    let parsed; try { parsed = JSON.parse(payload); } catch { throw new Error(`${kind} must be one-line JSON`); }
+    if (jcs(parsed) !== payload) throw new Error(`${kind} must be compact JCS`);
+  }
   return `${jcs(kept)}\n${retained.join('\n').replace(/\n*$/, '')}\n`;
 }
 
@@ -164,12 +173,13 @@ export function validatePolicy(policy) {
 }
 
 export function validateRequest(request) {
-  assertClosed(request, ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'input_sha256', 'bundle_sha256', 'policy', 'policy_sha256'], 'request');
+  assertClosed(request, ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'], 'request');
   if (request.schema !== 1 || !UUID.test(request.request_id)) throw new Error('request identity');
   oneOf(request.phase, new Set(['draft', 'completion']), 'phase');
   oneOf(request.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'lifecycle_intent');
   if (!HEX40.test(request.reviewed_commit_or_head)) throw new Error('reviewed commit');
   digest(request.input_sha256, 'input_sha256'); digest(request.bundle_sha256, 'bundle_sha256'); digest(request.policy_sha256, 'policy_sha256');
+  assertClosed(request.author, ['company', 'tool', 'model', 'effort'], 'request author'); oneOf(request.author.company, new Set(['openai', 'anthropic']), 'request author company'); for (const key of ['tool', 'model', 'effort']) string(request.author[key], `request author ${key}`);
   validatePolicy(request.policy);
   if (sha256(jcs(request.policy)) !== request.policy_sha256) throw new Error('policy hash mismatch');
   return request;
@@ -179,10 +189,15 @@ export function reviewerSchema(leg) {
   oneOf(leg, new Set(['X', 'S']), 'leg');
   const closed = (properties, required = Object.keys(properties)) => ({ type: 'object', additionalProperties: false, properties, required });
   const str = { type: 'string', minLength: 1 };
+  const tier = closed({ model: str, effort: str, transports: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['in_session', 'cli'] } } });
+  const provenance = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
+  const policy = closed({ schema: { const: 1 }, cross_company_consent: { enum: ['always', 'ask', 'never'] }, zero_reviewer_policy: { enum: ['ask', 'proceed', 'block'] }, orchestrator_preference: { enum: ['auto', 'in_session', 'cli'] }, openai_tiers: { type: 'array', minItems: 1, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, items: tier }, provenance });
   const request = closed({
     schema: { const: 1 }, request_id: { type: 'string', pattern: UUID.source }, phase: { enum: ['draft', 'completion'] },
     lifecycle_intent: { enum: ['none', 'start', 'schedule_fire', 'auto_execute'] }, reviewed_commit_or_head: { type: 'string', pattern: HEX40.source },
-    input_sha256: { type: 'string', pattern: HEX64.source }, bundle_sha256: { type: 'string', pattern: HEX64.source }, policy: { type: 'object' }, policy_sha256: { type: 'string', pattern: HEX64.source },
+    input_sha256: { type: 'string', pattern: HEX64.source }, bundle_sha256: { type: 'string', pattern: HEX64.source },
+    author: closed({ company: { enum: ['openai', 'anthropic'] }, tool: str, model: str, effort: str }),
+    policy, policy_sha256: { type: 'string', pattern: HEX64.source },
   });
   const finding = closed({ id: { type: 'string', pattern: `^${leg}[1-9][0-9]*$` }, severity: { enum: ['high', 'medium', 'low'] }, section: str, path: { type: ['string', 'null'] }, locator: { type: ['string', 'null'] }, defect: str, fix: str, evidence: str });
   return closed({ schema: { const: 1 }, leg: { const: leg }, request, verdict: { enum: ['ready', 'not_ready'] }, score: { type: 'integer', minimum: 0, maximum: 100 }, findings: { type: 'array', items: finding }, confirmations: { type: 'array', items: str } });
@@ -196,12 +211,13 @@ function validateFinding(finding, leg, ids) {
   for (const key of ['path', 'locator']) if (finding[key] !== null && typeof finding[key] !== 'string') throw new Error(key);
 }
 
-function validateDecision(decision, request) {
+function validateDecision(decision, request, expectedKind = null) {
   if (decision === null) return;
   const common = ['schema', 'kind', 'decision', 'actor', 'reason', 'at', 'request_id', 'input_sha256'];
   assertClosed(decision, common, 'decision');
   if (decision.schema !== 1 || decision.request_id !== request.request_id || decision.input_sha256 !== request.input_sha256) throw new Error('decision request mismatch');
   oneOf(decision.kind, new Set(['x_consent', 'zero_reviewer']), 'decision kind');
+  if (expectedKind && decision.kind !== expectedKind) throw new Error(`decision must be ${expectedKind}`);
   oneOf(decision.decision, decision.kind === 'x_consent' ? new Set(['allow', 'deny']) : new Set(['proceed', 'block']), 'decision');
   string(decision.actor, 'decision actor'); string(decision.reason, 'decision reason'); iso(decision.at, 'decision at');
 }
@@ -212,28 +228,111 @@ function validateAttempt(attempt) {
   string(attempt.model, 'attempt model'); string(attempt.effort, 'attempt effort'); oneOf(attempt.transport, new Set(['in_session', 'cli']), 'attempt transport');
   if (typeof attempt.started !== 'boolean' || typeof attempt.output_started !== 'boolean') throw new Error('attempt booleans');
   oneOf(attempt.result, ATTEMPT_RESULTS, 'attempt result');
-  if (attempt.exit_code !== null && !Number.isInteger(attempt.exit_code)) throw new Error('attempt exit code');
-  for (const key of ['signal', 'child_id', 'reason']) if (typeof attempt[key] !== 'string' && attempt[key] !== null) throw new Error(`attempt ${key}`);
+  if (attempt.exit_code !== null && (!Number.isInteger(attempt.exit_code) || attempt.exit_code < -2147483648 || attempt.exit_code > 2147483647)) throw new Error('attempt exit code');
+  for (const key of ['signal', 'child_id']) if (typeof attempt[key] !== 'string' && attempt[key] !== null) throw new Error(`attempt ${key}`);
+  string(attempt.reason, 'attempt reason');
   if (attempt.denial_source !== null) oneOf(attempt.denial_source, new Set(['sandbox', 'managed_policy', 'runtime_policy']), 'denial source');
   if (attempt.retry_cause !== null) oneOf(attempt.retry_cause, new Set(['transport_EAGAIN', 'transport_ETIMEDOUT', 'transport_ECONNRESET']), 'retry cause');
   if (attempt.timeout_mode !== null) oneOf(attempt.timeout_mode, new Set(['gnu_timeout', 'orchestrator_tool']), 'timeout mode');
   if (attempt.timeout_seconds !== 600) throw new Error('timeout seconds');
   for (const key of ['stdout_sha256', 'stderr_sha256']) if (attempt[key] !== null) digest(attempt[key], key);
+  if (attempt.started && (!attempt.child_id || attempt.timeout_mode === null)) throw new Error('started attempt requires child_id and timeout mode');
+  if (!attempt.started && (attempt.child_id !== null || attempt.output_started || attempt.exit_code !== null || attempt.signal !== null || attempt.timeout_mode !== null || attempt.stdout_sha256 !== null || attempt.stderr_sha256 !== null)) throw new Error('unstarted attempt carries process evidence');
+  if (!attempt.started && !['platform_denied', 'auth_failed', 'model_unavailable'].includes(attempt.result)) throw new Error('invalid unstarted attempt result');
+  if (attempt.started && (attempt.stdout_sha256 === null || attempt.stderr_sha256 === null)) throw new Error('started attempt requires output hashes');
+  if (attempt.result === 'passed' && (!attempt.started || !attempt.output_started || attempt.exit_code !== 0 || attempt.signal !== null || attempt.denial_source !== null || attempt.retry_cause !== null || attempt.timeout_mode === null)) throw new Error('invalid passed attempt');
+  if (attempt.result === 'platform_denied' && (attempt.output_started || attempt.denial_source === null || attempt.retry_cause !== null || (attempt.exit_code !== null && attempt.signal !== null))) throw new Error('invalid platform denial attempt');
+  if (attempt.result === 'transient_transport' && (!attempt.started || attempt.output_started || attempt.retry_cause === null || attempt.denial_source !== null || attempt.exit_code !== null || attempt.signal !== null)) throw new Error('invalid transient attempt');
+  if (attempt.result === 'deadline_exceeded' && (!attempt.started || attempt.timeout_mode === null || attempt.retry_cause !== null)) throw new Error('invalid deadline attempt');
+  if (attempt.result === 'nonzero_exit' && (!attempt.started || attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error('invalid nonzero attempt');
+  if (attempt.result === 'signaled' && (!attempt.started || !attempt.signal || attempt.exit_code !== null)) throw new Error('invalid signaled attempt');
+  if (attempt.result === 'unparseable' && (!attempt.started || !attempt.output_started || attempt.exit_code !== 0 || attempt.signal !== null)) throw new Error('invalid unparseable attempt');
+  if (['auth_failed', 'model_unavailable'].includes(attempt.result) && attempt.started && (attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error(`invalid ${attempt.result} attempt`);
+  if (attempt.result === 'deadline_exceeded' && ((attempt.exit_code === null) === (attempt.signal === null))) throw new Error('deadline attempt requires exactly one exit or signal');
+  if (!['platform_denied', 'transient_transport'].includes(attempt.result) && attempt.denial_source !== null) throw new Error('unexpected denial source');
+  if (attempt.result !== 'transient_transport' && attempt.retry_cause !== null) throw new Error('unexpected retry cause');
 }
 
-export function validateRawLeg(raw, request, leg, eligibleTierCount) {
-  const keys = ['schema', 'leg', 'request', 'result', 'attempts', 'selected', 'findings', 'findings_sha256', 'severity_totals', 'waiver', 'decision_evidence', 'reason'];
+function companyForLeg(authorCompany, leg) {
+  oneOf(authorCompany, new Set(['openai', 'anthropic']), 'review author company');
+  return leg === 'S' ? authorCompany : (authorCompany === 'openai' ? 'anthropic' : 'openai');
+}
+
+function validateAttemptSequence(attempts, policy, company) {
+  if (attempts.length === 0) return 0;
+  const transport = attempts[0].transport;
+  if (policy.orchestrator_preference !== 'auto' && transport !== policy.orchestrator_preference) throw new Error('attempt transport violates orchestrator preference');
+  if (attempts.some((attempt) => attempt.transport !== transport)) throw new Error('attempt transport changed within leg');
+  const tiers = policy[`${company}_tiers`].filter((tier) => tier.transports.includes(transport));
+  if (tiers.length === 0 || attempts.length > tiers.length + 1) throw new Error('raw leg attempt bound');
+  let tier = 0; let retryUsed = false; let expectRetry = false;
+  for (let i = 0; i < attempts.length; i += 1) {
+    const attempt = attempts[i]; validateAttempt(attempt);
+    if (!tiers[tier] || attempt.model !== tiers[tier].model || attempt.effort !== tiers[tier].effort) throw new Error('attempt tier order mismatch');
+    if (expectRetry) expectRetry = false;
+    if (attempt.result === 'transient_transport') {
+      if (retryUsed || i === attempts.length - 1) throw new Error('invalid transient retry order');
+      retryUsed = true; expectRetry = true; continue;
+    }
+    if (attempt.result === 'model_unavailable') {
+      tier += 1;
+      if (i < attempts.length - 1 && !tiers[tier]) throw new Error('attempt continued past tier list');
+      continue;
+    }
+    if (i !== attempts.length - 1) throw new Error('attempt after terminal result');
+  }
+  if (expectRetry) throw new Error('missing transient retry');
+  return tiers.length;
+}
+
+function validateWaiverObject(waiver, phase, inputSha) {
+  assertClosed(waiver, ['phase', 'input_sha256', 'legs', 'actor', 'reason', 'at'], 'waiver');
+  if (waiver.phase !== phase || waiver.input_sha256 !== inputSha) throw new Error('stale waiver');
+  if (!Array.isArray(waiver.legs) || waiver.legs.length === 0 || new Set(waiver.legs).size !== waiver.legs.length) throw new Error('waiver legs');
+  const normalized = [...waiver.legs].sort((a, b) => ['X', 'S'].indexOf(a) - ['X', 'S'].indexOf(b)); normalized.forEach((leg) => oneOf(leg, new Set(['X', 'S']), 'waiver leg'));
+  if (jcs(waiver.legs) !== jcs(normalized)) throw new Error('waiver legs must be normalized');
+  string(waiver.actor, 'waiver actor'); string(waiver.reason, 'waiver reason'); iso(waiver.at, 'waiver at'); return waiver;
+}
+
+export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}) {
+  const keys = ['schema', 'leg', 'request', 'result', 'attempts', 'selected', 'findings', 'findings_sha256', 'severity_totals', 'waiver', 'waiver_sha256', 'decision_evidence', 'reason'];
   assertClosed(raw, keys, 'raw leg'); if (raw.schema !== 1 || raw.leg !== leg || jcs(raw.request) !== jcs(request)) throw new Error('raw leg request mismatch');
-  oneOf(raw.result, LEG_RESULTS, 'leg result'); if (!Array.isArray(raw.attempts) || raw.attempts.length > eligibleTierCount + 1) throw new Error('raw leg attempt bound'); raw.attempts.forEach(validateAttempt);
+  oneOf(raw.result, LEG_RESULTS, 'leg result'); if (!Array.isArray(raw.attempts)) throw new Error('raw leg attempts');
+  const company = companyForLeg(request.author.company, leg); const eligibleTierCount = validateAttemptSequence(raw.attempts, request.policy, company);
   if (raw.selected !== null) { assertClosed(raw.selected, ['model', 'effort', 'transport'], 'selected'); string(raw.selected.model, 'selected model'); string(raw.selected.effort, 'selected effort'); oneOf(raw.selected.transport, new Set(['in_session', 'cli']), 'selected transport'); }
   if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => validateFinding(finding, leg, ids));
   assertClosed(raw.severity_totals, ['high', 'medium', 'low'], 'severity totals'); for (const value of Object.values(raw.severity_totals)) if (!Number.isInteger(value) || value < 0) throw new Error('severity total');
   const totals = { high: 0, medium: 0, low: 0 }; raw.findings.forEach((finding) => { totals[finding.severity] += 1; }); if (jcs(totals) !== jcs(raw.severity_totals)) throw new Error('severity totals mismatch');
-  if (raw.findings.length) { digest(raw.findings_sha256, 'findings hash'); if (raw.findings_sha256 !== sha256(jcs([...raw.findings].sort((a, b) => compareUtf16(a.id, b.id))))) throw new Error('findings hash mismatch'); } else if (raw.findings_sha256 !== null) throw new Error('empty findings hash');
-  validateDecision(raw.decision_evidence, request);
-  if (raw.result === 'passed' && (raw.selected === null || raw.attempts.at(-1)?.result !== 'passed' || raw.reason !== null || raw.waiver !== null)) throw new Error('invalid passed leg');
-  if (raw.result === 'waived' && (raw.waiver === null || raw.attempts.length || raw.findings.length)) throw new Error('invalid waived leg');
-  if (!['passed', 'waived', 'not_authorized'].includes(raw.result)) string(raw.reason, 'terminal leg reason');
+  if (raw.result === 'passed') { digest(raw.findings_sha256, 'findings hash'); if (raw.findings_sha256 !== sha256(jcs([...raw.findings].sort((a, b) => compareUtf16(a.id, b.id))))) throw new Error('findings hash mismatch'); }
+  else if (raw.findings.length || raw.findings_sha256 !== null) throw new Error('non-passed leg carries findings');
+  if (leg === 'S' && raw.decision_evidence !== null) throw new Error('S leg cannot carry consent decision');
+  if (leg === 'X') {
+    if (request.policy.cross_company_consent === 'always' && raw.decision_evidence !== null) throw new Error('standing consent requires null decision evidence');
+    if (request.policy.cross_company_consent === 'never' && raw.result !== 'not_authorized' && raw.result !== 'waived') throw new Error('X cannot run when consent is never');
+    if (request.policy.cross_company_consent === 'ask' && raw.result !== 'waived') {
+      validateDecision(raw.decision_evidence, request, 'x_consent');
+      if (raw.result === 'not_authorized' && raw.decision_evidence?.decision !== 'deny') throw new Error('not_authorized requires deny evidence');
+      if (raw.result !== 'not_authorized' && raw.decision_evidence?.decision !== 'allow') throw new Error('X attempt requires allow evidence');
+    }
+  }
+  if (raw.result === 'passed') {
+    const last = raw.attempts.at(-1);
+    if (raw.selected === null || last?.result !== 'passed' || jcs(raw.selected) !== jcs({ model: last.model, effort: last.effort, transport: last.transport }) || raw.reason !== null || raw.waiver !== null) throw new Error('invalid passed leg');
+  } else if (raw.selected !== null) throw new Error('non-passed leg cannot select reviewer');
+  if (raw.result === 'waived') {
+    if (raw.waiver === null || raw.attempts.length || raw.findings.length || raw.reason !== null || raw.decision_evidence !== null) throw new Error('invalid waived leg');
+    validateWaiverObject(raw.waiver, request.phase, request.input_sha256); digest(raw.waiver_sha256, 'waiver_sha256'); if (raw.waiver_sha256 !== sha256(jcs(raw.waiver))) throw new Error('waiver hash mismatch'); if (!raw.waiver.legs.includes(leg)) throw new Error('waiver does not cover leg');
+    if (expectedWaiver === null || jcs(raw.waiver) !== jcs(expectedWaiver)) throw new Error('waiver is not the exact current snapshot');
+  } else if (raw.waiver !== null || raw.waiver_sha256 !== null) throw new Error('non-waived leg carries waiver');
+  if (raw.result === 'not_authorized') {
+    if (leg !== 'X' || raw.attempts.length || raw.findings.length || raw.reason !== null) throw new Error('invalid not_authorized leg');
+    if (request.policy.cross_company_consent === 'always') throw new Error('standing consent cannot be not_authorized');
+    if (request.policy.cross_company_consent === 'never' && raw.decision_evidence !== null) throw new Error('configured never requires null decision evidence');
+  }
+  if (!['passed', 'waived', 'not_authorized'].includes(raw.result)) {
+    string(raw.reason, 'terminal leg reason'); const classified = classifyLeg({ leg, policy: request.policy, decision: raw.decision_evidence, attempts: raw.attempts, eligibleTierCount });
+    if (classified !== raw.result) throw new Error(`leg result mismatch: expected ${classified}`);
+  } else if (raw.result !== 'waived' && raw.reason !== null) throw new Error('successful/authorization leg reason must be null');
   return raw;
 }
 
@@ -247,19 +346,108 @@ export function validateReconciliation(reconciliation, findings) {
   return reconciliation;
 }
 
-function validatePersistedLeg(value, request, leg, tierCount) {
-  assertClosed(value, ['request', 'raw', 'reconciliation'], 'persisted leg'); if (jcs(value.request) !== jcs(request)) throw new Error('persisted request mismatch');
-  validateRawLeg(value.raw, request, leg, tierCount); validateReconciliation(value.reconciliation, value.raw.findings);
+function validateFindingEvidence(finding, rawByLeg, allowPrimary) {
+  assertClosed(finding, ['id', 'source', 'severity', 'path', 'locator', 'defect', 'fix', 'reproduction'], 'finding evidence');
+  string(finding.id, 'finding evidence id'); oneOf(finding.source, new Set(['X', 'S', 'primary']), 'finding source');
+  if (finding.source === 'primary' && !allowPrimary) throw new Error('draft reproduction cannot use primary source');
+  oneOf(finding.severity, new Set(['high', 'medium', 'low']), 'finding evidence severity');
+  for (const key of ['path', 'locator']) if (finding[key] !== null && typeof finding[key] !== 'string') throw new Error(`finding evidence ${key}`);
+  string(finding.defect, 'finding defect'); string(finding.fix, 'finding fix');
+  assertClosed(finding.reproduction, ['method', 'command', 'exit_code', 'evidence_sha256'], 'reproduction'); oneOf(finding.reproduction.method, new Set(['read', 'command']), 'reproduction method'); digest(finding.reproduction.evidence_sha256, 'reproduction evidence');
+  if (finding.reproduction.method === 'read' && (finding.reproduction.command !== null || finding.reproduction.exit_code !== null)) throw new Error('read reproduction carries command evidence');
+  if (finding.reproduction.method === 'command') { string(finding.reproduction.command, 'reproduction command'); if (!Number.isInteger(finding.reproduction.exit_code)) throw new Error('command reproduction exit code'); }
+  if (finding.source !== 'primary') {
+    const raw = rawByLeg[finding.source]; const source = raw.findings.find((candidate) => candidate.id === finding.id); if (!source) throw new Error('reproduced id not present in raw leg');
+    for (const key of ['severity', 'path', 'locator', 'defect', 'fix']) if (jcs(finding[key]) !== jcs(source[key])) throw new Error(`reproduced ${key} mismatch`);
+  }
 }
 
-export function validateDraftReceipt(receipt, expectedInput = null) {
-  const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'decision_evidence', 'outcome', 'reviewed_at'];
+function validateReproduced(reproduced, X, S, allowPrimary) {
+  if (!Array.isArray(reproduced)) throw new Error('reproduced must be array'); const ids = new Set();
+  for (const finding of reproduced) { validateFindingEvidence(finding, { X, S }, allowPrimary); if (ids.has(finding.id)) throw new Error('duplicate reproduced id'); ids.add(finding.id); }
+  return reproduced;
+}
+
+function validateAcceptedReproduced(X, S, reproduced) {
+  const ids = new Set(reproduced.map((finding) => finding.id));
+  for (const persisted of [X, S]) for (const id of persisted.reconciliation.accepted) if (!ids.has(id)) throw new Error('accepted finding was not reproduced');
+}
+
+function validateAcceptance(value) {
+  assertClosed(value, ['criterion_id', 'command', 'expected', 'exit_code', 'actual_sha256', 'met'], 'acceptance evidence');
+  string(value.criterion_id, 'criterion id'); string(value.command, 'acceptance command'); string(value.expected, 'acceptance expected'); if (!Number.isInteger(value.exit_code) || typeof value.met !== 'boolean') throw new Error('acceptance result'); digest(value.actual_sha256, 'acceptance output hash');
+}
+
+function validateCi(value) {
+  assertClosed(value, ['command', 'exit_code', 'first_failure', 'output_sha256'], 'CI evidence'); string(value.command, 'CI command'); if (!Number.isInteger(value.exit_code)) throw new Error('CI exit code'); digest(value.output_sha256, 'CI output hash');
+  if (value.exit_code === 0 && value.first_failure !== null) throw new Error('passing CI carries failure'); if (value.exit_code !== 0) string(value.first_failure, 'CI first failure');
+}
+
+function validatePrimary(value) {
+  assertClosed(value, ['goal_met', 'findings', 'acceptance', 'ci', 'regressions', 'followups'], 'primary completion evidence'); oneOf(value.goal_met, new Set(['yes', 'partial', 'no']), 'goal_met');
+  if (!Array.isArray(value.findings) || !Array.isArray(value.acceptance) || !Array.isArray(value.regressions) || !Array.isArray(value.followups)) throw new Error('primary arrays');
+  const empty = { findings: [] }; const ids = new Set(); for (const finding of value.findings) { validateFindingEvidence(finding, { X: empty, S: empty }, true); if (finding.source !== 'primary' || ids.has(finding.id)) throw new Error('primary finding id/source'); ids.add(finding.id); }
+  value.acceptance.forEach(validateAcceptance); validateCi(value.ci); value.regressions.forEach((item) => string(item, 'regression')); value.followups.forEach((item) => string(item, 'followup')); return value;
+}
+
+function validatePersistedLeg(value, request, leg, context) {
+  assertClosed(value, ['request', 'raw', 'reconciliation'], 'persisted leg'); if (jcs(value.request) !== jcs(request)) throw new Error('persisted request mismatch');
+  validateRawLeg(value.raw, request, leg, context); validateReconciliation(value.reconciliation, value.raw.findings);
+}
+
+function validateOutcome(X, S, policy, decisionEvidence, outcome, eligible = null) {
+  const passed = [X, S].filter((leg) => leg.result === 'passed').length; let expected; let shouldBeEligible;
+  if (passed === 2) { expected = 'dual'; shouldBeEligible = true; if (decisionEvidence !== null) throw new Error('dual outcome cannot carry zero-review decision'); }
+  else if (passed === 1) { expected = 'single'; shouldBeEligible = true; if (decisionEvidence !== null) throw new Error('single outcome cannot carry zero-review decision'); }
+  else if (policy.zero_reviewer_policy === 'proceed') { expected = 'zero_degraded'; shouldBeEligible = true; if (decisionEvidence !== null) throw new Error('configured proceed requires null decision'); }
+  else if (policy.zero_reviewer_policy === 'block') { expected = 'blocked'; shouldBeEligible = false; if (decisionEvidence !== null) throw new Error('configured block requires null decision'); }
+  else {
+    if (decisionEvidence === null) throw new Error('zero-review ask requires decision evidence');
+    validateDecision(decisionEvidence, X.request, 'zero_reviewer'); expected = decisionEvidence.decision === 'proceed' ? 'zero_degraded' : 'blocked'; shouldBeEligible = decisionEvidence.decision === 'proceed';
+  }
+  if (outcome !== expected) throw new Error(`outcome mismatch: expected ${expected}`);
+  if (eligible !== null && eligible !== shouldBeEligible) throw new Error('pre_execution_eligible mismatch');
+}
+
+export function validateDraftRunResult(result, { waivers = [] } = {}) {
+  assertClosed(result, ['schema', 'kind', 'request', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible'], 'draft run result');
+  if (result.schema !== 1 || result.kind !== 'draft') throw new Error('draft run kind'); validateRequest(result.request); if (result.request.phase !== 'draft') throw new Error('draft run phase');
+  const normalized = validateWaivers(waivers, 'draft', result.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
+  validateRawLeg(result.X, result.request, 'X', { expectedWaiver: waiverFor('X') }); validateRawLeg(result.S, result.request, 'S', { expectedWaiver: waiverFor('S') });
+  validateReproduced(result.reproduced, result.X, result.S, false); validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome, result.pre_execution_eligible); return result;
+}
+
+export function validateCompletionRunResult(result, { waivers = [] } = {}) {
+  assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary'], 'completion run result');
+  if (result.schema !== 1 || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
+  if (result.plan_input_sha256 !== result.request.input_sha256) throw new Error('completion plan input mismatch'); digest(result.diff_sha256, 'completion diff');
+  const normalized = validateWaivers(waivers, 'completion', result.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
+  validateRawLeg(result.X, result.request, 'X', { expectedWaiver: waiverFor('X') }); validateRawLeg(result.S, result.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(result.reproduced, result.X, result.S, true); validatePrimary(result.primary);
+  validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome); return result;
+}
+
+export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [] } = {}) {
+  const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'reviewed_at'];
   assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== 1 || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
   if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('draft receipt input mismatch'); if (expectedInput && receipt.input_sha256 !== expectedInput) throw new Error('stale draft receipt');
-  assertClosed(receipt.author, ['company', 'tool', 'model', 'effort'], 'author'); oneOf(receipt.author.company, new Set(['openai', 'anthropic', 'unknown']), 'author company'); for (const key of ['tool', 'model', 'effort']) string(receipt.author[key], `author ${key}`);
+  assertClosed(receipt.author, ['company', 'tool', 'model', 'effort'], 'author'); oneOf(receipt.author.company, new Set(['openai', 'anthropic']), 'author company'); for (const key of ['tool', 'model', 'effort']) string(receipt.author[key], `author ${key}`); if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('receipt author mismatch');
   if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('receipt policy mismatch');
-  validatePersistedLeg(receipt.X, receipt.request, 'X', receipt.request.policy.openai_tiers.length + receipt.request.policy.anthropic_tiers.length); validatePersistedLeg(receipt.S, receipt.request, 'S', receipt.request.policy.openai_tiers.length + receipt.request.policy.anthropic_tiers.length);
-  validateDecision(receipt.decision_evidence, receipt.request); oneOf(receipt.outcome, new Set(['dual', 'single', 'zero-degraded', 'blocked']), 'outcome'); iso(receipt.reviewed_at, 'reviewed_at'); return receipt;
+  const normalizedWaivers = validateWaivers(waivers, receipt.request.phase, receipt.request.input_sha256); const waiverFor = (leg) => normalizedWaivers.find((waiver) => waiver.legs.includes(leg)) || null;
+  validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') });
+  validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, false); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced);
+  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome); iso(receipt.reviewed_at, 'reviewed_at'); return receipt;
+}
+
+export function validateCompletionReceipt(receipt, expected = {}, { waivers = [] } = {}) {
+  const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'outcome', 'reviewed_at'];
+  assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== 1 || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
+  if (receipt.request.phase !== 'completion' || receipt.request.lifecycle_intent !== 'none' || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head || receipt.plan_input_sha256 !== receipt.request.input_sha256) throw new Error('completion receipt request mismatch');
+  if (!HEX40.test(receipt.planned_at_commit) || !HEX40.test(receipt.reviewed_head)) throw new Error('completion commit'); digest(receipt.diff_sha256, 'completion receipt diff');
+  if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('completion author mismatch'); if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('completion policy mismatch');
+  for (const [key, value] of Object.entries(expected)) if (value !== undefined && jcs(receipt[key]) !== jcs(value)) throw new Error(`stale completion receipt ${key}`);
+  const normalized = validateWaivers(waivers, 'completion', receipt.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
+  validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, true); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced); validatePrimary(receipt.primary);
+  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome); iso(receipt.reviewed_at, 'completion reviewed_at'); return receipt;
 }
 
 export function validateReviewerOutput(output, request, leg) {
@@ -290,59 +478,75 @@ export function extractReviewerOutput(tool, stdout, request, leg) {
 export function validateWaivers(waivers, phase, inputSha) {
   if (!Array.isArray(waivers)) throw new Error('waivers must be array');
   const claimed = new Set();
-  return waivers.map((waiver) => {
-    assertClosed(waiver, ['phase', 'input_sha256', 'legs', 'actor', 'reason', 'at'], 'waiver');
-    if (waiver.phase !== phase || waiver.input_sha256 !== inputSha) throw new Error('stale waiver');
+  const normalized = waivers.map((waiver) => {
+    assertClosed(waiver, ['phase', 'input_sha256', 'legs', 'actor', 'reason', 'at'], 'waiver'); oneOf(waiver.phase, new Set(['draft', 'completion']), 'waiver phase'); digest(waiver.input_sha256, 'waiver input');
     if (!Array.isArray(waiver.legs) || waiver.legs.length === 0 || new Set(waiver.legs).size !== waiver.legs.length) throw new Error('waiver legs');
-    const legs = [...waiver.legs].sort(); legs.forEach((leg) => { oneOf(leg, new Set(['X', 'S']), 'waiver leg'); const key = `${phase}:${inputSha}:${leg}`; if (claimed.has(key)) throw new Error('duplicate waiver'); claimed.add(key); });
-    string(waiver.actor, 'waiver actor'); string(waiver.reason, 'waiver reason'); iso(waiver.at, 'waiver at');
-    return { ...waiver, legs };
+    const legs = [...waiver.legs].sort((a, b) => ['X', 'S'].indexOf(a) - ['X', 'S'].indexOf(b)); legs.forEach((leg) => { oneOf(leg, new Set(['X', 'S']), 'waiver leg'); const key = `${waiver.phase}:${waiver.input_sha256}:${leg}`; if (claimed.has(key)) throw new Error('duplicate waiver'); claimed.add(key); });
+    string(waiver.actor, 'waiver actor'); string(waiver.reason, 'waiver reason'); iso(waiver.at, 'waiver at'); return { ...waiver, legs };
   });
+  return phase && inputSha ? normalized.filter((waiver) => waiver.phase === phase && waiver.input_sha256 === inputSha) : normalized;
 }
 
-function statMode(stat) { return (stat.mode & 0o170000).toString(8).padStart(6, '0'); }
 function inside(root, candidate) { const rel = path.relative(root, candidate); return rel && !rel.startsWith('..') && !path.isAbsolute(rel); }
-function flattenPath(repo, logical, files) {
-  const absolute = path.resolve(repo, logical);
-  if (!inside(repo, absolute)) throw new Error(`path escapes repo: ${logical}`);
-  if (!fs.existsSync(absolute)) return { path: logical, state: 'absent' };
-  const stat = fs.lstatSync(absolute);
-  if (stat.isSymbolicLink()) { files.push({ path: logical, mode: '120000', bytes: Buffer.from(fs.readlinkSync(absolute)) }); return { path: logical, state: 'file' }; }
-  if (stat.isFile()) { files.push({ path: logical, mode: statMode(stat), bytes: fs.readFileSync(absolute) }); return { path: logical, state: 'file' }; }
-  if (!stat.isDirectory()) throw new Error(`unsupported file type: ${logical}`);
-  const walk = (dir) => {
-    for (const name of fs.readdirSync(dir).sort(compareUtf16)) {
-      const child = path.join(dir, name); const rel = path.relative(repo, child).split(path.sep).join('/'); const childStat = fs.lstatSync(child);
-      if (childStat.isDirectory()) walk(child);
-      else if (childStat.isSymbolicLink()) files.push({ path: rel, mode: '120000', bytes: Buffer.from(fs.readlinkSync(child)) });
-      else if (childStat.isFile()) files.push({ path: rel, mode: statMode(childStat), bytes: fs.readFileSync(child) });
-      else throw new Error(`unsupported file type: ${rel}`);
-    }
-  };
-  walk(absolute); return { path: logical, state: 'directory' };
+
+function git(repo, args, encoding = 'utf8') {
+  const result = spawnSync('git', args, { cwd: repo, encoding });
+  if (result.error || result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${encoding ? result.stderr.trim() : result.stderr.toString().trim()}`);
+  return result.stdout;
+}
+
+function safeLogical(logical) {
+  if (typeof logical !== 'string' || !logical || path.isAbsolute(logical) || logical.split('/').includes('..') || logical === '.git' || logical.startsWith('.git/')) throw new Error(`path escapes repo: ${logical}`);
+  return logical.split(path.sep).join('/');
+}
+
+function parseTreeRecord(record) {
+  const tab = record.indexOf('\t'); if (tab < 0) throw new Error('malformed git tree record');
+  const [mode, type, oid] = record.slice(0, tab).split(' '); const logical = record.slice(tab + 1);
+  if (!/^[0-9]{6}$/.test(mode) || !HEX40.test(oid) || !['blob', 'tree', 'commit'].includes(type)) throw new Error('malformed git tree metadata');
+  if (mode === '160000' || type === 'commit') throw new Error(`submodule is unsupported: ${logical}`);
+  return { mode, type, oid, path: logical };
+}
+
+function commitPath(repo, commit, logical, files) {
+  const safe = safeLogical(logical);
+  const topRaw = git(repo, ['ls-tree', '-z', commit, '--', safe]);
+  const topRows = topRaw.split('\0').filter(Boolean).map(parseTreeRecord);
+  const exact = topRows.find((row) => row.path === safe);
+  if (!exact) return { path: safe, state: 'absent' };
+  if (exact.type === 'blob') {
+    files.push({ path: safe, mode: exact.mode, bytes: git(repo, ['cat-file', 'blob', exact.oid], null) });
+    return { path: safe, state: 'file' };
+  }
+  const rows = git(repo, ['ls-tree', '-rz', commit, '--', safe]).split('\0').filter(Boolean).map(parseTreeRecord);
+  for (const row of rows) if (row.type === 'blob') files.push({ path: row.path, mode: row.mode, bytes: git(repo, ['cat-file', 'blob', row.oid], null) });
+  return { path: safe, state: 'directory' };
 }
 
 export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir }) {
   if (!HEX40.test(reviewedCommit)) throw new Error('reviewedCommit');
-  const logicalPlan = path.resolve(repo, planPath); if (!inside(repo, logicalPlan) || !fs.statSync(logicalPlan).isFile()) throw new Error('logical plan missing');
+  const resolved = git(repo, ['rev-parse', '--verify', `${reviewedCommit}^{commit}`]).trim();
+  if (resolved !== reviewedCommit) throw new Error('reviewedCommit does not resolve exactly');
+  const safePlan = safeLogical(planPath);
   if (fs.existsSync(outDir)) throw new Error('bundle already exists');
-  fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
-  const canonical = Buffer.from(canonicalPlanView(fs.readFileSync(logicalPlan)));
   const entries = []; const requested = [];
   const unique = [...new Set(requestedPaths)].sort(compareUtf16);
   if (unique.length !== requestedPaths.length) throw new Error('duplicate requested path');
-  for (const logical of unique) requested.push(flattenPath(repo, logical, entries));
+  const planEntries = []; const planState = commitPath(repo, reviewedCommit, safePlan, planEntries);
+  if (planState.state !== 'file' || planEntries.length !== 1 || !['100644', '100755'].includes(planEntries[0].mode)) throw new Error('logical plan missing or not a regular file at reviewedCommit');
+  const canonical = Buffer.from(canonicalPlanView(planEntries[0].bytes));
+  for (const logical of unique) requested.push(commitPath(repo, reviewedCommit, logical, entries));
   entries.push({ path: 'plan.review.md', mode: '100444', bytes: canonical });
-  const schemaBytes = Buffer.from(`${jcs(reviewerSchema('X'))}\n`); entries.push({ path: 'reviewer-output.schema.json', mode: '100444', bytes: schemaBytes });
+  for (const leg of ['X', 'S']) entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
   entries.sort((a, b) => compareUtf16(a.path, b.path));
-  const seen = new Set();
+  const seen = new Set(); for (const entry of entries) { if (seen.has(entry.path)) throw new Error(`duplicate bundle path: ${entry.path}`); seen.add(entry.path); }
+  fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
   for (const entry of entries) {
-    if (seen.has(entry.path)) throw new Error(`duplicate bundle path: ${entry.path}`); seen.add(entry.path);
     const dest = path.join(outDir, entry.path); if (!inside(outDir, dest)) throw new Error('bundle path escape');
     fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, entry.bytes, { mode: 0o444 });
   }
   const manifest = {
-    schema: 1, plan_path: planPath, plan_view: 'plan.review.md', reviewed_commit: reviewedCommit,
+    schema: 1, plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' }, reviewed_commit: reviewedCommit,
     input_sha256: sha256(canonical), requested,
     files: entries.map((entry) => ({ path: entry.path, mode: entry.mode, sha256: sha256(entry.bytes) })),
   };
@@ -357,7 +561,7 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
 export function buildReviewerArgv({ tool, bundle, model, effort, leg, request }) {
   validateRequest(request); oneOf(leg, new Set(['X', 'S']), 'leg'); string(model, 'model'); string(effort, 'effort');
   const prompt = `You are the ${leg} independent plan reviewer. Read only the sealed bundle. Return findings only. Copy the request object into ReviewerOutput.request.\nREQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
-  if (tool === 'codex') return ['exec', '-C', bundle, '--skip-git-repo-check', '-s', 'read-only', '-m', model, '-c', `model_reasoning_effort=${effort}`, '--output-schema', path.join(bundle, 'reviewer-output.schema.json'), '--', prompt];
+  if (tool === 'codex') return ['exec', '-C', bundle, '--skip-git-repo-check', '-s', 'read-only', '-m', model, '-c', `model_reasoning_effort=${effort}`, '--output-schema', path.join(bundle, `reviewer-output.${leg}.schema.json`), '--', prompt];
   if (tool === 'claude') return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(reviewerSchema(leg)), '--output-format', 'json', '--', prompt];
   throw new Error('schema v1 supports codex or claude CLI only; relay is not supported');
 }
@@ -368,8 +572,9 @@ export function classifyLeg({ leg, policy, waiver = null, decision = null, attem
   if (leg === 'X' && (policy.cross_company_consent === 'never' || decision?.decision === 'deny')) return 'not_authorized';
   if (attempts.length > eligibleTierCount + 1) throw new Error('attempt bound exceeded');
   if (attempts.some((attempt) => attempt.result === 'platform_denied')) return 'platform_denied';
-  if (attempts.length === 0 || attempts.some((attempt) => attempt.result === 'auth_failed')) return 'unavailable_auth';
-  if (attempts.every((attempt) => attempt.result === 'model_unavailable')) return 'unavailable_model';
+  if (attempts.length === 0 || attempts.at(-1)?.result === 'auth_failed') return 'unavailable_auth';
+  const tierFailures = attempts.filter((attempt) => attempt.result !== 'transient_transport');
+  if (tierFailures.length === eligibleTierCount && tierFailures.every((attempt) => attempt.result === 'model_unavailable')) return 'unavailable_model';
   if (attempts.some((attempt) => attempt.result === 'deadline_exceeded')) return 'timed_out';
   if (attempts.at(-1)?.result === 'unparseable') return 'failed_unparseable';
   if (attempts.at(-1)?.result === 'passed') return 'passed';
@@ -385,6 +590,86 @@ export function applyLifecycleState({ state, intent, eligible, intentUsed = fals
   return { state: 'ongoing', intent_used: true, applied: true };
 }
 
+function digestFilesystem(root, paths = null, excludedTopLevel = new Set()) {
+  const rows = [];
+  const visit = (absolute, relative) => {
+    if (!fs.existsSync(absolute)) { rows.push(`absent\0${relative}`); return; }
+    const stat = fs.lstatSync(absolute); const mode = (stat.mode & 0o177777).toString(8);
+    if (stat.isDirectory()) {
+      rows.push(`dir\0${relative}\0${mode}`);
+      for (const name of fs.readdirSync(absolute).sort(compareUtf16)) {
+        if (relative === '' && excludedTopLevel.has(name)) continue;
+        visit(path.join(absolute, name), relative ? `${relative}/${name}` : name);
+      }
+    } else if (stat.isSymbolicLink()) rows.push(`link\0${relative}\0${mode}\0${fs.readlinkSync(absolute)}`);
+    else if (stat.isFile()) rows.push(`file\0${relative}\0${mode}\0${sha256(fs.readFileSync(absolute))}`);
+    else throw new Error(`unsupported snapshot file type: ${relative}`);
+  };
+  if (paths === null) visit(root, ''); else for (const relative of [...paths].sort(compareUtf16)) visit(path.join(root, relative), relative);
+  return sha256(rows.join('\n'));
+}
+
+export function snapshotRepository(repo) {
+  const root = fs.realpathSync(repo); const top = fs.realpathSync(git(root, ['rev-parse', '--show-toplevel']).trim());
+  if (root !== top) throw new Error('completion repo must be its worktree root');
+  const status = git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  const gitDirRaw = git(root, ['rev-parse', '--git-dir']).trim(); const gitDir = fs.realpathSync(path.resolve(root, gitDirRaw));
+  const commonRaw = git(root, ['rev-parse', '--git-common-dir']).trim(); const gitCommon = fs.realpathSync(path.resolve(root, commonRaw));
+  return {
+    schema: 1, repo_realpath: root, head: git(root, ['rev-parse', 'HEAD']).trim(), clean: status.length === 0,
+    worktree_sha256: digestFilesystem(root, null, new Set(['.git'])), git_dir_realpath: gitDir, git_metadata_sha256: digestFilesystem(gitDir),
+    git_common_dir_realpath: gitCommon, git_common_metadata_sha256: gitCommon === gitDir ? digestFilesystem(gitDir) : digestFilesystem(gitCommon),
+  };
+}
+
+function validateRepositorySnapshot(snapshot) {
+  assertClosed(snapshot, ['schema', 'repo_realpath', 'head', 'clean', 'worktree_sha256', 'git_dir_realpath', 'git_metadata_sha256', 'git_common_dir_realpath', 'git_common_metadata_sha256'], 'repository snapshot');
+  if (snapshot.schema !== 1 || typeof snapshot.clean !== 'boolean' || !path.isAbsolute(snapshot.repo_realpath) || !path.isAbsolute(snapshot.git_dir_realpath) || !path.isAbsolute(snapshot.git_common_dir_realpath) || !HEX40.test(snapshot.head)) throw new Error('repository snapshot identity');
+  for (const key of ['worktree_sha256', 'git_metadata_sha256', 'git_common_metadata_sha256']) digest(snapshot[key], `repository snapshot ${key}`); return snapshot;
+}
+
+function completionPath(rootDir, requestId) {
+  if (!UUID.test(requestId)) throw new Error('completion request id');
+  const root = path.resolve(rootDir); const out = path.resolve(root, requestId);
+  if (path.dirname(out) !== root || !inside(root, out)) throw new Error('completion path escape');
+  return { root, out };
+}
+
+export function prepareCompletionCheckout({ repo, reviewedHead, rootDir, requestId }) {
+  if (!HEX40.test(reviewedHead)) throw new Error('reviewedHead');
+  const before = snapshotRepository(repo); if (!before.clean) throw new Error('original repository is not clean');
+  if (before.head !== reviewedHead) throw new Error('reviewedHead does not match original HEAD');
+  const { root, out } = completionPath(rootDir, requestId); fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  if (fs.existsSync(out)) throw new Error('completion checkout already exists');
+  try {
+    git(root, ['clone', '--no-local', '--no-checkout', before.repo_realpath, out]);
+    git(out, ['checkout', '--detach', reviewedHead]);
+    const tempHead = git(out, ['rev-parse', 'HEAD']).trim(); const sourceTree = git(before.repo_realpath, ['rev-parse', `${reviewedHead}^{tree}`]).trim(); const tempTree = git(out, ['rev-parse', 'HEAD^{tree}']).trim();
+    if (tempHead !== reviewedHead || tempTree !== sourceTree) throw new Error('completion checkout head/tree mismatch');
+    const sentinel = { schema: 1, request_id: requestId, original_repo: before.repo_realpath, reviewed_head: reviewedHead };
+    fs.writeFileSync(path.join(out, '.docks-plan-verify-sentinel'), `${jcs(sentinel)}\n`, { mode: 0o600 });
+    const after = snapshotRepository(repo); if (jcs(after) !== jcs(before)) throw new Error('original repository changed during completion checkout');
+    return { schema: 1, request_id: requestId, checkout: out, reviewed_head: reviewedHead, source_tree: sourceTree, original_snapshot: before };
+  } catch (error) {
+    if (fs.existsSync(out)) fs.rmSync(out, { recursive: true, force: false });
+    throw error;
+  }
+}
+
+export function cleanupCompletionCheckout({ repo, rootDir, requestId, originalSnapshot }) {
+  validateRepositorySnapshot(originalSnapshot);
+  const { out } = completionPath(rootDir, requestId); const sentinelPath = path.join(out, '.docks-plan-verify-sentinel');
+  if (!fs.existsSync(sentinelPath)) throw new Error('completion cleanup sentinel missing');
+  const sentinelText = fs.readFileSync(sentinelPath, 'utf8'); let sentinel; try { sentinel = JSON.parse(sentinelText); } catch { throw new Error('completion cleanup sentinel invalid'); }
+  assertClosed(sentinel, ['schema', 'request_id', 'original_repo', 'reviewed_head'], 'completion sentinel');
+  if (sentinelText !== `${jcs(sentinel)}\n`) throw new Error('completion cleanup sentinel must be compact JCS');
+  if (sentinel.schema !== 1 || sentinel.request_id !== requestId || fs.realpathSync(repo) !== sentinel.original_repo) throw new Error('completion cleanup sentinel mismatch');
+  const current = snapshotRepository(repo); if (jcs(current) !== jcs(originalSnapshot)) throw new Error('original repository changed during completion verification');
+  fs.rmSync(out, { recursive: true, force: false });
+  const final = snapshotRepository(repo); if (jcs(final) !== jcs(originalSnapshot)) throw new Error('original repository changed during completion cleanup');
+  return { schema: 1, request_id: requestId, removed: true, original_snapshot: final };
+}
+
 export function run(argv = process.argv.slice(2)) {
   const [command, ...args] = argv;
   if (command === 'canonical-plan') { process.stdout.write(canonicalPlanView(fs.readFileSync(args[0]))); return; }
@@ -396,11 +681,18 @@ export function run(argv = process.argv.slice(2)) {
   if (command === 'bundle') {
     const [repo, commit, plan, out, ...paths] = args; process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out) }))}\n`); return;
   }
+  if (command === 'completion-prepare') {
+    const [repo, reviewedHead, rootDir, requestId] = args; process.stdout.write(`${jcs(prepareCompletionCheckout({ repo: path.resolve(repo), reviewedHead, rootDir: path.resolve(rootDir), requestId }))}\n`); return;
+  }
+  if (command === 'completion-cleanup') {
+    const [repo, rootDir, requestId, snapshotPath] = args; const originalSnapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+    process.stdout.write(`${jcs(cleanupCompletionCheckout({ repo: path.resolve(repo), rootDir: path.resolve(rootDir), requestId, originalSnapshot }))}\n`); return;
+  }
   if (command === 'probe') {
     const [tool] = args; const result = spawnSync(tool, tool === 'codex' ? ['login', 'status'] : ['auth', 'status'], { encoding: 'utf8' });
     process.stdout.write(`${jcs({ available: !result.error && result.status === 0, exit_code: result.status ?? null })}\n`); return;
   }
-  throw new Error('usage: review-policy.mjs canonical-plan|schema|validate-reviewer|bundle|probe ...');
+  throw new Error('usage: review-policy.mjs canonical-plan|schema|validate-reviewer|bundle|completion-prepare|completion-cleanup|probe ...');
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

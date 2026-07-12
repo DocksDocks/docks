@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-12"
-  content_hash: "6f70a41b1f009243a4660b73994204c0a5647990dd5838624758bca998a7bf6e"
+  content_hash: "fdfe8ef45efe943f552a3e834b1193f6858d3f283e8710a8656e36458d4f08c4"
 ---
 
 # Plan Manager
@@ -123,7 +123,7 @@ Valid intents are `none | start | schedule_fire | auto_execute`.
 4. Resolve and JCS-hash policy; validate matching waivers/decisions.
 5. Fix immutable commit/head, seal the non-git bundle, and compute bundle hash.
 6. Create one `ReviewRequestEnvelope` carrying phase, intent, immutable input,
-   canonical/bundle/policy hashes, and full policy snapshot.
+   canonical/bundle/policy hashes, persisted author identity, and full policy snapshot.
 7. Return `NeedsMainReviewDispatch` containing the exact request and X/S dispatch
    descriptions. If already in main context, proceed to dispatch once.
 
@@ -171,8 +171,9 @@ Accept only the exact typed run result returned for the prepared request.
 6. Auto-commit the plan-only receipt/transition and render Tier 3.
 
 Draft receipt binds schema, phase, exact request, reviewed commit, canonical
-input, author, policy/hash, persisted X/S raw+reconciliation, decision evidence,
-outcome, and review time. A later ordinary prose or policy edit invalidates it;
+input, author, policy/hash, persisted X/S raw+reconciliation, reproduced evidence,
+decision evidence, outcome, and review time. Completion binds the same author and
+reproduced evidence plus planned/head/diff/primary evidence. A later ordinary prose or policy edit invalidates it;
 excluded lifecycle fields and its own exact line do not.
 
 ## Completion review

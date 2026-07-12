@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-12"
-  content_hash: "74227272ea330ea1b81581c337615c5c5603534b454c686619e3ae0762118bcc"
+  content_hash: "f64500be9f5f0931241f979bf305dd0a58ae4bace9ce0c040fec616be6948e4e"
 ---
 
 # Plan Review Evidence Runner
@@ -37,15 +37,16 @@ ReviewRequestEnvelope = {
   lifecycle_intent: none|start|schedule_fire|auto_execute,
   reviewed_commit_or_head: 40hex,
   input_sha256: 64hex, bundle_sha256: 64hex,
+  author: {company:openai|anthropic,tool,model,effort},
   policy: ResolvedReviewPolicy, policy_sha256: 64hex
 }
 ```
 
 The helper must revalidate the complete envelope and policy before launch.
 Policy provenance is closed to `current_user | runtime_global | skill_default`.
-Author identity is already persisted in plan frontmatter; do not infer it from
-the current executor. X is the other company. S is an independent reviewer from
-the author's company.
+Author identity is already persisted in plan frontmatter and byte-bound in the
+request; do not infer it from the current executor. X is the other company. S is
+an independent reviewer from the author's company.
 
 Default dated tiers (2026-07; honor a higher-precedence resolved tier list):
 
@@ -67,7 +68,8 @@ After plan-manager commits the non-executing input, use the helper to:
 2. Export sorted `affected_paths` at the immutable commit/head into
    `/tmp/docks-plan-review/<request_id>/`; absent CREATE/deleted paths are
    explicit tombstones. Symlinks are target bytes, never followed.
-3. Add the generated reviewer JSON Schema and a manifest without a bundle hash.
+3. Add distinct generated X and S reviewer JSON Schemas and a manifest without a
+   bundle hash; each launch selects its exact leg schema path.
 4. Hash canonical manifest bytes plus length-prefixed file bytes, chmod the
    bundle read-only, then create one request carrying `bundle_sha256`.
 5. Re-hash after sealing. Any mutation, escape, duplicate, submodule, commit/tree
@@ -97,7 +99,7 @@ Codex CLI argv:
 ```text
 codex exec -C <bundle> --skip-git-repo-check -s read-only
   -m <model> -c model_reasoning_effort=<effort>
-  --output-schema <bundle>/reviewer-output.schema.json -- <prompt>
+  --output-schema <bundle>/reviewer-output.<X|S>.schema.json -- <prompt>
 ```
 
 Claude CLI argv (cwd is the bundle):
