@@ -699,9 +699,11 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
   entries.sort((a, b) => compareUtf16(a.path, b.path));
   const seen = new Set(); for (const entry of entries) { if (seen.has(entry.path)) throw new Error(`duplicate bundle path: ${entry.path}`); seen.add(entry.path); }
   fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
+  const directories = new Set();
   for (const entry of entries) {
     const dest = path.join(outDir, entry.path); if (!inside(outDir, dest)) throw new Error('bundle path escape');
     fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, entry.bytes, { mode: 0o444 });
+    for (let directory = path.dirname(dest); inside(outDir, directory); directory = path.dirname(directory)) directories.add(directory);
   }
   const manifest = {
     schema: 1, plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' }, reviewed_commit: reviewedCommit,
@@ -709,7 +711,7 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
     files: entries.map((entry) => ({ path: entry.path, mode: entry.mode, sha256: sha256(entry.bytes) })),
   };
   const manifestBytes = Buffer.from(`${jcs(manifest)}\n`); fs.writeFileSync(path.join(outDir, 'manifest.json'), manifestBytes, { mode: 0o444 });
-  for (const directory of [...new Set(entries.map((entry) => path.dirname(path.join(outDir, entry.path))))].sort((a, b) => b.length - a.length)) fs.chmodSync(directory, 0o555);
+  for (const directory of [...directories].sort((a, b) => path.relative(outDir, b).split(path.sep).length - path.relative(outDir, a).split(path.sep).length)) fs.chmodSync(directory, 0o555);
   fs.chmodSync(outDir, 0o555);
   return { request_id: randomUUID(), input_sha256: manifest.input_sha256, bundle_sha256: bundleHash(manifestBytes, entries), completion, manifest };
 }

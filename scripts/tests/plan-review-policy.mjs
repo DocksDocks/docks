@@ -298,17 +298,18 @@ function testAdversarialValidators() {
 function testBundle() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-bundle-'));
   const repo = path.join(temp, 'repo'); const out = path.join(temp, 'bundle');
-  fs.mkdirSync(path.join(repo, 'docs/plans/active'), { recursive: true }); fs.mkdirSync(path.join(repo, 'src'));
-  fs.copyFileSync(FIXTURE, path.join(repo, 'docs/plans/active/sample.md')); fs.writeFileSync(path.join(repo, 'src/example.js'), 'export const example = true;\n'); fs.symlinkSync('example.js', path.join(repo, 'src/example-link.js'));
+  fs.mkdirSync(path.join(repo, 'docs/plans/active'), { recursive: true }); fs.mkdirSync(path.join(repo, 'src')); fs.mkdirSync(path.join(repo, 'evidence/level-one/level-two'), { recursive: true });
+  fs.copyFileSync(FIXTURE, path.join(repo, 'docs/plans/active/sample.md')); fs.writeFileSync(path.join(repo, 'src/example.js'), 'export const example = true;\n'); fs.symlinkSync('example.js', path.join(repo, 'src/example-link.js')); fs.writeFileSync(path.join(repo, 'evidence/level-one/level-two/nested.txt'), 'nested evidence\n');
   git(repo, ['init', '-q']); git(repo, ['config', 'user.email', 'policy@example.test']); git(repo, ['config', 'user.name', 'Policy Test']); git(repo, ['add', '.']); git(repo, ['commit', '-qm', 'fixture']); const head = git(repo, ['rev-parse', 'HEAD']);
   fs.writeFileSync(path.join(repo, 'src/example.js'), 'uncommitted moving bytes\n');
-  const sealed = sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['src', 'missing.txt'], outDir: out });
+  const sealed = sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['src', 'evidence/level-one/level-two/nested.txt', 'missing.txt'], outDir: out });
   assert.match(sealed.bundle_sha256, /^[0-9a-f]{64}$/); assert.equal(sealed.manifest.requested.find((row) => row.path === 'missing.txt').state, 'absent');
   assert.equal(sealed.manifest.files.find((row) => row.path === 'src/example-link.js').mode, '120000');
   assert.equal(fs.readFileSync(path.join(out, 'src/example.js'), 'utf8'), 'export const example = true;\n', 'bundle reads reviewed commit, not moving worktree');
   assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.schema.json'))); assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.schema.json')));
   assert.match(fs.readFileSync(path.join(out, 'reviewer-output.S.schema.json'), 'utf8'), /\^S/);
   assert.equal(verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, sealed.bundle_sha256);
+  for (const directory of ['evidence', 'evidence/level-one', 'evidence/level-one/level-two']) assert.equal(fs.statSync(path.join(out, directory)).mode & 0o777, 0o555, `${directory} ancestor is sealed read-only`);
   expectThrow('raw plan requested path', () => sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['docs/plans/active/sample.md'], outDir: path.join(temp, 'raw-plan') }), /raw plan path/);
   expectThrow('raw plan requested ancestor', () => sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['docs/plans/active'], outDir: path.join(temp, 'raw-plan-ancestor') }), /raw plan path or ancestor|emitted/);
 
