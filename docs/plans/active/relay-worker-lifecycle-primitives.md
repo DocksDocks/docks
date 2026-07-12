@@ -3,7 +3,7 @@ title: Build relay worker lifecycle primitives
 goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
 status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T21:38:50-03:00"
+updated: "2026-07-11T22:04:00-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
@@ -19,7 +19,10 @@ affected_paths:
   - plugins/session-relay/rust/src/process_identity.rs
   - plugins/session-relay/rust/src/spawn.rs
   - plugins/session-relay/rust/src/store.rs
+  - plugins/session-relay/rust/src/supervisor.rs
   - plugins/session-relay/rust/src/watch.rs
+  - plugins/session-relay/rust/tests/lifecycle_supervisor.rs
+  - plugins/session-relay/rust/tests/lifecycle_turn_cancellation.rs
   - plugins/session-relay/rust/Cargo.toml
   - plugins/session-relay/rust/Cargo.lock
   - plugins/session-relay/hooks/hooks.json
@@ -33,6 +36,7 @@ affected_paths:
   - plugins/session-relay/test/runtime-appserver-quiescence.mjs
   - plugins/session-relay/test/runtime-hook-abort.mjs
   - plugins/session-relay/test/selftest.mjs
+  - plugins/session-relay/test/supervisor-custody.mjs
   - plugins/session-relay/test/fixtures/lifecycle-capability-schema.json
   - plugins/session-relay/test/fixtures/process-signal-inventory.json
   - plugins/session-relay/test/fixtures/reentry-inventory.json
@@ -41,6 +45,10 @@ affected_paths:
   - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/wrong-target.rs
   - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fence-reentry.rs
   - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/reentry-fence.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/cancel-reentry.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/child-cancel-reentry.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-owned-proof.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-pidfd-proof.rs
   - plugins/session-relay/AGENTS.md
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
   - .github/workflows/build-binaries.yml
@@ -63,14 +71,14 @@ The result must distinguish **process-only**, **protocol-only**, and **worker-tr
 - `relay-worker-fanout` is blocked on three general relay-core primitives. Its lifecycle-specific recovery/collection items remain out of scope; this plan provides only reusable attach, admission, process, quiescence, and reconciliation contracts.
 - Independent red-team verification confirmed the feasibility foundation: Codex app-server returns the exact `turn.id`, supports `turn/interrupt {threadId,turnId}`, and emits terminal completion; both runtimes support `UserPromptSubmit` blocking; exit-0 universal `continue:false` is documented for SessionStart but Claude's event-specific section describes SessionStart as context-oriented, so the real-runtime matrix treats Claude SessionStart stop as version-pinned empirical defense-in-depth rather than the only prompt barrier. Hook timeout is configurable and fail-open. Linux has pidfd, `/proc` field-22, cgroup v2 kill/populated; rustix gates pidfd to Linux; Darwin exposes observation APIs. Current Codex app-server exposes no public mutation-rejecting durable-flush watermark, so `ProtocolTree` is unavailable for the installed runtime and cannot be a positive completion dependency.
 - A start-time comparison followed by raw `kill`/`killpg` is check-then-act: the target can exit and its PID/PGID can recycle between operations. Darwin `proc_bsdinfo` and Linux start-time fallback are therefore **observation only**, not generation-safe signal handles.
-- A delegated cgroup writable by the same user is not automatically a confinement boundary. A descendant can migrate to an ancestor/sibling before `cgroup.kill`; the worker cgroup then reports `populated 0` while the escaped process remains live. Strong cgroup proof requires a tested namespace/permission/sandbox boundary that denies escape, plus generation-bound path identity.
+- A delegated cgroup writable by the same user is not adversarial containment: a deliberately cooperating-violating process can request migration or use a broker. `CooperativeWorkerV1` proves only gated initial placement plus inherited membership for ordinary/nested-namespace descendants created by the relay-launched task, tied to generation-bound manager authority. Intentional same-UID ancestor/sibling migration is recorded as an out-of-model negative capability observation and never folded into a successful proof.
 - A read/write flock alone cannot bound fencing. A writer may starve behind new readers, and a reader may hold through a 300-second pump, unbounded wake, or any lifecycle-sensitive `attach --exec`; CLOEXEC then drops even an Unmanaged guard while the resumed CLI continues across Claiming. Fence intent must publish before drain, new admissions must refuse without joining the reader queue, and every admitted operation—including pre-claim attach/resume—must be cancelable, parent-waited, and bounded.
 - Re-entry is broader than `watch --auto-turn`: current drains exist in CLI inbox, MCP inbox, channel, hook, watch, and wake. Current app-server status/ack/deliver call `thread/resume`; pending acknowledgement is its own turn-start path. The inventory must be mechanically complete, not a hand-counted list.
 - Codex CLI has no pre-minted session id. Managed state therefore needs a pre-launch `worker_id`, a pending token-hash index, and an atomic first-SessionStart binding to the discovered `runtime_session_id`. Duplicate SessionStart and resume are idempotent only for the exact bound identity; token replay to another identity is refused.
 - Admission authority is time-sensitive: an Unmanaged guard issued before first SessionStart cannot remain valid after the same runtime id becomes Managed. Binding epoch, Claiming publication, prior-guard drain, target-free lower APIs, and use-time re-resolution are one mandatory invariant.
 - Two equal asynchronous app-server scans are not a fixed point, and a shared second client can create lineage after the final page. Shared scans are observation-only unless the server supplies a held mutation-rejecting barrier. A frozen dedicated writer can still hold queued child creation or unflushed state, so only a verified graceful stop/reap with a durable flush contract can support final offline ProtocolTree proof; freeze followed by kill/`populated 0` proves only the bounded physical tree.
 - Every fence attempt has its own epoch/version. Interrupt, clean, signal, timeout, finish, reconcile, release, and abandon must CAS or re-resolve that exact epoch so a late fencer cannot overwrite newer state.
-- Current GC ages out registry entries and relay surfaces without a managed-state exemption. Every non-releasable managed record, pending attach, generation tombstone, fence marker, and lifecycle lock must be preserved regardless of age.
+- The pre-plan baseline GC aged registry entries/surfaces without managed exemptions; checkpoint `701cea7` already delegates lifecycle-bound sessions to the Step-2 GC rules. Remaining work must extend that protection to versioned active operations, supervisor/socket custody, handoffs, stale-event audits, and later proof records regardless of age.
 
 ## Threat model
 
@@ -92,7 +100,8 @@ Adversarial-grade containment is a future, separately scoped capability requirin
 
 ## Environment & how-to-run
 
-- **Checkout/base:** implementation checkpoint `701cea7e671bc40ee23d69abf79ff102e0eecb20` on branch `codex/primitives-collab`. Its normal writable location is `/home/vagrant/projects/docks/.worktrees/primitives-collab`; move it temporarily to sibling `/home/vagrant/projects/docks-primitives-collab` only for canonical repo CI because nested worktrees invalidate scaffold cleanliness checks. Drift/review base remains `12cf2ea` as required by the originating plan. A0 verifies the checkpoint and clean worktree before resumed dispatch.
+- **Plan source:** the orchestrator and every worker read `/home/vagrant/projects/docks/docs/plans/active/relay-worker-lifecycle-primitives.md` from the main worktree at dispatch time; the older plan copy on the implementation branch is non-authoritative and need not be cherry-picked. The dispatch message records `git -C /home/vagrant/projects/docks rev-parse HEAD` plus `git -C /home/vagrant/projects/docks hash-object docs/plans/active/relay-worker-lifecycle-primitives.md`, and the worker repeats both before acting. If either changes, stop for re-dispatch rather than mixing revisions.
+- **Implementation checkout/base:** one-time pre-dispatch checkpoint `701cea7e671bc40ee23d69abf79ff102e0eecb20` on branch `codex/primitives-collab`. For this autonomous run, move the existing worktree with `git worktree move /home/vagrant/projects/docks-primitives-collab /tmp/docks-primitives-collab`; `/tmp` is writable to in-session agents and lies outside the main checkout, so it does not add an untracked nested worktree to main or contaminate canonical CI. Verify with `git worktree list --porcelain` and A0. Move it back to the sibling path before final handoff. Drift/review base remains `12cf2ea`.
 - **Toolchain:** Rust `1.85.0`; locked rustix `1.1.4`; Node 24; committed Cargo lock. Targets: x86_64/aarch64 musl-linux and x86_64/aarch64 Darwin.
 - **Confirmed-source rule:** Step 1 codifies the already-confirmed red-team feasibility facts in a committed, runnable probe harness. It does not substitute hand-written booleans or re-argue the docs.
 - **Local commands:**
@@ -100,7 +109,7 @@ Adversarial-grade containment is a future, separately scoped capability requirin
   export PATH="$HOME/.cargo/bin:$PATH"
   (cd plugins/session-relay/rust && cargo test --locked)
   node plugins/session-relay/test/selftest.mjs
-  node plugins/session-relay/test/lifecycle-smoke.mjs --all
+  node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix
   node plugins/session-relay/test/reentry-inventory.mjs
   node scripts/ci.mjs --plugin session-relay
   ```
@@ -300,6 +309,7 @@ pub struct ExclusiveFileLock { file: File, _sealed: lifecycle::Sealed }
 pub struct CancelToken {
     marker_path: PathBuf,
     operation_id: String,
+    expected_operation_version: String,
     binding_epoch: String,
     generation: Option<String>,
     claim_or_fence_epoch: Option<String>,
@@ -311,8 +321,12 @@ pub enum ExternalCustody {
     TurnStartSentUnknown { thread_id: String, server_fingerprint: String },
     TurnKnown { thread_id: String, turn_id: String, server_fingerprint: String },
     TurnTerminal { thread_id: String, turn_id: String, status: String },
+    ChildStarting { supervisor_instance_id: String },
     ChildOwned { supervisor_instance_id: String, process: ProcessObservation },
-    ChildTransferred { custodian_id: String, supervisor_instance_id: String, process: ProcessObservation },
+    ChildCancelRequested { supervisor_instance_id: String, process: ProcessObservation, request_id: String },
+    ChildReaped { supervisor_instance_id: String, process: ProcessObservation, exit_status: i32 },
+    HandedOff { handoff_id: String },
+    LostAuthority { last_observation: Option<ProcessObservation>, reason: String },
 }
 
 pub struct ActiveOperationRecord {
@@ -322,6 +336,7 @@ pub struct ActiveOperationRecord {
     generation: Option<String>,
     binding_epoch: String,
     lifecycle_version: Option<String>,
+    operation_version: String, // checked u64 decimal; incremented by every custody transition
     kind: OperationKind,
     custody: ExternalCustody,
 }
@@ -331,10 +346,22 @@ pub enum CancellationAuthority {
     Fence { generation: String, fence_epoch: String, fencing_version: String },
 }
 
+pub enum HandoffCustody {
+    KnownTurn { thread_id: String, turn_id: String, server_fingerprint: String },
+    SupervisorChild {
+        supervisor_instance_id: String,
+        process: ProcessObservation,
+        cancel_request_id: String,
+    },
+}
+
 pub struct CancellationHandoff {
+    handoff_id: String,
+    handoff_version: String,
     operation_id: String,
+    source_operation_version: String,
     authority: CancellationAuthority,
-    custody: ExternalCustody,
+    custody: HandoffCustody,
     transferred_at: String,
 }
 
@@ -353,7 +380,13 @@ pub struct ReentryGuard {
 pub enum Admission {
     Unmanaged(ReentryGuard),
     Managed(ReentryGuard),
-    Refused { worker_id: String, state: ManagedState, reason: String },
+    Refused {
+        runtime_session_id: String,
+        binding_epoch: String,
+        worker_id: Option<String>,
+        managed_state: Option<ManagedState>,
+        reason: String,
+    },
 }
 
 pub fn admit_operation(session_or_worker: &str, kind: OperationKind) -> Result<Admission, String>;
@@ -361,7 +394,9 @@ pub fn publish_fence(worker_id: &str, generation: &str, reason: &str) -> Result<
 pub fn drain_prior_operations(intent: FenceIntent) -> Result<FencePermit, DrainError>;
 ```
 
-`ReentryGuard` construction, fields, target resolution, and seal remain private to `lifecycle.rs`. Admission durably creates one `ActiveOperationRecord`; `drop` may remove it only when no external action was sent or exact terminal/reap evidence is recorded. `TurnStartSentUnknown`, unresolved `TurnKnown`, `ChildOwned`, and `ChildTransferred` rows survive guard/process loss and are non-GCable. Immediately before every lower mutation, `authorize_use(&mut guard, expected_kind)` re-reads the binding and lifecycle under one short `with_lock`; it rejects a changed epoch/state/generation/version or wrong kind, then releases the global lock before the external action. Because the guard still holds the shared binding/activity locks, a Claiming transition cannot finalize Managed and a Fencing transition cannot finish drain while that authorized action remains live.
+`ReentryGuard` construction, fields, target resolution, and seal remain private to `lifecycle.rs`. Admission durably creates one versioned `ActiveOperationRecord`; `drop` may remove it only when no external action was sent or exact terminal/reap evidence is recorded. Unresolved custody survives guard/process loss and is non-GCable. A session with unresolved unmanaged custody refuses every later mutating admission (pure reads/status only) until a claim binds it into Fencing/FencingUnconfirmed or an operator resolves/abandons it. Immediately before every lower mutation, `authorize_use(&mut guard, expected_kind)` re-reads the binding and lifecycle under one short `with_lock`; it rejects a changed epoch/state/generation/version or wrong kind, then releases the global lock before the external action. Because the guard still holds the shared binding/activity locks, a Claiming transition cannot finalize Managed and a Fencing transition cannot finish drain while that authorized action remains live.
+
+Every custody mutation uses `cas_operation_custody(operation_id, expected_operation_version, expected_variant, next)` in one short store transaction and increments `operation_version`; no external work occurs under the lock. The closed transitions are `None→TurnStartSentUnknown|ChildStarting`; `TurnStartSentUnknown→TurnNotSent|TurnKnown|LostAuthority`; `TurnKnown→TurnTerminal|HandedOff|LostAuthority`; `ChildStarting→ChildOwned|LostAuthority`; `ChildOwned→ChildCancelRequested|ChildReaped|LostAuthority`; `ChildCancelRequested→ChildReaped|HandedOff|LostAuthority`; and `HandedOff→TurnTerminal|ChildReaped|LostAuthority`. Creating a handoff atomically creates `{handoff_id,handoff_version=1,source_operation_version}` and CASes custody to `HandedOff`; consuming/updating it checks both operation and handoff versions. A losing delayed response/terminal/supervisor report writes at most an append-only stale-event audit and cannot change custody, lifecycle, signal, or RPC bytes. At the `TurnStartSentUnknown` grace deadline the guard closes its connection and exact-CASes `LostAuthority`; a response that arrives after that CAS is never allowed to resurrect the operation.
 
 Lower APIs take **no independently supplied session, worker, server, thread, cwd, tool, process target, program, raw argv, or raw environment**. They derive all authority selectors and executable identity from the capability. The only separate launch payload is a closed typed value whose variants contain validated behavior data, never an escape hatch:
 
@@ -382,26 +417,116 @@ pub struct AttachOptions {
     pub model: Option<ValidatedModel>,
     pub effort: Option<ValidatedEffort>,
 }
+
+pub struct SupervisorRecord {
+    supervisor_instance_id: String,
+    process: ProcessObservation,
+    socket_path: PathBuf,
+    socket_dev: u64,
+    socket_ino: u64,
+    version: String,
+    state: SupervisorState,
+}
+
+pub enum SupervisorState { Starting, Ready, LostAuthority, Terminal }
+
+pub struct SupervisorLaunchRecord {
+    operation_id: String,
+    expected_operation_version: String,
+    spec: ChildLaunchSpec,
+}
+
+pub enum SupervisorCommand {
+    LaunchOwned { operation_id: String, expected_operation_version: String },
+    CancelOwned {
+        operation_id: String,
+        expected_operation_version: String,
+        authority: CancellationAuthority,
+        request_id: String,
+    },
+    QueryOwned { operation_id: String },
+}
+
+pub enum SupervisorEvent {
+    Started { operation_id: String, operation_version: String, process: ProcessObservation },
+    Output { operation_id: String, stream: String, bytes_b64: String },
+    Reaped { operation_id: String, operation_version: String, exit_status: i32 },
+    RefusedStale { operation_id: String, observed_operation_version: String },
+    LostAuthority { operation_id: String, reason: String },
+}
+
+pub struct ChildCancellationPermit {
+    supervisor_instance_id: String,
+    operation_id: String,
+    operation_version: String,
+    authority: CancellationAuthority,
+    child_slot: u64,
+    _sealed: supervisor::Sealed,
+}
 ```
 
-`ChildLaunchSpec`, `AttachOptions`, `ValidatedModel`, `ValidatedEffort`, and `DoorbellMessage` are closed types constructed by parsers with explicit length/value bounds. They contain no `OsString`, executable path, cwd, session/worker/thread id, arbitrary flag list, environment map, fd, or authority-selector field. `run_child_with_guard` matches `(guard.allowed, spec.variant)`, derives program/session/cwd/generation/environment internally from the guard, builds env from an allowlist, and refuses any mismatched pair. No public/internal target-taking drain/re-entry mutator remains. A guard admitted for unmanaged A cannot name managed B; a guard for `CliInboxDrain` cannot start a turn; and a guard from binding epoch N fails after Claiming increments to N+1. Queue, peek, registry reads, and pure observation may remain allowed.
+`ChildLaunchSpec`, `AttachOptions`, `ValidatedModel`, `ValidatedEffort`, and `DoorbellMessage` are closed types constructed by parsers with explicit length/value bounds. They contain no `OsString`, executable path, cwd, session/worker/thread id, arbitrary flag list, environment map, fd, or authority-selector field. `run_child_with_guard` matches `(guard.allowed, spec.variant)`, writes a version-bound `SupervisorLaunchRecord`, and sends only operation id/version to the supervisor. The supervisor re-resolves the record, derives program/session/cwd/generation/environment internally, builds env from an allowlist, spawns the child itself, and owns the unreaped `Child` from birth. No `Child` is transferred between processes and no public/internal target-taking drain/re-entry mutator remains.
+
+The supervisor is the hidden detached `relay __lifecycle-supervisor` process, started with a new session and no parent-death signal. It owns a mode-0600 Unix socket and validates same-UID peer credentials (`SO_PEERCRED` on Linux, `getpeereid` on Darwin), exact socket dev/inode, supervisor instance/version, operation/version, and current Claim/Fence authority from the store; caller-supplied command fields are selectors, never authority. `LaunchOwned` proxies framed stdout/stderr/events to the caller but continues owning the child after caller disconnect. `CancelOwned` is accepted only after the supervisor privately constructs `ChildCancellationPermit`; `kill_wait_owned_child(&mut ChildCancellationPermit)` re-resolves exact operation+claim/fence authority immediately before signal, then kill/waits/reaps its own child slot. A stale request reports `RefusedStale` and emits zero signal/state bytes. The supervisor remains alive until every owned child is reaped or exact lifecycle abandonment records loss; it never exits merely because a relay CLI disconnects.
+
+Supervisor startup/crash recovery is explicit: `Starting→Ready` publishes socket identity before any child launch; a dead socket, mismatched supervisor process generation, instance/version change, or restart while any child is unresolved exact-CASes the affected operation to `LostAuthority` and lifecycle to `FencingUnconfirmed`. A replacement supervisor receives a new instance id and cannot adopt or signal the old child. `QueryOwned` is observation only. The supervisor is also the later Step-4 cgroup manager; Step 3b adds only portable owned-child custody, IPC, exact cancellation, output proxying, and reap proof, while pidfd/cgroup authority remains Step 4.
+
+`ProcessObservation` is the immutable observation record defined in the next section; Step 3b introduces that data shape in `supervisor.rs` for child identity/status only. Step 4 adds pidfd/cgroup `SignalHandle` constructors and authoritative process actions. An observation alone never authorizes signaling.
+
+A guard admitted for unmanaged A cannot name managed B; a guard for `CliInboxDrain` cannot start a turn; and a guard from binding epoch N fails after Claiming increments to N+1. Queue, peek, registry reads, and pure observation may remain allowed.
 
 The committed source-derived inventory maps every drain, generic outbound app-server mutation primitive plus all callers, process creation/exec/signal, and pending acknowledgement callsite to a concrete `ReentryGuard`, `TurnCancellationPermit`, or `FencePermit` API and an executed unique behavior-test id. `FenceControl` is not a manifest-only exception and `UnmanagedOnly` is not a bypass: unmanaged mutations still require a bound `ReentryGuard`. Only pure `ReadOnly` observations may lack a capability. CI fails on any unmapped/stale callsite, rationale-only mutating class, name-only classification, or matrix row that does not invoke its production wrapper.
 
-Every admitted external operation has a cancellation contract: WebSocket/socket reads and child waits use individual timeouts no greater than `managed_cancel_poll_ms`; settle sleep is interruptible; turn pumps persist `TurnStartSentUnknown` before the send, persist the exact returned `turn.id` before pumping, and interrupt only that owned exact turn on cancellation; wake/attach/resume spawn a child, retain the unreaped `Child`, poll cancel, then kill/wait through that owned handle; watch fallback waits similarly. A single monotonic `managed_cancel_grace_ms` deadline covers the guard-owned cancellation attempt and cannot be reset by retries. **Every attach or resume whose session binding can ever transition uses spawn+wait even when admission returns `Unmanaged`; no lifecycle-sensitive path calls `CommandExt::exec`.**
+Every admitted external operation has a cancellation contract: WebSocket/socket reads and supervisor event waits use individual timeouts no greater than `managed_cancel_poll_ms`; settle sleep is interruptible; turn pumps persist `TurnStartSentUnknown` before the send, persist the exact returned `turn.id` before pumping, and interrupt only that owned exact turn on cancellation; wake/attach/resume ask the detached supervisor to spawn/own the child from birth, poll cancel, then request exact-authority kill/wait/reap; watch fallback does the same. A single monotonic `managed_cancel_grace_ms` deadline covers the guard-owned cancellation/handoff attempt and cannot be reset by retries. **Every attach or resume whose session binding can ever transition uses supervisor-owned spawn+event-wait even when admission returns `Unmanaged`; no lifecycle-sensitive path calls `CommandExt::exec`.**
 
-The live guard may construct a sealed `TurnCancellationPermit` only for its own persisted `TurnKnown` custody and only after exact re-resolution of the current Claiming or Fencing authority. It derives server/thread/turn from the operation record, permits exactly one `turn/interrupt`, and waits for the matching turn's terminal status. It cannot re-enter, start, inject, clean terminals, signal processes, select another target, or substitute for `FencePermit`. BeforeSend failure records `TurnNotSent`; a lost/delayed/malformed response after send remains `TurnStartSentUnknown` and never guesses latest turn. On matching terminal/reap the guard resolves custody and releases. Otherwise, before grace expiry it exact-CASes either a known-turn/owned-child `CancellationHandoff` to the same claim/fence epoch/version or `FencingUnconfirmed` when authority is unknown/lost, then releases. A transferred live `Child` is held by an in-process retained custodian that only kill/waits/reaps and reports evidence; it is never dropped or waited indefinitely by the caller. Process restart that loses the custodian is `LostAuthority`, not confirmation.
+The live guard may construct a sealed `TurnCancellationPermit` only for its own persisted `TurnKnown` custody and only after exact re-resolution of the current Claiming or Fencing authority. It derives server/thread/turn from the operation record, permits exactly one `turn/interrupt`, and waits for the matching turn's terminal status. It cannot re-enter, start, inject, terminate terminals, signal processes, select another target, or substitute for `FencePermit`. BeforeSend failure exact-CASes `TurnNotSent`; a lost/delayed/malformed response after send remains `TurnStartSentUnknown` until the fixed deadline, then closes the connection and becomes `LostAuthority`—never latest-turn guessing. On matching turn terminal or supervisor child-reap event the guard resolves custody and releases. Otherwise, before grace expiry it exact-CASes a known-turn or `ChildCancelRequested` handoff to the same claim/fence authority; unknown/lost authority exact-CASes `FencingUnconfirmed`. The supervisor continues owning and reaping the child after caller/guard release. No thread-local custodian or reconstructable PID is treated as live authority.
 
-The relay parent retains the binding guard until the external CLI exits, cancel-reap completes, or exact custody transfer is durable. Claiming cannot publish Active while any unresolved operation or handoff remains; its one final CAS publishes Managed/Fencing with a new fence epoch/version and atomically rebinds each exact Claim handoff to that Fence authority, or publishes FencingUnconfirmed if the handoff cannot be rebound. Plain attach prints no copyable command for a transition-capable session and routes through this guarded parent path. `exec` is allowed only for a statically separate command with no session binding and no route to managed claim—not for any attach/resume.
+The relay caller retains the binding guard until the external CLI exits, supervisor reap completes, or exact custody handoff is durable. Claiming cannot publish Active while any unresolved operation or handoff remains; its one final CAS publishes Managed/Fencing with a new fence epoch/version and atomically rebinds each exact Claim handoff to that Fence authority, or publishes FencingUnconfirmed if the handoff cannot be rebound. Plain attach prints no copyable command for a transition-capable session and routes through this guarded supervisor path. `exec` is allowed only for a statically separate command with no session binding and no route to managed claim—not for any attach/resume.
 
 ### 3. Stable signal handles and containment proof
 
 ```rust
 pub enum SignalHandle {
     LinuxPidFd { fd: OwnedFd, expected: ProcessObservation },
-    SupervisorChild { child: Child, expected: ProcessObservation }, // unreaped
-    ConfinedCgroup { control: OwnedFd, boundary: CgroupBoundary },
+    SupervisorOwnedChild {
+        supervisor_instance_id: String,
+        operation_id: String,
+        operation_version: String,
+        expected: ProcessObservation,
+        _sealed: supervisor::Sealed,
+    },
+    SupervisorConfinedCgroup {
+        supervisor_instance_id: String,
+        boundary: CgroupBoundary,
+        _sealed: supervisor::Sealed,
+    },
     ObservationOnly(ProcessObservation),
+}
+
+pub enum SupervisorFenceCommand {
+    SignalOwned {
+        operation_id: String,
+        expected_operation_version: String,
+        fence_epoch: String,
+        fencing_version: String,
+        signal: FenceSignal,
+    },
+    FenceConfinedCgroup {
+        worker_id: String,
+        generation: String,
+        fence_epoch: String,
+        fencing_version: String,
+    },
+}
+
+pub struct SupervisorFencePermit {
+    supervisor_instance_id: String,
+    worker_id: String,
+    generation: String,
+    fence_epoch: String,
+    fencing_version: String,
+    handle_slot: u64,
+    _sealed: supervisor::Sealed,
 }
 
 pub struct ProcessObservation {
@@ -485,11 +610,11 @@ pub struct FilteredCgroupHardeningReceipt {
 }
 ```
 
-`ProcessIdentityRecord` is durable observation/recovery input; `SignalHandle` is live, non-serializable authority. Linux pidfd recovery order is **open pidfd first, then read/compare the generation while the fd pins the task**, then signal via pidfd. If pidfd open fails or the pinned observation mismatches, do not raw-signal. On Darwin and Linux without pidfd, recovery produces `ObservationOnly` and returns unconfirmed. A live supervisor may safely act through its unreaped `Child` only when its instance id matches the record; once reaped/dropped/restarted, that authority is gone. `killpg` is permitted only while an unreaped owned group leader prevents PGID reuse, and it proves group scope only—not escaped descendants or WorkerTree.
+`ProcessIdentityRecord` is durable observation/recovery input. `SignalHandle` is live sealed authority: pidfd is local; supervisor variants are usable only through the matching live supervisor instance, which retains the actual Child/cgroup fd. Step 4 extends the closed supervisor protocol with `SupervisorFenceCommand`; immediately before action the supervisor re-resolves exact operation plus Fencing generation/epoch/version and privately mints `SupervisorFencePermit`. Stale commands emit zero signal/state bytes. Linux pidfd recovery order is **open pidfd first, then read/compare the generation while the fd pins the task**, then signal via pidfd. If pidfd open fails or the pinned observation mismatches, do not raw-signal. On Darwin and Linux without pidfd, recovery produces `ObservationOnly` and returns unconfirmed. A live supervisor may safely act through its unreaped `Child` only when its instance id and operation version match; once reaped/restarted, that authority is gone. `killpg` is permitted only inside the supervisor while its unreaped owned group leader prevents PGID reuse, and it proves group scope only—not escaped descendants or WorkerTree.
 
 Managed launch uses `__managed-child-exec` with this executable cgroup setup contract (mandatory cooperative steps + optional Claude-only `FilteredCgroupHardening`):
 
-1. **Preflight or fail closed (cooperative = mandatory; filter = optional Claude-only).** For the **cooperative** tier (both runtimes) require Linux cgroup v2, a newly created **`domain`** worker leaf with empty `cgroup.subtree_control` and writable `cgroup.kill`, a writable delegation permitting create/move at both destination and common ancestor, and at least one independently proven gated-placement capability. Classify direct `CLONE_INTO_CGROUP` failure exactly: `EACCES` means placement/delegation restrictions failed; `EBUSY` means a domain controller is enabled in the target; `EOPNOTSUPP` means domain-invalid; `ENOSYS` means the kernel/syscall path is unavailable. Do not generic-retry clone3; use stop/GO only if its own capability probe already passed. If neither path is available, record `ObservationOnly`/`Unconfirmed` and never label the backend `ConfinedCgroup`. The **`FilteredCgroupHardening`** add-on additionally requires cgroup+mount+PID namespaces, either current-user-namespace `CAP_SYS_ADMIN` or enabled unprivileged user namespaces with uid/gid mapping, fresh proc mounting, `no_new_privs`, and seccomp filtering; if any of these fail, record `filtered_hardening: None` — this never reduces the cooperative WorkerTree.
+1. **Preflight or fail closed (cooperative = mandatory; filter = optional Claude-only).** For the **cooperative** tier (both runtimes) require Linux cgroup v2, a newly created **`domain`** worker leaf with empty `cgroup.subtree_control` and writable `cgroup.kill`, a writable delegation permitting create/move at both destination and common ancestor, and at least one independently proven gated-placement capability. Classify direct `CLONE_INTO_CGROUP` failure exactly: `EACCES` means placement/delegation restrictions failed; `EBUSY` means a domain controller is enabled in the target; `EOPNOTSUPP` means domain-invalid; `ENOSYS` means the syscall path is unavailable. `EINVAL` means unsupported `CLONE_INTO_CGROUP` only when a same-binary control proves the `clone_args` size/base clone3 call valid and a disposable-leaf probe reproduces failure with the exact otherwise-valid flag/fd; malformed size/flags/fd remain implementation errors and STOP. Do not generic-retry clone3; use stop/GO only if its own capability probe already passed. If neither path is available, record `ObservationOnly`/`Unconfirmed` and never label the backend `ConfinedCgroup`. The **`FilteredCgroupHardening`** add-on additionally requires cgroup+mount+PID namespaces, either current-user-namespace `CAP_SYS_ADMIN` or enabled unprivileged user namespaces with uid/gid mapping, fresh proc mounting, `no_new_privs`, and seccomp filtering; if any of these fail, record `filtered_hardening: None` — this never reduces the cooperative WorkerTree.
 2. **Create and retain manager authority.** The manager creates `<manager-root>/<worker_id>-<generation>/`, opens the exact directory `O_PATH|O_DIRECTORY|O_CLOEXEC`, records mount/dev/inode/uid/mode/path/generation, and keeps that fd private. All `cgroup.procs`, optional `cgroup.freeze`, `cgroup.kill`, `cgroup.subtree_control`, and `cgroup.events` access uses `openat` from this fd; no later path lookup is signaling authority.
 3. **Gated placement before any runtime code (mandatory, both runtimes).** Either spawn the runtime via a successful `clone3(CLONE_INTO_CGROUP)` so it is born in the leaf, or use the separately proven trusted wrapper blocked on a private handshake pipe and, before it executes runtime code or forks, have the manager write its pinned pid through the retained fd into the worker leaf and verify membership. Verify `cgroup.type=domain`, empty `cgroup.subtree_control`, and writable `cgroup.kill`. **(Claude-only `FilteredCgroupHardening` continues from here:)** the wrapper must already be in the leaf when it calls `unshare(CLONE_NEWCGROUP)`, so `/` inside that namespace is the worker leaf rather than an ancestor.
 4. **Build an isolated view (Claude-only `FilteredCgroupHardening`; Codex skips this and stays cooperative).** For the rootless path, the wrapper first creates a user namespace, pauses while the manager installs `setgroups=deny` and uid/gid maps, then creates private mount+cgroup+PID namespaces and forks the namespace PID 1. It makes mounts private, enumerates and detaches **every inherited procfs and cgroup2 mount**, mounts one fresh `/proc` for the new PID namespace, proves `/proc/<host-pid>/{fd,fdinfo,root,cwd}` grants no host authority, and mounts exactly one cgroup2 view at `/sys/fs/cgroup`, rooted at the worker leaf and remounted read-only/nosuid/nodev/noexec. The privileged path must produce the identical observable view/receipt.
@@ -502,44 +627,72 @@ The detached lifecycle supervisor is the cgroup manager and retains the exact di
 
 ```rust
 pub enum ProcessProof {
-    PidFdExited { worker_id: String, generation: String, pid: u32 },
-    OwnedChildReaped { worker_id: String, generation: String, pid: u32 },
+    PidFdExited(PidFdExitProof),
+    OwnedChildReaped(OwnedChildReapProof),
+}
+
+pub struct PidFdExitProof {
+    worker_id: String,
+    generation: String,
+    pid: u32,
+    pidfd_identity_sha256: String,
+    _sealed: process_identity::Sealed,
+}
+
+pub struct OwnedChildReapProof {
+    worker_id: String,
+    generation: String,
+    operation_id: String,
+    supervisor_instance_id: String,
+    pid: u32,
+    exit_status: i32,
+    operation_version: String,
+    _sealed: supervisor::Sealed,
 }
 
 pub struct CgroupTreeProof {
     pub worker_id: String,
     pub generation: String,
     pub boundary: CgroupBoundary,
-    pub escape_probe: EscapeProbeReceipt,
+    pub boundary_probe: CooperativeBoundaryProbeReceipt,
     pub populated_zero_observed: bool,
     pub threat_model: WorkerThreatModel, // exactly CooperativeWorkerV1 in this plan
 }
 
 pub enum WorkerThreatModel { CooperativeWorkerV1 }
 
-pub struct EscapeProbeReceipt {
+pub struct CooperativeBoundaryProbeReceipt {
     pub worker_id: String,
     pub generation: String,
-    pub before_fence_attempts: Vec<EscapeAttempt>,
-    pub during_fence_attempts: Vec<EscapeAttempt>,
+    pub membership_attempts: Vec<CooperativeMembershipAttempt>,
+    pub out_of_model_observations: Vec<OutOfModelEscapeObservation>, // diagnostic; ignored by proof validator
     pub raw_evidence_sha256: String,
 }
 
-pub struct EscapeAttempt {
-    pub target: String,
-    pub denied_errno: i32,          // 0 on the cooperative tier (syscall not blocked); set only under FilteredCgroupHardening
-    pub membership_unchanged: bool, // the REQUIRED cooperative property: the attempt (incl. a legitimate bwrap namespace creation) did not change cgroup membership
+pub struct CooperativeMembershipAttempt {
+    pub scenario: String, // ordinary child | nested namespace | double fork | fork storm
+    pub membership_unchanged: bool,
 }
-// Cooperative `CgroupTreeProof`: every `EscapeAttempt` requires `membership_unchanged = true`
-// (a namespace creation is allowed but must not leave the leaf). `FilteredCgroupHardening`
-// (Claude-only) additionally requires `denied_errno` proving the syscall itself was blocked.
+
+pub struct OutOfModelEscapeObservation {
+    pub scenario: String, // direct cgroup.procs write | same-user broker | SCM_RIGHTS handoff
+    pub result: String,
+    pub classification: String, // exactly "outside_threat_model"
+}
 
 pub struct ThreadQuiescence {
     pub thread_id: String,
     pub parent_thread_id: Option<String>,
     pub turns: Vec<TurnTerminalProof>,
+    pub terminals: Vec<TerminalTerminationProof>,
     pub terminal_pages_sha256: String,
     pub terminal_next_cursor_is_null: bool,
+}
+
+pub struct TerminalTerminationProof {
+    pub process_id: String,
+    pub persisted_status: String,
+    pub source: String,
 }
 
 pub struct TurnTerminalProof {
@@ -597,10 +750,11 @@ pub enum FenceEvidence {
 }
 
 pub struct FenceIntent {
-    pub worker_id: String,
-    pub generation: String,
-    pub fence_epoch: String, // UUIDv4, new for every reconcile attempt
-    pub fencing_version: String,
+    worker_id: String,
+    generation: String,
+    fence_epoch: String, // UUIDv4, new for every reconcile attempt
+    fencing_version: String,
+    _sealed: lifecycle::Sealed,
 }
 
 pub struct FenceTurnRef {
@@ -630,7 +784,7 @@ pub struct TurnCancellationPermit {
 
 pub struct FenceTerminalRef {
     thread_id: String,
-    terminal_id: String,
+    process_id: String,
     fence_epoch: String,
     _sealed: lifecycle::Sealed,
 }
@@ -695,7 +849,7 @@ process_identity::signal_recorded_with_fence(&mut FencePermit, FenceSignal) // n
 
 The full-fence refs are emitted only by exact custody handoff or enumeration under the same permit epoch. Terminal refs use the current exact `thread/backgroundTerminals/list` process id and terminate it with `thread/backgroundTerminals/terminate`; bulk `clean {}` acknowledgement is never completion evidence. There is deliberately no resume/start/inject/drain/spawn overload for either permit, and no interrupt/terminate/signal overload without the matching sealed capability. Every call verifies its `FenceAction`; the cancellation permit cannot clean/signal/re-enter, a process-only permit cannot terminate a terminal, and an app-server permit cannot signal an unrelated handle.
 
-`drain_prior_operations` cannot mint `FencePermit` until it holds all bound-session locks plus worker activity exclusively and every released guard has either resolved custody or written an exact-version `CancellationHandoff`. A handoff is consumed into the permit only when its authority matches the same current fence epoch/version; unknown-turn or lost-custodian handoffs instead force `FencingUnconfirmed`. `finish_fence` consumes that permit and, in one `with_lock`, exhaustively validates evidence then CASes only the exact current `Fencing` fence epoch/version to `Fenced` or `FencingUnconfirmed`. `mark_fence_unconfirmed` consumes the exact intent after any binding/activity drain timeout and does the same version CAS. A stale completion returns `StateChanged` and writes nothing.
+`drain_prior_operations` cannot mint `FencePermit` until it holds all bound-session locks plus worker activity exclusively and every released guard has either resolved custody or written an exact-version `CancellationHandoff`. A handoff is consumed into the permit only when its authority matches the same current fence epoch/version; unknown-turn or lost-supervisor handoffs instead force `FencingUnconfirmed`. `finish_fence` consumes that permit and, in one `with_lock`, exhaustively validates evidence then CASes only the exact current `Fencing` fence epoch/version to `Fenced` or `FencingUnconfirmed`. `mark_fence_unconfirmed` consumes the exact intent after any binding/activity drain timeout and does the same version CAS. A stale completion returns `StateChanged` and writes nothing.
 
 Reconcile, release, and abandon are also exact-version operations. Reconcile CASes `FencingUnconfirmed@version N` to `Fencing@version N+1` with a new `fence_epoch`; release CASes only `TerminalRetained@expected_version`; abandon CASes only `FencingUnconfirmed@expected_version`. Thus an old fencer cannot signal, finish, release, or overwrite state after reconcile or audited abandonment.
 
@@ -720,11 +874,11 @@ Persist every successful `turn/start` response's exact `turn.id` before pumping.
 5. For notification-loss recovery, accept exact persisted turn terminal state only from the complete gracefully stopped/flushed offline artifact set. Live `includeTurns`/`turns/list` on a shared server is supporting observation only.
 6. A real child-agent test creates a child-thread writer; a real background terminal writes another sentinel; queued-after-parent and continuous-spawner fixtures create descendants after the second equal live scan. A thaw-after-candidate-proof fixture queues a child plus unflushed write before freeze and proves freeze/offline equality is rejected. Every writer must be covered by graceful flush or physically killed behind the confined cgroup. If the deadline expires, a writer continues, a child appears outside the flushed watermark, or any code attempts thaw-through-release, return `ProtocolIncomplete`/refuse release.
 
-Compound WorkerTree+Protocol proof remains a future-adapter path requiring the relay-owned dedicated stdio server, verified graceful flush, and cooperative-scope cgroup containment. The current runtime can still confirm the bounded physical WorkerTree after `cgroup.kill`→`populated 0` when protocol evidence is incomplete, but no ProtocolTree proof is fabricated. The live app-server Child/stdio authority is tied to `supervisor_instance_id`; after supervisor loss, only the still-retained exact cgroup fd can prove the bounded physical tree. Shared servers are observation-only and killing one is forbidden.
+Compound WorkerTree+Protocol proof remains a future-adapter path requiring the relay-owned dedicated stdio server, verified graceful flush, and cooperative-scope cgroup containment. The current runtime can still confirm the bounded physical WorkerTree after `cgroup.kill`→`populated 0` when protocol evidence is incomplete, but no ProtocolTree proof is fabricated. The live app-server Child/stdio authority is tied to `supervisor_instance_id`; if that child/protocol authority fails while the same supervisor remains live, its retained cgroup fd may still prove the bounded physical tree. Supervisor loss also loses that fd and remains `FencingUnconfirmed`; no path reopen reconstructs it. Shared servers are observation-only and killing one is forbidden.
 
 ### 7. GC retention and durable reconciliation
 
-GC eligibility is lifecycle-aware before surface deletion. `Attaching|Active|Fencing|FencingUnconfirmed|Fenced|TerminalRetained`, pending attaches, `SessionBinding::Claiming|Managed`, generation tombstones, fence-intent markers, activity locks, and proof/audit records are non-GCable regardless of `last_seen` or mtime. `SessionBinding::GcDeleting` is non-admissible and is processed only by exact-epoch GC resume. Only `TerminalReleasable` with a valid `ReleaseReceipt` can enter the ordinary managed age check.
+GC eligibility is lifecycle-aware before surface deletion. `Attaching|Active|Fencing|FencingUnconfirmed|Fenced|TerminalRetained`, pending attaches, `SessionBinding::Claiming|Managed`, versioned unresolved `ActiveOperationRecord`, `CancellationHandoff`, live/lost `SupervisorRecord` and socket identity, generation tombstones, fence-intent markers, activity locks, stale-event audits, and proof records are non-GCable regardless of `last_seen` or mtime. `SessionBinding::GcDeleting` is non-admissible and is processed only by exact-epoch GC resume. Only `TerminalReleasable` with a valid `ReleaseReceipt` can enter the ordinary managed age check.
 
 `SessionBinding::Unmanaged` preserves legacy aging through this exact two-lock/CAS protocol; neither lock is nested and no external work occurs under either:
 
@@ -752,14 +906,15 @@ relay lifecycle abandon <worker> --generation <uuid> --expected-version <n> --re
 |---|---|---|---|---|---|
 | 1 | Codify the confirmed feasibility foundation in a committed probe harness and minimum evidence schema: runtime/hook/process rows, explicit absence of a current durable app-server flush contract, strong-cgroup prerequisites, raw `clone3→ENOSYS`, and per-runtime ordinary-spawn probes. Emit raw-record hashes and measure attach/protocol bounds. | `plugins/session-relay/test/feasibility-probe.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-schema.json`, `docs/plans/active/relay-worker-lifecycle-primitives.md:Notes` | — | done | Independently re-run A1 passed on commit `c32aafa17d1408157f87de5b616135212f33a2ed`; current evidence records `protocol_tree=unavailable`, measured attach deadline 4360 ms, Claude filtered-hardening available, and Codex filtered-hardening unavailable while cooperative eligibility remains. Re-run after runtime upgrades. |
 | 2 | Add binding epochs/states, two-phase pending-token claim, binding/activity serialization, exact duplicate/resume rules, versioned lifecycle transitions, tombstones, receipts, and GC exclusions plus exact `GcDeleting` CAS/resume. Claiming publication remains the first short hook transaction; Active waits for older unmanaged guards to drain. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/lib.rs`, `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 1 | done | Commit `066262feda00cd416aad748cf89b4b4a28eb773a` independently passed the Step-2 managed lifecycle suite. Later steps may extend types but may not weaken the verified transition/GC invariants. |
-| 3a | Retain the delivered capability-bound admission and publish-first fencing foundation, but close only its already-implemented authority surface: target-free lower APIs, closed `ChildLaunchSpec`, no lifecycle-sensitive `exec`, exact guard target/kind/binding re-resolution, and sealed compile boundaries. Do **not** call bounded external cancellation or the inventories complete yet. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/bus.rs`, `plugins/session-relay/rust/src/channel.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/**` | 2 | in-flight | Checkpoint `701cea7e671bc40ee23d69abf79ff102e0eecb20` passes existing tests but remains in-flight because A3b/A3c found false-green cancellation/inventory gaps. A3a must pass after the repairs without weakening the four compile-fail boundaries. |
-| 3b | Add durable external-operation custody and bounded cancellation before physical containment: persist `TurnStartSentUnknown` before send and exact returned `turn.id` before pump; add exact-version `TurnCancellationPermit`, matching terminal observation, typed `CancellationHandoff`, nonblocking 100 ms polling, and a retained custodian for an unreaped live `Child`. A guard must resolve or exact-transfer custody within one 5s deadline; unknown/lost authority exact-CASes `FencingUnconfirmed`. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/rust/tests/lifecycle_turn_cancellation.rs` (new), `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/cancel-reentry.rs` (new) | 3a | planned | A3b passes deterministic before-send/after-send/before-response/after-response/terminal and child-ignore-kill barriers. Any latest-turn guess, stale epoch mutation, >100 ms individual block, guard held after 5s, dropped live Child, or unresolved operation that vanishes is a STOP. |
-| 3c | Close the source-derived admission surface: make wake/watch mutation-guiding status guard-aware, map every generic outbound mutation primitive and caller to an executed unique behavior test, invoke every production `OperationKind` wrapper, and replace all `dedicated_behavior_test` placeholders/name-only counts. Include first-birth collision and wrong/stale/mid-block-fence rows. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/test/reentry-inventory.mjs`, `plugins/session-relay/test/fixtures/reentry-inventory.json`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/selftest.mjs` | 3b | planned | A3c/A9/A10 pass with no placeholder behavior ids. Any mutation-guiding RPC precedes admission, a stale response guides a later mutation, or an inventory row lacks an executed production-wrapper test: STOP. |
-| 4 | Implement stable handles plus the `ConfinedCgroupCooperative` wrapper (both runtimes): **atomic/gated placement** into a newly created delegated **domain** leaf via `clone3 CLONE_INTO_CGROUP` or a separately capability-checked pre-exec stop/GO handshake; retained generation-bound leaf fd; exact `cgroup.type=domain`, empty `cgroup.subtree_control`, writable `cgroup.kill`; `cgroup.kill`→`populated 0`; and fail-closed fd-loss recovery. Classify `CLONE_INTO_CGROUP` `EACCES|EBUSY|EOPNOTSUPP|ENOSYS` without generic retry and use stop/GO only when independently proven. Then add the Claude-only best-effort `FilteredCgroupHardening` deny-list with explicit wrong-arch/x32 rejection actions. Inventory every signal callsite. | `plugins/session-relay/rust/src/process_identity.rs` (new), `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/test/process-signal-inventory.mjs` (new), `plugins/session-relay/test/fixtures/process-signal-inventory.json` (new), `plugins/session-relay/test/runtime-hook-abort.mjs` (new), `.github/workflows/build-binaries.yml` | 1-3c | planned | A4/A5/A5b prove stable signaling, gated membership, typed fallback, kill/populated-0 with no surviving host PID for both runtimes, and Claude-only filtered hardening. Freeze is optional observation, never a proof prerequisite. If both placement modes fail, a descendant escapes, threaded/domain-invalid topology is accepted, manager fd is lost, or a replacement receives a signal: STOP/downgrade that runtime to Unconfirmed. |
+| 3a | Retain the delivered capability-bound admission and publish-first fencing foundation, limited to its verified surface: target-free lower APIs, closed `ChildLaunchSpec`, no lifecycle-sensitive `exec`, exact guard target/kind/binding re-resolution, and the existing four compile boundaries. Do not call cancellation or inventories complete yet. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/bus.rs`, `plugins/session-relay/rust/src/channel.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/**` | 2 | done | Checkpoint `701cea7e671bc40ee23d69abf79ff102e0eecb20` independently passed A3a's narrowed existing guard/compile suite. The false-green cancellation/inventory claims are explicitly deferred to 3b–3d. |
+| 3b | Add the minimal detached lifecycle supervisor and versioned operation substrate before cancellation: supervisor owns every transition-capable Child from birth, proxies output, survives caller exit, exposes closed operation-id/version commands, privately mints exact `ChildCancellationPermit`, and fail-closes instance/socket/process loss. Add monotonic `operation_version`, `handoff_version`, closed custody transitions, and sealed owned-child reap proofs. No pidfd/cgroup work yet. | `plugins/session-relay/rust/src/supervisor.rs` (new), `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/rust/src/lib.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/tests/lifecycle_supervisor.rs` (new), `plugins/session-relay/test/supervisor-custody.mjs` (new), `plugins/session-relay/test/selftest.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/child-cancel-reentry.rs` (new), `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-owned-proof.rs` (new) | 3a | planned | A3b proves caller disconnect/exit leaves the supervisor-owned Child alive and queryable; exact-authority cancel reaps it; stale operation/fence versions emit zero signal/state bytes; supervisor crash becomes LostAuthority/FencingUnconfirmed; no Child/PID authority is reconstructed. If output semantics cannot be preserved through proxying or a detached supervisor cannot retain/reap the child, STOP as unbuildable. |
+| 3c | Add exact turn/child cancellation on the 3b substrate: persist `TurnStartSentUnknown` before send and exact returned `turn.id` before pump; add `TurnCancellationPermit`, exact terminal observation, versioned `CancellationHandoff`, nonblocking 100 ms polling, and fixed 5s guard resolution/handoff. Unknown/lost authority exact-CASes `FencingUnconfirmed`; a child handoff remains owned by the detached supervisor. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/tests/lifecycle_turn_cancellation.rs` (new), `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/cancel-reentry.rs` (new) | 3b | planned | A3c passes deterministic send/response/terminal and child-ignore-kill barriers plus operation-version winner/loser races. Any latest-turn guess, stale mutation, >100 ms individual block, guard held after 5s, dropped child authority, or unresolved operation disappearance: STOP. |
+| 3d | Close the source-derived admission surface: make wake/watch mutation-guiding status guard-aware, map every generic outbound mutation primitive and caller to an executed unique behavior test, invoke every production `OperationKind` wrapper, and replace all placeholder/name-only counts. Include first-birth collision and wrong/stale/mid-block-fence rows. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/test/reentry-inventory.mjs`, `plugins/session-relay/test/fixtures/reentry-inventory.json`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/selftest.mjs` | 3c | planned | A3d/A9/A10 pass with no placeholder behavior ids. Any mutation-guiding RPC precedes admission, a stale response guides a later mutation, or an inventory row lacks an executed production-wrapper test: STOP. |
+| 4 | Extend the Step-3b supervisor with pidfd and `ConfinedCgroupCooperative`: gated placement into a fresh delegated domain leaf; retained generation-bound fd; exact domain/empty-subtree/kill checks; `cgroup.kill`→`populated 0`; fail-closed fd loss. Classify `CLONE_INTO_CGROUP` `EACCES|EBUSY|EOPNOTSUPP|ENOSYS` plus narrowly validated unsupported-feature `EINVAL`; use stop/GO only when independently proven. Add Claude-only best-effort filtered hardening and inventory every signal callsite. | `plugins/session-relay/rust/src/process_identity.rs` (new), `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/test/process-signal-inventory.mjs` (new), `plugins/session-relay/test/fixtures/process-signal-inventory.json` (new), `plugins/session-relay/test/runtime-hook-abort.mjs` (new), `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-pidfd-proof.rs` (new), `.github/workflows/build-binaries.yml` | 1-3d | planned | A4/A5/A5b prove stable signaling, gated membership, typed fallback, kill/populated-0 with no surviving in-model PID for both runtimes, and Claude-only filtered hardening. Intentional same-UID migration/brokers are labeled outside threat model, not successful-proof prerequisites. |
 | 5 | Implement managed hook abort with Claiming publication first, bounded old-epoch drain, exact idempotent resume, Codex documented/Claude version-pinned SessionStart universal stop, required cross-runtime UserPromptSubmit block, explicit `timeout: 30` on both events, measured dead-man, and ordinary behavior compatibility. | `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/hooks/hooks.json`, `plugins/session-relay/hooks/codex-hooks.json`, `plugins/session-relay/test/runtime-hook-abort.mjs` (new), `plugins/session-relay/test/selftest.mjs` | 1-4 | planned | A2/A6 prove two-phase claim plus the isolated Claude/Codex event×timeout matrix. Claude SessionStart behavior is reported separately; UserPromptSubmit plus supervisor is mandatory. Any first-prompt sentinel, implicit timeout, or pre-Claiming hook work: STOP. |
-| 6 | Consume Step-3b exact-turn handoffs through post-drain `FencePermit`; implement finite recursive lineage/turn pagination and exact background-terminal list/terminate. The real current Codex adapter must always return `MissingDurableFlushContract` for ProtocolTree. Exercise the positive graceful reject/flush/watermark/reap/offline contract only through a fake/future adapter; shared scans stay observation-only; physical fallback is `cgroup.kill`→`populated 0`. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/runtime-appserver-quiescence.mjs` (new), `plugins/session-relay/test/lifecycle-smoke.mjs` | 3b-4 | planned | A7/A8 prove real runtime ProtocolIncomplete, fake adapter proof construction, finite pagination, exact terminal termination, late/continuous writer rejection, and physical fallback. Any real current-Codex row constructs ProtocolTree, bulk clean acknowledgement counts as completion, or equal/freeze scan constructs proof: STOP. |
+| 6 | Consume Step-3c exact-turn handoffs through post-drain `FencePermit`; implement finite recursive lineage/turn pagination and exact background-terminal list/terminate. The real current Codex adapter must always return `MissingDurableFlushContract` for ProtocolTree. Exercise the positive graceful reject/flush/watermark/reap/offline contract only through a fake/future adapter; shared scans stay observation-only; physical fallback is `cgroup.kill`→`populated 0`. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/runtime-appserver-quiescence.mjs` (new), `plugins/session-relay/test/lifecycle-smoke.mjs` | 3c-4 | planned | A7/A8 prove real runtime ProtocolIncomplete, fake adapter proof construction, finite pagination, exact terminal termination, late/continuous writer rejection, and physical fallback. Any real current-Codex row constructs ProtocolTree, bulk clean acknowledgement counts as completion, or equal/freeze scan constructs proof: STOP. |
 | 7 | Add version-CAS lifecycle status/reconcile/release/abandon, cancellation-handoff diagnostics, stale-fencer rejection, receipts, and explicit release. Every cancellation/fence transition consumes exact generation+binding/fence epoch+version authority. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/test/lifecycle-smoke.mjs` | 2-6 | planned | A12/A13 prove stale cancellation/fence completion loses to reconcile/abandon and writes nothing; unresolved custody is non-GCable and status-addressable; proof-bound release/abandon use expected version. Any late actor overwrites newer state: STOP. |
-| 8 | Complete adversarial unit/cross-process/real-runtime matrices and source-inventory enforcement; preserve all existing relay tests and isolated cleanup. Include cancellation send/response/terminal barriers, child-custodian loss, Unmanaged attach/Claiming, GC-vs-claim pause points, raw ABI/procfs containment, optional-freeze rejection, and missing-flush runtime rows. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/process_identity.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/test/feasibility-probe.mjs`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/process-signal-inventory.mjs`, `plugins/session-relay/test/reentry-inventory.mjs`, `plugins/session-relay/test/runtime-hook-abort.mjs`, `plugins/session-relay/test/runtime-appserver-quiescence.mjs`, `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/selftest.mjs` | 2-7 | planned | A1-A14 pass; helpers clean children/stores in `finally`; externally observable sentinels and kernel/protocol evidence, not elapsed time alone, establish results. Cooperative-scope test labels are machine-checked. |
+| 8 | Complete adversarial unit/cross-process/real-runtime matrices and source-inventory enforcement; preserve all existing relay tests and isolated cleanup. Include supervisor caller-exit/crash, operation CAS losers, cancellation send/response/terminal barriers, Unmanaged attach/Claiming, GC-vs-claim pause points, raw ABI/procfs containment, optional-freeze rejection, and missing-flush runtime rows. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/process_identity.rs`, `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/test/feasibility-probe.mjs`, `plugins/session-relay/test/supervisor-custody.mjs`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/process-signal-inventory.mjs`, `plugins/session-relay/test/reentry-inventory.mjs`, `plugins/session-relay/test/runtime-hook-abort.mjs`, `plugins/session-relay/test/runtime-appserver-quiescence.mjs`, `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/selftest.mjs` | 2-7 | planned | A1-A14 pass; helpers clean children/stores in `finally`; externally observable sentinels and kernel/protocol evidence, not elapsed time alone, establish results. Cooperative-scope test labels are machine-checked. |
 | 9 | Document guarantee tiers, `CooperativeWorkerV1`, exact cancellation custody, current `ProtocolTree` unavailability, hook-version/timeout contract, cgroup placement fallbacks, GC, and operator recovery; add an exact-SHA native-matrix dispatcher and run full gates without binary/release changes. | `plugins/session-relay/AGENTS.md`, `plugins/session-relay/skills/productivity/session-relay/SKILL.md`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/test/run-build-matrix.mjs` (new), `.github/workflows/build-binaries.yml` | 1-8 | planned | A15-A18 pass. Docs never call Darwin/start-time/tracked-tree/shared scans generation-safe, freeze a proof prerequisite, current Codex ProtocolTree-capable, or cooperative containment adversarial. Native dispatch refuses an unpushed/mismatched SHA. |
 
 ## Acceptance criteria
@@ -768,28 +923,29 @@ Run Node commands from repository root with `PATH="$HOME/.cargo/bin:$PATH"`; eve
 
 | ID | Criterion | Command | Expected output/result |
 |---|---|---|---|
-| A0 | Verify the resumed implementation checkpoint before dispatch. | `test "$(git branch --show-current)" = codex/primitives-collab && test "$(git rev-parse HEAD)" = 701cea7e671bc40ee23d69abf79ff102e0eecb20 && test -z "$(git status --porcelain)"` | Exit 0 from the implementation worktree before applying the remodeled plan commit. If the branch advanced intentionally, replace this one-time checkpoint in the plan with the independently reviewed new SHA before dispatch; never silently accept drift. |
+| A0 | Verify the one-time resume checkpoint and immutable main-worktree plan snapshot before first dispatch. | `test "$(pwd)" = /tmp/docks-primitives-collab && test "$(git branch --show-current)" = codex/primitives-collab && test "$(git rev-parse HEAD)" = 701cea7e671bc40ee23d69abf79ff102e0eecb20 && test -z "$(git status --porcelain)" && test -n "$PLAN_MAIN_COMMIT" && test -n "$PLAN_BLOB" && test "$(git -C /home/vagrant/projects/docks rev-parse HEAD)" = "$PLAN_MAIN_COMMIT" && test "$(git -C /home/vagrant/projects/docks hash-object docs/plans/active/relay-worker-lifecycle-primitives.md)" = "$PLAN_BLOB"` | Exit 0 once before implementation. The orchestrator exports the two plan values in the dispatch message. This is a pre-dispatch precondition, not a final gate and is not rerun after implementation advances HEAD. Workers read the absolute main-worktree plan; they do not cherry-pick plan commits. |
 | A1 | Full feasibility evidence comes from the committed harness. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/feasibility-probe.mjs --verify-current` | Exit 0; validates raw schema/hash chain and existing 12 hook rows; records the exact app-server graceful stop/reject/flush/watermark/reap methods and raw responses or `protocol_tree=unavailable`; records 20s protocol deadline, cgroup kill/freeze, namespace/user-map/mount/detach-all-proc/seccomp audit-arch/x32/proc-pid-fd prerequisites, and native process rows. The candidate-filter transcript records raw `clone3=-1/ENOSYS`, no clone3 child, legacy namespace-clone denial, exact filter/policy hash, and per-runtime Claude/Codex ordinary shell/tool child+wait sentinel result. Always prints `shared_protocol=observation_only` and `worker_tree_threat_model=cooperative`; any failed prerequisite or spawn fallback prints `strong_cgroup=unavailable runtime=<claude|codex>`; no editable verdict overrides raw evidence. |
 | A2 | Pending identity binding is atomic, epoch-serialized, and exact. | `(cd plugins/session-relay/rust && cargo test --locked managed_attach_ -- --nocapture)` | Exit 0; rows pass for Claude prebound id, Codex unknown→Claiming→Managed, concurrent exact duplicate, resume, replay, wrong id/tool/cwd/generation, expiry, conflicting binding, and claim-drain timeout. Claiming increments binding epoch once; new admission refuses; Active is published only after every older unmanaged shared guard resolves or exact-transfers custody; exactly one claim finalizes. |
-| A3a | Capabilities bind authority and preserve publish-first fencing/attach lifetime. | `(cd plugins/session-relay/rust && cargo test --locked lifecycle_admission_ -- --nocapture) && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | Both exit 0; wrong target is inexpressible and wrong `OperationKind` refuses at use; source finds zero lifecycle-sensitive `exec`; closed `ChildLaunchSpec` has no raw authority selectors; guard A cannot operate on B. Existing four bins plus `cancel-reentry` fail to compile, proving ReentryGuard, TurnCancellationPermit, and FencePermit cannot substitute for one another. This gate does not claim the A3b cancellation or A3c inventory matrix complete. |
-| A3b | Exact-turn and owned-child cancellation close the guard-drain cycle within fixed bounds. | `(cd plugins/session-relay/rust && cargo test --locked lifecycle_turn_cancellation_ -- --nocapture) && node plugins/session-relay/test/lifecycle-smoke.mjs --case cancellation-custody` | Exit 0. Deterministic barriers cover before send, after send/before response, after response, before terminal, and child ignoring kill. Before send creates no remote custody; after-send ambiguity retains `TurnStartSentUnknown`; successful response persists exact thread/turn id before pump; cancellation emits exactly one interrupt for that id and accepts only the matching terminal. Every socket read, child poll, and sleep requests ≤100 ms; one monotonic 5s deadline ends in terminal/reap, exact-version custody handoff, or `FencingUnconfirmed`. The guard releases by deadline; a live Child is retained by a named custodian, never dropped or waited indefinitely. Stale generation/binding/fence epoch/version emits zero RPC/process/state bytes. |
-| A3c | Every production re-entry wrapper is guarded before any mutation-guiding observation and has executed behavior evidence. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix && node plugins/session-relay/test/reentry-inventory.mjs --behavior-evidence` | Exit 0; wake/watch admission precedes the first mutation-guiding status RPC, a fence during status discards the stale response and emits no later mutation, and fenced first-read preserves mailbox. Every source-derived generic mutator/caller and every `OperationKind` names a unique executed behavior-test id covering success, wrong kind/epoch, pre-fence, and mid-block fence; no `dedicated_behavior_test`, rationale-only class, fixed expected count, or name-only PASS remains. First-birth collision with an existing fenced id refuses registration and never starts a turn. |
+| A3a | Capabilities bind authority and preserve publish-first fencing/attach lifetime. | `(cd plugins/session-relay/rust && cargo test --locked lifecycle_admission_ -- --nocapture) && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | Both exit 0; wrong target is inexpressible and wrong `OperationKind` refuses at use; source finds zero lifecycle-sensitive `exec`; closed `ChildLaunchSpec` has no raw authority selectors; guard A cannot operate on B. The baseline four bins fail; later capability/proof bins may also run and must fail. This gate claims neither supervisor nor cancellation/inventory completion. |
+| A3b | Detached supervisor owns each transition-capable Child from birth and enforces exact cancellation authority. | `(cd plugins/session-relay/rust && cargo test --locked lifecycle_supervisor_ -- --nocapture) && node plugins/session-relay/test/supervisor-custody.mjs --matrix` | Exit 0. Caller disconnect and caller process exit leave the same supervisor instance owning/proxying/querying the unreaped child. Exact operation/version + current Claim/Fence cancellation kills and reaps; stale version, reconcile, abandon, wrong instance/socket, or replay emits zero signal/state bytes. Supervisor crash/socket loss exact-CASes LostAuthority/FencingUnconfirmed; replacement cannot adopt/signal old child. Output/exit behavior remains byte-compatible. Private sealed `OwnedChildReapProof` is constructible only from the matching supervisor reap event. |
+| A3c | Exact-turn and supervisor-owned-child cancellation close the guard-drain cycle within fixed bounds. | `(cd plugins/session-relay/rust && cargo test --locked lifecycle_turn_cancellation_ -- --nocapture) && node plugins/session-relay/test/lifecycle-smoke.mjs --case cancellation-custody && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | Exit 0. Deterministic barriers cover before send, after send/before response, after response, before terminal, and supervisor child ignoring kill. Every custody transition exact-CASes `operation_version`; handoff consumes exact operation+handoff versions; losing delayed events only append stale audit. Cancellation emits exactly one interrupt for the persisted turn id and accepts only matching terminal. Every wait requests ≤100 ms; one 5s deadline ends in terminal/reap, exact handoff, or FencingUnconfirmed. Guard releases by deadline while the detached supervisor retains child authority. Existing four compile-fail bins plus new `cancel-reentry` fail. |
+| A3d | Every production re-entry wrapper is guarded before any mutation-guiding observation and has executed behavior evidence. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix && node plugins/session-relay/test/reentry-inventory.mjs --behavior-evidence` | Exit 0; wake/watch admission precedes the first mutation-guiding status RPC, a fence during status discards the stale response and emits no later mutation, and fenced first-read preserves mailbox. Every source-derived generic mutator/caller and every `OperationKind` names a unique executed behavior-test id covering success, wrong kind/epoch, pre-fence, and mid-block fence; no placeholder/rationale/fixed-count/name-only PASS remains. First-birth collision with an existing fenced id refuses registration and never starts a turn. |
 | A4 | No check-then-kill path can signal a recycled identity. | `node plugins/session-relay/test/process-signal-inventory.mjs && (cd plugins/session-relay/rust && cargo test --locked stable_signal_ -- --nocapture)` | Both exit 0; source-derived inventory classifies every raw signal callsite and rejects ObservationOnly/start-check+kill; a deterministic syscall race fixture exits the observed target and substitutes a sentinel identity before action, with zero signal attempts and unchanged sentinel bytes; real pidfd-open-before-validation targets only the pinned task; live unreaped-Child signaling affects only its owned child; Darwin/no-pidfd recovery returns Unconfirmed without signaling. |
-| A5 | Tree proof requires exact gated placement and kill evidence; filtered hardening remains separate. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case containment` | Exit 0; cooperative rows require a newly created leaf, exact `cgroup.type=domain`, empty `cgroup.subtree_control`, retained manager fd, verified initial membership before runtime code, `cgroup.kill=1`, and `populated=0`. Fixtures classify direct-placement `EACCES`, `EBUSY`, `EOPNOTSUPP`, and `ENOSYS`; each uses stop/GO only after its independent capability check, never generic clone3 retry. Optional freeze neither upgrades nor is required for proof, and any used freeze cannot thaw through release. Separate Claude hardening rows prove proc/fd/namespace setup, native AUDIT_ARCH, explicit wrong-arch action, x32 `__X32_SYSCALL_BIT` action, raw `clone3=-1/ENOSYS`, and legacy namespace denial. Every loss/mismatch is Unconfirmed; every TrackedTree case remains `UnconfirmedDescendants`. |
-| A5b | Cooperative cgroup child creation works in BOTH runtimes with gated placement; the anti-escape filter is Claude-only hardening. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-hook-abort.mjs --case cgroup-cooperative-child-spawn --matrix` | Exit 0. The harness records host mount/delegation context (a sandbox read-only `/sys/fs/cgroup` is not misreported as host infeasibility). Isolated authenticated Claude and Codex are each gated into a new domain leaf, run their real sandbox, spawn a real tool child plus held grandchild/fork storm, and keep every host-visible PID under the leaf. It writes `cgroup.kill=1` during the fork storm and requires `populated=0` with no surviving PID; freeze may be separately observed but is not required. Rows print `PASS cgroup_cooperative_spawn runtime=<runtime> gated=<clone3_into_cgroup|stop_go> domain=1`. Claude separately passes the exact filtered hardening; Codex's expected bwrap denial does not reduce cooperative availability. If neither gated placement path works or a descendant escapes, that runtime is WorkerTree-unavailable. |
+| A5 | Tree proof requires exact gated placement and kill evidence; filtered hardening remains separate. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case containment` | Exit 0; cooperative rows require a new domain/empty-subtree leaf, retained manager fd, verified initial membership, `cgroup.kill=1`, and `populated=0`. Fixtures classify `EACCES`, `EBUSY`, `EOPNOTSUPP`, `ENOSYS`, and narrowly validated unsupported-feature `EINVAL`; malformed `EINVAL` is a STOP and never fallback. Each uses stop/GO only after its independent capability check. Cooperative membership attempts cover ordinary child, nested namespace, double fork, and fork storm. Intentional direct migration/broker/SCM_RIGHTS rows are labeled `outside_threat_model` and ignored by proof validation. Optional freeze never upgrades proof. Separate Claude hardening rows prove proc/fd/namespace and exact arch/x32/clone3 actions. |
+| A5b | Cooperative cgroup child creation works in BOTH runtimes with gated placement; the anti-escape filter is Claude-only hardening. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-hook-abort.mjs --case cgroup-cooperative-child-spawn --matrix` | Exit 0. The harness records host mount/delegation context (a sandbox read-only `/sys/fs/cgroup` is not misreported as host infeasibility). Isolated authenticated Claude and Codex are each gated into a new domain leaf, run their real sandbox, and create an in-model tool child, nested-namespace held grandchild, and fork storm; every host-visible PID created by those fixtures stays under the leaf. It writes `cgroup.kill=1` during the storm and requires `populated=0` with no surviving in-model PID. Intentional migration/broker fixtures are separately labeled outside threat model. Rows print `PASS cgroup_cooperative_spawn runtime=<runtime> gated=<clone3_into_cgroup|stop_go> domain=1`. Claude separately passes filtered hardening; Codex's expected bwrap denial does not reduce cooperative availability. |
 | A6 | Both real CLIs block managed first-prompt failures through the documented required barrier. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-hook-abort.mjs --matrix` | Exit 0; isolated logs prove exact hook file/hash loaded and `timeout:30` parsed for both events. Codex SessionStart universal stop is verified; Claude SessionStart result is recorded as version-pinned empirical behavior, not counted as the sole barrier. For both runtimes UserPromptSubmit lifecycle block prevents model processing; timeout is deliberately fail-open and the supervisor fences/reaps before the 20s deadline. Duplicate SessionStart and sequential contention preserve absent sentinels. Output names each runtime/version/event result rather than relying on a fixed row count. |
 | A7 | Real app-server fencing distinguishes exact cancellation, shared observation, current ProtocolTree unavailability, and physical kill. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-appserver-quiescence.mjs --matrix` | Exit 0; exact owned-turn interrupt reaches matching terminal; each background terminal is listed and terminated by exact process id. Every shared row remains `ProtocolObservation`. Every installed-current-Codex dedicated ProtocolTree row prints `ProtocolIncomplete reason=MissingDurableFlushContract`; process exit, stdio EOF, internal shutdown, `clean {}`, offline readability, idle, and equal scans cannot construct the receipt. A cooperative cgroup may instead `kill`→`populated 0` and produce only WorkerTree. |
 | A8 | Protocol recovery is terminal-boundary and finite, with a fake/future positive adapter only. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case appserver-recovery` | Exit 0; fake adapter positive proof requires mutation rejection, flush watermark/ack, reap, and complete offline pagination to `nextCursor:null`. Missing/partial watermark, terminal pages, continuous spawner, after-second-pass child, bulk-clean acknowledgement, process kill, optional freeze, and idle all return ProtocolIncomplete within 20s. Real-adapter construction of `DurableFlushReceipt` is compile-time or runtime impossible. |
 | A9 | Every mutator has a concrete matching capability and executed behavior evidence. | `node plugins/session-relay/test/reentry-inventory.mjs` | Exit 0; scans generic outbound app-server request primitives plus all callers, every drain/resume/inject/start/interrupt/list/terminate, process create/exec/signal, and pending acknowledgement. Each maps to target-free `ReentryGuard`, exact-owned-turn `TurnCancellationPermit`, or sealed post-drain `FencePermit`, plus a unique executed behavior-test id. Pure reads are source-verified and cannot guide later mutation after their guard goes stale. First-birth process/thread creation remains a source-verified non-reentry class only when its collision path proves it cannot attach to an existing fenced id. Source-derived N is reported, never fixed in a fixture; no rationale/name-only row passes. |
 | A10 | Every production re-entry surface enforces target/kind/binding/cancellation epoch at use. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix` | Exit 0; one production-wrapper row per source-derived `OperationKind` covers success, wrong kind, stale binding, pre-fence, and mid-block fence with externally observable no-mutation evidence. Wake/watch mutation-guiding status is inside admission and stale responses are discarded. Fenced rows emit no context/RPC/process; queue/peek remain allowed. No row prints a generic placeholder label. |
-| A11 | GC cannot erase durable authority/custody and preserves legacy Unmanaged aging. | `(cd plugins/session-relay/rust && cargo test --locked managed_gc_ -- --nocapture)` | Exit 0; aged lifecycle states plus pending/Claiming/Managed binding, tombstone, lock, fence/proof, `TurnStartSentUnknown`, unresolved `TurnKnown`, `ChildOwned`, `ChildTransferred`, custodian, and cancellation-handoff surfaces survive. Old standalone Unmanaged binding ages out only by exact `Unmanaged→GcDeleting→removed`; deterministic crash/race barriers preserve exact bytes and Entry/binding removal remains last. |
-| A12 | Operator transitions and competing fencers are exact-version CAS. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reconcile` | Exit 0; status emits exact version-bound commands; race rows pause old fencer N, reconcile N→N+1/new epoch or abandon N, then release old completion: it returns StateChanged and changes no state/audit/mail/process bytes. Shared observation cannot reconcile to ProtocolTree. Release/abandon reject stale version; valid abandon alone prints `NOT QUIESCENCE-PROVEN`. |
-| A13 | Proof validation and three capability families are exhaustive, scope-safe, epoch-bound, and threat-model-labeled. | `(cd plugins/session-relay/rust && cargo test --locked fence_proof_ -- --nocapture)` | Exit 0; every backend×scope×evidence row passes. `TurnCancellationPermit` can only interrupt its exact owned turn; `ReentryGuard` and `FencePermit` cannot cross. Full permit requires all exclusives and exact-version handoff consumption. Stale permits act/finish with zero bytes. Current Codex cannot build `DedicatedOfflineBoundaryProof`; optional freeze is absent from proof requirements. Cgroup WorkerTree requires `CooperativeWorkerV1`, successful gated placement, domain/empty-subtree leaf, kill/populated-0, and A5b receipt; filtered hardening never gates or upgrades the cooperative claim. |
+| A11 | GC cannot erase durable authority/custody and preserves legacy Unmanaged aging. | `(cd plugins/session-relay/rust && cargo test --locked managed_gc_ -- --nocapture)` | Exit 0; aged lifecycle states plus pending/Claiming/Managed binding, tombstone, lock, fence/proof, versioned unresolved turn/child custody, supervisor/socket record, cancellation handoff, and stale-event audit survive. Old standalone Unmanaged binding ages out only by exact `Unmanaged→GcDeleting→removed`; deterministic crash/race barriers preserve exact bytes and Entry/binding removal remains last. |
+| A12 | Operator transitions, supervisor reports, custody CAS, and competing fencers are exact-version. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reconcile` | Exit 0; race rows pause old turn response/supervisor report/fencer, then reconcile or abandon to a new version/epoch. Every old completion returns StateChanged, changes no lifecycle/custody/mail/process bytes, and only appends permitted stale audit. Status emits exact recovery commands including operation/handoff/supervisor loss. Release/abandon reject stale version; valid abandon alone prints `NOT QUIESCENCE-PROVEN`. |
+| A13 | Proof validation and capability families are exhaustive, sealed, scope-safe, epoch-bound, and threat-model-labeled. | `(cd plugins/session-relay/rust && cargo test --locked fence_proof_ -- --nocapture) && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | Both exit 0; every backend×scope×evidence row passes. ProcessProof/FenceIntent constructors are private/sealed; fabricated owned-child/pidfd proof bins fail to compile. `TurnCancellationPermit` only interrupts its exact owned turn; supervisor privately mints `ChildCancellationPermit`; ReentryGuard/FencePermit cannot cross. Full permit requires all exclusives and exact-version handoff consumption. Current Codex cannot build `DedicatedOfflineBoundaryProof`; optional freeze is absent. Cgroup WorkerTree requires the in-model cooperative membership receipt, kill/populated-0, and A5b; out-of-model intentional migrations are diagnostic only. |
 | A14 | Existing behavior remains green. | `(cd plugins/session-relay/rust && cargo test --locked) && node plugins/session-relay/test/selftest.mjs` | Exit 0; all Rust tests pass and selftest ends with its runtime-derived PASS count. Ordinary unmanaged hook/output/mailbox bytes remain compatible; attach output remains compatible except the intentional guarded spawn+wait behavior. |
 | A15 | Formatting and warnings are clean. | `(cd plugins/session-relay/rust && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings)` | Exit 0, no format diff, no warnings. |
 | A16 | Four architectures compile; Darwin observation semantics run natively. | `node plugins/session-relay/test/run-build-matrix.mjs --ref codex/primitives-collab --sha "$(git rev-parse HEAD)"` | **Owner approval is still required immediately before push/dispatch.** Helper exits 0 only when the clean remote `codex/primitives-collab` ref equals the supplied full SHA; otherwise prints `STOP: exact SHA is not on remote` and performs no mutation. It dispatches/watches only the matching run id/head SHA. Linux x86_64/aarch64 musl and native `macos-15-intel`/`macos-15` jobs are green; Darwin reports observation-only recovery; no artifacts are committed. |
 | A17 | Full plugin/repo gates pass. | `node scripts/ci.mjs` | Exit 0 with all repo/plugin guards, Rust, selftest, hooks, skills, and manifests green; documented local binary digest warning only. |
-| A18 | Diff is scoped and contains no binary/release mutation. | `git diff --check 12cf2ea..HEAD && git diff --name-only 12cf2ea..HEAD | rg '^(plugins/session-relay/(rust/src|rust/Cargo\.(toml|lock)|hooks|test|AGENTS\.md|skills/productivity/session-relay/SKILL\.md)|\.github/workflows/build-binaries\.yml|docs/plans/active/relay-worker-lifecycle-primitives\.md)$' -v` | First exits 0; second prints nothing/exits 1; no `plugins/session-relay/bin`, manifest version, marketplace version, or unrelated path changes. |
+| A18 | Diff is scoped and contains no binary/release mutation. | `git diff --check 12cf2ea..HEAD && test -z "$(git diff --name-only 12cf2ea..HEAD | rg -v '^(plugins/session-relay/(rust/src/.*|rust/tests/.*|rust/Cargo\.(toml|lock)|hooks/.*|test/.*|AGENTS\.md|skills/productivity/session-relay/SKILL\.md)|\.github/workflows/build-binaries\.yml|docs/plans/active/relay-worker-lifecycle-primitives\.md)$')"` | Exit 0; the captured unexpected-path output is empty. No `plugins/session-relay/bin`, manifest version, marketplace version, or unrelated path changes. This exact expression is regression-tested against `12cf2ea..701cea7` and must accept the legitimate existing Rust/test descendants. |
 
 ## Out of scope / do-NOT-touch
 
@@ -808,7 +964,7 @@ Run Node commands from repository root with `PATH="$HOME/.cargo/bin:$PATH"`; eve
 
 - Opening pidfd **after** a generation check still races; open first, then validate the pinned target.
 - An unreaped Child prevents PID reuse but does not prevent descendants escaping its process group. Its proof scope is explicit.
-- `populated 0` is true after a process migrates away. It is authoritative only together with a proven anti-migration boundary.
+- `populated 0` says nothing about a process intentionally migrated outside the leaf. It is authoritative only for the explicit `CooperativeWorkerV1` set: runtime born in the leaf plus ordinary/nested descendants whose membership probes stayed there; intentional same-UID migration is outside the claim.
 - Flock writer fairness is not a safety primitive. Fence intent keeps post-intent readers out; cancellation bounds pre-intent readers.
 - `attach --exec` closes CLOEXEC locks. Even an Unmanaged attach can become Claiming while its resumed CLI lives, so every transition-capable attach/resume keeps relay as the waiting parent; “managed only” is insufficient.
 - An Unmanaged guard is not timeless. First SessionStart must publish Claiming/increment binding epoch, drain older guards, and finalize Managed only after they release; every use re-resolves the epoch.
@@ -846,18 +1002,20 @@ Run Node commands from repository root with `PATH="$HOME/.cargo/bin:$PATH"`; eve
 ## STOP conditions
 
 - Any observation/start-time check is followed by raw PID/PGID signal without a live pidfd, unreaped Child, or verified confined-cgroup handle.
-- A direct cooperative cgroup escape probe can migrate to ancestor/sibling, cgroupfs remains writable outside the worker root, or boundary mount/dev/inode/generation/threat-model tag does not match. Do not misclassify the explicitly out-of-scope same-user broker fixture as proof of adversarial containment.
-- Cooperative cgroup placement is non-atomic, the fresh leaf is not exact `domain` with empty `cgroup.subtree_control` and writable `cgroup.kill`, `CLONE_INTO_CGROUP` errors are generically retried or fall back without a separately verified stop/GO capability, a bwrap-nested/double-forked descendant survives outside the leaf, or `populated 0` is claimed while any host-visible PID remains under it.
+- An in-model ordinary/nested/double-fork/fork-storm descendant leaves the worker leaf, or boundary mount/dev/inode/generation/threat-model tag does not match. Intentional same-UID ancestor/sibling migration and broker/SCM_RIGHTS fixtures must be labeled `outside_threat_model`, not required-denial proof or adversarial containment.
+- Cooperative placement is non-atomic, the fresh leaf is not exact domain/empty-subtree with writable kill, clone3 errors are generically retried, `EINVAL` falls back without proving valid args plus unsupported feature, stop/GO was not separately proven, an in-model descendant survives outside the leaf, or `populated 0` is claimed while an in-model host-visible PID remains.
 - `FilteredCgroupHardening` (Claude-only) setup moves the wrapper after cgroup-namespace creation, retains an inherited procfs mount, exposes host proc/alternate cgroupfs/proc-pid-fd authority, leaks a control fd, omits native arch/x32 validation, lets raw `clone3` create a child or return anything except `-1/ENOSYS`, permits namespace/remount syscalls through legacy paths, or tries to recover proof after losing the exact manager fd. Codex being filtered-unavailable is expected and must NOT reduce its cooperative-tier availability.
-- Fence intent is not visible before reader drain, post-intent readers can start external work, a prior operation lacks exact cancellation, or any lifecycle-sensitive attach/resume uses `exec` or releases its guard before child wait/reap or exact custody handoff.
-- `turn/start` does not persist pending-send and exact returned id, cancellation guesses latest/thread-only targets, matching terminal evidence is absent, a stale claim/fence epoch emits an RPC, an individual cancellation block exceeds 100 ms, a guard survives the 5s grace, or a live Child is dropped/waited indefinitely instead of transferred to a retained custodian.
+- Fence intent is not visible before reader drain, post-intent readers can start external work, a prior operation lacks exact cancellation, or any lifecycle-sensitive attach/resume uses `exec` or releases its guard before supervisor reap/exact custody handoff.
+- The transition-capable child is ever spawned outside the detached supervisor, caller exit drops child authority, supervisor commands accept raw executable/target authority, a stale operation/claim/fence version signals, supervisor loss adopts/reconstructs a Child/PID, or output proxying changes required attach semantics.
+- `turn/start` does not persist pending-send and exact returned id, cancellation guesses latest/thread-only targets, matching terminal evidence is absent, a stale claim/fence epoch emits an RPC, an individual cancellation block exceeds 100 ms, a guard survives the 5s grace, or a live Child is dropped/waited indefinitely instead of remaining owned by the detached supervisor.
 - Admission returns a capability with an independently supplied authority target, fails to bind kind/epoch, or lets an old Unmanaged guard cross Claiming→Managed/Fencing.
 - The source-derived inventory finds an unmapped generic mutator/caller, a rationale-only mutation, a placeholder/name-only behavior row, a mutation-guiding status RPC before admission, or a lower API callable without matching sealed `ReentryGuard`/`TurnCancellationPermit`/`FencePermit`.
 - Codex first SessionStart cannot publish Claiming/increment epoch first, drain older guards, exact-CAS Managed, or reject conflicting/replayed identity; duplicate/resume semantics differ from the table.
-- GC removes or makes unreachable any non-releasable worker, pending claim, active operation/custody handoff/custodian, session binding, tombstone, fence marker, lifecycle lock, proof, or audit surface.
+- GC removes or makes unreachable any non-releasable worker, pending claim, active operation/custody handoff/supervisor record, session binding, tombstone, fence marker, lifecycle lock, proof, or audit surface.
 - Unmanaged GC deletes any surface before exact `GcDeleting` publication, permits pending/Claiming/admission across that state, rolls back after deletion begins, or cannot idempotently resume an exact `gc_epoch` after crash.
 - `finish_fence` accepts root/process/protocol evidence for a recorded WorkerTree requirement, or any tracked-tree path returns confirmed.
-- Any fence action or finish/timeout/reconcile/release/abandon transition omits exact generation+fence epoch+version validation/CAS, or a stale fencer changes newer state.
+- Any custody/supervisor/fence action or finish/timeout/reconcile/release/abandon transition omits exact operation+handoff+generation+claim/fence epoch+version validation/CAS, or a stale actor changes newer state.
+- `FenceIntent`, pidfd-exit proof, or owned-child-reap proof is caller-constructible without its private sealed kernel/supervisor constructor.
 - The installed current-Codex adapter constructs `ProtocolTreeProof` or `DurableFlushReceipt`; app-server proof uses live shared/equal scan, `clean {}`, stdio EOF, internal shutdown, freeze, process kill, or unflushed offline artifacts; exact terminal pagination is incomplete; or the 20s deadline expires without `ProtocolIncomplete`.
 - A1 can pass with fabricated booleans, A5b does not run both real CLIs in recorded host delegation context, A6 omits explicit timeouts/UserPromptSubmit model-block evidence, A7 never starts real writers, or A9 uses a fixed count/placeholder test id.
 - Managed attach performs GC/register/marker/mailbox drain before Claiming publication, waits while holding the global lock, deadline formula exceeds 20s, or global lock timeout is lengthened.
@@ -869,7 +1027,7 @@ Run Node commands from repository root with `PATH="$HOME/.cargo/bin:$PATH"`; eve
 1. **File manifest:** present — each step names exact existing/new paths and current line ranges for cited callsites.
 2. **Environment & commands:** present — base, versions, four targets, isolated real-runtime setup, measured deadline formula, and exact gates are specified.
 3. **Interface & data contracts:** present — binding epoch/Claiming, durable operation custody, three sealed capability families, exact cancellation/fence CAS, cooperative cgroup fallback, explicit current ProtocolTree unavailability/future adapter, proofs, GC, and operator APIs are explicit.
-4. **Executable acceptance:** present — A0–A18 plus A3a/A3b/A3c are command + expected evidence, including adversarial matrices and source-derived behavior ids.
+4. **Executable acceptance:** present — A0–A18 plus A3a–A3d are command + expected evidence, including detached-supervisor crash/lifetime, operation-CAS races, adversarial matrices, and source-derived behavior ids.
 5. **Out of scope:** present — fan-out specifics, unsafe raw signaling, adversarial same-UID broker isolation, privileged helpers, arbitrary clients, shared-server kill, binaries/releases, and unrelated changes are excluded.
 6. **Decision rationale:** present — every non-obvious choice is tied to a red-team defect and failure mode.
 7. **Known gotchas:** present — TOCTOU, Unmanaged attach transition, capability substitution, fence epoch, namespace/remount/proc/fd/ABI escape, freeze/unflushed lineage, broker scope, GC, and timing traps are explicit.
@@ -882,15 +1040,21 @@ Adversarial cold-read result: a cold executor need not invent binding serializat
 
 - **Resolved 2026-07-11** — `threat-model-scope`: owner selected **Option 1, `CooperativeWorkerV1`**. Implementation and acceptance adopt the cooperative model; broker-assisted same-UID evasion is out of scope. See ## Threat model.
 
-- **Resolved 2026-07-11** — `codex-cooperative-cgroup-tier`: the filtered candidate passes Claude but blocks Codex's normal `bwrap` namespace/mount path, so the owner selected **Option A**: a `ConfinedCgroupCooperative` WorkerTree tier for both runtimes and a separate Claude-only `FilteredCgroupHardening` best-effort layer. Primary-source re-review preserves the decision but tightens it: the cooperative proof is gated placement into a fresh domain leaf with empty `cgroup.subtree_control`, retained fd, `cgroup.kill=1`, and `populated=0`; freeze is optional observation, not a prerequisite, because tasks can move while frozen and `cgroup.kill` itself handles concurrent forks/migrations. Direct placement classifies `EACCES|EBUSY|EOPNOTSUPP|ENOSYS` and falls back only to a separately proven stop/GO path. Real-runtime acceptance keeps Codex's normal bwrap, nested namespaces, held grandchild/fork storm, and no-surviving-host-PID assertion. Broker-assisted same-UID creation remains outside `CooperativeWorkerV1`. Option B (`ProcessOnly` for Codex) and Option C (Codex without bwrap) remain rejected.
+- **Resolved 2026-07-11** — `codex-cooperative-cgroup-tier`: the filtered candidate passes Claude but blocks Codex's normal `bwrap` namespace/mount path, so the owner selected **Option A**: a `ConfinedCgroupCooperative` WorkerTree tier for both runtimes and a separate Claude-only `FilteredCgroupHardening` best-effort layer. Primary-source re-review preserves the decision but tightens it: the cooperative proof is gated placement into a fresh domain leaf with empty `cgroup.subtree_control`, retained fd, `cgroup.kill=1`, and `populated=0`; freeze is optional observation. Direct placement classifies `EACCES|EBUSY|EOPNOTSUPP|ENOSYS` plus narrowly validated unsupported-feature `EINVAL` and falls back only to separately proven stop/GO. In-model ordinary/nested descendants must remain in the leaf; intentional same-UID migration/brokers are diagnostic and outside `CooperativeWorkerV1`. Option B and Option C remain rejected.
 
 ## Self-review
 
-Score: **94/100 (provisional Draft-7 author pass)** · trajectory **69 current-order audit → 91 remodel → 94 primary-source reconciliation** · stopped: **pending fresh immutable-commit agent review**.
+Score: **93/100 (provisional Draft-8 author pass)** · trajectory **94 Draft-7 author claim → 72/77 immutable agent reviews → 90 supervisor/CAS repair → 93 cold-read repair** · stopped: **pending fresh immutable-commit agent review**.
+
+**Draft-8 remodel (2026-07-11):** The two immutable Draft-7 reviews rejected the thread-local child custodian, absent operation versioning, A3 dependency cycle, forgeable process proof, broken A18 regex, stale-plan handoff, incomplete `EINVAL` routing, and mixed cooperative/adversarial cgroup matrix. Draft-8 moves a real detached supervisor before cancellation, makes it own Child from birth, defines exact IPC/crash/proxy semantics and private child cancellation/reap authority, adds operation/handoff CAS versions and a closed transition table, splits 3a–3d without cycles, seals process proofs/FenceIntent, makes intentional same-UID migration diagnostic/out-of-model, and repairs the executable commands.
+
+Weighted author result: standalone executability **21/22**; actionability **15/16**; dependency order **11/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **11/12**; failure mode **9/10**; assumption→question **5/6**. The remaining dependency deduction is implementation risk in portable detached-supervisor output proxying; Step 3b now has a binary STOP rather than an invented fallback.
+
+**Draft-7 immutable review result (superseded by Draft-8):** architecture reviewer **72/100, NOT READY**; acceptance/source reviewer **77/100, NOT READY**. Their blocking findings are the explicit Draft-8 closure list above.
 
 **Draft-7 remodel (2026-07-11):** Two independent gpt-5.6-sol cold reviews reproduced that the previous Step 3 could false-green: `turn/start` discarded the returned turn id, cancellation only stopped the local pump, child cancellation could wait indefinitely after marking unconfirmed, wake/watch used unguarded mutation-guiding status, and A9/A10 accepted name/placeholder evidence. The dependency repair keeps Steps 1–2, narrows delivered Step 3 to 3a, adds 3b exact turn/child custody and 3c behavior-complete inventory, then lets containment consume those handoffs. Primary-source research additionally pins explicit hook timeouts, makes Claude SessionStart an empirical extra rather than the sole barrier, makes freeze optional, adds typed `CLONE_INTO_CGROUP` fallback, and makes current Codex ProtocolTree explicitly unavailable. The goal and final proof tiers are unchanged; unsupported tiers remain fail-closed.
 
-Weighted author result: standalone executability **21/22**; actionability **15/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **11/12**; failure mode **9/10**; assumption→question **5/6**. Remaining deductions reflect implementation-risk in live child custody, current ProtocolTree unavailability, and the owner-gated remote matrix—not silent design gaps.
+Draft-7 weighted author result: standalone executability **21/22**; actionability **15/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **11/12**; failure mode **9/10**; assumption→question **5/6**. The independent reviews superseded this optimistic score.
 
 **Historical Draft-4–Draft-6 review log (superseded where Draft-7 conflicts):**
 
@@ -932,7 +1096,7 @@ Affirmed invariants are intentionally unchanged: publish-first Fencing prevents 
 - `plugins/session-relay/rust/src/cli.rs:920-930` and `plugins/session-relay/rust/src/watch.rs:620-640` at checkpoint `701cea7` — mutation-guiding status reads can run outside the admitted guard.
 - `plugins/session-relay/rust/src/spawn.rs:268-301` at checkpoint `701cea7` — child cancellation marks unconfirmed after grace but keeps waiting indefinitely.
 - `plugins/session-relay/rust/tests/lifecycle_admission.rs:596-647` at checkpoint `701cea7` — five operation rows report the placeholder `dedicated_behavior_test` rather than executing the production wrapper.
-- `plugins/session-relay/rust/src/store.rs:446-482,485-545,1023-1205,1208-1292` — three-second flock, Entry shape, age-based GC with no managed exemption, and register transaction.
+- `plugins/session-relay/rust/src/store.rs:1081-1083,1179-1181` at checkpoint `701cea7` — store GC already delegates lifecycle-bound sessions to Step-2 protection; Draft-8 extends retention to operation/supervisor/handoff custody.
 - `plugins/session-relay/rust/src/watch.rs:245-310,555-640` — pending acknowledgement, mailbox drain/deliver, and wake fallback are distinct re-entry paths.
 - `plugins/session-relay/rust/src/main.rs:14-59` — multi-call routing to extend with lifecycle reconcile and hidden managed launcher.
 - [Claude hooks](https://code.claude.com/docs/en/hooks) — universal `continue:false`, UserPromptSubmit blocking, and configurable handler defaults; SessionStart's event-specific surface is context-oriented, so its stop row is version-pinned.
