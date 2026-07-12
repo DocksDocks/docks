@@ -206,6 +206,21 @@ export function validateReviewerOutput(output, request, leg) {
   return output;
 }
 
+export function extractReviewerOutput(tool, stdout, request, leg) {
+  let parsed;
+  try { parsed = JSON.parse(stdout); } catch {
+    if (tool !== 'codex') throw new Error('reviewer output is not JSON');
+    const lines = stdout.trim().split('\n').filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      try { parsed = JSON.parse(lines[i]); break; } catch { /* continue */ }
+    }
+    if (parsed === undefined) throw new Error('Codex output contains no JSON object');
+  }
+  const output = tool === 'claude' ? parsed?.structured_output : parsed;
+  if (!output) throw new Error('structured reviewer output missing');
+  return validateReviewerOutput(output, request, leg);
+}
+
 export function validateWaivers(waivers, phase, inputSha) {
   if (!Array.isArray(waivers)) throw new Error('waivers must be array');
   const claimed = new Set();

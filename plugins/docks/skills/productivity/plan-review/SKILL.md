@@ -1,266 +1,215 @@
 ---
 name: plan-review
-description: Use when a plan's steps all complete (status in_review) or it reaches status finished — verifies goal vs the diff (planned_at_commit..HEAD for completion, ship_commit for finished), runs the project's CI for regressions, writes the `## Review` block (goal-met, regressions, follow-ups). Also the draft-review pass plan-manager dispatches on a big/risky plan — red-teams it against the self-review rubric. Not for general code review or pre-merge checks.
-user-invocable: true
+description: Use when plan-manager needs internal draft or completion evidence from two independent reviewers over one sealed input, including fresh-context X/S collection and per-finding reproduction. Returns typed evidence only. Not for direct user invocation, lifecycle writes, general code review, or follow-up-plan creation.
+user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-09"
-  content_hash: "bbc1a87901c828ba2e4726924f3553282a9a3027976efe33410d34c5fa0ad52d"
+  updated: "2026-07-12"
+  content_hash: "74227272ea330ea1b81581c337615c5c5603534b454c686619e3ae0762118bcc"
 ---
 
-# Plan Review
+# Plan Review Evidence Runner
 
-Verify a finished plan against the diff that shipped it. Read `goal` and acceptance criteria, compare to the actual changes in `ship_commit`, run the project's CI/test command if it has one, and write a structured `## Review` block into the plan file with the verdict.
-
-Runtime wrappers are convenience only. Claude may dispatch
-`plugins/docks/agents/plan-review.md`; Codex projects may have a repo-local
-`.codex/agents/plan-review.toml` seeded by `plan-init` or scaffold. In every
-case, this skill is canonical and the wrapper must load it before acting.
+Produce read-only evidence for main-context plan-manager. This skill never edits
+the source plan, writes a receipt, changes status, or decides whether an intent
+may execute. Its bundled `scripts/review-policy.mjs` is the canonical plan-view,
+bundle, schema, hashing, and validation implementation.
 
 <constraint>
-**Three modes, keyed on `status`.** (1) `in_review` (file still in `active/`, all `## Steps` `done`) → **completion review**: diff-vs-goal against `planned_at_commit..HEAD` (+ working tree) — the Finished-review steps with the diff base swapped, ending by surfacing "ready to ship" rather than archiving. (2) `finished` (in `finished/`) with `ship_commit` set → **finished review**: Steps 1–10 against the `ship_commit` diff. (3) any other non-finished draft (in `active/`) → **draft review** (Mode 0): red-team against the self-review rubric, report holes, no diff. If `ship_commit` is empty on a `finished` plan, ask the user for the SHA before proceeding.
+**Evidence-only ownership.** Accept only a typed request from plan-manager. Return `NeedsMainReviewDispatch`, `DraftRunResult`, or `CompletionRunResult`; never Edit/Write the source plan, create a follow-up, apply a lifecycle transition, or reconcile accepted/rejected findings. Plan-manager is the only public entry, dispatcher, reconciler, receipt writer, and lifecycle writer.
 </constraint>
 
 <constraint>
-**Idempotent re-runs replace, never append.** If a `## Review` block already exists in the plan body, the new review REPLACES it via `Edit` (with `old_string` matching the existing block). Never append a second Review section. The user should be able to invoke "review plan <slug>" repeatedly without bloating the file.
+**One immutable input, two fresh reviewers.** X and S consume the same sealed non-git bundle and byte-identical `ReviewRequestEnvelope`. Every launch pins company/model/effort/transport explicitly. Never resume an old session, inherit ambient model/effort, read the moving source worktree, or use session-relay in schema v1.
 </constraint>
 
 <constraint>
-**Never auto-create follow-up plans.** When regressions or partial-goal-met findings warrant a follow-up plan, list the suggested slug(s) in the Review block under `Follow-ups:` — but DO NOT create the new files. The user keeps control of what becomes a new tracked plan.
+**Host policy is authoritative.** `cross_company_consent=always` suppresses only Docks' X-consent picker. It cannot override sandbox/export policy. Record an authoritative denial as `platform_denied`, with no launch and no alternate-transport retry. Ambiguous failure is `unavailable_unknown`; free-form stderr is never denial proof.
 </constraint>
 
-<constraint>
-**Per-finding reproduction (mandatory).** Before claiming a regression or scope-drift finding:
-- Re-`Read` the file(s) at `file:line` and confirm the offending pattern is present in the current code.
-- If the regression is a failing test, re-run the specific test command and capture the latest output.
-- If the project's CI command fails, capture the first failing line verbatim — never paraphrase.
-- DROP any finding that fails reproduction; log it under "Dropped (failed reproduction)" rather than including it in the Review block.
-</constraint>
+## Input contract
 
-## Mode 0 — draft review (status ≠ finished)
+`prepare` supplies a closed request:
 
-When dispatched on a non-finished draft (plan-manager calls this for a big/risky
-new plan, or the user asks to "review the draft"), there is no diff — you are
-red-teaming the plan itself. Read the plan, then check each item:
-
-| Check | Hole it catches |
-|---|---|
-| Standalone executability | the cold-handoff checklist passes — a fresh, weaker executor could act with ONLY this file (largest rubric weight, 22) |
-| Actionability | every `## Steps` row has a verifiable done-condition — no "improve/handle X" |
-| Dependency order | no step needs the output of a later one; prerequisites exist |
-| Evidence re-verify | every cited `file:line` in `## Sources`/`affected_paths` resolves and says what's claimed (re-`Read` it) |
-| Goal coverage | with every step done, is `## Goal` actually met? name the gap |
-| Executable acceptance | `## Acceptance criteria` are commands + their expected output, not prose |
-| Failure mode | each risky step has a revert trigger |
-| Assumption → question | anything the plan guessed should be an `## Open question`, not a silent default |
-
-Plus the **cold-handoff checklist** (the binary required-content gate in
-`docs/plans/AGENTS.md`: file manifest with exact paths, environment & commands
-with flags, interface/data contracts, executable acceptance, out-of-scope,
-decision rationale, known gotchas, global constraints verbatim, no
-undefined/forward terms — each present & specific or a *justified* `N/A — reason`), then the
-**adversarial cold-read**: read ONLY this file and list every decision each step
-leaves unanswered; each is a defect to fix or raise as an open question.
-
-**Score + iterate (tiered).** Don't just list holes — *score* the draft. As a
-deliberate separate pass, give each rubric check its weighted sub-score (weights
-in `docs/plans/AGENTS.md`; sum to a 0–100 total). Then hill-climb: critique the
-lowest-scoring checks → propose a rewrite → re-score; keep a candidate only if it
-beats the best by margin **+2**; stop at plateau (no gain over **K=3** rounds) or
-an **8-round cap**. When stuck below target, take a **best-of-N=3** escape (score
-3 genuinely different rewrites, keep the winner). Scale by tier (per the
-contract): a parked stub gets score + one critique; a normal plan iterates only
-if the first **score < 85** or hardening was requested; big/risky plans get the
-full loop.
-
-**Return-only when dispatched by `plan-manager`.** Report the score breakdown, the
-proposed rewrite, and a trajectory line — `Score: <n>/100 · trajectory
-<a→b→…> · stopped: plateau (K=3) | 8-round cap` — and **return** them to the
-dispatching agent; `plan-manager` owns writing the optimized draft and recording
-it in `## Self-review`. Only on a *direct* user-invoked draft review (no
-`plan-manager` in the loop) may you append findings to `## Self-review` yourself.
-Either way, do NOT write a `## Review` block, set `review_status`, or run CI in
-this mode — those are finished-review only.
-
-## Completion review (`status: in_review`)
-
-Fired automatically when all `## Steps` reach `done` (plan-manager Step 8) — the review now happens BEFORE ship. It is the **Finished review below with three deltas**:
-
-1. The file is in `active/`, not `finished/` — Step 1's path check expects `active/`.
-2. The diff base is the plan's `planned_at_commit`, not a `ship_commit`: in Step 3 use `git diff --stat <planned_at_commit>..HEAD` plus `git status --short` for uncommitted work, instead of `git show <ship_commit>`. If `planned_at_commit` is unset (plan predates the field), backfill from the plan's `created`-era commit if recoverable, else review the working tree only and note "drift base unset".
-3. It is NOT terminal: after writing `## Review` + `review_status` (Steps 7–9), end by surfacing the verdict — on `passed`, "✓ reviewed — say `ship <slug>` to archive"; on `partial`/`regressed`, hand the findings back so they're fixed before ship. Do NOT `git mv` or set `ship_commit` (ship does that later).
-
-Acceptance-criteria verification, the CI gate, the idempotent `## Review` write, and per-finding reproduction are identical to Finished review.
-
-## Cross-tool second opinion
-
-This is a one-shot reviewer leg only, not a bus/session workflow. Run it only after the user accepted the offer from `plan-manager` or directly asked for a cross-tool second opinion. The alternate reviewer reads the plan path in a read-only process and returns findings; it never edits files. As of 2026-07, the recommended model pins below are dated defaults; check the current tier list before changing them, but keep explicit model/effort pins rather than inheriting ambient runtime defaults.
-
-Claude-side run, Codex reviewer available = `command -v codex` succeeds AND `codex login status` exits 0. If either fails at offer time, skip silently with no offer, no error, and no codex mention.
-
-Draft-review leg (plan not yet executing):
-
-```bash
-timeout 600 codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort=xhigh -- \
-  "You are an independent plan reviewer red-teaming a draft before execution. Read <plan path> fully, plus any file it cites in affected_paths. Red-team it: (1) missed failure modes, wrong assumptions, cheaper alternatives; (2) steps whose done-condition is vague or unverifiable; (3) anything a cold executor with only this file would have to guess. Do NOT rewrite the plan. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
+```text
+ReviewRequestEnvelope = {
+  schema: 1, request_id: uuid, phase: draft|completion,
+  lifecycle_intent: none|start|schedule_fire|auto_execute,
+  reviewed_commit_or_head: 40hex,
+  input_sha256: 64hex, bundle_sha256: 64hex,
+  policy: ResolvedReviewPolicy, policy_sha256: 64hex
+}
 ```
 
-Completion-review leg — a completion second opinion judges the DIFF against the goal; never reuse the draft rubric here:
+The helper must revalidate the complete envelope and policy before launch.
+Policy provenance is closed to `current_user | runtime_global | skill_default`.
+Author identity is already persisted in plan frontmatter; do not infer it from
+the current executor. X is the other company. S is an independent reviewer from
+the author's company.
 
-```bash
-timeout 600 codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort=xhigh -- \
-  "You are an independent completion reviewer. Read <plan path> fully, then run: git diff <planned_at_commit>..HEAD -- <affected paths>, and read the changed files. Judge delivered-vs-goal: (1) each acceptance criterion met or unmet, with evidence; (2) regressions or scope creep in the diff; (3) steps marked done that the diff does not substantiate. Do NOT edit anything. Return a numbered findings list — severity (high/med/low), section, one-sentence defect, one-sentence fix — and end with a one-line verdict."
+Default dated tiers (2026-07; honor a higher-precedence resolved tier list):
+
+| Company | Ordered tiers | Effort | Eligible transport |
+|---|---|---|---|
+| OpenAI | `gpt-5.6-sol` | `xhigh` | in-session, CLI |
+| Anthropic | `fable`, then `opus` | `high`, then `max` | in-session, CLI |
+
+`orchestrator_preference=auto` prefers an available in-session fresh reviewer,
+then CLI. `in_session` or `cli` narrows selection. `relay` is invalid in schema
+v1. Select transport once before attempts; an authoritative denial never causes
+a transport switch.
+
+## Prepare result
+
+After plan-manager commits the non-executing input, use the helper to:
+
+1. Parse the closed plan-frontmatter grammar and render `plan.review.md`.
+2. Export sorted `affected_paths` at the immutable commit/head into
+   `/tmp/docks-plan-review/<request_id>/`; absent CREATE/deleted paths are
+   explicit tombstones. Symlinks are target bytes, never followed.
+3. Add the generated reviewer JSON Schema and a manifest without a bundle hash.
+4. Hash canonical manifest bytes plus length-prefixed file bytes, chmod the
+   bundle read-only, then create one request carrying `bundle_sha256`.
+5. Re-hash after sealing. Any mutation, escape, duplicate, submodule, commit/tree
+   mismatch, or unsupported file type is a STOP, not a degraded review.
+
+Return `NeedsMainReviewDispatch = { schema:1, request, bundle_path,
+reviewer_schema_path, X_dispatch, S_dispatch }`. A manager subagent returns this
+to main context; it never launches the collector itself.
+
+## Reviewer launches
+
+Use a direct argv API, never a shell-assembled command. Append this literal block
+to both findings-only prompts:
+
+```text
+REQUEST_JCS_BEGIN
+<compact JCS ReviewRequestEnvelope>
+REQUEST_JCS_END
 ```
 
-Codex-runtime reverse leg, Claude reviewer available = `command -v claude` succeeds. `--permission-mode plan` keeps the leg read-only — a bare `-p` inherits whatever tool permissions the machine's settings grant:
+The reviewer copies the object into `ReviewerOutput.request`; the collector JCS
+canonicalizes and compares it with the source. No base64 decoding or byte-perfect
+prose transcription is required.
 
-```bash
-timeout 600 claude -p --permission-mode plan --model opus --effort max -- "<same fixed rubric text + plan path>"
+Codex CLI argv:
+
+```text
+codex exec -C <bundle> --skip-git-repo-check -s read-only
+  -m <model> -c model_reasoning_effort=<effort>
+  --output-schema <bundle>/reviewer-output.schema.json -- <prompt>
 ```
 
-The `timeout 600` prefix needs GNU coreutils (absent on stock macOS): drop the prefix there and enforce the same 600-second budget with the runtime's own command timeout.
+Claude CLI argv (cwd is the bundle):
 
-Per-finding reproduction applies to cross-tool findings exactly as it applies to local findings. A `[codex]` finding in a completion review is not accepted until this skill independently re-reads the cited source, re-runs the failing narrow command when relevant, and confirms the defect still exists. Drop unreproduced findings under "Dropped (failed reproduction)" instead of rendering them as regressions. Ordering is collect-then-compose: gather and reproduce cross-tool findings BEFORE composing `## Review` — the block is written once, by this skill alone; never splice findings into an already-written block.
-
-Attributed ingest format:
-
-```markdown
-Cross-check (<YYYY-MM-DD>): [codex <model> <effort>] <N> findings (<sev breakdown>) — <accepted count> accepted, <rejected count> rejected (one-line reason each); [claude] independently verified <finding ids> against source before accepting.
-DISAGREEMENT: <topic> — [codex] <position> / [claude] <position>. Kept: <choice> — decided by <the orchestrating agent | user via picker>, because <one line>.
+```text
+claude -p --permission-mode plan --model <model> --effort <effort>
+  --json-schema <closed-schema-json> --output-format json -- <prompt>
 ```
 
-- Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
-- Finding ids are the alternate reviewer's own list numbers — its numbered list is the id space; no separate scheme.
-- In a Codex runtime the tags swap: `[claude <model> <effort>]` is the reviewer, `[codex] independently verified …` the orchestrator.
-- **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
+Use a 600-second monotonic deadline. GNU hosts may wrap the child with
+`timeout 600`; otherwise the orchestrator/tool deadline must terminate the child
+and record `timeout_mode=orchestrator_tool`. A deadline expiry is not a transport
+ETIMEDOUT.
 
-STOP conditions:
+## Attempt and result rules
 
-- Codex leg errors, times out (600s), or returns unparseable output AFTER the user accepted → record `Cross-check attempted <date>: codex leg failed (<one-line reason>)` in the plan, continue with the Claude-only review, and NEVER block the lifecycle transition on the failed leg.
-- Same rule mirrored for the reverse (claude) leg in a Codex runtime.
-- `codex login status` non-zero at offer time → no offer, no error, no codex mention (silent skip is the designed path, not a failure).
+Availability preflight is `codex login status` or `claude auth status` after
+binary lookup. Model availability is attempt-as-probe through the ordered tier.
+Unknown-model/entitlement failure falls through without consuming the transient
+retry.
 
-## Finished review
+One transient retry exists per leg, not per tier. It repeats the same
+model/transport only after an execution-layer typed, pre-output `EAGAIN`,
+`ETIMEDOUT`, or `ECONNRESET`. Strings, output-started errors, deadline expiry,
+signals, nonzero exits, and schema errors never retry. Attempts are bounded by
+`eligible_tier_count + 1`.
 
-### Step 1 — Anchor + verify scope
+Classify in order: matching waiver → `waived`; X consent denied →
+`not_authorized`; authoritative denial → `platform_denied`; auth failure →
+`unavailable_auth`; all tiers unavailable → `unavailable_model`; deadline →
+`timed_out`; exit-zero/schema-invalid → `failed_unparseable`; valid output →
+`passed`; otherwise `unavailable_unknown`.
 
-Run `date '+%Y-%m-%dT%H:%M:%S%:z'` once to anchor "now" for the Review timestamp.
+Each raw leg returns exact request, ordered attempts, selected tier or null,
+typed result, schema-valid findings or none, hashes/severity totals, matching
+waiver or null, prompted decision or null, and reason. IDs are unique and
+leg-prefixed (`X1…`, `S1…`). Never construct reconciliation here.
 
-`Read` the plan file. Confirm:
-- File path is under `docs/plans/finished/`
-- `ship_commit` is a 40-char SHA (or 7+ char short SHA)
-- Body contains a `## Review` section (placeholder or filled — either is OK; we'll replace it)
+## Draft evidence
 
-If any condition fails, stop with the specific error.
+For each schema-valid finding, reproduce it independently:
 
-### Step 2 — Extract review inputs
+- Re-read the cited bundle path and locator.
+- If it claims an executable defect, run the narrow read-only check in the
+  immutable bundle where possible.
+- Record method, command/exit code when used, and evidence SHA-256.
+- Drop failed reproductions from `reproduced`; do not silently convert them to
+  accepted or rejected findings.
 
-From the plan body, extract:
-- `goal` (frontmatter)
-- `## Goal` body section (detailed)
-- `## Acceptance criteria` checkbox list (note which are `[x]`, `[~]`, `[ ]`)
-- `affected_paths` (frontmatter array, may be empty)
+Return closed `DraftRunResult` with request, X, S, reproduced findings, prompted
+decision evidence or null, `outcome=dual|single|zero_degraded|blocked`, and
+`pre_execution_eligible`. One passed leg permits `single`; zero passed delegates
+to the separately resolved zero-review decision. This skill does not apply the
+intent.
 
-### Step 3 — Enumerate changes in the ship commit
+## Completion evidence
 
-```bash
-git show <ship_commit> --stat --name-only
+Completion begins only after plan-manager has committed the plan-only
+`in_review` transition and asserted the plan plus affected paths are clean.
+Plan-manager supplies the immutable `reviewed_head` and original snapshot.
+
+1. Capture canonical plan input and a bytewise-sorted binary diff with rename,
+   external diff, textconv, and color disabled.
+2. Create `/tmp/docks-plan-verify/<request_id>` with `git clone --no-local
+   --no-checkout <original> <temp>` and detached checkout of `reviewed_head`.
+3. Verify temp HEAD/tree. Run acceptance, focused reproduction, and the project's
+   CI only inside that disposable checkout.
+4. Record each acceptance command/expected/exit/output hash, CI command/exit/
+   first failure/output hash, goal verdict, regressions, and follow-ups.
+5. Delete only a helper-created sentinel-bearing request directory; re-hash the
+   original tracked modes/blobs, untracked content, complete Git metadata tree,
+   and cleanliness. Any delta is a STOP.
+
+Return closed `CompletionRunResult` with `plan_input_sha256`, `diff_sha256`, X,
+S, reproduced findings, decision evidence, outcome, and primary completion
+evidence. Never write `## Review` or `review_status`; plan-manager applies the
+validated result.
+
+## Output format
+
+`ReviewerOutput` is closed recursively:
+
+```text
+{ schema:1, leg:X|S, request:<exact envelope>, verdict:ready|not_ready,
+  score:0..100, findings:[{id,severity,section,path,locator,defect,fix,evidence}],
+  confirmations:[non-empty string] }
 ```
 
-Capture: list of files changed, total +/- lines. Also run `git show <ship_commit>` (no `--stat`) to read the actual diff for verification reads in Step 5.
+Unknown/missing/mistyped fields, cross-leg IDs, duplicate IDs, request mismatch,
+bad hashes, or output outside the structured object are invalid evidence. Hash
+raw stdout/stderr before extracting Codex's final schema object or Claude's
+`structured_output`.
 
-### Step 4 — Scope-drift check
+## Anti-Hallucination checks
 
-For each entry in `affected_paths`, confirm the file appears in the changed-files list from Step 3.
-- `affected_paths` entry NOT in the changed-files list → record under "Scope drift" in the Review block.
-- File changed in `ship_commit` but NOT listed in `affected_paths` → record as "Unannounced changes" (often fine, but worth surfacing).
+- Confirm both raw legs echo the exact same request and bundle hash.
+- Confirm every started attempt has child id, timeout mode, exit/signal, and raw
+  output hashes consistent with its typed result.
+- Confirm waiver uniqueness by `(phase,input_sha256,leg)`; duplicate/conflicting
+  waivers STOP.
+- Confirm every reproduced finding id exists in its raw leg; do not invent
+  primary X/S findings.
+- Confirm the original repo snapshot is byte-identical after completion work.
+- Return evidence to plan-manager even when both legs degrade; never advance
+  lifecycle state here.
 
-If `affected_paths: []` (empty), record "Drift check skipped (affected_paths unset)" — don't imply verification you didn't do.
+## Success criteria
 
-### Step 5 — Acceptance-criteria verification
-
-For each `[x]` (claimed-shipped) checkbox:
-1. Read the relevant changed files (or grep them) for the implied symbol/behavior.
-2. Pattern-match: if the criterion says "rate-limits /auth/login", grep for `auth/login` in the diff and confirm a rate-limit construct (`rateLimit`, `throttle`, `RateLimiter`, etc.) is present.
-3. If no evidence found, flag the criterion as "claimed-shipped but unverifiable".
-
-For each `[ ]` or `[~]` (unfinished) checkbox: flag as "partial — criterion not marked shipped".
-
-### Step 6 — CI gate
-
-Find the project's CI/test command — a documented entrypoint (its README / AGENTS.md / CONTRIBUTING), a `package.json` script, a `Makefile` target, or a repo-root CI script. If one exists, run it and capture the exit code + first failing line if non-zero. If the project has no runnable CI, record "CI: n/a (no project CI command)".
-
-### Step 7 — Compose the Review block
-
-Build the structured Review block:
-
-```markdown
-## Review
-
-- **Goal met:** yes | partial | no — <one-line reasoning>
-- **Regressions:** none | <list with file:line>
-- **CI:** pass | fail (<first failing line>) | n/a
-- **Cross-check:** none | Cross-check (<YYYY-MM-DD>): [codex <model> <effort>] <N> findings (<sev breakdown>) — <accepted count> accepted, <rejected count> rejected (one-line reason each); [claude] independently verified <finding ids> against source before accepting.
-- **Follow-ups:** none | <suggested slug 1>, <suggested slug 2>
-- Filed by: plan-review on <ISO timestamp>
-```
-
-Decision rules:
-- **Goal met: yes** — every `[x]` verified; no scope drift; CI pass (or n/a).
-- **Goal met: partial** — at least one `[~]` or `[ ]` checkbox; OR scope drift; OR a `[x]` was unverifiable.
-- **Goal met: no** — no `[x]` could be verified at all; OR CI fail.
-
-Set frontmatter `review_status` to match: `passed` / `partial` / `regressed`.
-
-### Step 8 — Atomic write
-
-`Edit` the plan file with `old_string` matching the current `## Review` block (placeholder OR previous filled block) and `new_string` = the freshly composed block. Bump frontmatter `updated` to the turn-anchor ISO datetime (the same value used in the Review block's `Filed by` line) — never a bare date.
-
-If the file's `## Review` block has changed shape (e.g., user edited the placeholder), re-`Read` the file before composing the Edit so `old_string` matches exactly.
-
-### Step 9 — Render Tier-3 preview
-
-Render the Tier-3 single-plan preview (per `docs/plans/AGENTS.md`) so the user sees the full Review block in chat without opening the file. Header strip uses the `finished` age token — `shipped just now`, `shipped <X>m ago`, `shipped <X>h ago`, or `shipped <X>d ago` depending on the delta from now to the plan's `updated` datetime.
-
-### Step 10 — Surface follow-ups (do not create)
-
-If "Follow-ups" lists any suggested slugs, end the response with a single sentence telling the user how to create them ("Run 'new plan <slug>' to create one"). Never write the new plan file yourself.
-
-## Common traps
-
-| Trap | Wrong fix | Right fix |
-|---|---|---|
-| Looking for a diff on a non-finished draft | Reading HEAD and guessing | `in_review` → completion review (diff `planned_at_commit..HEAD`); other active drafts → Mode 0 (no diff) |
-| Appending a second `## Review` block on re-run | `Write` mode adding to the body | `Edit` with `old_string` matching the existing block |
-| Auto-creating follow-up plans for regressions | Calling `plan-manager` "new plan" automatically | List slug suggestions in `Follow-ups:`; user creates them |
-| Claiming a regression without reproducing | Listing it from a stale grep | Per-finding reproduction — re-read the file, re-run the test |
-| Paraphrasing the CI failure line | "Tests fail in some unit tests" | Quote the literal first failing line from the CI command's output |
-| Skipping the `affected_paths` drift check when the field is empty | Marking "no drift" trivially | If `affected_paths: []`, record "Drift check skipped (affected_paths unset)" |
-| Bumping `updated` without re-Reading the frontmatter after Edit | Trusting the Edit succeeded | Re-`Read` to confirm — silent Edit failures happen on `old_string` mismatch |
-
-## Anti-Hallucination Checks
-
-- Before claiming a `[x]` criterion is verified, you MUST have read the relevant changed code OR grepped for evidence — not just trusted the checkbox.
-- Before claiming "CI pass", you MUST have run the project's CI command and seen exit code 0 in this turn.
-- Before claiming "CI fail", you MUST have captured the first failing line verbatim from the output.
-- Before claiming `## Review` was written, re-`Read` the file and confirm the new block is present with all required lines (Goal met, Regressions, CI, Follow-ups, Filed by) plus Cross-check when a second opinion was accepted.
-- Before claiming `review_status` is set, re-`Read` the frontmatter and confirm the new value.
-- If the plan mentions a framework/library and you need to verify the implementation against current docs, use **resolve-library-id → query-docs** via context7 — don't trust training-data assumptions about framework conventions.
-
-## Success Criteria
-
-- Finished review runs on `finished/` plans with `ship_commit`; completion review runs on `in_review` plans in `active/` (diff base `planned_at_commit..HEAD`); draft review (Mode 0) on other active drafts.
-- Every `[x]` acceptance criterion either gets evidence-backed verification or is flagged as "unverifiable".
-- the project's CI command is run when present; CI verdict is captured verbatim.
-- The `## Review` block is written via idempotent `Edit` (re-runs replace, not append).
-- `review_status` frontmatter is set to one of `passed` / `partial` / `regressed`.
-- Tier-3 preview is rendered after the write — user sees the verdict without opening the file.
-- Regressions surface follow-up slug suggestions but plan-review never auto-creates new plan files.
-
-## References
-
-- `docs/plans/AGENTS.md` — full convention; this skill writes the `## Review` block defined there.
-- `plan-manager` skill — performs the `→ in_review` transition that auto-triggers the completion review (and the later ship). See its Step 8.
-- `plugins/docks/agents/plan-review.md` — Claude-only thin wrapper for inter-agent dispatch via `Agent(subagent_type="plan-review", prompt=<plan-path>)`.
-- `.codex/agents/plan-review.toml` — optional project-local Codex wrapper for explicit custom-agent delegation. Skill is the canonical workflow; agents are runtime conveniences.
-- Scored iterate-until-plateau technique adapted from Sean Geng, "Iterate a plan until it stops improving" — <https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving>.
+- Both legs are fresh, explicit, read-only, same-bundle, and findings-only.
+- Requests/results are closed, echoed, hashed, and attempt-bounded.
+- Host denial, consent denial, unavailability, timeout, and schema failure remain
+  distinct outcomes with no forbidden retry.
+- Draft evidence carries no write authority; completion writes only the sentinel
+  disposable clone and proves original immutability.
+- The caller receives typed evidence only; plan-manager remains sole writer.

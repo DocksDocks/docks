@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  buildReviewerArgv, canonicalPlanView, classifyLeg, jcs, parsePlan,
+  buildReviewerArgv, canonicalPlanView, classifyLeg, extractReviewerOutput, jcs, parsePlan,
   reviewerSchema, sealBundle, sha256, validatePolicy, validateRequest,
   validateReviewerOutput, validateWaivers,
 } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
@@ -106,6 +106,9 @@ function testLegs() {
   assert.match(codex.at(-1), /REQUEST_JCS_BEGIN\n\{/); assert.match(codex.at(-1), /REQUEST_JCS_END$/);
   const claude = buildReviewerArgv({ tool: 'claude', bundle: '/tmp/bundle', model: 'fable', effort: 'high', leg: 'S', request: req });
   assert.deepEqual(claude.slice(0, 3), ['-p', '--permission-mode', 'plan']); assert.ok(claude.includes('--json-schema'));
+  const echoed = { schema: 1, leg: 'S', request: req, verdict: 'ready', score: 100, findings: [], confirmations: ['request copied'] };
+  assert.equal(extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S').score, 100);
+  expectThrow('readable request echo mismatch', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: { ...echoed, request: { ...req, bundle_sha256: '3'.repeat(64) } } }), req, 'S'), /mismatch/);
   expectThrow('relay rejection', () => buildReviewerArgv({ tool: 'relay', bundle: '/tmp/bundle', model: 'fable', effort: 'high', leg: 'S', request: req }), /relay is not supported/);
   assert.equal(classifyLeg({ leg: 'X', policy: POLICY, attempts: [{ result: 'passed' }], eligibleTierCount: 1 }), 'passed');
   assert.equal(classifyLeg({ leg: 'X', policy: POLICY, attempts: [{ result: 'platform_denied' }], eligibleTierCount: 1 }), 'platform_denied');
@@ -155,6 +158,21 @@ function testContractSurfaces() {
   console.log('contract/template/public strong-default parity passed');
 }
 
+function testReviewRunnerSurfaces() {
+  const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-review/SKILL.md'), 'utf8');
+  assert.match(skill, /user-invocable: false/); assert.match(skill, /NeedsMainReviewDispatch/);
+  assert.match(skill, /--skip-git-repo-check/); assert.match(skill, /--permission-mode plan/);
+  assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
+  assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
+  for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
+    assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*Edit/i, `${file} retains writer instructions`);
+  }
+  assert.match(fs.readFileSync(path.join(ROOT, '.codex/agents/plan-review.toml'), 'utf8'), /sandbox_mode = "read-only"/);
+  console.log('plan-review evidence-only live/generated wrapper parity passed');
+}
+
 function testSelfDemo(planPath) {
   const raw = fs.readFileSync(path.resolve(ROOT, planPath), 'utf8');
   const match = raw.match(/^Bootstrap-review-record: (\{.*\})$/m); assert.ok(match, 'compact bootstrap record present');
@@ -171,7 +189,7 @@ try {
   else if (args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
   else if (args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
   else {
-    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces();
+    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces();
     console.log('plan-review-policy contract passed');
   }
 } catch (error) {
