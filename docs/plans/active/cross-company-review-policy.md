@@ -3,7 +3,7 @@ title: Make cross-company plan review the strong default
 goal: Make dual independent plan review a strong, availability-aware default via read-only portable CLIs, canonical receipts, and model-agnostic orchestration overridable by runtime-global guidance.
 status: planned
 created: "2026-07-11T14:44:27-03:00"
-updated: "2026-07-11T23:17:45-03:00"
+updated: "2026-07-11T23:24:00-03:00"
 started_at: null
 assignee: null
 review_author_company: anthropic
@@ -178,7 +178,9 @@ Why: the mechanical pieces already exist (one-shot reviewer legs, the red-team p
 
 ## Self-review
 
-Score: **98/100 (provisional Draft-14 author pass)** · trajectory **Draft-10 X 70→Draft-11 X 74→Draft-12 X 90→Draft-13 X 94/NOT READY→Draft-14 98** · stopped: **targeted immutable recheck then actual bootstrap record required before `start`; S is `platform_denied`, not user refusal**.
+Score: **98/100 (Draft-15 final candidate)** · trajectory **Draft-10 X 70→Draft-11 X 74→Draft-12 X 90→Draft-13 X 94→Draft-14 X 98/READY→Draft-15 record-invariant repair** · lifecycle eligibility is determined exclusively by the compact `Bootstrap-review-record`, not this prose.
+
+**Draft-15 record-invariant repair (2026-07-11):** The first attempted record commit also changed ordinary Self-review prose, which the canonical view correctly retains; that would have invalidated its own reviewed input. Draft-15 freezes all ordinary prose first. After a no-input-change READY verdict, the next commit may change only excluded `updated` plus one `Bootstrap-review-record:` line bound to this exact candidate.
 
 **Draft-14 repair (2026-07-11):** Draft-13's sole blocker was an unreliable no-shell base64 decoding requirement. Draft-14 passes the full request as literal delimited compact JSON through a direct argv API; reviewers echo a normal object and the collector performs JCS equality. The real/no-shell fixture makes this executable.
 
