@@ -142,6 +142,19 @@ function testConsumer() {
   console.log('consumer-only Node helper passed without package.json or node_modules');
 }
 
+function testContractSurfaces() {
+  const contract = fs.readFileSync(path.join(ROOT, 'docs/plans/AGENTS.md'), 'utf8');
+  const template = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md'), 'utf8');
+  for (const marker of ['review_author_company:', 'review_waivers:', '### Strong-default independent review', 'platform_denied', 'prepare(intent)', 'X1…', 'S1…']) {
+    assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
+    assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
+  }
+  for (const file of ['AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md']) {
+    assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /strong|Strong|independent X\/S|independent-review/, `${file} missing public review route`);
+  }
+  console.log('contract/template/public strong-default parity passed');
+}
+
 function testSelfDemo(planPath) {
   const raw = fs.readFileSync(path.resolve(ROOT, planPath), 'utf8');
   const match = raw.match(/^Bootstrap-review-record: (\{.*\})$/m); assert.ok(match, 'compact bootstrap record present');
@@ -158,7 +171,7 @@ try {
   else if (args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
   else if (args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
   else {
-    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer();
+    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces();
     console.log('plan-review-policy contract passed');
   }
 } catch (error) {

@@ -57,6 +57,8 @@ Plus `capability-tuning` (max-capability settings.json / config.toml templates f
 
 `plan-manager` and `plan-review` ship as thin opus-tier Claude subagents so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills. Codex plugin installs do not ship subagents, but `plan-init` and `scaffold` can seed project-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers for explicit Codex custom-agent delegation; otherwise Codex runs the skills inline. In Claude, force-invoke with `@agent-plan-manager`.
 
+Plan review is a strong availability-aware default: X uses the best available other-company model and S uses an independent author-company reviewer. A missing second subscription degrades to one recorded leg rather than blocking. Reviewers are fresh, explicit-model, read-only and findings-only; main-context plan-manager alone reconciles receipts and changes lifecycle state. Standing consent skips only the product picker and never overrides host policy.
+
 ## Why sequential, single-context?
 
 Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass so the *same* skill works on every runtime. Plugin-shipped subagents remain Claude-only; Codex can use project-local `.codex/agents/*.toml` custom agents when explicitly delegated, with inline skill execution as the portable fallback. The plan file remains the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval artifact. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (written to the same plan file) before anything is applied.

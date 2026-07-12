@@ -72,6 +72,11 @@ created: "2026-06-14T05:09:31+00:00"
 updated: "2026-06-14T05:09:31+00:00"
 started_at: null
 assignee: null
+review_author_company: openai | anthropic | unknown
+review_author_tool: <string>
+review_author_model: <string>
+review_author_effort: <string>
+review_waivers: []
 tags: []
 affected_paths: []
 related_plans: []
@@ -204,23 +209,44 @@ it), or the user asks for hardening; a parked stub gets just the score + one
 critique. *(Technique adapted from Sean Geng, "Iterate a plan until it stops
 improving" — https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving.)*
 
-### Cross-tool second opinions
+### Strong-default independent review
 
-When the user accepts a cross-tool second-opinion review, keep findings
-attributed instead of blending them into the local reviewer's voice. The
-alternate reviewer returns findings only; the orchestrating agent verifies and
-records accepted findings in the plan.
+Every plan is reviewed before execution by X (best available model from the
+other company) and S (an independent reviewer from the author's company). Both
+are fresh, findings-only, explicit-model/effort, and consume one sealed non-git
+bundle. Portable schema-v1 transports are in-session read-only dispatch or
+`codex exec -s read-only` / `claude -p --permission-mode plan`; session-relay is
+not a schema-v1 transport. `plan-review` returns evidence; main-context
+plan-manager alone reconciles, writes receipts, and changes lifecycle state.
+
+Resolve cross-company consent (`always | ask | never`) independently from
+zero-review progression (`ask | proceed | block`). `always` skips only Docks'
+X-consent picker, never host policy. Record authoritative host denial as
+`platform_denied` and never retry another transport. One successful leg may
+proceed with exact degradation recorded, so a single subscription is not a hard
+block. Current-user waivers bind one phase+canonical input; consent is not a
+waiver.
+
+Creation commits `planned` or `scheduled` first. `start`, schedule fire, and
+auto execution use `prepare(intent) → main dispatch → apply`; missing/stale/
+blocked evidence never reaches `ongoing`, and an eligible intent is consumed
+once. Completion commits `in_review` before an unlinked disposable-clone check.
+Receipts bind author, immutable commit/head, canonical input, bundle, resolved
+policy+provenance, X/S attempts, decisions/waivers, reconciliation, outcome, and
+time. Canonical input excludes only lifecycle/waiver fields and exact machine
+records; ordinary prose changes always invalidate reuse.
+
+Preserve attribution:
 
 Attributed ingest format:
 
 ```markdown
-Cross-check (<YYYY-MM-DD>): [codex <model> <effort>] <N> findings (<sev breakdown>) — <accepted count> accepted, <rejected count> rejected (one-line reason each); [claude] independently verified <finding ids> against source before accepting.
-DISAGREEMENT: <topic> — [codex] <position> / [claude] <position>. Kept: <choice> — decided by <the orchestrating agent | user via picker>, because <one line>.
+Cross-check (<YYYY-MM-DD>): [X: <other-company> <model> <effort>] <N> findings — accepted X<ids> / rejected X<ids> (<reasons>); [S: <author-company> <model> <effort>] <M> findings — accepted S<ids> / rejected S<ids> (<reasons>); [<orchestrator>] independently verified ids.
+DISAGREEMENT: <topic> — [X<id>] <position> / [S<id>] <position>. Kept: <choice> — decided by <orchestrator|user>, because <reason>.
 ```
 
 - Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
-- Finding ids are the alternate reviewer's own list numbers — its numbered list is the id space; no separate scheme.
-- In a Codex runtime the tags swap: `[claude <model> <effort>]` is the reviewer, `[codex] independently verified …` the orchestrator.
+- Finding ids are leg-namespaced (`X1…`, `S1…`); accepted and rejected ids form an exact partition and every rejection preserves a reason.
 - **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
 
 ## Open questions — bounded decisions for the user

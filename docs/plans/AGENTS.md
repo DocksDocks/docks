@@ -60,6 +60,11 @@ created: "2026-06-14T05:09:31+00:00"
 updated: "2026-06-14T05:09:31+00:00"
 started_at: null
 assignee: null | <agent-name>
+review_author_company: openai | anthropic | unknown
+review_author_tool: <string>
+review_author_model: <string>
+review_author_effort: <string>
+review_waivers: []
 tags: []
 affected_paths: []
 related_plans: []
@@ -227,23 +232,56 @@ Record what the pass caught in `## Self-review` (it's a real artifact, not
 ceremony). *(Scored-loop technique adapted from Sean Geng, "Iterate a plan until
 it stops improving" — https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving.)*
 
-### Cross-tool second opinions
+### Strong-default independent review
 
-When the user accepts a cross-tool second-opinion review, keep findings
-attributed instead of blending them into the local reviewer's voice. The
-alternate reviewer returns findings only; the orchestrating agent verifies and
-records accepted findings in the plan.
+Independent review is the strong default for every plan. Before execution,
+main-context `plan-manager` prepares one immutable, non-git bundle and asks two
+fresh, findings-only reviewers to consume it: X is the best available model from
+the company other than `review_author_company`; S is an independent reviewer
+from the author's company. Both legs use explicit model/effort pins and either
+an in-session read-only dispatch or the portable CLI baseline (`codex exec -s
+read-only` / `claude -p --permission-mode plan`). Session-relay is not a schema-v1
+transport. `plan-review` returns evidence; plan-manager alone reconciles findings,
+writes receipts, and changes lifecycle state.
+
+The resolved logical policy has independent choices for cross-company consent
+(`always | ask | never`) and zero-review progression (`ask | proceed | block`).
+`always` suppresses only Docks' X-consent picker; it never bypasses host policy.
+An authoritative host denial is `platform_denied` and is not retried through a
+different transport. One successful leg is enough to proceed with the other
+exact outcome recorded, so missing a second subscription is never a hard block.
+Zero successful legs follow the separately resolved zero-review choice. A
+current-user waiver may name X, S, or both for exactly one phase and canonical
+input hash; consent `never` is not a waiver.
+
+Creation first commits `planned` (or `scheduled`) without executing. `start`,
+schedule fire, and `auto_execute` use `prepare(intent) → main review dispatch →
+apply`; apply re-hashes the plan, bundle, policy, and waiver before consuming the
+intent once. Missing, stale, or blocked evidence never enters `ongoing`.
+Completion first commits the plan-only `in_review` transition, verifies in an
+unlinked disposable clone, then writes one completion receipt after proving the
+original worktree and Git metadata stayed unchanged.
+
+Canonical input removes only lifecycle fields (`updated`, `status`,
+`started_at`, `in_review_since`, block fields, `assignee`, `review_status`,
+`ship_commit`) plus `review_waivers`, and exact one-line machine records. All
+ordinary plan prose remains hashed. Receipts bind the author identity, phase,
+lifecycle intent, immutable commit/head, canonical input, sealed bundle,
+resolved policy+provenance, X/S attempt ledgers, decisions/waivers, finding
+reconciliation, outcome, and time. Any substantive or policy change invalidates
+reuse; excluded lifecycle fields and the receipt's own line do not.
+
+Keep findings attributed instead of blending reviewer voices:
 
 Attributed ingest format:
 
 ```markdown
-Cross-check (<YYYY-MM-DD>): [codex <model> <effort>] <N> findings (<sev breakdown>) — <accepted count> accepted, <rejected count> rejected (one-line reason each); [claude] independently verified <finding ids> against source before accepting.
-DISAGREEMENT: <topic> — [codex] <position> / [claude] <position>. Kept: <choice> — decided by <the orchestrating agent | user via picker>, because <one line>.
+Cross-check (<YYYY-MM-DD>): [X: <other-company> <model> <effort>] <N> findings — accepted X<ids> / rejected X<ids> (<reason each>); [S: <author-company> <model> <effort>] <M> findings — accepted S<ids> / rejected S<ids> (<reason each>); [<orchestrator>] independently verified <X/S ids> against source before accepting.
+DISAGREEMENT: <topic> — [X<id>] <position> / [S<id>] <position>. Kept: <choice> — decided by <the orchestrating agent | user via picker>, because <one line>.
 ```
 
 - Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
-- Finding ids are the alternate reviewer's own list numbers — its numbered list is the id space; no separate scheme.
-- In a Codex runtime the tags swap: `[claude <model> <effort>]` is the reviewer, `[codex] independently verified …` the orchestrator.
+- Finding ids are leg-namespaced (`X1…`, `S1…`); accepted and rejected ids form an exact partition and every rejection preserves a reason.
 - **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
 
 ## Open questions — bounded decisions for the user
