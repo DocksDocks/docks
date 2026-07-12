@@ -224,8 +224,9 @@ zero-review progression (`ask | proceed | block`). `always` skips only Docks'
 X-consent picker, never host policy. Record authoritative host denial as
 `platform_denied` and never retry another transport. One successful leg may
 proceed with exact degradation recorded, so a single subscription is not a hard
-block. Current-user waivers bind one phase+canonical input; consent is not a
-waiver.
+block. Every passed leg persists its exact structured verdict, score,
+confirmations, and output hash. `not_ready` is ineligible in schema v1;
+current-user waivers bind one phase+canonical input, and consent is not a waiver.
 
 Creation commits `planned` or `scheduled` first. `start`, schedule fire, and
 auto execution use `prepare(intent) → main dispatch → apply`; missing/stale/
@@ -235,6 +236,11 @@ Receipts bind author, immutable commit/head, canonical input, bundle, resolved
 policy+provenance, X/S attempts, decisions/waivers, reconciliation, outcome, and
 time. Canonical input excludes only lifecycle/waiver fields and exact machine
 records; ordinary prose changes always invalidate reuse.
+Completion derives `regressed` for failed CI, recorded regression, or a high
+primary finding; otherwise `passed` requires goal met plus every acceptance met,
+and other cases are `partial`. Frontmatter must match that receipt at apply/ship.
+Cleanup takes only the prepare identity under `/tmp/docks-plan-verify`, bound to
+token, original snapshot, head, tree, path, and sentinel—never a caller root.
 
 Preserve attribution:
 
@@ -285,7 +291,7 @@ each one so a fresh session resumes from committed state (the user can amend).
 | Unblock | `status: ongoing`, clear `blocked_reason`/`blocked_since`. `started_at` unchanged. |
 | Schedule fires | `status: ongoing`, drop scheduled keys, set `started_at`, dispatch. (`auto_execute` still halts at `in_review`.) |
 | Steps complete → review | All `## Steps` rows `done` → `status: in_review`, set `in_review_since`, dispatch `plan-review` through the current runtime when a resolved agent and explicit delegation/policy allow it (Claude `Agent(subagent_type=...)`; Codex `.codex/agents/plan-review.toml`); otherwise run the `plan-review` skill inline. Completion review diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, and keeps the file in `active/`. No `git mv`. |
-| Ship | Only when `review_status: passed` (else fix first; if `null`, dispatch review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit`. Carries `## Review` forward — no re-dispatch. |
+| Ship | Only when `review_status: passed` matches a current derived-passed completion receipt (else fix first; if `null`, dispatch review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit`. Carries `## Review` forward — no re-dispatch. |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in `## Notes`. |
 
 ## On-demand views

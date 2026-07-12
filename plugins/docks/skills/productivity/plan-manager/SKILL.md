@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-12"
-  content_hash: "fdfe8ef45efe943f552a3e834b1193f6858d3f283e8710a8656e36458d4f08c4"
+  content_hash: "e2b7c4abd74c30e1bc3d90577e08f441baa24474ce14ad37f2c8bf090a4c7918"
 ---
 
 # Plan Manager
@@ -160,7 +160,10 @@ Accept only the exact typed run result returned for the prepared request.
 1. Re-read and re-hash canonical input, bundle, resolved policy, provenance,
    decisions, and waivers. Require byte-identical request echoes from both legs.
 2. Validate attempt bounds/results, finding hashes, reconciliation partition, and
-   outcome. Plan-review never supplies reconciliation.
+   outcome. A passed raw leg preserves the exact reviewer verdict, score,
+   confirmations, and structured-output hash. `not_ready` is ineligible and has
+   no schema-v1 override; repair the plan and collect a new review. Plan-review
+   never supplies reconciliation.
 3. Write compact JCS `Review-receipt:` (draft) or
    `Completion-review-receipt:` (completion) into the appropriate plan section.
 4. For intent `none`, leave status unchanged. For eligible `start`,
@@ -172,8 +175,11 @@ Accept only the exact typed run result returned for the prepared request.
 
 Draft receipt binds schema, phase, exact request, reviewed commit, canonical
 input, author, policy/hash, persisted X/S raw+reconciliation, reproduced evidence,
-decision evidence, outcome, and review time. Completion binds the same author and
-reproduced evidence plus planned/head/diff/primary evidence. A later ordinary prose or policy edit invalidates it;
+decision evidence, outcome, eligibility, and review time. Completion binds the
+same author and reproduced evidence plus planned/head/diff/primary evidence and
+the derived `completion_verdict`. `passed` requires goal met, every acceptance
+met, CI exit 0, no recorded regression, and no high primary finding. A later
+ordinary prose or policy edit invalidates it;
 excluded lifecycle fields and its own exact line do not.
 
 ## Completion review
@@ -189,13 +195,24 @@ When all steps are `done`:
 4. Reproduce X/S and primary findings, reconcile ids, and require original
    snapshot/cleanliness unchanged.
 5. Apply the completion result, write one idempotent `## Review` plus compact
-   completion receipt, set `review_status=passed|partial|regressed`, and commit
-   only the plan.
+   completion receipt, set `review_status` to the receipt's derived
+   `passed|partial|regressed` verdict, and commit only the plan.
 
 The Review block records Goal met, Regressions, CI, Follow-ups, Filed by, and
 the X/S cross-check. Re-runs replace it. Never auto-create follow-up plans.
 Ship reuses the receipt only if canonical input, policy, diff, original snapshot,
-and reviewed head remain current except for the later plan-only receipt commit.
+reviewed head, and frontmatter `review_status` match the receipt except for the
+later plan-only receipt commit.
+
+## Publishing a plan as a GitHub issue (`--issues`)
+
+On `--issues` or `publish <slug> as an issue`, preflight `gh auth status` and a
+GitHub remote; if either fails, publish nothing and report the failure. Run
+`gh repo view --json visibility`. For a public repository, warn that the issue
+is public and obtain explicit confirmation before publishing a plan that names a
+vulnerability, credential location, or other sensitive finding. Then run
+`gh issue create --title "<plan title>" --body-file <plan path>`, record the issue
+URL in `## Notes`, auto-commit the plan, and keep the `.md` as source of truth.
 
 ## Status transitions
 
@@ -230,6 +247,8 @@ when it changes scope, behavior, or a user decision.
   denial through another transport.
 - Never report a review without the expected receipt and typed terminal outcomes.
 - Before ship, revalidate completion receipt reuse and the exact reviewed diff.
+- Before cleanup, require the helper-returned prepare identity under fixed
+  `/tmp/docks-plan-verify`; never accept a caller-selected cleanup root.
 - Re-read every changed frontmatter/receipt line after writing.
 
 ## Success criteria

@@ -17,6 +17,7 @@ const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-revi
 const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_auth', 'unavailable_model', 'timed_out', 'platform_denied', 'failed_unparseable', 'unavailable_unknown']);
 const ATTEMPT_RESULTS = new Set(['passed', 'auth_failed', 'model_unavailable', 'deadline_exceeded', 'platform_denied', 'transient_transport', 'nonzero_exit', 'signaled', 'unparseable']);
 const SOURCES = new Set(['current_user', 'runtime_global', 'skill_default']);
+const COMPLETION_ROOT = '/tmp/docks-plan-verify';
 
 export function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -295,12 +296,23 @@ function validateWaiverObject(waiver, phase, inputSha) {
 }
 
 export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}) {
-  const keys = ['schema', 'leg', 'request', 'result', 'attempts', 'selected', 'findings', 'findings_sha256', 'severity_totals', 'waiver', 'waiver_sha256', 'decision_evidence', 'reason'];
+  const keys = ['schema', 'leg', 'request', 'result', 'attempts', 'selected', 'reviewer_output', 'findings', 'findings_sha256', 'severity_totals', 'waiver', 'waiver_sha256', 'decision_evidence', 'reason'];
   assertClosed(raw, keys, 'raw leg'); if (raw.schema !== 1 || raw.leg !== leg || jcs(raw.request) !== jcs(request)) throw new Error('raw leg request mismatch');
   oneOf(raw.result, LEG_RESULTS, 'leg result'); if (!Array.isArray(raw.attempts)) throw new Error('raw leg attempts');
   const company = companyForLeg(request.author.company, leg); const eligibleTierCount = validateAttemptSequence(raw.attempts, request.policy, company);
   if (raw.selected !== null) { assertClosed(raw.selected, ['model', 'effort', 'transport'], 'selected'); string(raw.selected.model, 'selected model'); string(raw.selected.effort, 'selected effort'); oneOf(raw.selected.transport, new Set(['in_session', 'cli']), 'selected transport'); }
   if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => validateFinding(finding, leg, ids));
+  if (raw.reviewer_output !== null) {
+    assertClosed(raw.reviewer_output, ['verdict', 'score', 'confirmations', 'structured_output_sha256'], 'raw reviewer output');
+    oneOf(raw.reviewer_output.verdict, new Set(['ready', 'not_ready']), 'raw reviewer verdict');
+    if (!Number.isInteger(raw.reviewer_output.score) || raw.reviewer_output.score < 0 || raw.reviewer_output.score > 100) throw new Error('raw reviewer score');
+    if (!Array.isArray(raw.reviewer_output.confirmations)) throw new Error('raw reviewer confirmations');
+    raw.reviewer_output.confirmations.forEach((value) => string(value, 'raw reviewer confirmation'));
+    digest(raw.reviewer_output.structured_output_sha256, 'structured output hash');
+    const structured = { schema: 1, leg, request, verdict: raw.reviewer_output.verdict, score: raw.reviewer_output.score, findings: raw.findings, confirmations: raw.reviewer_output.confirmations };
+    validateReviewerOutput(structured, request, leg);
+    if (raw.reviewer_output.structured_output_sha256 !== sha256(jcs(structured))) throw new Error('structured output hash mismatch');
+  }
   assertClosed(raw.severity_totals, ['high', 'medium', 'low'], 'severity totals'); for (const value of Object.values(raw.severity_totals)) if (!Number.isInteger(value) || value < 0) throw new Error('severity total');
   const totals = { high: 0, medium: 0, low: 0 }; raw.findings.forEach((finding) => { totals[finding.severity] += 1; }); if (jcs(totals) !== jcs(raw.severity_totals)) throw new Error('severity totals mismatch');
   if (raw.result === 'passed') { digest(raw.findings_sha256, 'findings hash'); if (raw.findings_sha256 !== sha256(jcs([...raw.findings].sort((a, b) => compareUtf16(a.id, b.id))))) throw new Error('findings hash mismatch'); }
@@ -317,8 +329,8 @@ export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}
   }
   if (raw.result === 'passed') {
     const last = raw.attempts.at(-1);
-    if (raw.selected === null || last?.result !== 'passed' || jcs(raw.selected) !== jcs({ model: last.model, effort: last.effort, transport: last.transport }) || raw.reason !== null || raw.waiver !== null) throw new Error('invalid passed leg');
-  } else if (raw.selected !== null) throw new Error('non-passed leg cannot select reviewer');
+    if (raw.selected === null || raw.reviewer_output === null || last?.result !== 'passed' || jcs(raw.selected) !== jcs({ model: last.model, effort: last.effort, transport: last.transport }) || raw.reason !== null || raw.waiver !== null) throw new Error('invalid passed leg');
+  } else if (raw.selected !== null || raw.reviewer_output !== null) throw new Error('non-passed leg cannot select reviewer output');
   if (raw.result === 'waived') {
     if (raw.waiver === null || raw.attempts.length || raw.findings.length || raw.reason !== null || raw.decision_evidence !== null) throw new Error('invalid waived leg');
     validateWaiverObject(raw.waiver, request.phase, request.input_sha256); digest(raw.waiver_sha256, 'waiver_sha256'); if (raw.waiver_sha256 !== sha256(jcs(raw.waiver))) throw new Error('waiver hash mismatch'); if (!raw.waiver.legs.includes(leg)) throw new Error('waiver does not cover leg');
@@ -383,6 +395,13 @@ function validateCi(value) {
   if (value.exit_code === 0 && value.first_failure !== null) throw new Error('passing CI carries failure'); if (value.exit_code !== 0) string(value.first_failure, 'CI first failure');
 }
 
+export function deriveCompletionVerdict(primary) {
+  validatePrimary(primary);
+  if (primary.ci.exit_code !== 0 || primary.regressions.length > 0 || primary.findings.some((finding) => finding.severity === 'high')) return 'regressed';
+  if (primary.goal_met === 'yes' && primary.acceptance.every((criterion) => criterion.met)) return 'passed';
+  return 'partial';
+}
+
 function validatePrimary(value) {
   assertClosed(value, ['goal_met', 'findings', 'acceptance', 'ci', 'regressions', 'followups'], 'primary completion evidence'); oneOf(value.goal_met, new Set(['yes', 'partial', 'no']), 'goal_met');
   if (!Array.isArray(value.findings) || !Array.isArray(value.acceptance) || !Array.isArray(value.regressions) || !Array.isArray(value.followups)) throw new Error('primary arrays');
@@ -397,8 +416,9 @@ function validatePersistedLeg(value, request, leg, context) {
 
 function validateOutcome(X, S, policy, decisionEvidence, outcome, eligible = null) {
   const passed = [X, S].filter((leg) => leg.result === 'passed').length; let expected; let shouldBeEligible;
-  if (passed === 2) { expected = 'dual'; shouldBeEligible = true; if (decisionEvidence !== null) throw new Error('dual outcome cannot carry zero-review decision'); }
-  else if (passed === 1) { expected = 'single'; shouldBeEligible = true; if (decisionEvidence !== null) throw new Error('single outcome cannot carry zero-review decision'); }
+  const ready = [X, S].filter((leg) => leg.result === 'passed').every((leg) => leg.reviewer_output.verdict === 'ready');
+  if (passed === 2) { expected = 'dual'; shouldBeEligible = ready; if (decisionEvidence !== null) throw new Error('dual outcome cannot carry zero-review decision'); }
+  else if (passed === 1) { expected = 'single'; shouldBeEligible = ready; if (decisionEvidence !== null) throw new Error('single outcome cannot carry zero-review decision'); }
   else if (policy.zero_reviewer_policy === 'proceed') { expected = 'zero_degraded'; shouldBeEligible = true; if (decisionEvidence !== null) throw new Error('configured proceed requires null decision'); }
   else if (policy.zero_reviewer_policy === 'block') { expected = 'blocked'; shouldBeEligible = false; if (decisionEvidence !== null) throw new Error('configured block requires null decision'); }
   else {
@@ -418,16 +438,16 @@ export function validateDraftRunResult(result, { waivers = [] } = {}) {
 }
 
 export function validateCompletionRunResult(result, { waivers = [] } = {}) {
-  assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary'], 'completion run result');
+  assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary', 'completion_verdict'], 'completion run result');
   if (result.schema !== 1 || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
   if (result.plan_input_sha256 !== result.request.input_sha256) throw new Error('completion plan input mismatch'); digest(result.diff_sha256, 'completion diff');
   const normalized = validateWaivers(waivers, 'completion', result.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
   validateRawLeg(result.X, result.request, 'X', { expectedWaiver: waiverFor('X') }); validateRawLeg(result.S, result.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(result.reproduced, result.X, result.S, true); validatePrimary(result.primary);
-  validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome); return result;
+  validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome); if (result.completion_verdict !== deriveCompletionVerdict(result.primary)) throw new Error('completion verdict mismatch'); return result;
 }
 
 export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [] } = {}) {
-  const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'reviewed_at'];
+  const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible', 'reviewed_at'];
   assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== 1 || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
   if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('draft receipt input mismatch'); if (expectedInput && receipt.input_sha256 !== expectedInput) throw new Error('stale draft receipt');
   assertClosed(receipt.author, ['company', 'tool', 'model', 'effort'], 'author'); oneOf(receipt.author.company, new Set(['openai', 'anthropic']), 'author company'); for (const key of ['tool', 'model', 'effort']) string(receipt.author[key], `author ${key}`); if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('receipt author mismatch');
@@ -435,19 +455,21 @@ export function validateDraftReceipt(receipt, expectedInput = null, { waivers = 
   const normalizedWaivers = validateWaivers(waivers, receipt.request.phase, receipt.request.input_sha256); const waiverFor = (leg) => normalizedWaivers.find((waiver) => waiver.legs.includes(leg)) || null;
   validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') });
   validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, false); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced);
-  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome); iso(receipt.reviewed_at, 'reviewed_at'); return receipt;
+  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome, receipt.pre_execution_eligible); iso(receipt.reviewed_at, 'reviewed_at'); return receipt;
 }
 
 export function validateCompletionReceipt(receipt, expected = {}, { waivers = [] } = {}) {
-  const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'outcome', 'reviewed_at'];
+  const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
   assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== 1 || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
   if (receipt.request.phase !== 'completion' || receipt.request.lifecycle_intent !== 'none' || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head || receipt.plan_input_sha256 !== receipt.request.input_sha256) throw new Error('completion receipt request mismatch');
   if (!HEX40.test(receipt.planned_at_commit) || !HEX40.test(receipt.reviewed_head)) throw new Error('completion commit'); digest(receipt.diff_sha256, 'completion receipt diff');
   if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('completion author mismatch'); if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('completion policy mismatch');
-  for (const [key, value] of Object.entries(expected)) if (value !== undefined && jcs(receipt[key]) !== jcs(value)) throw new Error(`stale completion receipt ${key}`);
+  for (const [key, value] of Object.entries(expected)) if (key !== 'review_status' && value !== undefined && jcs(receipt[key]) !== jcs(value)) throw new Error(`stale completion receipt ${key}`);
   const normalized = validateWaivers(waivers, 'completion', receipt.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
   validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, true); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced); validatePrimary(receipt.primary);
-  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome); iso(receipt.reviewed_at, 'completion reviewed_at'); return receipt;
+  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome); if (receipt.completion_verdict !== deriveCompletionVerdict(receipt.primary)) throw new Error('completion verdict mismatch');
+  if (expected.review_status !== undefined && expected.review_status !== receipt.completion_verdict) throw new Error('completion review_status mismatch');
+  iso(receipt.reviewed_at, 'completion reviewed_at'); return receipt;
 }
 
 export function validateReviewerOutput(output, request, leg) {
@@ -628,45 +650,56 @@ function validateRepositorySnapshot(snapshot) {
   for (const key of ['worktree_sha256', 'git_metadata_sha256', 'git_common_metadata_sha256']) digest(snapshot[key], `repository snapshot ${key}`); return snapshot;
 }
 
-function completionPath(rootDir, requestId) {
+function completionPath(requestId) {
   if (!UUID.test(requestId)) throw new Error('completion request id');
-  const root = path.resolve(rootDir); const out = path.resolve(root, requestId);
+  const root = path.resolve(COMPLETION_ROOT);
+  if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: false, mode: 0o700 });
+  const stat = fs.lstatSync(root); if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(root) !== root) throw new Error('completion root is not canonical');
+  if ((stat.mode & 0o777) !== 0o700 || (typeof process.getuid === 'function' && stat.uid !== process.getuid())) throw new Error('completion root ownership or mode is unsafe');
+  const out = path.resolve(root, requestId);
   if (path.dirname(out) !== root || !inside(root, out)) throw new Error('completion path escape');
   return { root, out };
 }
 
-export function prepareCompletionCheckout({ repo, reviewedHead, rootDir, requestId }) {
+export function prepareCompletionCheckout({ repo, reviewedHead, requestId }) {
   if (!HEX40.test(reviewedHead)) throw new Error('reviewedHead');
   const before = snapshotRepository(repo); if (!before.clean) throw new Error('original repository is not clean');
   if (before.head !== reviewedHead) throw new Error('reviewedHead does not match original HEAD');
-  const { root, out } = completionPath(rootDir, requestId); fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  const { root, out } = completionPath(requestId);
   if (fs.existsSync(out)) throw new Error('completion checkout already exists');
   try {
     git(root, ['clone', '--no-local', '--no-checkout', before.repo_realpath, out]);
     git(out, ['checkout', '--detach', reviewedHead]);
     const tempHead = git(out, ['rev-parse', 'HEAD']).trim(); const sourceTree = git(before.repo_realpath, ['rev-parse', `${reviewedHead}^{tree}`]).trim(); const tempTree = git(out, ['rev-parse', 'HEAD^{tree}']).trim();
     if (tempHead !== reviewedHead || tempTree !== sourceTree) throw new Error('completion checkout head/tree mismatch');
-    const sentinel = { schema: 1, request_id: requestId, original_repo: before.repo_realpath, reviewed_head: reviewedHead };
+    const cleanupToken = createHash('sha256').update(randomUUID()).update(randomUUID()).digest('hex');
+    const sentinel = { schema: 1, request_id: requestId, original_repo: before.repo_realpath, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken };
     fs.writeFileSync(path.join(out, '.docks-plan-verify-sentinel'), `${jcs(sentinel)}\n`, { mode: 0o600 });
     const after = snapshotRepository(repo); if (jcs(after) !== jcs(before)) throw new Error('original repository changed during completion checkout');
-    return { schema: 1, request_id: requestId, checkout: out, reviewed_head: reviewedHead, source_tree: sourceTree, original_snapshot: before };
+    return { schema: 1, request_id: requestId, checkout: out, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken, original_snapshot: before };
   } catch (error) {
     if (fs.existsSync(out)) fs.rmSync(out, { recursive: true, force: false });
     throw error;
   }
 }
 
-export function cleanupCompletionCheckout({ repo, rootDir, requestId, originalSnapshot }) {
-  validateRepositorySnapshot(originalSnapshot);
-  const { out } = completionPath(rootDir, requestId); const sentinelPath = path.join(out, '.docks-plan-verify-sentinel');
+export function cleanupCompletionCheckout({ repo, requestId, prepared }) {
+  assertClosed(prepared, ['schema', 'request_id', 'checkout', 'reviewed_head', 'source_tree', 'cleanup_token', 'original_snapshot'], 'prepared completion identity');
+  if (prepared.schema !== 1 || prepared.request_id !== requestId || !HEX40.test(prepared.reviewed_head) || !HEX40.test(prepared.source_tree)) throw new Error('prepared completion identity mismatch');
+  digest(prepared.cleanup_token, 'cleanup token'); validateRepositorySnapshot(prepared.original_snapshot);
+  if (prepared.original_snapshot.head !== prepared.reviewed_head) throw new Error('prepared head does not match original snapshot');
+  const { out } = completionPath(requestId); if (prepared.checkout !== out) throw new Error('prepared checkout is not canonical');
+  const sentinelPath = path.join(out, '.docks-plan-verify-sentinel');
   if (!fs.existsSync(sentinelPath)) throw new Error('completion cleanup sentinel missing');
   const sentinelText = fs.readFileSync(sentinelPath, 'utf8'); let sentinel; try { sentinel = JSON.parse(sentinelText); } catch { throw new Error('completion cleanup sentinel invalid'); }
-  assertClosed(sentinel, ['schema', 'request_id', 'original_repo', 'reviewed_head'], 'completion sentinel');
+  assertClosed(sentinel, ['schema', 'request_id', 'original_repo', 'reviewed_head', 'source_tree', 'cleanup_token'], 'completion sentinel');
   if (sentinelText !== `${jcs(sentinel)}\n`) throw new Error('completion cleanup sentinel must be compact JCS');
-  if (sentinel.schema !== 1 || sentinel.request_id !== requestId || fs.realpathSync(repo) !== sentinel.original_repo) throw new Error('completion cleanup sentinel mismatch');
-  const current = snapshotRepository(repo); if (jcs(current) !== jcs(originalSnapshot)) throw new Error('original repository changed during completion verification');
+  const expectedSentinel = { schema: 1, request_id: requestId, original_repo: prepared.original_snapshot.repo_realpath, reviewed_head: prepared.reviewed_head, source_tree: prepared.source_tree, cleanup_token: prepared.cleanup_token };
+  if (jcs(sentinel) !== jcs(expectedSentinel) || fs.realpathSync(repo) !== sentinel.original_repo) throw new Error('completion cleanup sentinel mismatch');
+  if (git(repo, ['rev-parse', `${prepared.reviewed_head}^{tree}`]).trim() !== prepared.source_tree) throw new Error('prepared source tree mismatch');
+  const current = snapshotRepository(repo); if (jcs(current) !== jcs(prepared.original_snapshot)) throw new Error('original repository changed during completion verification');
   fs.rmSync(out, { recursive: true, force: false });
-  const final = snapshotRepository(repo); if (jcs(final) !== jcs(originalSnapshot)) throw new Error('original repository changed during completion cleanup');
+  const final = snapshotRepository(repo); if (jcs(final) !== jcs(prepared.original_snapshot)) throw new Error('original repository changed during completion cleanup');
   return { schema: 1, request_id: requestId, removed: true, original_snapshot: final };
 }
 
@@ -682,11 +715,11 @@ export function run(argv = process.argv.slice(2)) {
     const [repo, commit, plan, out, ...paths] = args; process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out) }))}\n`); return;
   }
   if (command === 'completion-prepare') {
-    const [repo, reviewedHead, rootDir, requestId] = args; process.stdout.write(`${jcs(prepareCompletionCheckout({ repo: path.resolve(repo), reviewedHead, rootDir: path.resolve(rootDir), requestId }))}\n`); return;
+    const [repo, reviewedHead, requestId] = args; if (args.length !== 3) throw new Error('completion-prepare accepts repo reviewedHead requestId only'); process.stdout.write(`${jcs(prepareCompletionCheckout({ repo: path.resolve(repo), reviewedHead, requestId }))}\n`); return;
   }
   if (command === 'completion-cleanup') {
-    const [repo, rootDir, requestId, snapshotPath] = args; const originalSnapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
-    process.stdout.write(`${jcs(cleanupCompletionCheckout({ repo: path.resolve(repo), rootDir: path.resolve(rootDir), requestId, originalSnapshot }))}\n`); return;
+    const [repo, requestId, preparedPath] = args; if (args.length !== 3) throw new Error('completion-cleanup accepts repo requestId preparedPath only'); const prepared = JSON.parse(fs.readFileSync(preparedPath, 'utf8'));
+    process.stdout.write(`${jcs(cleanupCompletionCheckout({ repo: path.resolve(repo), requestId, prepared }))}\n`); return;
   }
   if (command === 'probe') {
     const [tool] = args; const result = spawnSync(tool, tool === 'codex' ? ['login', 'status'] : ['auth', 'status'], { encoding: 'utf8' });

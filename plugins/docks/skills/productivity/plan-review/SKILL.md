@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-12"
-  content_hash: "f64500be9f5f0931241f979bf305dd0a58ae4bace9ce0c040fec616be6948e4e"
+  content_hash: "9068500d1e9f8e3d8a238c6db4d12c7620376b1f4bba43b03a81aa025e283aca"
 ---
 
 # Plan Review Evidence Runner
@@ -135,7 +135,10 @@ Classify in order: matching waiver → `waived`; X consent denied →
 
 Each raw leg returns exact request, ordered attempts, selected tier or null,
 typed result, schema-valid findings or none, hashes/severity totals, matching
-waiver or null, prompted decision or null, and reason. IDs are unique and
+waiver or null, prompted decision or null, and reason. A passed leg also retains
+the exact structured reviewer verdict, score, confirmations, and SHA-256 of the
+full JCS `ReviewerOutput`; the helper reconstructs and validates that object.
+`not_ready` is always pre-execution-ineligible in schema v1. IDs are unique and
 leg-prefixed (`X1…`, `S1…`). Never construct reconciliation here.
 
 ## Draft evidence
@@ -169,14 +172,21 @@ Plan-manager supplies the immutable `reviewed_head` and original snapshot.
    CI only inside that disposable checkout.
 4. Record each acceptance command/expected/exit/output hash, CI command/exit/
    first failure/output hash, goal verdict, regressions, and follow-ups.
-5. Delete only a helper-created sentinel-bearing request directory; re-hash the
+5. Delete only a helper-created sentinel-bearing request directory. Cleanup
+   accepts the exact prepare identity, never a root path, and validates its
+   random token, original snapshot, reviewed head, source tree, canonical path,
+   owner/mode, and sentinel before deletion; then re-hash the
    original tracked modes/blobs, untracked content, complete Git metadata tree,
    and cleanliness. Any delta is a STOP.
 
 Return closed `CompletionRunResult` with `plan_input_sha256`, `diff_sha256`, X,
 S, reproduced findings, decision evidence, outcome, and primary completion
-evidence. Never write `## Review` or `review_status`; plan-manager applies the
-validated result.
+evidence plus derived `completion_verdict=passed|partial|regressed`. `regressed`
+means CI failed, a regression was recorded, or a primary high finding exists;
+otherwise `passed` requires `goal_met=yes` and every acceptance `met=true`; all
+other cases are `partial`. Never write `## Review` or `review_status`;
+plan-manager applies the validated result and requires frontmatter status to
+match the receipt.
 
 ## Output format
 

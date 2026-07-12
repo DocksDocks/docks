@@ -250,6 +250,9 @@ The resolved logical policy has independent choices for cross-company consent
 An authoritative host denial is `platform_denied` and is not retried through a
 different transport. One successful leg is enough to proceed with the other
 exact outcome recorded, so missing a second subscription is never a hard block.
+Every passed leg persists the exact structured verdict, score, confirmations,
+and output hash. A `not_ready` verdict is ineligible in schema v1; repair and
+review again rather than overriding it.
 Zero successful legs follow the separately resolved zero-review choice. A
 current-user waiver may name X, S, or both for exactly one phase and canonical
 input hash; consent `never` is not a waiver.
@@ -270,6 +273,13 @@ lifecycle intent, immutable commit/head, canonical input, sealed bundle,
 resolved policy+provenance, X/S attempt ledgers, decisions/waivers, finding
 reconciliation, outcome, and time. Any substantive or policy change invalidates
 reuse; excluded lifecycle fields and the receipt's own line do not.
+Completion receipts also carry a derived `completion_verdict`: `regressed` when
+CI fails, a regression is recorded, or a high primary finding exists; otherwise
+`passed` requires `goal_met=yes` and every acceptance met; all other cases are
+`partial`. Frontmatter `review_status` must match this receipt at apply and ship.
+Disposable cleanup accepts only the helper-returned prepare identity under
+`/tmp/docks-plan-verify`, bound to its random token, original snapshot, reviewed
+head, source tree, canonical path, and sentinel—never a caller-selected root.
 
 Keep findings attributed instead of blending reviewer voices:
 
@@ -334,7 +344,7 @@ from committed state — the user can amend.
 | Unblock | `status: ongoing`, clear `blocked_reason`/`blocked_since`. `started_at` unchanged. |
 | Schedule fires | `status: ongoing`, drop scheduled-only keys, set `started_at`, dispatch. (An `auto_execute` plan still halts at `in_review` for a human ship.) |
 | Steps complete → review | When every `## Steps` row is `done`: `status: in_review`, set `in_review_since`, **auto-dispatch `plan-review`** (completion review — diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, file stays in `active/`). No `git mv`. |
-| Ship | Allowed only when `review_status: passed` (on `partial`/`regressed`, fix first; if `null`, dispatch the review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit` (HEAD). Carries the existing `## Review` forward — **no re-dispatch** (re-run only if HEAD moved since the review). |
+| Ship | Allowed only when `review_status: passed` and it matches a current derived-passed completion receipt (on `partial`/`regressed`, fix first; if `null`, dispatch the review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit` (HEAD). Carries the existing `## Review` forward — **no re-dispatch** (re-run only if HEAD moved since the review). |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in `## Notes`. Don't delete. |
 
 ## On-demand views

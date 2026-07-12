@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  applyLifecycleState, buildReviewerArgv, canonicalPlanView, classifyLeg, extractReviewerOutput, jcs, parsePlan,
+  applyLifecycleState, buildReviewerArgv, canonicalPlanView, classifyLeg, deriveCompletionVerdict, extractReviewerOutput, jcs, parsePlan,
   reviewerSchema, sealBundle, sha256, validateCompletionReceipt, validateCompletionRunResult,
   validateDraftReceipt, validateDraftRunResult, validatePolicy, validateRawLeg, validateRequest,
   validateReviewerOutput, validateWaivers,
@@ -53,13 +54,15 @@ function attempt(overrides = {}) {
 function consentDecision(req, decision = 'allow') {
   return { schema: 1, kind: 'x_consent', decision, actor: 'test user', reason: 'explicit test consent', at: '2026-07-12T00:00:00-03:00', request_id: req.request_id, input_sha256: req.input_sha256 };
 }
-function rawPassed(req, leg, attempts = null, findings = []) {
+function rawPassed(req, leg, attempts = null, findings = [], reviewer = {}) {
   const company = leg === 'S' ? req.author.company : (req.author.company === 'openai' ? 'anthropic' : 'openai'); const tier = req.policy[`${company}_tiers`][0];
   const ledger = attempts || [attempt({ model: tier.model, effort: tier.effort })]; const last = ledger.at(-1);
-  return { schema: 1, leg, request: req, result: 'passed', attempts: ledger, selected: { model: last.model, effort: last.effort, transport: last.transport }, findings, findings_sha256: sha256(jcs([...findings].sort((a, b) => a.id.localeCompare(b.id)))), severity_totals: { high: findings.filter((f) => f.severity === 'high').length, medium: findings.filter((f) => f.severity === 'medium').length, low: findings.filter((f) => f.severity === 'low').length }, waiver: null, waiver_sha256: null, decision_evidence: leg === 'X' && req.policy.cross_company_consent === 'ask' ? consentDecision(req) : null, reason: null };
+  const structured = { schema: 1, leg, request: req, verdict: reviewer.verdict || 'ready', score: reviewer.score ?? 100, findings, confirmations: reviewer.confirmations || ['fixture reviewer completed'] };
+  const reviewerOutput = { verdict: structured.verdict, score: structured.score, confirmations: structured.confirmations, structured_output_sha256: sha256(jcs(structured)) };
+  return { schema: 1, leg, request: req, result: 'passed', attempts: ledger, selected: { model: last.model, effort: last.effort, transport: last.transport }, reviewer_output: reviewerOutput, findings, findings_sha256: sha256(jcs([...findings].sort((a, b) => a.id.localeCompare(b.id)))), severity_totals: { high: findings.filter((f) => f.severity === 'high').length, medium: findings.filter((f) => f.severity === 'medium').length, low: findings.filter((f) => f.severity === 'low').length }, waiver: null, waiver_sha256: null, decision_evidence: leg === 'X' && req.policy.cross_company_consent === 'ask' ? consentDecision(req) : null, reason: null };
 }
 function rawAuth(req, leg) {
-  return { schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, waiver_sha256: null, decision_evidence: leg === 'X' && req.policy.cross_company_consent === 'ask' ? consentDecision(req) : null, reason: 'authentication unavailable' };
+  return { schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, reviewer_output: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, waiver_sha256: null, decision_evidence: leg === 'X' && req.policy.cross_company_consent === 'ask' ? consentDecision(req) : null, reason: 'authentication unavailable' };
 }
 function persisted(raw, accepted = []) {
   return { request: raw.request, raw, reconciliation: { accepted, rejected: raw.findings.filter((finding) => !accepted.includes(finding.id)).map((finding) => ({ id: finding.id, reason: 'not accepted in fixture' })) } };
@@ -132,9 +135,9 @@ function testSchemas() {
     { phase: 'draft', input_sha256: req.input_sha256, legs: ['X'], actor: 'user', reason: 'one', at: '2026-07-12T00:00:00-03:00' },
     { phase: 'draft', input_sha256: req.input_sha256, legs: ['X'], actor: 'user', reason: 'two', at: '2026-07-12T00:00:00-03:00' },
   ], 'draft', req.input_sha256), /duplicate/);
-  const raw = (leg) => ({ schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, waiver_sha256: null, decision_evidence: null, reason: 'authentication unavailable' });
+  const raw = (leg) => ({ schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, reviewer_output: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, waiver_sha256: null, decision_evidence: null, reason: 'authentication unavailable' });
   const persisted = (leg) => ({ request: req, raw: raw(leg), reconciliation: { accepted: [], rejected: [] } });
-  const receipt = { schema: 1, phase: 'draft', request: req, input_sha256: req.input_sha256, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', reviewed_at: '2026-07-12T00:00:00-03:00' };
+  const receipt = { schema: 1, phase: 'draft', request: req, input_sha256: req.input_sha256, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', pre_execution_eligible: false, reviewed_at: '2026-07-12T00:00:00-03:00' };
   validateDraftReceipt(receipt, req.input_sha256);
   expectThrow('malformed receipt extra key', () => validateDraftReceipt({ ...receipt, unauthorized_extra: true }, req.input_sha256), /unknown key/);
   expectThrow('stale receipt input', () => validateDraftReceipt(receipt, 'f'.repeat(64)), /stale/);
@@ -180,14 +183,14 @@ function testAdversarialValidators() {
   validateDraftRunResult({ schema: 1, kind: 'draft', request: askReq, X: denied, S: rawPassed(askReq, 'S'), reproduced: [], decision_evidence: null, outcome: 'single', pre_execution_eligible: true });
 
   const waiver = { phase: 'draft', input_sha256: req.input_sha256, legs: ['X', 'S'], actor: 'test user', reason: 'explicit scoped waiver', at: '2026-07-12T00:00:00-03:00' };
-  const waived = (leg) => ({ schema: 1, leg, request: req, result: 'waived', attempts: [], selected: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver, waiver_sha256: sha256(jcs(waiver)), decision_evidence: null, reason: null });
+  const waived = (leg) => ({ schema: 1, leg, request: req, result: 'waived', attempts: [], selected: null, reviewer_output: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver, waiver_sha256: sha256(jcs(waiver)), decision_evidence: null, reason: null });
   validateDraftRunResult({ schema: 1, kind: 'draft', request: req, X: waived('X'), S: waived('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', pre_execution_eligible: false }, { waivers: [waiver] });
 
   const completionReq = request({ phase: 'completion', lifecycle_intent: 'none' }); const completionX = rawPassed(completionReq, 'X'); const completionS = rawPassed(completionReq, 'S');
-  const completion = { schema: 1, kind: 'completion', request: completionReq, plan_input_sha256: completionReq.input_sha256, diff_sha256: H0, X: completionX, S: completionS, reproduced: [], decision_evidence: null, outcome: 'dual', primary: primaryEvidence() };
+  const completion = { schema: 1, kind: 'completion', request: completionReq, plan_input_sha256: completionReq.input_sha256, diff_sha256: H0, X: completionX, S: completionS, reproduced: [], decision_evidence: null, outcome: 'dual', primary: primaryEvidence(), completion_verdict: 'passed' };
   validateCompletionRunResult(completion);
-  const receipt = { schema: 1, phase: 'completion', request: completionReq, planned_at_commit: '3'.repeat(40), reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, author: completionReq.author, policy: completionReq.policy, policy_sha256: completionReq.policy_sha256, X: persisted(completionX), S: persisted(completionS), reproduced: [], decision_evidence: null, primary: completion.primary, outcome: 'dual', reviewed_at: '2026-07-12T00:00:00-03:00' };
-  validateCompletionReceipt(receipt, { reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256 });
+  const receipt = { schema: 1, phase: 'completion', request: completionReq, planned_at_commit: '3'.repeat(40), reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, author: completionReq.author, policy: completionReq.policy, policy_sha256: completionReq.policy_sha256, X: persisted(completionX), S: persisted(completionS), reproduced: [], decision_evidence: null, primary: completion.primary, completion_verdict: 'passed', outcome: 'dual', reviewed_at: '2026-07-12T00:00:00-03:00' };
+  validateCompletionReceipt(receipt, { reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, review_status: 'passed' });
 
   expectThrow('unstarted passed attempt', () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], started: false, child_id: null, stdout_sha256: null, stderr_sha256: null }] }, req, 'X'), /unstarted|passed attempt/);
   expectThrow('started missing timeout', () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], timeout_mode: null }] }, req, 'X'), /timeout mode/);
@@ -201,7 +204,7 @@ function testAdversarialValidators() {
   expectThrow('second transient retry', () => validateRawLeg({ ...retry, attempts: [retry.attempts[0], { ...retry.attempts[0], child_id: 'child-2' }, retry.attempts[1]] }, req, 'S'), /attempt bound|invalid transient retry/);
   expectThrow('attempt after terminal', () => validateRawLeg({ ...X, attempts: [...X.attempts, X.attempts[0]] }, req, 'X'), /attempt bound|terminal/);
   expectThrow('selected mismatch', () => validateRawLeg({ ...X, selected: { ...X.selected, model: 'wrong' } }, req, 'X'), /invalid passed leg/);
-  expectThrow('raw result mismatch', () => validateRawLeg({ ...X, result: 'timed_out', selected: null, findings_sha256: null, reason: 'claimed timeout' }, req, 'X'), /non-passed leg carries findings|leg result mismatch/);
+  expectThrow('raw result mismatch', () => validateRawLeg({ ...X, result: 'timed_out', selected: null, findings_sha256: null, reason: 'claimed timeout' }, req, 'X'), /non-passed leg carries findings|non-passed leg cannot select reviewer output|leg result mismatch/);
   expectThrow('S not authorized', () => validateRawLeg({ ...rawAuth(req, 'S'), result: 'not_authorized', reason: null }, req, 'S'), /invalid not_authorized/);
   expectThrow('always not authorized', () => validateRawLeg({ ...rawAuth(req, 'X'), result: 'not_authorized', reason: null }, req, 'X'), /standing consent/);
   expectThrow('ask X attempt without allow', () => validateRawLeg({ ...rawPassed(askReq, 'X'), decision_evidence: null }, askReq, 'X'), /decision must|Cannot read|requires allow|must be an object/);
@@ -213,20 +216,30 @@ function testAdversarialValidators() {
   expectThrow('dual with one pass', () => validateDraftRunResult({ ...dual, S: rawAuth(req, 'S') }), /outcome mismatch/);
   expectThrow('zero decision on dual', () => validateDraftRunResult({ ...dual, decision_evidence: zeroDecision(req) }), /cannot carry/);
   expectThrow('opposite eligibility', () => validateDraftRunResult({ ...dual, pre_execution_eligible: false }), /eligible mismatch/);
+  const notReadyX = rawPassed(req, 'X', null, [], { verdict: 'not_ready', score: 0, confirmations: ['blocking verdict'] });
+  expectThrow('not-ready reviewer cannot authorize execution', () => validateDraftRunResult({ ...dual, X: notReadyX }), /eligible mismatch/);
+  expectThrow('structured reviewer output hash mismatch', () => validateRawLeg({ ...X, reviewer_output: { ...X.reviewer_output, structured_output_sha256: H0 } }, req, 'X'), /structured output hash/);
   expectThrow('draft kind mismatch', () => validateDraftRunResult({ ...dual, kind: 'completion' }), /draft run kind/);
   expectThrow('X and S swapped', () => validateDraftRunResult({ ...dual, X: S, S: X }), /raw leg request mismatch/);
   const invented = { id: 'X99', source: 'X', severity: 'high', path: null, locator: null, defect: 'invented', fix: 'none', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } };
   expectThrow('invented reproduced id', () => validateDraftRunResult({ ...dual, reproduced: [invented] }), /not present/);
   expectThrow('completion plan hash mismatch', () => validateCompletionRunResult({ ...completion, plan_input_sha256: H0 }), /plan input mismatch/);
   expectThrow('passing CI failure line', () => validateCompletionRunResult({ ...completion, primary: { ...completion.primary, ci: { ...completion.primary.ci, first_failure: 'should be null' } } }), /passing CI/);
+  const failingPrimary = { ...primaryEvidence(), goal_met: 'no', acceptance: [{ ...primaryEvidence().acceptance[0], exit_code: 1, met: false }], ci: { ...primaryEvidence().ci, exit_code: 1, first_failure: 'test failed' }, regressions: ['blocking regression'] };
+  assert.equal(deriveCompletionVerdict(failingPrimary), 'regressed');
+  expectThrow('failing primary cannot claim passed completion verdict', () => validateCompletionReceipt({ ...receipt, primary: failingPrimary }, { review_status: 'passed' }), /completion verdict mismatch/);
+  const regressedReceipt = { ...receipt, primary: failingPrimary, completion_verdict: 'regressed' };
+  expectThrow('regressed receipt cannot match passed review_status', () => validateCompletionReceipt(regressedReceipt, { review_status: 'passed' }), /review_status mismatch/);
   expectThrow('stale completion receipt', () => validateCompletionReceipt(receipt, { diff_sha256: H1 }), /stale completion/);
   expectThrow('completion author mismatch', () => validateCompletionReceipt({ ...receipt, author: { ...receipt.author, company: 'anthropic' } }), /author mismatch/);
   expectThrow('completion receipt extra key', () => validateCompletionReceipt({ ...receipt, extra: true }), /unknown key/);
 
   const finding = { id: 'X1', severity: 'high', section: 'Goal', path: 'src/a.js', locator: 'symbol', defect: 'broken', fix: 'repair', evidence: 'source' };
   const XFinding = rawPassed(req, 'X', null, [finding]); const accepted = persisted(XFinding, ['X1']);
-  const acceptedReceipt = { schema: 1, phase: 'draft', request: req, input_sha256: req.input_sha256, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: accepted, S: persisted(S), reproduced: [], decision_evidence: null, outcome: 'dual', reviewed_at: '2026-07-12T00:00:00-03:00' };
+  const acceptedReceipt = { schema: 1, phase: 'draft', request: req, input_sha256: req.input_sha256, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: accepted, S: persisted(S), reproduced: [], decision_evidence: null, outcome: 'dual', pre_execution_eligible: true, reviewed_at: '2026-07-12T00:00:00-03:00' };
   expectThrow('accepted unreproduced finding', () => validateDraftReceipt(acceptedReceipt, req.input_sha256), /not reproduced/);
+  console.log('semantic: not_ready verdict and structured-output hash cannot authorize execution');
+  console.log('semantic: derived completion verdict rejects failing primary evidence and mismatched review_status');
   console.log('semantic adversarial attempt, ledger, consent, outcome, run, reproduction, and receipt validators passed');
 }
 
@@ -284,24 +297,29 @@ function testLifecycle() {
   assert.equal(applyLifecycleState({ state: 'planned', intent: 'start', eligible: true, intentUsed: true }).applied, false);
   expectThrow('wrong state start', () => applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true }), /requires planned/);
   expectThrow('wrong state fire', () => applyLifecycleState({ state: 'planned', intent: 'schedule_fire', eligible: true }), /requires scheduled/);
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-lifecycle-')); const original = path.join(temp, 'original'); const verifyRoot = path.join(temp, 'verify'); const requestId = '123e4567-e89b-42d3-a456-426614174001';
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-lifecycle-')); const original = path.join(temp, 'original'); const verifyRoot = '/tmp/docks-plan-verify'; const requestId = randomUUID();
   fs.mkdirSync(original); git(original, ['init', '-q']); git(original, ['config', 'user.email', 'policy@example.test']); git(original, ['config', 'user.name', 'Policy Test']);
   fs.writeFileSync(path.join(original, '.gitignore'), 'ignored-cache\n'); fs.writeFileSync(path.join(original, 'result.txt'), 'original\n'); fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
   git(original, ['add', '.gitignore', 'result.txt']); git(original, ['commit', '-qm', 'fixture']); const head = git(original, ['rev-parse', 'HEAD']);
-  const prepareResult = helper(temp, ['completion-prepare', original, head, verifyRoot, requestId]); assert.equal(prepareResult.status, 0, prepareResult.stderr); const prepared = JSON.parse(prepareResult.stdout);
+  const arbitraryPrepare = helper(temp, ['completion-prepare', original, head, path.join(temp, 'arbitrary-root'), requestId]); assert.notEqual(arbitraryPrepare.status, 0); assert.match(arbitraryPrepare.stderr, /accepts repo reviewedHead requestId only/);
+  const prepareResult = helper(temp, ['completion-prepare', original, head, requestId]); assert.equal(prepareResult.status, 0, prepareResult.stderr); const prepared = JSON.parse(prepareResult.stdout);
   assert.equal(prepared.checkout, path.join(verifyRoot, requestId)); assert.equal(git(prepared.checkout, ['rev-parse', 'HEAD']), head);
   fs.writeFileSync(path.join(prepared.checkout, 'ci-artifact.txt'), 'disposable only\n');
   const sentinel = path.join(prepared.checkout, '.docks-plan-verify-sentinel'); const sentinelBytes = fs.readFileSync(sentinel); fs.rmSync(sentinel);
-  const snapshotPath = path.join(temp, 'snapshot.json'); fs.writeFileSync(snapshotPath, JSON.stringify(prepared.original_snapshot));
-  const missingSentinel = helper(temp, ['completion-cleanup', original, verifyRoot, requestId, snapshotPath]); assert.notEqual(missingSentinel.status, 0); assert.match(missingSentinel.stderr, /sentinel missing/);
+  const preparedPath = path.join(temp, 'prepared.json'); fs.writeFileSync(preparedPath, JSON.stringify(prepared));
+  const missingSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(missingSentinel.status, 0); assert.match(missingSentinel.stderr, /sentinel missing/);
   fs.writeFileSync(sentinel, sentinelBytes); fs.writeFileSync(path.join(original, 'ignored-cache'), 'mutated ignored content\n');
-  const ignoredMutation = helper(temp, ['completion-cleanup', original, verifyRoot, requestId, snapshotPath]); assert.notEqual(ignoredMutation.status, 0); assert.match(ignoredMutation.stderr, /original repository changed/);
-  fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n'); const cleanupResult = helper(temp, ['completion-cleanup', original, verifyRoot, requestId, snapshotPath]); assert.equal(cleanupResult.status, 0, cleanupResult.stderr); const cleaned = JSON.parse(cleanupResult.stdout);
+  const ignoredMutation = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(ignoredMutation.status, 0); assert.match(ignoredMutation.stderr, /original repository changed/);
+  fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
+  const forged = { ...prepared, cleanup_token: H0 }; const forgedPath = path.join(temp, 'forged.json'); fs.writeFileSync(forgedPath, JSON.stringify(forged));
+  const forgedCleanup = helper(temp, ['completion-cleanup', original, requestId, forgedPath]); assert.notEqual(forgedCleanup.status, 0); assert.match(forgedCleanup.stderr, /sentinel mismatch/);
+  const cleanupResult = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.equal(cleanupResult.status, 0, cleanupResult.stderr); const cleaned = JSON.parse(cleanupResult.stdout);
   assert.equal(cleaned.removed, true); assert.equal(fs.existsSync(prepared.checkout), false);
-  const escaped = helper(temp, ['completion-cleanup', original, verifyRoot, '../escape', snapshotPath]); assert.notEqual(escaped.status, 0); assert.match(escaped.stderr, /request id/);
+  const escaped = helper(temp, ['completion-cleanup', original, '../escape', preparedPath]); assert.notEqual(escaped.status, 0); assert.match(escaped.stderr, /prepared completion identity mismatch|request id/);
   fs.rmSync(temp, { recursive: true, force: true });
   console.log('lifecycle: planned/scheduled preservation, start/fire/auto gating and one-intent consumption passed');
   console.log('lifecycle: git clone --no-local disposable CI and complete original repo+.git digest passed');
+  console.log('cleanup: canonical root and prepare identity reject arbitrary roots and forged tokens');
 }
 
 function testConsumer() {
@@ -352,11 +370,13 @@ function testReviewRunnerSurfaces() {
 function testManagerSurfaces() {
   const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/SKILL.md'), 'utf8');
   for (const marker of ['Review before execution', 'Sole-writer protocol', 'prepare(intent)', 'NeedsMainReviewDispatch', '## `apply`', 'zero_reviewer_policy', 'platform_denied']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  for (const marker of ['Publishing a plan as a GitHub issue', '--issues', 'gh auth status', 'gh repo view --json visibility', 'gh issue create']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager lost publishing operation: ${marker}`);
   for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);
     assert.match(text, /Never launch X\/S|Review dispatch always returns to main/i, `${file} permits wrapper dispatch`);
   }
+  console.log('plan-manager GitHub issue publishing operation preservation passed');
   console.log('plan-manager prepare/dispatch/apply live/generated wrapper parity passed');
 }
 
@@ -383,9 +403,9 @@ function testSelfDemo(planPath) {
   assert.equal(canonicalPlanView(beforeRecord), canonicalPlanView(afterRecord), 'record-only commit preserves canonical input');
 
   const input = sha256(canonicalPlanView(Buffer.from(raw))); const req = request({ input_sha256: input, reviewed_commit_or_head: git(ROOT, ['rev-parse', 'HEAD']) });
-  const rawLeg = (leg) => ({ schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, waiver_sha256: null, decision_evidence: null, reason: 'synthetic helper conformance only' });
+  const rawLeg = (leg) => ({ schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, reviewer_output: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, waiver_sha256: null, decision_evidence: null, reason: 'synthetic helper conformance only' });
   const persisted = (leg) => ({ request: req, raw: rawLeg(leg), reconciliation: { accepted: [], rejected: [] } });
-  validateDraftReceipt({ schema: 1, phase: 'draft', request: req, input_sha256: input, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', reviewed_at: '2026-07-12T00:00:00-03:00' }, input);
+  validateDraftReceipt({ schema: 1, phase: 'draft', request: req, input_sha256: input, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', pre_execution_eligible: false, reviewed_at: '2026-07-12T00:00:00-03:00' }, input);
   console.log('self-demo: bootstrap commit/blob/findings/degraded-S and record-only canonical invariant passed');
   console.log('self-demo: new-helper synthetic conformance receipt validates current implementation input and is not pre-gating proof');
 }

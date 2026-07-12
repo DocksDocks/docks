@@ -54,10 +54,17 @@ try {
 
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-black-box-')); copyRoot(temp);
   console.log(`omitted-surface oracle copied ${REQUIRED_SURFACES.length} live/generated/helper surfaces`);
-  requirePass('semantic attempt/ledger/raw/run/receipt adversarial matrix', run(temp, ['--case', 'adversarial']), /semantic adversarial .* validators passed/);
+  const semantic = run(temp, ['--case', 'adversarial']);
+  requirePass('semantic attempt/ledger/raw/run/receipt adversarial matrix', semantic, /semantic adversarial .* validators passed/);
+  assert.match(semantic.stdout, /not_ready verdict and structured-output hash cannot authorize execution/);
+  assert.match(semantic.stdout, /derived completion verdict rejects failing primary evidence and mismatched review_status/);
   requirePass('distinct X\/S schema and request leg matrix', run(temp, ['--case', 'legs']), /direct argv.*consent separation passed/);
-  requirePass('shipped completion clone\/snapshot\/cleanup matrix', run(temp, ['--case', 'lifecycle']), /git clone --no-local.*digest passed/);
-  requirePass('canonical bundle, fence, consumer, and surface matrix', run(temp, []), /plan-review-policy contract passed/);
+  const lifecycle = run(temp, ['--case', 'lifecycle']);
+  requirePass('shipped completion clone\/snapshot\/cleanup matrix', lifecycle, /git clone --no-local.*digest passed/);
+  assert.match(lifecycle.stdout, /canonical root and prepare identity reject arbitrary roots and forged tokens/);
+  const full = run(temp, []);
+  requirePass('canonical bundle, fence, consumer, and surface matrix', full, /plan-review-policy contract passed/);
+  assert.match(full.stdout, /GitHub issue publishing operation preservation passed/);
   fs.rmSync(temp, { recursive: true, force: true });
   console.log('plan-review-policy mutations passed');
 } catch (error) {
