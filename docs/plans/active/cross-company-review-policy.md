@@ -1,11 +1,10 @@
 ---
 title: Make cross-company plan review the strong default
 goal: Make dual independent plan review a strong, availability-aware default via read-only portable CLIs, canonical receipts, and model-agnostic orchestration overridable by runtime-global guidance.
-status: in_review
+status: ongoing
 created: "2026-07-11T14:44:27-03:00"
-updated: "2026-07-12T02:08:02-03:00"
+updated: "2026-07-12T02:48:10-03:00"
 started_at: "2026-07-12T00:37:40-03:00"
-in_review_since: "2026-07-12T02:08:02-03:00"
 assignee: null
 review_author_company: anthropic
 review_author_tool: claude
@@ -40,6 +39,7 @@ affected_paths:
 related_plans: []
 review_status: null
 planned_at_commit: "9e0bd6ab69bffc565a240139cb598af120b3bec9"
+execution_base_commit: "935daf21d9879709cc295d0ac9f72a55908227a1"
 ---
 
 # Make cross-company plan review the strong default
@@ -103,7 +103,7 @@ Why: the mechanical pieces already exist (one-shot reviewer legs, the red-team p
 | 3 | Make plan-review the internal evidence-only launcher/collector/reproducer. Implement non-git bundle-only X/S CLIs with structured output, literal JCS request block/full-object echo, 600-second enforcement, tier bounds, typed decisions/results, and isolated-clone completion verification. Set `user-invocable:false`; wrappers return only results, remove Edit/Write, and never write original. Refresh hash. | `plugins/docks/skills/productivity/plan-review/SKILL.md`, `plugins/docks/agents/plan-review.md`, `.codex/agents/plan-review.toml`, `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`, `docs/scaffold/templates/codex-plan-review.toml.template` | 2 | done | Fixtures prove direct-argv prompt construction, Codex skip-git, real Claude no-shell readable request echo/JCS equality/schema closure, three-attempt fallback, relay rejection, terminal denial, isolated CI, and unchanged original `.git`. |
 | 4 | Make main-context plan-manager the sole public orchestrator/reconciler/writer for new/review/start/schedule/auto/completion. Implement `prepare(intent)→NeedsMainReviewDispatch→apply`: ordinary new stays planned, triggered new stays scheduled, start/fire/auto consumes eligible intent once, and missing/stale/blocked evidence never enters ongoing. Update live/generated wrappers/root. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`, `plugins/docks/agents/plan-manager.md`, `.codex/agents/plan-manager.toml`, `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`, `docs/scaffold/templates/codex-plan-manager.toml.template`, `docs/scaffold/templates/root-AGENTS.md.template` | 2,3 | done | Fixtures cover ordinary/scheduled creation and blocked preservation, manual start, schedule fire, auto, stale input/policy/bundle, decisions, one runner/intent, completion. Revert if wrapper dispatches child or status advances without evidence. |
 | 5 | Update session-relay red-team doctrine to state that its current branch-guarded spawn is not a canonical schema-v1 policy-review transport; point users to the portable CLI and name dedicated binary reviewer mode as future work. Refresh hash. | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | 2 | done | Focused fixtures/docs reject sealed-bundle relay commands and do not promise an unsupported bypass. Revert if plan lifecycle depends on relay or skill prose claims to override binary guardrails. |
-| 6 | Enable production cases, derive/assert the closed surface inventory, finish adversarial fixtures, run the black-box mutation driver against every live/generated temp copy, and wire helper/harness/driver into CI. | `scripts/tests/plan-review-policy.mjs`, `scripts/tests/plan-review-policy-mutations.mjs`, `scripts/tests/fixtures/plan-review-policy/`, `scripts/ci.mjs` | 2-5 | done | Helper, consumer-copy, harness, independent driver, inventory, and repo CI pass by name; bootstrap/current-input self-demo claims remain distinct. Revert if CI shares mutation implementation, omits a listed doc/template/wrapper, self-attests, discards reviewer verdicts, permits failing primary evidence to bind `review_status: passed`, deletes outside the canonical verify root, or drops a preexisting public operation. |
+| 6 | Enable production cases, derive/assert the closed surface inventory, finish adversarial fixtures, run the black-box mutation driver against every live/generated temp copy, and wire helper/harness/driver into CI. | `scripts/tests/plan-review-policy.mjs`, `scripts/tests/plan-review-policy-mutations.mjs`, `scripts/tests/fixtures/plan-review-policy/`, `scripts/ci.mjs` | 2-5 | in-flight | Reopened after the 54/100 completion review. Close completion reviewer readiness, exact acceptance inventory, bundle re-verification/raw-plan exclusion, execution-base/diff evidence, genuine external mutations, and read-only reviewer versus writable primary-runner roles while preserving cleanup and GitHub issue publishing. |
 
 Implementation evidence:
 - **Step 1 (2026-07-12):** `node scripts/tests/plan-review-policy.mjs` and `node scripts/tests/plan-review-policy-mutations.mjs --self-test` exited 0 with named canonical-view, bundle, schema, consumer-only, hard-coded malformed-receipt, and omitted-surface checks. `node scripts/ci.mjs` exited 0; the only warning was the documented local session-relay binary digest variance.
