@@ -17,6 +17,7 @@ affected_paths:
 related_plans: []
 review_status: null
 planned_at_commit: "0000000000000000000000000000000000000000"
+execution_base_commit: null
 ---
 
 # Sample review plan
@@ -33,7 +34,10 @@ Prove canonical policy behavior.
 
 ## Acceptance criteria
 
-`node --test` exits 0.
+| ID | Command | Expected |
+|---|---|---|
+| A1 | `node --test` | exit 0 |
+| A2 | `node --check fixture.js` | exit 0 |
 
 ## Self-review
 

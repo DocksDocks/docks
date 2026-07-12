@@ -7,10 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  applyLifecycleState, buildReviewerArgv, canonicalPlanView, classifyLeg, deriveCompletionVerdict, extractReviewerOutput, jcs, parsePlan,
+  acceptanceInventory, applyLifecycleState, buildReviewerArgv, canonicalPlanView, classifyLeg, deriveCompletionVerdict, extractReviewerOutput, jcs, parsePlan,
   reviewerSchema, sealBundle, sha256, validateCompletionReceipt, validateCompletionRunResult,
   validateDraftReceipt, validateDraftRunResult, validatePolicy, validateRawLeg, validateRequest,
-  validateReviewerOutput, validateWaivers,
+  validateReviewerOutput, validateWaivers, verifyBundle,
 } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -34,6 +34,10 @@ function request(overrides = {}) {
     phase: 'draft',
     lifecycle_intent: 'none',
     reviewed_commit_or_head: '0'.repeat(40),
+    planned_at_commit: null,
+    execution_base_commit: null,
+    diff_sha256: null,
+    acceptance_inventory_sha256: null,
     input_sha256: '1'.repeat(64),
     bundle_sha256: '2'.repeat(64),
     author: { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
@@ -67,8 +71,9 @@ function rawAuth(req, leg) {
 function persisted(raw, accepted = []) {
   return { request: raw.request, raw, reconciliation: { accepted, rejected: raw.findings.filter((finding) => !accepted.includes(finding.id)).map((finding) => ({ id: finding.id, reason: 'not accepted in fixture' })) } };
 }
-function primaryEvidence() {
-  return { goal_met: 'yes', findings: [], acceptance: [{ criterion_id: 'A1', command: 'node --test', expected: 'exit 0', exit_code: 0, actual_sha256: H0, met: true }], ci: { command: 'node --test', exit_code: 0, first_failure: null, output_sha256: H1 }, regressions: [], followups: [] };
+const INVENTORY = acceptanceInventory(fs.readFileSync(FIXTURE));
+function primaryEvidence(inventory = INVENTORY) {
+  return { goal_met: 'yes', findings: [], acceptance: inventory.criteria.map((criterion) => ({ criterion_id: criterion.id, command: criterion.command, expected: criterion.expected, exit_code: 0, actual_sha256: H0, met: true })), ci: { command: 'node --test', exit_code: 0, first_failure: null, output_sha256: H1 }, regressions: [], followups: [] };
 }
 
 function expectThrow(label, fn, pattern = /./) {
@@ -93,6 +98,13 @@ function gitBytes(cwd, args) {
 
 function helper(cwd, args) {
   return spawnSync(process.execPath, [HELPER, ...args], { cwd, encoding: 'utf8' });
+}
+
+function draftBundle() {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-leg-bundle-')); const repo = path.join(temp, 'repo'); const bundle = path.join(temp, 'bundle');
+  fs.mkdirSync(path.join(repo, 'docs/plans/active'), { recursive: true }); fs.copyFileSync(FIXTURE, path.join(repo, 'docs/plans/active/sample.md'));
+  git(repo, ['init', '-q']); git(repo, ['config', 'user.email', 'policy@example.test']); git(repo, ['config', 'user.name', 'Policy Test']); git(repo, ['add', '.']); git(repo, ['commit', '-qm', 'fixture']); const head = git(repo, ['rev-parse', 'HEAD']);
+  const sealed = sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: [], outDir: bundle }); return { temp, repo, bundle, head, sealed };
 }
 
 function testCanonical() {
@@ -186,10 +198,10 @@ function testAdversarialValidators() {
   const waived = (leg) => ({ schema: 1, leg, request: req, result: 'waived', attempts: [], selected: null, reviewer_output: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver, waiver_sha256: sha256(jcs(waiver)), decision_evidence: null, reason: null });
   validateDraftRunResult({ schema: 1, kind: 'draft', request: req, X: waived('X'), S: waived('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', pre_execution_eligible: false }, { waivers: [waiver] });
 
-  const completionReq = request({ phase: 'completion', lifecycle_intent: 'none' }); const completionX = rawPassed(completionReq, 'X'); const completionS = rawPassed(completionReq, 'S');
-  const completion = { schema: 1, kind: 'completion', request: completionReq, plan_input_sha256: completionReq.input_sha256, diff_sha256: H0, X: completionX, S: completionS, reproduced: [], decision_evidence: null, outcome: 'dual', primary: primaryEvidence(), completion_verdict: 'passed' };
+  const completionReq = request({ phase: 'completion', lifecycle_intent: 'none', planned_at_commit: '3'.repeat(40), execution_base_commit: '4'.repeat(40), diff_sha256: H0, acceptance_inventory_sha256: sha256(jcs(INVENTORY)) }); const completionX = rawPassed(completionReq, 'X'); const completionS = rawPassed(completionReq, 'S');
+  const completion = { schema: 1, kind: 'completion', request: completionReq, plan_input_sha256: completionReq.input_sha256, diff_sha256: H0, acceptance_inventory: INVENTORY, acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256, X: completionX, S: completionS, reproduced: [], decision_evidence: null, outcome: 'dual', primary: primaryEvidence(), completion_verdict: 'passed' };
   validateCompletionRunResult(completion);
-  const receipt = { schema: 1, phase: 'completion', request: completionReq, planned_at_commit: '3'.repeat(40), reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, author: completionReq.author, policy: completionReq.policy, policy_sha256: completionReq.policy_sha256, X: persisted(completionX), S: persisted(completionS), reproduced: [], decision_evidence: null, primary: completion.primary, completion_verdict: 'passed', outcome: 'dual', reviewed_at: '2026-07-12T00:00:00-03:00' };
+  const receipt = { schema: 1, phase: 'completion', request: completionReq, planned_at_commit: completionReq.planned_at_commit, execution_base_commit: completionReq.execution_base_commit, reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, acceptance_inventory: INVENTORY, acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256, author: completionReq.author, policy: completionReq.policy, policy_sha256: completionReq.policy_sha256, X: persisted(completionX), S: persisted(completionS), reproduced: [], decision_evidence: null, primary: completion.primary, completion_verdict: 'passed', outcome: 'dual', reviewed_at: '2026-07-12T00:00:00-03:00' };
   validateCompletionReceipt(receipt, { reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, review_status: 'passed' });
 
   expectThrow('unstarted passed attempt', () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], started: false, child_id: null, stdout_sha256: null, stderr_sha256: null }] }, req, 'X'), /unstarted|passed attempt/);
@@ -223,16 +235,30 @@ function testAdversarialValidators() {
   expectThrow('X and S swapped', () => validateDraftRunResult({ ...dual, X: S, S: X }), /raw leg request mismatch/);
   const invented = { id: 'X99', source: 'X', severity: 'high', path: null, locator: null, defect: 'invented', fix: 'none', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } };
   expectThrow('invented reproduced id', () => validateDraftRunResult({ ...dual, reproduced: [invented] }), /not present/);
-  expectThrow('completion plan hash mismatch', () => validateCompletionRunResult({ ...completion, plan_input_sha256: H0 }), /plan input mismatch/);
+  expectThrow('completion plan hash mismatch', () => validateCompletionRunResult({ ...completion, plan_input_sha256: H0 }), /plan or diff input mismatch/);
   expectThrow('passing CI failure line', () => validateCompletionRunResult({ ...completion, primary: { ...completion.primary, ci: { ...completion.primary.ci, first_failure: 'should be null' } } }), /passing CI/);
-  const failingPrimary = { ...primaryEvidence(), goal_met: 'no', acceptance: [{ ...primaryEvidence().acceptance[0], exit_code: 1, met: false }], ci: { ...primaryEvidence().ci, exit_code: 1, first_failure: 'test failed' }, regressions: ['blocking regression'] };
-  assert.equal(deriveCompletionVerdict(failingPrimary), 'regressed');
+  const failingPrimary = { ...primaryEvidence(), goal_met: 'no', acceptance: primaryEvidence().acceptance.map((row, index) => index === 0 ? { ...row, exit_code: 1, met: false } : row), ci: { ...primaryEvidence().ci, exit_code: 1, first_failure: 'test failed' }, regressions: ['blocking regression'] };
+  assert.equal(deriveCompletionVerdict(failingPrimary, INVENTORY, completionX, completionS), 'regressed');
   expectThrow('failing primary cannot claim passed completion verdict', () => validateCompletionReceipt({ ...receipt, primary: failingPrimary }, { review_status: 'passed' }), /completion verdict mismatch/);
   const regressedReceipt = { ...receipt, primary: failingPrimary, completion_verdict: 'regressed' };
   expectThrow('regressed receipt cannot match passed review_status', () => validateCompletionReceipt(regressedReceipt, { review_status: 'passed' }), /review_status mismatch/);
   expectThrow('stale completion receipt', () => validateCompletionReceipt(receipt, { diff_sha256: H1 }), /stale completion/);
   expectThrow('completion author mismatch', () => validateCompletionReceipt({ ...receipt, author: { ...receipt.author, company: 'anthropic' } }), /author mismatch/);
   expectThrow('completion receipt extra key', () => validateCompletionReceipt({ ...receipt, extra: true }), /unknown key/);
+  for (const [label, acceptance] of [
+    ['empty acceptance ledger', []],
+    ['missing acceptance row', completion.primary.acceptance.slice(0, -1)],
+    ['extra acceptance row', [...completion.primary.acceptance, { ...completion.primary.acceptance[0], criterion_id: 'A9' }]],
+    ['reordered acceptance rows', [...completion.primary.acceptance].reverse()],
+    ['altered acceptance command', completion.primary.acceptance.map((row, index) => index === 0 ? { ...row, command: 'true' } : row)],
+  ]) expectThrow(label, () => validateCompletionRunResult({ ...completion, primary: { ...completion.primary, acceptance } }), /acceptance evidence/);
+  const emptyInventory = { schema: 1, criteria: [] }; const emptyReq = { ...completionReq, acceptance_inventory_sha256: sha256(jcs(emptyInventory)) };
+  const emptyX = rawPassed(emptyReq, 'X'); const emptyS = rawPassed(emptyReq, 'S');
+  expectThrow('empty canonical acceptance inventory', () => validateCompletionRunResult({ ...completion, request: emptyReq, acceptance_inventory: emptyInventory, acceptance_inventory_sha256: emptyReq.acceptance_inventory_sha256, X: emptyX, S: emptyS, primary: { ...completion.primary, acceptance: [] } }), /acceptance inventory must be nonempty/);
+  const completionNotReadyX = rawPassed(completionReq, 'X', null, [], { verdict: 'not_ready', score: 40 });
+  const notReadyCompletion = { ...completion, X: completionNotReadyX, completion_verdict: 'regressed' }; validateCompletionRunResult(notReadyCompletion);
+  expectThrow('not_ready reviewer cannot claim passed completion', () => validateCompletionRunResult({ ...notReadyCompletion, completion_verdict: 'passed' }), /completion verdict mismatch/);
+  const notReadyReceipt = { ...receipt, X: persisted(completionNotReadyX), completion_verdict: 'regressed' }; validateCompletionReceipt(notReadyReceipt, { review_status: 'regressed' });
 
   const finding = { id: 'X1', severity: 'high', section: 'Goal', path: 'src/a.js', locator: 'symbol', defect: 'broken', fix: 'repair', evidence: 'source' };
   const XFinding = rawPassed(req, 'X', null, [finding]); const accepted = persisted(XFinding, ['X1']);
@@ -256,6 +282,12 @@ function testBundle() {
   assert.equal(fs.readFileSync(path.join(out, 'src/example.js'), 'utf8'), 'export const example = true;\n', 'bundle reads reviewed commit, not moving worktree');
   assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.schema.json'))); assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.schema.json')));
   assert.match(fs.readFileSync(path.join(out, 'reviewer-output.S.schema.json'), 'utf8'), /\^S/);
+  assert.equal(verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, sealed.bundle_sha256);
+  expectThrow('raw plan requested path', () => sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['docs/plans/active/sample.md'], outDir: path.join(temp, 'raw-plan') }), /raw plan path/);
+  fs.chmodSync(path.join(out, 'plan.review.md'), 0o644); expectThrow('post-seal writable mode', () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }), /not sealed read-only/); fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
+  fs.chmodSync(path.join(out, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(out, 'plan.review.md'), 'tamper\n'); fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
+  expectThrow('post-seal file mutation without caller hash', () => verifyBundle({ bundle: out }), /file hash mismatch/);
+  expectThrow('post-seal bundle mutation', () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }), /hash mismatch/);
   expectThrow('nonexistent reviewed commit', () => sealBundle({ repo, reviewedCommit: 'f'.repeat(40), planPath: 'docs/plans/active/sample.md', requestedPaths: [], outDir: path.join(temp, 'bad') }), /git rev-parse/);
   git(repo, ['update-index', '--add', '--cacheinfo', `160000,${head},vendor/sub`]); git(repo, ['commit', '-qm', 'submodule fixture']); const submoduleHead = git(repo, ['rev-parse', 'HEAD']);
   expectThrow('submodule tree entry', () => sealBundle({ repo, reviewedCommit: submoduleHead, planPath: 'docs/plans/active/sample.md', requestedPaths: ['vendor'], outDir: path.join(temp, 'submodule-bundle') }), /submodule is unsupported/);
@@ -266,18 +298,18 @@ function testBundle() {
 }
 
 function testLegs() {
-  const req = request();
-  const codex = buildReviewerArgv({ tool: 'codex', bundle: '/tmp/bundle', model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'X', request: req });
-  assert.deepEqual(codex.slice(0, 6), ['exec', '-C', '/tmp/bundle', '--skip-git-repo-check', '-s', 'read-only']);
+  const fixture = draftBundle(); const req = request({ reviewed_commit_or_head: fixture.head, input_sha256: fixture.sealed.input_sha256, bundle_sha256: fixture.sealed.bundle_sha256 });
+  const codex = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'X', request: req });
+  assert.deepEqual(codex.slice(0, 6), ['exec', '-C', fixture.bundle, '--skip-git-repo-check', '-s', 'read-only']);
   assert.match(codex.at(-1), /REQUEST_JCS_BEGIN\n\{/); assert.match(codex.at(-1), /REQUEST_JCS_END$/);
-  const claude = buildReviewerArgv({ tool: 'claude', bundle: '/tmp/bundle', model: 'fable', effort: 'high', leg: 'S', request: req });
+  const claude = buildReviewerArgv({ tool: 'claude', bundle: fixture.bundle, model: 'fable', effort: 'high', leg: 'S', request: req });
   assert.deepEqual(claude.slice(0, 3), ['-p', '--permission-mode', 'plan']); assert.ok(claude.includes('--json-schema'));
   const echoed = { schema: 1, leg: 'S', request: req, verdict: 'ready', score: 100, findings: [], confirmations: ['request copied'] };
-  assert.equal(extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S').score, 100);
-  expectThrow('readable request echo mismatch', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: { ...echoed, request: { ...req, bundle_sha256: '3'.repeat(64) } } }), req, 'S'), /mismatch/);
-  expectThrow('relay rejection', () => buildReviewerArgv({ tool: 'relay', bundle: '/tmp/bundle', model: 'fable', effort: 'high', leg: 'S', request: req }), /relay is not supported/);
-  const openAiAuthorS = buildReviewerArgv({ tool: 'codex', bundle: '/tmp/bundle', model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'S', request: req });
-  assert.equal(openAiAuthorS[openAiAuthorS.indexOf('--output-schema') + 1], '/tmp/bundle/reviewer-output.S.schema.json', 'OpenAI-author S Codex uses S schema');
+  assert.equal(extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S', fixture.bundle).score, 100);
+  expectThrow('readable request echo mismatch', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: { ...echoed, request: { ...req, bundle_sha256: '3'.repeat(64) } } }), req, 'S', fixture.bundle), /mismatch/);
+  expectThrow('relay rejection', () => buildReviewerArgv({ tool: 'relay', bundle: fixture.bundle, model: 'fable', effort: 'high', leg: 'S', request: req }), /relay is not supported/);
+  const openAiAuthorS = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'S', request: req });
+  assert.equal(openAiAuthorS[openAiAuthorS.indexOf('--output-schema') + 1], path.join(fixture.bundle, 'reviewer-output.S.schema.json'), 'OpenAI-author S Codex uses S schema');
   assert.equal(classifyLeg({ leg: 'X', policy: POLICY, attempts: [{ result: 'passed' }], eligibleTierCount: 1 }), 'passed');
   assert.equal(classifyLeg({ leg: 'X', policy: POLICY, attempts: [{ result: 'platform_denied' }], eligibleTierCount: 1 }), 'platform_denied');
   assert.equal(classifyLeg({ leg: 'S', policy: POLICY, attempts: [{ result: 'model_unavailable' }, { result: 'model_unavailable' }], eligibleTierCount: 2 }), 'unavailable_model');
@@ -285,6 +317,9 @@ function testLegs() {
   const never = { ...POLICY, cross_company_consent: 'never' };
   assert.equal(classifyLeg({ leg: 'X', policy: never, attempts: [], eligibleTierCount: 1 }), 'not_authorized');
   assert.equal(classifyLeg({ leg: 'S', policy: never, attempts: [{ result: 'passed' }], eligibleTierCount: 2 }), 'passed');
+  fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(fixture.bundle, 'plan.review.md'), 'post-leg tamper\n'); fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o444);
+  expectThrow('post-leg bundle mutation', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S', fixture.bundle), /hash mismatch/);
+  makeWritable(fixture.bundle); fs.rmSync(fixture.temp, { recursive: true, force: true });
   console.log('legs: direct argv, skip-git, plan mode, JCS echo, attempt bounds, relay rejection, denial and consent separation passed');
 }
 
@@ -298,11 +333,20 @@ function testLifecycle() {
   expectThrow('wrong state start', () => applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true }), /requires planned/);
   expectThrow('wrong state fire', () => applyLifecycleState({ state: 'planned', intent: 'schedule_fire', eligible: true }), /requires scheduled/);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-lifecycle-')); const original = path.join(temp, 'original'); const verifyRoot = '/tmp/docks-plan-verify'; const requestId = randomUUID();
-  fs.mkdirSync(original); git(original, ['init', '-q']); git(original, ['config', 'user.email', 'policy@example.test']); git(original, ['config', 'user.name', 'Policy Test']);
+  const planPath = 'docs/plans/active/sample.md'; fs.mkdirSync(path.join(original, 'docs/plans/active'), { recursive: true }); git(original, ['init', '-q']); git(original, ['config', 'user.email', 'policy@example.test']); git(original, ['config', 'user.name', 'Policy Test']);
   fs.writeFileSync(path.join(original, '.gitignore'), 'ignored-cache\n'); fs.writeFileSync(path.join(original, 'result.txt'), 'original\n'); fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
-  git(original, ['add', '.gitignore', 'result.txt']); git(original, ['commit', '-qm', 'fixture']); const head = git(original, ['rev-parse', 'HEAD']);
-  const arbitraryPrepare = helper(temp, ['completion-prepare', original, head, path.join(temp, 'arbitrary-root'), requestId]); assert.notEqual(arbitraryPrepare.status, 0); assert.match(arbitraryPrepare.stderr, /accepts repo reviewedHead requestId only/);
-  const prepareResult = helper(temp, ['completion-prepare', original, head, requestId]); assert.equal(prepareResult.status, 0, prepareResult.stderr); const prepared = JSON.parse(prepareResult.stdout);
+  git(original, ['add', '.gitignore', 'result.txt']); git(original, ['commit', '-qm', 'fixture']); const plannedAt = git(original, ['rev-parse', 'HEAD']);
+  const plannedPlan = fs.readFileSync(FIXTURE, 'utf8').replace('"0000000000000000000000000000000000000000"', `"${plannedAt}"`); fs.writeFileSync(path.join(original, planPath), plannedPlan); fs.writeFileSync(path.join(original, 'result.txt'), 'pre-start concurrent work\n'); git(original, ['add', planPath, 'result.txt']); git(original, ['commit', '-qm', 'plan fixture']);
+  fs.writeFileSync(path.join(original, planPath), plannedPlan.replace('status: planned', 'status: ongoing').replace('started_at: null', 'started_at: "2026-07-12T00:30:00-03:00"')); git(original, ['add', planPath]); git(original, ['commit', '-qm', 'start plan']); const executionBase = git(original, ['rev-parse', 'HEAD']);
+  fs.writeFileSync(path.join(original, planPath), fs.readFileSync(path.join(original, planPath), 'utf8').replace('execution_base_commit: null', `execution_base_commit: "${executionBase}"`)); git(original, ['add', planPath]); git(original, ['commit', '-qm', 'record execution base']); const head = git(original, ['rev-parse', 'HEAD']);
+  const completionBundle = path.join(temp, 'completion-bundle'); const sealedCompletion = sealBundle({ repo: original, reviewedCommit: head, planPath, requestedPaths: ['result.txt'], outDir: completionBundle, plannedAtCommit: plannedAt, executionBaseCommit: executionBase });
+  assert.equal(sealedCompletion.completion.execution_base_commit, executionBase); assert.equal(sealedCompletion.completion.acceptance_inventory_sha256, sha256(jcs(INVENTORY)));
+  assert.doesNotMatch(fs.readFileSync(path.join(completionBundle, 'completion.diff'), 'utf8'), /pre-start concurrent work/, 'execution diff excludes concurrent pre-start changes');
+  assert.match(fs.readFileSync(path.join(completionBundle, 'completion.diff'), 'utf8'), /execution_base_commit/, 'execution diff includes post-start identity commit');
+  verifyBundle({ bundle: completionBundle, expectedSha256: sealedCompletion.bundle_sha256 });
+  expectThrow('non-start execution base', () => sealBundle({ repo: original, reviewedCommit: head, planPath, requestedPaths: [], outDir: path.join(temp, 'bad-execution'), plannedAtCommit: plannedAt, executionBaseCommit: head }), /execution base|ancestry/);
+  const arbitraryPrepare = helper(temp, ['completion-prepare', original, head, requestId, planPath, plannedAt]); assert.notEqual(arbitraryPrepare.status, 0); assert.match(arbitraryPrepare.stderr, /accepts repo reviewedHead requestId planPath plannedAtCommit executionBaseCommit only/);
+  const prepareResult = helper(temp, ['completion-prepare', original, head, requestId, planPath, plannedAt, executionBase]); assert.equal(prepareResult.status, 0, prepareResult.stderr); const prepared = JSON.parse(prepareResult.stdout);
   assert.equal(prepared.checkout, path.join(verifyRoot, requestId)); assert.equal(git(prepared.checkout, ['rev-parse', 'HEAD']), head);
   fs.writeFileSync(path.join(prepared.checkout, 'ci-artifact.txt'), 'disposable only\n');
   const sentinel = path.join(prepared.checkout, '.docks-plan-verify-sentinel'); const sentinelBytes = fs.readFileSync(sentinel); fs.rmSync(sentinel);
@@ -316,7 +360,7 @@ function testLifecycle() {
   const cleanupResult = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.equal(cleanupResult.status, 0, cleanupResult.stderr); const cleaned = JSON.parse(cleanupResult.stdout);
   assert.equal(cleaned.removed, true); assert.equal(fs.existsSync(prepared.checkout), false);
   const escaped = helper(temp, ['completion-cleanup', original, '../escape', preparedPath]); assert.notEqual(escaped.status, 0); assert.match(escaped.stderr, /prepared completion identity mismatch|request id/);
-  fs.rmSync(temp, { recursive: true, force: true });
+  makeWritable(completionBundle); fs.rmSync(temp, { recursive: true, force: true });
   console.log('lifecycle: planned/scheduled preservation, start/fire/auto gating and one-intent consumption passed');
   console.log('lifecycle: git clone --no-local disposable CI and complete original repo+.git digest passed');
   console.log('cleanup: canonical root and prepare identity reject arbitrary roots and forged tokens');
@@ -335,7 +379,7 @@ function testConsumer() {
 function testContractSurfaces() {
   const contract = fs.readFileSync(path.join(ROOT, 'docs/plans/AGENTS.md'), 'utf8');
   const template = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md'), 'utf8');
-  for (const marker of ['review_author_company:', 'review_waivers:', '### Strong-default independent review', 'platform_denied', 'prepare(intent)', 'X1…', 'S1…']) {
+  for (const marker of ['review_author_company:', 'review_waivers:', 'execution_base_commit:', 'execution_base_commit..HEAD', '### Strong-default independent review', 'platform_denied', 'prepare(intent)', 'X1…', 'S1…']) {
     assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
     assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
   }
@@ -360,6 +404,8 @@ function testReviewRunnerSurfaces() {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
     assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*Edit/i, `${file} retains writer instructions`);
+    assert.doesNotMatch(text, /acting as primary evidence runner|CI\/acceptance claims require/i, `${file} assigns writable primary work to read-only wrapper`);
+    assert.match(text, /Never run or claim CI, acceptance, clone, cleanup, or lifecycle work/i, `${file} lacks explicit X\/S write boundary`);
   }
   assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-review.md'), 'utf8'), /Return evidence only/);
   for (const file of ['.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /Return typed evidence only/);
@@ -371,6 +417,7 @@ function testManagerSurfaces() {
   const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/SKILL.md'), 'utf8');
   for (const marker of ['Review before execution', 'Sole-writer protocol', 'prepare(intent)', 'NeedsMainReviewDispatch', '## `apply`', 'zero_reviewer_policy', 'platform_denied']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   for (const marker of ['Publishing a plan as a GitHub issue', '--issues', 'gh auth status', 'gh repo view --json visibility', 'gh issue create']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager lost publishing operation: ${marker}`);
+  for (const marker of ['execution_base_commit', 'acceptance inventory', 'writable main context', 'passed X/S `not_ready`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing completion hardening: ${marker}`);
   for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);

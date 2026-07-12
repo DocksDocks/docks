@@ -45,6 +45,67 @@ function requirePass(label, result, pattern) {
   assert.equal(result.status, 0, `${label}: ${result.stderr}`); assert.match(result.stdout, pattern, `${label}: named proof missing`); console.log(`${label} passed`);
 }
 
+function mutate(relative, before, after) {
+  return (root) => {
+    const file = path.join(root, relative); const text = fs.readFileSync(file, 'utf8');
+    assert.equal(text.split(before).length - 1, 1, `mutation anchor must be unique: ${relative}`);
+    fs.writeFileSync(file, text.replace(before, after));
+  };
+}
+
+const MUTATIONS = [
+  ['passed not_ready bypass', ['--case', 'adversarial'], /not_ready|completion verdict|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if ([X, S].some((leg) => leg?.result === 'passed' && leg.reviewer_output?.verdict === 'not_ready')) return 'regressed';",
+    "if (false) return 'regressed';",
+  )],
+  ['vacuous acceptance inventory', ['--case', 'adversarial'], /acceptance inventory|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (value.schema !== 1 || !Array.isArray(value.criteria) || value.criteria.length === 0) throw new Error('acceptance inventory must be nonempty');",
+    "if (value.schema !== 1 || !Array.isArray(value.criteria)) throw new Error('acceptance inventory must be nonempty');",
+  )],
+  ['acceptance command substitution', ['--case', 'adversarial'], /altered acceptance command|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (row.criterion_id !== criterion.id || row.command !== criterion.command || row.expected !== criterion.expected) throw new Error('acceptance evidence order or criterion mismatch');",
+    "if (row.criterion_id !== criterion.id || row.expected !== criterion.expected) throw new Error('acceptance evidence order or criterion mismatch');",
+  )],
+  ['raw source plan export', [], /raw plan requested path|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (unique.includes(safePlan)) throw new Error('raw plan path is forbidden in requested paths');",
+    "if (false) throw new Error('raw plan path is forbidden in requested paths');",
+  )],
+  ['sealed file hash bypass', [], /post-seal bundle mutation|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (sha256(bytes) !== row.sha256) throw new Error(`bundle file hash mismatch: ${logical}`);",
+    "if (false) throw new Error(`bundle file hash mismatch: ${logical}`);",
+  )],
+  ['execution range validator bypass', ['--case', 'lifecycle'], /non-start execution base|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'validateExecutionRange({ repo, planPath: safePlan, plannedAtCommit, executionBaseCommit, reviewedHead: reviewedCommit });',
+    '({ repo, planPath: safePlan, plannedAtCommit, executionBaseCommit, reviewedHead: reviewedCommit });',
+  )],
+  ['planned-base completion diff regression', ['--case', 'lifecycle'], /pre-start concurrent work|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'const diffBytes = completionDiff(repo, executionBaseCommit, reviewedCommit);',
+    'const diffBytes = completionDiff(repo, plannedAtCommit, reviewedCommit);',
+  )],
+  ['read-only wrapper claims primary writes', [], /primary work|write boundary|Assertion/, mutate(
+    '.codex/agents/plan-review.toml',
+    '- Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.',
+    '- CI/acceptance claims require fresh disposable-checkout command evidence.',
+  )],
+  ['GitHub publishing contract loss', [], /publishing operation|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+    '## Publishing a plan as a GitHub issue (`--issues`)',
+    '## Removed external operation',
+  )],
+  ['malformed acceptance source table', [], /acceptance inventory|criterion id|Assertion/, mutate(
+    'scripts/tests/fixtures/plan-review-policy/sample-plan.md',
+    '| A2 | `node --check fixture.js` | exit 0 |',
+    '| A1 | `node --check fixture.js` | exit 0 |',
+  )],
+];
+
 try {
   const self = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
   assert.doesNotMatch(self, /from ['"].*review-policy\.mjs['"]/);
@@ -66,6 +127,12 @@ try {
   requirePass('canonical bundle, fence, consumer, and surface matrix', full, /plan-review-policy contract passed/);
   assert.match(full.stdout, /GitHub issue publishing operation preservation passed/);
   fs.rmSync(temp, { recursive: true, force: true });
+  for (const [label, args, pattern, apply] of MUTATIONS) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-mutation-')); copyRoot(root); apply(root);
+    const result = run(root, args); assert.notEqual(result.status, 0, `${label}: weakened copied artifact unexpectedly passed`);
+    assert.match(`${result.stdout}\n${result.stderr}`, pattern, `${label}: independent failure oracle did not fire`);
+    fs.rmSync(root, { recursive: true, force: true }); console.log(`external mutation rejected: ${label}`);
+  }
   console.log('plan-review-policy mutations passed');
 } catch (error) {
   console.error(error.stack || error.message); process.exitCode = 1;

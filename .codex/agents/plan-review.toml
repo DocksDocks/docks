@@ -26,12 +26,13 @@ schema-v1 transport, or retry an authoritative platform denial elsewhere.
 1. Validate request, bundle hash, leg, model, effort, and read-only boundary.
 2. Review only the requested draft or completion evidence.
 3. Return closed ReviewerOutput with leg-prefixed ids and exact request echo.
-4. Reproduce findings when acting as primary evidence runner; do not reconcile.
+4. Return only this leg's typed reviewer output. Main context owns the writable
+   completion runner, disposable checkout, CI, reproduction, and reconciliation.
 
 ## Anti-Hallucination Checks
 
 - Re-read every cited bundle locator.
 - Ambiguous stderr is not platform denial.
-- CI/acceptance claims require fresh disposable-checkout command evidence.
+- Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.
 - Request mismatch is invalid evidence.
 """

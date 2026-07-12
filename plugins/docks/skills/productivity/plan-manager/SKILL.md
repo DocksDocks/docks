@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-12"
-  content_hash: "e2b7c4abd74c30e1bc3d90577e08f441baa24474ce14ad37f2c8bf090a4c7918"
+  content_hash: "fed1d8e47cd0d5e7d04d8f03670eaab21d4ea31675e2f25b5b0ce20766f7d97b"
 ---
 
 # Plan Manager
@@ -121,9 +121,14 @@ Valid intents are `none | start | schedule_fire | auto_execute`.
    `scripts/review-policy.mjs`. Lifecycle fields, waivers, and exact one-line
    machine records are excluded; ordinary Self-review/Review prose remains.
 4. Resolve and JCS-hash policy; validate matching waivers/decisions.
-5. Fix immutable commit/head, seal the non-git bundle, and compute bundle hash.
+5. Fix immutable commit/head, seal the non-git bundle, verify every file/hash/mode,
+   and compute bundle hash. Raw source-plan export is forbidden; reviewers see
+   only `plan.review.md`.
 6. Create one `ReviewRequestEnvelope` carrying phase, intent, immutable input,
-   canonical/bundle/policy hashes, persisted author identity, and full policy snapshot.
+   canonical/bundle/policy hashes, persisted author identity, and full policy
+   snapshot. Draft-only completion fields are null. Completion additionally
+   binds `planned_at_commit`, `execution_base_commit`, canonical binary
+   `diff_sha256`, and the canonical acceptance-inventory hash.
 7. Return `NeedsMainReviewDispatch` containing the exact request and X/S dispatch
    descriptions. If already in main context, proceed to dispatch once.
 
@@ -167,8 +172,10 @@ Accept only the exact typed run result returned for the prepared request.
 3. Write compact JCS `Review-receipt:` (draft) or
    `Completion-review-receipt:` (completion) into the appropriate plan section.
 4. For intent `none`, leave status unchanged. For eligible `start`,
-   `schedule_fire`, or `auto_execute`, atomically mark the intent consumed and
-   set `ongoing`/`started_at` as the existing lifecycle requires.
+   `schedule_fire`, or `auto_execute`, mark the intent consumed and commit only
+   the plan with `ongoing`/first `started_at`. Capture that exact commit SHA,
+   then record it as `execution_base_commit` in a second plan-only commit before
+   implementation or assignee dispatch.
 5. If evidence is ineligible/stale, write only the exact degraded evidence when
    allowed and leave the non-executing status unchanged.
 6. Auto-commit the plan-only receipt/transition and render Tier 3.
@@ -176,9 +183,12 @@ Accept only the exact typed run result returned for the prepared request.
 Draft receipt binds schema, phase, exact request, reviewed commit, canonical
 input, author, policy/hash, persisted X/S raw+reconciliation, reproduced evidence,
 decision evidence, outcome, eligibility, and review time. Completion binds the
-same author and reproduced evidence plus planned/head/diff/primary evidence and
-the derived `completion_verdict`. `passed` requires goal met, every acceptance
-met, CI exit 0, no recorded regression, and no high primary finding. A later
+same author and reproduced evidence plus planned/start/head identities, exact
+diff hash, nonempty ordered acceptance inventory/hash, primary evidence, and the
+derived `completion_verdict`. Evidence must cover every inventory row once in
+the same order with identical ID/command/expected. `passed` requires goal met,
+every acceptance met, CI exit 0, no recorded regression, no high primary
+finding, and no passed X/S `not_ready` verdict. A later
 ordinary prose or policy edit invalidates it;
 excluded lifecycle fields and its own exact line do not.
 
@@ -187,12 +197,18 @@ excluded lifecycle fields and its own exact line do not.
 When all steps are `done`:
 
 1. Set `status: in_review` and `in_review_since` once; commit only the plan.
-2. Assert plan+affected paths clean and snapshot original tracked modes/blobs,
+2. Assert `planned_at_commit` and `execution_base_commit` are exact full SHAs;
+   validate the latter is the plan-only first-start commit, is descended from
+   the former, and is an ancestor of `reviewed_head`. Assert plan+affected paths clean and snapshot original tracked modes/blobs,
    untracked bytes, and complete Git metadata digest.
-3. `prepare(none)` at the committed `reviewed_head`; dispatch evidence-only
-   plan-review with acceptance/CI writes confined to an unlinked disposable
-   clone.
-4. Reproduce X/S and primary findings, reconcile ids, and require original
+3. `prepare(none)` at the committed `reviewed_head`; seal canonical
+   `execution_base_commit..reviewed_head` binary diff bytes plus the exact
+   acceptance inventory into the bundle, and dispatch X/S findings-only
+   reviewers. Re-verify the sealed bundle before and after each leg.
+4. In writable main context—not a read-only X/S wrapper—create the sentinel-bound
+   unlinked clone, run every inventory acceptance row exactly once in order plus
+   CI, and record exit/output evidence. Reproduce X/S and primary findings,
+   reconcile ids, and require original
    snapshot/cleanliness unchanged.
 5. Apply the completion result, write one idempotent `## Review` plus compact
    completion receipt, set `review_status` to the receipt's derived
@@ -200,8 +216,8 @@ When all steps are `done`:
 
 The Review block records Goal met, Regressions, CI, Follow-ups, Filed by, and
 the X/S cross-check. Re-runs replace it. Never auto-create follow-up plans.
-Ship reuses the receipt only if canonical input, policy, diff, original snapshot,
-reviewed head, and frontmatter `review_status` match the receipt except for the
+Ship reuses the receipt only if canonical input, policy, execution base, diff,
+acceptance inventory, original snapshot, reviewed head, and frontmatter `review_status` match the receipt except for the
 later plan-only receipt commit.
 
 ## Publishing a plan as a GitHub issue (`--issues`)

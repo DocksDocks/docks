@@ -27,8 +27,8 @@ Read only the sealed bundle named in the exact request. Never read a moving sour
    immutable diff evidence.
 3. Return closed `ReviewerOutput` with leg-prefixed finding ids and the exact
    echoed request.
-4. When acting as the primary evidence runner, reproduce each finding and return
-   the typed draft/completion result. Do not reconcile it.
+4. Return only this leg's typed reviewer output. The writable main-context
+   completion runner owns checkout, acceptance, CI, and reproduction.
 
 ## Output Format
 
@@ -40,8 +40,7 @@ confirmations are non-empty strings. Do not add lifecycle prose.
 
 - Re-read cited bundle evidence before returning a finding.
 - Never classify ambiguous stderr as `platform_denied`.
-- Never claim CI or acceptance passed without fresh command evidence from the
-  disposable completion checkout.
+- Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.
 - Echo the request object exactly; mismatch is invalid evidence.
 - When a finding depends on a versioned library API, verify current primary
   documentation through context7 (`resolve-library-id` then `query-docs`) or the

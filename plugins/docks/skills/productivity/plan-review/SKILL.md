@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-12"
-  content_hash: "9068500d1e9f8e3d8a238c6db4d12c7620376b1f4bba43b03a81aa025e283aca"
+  content_hash: "6438409608df499195255d0a0d7a04a70cc86282cc6dfe1cdec4b9262385d7d8"
 ---
 
 # Plan Review Evidence Runner
@@ -36,6 +36,8 @@ ReviewRequestEnvelope = {
   schema: 1, request_id: uuid, phase: draft|completion,
   lifecycle_intent: none|start|schedule_fire|auto_execute,
   reviewed_commit_or_head: 40hex,
+  planned_at_commit: null|40hex, execution_base_commit: null|40hex,
+  diff_sha256: null|64hex, acceptance_inventory_sha256: null|64hex,
   input_sha256: 64hex, bundle_sha256: 64hex,
   author: {company:openai|anthropic,tool,model,effort},
   policy: ResolvedReviewPolicy, policy_sha256: 64hex
@@ -69,10 +71,14 @@ After plan-manager commits the non-executing input, use the helper to:
    `/tmp/docks-plan-review/<request_id>/`; absent CREATE/deleted paths are
    explicit tombstones. Symlinks are target bytes, never followed.
 3. Add distinct generated X and S reviewer JSON Schemas and a manifest without a
-   bundle hash; each launch selects its exact leg schema path.
+   bundle hash; each launch selects its exact leg schema path. Never export the
+   raw source plan through `affected_paths`; only canonical `plan.review.md` is
+   reviewer-visible. Completion also seals canonical binary `completion.diff`
+   and the nonempty ordered `acceptance-inventory.json`.
 4. Hash canonical manifest bytes plus length-prefixed file bytes, chmod the
    bundle read-only, then create one request carrying `bundle_sha256`.
-5. Re-hash after sealing. Any mutation, escape, duplicate, submodule, commit/tree
+5. Re-hash manifest, file bytes, modes, and read-only directories before each
+   launch and after each leg. Any mutation, escape, duplicate, submodule, commit/tree
    mismatch, or unsupported file type is a STOP, not a degraded review.
 
 Return `NeedsMainReviewDispatch = { schema:1, request, bundle_path,
@@ -143,7 +149,7 @@ leg-prefixed (`X1…`, `S1…`). Never construct reconciliation here.
 
 ## Draft evidence
 
-For each schema-valid finding, reproduce it independently:
+In writable main context, independently reproduce each schema-valid finding:
 
 - Re-read the cited bundle path and locator.
 - If it claims an executable defect, run the narrow read-only check in the
@@ -162,15 +168,22 @@ intent.
 
 Completion begins only after plan-manager has committed the plan-only
 `in_review` transition and asserted the plan plus affected paths are clean.
-Plan-manager supplies the immutable `reviewed_head` and original snapshot.
+Plan-manager supplies immutable `planned_at_commit`, `execution_base_commit`,
+`reviewed_head`, and original snapshot. X/S wrappers remain read-only
+findings-only reviewers; they never clone, run acceptance/CI, or clean up.
 
-1. Capture canonical plan input and a bytewise-sorted binary diff with rename,
-   external diff, textconv, and color disabled.
-2. Create `/tmp/docks-plan-verify/<request_id>` with `git clone --no-local
+1. Validate exact commits and ancestry: execution base descends from planned
+   base, is the single-parent plan-only first-start transition, and is an
+   ancestor of reviewed head. Capture canonical plan input and exact
+   `execution_base_commit..reviewed_head` binary diff bytes with rename,
+   external diff, textconv, and color disabled. Seal/hash that diff and an
+   acceptance inventory derived from the canonical plan's ordered table.
+2. In writable main context, create `/tmp/docks-plan-verify/<request_id>` with `git clone --no-local
    --no-checkout <original> <temp>` and detached checkout of `reviewed_head`.
-3. Verify temp HEAD/tree. Run acceptance, focused reproduction, and the project's
-   CI only inside that disposable checkout.
-4. Record each acceptance command/expected/exit/output hash, CI command/exit/
+3. Verify temp HEAD/tree. Run each nonempty inventory row exactly once in order,
+   focused reproduction, and the project's CI only inside that disposable checkout.
+4. Record each acceptance ID/command/expected/exit/output hash with exact
+   one-to-one inventory coverage, plus CI command/exit/
    first failure/output hash, goal verdict, regressions, and follow-ups.
 5. Delete only a helper-created sentinel-bearing request directory. Cleanup
    accepts the exact prepare identity, never a root path, and validates its
@@ -179,10 +192,11 @@ Plan-manager supplies the immutable `reviewed_head` and original snapshot.
    original tracked modes/blobs, untracked content, complete Git metadata tree,
    and cleanliness. Any delta is a STOP.
 
-Return closed `CompletionRunResult` with `plan_input_sha256`, `diff_sha256`, X,
-S, reproduced findings, decision evidence, outcome, and primary completion
+Return closed `CompletionRunResult` with `plan_input_sha256`, `diff_sha256`,
+acceptance inventory/hash, X, S, reproduced findings, decision evidence, outcome, and primary completion
 evidence plus derived `completion_verdict=passed|partial|regressed`. `regressed`
-means CI failed, a regression was recorded, or a primary high finding exists;
+means either passed X/S reviewer returned `not_ready`, CI failed, a regression
+was recorded, or a primary high finding exists;
 otherwise `passed` requires `goal_met=yes` and every acceptance `met=true`; all
 other cases are `partial`. Never write `## Review` or `review_status`;
 plan-manager applies the validated result and requires frontmatter status to
@@ -206,6 +220,8 @@ raw stdout/stderr before extracting Codex's final schema object or Claude's
 ## Anti-Hallucination checks
 
 - Confirm both raw legs echo the exact same request and bundle hash.
+- Re-verify sealed bundle manifest, bytes, modes, and read-only directories
+  before launch and after each leg.
 - Confirm every started attempt has child id, timeout mode, exit/signal, and raw
   output hashes consistent with its typed result.
 - Confirm waiver uniqueness by `(phase,input_sha256,leg)`; duplicate/conflicting
@@ -222,6 +238,6 @@ raw stdout/stderr before extracting Codex's final schema object or Claude's
 - Requests/results are closed, echoed, hashed, and attempt-bounded.
 - Host denial, consent denial, unavailability, timeout, and schema failure remain
   distinct outcomes with no forbidden retry.
-- Draft evidence carries no write authority; completion writes only the sentinel
-  disposable clone and proves original immutability.
+- X/S evidence carries no write authority; only writable main context creates
+  the sentinel disposable clone and proves original immutability.
 - The caller receives typed evidence only; plan-manager remains sole writer.

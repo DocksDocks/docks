@@ -82,6 +82,7 @@ affected_paths: []
 related_plans: []
 review_status: null
 planned_at_commit: null
+execution_base_commit: null
 ---
 ```
 
@@ -91,10 +92,14 @@ Status-specific keys are added only when that status applies:
 |---|---|
 | `status: blocked` | `blocked_reason` (external actor + input needed), `blocked_since` (ISO datetime) |
 | `status: scheduled` | `trigger` (`date` \| `manual-approval`), `scheduled_date` (ISO, required for `date`), `auto_execute` (default `false`) |
-| `status: in_review` | `in_review_since` (ISO datetime, set once on `→ in_review`); completion review diffs `planned_at_commit..HEAD` |
+| `status: in_review` | `in_review_since` (ISO datetime, set once on `→ in_review`); completion review diffs `execution_base_commit..HEAD` |
 | `status: finished` | `ship_commit` (full SHA under review — branch-agnostic) |
 
-`planned_at_commit` (base frontmatter) is the scaffold SHA (`git rev-parse HEAD`) — the drift-check base and the completion-review diff base.
+`planned_at_commit` is the scaffold/drift base. `execution_base_commit` is the
+exact plan-only commit that first changes `planned|scheduled → ongoing`; capture
+it, then record its SHA in a second plan-only identity commit before work.
+Completion validates that ancestry/start transition and diffs
+`execution_base_commit..HEAD`, excluding concurrent pre-start work.
 
 All time-valued keys are ISO 8601 datetimes with offset, captured at write time
 via `date '+%Y-%m-%dT%H:%M:%S%:z'` and quoted. `started_at` is set ONCE (first
@@ -152,7 +157,9 @@ pass — an unjustified N/A is how the score gets gamed); a bare gap is a defect
 1. File manifest — every step names exact path(s) (`path:line-range` to edit).
 2. Environment & commands — versions, env vars, exact build/test/lint commands with flags.
 3. Interface & data contracts — exact signatures/types/shapes for anything crossing a task boundary.
-4. Executable acceptance — every criterion is a command + its expected output.
+4. Executable acceptance — a nonempty ordered table containing required
+   `ID | Command | Expected` columns (optional descriptive columns are allowed),
+   with unique `A1…` IDs; every criterion is executable.
 5. Out of scope — what NOT to touch, stated positively.
 6. Decision rationale — the *why* behind each non-obvious choice.
 7. Known gotchas — the traps that lived only in conversation.
@@ -231,12 +238,17 @@ current-user waivers bind one phase+canonical input, and consent is not a waiver
 Creation commits `planned` or `scheduled` first. `start`, schedule fire, and
 auto execution use `prepare(intent) → main dispatch → apply`; missing/stale/
 blocked evidence never reaches `ongoing`, and an eligible intent is consumed
-once. Completion commits `in_review` before an unlinked disposable-clone check.
+once. The start transition is a plan-only commit whose SHA is recorded as
+`execution_base_commit` in a second plan-only commit before work. Completion
+commits `in_review` before an unlinked disposable-clone check.
 Receipts bind author, immutable commit/head, canonical input, bundle, resolved
 policy+provenance, X/S attempts, decisions/waivers, reconciliation, outcome, and
-time. Canonical input excludes only lifecycle/waiver fields and exact machine
+time. Canonical input excludes only lifecycle/waiver fields (including
+`execution_base_commit`) and exact machine
 records; ordinary prose changes always invalidate reuse.
-Completion derives `regressed` for failed CI, recorded regression, or a high
+Completion binds the planned/start SHAs, canonical diff bytes/hash, and exact
+nonempty ordered acceptance inventory; evidence covers it one-to-one.
+Completion derives `regressed` for a passed X/S `not_ready`, failed CI, recorded regression, or a high
 primary finding; otherwise `passed` requires goal met plus every acceptance met,
 and other cases are `partial`. Frontmatter must match that receipt at apply/ship.
 Cleanup takes only the prepare identity under `/tmp/docks-plan-verify`, bound to
@@ -286,11 +298,11 @@ each one so a fresh session resumes from committed state (the user can amend).
 | Transition | What plan-manager does |
 |---|---|
 | New plan | Draft + self-review, then write `active/<slug>.md`, `status: planned`. `created`+`updated` = now; set `planned_at_commit` (`git rev-parse HEAD`). |
-| Start | `status: ongoing`, set `started_at` (first time only), dispatch. No `git mv`. |
+| Start | Commit `status: ongoing` + first `started_at`, capture the commit SHA, then record it as `execution_base_commit` in a second plan-only commit before dispatch. No `git mv`. |
 | Block | `status: blocked`, set `blocked_reason` + `blocked_since`. No `git mv`. |
 | Unblock | `status: ongoing`, clear `blocked_reason`/`blocked_since`. `started_at` unchanged. |
 | Schedule fires | `status: ongoing`, drop scheduled keys, set `started_at`, dispatch. (`auto_execute` still halts at `in_review`.) |
-| Steps complete → review | All `## Steps` rows `done` → `status: in_review`, set `in_review_since`, dispatch `plan-review` through the current runtime when a resolved agent and explicit delegation/policy allow it (Claude `Agent(subagent_type=...)`; Codex `.codex/agents/plan-review.toml`); otherwise run the `plan-review` skill inline. Completion review diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, and keeps the file in `active/`. No `git mv`. |
+| Steps complete → review | All `## Steps` rows `done` → `status: in_review`, set `in_review_since`, dispatch `plan-review` through the current runtime when a resolved agent and explicit delegation/policy allow it (Claude `Agent(subagent_type=...)`; Codex `.codex/agents/plan-review.toml`); otherwise run the `plan-review` skill inline. Completion validates planned/start ancestry, diffs `execution_base_commit..HEAD`, writes `## Review` + `review_status`, and keeps the file in `active/`. No `git mv`. |
 | Ship | Only when `review_status: passed` matches a current derived-passed completion receipt (else fix first; if `null`, dispatch review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit`. Carries `## Review` forward — no re-dispatch. |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in `## Notes`. |
 

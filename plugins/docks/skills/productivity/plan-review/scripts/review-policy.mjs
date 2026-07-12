@@ -12,6 +12,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})
 const EXCLUDED_FRONTMATTER = new Set([
   'updated', 'status', 'started_at', 'in_review_since', 'blocked_reason',
   'blocked_since', 'assignee', 'review_status', 'ship_commit', 'review_waivers',
+  'execution_base_commit',
 ]);
 const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt): (\{.*\})$/;
 const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_auth', 'unavailable_model', 'timed_out', 'platform_denied', 'failed_unparseable', 'unavailable_unknown']);
@@ -143,6 +144,40 @@ export function canonicalPlanView(bytes) {
   return `${jcs(kept)}\n${retained.join('\n').replace(/\n*$/, '')}\n`;
 }
 
+function tableCells(line) {
+  const text = line.trim(); if (!text.startsWith('|') || !text.endsWith('|')) return null;
+  const cells = []; let cell = ''; let escaped = false;
+  for (const ch of text.slice(1, -1)) {
+    if (escaped) { cell += ch; escaped = false; continue; }
+    if (ch === '\\') { escaped = true; continue; }
+    if (ch === '|') { cells.push(cell.trim()); cell = ''; } else cell += ch;
+  }
+  if (escaped) cell += '\\'; cells.push(cell.trim()); return cells;
+}
+
+function uncode(value) {
+  const text = value.trim(); return text.startsWith('`') && text.endsWith('`') && text.length >= 2 ? text.slice(1, -1) : text;
+}
+
+export function acceptanceInventory(bytes) {
+  const { body } = parsePlan(bytes); const lines = body.split('\n');
+  const start = lines.findIndex((line) => /^## Acceptance criteria\s*$/.test(line));
+  if (start < 0) throw new Error('acceptance criteria section missing');
+  const section = lines.slice(start + 1, lines.findIndex((line, index) => index > start && /^## /.test(line)) < 0 ? lines.length : lines.findIndex((line, index) => index > start && /^## /.test(line)));
+  const rows = section.map(tableCells).filter(Boolean); if (rows.length < 3) throw new Error('acceptance criteria must be a table');
+  const header = rows[0].map((cell) => cell.toLowerCase()); const idAt = header.indexOf('id'); const commandAt = header.indexOf('command'); const expectedAt = header.indexOf('expected');
+  if (idAt < 0 || commandAt < 0 || expectedAt < 0 || !rows[1].every((cell) => /^:?-{3,}:?$/.test(cell))) throw new Error('acceptance table header');
+  const criteria = []; const ids = new Set();
+  for (const row of rows.slice(2)) {
+    if (row.length !== header.length) throw new Error('acceptance table column mismatch');
+    const id = uncode(row[idAt]); const command = uncode(row[commandAt]); const expected = uncode(row[expectedAt]);
+    if (!/^A[1-9][0-9]*$/.test(id) || ids.has(id)) throw new Error('acceptance criterion id');
+    string(command, 'acceptance criterion command'); string(expected, 'acceptance criterion expected'); ids.add(id); criteria.push({ id, command, expected });
+  }
+  if (criteria.length === 0) throw new Error('acceptance inventory must be nonempty');
+  return { schema: 1, criteria };
+}
+
 function assertClosed(object, keys, label) {
   if (!object || typeof object !== 'object' || Array.isArray(object)) throw new Error(`${label} must be an object`);
   for (const key of Object.keys(object)) if (!keys.includes(key)) throw new Error(`${label} has unknown key ${key}`);
@@ -174,11 +209,15 @@ export function validatePolicy(policy) {
 }
 
 export function validateRequest(request) {
-  assertClosed(request, ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'], 'request');
+  assertClosed(request, ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'planned_at_commit', 'execution_base_commit', 'diff_sha256', 'acceptance_inventory_sha256', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'], 'request');
   if (request.schema !== 1 || !UUID.test(request.request_id)) throw new Error('request identity');
   oneOf(request.phase, new Set(['draft', 'completion']), 'phase');
   oneOf(request.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'lifecycle_intent');
   if (!HEX40.test(request.reviewed_commit_or_head)) throw new Error('reviewed commit');
+  if (request.phase === 'completion') {
+    for (const key of ['planned_at_commit', 'execution_base_commit']) if (!HEX40.test(request[key])) throw new Error(`completion request ${key}`);
+    digest(request.diff_sha256, 'completion request diff'); digest(request.acceptance_inventory_sha256, 'completion request acceptance inventory');
+  } else if (request.planned_at_commit !== null || request.execution_base_commit !== null || request.diff_sha256 !== null || request.acceptance_inventory_sha256 !== null) throw new Error('draft request carries completion identity');
   digest(request.input_sha256, 'input_sha256'); digest(request.bundle_sha256, 'bundle_sha256'); digest(request.policy_sha256, 'policy_sha256');
   assertClosed(request.author, ['company', 'tool', 'model', 'effort'], 'request author'); oneOf(request.author.company, new Set(['openai', 'anthropic']), 'request author company'); for (const key of ['tool', 'model', 'effort']) string(request.author[key], `request author ${key}`);
   validatePolicy(request.policy);
@@ -196,6 +235,8 @@ export function reviewerSchema(leg) {
   const request = closed({
     schema: { const: 1 }, request_id: { type: 'string', pattern: UUID.source }, phase: { enum: ['draft', 'completion'] },
     lifecycle_intent: { enum: ['none', 'start', 'schedule_fire', 'auto_execute'] }, reviewed_commit_or_head: { type: 'string', pattern: HEX40.source },
+    planned_at_commit: { type: ['string', 'null'], pattern: HEX40.source }, execution_base_commit: { type: ['string', 'null'], pattern: HEX40.source },
+    diff_sha256: { type: ['string', 'null'], pattern: HEX64.source }, acceptance_inventory_sha256: { type: ['string', 'null'], pattern: HEX64.source },
     input_sha256: { type: 'string', pattern: HEX64.source }, bundle_sha256: { type: 'string', pattern: HEX64.source },
     author: closed({ company: { enum: ['openai', 'anthropic'] }, tool: str, model: str, effort: str }),
     policy, policy_sha256: { type: 'string', pattern: HEX64.source },
@@ -390,23 +431,45 @@ function validateAcceptance(value) {
   string(value.criterion_id, 'criterion id'); string(value.command, 'acceptance command'); string(value.expected, 'acceptance expected'); if (!Number.isInteger(value.exit_code) || typeof value.met !== 'boolean') throw new Error('acceptance result'); digest(value.actual_sha256, 'acceptance output hash');
 }
 
+export function validateAcceptanceInventory(value) {
+  assertClosed(value, ['schema', 'criteria'], 'acceptance inventory');
+  if (value.schema !== 1 || !Array.isArray(value.criteria) || value.criteria.length === 0) throw new Error('acceptance inventory must be nonempty');
+  const ids = new Set();
+  for (const criterion of value.criteria) {
+    assertClosed(criterion, ['id', 'command', 'expected'], 'acceptance inventory criterion');
+    if (!/^A[1-9][0-9]*$/.test(criterion.id) || ids.has(criterion.id)) throw new Error('acceptance inventory criterion id');
+    string(criterion.command, 'acceptance inventory command'); string(criterion.expected, 'acceptance inventory expected'); ids.add(criterion.id);
+  }
+  return value;
+}
+
+function validateAcceptanceEvidence(evidence, inventory) {
+  validateAcceptanceInventory(inventory);
+  if (!Array.isArray(evidence) || evidence.length !== inventory.criteria.length) throw new Error('acceptance evidence must exactly cover inventory');
+  evidence.forEach((row, index) => {
+    validateAcceptance(row); const criterion = inventory.criteria[index];
+    if (row.criterion_id !== criterion.id || row.command !== criterion.command || row.expected !== criterion.expected) throw new Error('acceptance evidence order or criterion mismatch');
+  });
+}
+
 function validateCi(value) {
   assertClosed(value, ['command', 'exit_code', 'first_failure', 'output_sha256'], 'CI evidence'); string(value.command, 'CI command'); if (!Number.isInteger(value.exit_code)) throw new Error('CI exit code'); digest(value.output_sha256, 'CI output hash');
   if (value.exit_code === 0 && value.first_failure !== null) throw new Error('passing CI carries failure'); if (value.exit_code !== 0) string(value.first_failure, 'CI first failure');
 }
 
-export function deriveCompletionVerdict(primary) {
-  validatePrimary(primary);
+export function deriveCompletionVerdict(primary, inventory, X, S) {
+  validatePrimary(primary, inventory);
+  if ([X, S].some((leg) => leg?.result === 'passed' && leg.reviewer_output?.verdict === 'not_ready')) return 'regressed';
   if (primary.ci.exit_code !== 0 || primary.regressions.length > 0 || primary.findings.some((finding) => finding.severity === 'high')) return 'regressed';
   if (primary.goal_met === 'yes' && primary.acceptance.every((criterion) => criterion.met)) return 'passed';
   return 'partial';
 }
 
-function validatePrimary(value) {
+function validatePrimary(value, inventory) {
   assertClosed(value, ['goal_met', 'findings', 'acceptance', 'ci', 'regressions', 'followups'], 'primary completion evidence'); oneOf(value.goal_met, new Set(['yes', 'partial', 'no']), 'goal_met');
   if (!Array.isArray(value.findings) || !Array.isArray(value.acceptance) || !Array.isArray(value.regressions) || !Array.isArray(value.followups)) throw new Error('primary arrays');
   const empty = { findings: [] }; const ids = new Set(); for (const finding of value.findings) { validateFindingEvidence(finding, { X: empty, S: empty }, true); if (finding.source !== 'primary' || ids.has(finding.id)) throw new Error('primary finding id/source'); ids.add(finding.id); }
-  value.acceptance.forEach(validateAcceptance); validateCi(value.ci); value.regressions.forEach((item) => string(item, 'regression')); value.followups.forEach((item) => string(item, 'followup')); return value;
+  validateAcceptanceEvidence(value.acceptance, inventory); validateCi(value.ci); value.regressions.forEach((item) => string(item, 'regression')); value.followups.forEach((item) => string(item, 'followup')); return value;
 }
 
 function validatePersistedLeg(value, request, leg, context) {
@@ -438,12 +501,13 @@ export function validateDraftRunResult(result, { waivers = [] } = {}) {
 }
 
 export function validateCompletionRunResult(result, { waivers = [] } = {}) {
-  assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary', 'completion_verdict'], 'completion run result');
+  assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary', 'completion_verdict'], 'completion run result');
   if (result.schema !== 1 || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
-  if (result.plan_input_sha256 !== result.request.input_sha256) throw new Error('completion plan input mismatch'); digest(result.diff_sha256, 'completion diff');
+  if (result.plan_input_sha256 !== result.request.input_sha256 || result.diff_sha256 !== result.request.diff_sha256) throw new Error('completion plan or diff input mismatch'); digest(result.diff_sha256, 'completion diff');
+  validateAcceptanceInventory(result.acceptance_inventory); if (result.acceptance_inventory_sha256 !== sha256(jcs(result.acceptance_inventory)) || result.acceptance_inventory_sha256 !== result.request.acceptance_inventory_sha256) throw new Error('completion acceptance inventory mismatch');
   const normalized = validateWaivers(waivers, 'completion', result.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
-  validateRawLeg(result.X, result.request, 'X', { expectedWaiver: waiverFor('X') }); validateRawLeg(result.S, result.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(result.reproduced, result.X, result.S, true); validatePrimary(result.primary);
-  validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome); if (result.completion_verdict !== deriveCompletionVerdict(result.primary)) throw new Error('completion verdict mismatch'); return result;
+  validateRawLeg(result.X, result.request, 'X', { expectedWaiver: waiverFor('X') }); validateRawLeg(result.S, result.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(result.reproduced, result.X, result.S, true); validatePrimary(result.primary, result.acceptance_inventory);
+  validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome); if (result.completion_verdict !== deriveCompletionVerdict(result.primary, result.acceptance_inventory, result.X, result.S)) throw new Error('completion verdict mismatch'); return result;
 }
 
 export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [] } = {}) {
@@ -459,15 +523,16 @@ export function validateDraftReceipt(receipt, expectedInput = null, { waivers = 
 }
 
 export function validateCompletionReceipt(receipt, expected = {}, { waivers = [] } = {}) {
-  const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
+  const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
   assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== 1 || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
-  if (receipt.request.phase !== 'completion' || receipt.request.lifecycle_intent !== 'none' || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head || receipt.plan_input_sha256 !== receipt.request.input_sha256) throw new Error('completion receipt request mismatch');
-  if (!HEX40.test(receipt.planned_at_commit) || !HEX40.test(receipt.reviewed_head)) throw new Error('completion commit'); digest(receipt.diff_sha256, 'completion receipt diff');
+  if (receipt.request.phase !== 'completion' || receipt.request.lifecycle_intent !== 'none' || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head || receipt.plan_input_sha256 !== receipt.request.input_sha256 || receipt.planned_at_commit !== receipt.request.planned_at_commit || receipt.execution_base_commit !== receipt.request.execution_base_commit || receipt.diff_sha256 !== receipt.request.diff_sha256) throw new Error('completion receipt request mismatch');
+  if (!HEX40.test(receipt.planned_at_commit) || !HEX40.test(receipt.execution_base_commit) || !HEX40.test(receipt.reviewed_head)) throw new Error('completion commit'); digest(receipt.diff_sha256, 'completion receipt diff');
+  validateAcceptanceInventory(receipt.acceptance_inventory); if (receipt.acceptance_inventory_sha256 !== sha256(jcs(receipt.acceptance_inventory)) || receipt.acceptance_inventory_sha256 !== receipt.request.acceptance_inventory_sha256) throw new Error('completion acceptance inventory mismatch');
   if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('completion author mismatch'); if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('completion policy mismatch');
   for (const [key, value] of Object.entries(expected)) if (key !== 'review_status' && value !== undefined && jcs(receipt[key]) !== jcs(value)) throw new Error(`stale completion receipt ${key}`);
   const normalized = validateWaivers(waivers, 'completion', receipt.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
-  validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, true); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced); validatePrimary(receipt.primary);
-  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome); if (receipt.completion_verdict !== deriveCompletionVerdict(receipt.primary)) throw new Error('completion verdict mismatch');
+  validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, true); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced); validatePrimary(receipt.primary, receipt.acceptance_inventory);
+  validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome); if (receipt.completion_verdict !== deriveCompletionVerdict(receipt.primary, receipt.acceptance_inventory, receipt.X.raw, receipt.S.raw)) throw new Error('completion verdict mismatch');
   if (expected.review_status !== undefined && expected.review_status !== receipt.completion_verdict) throw new Error('completion review_status mismatch');
   iso(receipt.reviewed_at, 'completion reviewed_at'); return receipt;
 }
@@ -482,7 +547,7 @@ export function validateReviewerOutput(output, request, leg) {
   return output;
 }
 
-export function extractReviewerOutput(tool, stdout, request, leg) {
+export function extractReviewerOutput(tool, stdout, request, leg, bundle) {
   let parsed;
   try { parsed = JSON.parse(stdout); } catch {
     if (tool !== 'codex') throw new Error('reviewer output is not JSON');
@@ -494,7 +559,7 @@ export function extractReviewerOutput(tool, stdout, request, leg) {
   }
   const output = tool === 'claude' ? parsed?.structured_output : parsed;
   if (!output) throw new Error('structured reviewer output missing');
-  return validateReviewerOutput(output, request, leg);
+  const validated = validateReviewerOutput(output, request, leg); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 })); return validated;
 }
 
 export function validateWaivers(waivers, phase, inputSha) {
@@ -515,6 +580,33 @@ function git(repo, args, encoding = 'utf8') {
   const result = spawnSync('git', args, { cwd: repo, encoding });
   if (result.error || result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${encoding ? result.stderr.trim() : result.stderr.toString().trim()}`);
   return result.stdout;
+}
+
+function exactCommit(repo, commit, label) {
+  if (!HEX40.test(commit)) throw new Error(`${label} must be a full commit`);
+  const resolved = git(repo, ['rev-parse', '--verify', `${commit}^{commit}`]).trim(); if (resolved !== commit) throw new Error(`${label} does not resolve exactly`); return commit;
+}
+
+function ancestor(repo, older, newer) {
+  const result = spawnSync('git', ['merge-base', '--is-ancestor', older, newer], { cwd: repo, encoding: 'utf8' });
+  if (result.status === 0) return true; if (result.status === 1) return false; throw new Error(`git merge-base failed: ${result.stderr.trim()}`);
+}
+
+export function validateExecutionRange({ repo, planPath, plannedAtCommit, executionBaseCommit, reviewedHead }) {
+  const logical = safeLogical(planPath); exactCommit(repo, plannedAtCommit, 'planned_at_commit'); exactCommit(repo, executionBaseCommit, 'execution_base_commit'); exactCommit(repo, reviewedHead, 'reviewed_head');
+  if (!ancestor(repo, plannedAtCommit, executionBaseCommit) || !ancestor(repo, executionBaseCommit, reviewedHead)) throw new Error('execution base ancestry mismatch');
+  const parentRow = git(repo, ['rev-list', '--parents', '-n', '1', executionBaseCommit]).trim().split(/\s+/); if (parentRow.length !== 2) throw new Error('execution base must be a single-parent start transition');
+  const changed = git(repo, ['diff-tree', '--no-commit-id', '--name-only', '-r', executionBaseCommit]).trim().split('\n').filter(Boolean);
+  if (changed.length !== 1 || changed[0] !== logical) throw new Error('execution base must change only the plan');
+  const atBaseBytes = git(repo, ['show', `${executionBaseCommit}:${logical}`], null); const beforeBytes = git(repo, ['show', `${parentRow[1]}:${logical}`], null); const atHeadBytes = git(repo, ['show', `${reviewedHead}:${logical}`], null);
+  const atBase = parsePlan(atBaseBytes).frontmatter; const before = parsePlan(beforeBytes).frontmatter; const atHead = parsePlan(atHeadBytes).frontmatter;
+  if (atBase.status !== 'ongoing' || atBase.started_at === null || !['planned', 'scheduled'].includes(before.status) || before.started_at !== null || canonicalPlanView(atBaseBytes) !== canonicalPlanView(beforeBytes)) throw new Error('execution base is not the plan-only first-start transition');
+  if (atBase.planned_at_commit !== plannedAtCommit || atHead.planned_at_commit !== plannedAtCommit || atHead.execution_base_commit !== executionBaseCommit) throw new Error('plan execution identity mismatch');
+  return { schema: 1, planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedHead, execution_parent: parentRow[1] };
+}
+
+function completionDiff(repo, executionBaseCommit, reviewedHead) {
+  return git(repo, ['diff', '--binary', '--full-index', '--find-renames', '--no-ext-diff', '--no-textconv', '--no-color', executionBaseCommit, reviewedHead, '--'], null);
 }
 
 function safeLogical(logical) {
@@ -545,7 +637,13 @@ function commitPath(repo, commit, logical, files) {
   return { path: safe, state: 'directory' };
 }
 
-export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir }) {
+function bundleHash(manifestBytes, entries) {
+  const hash = createHash('sha256'); hash.update(Buffer.from(String(manifestBytes.length))); hash.update(Buffer.from([0])); hash.update(manifestBytes);
+  for (const entry of entries) { hash.update(Buffer.from(String(entry.bytes.length))); hash.update(Buffer.from([0])); hash.update(entry.bytes); }
+  return hash.digest('hex');
+}
+
+export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir, plannedAtCommit = null, executionBaseCommit = null }) {
   if (!HEX40.test(reviewedCommit)) throw new Error('reviewedCommit');
   const resolved = git(repo, ['rev-parse', '--verify', `${reviewedCommit}^{commit}`]).trim();
   if (resolved !== reviewedCommit) throw new Error('reviewedCommit does not resolve exactly');
@@ -554,12 +652,25 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
   const entries = []; const requested = [];
   const unique = [...new Set(requestedPaths)].sort(compareUtf16);
   if (unique.length !== requestedPaths.length) throw new Error('duplicate requested path');
+  if (unique.includes(safePlan)) throw new Error('raw plan path is forbidden in requested paths');
+  if ((plannedAtCommit === null) !== (executionBaseCommit === null)) throw new Error('completion bundle identity must be all-or-none');
   const planEntries = []; const planState = commitPath(repo, reviewedCommit, safePlan, planEntries);
   if (planState.state !== 'file' || planEntries.length !== 1 || !['100644', '100755'].includes(planEntries[0].mode)) throw new Error('logical plan missing or not a regular file at reviewedCommit');
   const canonical = Buffer.from(canonicalPlanView(planEntries[0].bytes));
   for (const logical of unique) requested.push(commitPath(repo, reviewedCommit, logical, entries));
   entries.push({ path: 'plan.review.md', mode: '100444', bytes: canonical });
   for (const leg of ['X', 'S']) entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
+  let completion = null;
+  if (plannedAtCommit !== null) {
+    validateExecutionRange({ repo, planPath: safePlan, plannedAtCommit, executionBaseCommit, reviewedHead: reviewedCommit });
+    const inventory = acceptanceInventory(planEntries[0].bytes); validateAcceptanceInventory(inventory);
+    const inventoryBytes = Buffer.from(`${jcs(inventory)}\n`); const diffBytes = completionDiff(repo, executionBaseCommit, reviewedCommit);
+    entries.push({ path: 'acceptance-inventory.json', mode: '100444', bytes: inventoryBytes }, { path: 'completion.diff', mode: '100444', bytes: diffBytes });
+    completion = {
+      planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedCommit,
+      diff_path: 'completion.diff', diff_sha256: sha256(diffBytes), acceptance_inventory_path: 'acceptance-inventory.json', acceptance_inventory_sha256: sha256(jcs(inventory)),
+    };
+  }
   entries.sort((a, b) => compareUtf16(a.path, b.path));
   const seen = new Set(); for (const entry of entries) { if (seen.has(entry.path)) throw new Error(`duplicate bundle path: ${entry.path}`); seen.add(entry.path); }
   fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
@@ -569,19 +680,67 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
   }
   const manifest = {
     schema: 1, plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' }, reviewed_commit: reviewedCommit,
-    input_sha256: sha256(canonical), requested,
+    input_sha256: sha256(canonical), completion, requested,
     files: entries.map((entry) => ({ path: entry.path, mode: entry.mode, sha256: sha256(entry.bytes) })),
   };
   const manifestBytes = Buffer.from(`${jcs(manifest)}\n`); fs.writeFileSync(path.join(outDir, 'manifest.json'), manifestBytes, { mode: 0o444 });
-  const hash = createHash('sha256'); hash.update(Buffer.from(String(manifestBytes.length))); hash.update(Buffer.from([0])); hash.update(manifestBytes);
-  for (const entry of entries) { hash.update(Buffer.from(String(entry.bytes.length))); hash.update(Buffer.from([0])); hash.update(entry.bytes); }
   for (const directory of [...new Set(entries.map((entry) => path.dirname(path.join(outDir, entry.path))))].sort((a, b) => b.length - a.length)) fs.chmodSync(directory, 0o555);
   fs.chmodSync(outDir, 0o555);
-  return { request_id: randomUUID(), input_sha256: manifest.input_sha256, bundle_sha256: hash.digest('hex'), manifest };
+  return { request_id: randomUUID(), input_sha256: manifest.input_sha256, bundle_sha256: bundleHash(manifestBytes, entries), completion, manifest };
+}
+
+export function verifyBundle({ bundle, expectedSha256 = null }) {
+  const root = path.resolve(bundle); const rootStat = fs.lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || fs.realpathSync(root) !== root || (rootStat.mode & 0o777) !== 0o555) throw new Error('bundle root is not sealed read-only');
+  const manifestPath = path.join(root, 'manifest.json'); const manifestStat = fs.lstatSync(manifestPath);
+  if (!manifestStat.isFile() || manifestStat.isSymbolicLink() || (manifestStat.mode & 0o777) !== 0o444) throw new Error('bundle manifest is not sealed read-only');
+  const manifestBytes = fs.readFileSync(manifestPath); let manifest;
+  try { manifest = JSON.parse(manifestBytes); } catch { throw new Error('bundle manifest is not JSON'); }
+  if (!manifest || manifestBytes.toString() !== `${jcs(manifest)}\n`) throw new Error('bundle manifest must be compact JCS');
+  assertClosed(manifest, ['schema', 'plan_path', 'plan_view', 'reviewer_schemas', 'reviewed_commit', 'input_sha256', 'completion', 'requested', 'files'], 'bundle manifest');
+  if (manifest.schema !== 1 || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
+  digest(manifest.input_sha256, 'bundle input');
+  const expectedFiles = new Set(['manifest.json']); const entries = [];
+  for (const row of manifest.files) {
+    assertClosed(row, ['path', 'mode', 'sha256'], 'bundle file'); const logical = safeLogical(row.path);
+    if (expectedFiles.has(logical) || !/^(100444|100644|100755|120000)$/.test(row.mode)) throw new Error('duplicate or invalid bundle file'); digest(row.sha256, 'bundle file'); expectedFiles.add(logical);
+    const absolute = path.join(root, logical); if (!inside(root, absolute)) throw new Error('bundle file escape'); const stat = fs.lstatSync(absolute);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o444) throw new Error(`bundle file is not sealed read-only: ${logical}`);
+    const bytes = fs.readFileSync(absolute); if (sha256(bytes) !== row.sha256) throw new Error(`bundle file hash mismatch: ${logical}`); entries.push({ bytes });
+  }
+  const actualFiles = new Set();
+  const visit = (directory) => {
+    const stat = fs.lstatSync(directory); if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o555) throw new Error('bundle directory is not sealed read-only');
+    for (const name of fs.readdirSync(directory)) { const absolute = path.join(directory, name); const relative = path.relative(root, absolute).split(path.sep).join('/'); const child = fs.lstatSync(absolute); if (child.isDirectory()) visit(absolute); else { if (!child.isFile() || child.isSymbolicLink()) throw new Error(`unsupported bundle entry: ${relative}`); actualFiles.add(relative); } }
+  };
+  visit(root); if (actualFiles.size !== expectedFiles.size || [...actualFiles].some((file) => !expectedFiles.has(file))) throw new Error('bundle contains missing or extra files');
+  if (manifest.completion !== null) {
+    assertClosed(manifest.completion, ['planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_path', 'diff_sha256', 'acceptance_inventory_path', 'acceptance_inventory_sha256'], 'bundle completion');
+    if (manifest.completion.reviewed_head !== manifest.reviewed_commit) throw new Error('bundle completion head mismatch');
+    for (const key of ['planned_at_commit', 'execution_base_commit', 'reviewed_head']) if (!HEX40.test(manifest.completion[key])) throw new Error('bundle completion commit');
+    digest(manifest.completion.diff_sha256, 'bundle completion diff'); digest(manifest.completion.acceptance_inventory_sha256, 'bundle completion inventory');
+    const diff = fs.readFileSync(path.join(root, safeLogical(manifest.completion.diff_path))); if (sha256(diff) !== manifest.completion.diff_sha256) throw new Error('bundle completion diff mismatch');
+    const inventoryBytes = fs.readFileSync(path.join(root, safeLogical(manifest.completion.acceptance_inventory_path))); let inventory;
+    try { inventory = JSON.parse(inventoryBytes); } catch { throw new Error('bundle acceptance inventory is not JSON'); }
+    if (inventoryBytes.toString() !== `${jcs(inventory)}\n` || sha256(jcs(validateAcceptanceInventory(inventory))) !== manifest.completion.acceptance_inventory_sha256) throw new Error('bundle acceptance inventory mismatch');
+  }
+  const bundleSha256 = bundleHash(manifestBytes, entries); if (expectedSha256 !== null && bundleSha256 !== expectedSha256) throw new Error('bundle hash mismatch');
+  return { schema: 1, bundle_sha256: bundleSha256, manifest };
+}
+
+function validateRequestBundle(request, verified) {
+  const manifest = verified.manifest;
+  if (manifest.reviewed_commit !== request.reviewed_commit_or_head || manifest.input_sha256 !== request.input_sha256) throw new Error('request and bundle identity mismatch');
+  if (request.phase === 'draft') { if (manifest.completion !== null) throw new Error('draft request carries completion bundle'); }
+  else {
+    if (manifest.completion === null) throw new Error('completion request lacks completion bundle');
+    const expected = { planned_at_commit: request.planned_at_commit, execution_base_commit: request.execution_base_commit, reviewed_head: request.reviewed_commit_or_head, diff_sha256: request.diff_sha256, acceptance_inventory_sha256: request.acceptance_inventory_sha256 };
+    for (const [key, value] of Object.entries(expected)) if (manifest.completion[key] !== value) throw new Error(`request and bundle completion mismatch: ${key}`);
+  }
 }
 
 export function buildReviewerArgv({ tool, bundle, model, effort, leg, request }) {
-  validateRequest(request); oneOf(leg, new Set(['X', 'S']), 'leg'); string(model, 'model'); string(effort, 'effort');
+  validateRequest(request); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 })); oneOf(leg, new Set(['X', 'S']), 'leg'); string(model, 'model'); string(effort, 'effort');
   const prompt = `You are the ${leg} independent plan reviewer. Read only the sealed bundle. Return findings only. Copy the request object into ReviewerOutput.request.\nREQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
   if (tool === 'codex') return ['exec', '-C', bundle, '--skip-git-repo-check', '-s', 'read-only', '-m', model, '-c', `model_reasoning_effort=${effort}`, '--output-schema', path.join(bundle, `reviewer-output.${leg}.schema.json`), '--', prompt];
   if (tool === 'claude') return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(reviewerSchema(leg)), '--output-format', 'json', '--', prompt];
@@ -661,10 +820,11 @@ function completionPath(requestId) {
   return { root, out };
 }
 
-export function prepareCompletionCheckout({ repo, reviewedHead, requestId }) {
+export function prepareCompletionCheckout({ repo, reviewedHead, requestId, planPath, plannedAtCommit, executionBaseCommit }) {
   if (!HEX40.test(reviewedHead)) throw new Error('reviewedHead');
   const before = snapshotRepository(repo); if (!before.clean) throw new Error('original repository is not clean');
   if (before.head !== reviewedHead) throw new Error('reviewedHead does not match original HEAD');
+  const execution = validateExecutionRange({ repo, planPath, plannedAtCommit, executionBaseCommit, reviewedHead });
   const { root, out } = completionPath(requestId);
   if (fs.existsSync(out)) throw new Error('completion checkout already exists');
   try {
@@ -673,10 +833,10 @@ export function prepareCompletionCheckout({ repo, reviewedHead, requestId }) {
     const tempHead = git(out, ['rev-parse', 'HEAD']).trim(); const sourceTree = git(before.repo_realpath, ['rev-parse', `${reviewedHead}^{tree}`]).trim(); const tempTree = git(out, ['rev-parse', 'HEAD^{tree}']).trim();
     if (tempHead !== reviewedHead || tempTree !== sourceTree) throw new Error('completion checkout head/tree mismatch');
     const cleanupToken = createHash('sha256').update(randomUUID()).update(randomUUID()).digest('hex');
-    const sentinel = { schema: 1, request_id: requestId, original_repo: before.repo_realpath, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken };
+    const sentinel = { schema: 1, request_id: requestId, original_repo: before.repo_realpath, plan_path: safeLogical(planPath), planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken };
     fs.writeFileSync(path.join(out, '.docks-plan-verify-sentinel'), `${jcs(sentinel)}\n`, { mode: 0o600 });
     const after = snapshotRepository(repo); if (jcs(after) !== jcs(before)) throw new Error('original repository changed during completion checkout');
-    return { schema: 1, request_id: requestId, checkout: out, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken, original_snapshot: before };
+    return { schema: 1, request_id: requestId, checkout: out, plan_path: safeLogical(planPath), planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken, execution, original_snapshot: before };
   } catch (error) {
     if (fs.existsSync(out)) fs.rmSync(out, { recursive: true, force: false });
     throw error;
@@ -684,17 +844,18 @@ export function prepareCompletionCheckout({ repo, reviewedHead, requestId }) {
 }
 
 export function cleanupCompletionCheckout({ repo, requestId, prepared }) {
-  assertClosed(prepared, ['schema', 'request_id', 'checkout', 'reviewed_head', 'source_tree', 'cleanup_token', 'original_snapshot'], 'prepared completion identity');
+  assertClosed(prepared, ['schema', 'request_id', 'checkout', 'plan_path', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'source_tree', 'cleanup_token', 'execution', 'original_snapshot'], 'prepared completion identity');
   if (prepared.schema !== 1 || prepared.request_id !== requestId || !HEX40.test(prepared.reviewed_head) || !HEX40.test(prepared.source_tree)) throw new Error('prepared completion identity mismatch');
+  if (jcs(prepared.execution) !== jcs(validateExecutionRange({ repo, planPath: prepared.plan_path, plannedAtCommit: prepared.planned_at_commit, executionBaseCommit: prepared.execution_base_commit, reviewedHead: prepared.reviewed_head }))) throw new Error('prepared execution range mismatch');
   digest(prepared.cleanup_token, 'cleanup token'); validateRepositorySnapshot(prepared.original_snapshot);
   if (prepared.original_snapshot.head !== prepared.reviewed_head) throw new Error('prepared head does not match original snapshot');
   const { out } = completionPath(requestId); if (prepared.checkout !== out) throw new Error('prepared checkout is not canonical');
   const sentinelPath = path.join(out, '.docks-plan-verify-sentinel');
   if (!fs.existsSync(sentinelPath)) throw new Error('completion cleanup sentinel missing');
   const sentinelText = fs.readFileSync(sentinelPath, 'utf8'); let sentinel; try { sentinel = JSON.parse(sentinelText); } catch { throw new Error('completion cleanup sentinel invalid'); }
-  assertClosed(sentinel, ['schema', 'request_id', 'original_repo', 'reviewed_head', 'source_tree', 'cleanup_token'], 'completion sentinel');
+  assertClosed(sentinel, ['schema', 'request_id', 'original_repo', 'plan_path', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'source_tree', 'cleanup_token'], 'completion sentinel');
   if (sentinelText !== `${jcs(sentinel)}\n`) throw new Error('completion cleanup sentinel must be compact JCS');
-  const expectedSentinel = { schema: 1, request_id: requestId, original_repo: prepared.original_snapshot.repo_realpath, reviewed_head: prepared.reviewed_head, source_tree: prepared.source_tree, cleanup_token: prepared.cleanup_token };
+  const expectedSentinel = { schema: 1, request_id: requestId, original_repo: prepared.original_snapshot.repo_realpath, plan_path: prepared.plan_path, planned_at_commit: prepared.planned_at_commit, execution_base_commit: prepared.execution_base_commit, reviewed_head: prepared.reviewed_head, source_tree: prepared.source_tree, cleanup_token: prepared.cleanup_token };
   if (jcs(sentinel) !== jcs(expectedSentinel) || fs.realpathSync(repo) !== sentinel.original_repo) throw new Error('completion cleanup sentinel mismatch');
   if (git(repo, ['rev-parse', `${prepared.reviewed_head}^{tree}`]).trim() !== prepared.source_tree) throw new Error('prepared source tree mismatch');
   const current = snapshotRepository(repo); if (jcs(current) !== jcs(prepared.original_snapshot)) throw new Error('original repository changed during completion verification');
@@ -712,10 +873,14 @@ export function run(argv = process.argv.slice(2)) {
     validateReviewerOutput(output, request, args[2]); process.stdout.write('valid reviewer output\n'); return;
   }
   if (command === 'bundle') {
-    const [repo, commit, plan, out, ...paths] = args; process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out) }))}\n`); return;
+    const [repo, commit, plan, out, plannedAtCommit, executionBaseCommit, ...paths] = args; const completion = plannedAtCommit === '-' && executionBaseCommit === '-' ? {} : { plannedAtCommit, executionBaseCommit };
+    process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), ...completion }))}\n`); return;
+  }
+  if (command === 'verify-bundle') {
+    const [bundle, expectedSha256 = null] = args; if (args.length < 1 || args.length > 2) throw new Error('verify-bundle accepts bundle [expectedSha256]'); process.stdout.write(`${jcs(verifyBundle({ bundle: path.resolve(bundle), expectedSha256 }))}\n`); return;
   }
   if (command === 'completion-prepare') {
-    const [repo, reviewedHead, requestId] = args; if (args.length !== 3) throw new Error('completion-prepare accepts repo reviewedHead requestId only'); process.stdout.write(`${jcs(prepareCompletionCheckout({ repo: path.resolve(repo), reviewedHead, requestId }))}\n`); return;
+    const [repo, reviewedHead, requestId, planPath, plannedAtCommit, executionBaseCommit] = args; if (args.length !== 6) throw new Error('completion-prepare accepts repo reviewedHead requestId planPath plannedAtCommit executionBaseCommit only'); process.stdout.write(`${jcs(prepareCompletionCheckout({ repo: path.resolve(repo), reviewedHead, requestId, planPath, plannedAtCommit, executionBaseCommit }))}\n`); return;
   }
   if (command === 'completion-cleanup') {
     const [repo, requestId, preparedPath] = args; if (args.length !== 3) throw new Error('completion-cleanup accepts repo requestId preparedPath only'); const prepared = JSON.parse(fs.readFileSync(preparedPath, 'utf8'));
@@ -725,7 +890,7 @@ export function run(argv = process.argv.slice(2)) {
     const [tool] = args; const result = spawnSync(tool, tool === 'codex' ? ['login', 'status'] : ['auth', 'status'], { encoding: 'utf8' });
     process.stdout.write(`${jcs({ available: !result.error && result.status === 0, exit_code: result.status ?? null })}\n`); return;
   }
-  throw new Error('usage: review-policy.mjs canonical-plan|schema|validate-reviewer|bundle|completion-prepare|completion-cleanup|probe ...');
+  throw new Error('usage: review-policy.mjs canonical-plan|schema|validate-reviewer|bundle|verify-bundle|completion-prepare|completion-cleanup|probe ...');
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

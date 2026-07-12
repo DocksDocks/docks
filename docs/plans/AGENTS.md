@@ -70,6 +70,7 @@ affected_paths: []
 related_plans: []
 review_status: null
 planned_at_commit: null
+execution_base_commit: null
 ---
 ```
 
@@ -80,10 +81,15 @@ Status-specific keys are added **only when that status applies** (the same
 |---|---|
 | `status: blocked` | `blocked_reason` (names the external actor + input needed), `blocked_since` (ISO datetime) |
 | `status: scheduled` | `trigger` (`date` \| `manual-approval`), `scheduled_date` (ISO, required for `date`), `auto_execute` (default `false`) |
-| `status: in_review` | `in_review_since` (ISO datetime, set once on `→ in_review`); the completion review diffs `planned_at_commit..HEAD` |
+| `status: in_review` | `in_review_since` (ISO datetime, set once on `→ in_review`); the completion review diffs `execution_base_commit..HEAD` |
 | `status: finished` | `ship_commit` (full SHA under review — branch-agnostic) |
 
-`planned_at_commit` (base frontmatter) is the SHA the plan was scaffolded against (`git rev-parse HEAD`): the drift-check base AND the completion-review diff base.
+`planned_at_commit` is the SHA the plan was scaffolded against and remains the
+draft-input/drift base. `execution_base_commit` is the exact plan-only commit
+that first changes `planned|scheduled → ongoing`; record that SHA in a second
+plan-only identity commit before implementation. Completion validates ancestry
+and the start transition, then diffs `execution_base_commit..HEAD`, excluding
+concurrent work that landed before execution.
 
 All time-valued keys (`created`, `updated`, `started_at`, `blocked_since`,
 `scheduled_date`, `in_review_since`) are **ISO 8601 datetimes with offset**
@@ -120,7 +126,7 @@ headings:
 | `## Environment & how-to-run` | substantive | runtime/tool versions, env vars, and the exact install/build/test/lint commands **with flags** (`pnpm test`, `pytest -v`) — an executor references these constantly |
 | `## Steps` | **yes** | the `# / Task / Files / Depends / Status` table — **every row names the exact path(s)** it creates/modifies (`path:line-range` when editing); status enum `planned/in-flight/done/blocked/skipped` |
 | `## Interfaces & data shapes` | multi-file | exact signatures / types / JSON shapes a neighboring task consumes or produces — a task's implementer sees only their own task, so this is how they learn the names and types around them |
-| `## Acceptance criteria` | **yes** | each criterion is a **command + its expected output**, not a prose judgment (EARS phrasing optional) — see "Executable acceptance" |
+| `## Acceptance criteria` | **yes** | a nonempty ordered Markdown table containing required `ID | Command | Expected` columns (optional descriptive columns are allowed); IDs are unique `A1…`, and each row is executable, not prose |
 | `## Out of scope / do-NOT-touch` | substantive | adjacent work excluded, stated positively (an agent cannot infer it from omission); for an implementation plan, a per-file do-NOT-touch list, each with a one-line blast-radius rationale |
 | `## Known gotchas` | when traps exist | framework/repo pitfalls that otherwise live only in conversation |
 | `## Global constraints` | when limits exist | version floors, dependency limits, naming/copy rules, platform reqs — one line each, **copied verbatim** from the spec |
@@ -261,22 +267,28 @@ Creation first commits `planned` (or `scheduled`) without executing. `start`,
 schedule fire, and `auto_execute` use `prepare(intent) → main review dispatch →
 apply`; apply re-hashes the plan, bundle, policy, and waiver before consuming the
 intent once. Missing, stale, or blocked evidence never enters `ongoing`.
-Completion first commits the plan-only `in_review` transition, verifies in an
+The first execution transition is a plan-only commit; its exact SHA is then
+recorded as `execution_base_commit` in a second plan-only commit before any
+implementation. Completion first commits the plan-only `in_review` transition, verifies in an
 unlinked disposable clone, then writes one completion receipt after proving the
 original worktree and Git metadata stayed unchanged.
 
 Canonical input removes only lifecycle fields (`updated`, `status`,
 `started_at`, `in_review_since`, block fields, `assignee`, `review_status`,
-`ship_commit`) plus `review_waivers`, and exact one-line machine records. All
+`ship_commit`, `execution_base_commit`) plus `review_waivers`, and exact one-line machine records. All
 ordinary plan prose remains hashed. Receipts bind the author identity, phase,
 lifecycle intent, immutable commit/head, canonical input, sealed bundle,
 resolved policy+provenance, X/S attempt ledgers, decisions/waivers, finding
 reconciliation, outcome, and time. Any substantive or policy change invalidates
 reuse; excluded lifecycle fields and the receipt's own line do not.
-Completion receipts also carry a derived `completion_verdict`: `regressed` when
-CI fails, a regression is recorded, or a high primary finding exists; otherwise
-`passed` requires `goal_met=yes` and every acceptance met; all other cases are
-`partial`. Frontmatter `review_status` must match this receipt at apply and ship.
+Completion receipts bind `planned_at_commit`, `execution_base_commit`, canonical
+binary diff bytes/hash, and a nonempty ordered acceptance inventory derived from
+the canonical plan. Primary evidence must cover that inventory one-to-one with
+identical IDs, commands, expected values, and order. The derived verdict is
+`regressed` when either passed X/S reviewer says `not_ready`, CI fails, a
+regression is recorded, or a high primary finding exists; otherwise `passed`
+requires `goal_met=yes` and every acceptance met; all other cases are `partial`.
+Frontmatter `review_status` must match at apply and ship.
 Disposable cleanup accepts only the helper-returned prepare identity under
 `/tmp/docks-plan-verify`, bound to its random token, original snapshot, reviewed
 head, source tree, canonical path, and sentinel—never a caller-selected root.
@@ -339,11 +351,11 @@ from committed state — the user can amend.
 | Transition | What plan-manager does |
 |---|---|
 | New plan | Draft + self-review, then `Write` `active/<slug>.md`, `status: planned` (`scheduled` if it has a trigger). `created`+`updated` = now; **set `planned_at_commit`** (`git rev-parse HEAD`) as the drift + review base. |
-| Start | `status: ongoing`, **set `started_at` (first time only)**, dispatch to assignee. No `git mv`. |
+| Start | Commit only `status: ongoing` + first `started_at`; capture that exact commit SHA, then record it as `execution_base_commit` in a second plan-only commit before dispatch. No `git mv`. |
 | Block | `status: blocked`, set `blocked_reason` + `blocked_since`. No `git mv`. |
 | Unblock | `status: ongoing`, clear `blocked_reason`/`blocked_since`. `started_at` unchanged. |
 | Schedule fires | `status: ongoing`, drop scheduled-only keys, set `started_at`, dispatch. (An `auto_execute` plan still halts at `in_review` for a human ship.) |
-| Steps complete → review | When every `## Steps` row is `done`: `status: in_review`, set `in_review_since`, **auto-dispatch `plan-review`** (completion review — diffs `planned_at_commit..HEAD`, writes `## Review` + `review_status`, file stays in `active/`). No `git mv`. |
+| Steps complete → review | When every `## Steps` row is `done`: `status: in_review`, set `in_review_since`, **auto-dispatch `plan-review`** (completion validates planned/start ancestry, diffs `execution_base_commit..HEAD`, writes `## Review` + `review_status`, file stays in `active/`). No `git mv`. |
 | Ship | Allowed only when `review_status: passed` and it matches a current derived-passed completion receipt (on `partial`/`regressed`, fix first; if `null`, dispatch the review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit` (HEAD). Carries the existing `## Review` forward — **no re-dispatch** (re-run only if HEAD moved since the review). |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in `## Notes`. Don't delete. |
 
