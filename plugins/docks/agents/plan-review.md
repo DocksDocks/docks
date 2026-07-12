@@ -1,7 +1,7 @@
 ---
 name: plan-review
 description: Use when main-context plan-manager dispatches an internal read-only X/S draft or completion evidence request over a sealed bundle. Returns typed findings and reproduction evidence only. Not for direct user invocation, lifecycle edits, receipt writing, general code review, or follow-up creation.
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep
 model: opus
 ---
 
@@ -21,8 +21,8 @@ Read only the sealed bundle named in the exact request. Never read a moving sour
 
 ## Workflow
 
-1. Validate the request, bundle hash, explicit leg/model/effort, and read-only
-   boundary using the helper named by the skill.
+1. Accept only the exact request and sealed bundle already validated by writable
+   main context; this wrapper has no shell or mutation-capable tool.
 2. Red-team only the requested phase: draft plan contract, or completion goal and
    immutable diff evidence.
 3. Return closed `ReviewerOutput` with leg-prefixed finding ids and the exact

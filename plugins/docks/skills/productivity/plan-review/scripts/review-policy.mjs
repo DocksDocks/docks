@@ -35,17 +35,34 @@ function compareUtf16(a, b) {
 }
 
 export function jcs(value) {
-  if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
+  if (value === null || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'string') {
+    assertUnicodeScalarString(value, 'JCS string');
+    return JSON.stringify(value);
+  }
   if (typeof value === 'number') {
     if (!Number.isSafeInteger(value)) throw new Error('JCS accepts safe integers only');
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map(jcs).join(',')}]`;
   if (typeof value === 'object') {
-    const keys = Object.keys(value).sort(compareUtf16);
+    const keys = Object.keys(value);
+    for (const key of keys) assertUnicodeScalarString(key, 'JCS property key');
+    keys.sort(compareUtf16);
     return `{${keys.map((key) => `${JSON.stringify(key)}:${jcs(value[key])}`).join(',')}}`;
   }
   throw new Error(`unsupported JCS value: ${typeof value}`);
+}
+
+function assertUnicodeScalarString(value, label) {
+  for (let i = 0; i < value.length; i += 1) {
+    const unit = value.charCodeAt(i);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) throw new Error(`${label} contains a lone surrogate`);
+      i += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) throw new Error(`${label} contains a lone surrogate`);
+  }
 }
 
 function decodeUtf8(bytes) {
@@ -614,6 +631,11 @@ function safeLogical(logical) {
   return logical.split(path.sep).join('/');
 }
 
+function sameOrAncestor(ancestorPath, descendantPath) {
+  const prefix = ancestorPath.endsWith('/') ? ancestorPath.slice(0, -1) : ancestorPath;
+  return prefix === descendantPath || descendantPath.startsWith(`${prefix}/`);
+}
+
 function parseTreeRecord(record) {
   const tab = record.indexOf('\t'); if (tab < 0) throw new Error('malformed git tree record');
   const [mode, type, oid] = record.slice(0, tab).split(' '); const logical = record.slice(tab + 1);
@@ -650,14 +672,17 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
   const safePlan = safeLogical(planPath);
   if (fs.existsSync(outDir)) throw new Error('bundle already exists');
   const entries = []; const requested = [];
-  const unique = [...new Set(requestedPaths)].sort(compareUtf16);
+  const normalized = requestedPaths.map(safeLogical); const unique = [...new Set(normalized)].sort(compareUtf16);
   if (unique.length !== requestedPaths.length) throw new Error('duplicate requested path');
-  if (unique.includes(safePlan)) throw new Error('raw plan path is forbidden in requested paths');
+  if (unique.some((logical) => sameOrAncestor(logical, safePlan))) throw new Error('raw plan path or ancestor is forbidden in requested paths');
   if ((plannedAtCommit === null) !== (executionBaseCommit === null)) throw new Error('completion bundle identity must be all-or-none');
   const planEntries = []; const planState = commitPath(repo, reviewedCommit, safePlan, planEntries);
   if (planState.state !== 'file' || planEntries.length !== 1 || !['100644', '100755'].includes(planEntries[0].mode)) throw new Error('logical plan missing or not a regular file at reviewedCommit');
   const canonical = Buffer.from(canonicalPlanView(planEntries[0].bytes));
-  for (const logical of unique) requested.push(commitPath(repo, reviewedCommit, logical, entries));
+  for (const logical of unique) {
+    const start = entries.length; requested.push(commitPath(repo, reviewedCommit, logical, entries));
+    if (entries.slice(start).some((entry) => entry.path === safePlan)) throw new Error('raw plan path was emitted by requested path expansion');
+  }
   entries.push({ path: 'plan.review.md', mode: '100444', bytes: canonical });
   for (const leg of ['X', 'S']) entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
   let completion = null;
@@ -699,14 +724,20 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   if (!manifest || manifestBytes.toString() !== `${jcs(manifest)}\n`) throw new Error('bundle manifest must be compact JCS');
   assertClosed(manifest, ['schema', 'plan_path', 'plan_view', 'reviewer_schemas', 'reviewed_commit', 'input_sha256', 'completion', 'requested', 'files'], 'bundle manifest');
   if (manifest.schema !== 1 || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
+  const planPath = safeLogical(manifest.plan_path);
+  if (planPath !== manifest.plan_path || manifest.plan_view !== 'plan.review.md') throw new Error('bundle plan identity');
+  assertClosed(manifest.reviewer_schemas, ['X', 'S'], 'bundle reviewer schemas');
+  if (manifest.reviewer_schemas.X !== 'reviewer-output.X.schema.json' || manifest.reviewer_schemas.S !== 'reviewer-output.S.schema.json') throw new Error('bundle reviewer schema paths');
   digest(manifest.input_sha256, 'bundle input');
-  const expectedFiles = new Set(['manifest.json']); const entries = [];
+  const expectedFiles = new Set(['manifest.json']); const entries = []; const fileRows = new Map(); let previousFile = null;
   for (const row of manifest.files) {
     assertClosed(row, ['path', 'mode', 'sha256'], 'bundle file'); const logical = safeLogical(row.path);
-    if (expectedFiles.has(logical) || !/^(100444|100644|100755|120000)$/.test(row.mode)) throw new Error('duplicate or invalid bundle file'); digest(row.sha256, 'bundle file'); expectedFiles.add(logical);
+    if (logical !== row.path || expectedFiles.has(logical) || !/^(100444|100644|100755|120000)$/.test(row.mode)) throw new Error('duplicate or invalid bundle file');
+    if (previousFile !== null && compareUtf16(previousFile, logical) >= 0) throw new Error('bundle files are not canonically ordered');
+    previousFile = logical; digest(row.sha256, 'bundle file'); expectedFiles.add(logical);
     const absolute = path.join(root, logical); if (!inside(root, absolute)) throw new Error('bundle file escape'); const stat = fs.lstatSync(absolute);
     if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o444) throw new Error(`bundle file is not sealed read-only: ${logical}`);
-    const bytes = fs.readFileSync(absolute); if (sha256(bytes) !== row.sha256) throw new Error(`bundle file hash mismatch: ${logical}`); entries.push({ bytes });
+    const bytes = fs.readFileSync(absolute); if (sha256(bytes) !== row.sha256) throw new Error(`bundle file hash mismatch: ${logical}`); entries.push({ bytes }); fileRows.set(logical, { ...row, bytes });
   }
   const actualFiles = new Set();
   const visit = (directory) => {
@@ -714,16 +745,41 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
     for (const name of fs.readdirSync(directory)) { const absolute = path.join(directory, name); const relative = path.relative(root, absolute).split(path.sep).join('/'); const child = fs.lstatSync(absolute); if (child.isDirectory()) visit(absolute); else { if (!child.isFile() || child.isSymbolicLink()) throw new Error(`unsupported bundle entry: ${relative}`); actualFiles.add(relative); } }
   };
   visit(root); if (actualFiles.size !== expectedFiles.size || [...actualFiles].some((file) => !expectedFiles.has(file))) throw new Error('bundle contains missing or extra files');
+  const planView = fileRows.get('plan.review.md');
+  if (!planView || planView.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');
+  for (const leg of ['X', 'S']) {
+    const schemaPath = `reviewer-output.${leg}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg))}\n`;
+    if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg}`);
+  }
+  const reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json']);
   if (manifest.completion !== null) {
     assertClosed(manifest.completion, ['planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_path', 'diff_sha256', 'acceptance_inventory_path', 'acceptance_inventory_sha256'], 'bundle completion');
     if (manifest.completion.reviewed_head !== manifest.reviewed_commit) throw new Error('bundle completion head mismatch');
     for (const key of ['planned_at_commit', 'execution_base_commit', 'reviewed_head']) if (!HEX40.test(manifest.completion[key])) throw new Error('bundle completion commit');
     digest(manifest.completion.diff_sha256, 'bundle completion diff'); digest(manifest.completion.acceptance_inventory_sha256, 'bundle completion inventory');
-    const diff = fs.readFileSync(path.join(root, safeLogical(manifest.completion.diff_path))); if (sha256(diff) !== manifest.completion.diff_sha256) throw new Error('bundle completion diff mismatch');
-    const inventoryBytes = fs.readFileSync(path.join(root, safeLogical(manifest.completion.acceptance_inventory_path))); let inventory;
+    if (manifest.completion.diff_path !== 'completion.diff' || manifest.completion.acceptance_inventory_path !== 'acceptance-inventory.json') throw new Error('bundle completion paths');
+    const diffRow = fileRows.get('completion.diff'); const inventoryRow = fileRows.get('acceptance-inventory.json');
+    if (!diffRow || diffRow.mode !== '100444' || !inventoryRow || inventoryRow.mode !== '100444') throw new Error('bundle completion files');
+    reserved.add('completion.diff'); reserved.add('acceptance-inventory.json');
+    const diff = diffRow.bytes; if (sha256(diff) !== manifest.completion.diff_sha256) throw new Error('bundle completion diff mismatch');
+    const inventoryBytes = inventoryRow.bytes; let inventory;
     try { inventory = JSON.parse(inventoryBytes); } catch { throw new Error('bundle acceptance inventory is not JSON'); }
     if (inventoryBytes.toString() !== `${jcs(inventory)}\n` || sha256(jcs(validateAcceptanceInventory(inventory))) !== manifest.completion.acceptance_inventory_sha256) throw new Error('bundle acceptance inventory mismatch');
   }
+  const evidencePaths = [...fileRows.keys()].filter((logical) => !reserved.has(logical)); const coverage = new Map(evidencePaths.map((logical) => [logical, 0])); const requestedPaths = new Set(); let previousRequested = null;
+  for (const row of manifest.requested) {
+    assertClosed(row, ['path', 'state'], 'bundle requested path'); const logical = safeLogical(row.path);
+    if (logical !== row.path || requestedPaths.has(logical) || !['absent', 'file', 'directory'].includes(row.state)) throw new Error('bundle requested path identity');
+    if (previousRequested !== null && compareUtf16(previousRequested, logical) >= 0) throw new Error('bundle requested paths are not canonically ordered');
+    previousRequested = logical; requestedPaths.add(logical);
+    if (sameOrAncestor(logical, planPath)) throw new Error('bundle requested path exposes raw plan');
+    const matches = evidencePaths.filter((candidate) => candidate === logical || candidate.startsWith(`${logical}/`));
+    if (row.state === 'absent' && matches.length !== 0) throw new Error('absent requested path has bundle files');
+    if (row.state === 'file' && (matches.length !== 1 || matches[0] !== logical)) throw new Error('file requested path coverage mismatch');
+    if (row.state === 'directory' && (matches.length === 0 || matches.some((candidate) => candidate === logical))) throw new Error('directory requested path coverage mismatch');
+    for (const candidate of matches) coverage.set(candidate, coverage.get(candidate) + 1);
+  }
+  if (evidencePaths.includes(planPath) || [...coverage.values()].some((count) => count !== 1)) throw new Error('bundle requested file coverage or raw plan leak');
   const bundleSha256 = bundleHash(manifestBytes, entries); if (expectedSha256 !== null && bundleSha256 !== expectedSha256) throw new Error('bundle hash mismatch');
   return { schema: 1, bundle_sha256: bundleSha256, manifest };
 }

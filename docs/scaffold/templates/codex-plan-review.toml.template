@@ -23,7 +23,8 @@ schema-v1 transport, or retry an authoritative platform denial elsewhere.
 
 ## Workflow
 
-1. Validate request, bundle hash, leg, model, effort, and read-only boundary.
+1. Accept only the main-context-validated request and bundle; the enforced
+   `read-only` sandbox is mandatory for this evidence-only role.
 2. Review only the requested draft or completion evidence.
 3. Return closed ReviewerOutput with leg-prefixed ids and exact request echo.
 4. Return only this leg's typed reviewer output. Main context owns the writable

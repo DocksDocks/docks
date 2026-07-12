@@ -53,6 +53,10 @@ function mutate(relative, before, after) {
   };
 }
 
+function combine(...mutations) {
+  return (root) => { for (const apply of mutations) apply(root); };
+}
+
 const MUTATIONS = [
   ['passed not_ready bypass', ['--case', 'adversarial'], /not_ready|completion verdict|Assertion/, mutate(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -69,10 +73,32 @@ const MUTATIONS = [
     "if (row.criterion_id !== criterion.id || row.command !== criterion.command || row.expected !== criterion.expected) throw new Error('acceptance evidence order or criterion mismatch');",
     "if (row.criterion_id !== criterion.id || row.expected !== criterion.expected) throw new Error('acceptance evidence order or criterion mismatch');",
   )],
-  ['raw source plan export', [], /raw plan requested path|must reject|Assertion/, mutate(
+  ['raw source plan ancestor defenses', [], /raw plan requested ancestor|must reject|Assertion/, combine(
+    mutate(
+      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+      "if (unique.some((logical) => sameOrAncestor(logical, safePlan))) throw new Error('raw plan path or ancestor is forbidden in requested paths');",
+      "if (false) throw new Error('raw plan path or ancestor is forbidden in requested paths');",
+    ),
+    mutate(
+      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+      "if (entries.slice(start).some((entry) => entry.path === safePlan)) throw new Error('raw plan path was emitted by requested path expansion');",
+      "if (false) throw new Error('raw plan path was emitted by requested path expansion');",
+    ),
+  )],
+  ['sealed plan-view semantic binding', [], /plan-B substitution|must reject|Assertion/, mutate(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    "if (unique.includes(safePlan)) throw new Error('raw plan path is forbidden in requested paths');",
-    "if (false) throw new Error('raw plan path is forbidden in requested paths');",
+    "if (!planView || planView.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');",
+    "if (!planView || planView.mode !== '100444') throw new Error('bundle plan view input hash mismatch');",
+  )],
+  ['sealed reviewer-schema semantic binding', [], /reviewer schema substitution|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg}`);",
+    "if (!schema || schema.mode !== '100444') throw new Error(`bundle reviewer schema mismatch: ${leg}`);",
+  )],
+  ['requested-row coverage binding', [], /requested-state substitution|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (row.state === 'file' && (matches.length !== 1 || matches[0] !== logical)) throw new Error('file requested path coverage mismatch');",
+    "if (false) throw new Error('file requested path coverage mismatch');",
   )],
   ['sealed file hash bypass', [], /post-seal bundle mutation|must reject|Assertion/, mutate(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -93,6 +119,21 @@ const MUTATIONS = [
     '.codex/agents/plan-review.toml',
     '- Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.',
     '- CI/acceptance claims require fresh disposable-checkout command evidence.',
+  )],
+  ['Claude evidence wrapper regains Bash', [], /mutation-capable reviewer tools|Assertion/, mutate(
+    'plugins/docks/agents/plan-review.md',
+    'tools: Read, Glob, Grep',
+    'tools: Read, Glob, Grep, Bash',
+  )],
+  ['JCS lone-surrogate value bypass', [], /lone-surrogate value|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "assertUnicodeScalarString(value, 'JCS string');",
+    "void value; // weakened string validation",
+  )],
+  ['JCS lone-surrogate key bypass', [], /lone-surrogate property key|must reject|Assertion/, mutate(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "for (const key of keys) assertUnicodeScalarString(key, 'JCS property key');",
+    "for (const key of keys) void key; // weakened property-key validation",
   )],
   ['GitHub publishing contract loss', [], /publishing operation|Assertion/, mutate(
     'plugins/docks/skills/productivity/plan-manager/SKILL.md',

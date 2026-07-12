@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -88,6 +88,29 @@ function makeWritable(target) {
   } else fs.chmodSync(target, 0o644);
 }
 
+function makeReadOnly(target) {
+  const stat = fs.lstatSync(target);
+  if (stat.isDirectory()) {
+    for (const name of fs.readdirSync(target)) makeReadOnly(path.join(target, name));
+    fs.chmodSync(target, 0o555);
+  } else fs.chmodSync(target, 0o444);
+}
+
+function testBundleHash(root, manifestBytes, manifest) {
+  const hash = createHash('sha256'); hash.update(Buffer.from(String(manifestBytes.length))); hash.update(Buffer.from([0])); hash.update(manifestBytes);
+  for (const row of manifest.files) {
+    const bytes = fs.readFileSync(path.join(root, row.path)); hash.update(Buffer.from(String(bytes.length))); hash.update(Buffer.from([0])); hash.update(bytes);
+  }
+  return hash.digest('hex');
+}
+
+function copiedResealedBundle(source, target, mutate) {
+  fs.cpSync(source, target, { recursive: true }); makeWritable(target);
+  const manifestPath = path.join(target, 'manifest.json'); const manifest = JSON.parse(fs.readFileSync(manifestPath)); mutate(manifest, target);
+  const manifestBytes = Buffer.from(`${jcs(manifest)}\n`); fs.writeFileSync(manifestPath, manifestBytes); makeReadOnly(target);
+  return { manifest, bundle_sha256: testBundleHash(target, manifestBytes, manifest) };
+}
+
 function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' }); assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`); return result.stdout.trim();
 }
@@ -112,6 +135,9 @@ function testCanonical() {
   const parsed = parsePlan(raw);
   assert.equal(parsed.frontmatter.status, 'planned');
   const view = canonicalPlanView(raw);
+  assert.equal(jcs({ emoji: '\ud83d\ude80' }), '{"emoji":"🚀"}', 'valid surrogate pair has stable JCS');
+  expectThrow('JCS lone-surrogate value', () => jcs({ invalid: '\ud800' }), /lone surrogate/);
+  expectThrow('JCS lone-surrogate property key', () => jcs({ ['\udc00']: 'invalid' }), /lone surrogate/);
   assert.match(view, /Ordinary self-review prose remains canonical/);
   assert.doesNotMatch(view, /Review-receipt:/);
   assert.doesNotMatch(view, /"status"/);
@@ -284,6 +310,35 @@ function testBundle() {
   assert.match(fs.readFileSync(path.join(out, 'reviewer-output.S.schema.json'), 'utf8'), /\^S/);
   assert.equal(verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, sealed.bundle_sha256);
   expectThrow('raw plan requested path', () => sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['docs/plans/active/sample.md'], outDir: path.join(temp, 'raw-plan') }), /raw plan path/);
+  expectThrow('raw plan requested ancestor', () => sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['docs/plans/active'], outDir: path.join(temp, 'raw-plan-ancestor') }), /raw plan path or ancestor|emitted/);
+
+  const substitutedPath = path.join(temp, 'substituted-bundle');
+  const substituted = copiedResealedBundle(out, substitutedPath, (manifest, root) => {
+    const bytes = Buffer.from('unrelated plan B\n'); fs.writeFileSync(path.join(root, 'plan.review.md'), bytes);
+    manifest.files.find((row) => row.path === 'plan.review.md').sha256 = sha256(bytes);
+  });
+  const substitutedRequest = request({ reviewed_commit_or_head: head, input_sha256: sealed.input_sha256, bundle_sha256: substituted.bundle_sha256 });
+  expectThrow('self-consistently resealed plan-B substitution', () => buildReviewerArgv({ tool: 'codex', bundle: substitutedPath, model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'X', request: substitutedRequest }), /plan view input hash mismatch/);
+
+  const schemaPath = path.join(temp, 'schema-substitution');
+  const schemaSubstitution = copiedResealedBundle(out, schemaPath, (manifest, root) => {
+    const bytes = Buffer.from(`${jcs(reviewerSchema('X'))}\n`); fs.writeFileSync(path.join(root, 'reviewer-output.S.schema.json'), bytes);
+    manifest.files.find((row) => row.path === 'reviewer-output.S.schema.json').sha256 = sha256(bytes);
+  });
+  expectThrow('self-consistently resealed reviewer schema substitution', () => verifyBundle({ bundle: schemaPath, expectedSha256: schemaSubstitution.bundle_sha256 }), /reviewer schema mismatch/);
+
+  const requestedPath = path.join(temp, 'requested-state-substitution');
+  const requestedSubstitution = copiedResealedBundle(out, requestedPath, (manifest) => { manifest.requested.find((row) => row.path === 'src').state = 'file'; });
+  expectThrow('self-consistently resealed requested-state substitution', () => verifyBundle({ bundle: requestedPath, expectedSha256: requestedSubstitution.bundle_sha256 }), /requested path coverage/);
+
+  const leakedPath = path.join(temp, 'raw-plan-leak');
+  const leaked = copiedResealedBundle(out, leakedPath, (manifest, root) => {
+    const logical = 'docs/plans/active/sample.md'; const bytes = fs.readFileSync(FIXTURE); const absolute = path.join(root, logical);
+    fs.mkdirSync(path.dirname(absolute), { recursive: true }); fs.writeFileSync(absolute, bytes);
+    manifest.requested.push({ path: 'docs/plans/active', state: 'directory' }); manifest.requested.sort((a, b) => a.path.localeCompare(b.path));
+    manifest.files.push({ path: logical, mode: '100644', sha256: sha256(bytes) }); manifest.files.sort((a, b) => a.path.localeCompare(b.path));
+  });
+  expectThrow('self-consistently resealed raw-plan leak', () => verifyBundle({ bundle: leakedPath, expectedSha256: leaked.bundle_sha256 }), /exposes raw plan|raw plan leak/);
   fs.chmodSync(path.join(out, 'plan.review.md'), 0o644); expectThrow('post-seal writable mode', () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }), /not sealed read-only/); fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
   fs.chmodSync(path.join(out, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(out, 'plan.review.md'), 'tamper\n'); fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
   expectThrow('post-seal file mutation without caller hash', () => verifyBundle({ bundle: out }), /file hash mismatch/);
@@ -293,7 +348,7 @@ function testBundle() {
   expectThrow('submodule tree entry', () => sealBundle({ repo, reviewedCommit: submoduleHead, planPath: 'docs/plans/active/sample.md', requestedPaths: ['vendor'], outDir: path.join(temp, 'submodule-bundle') }), /submodule is unsupported/);
   assert.equal(fs.existsSync(path.join(temp, 'submodule-bundle')), false, 'failed seal leaves no partial bundle');
   assert.equal(fs.statSync(out).mode & 0o222, 0, 'bundle root read-only');
-  makeWritable(out); fs.rmSync(temp, { recursive: true, force: true });
+  makeWritable(temp); fs.rmSync(temp, { recursive: true, force: true });
   console.log('bundle manifest/hash goldens passed');
 }
 
@@ -403,11 +458,12 @@ function testReviewRunnerSurfaces() {
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
-    assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*Edit/i, `${file} retains writer instructions`);
+    assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*(?:Bash|Edit|Write)/i, `${file} retains mutation-capable reviewer tools or writer instructions`);
     assert.doesNotMatch(text, /acting as primary evidence runner|CI\/acceptance claims require/i, `${file} assigns writable primary work to read-only wrapper`);
     assert.match(text, /Never run or claim CI, acceptance, clone, cleanup, or lifecycle work/i, `${file} lacks explicit X\/S write boundary`);
   }
-  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-review.md'), 'utf8'), /Return evidence only/);
+  const claudeWrapper = fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-review.md'), 'utf8');
+  assert.match(claudeWrapper, /^tools: Read, Glob, Grep$/m); assert.match(claudeWrapper, /Return evidence only/);
   for (const file of ['.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /Return typed evidence only/);
   assert.match(fs.readFileSync(path.join(ROOT, '.codex/agents/plan-review.toml'), 'utf8'), /sandbox_mode = "read-only"/);
   console.log('plan-review evidence-only live/generated wrapper parity passed');
