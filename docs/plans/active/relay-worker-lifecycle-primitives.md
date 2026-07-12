@@ -3,7 +3,7 @@ title: Build relay worker lifecycle primitives
 goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
 status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-11T22:31:00-03:00"
+updated: "2026-07-11T22:34:54-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 tags: [session-relay, lifecycle, rust, safety]
@@ -1097,7 +1097,9 @@ Adversarial cold-read result: a cold executor need not invent binding serializat
 
 ## Self-review
 
-Score: **96/100 (provisional Draft-11 author pass)** · trajectory **96 Draft-10 author → 94/NOT READY dual state-graph check → 96 explicit-transition repair** · stopped: **pending final targeted recheck**.
+Score: **97/100 (Draft-11 dual-review READY)** · trajectory **96 Draft-10 author → 94/NOT READY dual state-graph check → 96 explicit-transition repair → 98 architecture READY / 97 acceptance READY** · stopped: **review complete; implementation may resume**.
+
+**Immutable Draft-11 recheck (`9bc4c24`, 2026-07-11):** Independent architecture review returned **READY 98/100** and acceptance review returned **READY 97/100**. Both confirmed the closed graph, cancel-first deadline bind, reap-with-waiter exactly-once path, no-waiter return, claim-first staleness, audit-only late losers, and UnmanagedCanceling permit alignment. The reviewers were read-only; the orchestrator independently ran `git diff --check`, `node scripts/tree/guard.mjs`, and `node scripts/ci.mjs --plugin session-relay` green before this verdict record.
 
 **Draft-11 repair (2026-07-11):** Both targeted Draft-10 reviewers found the same narrow contradiction: the cancel-deadline acceptance required `UnmanagedCanceling→Managed/FencingUnconfirmed`, while the closed graph forbade it. Draft-11 explicitly adds the exact atomic binding transition and exceptional `Attaching→FencingUnconfirmed` only for that deadline, plus the reap-with-waiter `→Claiming` path, exactly-once Active finalization, late-event loser behavior, and matching A2 rows. It also aligns TurnCancellationPermit use-time resolution with UnmanagedCanceling.
 
