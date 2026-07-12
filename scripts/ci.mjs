@@ -91,6 +91,12 @@ if (fs.existsSync('docs/scaffold/spec.yaml')) {
     : fail('scaffold/test failed (run: node scripts/scaffold/test.mjs)');
 }
 
+section('plan review policy');
+nodeOk(['scripts/tests/plan-review-policy.mjs']) ? ok('plan-review-policy contract passed')
+  : fail('plan-review-policy contract failed (run: node scripts/tests/plan-review-policy.mjs)');
+nodeOk(['scripts/tests/plan-review-policy-mutations.mjs', '--self-test']) ? ok('plan-review-policy mutations passed')
+  : fail('plan-review-policy mutations failed (run: node scripts/tests/plan-review-policy-mutations.mjs --self-test)');
+
 // ============================ per-plugin gate ============================
 for (const p of targets) gatePlugin(p);
 

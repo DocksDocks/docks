@@ -50,6 +50,8 @@ Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills brid
 
 `plan-manager` and `plan-review` ship as thin opus-tier Claude subagents (`plugins/docks/agents/`) so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills. Codex plugin installs do not ship subagents, but `plan-init` and `scaffold` can seed project-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers for explicit Codex custom-agent delegation; otherwise Codex runs the skills inline.
 
+Every plan receives independent X/S review before execution by default: the best available other-company model plus an independent author-company reviewer. The policy degrades by availability, so one subscription is never a hard block; standing cross-company consent can suppress Docks' picker but cannot bypass host security. Reviewers consume one sealed read-only bundle, while main-context plan-manager remains the sole receipt and lifecycle writer.
+
 ## Repository layout
 
 ```

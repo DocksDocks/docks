@@ -75,6 +75,8 @@ Multi-commit work plans live in `docs/plans/active/` (lifecycle stage is the `st
 
 The full convention (frontmatter schema, body spine, status-as-field model, the self-review rubric, open-questions via the native picker, status-specific age tokens like `2d in flight` / `blocked 47d` / `shipped 4d ago`) lives in `docs/plans/AGENTS.md` (cross-tool source of truth). Claude agents `plan-manager` and `plan-review` exist as thin opus-tier wrappers around their skills, for inter-agent `Agent(subagent_type=...)` dispatch — not for direct user invocation. Codex project agents in `.codex/agents/` provide the same repo-local focused wrappers when explicit Codex subagent delegation is useful.
 
+Independent X/S plan review is a strong, availability-aware pre-execution default. Main-context plan-manager owns `prepare → review dispatch → apply` and all lifecycle writes; plan-review is internal evidence-only. Portable schema-v1 legs use explicit-model read-only Codex/Claude CLIs or an in-session read-only dispatch, never session-relay. Standing cross-company consent suppresses only Docks' consent prompt and never overrides host policy; one available reviewer is sufficient with exact degradation recorded.
+
 ## Project-local skills
 
 The repo's own `.agents/skills/` hosts skills useful only when working ON this plugin repo — they don't ship to consumers:

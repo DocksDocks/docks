@@ -4,8 +4,8 @@ description: Use when bootstrapping the docs/plans/ convention in a new or exist
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-09"
-  content_hash: "f27157115308a263084396fd58e4341d733f9dc3ed7c1e40db3180758be78877"
+  updated: "2026-07-12"
+  content_hash: "4cf4414bf9d438f627608b9acca4674349b705b3d8547fbe6e87a0160dc44a60"
 ---
 
 # Plans Directory Bootstrapper
@@ -13,7 +13,8 @@ metadata:
 Bootstraps (or migrates to) the `docs/plans/` convention: two folders —
 `active/` + `finished/` — with a plan's lifecycle stage carried in its `status:`
 frontmatter field, not its directory. The `.md` is the only tracked artifact;
-views render on demand. The full contract is `references/plans-agents-md-template.md`.
+views render on demand. The full contract is `references/plans-agents-md-template.md`,
+including author identity and the strong-default independent-review gate.
 When missing, it also seeds thin project-local Codex wrappers in `.codex/agents/`
 for plan-manager and plan-review; those wrappers point back to the canonical
 skills and are not plugin payload.
@@ -126,7 +127,7 @@ Write as a stub or append to the root `AGENTS.md` (or `CLAUDE.md` when AGENTS.md
 Multi-commit work plans live in `docs/plans/active/` (status is a frontmatter field) and `docs/plans/finished/` (archive). Every plan file is a complete cold-handoff document — goal, context & rationale, environment & how-to-run, steps with exact paths, executable acceptance criteria, and a binary cold-handoff checklist — so any agent (or a weaker model) can pick one up cold without guessing. Skills handle every operation: `plan-init` (bootstrap/migrate), `plan-manager` (list/show/start/block/ship/new, auto-commit on transition, self-review on draft), `plan-review` (verification). Trigger by natural language or the matching `plan-*` skill. `active/` is multi-occupancy.
 </constraint>
 
-The full convention (frontmatter schema, body sections, self-review loop, open-questions, age tokens) lives in `docs/plans/AGENTS.md`. `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested discovery. If `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` exist, Codex may use them for explicit subagent delegation; otherwise run the matching `plan-*` skill inline.
+The full convention (frontmatter schema, body sections, self-review loop, strong-default X/S review receipts, open-questions, age tokens) lives in `docs/plans/AGENTS.md`. `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested discovery. If `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` exist, Codex may use them for explicit subagent delegation; otherwise run the matching `plan-*` skill inline.
 ```
 
 ## Codex Agent Defaults
