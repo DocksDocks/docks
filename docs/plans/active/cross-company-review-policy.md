@@ -1,10 +1,10 @@
 ---
 title: Make cross-company plan review the strong default
 goal: Make dual independent plan review a strong, availability-aware default via read-only portable CLIs, canonical receipts, and model-agnostic orchestration overridable by runtime-global guidance.
-status: planned
+status: ongoing
 created: "2026-07-11T14:44:27-03:00"
-updated: "2026-07-11T23:24:01-03:00"
-started_at: null
+updated: "2026-07-12T00:37:40-03:00"
+started_at: "2026-07-12T00:37:40-03:00"
 assignee: null
 review_author_company: anthropic
 review_author_tool: claude
