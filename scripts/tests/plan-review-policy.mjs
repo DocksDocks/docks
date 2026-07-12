@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   applyLifecycleState, buildReviewerArgv, canonicalPlanView, classifyLeg, extractReviewerOutput, jcs, parsePlan,
-  reviewerSchema, sealBundle, sha256, validatePolicy, validateRequest,
+  reviewerSchema, sealBundle, sha256, validateDraftReceipt, validatePolicy, validateRequest,
   validateReviewerOutput, validateWaivers,
 } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 
@@ -51,6 +51,27 @@ function makeWritable(target) {
   } else fs.chmodSync(target, 0o644);
 }
 
+function treeDigest(root) {
+  const rows = [];
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(dir).sort()) {
+      const target = path.join(dir, name); const rel = path.relative(root, target); const stat = fs.lstatSync(target);
+      if (stat.isDirectory()) { rows.push(`d ${rel} ${stat.mode & 0o777}`); walk(target); }
+      else if (stat.isSymbolicLink()) rows.push(`l ${rel} ${fs.readlinkSync(target)}`);
+      else rows.push(`f ${rel} ${stat.mode & 0o777} ${sha256(fs.readFileSync(target))}`);
+    }
+  };
+  walk(root); return sha256(rows.join('\n'));
+}
+
+function git(cwd, args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' }); assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`); return result.stdout.trim();
+}
+
+function gitBytes(cwd, args) {
+  const result = spawnSync('git', args, { cwd }); assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`); return result.stdout;
+}
+
 function testCanonical() {
   const raw = fs.readFileSync(FIXTURE);
   const parsed = parsePlan(raw);
@@ -83,6 +104,12 @@ function testSchemas() {
     { phase: 'draft', input_sha256: req.input_sha256, legs: ['X'], actor: 'user', reason: 'one', at: '2026-07-12T00:00:00-03:00' },
     { phase: 'draft', input_sha256: req.input_sha256, legs: ['X'], actor: 'user', reason: 'two', at: '2026-07-12T00:00:00-03:00' },
   ], 'draft', req.input_sha256), /duplicate/);
+  const raw = (leg) => ({ schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, decision_evidence: null, reason: 'authentication unavailable' });
+  const persisted = (leg) => ({ request: req, raw: raw(leg), reconciliation: { accepted: [], rejected: [] } });
+  const receipt = { schema: 1, phase: 'draft', request: req, input_sha256: req.input_sha256, reviewed_commit: req.reviewed_commit_or_head, author: { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' }, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), decision_evidence: null, outcome: 'blocked', reviewed_at: '2026-07-12T00:00:00-03:00' };
+  validateDraftReceipt(receipt, req.input_sha256);
+  expectThrow('malformed receipt extra key', () => validateDraftReceipt({ ...receipt, unauthorized_extra: true }, req.input_sha256), /unknown key/);
+  expectThrow('stale receipt input', () => validateDraftReceipt(receipt, 'f'.repeat(64)), /stale/);
   console.log('schema closure goldens passed');
 }
 
@@ -129,7 +156,16 @@ function testLifecycle() {
   assert.equal(applyLifecycleState({ state: 'planned', intent: 'start', eligible: true, intentUsed: true }).applied, false);
   expectThrow('wrong state start', () => applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true }), /requires planned/);
   expectThrow('wrong state fire', () => applyLifecycleState({ state: 'planned', intent: 'schedule_fire', eligible: true }), /requires scheduled/);
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-lifecycle-')); const original = path.join(temp, 'original'); const verify = path.join(temp, 'verify');
+  fs.mkdirSync(original); git(original, ['init', '-q']); git(original, ['config', 'user.email', 'policy@example.test']); git(original, ['config', 'user.name', 'Policy Test']);
+  fs.writeFileSync(path.join(original, 'result.txt'), 'original\n'); git(original, ['add', 'result.txt']); git(original, ['commit', '-qm', 'fixture']); const head = git(original, ['rev-parse', 'HEAD']);
+  const before = treeDigest(original); git(temp, ['clone', '-q', '--no-local', '--no-checkout', original, verify]); git(verify, ['checkout', '-q', '--detach', head]);
+  fs.writeFileSync(path.join(verify, 'ci-artifact.txt'), 'disposable only\n'); fs.writeFileSync(path.join(verify, '.docks-plan-verify-sentinel'), 'owned\n');
+  assert.equal(treeDigest(original), before, 'original repo + complete .git digest unchanged');
+  assert.ok(fs.existsSync(path.join(verify, '.docks-plan-verify-sentinel')), 'cleanup sentinel'); fs.rmSync(verify, { recursive: true, force: true }); assert.equal(treeDigest(original), before);
+  fs.rmSync(temp, { recursive: true, force: true });
   console.log('lifecycle: planned/scheduled preservation, start/fire/auto gating and one-intent consumption passed');
+  console.log('lifecycle: git clone --no-local disposable CI and complete original repo+.git digest passed');
 }
 
 function testConsumer() {
@@ -152,6 +188,11 @@ function testContractSurfaces() {
   for (const file of ['AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md']) {
     assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /strong|Strong|independent X\/S|independent-review/, `${file} missing public review route`);
   }
+  assert.match(fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8'), /Independent X\/S plan review/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8'), /Every plan receives independent X\/S review/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/README.md'), 'utf8'), /Plan review is a strong availability-aware default/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/AGENTS.md'), 'utf8'), /independent-review contract/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8'), /strong-default X\/S review receipts/);
   console.log('contract/template/public strong-default parity passed');
 }
 
@@ -166,6 +207,8 @@ function testReviewRunnerSurfaces() {
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
     assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*Edit/i, `${file} retains writer instructions`);
   }
+  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-review.md'), 'utf8'), /Return evidence only/);
+  for (const file of ['.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /Return typed evidence only/);
   assert.match(fs.readFileSync(path.join(ROOT, '.codex/agents/plan-review.toml'), 'utf8'), /sandbox_mode = "read-only"/);
   console.log('plan-review evidence-only live/generated wrapper parity passed');
 }
@@ -189,13 +232,26 @@ function testRelayBoundary() {
 }
 
 function testSelfDemo(planPath) {
-  const raw = fs.readFileSync(path.resolve(ROOT, planPath), 'utf8');
+  const absolute = path.resolve(ROOT, planPath); const raw = fs.readFileSync(absolute, 'utf8');
   const match = raw.match(/^Bootstrap-review-record: (\{.*\})$/m); assert.ok(match, 'compact bootstrap record present');
   const record = JSON.parse(match[1]);
   assert.deepEqual(Object.keys(record).sort(), ['S', 'X', 'kind', 'plan_blob_sha256', 'plan_path', 'reviewed_commit', 'schema']);
   assert.equal(record.kind, 'bootstrap_not_reusable'); assert.match(record.reviewed_commit, /^[0-9a-f]{40}$/); assert.match(record.plan_blob_sha256, /^[0-9a-f]{64}$/);
   assert.equal(record.X.verdict, 'ready'); assert.equal(record.S.result, 'platform_denied'); assert.equal(record.S.attempted, false);
-  console.log('self-demo: closed bootstrap record and degraded S evidence passed');
+  const candidate = gitBytes(ROOT, ['show', `${record.reviewed_commit}:${record.plan_path}`]); assert.equal(sha256(candidate), record.plan_blob_sha256, 'bootstrap plan blob binding');
+  assert.equal(record.X.findings_sha256, sha256(jcs([])), 'bootstrap X empty findings hash');
+  assert.deepEqual(Object.keys(record.S).sort(), ['attempted', 'denial_source', 'reason', 'result', 'reviewed_at', 'selected']);
+  const commits = git(ROOT, ['log', '--reverse', '--format=%H', '--', planPath]).split('\n');
+  const recordCommit = commits.find((commit) => gitBytes(ROOT, ['show', `${commit}:${planPath}`]).toString().includes(match[0])); assert.ok(recordCommit, 'record-only commit found');
+  const beforeRecord = gitBytes(ROOT, ['show', `${recordCommit}^:${planPath}`]); const afterRecord = gitBytes(ROOT, ['show', `${recordCommit}:${planPath}`]);
+  assert.equal(canonicalPlanView(beforeRecord), canonicalPlanView(afterRecord), 'record-only commit preserves canonical input');
+
+  const input = sha256(canonicalPlanView(Buffer.from(raw))); const req = request({ input_sha256: input, reviewed_commit_or_head: git(ROOT, ['rev-parse', 'HEAD']) });
+  const rawLeg = (leg) => ({ schema: 1, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 }, waiver: null, decision_evidence: null, reason: 'synthetic helper conformance only' });
+  const persisted = (leg) => ({ request: req, raw: rawLeg(leg), reconciliation: { accepted: [], rejected: [] } });
+  validateDraftReceipt({ schema: 1, phase: 'draft', request: req, input_sha256: input, reviewed_commit: req.reviewed_commit_or_head, author: { company: 'anthropic', tool: 'claude', model: 'unknown', effort: 'unknown' }, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), decision_evidence: null, outcome: 'blocked', reviewed_at: '2026-07-12T00:00:00-03:00' }, input);
+  console.log('self-demo: bootstrap commit/blob/findings/degraded-S and record-only canonical invariant passed');
+  console.log('self-demo: new-helper synthetic conformance receipt validates current implementation input and is not pre-gating proof');
 }
 
 const args = process.argv.slice(2);

@@ -196,6 +196,72 @@ function validateFinding(finding, leg, ids) {
   for (const key of ['path', 'locator']) if (finding[key] !== null && typeof finding[key] !== 'string') throw new Error(key);
 }
 
+function validateDecision(decision, request) {
+  if (decision === null) return;
+  const common = ['schema', 'kind', 'decision', 'actor', 'reason', 'at', 'request_id', 'input_sha256'];
+  assertClosed(decision, common, 'decision');
+  if (decision.schema !== 1 || decision.request_id !== request.request_id || decision.input_sha256 !== request.input_sha256) throw new Error('decision request mismatch');
+  oneOf(decision.kind, new Set(['x_consent', 'zero_reviewer']), 'decision kind');
+  oneOf(decision.decision, decision.kind === 'x_consent' ? new Set(['allow', 'deny']) : new Set(['proceed', 'block']), 'decision');
+  string(decision.actor, 'decision actor'); string(decision.reason, 'decision reason'); iso(decision.at, 'decision at');
+}
+
+function validateAttempt(attempt) {
+  const keys = ['schema', 'model', 'effort', 'transport', 'started', 'output_started', 'result', 'exit_code', 'signal', 'child_id', 'denial_source', 'retry_cause', 'timeout_mode', 'timeout_seconds', 'reason', 'stdout_sha256', 'stderr_sha256'];
+  assertClosed(attempt, keys, 'attempt'); if (attempt.schema !== 1) throw new Error('attempt schema');
+  string(attempt.model, 'attempt model'); string(attempt.effort, 'attempt effort'); oneOf(attempt.transport, new Set(['in_session', 'cli']), 'attempt transport');
+  if (typeof attempt.started !== 'boolean' || typeof attempt.output_started !== 'boolean') throw new Error('attempt booleans');
+  oneOf(attempt.result, ATTEMPT_RESULTS, 'attempt result');
+  if (attempt.exit_code !== null && !Number.isInteger(attempt.exit_code)) throw new Error('attempt exit code');
+  for (const key of ['signal', 'child_id', 'reason']) if (typeof attempt[key] !== 'string' && attempt[key] !== null) throw new Error(`attempt ${key}`);
+  if (attempt.denial_source !== null) oneOf(attempt.denial_source, new Set(['sandbox', 'managed_policy', 'runtime_policy']), 'denial source');
+  if (attempt.retry_cause !== null) oneOf(attempt.retry_cause, new Set(['transport_EAGAIN', 'transport_ETIMEDOUT', 'transport_ECONNRESET']), 'retry cause');
+  if (attempt.timeout_mode !== null) oneOf(attempt.timeout_mode, new Set(['gnu_timeout', 'orchestrator_tool']), 'timeout mode');
+  if (attempt.timeout_seconds !== 600) throw new Error('timeout seconds');
+  for (const key of ['stdout_sha256', 'stderr_sha256']) if (attempt[key] !== null) digest(attempt[key], key);
+}
+
+export function validateRawLeg(raw, request, leg, eligibleTierCount) {
+  const keys = ['schema', 'leg', 'request', 'result', 'attempts', 'selected', 'findings', 'findings_sha256', 'severity_totals', 'waiver', 'decision_evidence', 'reason'];
+  assertClosed(raw, keys, 'raw leg'); if (raw.schema !== 1 || raw.leg !== leg || jcs(raw.request) !== jcs(request)) throw new Error('raw leg request mismatch');
+  oneOf(raw.result, LEG_RESULTS, 'leg result'); if (!Array.isArray(raw.attempts) || raw.attempts.length > eligibleTierCount + 1) throw new Error('raw leg attempt bound'); raw.attempts.forEach(validateAttempt);
+  if (raw.selected !== null) { assertClosed(raw.selected, ['model', 'effort', 'transport'], 'selected'); string(raw.selected.model, 'selected model'); string(raw.selected.effort, 'selected effort'); oneOf(raw.selected.transport, new Set(['in_session', 'cli']), 'selected transport'); }
+  if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => validateFinding(finding, leg, ids));
+  assertClosed(raw.severity_totals, ['high', 'medium', 'low'], 'severity totals'); for (const value of Object.values(raw.severity_totals)) if (!Number.isInteger(value) || value < 0) throw new Error('severity total');
+  const totals = { high: 0, medium: 0, low: 0 }; raw.findings.forEach((finding) => { totals[finding.severity] += 1; }); if (jcs(totals) !== jcs(raw.severity_totals)) throw new Error('severity totals mismatch');
+  if (raw.findings.length) { digest(raw.findings_sha256, 'findings hash'); if (raw.findings_sha256 !== sha256(jcs([...raw.findings].sort((a, b) => compareUtf16(a.id, b.id))))) throw new Error('findings hash mismatch'); } else if (raw.findings_sha256 !== null) throw new Error('empty findings hash');
+  validateDecision(raw.decision_evidence, request);
+  if (raw.result === 'passed' && (raw.selected === null || raw.attempts.at(-1)?.result !== 'passed' || raw.reason !== null || raw.waiver !== null)) throw new Error('invalid passed leg');
+  if (raw.result === 'waived' && (raw.waiver === null || raw.attempts.length || raw.findings.length)) throw new Error('invalid waived leg');
+  if (!['passed', 'waived', 'not_authorized'].includes(raw.result)) string(raw.reason, 'terminal leg reason');
+  return raw;
+}
+
+export function validateReconciliation(reconciliation, findings) {
+  assertClosed(reconciliation, ['accepted', 'rejected'], 'reconciliation');
+  if (!Array.isArray(reconciliation.accepted) || !Array.isArray(reconciliation.rejected)) throw new Error('reconciliation arrays');
+  const known = new Set(findings.map((finding) => finding.id)); const used = new Set();
+  for (const id of reconciliation.accepted) { if (!known.has(id) || used.has(id)) throw new Error('accepted finding id'); used.add(id); }
+  for (const row of reconciliation.rejected) { assertClosed(row, ['id', 'reason'], 'rejected finding'); if (!known.has(row.id) || used.has(row.id)) throw new Error('rejected finding id'); string(row.reason, 'rejection reason'); used.add(row.id); }
+  if (used.size !== known.size) throw new Error('reconciliation is not an exact partition');
+  return reconciliation;
+}
+
+function validatePersistedLeg(value, request, leg, tierCount) {
+  assertClosed(value, ['request', 'raw', 'reconciliation'], 'persisted leg'); if (jcs(value.request) !== jcs(request)) throw new Error('persisted request mismatch');
+  validateRawLeg(value.raw, request, leg, tierCount); validateReconciliation(value.reconciliation, value.raw.findings);
+}
+
+export function validateDraftReceipt(receipt, expectedInput = null) {
+  const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'decision_evidence', 'outcome', 'reviewed_at'];
+  assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== 1 || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
+  if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('draft receipt input mismatch'); if (expectedInput && receipt.input_sha256 !== expectedInput) throw new Error('stale draft receipt');
+  assertClosed(receipt.author, ['company', 'tool', 'model', 'effort'], 'author'); oneOf(receipt.author.company, new Set(['openai', 'anthropic', 'unknown']), 'author company'); for (const key of ['tool', 'model', 'effort']) string(receipt.author[key], `author ${key}`);
+  if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('receipt policy mismatch');
+  validatePersistedLeg(receipt.X, receipt.request, 'X', receipt.request.policy.openai_tiers.length + receipt.request.policy.anthropic_tiers.length); validatePersistedLeg(receipt.S, receipt.request, 'S', receipt.request.policy.openai_tiers.length + receipt.request.policy.anthropic_tiers.length);
+  validateDecision(receipt.decision_evidence, receipt.request); oneOf(receipt.outcome, new Set(['dual', 'single', 'zero-degraded', 'blocked']), 'outcome'); iso(receipt.reviewed_at, 'reviewed_at'); return receipt;
+}
+
 export function validateReviewerOutput(output, request, leg) {
   assertClosed(output, ['schema', 'leg', 'request', 'verdict', 'score', 'findings', 'confirmations'], 'reviewer output');
   if (output.schema !== 1 || output.leg !== leg || jcs(output.request) !== jcs(request)) throw new Error('reviewer envelope mismatch');

@@ -7,60 +7,83 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const HELPER = path.join(ROOT, 'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs');
-const HARNESS = path.join(ROOT, 'scripts/tests/plan-review-policy.mjs');
-const REQUIRED_SURFACES = [
-  'docs/plans/AGENTS.md',
-  'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md',
-  'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-  'plugins/docks/skills/productivity/plan-review/SKILL.md',
-  'plugins/docks/agents/plan-manager.md',
-  'plugins/docks/agents/plan-review.md',
-  '.codex/agents/plan-manager.toml',
-  '.codex/agents/plan-review.toml',
-  'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md',
-  'docs/scaffold/templates/codex-plan-manager.toml.template',
-  'docs/scaffold/templates/codex-plan-review.toml.template',
-  'docs/scaffold/templates/root-AGENTS.md.template',
-  'AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md',
-  'plugins/session-relay/skills/productivity/session-relay/SKILL.md',
+const HARNESS_PATH = 'scripts/tests/plan-review-policy.mjs';
+const SUPPORT = [
+  'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+  'scripts/tests/fixtures/plan-review-policy/sample-plan.md',
+  HARNESS_PATH,
 ];
+const MUTATIONS = [
+  ['docs/plans/AGENTS.md', 'platform_denied', 'platform-denied'],
+  ['plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md', 'platform_denied', 'platform-denied'],
+  ['plugins/docks/skills/productivity/plan-init/SKILL.md', 'strong-default X/S review receipts', 'optional review receipts'],
+  ['plugins/docks/skills/productivity/plan-manager/SKILL.md', 'NeedsMainReviewDispatch', 'MissingMainDispatch'],
+  ['plugins/docks/skills/productivity/plan-review/SKILL.md', '--skip-git-repo-check', '--require-git-repo'],
+  ['plugins/docks/agents/plan-manager.md', 'Never launch X/S', 'Launch X/S'],
+  ['plugins/docks/agents/plan-review.md', 'Return evidence only', 'Return prose only'],
+  ['.codex/agents/plan-manager.toml', 'Never launch X/S', 'Launch X/S'],
+  ['.codex/agents/plan-review.toml', 'Return typed evidence only', 'Return prose only'],
+  ['plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'NeedsMainReviewDispatch', 'MissingMainDispatch'],
+  ['docs/scaffold/templates/codex-plan-manager.toml.template', 'Never launch X/S', 'Launch X/S'],
+  ['docs/scaffold/templates/codex-plan-review.toml.template', 'Return typed evidence only', 'Return prose only'],
+  ['docs/scaffold/templates/root-AGENTS.md.template', 'Review dispatch always returns to main context', 'Review dispatch stays in wrapper'],
+  ['AGENTS.md', 'Independent X/S plan review', 'Optional plan review'],
+  ['README.md', 'Every plan receives independent X/S review', 'Some plans may receive review'],
+  ['plugins/docks/README.md', 'Plan review is a strong availability-aware default', 'Plan review is optional'],
+  ['plugins/docks/skills/AGENTS.md', 'independent-review contract', 'optional-review contract'],
+  ['plugins/session-relay/skills/productivity/session-relay/SKILL.md', 'rejected as a schema-v1 policy', 'accepted as a schema-v1 policy'],
+  ['plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs', '--skip-git-repo-check', '--require-git-repo'],
+];
+const REQUIRED_SURFACES = [...new Set([...SUPPORT, ...MUTATIONS.map(([file]) => file)])];
 
-function run(file, args = [], cwd = ROOT) { return spawnSync(process.execPath, [file, ...args], { cwd, encoding: 'utf8' }); }
-function mustFail(label, result, pattern) {
-  assert.notEqual(result.status, 0, `${label}: mutation unexpectedly passed`);
-  assert.match(`${result.stdout}${result.stderr}`, pattern, `${label}: named failure missing`);
-  console.log(`${label} mutation failed by name`);
+function copyRoot(target) {
+  for (const relative of REQUIRED_SURFACES) {
+    const source = path.join(ROOT, relative); const dest = path.join(target, relative);
+    assert.ok(fs.existsSync(source), `omitted-surface oracle: ${relative}`);
+    fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(source, dest);
+  }
+}
+
+function runHarness(root) {
+  return spawnSync(process.execPath, [path.join(root, HARNESS_PATH)], { cwd: root, encoding: 'utf8' });
+}
+
+function mutate(root, relative, before, after) {
+  const target = path.join(root, relative); const text = fs.readFileSync(target, 'utf8');
+  assert.ok(text.includes(before), `${relative}: mutation anchor missing`);
+  fs.writeFileSync(target, text.split(before).join(after));
 }
 
 try {
   const self = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
   assert.doesNotMatch(self, /from ['"].*review-policy\.mjs['"]/);
   assert.doesNotMatch(self, /from ['"].*plan-review-policy\.mjs['"]/);
-  console.log('mutation driver has no helper/harness/shared-inventory imports');
+  assert.doesNotMatch(self, /spawnSync\([^,]*HELPER/);
+  console.log('mutation driver imports no helper/harness/inventory and spawns harness only');
 
-  for (const surface of REQUIRED_SURFACES) assert.ok(fs.existsSync(path.join(ROOT, surface)), `omitted-surface oracle: ${surface}`);
-  console.log(`omitted-surface oracle covers ${REQUIRED_SURFACES.length} live/generated surfaces`);
+  const baseline = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-baseline-'));
+  copyRoot(baseline);
+  const good = runHarness(baseline); assert.equal(good.status, 0, good.stderr);
+  fs.rmSync(baseline, { recursive: true, force: true });
+  console.log(`omitted-surface oracle covers ${REQUIRED_SURFACES.length} live/generated/helper surfaces`);
 
-  const harness = run(HARNESS);
-  assert.equal(harness.status, 0, harness.stderr); assert.match(harness.stdout, /plan-review-policy contract passed/);
+  for (const [relative, before, after] of MUTATIONS) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-mutation-'));
+    copyRoot(root); mutate(root, relative, before, after);
+    const result = runHarness(root);
+    assert.notEqual(result.status, 0, `${relative}: mutation unexpectedly passed`);
+    fs.rmSync(root, { recursive: true, force: true });
+    console.log(`${relative}: mutation failed by name`);
+  }
 
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-mutations-'));
-  const malformedPlan = path.join(temp, 'malformed.md');
-  fs.writeFileSync(malformedPlan, '---\ntitle: one\ntitle: two\n---\n# malformed\n');
-  mustFail('duplicate-frontmatter', run(HELPER, ['canonical-plan', malformedPlan], temp), /duplicate frontmatter key/);
+  const malformed = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-malformed-'));
+  copyRoot(malformed);
+  const fixture = path.join(malformed, 'scripts/tests/fixtures/plan-review-policy/sample-plan.md');
+  mutate(malformed, 'scripts/tests/fixtures/plan-review-policy/sample-plan.md', 'title: Sample review plan', 'title: Sample review plan\ntitle: duplicate');
+  const bad = runHarness(malformed); assert.notEqual(bad.status, 0, 'hard-coded malformed-frontmatter oracle passed');
+  assert.ok(fs.existsSync(fixture)); fs.rmSync(malformed, { recursive: true, force: true });
+  console.log('hard-coded malformed receipt/frontmatter oracle failed by name');
 
-  const requestPath = path.join(temp, 'request.json'); const outputPath = path.join(temp, 'output.json');
-  const policy = { schema: 1, cross_company_consent: 'always', zero_reviewer_policy: 'ask', orchestrator_preference: 'auto', openai_tiers: [{ model: 'gpt-5.6-sol', effort: 'xhigh', transports: ['cli'] }], anthropic_tiers: [{ model: 'fable', effort: 'high', transports: ['cli'] }], provenance: { cross_company_consent: 'current_user', zero_reviewer_policy: 'skill_default', orchestrator_preference: 'skill_default', openai_tiers: 'skill_default', anthropic_tiers: 'skill_default' } };
-  const canonicalPolicy = JSON.stringify(policy, Object.keys(policy).sort());
-  const hash = (await import('node:crypto')).createHash('sha256').update(canonicalPolicy).digest('hex');
-  const request = { schema: 1, request_id: '123e4567-e89b-42d3-a456-426614174000', phase: 'draft', lifecycle_intent: 'none', reviewed_commit_or_head: '0'.repeat(40), input_sha256: '1'.repeat(64), bundle_sha256: '2'.repeat(64), policy, policy_sha256: hash };
-  fs.writeFileSync(requestPath, JSON.stringify(request));
-  fs.writeFileSync(outputPath, JSON.stringify({ schema: 1, leg: 'X', request, verdict: 'ready', score: 100, findings: [], confirmations: [], unauthorized_extra: true }));
-  mustFail('malformed-receipt', run(HELPER, ['validate-reviewer', outputPath, requestPath, 'X'], temp), /unknown key|policy hash mismatch/);
-  fs.rmSync(temp, { recursive: true, force: true });
-
-  console.log('canonical view/bundle/schema and hard-coded malformed-receipt oracles passed');
   console.log('plan-review-policy mutations passed');
 } catch (error) {
   console.error(error.stack || error.message); process.exitCode = 1;
