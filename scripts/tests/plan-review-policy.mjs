@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  buildReviewerArgv, canonicalPlanView, classifyLeg, extractReviewerOutput, jcs, parsePlan,
+  applyLifecycleState, buildReviewerArgv, canonicalPlanView, classifyLeg, extractReviewerOutput, jcs, parsePlan,
   reviewerSchema, sealBundle, sha256, validatePolicy, validateRequest,
   validateReviewerOutput, validateWaivers,
 } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
@@ -121,17 +121,14 @@ function testLegs() {
 }
 
 function testLifecycle() {
-  const apply = ({ state, intent, eligible, used = false }) => {
-    if (!eligible || used) return { state, used, applied: false };
-    if (intent === 'none') return { state, used, applied: false };
-    return { state: 'ongoing', used: true, applied: true };
-  };
-  assert.deepEqual(apply({ state: 'planned', intent: 'none', eligible: true }), { state: 'planned', used: false, applied: false });
-  assert.deepEqual(apply({ state: 'scheduled', intent: 'none', eligible: false }), { state: 'scheduled', used: false, applied: false });
-  assert.equal(apply({ state: 'planned', intent: 'start', eligible: true }).state, 'ongoing');
-  assert.equal(apply({ state: 'scheduled', intent: 'schedule_fire', eligible: true }).state, 'ongoing');
-  assert.equal(apply({ state: 'scheduled', intent: 'auto_execute', eligible: false }).state, 'scheduled');
-  assert.equal(apply({ state: 'planned', intent: 'start', eligible: true, used: true }).applied, false);
+  assert.deepEqual(applyLifecycleState({ state: 'planned', intent: 'none', eligible: true }), { state: 'planned', intent_used: false, applied: false });
+  assert.deepEqual(applyLifecycleState({ state: 'scheduled', intent: 'none', eligible: false }), { state: 'scheduled', intent_used: false, applied: false });
+  assert.equal(applyLifecycleState({ state: 'planned', intent: 'start', eligible: true }).state, 'ongoing');
+  assert.equal(applyLifecycleState({ state: 'scheduled', intent: 'schedule_fire', eligible: true }).state, 'ongoing');
+  assert.equal(applyLifecycleState({ state: 'scheduled', intent: 'auto_execute', eligible: false }).state, 'scheduled');
+  assert.equal(applyLifecycleState({ state: 'planned', intent: 'start', eligible: true, intentUsed: true }).applied, false);
+  expectThrow('wrong state start', () => applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true }), /requires planned/);
+  expectThrow('wrong state fire', () => applyLifecycleState({ state: 'planned', intent: 'schedule_fire', eligible: true }), /requires scheduled/);
   console.log('lifecycle: planned/scheduled preservation, start/fire/auto gating and one-intent consumption passed');
 }
 
@@ -173,6 +170,17 @@ function testReviewRunnerSurfaces() {
   console.log('plan-review evidence-only live/generated wrapper parity passed');
 }
 
+function testManagerSurfaces() {
+  const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/SKILL.md'), 'utf8');
+  for (const marker of ['Review before execution', 'Sole-writer protocol', 'prepare(intent)', 'NeedsMainReviewDispatch', '## `apply`', 'zero_reviewer_policy', 'platform_denied']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);
+    assert.match(text, /Never launch X\/S|Review dispatch always returns to main/i, `${file} permits wrapper dispatch`);
+  }
+  console.log('plan-manager prepare/dispatch/apply live/generated wrapper parity passed');
+}
+
 function testSelfDemo(planPath) {
   const raw = fs.readFileSync(path.resolve(ROOT, planPath), 'utf8');
   const match = raw.match(/^Bootstrap-review-record: (\{.*\})$/m); assert.ok(match, 'compact bootstrap record present');
@@ -189,7 +197,7 @@ try {
   else if (args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
   else if (args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
   else {
-    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces();
+    testCanonical(); testSchemas(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces();
     console.log('plan-review-policy contract passed');
   }
 } catch (error) {

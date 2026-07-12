@@ -310,6 +310,15 @@ export function classifyLeg({ leg, policy, waiver = null, decision = null, attem
   return 'unavailable_unknown';
 }
 
+export function applyLifecycleState({ state, intent, eligible, intentUsed = false }) {
+  oneOf(state, new Set(['planned', 'scheduled', 'ongoing', 'in_review']), 'state');
+  oneOf(intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'intent');
+  if (intentUsed || intent === 'none' || !eligible) return { state, intent_used: intentUsed, applied: false };
+  if (intent === 'start' && state !== 'planned') throw new Error('start requires planned');
+  if ((intent === 'schedule_fire' || intent === 'auto_execute') && state !== 'scheduled') throw new Error(`${intent} requires scheduled`);
+  return { state: 'ongoing', intent_used: true, applied: true };
+}
+
 export function run(argv = process.argv.slice(2)) {
   const [command, ...args] = argv;
   if (command === 'canonical-plan') { process.stdout.write(canonicalPlanView(fs.readFileSync(args[0]))); return; }
