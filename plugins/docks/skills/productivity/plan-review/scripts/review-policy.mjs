@@ -27,6 +27,7 @@ const IDENTITY_TOKEN = /^[a-z0-9][a-z0-9._/-]*$/;
 const COMPATIBILITY_ACTIVE_PLAN = 'docs/plans/active/legacy-start-transition-compatibility.md';
 const COMPATIBILITY_POLICY_PATH = 'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 const CANONICAL_REPOSITORY_URL = 'https://github.com/DocksDocks/docks.git';
+const CANONICAL_REMOTE_MAIN_ARGV = Object.freeze(['git', 'ls-remote', '--exit-code', '--branches', CANONICAL_REPOSITORY_URL, 'refs/heads/main']);
 const COMPATIBILITY_AUTHORIZATION_ID = 'owner-2026-07-13-remodel-and-review-plan';
 const COMPATIBILITY_AUTHORIZATION_SHA256 = '1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96';
 const RELEASE_AUTHORIZATION = {
@@ -931,17 +932,23 @@ function legacyHistoricalContext({ repo, planPath, plannedAtCommit, executionBas
   };
 }
 
-function transitionDiff(context) {
-  const args = [
+function transitionDiffArgs(context) {
+  return [
     '--no-pager', '-c', 'diff.algorithm=myers', '-c', 'diff.context=3', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.indentHeuristic=false', '-c', 'diff.renames=false',
     'diff', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/',
     context.execution_parent, context.execution_base_commit, '--', context.plan_path,
   ];
-  const env = { ...process.env }; delete env.GIT_DIFF_OPTS;
-  const bytes = gitResult(context.repo, args, 'buffer', { env });
+}
+
+function transitionDiffText(bytes) {
   const text = exactUtf8(bytes, 'execution compatibility transition diff');
   if (!text.endsWith('\n') || text.endsWith('\n\n')) throw new Error('execution compatibility transition diff must end in one LF');
   return text;
+}
+
+function transitionDiff(context) {
+  const env = { ...process.env }; delete env.GIT_DIFF_OPTS;
+  return transitionDiffText(gitResult(context.repo, transitionDiffArgs(context), 'buffer', { env }));
 }
 
 function compatibilityFence(diff) {
@@ -971,7 +978,12 @@ function compatibilityMaterial(context, diff) {
 export function buildExecutionBaseCompatibilityApplication({ repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 }) {
   if (authorizationId !== COMPATIBILITY_AUTHORIZATION_ID || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SHA256) throw new Error('execution compatibility owner confirmation mismatch');
   const context = legacyHistoricalContext({ repo: path.resolve(repo), planPath, plannedAtCommit, executionBaseCommit, reviewedHead });
-  const diff = transitionDiff(context); const material = compatibilityMaterial(context, diff);
+  return compatibilityApplication(context, transitionDiff(context), authorizationId, ownerMessageSha256).application;
+}
+
+function compatibilityApplication(context, diff, authorizationId, ownerMessageSha256) {
+  if (authorizationId !== COMPATIBILITY_AUTHORIZATION_ID || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SHA256) throw new Error('execution compatibility owner confirmation mismatch');
+  const material = compatibilityMaterial(context, diff);
   const receipt = {
     schema: 1,
     kind: 'legacy_start_transition',
@@ -999,7 +1011,7 @@ export function buildExecutionBaseCompatibilityApplication({ repo, reviewedHead,
   const markdown = `Compatibility-review-material: ${jcs(material)}\n${fence}diff\n${diff}${fence}\nExecution-base-compatibility-receipt: ${jcs(receipt)}\n`;
   const application = { schema: 1, markdown, receipt_sha256: receipt.receipt_sha256, review_material_sha256: material.review_material_sha256 };
   application.application_sha256 = sha256(jcs(application));
-  return application;
+  return { application, receipt };
 }
 
 function extractCompatibilityApplication(bytes, { required = true } = {}) {
@@ -1295,9 +1307,34 @@ function validatePrerequisiteInput(input) {
   return normalized;
 }
 
+function canonicalRemoteTagArgv(releaseTag) {
+  const ref = `refs/tags/${releaseTag}`;
+  return ['git', 'ls-remote', '--exit-code', '--tags', CANONICAL_REPOSITORY_URL, ref, `${ref}^{}`];
+}
+
+function isCanonicalRemoteGitChild(argv) {
+  if (jcs(argv) === jcs(CANONICAL_REMOTE_MAIN_ARGV)) return true;
+  if (argv.length !== 7 || argv[0] !== 'git' || argv[1] !== 'ls-remote' || argv[2] !== '--exit-code' || argv[3] !== '--tags' || argv[4] !== CANONICAL_REPOSITORY_URL) return false;
+  const match = /^refs\/tags\/(docks--v[0-9]+\.[0-9]+\.[0-9]+)$/.exec(argv[5]);
+  return match !== null && argv[6] === `${argv[5]}^{}`;
+}
+
+function canonicalRemoteGitEnv(source) {
+  const env = { ...source };
+  for (const key of Object.keys(env)) {
+    if (['GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_COMMON_DIR', 'GIT_WORK_TREE'].includes(key) || /^GIT_CONFIG_(KEY|VALUE)_[0-9]+$/.test(key)) delete env[key];
+  }
+  env.GIT_DIR = os.devNull;
+  env.GIT_CONFIG_GLOBAL = os.devNull;
+  env.GIT_CONFIG_SYSTEM = os.devNull;
+  env.GIT_CONFIG_NOSYSTEM = '1';
+  env.GIT_CONFIG_COUNT = '0';
+  return env;
+}
+
 const PRODUCTION_PREREQUISITE_DEPENDENCIES = Object.freeze({
   runChild(argv, options) {
-    const result = spawnSync(argv[0], argv.slice(1), {
+    const spawnOptions = {
       cwd: options.cwd,
       encoding: 'buffer',
       shell: false,
@@ -1306,7 +1343,9 @@ const PRODUCTION_PREREQUISITE_DEPENDENCIES = Object.freeze({
       killSignal: 'SIGTERM',
       maxBuffer: 1048576,
       windowsHide: true,
-    });
+    };
+    if (isCanonicalRemoteGitChild(argv)) spawnOptions.env = canonicalRemoteGitEnv(process.env);
+    const result = spawnSync(argv[0], argv.slice(1), spawnOptions);
     return {
       status: result.status,
       signal: result.signal,
@@ -1381,6 +1420,65 @@ function prerequisiteRepository(dependencies, repoRoot) {
   return { run, text, exact, parent, paths, blob, object, isAncestor, treeNames };
 }
 
+function legacyHistoricalContextWithRepository({ repository, planPath, plannedAtCommit, executionBaseCommit, reviewedHead }) {
+  assertCompatibilityConstants();
+  const plan_path = safeLogical(planPath);
+  repository.exact(plannedAtCommit, 'planned_at_commit'); repository.exact(executionBaseCommit, 'execution_base_commit'); repository.exact(reviewedHead, 'reviewed_head');
+  if (!repository.isAncestor(plannedAtCommit, executionBaseCommit, 'planned-to-start ancestry') || !repository.isAncestor(executionBaseCommit, reviewedHead, 'start-to-evidence ancestry')) throw new Error('execution base ancestry mismatch');
+  const execution_parent = repository.parent(executionBaseCommit, 'execution_base_commit');
+  const startPaths = repository.paths(execution_parent, executionBaseCommit, 'legacy start paths');
+  if (startPaths.length !== 1 || startPaths[0] !== plan_path) throw new Error('legacy start must change only the plan');
+  const parentBytes = repository.blob(execution_parent, plan_path, 'legacy start parent plan');
+  const baseBytes = repository.blob(executionBaseCommit, plan_path, 'legacy start base plan');
+  const headBytes = repository.blob(reviewedHead, plan_path, 'compatibility evidence input plan');
+  const parentPlan = parsePlan(parentBytes); const basePlan = parsePlan(baseBytes); const headPlan = parsePlan(headBytes);
+  const legacy = parentPlan.frontmatter.planned_at_commit;
+  if (!LEGACY_HEX.test(legacy) || basePlan.frontmatter.planned_at_commit !== legacy || repository.object(`${legacy}^{commit}`, 'legacy planned_at_commit') !== plannedAtCommit) throw new Error('legacy planned_at_commit identity mismatch');
+  validateLegacyFrontmatter(parentPlan.frontmatter, basePlan.frontmatter);
+  if (headPlan.frontmatter.planned_at_commit !== plannedAtCommit || headPlan.frontmatter.execution_base_commit !== executionBaseCommit) throw new Error('plan execution identity mismatch');
+  const parentPartitions = partitionBody(parentPlan.body); const basePartitions = partitionBody(basePlan.body);
+  if (jcs(parentPartitions.map((row) => row.name)) !== jcs(basePartitions.map((row) => row.name))) throw new Error('execution compatibility heading vector changed');
+  const protectedNames = new Set(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY.body.protected_sections);
+  const partitions = parentPartitions.map((before, index) => {
+    const after = basePartitions[index]; const before_sha256 = sha256(before.bytes); const after_sha256 = sha256(after.bytes);
+    return { ordinal: before.ordinal, name: before.name, before_sha256, after_sha256, changed: before_sha256 !== after_sha256 };
+  });
+  if (partitions[0].changed) throw new Error('execution compatibility preamble changed');
+  for (const row of partitions) if (row.changed && protectedNames.has(row.name)) throw new Error(`execution compatibility protected section changed: ${row.name}`);
+  const changed = partitions.filter((row) => row.changed);
+  if (changed.length === 0) throw new Error('execution compatibility changed sections missing');
+  const protectedSections = partitions.filter((row) => protectedNames.has(row.name)).map((row) => ({ ordinal: row.ordinal, name: row.name, sha256: row.before_sha256 }));
+  if (protectedSections.length !== protectedNames.size) throw new Error('execution compatibility protected section missing');
+  if (repository.treeNames(plannedAtCommit, [plan_path], 'planned base plan path').length !== 0) throw new Error('plan path existed at planned_at_commit');
+  const creationRows = repository.text(['rev-list', '--reverse', '--ancestry-path', `${plannedAtCommit}..${execution_parent}`, '--', plan_path], 'plan creation history').trim().split('\n').filter(Boolean);
+  if (creationRows.length === 0) throw new Error('plan creation commit missing');
+  const plan_creation_commit = creationRows[0];
+  if (repository.parent(plan_creation_commit, 'plan creation commit') !== plannedAtCommit) throw new Error('plan creation parent mismatch');
+  const creationPaths = repository.paths(plannedAtCommit, plan_creation_commit, 'plan creation paths');
+  if (creationPaths.length !== 1 || creationPaths[0] !== plan_path) throw new Error('plan creation must be plan-only');
+  const creationStatus = repository.text(['diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames', plannedAtCommit, plan_creation_commit, '--', plan_path], 'plan creation status').trim();
+  if (creationStatus !== `A\t${plan_path}` || !repository.isAncestor(plan_creation_commit, execution_parent, 'plan creation ancestry')) throw new Error('plan creation add/ancestry mismatch');
+  const partitionManifest = { schema: 1, partitions };
+  const protectedPreimage = { schema: 1, sections: protectedSections };
+  return {
+    plan_path, planned_at_commit: plannedAtCommit, plan_creation_commit, plan_creation_parent: plannedAtCommit,
+    execution_parent, execution_base_commit: executionBaseCommit, legacy_planned_at_value: legacy,
+    evidence_input_commit: reviewedHead,
+    evidence_input_plan_blob: repository.object(`${reviewedHead}:${plan_path}`, 'evidence input plan blob'),
+    parent_plan_blob: repository.object(`${execution_parent}:${plan_path}`, 'parent plan blob'),
+    base_plan_blob: repository.object(`${executionBaseCommit}:${plan_path}`, 'base plan blob'),
+    parentBytes, baseBytes, headBytes, partitions,
+    partition_manifest_sha256: sha256(jcs(partitionManifest)),
+    protected_sections_sha256: sha256(jcs(protectedPreimage)),
+    changed_sections: changed.map((row) => ({
+      name: row.name,
+      before_sha256: row.before_sha256,
+      after_sha256: row.after_sha256,
+      transition_sha256: sha256(jcs({ schema: 1, name: row.name, before_sha256: row.before_sha256, after_sha256: row.after_sha256 })),
+    })).sort((a, b) => compareUtf16(a.name, b.name)),
+  };
+}
+
 function requirePrerequisitePlanOnly(repository, commit, parent, planPath, label) {
   if (repository.parent(commit, label) !== parent) throw new Error(`${label} parent mismatch`);
   const paths = repository.paths(parent, commit, `${label} paths`);
@@ -1413,9 +1511,22 @@ function storedCompatibilityPayload(application) {
 }
 
 function validateBindingWithRepository({ repository, planPath, evidenceCommit, reviewCommit, bindingCommit }) {
-  requirePrerequisitePlanOnly(repository, evidenceCommit, repository.parent(evidenceCommit, 'compatibility evidence commit'), planPath, 'compatibility evidence commit');
-  const evidenceBytes = repository.blob(evidenceCommit, planPath, 'compatibility evidence plan'); const application = extractCompatibilityApplication(evidenceBytes); const compatibilityReceipt = storedCompatibilityPayload(application);
-  if (compatibilityReceipt.evidence_input_commit !== repository.parent(evidenceCommit, 'compatibility evidence commit')) throw new Error('compatibility evidence parent mismatch');
+  const evidenceParent = repository.parent(evidenceCommit, 'compatibility evidence commit');
+  requirePrerequisitePlanOnly(repository, evidenceCommit, evidenceParent, planPath, 'compatibility evidence commit');
+  const evidenceBytes = repository.blob(evidenceCommit, planPath, 'compatibility evidence plan'); const application = extractCompatibilityApplication(evidenceBytes);
+  if (application.receipt?.plan_path !== planPath) throw new Error('compatibility evidence plan path mismatch');
+  if (application.receipt.evidence_input_commit !== evidenceParent) throw new Error('compatibility evidence parent mismatch');
+  const context = legacyHistoricalContextWithRepository({
+    repository,
+    planPath,
+    plannedAtCommit: application.receipt.planned_at_commit,
+    executionBaseCommit: application.receipt.execution_base_commit,
+    reviewedHead: evidenceParent,
+  });
+  const diff = transitionDiffText(repository.run(transitionDiffArgs(context), 'execution compatibility transition diff').stdout);
+  const reconstructed = compatibilityApplication(context, diff, application.receipt.owner_confirmation?.authorization_id, application.receipt.owner_confirmation?.source_text_sha256).application;
+  if (application.markdown !== reconstructed.markdown) throw new Error('compatibility evidence historical application mismatch');
+  const compatibilityReceipt = storedCompatibilityPayload(application);
   const evidenceParentBytes = repository.blob(compatibilityReceipt.evidence_input_commit, planPath, 'compatibility evidence parent plan');
   const expectedEvidence = insertBeforeReview(evidenceParentBytes, application.markdown); requirePlanDelta(evidenceParentBytes, evidenceBytes, expectedEvidence, 'compatibility evidence');
   requirePrerequisitePlanOnly(repository, reviewCommit, evidenceCommit, planPath, 'compatibility review commit');
@@ -1560,8 +1671,8 @@ function validatePrerequisiteObservations(observations, receipt) {
   if (observations.schema !== 1) throw new Error('Docks prerequisite observations schema');
   iso(observations.observed_at, 'Docks prerequisite observed_at');
   if (new Date(observations.observed_at).toISOString() !== observations.observed_at) throw new Error('Docks prerequisite observed_at must be canonical ISO');
-  const mainArgv = ['git', 'ls-remote', '--exit-code', '--branches', CANONICAL_REPOSITORY_URL, 'refs/heads/main'];
-  const tagArgv = ['git', 'ls-remote', '--exit-code', '--tags', CANONICAL_REPOSITORY_URL, `refs/tags/${receipt.release_tag}`];
+  const mainArgv = [...CANONICAL_REMOTE_MAIN_ARGV];
+  const tagArgv = canonicalRemoteTagArgv(receipt.release_tag);
   const ghArgv = ['gh', 'release', 'view', receipt.release_tag, '--repo', 'DocksDocks/docks', '--json', 'isDraft,isPrerelease,tagName,url'];
   const codexArgv = ['codex', 'plugin', 'list', '--marketplace', 'docks', '--json']; const claudeArgv = ['claude', 'plugin', 'list', '--json'];
   validateObservationRow(observations.remote_main, mainArgv, 'remote main observation');
@@ -1621,10 +1732,10 @@ export function buildDocksCompatibilityPrerequisiteApplication(input, dependenci
   if (repository.parent(input.compatibilityReviewCommit, 'compatibility review commit') !== input.evidenceCommit || repository.parent(input.bindingCommit, 'binding commit') !== input.compatibilityReviewCommit) throw new Error('compatibility E/R/B commits are not contiguous');
   const bindingState = validateBindingWithRepository({ repository, planPath: input.planPath, evidenceCommit: input.evidenceCommit, reviewCommit: input.compatibilityReviewCommit, bindingCommit: input.bindingCommit });
 
-  const remoteMainArgv = ['git', 'ls-remote', '--exit-code', '--branches', CANONICAL_REPOSITORY_URL, 'refs/heads/main'];
+  const remoteMainArgv = [...CANONICAL_REMOTE_MAIN_ARGV];
   const remoteMainResult = prerequisiteChild(dependencies, repoRoot, remoteMainArgv, { recorded: true, label: 'remote main observation' });
   const remoteMain = { schema: 1, argv: remoteMainArgv, exit_code: 0, stdout_sha256: sha256(remoteMainResult.stdout), stderr_sha256: sha256(remoteMainResult.stderr), projection: remoteMainProjection(remoteMainResult.stdout, releaseCommit) };
-  const remoteTagArgv = ['git', 'ls-remote', '--exit-code', '--tags', CANONICAL_REPOSITORY_URL, `refs/tags/${releaseTag}`];
+  const remoteTagArgv = canonicalRemoteTagArgv(releaseTag);
   const remoteTagResult = prerequisiteChild(dependencies, repoRoot, remoteTagArgv, { recorded: true, label: 'remote tag observation' });
   const remoteTag = { schema: 1, argv: remoteTagArgv, exit_code: 0, stdout_sha256: sha256(remoteTagResult.stdout), stderr_sha256: sha256(remoteTagResult.stderr), projection: remoteTagProjection(remoteTagResult.stdout, releaseTag, releaseCommit) };
   const ghArgv = ['gh', 'release', 'view', releaseTag, '--repo', 'DocksDocks/docks', '--json', 'isDraft,isPrerelease,tagName,url'];
