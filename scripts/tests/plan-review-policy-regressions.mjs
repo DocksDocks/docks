@@ -286,6 +286,11 @@ const REGRESSIONS = [
       "'--diff-algorithm=myers', '--unified=4', '--inter-hunk-context=0'",
     ),
   )],
+  ['compatibility attribute determinism regression', ['--case', 'execution-compatibility'], /attributes preserve|historical reconstruction|transition diff|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "'diff', '--text', '--binary'",
+    "'diff', '--binary'",
+  )],
   ['compatibility E reconstruction regression', ['--case', 'execution-compatibility'], /historical application|E historical reconstruction|Assertion/, combine(
     applyVariant(
       'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',

@@ -901,12 +901,45 @@ function testExecutionCompatibility() {
   const material = JSON.parse(fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m)[1]);
   const opening = fixture.evidenceApplication.markdown.match(/^(`{3,})diff$/m)[1]; const diffStart = fixture.evidenceApplication.markdown.indexOf(`${opening}diff\n`) + opening.length + 5; const diffEnd = fixture.evidenceApplication.markdown.indexOf(`${opening}\nExecution-base-compatibility-receipt:`, diffStart); const recordedDiff = fixture.evidenceApplication.markdown.slice(diffStart, diffEnd);
   const diffEnv = { ...process.env }; delete diffEnv.GIT_DIFF_OPTS;
-  const directDiff = spawnSync('git', [
+  const expectedTransitionDiffArgs = [
     '--no-pager', '-c', 'diff.algorithm=myers', '-c', 'diff.context=3', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.indentHeuristic=false', '-c', 'diff.renames=false',
-    'diff', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/',
+    'diff', '--text', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/',
     evidenceReceipt.execution_parent, evidenceReceipt.execution_base_commit, '--', TARGET_PLAN,
-  ], { cwd: fixture.repo, encoding: 'utf8', env: diffEnv });
+  ];
+  const directDiff = spawnSync('git', expectedTransitionDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: diffEnv });
   assert.equal(directDiff.status, 0, directDiff.stderr); assert.equal(recordedDiff, directDiff.stdout, 'transition diff is byte-exact canonical Git output');
+  assert.match(recordedDiff, /^diff --git /); assert.doesNotMatch(recordedDiff, /^GIT binary patch$/m, 'transition material remains textual');
+  const rebuildEvidence = () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: fixture.releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 });
+  const rebuildBinding = () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: fixture.compatibilityReviewCommit });
+  const captureBin = path.join(fixture.temp, 'capture-bin'); const captureLog = path.join(fixture.temp, 'captured-git.jsonl'); fs.mkdirSync(captureBin);
+  const captureGit = `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
+const args=process.argv.slice(2); fs.appendFileSync(process.env.TRANSITION_GIT_LOG,JSON.stringify(args)+'\\n');
+const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',env:process.env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
+`;
+  fs.writeFileSync(path.join(captureBin, 'git'), captureGit, { mode: 0o755 });
+  const priorPath = process.env.PATH; const priorRealGit = process.env.TRANSITION_REAL_GIT; const priorGitLog = process.env.TRANSITION_GIT_LOG;
+  process.env.PATH = `${captureBin}${path.delimiter}${priorPath}`; process.env.TRANSITION_REAL_GIT = spawnSync('which', ['git'], { env: { ...process.env, PATH: priorPath }, encoding: 'utf8' }).stdout.trim(); process.env.TRANSITION_GIT_LOG = captureLog;
+  try { assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'captured transition command preserves byte-identical material'); } finally {
+    process.env.PATH = priorPath;
+    if (priorRealGit === undefined) delete process.env.TRANSITION_REAL_GIT; else process.env.TRANSITION_REAL_GIT = priorRealGit;
+    if (priorGitLog === undefined) delete process.env.TRANSITION_GIT_LOG; else process.env.TRANSITION_GIT_LOG = priorGitLog;
+  }
+  const transitionCalls = fs.readFileSync(captureLog, 'utf8').trim().split('\n').map(JSON.parse).filter((argv) => argv[0] === '--no-pager');
+  assert.deepEqual(transitionCalls, [expectedTransitionDiffArgs], 'transition diff uses the exact deterministic argv once');
+  writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} binary\n`);
+  assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'repository-local binary attributes preserve byte-identical textual transition material');
+  assert.deepEqual(rebuildBinding(), fixture.bindingApplication, 'repository-local binary attributes preserve byte-identical historical reconstruction');
+  fs.rmSync(path.join(fixture.repo, '.git/info/attributes'));
+  const globalAttributes = path.join(fixture.temp, 'global.attributes'); const globalConfig = path.join(fixture.temp, 'global.gitconfig');
+  fs.writeFileSync(globalAttributes, `${TARGET_PLAN} -diff\n`); git(fixture.repo, ['config', '--file', globalConfig, 'core.attributesFile', globalAttributes]);
+  const priorGlobalConfig = process.env.GIT_CONFIG_GLOBAL; process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  try {
+    assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'global core.attributesFile -diff rule preserves byte-identical textual transition material');
+    assert.deepEqual(rebuildBinding(), fixture.bindingApplication, 'global core.attributesFile -diff rule preserves byte-identical historical reconstruction');
+  } finally {
+    if (priorGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = priorGlobalConfig;
+  }
   const { review_material_sha256: recordedMaterialSha, ...materialPreimage } = material;
   assert.equal(material.transition_diff_sha256, sha256(recordedDiff)); assert.equal(material.policy_sha256, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256); assert.equal(recordedMaterialSha, sha256(jcs({ schema: 1, material: materialPreimage, transition_diff: recordedDiff })));
   validateDraftReceipt(findingsFreeDraftReceipt(fixture.evidenceCommit, gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]), 'single'));
