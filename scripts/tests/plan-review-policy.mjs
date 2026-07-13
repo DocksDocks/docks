@@ -7,13 +7,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  acceptanceInventory, applyLifecycleState, buildReviewerArgv, canonicalPlanView, classifyLeg, deriveCompletionVerdict, extractReviewerOutput, jcs, parsePlan,
-  reviewerSchema, sealBundle, sha256, validateCompletionReceipt, validateCompletionRunResult,
+  acceptanceInventory, applyCompletionReviewBlock, applyLifecycleState, buildDocksCompatibilityPrerequisiteApplication,
+  buildExecutionBaseCompatibilityApplication, buildExecutionBaseCompatibilityBindingApplication, buildReviewerArgv,
+  canonicalPlanView, classifyLeg, completionReviewBlockV1, completionStablePlanViewV1, deriveCompletionVerdict,
+  extractReviewerOutput, jcs, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256, parsePlan,
+  renderCompatibilityReviewAttribution, renderCompletionReviewBlock, reviewerSchema, sealBundle, sha256,
+  validateCompletionReceipt, validateCompletionReviewReuse, validateCompletionRunResult,
   validateDraftReceipt, validateDraftRunResult, validatePolicy, validateRawLeg, validateRequest,
-  validateReviewerOutput, validateWaivers, verifyBundle,
+  validateExecutionRange, validateExecutionScope, validateReviewerOutput, validateWaivers, verifyBundle,
 } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const HARNESS = fileURLToPath(import.meta.url);
 const FIXTURE = path.join(ROOT, 'scripts/tests/fixtures/plan-review-policy/sample-plan.md');
 const HELPER = path.join(ROOT, 'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs');
 const POLICY = {
@@ -76,6 +81,101 @@ function primaryEvidence(inventory = INVENTORY) {
   return { goal_met: 'yes', findings: [], acceptance: inventory.criteria.map((criterion) => ({ criterion_id: criterion.id, command: criterion.command, expected: criterion.expected, exit_code: 0, actual_sha256: H0, met: true })), ci: { command: 'node --test', exit_code: 0, first_failure: null, output_sha256: H1 }, regressions: [], followups: [] };
 }
 
+const COMPATIBILITY_AUTHORIZATION_ID = 'owner-2026-07-13-remodel-and-review-plan';
+const COMPATIBILITY_AUTHORIZATION_SHA256 = '1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96';
+const RELEASE_AUTHORIZATION_ID = 'owner-2026-07-13-four-release-order-docks-prerequisite';
+const RELEASE_AUTHORIZATION_SHA256 = 'f8f38319a72f258dd66d9b31f620cd13ec1968f1d1d169d94e3ebc6b55dde77a';
+const TARGET_PLAN = 'docs/plans/active/relay-worker-lifecycle-primitives.md';
+const ACTIVE_COMPATIBILITY_PLAN = 'docs/plans/active/legacy-start-transition-compatibility.md';
+const FINISHED_COMPATIBILITY_PLAN = 'docs/plans/finished/2026-07-13-legacy-start-transition-compatibility.md';
+const POLICY_PATH = 'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+const RELEASE_VERSION = '1.2.4';
+const RELEASE_TAG = `docks--v${RELEASE_VERSION}`;
+const PREREQUISITE_MARKER = 'Pending until exact Step-P E/R/B and Docks release/cache verification. In Q, plan-manager replaces only this sentence with one fenced, one-line compact-JCS `DocksCompatibilityPrerequisiteReceiptV1`, changes Step P `planned` to `done`, bumps `updated`, validates the resulting blob, and commits plan-only before final ordinary review F.\n';
+const PREREQUISITE_STEP_PLANNED = '| P | Complete the exact Docks-only compatibility prerequisite before any implementation worker resumes: finish/archive the compatibility plan, release/install/cache-verify Docks under the recorded authorization, commit contiguous E/R/B, commit prerequisite closure Q with P `done`, then obtain findings-free final ordinary review F and revalidate the range. | Plan-manager-returned `docs/plans/finished/<date>-legacy-start-transition-compatibility.md` (read-only), `docs/plans/active/relay-worker-lifecycle-primitives.md` (plan-manager-only E/R/B/Q/F writes), `$HOME/.codex/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs` (read-only), `$HOME/.claude/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs` (read-only) | 1, 3b | planned | The exact Step-P block above passes. Q embeds one valid `DocksCompatibilityPrerequisiteReceiptV1` and changes only its pending sentence, P status, and `updated`; F\'s findings-free `dual|single` receipt reviews Q. The current plan retains exact E material/receipt, immutable R review, B binding, Q prerequisite evidence, and F receipt. Both released cache helpers emit byte-identical schema-1 `LegacyExecutionRangeValidationV1`; only F becomes `PLAN_COMMIT`/`PLAN_BLOB`. Effect Kit and Session Relay versions are unchanged. Any other outcome, stale cache, absent release, E/R/B/Q/F gap, non-plan delta, or authorization mismatch is STOP. P appends no acceptance event or implementation-range receipt. |\n';
+const PREREQUISITE_STEP_DONE = PREREQUISITE_STEP_PLANNED.replace(' | planned | The exact Step-P block', ' | done | The exact Step-P block');
+const STRICT_CASES = [
+  'strict-success', 'path-escape', 'planned-short', 'planned-missing', 'execution-short', 'execution-missing', 'reviewed-short', 'reviewed-missing',
+  'planned-to-base-ancestry', 'base-to-head-ancestry', 'base-multi-parent', 'base-extra-path', 'base-plan-missing', 'parent-plan-missing', 'head-plan-missing',
+  'base-status', 'base-started-at', 'parent-status', 'parent-started-at', 'canonical-start-drift', 'base-planned-at-identity', 'head-planned-at-identity', 'head-execution-base-identity',
+];
+const STRICT_CORPUS_SHA256 = 'd87c62456967c5bd54dd0f3b7d564881164dd1fd5217fa00720d6c234bc01fd9';
+
+function replaceOnce(text, before, after, label = before) {
+  assert.equal(text.split(before).length - 1, 1, `${label} must occur exactly once`);
+  return text.replace(before, after);
+}
+
+function fixturePlan({ plannedAt = '0'.repeat(40), executionBase = null, cleanReceipt = false } = {}) {
+  let text = fs.readFileSync(FIXTURE, 'utf8');
+  text = replaceOnce(text, 'planned_at_commit: "0000000000000000000000000000000000000000"', `planned_at_commit: "${plannedAt}"`, 'fixture planned identity');
+  if (executionBase !== null) text = replaceOnce(text, 'execution_base_commit: null', `execution_base_commit: "${executionBase}"`, 'fixture execution identity');
+  if (cleanReceipt) text = replaceOnce(text, 'Review-receipt: {"schema":1}\n\n', '', 'fixture placeholder receipt');
+  return text;
+}
+
+function writeLogical(repo, logical, bytes) {
+  const absolute = path.join(repo, logical); fs.mkdirSync(path.dirname(absolute), { recursive: true }); fs.writeFileSync(absolute, bytes);
+}
+
+function commitAll(repo, message) {
+  git(repo, ['add', '-A']); git(repo, ['commit', '-qm', message]); return git(repo, ['rev-parse', 'HEAD']);
+}
+
+function insertBeforeReviewForTest(bytes, markdown) {
+  const text = Buffer.from(bytes).toString(); const needle = '\n## Review\n'; const at = text.lastIndexOf(needle); assert.ok(at >= 0, 'Review insertion point');
+  return Buffer.from(`${text.slice(0, at + 1)}${markdown}${text.slice(at + 1)}`);
+}
+
+function insertOrReplaceDraftReceiptForTest(bytes, receipt, replace = false) {
+  let text = Buffer.from(bytes).toString(); const line = `Review-receipt: ${jcs(receipt)}\n`;
+  if (replace) text = text.replace(/^Review-receipt: .*\n/m, line);
+  else {
+    const heading = '\n## Self-review\n'; const at = text.lastIndexOf(heading); assert.ok(at >= 0, 'Self-review receipt insertion');
+    text = `${text.slice(0, at + heading.length)}${line}${text.slice(at + heading.length)}`;
+  }
+  const selfHeading = '\n## Self-review\n'; const selfAt = text.lastIndexOf(selfHeading); const start = selfAt + 1; const end = text.indexOf('\n## Cold-handoff checklist\n', start);
+  assert.ok(start >= 0 && end > start, 'Self-review partition boundaries');
+  const section = text.slice(start, end + 1); assert.ok(section.endsWith('\n\n'), 'Self-review section ends in two LF');
+  const attribution = renderCompatibilityReviewAttribution(receipt);
+  return Buffer.from(`${text.slice(0, start)}${section.slice(0, -1)}${attribution}\n${text.slice(end + 1)}`);
+}
+
+function findingsFreeDraftReceipt(reviewedCommit, bytes, outcome = 'dual', reviewedAt = '2026-07-13T12:00:00.000Z') {
+  const input = sha256(canonicalPlanView(bytes)); const req = request({ reviewed_commit_or_head: reviewedCommit, input_sha256: input });
+  const X = rawPassed(req, 'X'); const S = outcome === 'dual' ? rawPassed(req, 'S') : rawAuth(req, 'S');
+  return {
+    schema: 1, phase: 'draft', request: req, input_sha256: input, reviewed_commit: reviewedCommit,
+    author: req.author, policy: req.policy, policy_sha256: req.policy_sha256,
+    X: persisted(X), S: persisted(S), reproduced: [], decision_evidence: null,
+    outcome, pre_execution_eligible: true, reviewed_at: reviewedAt,
+  };
+}
+
+function draftReceiptVariant(reviewedCommit, bytes, { verdict = 'ready', findings = [] } = {}) {
+  const input = sha256(canonicalPlanView(bytes)); const req = request({ reviewed_commit_or_head: reviewedCommit, input_sha256: input });
+  const X = rawPassed(req, 'X', null, findings, { verdict }); const S = rawAuth(req, 'S');
+  return {
+    schema: 1, phase: 'draft', request: req, input_sha256: input, reviewed_commit: reviewedCommit,
+    author: req.author, policy: req.policy, policy_sha256: req.policy_sha256,
+    X: persisted(X), S: persisted(S), reproduced: [], decision_evidence: null,
+    outcome: 'single', pre_execution_eligible: verdict === 'ready', reviewed_at: '2026-07-13T12:30:00.000Z',
+  };
+}
+
+function completionReceiptFor(reviewedHead, bytes, { X = null, S = null, reproduced = [], primary = null, verdict = 'passed', outcome = 'dual', reviewedAt = '2026-07-13T13:00:00.000Z' } = {}) {
+  const inventory = acceptanceInventory(bytes); const input = sha256(canonicalPlanView(bytes));
+  const req = request({ phase: 'completion', reviewed_commit_or_head: reviewedHead, planned_at_commit: reviewedHead, execution_base_commit: reviewedHead, diff_sha256: H0, acceptance_inventory_sha256: sha256(jcs(inventory)), input_sha256: input });
+  const rawX = X ?? rawPassed(req, 'X'); const rawS = S ?? (outcome === 'dual' ? rawPassed(req, 'S') : rawAuth(req, 'S'));
+  return {
+    schema: 1, phase: 'completion', request: req, planned_at_commit: req.planned_at_commit, execution_base_commit: req.execution_base_commit,
+    reviewed_head: reviewedHead, diff_sha256: H0, plan_input_sha256: input, acceptance_inventory: inventory,
+    acceptance_inventory_sha256: req.acceptance_inventory_sha256, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256,
+    X: persisted(rawX), S: persisted(rawS), reproduced, decision_evidence: null,
+    primary: primary ?? primaryEvidence(inventory), completion_verdict: verdict, outcome, reviewed_at: reviewedAt,
+  };
+}
+
 function expectThrow(label, fn, pattern = /./) {
   assert.throws(fn, pattern, `${label} must reject`);
 }
@@ -104,9 +204,9 @@ function testBundleHash(root, manifestBytes, manifest) {
   return hash.digest('hex');
 }
 
-function copiedResealedBundle(source, target, mutate) {
+function copiedResealedBundle(source, target, applyChange) {
   fs.cpSync(source, target, { recursive: true }); makeWritable(target);
-  const manifestPath = path.join(target, 'manifest.json'); const manifest = JSON.parse(fs.readFileSync(manifestPath)); mutate(manifest, target);
+  const manifestPath = path.join(target, 'manifest.json'); const manifest = JSON.parse(fs.readFileSync(manifestPath)); applyChange(manifest, target);
   const manifestBytes = Buffer.from(`${jcs(manifest)}\n`); fs.writeFileSync(manifestPath, manifestBytes); makeReadOnly(target);
   return { manifest, bundle_sha256: testBundleHash(target, manifestBytes, manifest) };
 }
@@ -121,6 +221,267 @@ function gitBytes(cwd, args) {
 
 function helper(cwd, args) {
   return spawnSync(process.execPath, [HELPER, ...args], { cwd, encoding: 'utf8' });
+}
+
+function initializeRepository(repo) {
+  fs.mkdirSync(repo, { recursive: true }); git(repo, ['init', '-q']); git(repo, ['config', 'user.email', 'policy@example.test']); git(repo, ['config', 'user.name', 'Policy Test']);
+}
+
+function versionedJson(name, version) { return `${JSON.stringify({ name, version }, null, 2)}\n`; }
+
+function buildCompatibilityRepository() {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-compatibility-')); const repo = path.join(temp, 'repo'); initializeRepository(repo);
+  writeLogical(repo, POLICY_PATH, fs.readFileSync(HELPER));
+  writeLogical(repo, 'plugins/docks/.claude-plugin/plugin.json', versionedJson('docks', '1.2.3'));
+  writeLogical(repo, 'plugins/docks/.codex-plugin/plugin.json', versionedJson('docks', '1.2.3'));
+  writeLogical(repo, 'plugins/effect-kit/.claude-plugin/plugin.json', versionedJson('effect-kit', '0.3.0'));
+  writeLogical(repo, 'plugins/effect-kit/.codex-plugin/plugin.json', versionedJson('effect-kit', '0.3.0'));
+  writeLogical(repo, 'plugins/session-relay/.claude-plugin/plugin.json', versionedJson('session-relay', '0.10.0'));
+  writeLogical(repo, 'plugins/session-relay/.codex-plugin/plugin.json', versionedJson('session-relay', '0.10.0'));
+  const marketplace = (version) => `${JSON.stringify({ name: 'docks', plugins: [{ name: 'docks', version }, { name: 'session-relay', version: '0.10.0' }, { name: 'effect-kit', version: '0.3.0' }] }, null, 2)}\n`;
+  writeLogical(repo, '.claude-plugin/marketplace.json', marketplace('1.2.3'));
+  let activeCompatibility = fixturePlan({ cleanReceipt: true });
+  activeCompatibility = replaceOnce(activeCompatibility, 'title: Sample review plan', 'title: Compatibility source plan');
+  activeCompatibility = replaceOnce(activeCompatibility, '# Sample review plan', '# Compatibility source plan');
+  activeCompatibility = replaceOnce(activeCompatibility, 'status: planned', 'status: in_review');
+  activeCompatibility = replaceOnce(activeCompatibility, 'started_at: null', 'started_at: "2026-07-13T08:00:00.000Z"');
+  writeLogical(repo, ACTIVE_COMPATIBILITY_PLAN, activeCompatibility);
+  const plannedAt = commitAll(repo, 'fixture planned base');
+
+  const legacy = plannedAt.slice(0, 7); let target = fixturePlan({ plannedAt: legacy, cleanReceipt: true });
+  target = replaceOnce(target, 'title: Sample review plan', 'title: Relay lifecycle plan'); target = replaceOnce(target, '# Sample review plan', '# Relay lifecycle plan');
+  writeLogical(repo, TARGET_PLAN, target); const creationCommit = commitAll(repo, 'create lifecycle plan');
+
+  target = replaceOnce(target, 'status: planned', 'status: ongoing');
+  target = replaceOnce(target, 'updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-13T08:10:00.000Z"');
+  target = replaceOnce(target, 'started_at: null', 'started_at: "2026-07-13T08:10:00.000Z"');
+  target = replaceOnce(target, 'Threat model scope is unresolved.', 'Threat model scope is owner-approved.');
+  target = replaceOnce(target, 'Run the fixture before owner resolution.', 'Run the fixture after owner resolution.');
+  target = replaceOnce(target, '- `threat-model-scope`: owner decision pending.', '- `threat-model-scope`: owner approved the bounded route.');
+  writeLogical(repo, TARGET_PLAN, target); const executionBaseCommit = commitAll(repo, 'start lifecycle plan');
+
+  target = replaceOnce(target, `planned_at_commit: "${legacy}"`, `planned_at_commit: "${plannedAt}"`);
+  target = replaceOnce(target, 'execution_base_commit: null', `execution_base_commit: "${executionBaseCommit}"`);
+  writeLogical(repo, TARGET_PLAN, target); const identityCommit = commitAll(repo, 'record lifecycle identities');
+
+  const activeBytes = fs.readFileSync(path.join(repo, ACTIVE_COMPATIBILITY_PLAN)); const archiveReceipt = completionReceiptFor(identityCommit, activeBytes);
+  validateCompletionReceipt(archiveReceipt, { reviewed_head: identityCommit, plan_input_sha256: sha256(canonicalPlanView(activeBytes)), review_status: 'passed' });
+  let archived = applyCompletionReviewBlock(activeBytes, archiveReceipt).toString();
+  archived = replaceOnce(archived, 'status: in_review', 'status: finished'); archived = replaceOnce(archived, 'review_status: null', 'review_status: passed');
+  fs.rmSync(path.join(repo, ACTIVE_COMPATIBILITY_PLAN)); writeLogical(repo, FINISHED_COMPATIBILITY_PLAN, archived);
+  const finishedPlanCommit = commitAll(repo, 'finish compatibility source plan');
+
+  writeLogical(repo, 'plugins/docks/.claude-plugin/plugin.json', versionedJson('docks', RELEASE_VERSION));
+  writeLogical(repo, 'plugins/docks/.codex-plugin/plugin.json', versionedJson('docks', RELEASE_VERSION));
+  writeLogical(repo, '.claude-plugin/marketplace.json', marketplace(RELEASE_VERSION));
+  const releaseCommit = commitAll(repo, 'release docks patch'); git(repo, ['tag', RELEASE_TAG, releaseCommit]);
+
+  const evidenceApplication = buildExecutionBaseCompatibilityApplication({ repo, reviewedHead: releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: plannedAt, executionBaseCommit, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 });
+  const evidenceBytes = insertBeforeReviewForTest(fs.readFileSync(path.join(repo, TARGET_PLAN)), evidenceApplication.markdown); writeLogical(repo, TARGET_PLAN, evidenceBytes);
+  const evidenceCommit = commitAll(repo, 'apply compatibility evidence');
+
+  const reviewReceipt = findingsFreeDraftReceipt(evidenceCommit, evidenceBytes, 'dual'); const reviewBytes = insertOrReplaceDraftReceiptForTest(evidenceBytes, reviewReceipt);
+  writeLogical(repo, TARGET_PLAN, reviewBytes); const compatibilityReviewCommit = commitAll(repo, 'record compatibility review');
+
+  const bindingApplication = buildExecutionBaseCompatibilityBindingApplication({ repo, planPath: TARGET_PLAN, evidenceCommit, reviewCommit: compatibilityReviewCommit });
+  const bindingBytes = insertBeforeReviewForTest(reviewBytes, bindingApplication.markdown); writeLogical(repo, TARGET_PLAN, bindingBytes);
+  const bindingCommit = commitAll(repo, 'bind compatibility review');
+
+  return {
+    temp, repo, plannedAt, creationCommit, executionBaseCommit, identityCommit, finishedPlanCommit, releaseCommit,
+    evidenceApplication, evidenceCommit, reviewReceipt, compatibilityReviewCommit, bindingApplication, bindingBytes, bindingCommit,
+  };
+}
+
+function childResult(stdout = Buffer.alloc(0), stderr = Buffer.alloc(0), overrides = {}) {
+  return { status: 0, signal: null, error: null, stdout: Buffer.from(stdout), stderr: Buffer.from(stderr), ...overrides };
+}
+
+function prerequisiteDependencies(fixture, { stderrAt = null, tagMode = 'annotated', resultVariant = null, wrongCwd = false, now = '2026-07-13T14:00:00.000Z', home = '/tmp/docks-prerequisite-home', fileVariant = null } = {}) {
+  const calls = []; const observationOrder = [];
+  const releaseRef = `refs/tags/${RELEASE_TAG}`; const tagObject = 'a'.repeat(40);
+  const outputs = {
+    remote_main: Buffer.from(`${fixture.releaseCommit}\trefs/heads/main\n`),
+    remote_tag: Buffer.from(tagMode === 'lightweight' ? `${fixture.releaseCommit}\t${releaseRef}\n` : `${tagObject}\t${releaseRef}\n${fixture.releaseCommit}\t${releaseRef}^{}\n`),
+    github_release: Buffer.from(`${JSON.stringify({ isDraft: false, isPrerelease: false, tagName: RELEASE_TAG, url: `https://github.com/DocksDocks/docks/releases/tag/${RELEASE_TAG}` })}\n`),
+    codex_plugin: Buffer.from(`${JSON.stringify({ installed: [{ pluginId: 'other@market', version: '9.9.9' }, { pluginId: 'docks@docks', name: 'docks', marketplaceName: 'docks', version: RELEASE_VERSION, installed: true, enabled: true, source: { source: 'git-subdir', url: 'https://github.com/DocksDocks/docks.git', path: 'plugins/docks', ref: 'main' }, volatile: 'ignored' }] })}\n`),
+    claude_plugin: Buffer.from(`${JSON.stringify([{ id: 'other@market' }, { id: 'docks@docks', version: RELEASE_VERSION, scope: 'user', enabled: true, installPath: path.join(home, '.claude/plugins/cache/docks/docks', RELEASE_VERSION), volatile: 'ignored' }])}\n`),
+  };
+  const classify = (argv) => {
+    if (jcs(argv) === jcs(['git', 'ls-remote', '--exit-code', '--branches', 'https://github.com/DocksDocks/docks.git', 'refs/heads/main'])) return 'remote_main';
+    if (argv[0] === 'git' && argv[1] === 'ls-remote' && argv[3] === '--tags') return 'remote_tag';
+    if (argv[0] === 'gh') return 'github_release'; if (argv[0] === 'codex') return 'codex_plugin'; if (argv[0] === 'claude') return 'claude_plugin'; return null;
+  };
+  const sourceBytes = gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${POLICY_PATH}`]);
+  const dependencies = {
+    runChild(argv, options) {
+      calls.push({ argv: argv.slice(), options: { ...options } });
+      if (wrongCwd || jcs(options) !== jcs({ cwd: path.resolve(fixture.repo) })) throw new Error('fixture observed wrong child cwd');
+      const label = classify(argv); let result;
+      if (label !== null) {
+        observationOrder.push(label); result = childResult(outputs[label], stderrAt === label ? Buffer.from(`stderr:${label}\n`) : Buffer.alloc(0));
+      } else {
+        const child = spawnSync(argv[0], argv.slice(1), { cwd: options.cwd, encoding: 'buffer', shell: false, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000, killSignal: 'SIGTERM', maxBuffer: 1048576, windowsHide: true });
+        result = { status: child.status, signal: child.signal, error: child.error ? { code: child.error.code === undefined ? null : String(child.error.code), message: String(child.error.message) } : null, stdout: Buffer.from(child.stdout ?? ''), stderr: Buffer.from(child.stderr ?? '') };
+      }
+      return resultVariant ? resultVariant({ argv, label, result, calls, outputs }) : result;
+    },
+    now: () => now,
+    homedir: () => home,
+    lstat: (absolutePath) => fileVariant?.lstat ? fileVariant.lstat(absolutePath) : ({ kind: 'file', symbolicLink: false }),
+    realpath: (absolutePath) => fileVariant?.realpath ? fileVariant.realpath(absolutePath) : absolutePath,
+    readFile: (absolutePath) => fileVariant?.readFile ? fileVariant.readFile(absolutePath, sourceBytes) : Buffer.from(sourceBytes),
+  };
+  return { dependencies, calls, observationOrder, outputs, sourceBytes, home };
+}
+
+function prerequisiteInput(fixture) {
+  return {
+    repo: fixture.repo, planPath: TARGET_PLAN, finishedPlanPath: FINISHED_COMPATIBILITY_PLAN, finishedPlanCommit: fixture.finishedPlanCommit,
+    releaseVersion: RELEASE_VERSION, evidenceCommit: fixture.evidenceCommit, compatibilityReviewCommit: fixture.compatibilityReviewCommit,
+    bindingCommit: fixture.bindingCommit, authorizationId: RELEASE_AUTHORIZATION_ID, authorizationSha256: RELEASE_AUTHORIZATION_SHA256,
+  };
+}
+
+function prerequisiteReceiptFromApplication(application) {
+  const match = application.markdown.match(/^```json\n(\{.*\})\n```\n$/s); assert.ok(match, 'prerequisite application fence'); return JSON.parse(match[1]);
+}
+
+function legacyShapeCandidate(options = {}) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-legacy-shape-')); const repo = path.join(temp, 'repo'); initializeRepository(repo);
+  if (options.pathExisted) writeLogical(repo, TARGET_PLAN, fixturePlan({ cleanReceipt: true })); else writeLogical(repo, 'seed.txt', 'seed\n');
+  const plannedAt = commitAll(repo, 'legacy planned base');
+  if (options.creationParentDrift) { writeLogical(repo, 'intermediate.txt', 'intermediate\n'); commitAll(repo, 'intermediate creation parent'); }
+  const legacy = options.fullLegacy ? plannedAt : plannedAt.slice(0, options.shortLength ?? 7); let plan = fixturePlan({ plannedAt: legacy, cleanReceipt: true });
+  if (options.duplicateHeadings) plan = replaceOnce(plan, '## Threat model\n', '## Threat model\n\nDuplicate one.\n\n## Threat model\n');
+  writeLogical(repo, TARGET_PLAN, plan); if (options.creationExtra) writeLogical(repo, 'creation-extra.txt', 'extra\n'); commitAll(repo, 'legacy plan creation');
+  plan = replaceOnce(plan, 'status: planned', 'status: ongoing'); plan = replaceOnce(plan, 'started_at: null', 'started_at: "2026-07-13T08:10:00.000Z"');
+  if (!options.noBodyChange) {
+    plan = replaceOnce(plan, 'Threat model scope is unresolved.', 'Threat model scope is owner-approved.');
+    plan = replaceOnce(plan, 'Run the fixture before owner resolution.', 'Run the fixture after owner resolution.');
+    plan = replaceOnce(plan, '- `threat-model-scope`: owner decision pending.', '- `threat-model-scope`: owner approved the bounded route.');
+  }
+  if (options.protectedChange) plan = replaceOnce(plan, 'Prove canonical policy behavior.\n\n## Interfaces', 'Protected goal changed.\n\n## Interfaces');
+  if (options.headingAdded) plan = replaceOnce(plan, '## Self-review\n', '## Added at start\n\nAdded.\n\n## Self-review\n');
+  if (options.preambleChange) plan = replaceOnce(plan, '# Sample review plan\n', '# Changed sample review plan\n');
+  writeLogical(repo, TARGET_PLAN, plan); if (options.startExtra) writeLogical(repo, 'start-extra.txt', 'extra\n'); const executionBaseCommit = commitAll(repo, 'legacy start');
+  if (options.unequalLegacy) plan = replaceOnce(plan, `planned_at_commit: "${legacy}"`, `planned_at_commit: "${plannedAt.slice(0, 8)}"`);
+  else plan = replaceOnce(plan, `planned_at_commit: "${legacy}"`, `planned_at_commit: "${plannedAt}"`);
+  plan = replaceOnce(plan, 'execution_base_commit: null', `execution_base_commit: "${executionBaseCommit}"`); writeLogical(repo, TARGET_PLAN, plan); const head = commitAll(repo, 'legacy identities');
+  return { temp, repo, plannedAt, executionBaseCommit, head };
+}
+
+function testLegacyShapeNegatives() {
+  for (const [label, options, pattern] of [
+    ['planned path already existed', { pathExisted: true }, /path existed|creation/],
+    ['creation parent drift', { creationParentDrift: true }, /creation parent/],
+    ['creation extra path', { creationExtra: true }, /creation must be plan-only/],
+    ['start extra path', { startExtra: true }, /start must change only the plan/],
+    ['legacy abbreviation too short', { shortLength: 6 }, /abbreviation/],
+    ['legacy full identity', { fullLegacy: true }, /abbreviation/],
+    ['legacy identities unequal', { unequalLegacy: true }, /identity/],
+    ['protected section changed', { protectedChange: true }, /protected section/],
+    ['heading vector changed', { headingAdded: true }, /heading vector/],
+    ['duplicate headings', { duplicateHeadings: true }, /duplicate body heading/],
+    ['preamble changed', { preambleChange: true }, /preamble/],
+    ['changed section set empty', { noBodyChange: true }, /changed sections missing/],
+  ]) {
+    const fixture = legacyShapeCandidate(options);
+    expectThrow(label, () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: fixture.head, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 }), pattern);
+    fs.rmSync(fixture.temp, { recursive: true, force: true });
+  }
+}
+
+function applyPrerequisiteForTest(bytes, application) {
+  let text = Buffer.from(bytes).toString(); text = replaceOnce(text, PREREQUISITE_MARKER, application.markdown, 'prerequisite marker');
+  text = replaceOnce(text, PREREQUISITE_STEP_PLANNED, PREREQUISITE_STEP_DONE, 'Step-P row'); return Buffer.from(text);
+}
+
+function rehashedPrerequisiteApplication(application, applyChange) {
+  return variantPrerequisiteApplication(application, applyChange, { observations: true, receipt: true, application: true });
+}
+
+function variantPrerequisiteApplication(application, applyChange, rehash = {}) {
+  const receipt = structuredClone(prerequisiteReceiptFromApplication(application)); applyChange(receipt);
+  if (rehash.observations) { const observationPreimage = { ...receipt.observations }; delete observationPreimage.observations_sha256; receipt.observations.observations_sha256 = sha256(jcs(observationPreimage)); }
+  if (rehash.receipt) { const receiptPreimage = { ...receipt }; delete receiptPreimage.receipt_sha256; receipt.receipt_sha256 = sha256(jcs(receiptPreimage)); }
+  const result = { schema: 1, markdown: `\`\`\`json\n${jcs(receipt)}\n\`\`\`\n`, receipt_sha256: receipt.receipt_sha256, observations_sha256: receipt.observations.observations_sha256 };
+  if (!rehash.application) return { ...application, ...result };
+  result.application_sha256 = sha256(jcs(result)); return result;
+}
+
+function commitPrerequisiteVariant(fixture, application, label) {
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]); const qBytes = applyPrerequisiteForTest(fixture.bindingBytes, application); writeLogical(fixture.repo, TARGET_PLAN, qBytes); const q = commitAll(fixture.repo, `${label} Q`);
+  const finalReceipt = findingsFreeDraftReceipt(q, qBytes, 'single'); const finalBytes = insertOrReplaceDraftReceiptForTest(qBytes, finalReceipt, true); writeLogical(fixture.repo, TARGET_PLAN, finalBytes); const f = commitAll(fixture.repo, `${label} F`);
+  return { q, f, qBytes, finalBytes };
+}
+
+function commitQFVariant(fixture, prerequisiteApplication, label, qVariant = (bytes) => bytes, { qExtraPath = false, fVariant = (bytes) => bytes, interveningBeforeF = false } = {}) {
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
+  const validQ = applyPrerequisiteForTest(fixture.bindingBytes, prerequisiteApplication); const qBytes = Buffer.from(qVariant(validQ)); writeLogical(fixture.repo, TARGET_PLAN, qBytes);
+  if (qExtraPath) writeLogical(fixture.repo, 'unexpected-q.txt', 'outside Q\n');
+  const q = commitAll(fixture.repo, `${label} Q`); const finalReceipt = findingsFreeDraftReceipt(q, qBytes, 'single'); let finalBytes = insertOrReplaceDraftReceiptForTest(qBytes, finalReceipt, true);
+  if (interveningBeforeF) git(fixture.repo, ['commit', '--allow-empty', '-qm', `${label} intervening`]);
+  finalBytes = Buffer.from(fVariant(finalBytes)); writeLogical(fixture.repo, TARGET_PLAN, finalBytes); const f = commitAll(fixture.repo, `${label} F`);
+  return { q, f, qBytes, finalBytes, finalReceipt };
+}
+
+function testCompatibilityChainNegatives(fixture, prerequisiteApplication) {
+  const evidenceBytes = gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]); const reviewBytes = gitBytes(fixture.repo, ['show', `${fixture.compatibilityReviewCommit}:${TARGET_PLAN}`]);
+
+  const materialMatch = fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m); const receiptMatch = fixture.evidenceApplication.markdown.match(/^Execution-base-compatibility-receipt: (\{.*\})$/m); const diffMatch = fixture.evidenceApplication.markdown.match(/^(`{3,})diff\n([\s\S]*?)^\1$/m); assert.ok(materialMatch && receiptMatch && diffMatch);
+  const alteredMaterial = JSON.parse(materialMatch[1]); const alteredReceipt = JSON.parse(receiptMatch[1]); alteredMaterial.plan_creation_commit = fixture.identityCommit; alteredReceipt.plan_creation_commit = fixture.identityCommit;
+  delete alteredMaterial.review_material_sha256; alteredMaterial.review_material_sha256 = sha256(jcs({ schema: 1, material: alteredMaterial, transition_diff: diffMatch[2] }));
+  alteredReceipt.review_material_sha256 = alteredMaterial.review_material_sha256; delete alteredReceipt.receipt_sha256; alteredReceipt.receipt_sha256 = sha256(jcs(alteredReceipt));
+  const alteredApplicationMarkdown = `Compatibility-review-material: ${jcs(alteredMaterial)}\n${diffMatch[1]}diff\n${diffMatch[2]}${diffMatch[1]}\nExecution-base-compatibility-receipt: ${jcs(alteredReceipt)}\n`;
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]); const alteredEvidenceBytes = insertBeforeReviewForTest(gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]), alteredApplicationMarkdown); writeLogical(fixture.repo, TARGET_PLAN, alteredEvidenceBytes); const alteredE = commitAll(fixture.repo, 'historically false E');
+  const alteredEReceipt = findingsFreeDraftReceipt(alteredE, alteredEvidenceBytes, 'single'); writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(alteredEvidenceBytes, alteredEReceipt)); const alteredEReview = commitAll(fixture.repo, 'review historically false E');
+  let alteredBindingApplication = null; let alteredBindingError = null;
+  try { alteredBindingApplication = buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: alteredE, reviewCommit: alteredEReview }); } catch (error) { alteredBindingError = error; }
+  if (alteredBindingError !== null) assert.match(alteredBindingError.message, /application mismatch/, 'real binding builder rejects self-consistent false E before B');
+  else {
+    const alteredReviewBytes = gitBytes(fixture.repo, ['show', `${alteredEReview}:${TARGET_PLAN}`]); const alteredBindingBytes = insertBeforeReviewForTest(alteredReviewBytes, alteredBindingApplication.markdown); writeLogical(fixture.repo, TARGET_PLAN, alteredBindingBytes); const alteredB = commitAll(fixture.repo, 'bind historically false E');
+    const falseFixture = { ...fixture, evidenceCommit: alteredE, compatibilityReviewCommit: alteredEReview, bindingCommit: alteredB }; const fake = prerequisiteDependencies(falseFixture); let prerequisiteError = null;
+    try { buildDocksCompatibilityPrerequisiteApplication(prerequisiteInput(falseFixture), fake.dependencies); } catch (error) { prerequisiteError = error; }
+    if (prerequisiteError !== null) { assert.match(prerequisiteError.message, /historical application mismatch/); assert.deepEqual(fake.observationOrder, [], 'false E rejects before remote observations'); }
+    else assert.fail(`E historical reconstruction must reject before observations; observed ${fake.observationOrder.join(',')}`);
+  }
+
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]); git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before E']); writeLogical(fixture.repo, TARGET_PLAN, evidenceBytes); const nonAdjacentE = commitAll(fixture.repo, 'non-adjacent E');
+  const nonAdjacentEReceipt = findingsFreeDraftReceipt(nonAdjacentE, evidenceBytes, 'single'); writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(evidenceBytes, nonAdjacentEReceipt)); const nonAdjacentR = commitAll(fixture.repo, 'review non-adjacent E');
+  expectThrow('E adjacency', () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: nonAdjacentE, reviewCommit: nonAdjacentR }), /evidence commit parent mismatch/);
+
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]); git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before R']); writeLogical(fixture.repo, TARGET_PLAN, reviewBytes); const nonAdjacentRCommit = commitAll(fixture.repo, 'non-adjacent R');
+  expectThrow('R adjacency', () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: nonAdjacentRCommit }), /review commit parent mismatch/);
+
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]); const alteredAttribution = Buffer.from(replaceOnce(reviewBytes.toString(), 'independently verified none', 'independently verified altered'));
+  writeLogical(fixture.repo, TARGET_PLAN, alteredAttribution); const alteredR = commitAll(fixture.repo, 'alter R attribution');
+  expectThrow('R attribution bytes', () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: alteredR }), /compatibility review delta mismatch/);
+
+  const finding = { id: 'X1', severity: 'low', section: 'Threat model', path: null, locator: null, defect: 'finding retained', fix: 'resolve it', evidence: 'fixture' };
+  expectThrow('R not_ready', () => renderCompatibilityReviewAttribution(draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { verdict: 'not_ready' })), /outcome is ineligible|findings-free ready/);
+  expectThrow('R finding', () => renderCompatibilityReviewAttribution(draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { findings: [finding] })), /findings-free ready|waiver\/finding/);
+
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]); writeLogical(fixture.repo, TARGET_PLAN, fixture.bindingBytes); writeLogical(fixture.repo, 'unexpected-b.txt', 'outside B\n'); const extraB = commitAll(fixture.repo, 'B extra path');
+  expectThrow('B extra path', () => buildDocksCompatibilityPrerequisiteApplication({ ...prerequisiteInput(fixture), bindingCommit: extraB }, prerequisiteDependencies(fixture).dependencies), /binding commit must change only the plan/);
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]); const bindingMatch = fixture.bindingBytes.toString().match(/^Execution-base-compatibility-binding: (\{.*\})$/m); assert.ok(bindingMatch); const alteredBindingRecord = JSON.parse(bindingMatch[1]); alteredBindingRecord.binding_sha256 = 'f'.repeat(64);
+  const alteredBinding = Buffer.from(replaceOnce(fixture.bindingBytes.toString(), bindingMatch[0], `Execution-base-compatibility-binding: ${jcs(alteredBindingRecord)}`)); writeLogical(fixture.repo, TARGET_PLAN, alteredBinding); const alteredB = commitAll(fixture.repo, 'B altered binding');
+  expectThrow('B binding record', () => buildDocksCompatibilityPrerequisiteApplication({ ...prerequisiteInput(fixture), bindingCommit: alteredB }, prerequisiteDependencies(fixture).dependencies), /binding application mismatch|binding hash|binding mismatch/);
+
+  for (const [label, qVariant, options, pattern] of [
+    ['Q pending marker retained', (bytes) => Buffer.from(replaceOnce(bytes.toString(), prerequisiteApplication.markdown, `${PREREQUISITE_MARKER}${prerequisiteApplication.markdown}`)), {}, /closure delta mismatch/],
+    ['Q Step-P remains planned', (bytes) => Buffer.from(replaceOnce(bytes.toString(), PREREQUISITE_STEP_DONE, PREREQUISITE_STEP_PLANNED)), {}, /closure delta mismatch/],
+    ['Q non-JCS receipt', (bytes) => Buffer.from(replaceOnce(bytes.toString(), prerequisiteApplication.markdown, prerequisiteApplication.markdown.replace('```json\n{', '```json\n{ '))), {}, /compact JCS/],
+    ['Q wrong fence', (bytes) => Buffer.from(replaceOnce(bytes.toString(), prerequisiteApplication.markdown, prerequisiteApplication.markdown.replace('```json\n', '````json\n').replace('\n```\n', '\n````\n'))), {}, /receipt fence count|closure delta/],
+    ['Q extra prose', (bytes) => insertBeforeReviewForTest(bytes, 'Unexpected Q prose.\n'), {}, /closure delta mismatch/],
+    ['Q extra path', (bytes) => bytes, { qExtraPath: true }, /must change only the plan/],
+    ['Q adjacency', (bytes) => bytes, { interveningBeforeF: true }, /execution review commit|must change only the plan|delta mismatch/],
+    ['F extra prose', (bytes) => bytes, { fVariant: (bytes) => insertBeforeReviewForTest(bytes, 'Unexpected F prose.\n') }, /final review delta mismatch/],
+    ['F attribution', (bytes) => bytes, { fVariant: (bytes) => { const text = bytes.toString(); const needle = 'independently verified none'; const at = text.lastIndexOf(needle); assert.ok(at >= 0); return Buffer.from(`${text.slice(0, at)}independently verified altered${text.slice(at + needle.length)}`); } }, /final review delta mismatch/],
+  ]) {
+    const chain = commitQFVariant(fixture, prerequisiteApplication, label, qVariant, options);
+    expectThrow(label, () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: chain.f }), pattern);
+  }
 }
 
 function draftBundle() {
@@ -142,8 +503,8 @@ function testCanonical() {
   assert.doesNotMatch(view, /Review-receipt:/);
   assert.doesNotMatch(view, /"status"/);
   const lifecycle = Buffer.from(raw.toString().replace('status: planned', 'status: ongoing').replace('updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-12T01:00:00-03:00"'));
-  assert.equal(canonicalPlanView(lifecycle), view, 'lifecycle-only mutation is excluded');
-  assert.notEqual(canonicalPlanView(Buffer.from(raw.toString().replace('Prove canonical policy behavior.\n\n## Steps', 'Prove changed policy behavior.\n\n## Steps'))), view, 'ordinary prose mutation invalidates');
+  assert.equal(canonicalPlanView(lifecycle), view, 'lifecycle-only change is excluded');
+  assert.notEqual(canonicalPlanView(Buffer.from(raw.toString().replace('Prove canonical policy behavior.\n\n## Interfaces', 'Prove changed policy behavior.\n\n## Interfaces'))), view, 'ordinary prose change invalidates');
   expectThrow('BOM', () => canonicalPlanView(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), raw])), /BOM/);
   expectThrow('duplicate key', () => canonicalPlanView(Buffer.from(raw.toString().replace('title: Sample review plan', 'title: Sample review plan\ntitle: duplicate'))), /duplicate/);
   expectThrow('nested YAML', () => canonicalPlanView(Buffer.from(raw.toString().replace('tags: [review-policy]', 'tags:\n  nested: nope'))), /unsupported/);
@@ -182,7 +543,7 @@ function testSchemas() {
   console.log('schema closure goldens passed');
 }
 
-function testAdversarialValidators() {
+function testValidationMatrix() {
   const req = request(); const X = rawPassed(req, 'X'); const S = rawPassed(req, 'S');
   validateRawLeg(X, req, 'X'); validateRawLeg(S, req, 'S');
   assert.equal(X.findings_sha256, sha256(jcs([])), 'passed empty findings hash is SHA(JCS([]))');
@@ -292,7 +653,7 @@ function testAdversarialValidators() {
   expectThrow('accepted unreproduced finding', () => validateDraftReceipt(acceptedReceipt, req.input_sha256), /not reproduced/);
   console.log('semantic: not_ready verdict and structured-output hash cannot authorize execution');
   console.log('semantic: derived completion verdict rejects failing primary evidence and mismatched review_status');
-  console.log('semantic adversarial attempt, ledger, consent, outcome, run, reproduction, and receipt validators passed');
+  console.log('semantic validation matrix passed');
 }
 
 function testBundle() {
@@ -342,8 +703,8 @@ function testBundle() {
   expectThrow('self-consistently resealed raw-plan leak', () => verifyBundle({ bundle: leakedPath, expectedSha256: leaked.bundle_sha256 }), /exposes raw plan|raw plan leak/);
   fs.chmodSync(path.join(out, 'plan.review.md'), 0o644); expectThrow('post-seal writable mode', () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }), /not sealed read-only/); fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
   fs.chmodSync(path.join(out, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(out, 'plan.review.md'), 'tamper\n'); fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
-  expectThrow('post-seal file mutation without caller hash', () => verifyBundle({ bundle: out }), /file hash mismatch/);
-  expectThrow('post-seal bundle mutation', () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }), /hash mismatch/);
+  expectThrow('post-seal file change without caller hash', () => verifyBundle({ bundle: out }), /file hash mismatch/);
+  expectThrow('post-seal bundle change', () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }), /hash mismatch/);
   expectThrow('nonexistent reviewed commit', () => sealBundle({ repo, reviewedCommit: 'f'.repeat(40), planPath: 'docs/plans/active/sample.md', requestedPaths: [], outDir: path.join(temp, 'bad') }), /git rev-parse/);
   git(repo, ['update-index', '--add', '--cacheinfo', `160000,${head},vendor/sub`]); git(repo, ['commit', '-qm', 'submodule fixture']); const submoduleHead = git(repo, ['rev-parse', 'HEAD']);
   expectThrow('submodule tree entry', () => sealBundle({ repo, reviewedCommit: submoduleHead, planPath: 'docs/plans/active/sample.md', requestedPaths: ['vendor'], outDir: path.join(temp, 'submodule-bundle') }), /submodule is unsupported/);
@@ -374,9 +735,350 @@ function testLegs() {
   assert.equal(classifyLeg({ leg: 'X', policy: never, attempts: [], eligibleTierCount: 1 }), 'not_authorized');
   assert.equal(classifyLeg({ leg: 'S', policy: never, attempts: [{ result: 'passed' }], eligibleTierCount: 2 }), 'passed');
   fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(fixture.bundle, 'plan.review.md'), 'post-leg tamper\n'); fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o444);
-  expectThrow('post-leg bundle mutation', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S', fixture.bundle), /hash mismatch/);
+  expectThrow('post-leg bundle change', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S', fixture.bundle), /hash mismatch/);
   makeWritable(fixture.bundle); fs.rmSync(fixture.temp, { recursive: true, force: true });
   console.log('legs: direct argv, skip-git, plan mode, JCS echo, attempt bounds, relay rejection, denial and consent separation passed');
+}
+
+function productionPrerequisiteProbe(fixture) {
+  const root = path.join(fixture.temp, 'production-probe'); const bin = path.join(root, 'bin'); const home = path.join(root, 'home'); fs.mkdirSync(bin, { recursive: true });
+  const log = path.join(root, 'remote-git.jsonl'); const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim(); assert.ok(path.isAbsolute(realGit), 'real git path');
+  const gitShim = `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
+const args=process.argv.slice(2); const remote=args[0]==='ls-remote';
+if(remote){fs.appendFileSync(process.env.PROBE_LOG,JSON.stringify({args,env:process.env})+'\\n'); const ref=process.env.RELEASE_TAG; if(args.includes('--branches')) process.stdout.write(process.env.RELEASE_COMMIT+'\\trefs/heads/main\\n'); else process.stdout.write(process.env.TAG_OBJECT+'\\trefs/tags/'+ref+'\\n'+process.env.RELEASE_COMMIT+'\\trefs/tags/'+ref+'^{}\\n'); process.exit(0);}
+const env={...process.env}; for(const key of Object.keys(env)) if(['GIT_CONFIG','GIT_CONFIG_PARAMETERS','GIT_COMMON_DIR','GIT_WORK_TREE','GIT_DIR'].includes(key)||/^GIT_CONFIG_(KEY|VALUE)_[0-9]+$/.test(key)) delete env[key]; env.GIT_CONFIG_COUNT='0'; delete env.GIT_CONFIG_GLOBAL; delete env.GIT_CONFIG_SYSTEM; delete env.GIT_CONFIG_NOSYSTEM;
+const result=spawnSync(process.env.REAL_GIT,args,{encoding:'buffer',env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
+`;
+  const commandShim = `#!/usr/bin/env node
+import path from 'node:path'; const name=path.basename(process.argv[1]); const tag=process.env.RELEASE_TAG; const version=process.env.RELEASE_VERSION; const home=process.env.HOME;
+if(name==='gh') process.stdout.write(JSON.stringify({isDraft:false,isPrerelease:false,tagName:tag,url:'https://github.com/DocksDocks/docks/releases/tag/'+tag})+'\\n');
+else if(name==='codex') process.stdout.write(JSON.stringify({installed:[{pluginId:'docks@docks',name:'docks',marketplaceName:'docks',version,installed:true,enabled:true,source:{source:'git-subdir',url:'https://github.com/DocksDocks/docks.git',path:'plugins/docks',ref:'main'}}]})+'\\n');
+else process.stdout.write(JSON.stringify([{id:'docks@docks',version,scope:'user',enabled:true,installPath:path.join(home,'.claude/plugins/cache/docks/docks',version)}])+'\\n');
+`;
+  fs.writeFileSync(path.join(bin, 'git'), gitShim, { mode: 0o755 }); for (const name of ['gh', 'codex', 'claude']) fs.writeFileSync(path.join(bin, name), commandShim, { mode: 0o755 });
+  const source = gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${POLICY_PATH}`]);
+  for (const runtime of ['.codex', '.claude']) writeLogical(home, `${runtime}/plugins/cache/docks/docks/${RELEASE_VERSION}/skills/productivity/plan-review/scripts/review-policy.mjs`, source);
+  const globalConfig = path.join(root, 'global.gitconfig'); const systemConfig = path.join(root, 'system.gitconfig'); const explicitConfig = path.join(root, 'explicit.gitconfig');
+  for (const file of [globalConfig, systemConfig, explicitConfig]) fs.writeFileSync(file, '[url "file:///ambient-redirect"]\n\tinsteadOf = https://github.com/DocksDocks/docks.git\n');
+  git(fixture.repo, ['config', 'url.file:///repository-redirect.insteadOf', 'https://github.com/DocksDocks/docks.git']);
+  const env = {
+    ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: home, REAL_GIT: realGit, PROBE_LOG: log,
+    RELEASE_COMMIT: fixture.releaseCommit, RELEASE_TAG, RELEASE_VERSION, TAG_OBJECT: 'b'.repeat(40),
+    GIT_CONFIG: explicitConfig, GIT_CONFIG_PARAMETERS: "'url.file:///parameter-redirect.insteadOf'='https://github.com/DocksDocks/docks.git'",
+    GIT_COMMON_DIR: path.join(root, 'wrong-common'), GIT_WORK_TREE: path.join(root, 'wrong-worktree'), GIT_DIR: path.join(root, 'wrong-gitdir'),
+    GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_SYSTEM: systemConfig, GIT_CONFIG_NOSYSTEM: '0', GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'url.file:///count-redirect.insteadOf', GIT_CONFIG_VALUE_0: 'https://github.com/DocksDocks/docks.git',
+  };
+  const input = prerequisiteInput(fixture); const args = ['compatibility-prerequisite', input.repo, input.planPath, input.finishedPlanPath, input.finishedPlanCommit, input.releaseVersion, input.evidenceCommit, input.compatibilityReviewCommit, input.bindingCommit, input.authorizationId, input.authorizationSha256];
+  const result = spawnSync(process.execPath, [HELPER, ...args], { cwd: fixture.repo, env, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+  const application = JSON.parse(result.stdout); assert.match(application.application_sha256, /^[0-9a-f]{64}$/);
+  const rows = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse); assert.equal(rows.length, 2, 'exactly two canonical remote children');
+  assert.deepEqual(rows[0].args, ['ls-remote', '--exit-code', '--branches', 'https://github.com/DocksDocks/docks.git', 'refs/heads/main']);
+  assert.deepEqual(rows[1].args, ['ls-remote', '--exit-code', '--tags', 'https://github.com/DocksDocks/docks.git', `refs/tags/${RELEASE_TAG}`, `refs/tags/${RELEASE_TAG}^{}`]);
+  for (const row of rows) {
+    assert.equal(row.env.GIT_DIR, os.devNull); assert.equal(row.env.GIT_CONFIG_GLOBAL, os.devNull); assert.equal(row.env.GIT_CONFIG_SYSTEM, os.devNull);
+    assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1'); assert.equal(row.env.GIT_CONFIG_COUNT, '0');
+    for (const key of ['GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']) assert.equal(row.env[key], undefined, `${key} removed from canonical remote child`);
+  }
+  return application;
+}
+
+function testStrictCompletionReuse() {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-strict-reuse-')); const repo = path.join(temp, 'repo'); initializeRepository(repo);
+  writeLogical(repo, 'seed.txt', 'seed\n'); const plannedAt = commitAll(repo, 'seed');
+  const planPath = 'docs/plans/active/strict.md'; let plan = fixturePlan({ plannedAt, cleanReceipt: true }); writeLogical(repo, planPath, plan); commitAll(repo, 'add strict plan');
+  plan = replaceOnce(plan, 'status: planned', 'status: ongoing'); plan = replaceOnce(plan, 'started_at: null', 'started_at: "2026-07-13T12:00:00.000Z"'); writeLogical(repo, planPath, plan); const executionBase = commitAll(repo, 'start strict plan');
+  plan = replaceOnce(plan, 'execution_base_commit: null', `execution_base_commit: "${executionBase}"`); writeLogical(repo, planPath, plan); const head = commitAll(repo, 'record strict identity');
+  assert.deepEqual(validateExecutionRange({ repo, planPath, plannedAtCommit: plannedAt, executionBaseCommit: executionBase, reviewedHead: head }), { schema: 1, planned_at_commit: plannedAt, execution_base_commit: executionBase, reviewed_head: head, execution_parent: git(repo, ['rev-parse', `${executionBase}^`]) });
+  const receipt = completionReceiptFor(head, Buffer.from(plan)); let completed = applyCompletionReviewBlock(Buffer.from(plan), receipt).toString(); completed = replaceOnce(completed, 'review_status: null', 'review_status: passed'); writeLogical(repo, planPath, completed); const completionCommit = commitAll(repo, 'complete strict plan');
+  validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit, receipt });
+  for (const [label, applyChange] of [
+    ['Review heading', (value) => replaceOnce(value, '## Review\n', '## Reviews\n')],
+    ['Review label', (value) => replaceOnce(value, '**Goal met:**', '**Goal status:**')],
+    ['Review punctuation', (value) => replaceOnce(value, '**CI:**', '**CI**:')],
+    ['Review extra prose', (value) => replaceOnce(value, '## Review\n', '## Review\nUnexpected prose.\n')],
+    ['Review receipt byte', (value) => replaceOnce(value, 'Completion-review-receipt: {', 'Completion-review-receipt: {"extra":true,')],
+    ['Review CRLF', (value) => value.replaceAll('\n', '\r\n')],
+    ['Review separator', (value) => replaceOnce(value, '\n## Review\n', '## Review\n')],
+    ['Review final LF', (value) => value.slice(0, -1)],
+  ]) {
+    git(repo, ['checkout', '-q', '--detach', head]); writeLogical(repo, planPath, applyChange(completed)); const candidate = commitAll(repo, `mutated completion ${label}`);
+    expectThrow(`completion reuse ${label}`, () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: candidate, receipt }), /completion|Review|delta|LF|receipt|plan/i);
+  }
+  fs.rmSync(temp, { recursive: true, force: true });
+}
+
+function testCompletionReviewRenderer() {
+  const plan = Buffer.from(fixturePlan({ cleanReceipt: true })); const head = 'c'.repeat(40); const receipt = completionReceiptFor(head, plan);
+  const receiptKeys = Object.keys(receipt); const block = completionReviewBlockV1(receipt);
+  assert.deepEqual(Object.keys(block), ['schema', 'goal_met', 'regressions', 'ci', 'followups', 'filed_by', 'cross_check']);
+  assert.deepEqual(Object.keys(block.cross_check), ['date', 'X', 'S', 'reproduced_ids', 'orchestrator']);
+  assert.deepEqual(Object.keys(block.cross_check.X), ['company', 'model', 'effort', 'result', 'finding_count', 'accepted', 'rejected']);
+  const rendered = renderCompletionReviewBlock(receipt); assert.ok(rendered.endsWith(`Completion-review-receipt: ${jcs(receipt)}\n`)); assert.deepEqual(Object.keys(receipt), receiptKeys, 'renderer leaves receipt keys unchanged');
+  const applied = applyCompletionReviewBlock(plan, receipt); assert.equal(applyCompletionReviewBlock(applied, receipt).toString(), applied.toString(), 'same receipt apply is idempotent');
+  assert.equal(completionStablePlanViewV1(plan), completionStablePlanViewV1(applied));
+  const following = Buffer.from(replaceOnce(plan.toString(), '## Review\n\n*(filled by plan-review on completion)*\n', '## Review\n\n*(filled by plan-review on completion)*\n\n## Following section\n\nFollowing bytes.\n'));
+  const followingApplied = applyCompletionReviewBlock(following, receipt).toString(); assert.match(followingApplied, /Completion-review-receipt: .*\n\n## Following section\n/);
+  expectThrow('duplicate Review heading', () => applyCompletionReviewBlock(Buffer.from(`${plan}\n## Review\n`), receipt), /duplicate body heading|one unfenced ## Review/);
+  expectThrow('CRLF Review input', () => applyCompletionReviewBlock(Buffer.from(plan.toString().replaceAll('\n', '\r\n')), receipt), /LF UTF-8/);
+
+  const specialCharacterPrimary = {
+    ...receipt.primary, goal_met: 'no', ci: { ...receipt.primary.ci, command: 'node\n## injected\n```', exit_code: 1, first_failure: 'fail\r\n</review>\u202e🚀' },
+    regressions: ['line\n## Review\n```\u2028'], followups: ['<script>\u2029🚀'],
+  };
+  const specialCharacters = { ...receipt, primary: specialCharacterPrimary, completion_verdict: 'regressed' }; const specialCharacterRendering = renderCompletionReviewBlock(specialCharacters);
+  assert.doesNotMatch(specialCharacterRendering, /\n## injected\n|\n<script>/); assert.match(specialCharacterRendering, /\\u000a|\\u2028|\\ud83d\\ude80/);
+
+  const inventory = acceptanceInventory(plan); const req = request({ phase: 'completion', reviewed_commit_or_head: head, planned_at_commit: head, execution_base_commit: head, diff_sha256: H0, acceptance_inventory_sha256: sha256(jcs(inventory)), input_sha256: sha256(canonicalPlanView(plan)) });
+  const finding = (id, severity = 'low') => ({ id, severity, section: 'Review', path: null, locator: null, defect: `defect ${id}`, fix: `fix ${id}`, evidence: `evidence ${id}` });
+  const Xraw = rawPassed(req, 'X', null, [finding('X2'), finding('X1')]); const Sraw = rawPassed(req, 'S', null, [finding('S2'), finding('S1')]);
+  const reproduced = ['X2', 'X1'].map((id) => { const source = Xraw.findings.find((row) => row.id === id); return { id, source: 'X', severity: source.severity, path: source.path, locator: source.locator, defect: source.defect, fix: source.fix, reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } }; });
+  const orderedReceipt = {
+    schema: 1, phase: 'completion', request: req, planned_at_commit: head, execution_base_commit: head, reviewed_head: head, diff_sha256: H0,
+    plan_input_sha256: req.input_sha256, acceptance_inventory: inventory, acceptance_inventory_sha256: req.acceptance_inventory_sha256,
+    author: req.author, policy: req.policy, policy_sha256: req.policy_sha256,
+    X: { request: req, raw: Xraw, reconciliation: { accepted: ['X2', 'X1'], rejected: [] } },
+    S: { request: req, raw: Sraw, reconciliation: { accepted: [], rejected: [{ id: 'S2', reason: 'two' }, { id: 'S1', reason: 'one' }] } },
+    reproduced, decision_evidence: null, primary: primaryEvidence(inventory), completion_verdict: 'passed', outcome: 'dual', reviewed_at: '2026-07-13T13:00:00.000Z',
+  };
+  const ordered = renderCompletionReviewBlock(orderedReceipt); assert.match(ordered, /accepted X1,X2/); assert.match(ordered, /rejected S1="one",S2="two"/); assert.match(ordered, /verified X1,X2/);
+  const singleReq = request({ ...req }); const Xauth = rawAuth(singleReq, 'X'); const Spass = rawPassed(singleReq, 'S');
+  const noX = { ...orderedReceipt, request: singleReq, X: persisted(Xauth), S: persisted(Spass), reproduced: [], outcome: 'single' };
+  assert.equal(completionReviewBlockV1(noX).cross_check, null, 'unavailable X omits cross-check');
+}
+
+function testExecutionScopeLedger() {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-scope-ledger-')); const repo = path.join(temp, 'repo'); initializeRepository(repo);
+  const planPath = 'docs/plans/active/scope.md'; let plan = fixturePlan({ cleanReceipt: true }); writeLogical(repo, planPath, plan); writeLogical(repo, 'src/example.js', 'one\n'); const base = commitAll(repo, 'scope base');
+  writeLogical(repo, 'src/example.js', 'two\n'); const sourceCommit = commitAll(repo, 'allowed source change');
+  git(repo, ['commit', '--allow-empty', '-qm', 'intentional empty scope event']); const emptyCommit = git(repo, ['rev-parse', 'HEAD']);
+  plan = replaceOnce(plan, 'updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-13T16:00:00.000Z"'); writeLogical(repo, planPath, plan); const head = commitAll(repo, 'allowed plan change');
+  const result = validateExecutionScope({ repo, base, head, planPath }); assert.equal(result.commit_count, 3);
+  const allowedPreimage = { schema: 1, paths: [planPath, 'src/example.js'] };
+  const ledgerPreimage = { schema: 1, base, head, commits: [
+    { ordinal: 1, commit: sourceCommit, parent: base, paths: ['src/example.js'] },
+    { ordinal: 2, commit: emptyCommit, parent: sourceCommit, paths: [] },
+    { ordinal: 3, commit: head, parent: emptyCommit, paths: [planPath] },
+  ] };
+  assert.equal(result.allowed_paths_sha256, sha256(jcs(allowedPreimage)), 'scope allowed paths are exact UTF-16 sorted JCS'); assert.equal(result.changed_paths_sha256, sha256(jcs(ledgerPreimage)), 'scope ledger retains chronological order and empty commits');
+  const resultPreimage = { schema: 1, base, head, commit_count: 3, allowed_paths_sha256: result.allowed_paths_sha256, changed_paths_sha256: result.changed_paths_sha256 };
+  assert.equal(result.result_sha256, sha256(jcs(resultPreimage)), 'scope result self-hash');
+  writeLogical(repo, 'outside.txt', 'outside\n'); const outside = commitAll(repo, 'outside scope'); expectThrow('per-commit outside scope', () => validateExecutionScope({ repo, base, head: outside, planPath }), /execution scope path is not allowed/);
+  git(repo, ['checkout', '-q', '--detach', head]); let duplicate = replaceOnce(plan, '  - src/example.js\n', '  - src/example.js\n  - src/example.js\n'); writeLogical(repo, planPath, duplicate); const duplicateHead = commitAll(repo, 'duplicate scope entry');
+  expectThrow('duplicate scope manifest', () => validateExecutionScope({ repo, base, head: duplicateHead, planPath }), /duplicates/);
+  git(repo, ['checkout', '-q', '--detach', head]); git(repo, ['checkout', '-qb', 'scope-side']); writeLogical(repo, 'src/example.js', 'side\n'); commitAll(repo, 'scope side');
+  git(repo, ['checkout', '-q', '--detach', head]); writeLogical(repo, planPath, replaceOnce(plan, 'updated: "2026-07-13T16:00:00.000Z"', 'updated: "2026-07-13T16:01:00.000Z"')); commitAll(repo, 'scope first parent'); git(repo, ['merge', '--no-ff', '-qm', 'scope merge', 'scope-side']); const merge = git(repo, ['rev-parse', 'HEAD']);
+  expectThrow('scope merge', () => validateExecutionScope({ repo, base, head: merge, planPath }), /single-parent/); fs.rmSync(temp, { recursive: true, force: true });
+}
+
+function testClosedSelectors() {
+  for (const malformed of [
+    ['--case'], ['--case', 'unknown'], ['--case', 'execution-compatibility', 'extra'],
+    ['--case', 'strict-differential'], ['--baseline', '0'.repeat(40), '--case', 'strict-differential'],
+    ['--case', 'strict-differential', '--baseline', '0'.repeat(40), 'extra'],
+  ]) {
+    const result = spawnSync(process.execPath, [HARNESS, ...malformed], { cwd: ROOT, encoding: 'utf8' }); assert.notEqual(result.status, 0, `selector ${malformed.join(' ')}`); assert.equal(result.stdout, ''); assert.match(result.stderr, /unknown or malformed/);
+  }
+}
+
+function testStrictCorpusContract() {
+  assert.equal(STRICT_CASES.length, 23, 'strict corpus case count'); assert.equal(new Set(STRICT_CASES).size, STRICT_CASES.length, 'strict corpus cases are unique');
+  assert.equal(sha256(jcs({ schema: 1, cases: STRICT_CASES })), STRICT_CORPUS_SHA256, 'strict corpus identity');
+  const source = fs.readFileSync(HARNESS, 'utf8');
+  for (const comparison of ['assert.equal(newResult.status, oldResult.status', 'assert.deepEqual(newResult.stdout, oldResult.stdout', 'assert.deepEqual(newResult.stderr, oldResult.stderr']) assert.equal(source.split(comparison).length - 1, 2, `strict differential retains raw comparison: ${comparison}`);
+}
+
+function testExecutionCompatibility() {
+  assert.equal(sha256(jcs(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY)), LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256);
+  testLegacyShapeNegatives();
+  const fixture = buildCompatibilityRepository(); const input = prerequisiteInput(fixture);
+  expectThrow('legacy shape without evidence', () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: fixture.releaseCommit }), /execution compatibility evidence missing/);
+  expectThrow('wrong owner confirmation', () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: fixture.releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, authorizationId: 'wrong', ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 }), /owner confirmation/);
+  const evidenceReceipt = JSON.parse(fixture.evidenceApplication.markdown.match(/Execution-base-compatibility-receipt: (\{.*\})\n/)[1]);
+  assert.deepEqual(evidenceReceipt.changed_sections.map((row) => row.name), ['Environment & how-to-run', 'Open questions', 'Threat model']);
+  assert.equal(evidenceReceipt.plan_creation_commit, fixture.creationCommit); assert.equal(evidenceReceipt.evidence_input_commit, fixture.releaseCommit);
+  const material = JSON.parse(fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m)[1]);
+  const opening = fixture.evidenceApplication.markdown.match(/^(`{3,})diff$/m)[1]; const diffStart = fixture.evidenceApplication.markdown.indexOf(`${opening}diff\n`) + opening.length + 5; const diffEnd = fixture.evidenceApplication.markdown.indexOf(`${opening}\nExecution-base-compatibility-receipt:`, diffStart); const recordedDiff = fixture.evidenceApplication.markdown.slice(diffStart, diffEnd);
+  const diffEnv = { ...process.env }; delete diffEnv.GIT_DIFF_OPTS;
+  const directDiff = spawnSync('git', [
+    '--no-pager', '-c', 'diff.algorithm=myers', '-c', 'diff.context=3', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.indentHeuristic=false', '-c', 'diff.renames=false',
+    'diff', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/',
+    evidenceReceipt.execution_parent, evidenceReceipt.execution_base_commit, '--', TARGET_PLAN,
+  ], { cwd: fixture.repo, encoding: 'utf8', env: diffEnv });
+  assert.equal(directDiff.status, 0, directDiff.stderr); assert.equal(recordedDiff, directDiff.stdout, 'transition diff is byte-exact canonical Git output');
+  const { review_material_sha256: recordedMaterialSha, ...materialPreimage } = material;
+  assert.equal(material.transition_diff_sha256, sha256(recordedDiff)); assert.equal(material.policy_sha256, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256); assert.equal(recordedMaterialSha, sha256(jcs({ schema: 1, material: materialPreimage, transition_diff: recordedDiff })));
+  validateDraftReceipt(findingsFreeDraftReceipt(fixture.evidenceCommit, gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]), 'single'));
+
+  const recorded = ['remote_main', 'remote_tag', 'github_release', 'codex_plugin', 'claude_plugin']; let prerequisiteApplication = null;
+  for (const stderrAt of recorded) {
+    const fake = prerequisiteDependencies(fixture, { stderrAt }); const application = buildDocksCompatibilityPrerequisiteApplication(input, fake.dependencies); const receipt = prerequisiteReceiptFromApplication(application);
+    assert.deepEqual(fake.observationOrder, recorded, 'fixed observation order');
+    for (const label of recorded) assert.equal(receipt.observations[label].stderr_sha256, sha256(label === stderrAt ? `stderr:${label}\n` : Buffer.alloc(0)), `${label} stderr hash`);
+    prerequisiteApplication ??= application;
+  }
+  const light = prerequisiteDependencies(fixture, { tagMode: 'lightweight' }); const lightApplication = buildDocksCompatibilityPrerequisiteApplication(input, light.dependencies);
+  assert.equal(prerequisiteReceiptFromApplication(lightApplication).observations.remote_tag.projection.annotated, false);
+  assert.equal(prerequisiteReceiptFromApplication(prerequisiteApplication).observations.remote_tag.projection.annotated, true);
+  const reorderedInput = Object.fromEntries(Object.entries(input).reverse()); const reorderedDependencies = Object.fromEntries(Object.entries(prerequisiteDependencies(fixture).dependencies).reverse());
+  assert.equal(jcs(buildDocksCompatibilityPrerequisiteApplication(reorderedInput, reorderedDependencies)), jcs(buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture).dependencies)), 'closed object key order canonicalizes identically');
+  expectThrow('missing prerequisite input key', () => { const value = { ...input }; delete value.releaseVersion; buildDocksCompatibilityPrerequisiteApplication(value, prerequisiteDependencies(fixture).dependencies); }, /unknown key|must contain|releaseVersion/);
+  expectThrow('extra prerequisite input key', () => buildDocksCompatibilityPrerequisiteApplication({ ...input, observations: {} }, prerequisiteDependencies(fixture).dependencies), /unknown key/);
+  expectThrow('swapped prerequisite input values', () => buildDocksCompatibilityPrerequisiteApplication({ ...input, evidenceCommit: input.bindingCommit, bindingCommit: input.evidenceCommit }, prerequisiteDependencies(fixture).dependencies), /contiguous|parent|commit/);
+  expectThrow('missing prerequisite dependency', () => { const value = { ...prerequisiteDependencies(fixture).dependencies }; delete value.now; buildDocksCompatibilityPrerequisiteApplication(input, value); }, /missing now/);
+  expectThrow('extra prerequisite dependency', () => buildDocksCompatibilityPrerequisiteApplication(input, { ...prerequisiteDependencies(fixture).dependencies, observations: () => ({}) }), /unknown key/);
+  expectThrow('wrong child cwd', () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { wrongCwd: true }).dependencies), /wrong child cwd/);
+  expectThrow('invalid observed time', () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { now: '2026-07-13 14:00:00' }).dependencies), /ISO/);
+  expectThrow('relative homedir', () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { home: 'relative-home' }).dependencies), /homedir/);
+  for (const [label, resultVariant, pattern] of [
+    ['missing child result field', ({ result, label: row }) => row === 'remote_main' ? (() => { const copy = { ...result }; delete copy.stderr; return copy; })() : result, /child result.*missing stderr/],
+    ['extra child result field', ({ result, label: row }) => row === 'remote_main' ? { ...result, extra: true } : result, /child result.*unknown key/],
+    ['noninteger child status', ({ result, label: row }) => row === 'remote_main' ? { ...result, status: '0' } : result, /child status/],
+    ['nonzero child status', ({ result, label: row }) => row === 'remote_main' ? { ...result, status: 1 } : result, /child failed/],
+    ['signaled child', ({ result, label: row }) => row === 'remote_main' ? { ...result, signal: 'SIGTERM' } : result, /child failed/],
+    ['nonstring child signal', ({ result, label: row }) => row === 'remote_main' ? { ...result, signal: 9 } : result, /child signal/],
+    ['missing child error field', ({ result, label: row }) => row === 'remote_main' ? { ...result, error: { code: 'EIO' } } : result, /child error.*missing message/],
+    ['extra child error field', ({ result, label: row }) => row === 'remote_main' ? { ...result, error: { code: 'EIO', message: 'failed', extra: true } } : result, /child error.*unknown key/],
+    ['nonstring child error code', ({ result, label: row }) => row === 'remote_main' ? { ...result, error: { code: 5, message: 'failed' } } : result, /child error code/],
+    ['valid child error', ({ result, label: row }) => row === 'remote_main' ? { ...result, error: { code: 'EIO', message: 'failed' } } : result, /child failed/],
+    ['nonbuffer child stdout', ({ result, label: row }) => row === 'remote_main' ? { ...result, stdout: result.stdout.toString() } : result, /Buffer/],
+    ['nonbuffer child stderr', ({ result, label: row }) => row === 'remote_main' ? { ...result, stderr: result.stderr.toString() } : result, /Buffer/],
+    ['unrecorded child stderr', ({ result, label: row, argv }) => row === null && argv[1] === 'rev-parse' ? { ...result, stderr: Buffer.from('unexpected\n') } : result, /stderr must be empty/],
+  ]) expectThrow(label, () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { resultVariant }).dependencies), pattern);
+  for (const [label, fileVariant, pattern] of [
+    ['cache symlink', { lstat: () => ({ kind: 'file', symbolicLink: true }) }, /non-symlink file/],
+    ['cache directory', { lstat: () => ({ kind: 'directory', symbolicLink: false }) }, /non-symlink file/],
+    ['cache realpath', { realpath: (value) => value === path.resolve(fixture.repo) ? value : `${value}.other` }, /non-symlink file/],
+    ['cache nonbuffer read', { readFile: () => 'not-buffer' }, /Buffer/],
+    ['cache wrong hash', { readFile: () => Buffer.from('different policy') }, /policies differ/],
+  ]) expectThrow(label, () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { fileVariant }).dependencies), pattern);
+  for (const [label, resultVariant, pattern] of [
+    ['remote main extra row', ({ result, label: row }) => row === 'remote_main' ? { ...result, stdout: Buffer.concat([result.stdout, result.stdout]) } : result, /remote main stdout mismatch/],
+    ['remote tag row order', ({ result, label: row }) => row === 'remote_tag' ? { ...result, stdout: Buffer.from(result.stdout.toString().trim().split('\n').reverse().join('\n') + '\n') } : result, /remote tag stdout mismatch/],
+    ['remote tag unpeeled', ({ result, label: row }) => row === 'remote_tag' ? { ...result, stdout: Buffer.from(`${'a'.repeat(40)}\trefs/tags/${RELEASE_TAG}\n`) } : result, /remote tag stdout mismatch/],
+    ['release draft', ({ result, label: row }) => row === 'github_release' ? { ...result, stdout: Buffer.from(JSON.stringify({ isDraft: true, isPrerelease: false, tagName: RELEASE_TAG, url: `https://github.com/DocksDocks/docks/releases/tag/${RELEASE_TAG}` })) } : result, /Release projection mismatch/],
+    ['duplicate Codex plugin', ({ result, label: row, outputs }) => row === 'codex_plugin' ? { ...result, stdout: Buffer.from(JSON.stringify({ installed: [JSON.parse(outputs.codex_plugin).installed[1], JSON.parse(outputs.codex_plugin).installed[1]] })) } : result, /selection must be unique/],
+    ['missing Claude plugin', ({ result, label: row }) => row === 'claude_plugin' ? { ...result, stdout: Buffer.from('[]') } : result, /selection must be unique/],
+  ]) expectThrow(label, () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { resultVariant }).dependencies), pattern);
+
+  for (const extra of ['dependencies', 'time', 'home', 'raw-observations', 'parsed-observations', 'cache-path']) {
+    const args = ['compatibility-prerequisite', input.repo, input.planPath, input.finishedPlanPath, input.finishedPlanCommit, input.releaseVersion, input.evidenceCommit, input.compatibilityReviewCommit, input.bindingCommit, input.authorizationId, input.authorizationSha256, extra];
+    const result = helper(fixture.repo, args); assert.notEqual(result.status, 0); assert.match(result.stderr, /accepts .* only/);
+  }
+  const productionApplication = productionPrerequisiteProbe(fixture); assert.equal(prerequisiteReceiptFromApplication(productionApplication).release_commit, fixture.releaseCommit);
+  testCompatibilityChainNegatives(fixture, prerequisiteApplication);
+
+  const changeStoredStderr = (receipt) => { receipt.observations.remote_main.stderr_sha256 = 'f'.repeat(64); };
+  const staleStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr); const staleChain = commitPrerequisiteVariant(fixture, staleStderr, 'stale stored stderr hash');
+  expectThrow('stale stored stderr substitution', () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: staleChain.f }), /observations hash mismatch/);
+  const partialStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr, { observations: true }); const partialChain = commitPrerequisiteVariant(fixture, partialStderr, 'partially rehashed stored stderr hash');
+  expectThrow('partially rehashed stored stderr substitution', () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: partialChain.f }), /receipt hash mismatch/);
+  const rehashedStderr = rehashedPrerequisiteApplication(prerequisiteApplication, changeStoredStderr); const rehashedChain = commitPrerequisiteVariant(fixture, rehashedStderr, 'fully rehashed opaque stderr provenance');
+  assert.equal(validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: rehashedChain.f }).mode, 'legacy_compatibility', 'fully rehashed opaque digest documents trusted constructor/Q/F provenance boundary');
+  const reorderedReceipt = rehashedPrerequisiteApplication(prerequisiteApplication, (receipt) => {
+    receipt.observations = Object.fromEntries(Object.entries(receipt.observations).reverse());
+    receipt.observations.remote_main = Object.fromEntries(Object.entries(receipt.observations.remote_main).reverse());
+  });
+  assert.equal(jcs(reorderedReceipt), jcs(prerequisiteApplication), 'reordered closed stored objects are canonical-identical');
+  for (const [label, applyChange, pattern] of [
+    ['stored observation missing field', (receipt) => { delete receipt.observations.remote_main.exit_code; }, /missing exit_code/],
+    ['stored observation extra field', (receipt) => { receipt.observations.remote_main.extra = true; }, /unknown key/],
+    ['stored main projection', (receipt) => { receipt.observations.remote_main.projection.commit = 'f'.repeat(40); }, /stored remote main projection/],
+    ['stored tag projection', (receipt) => { receipt.observations.remote_tag.projection.peeled_commit = 'f'.repeat(40); }, /stored remote tag projection/],
+    ['stored argv order', (receipt) => { receipt.observations.remote_main.argv.reverse(); }, /observation identity/],
+    ['stored exit code', (receipt) => { receipt.observations.remote_main.exit_code = 1; }, /observation identity/],
+    ['stored observed time', (receipt) => { receipt.observations.observed_at = '2026-07-13 14:00:00'; }, /ISO/],
+    ['stored source identity', (receipt) => { receipt.observations.source_policy.git_spec = 'HEAD:wrong'; }, /source policy observation identity/],
+    ['stored cache relative path', (receipt) => { receipt.observations.codex_cache.home_relative_path = '.codex/wrong'; }, /cache relative path/],
+  ]) {
+    const application = rehashedPrerequisiteApplication(prerequisiteApplication, applyChange); const chain = commitPrerequisiteVariant(fixture, application, label);
+    expectThrow(label, () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: chain.f }), pattern);
+  }
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
+
+  const prerequisiteBytes = applyPrerequisiteForTest(fixture.bindingBytes, prerequisiteApplication); writeLogical(fixture.repo, TARGET_PLAN, prerequisiteBytes); const prerequisiteCommit = commitAll(fixture.repo, 'close Docks prerequisite');
+  const finalReceipt = findingsFreeDraftReceipt(prerequisiteCommit, prerequisiteBytes, 'single', '2026-07-13T15:00:00.000Z'); const finalBytes = insertOrReplaceDraftReceiptForTest(prerequisiteBytes, finalReceipt, true);
+  writeLogical(fixture.repo, TARGET_PLAN, finalBytes); const finalReviewCommit = commitAll(fixture.repo, 'record final execution review');
+  const validation = validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: finalReviewCommit });
+  assert.equal(validation.mode, 'legacy_compatibility'); assert.equal(validation.prerequisite_commit, prerequisiteCommit); assert.equal(validation.execution_review_commit, finalReviewCommit);
+  assert.equal(validation.prerequisite_receipt_sha256, prerequisiteReceiptFromApplication(prerequisiteApplication).receipt_sha256);
+  const completionReceipt = completionReceiptFor(finalReviewCommit, finalBytes); let completionBytes = applyCompletionReviewBlock(finalBytes, completionReceipt).toString(); completionBytes = replaceOnce(completionBytes, 'review_status: null', 'review_status: passed');
+  writeLogical(fixture.repo, TARGET_PLAN, completionBytes); const completionCommit = commitAll(fixture.repo, 'complete compatibility consumer plan');
+  validateCompletionReviewReuse({ repo: fixture.repo, planPath: TARGET_PLAN, reviewedHead: finalReviewCommit, completionCommit, receipt: completionReceipt });
+  assert.equal(validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: completionCommit }).execution_review_commit, finalReviewCommit);
+  testStrictCompletionReuse(); testCompletionReviewRenderer(); testExecutionScopeLedger();
+  makeWritable(fixture.temp); fs.rmSync(fixture.temp, { recursive: true, force: true });
+  console.log('execution compatibility: strict-first evidence/review/binding/prerequisite/final-review and reuse passed');
+}
+
+function strictDifferentialFixture(caseName) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), `review-policy-strict-${caseName}-`)); const repo = path.join(temp, 'repo'); initializeRepository(repo);
+  writeLogical(repo, 'seed.txt', 'planned base\n'); const plannedAt = commitAll(repo, 'planned base');
+  writeLogical(repo, 'wrong.txt', 'wrong identity source\n'); const wrongCommit = commitAll(repo, 'wrong identity source');
+  const planPath = 'docs/plans/active/strict.md'; let parentPlan = fixturePlan({ plannedAt, cleanReceipt: true });
+  if (caseName === 'base-planned-at-identity') parentPlan = replaceOnce(parentPlan, `planned_at_commit: "${plannedAt}"`, `planned_at_commit: "${wrongCommit}"`);
+  if (caseName === 'parent-status') parentPlan = replaceOnce(parentPlan, 'status: planned', 'status: ongoing');
+  if (caseName === 'parent-started-at') parentPlan = replaceOnce(parentPlan, 'started_at: null', 'started_at: "2026-07-13T10:00:00.000Z"');
+  if (caseName !== 'parent-plan-missing') writeLogical(repo, planPath, parentPlan); else writeLogical(repo, 'parent-only.txt', 'plan absent\n');
+  const parent = commitAll(repo, 'strict parent');
+
+  let basePlan = parentPlan;
+  if (caseName !== 'base-plan-missing') {
+    if (caseName !== 'parent-status') basePlan = replaceOnce(basePlan, 'status: planned', caseName === 'base-status' ? 'status: planned' : 'status: ongoing');
+    if (caseName !== 'base-started-at' && caseName !== 'parent-started-at') basePlan = replaceOnce(basePlan, 'started_at: null', 'started_at: "2026-07-13T10:10:00.000Z"');
+    if (caseName === 'canonical-start-drift') basePlan = replaceOnce(basePlan, 'Prove canonical policy behavior.\n\n## Interfaces', 'Prove changed canonical policy behavior.\n\n## Interfaces');
+  }
+  let executionBaseCommit;
+  if (caseName === 'base-multi-parent') {
+    const branch = git(repo, ['branch', '--show-current']); git(repo, ['checkout', '-qb', 'strict-side', parent]); writeLogical(repo, 'side.txt', 'side\n'); commitAll(repo, 'strict side');
+    git(repo, ['checkout', '-q', branch]); writeLogical(repo, planPath, basePlan); commitAll(repo, 'strict start first parent'); git(repo, ['merge', '--no-ff', '-qm', 'strict merge base', 'strict-side']); executionBaseCommit = git(repo, ['rev-parse', 'HEAD']);
+  } else {
+    if (caseName === 'base-plan-missing') fs.rmSync(path.join(repo, planPath)); else writeLogical(repo, planPath, basePlan);
+    if (caseName === 'base-extra-path') writeLogical(repo, 'unexpected.txt', 'extra base path\n');
+    executionBaseCommit = commitAll(repo, 'strict execution base');
+  }
+
+  let headPlan = basePlan;
+  if (caseName !== 'base-plan-missing') {
+    if (caseName === 'base-planned-at-identity') headPlan = replaceOnce(headPlan, `planned_at_commit: "${wrongCommit}"`, `planned_at_commit: "${plannedAt}"`);
+    const headExecution = caseName === 'head-execution-base-identity' ? wrongCommit : executionBaseCommit;
+    headPlan = replaceOnce(headPlan, 'execution_base_commit: null', `execution_base_commit: "${headExecution}"`);
+    if (caseName === 'head-planned-at-identity') headPlan = replaceOnce(headPlan, `planned_at_commit: "${plannedAt}"`, `planned_at_commit: "${wrongCommit}"`);
+    writeLogical(repo, planPath, headPlan);
+  } else writeLogical(repo, 'after-delete.txt', 'head without plan\n');
+  let reviewedHead = commitAll(repo, 'strict reviewed head');
+  if (caseName === 'head-plan-missing') { fs.rmSync(path.join(repo, planPath)); reviewedHead = commitAll(repo, 'delete head plan'); }
+
+  let selectedPlan = plannedAt; let selectedBase = executionBaseCommit; let selectedHead = reviewedHead; let selectedPath = planPath;
+  if (caseName === 'path-escape') selectedPath = '../strict.md';
+  if (caseName === 'planned-short') selectedPlan = plannedAt.slice(0, 7);
+  if (caseName === 'planned-missing') selectedPlan = 'f'.repeat(40);
+  if (caseName === 'execution-short') selectedBase = executionBaseCommit.slice(0, 7);
+  if (caseName === 'execution-missing') selectedBase = 'e'.repeat(40);
+  if (caseName === 'reviewed-short') selectedHead = reviewedHead.slice(0, 7);
+  if (caseName === 'reviewed-missing') selectedHead = 'd'.repeat(40);
+  if (caseName === 'base-to-head-ancestry') selectedHead = parent;
+  if (caseName === 'planned-to-base-ancestry') {
+    const branch = git(repo, ['branch', '--show-current']); git(repo, ['checkout', '-qb', 'unrelated-planned', plannedAt]); writeLogical(repo, 'unrelated.txt', 'not ancestor\n'); selectedPlan = commitAll(repo, 'unrelated planned'); git(repo, ['checkout', '-q', branch]);
+  }
+  return { temp, repo, args: ['execution-range', repo, selectedHead, selectedPath, selectedPlan, selectedBase] };
+}
+
+function testStrictDifferential(baseline) {
+  assert.match(baseline, /^[0-9a-f]{40}$/); testStrictCorpusContract();
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-baseline-helper-')); const baselineHelper = path.join(temp, 'review-policy-baseline.mjs'); const runner = path.join(temp, 'runner.mjs');
+  fs.writeFileSync(baselineHelper, gitBytes(ROOT, ['show', `${baseline}:${path.relative(ROOT, HELPER)}`]));
+  fs.writeFileSync(runner, `import path from 'node:path'; import { pathToFileURL } from 'node:url';
+const [helper,repo,reviewedHead,planPath,plannedAtCommit,executionBaseCommit]=process.argv.slice(2); const policy=await import(pathToFileURL(path.resolve(helper)));
+try { process.stdout.write(policy.jcs(policy.validateExecutionRange({repo,reviewedHead,planPath,plannedAtCommit,executionBaseCommit}))+'\\n'); } catch(error) { process.stderr.write('review-policy: '+error.message+'\\n'); process.exitCode=1; }
+`);
+  for (const caseName of STRICT_CASES) {
+    const fixture = strictDifferentialFixture(caseName); const call = fixture.args.slice(1); const oldResult = spawnSync(process.execPath, [runner, baselineHelper, ...call], { cwd: fixture.repo }); const newResult = spawnSync(process.execPath, [runner, HELPER, ...call], { cwd: fixture.repo });
+    assert.equal(newResult.status, oldResult.status, `${caseName} exit`); assert.deepEqual(newResult.stdout, oldResult.stdout, `${caseName} stdout`); assert.deepEqual(newResult.stderr, oldResult.stderr, `${caseName} stderr`);
+    fs.rmSync(fixture.temp, { recursive: true, force: true });
+  }
+  fs.rmSync(temp, { recursive: true, force: true }); console.log(`execution compatibility: strict differential passed cases=${STRICT_CASES.length}`);
 }
 
 function testLifecycle() {
@@ -409,7 +1111,7 @@ function testLifecycle() {
   const preparedPath = path.join(temp, 'prepared.json'); fs.writeFileSync(preparedPath, JSON.stringify(prepared));
   const missingSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(missingSentinel.status, 0); assert.match(missingSentinel.stderr, /sentinel missing/);
   fs.writeFileSync(sentinel, sentinelBytes); fs.writeFileSync(path.join(original, 'ignored-cache'), 'mutated ignored content\n');
-  const ignoredMutation = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(ignoredMutation.status, 0); assert.match(ignoredMutation.stderr, /original repository changed/);
+  const ignoredChange = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(ignoredChange.status, 0); assert.match(ignoredChange.stderr, /original repository changed/);
   fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
   const forged = { ...prepared, cleanup_token: H0 }; const forgedPath = path.join(temp, 'forged.json'); fs.writeFileSync(forgedPath, JSON.stringify(forged));
   const forgedCleanup = helper(temp, ['completion-cleanup', original, requestId, forgedPath]); assert.notEqual(forgedCleanup.status, 0); assert.match(forgedCleanup.stderr, /sentinel mismatch/);
@@ -459,7 +1161,7 @@ function testReviewRunnerSurfaces() {
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
-    assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*(?:Bash|Edit|Write)/i, `${file} retains mutation-capable reviewer tools or writer instructions`);
+    assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*(?:Bash|Edit|Write)/i, `${file} retains write-capable reviewer tools or writer instructions`);
     assert.doesNotMatch(text, /acting as primary evidence runner|CI\/acceptance claims require/i, `${file} assigns writable primary work to read-only wrapper`);
     assert.match(text, /Never run or claim CI, acceptance, clone, cleanup, or lifecycle work/i, `${file} lacks explicit X\/S write boundary`);
   }
@@ -516,14 +1218,16 @@ function testSelfDemo(planPath) {
 
 const args = process.argv.slice(2);
 try {
-  if (args[0] === '--case' && args[1] === 'legs') testLegs();
-  else if (args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
-  else if (args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
-  else if (args[0] === '--case' && args[1] === 'adversarial') testAdversarialValidators();
-  else {
-    testCanonical(); testSchemas(); testAdversarialValidators(); testBundle(); testLegs(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary();
+  if (args.length === 0) {
+    testClosedSelectors(); testStrictCorpusContract(); testCanonical(); testSchemas(); testValidationMatrix(); testBundle(); testLegs(); testExecutionCompatibility(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary();
     console.log('plan-review-policy contract passed');
-  }
+  } else if (args.length === 2 && args[0] === '--case' && args[1] === 'legs') testLegs();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
+  else if (args.length === 3 && args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'validation-matrix') testValidationMatrix();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'execution-compatibility') testExecutionCompatibility();
+  else if (args.length === 4 && args[0] === '--case' && args[1] === 'strict-differential' && args[2] === '--baseline') testStrictDifferential(args[3]);
+  else throw new Error('unknown or malformed plan-review-policy test selector');
 } catch (error) {
   console.error(error.stack || error.message); process.exitCode = 1;
 }
