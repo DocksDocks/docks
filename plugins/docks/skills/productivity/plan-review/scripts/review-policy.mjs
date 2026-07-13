@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,6 +20,61 @@ const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_
 const ATTEMPT_RESULTS = new Set(['passed', 'auth_failed', 'model_unavailable', 'deadline_exceeded', 'platform_denied', 'transient_transport', 'nonzero_exit', 'signaled', 'unparseable']);
 const SOURCES = new Set(['current_user', 'runtime_global', 'skill_default']);
 const COMPLETION_ROOT = '/tmp/docks-plan-verify';
+const LEGACY_HEX = /^[0-9a-f]{7,39}$/;
+const CORE_SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+$/;
+const FINISHED_COMPATIBILITY_PATH = /^docs\/plans\/finished\/[0-9]{4}-[0-9]{2}-[0-9]{2}-legacy-start-transition-compatibility\.md$/;
+const IDENTITY_TOKEN = /^[a-z0-9][a-z0-9._/-]*$/;
+const COMPATIBILITY_ACTIVE_PLAN = 'docs/plans/active/legacy-start-transition-compatibility.md';
+const COMPATIBILITY_POLICY_PATH = 'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+const CANONICAL_REPOSITORY_URL = 'https://github.com/DocksDocks/docks.git';
+const COMPATIBILITY_AUTHORIZATION_ID = 'owner-2026-07-13-remodel-and-review-plan';
+const COMPATIBILITY_AUTHORIZATION_SHA256 = '1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96';
+const RELEASE_AUTHORIZATION = {
+  schema: 1,
+  authorization_id: 'owner-2026-07-13-four-release-order-docks-prerequisite',
+  decision: 'allow',
+  operations: ['non_force_push_main', 'docks_patch_release_after_compatibility_completion', 'codex_plugin_refresh', 'claude_plugin_refresh'],
+  plan_path: COMPATIBILITY_ACTIVE_PLAN,
+  recorded_at: '2026-07-13T06:44:36-03:00',
+  repository: 'DocksDocks/docks',
+  source: 'repository-owner-current-conversation',
+  source_text_sha256: '2bb31558648994b7d4fbba15abf3ed981c556c91e5ead91712f281d18acbac92',
+};
+const RELEASE_AUTHORIZATION_SHA256 = 'f8f38319a72f258dd66d9b31f620cd13ec1968f1d1d169d94e3ebc6b55dde77a';
+const PREREQUISITE_PENDING_MARKER = 'Pending until exact Step-P E/R/B and Docks release/cache verification. In Q, plan-manager replaces only this sentence with one fenced, one-line compact-JCS `DocksCompatibilityPrerequisiteReceiptV1`, changes Step P `planned` to `done`, bumps `updated`, validates the resulting blob, and commits plan-only before final ordinary review F.\n';
+const PREREQUISITE_PENDING_MARKER_SHA256 = 'b5474a78577308a6f844557778dd02a513b8f5bee404c46a88235d18fcb73ced';
+const PREREQUISITE_STEP_PLANNED = '| P | Complete the exact Docks-only compatibility prerequisite before any implementation worker resumes: finish/archive the compatibility plan, release/install/cache-verify Docks under the recorded authorization, commit contiguous E/R/B, commit prerequisite closure Q with P `done`, then obtain findings-free final ordinary review F and revalidate the range. | Plan-manager-returned `docs/plans/finished/<date>-legacy-start-transition-compatibility.md` (read-only), `docs/plans/active/relay-worker-lifecycle-primitives.md` (plan-manager-only E/R/B/Q/F writes), `$HOME/.codex/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs` (read-only), `$HOME/.claude/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs` (read-only) | 1, 3b | planned | The exact Step-P block above passes. Q embeds one valid `DocksCompatibilityPrerequisiteReceiptV1` and changes only its pending sentence, P status, and `updated`; F\'s findings-free `dual|single` receipt reviews Q. The current plan retains exact E material/receipt, immutable R review, B binding, Q prerequisite evidence, and F receipt. Both released cache helpers emit byte-identical schema-1 `LegacyExecutionRangeValidationV1`; only F becomes `PLAN_COMMIT`/`PLAN_BLOB`. Effect Kit and Session Relay versions are unchanged. Any other outcome, stale cache, absent release, E/R/B/Q/F gap, non-plan delta, or authorization mismatch is STOP. P appends no acceptance event or implementation-range receipt. |\n';
+const PREREQUISITE_STEP_DONE = PREREQUISITE_STEP_PLANNED.replace(' | planned | ', ' | done | ');
+
+export const LEGACY_START_TRANSITION_COMPATIBILITY_POLICY = Object.freeze({
+  body: {
+    changed_sections_receipt_bound: true,
+    duplicate_headings_forbidden: true,
+    heading_set_and_order_identical: true,
+    preamble_name: '__preamble__',
+    protected_sections: ['Acceptance criteria', 'Cold-handoff checklist', 'Goal', 'Interfaces & data shapes', 'Out of scope / do-NOT-touch', 'STOP conditions', 'Steps'],
+    section_add_delete_forbidden: true,
+  },
+  creation: {
+    must_be_ancestor_of_execution_parent: true,
+    path_absent_at_planned_at_commit: true,
+    plan_only_add: true,
+    single_parent_equals_planned_at_commit: true,
+  },
+  legacy_planned_at: { min_hex_length: 7, must_equal_before_and_at_base: true, must_uniquely_resolve_to_full: true },
+  review: { minimum_passed_legs: 1, passed_legs_must_be_ready: true, passed_legs_must_have_zero_findings: true, waivers_forbidden: true, zero_reviewer_forbidden: true },
+  schema: 1,
+  start: {
+    allowed_frontmatter_changes: ['started_at', 'status', 'updated'],
+    base_single_parent: true,
+    changed_path_only_plan: true,
+    from_started_at: null,
+    from_status: ['planned', 'scheduled'],
+    to_started_at: 'non-null',
+    to_status: 'ongoing',
+  },
+});
+export const LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256 = 'b224d8fc3f8ba6921aec38e834ec2f812954aff79859734e988fb03caf9f1253';
 
 export function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -609,7 +665,7 @@ function ancestor(repo, older, newer) {
   if (result.status === 0) return true; if (result.status === 1) return false; throw new Error(`git merge-base failed: ${result.stderr.trim()}`);
 }
 
-export function validateExecutionRange({ repo, planPath, plannedAtCommit, executionBaseCommit, reviewedHead }) {
+function validateStrictExecutionRange({ repo, planPath, plannedAtCommit, executionBaseCommit, reviewedHead }) {
   const logical = safeLogical(planPath); exactCommit(repo, plannedAtCommit, 'planned_at_commit'); exactCommit(repo, executionBaseCommit, 'execution_base_commit'); exactCommit(repo, reviewedHead, 'reviewed_head');
   if (!ancestor(repo, plannedAtCommit, executionBaseCommit) || !ancestor(repo, executionBaseCommit, reviewedHead)) throw new Error('execution base ancestry mismatch');
   const parentRow = git(repo, ['rev-list', '--parents', '-n', '1', executionBaseCommit]).trim().split(/\s+/); if (parentRow.length !== 2) throw new Error('execution base must be a single-parent start transition');
@@ -622,6 +678,18 @@ export function validateExecutionRange({ repo, planPath, plannedAtCommit, execut
   return { schema: 1, planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedHead, execution_parent: parentRow[1] };
 }
 
+export function validateExecutionRange(input) {
+  try { return validateStrictExecutionRange(input); } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'execution base is not the plan-only first-start transition') throw error;
+    let historical;
+    try { historical = legacyHistoricalContext(input); } catch { throw error; }
+    const headBytes = git(input.repo, ['show', `${input.reviewedHead}:${historical.plan_path}`], null);
+    const application = extractCompatibilityApplication(headBytes, { required: false });
+    if (application === null) throw new Error('execution compatibility evidence missing');
+    return validateLegacyCompatibilityRange({ ...input, historical, application, headBytes });
+  }
+}
+
 function completionDiff(repo, executionBaseCommit, reviewedHead) {
   return git(repo, ['diff', '--binary', '--full-index', '--find-renames', '--no-ext-diff', '--no-textconv', '--no-color', executionBaseCommit, reviewedHead, '--'], null);
 }
@@ -629,6 +697,1140 @@ function completionDiff(repo, executionBaseCommit, reviewedHead) {
 function safeLogical(logical) {
   if (typeof logical !== 'string' || !logical || path.isAbsolute(logical) || logical.split('/').includes('..') || logical === '.git' || logical.startsWith('.git/')) throw new Error(`path escapes repo: ${logical}`);
   return logical.split(path.sep).join('/');
+}
+
+function exactUtf8(bytes, label) {
+  const raw = bytes instanceof Uint8Array ? Buffer.from(bytes) : Buffer.from(bytes);
+  const text = decodeUtf8(raw);
+  if (!raw.equals(Buffer.from(text))) throw new Error(`${label} must use LF UTF-8 bytes`);
+  return text;
+}
+
+function splitPlanText(bytes) {
+  const text = exactUtf8(bytes, 'plan');
+  const firstLf = text.indexOf('\n');
+  const end = text.indexOf('\n---\n', firstLf);
+  if (firstLf !== 3 || end < 0) throw new Error('plan frontmatter boundary');
+  const bodyAt = end + 5;
+  parsePlan(Buffer.from(text));
+  return { text, prefix: text.slice(0, bodyAt), body: text.slice(bodyAt) };
+}
+
+function bodyRows(body) {
+  if (!body.endsWith('\n')) throw new Error('plan body must end in LF');
+  const rows = []; let offset = 0;
+  for (const match of body.matchAll(/([^\n]*)\n/g)) {
+    rows.push({ line: match[1], start: offset, end: offset + match[0].length });
+    offset += match[0].length;
+  }
+  if (offset !== body.length) throw new Error('plan body row boundary');
+  return rows;
+}
+
+function scanBody(body) {
+  const rows = bodyRows(body); const headings = []; const unfenced = []; let fence = null;
+  for (const row of rows) {
+    const fenceMatch = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(row.line);
+    if (fence === null && fenceMatch) {
+      fence = { marker: fenceMatch[2][0], length: fenceMatch[2].length };
+      continue;
+    }
+    if (fence !== null && fenceMatch && fenceMatch[2][0] === fence.marker && fenceMatch[2].length >= fence.length && /^\s*$/.test(fenceMatch[3])) {
+      fence = null; continue;
+    }
+    if (fence !== null) continue;
+    unfenced.push(row);
+    const heading = /^## ([^\n]+)$/.exec(row.line);
+    if (heading) headings.push({ name: heading[1], start: row.start, line_end: row.end });
+  }
+  return { rows, headings, unfenced };
+}
+
+function partitionBody(body) {
+  const { headings } = scanBody(body);
+  if (headings.length === 0) throw new Error('execution compatibility body headings missing');
+  const names = new Set();
+  for (const heading of headings) {
+    if (names.has(heading.name)) throw new Error('execution compatibility duplicate body heading');
+    names.add(heading.name);
+  }
+  const partitions = [{ ordinal: 0, name: '__preamble__', bytes: body.slice(0, headings[0].start) }];
+  headings.forEach((heading, index) => partitions.push({ ordinal: index + 1, name: heading.name, bytes: body.slice(heading.start, headings[index + 1]?.start ?? body.length), start: heading.start, end: headings[index + 1]?.start ?? body.length, line_end: heading.line_end }));
+  return partitions;
+}
+
+function uniquePartition(body, name) {
+  const matches = partitionBody(body).filter((row) => row.name === name);
+  if (matches.length !== 1) throw new Error(`plan must contain one unfenced ## ${name} section`);
+  return matches[0];
+}
+
+function insertBeforeReview(bytes, markdown) {
+  const plan = splitPlanText(bytes); const review = uniquePartition(plan.body, 'Review');
+  return Buffer.from(`${plan.prefix}${plan.body.slice(0, review.start)}${markdown}${plan.body.slice(review.start)}`);
+}
+
+function replacePlanBody(bytes, body) {
+  const plan = splitPlanText(bytes);
+  return Buffer.from(`${plan.prefix}${body}`);
+}
+
+function normalizeAllowedFrontmatter(bytes, allowed) {
+  const text = exactUtf8(bytes, 'plan'); const lines = text.split('\n'); const end = lines.indexOf('---', 1);
+  if (lines[0] !== '---' || end < 0) throw new Error('plan frontmatter boundary');
+  for (const key of allowed) {
+    const indexes = [];
+    for (let i = 1; i < end; i += 1) if (lines[i].startsWith(`${key}:`)) indexes.push(i);
+    if (indexes.length > 1) throw new Error(`duplicate frontmatter key: ${key}`);
+    if (indexes.length === 1) lines[indexes[0]] = `${key}: <allowed>`;
+  }
+  return lines.join('\n');
+}
+
+function requirePlanDelta(beforeBytes, afterBytes, expectedBytes, label, allowed = ['updated']) {
+  parsePlan(beforeBytes); parsePlan(afterBytes); parsePlan(expectedBytes);
+  if (normalizeAllowedFrontmatter(afterBytes, allowed) !== normalizeAllowedFrontmatter(expectedBytes, allowed)) throw new Error(`${label} delta mismatch`);
+}
+
+function gitResult(repo, args, encoding = 'buffer', extra = {}) {
+  const result = spawnSync('git', args, { cwd: repo, encoding, ...extra });
+  if (result.error || result.signal !== null || result.status !== 0) {
+    const stderr = Buffer.isBuffer(result.stderr) ? result.stderr.toString() : String(result.stderr ?? '');
+    throw new Error(`git ${args.join(' ')} failed: ${stderr.trim()}`);
+  }
+  return result.stdout;
+}
+
+function gitObject(repo, spec, label) {
+  const oid = git(repo, ['rev-parse', '--verify', spec]).trim();
+  if (!HEX40.test(oid)) throw new Error(`${label} object id`);
+  return oid;
+}
+
+function planBlob(repo, commit, planPath) {
+  return git(repo, ['show', `${commit}:${planPath}`], null);
+}
+
+function changedPaths(repo, parent, commit) {
+  const bytes = git(repo, ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', '--no-renames', parent, commit, '--'], null);
+  const text = exactUtf8(bytes, 'git changed paths');
+  if (text !== '' && !text.endsWith('\0')) throw new Error('git changed paths must be NUL terminated');
+  const rows = text === '' ? [] : text.slice(0, -1).split('\0').map(safeLogical);
+  if (new Set(rows).size !== rows.length) throw new Error('git changed paths contain duplicates');
+  return rows;
+}
+
+function commitParent(repo, commit, label) {
+  exactCommit(repo, commit, label);
+  const row = git(repo, ['rev-list', '--parents', '-n', '1', commit]).trim().split(/\s+/);
+  if (row.length !== 2 || row[0] !== commit || !HEX40.test(row[1])) throw new Error(`${label} must be single-parent`);
+  return row[1];
+}
+
+function requirePlanOnlyChild(repo, commit, parent, planPath, label) {
+  if (commitParent(repo, commit, label) !== parent) throw new Error(`${label} parent mismatch`);
+  const paths = changedPaths(repo, parent, commit);
+  if (paths.length !== 1 || paths[0] !== planPath) throw new Error(`${label} must change only the plan`);
+}
+
+function nextCommit(repo, parent, head, label) {
+  if (!ancestor(repo, parent, head) || parent === head) throw new Error(`${label} is absent from history`);
+  const rows = git(repo, ['rev-list', '--parents', '--reverse', '--ancestry-path', `${parent}..${head}`]).trim().split('\n').filter(Boolean);
+  if (rows.length === 0) throw new Error(`${label} is absent from history`);
+  const first = rows[0].split(/\s+/);
+  if (first.length !== 2 || first[1] !== parent) throw new Error(`${label} is not contiguous`);
+  return first[0];
+}
+
+function assertCompatibilityConstants() {
+  if (sha256(jcs(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY)) !== LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256) throw new Error('execution compatibility policy constant mismatch');
+  if (sha256(jcs(RELEASE_AUTHORIZATION)) !== RELEASE_AUTHORIZATION_SHA256) throw new Error('Docks release authorization constant mismatch');
+  if (sha256(PREREQUISITE_PENDING_MARKER) !== PREREQUISITE_PENDING_MARKER_SHA256) throw new Error('Docks prerequisite marker constant mismatch');
+  if (sha256(PREREQUISITE_STEP_PLANNED) !== 'cd9a017792436c305c5c7c3a8b3b62a9325c9d5951d2e571084e72942cb17174' || sha256(PREREQUISITE_STEP_DONE) !== '1319228f952ab08c95122d98907a7654bf18ba31db7e6d21b015178cd7675aae') throw new Error('Docks prerequisite Step-P constant mismatch');
+}
+
+function legacyPlannedResolution(repo, value) {
+  if (!LEGACY_HEX.test(value)) throw new Error('legacy planned_at_commit abbreviation');
+  const result = spawnSync('git', ['rev-parse', '--verify', `${value}^{commit}`], { cwd: repo, encoding: 'utf8' });
+  if (result.error || result.signal !== null || result.status !== 0 || result.stderr !== '') throw new Error('legacy planned_at_commit does not resolve uniquely');
+  const resolved = result.stdout.trim();
+  if (!HEX40.test(resolved)) throw new Error('legacy planned_at_commit resolution');
+  return resolved;
+}
+
+function validateLegacyFrontmatter(before, atBase) {
+  const beforeKeys = Object.keys(before).sort(compareUtf16); const baseKeys = Object.keys(atBase).sort(compareUtf16);
+  if (jcs(beforeKeys) !== jcs(baseKeys)) throw new Error('legacy start frontmatter key drift');
+  const allowed = new Set(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY.start.allowed_frontmatter_changes);
+  for (const key of beforeKeys) if (jcs(before[key]) !== jcs(atBase[key]) && !allowed.has(key)) throw new Error(`legacy start frontmatter changed ${key}`);
+  if (!LEGACY_START_TRANSITION_COMPATIBILITY_POLICY.start.from_status.includes(before.status) || before.started_at !== null || atBase.status !== 'ongoing' || atBase.started_at === null) throw new Error('legacy start lifecycle mismatch');
+}
+
+function pathExistsAt(repo, commit, logical) {
+  const result = spawnSync('git', ['cat-file', '-e', `${commit}:${logical}`], { cwd: repo, encoding: 'utf8' });
+  if (result.error || result.signal !== null) throw new Error('git path existence check failed');
+  if (result.status === 0) return true;
+  if (result.status === 128) return false;
+  throw new Error(`git path existence check failed: ${result.stderr.trim()}`);
+}
+
+function legacyHistoricalContext({ repo, planPath, plannedAtCommit, executionBaseCommit, reviewedHead }) {
+  assertCompatibilityConstants();
+  const plan_path = safeLogical(planPath);
+  exactCommit(repo, plannedAtCommit, 'planned_at_commit'); exactCommit(repo, executionBaseCommit, 'execution_base_commit'); exactCommit(repo, reviewedHead, 'reviewed_head');
+  if (!ancestor(repo, plannedAtCommit, executionBaseCommit) || !ancestor(repo, executionBaseCommit, reviewedHead)) throw new Error('execution base ancestry mismatch');
+  const execution_parent = commitParent(repo, executionBaseCommit, 'execution_base_commit');
+  const startPaths = changedPaths(repo, execution_parent, executionBaseCommit);
+  if (startPaths.length !== 1 || startPaths[0] !== plan_path) throw new Error('legacy start must change only the plan');
+  const parentBytes = planBlob(repo, execution_parent, plan_path); const baseBytes = planBlob(repo, executionBaseCommit, plan_path); const headBytes = planBlob(repo, reviewedHead, plan_path);
+  const parentPlan = parsePlan(parentBytes); const basePlan = parsePlan(baseBytes); const headPlan = parsePlan(headBytes);
+  const legacy = parentPlan.frontmatter.planned_at_commit;
+  if (basePlan.frontmatter.planned_at_commit !== legacy || legacyPlannedResolution(repo, legacy) !== plannedAtCommit) throw new Error('legacy planned_at_commit identity mismatch');
+  validateLegacyFrontmatter(parentPlan.frontmatter, basePlan.frontmatter);
+  if (headPlan.frontmatter.planned_at_commit !== plannedAtCommit || headPlan.frontmatter.execution_base_commit !== executionBaseCommit) throw new Error('plan execution identity mismatch');
+  const parentPartitions = partitionBody(parentPlan.body); const basePartitions = partitionBody(basePlan.body);
+  if (jcs(parentPartitions.map((row) => row.name)) !== jcs(basePartitions.map((row) => row.name))) throw new Error('execution compatibility heading vector changed');
+  const protectedNames = new Set(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY.body.protected_sections);
+  const partitions = parentPartitions.map((before, index) => {
+    const after = basePartitions[index]; const before_sha256 = sha256(before.bytes); const after_sha256 = sha256(after.bytes);
+    return { ordinal: before.ordinal, name: before.name, before_sha256, after_sha256, changed: before_sha256 !== after_sha256 };
+  });
+  if (partitions[0].changed) throw new Error('execution compatibility preamble changed');
+  for (const row of partitions) if (row.changed && protectedNames.has(row.name)) throw new Error(`execution compatibility protected section changed: ${row.name}`);
+  const changed = partitions.filter((row) => row.changed);
+  if (changed.length === 0) throw new Error('execution compatibility changed sections missing');
+  const protectedSections = partitions.filter((row) => protectedNames.has(row.name)).map((row) => ({ ordinal: row.ordinal, name: row.name, sha256: row.before_sha256 }));
+  if (protectedSections.length !== protectedNames.size) throw new Error('execution compatibility protected section missing');
+  if (pathExistsAt(repo, plannedAtCommit, plan_path)) throw new Error('plan path existed at planned_at_commit');
+  const creationRows = git(repo, ['rev-list', '--reverse', '--ancestry-path', `${plannedAtCommit}..${execution_parent}`, '--', plan_path]).trim().split('\n').filter(Boolean);
+  if (creationRows.length === 0) throw new Error('plan creation commit missing');
+  const plan_creation_commit = creationRows[0];
+  if (commitParent(repo, plan_creation_commit, 'plan creation commit') !== plannedAtCommit) throw new Error('plan creation parent mismatch');
+  const creationPaths = changedPaths(repo, plannedAtCommit, plan_creation_commit);
+  if (creationPaths.length !== 1 || creationPaths[0] !== plan_path) throw new Error('plan creation must be plan-only');
+  const creationStatus = git(repo, ['diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames', plannedAtCommit, plan_creation_commit, '--', plan_path]).trim();
+  if (creationStatus !== `A\t${plan_path}` || !ancestor(repo, plan_creation_commit, execution_parent)) throw new Error('plan creation add/ancestry mismatch');
+  const partitionManifest = { schema: 1, partitions };
+  const protectedPreimage = { schema: 1, sections: protectedSections };
+  return {
+    repo, plan_path, planned_at_commit: plannedAtCommit, plan_creation_commit, plan_creation_parent: plannedAtCommit,
+    execution_parent, execution_base_commit: executionBaseCommit, legacy_planned_at_value: legacy,
+    evidence_input_commit: reviewedHead,
+    evidence_input_plan_blob: gitObject(repo, `${reviewedHead}:${plan_path}`, 'evidence input plan blob'),
+    parent_plan_blob: gitObject(repo, `${execution_parent}:${plan_path}`, 'parent plan blob'),
+    base_plan_blob: gitObject(repo, `${executionBaseCommit}:${plan_path}`, 'base plan blob'),
+    parentBytes, baseBytes, headBytes, partitions,
+    partition_manifest_sha256: sha256(jcs(partitionManifest)),
+    protected_sections_sha256: sha256(jcs(protectedPreimage)),
+    changed_sections: changed.map((row) => ({
+      name: row.name,
+      before_sha256: row.before_sha256,
+      after_sha256: row.after_sha256,
+      transition_sha256: sha256(jcs({ schema: 1, name: row.name, before_sha256: row.before_sha256, after_sha256: row.after_sha256 })),
+    })).sort((a, b) => compareUtf16(a.name, b.name)),
+  };
+}
+
+function transitionDiff(context) {
+  const args = [
+    '--no-pager', '-c', 'diff.algorithm=myers', '-c', 'diff.context=3', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.indentHeuristic=false', '-c', 'diff.renames=false',
+    'diff', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/',
+    context.execution_parent, context.execution_base_commit, '--', context.plan_path,
+  ];
+  const env = { ...process.env }; delete env.GIT_DIFF_OPTS;
+  const bytes = gitResult(context.repo, args, 'buffer', { env });
+  const text = exactUtf8(bytes, 'execution compatibility transition diff');
+  if (!text.endsWith('\n') || text.endsWith('\n\n')) throw new Error('execution compatibility transition diff must end in one LF');
+  return text;
+}
+
+function compatibilityFence(diff) {
+  let longest = 0;
+  for (const match of diff.matchAll(/`+/g)) longest = Math.max(longest, match[0].length);
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+function compatibilityMaterial(context, diff) {
+  const material = {
+    schema: 1,
+    plan_path: context.plan_path,
+    planned_at_commit: context.planned_at_commit,
+    plan_creation_commit: context.plan_creation_commit,
+    execution_parent: context.execution_parent,
+    execution_base_commit: context.execution_base_commit,
+    parent_plan_blob: context.parent_plan_blob,
+    base_plan_blob: context.base_plan_blob,
+    policy_sha256: LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256,
+    partition_manifest_sha256: context.partition_manifest_sha256,
+    transition_diff_sha256: sha256(diff),
+  };
+  material.review_material_sha256 = sha256(jcs({ schema: 1, material, transition_diff: diff }));
+  return material;
+}
+
+export function buildExecutionBaseCompatibilityApplication({ repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 }) {
+  if (authorizationId !== COMPATIBILITY_AUTHORIZATION_ID || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SHA256) throw new Error('execution compatibility owner confirmation mismatch');
+  const context = legacyHistoricalContext({ repo: path.resolve(repo), planPath, plannedAtCommit, executionBaseCommit, reviewedHead });
+  const diff = transitionDiff(context); const material = compatibilityMaterial(context, diff);
+  const receipt = {
+    schema: 1,
+    kind: 'legacy_start_transition',
+    policy_sha256: LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256,
+    plan_path: context.plan_path,
+    planned_at_commit: context.planned_at_commit,
+    plan_creation_commit: context.plan_creation_commit,
+    plan_creation_parent: context.plan_creation_parent,
+    execution_parent: context.execution_parent,
+    execution_base_commit: context.execution_base_commit,
+    legacy_planned_at_value: context.legacy_planned_at_value,
+    evidence_input_commit: context.evidence_input_commit,
+    evidence_input_plan_blob: context.evidence_input_plan_blob,
+    parent_plan_blob: context.parent_plan_blob,
+    base_plan_blob: context.base_plan_blob,
+    transition_diff_sha256: material.transition_diff_sha256,
+    partition_manifest_sha256: context.partition_manifest_sha256,
+    changed_sections: context.changed_sections,
+    protected_sections_sha256: context.protected_sections_sha256,
+    review_material_sha256: material.review_material_sha256,
+    owner_confirmation: { schema: 1, authorization_id: authorizationId, decision: 'allow', source: 'current_user', source_text_sha256: ownerMessageSha256 },
+  };
+  receipt.receipt_sha256 = sha256(jcs(receipt));
+  const fence = compatibilityFence(diff);
+  const markdown = `Compatibility-review-material: ${jcs(material)}\n${fence}diff\n${diff}${fence}\nExecution-base-compatibility-receipt: ${jcs(receipt)}\n`;
+  const application = { schema: 1, markdown, receipt_sha256: receipt.receipt_sha256, review_material_sha256: material.review_material_sha256 };
+  application.application_sha256 = sha256(jcs(application));
+  return application;
+}
+
+function extractCompatibilityApplication(bytes, { required = true } = {}) {
+  const { body } = splitPlanText(bytes); const rows = bodyRows(body); const scanned = scanBody(body);
+  const materialRows = scanned.unfenced.filter((row) => row.line.startsWith('Compatibility-review-material: '));
+  if (materialRows.length === 0 && !required) return null;
+  if (materialRows.length !== 1) throw new Error('execution compatibility material record count');
+  const materialIndex = rows.findIndex((row) => row.start === materialRows[0].start); const materialPayload = rows[materialIndex].line.slice('Compatibility-review-material: '.length);
+  let material; try { material = JSON.parse(materialPayload); } catch { throw new Error('execution compatibility material must be JSON'); }
+  if (jcs(material) !== materialPayload) throw new Error('execution compatibility material must be compact JCS');
+  const opening = /^(`{3,})diff$/.exec(rows[materialIndex + 1]?.line ?? '');
+  if (!opening) throw new Error('execution compatibility diff fence opening');
+  let close = materialIndex + 2;
+  while (close < rows.length && rows[close].line !== opening[1]) close += 1;
+  if (close >= rows.length) throw new Error('execution compatibility diff fence closing');
+  const diff = body.slice(rows[materialIndex + 1].end, rows[close].start);
+  if (compatibilityFence(diff) !== opening[1]) throw new Error('execution compatibility diff fence is not minimal');
+  const receiptRow = rows[close + 1];
+  if (!receiptRow?.line.startsWith('Execution-base-compatibility-receipt: ')) throw new Error('execution compatibility receipt placement');
+  const receiptPayload = receiptRow.line.slice('Execution-base-compatibility-receipt: '.length); let receipt;
+  try { receipt = JSON.parse(receiptPayload); } catch { throw new Error('execution compatibility receipt must be JSON'); }
+  if (jcs(receipt) !== receiptPayload) throw new Error('execution compatibility receipt must be compact JCS');
+  const markdown = body.slice(rows[materialIndex].start, receiptRow.end);
+  return { material, receipt, diff, markdown, start: rows[materialIndex].start, end: receiptRow.end };
+}
+
+function validateCompatibilityApplication(application, expected = {}) {
+  const receipt = application.receipt;
+  assertClosed(receipt, ['schema', 'kind', 'policy_sha256', 'plan_path', 'planned_at_commit', 'plan_creation_commit', 'plan_creation_parent', 'execution_parent', 'execution_base_commit', 'legacy_planned_at_value', 'evidence_input_commit', 'evidence_input_plan_blob', 'parent_plan_blob', 'base_plan_blob', 'transition_diff_sha256', 'partition_manifest_sha256', 'changed_sections', 'protected_sections_sha256', 'review_material_sha256', 'owner_confirmation', 'receipt_sha256'], 'execution compatibility receipt');
+  if (receipt.schema !== 1 || receipt.kind !== 'legacy_start_transition' || receipt.policy_sha256 !== LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256) throw new Error('execution compatibility receipt identity');
+  const expectedApplication = buildExecutionBaseCompatibilityApplication({ repo: expected.repo, reviewedHead: receipt.evidence_input_commit, planPath: receipt.plan_path, plannedAtCommit: receipt.planned_at_commit, executionBaseCommit: receipt.execution_base_commit, authorizationId: receipt.owner_confirmation?.authorization_id, ownerMessageSha256: receipt.owner_confirmation?.source_text_sha256 });
+  if (application.markdown !== expectedApplication.markdown || receipt.receipt_sha256 !== expectedApplication.receipt_sha256) throw new Error('execution compatibility application mismatch');
+  if (expected.planPath !== undefined && receipt.plan_path !== safeLogical(expected.planPath)) throw new Error('execution compatibility plan mismatch');
+  if (expected.plannedAtCommit !== undefined && receipt.planned_at_commit !== expected.plannedAtCommit) throw new Error('execution compatibility planned identity mismatch');
+  if (expected.executionBaseCommit !== undefined && receipt.execution_base_commit !== expected.executionBaseCommit) throw new Error('execution compatibility base identity mismatch');
+  return { ...application, receipt, application: expectedApplication };
+}
+
+function extractMachineRecord(bytes, kind, { required = true } = {}) {
+  const { body } = splitPlanText(bytes); const prefix = `${kind}: `;
+  const rows = scanBody(body).unfenced.filter((row) => row.line.startsWith(prefix));
+  if (rows.length === 0 && !required) return null;
+  if (rows.length !== 1) throw new Error(`${kind} record count`);
+  const payload = rows[0].line.slice(prefix.length); let value;
+  try { value = JSON.parse(payload); } catch { throw new Error(`${kind} must be one-line JSON`); }
+  if (jcs(value) !== payload) throw new Error(`${kind} must be compact JCS`);
+  return { value, payload, line: rows[0].line, start: rows[0].start, end: rows[0].end };
+}
+
+function reviewLegIdentity(receipt, leg) {
+  const raw = receipt[leg].raw; const attempt = raw.attempts.at(-1);
+  return {
+    company: companyForLeg(receipt.author.company, leg),
+    model: raw.selected?.model ?? attempt?.model ?? 'none',
+    effort: raw.selected?.effort ?? attempt?.effort ?? 'none',
+    result: raw.result,
+  };
+}
+
+function requireIdentityToken(value, label) {
+  if (typeof value !== 'string' || !IDENTITY_TOKEN.test(value)) throw new Error(`${label} is not an identity token`);
+  return value;
+}
+
+function validateFindingsFreeCompatibilityReceipt(receipt, expectedInput, reviewedCommit) {
+  validateDraftReceipt(receipt, expectedInput, { waivers: [] });
+  if (receipt.reviewed_commit !== reviewedCommit || receipt.request.lifecycle_intent !== 'none') throw new Error('execution compatibility review identity mismatch');
+  if (!['dual', 'single'].includes(receipt.outcome) || receipt.pre_execution_eligible !== true) throw new Error('execution compatibility review outcome is ineligible');
+  if (receipt.reproduced.length !== 0 || receipt.decision_evidence !== null) throw new Error('execution compatibility review carries reconciliation evidence');
+  const passed = [receipt.X.raw, receipt.S.raw].filter((raw) => raw.result === 'passed');
+  if (passed.length < 1 || passed.some((raw) => raw.reviewer_output?.verdict !== 'ready' || raw.findings.length !== 0)) throw new Error('execution compatibility review must be findings-free ready');
+  for (const leg of [receipt.X, receipt.S]) {
+    if (leg.raw.result === 'waived' || leg.raw.waiver !== null || leg.raw.findings.length !== 0 || leg.reconciliation.accepted.length !== 0 || leg.reconciliation.rejected.length !== 0) throw new Error('execution compatibility review waiver/finding is forbidden');
+  }
+  return receipt;
+}
+
+export function renderCompatibilityReviewAttribution(receipt) {
+  validateFindingsFreeCompatibilityReceipt(receipt, receipt.input_sha256, receipt.reviewed_commit);
+  const date = receipt.reviewed_at.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('execution compatibility review date');
+  const X = reviewLegIdentity(receipt, 'X'); const S = reviewLegIdentity(receipt, 'S');
+  for (const [label, value] of Object.entries({
+    'X company': X.company, 'X model': X.model, 'X effort': X.effort, 'X result': X.result,
+    'S company': S.company, 'S model': S.model, 'S effort': S.effort, 'S result': S.result,
+    'author company': receipt.author.company, 'author tool': receipt.author.tool, 'author model': receipt.author.model, 'author effort': receipt.author.effort,
+  })) requireIdentityToken(value, label);
+  return `Cross-check (${date}): [X: ${X.company} ${X.model} ${X.effort}; result=${X.result}] 0 findings — accepted none / rejected none (none); [S: ${S.company} ${S.model} ${S.effort}; result=${S.result}] 0 findings — accepted none / rejected none (none); [orchestrator: ${receipt.author.company} ${receipt.author.tool} ${receipt.author.model} ${receipt.author.effort}] independently verified none against source before accepting.\n`;
+}
+
+function appendSelfReviewAttribution(bytes, attribution) {
+  const plan = splitPlanText(bytes); const section = uniquePartition(plan.body, 'Self-review');
+  if (!section.bytes.endsWith('\n\n')) throw new Error('Self-review partition must end in two LF bytes');
+  const replacement = `${section.bytes.slice(0, -1)}${attribution}\n`;
+  return replacePlanBody(bytes, `${plan.body.slice(0, section.start)}${replacement}${plan.body.slice(section.end)}`);
+}
+
+function insertDraftReceipt(bytes, receipt) {
+  if (extractMachineRecord(bytes, 'Review-receipt', { required: false }) !== null) throw new Error('Review-receipt already exists');
+  const plan = splitPlanText(bytes); const section = uniquePartition(plan.body, 'Self-review');
+  const line = `Review-receipt: ${jcs(receipt)}\n`;
+  return replacePlanBody(bytes, `${plan.body.slice(0, section.line_end)}${line}${plan.body.slice(section.line_end)}`);
+}
+
+function replaceDraftReceipt(bytes, receipt) {
+  const plan = splitPlanText(bytes); const record = extractMachineRecord(bytes, 'Review-receipt');
+  const line = `Review-receipt: ${jcs(receipt)}\n`;
+  return replacePlanBody(bytes, `${plan.body.slice(0, record.start)}${line}${plan.body.slice(record.end)}`);
+}
+
+function validateEvidenceAndReview({ repo, planPath, evidenceCommit, reviewCommit, reviewedHead = reviewCommit }) {
+  const logical = safeLogical(planPath); exactCommit(repo, evidenceCommit, 'compatibility evidence commit'); exactCommit(repo, reviewCommit, 'compatibility review commit'); exactCommit(repo, reviewedHead, 'reviewed head');
+  if (!ancestor(repo, reviewCommit, reviewedHead)) throw new Error('compatibility review is not an ancestor of head');
+  const evidenceBytes = planBlob(repo, evidenceCommit, logical); const application = extractCompatibilityApplication(evidenceBytes);
+  const validatedApplication = validateCompatibilityApplication(application, { repo, planPath: logical });
+  const evidenceParent = validatedApplication.receipt.evidence_input_commit;
+  requirePlanOnlyChild(repo, evidenceCommit, evidenceParent, logical, 'compatibility evidence commit');
+  const parentBytes = planBlob(repo, evidenceParent, logical);
+  if (extractCompatibilityApplication(parentBytes, { required: false }) !== null || extractMachineRecord(parentBytes, 'Execution-base-compatibility-binding', { required: false }) !== null) throw new Error('compatibility evidence already existed at E0');
+  const expectedEvidence = insertBeforeReview(parentBytes, validatedApplication.application.markdown);
+  requirePlanDelta(parentBytes, evidenceBytes, expectedEvidence, 'compatibility evidence');
+  requirePlanOnlyChild(repo, reviewCommit, evidenceCommit, logical, 'compatibility review commit');
+  const reviewBytes = planBlob(repo, reviewCommit, logical); const record = extractMachineRecord(reviewBytes, 'Review-receipt');
+  const reviewReceipt = validateFindingsFreeCompatibilityReceipt(record.value, sha256(canonicalPlanView(evidenceBytes)), evidenceCommit);
+  const attribution = renderCompatibilityReviewAttribution(reviewReceipt);
+  let expectedReview = insertDraftReceipt(evidenceBytes, reviewReceipt);
+  expectedReview = appendSelfReviewAttribution(expectedReview, attribution);
+  requirePlanDelta(evidenceBytes, reviewBytes, expectedReview, 'compatibility review');
+  return {
+    application: validatedApplication.application,
+    receipt: validatedApplication.receipt,
+    evidenceCommit,
+    evidenceBytes,
+    reviewCommit,
+    reviewBytes,
+    reviewReceipt,
+    review_receipt_sha256: sha256(record.payload),
+    attribution,
+    review_attribution_sha256: sha256(attribution),
+  };
+}
+
+export function buildExecutionBaseCompatibilityBindingApplication({ repo, planPath, evidenceCommit, reviewCommit }) {
+  const root = path.resolve(repo); const chain = validateEvidenceAndReview({ repo: root, planPath, evidenceCommit, reviewCommit });
+  const binding = {
+    schema: 1,
+    compatibility_receipt_sha256: chain.receipt.receipt_sha256,
+    compatibility_evidence_commit: evidenceCommit,
+    reviewed_commit: evidenceCommit,
+    review_commit: reviewCommit,
+    review_receipt_sha256: chain.review_receipt_sha256,
+    review_attribution_sha256: chain.review_attribution_sha256,
+    binding_parent: reviewCommit,
+  };
+  binding.binding_sha256 = sha256(jcs(binding));
+  const markdown = `Execution-base-compatibility-binding: ${jcs(binding)}\n`;
+  const application = { schema: 1, markdown, binding_sha256: binding.binding_sha256 };
+  application.application_sha256 = sha256(jcs(application));
+  return application;
+}
+
+function extractCompatibilityBinding(bytes, { required = true } = {}) {
+  const record = extractMachineRecord(bytes, 'Execution-base-compatibility-binding', { required });
+  return record === null ? null : { binding: record.value, markdown: `${record.line}\n`, start: record.start, end: record.end };
+}
+
+function validateBindingCommit({ repo, planPath, evidenceCommit, reviewCommit, bindingCommit, reviewedHead = bindingCommit }) {
+  const logical = safeLogical(planPath); const expected = buildExecutionBaseCompatibilityBindingApplication({ repo, planPath: logical, evidenceCommit, reviewCommit });
+  requirePlanOnlyChild(repo, bindingCommit, reviewCommit, logical, 'compatibility binding commit');
+  if (!ancestor(repo, bindingCommit, reviewedHead)) throw new Error('compatibility binding is not an ancestor of head');
+  const reviewBytes = planBlob(repo, reviewCommit, logical); const bindingBytes = planBlob(repo, bindingCommit, logical);
+  const extracted = extractCompatibilityBinding(bindingBytes);
+  if (extracted.markdown !== expected.markdown) throw new Error('execution compatibility binding mismatch');
+  const binding = extracted.binding;
+  assertClosed(binding, ['schema', 'compatibility_receipt_sha256', 'compatibility_evidence_commit', 'reviewed_commit', 'review_commit', 'review_receipt_sha256', 'review_attribution_sha256', 'binding_parent', 'binding_sha256'], 'execution compatibility binding');
+  const preimage = { ...binding }; delete preimage.binding_sha256;
+  if (binding.schema !== 1 || binding.binding_sha256 !== sha256(jcs(preimage)) || binding.binding_sha256 !== expected.binding_sha256) throw new Error('execution compatibility binding hash mismatch');
+  const expectedBytes = insertBeforeReview(reviewBytes, expected.markdown);
+  requirePlanDelta(reviewBytes, bindingBytes, expectedBytes, 'compatibility binding');
+  return { binding, bindingBytes, application: expected };
+}
+
+function reviewQuote(value) {
+  assertUnicodeScalarString(value, 'CompletionReviewBlock string');
+  let rendered = '"';
+  for (let index = 0; index < value.length; index += 1) {
+    const first = value.charCodeAt(index);
+    if ((first >= 0x30 && first <= 0x39) || (first >= 0x41 && first <= 0x5a) || (first >= 0x61 && first <= 0x7a) || first === 0x20) rendered += value[index];
+    else if (first >= 0xd800 && first <= 0xdbff) {
+      const second = value.charCodeAt(index + 1); rendered += `\\u${first.toString(16).padStart(4, '0')}\\u${second.toString(16).padStart(4, '0')}`; index += 1;
+    } else rendered += `\\u${first.toString(16).padStart(4, '0')}`;
+  }
+  return `${rendered}"`;
+}
+
+function reviewQuoteArray(values) {
+  return `[${values.map(reviewQuote).join(',')}]`;
+}
+
+function completionReviewLeg(receipt, leg) {
+  const raw = receipt[leg].raw; const identity = reviewLegIdentity(receipt, leg);
+  return {
+    company: identity.company,
+    model: identity.model,
+    effort: identity.effort,
+    result: raw.result,
+    finding_count: raw.findings.length,
+    accepted: receipt[leg].reconciliation.accepted.slice().sort(compareUtf16),
+    rejected: receipt[leg].reconciliation.rejected.map(({ id, reason }) => ({ id, reason })).sort((a, b) => compareUtf16(a.id, b.id)),
+  };
+}
+
+export function completionReviewBlockV1(receipt) {
+  validateCompletionReceipt(receipt);
+  const cross_check = receipt.X.raw.result === 'passed' ? {
+    date: receipt.reviewed_at.slice(0, 10),
+    X: completionReviewLeg(receipt, 'X'),
+    S: completionReviewLeg(receipt, 'S'),
+    reproduced_ids: receipt.reproduced.filter((row) => row.source === 'X' || row.source === 'S').map((row) => row.id).sort(compareUtf16),
+    orchestrator: receipt.author,
+  } : null;
+  return {
+    schema: 1,
+    goal_met: receipt.primary.goal_met,
+    regressions: receipt.primary.regressions,
+    ci: receipt.primary.ci,
+    followups: receipt.primary.followups,
+    filed_by: { role: 'plan-manager', receipt_author: receipt.author, reviewed_at: receipt.reviewed_at },
+    cross_check,
+  };
+}
+
+function reviewIds(ids) { return ids.length === 0 ? 'none' : ids.join(','); }
+function reviewRejections(rows) { return rows.length === 0 ? 'none' : rows.map((row) => `${row.id}=${reviewQuote(row.reason)}`).join(','); }
+
+export function renderCompletionReviewBlock(receipt) {
+  const block = completionReviewBlockV1(receipt); const author = block.filed_by.receipt_author;
+  const lines = [
+    '## Review',
+    '',
+    `- **Goal met:** ${block.goal_met}`,
+    `- **Regressions:** ${reviewQuoteArray(block.regressions)}`,
+    `- **CI:** {"command":${reviewQuote(block.ci.command)},"exit_code":${String(block.ci.exit_code)},"first_failure":${block.ci.first_failure === null ? 'null' : reviewQuote(block.ci.first_failure)},"output_sha256":"${block.ci.output_sha256}"}`,
+    `- **Follow-ups:** ${reviewQuoteArray(block.followups)}`,
+    `- **Filed by:** {"role":"plan-manager","receipt_author":{"company":"${author.company}","tool":${reviewQuote(author.tool)},"model":${reviewQuote(author.model)},"effort":${reviewQuote(author.effort)}},"reviewed_at":${reviewQuote(block.filed_by.reviewed_at)}}`,
+  ];
+  if (block.cross_check !== null) {
+    const { X, S, orchestrator } = block.cross_check;
+    lines.push(`- **Cross-check:** (${block.cross_check.date}) [X: ${X.company} ${reviewQuote(X.model)} ${reviewQuote(X.effort)}; result=${X.result}] ${X.finding_count} findings — accepted ${reviewIds(X.accepted)} / rejected ${reviewRejections(X.rejected)}; [S: ${S.company} ${reviewQuote(S.model)} ${reviewQuote(S.effort)}; result=${S.result}] ${S.finding_count} findings — accepted ${reviewIds(S.accepted)} / rejected ${reviewRejections(S.rejected)}; [orchestrator: ${orchestrator.company} ${reviewQuote(orchestrator.tool)} ${reviewQuote(orchestrator.model)} ${reviewQuote(orchestrator.effort)}] independently verified ${reviewIds(block.cross_check.reproduced_ids)} against source before accepting.`);
+  }
+  lines.push('', `Completion-review-receipt: ${jcs(receipt)}`);
+  return `${lines.join('\n')}\n`;
+}
+
+export function applyCompletionReviewBlock(bytes, receipt) {
+  const plan = splitPlanText(bytes); const review = uniquePartition(plan.body, 'Review'); const core = renderCompletionReviewBlock(receipt);
+  const replacement = review.end < plan.body.length ? `${core}\n` : core;
+  return replacePlanBody(bytes, `${plan.body.slice(0, review.start)}${replacement}${plan.body.slice(review.end)}`);
+}
+
+export function completionStablePlanViewV1(bytes) {
+  const plan = splitPlanText(bytes); const review = uniquePartition(plan.body, 'Review');
+  const withoutReview = replacePlanBody(bytes, `${plan.body.slice(0, review.start)}${plan.body.slice(review.end)}`);
+  return canonicalPlanView(withoutReview);
+}
+
+export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt }) {
+  const logical = safeLogical(planPath); exactCommit(repo, reviewedHead, 'completion reviewed head'); exactCommit(repo, completionCommit, 'completion receipt commit');
+  requirePlanOnlyChild(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
+  const beforeBytes = planBlob(repo, reviewedHead, logical); const afterBytes = planBlob(repo, completionCommit, logical);
+  const afterPlan = parsePlan(afterBytes);
+  validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status });
+  const record = extractMachineRecord(afterBytes, 'Completion-review-receipt');
+  if (record.payload !== jcs(receipt)) throw new Error('completion Review receipt payload mismatch');
+  if (completionStablePlanViewV1(beforeBytes) !== completionStablePlanViewV1(afterBytes)) throw new Error('completion stable plan view mismatch');
+  const expected = applyCompletionReviewBlock(beforeBytes, receipt);
+  requirePlanDelta(beforeBytes, afterBytes, expected, 'completion Review apply', ['updated', 'review_status']);
+  const beforeApplication = extractCompatibilityApplication(beforeBytes, { required: false }); const afterApplication = extractCompatibilityApplication(afterBytes, { required: false });
+  if ((beforeApplication === null) !== (afterApplication === null) || (beforeApplication && beforeApplication.markdown !== afterApplication.markdown)) throw new Error('completion compatibility application changed');
+  const beforeBinding = extractCompatibilityBinding(beforeBytes, { required: false }); const afterBinding = extractCompatibilityBinding(afterBytes, { required: false });
+  if ((beforeBinding === null) !== (afterBinding === null) || (beforeBinding && beforeBinding.markdown !== afterBinding.markdown)) throw new Error('completion compatibility binding changed');
+  return { schema: 1, reviewed_head: reviewedHead, completion_commit: completionCommit, completion_receipt_sha256: sha256(jcs(receipt)) };
+}
+
+function validatePrerequisiteInput(input) {
+  assertClosed(input, ['repo', 'planPath', 'finishedPlanPath', 'finishedPlanCommit', 'releaseVersion', 'evidenceCommit', 'compatibilityReviewCommit', 'bindingCommit', 'authorizationId', 'authorizationSha256'], 'Docks compatibility prerequisite input');
+  string(input.repo, 'prerequisite repo'); const normalized = { ...input, planPath: safeLogical(input.planPath), finishedPlanPath: safeLogical(input.finishedPlanPath) };
+  if (!FINISHED_COMPATIBILITY_PATH.test(normalized.finishedPlanPath)) throw new Error('finished compatibility plan path');
+  for (const key of ['finishedPlanCommit', 'evidenceCommit', 'compatibilityReviewCommit', 'bindingCommit']) if (!HEX40.test(input[key])) throw new Error(`prerequisite ${key} must be a full commit`);
+  if (!CORE_SEMVER.test(input.releaseVersion)) throw new Error('prerequisite releaseVersion must be core semver');
+  string(input.authorizationId, 'prerequisite authorization id'); digest(input.authorizationSha256, 'prerequisite authorization');
+  if (input.authorizationId !== RELEASE_AUTHORIZATION.authorization_id || input.authorizationSha256 !== RELEASE_AUTHORIZATION_SHA256 || sha256(jcs(RELEASE_AUTHORIZATION)) !== input.authorizationSha256) throw new Error('Docks release authorization mismatch');
+  return normalized;
+}
+
+const PRODUCTION_PREREQUISITE_DEPENDENCIES = Object.freeze({
+  runChild(argv, options) {
+    const result = spawnSync(argv[0], argv.slice(1), {
+      cwd: options.cwd,
+      encoding: 'buffer',
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30000,
+      killSignal: 'SIGTERM',
+      maxBuffer: 1048576,
+      windowsHide: true,
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      error: result.error ? { code: result.error.code === undefined ? null : String(result.error.code), message: String(result.error.message) } : null,
+      stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ''),
+      stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? ''),
+    };
+  },
+  now: () => new Date().toISOString(),
+  homedir: () => os.homedir(),
+  lstat(absolutePath) {
+    const stat = fs.lstatSync(absolutePath);
+    return { kind: stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'other', symbolicLink: stat.isSymbolicLink() };
+  },
+  realpath: (absolutePath) => fs.realpathSync(absolutePath),
+  readFile: (absolutePath) => fs.readFileSync(absolutePath),
+});
+
+function validatePrerequisiteDependencies(dependencies) {
+  assertClosed(dependencies, ['runChild', 'now', 'homedir', 'lstat', 'realpath', 'readFile'], 'Docks compatibility prerequisite dependencies');
+  for (const key of ['runChild', 'now', 'homedir', 'lstat', 'realpath', 'readFile']) if (typeof dependencies[key] !== 'function') throw new Error(`prerequisite dependency ${key} must be a function`);
+  return dependencies;
+}
+
+function prerequisiteChild(dependencies, repoRoot, argv, { recorded = false, label = argv.join(' ') } = {}) {
+  if (!Array.isArray(argv) || argv.length === 0 || argv.some((value) => typeof value !== 'string')) throw new Error(`${label} argv`);
+  const result = dependencies.runChild(argv.slice(), { cwd: repoRoot });
+  assertClosed(result, ['status', 'signal', 'error', 'stdout', 'stderr'], `${label} child result`);
+  if (result.error !== null) {
+    assertClosed(result.error, ['code', 'message'], `${label} child error`);
+    if (result.error.code !== null && typeof result.error.code !== 'string') throw new Error(`${label} child error code`);
+    string(result.error.message, `${label} child error message`);
+  }
+  if (!Number.isInteger(result.status) && result.status !== null) throw new Error(`${label} child status`);
+  if (typeof result.signal !== 'string' && result.signal !== null) throw new Error(`${label} child signal`);
+  if (!Buffer.isBuffer(result.stdout) || !Buffer.isBuffer(result.stderr)) throw new Error(`${label} child output must be Buffer`);
+  if (result.error !== null || result.signal !== null || result.status !== 0) throw new Error(`${label} child failed`);
+  if (!recorded && result.stderr.length !== 0) throw new Error(`${label} child stderr must be empty`);
+  return result;
+}
+
+function prerequisiteRepository(dependencies, repoRoot) {
+  const run = (args, label) => prerequisiteChild(dependencies, repoRoot, ['git', ...args], { label });
+  const text = (args, label) => exactUtf8(run(args, label).stdout, label);
+  const exact = (commit, label) => {
+    if (!HEX40.test(commit)) throw new Error(`${label} must be a full commit`);
+    if (text(['rev-parse', '--verify', `${commit}^{commit}`], label).trim() !== commit) throw new Error(`${label} does not resolve exactly`);
+    return commit;
+  };
+  const parent = (commit, label) => {
+    exact(commit, label); const row = text(['rev-list', '--parents', '-n', '1', commit], `${label} parent`).trim().split(/\s+/);
+    if (row.length !== 2 || row[0] !== commit || !HEX40.test(row[1])) throw new Error(`${label} must be single-parent`);
+    return row[1];
+  };
+  const paths = (parentCommit, commit, label) => {
+    const raw = run(['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', '--no-renames', parentCommit, commit, '--'], label).stdout;
+    const value = exactUtf8(raw, label); if (value !== '' && !value.endsWith('\0')) throw new Error(`${label} paths must be NUL terminated`);
+    const rows = value === '' ? [] : value.slice(0, -1).split('\0').map(safeLogical);
+    if (new Set(rows).size !== rows.length) throw new Error(`${label} paths contain duplicates`);
+    return rows;
+  };
+  const blob = (commit, logical, label) => run(['show', `${commit}:${logical}`], label).stdout;
+  const object = (spec, label) => {
+    const oid = text(['rev-parse', '--verify', spec], label).trim(); if (!HEX40.test(oid)) throw new Error(`${label} object id`); return oid;
+  };
+  const isAncestor = (older, newer, label) => text(['merge-base', older, newer], label).trim() === older;
+  const treeNames = (commit, logicals, label) => {
+    const value = exactUtf8(run(['ls-tree', '-z', '--name-only', commit, '--', ...logicals], label).stdout, label);
+    if (value !== '' && !value.endsWith('\0')) throw new Error(`${label} tree names must be NUL terminated`);
+    return value === '' ? [] : value.slice(0, -1).split('\0').map(safeLogical);
+  };
+  return { run, text, exact, parent, paths, blob, object, isAncestor, treeNames };
+}
+
+function requirePrerequisitePlanOnly(repository, commit, parent, planPath, label) {
+  if (repository.parent(commit, label) !== parent) throw new Error(`${label} parent mismatch`);
+  const paths = repository.paths(parent, commit, `${label} paths`);
+  if (paths.length !== 1 || paths[0] !== planPath) throw new Error(`${label} must change only the plan`);
+}
+
+function storedCompatibilityPayload(application) {
+  const { material, receipt, diff } = application;
+  assertClosed(material, ['schema', 'plan_path', 'planned_at_commit', 'plan_creation_commit', 'execution_parent', 'execution_base_commit', 'parent_plan_blob', 'base_plan_blob', 'policy_sha256', 'partition_manifest_sha256', 'transition_diff_sha256', 'review_material_sha256'], 'stored compatibility material');
+  assertClosed(receipt, ['schema', 'kind', 'policy_sha256', 'plan_path', 'planned_at_commit', 'plan_creation_commit', 'plan_creation_parent', 'execution_parent', 'execution_base_commit', 'legacy_planned_at_value', 'evidence_input_commit', 'evidence_input_plan_blob', 'parent_plan_blob', 'base_plan_blob', 'transition_diff_sha256', 'partition_manifest_sha256', 'changed_sections', 'protected_sections_sha256', 'review_material_sha256', 'owner_confirmation', 'receipt_sha256'], 'stored compatibility receipt');
+  if (material.schema !== 1 || receipt.schema !== 1 || receipt.kind !== 'legacy_start_transition' || material.policy_sha256 !== LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256 || receipt.policy_sha256 !== LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256) throw new Error('stored compatibility policy mismatch');
+  for (const key of ['plan_path', 'planned_at_commit', 'plan_creation_commit', 'execution_parent', 'execution_base_commit', 'parent_plan_blob', 'base_plan_blob', 'partition_manifest_sha256', 'transition_diff_sha256', 'review_material_sha256']) if (material[key] !== receipt[key]) throw new Error(`stored compatibility ${key} mismatch`);
+  if (sha256(diff) !== material.transition_diff_sha256) throw new Error('stored compatibility diff hash mismatch');
+  const withoutReviewHash = { ...material }; delete withoutReviewHash.review_material_sha256;
+  if (material.review_material_sha256 !== sha256(jcs({ schema: 1, material: withoutReviewHash, transition_diff: diff }))) throw new Error('stored compatibility material hash mismatch');
+  const receiptPreimage = { ...receipt }; delete receiptPreimage.receipt_sha256;
+  if (receipt.receipt_sha256 !== sha256(jcs(receiptPreimage))) throw new Error('stored compatibility receipt hash mismatch');
+  assertClosed(receipt.owner_confirmation, ['schema', 'authorization_id', 'decision', 'source', 'source_text_sha256'], 'stored compatibility owner confirmation');
+  if (jcs(receipt.owner_confirmation) !== jcs({ schema: 1, authorization_id: COMPATIBILITY_AUTHORIZATION_ID, decision: 'allow', source: 'current_user', source_text_sha256: COMPATIBILITY_AUTHORIZATION_SHA256 })) throw new Error('stored compatibility owner confirmation mismatch');
+  if (!Array.isArray(receipt.changed_sections) || receipt.changed_sections.length === 0) throw new Error('stored compatibility changed sections');
+  let previous = null;
+  for (const row of receipt.changed_sections) {
+    assertClosed(row, ['name', 'before_sha256', 'after_sha256', 'transition_sha256'], 'stored changed section');
+    string(row.name, 'stored changed section name'); digest(row.before_sha256, 'stored changed section before'); digest(row.after_sha256, 'stored changed section after'); digest(row.transition_sha256, 'stored changed section transition');
+    if (previous !== null && compareUtf16(previous, row.name) >= 0) throw new Error('stored changed sections are not sorted');
+    if (row.transition_sha256 !== sha256(jcs({ schema: 1, name: row.name, before_sha256: row.before_sha256, after_sha256: row.after_sha256 }))) throw new Error('stored changed section transition mismatch');
+    previous = row.name;
+  }
+  return receipt;
+}
+
+function validateBindingWithRepository({ repository, planPath, evidenceCommit, reviewCommit, bindingCommit }) {
+  requirePrerequisitePlanOnly(repository, evidenceCommit, repository.parent(evidenceCommit, 'compatibility evidence commit'), planPath, 'compatibility evidence commit');
+  const evidenceBytes = repository.blob(evidenceCommit, planPath, 'compatibility evidence plan'); const application = extractCompatibilityApplication(evidenceBytes); const compatibilityReceipt = storedCompatibilityPayload(application);
+  if (compatibilityReceipt.evidence_input_commit !== repository.parent(evidenceCommit, 'compatibility evidence commit')) throw new Error('compatibility evidence parent mismatch');
+  const evidenceParentBytes = repository.blob(compatibilityReceipt.evidence_input_commit, planPath, 'compatibility evidence parent plan');
+  const expectedEvidence = insertBeforeReview(evidenceParentBytes, application.markdown); requirePlanDelta(evidenceParentBytes, evidenceBytes, expectedEvidence, 'compatibility evidence');
+  requirePrerequisitePlanOnly(repository, reviewCommit, evidenceCommit, planPath, 'compatibility review commit');
+  const reviewBytes = repository.blob(reviewCommit, planPath, 'compatibility review plan'); const reviewRecord = extractMachineRecord(reviewBytes, 'Review-receipt');
+  const reviewReceipt = validateFindingsFreeCompatibilityReceipt(reviewRecord.value, sha256(canonicalPlanView(evidenceBytes)), evidenceCommit); const attribution = renderCompatibilityReviewAttribution(reviewReceipt);
+  let expectedReview = insertDraftReceipt(evidenceBytes, reviewReceipt); expectedReview = appendSelfReviewAttribution(expectedReview, attribution); requirePlanDelta(evidenceBytes, reviewBytes, expectedReview, 'compatibility review');
+  const binding = {
+    schema: 1,
+    compatibility_receipt_sha256: compatibilityReceipt.receipt_sha256,
+    compatibility_evidence_commit: evidenceCommit,
+    reviewed_commit: evidenceCommit,
+    review_commit: reviewCommit,
+    review_receipt_sha256: sha256(reviewRecord.payload),
+    review_attribution_sha256: sha256(attribution),
+    binding_parent: reviewCommit,
+  };
+  binding.binding_sha256 = sha256(jcs(binding));
+  requirePrerequisitePlanOnly(repository, bindingCommit, reviewCommit, planPath, 'compatibility binding commit');
+  const bindingBytes = repository.blob(bindingCommit, planPath, 'compatibility binding plan'); const extracted = extractCompatibilityBinding(bindingBytes);
+  if (extracted.markdown !== `Execution-base-compatibility-binding: ${jcs(binding)}\n`) throw new Error('compatibility binding application mismatch');
+  const expectedBinding = insertBeforeReview(reviewBytes, extracted.markdown); requirePlanDelta(reviewBytes, bindingBytes, expectedBinding, 'compatibility binding');
+  return { compatibilityReceipt, binding, bindingBytes };
+}
+
+function parseJsonBytes(bytes, label) {
+  const text = exactUtf8(bytes, label); let value;
+  try { value = JSON.parse(text); } catch { throw new Error(`${label} must be JSON`); }
+  return value;
+}
+
+function objectWithout(object, key) { const copy = { ...object }; delete copy[key]; return copy; }
+
+function validateArchivedCompatibilityPlan(repository, input) {
+  repository.exact(input.finishedPlanCommit, 'finished compatibility plan commit');
+  const names = repository.treeNames(input.finishedPlanCommit, [input.finishedPlanPath, COMPATIBILITY_ACTIVE_PLAN], 'finished compatibility plan tree');
+  if (jcs(names) !== jcs([input.finishedPlanPath])) throw new Error('finished compatibility plan archive identity');
+  const bytes = repository.blob(input.finishedPlanCommit, input.finishedPlanPath, 'finished compatibility plan'); const plan = parsePlan(bytes);
+  if (plan.frontmatter.status !== 'finished' || plan.frontmatter.review_status !== 'passed') throw new Error('finished compatibility plan status');
+  const record = extractMachineRecord(bytes, 'Completion-review-receipt'); const receipt = validateCompletionReceipt(record.value, { review_status: 'passed' });
+  const reviewedBytes = repository.blob(receipt.reviewed_head, COMPATIBILITY_ACTIVE_PLAN, 'reviewed compatibility plan');
+  validateCompletionReceipt(receipt, { reviewed_head: receipt.reviewed_head, plan_input_sha256: sha256(canonicalPlanView(reviewedBytes)), review_status: 'passed' });
+  if (completionStablePlanViewV1(reviewedBytes) !== completionStablePlanViewV1(bytes)) throw new Error('finished compatibility plan stable view mismatch');
+  const review = uniquePartition(plan.body, 'Review'); const expectedReview = review.end < plan.body.length ? `${renderCompletionReviewBlock(receipt)}\n` : renderCompletionReviewBlock(receipt);
+  if (review.bytes !== expectedReview) throw new Error('finished compatibility plan Review block mismatch');
+  return { bytes, receipt };
+}
+
+function validateReleaseCommit(repository, input, releaseCommit) {
+  if (repository.parent(releaseCommit, 'Docks release commit') !== input.finishedPlanCommit) throw new Error('Docks release commit is not the direct child of finished plan');
+  const expectedPaths = ['.claude-plugin/marketplace.json', 'plugins/docks/.claude-plugin/plugin.json', 'plugins/docks/.codex-plugin/plugin.json'];
+  const paths = repository.paths(input.finishedPlanCommit, releaseCommit, 'Docks release paths').sort(compareUtf16);
+  if (jcs(paths) !== jcs(expectedPaths.slice().sort(compareUtf16))) throw new Error('Docks release changed unexpected paths');
+  const claudePath = 'plugins/docks/.claude-plugin/plugin.json'; const codexPath = 'plugins/docks/.codex-plugin/plugin.json'; const marketPath = '.claude-plugin/marketplace.json';
+  const beforeClaude = parseJsonBytes(repository.blob(input.finishedPlanCommit, claudePath, 'parent Claude manifest'), 'parent Claude manifest'); const afterClaude = parseJsonBytes(repository.blob(releaseCommit, claudePath, 'release Claude manifest'), 'release Claude manifest');
+  const beforeCodex = parseJsonBytes(repository.blob(input.finishedPlanCommit, codexPath, 'parent Codex manifest'), 'parent Codex manifest'); const afterCodex = parseJsonBytes(repository.blob(releaseCommit, codexPath, 'release Codex manifest'), 'release Codex manifest');
+  if (jcs(objectWithout(beforeClaude, 'version')) !== jcs(objectWithout(afterClaude, 'version')) || jcs(objectWithout(beforeCodex, 'version')) !== jcs(objectWithout(afterCodex, 'version'))) throw new Error('Docks release manifest changed beyond version');
+  const beforeMarket = parseJsonBytes(repository.blob(input.finishedPlanCommit, marketPath, 'parent marketplace'), 'parent marketplace'); const afterMarket = parseJsonBytes(repository.blob(releaseCommit, marketPath, 'release marketplace'), 'release marketplace');
+  const beforeRows = beforeMarket.plugins?.filter((row) => row.name === 'docks') ?? []; const afterRows = afterMarket.plugins?.filter((row) => row.name === 'docks') ?? [];
+  if (beforeRows.length !== 1 || afterRows.length !== 1) throw new Error('Docks marketplace entry count');
+  const normalizedMarket = (market) => ({ ...market, plugins: market.plugins.map((row) => row.name === 'docks' ? objectWithout(row, 'version') : row) });
+  if (jcs(normalizedMarket(beforeMarket)) !== jcs(normalizedMarket(afterMarket))) throw new Error('Docks marketplace changed beyond version');
+  if (beforeClaude.version !== beforeCodex.version || beforeClaude.version !== beforeRows[0].version || afterClaude.version !== afterCodex.version || afterClaude.version !== afterRows[0].version || afterClaude.version !== input.releaseVersion) throw new Error('Docks release versions disagree');
+  const before = beforeClaude.version?.split('.').map(Number); const after = input.releaseVersion.split('.').map(Number);
+  if (!before || before.length !== 3 || before.some((value) => !Number.isSafeInteger(value)) || after[0] !== before[0] || after[1] !== before[1] || after[2] !== before[2] + 1) throw new Error('Docks release is not a patch successor');
+  for (const plugin of ['effect-kit', 'session-relay']) for (const runtime of ['.claude-plugin', '.codex-plugin']) {
+    const logical = `plugins/${plugin}/${runtime}/plugin.json`;
+    if (!repository.blob(input.finishedPlanCommit, logical, `${plugin} parent manifest`).equals(repository.blob(releaseCommit, logical, `${plugin} release manifest`))) throw new Error(`${plugin} manifest changed in Docks release`);
+  }
+}
+
+function remoteMainProjection(stdout, releaseCommit) {
+  const expected = `${releaseCommit}\trefs/heads/main\n`; const text = exactUtf8(stdout, 'remote main stdout');
+  if (text !== expected) throw new Error('remote main stdout mismatch');
+  return { commit: releaseCommit, ref: 'refs/heads/main' };
+}
+
+function remoteTagProjection(stdout, releaseTag, releaseCommit) {
+  const text = exactUtf8(stdout, 'remote tag stdout'); const ref = `refs/tags/${releaseTag}`;
+  const rows = text.split('\n').filter((row) => row !== '').map((row) => row.split('\t'));
+  if (rows.length === 1 && rows[0].length === 2 && rows[0][0] === releaseCommit && rows[0][1] === ref && text === `${releaseCommit}\t${ref}\n`) return { ref, annotated: false, tag_object: releaseCommit, peeled_commit: releaseCommit };
+  if (rows.length === 2 && rows.every((row) => row.length === 2) && HEX40.test(rows[0][0]) && rows[0][0] !== releaseCommit && rows[0][1] === ref && rows[1][0] === releaseCommit && rows[1][1] === `${ref}^{}` && text === `${rows[0][0]}\t${ref}\n${releaseCommit}\t${ref}^{}\n`) return { ref, annotated: true, tag_object: rows[0][0], peeled_commit: releaseCommit };
+  throw new Error('remote tag stdout mismatch');
+}
+
+function githubReleaseProjection(stdout, releaseTag, releaseUrl) {
+  const parsed = parseJsonBytes(stdout, 'GitHub Release stdout');
+  assertClosed(parsed, ['isDraft', 'isPrerelease', 'tagName', 'url'], 'GitHub Release projection');
+  const expected = { isDraft: false, isPrerelease: false, tagName: releaseTag, url: releaseUrl };
+  if (jcs(parsed) !== jcs(expected)) throw new Error('GitHub Release projection mismatch');
+  return expected;
+}
+
+function codexPluginProjection(stdout, releaseVersion) {
+  const parsed = parseJsonBytes(stdout, 'Codex plugin stdout');
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.installed)) throw new Error('Codex plugin installed list missing');
+  const matches = parsed.installed.filter((row) => row?.pluginId === 'docks@docks');
+  if (matches.length !== 1) throw new Error('Codex plugin selection must be unique');
+  const row = matches[0];
+  const projection = {
+    pluginId: row.pluginId,
+    name: row.name,
+    marketplaceName: row.marketplaceName,
+    version: row.version,
+    installed: row.installed,
+    enabled: row.enabled,
+    source: row.source && { source: row.source.source, url: row.source.url, path: row.source.path, ref: row.source.ref },
+  };
+  const expected = { pluginId: 'docks@docks', name: 'docks', marketplaceName: 'docks', version: releaseVersion, installed: true, enabled: true, source: { source: 'git-subdir', url: CANONICAL_REPOSITORY_URL, path: 'plugins/docks', ref: 'main' } };
+  if (jcs(projection) !== jcs(expected)) throw new Error('Codex plugin projection mismatch');
+  return expected;
+}
+
+function claudePluginProjection(stdout, releaseVersion, cacheRoot) {
+  const parsed = parseJsonBytes(stdout, 'Claude plugin stdout');
+  if (!Array.isArray(parsed)) throw new Error('Claude plugin list must be an array');
+  const matches = parsed.filter((row) => row?.id === 'docks@docks');
+  if (matches.length !== 1) throw new Error('Claude plugin selection must be unique');
+  const row = matches[0]; const projection = { id: row.id, version: row.version, scope: row.scope, enabled: row.enabled, installPath: row.installPath };
+  const expected = { id: 'docks@docks', version: releaseVersion, scope: 'user', enabled: true, installPath: cacheRoot };
+  if (jcs(projection) !== jcs(expected)) throw new Error('Claude plugin projection mismatch');
+  return expected;
+}
+
+function validatedCacheFile(dependencies, absolutePath, label) {
+  const stat = dependencies.lstat(absolutePath);
+  assertClosed(stat, ['kind', 'symbolicLink'], `${label} lstat`);
+  if (!['file', 'directory', 'other'].includes(stat.kind) || typeof stat.symbolicLink !== 'boolean') throw new Error(`${label} lstat shape`);
+  if (stat.kind !== 'file' || stat.symbolicLink || dependencies.realpath(absolutePath) !== absolutePath) throw new Error(`${label} must be a canonical non-symlink file`);
+  const bytes = dependencies.readFile(absolutePath);
+  if (!Buffer.isBuffer(bytes)) throw new Error(`${label} readFile must return Buffer`);
+  return bytes;
+}
+
+function validateObservationRow(row, expectedArgv, label) {
+  assertClosed(row, ['schema', 'argv', 'exit_code', 'stdout_sha256', 'stderr_sha256', 'projection'], label);
+  if (row.schema !== 1 || row.exit_code !== 0 || jcs(row.argv) !== jcs(expectedArgv)) throw new Error(`${label} identity mismatch`);
+  digest(row.stdout_sha256, `${label} stdout`); digest(row.stderr_sha256, `${label} stderr`);
+}
+
+function validatePrerequisiteObservations(observations, receipt) {
+  assertClosed(observations, ['schema', 'observed_at', 'remote_main', 'remote_tag', 'github_release', 'codex_plugin', 'claude_plugin', 'source_policy', 'codex_cache', 'claude_cache', 'observations_sha256'], 'Docks prerequisite observations');
+  if (observations.schema !== 1) throw new Error('Docks prerequisite observations schema');
+  iso(observations.observed_at, 'Docks prerequisite observed_at');
+  if (new Date(observations.observed_at).toISOString() !== observations.observed_at) throw new Error('Docks prerequisite observed_at must be canonical ISO');
+  const mainArgv = ['git', 'ls-remote', '--exit-code', '--branches', CANONICAL_REPOSITORY_URL, 'refs/heads/main'];
+  const tagArgv = ['git', 'ls-remote', '--exit-code', '--tags', CANONICAL_REPOSITORY_URL, `refs/tags/${receipt.release_tag}`];
+  const ghArgv = ['gh', 'release', 'view', receipt.release_tag, '--repo', 'DocksDocks/docks', '--json', 'isDraft,isPrerelease,tagName,url'];
+  const codexArgv = ['codex', 'plugin', 'list', '--marketplace', 'docks', '--json']; const claudeArgv = ['claude', 'plugin', 'list', '--json'];
+  validateObservationRow(observations.remote_main, mainArgv, 'remote main observation');
+  validateObservationRow(observations.remote_tag, tagArgv, 'remote tag observation');
+  validateObservationRow(observations.github_release, ghArgv, 'GitHub Release observation');
+  validateObservationRow(observations.codex_plugin, codexArgv, 'Codex plugin observation');
+  validateObservationRow(observations.claude_plugin, claudeArgv, 'Claude plugin observation');
+  if (jcs(observations.remote_main.projection) !== jcs({ commit: receipt.release_commit, ref: 'refs/heads/main' })) throw new Error('stored remote main projection mismatch');
+  assertClosed(observations.remote_tag.projection, ['ref', 'annotated', 'tag_object', 'peeled_commit'], 'stored remote tag projection');
+  if (observations.remote_tag.projection.ref !== `refs/tags/${receipt.release_tag}` || typeof observations.remote_tag.projection.annotated !== 'boolean' || !HEX40.test(observations.remote_tag.projection.tag_object) || observations.remote_tag.projection.peeled_commit !== receipt.release_commit || (!observations.remote_tag.projection.annotated && observations.remote_tag.projection.tag_object !== receipt.release_commit) || (observations.remote_tag.projection.annotated && observations.remote_tag.projection.tag_object === receipt.release_commit)) throw new Error('stored remote tag projection mismatch');
+  if (jcs(observations.github_release.projection) !== jcs({ isDraft: false, isPrerelease: false, tagName: receipt.release_tag, url: receipt.release_url })) throw new Error('stored GitHub Release projection mismatch');
+  const codexExpected = { pluginId: 'docks@docks', name: 'docks', marketplaceName: 'docks', version: receipt.release_version, installed: true, enabled: true, source: { source: 'git-subdir', url: CANONICAL_REPOSITORY_URL, path: 'plugins/docks', ref: 'main' } };
+  if (jcs(observations.codex_plugin.projection) !== jcs(codexExpected)) throw new Error('stored Codex plugin projection mismatch');
+  assertClosed(observations.claude_plugin.projection, ['id', 'version', 'scope', 'enabled', 'installPath'], 'stored Claude plugin projection');
+  if (observations.claude_plugin.projection.id !== 'docks@docks' || observations.claude_plugin.projection.version !== receipt.release_version || observations.claude_plugin.projection.scope !== 'user' || observations.claude_plugin.projection.enabled !== true) throw new Error('stored Claude plugin projection mismatch');
+  assertClosed(observations.source_policy, ['schema', 'git_spec', 'sha256'], 'source policy observation');
+  for (const [key, row] of [['codex_cache', observations.codex_cache], ['claude_cache', observations.claude_cache]]) {
+    assertClosed(row, ['schema', 'home_relative_path', 'absolute_path', 'sha256'], `${key} observation`);
+    if (row.schema !== 1 || !path.isAbsolute(row.absolute_path)) throw new Error(`${key} observation identity`); digest(row.sha256, `${key} hash`);
+  }
+  if (observations.source_policy.schema !== 1 || observations.source_policy.git_spec !== `${receipt.release_commit}:${COMPATIBILITY_POLICY_PATH}`) throw new Error('source policy observation identity');
+  digest(observations.source_policy.sha256, 'source policy hash');
+  if (observations.source_policy.sha256 !== receipt.source_policy_sha256 || observations.codex_cache.sha256 !== receipt.codex_policy_sha256 || observations.claude_cache.sha256 !== receipt.claude_policy_sha256 || receipt.source_policy_sha256 !== receipt.codex_policy_sha256 || receipt.source_policy_sha256 !== receipt.claude_policy_sha256) throw new Error('Docks prerequisite policy hashes disagree');
+  const preimage = { ...observations }; delete preimage.observations_sha256;
+  if (observations.observations_sha256 !== sha256(jcs(preimage))) throw new Error('Docks prerequisite observations hash mismatch');
+  return observations;
+}
+
+function validatePrerequisiteReceipt(receipt, expected = {}) {
+  assertClosed(receipt, ['schema', 'authorization_id', 'authorization_sha256', 'finished_plan_path', 'finished_plan_commit', 'release_version', 'release_tag', 'release_commit', 'release_url', 'source_policy_sha256', 'codex_policy_sha256', 'claude_policy_sha256', 'observations', 'evidence_commit', 'compatibility_review_commit', 'binding_commit', 'binding_sha256', 'receipt_sha256'], 'Docks compatibility prerequisite receipt');
+  if (receipt.schema !== 1 || receipt.authorization_id !== RELEASE_AUTHORIZATION.authorization_id || receipt.authorization_sha256 !== RELEASE_AUTHORIZATION_SHA256 || sha256(jcs(RELEASE_AUTHORIZATION)) !== receipt.authorization_sha256) throw new Error('Docks prerequisite receipt authorization mismatch');
+  if (!FINISHED_COMPATIBILITY_PATH.test(receipt.finished_plan_path) || !CORE_SEMVER.test(receipt.release_version)) throw new Error('Docks prerequisite receipt path/version');
+  for (const key of ['finished_plan_commit', 'release_commit', 'evidence_commit', 'compatibility_review_commit', 'binding_commit']) if (!HEX40.test(receipt[key])) throw new Error(`Docks prerequisite receipt ${key}`);
+  for (const key of ['source_policy_sha256', 'codex_policy_sha256', 'claude_policy_sha256', 'binding_sha256', 'receipt_sha256']) digest(receipt[key], `Docks prerequisite receipt ${key}`);
+  if (receipt.release_tag !== `docks--v${receipt.release_version}` || receipt.release_url !== `https://github.com/DocksDocks/docks/releases/tag/${receipt.release_tag}`) throw new Error('Docks prerequisite release identity mismatch');
+  validatePrerequisiteObservations(receipt.observations, receipt);
+  const preimage = { ...receipt }; delete preimage.receipt_sha256;
+  if (receipt.receipt_sha256 !== sha256(jcs(preimage))) throw new Error('Docks prerequisite receipt hash mismatch');
+  for (const [key, value] of Object.entries(expected)) if (value !== undefined && receipt[key] !== value) throw new Error(`Docks prerequisite receipt ${key} mismatch`);
+  return receipt;
+}
+
+export function buildDocksCompatibilityPrerequisiteApplication(input, dependencies = PRODUCTION_PREREQUISITE_DEPENDENCIES) {
+  assertCompatibilityConstants(); input = validatePrerequisiteInput(input); validatePrerequisiteDependencies(dependencies);
+  const repoRoot = path.resolve(input.repo);
+  if (dependencies.realpath(repoRoot) !== repoRoot) throw new Error('prerequisite repo must be canonical');
+  const observedAt = dependencies.now(); iso(observedAt, 'Docks prerequisite observed_at');
+  if (new Date(observedAt).toISOString() !== observedAt) throw new Error('Docks prerequisite observed_at must be canonical ISO');
+  const repository = prerequisiteRepository(dependencies, repoRoot);
+  if (repository.text(['rev-parse', '--show-toplevel'], 'prerequisite repository root').trim() !== repoRoot) throw new Error('prerequisite repo is not the worktree root');
+  for (const [commit, label] of [[input.finishedPlanCommit, 'finished plan commit'], [input.evidenceCommit, 'evidence commit'], [input.compatibilityReviewCommit, 'compatibility review commit'], [input.bindingCommit, 'binding commit']]) repository.exact(commit, label);
+  validateArchivedCompatibilityPlan(repository, input);
+  const releaseCommit = repository.parent(input.evidenceCommit, 'compatibility evidence commit');
+  validateReleaseCommit(repository, input, releaseCommit);
+  const releaseTag = `docks--v${input.releaseVersion}`; const releaseUrl = `https://github.com/DocksDocks/docks/releases/tag/${releaseTag}`;
+  if (repository.object(`refs/tags/${releaseTag}^{commit}`, 'local Docks release tag') !== releaseCommit) throw new Error('local Docks release tag mismatch');
+  if (repository.parent(input.compatibilityReviewCommit, 'compatibility review commit') !== input.evidenceCommit || repository.parent(input.bindingCommit, 'binding commit') !== input.compatibilityReviewCommit) throw new Error('compatibility E/R/B commits are not contiguous');
+  const bindingState = validateBindingWithRepository({ repository, planPath: input.planPath, evidenceCommit: input.evidenceCommit, reviewCommit: input.compatibilityReviewCommit, bindingCommit: input.bindingCommit });
+
+  const remoteMainArgv = ['git', 'ls-remote', '--exit-code', '--branches', CANONICAL_REPOSITORY_URL, 'refs/heads/main'];
+  const remoteMainResult = prerequisiteChild(dependencies, repoRoot, remoteMainArgv, { recorded: true, label: 'remote main observation' });
+  const remoteMain = { schema: 1, argv: remoteMainArgv, exit_code: 0, stdout_sha256: sha256(remoteMainResult.stdout), stderr_sha256: sha256(remoteMainResult.stderr), projection: remoteMainProjection(remoteMainResult.stdout, releaseCommit) };
+  const remoteTagArgv = ['git', 'ls-remote', '--exit-code', '--tags', CANONICAL_REPOSITORY_URL, `refs/tags/${releaseTag}`];
+  const remoteTagResult = prerequisiteChild(dependencies, repoRoot, remoteTagArgv, { recorded: true, label: 'remote tag observation' });
+  const remoteTag = { schema: 1, argv: remoteTagArgv, exit_code: 0, stdout_sha256: sha256(remoteTagResult.stdout), stderr_sha256: sha256(remoteTagResult.stderr), projection: remoteTagProjection(remoteTagResult.stdout, releaseTag, releaseCommit) };
+  const ghArgv = ['gh', 'release', 'view', releaseTag, '--repo', 'DocksDocks/docks', '--json', 'isDraft,isPrerelease,tagName,url'];
+  const ghResult = prerequisiteChild(dependencies, repoRoot, ghArgv, { recorded: true, label: 'GitHub Release observation' });
+  const githubRelease = { schema: 1, argv: ghArgv, exit_code: 0, stdout_sha256: sha256(ghResult.stdout), stderr_sha256: sha256(ghResult.stderr), projection: githubReleaseProjection(ghResult.stdout, releaseTag, releaseUrl) };
+  const codexArgv = ['codex', 'plugin', 'list', '--marketplace', 'docks', '--json']; const codexResult = prerequisiteChild(dependencies, repoRoot, codexArgv, { recorded: true, label: 'Codex plugin observation' });
+  const codexPlugin = { schema: 1, argv: codexArgv, exit_code: 0, stdout_sha256: sha256(codexResult.stdout), stderr_sha256: sha256(codexResult.stderr), projection: codexPluginProjection(codexResult.stdout, input.releaseVersion) };
+  const home = dependencies.homedir(); if (typeof home !== 'string' || !path.isAbsolute(home)) throw new Error('prerequisite homedir must be absolute');
+  const claudeCacheRoot = path.join(home, '.claude/plugins/cache/docks/docks', input.releaseVersion);
+  const claudeArgv = ['claude', 'plugin', 'list', '--json']; const claudeResult = prerequisiteChild(dependencies, repoRoot, claudeArgv, { recorded: true, label: 'Claude plugin observation' });
+  const claudePlugin = { schema: 1, argv: claudeArgv, exit_code: 0, stdout_sha256: sha256(claudeResult.stdout), stderr_sha256: sha256(claudeResult.stderr), projection: claudePluginProjection(claudeResult.stdout, input.releaseVersion, claudeCacheRoot) };
+
+  const sourceBytes = repository.blob(releaseCommit, COMPATIBILITY_POLICY_PATH, 'released compatibility policy'); const sourceSha = sha256(sourceBytes);
+  const codexRelative = `.codex/plugins/cache/docks/docks/${input.releaseVersion}/skills/productivity/plan-review/scripts/review-policy.mjs`;
+  const claudeRelative = `.claude/plugins/cache/docks/docks/${input.releaseVersion}/skills/productivity/plan-review/scripts/review-policy.mjs`;
+  const codexAbsolute = path.join(home, codexRelative); const claudeAbsolute = path.join(home, claudeRelative);
+  const codexSha = sha256(validatedCacheFile(dependencies, codexAbsolute, 'Codex policy cache')); const claudeSha = sha256(validatedCacheFile(dependencies, claudeAbsolute, 'Claude policy cache'));
+  if (sourceSha !== codexSha || sourceSha !== claudeSha) throw new Error('released and cached compatibility policies differ');
+  const observations = {
+    schema: 1,
+    observed_at: observedAt,
+    remote_main: remoteMain,
+    remote_tag: remoteTag,
+    github_release: githubRelease,
+    codex_plugin: codexPlugin,
+    claude_plugin: claudePlugin,
+    source_policy: { schema: 1, git_spec: `${releaseCommit}:${COMPATIBILITY_POLICY_PATH}`, sha256: sourceSha },
+    codex_cache: { schema: 1, home_relative_path: codexRelative, absolute_path: codexAbsolute, sha256: codexSha },
+    claude_cache: { schema: 1, home_relative_path: claudeRelative, absolute_path: claudeAbsolute, sha256: claudeSha },
+  };
+  observations.observations_sha256 = sha256(jcs(observations));
+  const receipt = {
+    schema: 1,
+    authorization_id: input.authorizationId,
+    authorization_sha256: input.authorizationSha256,
+    finished_plan_path: input.finishedPlanPath,
+    finished_plan_commit: input.finishedPlanCommit,
+    release_version: input.releaseVersion,
+    release_tag: releaseTag,
+    release_commit: releaseCommit,
+    release_url: releaseUrl,
+    source_policy_sha256: sourceSha,
+    codex_policy_sha256: codexSha,
+    claude_policy_sha256: claudeSha,
+    observations,
+    evidence_commit: input.evidenceCommit,
+    compatibility_review_commit: input.compatibilityReviewCommit,
+    binding_commit: input.bindingCommit,
+    binding_sha256: bindingState.binding.binding_sha256,
+  };
+  receipt.receipt_sha256 = sha256(jcs(receipt)); validatePrerequisiteReceipt(receipt);
+  const markdown = `\`\`\`json\n${jcs(receipt)}\n\`\`\`\n`;
+  const application = { schema: 1, markdown, receipt_sha256: receipt.receipt_sha256, observations_sha256: observations.observations_sha256 };
+  application.application_sha256 = sha256(jcs(application));
+  return application;
+}
+
+function extractPrerequisiteReceipt(bytes, { required = true } = {}) {
+  const { body } = splitPlanText(bytes); const rows = bodyRows(body); const candidates = []; let fence = null;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]; const fenceMatch = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(row.line);
+    if (fence === null) {
+      if (!fenceMatch) continue;
+      if (row.line === '```json' && rows[index + 1] && rows[index + 2]?.line === '```') {
+        let value;
+        try { value = JSON.parse(rows[index + 1].line); } catch { value = null; }
+        if (value?.authorization_id === RELEASE_AUTHORIZATION.authorization_id) candidates.push({ value, payload: rows[index + 1].line, markdown: body.slice(row.start, rows[index + 2].end), start: row.start, end: rows[index + 2].end });
+      }
+      fence = { marker: fenceMatch[2][0], length: fenceMatch[2].length };
+    } else if (fenceMatch && fenceMatch[2][0] === fence.marker && fenceMatch[2].length >= fence.length && /^\s*$/.test(fenceMatch[3])) fence = null;
+  }
+  if (candidates.length === 0 && !required) return null;
+  if (candidates.length !== 1) throw new Error('Docks prerequisite receipt fence count');
+  const candidate = candidates[0];
+  if (candidate.payload !== jcs(candidate.value)) throw new Error('Docks prerequisite receipt must be compact JCS');
+  validatePrerequisiteReceipt(candidate.value);
+  if (candidate.markdown !== `\`\`\`json\n${candidate.payload}\n\`\`\`\n`) throw new Error('Docks prerequisite receipt fence bytes');
+  return candidate;
+}
+
+function applyPrerequisiteClosure(bytes, markdown) {
+  const text = exactUtf8(bytes, 'binding plan');
+  const markerCount = text.split(PREREQUISITE_PENDING_MARKER).length - 1; const plannedCount = text.split(PREREQUISITE_STEP_PLANNED).length - 1; const doneCount = text.split(PREREQUISITE_STEP_DONE).length - 1;
+  if (markerCount !== 1 || plannedCount !== 1 || doneCount !== 0) throw new Error('Docks prerequisite marker or Step-P row mismatch');
+  return Buffer.from(text.replace(PREREQUISITE_PENDING_MARKER, markdown).replace(PREREQUISITE_STEP_PLANNED, PREREQUISITE_STEP_DONE));
+}
+
+function directPrerequisiteRepository(repo) {
+  return {
+    exact: (commit, label) => exactCommit(repo, commit, label),
+    parent: (commit, label) => commitParent(repo, commit, label),
+    paths: (parent, commit) => changedPaths(repo, parent, commit),
+    blob: (commit, logical) => planBlob(repo, commit, logical),
+    object: (spec, label) => gitObject(repo, spec, label),
+    isAncestor: (older, newer) => ancestor(repo, older, newer),
+    treeNames(commit, logicals) {
+      const bytes = git(repo, ['ls-tree', '-z', '--name-only', commit, '--', ...logicals], null); const text = exactUtf8(bytes, 'git tree names');
+      if (text !== '' && !text.endsWith('\0')) throw new Error('git tree names must be NUL terminated');
+      return text === '' ? [] : text.slice(0, -1).split('\0').map(safeLogical);
+    },
+  };
+}
+
+function validateImmutablePrerequisite({ repo, planPath, receipt, binding }) {
+  validatePrerequisiteReceipt(receipt, {
+    evidence_commit: binding.compatibility_evidence_commit,
+    compatibility_review_commit: binding.review_commit,
+    binding_sha256: binding.binding_sha256,
+  });
+  const repository = directPrerequisiteRepository(repo);
+  validateArchivedCompatibilityPlan(repository, {
+    finishedPlanCommit: receipt.finished_plan_commit,
+    finishedPlanPath: receipt.finished_plan_path,
+  });
+  if (repository.parent(receipt.evidence_commit, 'compatibility evidence commit') !== receipt.release_commit || repository.parent(receipt.compatibility_review_commit, 'compatibility review commit') !== receipt.evidence_commit || repository.parent(receipt.binding_commit, 'compatibility binding commit') !== receipt.compatibility_review_commit) throw new Error('stored Docks prerequisite E/R/B chain mismatch');
+  validateReleaseCommit(repository, { finishedPlanCommit: receipt.finished_plan_commit, releaseVersion: receipt.release_version }, receipt.release_commit);
+  if (repository.object(`refs/tags/${receipt.release_tag}^{commit}`, 'stored local Docks release tag') !== receipt.release_commit) throw new Error('stored local Docks release tag mismatch');
+  const sourceSha = sha256(repository.blob(receipt.release_commit, COMPATIBILITY_POLICY_PATH, 'stored released policy'));
+  if (sourceSha !== receipt.source_policy_sha256) throw new Error('stored released policy hash mismatch');
+  const codexRelative = `.codex/plugins/cache/docks/docks/${receipt.release_version}/skills/productivity/plan-review/scripts/review-policy.mjs`; const claudeRelative = `.claude/plugins/cache/docks/docks/${receipt.release_version}/skills/productivity/plan-review/scripts/review-policy.mjs`;
+  if (receipt.observations.codex_cache.home_relative_path !== codexRelative || receipt.observations.claude_cache.home_relative_path !== claudeRelative) throw new Error('stored Docks cache relative path mismatch');
+  const codexSuffix = `${path.sep}${codexRelative.split('/').join(path.sep)}`; const claudeSuffix = `${path.sep}${claudeRelative.split('/').join(path.sep)}`;
+  if (!receipt.observations.codex_cache.absolute_path.endsWith(codexSuffix) || !receipt.observations.claude_cache.absolute_path.endsWith(claudeSuffix)) throw new Error('stored Docks cache absolute path mismatch');
+  const codexHome = receipt.observations.codex_cache.absolute_path.slice(0, -codexSuffix.length); const claudeHome = receipt.observations.claude_cache.absolute_path.slice(0, -claudeSuffix.length);
+  if (codexHome !== claudeHome || receipt.observations.claude_plugin.projection.installPath !== path.join(claudeHome, '.claude/plugins/cache/docks/docks', receipt.release_version)) throw new Error('stored Docks cache home/install path mismatch');
+  if (receipt.binding_commit !== nextCommit(repo, receipt.compatibility_review_commit, receipt.binding_commit, 'compatibility binding commit')) throw new Error('stored compatibility binding adjacency mismatch');
+  const bindingState = validateBindingCommit({ repo, planPath, evidenceCommit: receipt.evidence_commit, reviewCommit: receipt.compatibility_review_commit, bindingCommit: receipt.binding_commit });
+  if (bindingState.binding.binding_sha256 !== receipt.binding_sha256) throw new Error('stored compatibility binding hash mismatch');
+  return receipt;
+}
+
+function validateLegacyCompatibilityRange({ repo, planPath, plannedAtCommit, executionBaseCommit, reviewedHead, application, headBytes }) {
+  const logical = safeLogical(planPath); const validatedApplication = validateCompatibilityApplication(application, { repo, planPath: logical, plannedAtCommit, executionBaseCommit });
+  const evidenceParent = validatedApplication.receipt.evidence_input_commit; const evidenceCommit = nextCommit(repo, evidenceParent, reviewedHead, 'compatibility evidence commit');
+  const headBinding = extractCompatibilityBinding(headBytes); const binding = headBinding.binding;
+  assertClosed(binding, ['schema', 'compatibility_receipt_sha256', 'compatibility_evidence_commit', 'reviewed_commit', 'review_commit', 'review_receipt_sha256', 'review_attribution_sha256', 'binding_parent', 'binding_sha256'], 'execution compatibility binding');
+  if (binding.schema !== 1 || binding.compatibility_evidence_commit !== evidenceCommit || binding.reviewed_commit !== evidenceCommit || binding.compatibility_receipt_sha256 !== validatedApplication.receipt.receipt_sha256) throw new Error('execution compatibility binding identity mismatch');
+  const reviewCommit = binding.review_commit; const bindingCommit = nextCommit(repo, reviewCommit, reviewedHead, 'compatibility binding commit');
+  const bindingState = validateBindingCommit({ repo, planPath: logical, evidenceCommit, reviewCommit, bindingCommit, reviewedHead });
+  if (bindingState.application.markdown !== headBinding.markdown) throw new Error('execution compatibility binding was not retained');
+  const prerequisite = extractPrerequisiteReceipt(headBytes); const prerequisiteReceipt = validateImmutablePrerequisite({ repo, planPath: logical, receipt: prerequisite.value, binding: bindingState.binding });
+  if (prerequisiteReceipt.evidence_commit !== evidenceCommit || prerequisiteReceipt.compatibility_review_commit !== reviewCommit || prerequisiteReceipt.binding_commit !== bindingCommit) throw new Error('Docks prerequisite receipt E/R/B mismatch');
+  const prerequisiteCommit = nextCommit(repo, bindingCommit, reviewedHead, 'Docks prerequisite commit');
+  requirePlanOnlyChild(repo, prerequisiteCommit, bindingCommit, logical, 'Docks prerequisite commit');
+  const prerequisiteBytes = planBlob(repo, prerequisiteCommit, logical); const expectedPrerequisite = applyPrerequisiteClosure(bindingState.bindingBytes, prerequisite.markdown);
+  requirePlanDelta(bindingState.bindingBytes, prerequisiteBytes, expectedPrerequisite, 'Docks prerequisite closure');
+  const committedPrerequisite = extractPrerequisiteReceipt(prerequisiteBytes);
+  if (committedPrerequisite.markdown !== prerequisite.markdown) throw new Error('Docks prerequisite receipt was not retained');
+  const finalReview = extractMachineRecord(headBytes, 'Review-receipt'); const finalReceipt = validateFindingsFreeCompatibilityReceipt(finalReview.value, sha256(canonicalPlanView(prerequisiteBytes)), prerequisiteCommit);
+  const executionReviewCommit = nextCommit(repo, prerequisiteCommit, reviewedHead, 'execution review commit');
+  requirePlanOnlyChild(repo, executionReviewCommit, prerequisiteCommit, logical, 'execution review commit');
+  const executionReviewBytes = planBlob(repo, executionReviewCommit, logical); const committedFinal = extractMachineRecord(executionReviewBytes, 'Review-receipt');
+  if (committedFinal.payload !== finalReview.payload) throw new Error('execution review receipt was not retained');
+  const finalAttribution = renderCompatibilityReviewAttribution(finalReceipt);
+  let expectedFinal = replaceDraftReceipt(prerequisiteBytes, finalReceipt); expectedFinal = appendSelfReviewAttribution(expectedFinal, finalAttribution);
+  requirePlanDelta(prerequisiteBytes, executionReviewBytes, expectedFinal, 'execution final review');
+  const evidenceBytes = planBlob(repo, evidenceCommit, logical); const evidenceApplication = extractCompatibilityApplication(evidenceBytes);
+  if (evidenceApplication.markdown !== application.markdown) throw new Error('execution compatibility application was not retained');
+  const executionApplication = extractCompatibilityApplication(executionReviewBytes); const executionBinding = extractCompatibilityBinding(executionReviewBytes); const executionPrerequisite = extractPrerequisiteReceipt(executionReviewBytes);
+  if (executionApplication.markdown !== application.markdown || executionBinding.markdown !== headBinding.markdown || executionPrerequisite.markdown !== prerequisite.markdown) throw new Error('execution compatibility records changed before final review');
+  return {
+    schema: 1,
+    mode: 'legacy_compatibility',
+    planned_at_commit: plannedAtCommit,
+    execution_base_commit: executionBaseCommit,
+    reviewed_head: reviewedHead,
+    execution_parent: validatedApplication.receipt.execution_parent,
+    compatibility_receipt_sha256: validatedApplication.receipt.receipt_sha256,
+    compatibility_evidence_commit: evidenceCommit,
+    compatibility_review_commit: reviewCommit,
+    compatibility_binding_commit: bindingCommit,
+    compatibility_binding_sha256: binding.binding_sha256,
+    prerequisite_commit: prerequisiteCommit,
+    prerequisite_receipt_sha256: prerequisiteReceipt.receipt_sha256,
+    execution_review_input_commit: prerequisiteCommit,
+    execution_review_commit: executionReviewCommit,
+    execution_review_receipt_sha256: sha256(finalReview.payload),
+    execution_review_attribution_sha256: sha256(finalAttribution),
+  };
+}
+
+export function validateExecutionScope({ repo, base, head, planPath }) {
+  const logical = safeLogical(planPath); exactCommit(repo, base, 'execution scope base'); exactCommit(repo, head, 'execution scope head');
+  if (!ancestor(repo, base, head)) throw new Error('execution scope base is not an ancestor of head');
+  const newestFirst = []; let cursor = head; const seen = new Set();
+  while (cursor !== base) {
+    if (seen.has(cursor)) throw new Error('execution scope parent cycle'); seen.add(cursor);
+    const parent = commitParent(repo, cursor, 'execution scope commit'); newestFirst.push({ commit: cursor, parent }); cursor = parent;
+    if (newestFirst.length > 100000) throw new Error('execution scope commit bound exceeded');
+  }
+  const commits = newestFirst.reverse();
+  const headPlan = parsePlan(planBlob(repo, head, logical)); const affected = headPlan.frontmatter.affected_paths;
+  if (!Array.isArray(affected)) throw new Error('execution scope affected_paths missing');
+  const unsorted = [logical, ...affected.map(safeLogical)];
+  if (new Set(unsorted).size !== unsorted.length) throw new Error('execution scope allowed paths contain duplicates');
+  const paths = unsorted.slice().sort(compareUtf16); const allowed = new Set(paths);
+  const allowedPathsSha256 = sha256(jcs({ schema: 1, paths }));
+  const ledger = commits.map((row, index) => {
+    const changed = changedPaths(repo, row.parent, row.commit).slice().sort(compareUtf16);
+    for (const changedPath of changed) if (!allowed.has(changedPath)) throw new Error(`execution scope path is not allowed: ${changedPath}`);
+    return { ordinal: index + 1, commit: row.commit, parent: row.parent, paths: changed };
+  });
+  const changedPathsSha256 = sha256(jcs({ schema: 1, base, head, commits: ledger }));
+  const result = { schema: 1, base, head, commit_count: ledger.length, allowed_paths_sha256: allowedPathsSha256, changed_paths_sha256: changedPathsSha256 };
+  result.result_sha256 = sha256(jcs(result));
+  return result;
 }
 
 function sameOrAncestor(ancestorPath, descendantPath) {
@@ -924,6 +2126,31 @@ export function cleanupCompletionCheckout({ repo, requestId, prepared }) {
 
 export function run(argv = process.argv.slice(2)) {
   const [command, ...args] = argv;
+  if (command === 'compatibility-evidence') {
+    if (args.length !== 7) throw new Error('compatibility-evidence accepts repo reviewed-head plan-path planned-at execution-base authorization-id owner-message-sha256 only');
+    const [repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256] = args;
+    process.stdout.write(`${jcs(buildExecutionBaseCompatibilityApplication({ repo: path.resolve(repo), reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 }))}\n`); return;
+  }
+  if (command === 'compatibility-binding') {
+    if (args.length !== 4) throw new Error('compatibility-binding accepts repo plan-path evidence-commit review-commit only');
+    const [repo, planPath, evidenceCommit, reviewCommit] = args;
+    process.stdout.write(`${jcs(buildExecutionBaseCompatibilityBindingApplication({ repo: path.resolve(repo), planPath, evidenceCommit, reviewCommit }))}\n`); return;
+  }
+  if (command === 'compatibility-prerequisite') {
+    if (args.length !== 10) throw new Error('compatibility-prerequisite accepts repo plan-path finished-plan-path finished-plan-commit release-version evidence-commit compatibility-review-commit binding-commit authorization-id authorization-sha256 only');
+    const [repo, planPath, finishedPlanPath, finishedPlanCommit, releaseVersion, evidenceCommit, compatibilityReviewCommit, bindingCommit, authorizationId, authorizationSha256] = args;
+    process.stdout.write(`${jcs(buildDocksCompatibilityPrerequisiteApplication({ repo: path.resolve(repo), planPath, finishedPlanPath, finishedPlanCommit, releaseVersion, evidenceCommit, compatibilityReviewCommit, bindingCommit, authorizationId, authorizationSha256 }))}\n`); return;
+  }
+  if (command === 'execution-range') {
+    if (args.length !== 5) throw new Error('execution-range accepts repo reviewed-head plan-path planned-at execution-base only');
+    const [repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit] = args;
+    process.stdout.write(`${jcs(validateExecutionRange({ repo: path.resolve(repo), reviewedHead, planPath, plannedAtCommit, executionBaseCommit }))}\n`); return;
+  }
+  if (command === 'execution-scope') {
+    if (args.length !== 4) throw new Error('execution-scope accepts repo base head plan-path only');
+    const [repo, base, head, planPath] = args;
+    process.stdout.write(`${jcs(validateExecutionScope({ repo: path.resolve(repo), base, head, planPath }))}\n`); return;
+  }
   if (command === 'canonical-plan') { process.stdout.write(canonicalPlanView(fs.readFileSync(args[0]))); return; }
   if (command === 'schema') { process.stdout.write(`${jcs(reviewerSchema(args[0]))}\n`); return; }
   if (command === 'validate-reviewer') {
@@ -948,7 +2175,7 @@ export function run(argv = process.argv.slice(2)) {
     const [tool] = args; const result = spawnSync(tool, tool === 'codex' ? ['login', 'status'] : ['auth', 'status'], { encoding: 'utf8' });
     process.stdout.write(`${jcs({ available: !result.error && result.status === 0, exit_code: result.status ?? null })}\n`); return;
   }
-  throw new Error('usage: review-policy.mjs canonical-plan|schema|validate-reviewer|bundle|verify-bundle|completion-prepare|completion-cleanup|probe ...');
+  throw new Error('usage: review-policy.mjs compatibility-evidence|compatibility-binding|compatibility-prerequisite|execution-range|execution-scope|canonical-plan|schema|validate-reviewer|bundle|verify-bundle|completion-prepare|completion-cleanup|probe ...');
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
