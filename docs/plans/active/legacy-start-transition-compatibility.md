@@ -25,7 +25,7 @@ related_plans:
   - relay-worker-lifecycle-primitives
 review_status: null
 planned_at_commit: "06a898abacfd57aad9dab0d48db8ad3c8e622318"
-execution_base_commit: null
+execution_base_commit: "dcf4b6aaa354e2671da2ec773a0a7538aa31d508"
 ---
 
 # Add reviewed legacy start-transition compatibility
