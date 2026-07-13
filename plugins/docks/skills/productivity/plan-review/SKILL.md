@@ -4,8 +4,8 @@ description: Use when plan-manager needs internal draft or completion evidence f
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-12"
-  content_hash: "6438409608df499195255d0a0d7a04a70cc86282cc6dfe1cdec4b9262385d7d8"
+  updated: "2026-07-13"
+  content_hash: "0a65890a14f0463d080755701c470d5598783824f2adb6660f4931c22b5886be"
 ---
 
 # Plan Review Evidence Runner
@@ -163,6 +163,45 @@ decision evidence or null, `outcome=dual|single|zero_degraded|blocked`, and
 `pre_execution_eligible`. One passed leg permits `single`; zero passed delegates
 to the separately resolved zero-review decision. This skill does not apply the
 intent.
+
+## Docks-only legacy compatibility evidence
+
+Ordinary strict execution-range validation remains first and byte-authoritative.
+Only the helper's closed abbreviated historical predicate may request legacy
+evidence; a plan cannot opt in through prose, frontmatter, or a waiver. Existing
+closed schema-v1 request, bundle, prepared-result, completion, and cleanup
+objects gain no keys.
+
+Return exact evidence for plan-manager's contiguous `E → R → B → Q → F` chain:
+E is the helper-generated historical material/diff/receipt application; R is an
+ordinary review of E; B binds exact E/R; Q is the helper-generated Docks
+release/cache prerequisite closure; F is a fresh ordinary review of Q. R and F
+are compatible only as `dual|single`, with at least one passed leg and every
+passed leg `ready` with zero findings. Reject waivers, `zero_degraded`,
+`blocked`, `not_ready`, and any finding-bearing passed leg. Return applications
+and typed evidence only; plan-manager applies and commits all five links.
+
+The application, binding, prerequisite, and attributed review lines remain in
+canonical plan input. Completion revalidates the immutable chain and full
+execution range; stable reuse removes only the whole `## Review` partition and
+still requires its exact receipt-derived rendering. Source readiness is not
+active compatibility: the later Docks release/refresh prerequisite supplies
+the immutable release and cache identities.
+
+## Evidence-complete verification order
+
+- Keep X/S and any other independent audit read-only, same-input, and parallel
+  where possible; one writable main context owns all shared-worktree changes.
+- Run syntax/structural and direct acceptance checks before focused regressions,
+  then run the required broad/full gate once at the final pre-commit boundary.
+  A relevant edit after a gate invalidates its evidence.
+- Reuse a result only while all bound input, author, policy/provenance,
+  decision/waiver, bundle, commit/head/tree, diff, acceptance-inventory, and
+  compatibility identities match byte-for-byte.
+- This ordering never removes X/S review, the ordered acceptance inventory or
+  one-to-one primary evidence, lifecycle identity commits, the plan-only
+  `in_review` transition, the broad gate, or final completion verification.
+  Main context still runs each inventory row exactly once in its defined order.
 
 ## Completion evidence
 

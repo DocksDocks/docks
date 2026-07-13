@@ -254,6 +254,62 @@ and other cases are `partial`. Frontmatter must match that receipt at apply/ship
 Cleanup takes only the prepare identity under `/tmp/docks-plan-verify`, bound to
 token, original snapshot, head, tree, path, and sentinel—never a caller root.
 
+### Docks-only legacy start compatibility
+
+Legacy start compatibility is a closed Docks exception, not a plan-authored
+escape hatch. Ordinary execution-range validation runs first and preserves its
+existing error order and closed schema-v1 result. Only the helper's exact
+abbreviated historical shape may enter compatibility validation; prose,
+frontmatter, waivers, or a broadly similar start commit cannot opt another plan
+in.
+
+For an eligible historical plan, plan-manager alone writes and commits the
+contiguous `E → R → B → Q → F` chain: E applies the helper-generated
+historical material, exact diff, and receipt; R records ordinary X/S review of
+E; B binds the exact E/R evidence; Q applies the helper-generated Docks
+release/cache prerequisite after the compatibility source plan has passed and
+the immutable patch release is active in both supported caches; F performs a
+fresh ordinary review of Q. R and F are eligible only as `dual|single`, with at
+least one passed leg and every passed leg `ready` with zero findings. Waivers,
+`zero_degraded`, `blocked`, `not_ready`, or a finding-bearing passed leg cannot
+authorize compatibility. Plan-review and its helper remain read-only,
+evidence-only producers throughout.
+
+The application, binding, prerequisite, and both attributed review lines remain
+canonical plan input. Completion revalidates their immutable commit chain and
+the full execution range; its stable-view reuse removes only the complete
+`## Review` partition and still requires the exact rendered receipt block. No
+existing review request, bundle, prepared result, completion receipt, or cleanup
+schema gains a key. Source readiness is not runtime activation: the separately
+authorized Docks release/refresh prerequisite owns immutable release and cache
+equality, while a later docks-kit stage may propagate only the generic execution
+ladder to consumer-global `AGENTS.md`, never compatibility eligibility.
+
+### Evidence-complete execution ladder
+
+Use this order to remove redundant work without removing evidence:
+
+1. Assign one writer to each shared worktree. Plan-manager remains the sole
+   writer of plan prose, receipts, lifecycle fields, and lifecycle commits;
+   every parallel reviewer or auditor is read-only.
+2. Run independent read-only audits in parallel only when each receives the
+   same immutable input and reports evidence separately.
+3. After an edit, run syntax/structural checks and direct acceptance first,
+   focused regression suites next, and broader project/plugin gates last. Run
+   the repository's required broad/full gate once at the pre-commit boundary
+   after narrower checks pass; any later relevant edit invalidates that run.
+4. Reuse evidence only while every bound identity still matches: canonical
+   plan input, author, policy and provenance, decisions/waivers, sealed bundle,
+   immutable commit/head/tree, diff, ordered acceptance inventory, and any
+   compatibility source/release/cache/application identities. A mismatch
+   restarts the earliest invalidated rung.
+5. Optimization never skips required X/S review, the nonempty ordered
+   acceptance inventory or its one-to-one primary evidence, the start and
+   `execution_base_commit` identity commits, the plan-only `in_review` commit,
+   the required broad pre-commit gate, or final completion verification,
+   receipt application, and reuse validation. Completion still runs each
+   inventory row exactly once in its defined order.
+
 Preserve attribution:
 
 Attributed ingest format:

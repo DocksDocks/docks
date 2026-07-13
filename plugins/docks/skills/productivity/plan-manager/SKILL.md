@@ -4,8 +4,8 @@ description: Use when the user asks to list, show, create, review, start, block,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-12"
-  content_hash: "fed1d8e47cd0d5e7d04d8f03670eaab21d4ea31675e2f25b5b0ce20766f7d97b"
+  updated: "2026-07-13"
+  content_hash: "adbf784085bb3ac0111e5aa64a97e3f2221cce2913f3ea7fe5f95d1c17e5eafc"
 ---
 
 # Plan Manager
@@ -191,6 +191,23 @@ every acceptance met, CI exit 0, no recorded regression, no high primary
 finding, and no passed X/S `not_ready` verdict. A later
 ordinary prose or policy edit invalidates it;
 excluded lifecycle fields and its own exact line do not.
+
+## Docks-only legacy start compatibility
+
+Strict validation runs first; only the helper's exact abbreviated historical Docks predicate enters compatibility. Prose, frontmatter, waivers, or similar starts cannot opt in, and closed schema-v1 request/bundle/prepared/completion/cleanup shapes gain no keys.
+
+Plan-manager alone writes `E → R → B → Q → F`: E applies helper-generated history/diff/receipt; R ordinarily reviews E; B binds exact E/R; Q applies the helper prerequisite only after the authorized Docks release and both caches match; F freshly reviews Q.
+R/F require `dual|single`, at least one passed leg, and every passed leg `ready` with zero findings; waiver, `zero_degraded`, `blocked`, `not_ready`, or findings are ineligible. Plan-review returns evidence only and writes nothing.
+
+Retain exact application/binding/prerequisite/attribution as canonical input. Completion revalidates the immutable chain and full range; reuse removes only the exact rendered `## Review` partition. Source readiness is not activation: Docks release/refresh owns immutable release/cache equality, and docks-kit may propagate only the generic ladder—not eligibility—to consumer-global `AGENTS.md`.
+
+## Evidence-complete execution ladder
+
+1. Use one writer per shared worktree; plan-manager alone writes plan prose, receipts, lifecycle fields, and lifecycle commits.
+2. Parallelize separate read-only audits only over the same immutable input.
+3. Gate syntax/structure and direct acceptance → focused regressions → one required broad/full pre-commit gate; any later relevant edit invalidates it.
+4. Reuse evidence only while every bound canonical input, author, policy/provenance, decision/waiver, bundle, commit/head/tree, diff, ordered inventory, and compatibility identity matches; restart at the earliest changed rung.
+5. Never skip X/S, the nonempty ordered inventory and one-to-one evidence, start plus `execution_base_commit` identity commits, plan-only `in_review`, the broad gate, or final completion/receipt/reuse; completion runs each inventory row exactly once in order.
 
 ## Completion review
 
