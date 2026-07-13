@@ -901,12 +901,17 @@ function testExecutionCompatibility() {
   const material = JSON.parse(fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m)[1]);
   const opening = fixture.evidenceApplication.markdown.match(/^(`{3,})diff$/m)[1]; const diffStart = fixture.evidenceApplication.markdown.indexOf(`${opening}diff\n`) + opening.length + 5; const diffEnd = fixture.evidenceApplication.markdown.indexOf(`${opening}\nExecution-base-compatibility-receipt:`, diffStart); const recordedDiff = fixture.evidenceApplication.markdown.slice(diffStart, diffEnd);
   const diffEnv = { ...process.env }; delete diffEnv.GIT_DIFF_OPTS;
-  const expectedTransitionDiffArgs = [
+  const expectedLegacyDiffArgs = [
     '--no-pager', '-c', 'diff.algorithm=myers', '-c', 'diff.context=3', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.indentHeuristic=false', '-c', 'diff.renames=false',
     'diff', '--text', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/',
     evidenceReceipt.execution_parent, evidenceReceipt.execution_base_commit, '--', TARGET_PLAN,
   ];
-  const directDiff = spawnSync('git', expectedTransitionDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: diffEnv });
+  const expectedTransitionDiffArgs = [
+    '--no-pager', '-c', 'diff.algorithm=myers', '-c', 'diff.context=3', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.indentHeuristic=false', '-c', 'diff.renames=false',
+    'diff', '--no-index', '--text', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--no-prefix',
+    '--', `a/${TARGET_PLAN}`, `b/${TARGET_PLAN}`,
+  ];
+  const directDiff = spawnSync('git', expectedLegacyDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: diffEnv });
   assert.equal(directDiff.status, 0, directDiff.stderr); assert.equal(recordedDiff, directDiff.stdout, 'transition diff is byte-exact canonical Git output');
   assert.match(recordedDiff, /^diff --git /); assert.doesNotMatch(recordedDiff, /^GIT binary patch$/m, 'transition material remains textual');
   const rebuildEvidence = () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: fixture.releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 });
@@ -914,29 +919,63 @@ function testExecutionCompatibility() {
   const captureBin = path.join(fixture.temp, 'capture-bin'); const captureLog = path.join(fixture.temp, 'captured-git.jsonl'); fs.mkdirSync(captureBin);
   const captureGit = `#!/usr/bin/env node
 import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
-const args=process.argv.slice(2); fs.appendFileSync(process.env.TRANSITION_GIT_LOG,JSON.stringify(args)+'\\n');
+const args=process.argv.slice(2); const cwd=process.cwd(); const noIndex=args.includes('--no-index'); const artifacts=noIndex?args.slice(-2):[];
+const row={args,cwd,artifact_modes:artifacts.map((file)=>fs.statSync(file).mode&0o777),attributes:fs.existsSync('.git/info/attributes')?fs.readFileSync('.git/info/attributes','utf8'):null,env:{GIT_CONFIG_GLOBAL:process.env.GIT_CONFIG_GLOBAL,GIT_CONFIG_SYSTEM:process.env.GIT_CONFIG_SYSTEM,GIT_CONFIG_NOSYSTEM:process.env.GIT_CONFIG_NOSYSTEM,GIT_CONFIG_COUNT:process.env.GIT_CONFIG_COUNT,GIT_ATTR_NOSYSTEM:process.env.GIT_ATTR_NOSYSTEM,GIT_ATTR_SOURCE:process.env.GIT_ATTR_SOURCE,GIT_CONFIG:process.env.GIT_CONFIG,GIT_CONFIG_PARAMETERS:process.env.GIT_CONFIG_PARAMETERS,GIT_DIFF_OPTS:process.env.GIT_DIFF_OPTS,GIT_DIR:process.env.GIT_DIR,GIT_EXTERNAL_DIFF:process.env.GIT_EXTERNAL_DIFF}};
+fs.appendFileSync(process.env.TRANSITION_GIT_LOG,JSON.stringify(row)+'\\n');
 const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',env:process.env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
 `;
   fs.writeFileSync(path.join(captureBin, 'git'), captureGit, { mode: 0o755 });
-  const priorPath = process.env.PATH; const priorRealGit = process.env.TRANSITION_REAL_GIT; const priorGitLog = process.env.TRANSITION_GIT_LOG;
-  process.env.PATH = `${captureBin}${path.delimiter}${priorPath}`; process.env.TRANSITION_REAL_GIT = spawnSync('which', ['git'], { env: { ...process.env, PATH: priorPath }, encoding: 'utf8' }).stdout.trim(); process.env.TRANSITION_GIT_LOG = captureLog;
+  const priorPath = process.env.PATH; const priorRealGit = process.env.TRANSITION_REAL_GIT; const priorGitLog = process.env.TRANSITION_GIT_LOG; const priorAttrNoSystem = process.env.GIT_ATTR_NOSYSTEM;
+  process.env.PATH = `${captureBin}${path.delimiter}${priorPath}`; process.env.TRANSITION_REAL_GIT = spawnSync('which', ['git'], { env: { ...process.env, PATH: priorPath }, encoding: 'utf8' }).stdout.trim(); process.env.TRANSITION_GIT_LOG = captureLog; process.env.GIT_ATTR_NOSYSTEM = '0';
   try { assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'captured transition command preserves byte-identical material'); } finally {
     process.env.PATH = priorPath;
     if (priorRealGit === undefined) delete process.env.TRANSITION_REAL_GIT; else process.env.TRANSITION_REAL_GIT = priorRealGit;
     if (priorGitLog === undefined) delete process.env.TRANSITION_GIT_LOG; else process.env.TRANSITION_GIT_LOG = priorGitLog;
+    if (priorAttrNoSystem === undefined) delete process.env.GIT_ATTR_NOSYSTEM; else process.env.GIT_ATTR_NOSYSTEM = priorAttrNoSystem;
   }
-  const transitionCalls = fs.readFileSync(captureLog, 'utf8').trim().split('\n').map(JSON.parse).filter((argv) => argv[0] === '--no-pager');
-  assert.deepEqual(transitionCalls, [expectedTransitionDiffArgs], 'transition diff uses the exact deterministic argv once');
+  const transitionCalls = fs.readFileSync(captureLog, 'utf8').trim().split('\n').map(JSON.parse).filter((row) => path.basename(row.cwd).startsWith('docks-transition-diff-'));
+  assert.deepEqual(transitionCalls.map((row) => row.args), [['init', '-q', '--template='], expectedTransitionDiffArgs], 'transition producer initializes once and uses the exact deterministic argv once');
+  assert.equal(transitionCalls[0].cwd, transitionCalls[1].cwd, 'transition children share one private repository');
+  assert.equal(fs.existsSync(transitionCalls[0].cwd), false, 'private transition repository is removed after success');
+  assert.deepEqual(transitionCalls[1].artifact_modes, [0o600, 0o600], 'copied transition artifacts are owner-only');
+  assert.equal(transitionCalls[1].attributes, `a/${TARGET_PLAN} !diff\nb/${TARGET_PLAN} !diff\n`, 'private highest-precedence attributes neutralize named diff drivers');
+  for (const row of transitionCalls) {
+    assert.equal(row.env.GIT_CONFIG_GLOBAL, os.devNull); assert.equal(row.env.GIT_CONFIG_SYSTEM, os.devNull);
+    assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1'); assert.equal(row.env.GIT_CONFIG_COUNT, '0'); assert.equal(row.env.GIT_ATTR_NOSYSTEM, '1');
+    for (const key of ['GIT_ATTR_SOURCE', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_DIFF_OPTS', 'GIT_DIR', 'GIT_EXTERNAL_DIFF']) assert.equal(row.env[key], undefined, `${key} removed from canonical transition child`);
+  }
   writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} binary\n`);
   assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'repository-local binary attributes preserve byte-identical textual transition material');
   assert.deepEqual(rebuildBinding(), fixture.bindingApplication, 'repository-local binary attributes preserve byte-identical historical reconstruction');
   fs.rmSync(path.join(fixture.repo, '.git/info/attributes'));
+  git(fixture.repo, ['config', 'diff.custom.xfuncname', '^## .*']); writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} diff=custom\n`);
+  const localNamedDiff = spawnSync('git', expectedLegacyDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: diffEnv }); assert.equal(localNamedDiff.status, 0, localNamedDiff.stderr);
+  assert.notEqual(localNamedDiff.stdout, recordedDiff, 'repository-local named diff driver fixture changes the legacy producer');
+  assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'repository-local named diff driver preserves byte-identical textual transition material');
+  assert.deepEqual(rebuildBinding(), fixture.bindingApplication, 'repository-local named diff driver preserves byte-identical historical reconstruction');
+  fs.rmSync(path.join(fixture.repo, '.git/info/attributes'));
+  writeLogical(fixture.repo, '.gitattributes', `${TARGET_PLAN} diff=custom\n`); const committedAttributes = commitAll(fixture.repo, 'commit custom transition attributes');
+  assert.equal(git(fixture.repo, ['show', `${committedAttributes}:.gitattributes`]), `${TARGET_PLAN} diff=custom`, 'committed named diff driver fixture is stored in the repository');
+  const committedNamedDiff = spawnSync('git', expectedLegacyDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: diffEnv }); assert.equal(committedNamedDiff.status, 0, committedNamedDiff.stderr);
+  assert.notEqual(committedNamedDiff.stdout, recordedDiff, 'committed named diff driver fixture changes the legacy producer');
+  assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'committed named diff driver preserves byte-identical textual transition material');
+  assert.deepEqual(rebuildBinding(), fixture.bindingApplication, 'committed named diff driver preserves byte-identical historical reconstruction');
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]); git(fixture.repo, ['config', '--unset', 'diff.custom.xfuncname']);
   const globalAttributes = path.join(fixture.temp, 'global.attributes'); const globalConfig = path.join(fixture.temp, 'global.gitconfig');
   fs.writeFileSync(globalAttributes, `${TARGET_PLAN} -diff\n`); git(fixture.repo, ['config', '--file', globalConfig, 'core.attributesFile', globalAttributes]);
   const priorGlobalConfig = process.env.GIT_CONFIG_GLOBAL; process.env.GIT_CONFIG_GLOBAL = globalConfig;
   try {
     assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'global core.attributesFile -diff rule preserves byte-identical textual transition material');
     assert.deepEqual(rebuildBinding(), fixture.bindingApplication, 'global core.attributesFile -diff rule preserves byte-identical historical reconstruction');
+  } finally {
+    if (priorGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = priorGlobalConfig;
+  }
+  fs.writeFileSync(globalAttributes, `${TARGET_PLAN} diff=custom\n`); git(fixture.repo, ['config', '--file', globalConfig, 'diff.custom.xfuncname', '^## .*']); process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  try {
+    const globalNamedDiff = spawnSync('git', expectedLegacyDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: { ...diffEnv, GIT_CONFIG_GLOBAL: globalConfig } }); assert.equal(globalNamedDiff.status, 0, globalNamedDiff.stderr);
+    assert.notEqual(globalNamedDiff.stdout, recordedDiff, 'global named diff driver fixture changes the legacy producer');
+    assert.deepEqual(rebuildEvidence(), fixture.evidenceApplication, 'global named diff driver preserves byte-identical textual transition material');
+    assert.deepEqual(rebuildBinding(), fixture.bindingApplication, 'global named diff driver preserves byte-identical historical reconstruction');
   } finally {
     if (priorGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = priorGlobalConfig;
   }

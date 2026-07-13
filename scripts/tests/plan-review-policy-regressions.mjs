@@ -209,8 +209,8 @@ const REGRESSIONS = [
   )],
   ['canonical remote config count regression', ['--case', 'execution-compatibility'], /GIT_CONFIG_COUNT|Assertion|child failed/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    "env.GIT_CONFIG_COUNT = '0';",
-    "env.GIT_CONFIG_COUNT = '1';",
+    "env.GIT_DIR = os.devNull;\n  env.GIT_CONFIG_GLOBAL = os.devNull;\n  env.GIT_CONFIG_SYSTEM = os.devNull;\n  env.GIT_CONFIG_NOSYSTEM = '1';\n  env.GIT_CONFIG_COUNT = '0';",
+    "env.GIT_DIR = os.devNull;\n  env.GIT_CONFIG_GLOBAL = os.devNull;\n  env.GIT_CONFIG_SYSTEM = os.devNull;\n  env.GIT_CONFIG_NOSYSTEM = '1';\n  env.GIT_CONFIG_COUNT = '1';",
   )],
   ['canonical remote tag loses peeled pattern', ['--case', 'execution-compatibility'], /two canonical remote children|deep-equal|Assertion|remote tag/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -286,10 +286,15 @@ const REGRESSIONS = [
       "'--diff-algorithm=myers', '--unified=4', '--inter-hunk-context=0'",
     ),
   )],
-  ['compatibility attribute determinism regression', ['--case', 'execution-compatibility'], /attributes preserve|historical reconstruction|transition diff|Assertion/, applyVariant(
+  ['compatibility copied-artifact isolation regression', ['--case', 'execution-compatibility'], /named diff driver|exact deterministic argv|transition diff|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "'diff', '--no-index', '--text', '--binary'",
     "'diff', '--text', '--binary'",
-    "'diff', '--binary'",
+  )],
+  ['compatibility system attribute isolation regression', ['--case', 'execution-compatibility'], /GIT_ATTR_NOSYSTEM|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "env.GIT_ATTR_NOSYSTEM = '1';",
+    "env.GIT_ATTR_NOSYSTEM = '0';",
   )],
   ['compatibility E reconstruction regression', ['--case', 'execution-compatibility'], /historical application|E historical reconstruction|Assertion/, combine(
     applyVariant(

@@ -935,8 +935,8 @@ function legacyHistoricalContext({ repo, planPath, plannedAtCommit, executionBas
 function transitionDiffArgs(context) {
   return [
     '--no-pager', '-c', 'diff.algorithm=myers', '-c', 'diff.context=3', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.indentHeuristic=false', '-c', 'diff.renames=false',
-    'diff', '--text', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/',
-    context.execution_parent, context.execution_base_commit, '--', context.plan_path,
+    'diff', '--no-index', '--text', '--binary', '--full-index', '--no-renames', '--diff-algorithm=myers', '--unified=3', '--inter-hunk-context=0', '--no-indent-heuristic', '--no-ext-diff', '--no-textconv', '--no-color', '--no-prefix',
+    '--', `a/${context.plan_path}`, `b/${context.plan_path}`,
   ];
 }
 
@@ -946,9 +946,44 @@ function transitionDiffText(bytes) {
   return text;
 }
 
+function canonicalTransitionDiffEnv(source) {
+  const env = { ...source };
+  for (const key of Object.keys(env)) {
+    if (['GIT_ATTR_SOURCE', 'GIT_COMMON_DIR', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_DIFF_OPTS', 'GIT_DIR', 'GIT_EXTERNAL_DIFF', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_WORK_TREE'].includes(key) || /^GIT_CONFIG_(KEY|VALUE)_[0-9]+$/.test(key)) delete env[key];
+  }
+  env.GIT_CONFIG_GLOBAL = os.devNull;
+  env.GIT_CONFIG_SYSTEM = os.devNull;
+  env.GIT_CONFIG_NOSYSTEM = '1';
+  env.GIT_CONFIG_COUNT = '0';
+  env.GIT_ATTR_NOSYSTEM = '1';
+  return env;
+}
+
+function transitionDiffChild(cwd, args, env, expectedStatus, label) {
+  const result = spawnSync('git', args, { cwd, encoding: 'buffer', env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000, killSignal: 'SIGTERM', maxBuffer: 1048576, windowsHide: true });
+  if (result.error || result.signal !== null || result.status !== expectedStatus || Buffer.from(result.stderr ?? '').length !== 0) {
+    const stderr = Buffer.from(result.stderr ?? '').toString().trim();
+    throw new Error(`${label} failed: ${stderr}`);
+  }
+  return Buffer.from(result.stdout ?? '');
+}
+
 function transitionDiff(context) {
-  const env = { ...process.env }; delete env.GIT_DIFF_OPTS;
-  return transitionDiffText(gitResult(context.repo, transitionDiffArgs(context), 'buffer', { env }));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-transition-diff-'));
+  try {
+    const env = canonicalTransitionDiffEnv(process.env);
+    const initOutput = transitionDiffChild(root, ['init', '-q', '--template='], env, 0, 'execution compatibility diff repository init');
+    if (initOutput.length !== 0) throw new Error('execution compatibility diff repository init produced stdout');
+    for (const [side, bytes] of [['a', context.parentBytes], ['b', context.baseBytes]]) {
+      const target = path.join(root, side, context.plan_path); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, bytes, { mode: 0o600, flag: 'wx' });
+    }
+    const attributes = `a/${context.plan_path} !diff\nb/${context.plan_path} !diff\n`;
+    fs.mkdirSync(path.join(root, '.git/info'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.git/info/attributes'), attributes, { mode: 0o600, flag: 'wx' });
+    return transitionDiffText(transitionDiffChild(root, transitionDiffArgs(context), env, 1, 'execution compatibility transition diff'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function compatibilityFence(diff) {
@@ -1523,7 +1558,7 @@ function validateBindingWithRepository({ repository, planPath, evidenceCommit, r
     executionBaseCommit: application.receipt.execution_base_commit,
     reviewedHead: evidenceParent,
   });
-  const diff = transitionDiffText(repository.run(transitionDiffArgs(context), 'execution compatibility transition diff').stdout);
+  const diff = transitionDiff(context);
   const reconstructed = compatibilityApplication(context, diff, application.receipt.owner_confirmation?.authorization_id, application.receipt.owner_confirmation?.source_text_sha256).application;
   if (application.markdown !== reconstructed.markdown) throw new Error('compatibility evidence historical application mismatch');
   const compatibilityReceipt = storedCompatibilityPayload(application);
