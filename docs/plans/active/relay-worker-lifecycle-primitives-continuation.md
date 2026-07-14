@@ -3,7 +3,7 @@ title: Continue relay worker lifecycle primitives from current main
 goal: Finish the existing Session Relay lifecycle deliverable from its verified implementation checkpoint under a normal current-lifecycle execution base.
 status: ongoing
 created: "2026-07-14T09:34:54-03:00"
-updated: "2026-07-14T12:51:38-03:00"
+updated: "2026-07-14T13:21:39-03:00"
 started_at: "2026-07-14T10:19:03-03:00"
 assignee: null
 review_author_company: openai
@@ -120,8 +120,8 @@ unavailability, and an exact source-ready handoff that remains
 This continuation preserves that product Goal while adding one owner-authorized,
 bounded proof-provenance repair for three historical schema-v2 custodians lost
 when their host session ended. It does not claim that those custodians or their
-private signing keys survived. Their bytes and receipt chains become closed
-historical evidence; product migration is instead re-proved from fresh,
+private signing keys survived. Their hash-bound snapshots and receipt chains
+become closed historical evidence; product migration is instead re-proved from fresh,
 distinct schema-v2 generations carrying exact payload copies into the unchanged
 schema-v3 design. No product guarantee, remaining implementation row, 38-row
 completion inventory, or 82-event schedule is removed.
@@ -153,9 +153,10 @@ At Step 1b the exact three legacy challenge attempts returned
 match the pinned bytes, but all bind absent custodian PID `245`; the Ed25519
 private keys existed only in that process. Recreating those keys, relabeling the
 old authority records, or calling the old roots live would be false. On
-2026-07-14 the owner selected bounded recovery: retain the historical bytes,
-state the lost liveness explicitly, create distinct live proof generations, and
-continue without weakening the product migration test.
+2026-07-14 the owner selected bounded recovery: retain hash-bound snapshots and
+receipt chains as historical evidence, state the lost liveness explicitly,
+create distinct live proof generations, then authenticated-clean the dead
+on-disk roots without weakening the product migration test.
 
 Authoritative preserved inputs at scaffold time:
 
@@ -200,11 +201,15 @@ change, or release prerequisite is needed.
   full `node scripts/ci.mjs` run at Step 6's final integration boundary, not
   after tiny edits. A later relevant edit invalidates only the affected narrow
   result; it does not trigger unrelated full CI.
-- Release flow after passed completion review:
-  `node scripts/release.mjs --dry-run --plugin session-relay patch`, then
+- Release flow after passed completion review: archive/merge source, dispatch
+  `.github/workflows/build-binaries.yml`, verify and download all four producer
+  artifacts, commit executable binaries plus refreshed `SHA256SUMS`, run the
+  final plugin/repository CI required by the release boundary, then
+  `node scripts/release.mjs --dry-run --plugin session-relay patch` and
   `node scripts/release.mjs --plugin session-relay patch` under the owner's
-  standing authorization. Verify the pushed commit, tag, GitHub Release, tag CI,
-  manifests, and installed payload independently.
+  standing authorization. Verify the pushed commits, tag, GitHub Release, tag
+  CI, manifests, checksums, and installed payload independently. Never commit a
+  locally built release binary.
 
 ## Interfaces & data shapes
 
@@ -223,9 +228,9 @@ closed overlay; no other predecessor term is reinterpreted:
 | Integration overlay | All paths come from the preserved parent except `plugins/session-relay/skills/productivity/session-relay/SKILL.md`, which remains byte-equal to continuation-base blob `24715dd59942d057ce21a7dd4faeb008a7ce5134` / SHA-256 `5ccb180e3e63a0b5c238e6d72283000c2163577953ab416d06c32a00f9499e27`. The old parent blob `cf73743c31949c90a7fa456a8e28396803be5eef` is forbidden because it removes the current canonical plan-policy boundary and fails repository CI. |
 | Historical authority loss | The three schema-v2 roots, authority records, pins, snapshots, and receipt-chain heads remain hash-authoritative but not live-authoritative after custodian PID `245` disappeared. Historical liveness and signature continuity are permanently `false`; no later receipt may reverse either value. |
 | Recovery boundary | `RestartRecoveryBindingV1` closes the loss observation and authorizes one test-harness-only static copy from each exact old payload into a distinct fresh schema-v2 root. Old sentinels, authority records, identities, signatures, and socket names are never copied, rewritten, or accepted as current authority. |
-| Live migration proof | Each fresh root gets a new sentinel, Ed25519 authority, process generation, socket, pin, and initial signed challenge. The unchanged native migration then consumes those three live generations and creates two schema-v3 successors. After the migration parent exits, a new verifier process must reconstruct from coordinator hashes and re-challenge both successors before A109 or later work can pass. |
+| Live migration proof | Each fresh root gets a new sentinel, Ed25519 authority, process generation, socket, pin, and initial signed challenge under one durable recovery coordinator. The native migration consumes those three live generations and creates two schema-v3 successors. After the migration parent exits, a new verifier process must reconstruct from coordinator hashes and re-challenge both successors before A109 or later work can pass. |
 | Completion inventory | Exactly 38 criterion-specific rows A101–A138 below, in that order. Each row binds its frozen predecessor command/expected hashes, all scheduled event occurrences, its ordered summary, and both final evidence records. |
-| Completion proof | `ContinuationScopeV1 {schema:1,spec_path,spec_git_blob,spec_raw_sha256,predecessor_planned_at_commit,predecessor_execution_base_commit,continuation_plan,continuation_planned_at_commit,continuation_start_commit,continuation_execution_base_commit,execution_base_record_commit,continuation_integration_base_commit,continuation_binding_sha256,restart_recovery_binding_sha256,integration_overlay_sha256,preserved_implementation_commit,implementation_merge,implementation_merge_parents,recovery_merge,recovery_merge_parents,recovery_checkpoint_commit,implementation_tip,implementation_tree,implementation_scope_tree_sha256,reviewed_head,acceptance_inventory_sha256,schedule_sha256,event_count,event_chain_head,step_range_chain_head,runner_attempt_chain_head,legacy_loss_observation_sha256,recovery_generation_receipts_sha256,root_migration_snapshot_sha256,criteria_summaries,criteria_sha256,final_execution_evidence_sha256,lifecycle_completion_evidence_sha256,source_ready:true,packaged_ready:false,fanout_unblock:false,receipt_sha256}`. |
+| Completion proof | `ContinuationScopeV1 {schema:1,spec_path,spec_git_blob,spec_raw_sha256,predecessor_planned_at_commit,predecessor_execution_base_commit,continuation_plan,continuation_planned_at_commit,continuation_start_commit,continuation_execution_base_commit,execution_base_record_commit,continuation_integration_base_commit,continuation_binding_sha256,restart_recovery_binding_sha256,integration_overlay_sha256,preserved_implementation_commit,implementation_merge,implementation_merge_parents,recovery_merge,recovery_merge_parents,recovery_checkpoint_commit,implementation_tip,implementation_tree,implementation_scope_tree_sha256,reviewed_head,acceptance_inventory_sha256,schedule_sha256,event_count,event_chain_head,step_range_chain_head,runner_attempt_chain_head,legacy_loss_observation_sha256,snapshot_recovery_input_sha256,recovery_import_receipt_sha256,recovery_generation_receipts_sha256,post_parent_verification_receipt_sha256,closed_historical_cleanup_receipt_sha256,recovery_execution_envelope_sha256,root_migration_snapshot_sha256,criteria_summaries,criteria_sha256,final_execution_evidence_sha256,lifecycle_completion_evidence_sha256,source_ready:true,packaged_ready:false,fanout_unblock:false,receipt_sha256}`. |
 
 Before the first post-start source edit, Step 1 creates and commits exactly one
 `plugins/session-relay/test/fixtures/lifecycle-continuation-binding.json` as
@@ -282,17 +287,17 @@ RestartRecoveryBindingV1 {
   prior:{continuation_binding_path,continuation_binding_blob,
     continuation_binding_raw_sha256,continuation_binding_sha256,
     checkpoint_commit,checkpoint_tree},
-  recovery_history:{pre_repair_base,recovery_plan_commit,
-    recovery_plan_blob,recovery_receipt_commit,recovery_receipt_plan_blob,
-    recovery_merge,recovery_merge_parents,recovery_checkpoint_commit},
+  recovery_history:{pre_repair_base,rejected_candidate_commit,
+    recovery_plan_commit,recovery_plan_blob,recovery_receipt_commit,
+    recovery_receipt_plan_blob,recovery_merge,recovery_merge_parents},
   loss_observation:{observed_at,custodian_pid:245,process_present:false,
     authorities:[{kind,root,authority_path,pin,source_sha256,socket_id,
       authority_file_sha256,root_snapshot_sha256,receipt_chain_head,
       challenge_exit:1,challenge_error:"ECONNREFUSED"}],
     observation_sha256},
   recovery_intents:[{kind,ordinal,closed_authority_pin,
-    closed_snapshot_sha256,payload_manifest_sha256,
-    generation_intent_sha256}],
+    closed_snapshot_sha256,payload_manifest_sha256,root_basename,
+    authority_basename,generation_intent_sha256}],
   guarantees:{historical_authority_liveness:false,
     historical_signature_continuity:false,historical_byte_continuity:true,
     fresh_live_migration_proof_required:true,
@@ -311,30 +316,158 @@ matrix drops, reorders, duplicates, or substitutes every plan/merge/checkpoint,
 authority, loss, snapshot, chain, intent, and guarantee field; setting either
 historical liveness or signature continuity to `true` must fail.
 
-The test helper's recovery reader is available only when the exact fixture,
-fixture hash, reviewed recovery plan blob, and three closed tuples match. It
-opens the old roots and authority files read-only, performs no socket operation,
-and copies only a byte-sorted payload manifest into three newly created roots.
-For each it emits `RecoveryGenerationReceiptV1 {schema:1,
+The fixture deliberately does not contain the commit that contains itself.
+It binds only already-existing `M2` and its ordered parents. Git records its
+fixture/validator commit as `K2`; later completion evidence verifies `K2` and
+binds `recovery_checkpoint_commit` without creating a hash cycle.
+
+### Snapshot recovery coordinator
+
+The recovery reader is available only to the native bootstrap's
+`--migration-recover-snapshots` mode when the exact fixture, fixture hash,
+reviewed recovery plan blob, and three closed tuples match. It opens the old
+roots and authority files read-only, performs no socket operation, and copies
+only a byte-sorted payload manifest. One deterministic recovery id is
+`sha256(JCS({schema:1,uid,restart_recovery_binding_sha256,
+recovery_receipt_plan_blob,recovery_merge,implementation_head}))`. Its
+pre-import root is the sole uid-owned mode-0700
+`/tmp/relay-snapshot-recovery.<recovery_id>` with a permanent mode-0600 `.lock`.
+Mutating invocations use the frozen migration lock timeout/poll and fsync rules.
+Pre-import fixed children are `.lock`, `.secrets`, `binding.json`, `input.json`,
+`phases/<two-digit-ordinal>-<phase>.json`, `generations/<01|02|03>.json`,
+`post-parent-verification.json`, and `closed-historical-cleanup/`; unknown,
+phase-required missing, duplicate, symlink, wrong-owner, wrong-mode, or extra
+state fails.
+
+`SnapshotRecoveryPhaseReceiptV1 {schema:1,recovery_id,ordinal,phase,
+previous_phase_sha256,payload,receipt_sha256}` follows exactly
+`Prepared→CustodiansReady→PayloadsCopied→RootsVerified→Imported→
+MigrationActive→PostParentVerified→HistoricalCleanupPrepared→
+HistoricalCleanupComplete`.
+`Prepared` binds the recovery binding, exact helper/executable identities,
+three source snapshot/payload manifests, deterministic root/authority basenames,
+and three generation intents. `.secrets` fixes three root tokens and socket ids;
+Ed25519 private keys remain only in their custodians. Each custodian is launched
+detached with the existing source-hash-bound Node bootstrap, owns one fresh root
+and authority through A138, and publishes a launch identity before readiness.
+`CustodiansReady` binds all three PID/start/boot identities, sentinels, authority
+records, public keys, pins, and sockets. `PayloadsCopied` binds equal ordered
+source/destination manifests. `RootsVerified` binds three fresh signed challenge
+receipts and three `RecoveryGenerationReceiptV1` rows. Later phases bind the
+native migration, restart proof, and old-root cleanup defined below.
+
+Before `CustodiansReady`, retry adopts an exact live partial child or writes an
+intent and fd-relatively removes only its exact partial root/authority before
+relaunch under the same generation intent. A cleaned pre-readiness replacement
+may change only process-held key/process identities that no durable readiness
+receipt has bound. No terminal phase may be inferred from effects. After
+`CustodiansReady`, a missing/substituted custodian is STOP, never recreated. An
+interruption matrix covers coordinator/lock/secrets, before/after each of three
+root, sentinel, custodian, authority, copy, challenge, import, phase, and cleanup
+boundaries. Every durable receipt is immutable and retry converges to one
+terminal receipt chain or refuses; no orphan root, authority, socket, process,
+or pre-import coordinator remains.
+
+Each `RecoveryGenerationReceiptV1 {schema:1,recovery_id,
 restart_recovery_binding_sha256,kind,ordinal,closed_authority_pin,
 closed_snapshot_sha256,fresh_root_identity_sha256,fresh_sentinel_sha256,
 fresh_authority_sha256,fresh_authority_record_sha256,fresh_source_sha256,
-fresh_custodian_pid,fresh_custodian_start_ticks,fresh_socket_id,
+fresh_custodian_pid,fresh_custodian_start_ticks,fresh_boot_id,fresh_socket_id,
 payload_manifest_sha256,payload_equivalent:true,generation_intent_sha256,
-initial_challenge_receipt_sha256,receipt_sha256}`. Any source write, copied
-identity byte, manifest difference, dead fresh custodian, or missing fresh
-signed challenge fails before native migration starts.
+initial_challenge_receipt_sha256,receipt_sha256}` is stored at its fixed
+generation path. Any source write, copied identity byte, manifest difference,
+dead fresh custodian, or missing fresh signed challenge fails before native
+migration starts.
 
-The three recovery generations replace only the dead schema-v2 inputs to the
-frozen `--migration-apply` bootstrap. All schema-v3 objects, transition
-semantics, negative matrices, runner layout, A109 command, A101–A138 completion
-commands, and the 82-event order remain unchanged. The migration ledger binds
-the three recovery receipts and the recovery binding. After `Active`, the
-migration parent must exit; a separately started verifier reconstructs solely
-from migration id, anchor, ledger, and active-phase hashes, challenges both
-schema-v3 custodians, and exact-compares their payload manifests. This is a
-real post-parent restart check, not a claim that the dead historical custodians
-restarted.
+`SnapshotRecoveryInputV1 {schema:1,recovery_id,
+restart_recovery_binding_sha256,recovery_generation_receipt_sha256s,
+input_sha256}` closes the ordered three receipts. It changes only the frozen
+`migration_id` preimage to schema 2:
+`{schema:2,uid,plan_commit,plan_blob,implementation_head,protocol_sha256,
+legacy_validator_identity_sha256,snapshot_recovery_input_sha256,
+predecessors:[step-range/1,runner-receipt/1,runner-receipt/2]}`. The predecessor
+rows contain the fresh exact root/authority/pin/source tuples. Existing
+`RootMigrationAnchorV2`, phase receipts, generation records, ledger, Active,
+schema-v3 authorities, transition semantics, negative matrices, runner layout,
+A109 command, completion commands, and 82-event order remain byte-shaped as
+frozen; their anchor/ledger chain transitively commits the recovery input through
+the new migration id. Validators recompute and substitution-test that path.
+
+Before the migration anchor, the process holds both coordinator locks, writes
+and fsyncs migration-coordinator-relative `RecoveryImportIntentV1 {schema:1,
+recovery_id,migration_id,snapshot_recovery_input_sha256,source_parent,
+source_basename,source_identity,destination_basename:"snapshot-recovery",
+intent_sha256}`, then no-replace-renames the entire pre-import root to
+`/tmp/relay-root-migration.<migration_id>/snapshot-recovery` and fsyncs both
+parents. It writes the `Imported` phase under that destination, then writes
+`RecoveryImportReceiptV1 {schema:1,recovery_id,migration_id,
+snapshot_recovery_input_sha256,import_intent_sha256,
+roots_verified_phase_sha256,imported_phase_sha256,imported_identity,
+source_absence_sha256,source_parent_fsynced:true,
+destination_parent_fsynced:true,receipt_sha256}` as
+`recovery-import.json`. The nested `.lock` becomes immutable evidence; all later
+recovery writes hold the migration coordinator's unchanged `.lock`.
+
+This continuation extends the frozen migration coordinator filename set only
+with `recovery-import-intent.json`, `recovery-import.json`, and
+`snapshot-recovery/`. Pre-anchor retry accepts only the exact intent-only,
+intent-plus-imported-directory, or completed-receipt state and adopts the
+rename-after-effect case by identity; both source and destination, neither after
+intent, a mismatched directory, or an unjournaled child is STOP. The imported
+tree and both import records are included in `CoordinatorSnapshotV1` and the
+`A138RecoveryBundleV1`; frozen `CoordinatorCleanup` therefore removes them with
+the migration coordinator. Existing migration phase and ledger object shapes
+remain unchanged.
+
+After durable `Active`, the migration parent exits and a separately execed
+verification process reacquires the migration coordinator lock, exact-validates
+the closed Active chain, and writes the fixed imported recovery file
+`PostParentMigrationVerificationReceiptV1 {schema:1,recovery_id,
+snapshot_recovery_input_sha256,migration_id,migration_parent_pid,
+migration_parent_start_ticks,migration_parent_exit_status,
+migration_parent_absence_sha256,verifier_pid,verifier_start_ticks,
+anchor_sha256,ledger_sha256,active_phase_sha256,
+successor_generation_sha256s,authority_challenge_receipt_sha256s,
+payload_equivalence_sha256,verified_boottime_ns,receipt_sha256}`. Its exact
+producer is `runner_job_custodian --migration-verify-after-parent
+--recovery-id <id> --migration-id <id> --anchor-sha256 <hex>
+--ledger-sha256 <hex> --active-phase-sha256 <hex>`; it accepts no path. It proves
+the exact parent generation absent, reconstructs from the two ids plus hashes,
+challenges both schema-v3 custodians, and compares their payload manifests. A109
+refuses missing, replayed, parent-still-live, wrong-verifier, reordered,
+substituted, or forked receipt bytes. This is a post-parent restart proof, not a
+claim that a dead historical custodian restarted.
+
+After `PostParentVerified`, the old on-disk roots are no longer evidence; only
+their committed hashes/manifests are. The exact producer
+`runner_job_custodian --migration-clean-closed-historical --recovery-id <id>
+--migration-id <id> --post-parent-receipt-sha256 <hex>` accepts no path, holds
+the migration coordinator lock, and writes `HistoricalCleanupPrepared` binding
+retained `/tmp` fd identities and three exact quarantine destinations. Each ordered
+`ClosedHistoricalGenerationCleanupV1` reuses the frozen fd-relative A138
+generation-cleanup shapes from `Bound` through `Complete` but omits only
+`ShutdownIntent` and `CustodianClosed`; `Bound` requires the recorded
+PID/start/boot generation absent, and no socket or signal operation is allowed.
+A reused PID is never touched. Intent precedes each
+no-replace quarantine, payload removal, sentinel removal, root removal, and
+authority-file removal, with parent fsync after every rename/removal.
+`ClosedHistoricalCleanupReceiptV1 {schema:1,recovery_id,
+post_parent_verification_receipt_sha256,generation_completion_sha256s,
+root_absence_sha256s,authority_absence_sha256s,receipt_sha256}` closes all three
+in fixed order and produces `HistoricalCleanupComplete`. The old-root write STOP
+permits only this authenticated cleanup. A137/A138 then see exactly the five
+fresh ledger generations and no residual old root or authority path.
+
+`RecoveryExecutionEnvelopeV1 {schema:1,restart_recovery_binding_sha256,
+snapshot_recovery_input_sha256,recovery_import_receipt_sha256,
+recovery_generation_receipts_sha256,
+post_parent_verification_receipt_sha256,
+closed_historical_cleanup_receipt_sha256,
+frozen_final_execution_evidence_sha256,envelope_sha256}` preserves the frozen
+`FinalExecutionEvidenceV1` shape while binding recovery. Continuation completion
+binds the envelope hash in both `ContinuationScopeV1` and
+`LifecycleCompletionEvidenceV1`; drop/substitute/replay negatives cover every
+new hash.
 
 `plugins/session-relay/test/final-scope.mjs` must add one deterministic,
 read-only completion mode:
@@ -362,12 +495,12 @@ summary, evidence hash, merge parent, or binding field fails.
 
 | # | Task | Files | Depends | Status | Done condition / STOP trigger |
 |---|---|---|---|---|---|
-| 1 | Preserve completed merge `M` and binding checkpoint `K1`. From the recovery receipt base `B2`, create exact recovery merge `M2` with ordered parents `B2 K1`, taking this plan from `B2` and every non-plan byte from `K1`. Before any production migration edit, commit and negative-test `RestartRecoveryBindingV1` as checkpoint `K2`. Use its read-only static source gate to create three distinct fresh live schema-v2 generations, migrate those through the frozen schema-v3 design, prove both successor authorities from a new verifier after the migration parent exits, then finish predecessor Step 1b. | Frozen predecessor Step 1b paths; `wip-snapshot.mjs`; both binding fixtures; this plan and both archived plans read-only in the worker | — | planned | `M`, `K1`, `M2`, and `K2` identities/trees are exact and no history is rewritten. Both bindings pass their closed negative matrices. The old authorities remain explicitly dead historical evidence; three fresh recovery receipts prove byte-equivalent payloads plus distinct live authorities, and the native migration ledger binds them. Post-parent restart validation challenges both schema-v3 custodians. Rows 1/P/2/3a/3b remain exact; A109 runs before frozen A107/A108/A106 and the superseding Step-1b receipt. Any old-liveness claim, old-root write, copied identity byte, source edit before `K2`, failing binding negative, or completed-prefix regression is STOP. |
+| 1 | Preserve completed merge `M` and binding checkpoint `K1`. From recovery receipt base `B2`, create exact recovery merge `M2` with ordered parents `B2 K1`, taking this plan from `B2` and every non-plan byte from `K1`. Before any production migration edit, commit and negative-test `RestartRecoveryBindingV1` as checkpoint `K2`; the fixture binds `M2`, not its own commit. Run the journaled snapshot-recovery coordinator, import it into the native migration coordinator, migrate its three fresh live schema-v2 generations through the frozen schema-v3 design, prove both successors from a new verifier after the migration parent exits, close/remove the three dead originals, then finish predecessor Step 1b. | Frozen predecessor Step 1b paths; `wip-snapshot.mjs`; both binding fixtures; this plan and both archived plans read-only in the worker | — | planned | `M`, `K1`, `M2`, and `K2` identities/trees are exact and no history is rewritten. Both bindings and the recovery interruption matrix pass. The old authorities remain explicitly dead historical evidence; three journaled fresh recovery receipts prove byte-equivalent payloads plus distinct live authorities. Migration id/anchor/ledger bind `SnapshotRecoveryInputV1`; `RecoveryImportReceiptV1` closes the one-location coordinator handoff; the post-parent receipt challenges both schema-v3 custodians; authenticated cleanup proves all old paths absent. Rows 1/P/2/3a/3b remain exact; A109 runs before frozen A107/A108/A106 and the superseding Step-1b receipt. Any old-liveness claim, unauthenticated old-root write, copied identity byte, source edit before `K2`, orphan effect, failing negative, or completed-prefix regression is STOP. |
 | 2 | Complete predecessor Steps 3c and 3d in order with their exact durable-store, cancellation, admission-inventory, mixed-version, and range-receipt contracts. | Frozen predecessor Step 3c/3d paths | 1 | planned | Every frozen Step 3c/3d done condition and A113/A116/A117/A127/A128/A106 occurrence passes; no old writer can erase/reopen lifecycle authority and every pre-controller mutation path has an executed unique behavior test. |
 | 3 | Execute the owner-provisioned 1c/1d live feasibility sequences and, only on their valid retained receipt, implement predecessor Step 4. | Frozen predecessor Step 1c/1d/4 paths | 2 | planned | A110 then A111 prove the exact retained-fd/TRACEEXEC/cgroup path; A118/A119/A120 and Step-4 A106 pass. Missing or invalid runner/delegation blocks this row; an unbuildable primitive is a HARD STOP to the owner, never a fallback. |
 | 4 | Implement predecessor Steps 5, 6, and 7 in dependency order. | Frozen predecessor Step 5/6/7 paths | 3 | planned | Managed first-prompt control, stable runtime, bounded quiescence, proof construction, reconcile/release/abandon, terminalization, and all named Rust/Node/golden/inventory gates pass without weakening a frozen negative. |
-| 5 | Run predecessor Step 8's repeatable completeness audit and Step 9's documentation, Darwin, build-matrix, final-scope, cleanup, and source-ready handoff. Add the read-only continuation verifiers above. | Frozen predecessor Step 8/9 paths plus `plugins/session-relay/test/final-scope.mjs` | 4 | planned | Exact 38-criterion/82-event evidence closes; A137 challenges the five fresh live generations, A138 cleans those generations through the frozen journal, and the already closed dead roots are never counted as live. `FinalExecutionEvidenceV1` binds both continuation bindings, recovery receipts, restart proof, and continuation execution identities before integration. |
-| 6 | With `main` still exactly at recovery receipt base `B2`, fast-forward it to the clean continuation worker tip, prove embedded merges `M` and `M2` plus both binding checkpoints, project and import one `LifecycleCompletionEvidenceV1`, run A101–A138 and the single full repository CI, then enter `in_review`; after passed completion review, archive the plan. Session Relay release is the separate post-ship producer workflow. | This plan and completion-evidence handoff only; all implementation paths read-only after fast-forward | 5 | planned | Integration occurs before evidence import and `in_review`; the imported record binds the original overlay, restart-recovery binding, recovery receipts, restart proof, both final evidence hashes, all 38 summaries, 82-event/chain/root/runner identities, exact integration commit/tree, and `source_ready=true`, `packaged_ready=false`, `fanout_unblock=false`. A101–A138 pass in order in the disposable checkout, the one final `node scripts/ci.mjs` exits 0, completion review passes, and the plan archives before the independently verified release flow begins. |
+| 5 | Run predecessor Step 8's repeatable completeness audit and Step 9's documentation, Darwin, build-matrix, final-scope, cleanup, and source-ready handoff. Add the read-only continuation verifiers above. | Frozen predecessor Step 8/9 paths plus `plugins/session-relay/test/final-scope.mjs` | 4 | planned | Exact 38-criterion/82-event evidence closes; old paths are already absent under `ClosedHistoricalCleanupReceiptV1`, A137 challenges exactly the five fresh live generations, and A138 cleans those five plus the imported recovery journal through the frozen coordinator cleanup. Frozen `FinalExecutionEvidenceV1` remains unchanged; `RecoveryExecutionEnvelopeV1` binds both continuation bindings, recovery input/generation/import receipts, restart proof, old-root cleanup, and frozen execution evidence before integration. |
+| 6 | With `main` still exactly at recovery receipt base `B2`, fast-forward it to the clean continuation worker tip, prove embedded merges `M` and `M2` plus both binding checkpoints, project and import one `LifecycleCompletionEvidenceV1`, run A101–A138 and the single full repository CI, then enter `in_review`; after passed completion review, archive the plan. Session Relay release is the separate post-ship producer workflow. | This plan and completion-evidence handoff only; all implementation paths read-only after fast-forward | 5 | planned | Integration occurs before evidence import and `in_review`; the imported record binds the original overlay, restart-recovery binding, recovery generation/import receipts, restart proof, historical cleanup, both final evidence hashes, all 38 summaries, 82-event/chain/root/runner identities, exact integration commit/tree, and `source_ready=true`, `packaged_ready=false`, `fanout_unblock=false`. A101–A138 pass in order in the disposable checkout, the one final `node scripts/ci.mjs` exits 0, completion review passes, and the plan archives before the independently verified release flow begins. |
 
 ### Exact integration order
 
@@ -381,10 +514,12 @@ implementation `P=22b754adcd5756f084fd61f55436971a6b9d407f` was integrated by
 `K1=0960048120b1d92c59b360463bcdcfee77bd998e` is its direct binding
 checkpoint. Those commits and `ContinuationBindingV1` are immutable.
 
-Main-context plan-manager creates one consolidated recovery candidate `C` as a
-direct plan-only child of `B`, seals and reviews `C` once with lifecycle intent
-`none`, then creates receipt-only `B2` as `C`'s direct child. `B2` may differ
-from `C` only in this plan's `updated`, `Cross-check`, replacement
+Main-context plan-manager records rejected initial candidate
+`C0=82074b5f7ff1282c44cefa41c31582facafd8fa3`, whose direct dual review
+found the closed defects reproduced below. It creates one consolidated repair
+candidate `C` as `C0`'s direct plan-only child, seals and reviews `C` once with
+lifecycle intent `none`, then creates receipt-only `B2` as `C`'s direct child.
+`B2` may differ from `C` only in this plan's `updated`, `Cross-check`, replacement
 `Review-receipt`, and receipt attribution in `Self-review`; it retains
 `status: ongoing`, `started_at`, and `execution_base_commit: E`. Receipt-only
 changes reuse the sealed review and do not trigger another review or full CI.
@@ -412,11 +547,12 @@ head are forbidden.
 The separately recorded project CI command is `node scripts/ci.mjs`; completion
 runs it once after this exact ordered inventory rather than duplicating it as a
 row. Each command is read-only and validates both binding fixtures, the explicit
-false historical-liveness guarantees, the fresh recovery-generation and
-post-parent restart receipts, its own frozen predecessor command/expected
-hashes, all scheduled occurrences, its ordered criterion summary, and the exact
-`FinalExecutionEvidenceV1` plus `LifecycleCompletionEvidenceV1` hashes embedded
-before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
+false historical-liveness guarantees, the recovery input/generation/import
+receipts, post-parent restart receipt, authenticated old-root cleanup, its own
+frozen predecessor command/expected hashes, all scheduled occurrences, its
+ordered criterion summary, unchanged `FinalExecutionEvidenceV1`, the enclosing
+`RecoveryExecutionEnvelopeV1`, and `LifecycleCompletionEvidenceV1` hashes
+embedded before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
 
 | ID | Command | Expected |
 |---|---|---|
@@ -488,9 +624,11 @@ before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
 - Historical live RunGate receipts are not rerun. Pending live gates require the
   exact owner-provisioned runner and delegated cgroup described by the frozen
   spec; copied receipt bytes do not authorize them.
-- The dead schema-v2 roots are read-only source snapshots, not current
-  authorities. Only distinct fresh generations may enter the migration ledger;
-  copied payload equivalence never implies signature or process continuity.
+- The dead schema-v2 roots are read-only only through verified copy and
+  post-parent proof, never current authorities. Authenticated historical cleanup
+  then removes their exact paths; only committed hashes/manifests remain. Only
+  distinct fresh generations enter the migration ledger, and copied payload
+  equivalence never implies signature or process continuity.
 - Source-ready is not packaged-ready. The release/tag/binary/install checks occur
   only after passed completion review and are independently reproduced.
 
@@ -522,6 +660,9 @@ before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
 - A recovery source byte differs from its closed manifest, a fresh schema-v2
   authority cannot be challenged, or either schema-v3 successor fails the
   post-parent restart challenge.
+- Recovery import leaves both or neither coordinator location after intent,
+  substitutes an imported identity, loses a ready custodian, leaves an orphan
+  effect, or fails to prove all three dead roots and authority files absent.
 - A worker needs to modify a plan, archived spec, Docks policy, Effect Kit, or
   fanout implementation to complete a Session Relay row.
 - The exact Linux authoritative path is unbuildable, or the required live runner
@@ -536,7 +677,8 @@ before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
 - [x] Environment & commands: roots, branches, versions, Cargo cwd, validation
   order, CI, and release commands are explicit.
 - [x] Interface & data contracts: the predecessor is hash-frozen; both bindings,
-  the bounded dead-authority substitution, and `ContinuationScopeV1` are exact.
+  the journaled substitution/import/restart/cleanup protocol, recovery envelope,
+  and `ContinuationScopeV1` are exact.
 - [x] Executable acceptance: A101–A138 are the exact ordered criterion-specific
   completion commands; each binds its predecessor row, continuation identity,
   occurrences, summary, and both evidence objects.
@@ -545,7 +687,8 @@ before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
 - [x] Decision rationale: a normal successor preserves implementation and avoids
   a disproportionate one-plan Docks exception.
 - [x] Known gotchas: recovery ancestry, Cargo cwd, review degradation, dead
-  historical authorities, live RunGates, and source/package separation are explicit.
+  historical authorities, coordinator import/cleanup, live RunGates, and
+  source/package separation are explicit.
 - [x] Global constraints: writer ownership, verification, CI, release authority,
   and HARD STOP conditions are explicit.
 - [x] No undefined terms/forward refs: every predecessor term resolves through
@@ -553,8 +696,10 @@ before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
 
 Cold-read result: a fresh executor verifies the frozen predecessor plus `M/K1`,
 creates `M2/K2` from the reviewed recovery base, records the dead authority loss
-without a false continuity claim, proves migration on distinct live generations,
-and resumes Step 1b without reconstructing prior conversation.
+without a false continuity claim, journal-recovers distinct live generations,
+imports that journal into the native migration coordinator, proves the
+post-parent successors, removes the dead originals, and resumes Step 1b without
+reconstructing prior conversation.
 
 ## Self-review
 
@@ -621,6 +766,20 @@ targeted intermediate checks and one final integration CI. One sealed X/S
 review evaluates this consolidated recovery only. If it is ready, the receipt
 commit reuses that review; unchanged bytes are not reviewed again.
 
+**Rejected recovery-candidate review (2026-07-14T13:13:56-03:00):** both sealed
+legs rejected `C0=82074b5f7ff1282c44cefa41c31582facafd8fa3`. The orchestrator reproduced and
+accepted all findings: a self-referential checkpoint field, underclosed restart
+journaling, an unsupported migration-ledger binding claim, an undefined
+post-parent receipt, missing disposition for the three dead roots, and an
+abbreviated binary release handoff. The consolidated repair removes the cycle,
+defines one phase-journaled coordinator with deterministic locators and
+interruption behavior, imports it into the native migration coordinator so A138
+removes it, binds recovery through a schema-2 migration-id preimage plus a final
+envelope, defines the post-parent and historical-cleanup receipts, and restores
+the workflow-produced four-binary release sequence. These are accepted
+correctness repairs, not another review loop; one final exact-byte X/S review is
+the only remaining draft review.
+
 ## Mistakes & Dead Ends
 
 - **2026-07-14T09:34:54-03:00**: Continued expanding a Docks compatibility
@@ -637,6 +796,12 @@ commit reuses that review; unchanged bytes are not reviewed again.
   remained but their shared custodian PID disappeared → record the loss as
   closed evidence, prove behavior on distinct fresh live generations, and never
   make execution depend on uncommitted process-only historical authority again.
+- **2026-07-14T13:13:56-03:00**: The first bounded-recovery candidate described
+  fresh generations but did not close its own restart journal, old-root
+  disposition, post-parent receipt, or binary release sequence → both sealed
+  reviewers rejected it and every finding reproduced → replace it once with the
+  consolidated journal/import/restart/cleanup/release protocol above, then run
+  one final review rather than iterating per wording change.
 
 ## Sources
 
@@ -658,9 +823,11 @@ commit reuses that review; unchanged bytes are not reviewed again.
 
 ## Review
 
-Recovery-candidate review is pending. The receipt below applies only to the
-pre-recovery `B` plan bytes and is superseded for execution by this substantive
-change; `B2` must replace it with the one fresh sealed recovery review.
+The sealed review of recovery candidate `C0=82074b5` rejected it and all findings
+were reproduced. Review of the consolidated repair candidate `C` is pending.
+The receipt below applies only to the pre-recovery `B` plan bytes and is
+superseded for execution by this substantive change; `B2` must replace it with
+the one final sealed recovery review.
 
 Cross-check (2026-07-14): [X: anthropic fable high; result=passed] 1 low finding — accepted none / rejected X1 (criterion mode already binds the frozen spec identity through ContinuationBindingV1); [S: openai gpt-5.6-sol xhigh; result=passed] 0 findings — accepted none / rejected none; [orchestrator: openai codex gpt-5.6-sol xhigh] reproduced X1 against the sealed plan, reverified the bundle, and rejected duplicate enforcement.
 
