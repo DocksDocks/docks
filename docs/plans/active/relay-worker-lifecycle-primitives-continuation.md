@@ -3,7 +3,7 @@ title: Continue relay worker lifecycle primitives from current main
 goal: Finish the existing Session Relay lifecycle deliverable from its verified implementation checkpoint under a normal current-lifecycle execution base.
 status: ongoing
 created: "2026-07-14T09:34:54-03:00"
-updated: "2026-07-14T10:27:31-03:00"
+updated: "2026-07-14T10:33:03-03:00"
 started_at: "2026-07-14T10:19:03-03:00"
 assignee: null
 review_author_company: openai
@@ -103,7 +103,7 @@ related_plans:
   - docs/plans/active/relay-worker-fanout.md
 review_status: null
 planned_at_commit: 3e6486e45859cfeccd7b1ecf6d7c539c163a4ab5
-execution_base_commit: null
+execution_base_commit: 18b023ec461c2374eb73cf293d8223a23e36d044
 ---
 
 # Continue relay worker lifecycle primitives from current main
