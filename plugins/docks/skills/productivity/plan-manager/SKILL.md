@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-13"
-  content_hash: "131f477d9da2000020a1b5e3981a9d4f88784bbe6bc76da2393a1e8e63773659"
+  content_hash: "afffd19f0a3553ccd2895483766546e00118362a2f9676cb542595705d8a87e7"
 ---
 
 # Plan Manager
@@ -238,8 +238,9 @@ When all initial or reopened steps are `done`:
    acceptance inventory into the bundle, and dispatch X/S findings-only
    reviewers. Re-verify the sealed bundle before and after each leg.
 4. In writable main context—not a read-only X/S wrapper—create the sentinel-bound
-   unlinked clone, run every inventory acceptance row exactly once in order plus
-   CI, and record exit/output evidence. Reproduce X/S and primary findings,
+   unlinked clone. Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.
+   Then run every inventory acceptance row exactly once in order plus CI and
+   record exit/output evidence. Reproduce X/S and primary findings,
    reconcile ids, and require original
    snapshot/cleanliness unchanged.
 5. Apply the completion result, write one idempotent `## Review` plus compact

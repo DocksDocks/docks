@@ -322,7 +322,7 @@ unchanged.
 
 Completion-review repairs remain `in_review`, preserve the original
 `in_review_since`, reopen affected Step rows, and invalidate prior completion
-input without inventing an undocumented lifecycle transition.
+input without inventing an undocumented lifecycle transition. Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.
 
 Preserve attribution:
 

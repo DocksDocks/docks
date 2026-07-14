@@ -1244,11 +1244,37 @@ function testLifecycle() {
   const arbitraryPrepare = helper(temp, ['completion-prepare', original, head, requestId, planPath, plannedAt]); assert.notEqual(arbitraryPrepare.status, 0); assert.match(arbitraryPrepare.stderr, /accepts repo reviewedHead requestId planPath plannedAtCommit executionBaseCommit only/);
   const prepareResult = helper(temp, ['completion-prepare', original, head, requestId, planPath, plannedAt, executionBase]); assert.equal(prepareResult.status, 0, prepareResult.stderr); const prepared = JSON.parse(prepareResult.stdout);
   assert.equal(prepared.checkout, path.join(verifyRoot, requestId)); assert.equal(git(prepared.checkout, ['rev-parse', 'HEAD']), head);
+  assert.equal(git(prepared.checkout, ['status', '--porcelain=v1', '--untracked-files=all']), '', 'prepared checkout must be clean');
+  const checkoutStat = fs.lstatSync(prepared.checkout); assert.equal(checkoutStat.isDirectory(), true); assert.equal(checkoutStat.isSymbolicLink(), false); assert.equal(fs.realpathSync(prepared.checkout), prepared.checkout);
+  if (typeof process.getuid === 'function') assert.equal(checkoutStat.uid, process.getuid());
+  const rootSentinel = path.join(prepared.checkout, '.docks-plan-verify-sentinel'); assert.equal(fs.existsSync(rootSentinel), false, 'sentinel must be absent from worktree root');
+  const privateGitDir = path.join(prepared.checkout, '.git'); const gitDirStat = fs.lstatSync(privateGitDir);
+  assert.equal(gitDirStat.isDirectory(), true); assert.equal(gitDirStat.isSymbolicLink(), false); assert.equal(fs.realpathSync(privateGitDir), privateGitDir);
+  if (typeof process.getuid === 'function') assert.equal(gitDirStat.uid, process.getuid());
+  const sentinel = path.join(privateGitDir, '.docks-plan-verify-sentinel'); const sentinelStat = fs.lstatSync(sentinel);
+  assert.equal(sentinelStat.isFile(), true); assert.equal(sentinelStat.isSymbolicLink(), false); assert.equal(sentinelStat.mode & 0o777, 0o600);
+  if (typeof process.getuid === 'function') assert.equal(sentinelStat.uid, process.getuid());
+  const sentinelBytes = fs.readFileSync(sentinel); const parsedSentinel = JSON.parse(sentinelBytes.toString('utf8'));
+  assert.equal(sentinelBytes.toString('utf8'), `${jcs(parsedSentinel)}\n`, 'private sentinel must be compact JCS plus LF');
+  assert.equal(parsedSentinel.request_id, requestId); assert.equal(parsedSentinel.cleanup_token, prepared.cleanup_token);
+  const restoreSentinel = () => {
+    try { fs.rmSync(sentinel, { force: false }); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    fs.writeFileSync(sentinel, sentinelBytes, { flag: 'wx', mode: 0o600 });
+  };
   fs.writeFileSync(path.join(prepared.checkout, 'ci-artifact.txt'), 'disposable only\n');
-  const sentinel = path.join(prepared.checkout, '.docks-plan-verify-sentinel'); const sentinelBytes = fs.readFileSync(sentinel); fs.rmSync(sentinel);
   const preparedPath = path.join(temp, 'prepared.json'); fs.writeFileSync(preparedPath, JSON.stringify(prepared));
+  fs.rmSync(sentinel); fs.writeFileSync(rootSentinel, sentinelBytes, { flag: 'wx', mode: 0o600 });
+  const misplacedSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(misplacedSentinel.status, 0); assert.match(misplacedSentinel.stderr, /sentinel missing/);
+  fs.rmSync(rootSentinel); restoreSentinel();
+  fs.chmodSync(sentinel, 0o644);
+  const wrongMode = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(wrongMode.status, 0); assert.match(wrongMode.stderr, /ownership or mode is unsafe/);
+  fs.chmodSync(sentinel, 0o600);
+  const sentinelTarget = path.join(privateGitDir, '.docks-plan-verify-sentinel-target'); fs.writeFileSync(sentinelTarget, sentinelBytes, { flag: 'wx', mode: 0o600 }); fs.rmSync(sentinel); fs.symlinkSync(path.basename(sentinelTarget), sentinel);
+  const symlinkSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(symlinkSentinel.status, 0); assert.match(symlinkSentinel.stderr, /not a regular file/);
+  fs.rmSync(sentinel); fs.rmSync(sentinelTarget); restoreSentinel();
+  fs.rmSync(sentinel);
   const missingSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(missingSentinel.status, 0); assert.match(missingSentinel.stderr, /sentinel missing/);
-  fs.writeFileSync(sentinel, sentinelBytes); fs.writeFileSync(path.join(original, 'ignored-cache'), 'mutated ignored content\n');
+  restoreSentinel(); fs.writeFileSync(path.join(original, 'ignored-cache'), 'mutated ignored content\n');
   const ignoredChange = helper(temp, ['completion-cleanup', original, requestId, preparedPath]); assert.notEqual(ignoredChange.status, 0); assert.match(ignoredChange.stderr, /original repository changed/);
   fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
   const forged = { ...prepared, cleanup_token: H0 }; const forgedPath = path.join(temp, 'forged.json'); fs.writeFileSync(forgedPath, JSON.stringify(forged));
@@ -1293,6 +1319,7 @@ function testContractSurfaces() {
   const exactRules = [
     "Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; schema-v1 validators and receipts remain unchanged.",
     'Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition.',
+    'Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.',
   ];
   for (const file of [contractPath, templatePath, managerPath, reviewPath]) {
     const normalized = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\s+/g, ' ');

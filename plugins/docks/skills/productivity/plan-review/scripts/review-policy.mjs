@@ -2281,6 +2281,25 @@ function completionPath(requestId) {
   return { root, out };
 }
 
+function validateOwnedRealDirectory(directory, label) {
+  if (path.resolve(directory) !== directory) throw new Error(`${label} is not canonical`);
+  const stat = fs.lstatSync(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(directory) !== directory) throw new Error(`${label} is not a canonical real directory`);
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) throw new Error(`${label} is not owned by the current user`);
+  return directory;
+}
+
+function validateCompletionSentinelFile(sentinelPath) {
+  let stat;
+  try { stat = fs.lstatSync(sentinelPath); } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error('completion cleanup sentinel missing');
+    throw error;
+  }
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('completion cleanup sentinel is not a regular file');
+  if ((stat.mode & 0o777) !== 0o600 || (typeof process.getuid === 'function' && stat.uid !== process.getuid())) throw new Error('completion cleanup sentinel ownership or mode is unsafe');
+  return stat;
+}
+
 export function prepareCompletionCheckout({ repo, reviewedHead, requestId, planPath, plannedAtCommit, executionBaseCommit }) {
   if (!HEX40.test(reviewedHead)) throw new Error('reviewedHead');
   const before = snapshotRepository(repo); if (!before.clean) throw new Error('original repository is not clean');
@@ -2291,11 +2310,16 @@ export function prepareCompletionCheckout({ repo, reviewedHead, requestId, planP
   try {
     git(root, ['clone', '--no-local', '--no-checkout', before.repo_realpath, out]);
     git(out, ['checkout', '--detach', reviewedHead]);
+    validateOwnedRealDirectory(out, 'completion checkout');
+    const privateGitDir = validateOwnedRealDirectory(path.join(out, '.git'), 'completion checkout Git directory');
     const tempHead = git(out, ['rev-parse', 'HEAD']).trim(); const sourceTree = git(before.repo_realpath, ['rev-parse', `${reviewedHead}^{tree}`]).trim(); const tempTree = git(out, ['rev-parse', 'HEAD^{tree}']).trim();
     if (tempHead !== reviewedHead || tempTree !== sourceTree) throw new Error('completion checkout head/tree mismatch');
     const cleanupToken = createHash('sha256').update(randomUUID()).update(randomUUID()).digest('hex');
     const sentinel = { schema: 1, request_id: requestId, original_repo: before.repo_realpath, plan_path: safeLogical(planPath), planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken };
-    fs.writeFileSync(path.join(out, '.docks-plan-verify-sentinel'), `${jcs(sentinel)}\n`, { mode: 0o600 });
+    const sentinelPath = path.join(privateGitDir, '.docks-plan-verify-sentinel');
+    fs.writeFileSync(sentinelPath, `${jcs(sentinel)}\n`, { flag: 'wx', mode: 0o600 });
+    validateCompletionSentinelFile(sentinelPath);
+    if (git(out, ['status', '--porcelain=v1', '-z', '--untracked-files=all']).length !== 0) throw new Error('completion checkout is not clean after prepare');
     const after = snapshotRepository(repo); if (jcs(after) !== jcs(before)) throw new Error('original repository changed during completion checkout');
     return { schema: 1, request_id: requestId, checkout: out, plan_path: safeLogical(planPath), planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedHead, source_tree: sourceTree, cleanup_token: cleanupToken, execution, original_snapshot: before };
   } catch (error) {
@@ -2311,8 +2335,10 @@ export function cleanupCompletionCheckout({ repo, requestId, prepared }) {
   digest(prepared.cleanup_token, 'cleanup token'); validateRepositorySnapshot(prepared.original_snapshot);
   if (prepared.original_snapshot.head !== prepared.reviewed_head) throw new Error('prepared head does not match original snapshot');
   const { out } = completionPath(requestId); if (prepared.checkout !== out) throw new Error('prepared checkout is not canonical');
-  const sentinelPath = path.join(out, '.docks-plan-verify-sentinel');
-  if (!fs.existsSync(sentinelPath)) throw new Error('completion cleanup sentinel missing');
+  validateOwnedRealDirectory(out, 'completion checkout');
+  const privateGitDir = validateOwnedRealDirectory(path.join(out, '.git'), 'completion checkout Git directory');
+  const sentinelPath = path.join(privateGitDir, '.docks-plan-verify-sentinel');
+  validateCompletionSentinelFile(sentinelPath);
   const sentinelText = fs.readFileSync(sentinelPath, 'utf8'); let sentinel; try { sentinel = JSON.parse(sentinelText); } catch { throw new Error('completion cleanup sentinel invalid'); }
   assertClosed(sentinel, ['schema', 'request_id', 'original_repo', 'plan_path', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'source_tree', 'cleanup_token'], 'completion sentinel');
   if (sentinelText !== `${jcs(sentinel)}\n`) throw new Error('completion cleanup sentinel must be compact JCS');

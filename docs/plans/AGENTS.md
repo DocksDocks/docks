@@ -351,7 +351,7 @@ Use this order to remove redundant work without removing evidence:
 
 Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; schema-v1 validators and receipts remain unchanged.
 
-Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition.
+Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition. Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.
 
 Keep findings attributed instead of blending reviewer voices:
 

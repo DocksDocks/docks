@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-13"
-  content_hash: "af0d2e57d355ff6c151fb249600ce901eb161d95d1915beba78607de5f76a170"
+  content_hash: "50e569366e0be24afe4dcc016679d652b6e4eba8a8527ec5bca18839b801b8b8"
 ---
 
 # Plan Review Evidence Runner
@@ -233,8 +233,9 @@ findings-only reviewers; they never clone, run acceptance/CI, or clean up.
    acceptance inventory derived from the canonical plan's ordered table.
 2. In writable main context, create `/tmp/docks-plan-verify/<request_id>` with `git clone --no-local
    --no-checkout <original> <temp>` and detached checkout of `reviewed_head`.
-3. Verify temp HEAD/tree. Run each nonempty inventory row exactly once in order,
-   focused reproduction, and the project's CI only inside that disposable checkout.
+3. Verify temp HEAD/tree. Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.
+   Then run each nonempty inventory row exactly once in order, focused
+   reproduction, and the project's CI only inside that checkout.
 4. Record each acceptance ID/command/expected/exit/output hash with exact
    one-to-one inventory coverage, plus CI command/exit/
    first failure/output hash, goal verdict, regressions, and follow-ups.
