@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,15 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const HARNESS = 'scripts/tests/plan-review-policy.mjs';
+const DEFAULT_JOBS = Math.max(1, Math.min(4, os.availableParallelism()));
+const MAX_CHILD_OUTPUT_BYTES = 16 * 1024 * 1024;
+const CHILD_TIMEOUT_MS = 15 * 60 * 1000;
+const INTERRUPT_ESCALATION_MS = 500;
+const RUN_NAMESPACE_ENV = 'DOCKS_REVIEW_POLICY_DRIVER_RUN_NAMESPACE';
+const RUN_NAMESPACE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const RUN_NAMESPACE = validatedRunNamespace(process.env[RUN_NAMESPACE_ENV] ?? randomUUID(), 'driver run namespace');
+const OWNED_ROOT_PREFIX = ownedRootPrefix(RUN_NAMESPACE);
+const runtime = { signal: null, activeChildren: new Map(), ownedRoots: new Set() };
 const REQUIRED_SURFACES = [
   'docs/plans/AGENTS.md',
   'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md',
@@ -29,20 +39,235 @@ const REQUIRED_SURFACES = [
   HARNESS,
 ];
 
-function copyRoot(target) {
+function validatedRunNamespace(value, label) {
+  if (!RUN_NAMESPACE_PATTERN.test(value)) throw new Error(`${label} must be a canonical UUID`);
+  return value;
+}
+
+function ownedRootPrefix(namespace) {
+  return `review-policy-driver-${validatedRunNamespace(namespace, 'owned-root namespace')}-`;
+}
+
+function copyRoot(sourceRoot, target) {
   for (const relative of REQUIRED_SURFACES) {
-    const source = path.join(ROOT, relative); const dest = path.join(target, relative);
+    const source = path.join(sourceRoot, relative); const dest = path.join(target, relative);
     assert.ok(fs.existsSync(source), `omitted-surface oracle: ${relative}`);
-    fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(source, dest);
+    fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(source, dest); fs.chmodSync(dest, 0o600);
   }
 }
 
+function changeOwnedModes(target, directoryMode, fileMode) {
+  if (!fs.existsSync(target)) return;
+  const stat = fs.lstatSync(target);
+  if (stat.isSymbolicLink()) return;
+  if (stat.isDirectory()) {
+    fs.chmodSync(target, directoryMode);
+    for (const name of fs.readdirSync(target)) changeOwnedModes(path.join(target, name), directoryMode, fileMode);
+  } else fs.chmodSync(target, fileMode);
+}
+
+function createOwnedRoot(label) {
+  if (runtime.signal !== null) throw new Error(`regression driver interrupted by ${runtime.signal}`);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `${OWNED_ROOT_PREFIX}${label}-`)); runtime.ownedRoots.add(path.resolve(root)); return root;
+}
+
+function removeNamespacedRoot(root, namespace) {
+  const prefix = ownedRootPrefix(namespace);
+  const temp = path.resolve(os.tmpdir()); const absolute = path.resolve(root);
+  assert.equal(path.dirname(absolute), temp, 'owned temp root must be a direct os.tmpdir child');
+  assert.ok(path.basename(absolute).startsWith(prefix), 'owned temp root prefix mismatch');
+  if (!fs.existsSync(absolute)) return;
+  try { changeOwnedModes(absolute, 0o700, 0o600); fs.rmSync(absolute, { recursive: true, force: true }); }
+  finally { assert.equal(fs.existsSync(absolute), false, 'owned temp root cleanup must complete'); }
+}
+
+function removeOwnedRoot(root) {
+  const absolute = path.resolve(root);
+  try { removeNamespacedRoot(absolute, RUN_NAMESPACE); }
+  finally { if (!fs.existsSync(absolute)) runtime.ownedRoots.delete(absolute); }
+}
+
+function signalChildTree(child, signal) {
+  try {
+    if (process.platform === 'win32') child.kill(signal);
+    else process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+}
+
+function terminateTrackedChild(record) {
+  if (record.escalation !== null) return;
+  signalChildTree(record.child, 'SIGTERM');
+  record.escalation = setTimeout(() => signalChildTree(record.child, 'SIGKILL'), INTERRUPT_ESCALATION_MS);
+}
+
+function requestInterruption(signal) {
+  if (runtime.signal !== null) return;
+  runtime.signal = signal;
+  for (const record of runtime.activeChildren.values()) terminateTrackedChild(record);
+}
+
+async function awaitActiveChildren() {
+  while (runtime.activeChildren.size > 0) await Promise.all([...runtime.activeChildren.values()].map((record) => record.closed));
+}
+
+function runChild({ argv, cwd, env = process.env, timeoutMs = CHILD_TIMEOUT_MS, onSpawn = null, onStdout = null }) {
+  if (runtime.signal !== null) return Promise.reject(new Error(`regression driver interrupted by ${runtime.signal}`));
+  return new Promise((resolve) => {
+    const stdout = []; const stderr = []; let stdoutBytes = 0; let stderrBytes = 0; let childError = null;
+    const child = spawn(argv[0], argv.slice(1), {
+      cwd, env,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+    });
+    let closeRecord; const closed = new Promise((done) => { closeRecord = done; }); const record = { child, closed, escalation: null };
+    runtime.activeChildren.set(child, record); onSpawn?.(child);
+    const timer = setTimeout(() => {
+      childError ??= Object.assign(new Error(`child timed out after ${timeoutMs}ms`), { code: 'ETIMEDOUT' });
+      terminateTrackedChild(record);
+    }, timeoutMs);
+    const collect = (chunks, chunk, stream) => {
+      const bytes = Buffer.from(chunk); chunks.push(bytes);
+      if (stream === 'stdout') onStdout?.(bytes.toString('utf8'));
+      if (stream === 'stdout') stdoutBytes += bytes.length; else stderrBytes += bytes.length;
+      if (stdoutBytes > MAX_CHILD_OUTPUT_BYTES || stderrBytes > MAX_CHILD_OUTPUT_BYTES) {
+        childError ??= Object.assign(new Error(`child ${stream} exceeded ${MAX_CHILD_OUTPUT_BYTES} bytes`), { code: 'ERR_CHILD_OUTPUT_LIMIT' });
+        terminateTrackedChild(record);
+      }
+    };
+    child.stdout.on('data', (chunk) => collect(stdout, chunk, 'stdout'));
+    child.stderr.on('data', (chunk) => collect(stderr, chunk, 'stderr'));
+    child.on('error', (error) => { childError ??= error; });
+    child.on('close', (status, signal) => {
+      clearTimeout(timer); if (record.escalation !== null) clearTimeout(record.escalation); runtime.activeChildren.delete(child); closeRecord();
+      resolve({ status, signal, error: childError, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
+    });
+    if (runtime.signal !== null) terminateTrackedChild(record);
+  });
+}
+
 function run(root, args) {
-  return spawnSync(process.execPath, [path.join(root, HARNESS), ...args], { cwd: root, encoding: 'utf8' });
+  const privateTemp = path.join(root, '.tmp'); fs.mkdirSync(privateTemp, { mode: 0o700 });
+  return runChild({ argv: [process.execPath, path.join(root, HARNESS), ...args], cwd: root, env: { ...process.env, TMPDIR: privateTemp, TMP: privateTemp, TEMP: privateTemp } });
 }
 
 function requirePass(label, result, pattern) {
+  assert.equal(result.error, null, `${label}: ${result.error?.message}`); assert.equal(result.signal, null, `${label}: signal ${result.signal}`);
   assert.equal(result.status, 0, `${label}: ${result.stderr}`); assert.match(result.stdout, pattern, `${label}: named proof missing`); console.log(`${label} passed`);
+}
+
+async function runPool(items, jobs, worker) {
+  assert.ok(Number.isInteger(jobs) && jobs >= 1, 'pool jobs must be a positive integer');
+  const results = new Array(items.length); const runCounts = new Array(items.length).fill(0); let nextIndex = 0;
+  const consume = async () => {
+    while (runtime.signal === null && nextIndex < items.length) {
+      const index = nextIndex; nextIndex += 1; runCounts[index] += 1;
+      try { results[index] = { status: 'fulfilled', value: await worker(items[index], index) }; }
+      catch (error) { results[index] = { status: 'rejected', reason: error }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(jobs, items.length) }, consume));
+  if (runtime.signal === null) assert.deepEqual(runCounts, new Array(items.length).fill(1), 'every pool index runs exactly once');
+  return results;
+}
+
+function parseArgs(argv) {
+  let jobs = DEFAULT_JOBS; let jobsSeen = false; let mode = 'regressions'; let modeSeen = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--self-test' && !modeSeen) { mode = 'regressions'; modeSeen = true; }
+    else if (arg === '--scheduler-self-test' && !modeSeen) { mode = 'scheduler'; modeSeen = true; }
+    else if (arg === '--interrupt-fixture' && !modeSeen) { mode = 'interrupt'; modeSeen = true; }
+    else if (arg === '--jobs' && !jobsSeen) {
+      const value = argv[index + 1];
+      if (!/^[1-9][0-9]*$/.test(value ?? '')) throw new Error('--jobs requires one positive integer');
+      jobs = Number(value); jobsSeen = true; index += 1;
+      if (!Number.isSafeInteger(jobs) || jobs > os.availableParallelism()) throw new Error(`--jobs must be between 1 and ${os.availableParallelism()}`);
+    } else throw new Error(`unknown or duplicate regression-driver argument: ${arg}`);
+  }
+  return { jobs, mode };
+}
+
+function ownedRootPaths(namespace = RUN_NAMESPACE) {
+  const prefix = ownedRootPrefix(namespace);
+  return fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith(prefix)).map((name) => path.join(os.tmpdir(), name)).sort();
+}
+
+function processExists(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) { if (error?.code === 'ESRCH') return false; throw error; }
+}
+
+async function runInterruptionFixture() {
+  const snapshot = createOwnedRoot('interrupt-snapshot'); const childRoot = createOwnedRoot('interrupt-child');
+  try {
+    copyRoot(ROOT, snapshot); changeOwnedModes(snapshot, 0o500, 0o400);
+    let ready; const readyPromise = new Promise((resolve) => { ready = resolve; });
+    const childSource = "process.on('SIGTERM',()=>{});process.stdout.write('interrupt-child-ready '+process.pid+'\\n');setInterval(()=>{},1000);";
+    const childPromise = runChild({
+      argv: [process.execPath, '-e', childSource], cwd: childRoot,
+      onStdout: (text) => { process.stdout.write(text); if (text.includes('interrupt-child-ready ')) ready(); },
+    });
+    await Promise.race([readyPromise, childPromise.then(() => { throw new Error('interrupt fixture child exited before ready'); })]);
+    console.log(`omitted-surface oracle copied ${REQUIRED_SURFACES.length} interrupt-fixture surfaces`);
+    await childPromise;
+  } finally {
+    removeOwnedRoot(childRoot); removeOwnedRoot(snapshot);
+  }
+}
+
+async function testInterruptionCleanup() {
+  const nestedNamespace = validatedRunNamespace(randomUUID(), 'nested driver run namespace');
+  assert.deepEqual(ownedRootPaths(nestedNamespace), [], 'fresh nested namespace starts with zero owned roots');
+  assert.throws(() => ownedRootPaths(`${nestedNamespace}-suffix`), /canonical UUID/, 'owned-root scans reject non-canonical namespaces');
+  let driver = null; let output = ''; let sent = false; let observedRoots = []; let childPid = null;
+  try {
+    const result = await runChild({
+      argv: [process.execPath, fileURLToPath(import.meta.url), '--interrupt-fixture'], cwd: ROOT, timeoutMs: 10000,
+      env: { ...process.env, [RUN_NAMESPACE_ENV]: nestedNamespace },
+      onSpawn: (child) => { driver = child; },
+      onStdout: (text) => {
+        output += text;
+        if (!sent && output.includes('omitted-surface oracle copied')) {
+          observedRoots = ownedRootPaths(nestedNamespace); sent = true; driver.kill('SIGINT');
+        }
+      },
+    });
+    const match = /interrupt-child-ready ([0-9]+)/.exec(result.stdout); childPid = match === null ? null : Number(match[1]);
+    const childSurvived = childPid !== null && processExists(childPid); const remainingRoots = ownedRootPaths(nestedNamespace);
+    assert.equal(sent, true, 'interruption test must signal immediately after the copied-snapshot marker');
+    assert.equal(observedRoots.length, 2, 'parent observes both roots in the explicit nested namespace');
+    assert.equal(result.error, null, result.error?.message); assert.equal(result.status, null); assert.equal(result.signal, 'SIGINT', 'driver preserves the original parent signal result');
+    assert.ok(childPid !== null, 'interruption fixture reports its active child'); assert.equal(childSurvived, false, 'interruption leaves no surviving child');
+    assert.deepEqual(remainingRoots, [], 'interruption leaves zero roots in the explicit nested namespace');
+  } finally {
+    if (childPid !== null && processExists(childPid)) {
+      try { process.kill(-childPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+    }
+    for (const root of ownedRootPaths(nestedNamespace)) removeNamespacedRoot(root, nestedNamespace);
+  }
+}
+
+async function testScheduler(jobs) {
+  const delays = [30, 5, 20, 1, 15, 10]; let active = 0; let maximum = 0;
+  const results = await runPool(delays, jobs, async (delay, index) => {
+    active += 1; maximum = Math.max(maximum, active);
+    try { await new Promise((resolve) => setTimeout(resolve, delay)); return `job-${index}`; }
+    finally { active -= 1; }
+  });
+  assert.deepEqual(results.map((row) => row.value), delays.map((_, index) => `job-${index}`), 'scheduler retains declaration order');
+  assert.ok(maximum <= jobs && maximum === Math.min(jobs, delays.length), 'scheduler honors the concurrency bound');
+  const failures = await runPool([0, 1, 2], jobs, async (value) => { if (value !== 1) throw new Error(`failure-${value}`); return value; });
+  assert.equal(failures.findIndex((row) => row.status === 'rejected'), 0, 'scheduler reconciliation selects the lowest failed index');
+  const root = createOwnedRoot('scheduler');
+  try {
+    const sealed = path.join(root, 'sealed'); fs.mkdirSync(sealed); fs.writeFileSync(path.join(sealed, 'fixture'), 'fixture\n'); changeOwnedModes(sealed, 0o500, 0o400);
+  } finally { removeOwnedRoot(root); }
+  assert.equal(fs.existsSync(root), false, 'scheduler cleanup removes read-only owned roots');
+  await testInterruptionCleanup();
+  console.log('regression scheduler self-test passed');
 }
 
 function applyVariant(relative, before, after) {
@@ -88,7 +313,7 @@ const REGRESSIONS = [
     "if (row.criterion_id !== criterion.id || row.command !== criterion.command || row.expected !== criterion.expected) throw new Error('acceptance evidence order or criterion mismatch');",
     "if (row.criterion_id !== criterion.id || row.expected !== criterion.expected) throw new Error('acceptance evidence order or criterion mismatch');",
   )],
-  ['raw source plan ancestor defenses', [], /raw plan requested ancestor|must reject|Assertion/, combine(
+  ['raw source plan ancestor defenses', ['--case', 'bundle'], /raw plan requested ancestor|must reject|Assertion/, combine(
     applyVariant(
       'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
       "if (unique.some((logical) => sameOrAncestor(logical, safePlan))) throw new Error('raw plan path or ancestor is forbidden in requested paths');",
@@ -100,22 +325,22 @@ const REGRESSIONS = [
       "if (false) throw new Error('raw plan path was emitted by requested path expansion');",
     ),
   )],
-  ['sealed plan-view semantic binding', [], /plan-B substitution|must reject|Assertion/, applyVariant(
+  ['sealed plan-view semantic binding', ['--case', 'bundle'], /plan-B substitution|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "if (!planView || planView.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');",
     "if (!planView || planView.mode !== '100444') throw new Error('bundle plan view input hash mismatch');",
   )],
-  ['sealed reviewer-schema semantic binding', [], /reviewer schema substitution|must reject|Assertion/, applyVariant(
+  ['sealed reviewer-schema semantic binding', ['--case', 'bundle'], /reviewer schema substitution|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg}`);",
     "if (!schema || schema.mode !== '100444') throw new Error(`bundle reviewer schema mismatch: ${leg}`);",
   )],
-  ['requested-row coverage binding', [], /requested-state substitution|must reject|Assertion/, applyVariant(
+  ['requested-row coverage binding', ['--case', 'bundle'], /requested-state substitution|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "if (row.state === 'file' && (matches.length !== 1 || matches[0] !== logical)) throw new Error('file requested path coverage mismatch');",
     "if (false) throw new Error('file requested path coverage mismatch');",
   )],
-  ['sealed file hash regression', [], /post-seal bundle regression|must reject|Assertion/, applyVariant(
+  ['sealed file hash regression', ['--case', 'bundle'], /post-seal bundle regression|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "if (sha256(bytes) !== row.sha256) throw new Error(`bundle file hash mismatch: ${logical}`);",
     "if (false) throw new Error(`bundle file hash mismatch: ${logical}`);",
@@ -130,42 +355,55 @@ const REGRESSIONS = [
     'const diffBytes = completionDiff(repo, executionBaseCommit, reviewedCommit);',
     'const diffBytes = completionDiff(repo, plannedAtCommit, reviewedCommit);',
   )],
-  ['read-only wrapper claims primary writes', [], /primary work|write boundary|Assertion/, applyVariant(
+  ['read-only wrapper claims primary writes', ['--case', 'surfaces'], /primary work|write boundary|Assertion/, applyVariant(
     '.codex/agents/plan-review.toml',
     '- Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.',
     '- CI/acceptance claims require fresh disposable-checkout command evidence.',
   )],
-  ['Claude evidence wrapper regains Bash', [], /regression-capable reviewer tools|Assertion/, applyVariant(
+  ['Claude evidence wrapper regains Bash', ['--case', 'surfaces'], /regression-capable reviewer tools|Assertion/, applyVariant(
     'plugins/docks/agents/plan-review.md',
     'tools: Read, Glob, Grep',
     'tools: Read, Glob, Grep, Bash',
   )],
-  ['JCS lone-surrogate value regression', [], /lone-surrogate value|must reject|Assertion/, applyVariant(
+  ['JCS lone-surrogate value regression', ['--case', 'canonical'], /lone-surrogate value|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "assertUnicodeScalarString(value, 'JCS string');",
     "void value; // variant string validation",
   )],
-  ['JCS lone-surrogate key regression', [], /lone-surrogate property key|must reject|Assertion/, applyVariant(
+  ['JCS lone-surrogate key regression', ['--case', 'canonical'], /lone-surrogate property key|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "for (const key of keys) assertUnicodeScalarString(key, 'JCS property key');",
     "for (const key of keys) void key; // variant property-key validation",
   )],
-  ['GitHub publishing contract loss', [], /publishing operation|Assertion/, applyVariant(
+  ['GitHub publishing contract loss', ['--case', 'surfaces'], /publishing operation|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-manager/SKILL.md',
     '## Publishing a plan as a GitHub issue (`--issues`)',
     '## Removed external operation',
   )],
-  ['compatibility owner confirmation regression', ['--case', 'execution-compatibility'], /wrong owner confirmation|must reject|Assertion/, combine(
-    applyVariant(
-      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-      "export function buildExecutionBaseCompatibilityApplication({ repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 }) {\n  if (authorizationId !== COMPATIBILITY_AUTHORIZATION_ID || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SHA256) throw new Error('execution compatibility owner confirmation mismatch');",
-      'export function buildExecutionBaseCompatibilityApplication({ repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 }) {\n  void authorizationId; void ownerMessageSha256;',
-    ),
-    applyVariant(
-      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-      "if (authorizationId !== COMPATIBILITY_AUTHORIZATION_ID || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SHA256) throw new Error('execution compatibility owner confirmation mismatch');",
-      'void authorizationId; void ownerMessageSha256; // variant internal owner check',
-    ),
+  ['compatibility authorization-id regression', ['--case', 'execution-compatibility'], /authorization id|source mismatch|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (authorizationId !== COMPATIBILITY_AUTHORIZATION_SCOPE.authorization_id || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SCOPE.source_text_sha256) throw new Error('execution compatibility owner confirmation source mismatch');",
+    "if (ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SCOPE.source_text_sha256) throw new Error('execution compatibility owner confirmation source mismatch');",
+  )],
+  ['compatibility authorization-plan regression', ['--case', 'execution-compatibility'], /authorization plan path|plan target|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (plan_path !== COMPATIBILITY_AUTHORIZATION_SCOPE.target.plan_path) throw new Error('execution compatibility owner confirmation plan target mismatch');",
+    'void plan_path; // variant authorization plan target check',
+  )],
+  ['compatibility authorization-planned regression', ['--case', 'execution-compatibility'], /authorization planned commit|planned target|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (plannedAtCommit !== COMPATIBILITY_AUTHORIZATION_SCOPE.target.planned_at_commit) throw new Error('execution compatibility owner confirmation planned target mismatch');",
+    'void plannedAtCommit; // variant authorization planned target check',
+  )],
+  ['compatibility authorization-execution regression', ['--case', 'execution-compatibility'], /authorization execution-base commit|execution target|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (executionBaseCommit !== COMPATIBILITY_AUTHORIZATION_SCOPE.target.execution_base_commit) throw new Error('execution compatibility owner confirmation execution target mismatch');",
+    'void executionBaseCommit; // variant authorization execution target check',
+  )],
+  ['compatibility stored authorization-digest regression', ['--case', 'execution-compatibility'], /stored authorization scope digest|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (ownerConfirmation.authorization_scope_sha256 !== COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256) throw new Error('execution compatibility owner confirmation stored authorization scope digest mismatch');",
+    'void ownerConfirmation.authorization_scope_sha256; // variant stored authorization scope digest check',
   )],
   ['prerequisite failed-child regression', ['--case', 'execution-compatibility'], /nonzero child status|signaled child|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -247,6 +485,11 @@ const REGRESSIONS = [
     "for (const changedPath of changed) if (!allowed.has(changedPath)) throw new Error(`execution scope path is not allowed: ${changedPath}`);",
     'for (const changedPath of changed) void changedPath;',
   )],
+  ['execution scope sealed-manifest regression', ['--case', 'execution-compatibility'], /self-broadened scope manifest|sealed allowed paths|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (allowedPathsSha256 !== expectedAllowedPathsSha256) throw new Error('execution scope sealed allowed paths hash mismatch');",
+    'void expectedAllowedPathsSha256; // variant sealed allowed paths check',
+  )],
   ['legacy creation and start shape regression', ['--case', 'execution-compatibility'], /planned path already existed|creation parent drift|creation extra path|start extra path|must reject|Assertion/, combine(
     applyVariant(
       'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -291,7 +534,7 @@ const REGRESSIONS = [
     "'diff', '--no-index', '--text', '--binary'",
     "'diff', '--text', '--binary'",
   )],
-  ['compatibility system attribute isolation regression', ['--case', 'execution-compatibility'], /GIT_ATTR_NOSYSTEM|Assertion/, applyVariant(
+  ['compatibility GIT_ATTR_NOSYSTEM child-isolation regression', ['--case', 'execution-compatibility'], /ambient attribute source|GIT_ATTR_NOSYSTEM|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "env.GIT_ATTR_NOSYSTEM = '1';",
     "env.GIT_ATTR_NOSYSTEM = '0';",
@@ -427,56 +670,88 @@ const REGRESSIONS = [
       'const ledger = commits.filter((row) => changedPaths(repo, row.parent, row.commit).length > 0).map((row, index) => {',
     ),
   )],
-  ['strict corpus identity regression', [], /strict corpus|Assertion/, applyVariant(
+  ['strict corpus identity regression', ['--case', 'strict-contract'], /strict corpus|Assertion/, applyVariant(
     HARNESS,
     "'strict-success', 'path-escape'",
     "'path-escape', 'strict-success'",
   )],
-  ['strict raw result comparison regression', [], /strict differential retains raw comparison|Assertion/, combine(
+  ['strict raw result comparison regression', ['--case', 'strict-contract'], /strict differential retains raw comparison|Assertion/, combine(
     applyVariantLast(HARNESS, 'assert.equal(newResult.status, oldResult.status', 'assert.equal(oldResult.status, oldResult.status'),
     applyVariantLast(HARNESS, 'assert.deepEqual(newResult.stdout, oldResult.stdout', 'assert.deepEqual(oldResult.stdout, oldResult.stdout'),
     applyVariantLast(HARNESS, 'assert.deepEqual(newResult.stderr, oldResult.stderr', 'assert.deepEqual(oldResult.stderr, oldResult.stderr'),
   )],
-  ['closed selector fallback regression', [], /selector|Expected|Assertion|unknown or malformed/, applyVariant(
+  ['closed selector fallback regression', ['--case', 'selectors'], /selector|Expected|Assertion|unknown or malformed/, applyVariant(
     HARNESS,
     "else throw new Error('unknown or malformed plan-review-policy test selector');",
     'else {}',
   )],
-  ['malformed acceptance source table', [], /acceptance inventory|criterion id|Assertion/, applyVariant(
+  ['malformed acceptance source table', ['--case', 'validation-matrix'], /acceptance inventory|criterion id|Assertion/, applyVariant(
     'scripts/tests/fixtures/plan-review-policy/sample-plan.md',
     '| A2 | `node --check fixture.js` | exit 0 |',
     '| A1 | `node --check fixture.js` | exit 0 |',
   )],
 ];
 
-try {
+async function runRegressionSuite(jobs) {
   const self = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
   assert.doesNotMatch(self, /from ['"].*review-policy\.mjs['"]/);
   assert.doesNotMatch(self, /from ['"].*plan-review-policy\.mjs['"]/);
-  assert.equal((self.match(/spawnSync\(/g) || []).length, 1, 'driver has one black-box spawn site');
+  assert.doesNotMatch(self, /spawnSync\(/, 'driver must not block the mutation scheduler');
+  assert.equal((self.match(/\bspawn\(/g) || []).length, 1, 'driver has one black-box spawn site');
   console.log('regression driver imports no helper/harness/inventory and spawns only the copied harness');
 
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-black-box-')); copyRoot(temp);
-  console.log(`omitted-surface oracle copied ${REQUIRED_SURFACES.length} live/generated/helper surfaces`);
-  const semantic = run(temp, ['--case', 'validation-matrix']);
-  requirePass('semantic attempt/ledger/raw/run/receipt validation matrix', semantic, /semantic validation matrix passed/);
-  assert.match(semantic.stdout, /not_ready verdict and structured-output hash cannot authorize execution/);
-  assert.match(semantic.stdout, /derived completion verdict rejects failing primary evidence and mismatched review_status/);
-  requirePass('distinct X\/S schema and request leg matrix', run(temp, ['--case', 'legs']), /direct argv.*consent separation passed/);
-  const lifecycle = run(temp, ['--case', 'lifecycle']);
-  requirePass('shipped completion clone\/snapshot\/cleanup matrix', lifecycle, /git clone --no-local.*digest passed/);
-  assert.match(lifecycle.stdout, /canonical root and prepare identity reject arbitrary roots and forged tokens/);
-  const full = run(temp, []);
-  requirePass('canonical bundle, fence, consumer, and surface matrix', full, /plan-review-policy contract passed/);
-  assert.match(full.stdout, /GitHub issue publishing operation preservation passed/);
-  fs.rmSync(temp, { recursive: true, force: true });
-  for (const [label, args, pattern, apply] of REGRESSIONS) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-regression-')); copyRoot(root); apply(root);
-    const result = run(root, args); assert.notEqual(result.status, 0, `${label}: variant copied artifact unexpectedly passed`);
-    assert.match(`${result.stdout}\n${result.stderr}`, pattern, `${label}: independent failure oracle did not fire`);
-    fs.rmSync(root, { recursive: true, force: true }); console.log(`regression fixture detected: ${label}`);
-  }
+  const snapshot = createOwnedRoot('snapshot');
+  try {
+    copyRoot(ROOT, snapshot); changeOwnedModes(snapshot, 0o500, 0o400);
+    console.log(`omitted-surface oracle copied ${REQUIRED_SURFACES.length} live/generated/helper surfaces`);
+
+    const baseline = createOwnedRoot('baseline');
+    try {
+      copyRoot(snapshot, baseline);
+      const full = await run(baseline, []);
+      requirePass('semantic attempt/ledger/raw/run/receipt validation matrix', full, /semantic validation matrix passed/);
+      assert.match(full.stdout, /not_ready verdict and structured-output hash cannot authorize execution/);
+      assert.match(full.stdout, /derived completion verdict rejects failing primary evidence and mismatched review_status/);
+      requirePass('distinct X\/S schema and request leg matrix', full, /direct argv.*consent separation passed/);
+      requirePass('shipped completion clone\/snapshot\/cleanup matrix', full, /git clone --no-local.*digest passed/);
+      assert.match(full.stdout, /canonical root and prepare identity reject arbitrary roots and forged tokens/);
+      requirePass('canonical bundle, fence, consumer, and surface matrix', full, /plan-review-policy contract passed/);
+      assert.match(full.stdout, /GitHub issue publishing operation preservation passed/);
+    } finally { removeOwnedRoot(baseline); }
+
+    const results = await runPool(REGRESSIONS, jobs, async ([, args, , apply], index) => {
+      const root = createOwnedRoot(`regression-${index}`);
+      try { copyRoot(snapshot, root); apply(root); return await run(root, args); }
+      finally { removeOwnedRoot(root); }
+    });
+    if (runtime.signal !== null) return;
+    for (let index = 0; index < REGRESSIONS.length; index += 1) {
+      const [label, , pattern] = REGRESSIONS[index]; const settled = results[index];
+      if (settled.status === 'rejected') throw new Error(`${label}: ${settled.reason?.stack || settled.reason}`);
+      const result = settled.value;
+      assert.equal(result.error, null, `${label}: ${result.error?.message}`); assert.equal(result.signal, null, `${label}: signal ${result.signal}`);
+      assert.notEqual(result.status, 0, `${label}: variant copied artifact unexpectedly passed`);
+      assert.match(`${result.stdout}\n${result.stderr}`, pattern, `${label}: independent failure oracle did not fire`);
+      console.log(`regression fixture detected: ${label}`);
+    }
+  } finally { removeOwnedRoot(snapshot); }
   console.log('plan-review-policy regressions passed');
-} catch (error) {
-  console.error(error.stack || error.message); process.exitCode = 1;
 }
+
+const signalHandlers = new Map(['SIGINT', 'SIGTERM'].map((signal) => [signal, () => requestInterruption(signal)]));
+for (const [signal, handler] of signalHandlers) process.on(signal, handler);
+let failure = null;
+try {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.mode === 'scheduler') await testScheduler(options.jobs);
+  else if (options.mode === 'interrupt') await runInterruptionFixture();
+  else await runRegressionSuite(options.jobs);
+} catch (error) {
+  failure = error;
+} finally {
+  await awaitActiveChildren();
+  for (const root of [...runtime.ownedRoots]) removeOwnedRoot(root);
+  for (const [signal, handler] of signalHandlers) process.off(signal, handler);
+}
+if (runtime.signal !== null) { process.kill(process.pid, runtime.signal); await new Promise(() => {}); }
+if (failure !== null) { console.error(failure.stack || failure.message); process.exitCode = 1; }

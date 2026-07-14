@@ -5,10 +5,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  acceptanceInventory, applyCompletionReviewBlock, applyLifecycleState, buildDocksCompatibilityPrerequisiteApplication,
-  buildExecutionBaseCompatibilityApplication, buildExecutionBaseCompatibilityBindingApplication, buildReviewerArgv,
+  acceptanceInventory, applyCompletionReviewBlock, applyLifecycleState,
+  buildExecutionBaseCompatibilityApplication, buildReviewerArgv,
   canonicalPlanView, classifyLeg, completionReviewBlockV1, completionStablePlanViewV1, deriveCompletionVerdict,
   extractReviewerOutput, jcs, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256, parsePlan,
   renderCompatibilityReviewAttribution, renderCompletionReviewBlock, reviewerSchema, sealBundle, sha256,
@@ -83,6 +83,9 @@ function primaryEvidence(inventory = INVENTORY) {
 
 const COMPATIBILITY_AUTHORIZATION_ID = 'owner-2026-07-13-remodel-and-review-plan';
 const COMPATIBILITY_AUTHORIZATION_SHA256 = '1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96';
+const PRODUCTION_COMPATIBILITY_PLANNED_AT = '12cf2ead208fe932084890b8e3fbd5c72591f3db';
+const PRODUCTION_COMPATIBILITY_EXECUTION_BASE = 'de925e9bc046645a72f59bcd493da44d53adaf5a';
+const PRODUCTION_COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256 = '1c5cb608957a4589a4ac2bba05f4df29a6255c45034f9b59ecfda36a73327e10';
 const RELEASE_AUTHORIZATION_ID = 'owner-2026-07-13-four-release-order-docks-prerequisite';
 const RELEASE_AUTHORIZATION_SHA256 = 'f8f38319a72f258dd66d9b31f620cd13ec1968f1d1d169d94e3ebc6b55dde77a';
 const TARGET_PLAN = 'docs/plans/active/relay-worker-lifecycle-primitives.md';
@@ -219,8 +222,41 @@ function gitBytes(cwd, args) {
   const result = spawnSync('git', args, { cwd }); assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`); return result.stdout;
 }
 
-function helper(cwd, args) {
-  return spawnSync(process.execPath, [HELPER, ...args], { cwd, encoding: 'utf8' });
+function helper(cwd, args, helperPath = HELPER) {
+  return spawnSync(process.execPath, [helperPath, ...args], { cwd, encoding: 'utf8' });
+}
+
+function compatibilityHelperVariant(root, plannedAtCommit, executionBaseCommit) {
+  let source = fs.readFileSync(HELPER, 'utf8');
+  source = replaceOnce(source, `planned_at_commit: '${PRODUCTION_COMPATIBILITY_PLANNED_AT}'`, `planned_at_commit: '${plannedAtCommit}'`, 'compatibility authorization planned target');
+  source = replaceOnce(source, `execution_base_commit: '${PRODUCTION_COMPATIBILITY_EXECUTION_BASE}'`, `execution_base_commit: '${executionBaseCommit}'`, 'compatibility authorization execution target');
+  const scope = {
+    schema: 1, kind: 'legacy_start_transition_authorization', authorization_id: COMPATIBILITY_AUTHORIZATION_ID,
+    decision: 'allow', source: 'current_user', source_text_sha256: COMPATIBILITY_AUTHORIZATION_SHA256,
+    target: { schema: 1, plan_path: TARGET_PLAN, planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit },
+  };
+  source = replaceOnce(source, `const COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256 = '${PRODUCTION_COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256}';`, `const COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256 = '${sha256(jcs(scope))}';`, 'compatibility authorization scope digest');
+  const helperPath = path.join(root, 'review-policy-target-variant.mjs'); fs.writeFileSync(helperPath, source);
+  return helperPath;
+}
+
+function compatibilityHelperJson(helperPath, cwd, args) {
+  const result = helper(cwd, args, helperPath);
+  if (result.status !== 0) throw new Error(result.stderr.trim());
+  assert.equal(result.stderr, '');
+  return JSON.parse(result.stdout);
+}
+
+function compatibilityEvidence(helperPath, { repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId = COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256 = COMPATIBILITY_AUTHORIZATION_SHA256 }) {
+  return compatibilityHelperJson(helperPath, repo, ['compatibility-evidence', repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256]);
+}
+
+function compatibilityBinding(helperPath, { repo, planPath, evidenceCommit, reviewCommit }) {
+  return compatibilityHelperJson(helperPath, repo, ['compatibility-binding', repo, planPath, evidenceCommit, reviewCommit]);
+}
+
+function compatibilityRange(helperPath, { repo, planPath, plannedAtCommit, executionBaseCommit, reviewedHead }) {
+  return compatibilityHelperJson(helperPath, repo, ['execution-range', repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit]);
 }
 
 function initializeRepository(repo) {
@@ -229,7 +265,7 @@ function initializeRepository(repo) {
 
 function versionedJson(name, version) { return `${JSON.stringify({ name, version }, null, 2)}\n`; }
 
-function buildCompatibilityRepository() {
+async function buildCompatibilityRepository() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-compatibility-')); const repo = path.join(temp, 'repo'); initializeRepository(repo);
   writeLogical(repo, POLICY_PATH, fs.readFileSync(HELPER));
   writeLogical(repo, 'plugins/docks/.claude-plugin/plugin.json', versionedJson('docks', '1.2.3'));
@@ -263,6 +299,7 @@ function buildCompatibilityRepository() {
   target = replaceOnce(target, `planned_at_commit: "${legacy}"`, `planned_at_commit: "${plannedAt}"`);
   target = replaceOnce(target, 'execution_base_commit: null', `execution_base_commit: "${executionBaseCommit}"`);
   writeLogical(repo, TARGET_PLAN, target); const identityCommit = commitAll(repo, 'record lifecycle identities');
+  const compatibilityHelper = compatibilityHelperVariant(temp, plannedAt, executionBaseCommit);
 
   const activeBytes = fs.readFileSync(path.join(repo, ACTIVE_COMPATIBILITY_PLAN)); const archiveReceipt = completionReceiptFor(identityCommit, activeBytes);
   validateCompletionReceipt(archiveReceipt, { reviewed_head: identityCommit, plan_input_sha256: sha256(canonicalPlanView(activeBytes)), review_status: 'passed' });
@@ -276,19 +313,21 @@ function buildCompatibilityRepository() {
   writeLogical(repo, '.claude-plugin/marketplace.json', marketplace(RELEASE_VERSION));
   const releaseCommit = commitAll(repo, 'release docks patch'); git(repo, ['tag', RELEASE_TAG, releaseCommit]);
 
-  const evidenceApplication = buildExecutionBaseCompatibilityApplication({ repo, reviewedHead: releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: plannedAt, executionBaseCommit, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 });
+  const evidenceApplication = compatibilityEvidence(compatibilityHelper, { repo, reviewedHead: releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: plannedAt, executionBaseCommit });
   const evidenceBytes = insertBeforeReviewForTest(fs.readFileSync(path.join(repo, TARGET_PLAN)), evidenceApplication.markdown); writeLogical(repo, TARGET_PLAN, evidenceBytes);
   const evidenceCommit = commitAll(repo, 'apply compatibility evidence');
 
   const reviewReceipt = findingsFreeDraftReceipt(evidenceCommit, evidenceBytes, 'dual'); const reviewBytes = insertOrReplaceDraftReceiptForTest(evidenceBytes, reviewReceipt);
   writeLogical(repo, TARGET_PLAN, reviewBytes); const compatibilityReviewCommit = commitAll(repo, 'record compatibility review');
 
-  const bindingApplication = buildExecutionBaseCompatibilityBindingApplication({ repo, planPath: TARGET_PLAN, evidenceCommit, reviewCommit: compatibilityReviewCommit });
+  const bindingApplication = compatibilityBinding(compatibilityHelper, { repo, planPath: TARGET_PLAN, evidenceCommit, reviewCommit: compatibilityReviewCommit });
   const bindingBytes = insertBeforeReviewForTest(reviewBytes, bindingApplication.markdown); writeLogical(repo, TARGET_PLAN, bindingBytes);
   const bindingCommit = commitAll(repo, 'bind compatibility review');
 
+  const compatibilityPolicy = await import(`${pathToFileURL(compatibilityHelper).href}?target=${plannedAt}`);
   return {
-    temp, repo, plannedAt, creationCommit, executionBaseCommit, identityCommit, finishedPlanCommit, releaseCommit,
+    temp, repo, plannedAt, creationCommit, executionBaseCommit, identityCommit, finishedPlanCommit, releaseCommit, compatibilityHelper,
+    compatibilityPolicy,
     evidenceApplication, evidenceCommit, reviewReceipt, compatibilityReviewCommit, bindingApplication, bindingBytes, bindingCommit,
   };
 }
@@ -368,7 +407,8 @@ function legacyShapeCandidate(options = {}) {
   if (options.unequalLegacy) plan = replaceOnce(plan, `planned_at_commit: "${legacy}"`, `planned_at_commit: "${plannedAt.slice(0, 8)}"`);
   else plan = replaceOnce(plan, `planned_at_commit: "${legacy}"`, `planned_at_commit: "${plannedAt}"`);
   plan = replaceOnce(plan, 'execution_base_commit: null', `execution_base_commit: "${executionBaseCommit}"`); writeLogical(repo, TARGET_PLAN, plan); const head = commitAll(repo, 'legacy identities');
-  return { temp, repo, plannedAt, executionBaseCommit, head };
+  const compatibilityHelper = compatibilityHelperVariant(temp, plannedAt, executionBaseCommit);
+  return { temp, repo, plannedAt, executionBaseCommit, head, compatibilityHelper };
 }
 
 function testLegacyShapeNegatives() {
@@ -387,7 +427,7 @@ function testLegacyShapeNegatives() {
     ['changed section set empty', { noBodyChange: true }, /changed sections missing/],
   ]) {
     const fixture = legacyShapeCandidate(options);
-    expectThrow(label, () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: fixture.head, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 }), pattern);
+    expectThrow(label, () => compatibilityEvidence(fixture.compatibilityHelper, { repo: fixture.repo, reviewedHead: fixture.head, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit }), pattern);
     fs.rmSync(fixture.temp, { recursive: true, force: true });
   }
 }
@@ -437,36 +477,36 @@ function testCompatibilityChainNegatives(fixture, prerequisiteApplication) {
   git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]); const alteredEvidenceBytes = insertBeforeReviewForTest(gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]), alteredApplicationMarkdown); writeLogical(fixture.repo, TARGET_PLAN, alteredEvidenceBytes); const alteredE = commitAll(fixture.repo, 'historically false E');
   const alteredEReceipt = findingsFreeDraftReceipt(alteredE, alteredEvidenceBytes, 'single'); writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(alteredEvidenceBytes, alteredEReceipt)); const alteredEReview = commitAll(fixture.repo, 'review historically false E');
   let alteredBindingApplication = null; let alteredBindingError = null;
-  try { alteredBindingApplication = buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: alteredE, reviewCommit: alteredEReview }); } catch (error) { alteredBindingError = error; }
+  try { alteredBindingApplication = compatibilityBinding(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: alteredE, reviewCommit: alteredEReview }); } catch (error) { alteredBindingError = error; }
   if (alteredBindingError !== null) assert.match(alteredBindingError.message, /application mismatch/, 'real binding builder rejects self-consistent false E before B');
   else {
     const alteredReviewBytes = gitBytes(fixture.repo, ['show', `${alteredEReview}:${TARGET_PLAN}`]); const alteredBindingBytes = insertBeforeReviewForTest(alteredReviewBytes, alteredBindingApplication.markdown); writeLogical(fixture.repo, TARGET_PLAN, alteredBindingBytes); const alteredB = commitAll(fixture.repo, 'bind historically false E');
     const falseFixture = { ...fixture, evidenceCommit: alteredE, compatibilityReviewCommit: alteredEReview, bindingCommit: alteredB }; const fake = prerequisiteDependencies(falseFixture); let prerequisiteError = null;
-    try { buildDocksCompatibilityPrerequisiteApplication(prerequisiteInput(falseFixture), fake.dependencies); } catch (error) { prerequisiteError = error; }
+    try { falseFixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(prerequisiteInput(falseFixture), fake.dependencies); } catch (error) { prerequisiteError = error; }
     if (prerequisiteError !== null) { assert.match(prerequisiteError.message, /historical application mismatch/); assert.deepEqual(fake.observationOrder, [], 'false E rejects before remote observations'); }
     else assert.fail(`E historical reconstruction must reject before observations; observed ${fake.observationOrder.join(',')}`);
   }
 
   git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]); git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before E']); writeLogical(fixture.repo, TARGET_PLAN, evidenceBytes); const nonAdjacentE = commitAll(fixture.repo, 'non-adjacent E');
   const nonAdjacentEReceipt = findingsFreeDraftReceipt(nonAdjacentE, evidenceBytes, 'single'); writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(evidenceBytes, nonAdjacentEReceipt)); const nonAdjacentR = commitAll(fixture.repo, 'review non-adjacent E');
-  expectThrow('E adjacency', () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: nonAdjacentE, reviewCommit: nonAdjacentR }), /evidence commit parent mismatch/);
+  expectThrow('E adjacency', () => compatibilityBinding(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: nonAdjacentE, reviewCommit: nonAdjacentR }), /evidence commit parent mismatch/);
 
   git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]); git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before R']); writeLogical(fixture.repo, TARGET_PLAN, reviewBytes); const nonAdjacentRCommit = commitAll(fixture.repo, 'non-adjacent R');
-  expectThrow('R adjacency', () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: nonAdjacentRCommit }), /review commit parent mismatch/);
+  expectThrow('R adjacency', () => compatibilityBinding(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: nonAdjacentRCommit }), /review commit parent mismatch/);
 
   git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]); const alteredAttribution = Buffer.from(replaceOnce(reviewBytes.toString(), 'independently verified none', 'independently verified altered'));
   writeLogical(fixture.repo, TARGET_PLAN, alteredAttribution); const alteredR = commitAll(fixture.repo, 'alter R attribution');
-  expectThrow('R attribution bytes', () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: alteredR }), /compatibility review delta mismatch/);
+  expectThrow('R attribution bytes', () => compatibilityBinding(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: alteredR }), /compatibility review delta mismatch/);
 
   const finding = { id: 'X1', severity: 'low', section: 'Threat model', path: null, locator: null, defect: 'finding retained', fix: 'resolve it', evidence: 'fixture' };
   expectThrow('R not_ready', () => renderCompatibilityReviewAttribution(draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { verdict: 'not_ready' })), /outcome is ineligible|findings-free ready/);
   expectThrow('R finding', () => renderCompatibilityReviewAttribution(draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { findings: [finding] })), /findings-free ready|waiver\/finding/);
 
   git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]); writeLogical(fixture.repo, TARGET_PLAN, fixture.bindingBytes); writeLogical(fixture.repo, 'unexpected-b.txt', 'outside B\n'); const extraB = commitAll(fixture.repo, 'B extra path');
-  expectThrow('B extra path', () => buildDocksCompatibilityPrerequisiteApplication({ ...prerequisiteInput(fixture), bindingCommit: extraB }, prerequisiteDependencies(fixture).dependencies), /binding commit must change only the plan/);
+  expectThrow('B extra path', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication({ ...prerequisiteInput(fixture), bindingCommit: extraB }, prerequisiteDependencies(fixture).dependencies), /binding commit must change only the plan/);
   git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]); const bindingMatch = fixture.bindingBytes.toString().match(/^Execution-base-compatibility-binding: (\{.*\})$/m); assert.ok(bindingMatch); const alteredBindingRecord = JSON.parse(bindingMatch[1]); alteredBindingRecord.binding_sha256 = 'f'.repeat(64);
   const alteredBinding = Buffer.from(replaceOnce(fixture.bindingBytes.toString(), bindingMatch[0], `Execution-base-compatibility-binding: ${jcs(alteredBindingRecord)}`)); writeLogical(fixture.repo, TARGET_PLAN, alteredBinding); const alteredB = commitAll(fixture.repo, 'B altered binding');
-  expectThrow('B binding record', () => buildDocksCompatibilityPrerequisiteApplication({ ...prerequisiteInput(fixture), bindingCommit: alteredB }, prerequisiteDependencies(fixture).dependencies), /binding application mismatch|binding hash|binding mismatch/);
+  expectThrow('B binding record', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication({ ...prerequisiteInput(fixture), bindingCommit: alteredB }, prerequisiteDependencies(fixture).dependencies), /binding application mismatch|binding hash|binding mismatch/);
 
   for (const [label, qVariant, options, pattern] of [
     ['Q pending marker retained', (bytes) => Buffer.from(replaceOnce(bytes.toString(), prerequisiteApplication.markdown, `${PREREQUISITE_MARKER}${prerequisiteApplication.markdown}`)), {}, /closure delta mismatch/],
@@ -480,7 +520,7 @@ function testCompatibilityChainNegatives(fixture, prerequisiteApplication) {
     ['F attribution', (bytes) => bytes, { fVariant: (bytes) => { const text = bytes.toString(); const needle = 'independently verified none'; const at = text.lastIndexOf(needle); assert.ok(at >= 0); return Buffer.from(`${text.slice(0, at)}independently verified altered${text.slice(at + needle.length)}`); } }, /final review delta mismatch/],
   ]) {
     const chain = commitQFVariant(fixture, prerequisiteApplication, label, qVariant, options);
-    expectThrow(label, () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: chain.f }), pattern);
+    expectThrow(label, () => compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: chain.f }), pattern);
   }
 }
 
@@ -771,7 +811,7 @@ else process.stdout.write(JSON.stringify([{id:'docks@docks',version,scope:'user'
     GIT_CONFIG_KEY_0: 'url.file:///count-redirect.insteadOf', GIT_CONFIG_VALUE_0: 'https://github.com/DocksDocks/docks.git',
   };
   const input = prerequisiteInput(fixture); const args = ['compatibility-prerequisite', input.repo, input.planPath, input.finishedPlanPath, input.finishedPlanCommit, input.releaseVersion, input.evidenceCommit, input.compatibilityReviewCommit, input.bindingCommit, input.authorizationId, input.authorizationSha256];
-  const result = spawnSync(process.execPath, [HELPER, ...args], { cwd: fixture.repo, env, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+  const result = spawnSync(process.execPath, [fixture.compatibilityHelper, ...args], { cwd: fixture.repo, env, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
   const application = JSON.parse(result.stdout); assert.match(application.application_sha256, /^[0-9a-f]{64}$/);
   const rows = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse); assert.equal(rows.length, 2, 'exactly two canonical remote children');
   assert.deepEqual(rows[0].args, ['ls-remote', '--exit-code', '--branches', 'https://github.com/DocksDocks/docks.git', 'refs/heads/main']);
@@ -854,22 +894,30 @@ function testExecutionScopeLedger() {
   writeLogical(repo, 'src/example.js', 'two\n'); const sourceCommit = commitAll(repo, 'allowed source change');
   git(repo, ['commit', '--allow-empty', '-qm', 'intentional empty scope event']); const emptyCommit = git(repo, ['rev-parse', 'HEAD']);
   plan = replaceOnce(plan, 'updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-13T16:00:00.000Z"'); writeLogical(repo, planPath, plan); const head = commitAll(repo, 'allowed plan change');
-  const result = validateExecutionScope({ repo, base, head, planPath }); assert.equal(result.commit_count, 3);
   const allowedPreimage = { schema: 1, paths: [planPath, 'src/example.js'] };
+  const expectedAllowedPathsSha256 = sha256(jcs(allowedPreimage));
+  const result = validateExecutionScope({ repo, base, head, planPath, expectedAllowedPathsSha256 }); assert.equal(result.commit_count, 3);
   const ledgerPreimage = { schema: 1, base, head, commits: [
     { ordinal: 1, commit: sourceCommit, parent: base, paths: ['src/example.js'] },
     { ordinal: 2, commit: emptyCommit, parent: sourceCommit, paths: [] },
     { ordinal: 3, commit: head, parent: emptyCommit, paths: [planPath] },
   ] };
-  assert.equal(result.allowed_paths_sha256, sha256(jcs(allowedPreimage)), 'scope allowed paths are exact UTF-16 sorted JCS'); assert.equal(result.changed_paths_sha256, sha256(jcs(ledgerPreimage)), 'scope ledger retains chronological order and empty commits');
+  assert.equal(result.allowed_paths_sha256, expectedAllowedPathsSha256, 'scope allowed paths are exact UTF-16 sorted JCS'); assert.equal(result.changed_paths_sha256, sha256(jcs(ledgerPreimage)), 'scope ledger retains chronological order and empty commits');
   const resultPreimage = { schema: 1, base, head, commit_count: 3, allowed_paths_sha256: result.allowed_paths_sha256, changed_paths_sha256: result.changed_paths_sha256 };
   assert.equal(result.result_sha256, sha256(jcs(resultPreimage)), 'scope result self-hash');
-  writeLogical(repo, 'outside.txt', 'outside\n'); const outside = commitAll(repo, 'outside scope'); expectThrow('per-commit outside scope', () => validateExecutionScope({ repo, base, head: outside, planPath }), /execution scope path is not allowed/);
+  const cli = helper(repo, ['execution-scope', repo, base, head, planPath, expectedAllowedPathsSha256]); assert.equal(cli.status, 0, cli.stderr); assert.deepEqual(JSON.parse(cli.stdout), result, 'execution-scope CLI requires and preserves the reviewer-sealed allowed-path hash');
+  for (const args of [
+    ['execution-scope', repo, base, head, planPath],
+    ['execution-scope', repo, base, head, planPath, expectedAllowedPathsSha256, 'extra'],
+  ]) { const closed = helper(repo, args); assert.notEqual(closed.status, 0); assert.match(closed.stderr, /accepts .* only/); }
+  writeLogical(repo, 'outside.txt', 'outside\n'); const outside = commitAll(repo, 'outside scope'); expectThrow('per-commit outside scope', () => validateExecutionScope({ repo, base, head: outside, planPath, expectedAllowedPathsSha256 }), /execution scope path is not allowed/);
+  git(repo, ['checkout', '-q', '--detach', head]); const broadened = replaceOnce(plan, '  - src/example.js\n', '  - src/example.js\n  - outside.txt\n'); writeLogical(repo, planPath, broadened); commitAll(repo, 'self-broaden scope manifest'); writeLogical(repo, 'outside.txt', 'newly admitted\n'); const selfBroadenedHead = commitAll(repo, 'change self-admitted path');
+  expectThrow('self-broadened scope manifest', () => validateExecutionScope({ repo, base, head: selfBroadenedHead, planPath, expectedAllowedPathsSha256 }), /sealed allowed paths hash mismatch/);
   git(repo, ['checkout', '-q', '--detach', head]); let duplicate = replaceOnce(plan, '  - src/example.js\n', '  - src/example.js\n  - src/example.js\n'); writeLogical(repo, planPath, duplicate); const duplicateHead = commitAll(repo, 'duplicate scope entry');
-  expectThrow('duplicate scope manifest', () => validateExecutionScope({ repo, base, head: duplicateHead, planPath }), /duplicates/);
+  expectThrow('duplicate scope manifest', () => validateExecutionScope({ repo, base, head: duplicateHead, planPath, expectedAllowedPathsSha256 }), /duplicates/);
   git(repo, ['checkout', '-q', '--detach', head]); git(repo, ['checkout', '-qb', 'scope-side']); writeLogical(repo, 'src/example.js', 'side\n'); commitAll(repo, 'scope side');
   git(repo, ['checkout', '-q', '--detach', head]); writeLogical(repo, planPath, replaceOnce(plan, 'updated: "2026-07-13T16:00:00.000Z"', 'updated: "2026-07-13T16:01:00.000Z"')); commitAll(repo, 'scope first parent'); git(repo, ['merge', '--no-ff', '-qm', 'scope merge', 'scope-side']); const merge = git(repo, ['rev-parse', 'HEAD']);
-  expectThrow('scope merge', () => validateExecutionScope({ repo, base, head: merge, planPath }), /single-parent/); fs.rmSync(temp, { recursive: true, force: true });
+  expectThrow('scope merge', () => validateExecutionScope({ repo, base, head: merge, planPath, expectedAllowedPathsSha256 }), /single-parent/); fs.rmSync(temp, { recursive: true, force: true });
 }
 
 function testClosedSelectors() {
@@ -889,13 +937,30 @@ function testStrictCorpusContract() {
   for (const comparison of ['assert.equal(newResult.status, oldResult.status', 'assert.deepEqual(newResult.stdout, oldResult.stdout', 'assert.deepEqual(newResult.stderr, oldResult.stderr']) assert.equal(source.split(comparison).length - 1, 2, `strict differential retains raw comparison: ${comparison}`);
 }
 
-function testExecutionCompatibility() {
+async function testExecutionCompatibility() {
   assert.equal(sha256(jcs(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY)), LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256);
   testLegacyShapeNegatives();
-  const fixture = buildCompatibilityRepository(); const input = prerequisiteInput(fixture);
-  expectThrow('legacy shape without evidence', () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: fixture.releaseCommit }), /execution compatibility evidence missing/);
-  expectThrow('wrong owner confirmation', () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: fixture.releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, authorizationId: 'wrong', ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 }), /owner confirmation/);
+  const fixture = await buildCompatibilityRepository(); const input = prerequisiteInput(fixture);
+  expectThrow('legacy shape without evidence', () => compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: fixture.releaseCommit }), /execution compatibility evidence missing/);
+  const authorizedEvidenceInput = { repo: fixture.repo, reviewedHead: fixture.releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit };
+  for (const [label, override, pattern] of [
+    ['authorization id', { authorizationId: 'wrong' }, /owner confirmation source mismatch/],
+    ['authorization plan path', { planPath: 'docs/plans/active/relay-worker-lifecycle-primitives-replay.md' }, /owner confirmation plan target mismatch/],
+    ['authorization planned commit', { plannedAtCommit: 'f'.repeat(40) }, /owner confirmation planned target mismatch/],
+    ['authorization execution-base commit', { executionBaseCommit: 'e'.repeat(40) }, /owner confirmation execution target mismatch/],
+  ]) expectThrow(label, () => compatibilityEvidence(fixture.compatibilityHelper, { ...authorizedEvidenceInput, ...override }), pattern);
+  const replayPlanPath = 'docs/plans/active/relay-worker-lifecycle-primitives-replay.md'; const replayBytes = gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]);
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]); writeLogical(fixture.repo, replayPlanPath, replayBytes); const replayHead = commitAll(fixture.repo, 'add exact-shape replay target');
+  assert.deepEqual(gitBytes(fixture.repo, ['show', `${replayHead}:${replayPlanPath}`]), replayBytes, 'authorization replay target has the exact authorized plan shape');
+  expectThrow('alternate exact-shape plan authorization replay', () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: replayHead, planPath: replayPlanPath, plannedAtCommit: PRODUCTION_COMPATIBILITY_PLANNED_AT, executionBaseCommit: PRODUCTION_COMPATIBILITY_EXECUTION_BASE, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 }), /owner confirmation plan target mismatch/);
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
   const evidenceReceipt = JSON.parse(fixture.evidenceApplication.markdown.match(/Execution-base-compatibility-receipt: (\{.*\})\n/)[1]);
+  const storedDigestReceipt = structuredClone(evidenceReceipt); storedDigestReceipt.owner_confirmation.authorization_scope_sha256 = 'f'.repeat(64); delete storedDigestReceipt.receipt_sha256; storedDigestReceipt.receipt_sha256 = sha256(jcs(storedDigestReceipt));
+  const storedDigestMarkdown = replaceOnce(fixture.evidenceApplication.markdown, `Execution-base-compatibility-receipt: ${jcs(evidenceReceipt)}\n`, `Execution-base-compatibility-receipt: ${jcs(storedDigestReceipt)}\n`, 'stored authorization scope digest record');
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]); const storedDigestBytes = insertBeforeReviewForTest(gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]), storedDigestMarkdown); writeLogical(fixture.repo, TARGET_PLAN, storedDigestBytes); const storedDigestE = commitAll(fixture.repo, 'alter stored authorization scope digest');
+  const storedDigestReview = findingsFreeDraftReceipt(storedDigestE, storedDigestBytes, 'single'); writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(storedDigestBytes, storedDigestReview)); const storedDigestR = commitAll(fixture.repo, 'review altered authorization scope digest');
+  expectThrow('stored authorization scope digest', () => compatibilityBinding(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: storedDigestE, reviewCommit: storedDigestR }), /stored authorization scope digest mismatch/);
+  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
   assert.deepEqual(evidenceReceipt.changed_sections.map((row) => row.name), ['Environment & how-to-run', 'Open questions', 'Threat model']);
   assert.equal(evidenceReceipt.plan_creation_commit, fixture.creationCommit); assert.equal(evidenceReceipt.evidence_input_commit, fixture.releaseCommit);
   const material = JSON.parse(fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m)[1]);
@@ -914,14 +979,15 @@ function testExecutionCompatibility() {
   const directDiff = spawnSync('git', expectedLegacyDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: diffEnv });
   assert.equal(directDiff.status, 0, directDiff.stderr); assert.equal(recordedDiff, directDiff.stdout, 'transition diff is byte-exact canonical Git output');
   assert.match(recordedDiff, /^diff --git /); assert.doesNotMatch(recordedDiff, /^GIT binary patch$/m, 'transition material remains textual');
-  const rebuildEvidence = () => buildExecutionBaseCompatibilityApplication({ repo: fixture.repo, reviewedHead: fixture.releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, authorizationId: COMPATIBILITY_AUTHORIZATION_ID, ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256 });
-  const rebuildBinding = () => buildExecutionBaseCompatibilityBindingApplication({ repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: fixture.compatibilityReviewCommit });
+  const rebuildEvidence = () => compatibilityEvidence(fixture.compatibilityHelper, { repo: fixture.repo, reviewedHead: fixture.releaseCommit, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit });
+  const rebuildBinding = () => compatibilityBinding(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, evidenceCommit: fixture.evidenceCommit, reviewCommit: fixture.compatibilityReviewCommit });
   const captureBin = path.join(fixture.temp, 'capture-bin'); const captureLog = path.join(fixture.temp, 'captured-git.jsonl'); fs.mkdirSync(captureBin);
   const captureGit = `#!/usr/bin/env node
 import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
 const args=process.argv.slice(2); const cwd=process.cwd(); const noIndex=args.includes('--no-index'); const artifacts=noIndex?args.slice(-2):[];
 const row={args,cwd,artifact_modes:artifacts.map((file)=>fs.statSync(file).mode&0o777),attributes:fs.existsSync('.git/info/attributes')?fs.readFileSync('.git/info/attributes','utf8'):null,env:{GIT_CONFIG_GLOBAL:process.env.GIT_CONFIG_GLOBAL,GIT_CONFIG_SYSTEM:process.env.GIT_CONFIG_SYSTEM,GIT_CONFIG_NOSYSTEM:process.env.GIT_CONFIG_NOSYSTEM,GIT_CONFIG_COUNT:process.env.GIT_CONFIG_COUNT,GIT_ATTR_NOSYSTEM:process.env.GIT_ATTR_NOSYSTEM,GIT_ATTR_SOURCE:process.env.GIT_ATTR_SOURCE,GIT_CONFIG:process.env.GIT_CONFIG,GIT_CONFIG_PARAMETERS:process.env.GIT_CONFIG_PARAMETERS,GIT_DIFF_OPTS:process.env.GIT_DIFF_OPTS,GIT_DIR:process.env.GIT_DIR,GIT_EXTERNAL_DIFF:process.env.GIT_EXTERNAL_DIFF}};
 fs.appendFileSync(process.env.TRANSITION_GIT_LOG,JSON.stringify(row)+'\\n');
+if(noIndex&&process.env.GIT_ATTR_NOSYSTEM!=='1'){fs.writeSync(2,Buffer.from('ambient attribute source was not isolated\\n'));process.exit(97);}
 const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',env:process.env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
 `;
   fs.writeFileSync(path.join(captureBin, 'git'), captureGit, { mode: 0o755 });
@@ -941,7 +1007,7 @@ const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',e
   assert.equal(transitionCalls[1].attributes, `a/${TARGET_PLAN} !diff\nb/${TARGET_PLAN} !diff\n`, 'private highest-precedence attributes neutralize named diff drivers');
   for (const row of transitionCalls) {
     assert.equal(row.env.GIT_CONFIG_GLOBAL, os.devNull); assert.equal(row.env.GIT_CONFIG_SYSTEM, os.devNull);
-    assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1'); assert.equal(row.env.GIT_CONFIG_COUNT, '0'); assert.equal(row.env.GIT_ATTR_NOSYSTEM, '1');
+    assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1'); assert.equal(row.env.GIT_CONFIG_COUNT, '0'); assert.equal(row.env.GIT_ATTR_NOSYSTEM, '1', 'transition child behavior requires the GIT_ATTR_NOSYSTEM isolation invariant');
     for (const key of ['GIT_ATTR_SOURCE', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_DIFF_OPTS', 'GIT_DIR', 'GIT_EXTERNAL_DIFF']) assert.equal(row.env[key], undefined, `${key} removed from canonical transition child`);
   }
   writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} binary\n`);
@@ -985,24 +1051,24 @@ const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',e
 
   const recorded = ['remote_main', 'remote_tag', 'github_release', 'codex_plugin', 'claude_plugin']; let prerequisiteApplication = null;
   for (const stderrAt of recorded) {
-    const fake = prerequisiteDependencies(fixture, { stderrAt }); const application = buildDocksCompatibilityPrerequisiteApplication(input, fake.dependencies); const receipt = prerequisiteReceiptFromApplication(application);
+    const fake = prerequisiteDependencies(fixture, { stderrAt }); const application = fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, fake.dependencies); const receipt = prerequisiteReceiptFromApplication(application);
     assert.deepEqual(fake.observationOrder, recorded, 'fixed observation order');
     for (const label of recorded) assert.equal(receipt.observations[label].stderr_sha256, sha256(label === stderrAt ? `stderr:${label}\n` : Buffer.alloc(0)), `${label} stderr hash`);
     prerequisiteApplication ??= application;
   }
-  const light = prerequisiteDependencies(fixture, { tagMode: 'lightweight' }); const lightApplication = buildDocksCompatibilityPrerequisiteApplication(input, light.dependencies);
+  const light = prerequisiteDependencies(fixture, { tagMode: 'lightweight' }); const lightApplication = fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, light.dependencies);
   assert.equal(prerequisiteReceiptFromApplication(lightApplication).observations.remote_tag.projection.annotated, false);
   assert.equal(prerequisiteReceiptFromApplication(prerequisiteApplication).observations.remote_tag.projection.annotated, true);
   const reorderedInput = Object.fromEntries(Object.entries(input).reverse()); const reorderedDependencies = Object.fromEntries(Object.entries(prerequisiteDependencies(fixture).dependencies).reverse());
-  assert.equal(jcs(buildDocksCompatibilityPrerequisiteApplication(reorderedInput, reorderedDependencies)), jcs(buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture).dependencies)), 'closed object key order canonicalizes identically');
-  expectThrow('missing prerequisite input key', () => { const value = { ...input }; delete value.releaseVersion; buildDocksCompatibilityPrerequisiteApplication(value, prerequisiteDependencies(fixture).dependencies); }, /unknown key|must contain|releaseVersion/);
-  expectThrow('extra prerequisite input key', () => buildDocksCompatibilityPrerequisiteApplication({ ...input, observations: {} }, prerequisiteDependencies(fixture).dependencies), /unknown key/);
-  expectThrow('swapped prerequisite input values', () => buildDocksCompatibilityPrerequisiteApplication({ ...input, evidenceCommit: input.bindingCommit, bindingCommit: input.evidenceCommit }, prerequisiteDependencies(fixture).dependencies), /contiguous|parent|commit/);
-  expectThrow('missing prerequisite dependency', () => { const value = { ...prerequisiteDependencies(fixture).dependencies }; delete value.now; buildDocksCompatibilityPrerequisiteApplication(input, value); }, /missing now/);
-  expectThrow('extra prerequisite dependency', () => buildDocksCompatibilityPrerequisiteApplication(input, { ...prerequisiteDependencies(fixture).dependencies, observations: () => ({}) }), /unknown key/);
-  expectThrow('wrong child cwd', () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { wrongCwd: true }).dependencies), /wrong child cwd/);
-  expectThrow('invalid observed time', () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { now: '2026-07-13 14:00:00' }).dependencies), /ISO/);
-  expectThrow('relative homedir', () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { home: 'relative-home' }).dependencies), /homedir/);
+  assert.equal(jcs(fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(reorderedInput, reorderedDependencies)), jcs(fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture).dependencies)), 'closed object key order canonicalizes identically');
+  expectThrow('missing prerequisite input key', () => { const value = { ...input }; delete value.releaseVersion; fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(value, prerequisiteDependencies(fixture).dependencies); }, /unknown key|must contain|releaseVersion/);
+  expectThrow('extra prerequisite input key', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication({ ...input, observations: {} }, prerequisiteDependencies(fixture).dependencies), /unknown key/);
+  expectThrow('swapped prerequisite input values', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication({ ...input, evidenceCommit: input.bindingCommit, bindingCommit: input.evidenceCommit }, prerequisiteDependencies(fixture).dependencies), /contiguous|parent|commit/);
+  expectThrow('missing prerequisite dependency', () => { const value = { ...prerequisiteDependencies(fixture).dependencies }; delete value.now; fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, value); }, /missing now/);
+  expectThrow('extra prerequisite dependency', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, { ...prerequisiteDependencies(fixture).dependencies, observations: () => ({}) }), /unknown key/);
+  expectThrow('wrong child cwd', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { wrongCwd: true }).dependencies), /wrong child cwd/);
+  expectThrow('invalid observed time', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { now: '2026-07-13 14:00:00' }).dependencies), /ISO/);
+  expectThrow('relative homedir', () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { home: 'relative-home' }).dependencies), /homedir/);
   for (const [label, resultVariant, pattern] of [
     ['missing child result field', ({ result, label: row }) => row === 'remote_main' ? (() => { const copy = { ...result }; delete copy.stderr; return copy; })() : result, /child result.*missing stderr/],
     ['extra child result field', ({ result, label: row }) => row === 'remote_main' ? { ...result, extra: true } : result, /child result.*unknown key/],
@@ -1017,14 +1083,14 @@ const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',e
     ['nonbuffer child stdout', ({ result, label: row }) => row === 'remote_main' ? { ...result, stdout: result.stdout.toString() } : result, /Buffer/],
     ['nonbuffer child stderr', ({ result, label: row }) => row === 'remote_main' ? { ...result, stderr: result.stderr.toString() } : result, /Buffer/],
     ['unrecorded child stderr', ({ result, label: row, argv }) => row === null && argv[1] === 'rev-parse' ? { ...result, stderr: Buffer.from('unexpected\n') } : result, /stderr must be empty/],
-  ]) expectThrow(label, () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { resultVariant }).dependencies), pattern);
+  ]) expectThrow(label, () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { resultVariant }).dependencies), pattern);
   for (const [label, fileVariant, pattern] of [
     ['cache symlink', { lstat: () => ({ kind: 'file', symbolicLink: true }) }, /non-symlink file/],
     ['cache directory', { lstat: () => ({ kind: 'directory', symbolicLink: false }) }, /non-symlink file/],
     ['cache realpath', { realpath: (value) => value === path.resolve(fixture.repo) ? value : `${value}.other` }, /non-symlink file/],
     ['cache nonbuffer read', { readFile: () => 'not-buffer' }, /Buffer/],
     ['cache wrong hash', { readFile: () => Buffer.from('different policy') }, /policies differ/],
-  ]) expectThrow(label, () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { fileVariant }).dependencies), pattern);
+  ]) expectThrow(label, () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { fileVariant }).dependencies), pattern);
   for (const [label, resultVariant, pattern] of [
     ['remote main extra row', ({ result, label: row }) => row === 'remote_main' ? { ...result, stdout: Buffer.concat([result.stdout, result.stdout]) } : result, /remote main stdout mismatch/],
     ['remote tag row order', ({ result, label: row }) => row === 'remote_tag' ? { ...result, stdout: Buffer.from(result.stdout.toString().trim().split('\n').reverse().join('\n') + '\n') } : result, /remote tag stdout mismatch/],
@@ -1032,7 +1098,7 @@ const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',e
     ['release draft', ({ result, label: row }) => row === 'github_release' ? { ...result, stdout: Buffer.from(JSON.stringify({ isDraft: true, isPrerelease: false, tagName: RELEASE_TAG, url: `https://github.com/DocksDocks/docks/releases/tag/${RELEASE_TAG}` })) } : result, /Release projection mismatch/],
     ['duplicate Codex plugin', ({ result, label: row, outputs }) => row === 'codex_plugin' ? { ...result, stdout: Buffer.from(JSON.stringify({ installed: [JSON.parse(outputs.codex_plugin).installed[1], JSON.parse(outputs.codex_plugin).installed[1]] })) } : result, /selection must be unique/],
     ['missing Claude plugin', ({ result, label: row }) => row === 'claude_plugin' ? { ...result, stdout: Buffer.from('[]') } : result, /selection must be unique/],
-  ]) expectThrow(label, () => buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { resultVariant }).dependencies), pattern);
+  ]) expectThrow(label, () => fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, prerequisiteDependencies(fixture, { resultVariant }).dependencies), pattern);
 
   for (const extra of ['dependencies', 'time', 'home', 'raw-observations', 'parsed-observations', 'cache-path']) {
     const args = ['compatibility-prerequisite', input.repo, input.planPath, input.finishedPlanPath, input.finishedPlanCommit, input.releaseVersion, input.evidenceCommit, input.compatibilityReviewCommit, input.bindingCommit, input.authorizationId, input.authorizationSha256, extra];
@@ -1043,11 +1109,11 @@ const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',e
 
   const changeStoredStderr = (receipt) => { receipt.observations.remote_main.stderr_sha256 = 'f'.repeat(64); };
   const staleStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr); const staleChain = commitPrerequisiteVariant(fixture, staleStderr, 'stale stored stderr hash');
-  expectThrow('stale stored stderr substitution', () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: staleChain.f }), /observations hash mismatch/);
+  expectThrow('stale stored stderr substitution', () => compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: staleChain.f }), /observations hash mismatch/);
   const partialStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr, { observations: true }); const partialChain = commitPrerequisiteVariant(fixture, partialStderr, 'partially rehashed stored stderr hash');
-  expectThrow('partially rehashed stored stderr substitution', () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: partialChain.f }), /receipt hash mismatch/);
+  expectThrow('partially rehashed stored stderr substitution', () => compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: partialChain.f }), /receipt hash mismatch/);
   const rehashedStderr = rehashedPrerequisiteApplication(prerequisiteApplication, changeStoredStderr); const rehashedChain = commitPrerequisiteVariant(fixture, rehashedStderr, 'fully rehashed opaque stderr provenance');
-  assert.equal(validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: rehashedChain.f }).mode, 'legacy_compatibility', 'fully rehashed opaque digest documents trusted constructor/Q/F provenance boundary');
+  assert.equal(compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: rehashedChain.f }).mode, 'legacy_compatibility', 'fully rehashed opaque digest documents trusted constructor/Q/F provenance boundary');
   const reorderedReceipt = rehashedPrerequisiteApplication(prerequisiteApplication, (receipt) => {
     receipt.observations = Object.fromEntries(Object.entries(receipt.observations).reverse());
     receipt.observations.remote_main = Object.fromEntries(Object.entries(receipt.observations.remote_main).reverse());
@@ -1065,20 +1131,20 @@ const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',e
     ['stored cache relative path', (receipt) => { receipt.observations.codex_cache.home_relative_path = '.codex/wrong'; }, /cache relative path/],
   ]) {
     const application = rehashedPrerequisiteApplication(prerequisiteApplication, applyChange); const chain = commitPrerequisiteVariant(fixture, application, label);
-    expectThrow(label, () => validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: chain.f }), pattern);
+    expectThrow(label, () => compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: chain.f }), pattern);
   }
   git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
 
   const prerequisiteBytes = applyPrerequisiteForTest(fixture.bindingBytes, prerequisiteApplication); writeLogical(fixture.repo, TARGET_PLAN, prerequisiteBytes); const prerequisiteCommit = commitAll(fixture.repo, 'close Docks prerequisite');
   const finalReceipt = findingsFreeDraftReceipt(prerequisiteCommit, prerequisiteBytes, 'single', '2026-07-13T15:00:00.000Z'); const finalBytes = insertOrReplaceDraftReceiptForTest(prerequisiteBytes, finalReceipt, true);
   writeLogical(fixture.repo, TARGET_PLAN, finalBytes); const finalReviewCommit = commitAll(fixture.repo, 'record final execution review');
-  const validation = validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: finalReviewCommit });
+  const validation = compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: finalReviewCommit });
   assert.equal(validation.mode, 'legacy_compatibility'); assert.equal(validation.prerequisite_commit, prerequisiteCommit); assert.equal(validation.execution_review_commit, finalReviewCommit);
   assert.equal(validation.prerequisite_receipt_sha256, prerequisiteReceiptFromApplication(prerequisiteApplication).receipt_sha256);
   const completionReceipt = completionReceiptFor(finalReviewCommit, finalBytes); let completionBytes = applyCompletionReviewBlock(finalBytes, completionReceipt).toString(); completionBytes = replaceOnce(completionBytes, 'review_status: null', 'review_status: passed');
   writeLogical(fixture.repo, TARGET_PLAN, completionBytes); const completionCommit = commitAll(fixture.repo, 'complete compatibility consumer plan');
   validateCompletionReviewReuse({ repo: fixture.repo, planPath: TARGET_PLAN, reviewedHead: finalReviewCommit, completionCommit, receipt: completionReceipt });
-  assert.equal(validateExecutionRange({ repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: completionCommit }).execution_review_commit, finalReviewCommit);
+  assert.equal(compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: completionCommit }).execution_review_commit, finalReviewCommit);
   testStrictCompletionReuse(); testCompletionReviewRenderer(); testExecutionScopeLedger();
   makeWritable(fixture.temp); fs.rmSync(fixture.temp, { recursive: true, force: true });
   console.log('execution compatibility: strict-first evidence/review/binding/prerequisite/final-review and reuse passed');
@@ -1291,13 +1357,18 @@ function testSelfDemo(planPath) {
 const args = process.argv.slice(2);
 try {
   if (args.length === 0) {
-    testClosedSelectors(); testStrictCorpusContract(); testCanonical(); testSchemas(); testValidationMatrix(); testBundle(); testLegs(); testExecutionCompatibility(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary();
+    testClosedSelectors(); testStrictCorpusContract(); testCanonical(); testSchemas(); testValidationMatrix(); testBundle(); testLegs(); await testExecutionCompatibility(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary();
     console.log('plan-review-policy contract passed');
   } else if (args.length === 2 && args[0] === '--case' && args[1] === 'legs') testLegs();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
   else if (args.length === 3 && args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'bundle') testBundle();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'canonical') testCanonical();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'selectors') testClosedSelectors();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'strict-contract') testStrictCorpusContract();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'surfaces') { testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary(); }
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'validation-matrix') testValidationMatrix();
-  else if (args.length === 2 && args[0] === '--case' && args[1] === 'execution-compatibility') testExecutionCompatibility();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'execution-compatibility') await testExecutionCompatibility();
   else if (args.length === 4 && args[0] === '--case' && args[1] === 'strict-differential' && args[2] === '--baseline') testStrictDifferential(args[3]);
   else throw new Error('unknown or malformed plan-review-policy test selector');
 } catch (error) {

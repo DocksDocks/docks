@@ -30,6 +30,21 @@ const CANONICAL_REPOSITORY_URL = 'https://github.com/DocksDocks/docks.git';
 const CANONICAL_REMOTE_MAIN_ARGV = Object.freeze(['git', 'ls-remote', '--exit-code', '--branches', CANONICAL_REPOSITORY_URL, 'refs/heads/main']);
 const COMPATIBILITY_AUTHORIZATION_ID = 'owner-2026-07-13-remodel-and-review-plan';
 const COMPATIBILITY_AUTHORIZATION_SHA256 = '1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96';
+const COMPATIBILITY_AUTHORIZATION_SCOPE = Object.freeze({
+  schema: 1,
+  kind: 'legacy_start_transition_authorization',
+  authorization_id: COMPATIBILITY_AUTHORIZATION_ID,
+  decision: 'allow',
+  source: 'current_user',
+  source_text_sha256: COMPATIBILITY_AUTHORIZATION_SHA256,
+  target: Object.freeze({
+    schema: 1,
+    plan_path: 'docs/plans/active/relay-worker-lifecycle-primitives.md',
+    planned_at_commit: '12cf2ead208fe932084890b8e3fbd5c72591f3db',
+    execution_base_commit: 'de925e9bc046645a72f59bcd493da44d53adaf5a',
+  }),
+});
+const COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256 = '1c5cb608957a4589a4ac2bba05f4df29a6255c45034f9b59ecfda36a73327e10';
 const RELEASE_AUTHORIZATION = {
   schema: 1,
   authorization_id: 'owner-2026-07-13-four-release-order-docks-prerequisite',
@@ -845,6 +860,7 @@ function nextCommit(repo, parent, head, label) {
 
 function assertCompatibilityConstants() {
   if (sha256(jcs(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY)) !== LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256) throw new Error('execution compatibility policy constant mismatch');
+  if (sha256(jcs(COMPATIBILITY_AUTHORIZATION_SCOPE)) !== COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256) throw new Error('execution compatibility authorization scope constant mismatch');
   if (sha256(jcs(RELEASE_AUTHORIZATION)) !== RELEASE_AUTHORIZATION_SHA256) throw new Error('Docks release authorization constant mismatch');
   if (sha256(PREREQUISITE_PENDING_MARKER) !== PREREQUISITE_PENDING_MARKER_SHA256) throw new Error('Docks prerequisite marker constant mismatch');
   if (sha256(PREREQUISITE_STEP_PLANNED) !== 'cd9a017792436c305c5c7c3a8b3b62a9325c9d5951d2e571084e72942cb17174' || sha256(PREREQUISITE_STEP_DONE) !== '1319228f952ab08c95122d98907a7654bf18ba31db7e6d21b015178cd7675aae') throw new Error('Docks prerequisite Step-P constant mismatch');
@@ -1011,13 +1027,49 @@ function compatibilityMaterial(context, diff) {
 }
 
 export function buildExecutionBaseCompatibilityApplication({ repo, reviewedHead, planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 }) {
-  if (authorizationId !== COMPATIBILITY_AUTHORIZATION_ID || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SHA256) throw new Error('execution compatibility owner confirmation mismatch');
+  compatibilityOwnerConfirmation({ planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 });
   const context = legacyHistoricalContext({ repo: path.resolve(repo), planPath, plannedAtCommit, executionBaseCommit, reviewedHead });
   return compatibilityApplication(context, transitionDiff(context), authorizationId, ownerMessageSha256).application;
 }
 
+function compatibilityOwnerConfirmation({ planPath, plannedAtCommit, executionBaseCommit, authorizationId, ownerMessageSha256 }) {
+  const plan_path = safeLogical(planPath);
+  if (authorizationId !== COMPATIBILITY_AUTHORIZATION_SCOPE.authorization_id || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SCOPE.source_text_sha256) throw new Error('execution compatibility owner confirmation source mismatch');
+  if (plan_path !== COMPATIBILITY_AUTHORIZATION_SCOPE.target.plan_path) throw new Error('execution compatibility owner confirmation plan target mismatch');
+  if (plannedAtCommit !== COMPATIBILITY_AUTHORIZATION_SCOPE.target.planned_at_commit) throw new Error('execution compatibility owner confirmation planned target mismatch');
+  if (executionBaseCommit !== COMPATIBILITY_AUTHORIZATION_SCOPE.target.execution_base_commit) throw new Error('execution compatibility owner confirmation execution target mismatch');
+  const scope = {
+    schema: 1,
+    kind: 'legacy_start_transition_authorization',
+    authorization_id: authorizationId,
+    decision: 'allow',
+    source: 'current_user',
+    source_text_sha256: ownerMessageSha256,
+    target: { schema: 1, plan_path, planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit },
+  };
+  return { ...scope, authorization_scope_sha256: COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256 };
+}
+
+function validateCompatibilityOwnerConfirmation(ownerConfirmation, identity) {
+  assertClosed(ownerConfirmation, ['schema', 'kind', 'authorization_id', 'authorization_scope_sha256', 'decision', 'source', 'source_text_sha256', 'target'], 'execution compatibility owner confirmation');
+  assertClosed(ownerConfirmation?.target, ['schema', 'plan_path', 'planned_at_commit', 'execution_base_commit'], 'execution compatibility owner confirmation target');
+  const expected = compatibilityOwnerConfirmation({
+    planPath: identity.plan_path,
+    plannedAtCommit: identity.planned_at_commit,
+    executionBaseCommit: identity.execution_base_commit,
+    authorizationId: ownerConfirmation.authorization_id,
+    ownerMessageSha256: ownerConfirmation.source_text_sha256,
+  });
+  if (ownerConfirmation.authorization_scope_sha256 !== COMPATIBILITY_AUTHORIZATION_SCOPE_SHA256) throw new Error('execution compatibility owner confirmation stored authorization scope digest mismatch');
+  const { authorization_scope_sha256: actualDigest, ...actualScope } = ownerConfirmation;
+  const { authorization_scope_sha256: expectedDigest, ...expectedScope } = expected;
+  void actualDigest; void expectedDigest;
+  if (jcs(actualScope) !== jcs(expectedScope)) throw new Error('execution compatibility owner confirmation mismatch');
+  return expected;
+}
+
 function compatibilityApplication(context, diff, authorizationId, ownerMessageSha256) {
-  if (authorizationId !== COMPATIBILITY_AUTHORIZATION_ID || ownerMessageSha256 !== COMPATIBILITY_AUTHORIZATION_SHA256) throw new Error('execution compatibility owner confirmation mismatch');
+  const ownerConfirmation = compatibilityOwnerConfirmation({ planPath: context.plan_path, plannedAtCommit: context.planned_at_commit, executionBaseCommit: context.execution_base_commit, authorizationId, ownerMessageSha256 });
   const material = compatibilityMaterial(context, diff);
   const receipt = {
     schema: 1,
@@ -1039,7 +1091,7 @@ function compatibilityApplication(context, diff, authorizationId, ownerMessageSh
     changed_sections: context.changed_sections,
     protected_sections_sha256: context.protected_sections_sha256,
     review_material_sha256: material.review_material_sha256,
-    owner_confirmation: { schema: 1, authorization_id: authorizationId, decision: 'allow', source: 'current_user', source_text_sha256: ownerMessageSha256 },
+    owner_confirmation: ownerConfirmation,
   };
   receipt.receipt_sha256 = sha256(jcs(receipt));
   const fence = compatibilityFence(diff);
@@ -1077,6 +1129,7 @@ function validateCompatibilityApplication(application, expected = {}) {
   const receipt = application.receipt;
   assertClosed(receipt, ['schema', 'kind', 'policy_sha256', 'plan_path', 'planned_at_commit', 'plan_creation_commit', 'plan_creation_parent', 'execution_parent', 'execution_base_commit', 'legacy_planned_at_value', 'evidence_input_commit', 'evidence_input_plan_blob', 'parent_plan_blob', 'base_plan_blob', 'transition_diff_sha256', 'partition_manifest_sha256', 'changed_sections', 'protected_sections_sha256', 'review_material_sha256', 'owner_confirmation', 'receipt_sha256'], 'execution compatibility receipt');
   if (receipt.schema !== 1 || receipt.kind !== 'legacy_start_transition' || receipt.policy_sha256 !== LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256) throw new Error('execution compatibility receipt identity');
+  validateCompatibilityOwnerConfirmation(receipt.owner_confirmation, receipt);
   const expectedApplication = buildExecutionBaseCompatibilityApplication({ repo: expected.repo, reviewedHead: receipt.evidence_input_commit, planPath: receipt.plan_path, plannedAtCommit: receipt.planned_at_commit, executionBaseCommit: receipt.execution_base_commit, authorizationId: receipt.owner_confirmation?.authorization_id, ownerMessageSha256: receipt.owner_confirmation?.source_text_sha256 });
   if (application.markdown !== expectedApplication.markdown || receipt.receipt_sha256 !== expectedApplication.receipt_sha256) throw new Error('execution compatibility application mismatch');
   if (expected.planPath !== undefined && receipt.plan_path !== safeLogical(expected.planPath)) throw new Error('execution compatibility plan mismatch');
@@ -1531,8 +1584,7 @@ function storedCompatibilityPayload(application) {
   if (material.review_material_sha256 !== sha256(jcs({ schema: 1, material: withoutReviewHash, transition_diff: diff }))) throw new Error('stored compatibility material hash mismatch');
   const receiptPreimage = { ...receipt }; delete receiptPreimage.receipt_sha256;
   if (receipt.receipt_sha256 !== sha256(jcs(receiptPreimage))) throw new Error('stored compatibility receipt hash mismatch');
-  assertClosed(receipt.owner_confirmation, ['schema', 'authorization_id', 'decision', 'source', 'source_text_sha256'], 'stored compatibility owner confirmation');
-  if (jcs(receipt.owner_confirmation) !== jcs({ schema: 1, authorization_id: COMPATIBILITY_AUTHORIZATION_ID, decision: 'allow', source: 'current_user', source_text_sha256: COMPATIBILITY_AUTHORIZATION_SHA256 })) throw new Error('stored compatibility owner confirmation mismatch');
+  validateCompatibilityOwnerConfirmation(receipt.owner_confirmation, receipt);
   if (!Array.isArray(receipt.changed_sections) || receipt.changed_sections.length === 0) throw new Error('stored compatibility changed sections');
   let previous = null;
   for (const row of receipt.changed_sections) {
@@ -1551,6 +1603,7 @@ function validateBindingWithRepository({ repository, planPath, evidenceCommit, r
   const evidenceBytes = repository.blob(evidenceCommit, planPath, 'compatibility evidence plan'); const application = extractCompatibilityApplication(evidenceBytes);
   if (application.receipt?.plan_path !== planPath) throw new Error('compatibility evidence plan path mismatch');
   if (application.receipt.evidence_input_commit !== evidenceParent) throw new Error('compatibility evidence parent mismatch');
+  validateCompatibilityOwnerConfirmation(application.receipt.owner_confirmation, application.receipt);
   const context = legacyHistoricalContextWithRepository({
     repository,
     planPath,
@@ -1952,8 +2005,16 @@ function validateLegacyCompatibilityRange({ repo, planPath, plannedAtCommit, exe
   };
 }
 
-export function validateExecutionScope({ repo, base, head, planPath }) {
-  const logical = safeLogical(planPath); exactCommit(repo, base, 'execution scope base'); exactCommit(repo, head, 'execution scope head');
+export function validateExecutionScope({ repo, base, head, planPath, expectedAllowedPathsSha256 }) {
+  const logical = safeLogical(planPath); digest(expectedAllowedPathsSha256, 'execution scope expected allowed paths');
+  exactCommit(repo, base, 'execution scope base'); exactCommit(repo, head, 'execution scope head');
+  const headPlan = parsePlan(planBlob(repo, head, logical)); const affected = headPlan.frontmatter.affected_paths;
+  if (!Array.isArray(affected)) throw new Error('execution scope affected_paths missing');
+  const unsorted = [logical, ...affected.map(safeLogical)];
+  if (new Set(unsorted).size !== unsorted.length) throw new Error('execution scope allowed paths contain duplicates');
+  const paths = unsorted.slice().sort(compareUtf16); const allowed = new Set(paths);
+  const allowedPathsSha256 = sha256(jcs({ schema: 1, paths }));
+  if (allowedPathsSha256 !== expectedAllowedPathsSha256) throw new Error('execution scope sealed allowed paths hash mismatch');
   if (!ancestor(repo, base, head)) throw new Error('execution scope base is not an ancestor of head');
   const newestFirst = []; let cursor = head; const seen = new Set();
   while (cursor !== base) {
@@ -1962,12 +2023,6 @@ export function validateExecutionScope({ repo, base, head, planPath }) {
     if (newestFirst.length > 100000) throw new Error('execution scope commit bound exceeded');
   }
   const commits = newestFirst.reverse();
-  const headPlan = parsePlan(planBlob(repo, head, logical)); const affected = headPlan.frontmatter.affected_paths;
-  if (!Array.isArray(affected)) throw new Error('execution scope affected_paths missing');
-  const unsorted = [logical, ...affected.map(safeLogical)];
-  if (new Set(unsorted).size !== unsorted.length) throw new Error('execution scope allowed paths contain duplicates');
-  const paths = unsorted.slice().sort(compareUtf16); const allowed = new Set(paths);
-  const allowedPathsSha256 = sha256(jcs({ schema: 1, paths }));
   const ledger = commits.map((row, index) => {
     const changed = changedPaths(repo, row.parent, row.commit).slice().sort(compareUtf16);
     for (const changedPath of changed) if (!allowed.has(changedPath)) throw new Error(`execution scope path is not allowed: ${changedPath}`);
@@ -2293,9 +2348,9 @@ export function run(argv = process.argv.slice(2)) {
     process.stdout.write(`${jcs(validateExecutionRange({ repo: path.resolve(repo), reviewedHead, planPath, plannedAtCommit, executionBaseCommit }))}\n`); return;
   }
   if (command === 'execution-scope') {
-    if (args.length !== 4) throw new Error('execution-scope accepts repo base head plan-path only');
-    const [repo, base, head, planPath] = args;
-    process.stdout.write(`${jcs(validateExecutionScope({ repo: path.resolve(repo), base, head, planPath }))}\n`); return;
+    if (args.length !== 5) throw new Error('execution-scope accepts repo base head plan-path expected-allowed-paths-sha256 only');
+    const [repo, base, head, planPath, expectedAllowedPathsSha256] = args;
+    process.stdout.write(`${jcs(validateExecutionScope({ repo: path.resolve(repo), base, head, planPath, expectedAllowedPathsSha256 }))}\n`); return;
   }
   if (command === 'canonical-plan') { process.stdout.write(canonicalPlanView(fs.readFileSync(args[0]))); return; }
   if (command === 'schema') { process.stdout.write(`${jcs(reviewerSchema(args[0]))}\n`); return; }
