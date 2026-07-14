@@ -3,7 +3,7 @@ title: Continue relay worker lifecycle primitives from current main
 goal: Finish the existing Session Relay lifecycle deliverable from its verified implementation checkpoint under a normal current-lifecycle execution base.
 status: ongoing
 created: "2026-07-14T09:34:54-03:00"
-updated: "2026-07-14T10:53:05-03:00"
+updated: "2026-07-14T11:12:11-03:00"
 started_at: "2026-07-14T10:19:03-03:00"
 assignee: null
 review_author_company: openai
@@ -278,16 +278,18 @@ Let `E=18b023ec461c2374eb73cf293d8223a23e36d044` be the frontmatter
 `execution_base_commit`, `R=fd89ad0a53dd236378f9e516323e20756891d687`
 be its direct plan-only record commit, and
 `P=22b754adcd5756f084fd61f55436971a6b9d407f` be the preserved implementation.
-This bounded runtime-gate repair produces exactly two further plan-only commits:
-`Q`, the candidate reviewed by a fresh draft request with lifecycle intent
-`none` and sole parent `R`, and `B`, its direct receipt-bearing child. `B` may
+This bounded runtime-gate repair produces exactly three further plan-only
+commits: `Q0=dc68c713474f9cfac24c6260bac5d416be94663d`, the initial overlay
+candidate and sole child of `R`; `Q`, its direct child applying only the two
+accepted low wording findings and reviewed by a fresh draft request with
+lifecycle intent `none`; and `B`, `Q`'s direct receipt-bearing child. `B` may
 differ from `Q` only in this plan's `updated`, `Cross-check`, replacement
 `Review-receipt`, and receipt attribution in `Self-review`; it must retain
 `status: ongoing`, `started_at`, and `execution_base_commit: E`.
 Main-context plan-manager records exact `Q`, its reviewed plan blob, `B`, and
-the `B` plan blob before dispatch, then makes no further main or plan commit
-until integration. The Step-1 worker starts or fast-forwards its clean branch
-to `B` and runs
+the `B` plan blob before dispatching the Step-1 worker, then makes no further
+main or plan commit until integration. The Step-1 worker starts or fast-forwards
+its clean branch to `B` and runs
 one `--no-ff --no-commit` merge of `P`. The only permitted unmerged path is
 `docs/plans/active/relay-worker-lifecycle-primitives.md`; it is resolved as
 absent, matching `B`. The current continuation and both archive paths must be
@@ -384,9 +386,9 @@ hash placeholders mean lowercase 64-hex.
   deliberately. Do not write in the old shared worktree.
 - Cargo from repository root fails because the toolchain pin is below
   `plugins/session-relay/rust/`.
-- Claude CLI currently reports `loggedIn:false`. Record the X leg as
-  `unavailable_auth`; one fresh passed S leg is sufficient under the released
-  policy and the owner's standing cross-company consent.
+- Determine each cross-company leg's availability from its live preflight. A
+  CLI authentication failure affects only that CLI attempt; never pre-record an
+  unavailable result for another transport or a later review.
 - Historical live RunGate receipts are not rerun. Pending live gates require the
   exact owner-provisioned runner and delegated cgroup described by the frozen
   spec; copied receipt bytes do not authorize them.
@@ -483,8 +485,14 @@ and workflow byte from the preserved parent, and binds the overlay plus the fres
 review candidate `Q` and receipt-bearing integration base `B`. It changes no
 product Goal, primitive, acceptance row, event, or remaining implementation step.
 One fresh review is limited to this reproduced one-path overlay and the closed
-`E/R/Q/B/P` identity chain; after its receipt, implementation resumes without a
-further design-review cycle.
+`E/R/Q0/Q/B/P` identity chain; after its receipt, implementation resumes without
+a further design-review cycle.
+
+The first corrected X leg was READY 94 and raised only two low wording findings.
+Direct reproduction accepted both: the stale CLI-authentication gotcha is now
+transport- and attempt-scoped, and `before dispatch` now names the Step-1 worker.
+Neither changes the overlay, identity chain, Goal, acceptance, or implementation;
+the final check is limited to those accepted wording corrections.
 
 ## Mistakes & Dead Ends
 
