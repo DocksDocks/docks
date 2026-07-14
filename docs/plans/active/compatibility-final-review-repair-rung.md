@@ -3,7 +3,7 @@ title: Add a bounded compatibility final-review repair rung
 goal: Let legacy compatibility plans repair valid findings after Q and re-review exact repaired bytes without weakening E/R/B/Q or execution authority.
 status: planned
 created: "2026-07-14T01:52:16-03:00"
-updated: "2026-07-14T01:52:16-03:00"
+updated: "2026-07-14T02:49:13-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -131,8 +131,13 @@ For input I0=Q, then Ii=Di:
    D1 is the one exception to the ordinary “accepted findings on this attempt”
    predicate: this committed plan durably records the already reproduced S1 and
    authorizes the exact mandatory M1–M12 application below even if the fresh Q
-   reviewer does not repeat S1. From D1 onward, no accepted finding, no material
-   repair, or the same input hash after a terminal review is STOP.
+   reviewer does not repeat S1. Before D1, map every accepted fresh-Q finding to
+   one or more M1–M12 replacements and prove those replacements fully resolve
+   it. Any accepted Q finding not completely resolved by that exact mapping is
+   a HARD STOP before D1; it is never carried transiently, silently dropped, or
+   deferred hoping the D1 reviewer repeats it. From D1 onward, no accepted
+   finding, no material repair, or the same input hash after a terminal review
+   is STOP.
 4. Apply exactly D1 first. Thereafter apply at most one plan-only D commit for
    all accepted findings that fit the closed D2–D8 transform, destroy the stale
    bundle, and return to step 1 with fresh bytes. A finding requiring a
@@ -330,7 +335,7 @@ The exact unique 69-label concatenation has compact-JSON SHA-256
 | ID | Command | Expected |
 |---|---|---|
 | A1 | `node --check plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` | Exit 0 with no syntax error. |
-| A2 | `node scripts/tests/plan-review-policy.mjs --case execution-compatibility` | Exit 0; frozen 0.12.5 Q→F outputs match byte-for-byte at F, a post-F unrelated head, an accounting/Step update, `in_review`, and completion receipt; exact D1 postimage plus Q→D*→F positives pass for 1/8 D and exact-bound histories; every closed pre-F ancestry/delta/evidence/receipt negative and every altered retained F/compatibility record rejects. |
+| A2 | `node scripts/tests/plan-review-policy.mjs --case execution-compatibility` | Exit 0; frozen 0.12.5 Q→F outputs match byte-for-byte at F, a post-F unrelated head, an accounting/Step update, `in_review`, and completion receipt; exact D1 postimage plus Q→D*→F positives pass for 1/8 D and exact-bound histories; every closed pre-F ancestry/delta/evidence/receipt negative and every altered retained F/compatibility record rejects. A fresh-Q accepted finding not resolved by M1–M12 remains ineligible even when the D1 reviewer returns findings-free ready. |
 | A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; the Q→D*→F policy block is exact across source/template/plan-manager/plan-review surfaces, ownership/read-only boundaries remain exact, and CI contains exactly one focused surface call plus one regression-driver `--self-test` call. |
 | A4 | `node scripts/tests/plan-review-policy.mjs --case regression-contract` | Exit 0 quickly without launching mutation children; the ordered legacy 57, new 12, and full unique 69 label vectors exact-match hashes `2f73fb7a6bcacd417867e83fb5ba767e10601fe4d1e8dc0c305b112c4201b102`, `e6c8b0ed8fc087ccbc885cb4619e1f985eb1f743d16ca585b9410c6eba8a514d`, and `7c21ace02c5769ae5e4ade2ddd37e5b63ef46e6fba39421797c84aadf7b18ee0`, and every new label maps to its required focused selector/anchor. The separately recorded full CI command owns the single 69-case execution. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only plugins/docks/skills` | Exit 0 after final metadata maintenance; all shipped skill content hashes are synchronized. |
@@ -349,7 +354,10 @@ part of the completion acceptance inventory. From clean `main`, plan-manager:
    set -euo pipefail
    test "$(git branch --show-current)" = main
    test -z "$(git status --porcelain)"
-   node scripts/release.mjs --plugin docks patch
+   test "$(jq -er '.version' plugins/docks/.claude-plugin/plugin.json)" = 0.12.5
+   test "$(jq -er '.version' plugins/docks/.codex-plugin/plugin.json)" = 0.12.5
+   test "$(jq -er '.plugins[] | select(.name == "docks") | .version' .claude-plugin/marketplace.json)" = 0.12.5
+   node scripts/release.mjs --plugin docks 0.12.6
    RELEASE_COMMIT="$(git rev-parse HEAD)"
    RELEASE_VERSION="$(jq -er '.version' plugins/docks/.codex-plugin/plugin.json)"
    export RELEASE_TAG="docks--v$RELEASE_VERSION"
@@ -541,6 +549,16 @@ The architecture leg's last pass caught and closed an insertion-order-JSON
 versus repository-JCS digest mismatch and cross-shell helper-variable leakage;
 both reviewers independently recomputed the corrected JCS hash and
 self-contained installed-helper proof before this planned-state commit.
+
+Cross-check (2026-07-14): [X: anthropic fable high] 0 findings — accepted none / rejected none (Claude authentication preflight unavailable); [S: openai gpt-5.6-sol xhigh] 2 findings — accepted S1,S2 / rejected none (none); [orchestrator] independently verified S1,S2 against the sealed plan and release source before accepting.
+
+The first formal sealed S review scored 82/100 `not_ready`. S1 showed that an
+extra accepted Q-only finding could disappear when exact D1 forbids its bytes
+and D2 previously handled only later findings; the revised loop now requires an
+exact M1–M12 resolution map or HARD STOP before D1, with a focused non-repetition
+negative. S2 showed that version drift was checked only after publication; the
+release block now asserts all three 0.12.5 source catalog identities and invokes
+the explicit 0.12.6 target before any external write. Fresh review is required.
 
 The initial design considered silently treating the valid Q finding as
 nonblocking, writing it into F, or inserting an ordinary plan commit. All three
