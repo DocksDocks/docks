@@ -1273,11 +1273,30 @@ function testConsumer() {
 }
 
 function testContractSurfaces() {
-  const contract = fs.readFileSync(path.join(ROOT, 'docs/plans/AGENTS.md'), 'utf8');
-  const template = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md'), 'utf8');
+  const contractPath = 'docs/plans/AGENTS.md';
+  const templatePath = 'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md';
+  const managerPath = 'plugins/docks/skills/productivity/plan-manager/SKILL.md';
+  const reviewPath = 'plugins/docks/skills/productivity/plan-review/SKILL.md';
+  const contract = fs.readFileSync(path.join(ROOT, contractPath), 'utf8');
+  const template = fs.readFileSync(path.join(ROOT, templatePath), 'utf8');
   for (const marker of ['review_author_company:', 'review_waivers:', 'execution_base_commit:', 'execution_base_commit..HEAD', '### Strong-default independent review', 'platform_denied', 'prepare(intent)', 'X1…', 'S1…']) {
     assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
     assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
+  }
+  const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
+  const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
+  const regressionCall = "nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'])";
+  assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*,\s*['"]--case['"]\s*,\s*['"]surfaces['"]\s*\]\)/g) || []).length, 1, 'CI must contain exactly one focused --case surfaces call');
+  assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\)/g) || []).length, 1, 'CI must contain exactly one regression-driver --self-test call');
+  assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*\]\)/g) || []).length, 0, 'CI must contain zero no-argument full policy-harness calls');
+  assert.match(ci, new RegExp(`${focusedCall.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')};\\nconst planPolicyRegressionsPassed = ${regressionCall.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')};`), 'CI must launch focused surfaces before the unconditional regression driver');
+  const exactRules = [
+    "Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; schema-v1 validators and receipts remain unchanged.",
+    'Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition.',
+  ];
+  for (const file of [contractPath, templatePath, managerPath, reviewPath]) {
+    const normalized = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\s+/g, ' ');
+    for (const rule of exactRules) assert.equal(normalized.split(rule).length - 1, 1, `${file} must carry the exact verification rule once: ${rule}`);
   }
   for (const file of ['AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md']) {
     assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /strong|Strong|independent X\/S|independent-review/, `${file} missing public review route`);
@@ -1287,6 +1306,7 @@ function testContractSurfaces() {
   assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/README.md'), 'utf8'), /Plan review is a strong availability-aware default/);
   assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/AGENTS.md'), 'utf8'), /independent-review contract/);
   assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8'), /strong-default X\/S review receipts/);
+  console.log('CI composition and task-specific acceptance/repair parity passed');
   console.log('contract/template/public strong-default parity passed');
 }
 

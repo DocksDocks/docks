@@ -92,10 +92,14 @@ if (fs.existsSync('docs/scaffold/spec.yaml')) {
 }
 
 section('plan review policy');
-nodeOk(['scripts/tests/plan-review-policy.mjs']) ? ok('plan-review-policy contract passed')
-  : fail('plan-review-policy contract failed (run: node scripts/tests/plan-review-policy.mjs)');
-nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test']) ? ok('plan-review-policy regressions passed')
-  : fail('plan-review-policy regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)');
+const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
+const planPolicyRegressionsPassed = nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test']);
+planPolicySurfacesPassed ? ok('plan-review-policy fast surfaces passed')
+  : fail('plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)');
+if (planPolicyRegressionsPassed) {
+  ok('plan-review-policy contract passed');
+  ok('plan-review-policy regressions passed');
+} else fail('plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)');
 
 // ============================ per-plugin gate ============================
 for (const p of targets) gatePlugin(p);

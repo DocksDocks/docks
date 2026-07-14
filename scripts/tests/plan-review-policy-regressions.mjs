@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const HARNESS = 'scripts/tests/plan-review-policy.mjs';
-const DEFAULT_JOBS = Math.max(1, Math.min(4, os.availableParallelism()));
+const DEFAULT_JOBS = Math.max(1, Math.min(6, os.availableParallelism()));
 const MAX_CHILD_OUTPUT_BYTES = 16 * 1024 * 1024;
 const CHILD_TIMEOUT_MS = 15 * 60 * 1000;
 const INTERRUPT_ESCALATION_MS = 500;
@@ -38,6 +38,7 @@ const REQUIRED_SURFACES = [
   'AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md',
   'plugins/session-relay/skills/productivity/session-relay/SKILL.md',
   'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+  'scripts/ci.mjs',
   'scripts/tests/fixtures/plan-review-policy/sample-plan.md',
   HARNESS,
 ];
@@ -479,6 +480,21 @@ const REGRESSIONS = [
     'plugins/docks/skills/productivity/plan-manager/SKILL.md',
     '## Publishing a plan as a GitHub issue (`--issues`)',
     '## Removed external operation',
+  )],
+  ['CI focused surfaces call removed', ['--case', 'surfaces'], /focused.*surfaces|exactly one|Assertion/i, applyVariant(
+    'scripts/ci.mjs',
+    "const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);",
+    'const planPolicySurfacesPassed = true;',
+  )],
+  ['CI regression-driver call removed', ['--case', 'surfaces'], /regression.*self-test|exactly one|Assertion/i, applyVariant(
+    'scripts/ci.mjs',
+    "const planPolicyRegressionsPassed = nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test']);",
+    'const planPolicyRegressionsPassed = true;',
+  )],
+  ['CI no-argument full policy-harness duplicate restored', ['--case', 'surfaces'], /no-argument full policy-harness|zero no-argument|Assertion/i, applyVariant(
+    'scripts/ci.mjs',
+    "section('plan review policy');\nconst planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);",
+    "section('plan review policy');\nnodeOk(['scripts/tests/plan-review-policy.mjs']);\nconst planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);",
   )],
   ['compatibility authorization-id regression', ['--case', 'execution-compatibility'], /authorization id|source mismatch|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',

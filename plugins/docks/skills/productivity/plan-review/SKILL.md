@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-13"
-  content_hash: "0a65890a14f0463d080755701c470d5598783824f2adb6660f4931c22b5886be"
+  content_hash: "af0d2e57d355ff6c151fb249600ce901eb161d95d1915beba78607de5f76a170"
 ---
 
 # Plan Review Evidence Runner
@@ -202,6 +202,20 @@ the immutable release and cache identities.
   one-to-one primary evidence, lifecycle identity commits, the plan-only
   `in_review` transition, the broad gate, or final completion verification.
   Main context still runs each inventory row exactly once in its defined order.
+
+Acceptance inventories remain nonempty and task-specific. Omit a broad check
+only when the plan records the exact project CI command and retains a fast
+independent acceptance row that proves that command's composition or strict
+containment of the omitted surface; if containment is uncertain or the
+independent proof is absent, retain the row. Newly authored inventories omit
+the project CI command itself because completion executes that exact recorded
+command separately once after the ordered inventory. This is
+plan-manager/plan-review evidence only; schema-v1 validators and receipts remain
+unchanged.
+
+Completion-review repairs remain `in_review`, preserve the original
+`in_review_since`, reopen affected Step rows, and invalidate prior completion
+input without inventing an undocumented lifecycle transition.
 
 ## Completion evidence
 

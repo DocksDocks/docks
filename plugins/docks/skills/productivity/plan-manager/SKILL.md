@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-13"
-  content_hash: "adbf784085bb3ac0111e5aa64a97e3f2221cce2913f3ea7fe5f95d1c17e5eafc"
+  content_hash: "131f477d9da2000020a1b5e3981a9d4f88784bbe6bc76da2393a1e8e63773659"
 ---
 
 # Plan Manager
@@ -209,11 +209,26 @@ Retain exact application/binding/prerequisite/attribution as canonical input. Co
 4. Reuse evidence only while every bound canonical input, author, policy/provenance, decision/waiver, bundle, commit/head/tree, diff, ordered inventory, and compatibility identity matches; restart at the earliest changed rung.
 5. Never skip X/S, the nonempty ordered inventory and one-to-one evidence, start plus `execution_base_commit` identity commits, plan-only `in_review`, the broad gate, or final completion/receipt/reuse; completion runs each inventory row exactly once in order.
 
+Acceptance inventories remain nonempty and task-specific. Omit a broad check
+only when the plan records the exact project CI command and retains a fast
+independent acceptance row that proves that command's composition or strict
+containment of the omitted surface; if containment is uncertain or the
+independent proof is absent, retain the row. Newly authored inventories omit
+the project CI command itself because completion executes that exact recorded
+command separately once after the ordered inventory. This is
+plan-manager/plan-review evidence only; schema-v1 validators and receipts remain
+unchanged.
+
+Completion-review repairs remain `in_review`, preserve the original
+`in_review_since`, reopen affected Step rows, and invalidate prior completion
+input without inventing an undocumented lifecycle transition.
+
 ## Completion review
 
-When all steps are `done`:
+When all initial or reopened steps are `done`:
 
-1. Set `status: in_review` and `in_review_since` once; commit only the plan.
+1. If needed, set `status: in_review` and `in_review_since` once; a repair keeps
+   both existing values. Commit only the plan.
 2. Assert `planned_at_commit` and `execution_base_commit` are exact full SHAs;
    validate the latter is the plan-only first-start commit, is descended from
    the former, and is an ancestor of `reviewed_head`. Assert plan+affected paths clean and snapshot original tracked modes/blobs,
