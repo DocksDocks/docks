@@ -1,9 +1,9 @@
 ---
 title: Ship Session Relay managed lifecycle behavior
 goal: Ship managed relay birth, exact cancellation, durable lifecycle authority, and honest terminal release without historical recovery machinery.
-status: ongoing
+status: finished
 created: "2026-07-14T09:34:54-03:00"
-updated: "2026-07-14T16:52:03-03:00"
+updated: "2026-07-14T17:38:39-03:00"
 started_at: "2026-07-14T10:19:03-03:00"
 assignee: codex
 review_author_company: openai
@@ -39,9 +39,10 @@ affected_paths:
 related_plans:
   - docs/plans/finished/2026-07-14-relay-worker-lifecycle-primitives-legacy.md
   - docs/plans/active/relay-worker-fanout.md
-review_status: null
+review_status: passed
 planned_at_commit: 3e6486e45859cfeccd7b1ecf6d7c539c163a4ab5
 execution_base_commit: 18b023ec461c2374eb73cf293d8223a23e36d044
+ship_commit: 1e9b89b729dbe1102fbc3e146bc4cbfc9932ea70
 ---
 
 # Ship Session Relay managed lifecycle behavior
@@ -148,10 +149,10 @@ scope is stronger than process-only evidence.
 
 | # | Task | Files | Depends | Status | Done condition / revert trigger |
 |---|---|---|---|---|---|
-| 1 | Integrate the audited product checkpoint through `2a864e9`, keeping current-main plan files and excluding every later receipt/recovery commit. | Existing Session Relay Rust modules and focused tests listed in `affected_paths` | — | implemented | Merge contains only the lifecycle/admission/supervisor product checkpoint; no runner custodian, WIP baseline, continuation binding, or recovery fixture appears. Revert trigger: any non-Session-Relay product path is changed. |
-| 2 | Complete durable authority, managed Claude/Codex birth, exact cancellation, and idempotent terminal release. | `rust/src/{lifecycle,store,appserver,spawn,supervisor}.rs`, `rust/tests/lifecycle_release.rs`, `test/fake-app-server.mjs` | 1 | implemented | Focused tests prove old-writer non-erasure, no pre-Active birth/`turn/start`, exact interrupt, re-entry refusal after fence, and no release on uncertain proof. Revert trigger: an unmanaged compatibility test regresses or a failure path emits first-turn bytes. |
-| 3 | Run the focused acceptance set, perform one fresh correctness review limited to the four Goal properties, and apply at most one reproduced-blocker repair pass. | Product diff and tests only; plan-manager remains the plan writer | 2 | implemented | A1-A6 pass. The sole review's three reproduced blockers were repaired together: discovery now publishes atomically with the managed claim, post-`turn/start` pump errors retain `FencingUnconfirmed`, and absent authority ignores registry lifecycle fields. No second review cycle was opened. |
-| 4 | Document the shipped guarantee, complete the plan, run the one repository CI gate, then execute the official binary/release workflow and verify the published release. | `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, manifests/binaries only through `scripts/release.mjs` and producer artifacts | 3 | planned | CI exits 0; official four-target artifacts and checksums are committed; the Session Relay tag CI passes; a non-draft GitHub Release exists at the expected version. |
+| 1 | Integrate the audited product checkpoint through `2a864e9`, keeping current-main plan files and excluding every later receipt/recovery commit. | Existing Session Relay Rust modules and focused tests listed in `affected_paths` | — | done | Merge contains only the lifecycle/admission/supervisor product checkpoint; no runner custodian, WIP baseline, continuation binding, or recovery fixture appears. Revert trigger: any non-Session-Relay product path is changed. |
+| 2 | Complete durable authority, managed Claude/Codex birth, exact cancellation, and idempotent terminal release. | `rust/src/{lifecycle,store,appserver,spawn,supervisor}.rs`, `rust/tests/lifecycle_release.rs`, `test/fake-app-server.mjs` | 1 | done | Focused tests prove old-writer non-erasure, no pre-Active birth/`turn/start`, exact interrupt, re-entry refusal after fence, and no release on uncertain proof. Revert trigger: an unmanaged compatibility test regresses or a failure path emits first-turn bytes. |
+| 3 | Run the focused acceptance set, perform one fresh correctness review limited to the four Goal properties, and apply at most one reproduced-blocker repair pass. | Product diff and tests only; plan-manager remains the plan writer | 2 | done | A1-A6 pass. The sole review's three reproduced blockers were repaired together: discovery now publishes atomically with the managed claim, post-`turn/start` pump errors retain `FencingUnconfirmed`, and absent authority ignores registry lifecycle fields. No second review cycle was opened. |
+| 4 | Document the shipped guarantee, complete the plan, run the one repository CI gate, then execute the official binary/release workflow and verify the published release. | `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, manifests/binaries only through `scripts/release.mjs` and producer artifacts | 3 | done | Producer run `29365184448` built all four targets from source commit `6d63e65`; tag CI `29366032347` passed at release commit `1e9b89b`; the non-draft GitHub Release was published. |
 
 ## Acceptance criteria
 
@@ -226,15 +227,19 @@ completion receives one bounded correctness review after implementation.
 
 ## Review
 
-One fresh read-only review checked only the four Goal invariants and found three
-correctness blockers: app-server discovery was visible before the managed
-claim, a post-`turn/start` pump error could leave the worker Active, and a
-missing authority file could expose lifecycle-shaped fields from
-`registry.json`. All three reproduced and were repaired in one bounded pass.
-Focused regressions now prove atomic discovery/claim publication, fail-closed
-socket loss, and empty initialization when authority is absent. The terminal
-release invariant passed review unchanged. No historical recovery input or
-second review cycle is part of completion.
+- Goal met: yes. Managed birth, durable authority, exact cancellation, and
+  evidence-honest terminal release shipped together.
+- Regressions: none recorded. The first macOS producer run exposed an `openpty`
+  signature mismatch; target-specific FFI pointers fixed it before any artifact
+  or release was created.
+- CI: focused acceptance passed; full local CI passed after the source and
+  official-binary updates; tag CI `29366032347` passed at the release commit.
+- Follow-ups: none required for this lifecycle release. Stronger worker-tree
+  proof and historical recovery remain explicitly outside the guarantee.
+- Filed by: Codex, OpenAI, `gpt-5.6-sol` at `xhigh` effort.
+- Cross-check: the same read-only reviewer that found the three product blockers
+  confirmed at source commit `6d63e65` that every repair closed and the terminal
+  release invariant remained intact.
 
 ## Notes
 
@@ -246,3 +251,7 @@ second review cycle is part of completion.
   supervisor/release tests passed; six authority-bypass fixtures failed to
   compile as required; the supervisor PTY/flood/watchdog matrix passed; the
   black-box self-test passed all 125 checks; formatting and clippy passed.
+- Release evidence, 2026-07-14: official producer run `29365184448` succeeded
+  for Linux and macOS at `6d63e65`; the four artifact checksums match the
+  committed binaries; release commit/tag `1e9b89b` passed tag CI run
+  `29366032347`; the non-draft Session Relay release was published.
