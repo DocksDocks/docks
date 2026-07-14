@@ -14,6 +14,9 @@ const MAX_CHILD_OUTPUT_BYTES = 16 * 1024 * 1024;
 const CHILD_TIMEOUT_MS = 15 * 60 * 1000;
 const INTERRUPT_ESCALATION_MS = 500;
 const RUN_NAMESPACE_ENV = 'DOCKS_REVIEW_POLICY_DRIVER_RUN_NAMESPACE';
+const NAMESPACE_FIXTURE_DIR_ENV = 'DOCKS_REVIEW_POLICY_NAMESPACE_FIXTURE_DIR';
+const NAMESPACE_FIXTURE_PEER_ENV = 'DOCKS_REVIEW_POLICY_NAMESPACE_FIXTURE_PEER';
+const NAMESPACE_FIXTURE_TIMEOUT_MS = 5000;
 const RUN_NAMESPACE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const RUN_NAMESPACE = validatedRunNamespace(process.env[RUN_NAMESPACE_ENV] ?? randomUUID(), 'driver run namespace');
 const OWNED_ROOT_PREFIX = ownedRootPrefix(RUN_NAMESPACE);
@@ -180,6 +183,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--self-test' && !modeSeen) { mode = 'regressions'; modeSeen = true; }
     else if (arg === '--scheduler-self-test' && !modeSeen) { mode = 'scheduler'; modeSeen = true; }
+    else if (arg === '--namespace-isolation-fixture' && !modeSeen) { mode = 'namespace'; modeSeen = true; }
     else if (arg === '--interrupt-fixture' && !modeSeen) { mode = 'interrupt'; modeSeen = true; }
     else if (arg === '--jobs' && !jobsSeen) {
       const value = argv[index + 1];
@@ -194,6 +198,100 @@ function parseArgs(argv) {
 function ownedRootPaths(namespace = RUN_NAMESPACE) {
   const prefix = ownedRootPrefix(namespace);
   return fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith(prefix)).map((name) => path.join(os.tmpdir(), name)).sort();
+}
+
+function namespaceFixtureRecordPath(directory, stage, namespace) {
+  assert.ok(['ready', 'observed', 'trimmed'].includes(stage), 'namespace fixture stage is closed');
+  return path.join(directory, `${stage}-${validatedRunNamespace(namespace, 'namespace fixture record')}.json`);
+}
+
+function writeNamespaceFixtureRecord(file, value) {
+  const temporary = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 });
+  fs.renameSync(temporary, file);
+}
+
+async function waitForNamespaceFixtureRecord(file, label) {
+  const deadline = Date.now() + NAMESPACE_FIXTURE_TIMEOUT_MS;
+  while (!fs.existsSync(file)) {
+    if (runtime.signal !== null) throw new Error(`namespace fixture interrupted by ${runtime.signal}`);
+    if (Date.now() >= deadline) throw new Error(`${label} timed out`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+function readNamespaceFixtureReady(file, namespace) {
+  const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(value).sort(), ['namespace', 'roots', 'schema'], 'namespace fixture ready record is closed');
+  assert.equal(value.schema, 1); assert.equal(value.namespace, namespace);
+  assert.ok(Array.isArray(value.roots) && value.roots.length === 2 && new Set(value.roots).size === 2, 'namespace fixture publishes two distinct roots');
+  const prefix = ownedRootPrefix(namespace); const temp = path.resolve(os.tmpdir());
+  value.roots = value.roots.map((root) => {
+    const absolute = path.resolve(root);
+    assert.equal(path.dirname(absolute), temp, 'namespace fixture root is a direct os.tmpdir child');
+    assert.ok(path.basename(absolute).startsWith(prefix), 'namespace fixture root matches its explicit namespace');
+    return absolute;
+  }).sort();
+  return value;
+}
+
+async function runNamespaceIsolationFixture() {
+  const directoryValue = process.env[NAMESPACE_FIXTURE_DIR_ENV];
+  assert.ok(typeof directoryValue === 'string' && path.isAbsolute(directoryValue), 'namespace fixture directory must be absolute');
+  const directory = path.resolve(directoryValue); const directoryStat = fs.lstatSync(directory);
+  assert.ok(directoryStat.isDirectory() && !directoryStat.isSymbolicLink(), 'namespace fixture directory must be a real directory');
+  const peerNamespace = validatedRunNamespace(process.env[NAMESPACE_FIXTURE_PEER_ENV], 'namespace fixture peer');
+  assert.notEqual(peerNamespace, RUN_NAMESPACE, 'namespace fixture peers must use distinct UUIDs');
+  const roots = [createOwnedRoot('concurrent-primary'), createOwnedRoot('concurrent-witness')].map((root) => path.resolve(root)).sort();
+  try {
+    const ownReady = namespaceFixtureRecordPath(directory, 'ready', RUN_NAMESPACE);
+    const peerReady = namespaceFixtureRecordPath(directory, 'ready', peerNamespace);
+    writeNamespaceFixtureRecord(ownReady, { schema: 1, namespace: RUN_NAMESPACE, roots });
+    await waitForNamespaceFixtureRecord(peerReady, 'peer namespace ready record');
+    const peer = readNamespaceFixtureReady(peerReady, peerNamespace);
+    assert.deepEqual(ownedRootPaths(), roots, 'child observes exactly its own namespace roots');
+    assert.ok(peer.roots.every((root) => fs.existsSync(root)), 'peer roots coexist with the child namespace');
+    assert.ok(peer.roots.every((root) => !ownedRootPaths().includes(root)), 'child namespace view excludes peer roots');
+
+    writeNamespaceFixtureRecord(namespaceFixtureRecordPath(directory, 'observed', RUN_NAMESPACE), { schema: 1, namespace: RUN_NAMESPACE });
+    await waitForNamespaceFixtureRecord(namespaceFixtureRecordPath(directory, 'observed', peerNamespace), 'peer namespace observation record');
+    removeOwnedRoot(roots[0]);
+    assert.deepEqual(ownedRootPaths(), [roots[1]], 'owned cleanup removes only one child root');
+    assert.equal(fs.existsSync(peer.roots[1]), true, 'owned cleanup preserves the peer witness root');
+
+    writeNamespaceFixtureRecord(namespaceFixtureRecordPath(directory, 'trimmed', RUN_NAMESPACE), { schema: 1, namespace: RUN_NAMESPACE });
+    await waitForNamespaceFixtureRecord(namespaceFixtureRecordPath(directory, 'trimmed', peerNamespace), 'peer namespace trim record');
+    removeOwnedRoot(roots[1]);
+    assert.deepEqual(ownedRootPaths(), [], 'child leaves zero roots in its namespace');
+    process.stdout.write(`namespace isolation fixture passed ${RUN_NAMESPACE}\n`);
+  } finally {
+    for (const root of roots) if (fs.existsSync(root)) removeOwnedRoot(root);
+  }
+}
+
+async function testConcurrentNamespaceProcesses(jobs) {
+  const namespaces = [randomUUID(), randomUUID()].map((value) => validatedRunNamespace(value, 'concurrent scheduler namespace'));
+  assert.notEqual(namespaces[0], namespaces[1], 'concurrent scheduler namespaces are distinct');
+  for (const namespace of namespaces) assert.deepEqual(ownedRootPaths(namespace), [], 'concurrent scheduler namespace starts empty');
+  const coordinationRoot = createOwnedRoot('scheduler-concurrent-processes'); const directory = path.join(coordinationRoot, 'coordination'); fs.mkdirSync(directory, { mode: 0o700 });
+  try {
+    const children = namespaces.map((namespace, index) => runChild({
+      argv: [process.execPath, fileURLToPath(import.meta.url), '--scheduler-self-test', '--jobs', String(jobs)], cwd: ROOT, timeoutMs: 10000,
+      env: { ...process.env, [RUN_NAMESPACE_ENV]: namespace, [NAMESPACE_FIXTURE_DIR_ENV]: directory, [NAMESPACE_FIXTURE_PEER_ENV]: namespaces[1 - index] },
+    }));
+    const results = await Promise.all(children);
+    for (let index = 0; index < results.length; index += 1) {
+      const result = results[index]; const namespace = namespaces[index];
+      assert.equal(result.error, null, result.error?.message); assert.equal(result.signal, null); assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stderr, '', 'concurrent scheduler child emits zero stderr');
+      assert.equal(result.stdout, `namespace isolation fixture passed ${namespace}\nregression scheduler self-test passed\n`, 'concurrent scheduler child emits exact fixture and scheduler success records');
+      for (const stage of ['ready', 'observed', 'trimmed']) assert.equal(fs.existsSync(namespaceFixtureRecordPath(directory, stage, namespace)), true, `${stage} barrier record exists`);
+    }
+    for (const namespace of namespaces) assert.deepEqual(ownedRootPaths(namespace), [], 'concurrent scheduler namespace finishes empty');
+  } finally {
+    for (const namespace of namespaces) for (const root of ownedRootPaths(namespace)) removeNamespacedRoot(root, namespace);
+    removeOwnedRoot(coordinationRoot);
+  }
 }
 
 function processExists(pid) {
@@ -266,6 +364,8 @@ async function testScheduler(jobs) {
     const sealed = path.join(root, 'sealed'); fs.mkdirSync(sealed); fs.writeFileSync(path.join(sealed, 'fixture'), 'fixture\n'); changeOwnedModes(sealed, 0o500, 0o400);
   } finally { removeOwnedRoot(root); }
   assert.equal(fs.existsSync(root), false, 'scheduler cleanup removes read-only owned roots');
+  if (process.env[NAMESPACE_FIXTURE_DIR_ENV] !== undefined || process.env[NAMESPACE_FIXTURE_PEER_ENV] !== undefined) await runNamespaceIsolationFixture();
+  else await testConcurrentNamespaceProcesses(jobs);
   await testInterruptionCleanup();
   console.log('regression scheduler self-test passed');
 }
@@ -744,6 +844,7 @@ let failure = null;
 try {
   const options = parseArgs(process.argv.slice(2));
   if (options.mode === 'scheduler') await testScheduler(options.jobs);
+  else if (options.mode === 'namespace') await runNamespaceIsolationFixture();
   else if (options.mode === 'interrupt') await runInterruptionFixture();
   else await runRegressionSuite(options.jobs);
 } catch (error) {
