@@ -3,7 +3,7 @@ title: Build relay worker lifecycle primitives
 goal: Add Linux-authoritative managed admission, stable-handle process control, and worker quiescence, with typed Darwin unavailability and no false fallback confirmation.
 status: ongoing
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-13T09:13:40-03:00"
+updated: "2026-07-14T00:57:24-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 review_author_company: openai
@@ -2921,6 +2921,61 @@ Affirmed invariants are intentionally unchanged: publish-first Fencing prevents 
 - [Rust Unix `CommandExt`](https://doc.rust-lang.org/std/os/unix/process/trait.CommandExt.html) and [`setsid(2)`](https://man7.org/linux/man-pages/man2/setsid.2.html) — process-group creation is not session creation; pinned Rust 1.85 needs the reviewed `pre_exec(libc::setsid)` path.
 - [Apple XNU process info](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h) and [`libproc.h`](https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.h) — Darwin observation fields/private enumeration, not an atomic signal handle.
 
+Compatibility-review-material: {"base_plan_blob":"beedde52b50b6384129e8cf39a0b3bde585ea0dc","execution_base_commit":"de925e9bc046645a72f59bcd493da44d53adaf5a","execution_parent":"8879d898bab2b3156f536a0515e185446f488473","parent_plan_blob":"60e5caef7b89062f49a54cd86a544772a69fb06c","partition_manifest_sha256":"01b7beeac5ec7e3052d772169833b01879c295a8895de40d67cd4dbd0daaf154","plan_creation_commit":"07ad2df486f35fabed0b0ee18bd95134e3d70ab7","plan_path":"docs/plans/active/relay-worker-lifecycle-primitives.md","planned_at_commit":"12cf2ead208fe932084890b8e3fbd5c72591f3db","policy_sha256":"b224d8fc3f8ba6921aec38e834ec2f812954aff79859734e988fb03caf9f1253","review_material_sha256":"1fca3efda7eda7b965e1e968c53a8b2e551be58eabaac7fc41cc3da122414773","schema":1,"transition_diff_sha256":"2b89e2b141007fb94dfc6bc23da90300a81ec44dc8b7a87cab869229606cfce1"}
+````diff
+diff --git a/docs/plans/active/relay-worker-lifecycle-primitives.md b/docs/plans/active/relay-worker-lifecycle-primitives.md
+index 60e5caef7b89062f49a54cd86a544772a69fb06c..beedde52b50b6384129e8cf39a0b3bde585ea0dc 100644
+--- a/docs/plans/active/relay-worker-lifecycle-primitives.md
++++ b/docs/plans/active/relay-worker-lifecycle-primitives.md
+@@ -1,10 +1,10 @@
+ ---
+ title: Build relay worker lifecycle primitives
+ goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
+-status: planned
++status: ongoing
+ created: "2026-07-11T03:31:53-03:00"
+-updated: "2026-07-11T05:58:51-03:00"
+-started_at: null
++updated: "2026-07-11T11:29:49-03:00"
++started_at: "2026-07-11T11:29:49-03:00"
+ assignee: null
+ tags: [session-relay, lifecycle, rust, safety]
+ affected_paths:
+@@ -78,7 +78,7 @@ These primitives defend a **cooperative worker**: the relay launches the user's
+ 
+ A deliberately adversarial same-UID worker is outside this guarantee. In particular, it can ask a same-user broker such as `systemd-run --user` / D-Bus `StartTransientUnit` to create or move a process into a sibling cgroup, or pass work/authority through an already-reachable same-user service or `SCM_RIGHTS`. That broker-assisted writer can survive `cgroup.kill` while the worker leaf reports `populated 0`; neither seccomp on the worker nor its cgroup namespace can revoke authority already held by the broker. The fan-out hard cap accepts this bounded cooperative scope; tests must not relabel broker escape as covered WorkerTree evidence.
+ 
+-Adversarial-grade containment is a future, separately scoped capability requiring IPC and network namespace isolation, broker-socket denial, a complete service/FD handoff policy, and a full sandbox threat review. Cheap defense-in-depth in this plan still closes accidental/direct escape paths: architecture-validated seccomp, wholesale `clone3` denial returning `ENOSYS`, x86 x32 rejection, capability drop, inherited-fd closure, and a fresh PID/proc/cgroup view. The unresolved scope confirmation is recorded as `threat-model-scope` in Open questions; until changed by the owner, implementation and acceptance use the recommended cooperative model above and must label it in every WorkerTree proof/status response.
++Adversarial-grade containment is a future, separately scoped capability requiring IPC and network namespace isolation, broker-socket denial, a complete service/FD handoff policy, and a full sandbox threat review. Cheap defense-in-depth in this plan still closes accidental/direct escape paths: architecture-validated seccomp, wholesale `clone3` denial returning `ENOSYS`, x86 x32 rejection, capability drop, inherited-fd closure, and a fresh PID/proc/cgroup view. The owner confirmed **`CooperativeWorkerV1`** on 2026-07-11; implementation and acceptance use it and must label it in every WorkerTree proof/status response.
+ 
+ ## Feasibility and guarantee tiers
+ 
+@@ -106,7 +106,7 @@ Adversarial-grade containment is a future, separately scoped capability requirin
+   ```
+ - **Real runtime:** `runtime-hook-abort.mjs`, `runtime-appserver-quiescence.mjs`, and `feasibility-probe.mjs` create isolated temporary `HOME`, `CODEX_HOME`, plugin config, relay store, cwd, and sentinels. They must record the exact loaded hook path/hash and runtime version. Missing auth/runtime is failure for the real-runtime gate, never skip/pass.
+ - **Authentication preflight:** before isolated-home tests, run `claude -p 'Print exactly RELAY_AUTH_OK'` and `codex exec --sandbox read-only 'Print exactly RELAY_AUTH_OK'`; each must exit 0 and print only the marker. Step 1 records, from current runtime docs/probes, the exact credential artifact or allowlisted secret-environment variable each CLI supports. The harness creates a mode-0700 temporary home/config, installs only test hook/plugin files, and either read-only references the supported credential artifact at its runtime-defined location or forwards the allowlisted secret variable by name. It never copies credential bytes into artifacts, logs paths/values/hashes, or broad-copies the user's config. If neither safe mechanism is available, STOP and report the runtime row unavailable; do not skip/pass or weaken home isolation.
+-- **Pre-dispatch owner gate:** do not begin Step 1/Rust implementation until `threat-model-scope` is answered. Option 1 is the authored/recommended design; Options 2/3 change scope and require updating this plan first. Draft authoring/commit may proceed with the structured question open so the owner can answer it at handoff.
++- **Pre-dispatch owner gate:** RESOLVED 2026-07-11 — owner selected Option 1 (`CooperativeWorkerV1`). Implementation may proceed.
+ - **Probe evidence contract:** each capability row contains `runtime`, `runtime_version`, `platform`, `argv`, `started_at`, `finished_at`, `exit_status`, base64 or artifact-path `stdout`/`stderr`, artifact SHA-256, parser rule, and derived verdict. The harness rejects a verdict without matching raw evidence, rejects unknown/missing schema fields, verifies its own committed git-blob hash, and emits the raw-record hash chain. There is no editable pass/fail fixture.
+ - **Strong-tier spawn feasibility:** Step 1 prototypes the exact architecture-specific seccomp policy, records its BPF/policy hash, and runs authenticated real Claude and Codex beneath it. For each runtime, the harness first proves raw `clone3` returns `-1/ENOSYS` without creating a child, then requires a real shell/tool launch, an ordinary descendant, a wait, and an ordered completion sentinel. Step 4's installed filter must reproduce the same canonical policy and return action. A runtime without a safe legacy-`clone` fallback is recorded `strong_cgroup=unavailable` for that runtime; it is never allowed to advertise `ConfinedCgroup`/WorkerTree.
+ - **Measured attach deadline:** the probe runs 10 isolated cold starts per runtime including sequential store-lock contention. Set `managed_attach_deadline_ms = max_observed_ms + max(2000, ceil(max_observed_ms / 2))`; it must be `<= 20_000`, preserving at least 10 seconds below the 30-second UserPromptSubmit minimum. If the formula exceeds 20 seconds, STOP. Never lengthen the three-second global store lock.
+@@ -775,13 +775,7 @@ Adversarial cold-read result: a cold executor need not invent binding serializat
+ 
+ ## Open questions
+ 
+-### threat-model-scope
+-
+-- **Type:** choice — NEEDS CLARIFICATION (custom allowed)
+-- **Context:** The buildable cgroup contract contains a cooperative relay-launched tree, including accidental direct escape attempts. A deliberately adversarial same-UID worker can delegate work to an already-authorized user broker/service outside the leaf; closing that requires materially broader IPC/network/service isolation. This is a pre-dispatch owner gate: no implementation starts until one option is selected. The authored design is Option 1; Options 2/3 require revising the Goal, proof types, steps, and acceptance before dispatch.
+-- **Option 1 — Cooperative worker (recommended):** adopt `CooperativeWorkerV1` exactly as specified in Threat model; label proofs/status/docs and accept broker-assisted evasion as out of scope.
+-- **Option 2 — Expand to adversarial isolation:** block implementation and author a separate prerequisite plan for IPC/network namespaces, broker-socket denial, service/FD handoff policy, and a full sandbox threat review.
+-- **Option 3 — Disable WorkerTree:** ship ProcessOnly/ProtocolObservation primitives but keep WorkerTree and the fan-out hard cap unavailable until adversarial isolation exists.
++*(none — `threat-model-scope` resolved 2026-07-11: owner selected **Option 1, `CooperativeWorkerV1`**. Implementation and acceptance adopt the cooperative model; broker-assisted same-UID evasion is out of scope. See ## Threat model.)*
+ 
+ ## Self-review
+ 
+````
+Execution-base-compatibility-receipt: {"base_plan_blob":"beedde52b50b6384129e8cf39a0b3bde585ea0dc","changed_sections":[{"after_sha256":"f13f288a044459821fa0160b0322fd8e2064346f983bce1dab55061314be59e1","before_sha256":"96dd0937556d6b5f552630faea234dc4e4e5de302e78561544bb2d89e6e2ef95","name":"Environment & how-to-run","transition_sha256":"e92978ca0bb3fd7ad65eddd9b3f1a47c3ad18039107a2246922a485d11343e3b"},{"after_sha256":"a8264dec8a5fe7256d56975ce5fb76b09aa4b5a747f5d633be5ec72c12fd80eb","before_sha256":"fc92400271b13db228a59285eb0c24edf608d76cffa6cb886da8478c11570094","name":"Open questions","transition_sha256":"2b40eb767c330645134f0c81f5a6ff9eda697ac32e2189a203dceb74a57e9a93"},{"after_sha256":"9b5a85897862270a17b086aa4071fb66c2e99df4458d8f78e1b73a3094556888","before_sha256":"7a683f761a2c908053a8bdbb8cb1d4561181557902ffe5b77602845fc5e9d04f","name":"Threat model","transition_sha256":"fd5fe2277354a1cae0eda54744736b4ec756c41e31927e851d1280ce8f4d256f"}],"evidence_input_commit":"a228d846592fc5b383e101ee9260f4a18776d17b","evidence_input_plan_blob":"158c362346398f693e813b8eb524a2872517ab0b","execution_base_commit":"de925e9bc046645a72f59bcd493da44d53adaf5a","execution_parent":"8879d898bab2b3156f536a0515e185446f488473","kind":"legacy_start_transition","legacy_planned_at_value":"12cf2ea","owner_confirmation":{"authorization_id":"owner-2026-07-13-remodel-and-review-plan","authorization_scope_sha256":"1c5cb608957a4589a4ac2bba05f4df29a6255c45034f9b59ecfda36a73327e10","decision":"allow","kind":"legacy_start_transition_authorization","schema":1,"source":"current_user","source_text_sha256":"1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96","target":{"execution_base_commit":"de925e9bc046645a72f59bcd493da44d53adaf5a","plan_path":"docs/plans/active/relay-worker-lifecycle-primitives.md","planned_at_commit":"12cf2ead208fe932084890b8e3fbd5c72591f3db","schema":1}},"parent_plan_blob":"60e5caef7b89062f49a54cd86a544772a69fb06c","partition_manifest_sha256":"01b7beeac5ec7e3052d772169833b01879c295a8895de40d67cd4dbd0daaf154","plan_creation_commit":"07ad2df486f35fabed0b0ee18bd95134e3d70ab7","plan_creation_parent":"12cf2ead208fe932084890b8e3fbd5c72591f3db","plan_path":"docs/plans/active/relay-worker-lifecycle-primitives.md","planned_at_commit":"12cf2ead208fe932084890b8e3fbd5c72591f3db","policy_sha256":"b224d8fc3f8ba6921aec38e834ec2f812954aff79859734e988fb03caf9f1253","protected_sections_sha256":"27795c2eea45e0f47a604a1848a3b8dc6769f14c50479737f82dbf5c2d8b1eac","receipt_sha256":"929aea4ca622f7f8a814f58803e4f55db1bd34887064e1a7031bd7b9a444ae54","review_material_sha256":"1fca3efda7eda7b965e1e968c53a8b2e551be58eabaac7fc41cc3da122414773","schema":1,"transition_diff_sha256":"2b89e2b141007fb94dfc6bc23da90300a81ec44dc8b7a87cab869229606cfce1"}
 ## Review
 
 *(filled by plan-review on completion)*
