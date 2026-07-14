@@ -3,7 +3,7 @@ title: Add a bounded compatibility final-review repair rung
 goal: Let legacy compatibility plans repair valid findings after Q and re-review exact repaired bytes without weakening E/R/B/Q or execution authority.
 status: planned
 created: "2026-07-14T01:52:16-03:00"
-updated: "2026-07-14T02:49:13-03:00"
+updated: "2026-07-14T03:21:37-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -13,6 +13,7 @@ review_author_effort: xhigh
 review_waivers: []
 tags: [docks, plan-review, compatibility, lifecycle]
 affected_paths:
+  - docs/plans/active/relay-worker-lifecycle-primitives.md
   - plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs
   - scripts/tests/plan-review-policy.mjs
   - scripts/tests/plan-review-policy-regressions.mjs
@@ -73,6 +74,18 @@ the current cold-handoff result still says compatibility review/release/install
 are pending, and the current author score still says Step P is pending although
 Q marks P done. The orchestrator reproduced both statements against Q.
 
+The durable Q baseline is not the temporary bundle. At this plan's current
+reviewed head, `docs/plans/active/relay-worker-lifecycle-primitives.md` has the
+same Git blob as Q: `79769c6c7b5bfc4d65ac1adc88a591aaeb7bb674`, with raw-byte SHA-256
+`ff99ebcf70b0aa4b45664068d38a2471e8e93b342736c636fb57361a59a8879b`.
+Every formal review of this plan must request that target-plan path into the
+sealed read-only bundle and recheck both identities against Q. A missing or
+different baseline is STOP; constants or the temporary Q bundle alone are not
+review evidence. The target appears in `affected_paths` only because schema-v1
+seals that closed list; it is an immutable evidence input, not an implementation
+path. Any execution-range change to it before this plan is archived and the
+post-ship handoff begins is STOP.
+
 This is a policy gap, not permission to weaken review. Generic plan-manager
 policy says to repair every valid `not_ready` finding and review again, while
 0.12.5 deliberately rejects Q extra prose, any intervening Q→F commit, and F
@@ -115,8 +128,46 @@ authorized Docks patch release workflow publish the next patch and refresh both
 plugin caches. The lifecycle plan remains paused throughout.
 
 The ordered completion inventory below intentionally omits `node scripts/ci.mjs`.
-Completion runs that exact project CI command once, separately, after A1–A7.
+Completion runs that exact project CI command once, separately, after A1–A8.
 The release command is post-ship and is never completion acceptance evidence.
+
+Before implementation dispatch, main-context plan-manager runs this exact
+read-only baseline proof from the repository root. It verifies the current
+target-plan blob is Q, extracts the plan's M1–M12 array, requires every selector
+exactly once in order, applies it, and recomputes both declared D1 hashes:
+
+```bash
+node --input-type=module <<'NODE'
+import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { canonicalPlanView, jcs, sha256 } from './plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+const q='2ebba5dda939ffd68594d505511cf142ea76ee66', target='docs/plans/active/relay-worker-lifecycle-primitives.md';
+const blob='79769c6c7b5bfc4d65ac1adc88a591aaeb7bb674', qsha='ff99ebcf70b0aa4b45664068d38a2471e8e93b342736c636fb57361a59a8879b';
+const d1sha='0980868eb835f9d76f058d14e79ae3ec4452a9d7f10cd93243eadc8f690ee4a5', canonical='4cb8542401835d7e384c97c999e34ba5bd3c600b9b34f15f1f07be6ce9a168b3';
+const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+if(git('rev-parse',`${q}:${target}`)!==blob||git('rev-parse',`HEAD:${target}`)!==blob) throw Error('Q baseline blob drift');
+const bytes=execFileSync('git',['show',`${q}:${target}`]);
+if(sha256(bytes)!==qsha) throw Error('Q baseline byte drift');
+const text=fs.readFileSync('docs/plans/active/compatibility-final-review-repair-rung.md','utf8');
+const match=text.match(/### Exact D1 application[\s\S]*?```json\n(\[[\s\S]*?\n\])\n```/);
+if(!match) throw Error('D1 mutation array missing');
+const mutations=JSON.parse(match[1]), ids=Array.from({length:12},(_,i)=>`M${i+1}`);
+if(JSON.stringify(mutations.map(({id})=>id))!==JSON.stringify(ids)) throw Error('D1 mutation order');
+if(sha256(jcs(mutations))!=='8fc04a0279ebce363c140b5cc6e91e7c431a436ad4d9a33aeb5a278c498bf675') throw Error('D1 mutation-array hash');
+for(const {id,before,after,before_sha256,after_sha256} of mutations) {
+  if(sha256(before)!==before_sha256||sha256(after)!==after_sha256) throw Error(`${id} entry hash`);
+}
+let d1=bytes.toString('utf8');
+for(const {id,before,after} of mutations) { if(d1.split(before).length!==2) throw Error(`${id} selector count`); d1=d1.replace(before,after); }
+if(sha256(d1)!==d1sha) throw Error('D1 blob hash mismatch');
+if(sha256(canonicalPlanView(Buffer.from(d1)))!==canonical) throw Error('D1 canonical hash mismatch');
+process.stdout.write(JSON.stringify({schema:1,q_blob:blob,q_sha256:qsha,d1_sha256:d1sha,d1_canonical_sha256:canonical})+'\n');
+NODE
+```
+
+Expected: exit 0 and exactly the four identities above. Failure stops before a
+worker receives the plan. This proof is setup evidence, not a completion row;
+the implemented A2 focused case re-proves the same transform independently.
 
 ### Findings-driven D loop
 
@@ -308,7 +359,7 @@ golden byte-for-byte before any D positive is considered.
 | 1 | Implement the bounded pre-authority plan-path traversal, exact D1/D2–D8 validators, and frozen goldens while preserving public schemas and the generic post-F lifecycle. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `scripts/tests/fixtures/plan-review-policy/sample-plan.md`; `scripts/tests/fixtures/plan-review-policy/legacy-0.12.5-no-repair.json` | — | planned | Focused positives pass for Q→F and Q→D{1,8}→F at F, after a post-F unrelated commit, after real accounting/Step and `in_review` plan commits, and after completion receipt. Exact-bound histories pass; limit+1, mixed-path/merge, ninth-D, protected/evidence delta, stale/non-ready/finding F, altered attribution, and second-F fail. All frozen policy, Q/D1, and output hashes match exactly. If D/F cannot be distinguished without a schema or protected-contract change, STOP. |
 | 2 | Update all source/shipped policy surfaces before mutation wiring so one exact Q→D*→F contract is available to the surface oracle. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md` | 1 | planned | Source/template repair prose is byte-identical, the focused surface case proves parity, plan-manager remains sole writer/reconciler, plan-review remains read-only evidence-only, `docs/plans/AGENTS.md` stays at most 500 lines, its existing `CLAUDE.md` remains exactly `@AGENTS.md`, and only the three intentionally changed skill hashes require maintenance. `context-tree refresh docs/plans` is not run: the context-tree skill explicitly excludes `docs/plans/`, which is already a node. |
 | 3 | Extend deterministic focused and mutation coverage without adding a second baseline, nested pool, or serial fallback. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 1, 2 | planned | A fast focused regression-contract case exact-checks the frozen 57-label prefix, 12-label suffix, full 69-label vector, uniqueness, hashes, selectors, and CI composition. Direct focused negatives cover every raw structural/evidence add, delete, duplicate, reorder, and mutate operation. The one separately required full CI run executes all 69 mutations once through the existing machine-aware pool with declaration-order output, first-failure reporting, and owned-root cleanup unchanged. |
-| 4 | Independently verify the worker diff and ordered acceptance inventory, run the separately recorded full CI once, then complete-review and ship the plan. | This plan; all ten implementation paths above read-only during verification | 1, 2, 3 | planned | Main context reproduces every claim and A1–A7 in order, `node scripts/ci.mjs` exits 0 once after them, completion review passes, and the plan archives with an exact `ship_commit`. Any unexplained scope expansion, weakened negative, or worker plan edit is STOP. |
+| 4 | Independently verify the worker diff and ordered acceptance inventory, run the separately recorded full CI once, then complete-review and ship the plan. | This plan; the ten implementation paths above read-only during verification; lifecycle target path immutable evidence-only | 1, 2, 3 | planned | Main context reproduces every claim and A1–A8 in order, including A8's history-sensitive proof that the lifecycle target was never touched anywhere in this plan's execution range, `node scripts/ci.mjs` exits 0 once after them, completion review passes, and the plan archives with an exact `ship_commit`. Any target-plan change before post-ship handoff, unexplained scope expansion, weakened negative, or worker plan edit is STOP. |
 
 The mandatory existing mutation prefix is exactly:
 
@@ -341,6 +392,7 @@ The exact unique 69-label concatenation has compact-JSON SHA-256
 | A5 | `node scripts/skills/content-hash.mjs --check-only plugins/docks/skills` | Exit 0 after final metadata maintenance; all shipped skill content hashes are synchronized. |
 | A6 | `node scripts/tree/guard.mjs` | Exit 0; context-tree node pairs are valid. Policy-block content parity is proved by A3. |
 | A7 | `BASE="$(node --input-type=module -e 'import fs from "node:fs"; import { parsePlan } from "./plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs"; const x=parsePlan(fs.readFileSync("docs/plans/active/compatibility-final-review-repair-rung.md")).frontmatter.execution_base_commit; if(!/^[0-9a-f]{40}$/.test(x)) process.exit(1); process.stdout.write(x)')" && git diff --check "$BASE"..HEAD` | Exit 0; the exact committed execution range, not merely the worktree, has no whitespace errors. |
+| A8 | `BASE="$(node --input-type=module -e 'import fs from "node:fs"; import { parsePlan } from "./plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs"; const x=parsePlan(fs.readFileSync("docs/plans/active/compatibility-final-review-repair-rung.md")).frontmatter.execution_base_commit; if(!/^[0-9a-f]{40}$/.test(x)) process.exit(1); process.stdout.write(x)')" && HISTORY="$(git rev-list "$BASE"..HEAD -- docs/plans/active/relay-worker-lifecycle-primitives.md)" && WORKTREE="$(git status --porcelain -- docs/plans/active/relay-worker-lifecycle-primitives.md)" && test -z "$HISTORY" && test -z "$WORKTREE"` | Exit 0 with empty history and worktree results; either Git failure propagates before the emptiness tests, the evidence-only target was never changed by any commit in the execution range even transiently and later reverted, and it has no current staged, unstaged, or untracked change. |
 
 ## Post-ship release and lifecycle handoff
 
@@ -372,22 +424,78 @@ part of the completion acceptance inventory. From clean `main`, plan-manager:
    claude plugin update docks@docks --scope user
    codex plugin list | grep -F 'docks@docks' | grep -F '0.12.6'
    claude plugin list | grep -A3 -F 'docks@docks' | grep -F 'Version: 0.12.6'
-   SOURCE_POLICY=plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs
-   CODEX_POLICY="$HOME/.codex/plugins/cache/docks/docks/0.12.6/skills/productivity/plan-review/scripts/review-policy.mjs"
-   CLAUDE_POLICY="$HOME/.claude/plugins/cache/docks/docks/0.12.6/skills/productivity/plan-review/scripts/review-policy.mjs"
-   test -f "$SOURCE_POLICY" && test -f "$CODEX_POLICY" && test -f "$CLAUDE_POLICY"
-   SOURCE_SHA="$(sha256sum "$SOURCE_POLICY" | cut -d' ' -f1)"
-   test "$SOURCE_SHA" = "$(sha256sum "$CODEX_POLICY" | cut -d' ' -f1)"
-   test "$SOURCE_SHA" = "$(sha256sum "$CLAUDE_POLICY" | cut -d' ' -f1)"
+   node --input-type=module <<'NODE'
+   import assert from 'node:assert/strict';
+   import crypto from 'node:crypto';
+   import fs from 'node:fs';
+   import path from 'node:path';
+   const source='plugins/docks';
+   const codex=`${process.env.HOME}/.codex/plugins/cache/docks/docks/0.12.6`;
+   const claude=`${process.env.HOME}/.claude/plugins/cache/docks/docks/0.12.6`;
+   const files={
+     review_policy_sha256:'skills/productivity/plan-review/scripts/review-policy.mjs',
+     plan_manager_sha256:'skills/productivity/plan-manager/SKILL.md',
+     plan_review_sha256:'skills/productivity/plan-review/SKILL.md'
+   };
+   const sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+   const expected={schema:1};
+   for(const [key,rel] of Object.entries(files)) {
+     const sourcePath=path.join(source,rel), codexPath=path.join(codex,rel), claudePath=path.join(claude,rel);
+     assert.ok(fs.statSync(sourcePath).isFile()&&fs.statSync(codexPath).isFile()&&fs.statSync(claudePath).isFile());
+     expected[key]=sha(sourcePath);
+     assert.equal(sha(codexPath),expected[key]);
+     assert.equal(sha(claudePath),expected[key]);
+   }
+   expected.accepted_q_finding_mapping_required=true;
+   expected.unresolved_q_finding_hard_stop_before_d1=true;
+   const hex={type:'string',pattern:'^[0-9a-f]{64}$'};
+   const schema={type:'object',additionalProperties:false,required:Object.keys(expected),properties:{
+     schema:{const:1},review_policy_sha256:hex,plan_manager_sha256:hex,plan_review_sha256:hex,
+     accepted_q_finding_mapping_required:{const:true},unresolved_q_finding_hard_stop_before_d1:{const:true}
+   }};
+   fs.writeFileSync('/tmp/docks-0.12.6-activation-expected.json',JSON.stringify(expected)+'\n',{mode:0o600});
+   fs.writeFileSync('/tmp/docks-0.12.6-activation-schema.json',JSON.stringify(schema)+'\n',{mode:0o600});
+   NODE
    ```
 
-2. Starts a fresh read-only Codex process/session after refresh and has it read
-   the exact installed 0.12.6 `plan-manager/SKILL.md`, `plan-review/SKILL.md`,
-   and helper paths before returning their SHA-256 values and the Q→D*→F
-   contract. This is activation evidence only; the existing main context never
-   claims its already-loaded skill discovery hot-reloaded. Main-context
-   plan-manager remains the only writer and invokes the explicit `$CODEX_POLICY`
-   and `$CLAUDE_POLICY` paths below, so no user restart is required.
+2. After step 1 has written the two mode-0600 `/tmp` inputs, launches this exact
+   fresh, ephemeral, explicit-model,
+   read-only Codex process after refresh. The flags are current Codex CLI
+   surfaces verified from `codex exec --help` and the official non-interactive
+   manual. The closed schema and expected keyed hash object come from step 1:
+
+   ```bash
+   codex exec --ephemeral --ignore-user-config --ignore-rules --strict-config \
+     -C /home/vagrant/projects/docks -m gpt-5.6-sol \
+     -c 'model_reasoning_effort="xhigh"' -s read-only \
+     --output-schema /tmp/docks-0.12.6-activation-schema.json \
+     -o /tmp/docks-0.12.6-activation-actual.json - <<'PROMPT'
+   Read only these exact installed Docks 0.12.6 files under
+   /home/vagrant/.codex/plugins/cache/docks/docks/0.12.6:
+   skills/productivity/plan-review/scripts/review-policy.mjs,
+   skills/productivity/plan-manager/SKILL.md, and
+   skills/productivity/plan-review/SKILL.md. Hash each file's raw bytes with
+   SHA-256. From the two installed skill contracts, determine whether every
+   accepted fresh-Q finding must map completely to the authorized D1 mutations
+   and whether any unresolved accepted Q finding is a HARD STOP before D1.
+   Return only the required schema fields. Do not edit files or use network.
+   PROMPT
+   node --input-type=module <<'NODE'
+   import assert from 'node:assert/strict';
+   import fs from 'node:fs';
+   const expected=JSON.parse(fs.readFileSync('/tmp/docks-0.12.6-activation-expected.json','utf8'));
+   const actual=JSON.parse(fs.readFileSync('/tmp/docks-0.12.6-activation-actual.json','utf8'));
+   assert.deepEqual(actual,expected);
+   process.stdout.write(JSON.stringify(actual)+'\n');
+   NODE
+   ```
+
+   Any nonzero exit, prose-only output, schema error, hash mismatch, missing or
+   extra field, or false boolean is STOP before D1. This is activation evidence
+   only; the existing main context never claims its already-loaded skill
+   discovery hot-reloaded. Main-context plan-manager remains the only writer and
+   invokes the explicit installed helper paths below, so no user restart is
+   required.
 3. Discards the ephemeral current Q bundle as authority, seals a fresh ordinary
    schema-v1 review of lifecycle Q
    `2ebba5dda939ffd68594d505511cf142ea76ee66`, and follows the findings-driven
@@ -494,7 +602,7 @@ part of the completion acceptance inventory. From clean `main`, plan-manager:
   committed-range whitespace, and post-ship release commands are exact.
 - [x] Interface contract: Q→D*→F traversal, D invariant, F binding, and unchanged
   output schema/post-F completion reuse are defined.
-- [x] Executable acceptance: A1–A7 are commands with binary expected results;
+- [x] Executable acceptance: A1–A8 are commands with binary expected results;
   project CI is recorded separately and release is post-ship.
 - [x] Out of scope: lifecycle implementation, other plugins, schemas, strict
   start recognition, and worker release operations are excluded.
@@ -559,6 +667,34 @@ exact M1–M12 resolution map or HARD STOP before D1, with a focused non-repetit
 negative. S2 showed that version drift was checked only after publication; the
 release block now asserts all three 0.12.5 source catalog identities and invokes
 the explicit 0.12.6 target before any external write. Fresh review is required.
+
+Cross-check (2026-07-14): [X: anthropic fable high] 0 findings — accepted none / rejected none (Claude authentication preflight unavailable); [S: openai gpt-5.6-sol xhigh] 2 findings — accepted S1,S2 / rejected none (none); [orchestrator] independently verified S1,S2 against the sealed manifest, Q Git blob, and cache-refresh contract before accepting.
+
+The second formal sealed S review, request
+`00c97e5d-3cbe-4bb1-b368-548b8d7c9dd6`, scored 90/100 `not_ready`. S1 showed
+that the review bundle omitted the still-identical 548,777-byte Q target-plan
+blob, so selector uniqueness and whole-plan hashes were not independently
+reproducible from sealed evidence. The revised plan makes that target path a
+mandatory requested input, binds its Git/raw hashes, and supplies an executable
+pre-dispatch transform proof. S2 showed that only the helper, not the two shipped
+workflow skills carrying the accepted-finding rule, had cache-equality
+assertions. The release proof now byte-compares all three files across source,
+Codex cache, and Claude cache, and the fresh activation result is closed and
+binary. Fresh review is required.
+
+Two fresh read-only precommit reviewers then exercised those fixes. Their first
+passes found three further cold-handoff issues: schema-v1 seals only
+`affected_paths`; a correct D1 postimage alone did not reject commuting M1/M2;
+and making the Q target sealable also admitted it to generic execution scope.
+The plan now lists the Q target as explicitly evidence-only, validates the exact
+ordered M1–M12 ID/JCS/entry-hash program, and adds A8 to reject every historical
+target touch plus current worktree drift. A8 captures Git output before testing
+emptiness so command failures cannot be masked. The activation handoff now has
+keyed source/cache hashes, a closed schema, an exact ephemeral
+`gpt-5.6-sol`/`xhigh`/read-only invocation, and machine equality validation.
+Both follow-up reviewers returned `READY`; the exact baseline proof passed, an
+M1/M2 swap was rejected, valid A8 exited 0, and an invalid base propagated Git
+exit 128. Fresh formal sealed review is still required.
 
 The initial design considered silently treating the valid Q finding as
 nonblocking, writing it into F, or inserting an ordinary plan commit. All three
