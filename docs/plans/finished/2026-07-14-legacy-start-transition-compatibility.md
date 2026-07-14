@@ -1,9 +1,9 @@
 ---
 title: Add reviewed legacy start-transition compatibility
 goal: Make Docks source-ready for a narrow, independently reviewed legacy start validator while preserving strict validation for every ordinary plan.
-status: in_review
+status: finished
 created: "2026-07-13T06:10:09-03:00"
-updated: "2026-07-14T00:17:44-03:00"
+updated: "2026-07-14T00:27:35-03:00"
 started_at: "2026-07-13T10:04:28-03:00"
 in_review_since: "2026-07-13T17:16:13-03:00"
 assignee: null
@@ -28,6 +28,7 @@ affected_paths:
 related_plans:
   - relay-worker-lifecycle-primitives
 review_status: passed
+ship_commit: f7e2b2dc7e9da7a6b616fe87e012b37cf4a9a3fe
 planned_at_commit: "06a898abacfd57aad9dab0d48db8ad3c8e622318"
 execution_base_commit: "dcf4b6aaa354e2671da2ec773a0a7538aa31d508"
 ---
