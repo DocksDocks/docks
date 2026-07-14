@@ -1,9 +1,9 @@
 ---
 title: Build relay worker lifecycle primitives
 goal: Add Linux-authoritative managed admission, stable-handle process control, and worker quiescence, with typed Darwin unavailability and no false fallback confirmation.
-status: ongoing
+status: finished
 created: "2026-07-11T03:31:53-03:00"
-updated: "2026-07-14T01:28:36-03:00"
+updated: "2026-07-14T09:34:54-03:00"
 started_at: "2026-07-11T11:29:49-03:00"
 assignee: null
 review_author_company: openai
@@ -98,12 +98,21 @@ affected_paths:
 related_plans:
   - relay-worker-fanout
   - legacy-start-transition-compatibility
+  - relay-worker-lifecycle-primitives-continuation
 review_status: null
 planned_at_commit: 12cf2ead208fe932084890b8e3fbd5c72591f3db
 execution_base_commit: de925e9bc046645a72f59bcd493da44d53adaf5a
+ship_commit: "3e6486e45859cfeccd7b1ecf6d7c539c163a4ab5"
 ---
 
 # Build relay worker lifecycle primitives
+
+> **Superseded by `relay-worker-lifecycle-primitives-continuation` on
+> 2026-07-14.** This file remains the immutable technical specification and
+> completed-prefix evidence. The successor preserves its Goal, deliverable,
+> implementation branch, 38 completion criteria, and 82-event contract while
+> establishing a normal current-lifecycle execution base; this historical plan
+> is not itself shipped as completed work.
 
 ## Goal
 
