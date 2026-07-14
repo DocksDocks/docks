@@ -3,7 +3,7 @@ title: Continue relay worker lifecycle primitives from current main
 goal: Finish the existing Session Relay lifecycle deliverable from its verified implementation checkpoint under a normal current-lifecycle execution base.
 status: ongoing
 created: "2026-07-14T09:34:54-03:00"
-updated: "2026-07-14T11:24:08-03:00"
+updated: "2026-07-14T12:51:38-03:00"
 started_at: "2026-07-14T10:19:03-03:00"
 assignee: null
 review_author_company: openai
@@ -82,6 +82,7 @@ affected_paths:
   - plugins/session-relay/test/fixtures/wip-step-allowlist.json
   - plugins/session-relay/test/fixtures/wip-historical-baseline.json
   - plugins/session-relay/test/fixtures/lifecycle-continuation-binding.json
+  - plugins/session-relay/test/fixtures/lifecycle-restart-recovery-binding.json
   - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.toml
   - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.lock
   - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/guardless.rs
@@ -116,10 +117,14 @@ lifecycle authority across released `0.10.0` writers, typed Darwin
 unavailability, and an exact source-ready handoff that remains
 `packaged_ready=false` until the later Session Relay release.
 
-This continuation changes only plan lifecycle identity and execution logistics.
-It does not narrow or replace the predecessor Goal, technical interfaces,
-negative guarantees, remaining implementation steps, 38 completion criteria,
-or 82-event evidence contract.
+This continuation preserves that product Goal while adding one owner-authorized,
+bounded proof-provenance repair for three historical schema-v2 custodians lost
+when their host session ended. It does not claim that those custodians or their
+private signing keys survived. Their bytes and receipt chains become closed
+historical evidence; product migration is instead re-proved from fresh,
+distinct schema-v2 generations carrying exact payload copies into the unchanged
+schema-v3 design. No product guarantee, remaining implementation row, 38-row
+completion inventory, or 82-event schedule is removed.
 
 ## Context & rationale
 
@@ -135,6 +140,22 @@ was never started or implemented and is now archived as superseded. The current
 path preserves the product Goal and implementation history while establishing a
 normal current plan start and execution base before any additional source commit
 is integrated.
+
+Execution reached the committed continuation checkpoint
+`K1=0960048120b1d92c59b360463bcdcfee77bd998e`, whose parent merge
+`M=876ca391abd2b4b8e088287a981f316d2c1bb2ce` has ordered parents
+`B=d192843020d9a3a626733188f5c472dcb1e11bc9` and
+`P=22b754adcd5756f084fd61f55436971a6b9d407f`. `K1` committed and
+negative-tested `ContinuationBindingV1`; no later source commit exists.
+
+At Step 1b the exact three legacy challenge attempts returned
+`ECONNREFUSED`. Their mode-0600 authority records and root snapshots still
+match the pinned bytes, but all bind absent custodian PID `245`; the Ed25519
+private keys existed only in that process. Recreating those keys, relabeling the
+old authority records, or calling the old roots live would be false. On
+2026-07-14 the owner selected bounded recovery: retain the historical bytes,
+state the lost liveness explicitly, create distinct live proof generations, and
+continue without weakening the product migration test.
 
 Authoritative preserved inputs at scaffold time:
 
@@ -163,17 +184,22 @@ change, or release prerequisite is needed.
 ## Environment & how-to-run
 
 - Orchestrator checkout: `/home/vagrant/projects/docks`, branch `main`.
-- Preserved source checkout: `/tmp/docks-primitives-collab`, branch
-  `codex/primitives-collab`, initially clean at `22b754a`.
-- Create or fast-forward the continuation worker branch/worktree to the exact
-  post-repair integration base `B`; integrate the preserved branch there. Do
-  not resume source writes in the old worktree.
+- Continuation worker checkout: `/tmp/docks-primitives-continuation`, branch
+  `codex/primitives-continuation`, clean at `K1=0960048` before this recovery.
+- Main remains clean at the pre-recovery base `B=d192843`. Review and commit the
+  recovery plan on main, then merge `K1` into its receipt-bearing base exactly
+  as specified below. Do not resume the retired `codex/primitives-collab`
+  worktree.
 - Node.js: 24.x, matching repository CI.
 - Rust commands must run from `plugins/session-relay/rust/`, where
   `rust-toolchain.toml` pins Rust 1.85.0. Never run Cargo from repository root.
-- Narrow verification order: exact changed target/test, affected Rust target,
-  `cargo fmt --check` + clippy, affected Node integration, relay selftest, then
-  the one required full `node scripts/ci.mjs` immediately before each commit.
+- Verification is targeted-first. Plan-only and receipt-only commits run only
+  plan/frontmatter/hash/diff checks. Intermediate source commits run the exact
+  changed target plus affected Rust/Node gates; expand only when dependency or
+  risk warrants it. `cargo fmt --check`, clippy, relay selftest, and the single
+  full `node scripts/ci.mjs` run at Step 6's final integration boundary, not
+  after tiny edits. A later relevant edit invalidates only the affected narrow
+  result; it does not trigger unrelated full CI.
 - Release flow after passed completion review:
   `node scripts/release.mjs --dry-run --plugin session-relay patch`, then
   `node scripts/release.mjs --plugin session-relay patch` under the owner's
@@ -195,8 +221,11 @@ closed overlay; no other predecessor term is reinterpreted:
 | Lifecycle identity | This plan's reviewed planned commit, first-start commit, and recorded `execution_base_commit` own new execution. Predecessor receipt bytes retain their original per-receipt plan commit/blob; `ContinuationBindingV1` imports them by hash without rewriting or relabeling them. |
 | Existing source history | `codex/primitives-collab@22b754a`, integrated after this plan starts as the exact second parent of one two-parent continuation merge; no preserved commit is rewritten or force-updated. |
 | Integration overlay | All paths come from the preserved parent except `plugins/session-relay/skills/productivity/session-relay/SKILL.md`, which remains byte-equal to continuation-base blob `24715dd59942d057ce21a7dd4faeb008a7ce5134` / SHA-256 `5ccb180e3e63a0b5c238e6d72283000c2163577953ab416d06c32a00f9499e27`. The old parent blob `cf73743c31949c90a7fa456a8e28396803be5eef` is forbidden because it removes the current canonical plan-policy boundary and fails repository CI. |
+| Historical authority loss | The three schema-v2 roots, authority records, pins, snapshots, and receipt-chain heads remain hash-authoritative but not live-authoritative after custodian PID `245` disappeared. Historical liveness and signature continuity are permanently `false`; no later receipt may reverse either value. |
+| Recovery boundary | `RestartRecoveryBindingV1` closes the loss observation and authorizes one test-harness-only static copy from each exact old payload into a distinct fresh schema-v2 root. Old sentinels, authority records, identities, signatures, and socket names are never copied, rewritten, or accepted as current authority. |
+| Live migration proof | Each fresh root gets a new sentinel, Ed25519 authority, process generation, socket, pin, and initial signed challenge. The unchanged native migration then consumes those three live generations and creates two schema-v3 successors. After the migration parent exits, a new verifier process must reconstruct from coordinator hashes and re-challenge both successors before A109 or later work can pass. |
 | Completion inventory | Exactly 38 criterion-specific rows A101–A138 below, in that order. Each row binds its frozen predecessor command/expected hashes, all scheduled event occurrences, its ordered summary, and both final evidence records. |
-| Completion proof | `ContinuationScopeV1 {schema:1,spec_path,spec_git_blob,spec_raw_sha256,predecessor_planned_at_commit,predecessor_execution_base_commit,continuation_plan,continuation_planned_at_commit,continuation_start_commit,continuation_execution_base_commit,execution_base_record_commit,continuation_integration_base_commit,continuation_binding_sha256,integration_overlay_sha256,preserved_implementation_commit,implementation_merge,implementation_merge_parents,implementation_tip,implementation_tree,implementation_scope_tree_sha256,reviewed_head,acceptance_inventory_sha256,schedule_sha256,event_count,event_chain_head,step_range_chain_head,runner_attempt_chain_head,root_migration_snapshot_sha256,criteria_summaries,criteria_sha256,final_execution_evidence_sha256,lifecycle_completion_evidence_sha256,source_ready:true,packaged_ready:false,fanout_unblock:false,receipt_sha256}`. |
+| Completion proof | `ContinuationScopeV1 {schema:1,spec_path,spec_git_blob,spec_raw_sha256,predecessor_planned_at_commit,predecessor_execution_base_commit,continuation_plan,continuation_planned_at_commit,continuation_start_commit,continuation_execution_base_commit,execution_base_record_commit,continuation_integration_base_commit,continuation_binding_sha256,restart_recovery_binding_sha256,integration_overlay_sha256,preserved_implementation_commit,implementation_merge,implementation_merge_parents,recovery_merge,recovery_merge_parents,recovery_checkpoint_commit,implementation_tip,implementation_tree,implementation_scope_tree_sha256,reviewed_head,acceptance_inventory_sha256,schedule_sha256,event_count,event_chain_head,step_range_chain_head,runner_attempt_chain_head,legacy_loss_observation_sha256,recovery_generation_receipts_sha256,root_migration_snapshot_sha256,criteria_summaries,criteria_sha256,final_execution_evidence_sha256,lifecycle_completion_evidence_sha256,source_ready:true,packaged_ready:false,fanout_unblock:false,receipt_sha256}`. |
 
 Before the first post-start source edit, Step 1 creates and commits exactly one
 `plugins/session-relay/test/fixtures/lifecycle-continuation-binding.json` as
@@ -239,6 +268,74 @@ fixture-only negative matrix drops, duplicates, reorders, or substitutes each
 plan/blob/base/commit/event/range/authority/chain/overlay identity in turn and
 requires every case to fail before later work begins.
 
+`ContinuationBindingV1` at `K1` is immutable and keeps its original
+`legacy_authorities` rows as historical identities. Before any production
+migration edit, Step 1 adds
+`plugins/session-relay/test/fixtures/lifecycle-restart-recovery-binding.json`
+as compact RFC-8785 JCS with this closed shape:
+
+```text
+RestartRecoveryBindingV1 {
+  schema:1,
+  owner_decision:{kind:"bounded_snapshot_recovery",selected_at,
+    continuation_plan_blob,decision_sha256},
+  prior:{continuation_binding_path,continuation_binding_blob,
+    continuation_binding_raw_sha256,continuation_binding_sha256,
+    checkpoint_commit,checkpoint_tree},
+  recovery_history:{pre_repair_base,recovery_plan_commit,
+    recovery_plan_blob,recovery_receipt_commit,recovery_receipt_plan_blob,
+    recovery_merge,recovery_merge_parents,recovery_checkpoint_commit},
+  loss_observation:{observed_at,custodian_pid:245,process_present:false,
+    authorities:[{kind,root,authority_path,pin,source_sha256,socket_id,
+      authority_file_sha256,root_snapshot_sha256,receipt_chain_head,
+      challenge_exit:1,challenge_error:"ECONNREFUSED"}],
+    observation_sha256},
+  recovery_intents:[{kind,ordinal,closed_authority_pin,
+    closed_snapshot_sha256,payload_manifest_sha256,
+    generation_intent_sha256}],
+  guarantees:{historical_authority_liveness:false,
+    historical_signature_continuity:false,historical_byte_continuity:true,
+    fresh_live_migration_proof_required:true,
+    label:"snapshot_recovery_after_custodian_loss"},
+  acceptance_inventory_sha256,schedule_sha256,binding_sha256
+}
+```
+
+The authority array is closed and ordered
+`step_range,runner_canonical,runner_equivalent`. The fixture records authority
+file hashes `8c51234cf6663d665cfa6f0301261e996a99f0fc9e959a5ab5eff01d71a11eb6`,
+`f74ee17a16bd17bafa48bcfcb43a618b80b9320bded120e7f3d6329c488e3256`,
+and `a5b285ab91c044858ce1afda318a582802ad680ebba753ea3deffb97f9837e9d`
+in that order, plus the already bound snapshot and chain hashes. Its negative
+matrix drops, reorders, duplicates, or substitutes every plan/merge/checkpoint,
+authority, loss, snapshot, chain, intent, and guarantee field; setting either
+historical liveness or signature continuity to `true` must fail.
+
+The test helper's recovery reader is available only when the exact fixture,
+fixture hash, reviewed recovery plan blob, and three closed tuples match. It
+opens the old roots and authority files read-only, performs no socket operation,
+and copies only a byte-sorted payload manifest into three newly created roots.
+For each it emits `RecoveryGenerationReceiptV1 {schema:1,
+restart_recovery_binding_sha256,kind,ordinal,closed_authority_pin,
+closed_snapshot_sha256,fresh_root_identity_sha256,fresh_sentinel_sha256,
+fresh_authority_sha256,fresh_authority_record_sha256,fresh_source_sha256,
+fresh_custodian_pid,fresh_custodian_start_ticks,fresh_socket_id,
+payload_manifest_sha256,payload_equivalent:true,generation_intent_sha256,
+initial_challenge_receipt_sha256,receipt_sha256}`. Any source write, copied
+identity byte, manifest difference, dead fresh custodian, or missing fresh
+signed challenge fails before native migration starts.
+
+The three recovery generations replace only the dead schema-v2 inputs to the
+frozen `--migration-apply` bootstrap. All schema-v3 objects, transition
+semantics, negative matrices, runner layout, A109 command, A101–A138 completion
+commands, and the 82-event order remain unchanged. The migration ledger binds
+the three recovery receipts and the recovery binding. After `Active`, the
+migration parent must exit; a separately started verifier reconstructs solely
+from migration id, anchor, ledger, and active-phase hashes, challenges both
+schema-v3 custodians, and exact-compares their payload manifests. This is a
+real post-parent restart check, not a claim that the dead historical custodians
+restarted.
+
 `plugins/session-relay/test/final-scope.mjs` must add one deterministic,
 read-only completion mode:
 
@@ -265,62 +362,61 @@ summary, evidence hash, merge parent, or binding field fails.
 
 | # | Task | Files | Depends | Status | Done condition / STOP trigger |
 |---|---|---|---|---|---|
-| 1 | From the exact post-repair integration-base commit defined below, create a fresh continuation worker branch. Before any source edit, merge `codex/primitives-collab@22b754a` with `--no-ff`: first parent exactly that integration base, second parent exactly `22b754a`; keep the first parent's plan/archive tree and current Session Relay skill, permit no conflict except deletion of the stale predecessor active-plan path, and require every other Session Relay/workflow byte to equal the second parent. Commit and negative-test `ContinuationBindingV1`, independently reverify the completed prefix, then finish predecessor Step 1b. | Frozen predecessor Step 1b paths; current Session Relay skill read-only; new continuation-binding fixture; this plan and both archived plans read-only | — | planned | Merge parents and overlay trees are exact; the current/archived plan bytes and retained skill equal the first parent, the stale predecessor active path remains absent, and all other implementation bytes equal the preserved parent; no commit is lost or rewritten. The binding proves the reviewed repair, its receipt-bearing integration base, the single retained-path overlay, eight original events, one range, and three legacy authorities without rewriting evidence. Rows 1/P/2/3a/3b remain exact; frozen A103/A109/A107/A108/A106 and the Step-1b receipt pass. Any other conflict, binding negative that passes, or completed-prefix regression is STOP. |
+| 1 | Preserve completed merge `M` and binding checkpoint `K1`. From the recovery receipt base `B2`, create exact recovery merge `M2` with ordered parents `B2 K1`, taking this plan from `B2` and every non-plan byte from `K1`. Before any production migration edit, commit and negative-test `RestartRecoveryBindingV1` as checkpoint `K2`. Use its read-only static source gate to create three distinct fresh live schema-v2 generations, migrate those through the frozen schema-v3 design, prove both successor authorities from a new verifier after the migration parent exits, then finish predecessor Step 1b. | Frozen predecessor Step 1b paths; `wip-snapshot.mjs`; both binding fixtures; this plan and both archived plans read-only in the worker | — | planned | `M`, `K1`, `M2`, and `K2` identities/trees are exact and no history is rewritten. Both bindings pass their closed negative matrices. The old authorities remain explicitly dead historical evidence; three fresh recovery receipts prove byte-equivalent payloads plus distinct live authorities, and the native migration ledger binds them. Post-parent restart validation challenges both schema-v3 custodians. Rows 1/P/2/3a/3b remain exact; A109 runs before frozen A107/A108/A106 and the superseding Step-1b receipt. Any old-liveness claim, old-root write, copied identity byte, source edit before `K2`, failing binding negative, or completed-prefix regression is STOP. |
 | 2 | Complete predecessor Steps 3c and 3d in order with their exact durable-store, cancellation, admission-inventory, mixed-version, and range-receipt contracts. | Frozen predecessor Step 3c/3d paths | 1 | planned | Every frozen Step 3c/3d done condition and A113/A116/A117/A127/A128/A106 occurrence passes; no old writer can erase/reopen lifecycle authority and every pre-controller mutation path has an executed unique behavior test. |
 | 3 | Execute the owner-provisioned 1c/1d live feasibility sequences and, only on their valid retained receipt, implement predecessor Step 4. | Frozen predecessor Step 1c/1d/4 paths | 2 | planned | A110 then A111 prove the exact retained-fd/TRACEEXEC/cgroup path; A118/A119/A120 and Step-4 A106 pass. Missing or invalid runner/delegation blocks this row; an unbuildable primitive is a HARD STOP to the owner, never a fallback. |
 | 4 | Implement predecessor Steps 5, 6, and 7 in dependency order. | Frozen predecessor Step 5/6/7 paths | 3 | planned | Managed first-prompt control, stable runtime, bounded quiescence, proof construction, reconcile/release/abandon, terminalization, and all named Rust/Node/golden/inventory gates pass without weakening a frozen negative. |
-| 5 | Run predecessor Step 8's repeatable completeness audit and Step 9's documentation, Darwin, build-matrix, final-scope, cleanup, and source-ready handoff. Add the read-only continuation verifiers above. | Frozen predecessor Step 8/9 paths plus `plugins/session-relay/test/final-scope.mjs` | 4 | planned | Exact 38-criterion/82-event evidence closes; every live authority/root is cleaned only through the frozen A138 protocol; `FinalExecutionEvidenceV1` binds the continuation execution identities plus the continuation binding and passes before integration. |
-| 6 | With `main` still byte-equal to the post-repair integration-base commit, fast-forward it to the clean continuation worker tip, prove the embedded merge has parents `<integration-base> 22b754a` and the exact one-path integration overlay, project and import one `LifecycleCompletionEvidenceV1`, run A101–A138 and full repository CI, then enter `in_review`; after passed completion review, archive the plan. Session Relay release is the separate post-ship producer workflow. | This plan and completion-evidence handoff only; all implementation paths read-only after fast-forward | 5 | planned | Integration occurs before evidence import and `in_review`; the imported record binds the overlay hash, both final evidence hashes, all 38 summaries, 82-event/chain/root/runner identities, exact integration commit/tree, and `source_ready=true`, `packaged_ready=false`, `fanout_unblock=false`. A101–A138 pass in order in the disposable checkout, full `node scripts/ci.mjs` exits 0, completion review passes, and the plan archives before the independently verified release flow begins. |
+| 5 | Run predecessor Step 8's repeatable completeness audit and Step 9's documentation, Darwin, build-matrix, final-scope, cleanup, and source-ready handoff. Add the read-only continuation verifiers above. | Frozen predecessor Step 8/9 paths plus `plugins/session-relay/test/final-scope.mjs` | 4 | planned | Exact 38-criterion/82-event evidence closes; A137 challenges the five fresh live generations, A138 cleans those generations through the frozen journal, and the already closed dead roots are never counted as live. `FinalExecutionEvidenceV1` binds both continuation bindings, recovery receipts, restart proof, and continuation execution identities before integration. |
+| 6 | With `main` still exactly at recovery receipt base `B2`, fast-forward it to the clean continuation worker tip, prove embedded merges `M` and `M2` plus both binding checkpoints, project and import one `LifecycleCompletionEvidenceV1`, run A101–A138 and the single full repository CI, then enter `in_review`; after passed completion review, archive the plan. Session Relay release is the separate post-ship producer workflow. | This plan and completion-evidence handoff only; all implementation paths read-only after fast-forward | 5 | planned | Integration occurs before evidence import and `in_review`; the imported record binds the original overlay, restart-recovery binding, recovery receipts, restart proof, both final evidence hashes, all 38 summaries, 82-event/chain/root/runner identities, exact integration commit/tree, and `source_ready=true`, `packaged_ready=false`, `fanout_unblock=false`. A101–A138 pass in order in the disposable checkout, the one final `node scripts/ci.mjs` exits 0, completion review passes, and the plan archives before the independently verified release flow begins. |
 
 ### Exact integration order
 
-Let `E=18b023ec461c2374eb73cf293d8223a23e36d044` be the frontmatter
-`execution_base_commit`, `R=fd89ad0a53dd236378f9e516323e20756891d687`
-be its direct plan-only record commit, and
-`P=22b754adcd5756f084fd61f55436971a6b9d407f` be the preserved implementation.
-This bounded runtime-gate repair produces exactly three further plan-only
-commits: `Q0=dc68c713474f9cfac24c6260bac5d416be94663d`, the initial overlay
-candidate and sole child of `R`; `Q`, its direct child applying only the two
-accepted low wording findings and reviewed by a fresh draft request with
-lifecycle intent `none`; and `B`, `Q`'s direct receipt-bearing child. `B` may
-differ from `Q` only in this plan's `updated`, `Cross-check`, replacement
-`Review-receipt`, and receipt attribution in `Self-review`; it must retain
-`status: ongoing`, `started_at`, and `execution_base_commit: E`.
-Main-context plan-manager records exact `Q`, its reviewed plan blob, `B`, and
-the `B` plan blob before dispatching the Step-1 worker, then makes no further
-main or plan commit until integration. The Step-1 worker starts or fast-forwards
-its clean branch to `B` and runs
-one `--no-ff --no-commit` merge of `P`. The only permitted unmerged path is
-`docs/plans/active/relay-worker-lifecycle-primitives.md`; it is resolved as
-absent, matching `B`. The current continuation and both archive paths must be
-byte-identical to `B`. Every path outside `plugins/session-relay/` and
-`.github/workflows/build-binaries.yml` must also equal `B`.
-`plugins/session-relay/skills/productivity/session-relay/SKILL.md` must equal
-the exact `B` blob/SHA-256 recorded in the integration-overlay row above; every
-other path in the two source scopes must equal `P`. The resulting commit `M`
-must have the exact ordered parent string `B P`. The overlay identity is
-`sha256(JCS({schema:1,preserved_parent:P,retained:[{path,base_blob,
-base_sha256}],forbidden_preserved_blob}))`; any other conflict, parent, retained
-path, blob, hash, or tree is STOP.
+The immutable historical chain is
+`E=18b023ec461c2374eb73cf293d8223a23e36d044` →
+`R=fd89ad0a53dd236378f9e516323e20756891d687` →
+`Q0=dc68c713474f9cfac24c6260bac5d416be94663d` → reviewed `Q` →
+receipt base `B=d192843020d9a3a626733188f5c472dcb1e11bc9`. Preserved
+implementation `P=22b754adcd5756f084fd61f55436971a6b9d407f` was integrated by
+`M=876ca391abd2b4b8e088287a981f316d2c1bb2ce` with exact parents `B P`;
+`K1=0960048120b1d92c59b360463bcdcfee77bd998e` is its direct binding
+checkpoint. Those commits and `ContinuationBindingV1` are immutable.
 
-Every later worker commit descends from `M` and cannot modify a plan path. After
-Step 5 produces a clean final tip `T`, `main` must still equal `B`. Plan-manager
-fast-forwards `main` to `T`, verifies `M` remains in the first-parent ancestry of
-`T`, rechecks `M`'s exact parents and trees, and records `T` as the integrated
-source commit. Only then may it project/import `LifecycleCompletionEvidenceV1`
-as a plan-only commit and enter `in_review`. Squash, cherry-pick, rebase, patch
-replay, a second source merge, evidence import before source integration, and
-completion review against the pre-integration head are forbidden.
+Main-context plan-manager creates one consolidated recovery candidate `C` as a
+direct plan-only child of `B`, seals and reviews `C` once with lifecycle intent
+`none`, then creates receipt-only `B2` as `C`'s direct child. `B2` may differ
+from `C` only in this plan's `updated`, `Cross-check`, replacement
+`Review-receipt`, and receipt attribution in `Self-review`; it retains
+`status: ongoing`, `started_at`, and `execution_base_commit: E`. Receipt-only
+changes reuse the sealed review and do not trigger another review or full CI.
+
+The worker then creates one `--no-ff --no-commit` recovery merge `M2` with exact
+ordered parents `B2 K1`. This plan path must equal `B2`; every other path must
+equal `K1`. No archive, skill, source, workflow, or fixture exception is
+permitted. The resulting tree is exact before commit. Its direct child `K2`
+may modify only `lifecycle-restart-recovery-binding.json` and the narrow binding
+validator in `wip-snapshot.mjs`; it must commit the closed fixture and pass its
+negative matrix before production migration code changes. Every later worker
+commit descends from `K2` and cannot modify a plan path.
+
+After Step 5 produces clean final tip `T`, `main` must still equal `B2`.
+Plan-manager fast-forwards main to `T`, verifies both `M` and `M2` remain in
+ancestry with exact ordered parents/trees, verifies `K1`/`K2` and both bindings,
+and records `T` as the integrated source commit. Only then may it project/import
+`LifecycleCompletionEvidenceV1` as a plan-only commit and enter `in_review`.
+Squash, cherry-pick, rebase, patch replay, another source merge, evidence import
+before source integration, and completion review against the pre-integration
+head are forbidden.
 
 ## Acceptance criteria
 
 The separately recorded project CI command is `node scripts/ci.mjs`; completion
 runs it once after this exact ordered inventory rather than duplicating it as a
-row. Each command is read-only and validates `ContinuationBindingV1`, its own
-frozen predecessor command/expected hashes, all scheduled occurrences, its
-ordered criterion summary, and the exact `FinalExecutionEvidenceV1` plus
-`LifecycleCompletionEvidenceV1` hashes embedded before `in_review`. Dynamic
-hash placeholders mean lowercase 64-hex.
+row. Each command is read-only and validates both binding fixtures, the explicit
+false historical-liveness guarantees, the fresh recovery-generation and
+post-parent restart receipts, its own frozen predecessor command/expected
+hashes, all scheduled occurrences, its ordered criterion summary, and the exact
+`FinalExecutionEvidenceV1` plus `LifecycleCompletionEvidenceV1` hashes embedded
+before `in_review`. Dynamic hash placeholders mean lowercase 64-hex.
 
 | ID | Command | Expected |
 |---|---|---|
@@ -368,8 +464,8 @@ hash placeholders mean lowercase 64-hex.
 - Do not implement or release the superseded Docks compatibility-repair rung.
   Docks `0.12.5` remains the satisfied producer prerequisite.
 - Do not change the predecessor Goal, guarantee tiers, technical data shapes,
-  frozen negative cases, 38 criteria, or 82-event contract. This is a lifecycle
-  continuation, not a product rescope.
+  frozen negative cases, 38 criteria, or 82-event contract outside the explicit
+  dead-schema-v2 input substitution defined by `RestartRecoveryBindingV1`.
 - Do not release Effect Kit unless its own plugin payload changes; shared
   marketplace metadata alone is not an Effect Kit release.
 - Do not implement `relay-worker-fanout`; it remains blocked until the immutable
@@ -381,9 +477,9 @@ hash placeholders mean lowercase 64-hex.
 
 ## Known gotchas
 
-- The preserved branch is 23 commits ahead of its merge base while current main
-  is 121 commits ahead; integrate in a fresh continuation worktree and resolve
-  deliberately. Do not write in the old shared worktree.
+- `M` and `K1` already integrate the 23 preserved commits. Recovery builds from
+  them through `B2 K1`; do not replay the original integration or write in the
+  old shared worktree.
 - Cargo from repository root fails because the toolchain pin is below
   `plugins/session-relay/rust/`.
 - Determine each cross-company leg's availability from its live preflight. A
@@ -392,6 +488,9 @@ hash placeholders mean lowercase 64-hex.
 - Historical live RunGate receipts are not rerun. Pending live gates require the
   exact owner-provisioned runner and delegated cgroup described by the frozen
   spec; copied receipt bytes do not authorize them.
+- The dead schema-v2 roots are read-only source snapshots, not current
+  authorities. Only distinct fresh generations may enter the migration ledger;
+  copied payload equivalence never implies signature or process continuity.
 - Source-ready is not packaged-ready. The release/tag/binary/install checks occur
   only after passed completion review and are independently reproduced.
 
@@ -401,8 +500,10 @@ hash placeholders mean lowercase 64-hex.
   tag, publish a release, or write plan lifecycle fields.
 - Main-context plan-manager is the only plan/receipt/status writer and independently
   verifies every worker claim against current tool output.
-- Run narrow checks first and the required full `node scripts/ci.mjs` once at
-  each final pre-commit boundary; any later relevant edit invalidates that run.
+- Use targeted checks for plan-only, receipt-only, fixture, and intermediate
+  source commits. Run full `node scripts/ci.mjs` once at Step 6 after the final
+  integrated source tip is stable; rerun it only if a later relevant source or
+  policy edit invalidates that final result.
 - Releases, tags, and pushes are authorized by the owner for this four-stage
   goal, but destructive Git remains forbidden without a new explicit approval.
 - Any discovery that a required primitive is unbuildable as specified is a HARD
@@ -414,6 +515,13 @@ hash placeholders mean lowercase 64-hex.
 - `codex/primitives-collab@22b754a` is missing, dirty, rewritten, or cannot be
   integrated without changing the product Goal/deliverable.
 - A completed-prefix invariant or immutable acceptance/event record regresses.
+- Any code or receipt claims the three historical custodians remain live,
+  preserves their signatures, or treats copied payloads as authority continuity.
+- `M2` is not exactly `B2 K1`, production migration code changes before `K2`, or
+  either binding/negative matrix fails.
+- A recovery source byte differs from its closed manifest, a fresh schema-v2
+  authority cannot be challenged, or either schema-v3 successor fails the
+  post-parent restart challenge.
 - A worker needs to modify a plan, archived spec, Docks policy, Effect Kit, or
   fanout implementation to complete a Session Relay row.
 - The exact Linux authoritative path is unbuildable, or the required live runner
@@ -427,8 +535,8 @@ hash placeholders mean lowercase 64-hex.
   surface; exact per-row ownership lives in the frozen predecessor.
 - [x] Environment & commands: roots, branches, versions, Cargo cwd, validation
   order, CI, and release commands are explicit.
-- [x] Interface & data contracts: the predecessor is hash-frozen and the closed
-  continuation overlay plus `ContinuationScopeV1` shape is exact.
+- [x] Interface & data contracts: the predecessor is hash-frozen; both bindings,
+  the bounded dead-authority substitution, and `ContinuationScopeV1` are exact.
 - [x] Executable acceptance: A101–A138 are the exact ordered criterion-specific
   completion commands; each binds its predecessor row, continuation identity,
   occurrences, summary, and both evidence objects.
@@ -436,17 +544,17 @@ hash placeholders mean lowercase 64-hex.
   Git, and product rescope are excluded.
 - [x] Decision rationale: a normal successor preserves implementation and avoids
   a disproportionate one-plan Docks exception.
-- [x] Known gotchas: branch divergence, Cargo cwd, review degradation, live
-  RunGates, and source/package separation are explicit.
+- [x] Known gotchas: recovery ancestry, Cargo cwd, review degradation, dead
+  historical authorities, live RunGates, and source/package separation are explicit.
 - [x] Global constraints: writer ownership, verification, CI, release authority,
   and HARD STOP conditions are explicit.
 - [x] No undefined terms/forward refs: every predecessor term resolves through
   the hash-frozen spec; every new continuation term is defined here.
 
-Cold-read result: a fresh executor reads this file, verifies the frozen
-predecessor, creates a continuation worktree from the post-repair integration
-base, retains `22b754a` ancestry, and resumes at Step 1b without reconstructing
-Friday's conversation or invoking the superseded Docks detour.
+Cold-read result: a fresh executor verifies the frozen predecessor plus `M/K1`,
+creates `M2/K2` from the reviewed recovery base, records the dead authority loss
+without a false continuity claim, proves migration on distinct live generations,
+and resumes Step 1b without reconstructing prior conversation.
 
 ## Self-review
 
@@ -502,6 +610,17 @@ whose `spec` object binds the exact path, Git blob, and raw SHA-256. The sealed
 bundle reverified byte-for-byte. Outcome is dual and pre-execution eligible;
 review ends here and Step 1 resumes from the receipt-bearing base.
 
+**Bounded custodian-loss recovery (2026-07-14T12:51:38-03:00):** exact live
+challenges against all three historical schema-v2 records failed with
+`ECONNREFUSED`; PID `245` is absent while record/root bytes remain hash-exact.
+The owner selected bounded recovery. This candidate preserves `M/K1` and the
+original binding, permanently marks old liveness and signature continuity
+false, and adds one closed static-payload-to-fresh-authority bridge before the
+unchanged native schema-v3 migration. It also replaces per-commit full CI with
+targeted intermediate checks and one final integration CI. One sealed X/S
+review evaluates this consolidated recovery only. If it is ready, the receipt
+commit reuses that review; unchanged bytes are not reviewed again.
+
 ## Mistakes & Dead Ends
 
 - **2026-07-14T09:34:54-03:00**: Continued expanding a Docks compatibility
@@ -513,6 +632,11 @@ review ends here and Step 1 resumes from the receipt-bearing base.
   current plan-policy boundary in one skill file → commit no source, retain that
   exact current blob as the sole overlay, and rebind the worker to the resulting
   receipt-bearing integration base.
+- **2026-07-14T12:51:38-03:00**: Relied on process-held schema-v2 private keys
+  surviving a host-session restart → all three authority records and roots
+  remained but their shared custodian PID disappeared → record the loss as
+  closed evidence, prove behavior on distinct fresh live generations, and never
+  make execution depend on uncommitted process-only historical authority again.
 
 ## Sources
 
@@ -528,8 +652,15 @@ review ends here and Step 1 resumes from the receipt-bearing base.
 - `git:codex/primitives-collab@22b754adcd5756f084fd61f55436971a6b9d407f`
   — clean preserved implementation checkpoint with 23 commits beyond its merge
   base and no worktree delta at scaffold time.
+- `git:codex/primitives-continuation@0960048120b1d92c59b360463bcdcfee77bd998e`
+  — clean committed continuation binding checkpoint; its parent merge is
+  `876ca391abd2b4b8e088287a981f316d2c1bb2ce` with exact parents `B P`.
 
 ## Review
+
+Recovery-candidate review is pending. The receipt below applies only to the
+pre-recovery `B` plan bytes and is superseded for execution by this substantive
+change; `B2` must replace it with the one fresh sealed recovery review.
 
 Cross-check (2026-07-14): [X: anthropic fable high; result=passed] 1 low finding — accepted none / rejected X1 (criterion mode already binds the frozen spec identity through ContinuationBindingV1); [S: openai gpt-5.6-sol xhigh; result=passed] 0 findings — accepted none / rejected none; [orchestrator: openai codex gpt-5.6-sol xhigh] reproduced X1 against the sealed plan, reverified the bundle, and rejected duplicate enforcement.
 
