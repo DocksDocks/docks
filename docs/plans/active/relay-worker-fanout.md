@@ -86,9 +86,13 @@ there is no flag or environment override.
 
 ### Durable fan-out authority
 
-Add a `fanout_records` map to `lifecycle-v1.json`'s schema-1 state. It is read
-and written under the existing store lock in the same transaction boundary as
-managed workers and custody evidence.
+Add `$AGENT_RELAY_HOME/fanout-v1.json` with schema `1` and a `records` map.
+Fan-out and lifecycle operations read both authorities under the existing
+`.lock`, but keep the files separate so a still-running v0.11 relay never sees
+an unknown lifecycle state key. Cross-file mutations use fail-closed ordering:
+reserve first, create/bind the managed worker second, and release lifecycle
+capacity before making a record non-counting. A crash between writes therefore
+retains a slot or an uncollected record; it never frees capacity early.
 
 ```rust
 pub enum FanoutState { Reserved, Running, HandedBack, Collecting, Collected, FailedNoProcess }
@@ -121,8 +125,11 @@ pub struct FanoutRecord {
 The two-slot count is one locked read of every depth-1 record belonging to the
 root. `Reserved`, `Running`, and any record whose managed worker is missing or
 not `TerminalReleasable` consume a slot. `TerminalRetained` and
-`FencingUnconfirmed` therefore remain counted. `FailedNoProcess` is allowed
-only when no child was launched; `Collected` is terminal.
+`FencingUnconfirmed` therefore remain counted. `FailedNoProcess` is a
+non-counting terminal state allowed only after the supervisor proves spawn
+never returned a child and relay removes the exact clean, unchanged worktree;
+if either proof or removal fails, the record stays `Reserved` and counted.
+`Collected` is terminal.
 
 ### Process ownership and handback
 
@@ -146,14 +153,19 @@ and a clean child worktree. It persists `Collecting/Prepared`, merges the stored
 head with `git merge --no-ff --no-edit <head>`, persists `Merged`, removes only
 the exact registered worktree with `git worktree remove`, persists
 `WorktreeRemoved`, then marks `Collected`. A retry skips phases already proven;
-the relay branch is retained for manual audit and is never auto-deleted.
+the relay branch is retained for manual audit and is never auto-deleted. If the
+merge fails, relay runs `git merge --abort`, verifies the parent is clean, and
+CASes back to `HandedBack`. If abort or cleanliness proof fails, it retains
+`Collecting/Prepared` and prints the exact parent path plus manual
+`git merge --abort`/cleanup guidance; retry remains refused until the parent is
+clean.
 
 ## Steps
 
 | # | Task | Files | Depends | Status | Done condition / revert trigger |
 |---|---|---|---|---|---|
 | 1 | Write failing tests for authority parsing, atomic ancestry/cap checks, fail-closed slot accounting, and process-reap release. | `rust/tests/fanout.rs`, `rust/src/lifecycle.rs` test helpers | — | planned | Focused tests compile and fail for missing behavior. Freeze their behavioral assertions before production edits. Reassess after three repeats of one failure. |
-| 2 | Implement fan-out records, git worktree preflight, managed birth association, detached process ownership, handback, and retryable collection. | `rust/src/{fanout,lifecycle,spawn,lib}.rs` | 1 | planned | A1 and A2 pass; a third leaf is refused before worktree creation; uncertain custody remains counted; collection never removes an unmerged or dirty tree. Revert trigger: ordinary spawn or unmanaged lifecycle semantics change. |
+| 2 | Implement the separate fan-out authority, git worktree preflight, managed birth association, detached process ownership, handback, and retryable collection. | `rust/src/{fanout,lifecycle,spawn,lib}.rs` | 1 | planned | A1 and A2 pass; v0.11 lifecycle reads remain compatible; a third leaf is refused before worktree creation; uncertain custody remains counted; proven no-launch rollback is the only non-counting pre-birth failure; collection never removes an unmerged or dirty tree. Revert trigger: ordinary spawn or unmanaged lifecycle semantics change. |
 | 3 | Expose the four CLI surfaces and add a deterministic black-box smoke using a temporary relay home, temporary git repo, and stub tool. | `rust/src/{main,cli,spawn}.rs`, `test/{fanout-smoke,selftest}.mjs` | 2 | planned | A3 and A4 pass without touching `~/.agent-relay`; forged parent/depth/cap input and a third concurrent reservation fail closed. |
 | 4 | Document the bounded guarantee, run the focused ladder and one full plugin gate, then perform one concise completion review with at most one reproduced-finding repair pass. | `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, this plan | 3 | planned | A1-A6 and project CI pass; review confirms the stated process-only guarantee and exclusions without reopening stronger containment or recovery scope. |
 
@@ -161,7 +173,7 @@ the relay branch is retained for manual audit and is never auto-deleted.
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `cd plugins/session-relay/rust && cargo test --locked --test fanout authority_` | Exit 0; schema compatibility, atomic cap/ancestry, and fail-closed slot tests pass. |
+| A1 | `cd plugins/session-relay/rust && cargo test --locked --test fanout authority_` | Exit 0; separate-file v0.11 compatibility, atomic cap/ancestry, proven no-launch rollback, and fail-closed slot tests pass. |
 | A2 | `cd plugins/session-relay/rust && cargo test --locked --test fanout custody_` | Exit 0; exact owned-child reap is required for release and uncertain custody stays counted. |
 | A3 | `cd plugins/session-relay/rust && cargo test --locked --test fanout worktree_` | Exit 0; clean handback, idempotent collect phases, and dirty/unmerged refusal pass. |
 | A4 | `node plugins/session-relay/test/fanout-smoke.mjs` | Exit 0 and print `fanout smoke: PASS`; two leaves hand back and collect, while a third is refused before worktree creation. |
@@ -193,6 +205,8 @@ inside the acceptance inventory.
   UUID.
 - A detached supervisor crash after process launch but before custody
   publication is ambiguous. Retain `Reserved` and its slot for manual repair.
+- `lifecycle-v1.json` rejects unknown state keys by design. Fan-out authority
+  must stay in `fanout-v1.json` while sharing the same store lock.
 - A handback is valid only after all intended changes are committed and the
   worktree is clean. Inbox prose is never merge authority.
 - Git worktree removal is recursive repository administration and must use
@@ -232,6 +246,12 @@ deletion, configurable caps, and whole-worker-tree claims. It also made the
 supervisor-owned reap a prerequisite for slot release and made the third-worker
 refusal precede every git mutation.
 
+Cross-check (2026-07-14): [S: openai gpt-5.6-sol xhigh] 3 findings — accepted
+S1/S2/S3: separate fan-out authority for v0.11 compatibility, proven clean
+no-launch rollback before a non-counting terminal state, and verified
+merge-abort recovery. One repair pass applied; no further draft-review leg was
+opened.
+
 ## Review
 
 (filled by plan-review on completion)
@@ -242,6 +262,7 @@ refusal precede every git mutation.
 - `plugins/session-relay/rust/src/lifecycle.rs:957` — `LifecycleStore` owns locked lifecycle-v1 transactions.
 - `plugins/session-relay/rust/src/lifecycle.rs:1333` — terminal release requires a fenced worker and exact owned-process evidence.
 - `plugins/session-relay/rust/src/lifecycle.rs:4268` — release evidence is explicitly limited to `ProcessOnly` + `SupervisorOwnedProcess`.
+- `plugins/session-relay/rust/src/lifecycle.rs:4456` — lifecycle-v1 rejects unknown state keys, requiring a separate fan-out authority for rolling compatibility.
 - `plugins/session-relay/rust/src/supervisor.rs:95` — the shipped supervisor already models detached exact-child custody and reap.
 - `plugins/session-relay/AGENTS.md` — producer-built binary and plugin verification rules.
 
