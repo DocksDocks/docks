@@ -3,7 +3,7 @@ title: Refactor Session Relay Rust for clarity
 goal: Make Session Relay Rust and its tests idiomatic and self-explanatory after completing bounded fan-out, without speculative abstractions.
 status: planned
 created: "2026-07-14T19:39:28-03:00"
-updated: "2026-07-14T21:39:32-03:00"
+updated: "2026-07-14T21:56:36-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -95,10 +95,10 @@ not overwrite or fold that skill into the Rust refactor.
 | 1 | Complete sequential read-only refactor phases 1–5 and present the evidence-tiered plan. | `docs/plans/active/refactor-session-relay-rust.md` | — | done |
 | 2 | Complete F0 exactly as specified by the bounded fan-out plan: authority/custody/worktree behavior, CLI integration, smoke test, and process-only documentation. | `plugins/session-relay/rust/src/{fanout,lib,main,cli,spawn,lifecycle}.rs`, `plugins/session-relay/rust/tests/fanout.rs`, `plugins/session-relay/test/{fanout-smoke,selftest}.mjs`, `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, `docs/plans/active/relay-worker-fanout.md` | 1 | done |
 | 3 | Add T1, a custody-prefixed collection-boundary test that refuses collection before exact reap and succeeds after `TerminalReleasable`. | `plugins/session-relay/rust/tests/fanout.rs` | 2 | planned |
-| 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out rollback/collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | planned |
+| 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | planned |
 | 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | planned |
 | 6 | Apply R7a as one commit, moving guarded-drain policy out of store and covering every disallowed operation kind. | `plugins/session-relay/rust/src/{store,lifecycle,bus,channel,cli,hook,watch}.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs` | 5 | planned |
-| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator with explicit call-order and fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs`, `plugins/session-relay/test/selftest.mjs` | 6 | planned |
+| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval and adding concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs`, `plugins/session-relay/test/selftest.mjs` | 6 | planned |
 | 8 | Re-run the depth/deletion test and apply R8 only if its stated precondition holds; otherwise record it skipped without code movement. | `plugins/session-relay/rust/src/lifecycle.rs`, optional `plugins/session-relay/rust/src/lifecycle/gc.rs`, this plan | 7 | planned |
 | 9 | Preserve rationale/public guarantees in owned docs, run A1–A11 in order, then run one full repository CI gate. | Session Relay docs/source/tests and this plan | 8 | planned |
 
@@ -124,7 +124,7 @@ that contract.
 | A4 | `node plugins/session-relay/test/fanout-smoke.mjs` | Exit 0 and print `fanout smoke: PASS` through the real CLI with two collected leaves and a refused third reservation. |
 | A5 | `cd plugins/session-relay/rust && cargo test --locked sha256` | The shared lowercase 64-character digest helper passes all existing and moved call-site tests. |
 | A6 | `cd plugins/session-relay/rust && cargo test --locked --test lifecycle_admission --test lifecycle_managed --test lifecycle_release --test lifecycle_supervisor` | Guarded drain/rollback, the negative allowlist matrix, managed-GC fail-closed behavior, release, and supervisor custody regressions pass. |
-| A7 | `cd plugins/session-relay/rust && cargo test --locked gc::tests` | The coordinator tests prove one throttle, lifecycle-before-legacy order, abort-before-legacy on lifecycle error, fresh protection while the legacy lock is held, and throttle stamping only after both stages succeed. |
+| A7 | `cd plugins/session-relay/rust && cargo test --locked gc::tests` | Coordinator tests preserve one shared interval/stamp with its initial preflight and under-lock recheck, prove lifecycle-before-legacy order, abort-before-legacy on lifecycle error, fresh protection while the legacy lock is held, and stamp only after both stages succeed. A deterministic two-run barrier proves the losing runner observes the winner's fresh stamp under the legacy lock and performs no legacy deletion or stamp write. |
 | A8 | `! rg -n 'crate::lifecycle' plugins/session-relay/rust/src/store.rs` | Exit 0 with no matches after R7a/R7b. |
 | A9 | `cd plugins/session-relay/rust && cargo test --locked` | All Rust unit and integration tests pass. |
 | A10 | `cd plugins/session-relay/rust && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings` | Formatting and linting pass with no warnings or suppressions. |
@@ -149,7 +149,7 @@ the plan lifecycle runs that exact broad gate once after the ordered inventory.
 ## Known gotchas
 
 - Files over 1,000 lines require targeted symbol tracing rather than wholesale
-  reading; `lifecycle.rs` is 5,814 lines.
+  reading; `lifecycle.rs` is 5,964 lines at the post-F0 refresh.
 - `cargo clippy --all-targets` compiles integration tests, so each refactor must
   keep both production and test support warning-free.
 - Fan-out and lifecycle authorities share lock ordering but deliberately use
@@ -263,7 +263,7 @@ Counts: SAFE 0 · CAUTION 0 · DANGER 0. Tool output: compiler/clippy yes;
 
 ### Duplicate code
 
-1. `appserver.rs:477`, `lifecycle.rs:4634`, and `supervisor.rs:1495` each define
+1. `appserver.rs:477`, `lifecycle.rs:4784`, and `supervisor.rs:1495` each define
    the same SHA-256-bytes-to-lowercase-hex operation over the existing
    `sha256::Sha256` implementation. Consolidate all three in one crate-private
    `sha256::hex_digest` helper. Risk: low; all instances and existing digest
@@ -274,7 +274,7 @@ Counts: SAFE 0 · CAUTION 0 · DANGER 0. Tool output: compiler/clippy yes;
    second real caller behind a crate-private store helper only if focused tests
    first pin permissions, replacement, cleanup, and failure behavior. Risk:
    medium because this code is a durability and security boundary.
-3. `tests/fanout.rs:15`, `tests/lifecycle_admission.rs:17`,
+3. `tests/fanout.rs:17`, `tests/lifecycle_admission.rs:17`,
    `tests/lifecycle_managed.rs:14`, `tests/lifecycle_release.rs:12`,
    `tests/lifecycle_supervisor.rs:15`, and `tests/lock_race.rs:12` repeat the
    same unique temporary-home creation. Add `tests/support/mod.rs` with one
@@ -294,18 +294,16 @@ kept at their command entry points.
 
 1. Resolved in F0 — `FanoutStore::reserve` now accepts the private
    `ReservationRequest`, so no further input abstraction is planned.
-2. `fanout.rs:423-486` — `prepare_worktree` combines repository preflight,
-   reservation construction, Git worktree creation, and reservation error
-   recording. Preserve its public orchestration function but give the proven
-   no-process rollback/error path a named helper once its exact state effect is
-   characterized.
-3. `fanout.rs:543-657` — `collect` combines eligibility validation, ownership and
+2. Resolved in F0 — `prepare_worktree` now delegates the characterized
+   no-process cleanup to the named `rollback_before_process_start`; do not
+   re-extract it.
+3. `fanout.rs:634-795` — `collect` combines eligibility validation, ownership and
    repository revalidation, merge/abort recovery, worktree removal, and durable
    phase transitions. Keep the state-machine order together, but extract named
    operations for the `Prepared` merge and `Merged` worktree-removal phases so
    each retry boundary is locally visible. This is not permission to create a
    generic workflow engine.
-4. `fanout.rs:112-197` — `FanoutRecord` serialization is long but cohesive and
+4. `fanout.rs:91-195` — `FanoutRecord` plus serialization is long but cohesive and
    forms one file-format boundary. Keep it together unless Phase 3 establishes
    an invalid-state type change; line count alone is not an extraction reason.
 
@@ -328,19 +326,19 @@ claim is made from memory.
 
 ### Component inventory
 
-- `lifecycle.rs:56-957` defines lifecycle states, records, capabilities, and
-  launch specifications; `lifecycle.rs:969-3533` implements file-backed state
-  transitions; `lifecycle.rs:3535-3937` implements guard behavior; and
-  `lifecycle.rs:3938-5814` contains claim algorithms, serialization, process
-  observation, and managed GC internals.
+- `lifecycle.rs:56-968` defines lifecycle states, records, capabilities, guard
+  structure, and launch specifications; `LifecycleStore` begins at
+  `lifecycle.rs:970`; `ReentryGuard` behavior begins at `lifecycle.rs:3698`; and
+  the remaining private region contains claim algorithms, serialization,
+  process observation, and managed-GC internals.
 - `store.rs:129-529` owns locks/time/atomic persistence,
   `store.rs:530-709` owns registry and lifecycle-authority file access,
   `store.rs:710-1344` owns legacy surface GC, and `store.rs:1347-1569` owns
   registry/mailbox operations.
-- `fanout.rs` owns the persistent model and codec,
-  `fanout.rs:213-418` owns locked transactions,
-  `fanout.rs:423-677` owns the worktree lifecycle, and
-  `fanout.rs:729-925` owns Git/repository checks and authority persistence.
+- `fanout.rs:22-203` owns the persistent model and codec,
+  `fanout.rs:222-452` owns locked transactions,
+  `fanout.rs:454-795` owns the worktree lifecycle, and
+  `fanout.rs:865-1115` owns Git/repository checks and authority persistence.
 - `supervisor.rs` owns detached child custody from bootstrap through exact reap,
   including its control protocol and platform PTY mechanics. `spawn.rs` and
   `cli.rs` call it through closed launch variants and lifecycle guards.
@@ -353,7 +351,7 @@ claim is made from memory.
 
 ### Analysis priority
 
-1. `lifecycle.rs` — 5,814 lines and the highest inbound use across command,
+1. `lifecycle.rs` — 5,964 lines at the post-F0 refresh and the highest inbound use across command,
    transport, spawn, supervisor, store, and integration-test code.
 2. `store.rs` — 1,685 lines and the common dependency for every persistent
    surface; it also imports lifecycle policy, creating a two-way module edge.
@@ -368,7 +366,7 @@ claim is made from memory.
 
 #### High — S: fan-out has three independent change axes in one file
 
-- Location: `fanout.rs:22-925`.
+- Location: `fanout.rs:22-1115`.
 - Evidence: serialized schema/model, locked authority storage, and Git worktree
   orchestration are interleaved; `collect` alone spans every axis. F0 repaired
   the known collection failures, but the persistence/Git/retry change axes remain
@@ -410,13 +408,12 @@ claim is made from memory.
 
 #### Medium — S: lifecycle GC/codec knowledge is embedded in the lifecycle hub
 
-- Location: `lifecycle.rs:3938-5814`, especially GC records beginning at
-  `lifecycle.rs:5435` and `LifecycleStore::gc_unmanaged*` beginning at
-  `lifecycle.rs:1831`.
+- Location: lifecycle GC orchestration at `lifecycle.rs:1981-2403` and GC
+  records/protection helpers at `lifecycle.rs:5585-5833`.
 - Evidence: the same Module owns transition policy, on-disk codecs, process
   observation, and multi-surface managed GC. Each changes for a different
   reason, even though the public lifecycle Interface should remain unified.
-- Impact: unrelated edits require navigating a 5,814-line file and increase the
+- Impact: unrelated edits require navigating a 5,964-line file and increase the
   review surface around security-sensitive transitions.
 - Pattern: Extract internal Modules incrementally, beginning with managed-GC
   model/helpers after the dependency-direction repair. Keep transition methods
@@ -481,8 +478,11 @@ silently widen that frozen contract.
 - Files affected: `plugins/session-relay/rust/tests/fanout.rs`.
 - What changes: add a `custody_` integration test that reserves and hands back a
   real worktree, proves collection is refused while lifecycle custody is not
-  releasable, advances that same worker to `TerminalReleasable`, then proves the
-  exact reservation collects successfully.
+  releasable, then uses the existing real owned-process sequence: begin custody,
+  publish and drain the fence, prove release refusal before reap, call
+  `record_owned_process_reaped`, and terminalize to `TerminalReleasable`. Only
+  then may the test prove the exact reservation collects successfully. T1 must
+  not call `force_terminal_releasable` or mutate `lifecycle-v1.json` directly.
 - Risk: low; test-only characterization of existing behavior.
 - Test strategy: the new test fails if either side of the boundary is removed;
   then `cargo test --locked --test fanout custody_` passes.
@@ -517,7 +517,7 @@ silently widen that frozen contract.
 - Category: duplicate.
 - Files affected: `plugins/session-relay/rust/src/sha256.rs:20-137`,
   `plugins/session-relay/rust/src/appserver.rs:477`,
-  `plugins/session-relay/rust/src/lifecycle.rs:4634`,
+  `plugins/session-relay/rust/src/lifecycle.rs:4784`,
   `plugins/session-relay/rust/src/supervisor.rs:1495`.
 - What changes: add one crate-private `sha256::hex_digest(&[u8]) -> String`,
   replace all three local implementations, and retain existing digest behavior.
@@ -553,7 +553,7 @@ silently widen that frozen contract.
 - Priority tier: 2.
 - Category: duplicate.
 - Files affected: `plugins/session-relay/rust/src/store.rs:450-482`,
-  `plugins/session-relay/rust/src/fanout.rs:840-889`, and focused tests in
+  `plugins/session-relay/rust/src/fanout.rs:1084-1115`, and focused tests in
   `plugins/session-relay/rust/src/store.rs` or
   `plugins/session-relay/rust/tests/fanout.rs`.
 - What changes: characterize `0600`, replace, file-sync, directory-sync, and
@@ -571,12 +571,12 @@ silently widen that frozen contract.
 
 - Priority tier: 2.
 - Category: extraction.
-- Files affected: `plugins/session-relay/rust/src/fanout.rs:316-677` and
+- Files affected: `plugins/session-relay/rust/src/fanout.rs:634-795` and
   `plugins/session-relay/rust/tests/fanout.rs`.
-- What changes: retain the completed `ReservationRequest`; extract the proven
-  no-process rollback, Prepared merge/abort, and Merged worktree-removal
-  operations as named functions. Keep state transitions and version checks in
-  the orchestrator.
+- What changes: retain the completed `ReservationRequest` and
+  `rollback_before_process_start`; extract only the remaining Prepared
+  merge/abort and Merged worktree-removal operations as named functions. Keep
+  state transitions and version checks in the orchestrator.
 - Risk: medium.
 - Test strategy: frozen fan-out suite first; add focused rollback/retry cases;
   clippy remains warning-free.
@@ -613,7 +613,7 @@ silently widen that frozen contract.
 
 - Priority tier: 3.
 - Category: solid-violation/module-reorg.
-- Files affected: `plugins/session-relay/rust/src/store.rs:1488-1554`,
+- Files affected: `plugins/session-relay/rust/src/store.rs:1522-1554`,
   `plugins/session-relay/rust/src/lifecycle.rs`, and
   guarded-drain call sites in `bus.rs`, `channel.rs`, `cli.rs`, `hook.rs`, and
   `watch.rs`; `tests/lifecycle_admission.rs`.
@@ -637,28 +637,35 @@ silently widen that frozen contract.
 - Priority tier: 3.
 - Category: solid-violation/module-reorg.
 - Files affected: `plugins/session-relay/rust/src/store.rs:710-1344`,
-  `plugins/session-relay/rust/src/lifecycle.rs:1831-2267`, new
+  `plugins/session-relay/rust/src/lifecycle.rs:1981-2403`,
+  `plugins/session-relay/rust/src/lifecycle.rs:5585-5833`, new
   `plugins/session-relay/rust/src/gc.rs`,
   `plugins/session-relay/rust/src/lib.rs`, and
   GC callers in `bus.rs` and `hook.rs`; managed lifecycle tests.
 - What changes: add a top-level `gc` coordinator. Keep safe legacy-surface
   enumeration/deletion in store behind a crate-private operation whose lifecycle
   protection and managed-GC work are supplied by the coordinator as narrow
-  function callbacks/data, not a trait. Preserve the existing throttle, ordering,
+  function callbacks/data, not a trait. Preserve one shared throttle interval and
+  stamp with both existing observations: initial preflight before managed GC and
+  the recheck under the legacy lock before inventory/deletion. Preserve ordering,
   pinned-root checks, and fail-closed protection. After R7a/R7b, `store.rs` must
   contain no `crate::lifecycle` reference.
 - Risk: high.
-- Test strategy: a private coordinator seam records exact calls and proves one
-  throttle, lifecycle-before-legacy order, abort-before-legacy on lifecycle
-  error, fresh protection passed while the legacy lock is held, and throttle
-  stamping only after both stages succeed. An on-disk test seeds malformed/new
-  lifecycle protection and proves legacy data survives with no throttle stamp.
-  Then run managed-GC crash/CAS tests, existing store GC tests, black-box GC
-  self-tests, `rg -n 'crate::lifecycle' rust/src/store.rs` expecting no matches,
-  and all Rust tests.
-- Revert trigger: callback inputs expose mutable registry authority, throttle or
-  lifecycle-before-legacy ordering changes, pinned-root/symlink defenses weaken,
-  or store still imports lifecycle.
+- Test strategy: a private coordinator seam records exact calls and proves both
+  throttle observations, lifecycle-before-legacy order, abort-before-legacy on
+  lifecycle error, fresh protection passed while the legacy lock is held, and
+  stamping only after both stages succeed. A deterministic two-run barrier makes
+  both runners miss preflight, lets one complete/stamp, then proves the other
+  sees the fresh stamp under the legacy lock and performs no legacy deletion or
+  stamp write. An on-disk test seeds malformed/new lifecycle protection and
+  proves legacy data survives with no stamp. Then run managed-GC crash/CAS tests,
+  existing store GC tests, black-box GC self-tests,
+  `rg -n 'crate::lifecycle' rust/src/store.rs` expecting no matches, and all Rust
+  tests. Do not require one managed-GC invocation across the two-run race.
+- Revert trigger: callback inputs expose mutable registry authority, either
+  throttle observation or lifecycle-before-legacy ordering changes, a losing
+  concurrent runner reaches legacy deletion, pinned-root/symlink defenses
+  weaken, or store still imports lifecycle.
 - Dependencies: R7a; land separately from guarded drain.
 - Pattern: Dependency Direction + Extract Module (D/S).
 
@@ -666,8 +673,8 @@ silently widen that frozen contract.
 
 - Priority tier: 3.
 - Category: solid-violation/module-reorg.
-- Files affected: `plugins/session-relay/rust/src/lifecycle.rs:1831-2267` and
-  `plugins/session-relay/rust/src/lifecycle.rs:5435-5645`; possible new
+- Files affected: `plugins/session-relay/rust/src/lifecycle.rs:1981-2403` and
+  `plugins/session-relay/rust/src/lifecycle.rs:5585-5833`; possible new
   `plugins/session-relay/rust/src/lifecycle/gc.rs`.
 - What changes: move the managed-GC model and complete helper set behind one
   narrow internal call while preserving `LifecycleStore::gc_unmanaged*` as the
@@ -725,7 +732,8 @@ silently widen that frozen contract.
   repository CI gate was green before the feature commit.
 - T1 gap reproduced: existing `custody_` tests prove exact-reap and uncertain-
   custody reservation behavior but never call `collect`; one before/after
-  collection-boundary test is required before refactoring.
+  collection-boundary test must reuse that exact owned-process sequence and may
+  not use the raw lifecycle JSON bypass.
 - R1 reproduced: all four vague helper names exist at the refreshed symbols; the
   scenario/outcome test case names are already descriptive.
 - R2 reproduced: three local `sha256_hex` implementations perform the same
@@ -733,13 +741,15 @@ silently widen that frozen contract.
 - R3 reproduced: six `fresh_home` implementations and two identical
   `write_executable` helpers exist; no `tests/support` module exists. The
   scenario-specific fixture helpers differ and remain excluded.
-- R4 reproduced: store and fan-out each create a `0600` exclusive temp, write,
+- R4 reproduced at `store.rs:450-482` and `fanout.rs:1084-1115`: both create a
+  `0600` exclusive temp, write,
   file-sync, rename, directory-sync, and clean up on failure. Temp naming and
   parent-path error wording differ, so interchangeability must be proven at the
   actual `root.join(FANOUT_FILE)` caller before removal.
-- R5 refreshed: F0 already introduced `ReservationRequest`, so the old argument-
-  count finding is resolved and clippy is green. Named no-process rollback and
-  Prepared/Merged collection-phase seams remain valid extraction targets.
+- R5 refreshed: F0 already introduced `ReservationRequest` and
+  `rollback_before_process_start`, so both old extraction findings are resolved
+  and clippy is green. Only Prepared/Merged collection-phase seams remain valid
+  extraction targets at `fanout.rs:634-795`.
 - R6 reproduced: model/codec, store transactions, Git operations, and workflow
   orchestration occupy the cited fan-out ranges and have one existing public
   `relay::fanout` Interface.
@@ -749,13 +759,14 @@ silently widen that frozen contract.
 - R7b reproduced: `store::gc` constructs `LifecycleStore` and calls
   `registry_protects_session`, while lifecycle calls store locking/registry
   primitives. Existing managed-GC tests cover its lifecycle internals, but no
-  coordinator seam proves cross-authority call order, single throttling, or
-  stamp-after-success, and no on-disk test proves a lifecycle protection error
-  aborts legacy deletion. The initial combined R7 remains split so guarded drain
-  and GC cannot become one oversized change.
+  coordinator seam proves cross-authority call order, the initial throttle
+  preflight plus under-lock recheck, or stamp-after-success, and no on-disk test
+  proves a lifecycle protection error aborts legacy deletion. The initial
+  combined R7 remains split so guarded drain and GC cannot become one oversized
+  change.
 - R8 reproduced: managed-GC orchestration occupies
-  `lifecycle.rs:1831-2267`; its manifest/snapshot codec/helpers begin at
-  `lifecycle.rs:5435`. The plan ranges were narrowed to the reproduced region.
+  `lifecycle.rs:1981-2403`; its snapshot/manifest/protection helpers occupy
+  `lifecycle.rs:5585-5833`. The plan ranges bind that reproduced region.
 - Current post-F0 evidence also includes passing formatting, clippy with warnings
   denied, focused smoke/self-test, and repository CI. No refactor entry relies on
   the obsolete pre-F0 failures.
@@ -770,17 +781,20 @@ silently widen that frozen contract.
 - R4 NEEDS ADJUSTMENT during implementation: first add focused permission,
   replacement, directory-parent, and cleanup evidence; do not generalize beyond
   the two existing callers.
-- R5 SAFE after T1: private rollback/phase helper extraction only; any ordering
-  or version change triggers immediate revert. `ReservationRequest` is retained.
+- R5 SAFE after T1: private Prepared/Merged phase helper extraction only; any
+  ordering or version change triggers immediate revert. `ReservationRequest` and
+  `rollback_before_process_start` are retained.
 - R6 SAFE after R5: internal Modules plus re-exports; no serialized/public path
   change is allowed.
 - R7a NEEDS ADJUSTMENT during implementation: the store primitive must accept
   only an already authorized crate-private target, never a public recipient, and
   the disallowed-kind matrix must prove fail-closed mailbox preservation.
-- R7b NEEDS ADJUSTMENT during implementation: preserve the exact single throttle,
+- R7b NEEDS ADJUSTMENT during implementation: preserve the one shared throttle
+  interval/stamp with both its initial preflight and under-lock recheck,
   lifecycle-before-legacy ordering, abort behavior, fresh protection under the
-  legacy lock, and stamp-after-success rule with coordinator and on-disk tests;
-  use crate-private functions/closures, not a public `Registry` or trait.
+  legacy lock, and stamp-after-success rule with coordinator, deterministic
+  concurrent-runner, and on-disk tests; use crate-private functions/closures, not
+  a public `Registry` or trait.
 - R8 SAFE only conditionally: no implementation unless the post-R7b depth test
   shows one narrow internal Interface and no visibility widening.
 
@@ -830,13 +844,15 @@ N/A — this is a Rust crate, not a Next.js App Router surface.
 
 ### Issues to fix
 
-- MUST ADD before R1: T1's `custody_` before/after collection-boundary test.
+- MUST ADD before R1: T1's `custody_` before/after collection-boundary test using
+  the real owned-process reap sequence, never direct lifecycle JSON mutation.
 - SHOULD FIX before R4 removal: executable tests for the shared atomic writer's
   permissions, replacement, sync-parent precondition, and failure cleanup.
 - MUST ADD in R7a: explicit negative allowlist cases for `WatchAck`,
   `WatchWakeFallback`, `WakeCli`, `AttachResume`, and `InitialTurn`.
-- MUST ADD in R7b: coordinator call-order/single-throttle tests and an on-disk
-  fail-closed test that preserves legacy surfaces and omits the throttle stamp.
+- MUST ADD in R7b: coordinator call-order/two-observation throttle tests, a
+  deterministic losing-runner race, and an on-disk fail-closed test that
+  preserves legacy surfaces and omits the throttle stamp.
 - RESOLVED IN PLAN: F0 status/evidence, completed `ReservationRequest`, refreshed
   symbol locators, and the package-internal `pub` path compatibility decision.
 
@@ -858,9 +874,10 @@ N/A — this is a Rust crate, not a Next.js App Router surface.
   helpers, and 2 executable helpers. R8 may intentionally produce no diff.
 - Skipped: dead-code removal, traits, command strategies, persisted typestate,
   supervisor split, and app-server transport reorganization.
-- Pre-verifier verdict: repaired after the first sealed start review identified
-  stale post-F0 premises and four missing test/API decisions. Ready for one fresh
-  immutable readiness review; this sentence is not approval to implement.
+- Pre-verifier verdict: repaired after two sealed start-review inputs identified
+  stale post-F0 premises, missing safety tests/API decisions, and then three
+  precise custody/throttle/locator defects. Ready for one final fresh immutable
+  readiness review; this sentence is not approval to implement.
 
 ## Cold-handoff checklist
 
@@ -877,11 +894,11 @@ N/A — this is a Rust crate, not a Next.js App Router surface.
 
 ## Self-review
 
-Score after the bounded repair: 96/100 · trajectory 55 → 96 · stopped after one
-repair pass; no iterative review loop. Breakdown: standalone executability
-21/22, actionability 16/16, dependency order 12/12, evidence re-verify 10/10,
-goal coverage 12/12, executable acceptance 12/12, failure modes 9/10,
-assumptions surfaced 4/6.
+Score after the bounded repairs: 97/100 · trajectory 55 → 96 → 68 → 97 · stopped
+after two plan-only repair passes; no recursive review tree. Breakdown:
+standalone executability 21/22, actionability 16/16, dependency order 12/12,
+evidence re-verify 10/10, goal coverage 12/12, executable acceptance 12/12,
+failure modes 10/10, assumptions surfaced 4/6.
 
 The original Phase 5 pre-verifier split the two high-risk R7 moves, narrowed R8,
 normalized paths, and retained R8 as a conditional no-diff outcome. The first
@@ -891,7 +908,14 @@ baseline; T1 supplies real before/after custody collection evidence; R7a names
 the full negative allowlist matrix; R7b names coordinator-order and on-disk
 fail-closed evidence; and the `publish = false` internal-public path decision is
 explicit. The independent cross-company leg timed out without evidence and was
-not retried. A fresh sealed review is still required before lifecycle start.
+not retried for that stale input. The second sealed S review then found that the
+plan had collapsed two observations of one GC throttle interval into “one
+throttle,” left T1 open to direct JSON state mutation, and retained pre-F0
+execution locators. This second repair preserves both throttle observations plus
+a deterministic losing-runner test, requires the real owned-process reap path,
+and binds R4/R5/R7b/R8 to current source regions. The concurrent X result cannot
+make an S-`not_ready` input eligible. One final fresh sealed review is still
+required before lifecycle start.
 
 ## Review
 
