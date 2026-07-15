@@ -64,6 +64,14 @@ caller reply becomes best-effort while the watchdog continues heartbeat and
 terminalization. A capped test-only delay makes this boundary deterministic;
 with the variable unset, production timing is unchanged.
 
+R6 also retains one deliberate micro-repair made while extracting collection
+authority: an `EINTR` from the non-blocking `flock` is retried instead of being
+reported as false collector contention. `EAGAIN` remains the only
+"collection already in progress" result. This follows the syscall contract,
+does not change the exclusive-lock guarantee, and is covered at the operational
+boundary by A3's concurrent-collector refusal plus the full Rust and black-box
+gates.
+
 ## Environment & how-to-run
 
 - Audit date: `2026-07-14`.
@@ -108,7 +116,7 @@ not overwrite or fold that skill into the Rust refactor.
 | 2a | Repair watchdog custody when the caller disconnects after supervisor spawn: keep the watchdog authoritative, make only the caller reply best-effort, and deterministically prove heartbeat advance, terminal cleanup, no child launch, and successful retry. This restores the existing supervisor-owned process contract and adds no public guarantee; A6 and A11 are its executable acceptance. | `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/tests/lifecycle_supervisor.rs` | 2 | done |
 | 3 | Add T1, a custody-prefixed collection-boundary test that refuses collection before exact reap and succeeds after `TerminalReleasable`. | `plugins/session-relay/rust/tests/fanout.rs` | 2a | done |
 | 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | done |
-| 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | done |
+| 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes; retain the deliberate `EINTR` retry micro-repair while preserving `EAGAIN` contention refusal. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | done |
 | 6 | Apply R7a as one commit, moving guarded-drain policy out of store and covering every disallowed operation kind. | `plugins/session-relay/rust/src/{store,lifecycle,bus,channel,cli,hook,watch}.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs` | 5 | done |
 | 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval and adding concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 6 | done |
 | 8 | Re-run the depth/deletion test and apply R8 only if its stated precondition holds; otherwise record it skipped without code movement. | `plugins/session-relay/rust/src/lifecycle.rs`, optional `plugins/session-relay/rust/src/lifecycle/gc.rs`, this plan | 7 | skipped |
@@ -132,7 +140,7 @@ that contract.
 |---|---|---|
 | A1 | `cd plugins/session-relay/rust && cargo test --locked --test fanout authority_` | Separate authority compatibility, atomic cap/derived ancestry, proven no-launch rollback, and fail-closed capacity cases pass. |
 | A2 | `cd plugins/session-relay/rust && cargo test --locked --test fanout custody_` | Collection refuses before exact process reap and succeeds only after the managed worker is `TerminalReleasable`; uncertain custody remains counted. |
-| A3 | `cd plugins/session-relay/rust && cargo test --locked --test fanout worktree_` | Clean handback, idempotent collect, exact tree removal, and clean merge-abort retry cases pass. |
+| A3 | `cd plugins/session-relay/rust && cargo test --locked --test fanout worktree_` | Clean handback, idempotent collect, exclusive concurrent-collector refusal before Git changes, exact tree removal, and clean merge-abort retry cases pass. |
 | A4 | `node plugins/session-relay/test/fanout-smoke.mjs` | Exit 0 and print `fanout smoke: PASS` through the real CLI with two collected leaves and a refused third reservation. |
 | A5 | `cd plugins/session-relay/rust && cargo test --locked sha256` | The shared lowercase 64-character digest helper passes all existing and moved call-site tests. |
 | A6 | `cd plugins/session-relay/rust && cargo test --locked --test lifecycle_admission --test lifecycle_managed --test lifecycle_release --test lifecycle_supervisor` | Guarded drain/rollback, the negative allowlist matrix, managed-GC fail-closed behavior, release, caller-disconnect watchdog custody, and the remaining supervisor regressions pass. |
@@ -612,8 +620,11 @@ silently widen that frozen contract.
 - What changes: move persistent model/codec/store transactions to `authority`;
   move concrete repository/Git operations to `git`; keep public orchestration
   and re-exports in `fanout.rs`. No public name or serialized field changes.
+  Retry an interrupted non-blocking `flock` instead of misreporting `EINTR` as
+  collector contention; retain `EAGAIN` as the exclusive contention result.
 - Risk: medium.
-- Test strategy: `cargo test --locked --test fanout`, public import compile
+- Test strategy: `cargo test --locked --test fanout` (including the
+  concurrent-collector refusal before Git changes), public import compile
   checks, `cargo test --locked`, and clippy.
 - Revert trigger: callers must learn an internal module, public paths change,
   private helpers become public merely to compile, or the split scatters one
