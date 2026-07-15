@@ -3,7 +3,7 @@ title: Add bounded relay worktree fan-out
 goal: Let one managed relay worker run two isolated depth-1 children and collect their committed handbacks with process-only lifecycle proof.
 status: ongoing
 created: "2026-07-10T22:57:23-03:00"
-updated: "2026-07-14T18:52:55-03:00"
+updated: "2026-07-14T21:17:28-03:00"
 started_at: "2026-07-14T18:52:31-03:00"
 assignee: null
 review_author_company: openai
@@ -19,11 +19,13 @@ affected_paths:
   - plugins/session-relay/rust/src/lifecycle.rs
   - plugins/session-relay/rust/src/main.rs
   - plugins/session-relay/rust/src/spawn.rs
+  - plugins/session-relay/rust/src/supervisor.rs
   - plugins/session-relay/rust/tests/fanout.rs
   - plugins/session-relay/test/fanout-smoke.mjs
   - plugins/session-relay/test/selftest.mjs
   - plugins/session-relay/AGENTS.md
   - plugins/session-relay/skills/productivity/session-relay/SKILL.md
+  - plugins/session-relay/skills/productivity/session-relay/references/fanout.md
 related_plans:
   - docs/plans/finished/2026-07-14-relay-worker-lifecycle-primitives-continuation.md
 review_status: null
@@ -164,10 +166,10 @@ clean.
 
 | # | Task | Files | Depends | Status | Done condition / revert trigger |
 |---|---|---|---|---|---|
-| 1 | Write failing tests for authority parsing, atomic ancestry/cap checks, fail-closed slot accounting, and process-reap release. | `rust/tests/fanout.rs`, `rust/src/lifecycle.rs` test helpers | — | planned | Focused tests compile and fail for missing behavior. Freeze their behavioral assertions before production edits. Reassess after three repeats of one failure. |
-| 2 | Implement the separate fan-out authority, git worktree preflight, managed birth association, detached process ownership, handback, and retryable collection. | `rust/src/{fanout,lifecycle,spawn,lib}.rs` | 1 | planned | A1 and A2 pass; v0.11 lifecycle reads remain compatible; a third leaf is refused before worktree creation; uncertain custody remains counted; proven no-launch rollback is the only non-counting pre-birth failure; collection never removes an unmerged or dirty tree. Revert trigger: ordinary spawn or unmanaged lifecycle semantics change. |
-| 3 | Expose the four CLI surfaces and add a deterministic black-box smoke using a temporary relay home, temporary git repo, and stub tool. | `rust/src/{main,cli,spawn}.rs`, `test/{fanout-smoke,selftest}.mjs` | 2 | planned | A3 and A4 pass without touching `~/.agent-relay`; forged parent/depth/cap input and a third concurrent reservation fail closed. |
-| 4 | Document the bounded guarantee, run the focused ladder and one full plugin gate, then perform one concise completion review with at most one reproduced-finding repair pass. | `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, this plan | 3 | planned | A1-A6 and project CI pass; review confirms the stated process-only guarantee and exclusions without reopening stronger containment or recovery scope. |
+| 1 | Write failing tests for authority parsing, atomic ancestry/cap checks, fail-closed slot accounting, and process-reap release. | `rust/tests/fanout.rs`, `rust/src/lifecycle.rs` test helpers | — | done | Focused tests compile and fail for missing behavior. Freeze their behavioral assertions before production edits. Reassess after three repeats of one failure. |
+| 2 | Implement the separate fan-out authority, git worktree preflight, managed birth association, detached process ownership, handback, and retryable collection. | `rust/src/{fanout,lifecycle,spawn,lib}.rs` | 1 | done | A1 and A2 pass; v0.11 lifecycle reads remain compatible; a third leaf is refused before worktree creation; uncertain custody remains counted; proven no-launch rollback is the only non-counting pre-birth failure; collection never removes an unmerged or dirty tree. Revert trigger: ordinary spawn or unmanaged lifecycle semantics change. |
+| 3 | Expose the four CLI surfaces and add a deterministic black-box smoke using a temporary relay home, temporary git repo, and stub tool. | `rust/src/{main,cli,spawn}.rs`, `test/{fanout-smoke,selftest}.mjs` | 2 | done | A3 and A4 pass without touching `~/.agent-relay`; forged parent/depth/cap input and a third concurrent reservation fail closed. |
+| 4 | Document the bounded guarantee, run the focused ladder and one full plugin gate, then perform one concise completion review with at most one reproduced-finding repair pass. | `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, this plan | 3 | done | A1-A6 and project CI pass; review confirms the stated process-only guarantee and exclusions without reopening stronger containment or recovery scope. |
 
 ## Acceptance criteria
 
@@ -255,6 +257,12 @@ opened.
 ## Review
 
 (filled by plan-review on completion)
+
+## Notes
+
+- **2026-07-14T21:12:31-03:00**: Focused evidence passed: all 16 fan-out integration tests, the fan-out completion-prompt unit test, `fanout-smoke.mjs`, `selftest.mjs`, rustfmt, and clippy with warnings denied.
+- **2026-07-14T21:12:31-03:00**: One fresh completion review found four lifecycle/spec gaps. A single reproduced-finding repair pass added the fan-out-specific final handback prompt, exact-Active root admission, per-reservation collection exclusion, and retry after removal-before-phase-write. The same pass enforced the existing no-unmerged-removal contract by revalidating the stored handback HEAD and forbidding nested roots.
+- **2026-07-14T21:17:28-03:00**: `node scripts/ci.mjs` passed all three plugins and repo-wide guards. The local producer-binary digest warning is expected and non-blocking; committed checksums verified, and release binaries remain deferred to the producer workflow.
 
 ## Sources
 
