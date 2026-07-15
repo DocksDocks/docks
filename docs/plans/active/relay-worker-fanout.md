@@ -3,7 +3,7 @@ title: Add bounded relay worktree fan-out
 goal: Let one managed relay worker run two isolated depth-1 children and collect their committed handbacks with process-only lifecycle proof.
 status: in_review
 created: "2026-07-10T22:57:23-03:00"
-updated: "2026-07-15T01:07:49-03:00"
+updated: "2026-07-15T02:44:38-03:00"
 started_at: "2026-07-14T18:52:31-03:00"
 in_review_since: "2026-07-15T01:07:49-03:00"
 assignee: null
@@ -16,6 +16,7 @@ tags: [session-relay, orchestration, rust]
 affected_paths:
   - plugins/session-relay/rust/src/cli.rs
   - plugins/session-relay/rust/src/fanout.rs
+  - plugins/session-relay/rust/src/fanout/authority.rs
   - plugins/session-relay/rust/src/lib.rs
   - plugins/session-relay/rust/src/lifecycle.rs
   - plugins/session-relay/rust/src/main.rs
@@ -170,13 +171,13 @@ clean.
 | 1 | Write failing tests for authority parsing, atomic ancestry/cap checks, fail-closed slot accounting, and process-reap release. | `rust/tests/fanout.rs`, `rust/src/lifecycle.rs` test helpers | — | done | Focused tests compile and fail for missing behavior. Freeze their behavioral assertions before production edits. Reassess after three repeats of one failure. |
 | 2 | Implement the separate fan-out authority, git worktree preflight, managed birth association, detached process ownership, handback, and retryable collection. | `rust/src/{fanout,lifecycle,spawn,lib}.rs` | 1 | done | A1 and A2 pass; v0.11 lifecycle reads remain compatible; a third leaf is refused before worktree creation; uncertain custody remains counted; proven no-launch rollback is the only non-counting pre-birth failure; collection never removes an unmerged or dirty tree. Revert trigger: ordinary spawn or unmanaged lifecycle semantics change. |
 | 3 | Expose the four CLI surfaces and add a deterministic black-box smoke using a temporary relay home, temporary git repo, and stub tool. | `rust/src/{main,cli,spawn}.rs`, `test/{fanout-smoke,selftest}.mjs` | 2 | done | A3 and A4 pass without touching `~/.agent-relay`; forged parent/depth/cap input and a third concurrent reservation fail closed. |
-| 4 | Document the bounded guarantee, run the focused ladder and one full plugin gate, then perform one concise completion review with at most one reproduced-finding repair pass. | `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, this plan | 3 | done | A1-A6 and project CI pass; review confirms the stated process-only guarantee and exclusions without reopening stronger containment or recovery scope. |
+| 4 | Document the bounded guarantee, run the focused ladder and one full plugin gate, then perform one concise current-head completion review with one bounded repair pass for any reproduced findings. | `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, this plan | 3 | in_progress | A1-A6 and project CI pass; review confirms the stated process-only guarantee and exclusions without reopening stronger containment or recovery scope. |
 
 ## Acceptance criteria
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `cd plugins/session-relay/rust && cargo test --locked --test fanout authority_` | Exit 0; separate-file v0.11 compatibility, atomic cap/ancestry, proven no-launch rollback, and fail-closed slot tests pass. |
+| A1 | `cd plugins/session-relay/rust && cargo test --locked --test fanout authority_` | Exit 0; separate-file v0.11 compatibility, atomic cap/ancestry, proven no-launch rollback, and fail-closed slot tests pass, including `Reserved` and `Running` records remaining counted across lifecycle-authority disagreement. |
 | A2 | `cd plugins/session-relay/rust && cargo test --locked --test fanout custody_` | Exit 0; exact owned-child reap is required for release and uncertain custody stays counted. |
 | A3 | `cd plugins/session-relay/rust && cargo test --locked --test fanout worktree_` | Exit 0; clean handback, idempotent collect phases, and dirty/unmerged refusal pass. |
 | A4 | `node plugins/session-relay/test/fanout-smoke.mjs` | Exit 0 and print `fanout smoke: PASS`; two leaves hand back and collect, while a third is refused before worktree creation. |
@@ -254,6 +255,13 @@ S1/S2/S3: separate fan-out authority for v0.11 compatibility, proven clean
 no-launch rollback before a non-counting terminal state, and verified
 merge-abort recovery. One repair pass applied; no further draft-review leg was
 opened.
+
+## Notes
+
+- 2026-07-15 completion review S1 reproduced a cross-authority capacity bug:
+  lifecycle `TerminalReleasable` incorrectly made `Reserved` and `Running`
+  fan-out records non-counting. Step 4 was reopened for the exhaustive state
+  table repair and focused regression test; `in_review_since` was preserved.
 
 ## Review
 
