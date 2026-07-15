@@ -3,7 +3,7 @@ title: Add workflow model roles and bounded plan reviews
 goal: Ship profile-backed workflow model roles and a three-round, 90-point plan-review gate without weakening sealed review evidence or single-provider degradation.
 status: in_review
 created: "2026-07-15T12:40:17-03:00"
-updated: "2026-07-15T16:26:40-03:00"
+updated: "2026-07-15T16:28:46-03:00"
 started_at: "2026-07-15T15:24:24-03:00"
 assignee: null
 review_author_company: openai
@@ -308,7 +308,7 @@ opening a worker loop.
 | A1 | `node scripts/tests/plan-review-policy.mjs` | Exits 0 and reports the plan-review policy suite passed, including policy-v2 score boundaries, ordered workflow candidates, candidate-specific fallback, and v1 compatibility cases. |
 | A2 | `node scripts/tests/plan-review-policy-regressions.mjs` | Exits 0 and reports the regression suite passed, including stale-policy, closed-schema, low-score ineligibility, once-per-candidate attempts, and provider-wide/ambiguous failure STOP cases. |
 | A3 | `node scripts/ci.mjs --plugin docks` | Exits 0 with the Docks plugin skills, agents, plan-policy tests, and manifest gates green. |
-| A4 | `node -e "const fs=require('node:fs');const p=fs.readFileSync('plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs','utf8');if(/transports.*relay|\['in_session', 'cli', 'relay'\]/.test(p))process.exit(1);if(!p.includes('minimum_score')||!p.includes('max_rounds'))process.exit(1)"` | Exits 0, proving the bound score/cap fields exist and relay was not added to reviewer transport enums. |
+| A4 | `node -e "const fs=require('node:fs');const p=fs.readFileSync('plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs','utf8');if(/transports.*relay\|in_session.*cli.*relay/.test(p))process.exit(1);if(!p.includes('minimum_score')\|\|!p.includes('max_rounds'))process.exit(1)"` | Exits 0, proving the bound score/cap fields exist and relay was not added to reviewer transport enums. |
 The required project CI is `node scripts/ci.mjs`; completion runs it once after
 the ordered acceptance inventory rather than duplicating it as an acceptance
 row.
@@ -502,6 +502,10 @@ Score: 92/100 · trajectory 64→92 · stopped: target reached in 2 rounds.
   boundary assertion lives in `schemas` → the mutated artifact passed for the
   wrong reason → added a focused `schemas` selector and kept the assertion
   unchanged.
+- **2026-07-15T16:28:46-03:00**: First completion-bundle preparation rejected
+  A4 with `acceptance table column mismatch` → the JavaScript alternation and
+  logical-or pipes were not escaped for Markdown table parsing → escaped those
+  table delimiters while preserving the extracted command byte-for-byte.
 
 ## Sources
 
