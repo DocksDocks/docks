@@ -3,7 +3,7 @@ title: Add workflow model roles and bounded plan reviews
 goal: Ship profile-backed workflow model roles and a three-round, 90-point plan-review gate without weakening sealed review evidence or single-provider degradation.
 status: ongoing
 created: "2026-07-15T12:40:17-03:00"
-updated: "2026-07-15T15:24:24-03:00"
+updated: "2026-07-15T16:24:35-03:00"
 started_at: "2026-07-15T15:24:24-03:00"
 assignee: null
 review_author_company: openai
@@ -17,6 +17,7 @@ tags:
   - cross-company
 affected_paths:
   - docs/plans/AGENTS.md
+  - plugins/docks/skills/AGENTS.md
   - plugins/docks/skills/productivity/plan-init/SKILL.md
   - plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
@@ -292,12 +293,12 @@ opening a worker loop.
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Define workflow-role precedence, the `profile:claude-best` candidate chain, Sol defaults, configurable score/round bounds, model-agnostic availability classification, single-provider degradation, direct review transport, and one-worker implementation dispatch. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md` | none | planned | Both skills describe the exact expanded runtime-global record, X/S mapping, once-per-candidate availability behavior, resolved bounded-batch native question, interactive-parent limitation, and session-relay implementation-only boundary without contradictory transport guidance. |
-| 2 | Add policy-v2 validation and score-gated eligibility while preserving historical schema-v1 request/receipt validation. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 1 | planned | New fixtures prove 89 fails under the default, 90 passes, ordered candidates and configured score/round bounds/provenance are enforced, candidate-specific versus provider-wide failures diverge correctly, every candidate is attempted at most once, policy changes invalidate reuse, unknown v2 keys fail closed, and representative v1 receipts still validate. |
-| 3 | Replace the unbounded/self-review loop contract with configurable bounded-batch semantics, defaulting to 90 points and three rounds, in the repo contract and consumer template. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` | 1, 2 | planned | Source and template agree on resolved target, cap, early stop, continuation question, and the distinction between self-review iteration and sealed X/S evidence. |
-| 4 | Add an explicit `plan-init refresh` path for a two-folder contract that predates author identity and strong-default receipts, without moving plans or overwriting Codex agent customizations. | `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` | 3 | planned | Read-only classification reports `STALE_V2`; refresh requires explicit user intent, rewrites only the canonical plans contract/root Plans snippet and missing support files, leaves `active/`, `finished/`, and existing `.codex/agents/*.toml` unchanged, and is idempotent. |
-| 5 | Run focused tests and the Docks plugin gate, then inspect the diff for schema compatibility and transport regressions. | all affected source/test paths | 1-4 | planned | Every acceptance row passes and `node scripts/ci.mjs --plugin docks` exits 0; no review argv or transport enum admits relay. |
-| 6 | Prove the implementation is completion-ready and preserve the exact downstream interface/release handoff in this plan. | all affected source/test paths; `docs/plans/active/workflow-model-roles-and-bounded-reviews.md` (plan-manager-only status/evidence writes) | 5 | planned | A1-A4 and required project CI are green, every source/template role and review-policy statement agrees, all implementation steps are `done`, and no release/cache claim is made before completion review. |
+| 1 | Define workflow-role precedence, the `profile:claude-best` candidate chain, Sol defaults, configurable score/round bounds, model-agnostic availability classification, single-provider degradation, direct review transport, and one-worker implementation dispatch. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md` | none | done | Both skills describe the exact expanded runtime-global record, X/S mapping, once-per-candidate availability behavior, resolved bounded-batch native question, interactive-parent limitation, and session-relay implementation-only boundary without contradictory transport guidance. |
+| 2 | Add policy-v2 validation and score-gated eligibility while preserving historical schema-v1 request/receipt validation. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 1 | done | New fixtures prove 89 fails under the default, 90 passes, ordered candidates and configured score/round bounds/provenance are enforced, candidate-specific versus provider-wide failures diverge correctly, every candidate is attempted at most once, policy changes invalidate reuse, unknown v2 keys fail closed, and representative v1 receipts still validate. |
+| 3 | Replace the unbounded/self-review loop contract with configurable bounded-batch semantics, defaulting to 90 points and three rounds, in the repo contract and consumer template. | `docs/plans/AGENTS.md`; `plugins/docks/skills/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` | 1, 2 | done | Source and template agree on resolved target, cap, early stop, continuation question, and the distinction between self-review iteration and sealed X/S evidence; the skill-author sync rule names the new bounded contract instead of the obsolete hill-climb constants. |
+| 4 | Add an explicit `plan-init refresh` path for a two-folder contract that predates author identity and strong-default receipts, without moving plans or overwriting Codex agent customizations. | `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` | 3 | done | Read-only classification reports `STALE_V2`; refresh requires explicit user intent, rewrites only the canonical plans contract/root Plans snippet and missing support files, leaves `active/`, `finished/`, and existing `.codex/agents/*.toml` unchanged, and is idempotent. |
+| 5 | Run focused tests and the Docks plugin gate, then inspect the diff for schema compatibility and transport regressions. | all affected source/test paths | 1-4 | done | Every acceptance row passes and `node scripts/ci.mjs --plugin docks` exits 0; no review argv or transport enum admits relay. |
+| 6 | Prove the implementation is completion-ready and preserve the exact downstream interface/release handoff in this plan. | all affected source/test paths; `docs/plans/active/workflow-model-roles-and-bounded-reviews.md` (plan-manager-only status/evidence writes) | 5 | done | A1-A4 and required project CI are green, every source/template role and review-policy statement agrees, all implementation steps are `done`, and no release/cache claim is made before completion review. |
 
 ## Acceptance criteria
 
@@ -373,10 +374,10 @@ already-loaded skill bytes changed; start a fresh session for released behavior.
 
 ## Known gotchas
 
-- Claude is currently installed but unauthenticated on this machine;
-  `claude auth status --json` reports `loggedIn: false`. Canonical review may
-  therefore degrade to the OpenAI S leg during this plan. That is an expected
-  availability outcome, not permission to fake a Fable score.
+- Claude authentication is configured on this machine as of completion prep;
+  `claude auth status --json` reports `loggedIn: true`. The real review launch
+  remains the model-availability probe; authentication does not guarantee a
+  selected candidate has quota.
 - Local Claude Code `2.1.209` accepts `fable` and `claude-fable-5`, while public
   Anthropic documentation can lag entitlement-gated aliases. Runtime attempt is
   the final availability probe.
@@ -481,7 +482,7 @@ Score: 92/100 · trajectory 64→92 · stopped: target reached in 2 rounds.
 - The first pass lacked historical receipt compatibility and a safe public-plan
   bootstrap; the revision added policy v2/v1 validation and explicit stale-v2
   `plan-init refresh` before the downstream plan.
-- Residual eight points reflect the unavailable Claude leg in this environment and
+- Residual eight points reflect the unavailable Claude leg at draft time and
   the fact that exact `public` CLI files belong in the linked downstream plan,
   not this repository-sealed plan.
 
@@ -495,6 +496,11 @@ Score: 92/100 · trajectory 64→92 · stopped: target reached in 2 rounds.
   `/home/vagrant/projects/public` → the review helper rejects repository escapes
   and cannot bind two Git heads → stage Docks first, then create a linked public
   plan after the released contract can refresh its stale plans node.
+- **2026-07-15T16:24:35-03:00**: The first mutation rerun routed the new
+  max-round lower-bound mutation through `validation-matrix` even though the
+  boundary assertion lives in `schemas` → the mutated artifact passed for the
+  wrong reason → added a focused `schemas` selector and kept the assertion
+  unchanged.
 
 ## Sources
 
