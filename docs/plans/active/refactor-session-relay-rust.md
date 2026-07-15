@@ -3,7 +3,7 @@ title: Refactor Session Relay Rust for clarity
 goal: Make Session Relay Rust and its tests idiomatic and self-explanatory after completing bounded fan-out, without speculative abstractions.
 status: planned
 created: "2026-07-14T19:39:28-03:00"
-updated: "2026-07-14T21:56:36-03:00"
+updated: "2026-07-14T22:10:00-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -98,7 +98,7 @@ not overwrite or fold that skill into the Rust refactor.
 | 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | planned |
 | 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | planned |
 | 6 | Apply R7a as one commit, moving guarded-drain policy out of store and covering every disallowed operation kind. | `plugins/session-relay/rust/src/{store,lifecycle,bus,channel,cli,hook,watch}.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs` | 5 | planned |
-| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval and adding concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs`, `plugins/session-relay/test/selftest.mjs` | 6 | planned |
+| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval and adding concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 6 | planned |
 | 8 | Re-run the depth/deletion test and apply R8 only if its stated precondition holds; otherwise record it skipped without code movement. | `plugins/session-relay/rust/src/lifecycle.rs`, optional `plugins/session-relay/rust/src/lifecycle/gc.rs`, this plan | 7 | planned |
 | 9 | Preserve rationale/public guarantees in owned docs, run A1–A11 in order, then run one full repository CI gate. | Session Relay docs/source/tests and this plan | 8 | planned |
 
@@ -659,7 +659,8 @@ silently widen that frozen contract.
   sees the fresh stamp under the legacy lock and performs no legacy deletion or
   stamp write. An on-disk test seeds malformed/new lifecycle protection and
   proves legacy data survives with no stamp. Then run managed-GC crash/CAS tests,
-  existing store GC tests, black-box GC self-tests,
+  existing store GC tests, then run the existing black-box Session Relay
+  self-test as acceptance-only evidence without modifying `test/selftest.mjs`,
   `rg -n 'crate::lifecycle' rust/src/store.rs` expecting no matches, and all Rust
   tests. Do not require one managed-GC invocation across the two-run race.
 - Revert trigger: callback inputs expose mutable registry authority, either
@@ -874,10 +875,11 @@ N/A — this is a Rust crate, not a Next.js App Router surface.
   helpers, and 2 executable helpers. R8 may intentionally produce no diff.
 - Skipped: dead-code removal, traits, command strategies, persisted typestate,
   supervisor split, and app-server transport reorganization.
-- Pre-verifier verdict: repaired after two sealed start-review inputs identified
-  stale post-F0 premises, missing safety tests/API decisions, and then three
-  precise custody/throttle/locator defects. Ready for one final fresh immutable
-  readiness review; this sentence is not approval to implement.
+- Pre-verifier verdict: repaired after three sealed start-review inputs identified
+  stale post-F0 premises, missing safety tests/API decisions, three precise
+  custody/throttle/locator defects, and one acceptance-only scope mismatch. Ready
+  for one minimal fresh immutable confirmation; this sentence is not approval to
+  implement.
 
 ## Cold-handoff checklist
 
@@ -894,8 +896,8 @@ N/A — this is a Rust crate, not a Next.js App Router surface.
 
 ## Self-review
 
-Score after the bounded repairs: 97/100 · trajectory 55 → 96 → 68 → 97 · stopped
-after two plan-only repair passes; no recursive review tree. Breakdown:
+Score after the bounded repairs: 98/100 · trajectory 55 → 96 → 68 → 97 → 91 →
+98 · stopped after three plan-only repair passes; no recursive review tree. Breakdown:
 standalone executability 21/22, actionability 16/16, dependency order 12/12,
 evidence re-verify 10/10, goal coverage 12/12, executable acceptance 12/12,
 failure modes 10/10, assumptions surfaced 4/6.
@@ -914,8 +916,11 @@ throttle,” left T1 open to direct JSON state mutation, and retained pre-F0
 execution locators. This second repair preserves both throttle observations plus
 a deterministic losing-runner test, requires the real owned-process reap path,
 and binds R4/R5/R7b/R8 to current source regions. The concurrent X result cannot
-make an S-`not_ready` input eligible. One final fresh sealed review is still
-required before lifecycle start.
+make an S-`not_ready` input eligible. The third sealed review confirmed every
+repaired invariant and found only that Step 7 listed `test/selftest.mjs` outside
+the declared implementation scope. It is now explicitly acceptance-only and is
+not modified by R7b. One minimal fresh sealed confirmation is still required
+before lifecycle start.
 
 ## Review
 
