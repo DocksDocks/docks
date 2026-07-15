@@ -3,7 +3,7 @@ title: Add workflow model roles and bounded plan reviews
 goal: Ship profile-backed workflow model roles and a three-round, 90-point plan-review gate without weakening sealed review evidence or single-provider degradation.
 status: in_review
 created: "2026-07-15T12:40:17-03:00"
-updated: "2026-07-15T16:28:46-03:00"
+updated: "2026-07-15T17:15:48-03:00"
 started_at: "2026-07-15T15:24:24-03:00"
 assignee: null
 review_author_company: openai
@@ -506,6 +506,15 @@ Score: 92/100 · trajectory 64→92 · stopped: target reached in 2 rounds.
   A4 with `acceptance table column mismatch` → the JavaScript alternation and
   logical-or pipes were not escaped for Markdown table parsing → escaped those
   table delimiters while preserving the extracted command byte-for-byte.
+- **2026-07-15T17:15:48-03:00**: The first completion-review round returned
+  Fable `ready` at 93 with two reproducible policy/test gaps → added a required
+  current-draft policy-reuse boundary plus its mutation guard and a direct v2
+  unknown-key fixture; historical structural receipt validation stays intact.
+- **2026-07-15T17:15:48-03:00**: The A4 evidence wrapper mangled nested shell
+  quotes before the specified command reached Node, and the Codex S leg then
+  hit the host read-only app-server restriction → ran exact A4 directly once,
+  recorded S as terminal `platform_denied`, and did not retry or change review
+  transports.
 
 ## Sources
 
