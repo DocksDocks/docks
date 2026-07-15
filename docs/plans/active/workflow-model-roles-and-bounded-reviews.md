@@ -1,9 +1,9 @@
 ---
 title: Add workflow model roles and bounded plan reviews
 goal: Ship profile-backed workflow model roles and a three-round, 90-point plan-review gate without weakening sealed review evidence or single-provider degradation.
-status: ongoing
+status: in_review
 created: "2026-07-15T12:40:17-03:00"
-updated: "2026-07-15T16:24:35-03:00"
+updated: "2026-07-15T16:26:40-03:00"
 started_at: "2026-07-15T15:24:24-03:00"
 assignee: null
 review_author_company: openai
@@ -29,6 +29,7 @@ related_plans: []
 review_status: null
 planned_at_commit: "63015013ee695f967b3fcae35808170730969b5d"
 execution_base_commit: "261c3d17ef144463d3f5fdfba294b40fe40686ca"
+in_review_since: "2026-07-15T16:26:40-03:00"
 ---
 
 # Add workflow model roles and bounded plan reviews
