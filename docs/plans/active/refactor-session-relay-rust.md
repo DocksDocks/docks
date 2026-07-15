@@ -3,7 +3,7 @@ title: Refactor Session Relay Rust for clarity
 goal: Make Session Relay Rust and its tests idiomatic and self-explanatory after completing bounded fan-out, without speculative abstractions.
 status: in_review
 created: "2026-07-14T19:39:28-03:00"
-updated: "2026-07-15T01:07:49-03:00"
+updated: "2026-07-15T01:31:35-03:00"
 started_at: "2026-07-14T22:30:57-03:00"
 in_review_since: "2026-07-15T01:07:49-03:00"
 assignee: null
@@ -54,6 +54,16 @@ encoded in code and must remain documented. Reviews and verification must stay
 bounded: one sequential audit, one approval gate, then one change at a time with
 focused evidence and one final broad gate.
 
+During the R6 gate, a retained `ChildStarting` fixture exposed a real bootstrap
+custody race: after the watchdog spawned the lifecycle supervisor, a caller that
+disconnected before reading the bootstrap reply could make the watchdog treat
+the reply-pipe error as fatal and strand the supervisor without authority. The
+repair preserves the existing custody contract rather than widening it: process
+ownership transfers to the watchdog once the supervisor is spawned, so the
+caller reply becomes best-effort while the watchdog continues heartbeat and
+terminalization. A capped test-only delay makes this boundary deterministic;
+with the variable unset, production timing is unchanged.
+
 ## Environment & how-to-run
 
 - Audit date: `2026-07-14`.
@@ -95,7 +105,8 @@ not overwrite or fold that skill into the Rust refactor.
 |---|---|---|---|---|
 | 1 | Complete sequential read-only refactor phases 1–5 and present the evidence-tiered plan. | `docs/plans/active/refactor-session-relay-rust.md` | — | done |
 | 2 | Complete F0 exactly as specified by the bounded fan-out plan: authority/custody/worktree behavior, CLI integration, smoke test, and process-only documentation. | `plugins/session-relay/rust/src/{fanout,lib,main,cli,spawn,lifecycle}.rs`, `plugins/session-relay/rust/tests/fanout.rs`, `plugins/session-relay/test/{fanout-smoke,selftest}.mjs`, `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, `docs/plans/active/relay-worker-fanout.md` | 1 | done |
-| 3 | Add T1, a custody-prefixed collection-boundary test that refuses collection before exact reap and succeeds after `TerminalReleasable`. | `plugins/session-relay/rust/tests/fanout.rs` | 2 | done |
+| 2a | Repair watchdog custody when the caller disconnects after supervisor spawn: keep the watchdog authoritative, make only the caller reply best-effort, and deterministically prove heartbeat advance, terminal cleanup, no child launch, and successful retry. This restores the existing supervisor-owned process contract and adds no public guarantee; A6 and A11 are its executable acceptance. | `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/tests/lifecycle_supervisor.rs` | 2 | done |
+| 3 | Add T1, a custody-prefixed collection-boundary test that refuses collection before exact reap and succeeds after `TerminalReleasable`. | `plugins/session-relay/rust/tests/fanout.rs` | 2a | done |
 | 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | done |
 | 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | done |
 | 6 | Apply R7a as one commit, moving guarded-drain policy out of store and covering every disallowed operation kind. | `plugins/session-relay/rust/src/{store,lifecycle,bus,channel,cli,hook,watch}.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs` | 5 | done |
@@ -124,7 +135,7 @@ that contract.
 | A3 | `cd plugins/session-relay/rust && cargo test --locked --test fanout worktree_` | Clean handback, idempotent collect, exact tree removal, and clean merge-abort retry cases pass. |
 | A4 | `node plugins/session-relay/test/fanout-smoke.mjs` | Exit 0 and print `fanout smoke: PASS` through the real CLI with two collected leaves and a refused third reservation. |
 | A5 | `cd plugins/session-relay/rust && cargo test --locked sha256` | The shared lowercase 64-character digest helper passes all existing and moved call-site tests. |
-| A6 | `cd plugins/session-relay/rust && cargo test --locked --test lifecycle_admission --test lifecycle_managed --test lifecycle_release --test lifecycle_supervisor` | Guarded drain/rollback, the negative allowlist matrix, managed-GC fail-closed behavior, release, and supervisor custody regressions pass. |
+| A6 | `cd plugins/session-relay/rust && cargo test --locked --test lifecycle_admission --test lifecycle_managed --test lifecycle_release --test lifecycle_supervisor` | Guarded drain/rollback, the negative allowlist matrix, managed-GC fail-closed behavior, release, caller-disconnect watchdog custody, and the remaining supervisor regressions pass. |
 | A7 | `cd plugins/session-relay/rust && cargo test --locked gc::tests` | Coordinator tests preserve one shared interval/stamp with its initial preflight and under-lock recheck, prove lifecycle-before-legacy order, abort-before-legacy on lifecycle error, fresh protection while the legacy lock is held, and stamp only after both stages succeed. A deterministic two-run barrier proves the losing runner observes the winner's fresh stamp under the legacy lock and performs no legacy deletion or stamp write. |
 | A8 | `! rg -n 'crate::lifecycle' plugins/session-relay/rust/src/store.rs` | Exit 0 with no matches after R7a/R7b. |
 | A9 | `cd plugins/session-relay/rust && cargo test --locked` | All Rust unit and integration tests pass. |
