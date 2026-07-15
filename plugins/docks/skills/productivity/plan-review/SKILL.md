@@ -4,8 +4,8 @@ description: Use when plan-manager needs internal draft or completion evidence f
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-13"
-  content_hash: "50e569366e0be24afe4dcc016679d652b6e4eba8a8527ec5bca18839b801b8b8"
+  updated: "2026-07-15"
+  content_hash: "58b218416ba582775398f157dacf160dfb94d73534088c346baec55094e4c980"
 ---
 
 # Plan Review Evidence Runner
@@ -20,7 +20,7 @@ bundle, schema, hashing, and validation implementation.
 </constraint>
 
 <constraint>
-**One immutable input, two fresh reviewers.** X and S consume the same sealed non-git bundle and byte-identical `ReviewRequestEnvelope`. Every launch pins company/model/effort/transport explicitly. Never resume an old session, inherit ambient model/effort, read the moving source worktree, or use session-relay in schema v1.
+**One immutable input, two fresh reviewers.** X and S consume the same sealed non-git bundle and byte-identical `ReviewRequestEnvelope`. Every launch pins company/model/effort/transport explicitly. Never resume an old session, inherit ambient model/effort, or read the moving source worktree. Session-relay is not a review transport: session-relay never transports review evidence.
 </constraint>
 
 <constraint>
@@ -50,17 +50,25 @@ Author identity is already persisted in plan frontmatter and byte-bound in the
 request; do not infer it from the current executor. X is the other company. S is
 an independent reviewer from the author's company.
 
+The outer envelope remains schema 1. Its embedded `ResolvedReviewPolicy` is
+closed schema 1 for historical verification or schema 2 for current work.
+Policy v2 adds strict integer `minimum_score` 0..100 and `max_rounds` 1..10;
+plan-manager supplies the resolved values from current-user instructions, one
+deduplicated `Docks-workflow-models:` record, or dated defaults. The named
+orchestrator profile is `profile:claude-best`; plan-review receives only its
+expanded ordered candidates and never parses mutable global guidance.
+
 Default dated tiers (2026-07; honor a higher-precedence resolved tier list):
 
 | Company | Ordered tiers | Effort | Eligible transport |
 |---|---|---|---|
 | OpenAI | `gpt-5.6-sol` | `xhigh` | in-session, CLI |
-| Anthropic | `fable`, then `opus` | `high`, then `max` | in-session, CLI |
+| Anthropic | `fable`, then `opus` | `high`, then `xhigh` | in-session, CLI |
 
 `orchestrator_preference=auto` prefers an available in-session fresh reviewer,
-then CLI. `in_session` or `cli` narrows selection. `relay` is invalid in schema
-v1. Select transport once before attempts; an authoritative denial never causes
-a transport switch.
+then CLI. `in_session` or `cli` narrows selection. `relay` is invalid under
+both policy versions. Select transport once before attempts; an authoritative
+denial never causes a transport switch.
 
 ## Prepare result
 
@@ -124,14 +132,19 @@ ETIMEDOUT.
 
 Availability preflight is `codex login status` or `claude auth status` after
 binary lookup. Model availability is attempt-as-probe through the ordered tier.
-Unknown-model/entitlement failure falls through without consuming the transient
-retry.
+One review attempt operation means one sealed X-then-S round. Under policy v2,
+attempt each candidate at most once in that operation and advance only
+after structured or version-pinned evidence of a candidate-specific unknown,
+retired, entitlement, explicit model-quota, or terminal model-unavailability
+failure. Authentication, billing, provider/session/weekly quota, generic 429,
+request-size, transport, and ambiguous failures stop the leg without rotation.
 
-One transient retry exists per leg, not per tier. It repeats the same
-model/transport only after an execution-layer typed, pre-output `EAGAIN`,
-`ETIMEDOUT`, or `ECONNRESET`. Strings, output-started errors, deadline expiry,
-signals, nonzero exits, and schema errors never retry. Attempts are bounded by
-`eligible_tier_count + 1`.
+Historical policy v1 retains one transient retry per leg, not per tier. It
+repeats the same model/transport only after an execution-layer typed, pre-output
+`EAGAIN`, `ETIMEDOUT`, or `ECONNRESET`. Strings, output-started errors,
+deadline expiry, signals, nonzero exits, and schema errors never retry.
+Policy-v1 attempts remain bounded by `eligible_tier_count + 1`; policy-v2
+attempts are bounded by `eligible_tier_count`.
 
 Classify in order: matching waiver → `waived`; X consent denied →
 `not_authorized`; authoritative denial → `platform_denied`; auth failure →
@@ -144,8 +157,10 @@ typed result, schema-valid findings or none, hashes/severity totals, matching
 waiver or null, prompted decision or null, and reason. A passed leg also retains
 the exact structured reviewer verdict, score, confirmations, and SHA-256 of the
 full JCS `ReviewerOutput`; the helper reconstructs and validates that object.
-`not_ready` is always pre-execution-ineligible in schema v1. IDs are unique and
-leg-prefixed (`X1…`, `S1…`). Never construct reconciliation here.
+For policy v1, `not_ready` is pre-execution-ineligible. For policy v2, a passed
+leg is eligible only when `verdict=ready` and `score >= minimum_score`. IDs
+are unique and leg-prefixed (`X1…`, `S1…`). Never construct reconciliation
+here.
 
 ## Draft evidence
 
@@ -161,8 +176,14 @@ In writable main context, independently reproduce each schema-valid finding:
 Return closed `DraftRunResult` with request, X, S, reproduced findings, prompted
 decision evidence or null, `outcome=dual|single|zero_degraded|blocked`, and
 `pre_execution_eligible`. One passed leg permits `single`; zero passed delegates
-to the separately resolved zero-review decision. This skill does not apply the
-intent.
+to the separately resolved zero-review decision. This is one round of evidence:
+plan-manager dispatches X then S without sharing reviewer output, owns repairs,
+and runs at most the resolved `max_rounds` in one authorized batch. After that
+cap it asks exactly `Run up to <max_rounds> more rounds` or
+`Stop and keep the plan planned`, substituting the resolved integer for
+`<max_rounds>` and using the runtime-native picker. A low-score `ready` result
+without a finding still consumes the round and requires a fresh request. This
+skill does not apply the intent.
 
 ## Docks-only legacy compatibility evidence
 
@@ -190,8 +211,9 @@ the immutable release and cache identities.
 
 ## Evidence-complete verification order
 
-- Keep X/S and any other independent audit read-only, same-input, and parallel
-  where possible; one writable main context owns all shared-worktree changes.
+- Keep X/S and any other independent audit read-only and same-input. Dispatch X
+  then S so neither sees the other's output; one writable main context owns all
+  shared-worktree changes.
 - Run syntax/structural and direct acceptance checks before focused regressions,
   then run the required broad/full gate once at the final pre-commit boundary.
   A relevant edit after a gate invalidates its evidence.
@@ -249,8 +271,8 @@ findings-only reviewers; they never clone, run acceptance/CI, or clean up.
 Return closed `CompletionRunResult` with `plan_input_sha256`, `diff_sha256`,
 acceptance inventory/hash, X, S, reproduced findings, decision evidence, outcome, and primary completion
 evidence plus derived `completion_verdict=passed|partial|regressed`. `regressed`
-means either passed X/S reviewer returned `not_ready`, CI failed, a regression
-was recorded, or a primary high finding exists;
+means either a passed X/S reviewer missed the resolved ready/score gate, CI
+failed, a regression was recorded, or a primary high finding exists;
 otherwise `passed` requires `goal_met=yes` and every acceptance `met=true`; all
 other cases are `partial`. Never write `## Review` or `review_status`;
 plan-manager applies the validated result and requires frontmatter status to
@@ -289,7 +311,7 @@ raw stdout/stderr before extracting Codex's final schema object or Claude's
 ## Success criteria
 
 - Both legs are fresh, explicit, read-only, same-bundle, and findings-only.
-- Requests/results are closed, echoed, hashed, and attempt-bounded.
+- Requests/results are closed, echoed, hashed, score-gated, and attempt-bounded.
 - Host denial, consent denial, unavailability, timeout, and schema failure remain
   distinct outcomes with no forbidden retry.
 - X/S evidence carries no write authority; only writable main context creates

@@ -4,8 +4,8 @@ description: Use when the user asks to list, show, create, review, start, block,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-13"
-  content_hash: "afffd19f0a3553ccd2895483766546e00118362a2f9676cb542595705d8a87e7"
+  updated: "2026-07-15"
+  content_hash: "4ca38c3346116c6d74e3bb96d6ad05df0cb2cd1c2e9915dc81a816327a227abe"
 ---
 
 # Plan Manager
@@ -33,24 +33,48 @@ returns typed evidence only.
 
 ## Policy resolution
 
-Resolve one closed `ResolvedReviewPolicy` through ordinary instruction
-precedence: current-turn user > already-loaded runtime-global guidance > dated
-skill default. Do not read a new consumer env var or config file.
+Resolve workflow roles through ordinary instruction precedence: current-turn
+user > byte-deduplicated, already-loaded `Docks-workflow-models:` records > dated
+skill defaults. Do not read a new consumer env var, config file, or mutable model
+catalog. Identical compact-JCS records from parallel global instruction files are
+one record. Two valid records with different values STOP. Ignore an invalid or
+internally inconsistent record as a whole and surface one warning.
+
+The runtime-global record is closed. Preserve each selector for attribution;
+only its expanded candidates are execution input:
+
+```text
+Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"schema":1}
+```
+
+Each role is closed to `selector` plus one to three ordered candidates closed to
+`company`, `tool`, `model`, and `effort`. Review bounds are strict integers:
+`minimum_score` 0..100 and `max_rounds` 1..10. The named profile and exact-target
+grammar are `profile:<name>` and `<tool>:<model>@<effort>`; Docks does not reparse
+or expand them.
 
 Defaults (2026-07):
 
 ```text
+orchestrator: profile:claude-best = claude:fable@high, claude:opus@xhigh
+reviewer: codex:gpt-5.6-sol@xhigh
+implementer: codex:gpt-5.6-sol@xhigh
+minimum_score: 90
+max_rounds: 3
 cross_company_consent: ask
 zero_reviewer_policy: ask
 orchestrator_preference: auto
 openai_tiers: gpt-5.6-sol/xhigh [in_session,cli]
-anthropic_tiers: fable/high, opus/max [in_session,cli]
+anthropic_tiers: fable/high, opus/xhigh [in_session,cli]
 ```
 
-Persist provenance separately for every field. Tier/transport order is semantic.
-Re-resolve policy before receipt reuse and apply; any value, provenance, tier, or
-transport change invalidates old evidence. A current user can override standing
-consent (`always` for the requesting user) without changing zero-review policy.
+New preparation emits closed `ResolvedReviewPolicy` schema 2, including
+`minimum_score`, `max_rounds`, both company tier lists, and one provenance value
+for every preceding policy field. Historical policy-v1 requests and receipts
+remain valid only for historical verification. Re-resolve before receipt reuse
+and apply; any value, provenance, candidate/tier order, effort, or transport
+change invalidates old evidence. A current user can override standing consent
+without changing zero-review policy.
 
 ## Author identity and waivers
 
@@ -65,8 +89,12 @@ review_waivers: []
 ```
 
 Capture identity at creation; never infer it after handoff. Ask once for legacy
-`unknown` before the first review and persist the answer. X is the other company;
-S is an independent author-company reviewer selected from its resolved tiers.
+`unknown` before the first review and persist the answer. For an Anthropic author,
+the OpenAI reviewer candidates supply X and fresh Anthropic orchestrator
+candidates supply S. For an OpenAI author, Anthropic orchestrator candidates
+supply X and OpenAI reviewer candidates supply S. Filter candidates by the
+required company; never relabel a same-company candidate as X. An empty required
+company chain degrades that leg as unavailable.
 
 A waiver is strict one-line JCS in `review_waivers` and binds `phase`, canonical
 `input_sha256`, normalized unique `legs:[X|S]`, actor, non-empty reason, and ISO
@@ -94,22 +122,33 @@ Detect deprecated five-folder layouts and STOP with an offer to run `plan-init`.
 ## Draft and cold-handoff review
 
 Before writing a new plan, read every cited source/affected path. Include the
-required spine and cold-handoff sections from `docs/plans/AGENTS.md`. Run the
-weighted rubric once; hill-climb when first score <85, big/risky, or requested.
-For big/risky drafts, a fresh reviewer returns a rewrite/trajectory when allowed;
-plan-manager remains the writer. Every unresolved guess becomes a structured
-`## Open question` and is surfaced through the native picker.
+required spine and cold-handoff sections from `docs/plans/AGENTS.md`. Run one
+local weighted self-review pass; it is author feedback, not canonical X/S
+evidence. Every unresolved guess becomes a structured `## Open question` and is
+surfaced through the native picker.
 
 Once the candidate is ready:
 
 1. Record author identity and `review_waivers: []`.
 2. Commit `planned`, or `scheduled` with trigger fields. Do not execute.
-3. Call `prepare(none)` and dispatch both review legs from main context.
+3. Call `prepare(none)` and dispatch ordered X then S over the same sealed bundle;
+   S never receives X output.
 4. Independently reproduce every finding against the sealed bundle/source.
 5. Partition all reproduced X/S ids into accepted and rejected (reason required),
-   preserve disagreements, update substantive plan prose for accepted findings,
-   commit, destroy the stale bundle, and repeat until current evidence exists.
-6. Write one canonical receipt only after input/policy/bundle revalidation.
+   preserve disagreements, repair accepted findings, commit, destroy the stale
+   bundle, and prepare a fresh request.
+6. Stop early only when every passed leg is `ready`, its score is at least the
+   resolved `minimum_score`, and the reconciled candidate remains current. One
+   unavailable leg still permits a score-qualified `single` outcome.
+7. Run at most `max_rounds` per user-authorized batch. After the cap ask exactly
+   `Run up to <max_rounds> more rounds` or `Stop and keep the plan planned`.
+   Substitute the resolved integer for `<max_rounds>` and present the two choices
+   through the runtime-native picker. Approval covers one additional bounded
+   batch only; resumed work asks again.
+8. A `ready` result below the floor with no reproducible finding consumes the
+   round: destroy the bundle and create a fresh request id over the unchanged
+   commit/input. No score waiver is inferred.
+9. Write one canonical receipt only after input/policy/bundle revalidation.
 
 ## `prepare(intent)`
 
@@ -137,9 +176,21 @@ path, seal mutation, duplicate, unsupported file, or request mismatch is a STOP.
 
 ## Dispatch and decisions
 
-Both legs are fresh, findings-only, explicit-model/effort, and consume the same
-bundle. Use an execution-enforced read-only in-session reviewer when available,
-otherwise the portable CLI selected by policy. Schema v1 rejects session-relay.
+The outer `ReviewRequestEnvelope` remains schema 1 while its resolved policy is
+schema 2. Both legs are fresh, findings-only, explicit-model/effort, and consume
+the same bundle in X-then-S order without seeing one another. Select one
+execution-enforced read-only in-session or direct CLI transport before attempts.
+Session-relay is invalid review transport under either policy version.
+
+Use binary lookup and auth status only as cheap preflight; the real review launch
+is the model probe. One review attempt operation means one sealed X-then-S round.
+Under policy v2 attempt each candidate at most once in that operation.
+Advance only on structured or version-pinned evidence of a candidate-specific
+model-not-found/retired/entitlement denial, explicit model quota, or terminal
+model overload/unavailability. Authentication, billing, shared session/weekly
+quota, generic 429, invalid/request-size, transport, and ambiguous failures stop
+that leg with exact degradation; never rotate blindly. Historical policy v1
+retains its bounded transient retry solely for receipt compatibility.
 
 When `cross_company_consent=ask`, ask once before X export and persist closed
 decision evidence bound to request id/input hash. `always` attempts X without a
@@ -166,9 +217,10 @@ Accept only the exact typed run result returned for the prepared request.
    decisions, and waivers. Require byte-identical request echoes from both legs.
 2. Validate attempt bounds/results, finding hashes, reconciliation partition, and
    outcome. A passed raw leg preserves the exact reviewer verdict, score,
-   confirmations, and structured-output hash. `not_ready` is ineligible and has
-   no schema-v1 override; repair the plan and collect a new review. Plan-review
-   never supplies reconciliation.
+   confirmations, and structured-output hash. Under policy v2, every passed leg
+   requires `verdict=ready` and `score >= minimum_score`; `not_ready` and a
+   low-score `ready` result are ineligible. Plan-review returns one round's typed
+   evidence and never supplies reconciliation; plan-manager owns bounded batches.
 3. Write compact JCS `Review-receipt:` (draft) or
    `Completion-review-receipt:` (completion) into the appropriate plan section.
 4. For intent `none`, leave status unchanged. For eligible `start`,
@@ -188,9 +240,39 @@ diff hash, nonempty ordered acceptance inventory/hash, primary evidence, and the
 derived `completion_verdict`. Evidence must cover every inventory row once in
 the same order with identical ID/command/expected. `passed` requires goal met,
 every acceptance met, CI exit 0, no recorded regression, no high primary
-finding, and no passed X/S `not_ready` verdict. A later
+finding, and no passed X/S result below the resolved score gate. Policy-v1
+completion retains its historical ready-only meaning; a passed X/S `not_ready`
+fails both versions. A later
 ordinary prose or policy edit invalidates it;
 excluded lifecycle fields and its own exact line do not.
+
+## Implementation role dispatch
+
+After eligible start and the execution-base identity commit, resolve the first
+available implementer candidate. Same-tool/current-model work stays in main
+context. A selected different provider MUST use exactly one depth-0 managed
+worktree worker, pinned to the selected model and effort:
+
+```text
+relay spawn <repo> --fanout --from <invoker-session> --tool <tool> --model <model> --effort <effort> -- "<bounded implementation task>"
+relay handback --from <worker-session> --status completed --note "ready"
+relay collect <worker-session> --from <invoker-session>
+```
+
+Treat the real worker launch as the model probe. Before any worker is accepted,
+candidate-specific terminal model failure advances through the ordered
+implementer chain, attempting each candidate once. Provider-wide, authentication,
+billing, shared-quota, relay, clean-parent, or ambiguous launch failure stops
+rotation and records degradation. Once a worker is created, do not launch
+another candidate.
+
+The worker edits only `affected_paths`, never the plan, commits everything,
+proves its worktree clean before handback, starts no leaves, and writes nothing
+after handback. Only the stored parent collects. Refuse a dirty tree, changed
+post-handback HEAD, or merge conflict; abort the conflicted collection. If relay,
+the selected provider chain, a clean parent, or exact collection protocol is
+unavailable, record degradation and continue with the current eligible writer
+inline. Never open a worker loop.
 
 ## Docks-only legacy start compatibility
 

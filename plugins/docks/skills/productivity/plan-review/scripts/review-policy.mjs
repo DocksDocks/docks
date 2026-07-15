@@ -278,21 +278,33 @@ function digest(value, label) { if (!HEX64.test(value)) throw new Error(`${label
 function iso(value, label) { if (!ISO.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`${label} must be ISO datetime`); }
 
 export function validatePolicy(policy) {
-  assertClosed(policy, ['schema', 'cross_company_consent', 'zero_reviewer_policy', 'orchestrator_preference', 'openai_tiers', 'anthropic_tiers', 'provenance'], 'policy');
-  if (policy.schema !== 1) throw new Error('policy schema');
+  const baseKeys = ['schema', 'cross_company_consent', 'zero_reviewer_policy', 'orchestrator_preference'];
+  const tierKeys = ['openai_tiers', 'anthropic_tiers'];
+  if (policy?.schema === 1) assertClosed(policy, [...baseKeys, ...tierKeys, 'provenance'], 'policy');
+  else if (policy?.schema === 2) assertClosed(policy, [...baseKeys, 'minimum_score', 'max_rounds', ...tierKeys, 'provenance'], 'policy');
+  else throw new Error('policy schema');
   oneOf(policy.cross_company_consent, new Set(['always', 'ask', 'never']), 'cross_company_consent');
   oneOf(policy.zero_reviewer_policy, new Set(['ask', 'proceed', 'block']), 'zero_reviewer_policy');
   oneOf(policy.orchestrator_preference, new Set(['auto', 'in_session', 'cli']), 'orchestrator_preference');
+  if (policy.schema === 2) {
+    if (!Number.isInteger(policy.minimum_score) || policy.minimum_score < 0 || policy.minimum_score > 100) throw new Error('minimum_score');
+    if (!Number.isInteger(policy.max_rounds) || policy.max_rounds < 1 || policy.max_rounds > 10) throw new Error('max_rounds');
+  }
   for (const company of ['openai', 'anthropic']) {
     const tiers = policy[`${company}_tiers`];
-    if (!Array.isArray(tiers) || tiers.length === 0) throw new Error(`${company}_tiers`);
+    if (!Array.isArray(tiers) || tiers.length === 0 || (policy.schema === 2 && tiers.length > 3)) throw new Error(`${company}_tiers`);
+    const candidates = new Set();
     for (const tier of tiers) {
       assertClosed(tier, ['model', 'effort', 'transports'], 'tier'); string(tier.model, 'model'); string(tier.effort, 'effort');
       if (!Array.isArray(tier.transports) || tier.transports.length === 0 || new Set(tier.transports).size !== tier.transports.length) throw new Error('tier transports');
       tier.transports.forEach((v) => oneOf(v, new Set(['in_session', 'cli']), 'transport'));
+      const candidate = `${tier.model}\0${tier.effort}`;
+      if (policy.schema === 2 && candidates.has(candidate)) throw new Error(`duplicate ${company}_tiers candidate`);
+      candidates.add(candidate);
     }
   }
-  assertClosed(policy.provenance, ['cross_company_consent', 'zero_reviewer_policy', 'orchestrator_preference', 'openai_tiers', 'anthropic_tiers'], 'provenance');
+  const provenanceKeys = [...baseKeys.slice(1), ...(policy.schema === 2 ? ['minimum_score', 'max_rounds'] : []), ...tierKeys];
+  assertClosed(policy.provenance, provenanceKeys, 'provenance');
   Object.values(policy.provenance).forEach((value) => oneOf(value, SOURCES, 'provenance source'));
   return policy;
 }
@@ -319,8 +331,12 @@ export function reviewerSchema(leg) {
   const closed = (properties, required = Object.keys(properties)) => ({ type: 'object', additionalProperties: false, properties, required });
   const str = { type: 'string', minLength: 1 };
   const tier = closed({ model: str, effort: str, transports: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['in_session', 'cli'] } } });
-  const provenance = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
-  const policy = closed({ schema: { const: 1 }, cross_company_consent: { enum: ['always', 'ask', 'never'] }, zero_reviewer_policy: { enum: ['ask', 'proceed', 'block'] }, orchestrator_preference: { enum: ['auto', 'in_session', 'cli'] }, openai_tiers: { type: 'array', minItems: 1, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, items: tier }, provenance });
+  const provenanceV1 = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
+  const provenanceV2 = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, minimum_score: { enum: [...SOURCES] }, max_rounds: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
+  const commonPolicy = { cross_company_consent: { enum: ['always', 'ask', 'never'] }, zero_reviewer_policy: { enum: ['ask', 'proceed', 'block'] }, orchestrator_preference: { enum: ['auto', 'in_session', 'cli'] } };
+  const policyV1 = closed({ schema: { const: 1 }, ...commonPolicy, openai_tiers: { type: 'array', minItems: 1, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, items: tier }, provenance: provenanceV1 });
+  const policyV2 = closed({ schema: { const: 2 }, ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
+  const policy = { oneOf: [policyV1, policyV2] };
   const request = closed({
     schema: { const: 1 }, request_id: { type: 'string', pattern: UUID.source }, phase: { enum: ['draft', 'completion'] },
     lifecycle_intent: { enum: ['none', 'start', 'schedule_fire', 'auto_execute'] }, reviewed_commit_or_head: { type: 'string', pattern: HEX40.source },
@@ -395,7 +411,20 @@ function validateAttemptSequence(attempts, policy, company) {
   if (policy.orchestrator_preference !== 'auto' && transport !== policy.orchestrator_preference) throw new Error('attempt transport violates orchestrator preference');
   if (attempts.some((attempt) => attempt.transport !== transport)) throw new Error('attempt transport changed within leg');
   const tiers = policy[`${company}_tiers`].filter((tier) => tier.transports.includes(transport));
-  if (tiers.length === 0 || attempts.length > tiers.length + 1) throw new Error('raw leg attempt bound');
+  const attemptLimit = tiers.length + (policy.schema === 1 ? 1 : 0);
+  if (tiers.length === 0 || attempts.length > attemptLimit) throw new Error('raw leg attempt bound');
+  if (policy.schema === 2) {
+    let tier = 0;
+    for (let i = 0; i < attempts.length; i += 1) {
+      const attempt = attempts[i]; validateAttempt(attempt);
+      if (!tiers[tier] || attempt.model !== tiers[tier].model || attempt.effort !== tiers[tier].effort) throw new Error('attempt tier order mismatch');
+      if (attempt.result === 'model_unavailable') {
+        tier += 1;
+        if (i < attempts.length - 1 && !tiers[tier]) throw new Error('attempt continued past tier list');
+      } else if (i !== attempts.length - 1) throw new Error('attempt after terminal result');
+    }
+    return tiers.length;
+  }
   let tier = 0; let retryUsed = false; let expectRetry = false;
   for (let i = 0; i < attempts.length; i += 1) {
     const attempt = attempts[i]; validateAttempt(attempt);
@@ -546,9 +575,12 @@ function validateCi(value) {
   if (value.exit_code === 0 && value.first_failure !== null) throw new Error('passing CI carries failure'); if (value.exit_code !== 0) string(value.first_failure, 'CI first failure');
 }
 
+function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output.verdict === 'ready' && (policy.schema === 1 || raw.reviewer_output.score >= policy.minimum_score); }
+
 export function deriveCompletionVerdict(primary, inventory, X, S) {
   validatePrimary(primary, inventory);
   if ([X, S].some((leg) => leg?.result === 'passed' && leg.reviewer_output?.verdict === 'not_ready')) return 'regressed';
+  if ([X, S].some((leg) => leg?.result === 'passed' && !reviewerMeetsPolicy(leg, leg.request.policy))) return 'regressed';
   if (primary.ci.exit_code !== 0 || primary.regressions.length > 0 || primary.findings.some((finding) => finding.severity === 'high')) return 'regressed';
   if (primary.goal_met === 'yes' && primary.acceptance.every((criterion) => criterion.met)) return 'passed';
   return 'partial';
@@ -568,7 +600,7 @@ function validatePersistedLeg(value, request, leg, context) {
 
 function validateOutcome(X, S, policy, decisionEvidence, outcome, eligible = null) {
   const passed = [X, S].filter((leg) => leg.result === 'passed').length; let expected; let shouldBeEligible;
-  const ready = [X, S].filter((leg) => leg.result === 'passed').every((leg) => leg.reviewer_output.verdict === 'ready');
+  const ready = [X, S].filter((leg) => leg.result === 'passed').every((leg) => reviewerMeetsPolicy(leg, policy));
   if (passed === 2) { expected = 'dual'; shouldBeEligible = ready; if (decisionEvidence !== null) throw new Error('dual outcome cannot carry zero-review decision'); }
   else if (passed === 1) { expected = 'single'; shouldBeEligible = ready; if (decisionEvidence !== null) throw new Error('single outcome cannot carry zero-review decision'); }
   else if (policy.zero_reviewer_policy === 'proceed') { expected = 'zero_degraded'; shouldBeEligible = true; if (decisionEvidence !== null) throw new Error('configured proceed requires null decision'); }
@@ -599,25 +631,33 @@ export function validateCompletionRunResult(result, { waivers = [] } = {}) {
   validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome); if (result.completion_verdict !== deriveCompletionVerdict(result.primary, result.acceptance_inventory, result.X, result.S)) throw new Error('completion verdict mismatch'); return result;
 }
 
-export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [] } = {}) {
+function validateExpectedPolicy(receipt, expectedPolicy) {
+  if (expectedPolicy === null) return;
+  validatePolicy(expectedPolicy);
+  if (jcs(receipt.policy) !== jcs(expectedPolicy) || receipt.policy_sha256 !== sha256(jcs(expectedPolicy))) throw new Error('receipt resolved policy mismatch');
+}
+
+export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [], expectedPolicy = null } = {}) {
   const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible', 'reviewed_at'];
   assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== 1 || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
   if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('draft receipt input mismatch'); if (expectedInput && receipt.input_sha256 !== expectedInput) throw new Error('stale draft receipt');
   assertClosed(receipt.author, ['company', 'tool', 'model', 'effort'], 'author'); oneOf(receipt.author.company, new Set(['openai', 'anthropic']), 'author company'); for (const key of ['tool', 'model', 'effort']) string(receipt.author[key], `author ${key}`); if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('receipt author mismatch');
   if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('receipt policy mismatch');
+  validateExpectedPolicy(receipt, expectedPolicy);
   const normalizedWaivers = validateWaivers(waivers, receipt.request.phase, receipt.request.input_sha256); const waiverFor = (leg) => normalizedWaivers.find((waiver) => waiver.legs.includes(leg)) || null;
   validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') });
   validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, false); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced);
   validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome, receipt.pre_execution_eligible); iso(receipt.reviewed_at, 'reviewed_at'); return receipt;
 }
 
-export function validateCompletionReceipt(receipt, expected = {}, { waivers = [] } = {}) {
+export function validateCompletionReceipt(receipt, expected = {}, { waivers = [], expectedPolicy = null } = {}) {
   const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
   assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== 1 || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
   if (receipt.request.phase !== 'completion' || receipt.request.lifecycle_intent !== 'none' || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head || receipt.plan_input_sha256 !== receipt.request.input_sha256 || receipt.planned_at_commit !== receipt.request.planned_at_commit || receipt.execution_base_commit !== receipt.request.execution_base_commit || receipt.diff_sha256 !== receipt.request.diff_sha256) throw new Error('completion receipt request mismatch');
   if (!HEX40.test(receipt.planned_at_commit) || !HEX40.test(receipt.execution_base_commit) || !HEX40.test(receipt.reviewed_head)) throw new Error('completion commit'); digest(receipt.diff_sha256, 'completion receipt diff');
   validateAcceptanceInventory(receipt.acceptance_inventory); if (receipt.acceptance_inventory_sha256 !== sha256(jcs(receipt.acceptance_inventory)) || receipt.acceptance_inventory_sha256 !== receipt.request.acceptance_inventory_sha256) throw new Error('completion acceptance inventory mismatch');
   if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('completion author mismatch'); if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('completion policy mismatch');
+  validateExpectedPolicy(receipt, expectedPolicy);
   for (const [key, value] of Object.entries(expected)) if (key !== 'review_status' && value !== undefined && jcs(receipt[key]) !== jcs(value)) throw new Error(`stale completion receipt ${key}`);
   const normalized = validateWaivers(waivers, 'completion', receipt.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
   validatePersistedLeg(receipt.X, receipt.request, 'X', { expectedWaiver: waiverFor('X') }); validatePersistedLeg(receipt.S, receipt.request, 'S', { expectedWaiver: waiverFor('S') }); validateReproduced(receipt.reproduced, receipt.X.raw, receipt.S.raw, true); validateAcceptedReproduced(receipt.X, receipt.S, receipt.reproduced); validatePrimary(receipt.primary, receipt.acceptance_inventory);
@@ -1366,12 +1406,13 @@ export function completionStablePlanViewV1(bytes) {
   return canonicalPlanView(withoutReview);
 }
 
-export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt }) {
+export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt, expectedPolicy }) {
   const logical = safeLogical(planPath); exactCommit(repo, reviewedHead, 'completion reviewed head'); exactCommit(repo, completionCommit, 'completion receipt commit');
+  validatePolicy(expectedPolicy);
   requirePlanOnlyChild(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
   const beforeBytes = planBlob(repo, reviewedHead, logical); const afterBytes = planBlob(repo, completionCommit, logical);
   const afterPlan = parsePlan(afterBytes);
-  validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status });
+  validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy });
   const record = extractMachineRecord(afterBytes, 'Completion-review-receipt');
   if (record.payload !== jcs(receipt)) throw new Error('completion Review receipt payload mismatch');
   if (completionStablePlanViewV1(beforeBytes) !== completionStablePlanViewV1(afterBytes)) throw new Error('completion stable plan view mismatch');
@@ -2212,7 +2253,7 @@ export function classifyLeg({ leg, policy, waiver = null, decision = null, attem
   oneOf(leg, new Set(['X', 'S']), 'leg'); validatePolicy(policy);
   if (waiver) return 'waived';
   if (leg === 'X' && (policy.cross_company_consent === 'never' || decision?.decision === 'deny')) return 'not_authorized';
-  if (attempts.length > eligibleTierCount + 1) throw new Error('attempt bound exceeded');
+  if (attempts.length > eligibleTierCount + (policy.schema === 1 ? 1 : 0)) throw new Error('attempt bound exceeded');
   if (attempts.some((attempt) => attempt.result === 'platform_denied')) return 'platform_denied';
   if (attempts.length === 0 || attempts.at(-1)?.result === 'auth_failed') return 'unavailable_auth';
   const tierFailures = attempts.filter((attempt) => attempt.result !== 'transient_transport');

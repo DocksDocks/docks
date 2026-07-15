@@ -191,40 +191,40 @@ then red-teamed against the rubric below, before it reaches the user — making
 | Failure mode | 10 | each risky step has a revert trigger |
 | Assumption → question | 6 | anything guessed becomes an `## Open question`, not a silent default |
 
-Sum = 100. **Standalone executability carries the largest weight on purpose:**
-the loop only climbs as high as the rubric lets it perceive quality, so the
-cold-handoff dimension must be scored heavily or the hill-climb can't optimize
-it. Score it objectively against the cold-handoff checklist above (each field
-present/specific or a *justified* `N/A`), weighting the items the other rows
-don't already reward — rationale, gotchas, interface/data contracts, environment
-& commands, global constraints verbatim — so the 22 points buy genuinely
-cold-handoff content, not work Actionability or Executable acceptance already
-paid for. That resists the padding a "completeness" score otherwise invites.
+Sum = 100. **Standalone executability carries the largest weight on purpose.**
+Score it objectively against the cold-handoff checklist above (each field
+present/specific or a justified `N/A`), emphasizing rationale, gotchas,
+interface/data contracts, environment and commands, and verbatim constraints
+that other rows do not already reward.
 
-**Scored iterate-until-plateau loop (tiered).** The rubric is *scored*, not just
-checked: a deliberate separate pass assigns each check its weighted sub-score
-(sum 0–100), then hill-climbs — critique lowest checks → rewrite → re-score, keep
-a new draft only if it beats the best by margin **+2**, stop at plateau (no gain
-over **K=3** rounds) or an **8-round cap**; when stuck, a **best-of-N=3** escape
-picks the best of 3 fresh rewrites. Every ~3 rounds re-anchor on the original
-rubric + checklist before scoring (it counters scores climbing while the plan
-doesn't get easier to execute cold). Record `Score: <n>/100 · trajectory
-<a→b→…> · stopped: plateau (K=3) | 8-round cap` in `## Self-review`. Tiered —
-**every plan is scored once**; iteration fires only when the first **score < 85**,
-the plan is big/risky (>6 steps or a risk flag → a fresh-context subagent runs
-it), or the user asks for hardening; a parked stub gets just the score + one
-critique. *(Technique adapted from Sean Geng, "Iterate a plan until it stops
-improving" — https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving.)*
+Run one deliberate weighted pass: assign each row a sub-score, repair the
+highest-impact holes once, record `Score: <n>/100 · one local pass · caught:
+<short finding list>` in `## Self-review`, and stop. This local author check is
+not independent X/S evidence and never loops. The bounded independent review
+below owns any further review-and-repair rounds.
 
 ### Strong-default independent review
 
-Every plan is reviewed before execution by X (best available model from the
-other company) and S (an independent reviewer from the author's company). Both
-are fresh, findings-only, explicit-model/effort, and consume one sealed non-git
-bundle. Portable schema-v1 transports are in-session read-only dispatch or
-`codex exec -s read-only` / `claude -p --permission-mode plan`; session-relay is
-not a schema-v1 transport. `plan-review` returns evidence; main-context
-plan-manager alone reconciles, writes receipts, and changes lifecycle state.
+Every plan is reviewed before execution by X (from the other company) and S (an
+independent author-company reviewer), in that order over one sealed non-git
+bundle; S never receives X output. Both are fresh, findings-only, and explicit
+model/effort. Use an execution-enforced read-only in-session dispatch or direct
+`codex exec -s read-only` / `claude -p --permission-mode plan`. Session-relay
+never transports review evidence. `plan-review` returns one round of evidence;
+main-context plan-manager alone reconciles, writes receipts, and changes state.
+
+Resolve workflow roles from current-user instructions, then one byte-deduplicated
+runtime-global record, then dated defaults:
+
+```text
+Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"schema":1}
+```
+
+Defaults: `profile:claude-best` = `claude:fable@high`, then
+`claude:opus@xhigh`; reviewer/implementer =
+`codex:gpt-5.6-sol@xhigh`; `minimum_score=90`; `max_rounds=3`. Bounds are
+strict integers 0..100 and 1..10. New work embeds closed policy v2 in the
+schema-1 envelope; historical policy v1 remains for historical verification.
 
 Resolve cross-company consent (`always | ask | never`) independently from
 zero-review progression (`ask | proceed | block`). `always` skips only Docks'
@@ -232,8 +232,21 @@ X-consent picker, never host policy. Record authoritative host denial as
 `platform_denied` and never retry another transport. One successful leg may
 proceed with exact degradation recorded, so a single subscription is not a hard
 block. Every passed leg persists its exact structured verdict, score,
-confirmations, and output hash. `not_ready` is ineligible in schema v1;
-current-user waivers bind one phase+canonical input, and consent is not a waiver.
+confirmations, and output hash. One review attempt operation means one sealed
+X-then-S round. Policy v2 attempts each candidate at most once in that operation
+and rotates only on candidate-specific model absence, entitlement,
+quota, or terminal unavailability. Authentication, billing, provider/session
+quota, generic rate-limit, request, transport, or ambiguous failures stop the
+leg; policy v1 alone keeps its bounded typed transient retry.
+
+Run X then S for at most `max_rounds` per batch. Stop early only when every
+passed leg is `ready` and `score >= minimum_score`. A low-score `ready` with
+no reproducible finding still consumes the round and gets a fresh request. At
+the cap ask exactly `Run up to <max_rounds> more rounds` or
+`Stop and keep the plan planned`; substitute the resolved integer for
+`<max_rounds>` and use the runtime-native picker. Approval covers one extra
+bounded batch.
+Current-user waivers bind one phase+canonical input; consent is not a waiver.
 
 Creation commits `planned` or `scheduled` first. `start`, schedule fire, and
 auto execution use `prepare(intent) → main dispatch → apply`; missing/stale/
@@ -248,9 +261,11 @@ time. Canonical input excludes only lifecycle/waiver fields (including
 records; ordinary prose changes always invalidate reuse.
 Completion binds the planned/start SHAs, canonical diff bytes/hash, and exact
 nonempty ordered acceptance inventory; evidence covers it one-to-one.
-Completion derives `regressed` for a passed X/S `not_ready`, failed CI, recorded regression, or a high
-primary finding; otherwise `passed` requires goal met plus every acceptance met,
-and other cases are `partial`. Frontmatter must match that receipt at apply/ship.
+Completion derives `regressed` when a passed X/S reviewer misses the resolved
+ready/score gate, CI fails, a regression is recorded, or a high primary finding
+exists; otherwise `passed` requires goal met plus every acceptance met, and
+other cases are `partial`. Policy v1 retains its historical ready-only rule.
+Frontmatter must match that receipt at apply/ship.
 Cleanup takes only the prepare identity under `/tmp/docks-plan-verify`, bound to
 token, original snapshot, head, tree, path, and sentinel—never a caller root.
 

@@ -1,11 +1,11 @@
 ---
 name: plan-init
-description: Use when bootstrapping the docs/plans/ convention in a new or existing project, or migrating an old 5-folder/HTML-sidecar docs/plans to the current model — creates active/ + finished/, writes a plans-local AGENTS.md plus CLAUDE.md shim, appends a root Plans section, and seeds missing Codex plan-manager/plan-review project agents. Idempotent. Not for per-plan operations (use plan-manager).
+description: Use when bootstrapping or migrating docs/plans, or when the user explicitly requests `plan-init refresh` for a stale known v2 contract — maintains active/ + finished/, the plans-local contract/shim, root Plans section, and missing Codex plan wrappers without overwriting project-owned agents. Not for per-plan operations (use plan-manager).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-13"
-  content_hash: "5be6583ec92b31a8fcb74983f9d5ea632340a573070d4fd80d62b0be39bc8f52"
+  updated: "2026-07-15"
+  content_hash: "1f47e0df3e94eb78511cc4f2bf6c4becabb874b43bee5f6b94c9199d51255d2f"
 ---
 
 # Plans Directory Bootstrapper
@@ -24,7 +24,12 @@ All paths are RELATIVE to the project working directory at invoke time. Never wr
 </constraint>
 
 <constraint>
-Idempotency is the recovery mechanism. Classify the target FIRST: a greenfield project (no `docs/plans/`), a current-model project (`active/` + `finished/` + a v2 contract → no docs/plans rewrite), or an old-model project (`planned/ongoing/blocked/scheduled/` dirs, `_views/`, `_assets/`, `index.html`, or a contract saying status "must match the directory" → migrate). Re-running on a current-model project only seeds genuinely missing support files; it never overwrites an existing plan contract or customized Codex agent.
+Idempotency is the recovery mechanism. Classify the target FIRST as GREENFIELD,
+V1, CURRENT_V2, STALE_V2, or AMBIGUOUS/custom. V1 markers win over all v2
+markers. Ordinary STALE_V2 invocation reports the drift and offers exactly
+`plan-init refresh`; only explicit user intent in the current turn authorizes
+that refresh. CURRENT_V2 is a contract no-op. Never rewrite an AMBIGUOUS/custom
+contract, active/finished plan content, or existing `.codex/agents/` files.
 </constraint>
 
 <constraint>
@@ -58,20 +63,33 @@ All subsequent paths are relative to this. Non-git directories work too — the 
 
 ```bash
 test -d docs/plans                         || echo "GREENFIELD"
-test -d docs/plans/active && test -d docs/plans/finished && echo "maybe V2"
+test -d docs/plans/active && test -d docs/plans/finished && echo "two-folder"
 test -d docs/plans/planned || test -d docs/plans/ongoing || test -d docs/plans/_views || test -f docs/plans/index.html && echo "V1 — migrate"
 grep -l 'must match the containing directory' docs/plans/AGENTS.md 2>/dev/null && echo "V1 contract"
+grep -l 'Docks-workflow-models:' docs/plans/AGENTS.md 2>/dev/null && echo "current workflow marker"
+grep -l 'Run up to <max_rounds> more rounds' docs/plans/AGENTS.md 2>/dev/null && echo "current bounded-review marker"
 test -f .codex/agents/plan-manager.toml || echo "missing Codex plan-manager agent"
 test -f .codex/agents/plan-review.toml || echo "missing Codex plan-review agent"
 ```
 
 Resolve to exactly one class:
 
+- **V1** — any old-model marker exists; this class wins even when v2 folders or
+  markers also exist → migrate (Step 4b).
 - **GREENFIELD** — no `docs/plans/` → bootstrap (Step 4a).
-- **V2** — `active/` + `finished/` exist AND `docs/plans/AGENTS.md` already describes the two-folder model → SKIP docs/plans rewrites; only seed a genuinely missing support file (`.gitkeep`, `.gitignore`, `CLAUDE.md`, root snippet, or default Codex plan-agent file).
-- **V1** — any old-model marker present → migrate (Step 4b).
+- **CURRENT_V2** — two folders plus both current workflow markers → no contract
+  rewrite; seed only genuinely missing support.
+- **STALE_V2** — two folders and the recognizable Docks v2 status-as-field
+  contract, but one or both current workflow markers are absent → report the
+  exact stale markers. Refresh only after the current turn explicitly requests
+  `plan-init refresh` (Step 4c).
+- **AMBIGUOUS/custom** — every other existing shape → STOP with the observed
+  markers; do not rewrite or move anything.
 
-For the project root config: `AGENTS.md` is the primary target; fall back to `CLAUDE.md` only if `AGENTS.md` is absent. `grep -l 'docs/plans' AGENTS.md CLAUDE.md` discriminates already-referenced from needs-append.
+For the project root config: `AGENTS.md` is primary; fall back to `CLAUDE.md`
+only when absent. Recognize the generated Plans section by its Docks wording,
+not merely any `docs/plans` mention. A customized Plans section makes the root
+target AMBIGUOUS/custom even when the nested contract is known.
 
 ### Step 3 — Show the user a classification table
 
@@ -81,6 +99,8 @@ For the project root config: `AGENTS.md` is the primary target; fall back to `CL
 | docs/plans/active/.gitkeep | CREATE | not present                  |
 | docs/plans/finished/       | SKIP   | exists (holds 19 plans)      |
 | docs/plans/AGENTS.md       | WRITE  | V1 contract → rewrite to v2  |
+| docs/plans/AGENTS.md       | OFFER  | STALE_V2; requires explicit `plan-init refresh` |
+| docs/plans/AGENTS.md       | STOP   | AMBIGUOUS/custom contract     |
 | .codex/agents/plan-review.toml | CREATE | not present, Codex wrapper missing |
 | docs/plans/_views/ + _assets/ + index.html | GIT RM | derived artifacts, no longer tracked |
 | AGENTS.md (root)           | APPEND | exists, no docs/plans ref    |
@@ -106,6 +126,21 @@ The work is mechanical and idempotent — proceed to Step 4 in the same turn.
 5. Update the root `AGENTS.md` Plans section if it describes the 5-folder model.
 6. Seed missing `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` from **Codex Agent Defaults**; skip existing files.
 
+### Step 4c — Apply (explicit STALE_V2 refresh)
+
+Only a current-turn `plan-init refresh` request enters this step.
+
+1. Reconfirm STALE_V2 and a clean, recognizable generated Plans section in the
+   root config. If either became CURRENT_V2, do only missing-support seeding. If
+   either is AMBIGUOUS/custom, STOP.
+2. Replace only `docs/plans/AGENTS.md` with the embedded current contract,
+   restore an exact one-line `docs/plans/CLAUDE.md` shim, and update only the
+   recognizable generated root Plans section.
+3. Seed genuinely missing support files and missing Codex wrappers. Never
+   overwrite existing `.codex/agents/` files.
+4. Do not edit, move, or reformat any file under `docs/plans/active/` or
+   `docs/plans/finished/`.
+
 ### Step 5 — Verify and report
 
 ```bash
@@ -127,7 +162,7 @@ Write as a stub or append to the root `AGENTS.md` (or `CLAUDE.md` when AGENTS.md
 Multi-commit work plans live in `docs/plans/active/` (status is a frontmatter field) and `docs/plans/finished/` (archive). Every plan file is a complete cold-handoff document — goal, context & rationale, environment & how-to-run, steps with exact paths, executable acceptance criteria, and a binary cold-handoff checklist — so any agent (or a weaker model) can pick one up cold without guessing. Skills handle every operation: `plan-init` (bootstrap/migrate), `plan-manager` (list/show/start/block/ship/new, auto-commit on transition, self-review on draft), `plan-review` (verification). Trigger by natural language or the matching `plan-*` skill. `active/` is multi-occupancy.
 </constraint>
 
-The full convention (frontmatter schema, body sections, self-review loop, strong-default X/S review receipts, open-questions, age tokens) lives in `docs/plans/AGENTS.md`. `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested discovery. If `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` exist, Codex may use them for explicit subagent delegation; otherwise run the matching `plan-*` skill inline.
+The full convention (frontmatter schema, body sections, one-pass local self-review, bounded strong-default X/S review receipts, workflow roles, open-questions, age tokens) lives in `docs/plans/AGENTS.md`. `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested discovery. If `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` exist, Codex may use them for explicit subagent delegation; otherwise run the matching `plan-*` skill inline.
 ```
 
 ## Codex Agent Defaults
@@ -146,17 +181,24 @@ After Step 4b's `git mv`s, BEFORE deleting any old directory:
 
 Only when all three hold do you proceed to `git rm` the empty old dirs and derived artifacts.
 
+For Step 4c, capture sorted path+content hashes for every tracked file under
+`active/` and `finished/` before writing, then compare them afterward. Any
+difference is a failed refresh: STOP and report the changed path. Confirm
+`git diff --name-only` contains only the nested contract/shim, a recognizable
+root Plans section, and genuinely missing support files.
+
 ## Common Traps
 
 | Trap | Wrong fix | Right fix |
 |---|---|---|
 | Writing to the wrong project root | Hardcoded absolute path | Resolve `git rev-parse --show-toplevel` or `pwd` first |
-| Overwriting a user-customized `docs/plans/AGENTS.md` on a re-run | Re-running rewrites a v2 contract | V2-class detection → no-op; only a V1 contract is rewritten |
+| Overwriting a user-customized `docs/plans/AGENTS.md` on a re-run | Treating every two-folder contract as generated | CURRENT_V2 no-ops; STALE_V2 needs explicit `plan-init refresh`; AMBIGUOUS/custom stops |
 | Deleting old dirs before verifying the moves | `git rm planned/` then discover a plan was missed | Run `## Verification` first — net-count tripwire gates the delete |
 | Re-creating `active/`/`finished/` on a re-run | Treating "exists" as "rewrite" | V2 skips docs/plans rewrites; seed only genuinely missing support files |
 | Migrating `finished/` plans too | Rewriting their frontmatter | `finished/` is an archive — leave it untouched |
 | Committing the throwaway visual-question HTML | Tracking `docs/plans/*.html` | `docs/plans/.gitignore` excludes `*.html` + `.rendered/` |
 | Overwriting customized Codex agents | Rewriting `.codex/agents/*.toml` every run | Seed only when missing; existing agent files are project-owned |
+| Refreshing plan content with the contract | Reformatting `active/*.md` to match new prose | Hash active/finished before and after; refresh touches no plan |
 
 ## Anti-Hallucination Checks
 
@@ -165,10 +207,12 @@ Only when all three hold do you proceed to `git rm` the empty old dirs and deriv
 - Do not claim the root config was updated unless `grep "docs/plans" AGENTS.md CLAUDE.md` matches a line you added this run.
 - Do not claim `docs/plans/CLAUDE.md` was written unless its content is exactly `@AGENTS.md`.
 - Do not claim Codex plan agents were seeded unless both `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` exist, and do not claim they ran unless the user explicitly delegated to them.
+- Do not claim STALE_V2 was refreshed without a current-turn `plan-init refresh`
+  request and a post-write active/finished hash match.
 
 ## References
 
-- `references/plans-agents-md-template.md` — the verbatim `docs/plans/AGENTS.md` contract (two-folder model, status-as-field, frontmatter schema, cold-handoff body spine + checklist, scored self-review rubric, open-questions, age tokens, audit-first). The source of every project's plans contract — a contract change in any plan-* skill lands here too.
+- `references/plans-agents-md-template.md` — the verbatim `docs/plans/AGENTS.md` contract (two-folder model, status-as-field, frontmatter schema, cold-handoff body spine + checklist, one-pass local self-review, bounded X/S review, workflow roles, open-questions, age tokens, audit-first). The source of every project's plans contract — a contract change in any plan-* skill lands here too.
 - `references/codex-agent-templates.md` — the copy-only `.codex/agents/plan-manager.toml` + `plan-review.toml` seed templates (written only when the file is missing).
 - Sibling `plan-manager` — every runtime operation on plans (list/show/start/block/ship/new, self-review on draft, auto-commit on transition, deprecation detection). Triggered by natural language.
 - Sibling `plan-review` — verifies finished plans against `ship_commit`; also the draft-review pass plan-manager runs on big plans.

@@ -30,6 +30,17 @@ const POLICY = {
   anthropic_tiers: [{ model: 'fable', effort: 'high', transports: ['in_session', 'cli'] }, { model: 'opus', effort: 'max', transports: ['in_session', 'cli'] }],
   provenance: { cross_company_consent: 'runtime_global', zero_reviewer_policy: 'skill_default', orchestrator_preference: 'skill_default', openai_tiers: 'skill_default', anthropic_tiers: 'skill_default' },
 };
+const POLICY_V2 = {
+  schema: 2,
+  cross_company_consent: 'always',
+  zero_reviewer_policy: 'ask',
+  orchestrator_preference: 'auto',
+  minimum_score: 90,
+  max_rounds: 3,
+  openai_tiers: [{ model: 'gpt-5.6-sol', effort: 'xhigh', transports: ['in_session', 'cli'] }],
+  anthropic_tiers: [{ model: 'fable', effort: 'high', transports: ['in_session', 'cli'] }, { model: 'opus', effort: 'xhigh', transports: ['in_session', 'cli'] }],
+  provenance: { cross_company_consent: 'runtime_global', zero_reviewer_policy: 'skill_default', orchestrator_preference: 'skill_default', minimum_score: 'runtime_global', max_rounds: 'runtime_global', openai_tiers: 'runtime_global', anthropic_tiers: 'runtime_global' },
+};
 
 function request(overrides = {}) {
   const policy = overrides.policy || POLICY;
@@ -166,9 +177,9 @@ function draftReceiptVariant(reviewedCommit, bytes, { verdict = 'ready', finding
   };
 }
 
-function completionReceiptFor(reviewedHead, bytes, { X = null, S = null, reproduced = [], primary = null, verdict = 'passed', outcome = 'dual', reviewedAt = '2026-07-13T13:00:00.000Z' } = {}) {
+function completionReceiptFor(reviewedHead, bytes, { X = null, S = null, reproduced = [], primary = null, verdict = 'passed', outcome = 'dual', reviewedAt = '2026-07-13T13:00:00.000Z', policy = POLICY } = {}) {
   const inventory = acceptanceInventory(bytes); const input = sha256(canonicalPlanView(bytes));
-  const req = request({ phase: 'completion', reviewed_commit_or_head: reviewedHead, planned_at_commit: reviewedHead, execution_base_commit: reviewedHead, diff_sha256: H0, acceptance_inventory_sha256: sha256(jcs(inventory)), input_sha256: input });
+  const req = request({ policy, phase: 'completion', reviewed_commit_or_head: reviewedHead, planned_at_commit: reviewedHead, execution_base_commit: reviewedHead, diff_sha256: H0, acceptance_inventory_sha256: sha256(jcs(inventory)), input_sha256: input });
   const rawX = X ?? rawPassed(req, 'X'); const rawS = S ?? (outcome === 'dual' ? rawPassed(req, 'S') : rawAuth(req, 'S'));
   return {
     schema: 1, phase: 'completion', request: req, planned_at_commit: req.planned_at_commit, execution_base_commit: req.execution_base_commit,
@@ -559,6 +570,20 @@ function testCanonical() {
 
 function testSchemas() {
   validatePolicy(POLICY);
+  validatePolicy(POLICY_V2);
+  validatePolicy({ ...POLICY_V2, minimum_score: 0, max_rounds: 1 });
+  validatePolicy({ ...POLICY_V2, minimum_score: 100, max_rounds: 10 });
+  expectThrow('policy v2 minimum score below range', () => validatePolicy({ ...POLICY_V2, minimum_score: -1 }), /minimum_score/);
+  expectThrow('policy v2 minimum score above range', () => validatePolicy({ ...POLICY_V2, minimum_score: 101 }), /minimum_score/);
+  expectThrow('policy v2 minimum score integer', () => validatePolicy({ ...POLICY_V2, minimum_score: 89.5 }), /minimum_score/);
+  expectThrow('policy v2 max rounds below range', () => validatePolicy({ ...POLICY_V2, max_rounds: 0 }), /max_rounds/);
+  expectThrow('policy v2 max rounds above range', () => validatePolicy({ ...POLICY_V2, max_rounds: 11 }), /max_rounds/);
+  expectThrow('policy v2 max rounds integer', () => validatePolicy({ ...POLICY_V2, max_rounds: 2.5 }), /max_rounds/);
+  expectThrow('policy v2 caps ordered candidates', () => validatePolicy({ ...POLICY_V2, anthropic_tiers: [...POLICY_V2.anthropic_tiers, { model: 'sonnet', effort: 'high', transports: ['cli'] }, { model: 'haiku', effort: 'medium', transports: ['cli'] }] }), /anthropic_tiers/);
+  expectThrow('policy v2 rejects duplicate candidates', () => validatePolicy({ ...POLICY_V2, anthropic_tiers: [POLICY_V2.anthropic_tiers[0], { ...POLICY_V2.anthropic_tiers[0], transports: ['cli'] }] }), /duplicate.*candidate|anthropic_tiers/);
+  expectThrow('policy v1 remains closed', () => validatePolicy({ ...POLICY, minimum_score: 90 }), /unknown key/);
+  const missingV2Provenance = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance } }; delete missingV2Provenance.provenance.minimum_score;
+  expectThrow('policy v2 requires score provenance', () => validatePolicy(missingV2Provenance), /missing minimum_score/);
   const req = request(); validateRequest(req);
   const output = { schema: 1, leg: 'X', request: req, verdict: 'ready', score: 98, findings: [{ id: 'X1', severity: 'low', section: 'Goal', path: null, locator: null, defect: 'Minor ambiguity', fix: 'State it', evidence: 'Plan text' }], confirmations: ['Bundle was read'] };
   validateReviewerOutput(output, req, 'X');
@@ -567,7 +592,10 @@ function testSchemas() {
   expectThrow('cross-leg id', () => validateReviewerOutput({ ...output, findings: [{ ...output.findings[0], id: 'S1' }] }, req, 'X'), /finding id/);
   assert.equal(reviewerSchema('X').additionalProperties, false);
   assert.equal(reviewerSchema('X').properties.request.additionalProperties, false);
-  assert.equal(reviewerSchema('X').properties.request.properties.policy.additionalProperties, false);
+  const policySchemas = reviewerSchema('X').properties.request.properties.policy.oneOf;
+  assert.equal(policySchemas.length, 2); assert.ok(policySchemas.every((schema) => schema.additionalProperties === false));
+  assert.equal(policySchemas.find((schema) => schema.properties.schema.const === 2).properties.minimum_score.maximum, 100);
+  assert.equal(policySchemas.find((schema) => schema.properties.schema.const === 2).properties.max_rounds.maximum, 10);
   assert.equal(reviewerSchema('X').properties.request.properties.author.additionalProperties, false);
   validateWaivers([{ phase: 'draft', input_sha256: req.input_sha256, legs: ['S', 'X'], actor: 'user', reason: 'explicit waiver', at: '2026-07-12T00:00:00-03:00' }], 'draft', req.input_sha256);
   expectThrow('duplicate waiver', () => validateWaivers([
@@ -578,6 +606,8 @@ function testSchemas() {
   const persisted = (leg) => ({ request: req, raw: raw(leg), reconciliation: { accepted: [], rejected: [] } });
   const receipt = { schema: 1, phase: 'draft', request: req, input_sha256: req.input_sha256, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', pre_execution_eligible: false, reviewed_at: '2026-07-12T00:00:00-03:00' };
   validateDraftReceipt(receipt, req.input_sha256);
+  validateDraftReceipt(receipt, req.input_sha256, { expectedPolicy: POLICY });
+  expectThrow('policy v1 receipt is not reusable under policy v2', () => validateDraftReceipt(receipt, req.input_sha256, { expectedPolicy: POLICY_V2 }), /resolved policy|policy.*mismatch|stale/);
   expectThrow('malformed receipt extra key', () => validateDraftReceipt({ ...receipt, unauthorized_extra: true }, req.input_sha256), /unknown key/);
   expectThrow('stale receipt input', () => validateDraftReceipt(receipt, 'f'.repeat(64)), /stale/);
   console.log('schema closure goldens passed');
@@ -607,6 +637,40 @@ function testValidationMatrix() {
 
   const dual = { schema: 1, kind: 'draft', request: req, X, S, reproduced: [], decision_evidence: null, outcome: 'dual', pre_execution_eligible: true }; validateDraftRunResult(dual);
   const single = { ...dual, S: rawAuth(req, 'S'), outcome: 'single' }; validateDraftRunResult(single);
+  const v2Req = request({ policy: POLICY_V2 });
+  const v2AtThresholdX = rawPassed(v2Req, 'X', null, [], { score: 90 });
+  const v2ReadyS = rawPassed(v2Req, 'S', null, [], { score: 100 });
+  validateDraftRunResult({ schema: 1, kind: 'draft', request: v2Req, X: v2AtThresholdX, S: v2ReadyS, reproduced: [], decision_evidence: null, outcome: 'dual', pre_execution_eligible: true });
+  const v2BelowThresholdX = rawPassed(v2Req, 'X', null, [], { score: 89 });
+  validateDraftRunResult({ schema: 1, kind: 'draft', request: v2Req, X: v2BelowThresholdX, S: v2ReadyS, reproduced: [], decision_evidence: null, outcome: 'dual', pre_execution_eligible: false });
+  expectThrow('policy v2 score 89 cannot authorize execution', () => validateDraftRunResult({ schema: 1, kind: 'draft', request: v2Req, X: v2BelowThresholdX, S: v2ReadyS, reproduced: [], decision_evidence: null, outcome: 'dual', pre_execution_eligible: true }), /pre_execution_eligible/);
+  validateDraftRunResult({ schema: 1, kind: 'draft', request: v2Req, X: v2AtThresholdX, S: rawAuth(v2Req, 'S'), reproduced: [], decision_evidence: null, outcome: 'single', pre_execution_eligible: true });
+  validateDraftRunResult({ schema: 1, kind: 'draft', request: v2Req, X: v2BelowThresholdX, S: rawAuth(v2Req, 'S'), reproduced: [], decision_evidence: null, outcome: 'single', pre_execution_eligible: false });
+  const v1LowReady = rawPassed(req, 'X', null, [], { score: 1 });
+  validateDraftRunResult({ schema: 1, kind: 'draft', request: req, X: v1LowReady, S: rawAuth(req, 'S'), reproduced: [], decision_evidence: null, outcome: 'single', pre_execution_eligible: true });
+  const v2ZeroPolicy = { ...POLICY_V2, minimum_score: 0, provenance: { ...POLICY_V2.provenance, minimum_score: 'current_user' } }; const v2ZeroReq = request({ policy: v2ZeroPolicy });
+  validateDraftRunResult({ schema: 1, kind: 'draft', request: v2ZeroReq, X: rawPassed(v2ZeroReq, 'X', null, [], { score: 0 }), S: rawAuth(v2ZeroReq, 'S'), reproduced: [], decision_evidence: null, outcome: 'single', pre_execution_eligible: true });
+  validateDraftRunResult({ schema: 1, kind: 'draft', request: v2ZeroReq, X: rawPassed(v2ZeroReq, 'X', null, [], { verdict: 'not_ready', score: 100 }), S: rawAuth(v2ZeroReq, 'S'), reproduced: [], decision_evidence: null, outcome: 'single', pre_execution_eligible: false });
+
+  const v2Fallback = rawPassed(v2Req, 'X', [
+    attempt({ model: 'fable', effort: 'high', output_started: false, result: 'model_unavailable', exit_code: 1, reason: 'candidate not entitled' }),
+    attempt({ model: 'opus', effort: 'xhigh', child_id: 'child-2' }),
+  ]); validateRawLeg(v2Fallback, v2Req, 'X');
+  const v2TransientRetry = rawPassed(v2Req, 'X', [
+    attempt({ model: 'fable', effort: 'high', output_started: false, result: 'transient_transport', exit_code: null, retry_cause: 'transport_ECONNRESET', reason: 'connection reset' }),
+    attempt({ model: 'fable', effort: 'high', child_id: 'child-2' }),
+  ]);
+  expectThrow('policy v2 attempts each candidate at most once', () => validateRawLeg(v2TransientRetry, v2Req, 'X'), /attempt|retry|order/);
+  const providerWideStop = { ...rawAuth(v2Req, 'X'), result: 'unavailable_unknown', attempts: [attempt({ model: 'fable', effort: 'high', output_started: false, result: 'nonzero_exit', exit_code: 1, reason: 'shared weekly limit' })], reason: 'provider-wide failure stops candidate rotation' };
+  validateRawLeg(providerWideStop, v2Req, 'X');
+  expectThrow('provider-wide failure cannot rotate to next candidate', () => validateRawLeg({ ...providerWideStop, attempts: [...providerWideStop.attempts, attempt({ model: 'opus', effort: 'xhigh', child_id: 'child-2' })] }, v2Req, 'X'), /attempt after terminal result/);
+  const v2TransientStop = { ...rawAuth(v2Req, 'S'), result: 'unavailable_unknown', attempts: [attempt({ output_started: false, result: 'transient_transport', exit_code: null, retry_cause: 'transport_ECONNRESET', reason: 'connection reset' })], reason: 'transport failure stops candidate rotation' };
+  validateRawLeg(v2TransientStop, v2Req, 'S');
+  const allCandidatesUnavailable = { ...rawAuth(v2Req, 'X'), result: 'unavailable_model', attempts: [
+    attempt({ model: 'fable', effort: 'high', output_started: false, result: 'model_unavailable', exit_code: 1, reason: 'candidate unavailable' }),
+    attempt({ model: 'opus', effort: 'xhigh', output_started: false, result: 'model_unavailable', exit_code: 1, reason: 'candidate unavailable' }),
+  ], reason: 'all candidates unavailable' };
+  validateRawLeg(allCandidatesUnavailable, v2Req, 'X');
   const proceedPolicy = { ...POLICY, zero_reviewer_policy: 'proceed' }; const proceedReq = request({ policy: proceedPolicy });
   validateDraftRunResult({ schema: 1, kind: 'draft', request: proceedReq, X: rawAuth(proceedReq, 'X'), S: rawAuth(proceedReq, 'S'), reproduced: [], decision_evidence: null, outcome: 'zero_degraded', pre_execution_eligible: true });
   const blockPolicy = { ...POLICY, zero_reviewer_policy: 'block' }; const blockReq = request({ policy: blockPolicy });
@@ -630,6 +694,12 @@ function testValidationMatrix() {
   validateCompletionRunResult(completion);
   const receipt = { schema: 1, phase: 'completion', request: completionReq, planned_at_commit: completionReq.planned_at_commit, execution_base_commit: completionReq.execution_base_commit, reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, acceptance_inventory: INVENTORY, acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256, author: completionReq.author, policy: completionReq.policy, policy_sha256: completionReq.policy_sha256, X: persisted(completionX), S: persisted(completionS), reproduced: [], decision_evidence: null, primary: completion.primary, completion_verdict: 'passed', outcome: 'dual', reviewed_at: '2026-07-12T00:00:00-03:00' };
   validateCompletionReceipt(receipt, { reviewed_head: completionReq.reviewed_commit_or_head, diff_sha256: H0, plan_input_sha256: completionReq.input_sha256, review_status: 'passed' });
+  const completionV2Req = request({ policy: POLICY_V2, phase: 'completion', lifecycle_intent: 'none', planned_at_commit: '3'.repeat(40), execution_base_commit: '4'.repeat(40), diff_sha256: H0, acceptance_inventory_sha256: sha256(jcs(INVENTORY)) });
+  const completionV2LowX = rawPassed(completionV2Req, 'X', null, [], { score: 89 }); const completionV2S = rawPassed(completionV2Req, 'S', null, [], { score: 100 });
+  const completionV2 = { schema: 1, kind: 'completion', request: completionV2Req, plan_input_sha256: completionV2Req.input_sha256, diff_sha256: H0, acceptance_inventory: INVENTORY, acceptance_inventory_sha256: completionV2Req.acceptance_inventory_sha256, X: completionV2LowX, S: completionV2S, reproduced: [], decision_evidence: null, outcome: 'dual', primary: primaryEvidence(), completion_verdict: 'regressed' };
+  assert.equal(deriveCompletionVerdict(completionV2.primary, INVENTORY, completionV2LowX, completionV2S), 'regressed');
+  validateCompletionRunResult(completionV2);
+  expectThrow('policy v2 low score cannot pass completion', () => validateCompletionRunResult({ ...completionV2, completion_verdict: 'passed' }), /completion verdict mismatch/);
 
   expectThrow('unstarted passed attempt', () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], started: false, child_id: null, stdout_sha256: null, stderr_sha256: null }] }, req, 'X'), /unstarted|passed attempt/);
   expectThrow('started missing timeout', () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], timeout_mode: null }] }, req, 'X'), /timeout mode/);
@@ -832,7 +902,9 @@ function testStrictCompletionReuse() {
   plan = replaceOnce(plan, 'execution_base_commit: null', `execution_base_commit: "${executionBase}"`); writeLogical(repo, planPath, plan); const head = commitAll(repo, 'record strict identity');
   assert.deepEqual(validateExecutionRange({ repo, planPath, plannedAtCommit: plannedAt, executionBaseCommit: executionBase, reviewedHead: head }), { schema: 1, planned_at_commit: plannedAt, execution_base_commit: executionBase, reviewed_head: head, execution_parent: git(repo, ['rev-parse', `${executionBase}^`]) });
   const receipt = completionReceiptFor(head, Buffer.from(plan)); let completed = applyCompletionReviewBlock(Buffer.from(plan), receipt).toString(); completed = replaceOnce(completed, 'review_status: null', 'review_status: passed'); writeLogical(repo, planPath, completed); const completionCommit = commitAll(repo, 'complete strict plan');
-  validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit, receipt });
+  validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit, receipt, expectedPolicy: receipt.policy });
+  expectThrow('completion reuse requires current policy', () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit, receipt }), /policy schema/);
+  expectThrow('policy v1 completion is not reusable under policy v2', () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit, receipt, expectedPolicy: POLICY_V2 }), /resolved policy mismatch/);
   for (const [label, applyChange] of [
     ['Review heading', (value) => replaceOnce(value, '## Review\n', '## Reviews\n')],
     ['Review label', (value) => replaceOnce(value, '**Goal met:**', '**Goal status:**')],
@@ -844,8 +916,18 @@ function testStrictCompletionReuse() {
     ['Review final LF', (value) => value.slice(0, -1)],
   ]) {
     git(repo, ['checkout', '-q', '--detach', head]); writeLogical(repo, planPath, applyChange(completed)); const candidate = commitAll(repo, `mutated completion ${label}`);
-    expectThrow(`completion reuse ${label}`, () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: candidate, receipt }), /completion|Review|delta|LF|receipt|plan/i);
+    expectThrow(`completion reuse ${label}`, () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: candidate, receipt, expectedPolicy: receipt.policy }), /completion|Review|delta|LF|receipt|plan/i);
   }
+  git(repo, ['checkout', '-q', '--detach', head]);
+  const v2Receipt = completionReceiptFor(head, Buffer.from(plan), { policy: POLICY_V2 });
+  let v2Completed = applyCompletionReviewBlock(Buffer.from(plan), v2Receipt).toString();
+  v2Completed = replaceOnce(v2Completed, 'review_status: null', 'review_status: passed');
+  writeLogical(repo, planPath, v2Completed); const v2CompletionCommit = commitAll(repo, 'complete strict plan with policy v2');
+  validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: v2CompletionCommit, receipt: v2Receipt, expectedPolicy: POLICY_V2 });
+  const lowerThreshold = { ...POLICY_V2, minimum_score: 80, provenance: { ...POLICY_V2.provenance, minimum_score: 'current_user' } };
+  expectThrow('policy v2 threshold change invalidates completion reuse', () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: v2CompletionCommit, receipt: v2Receipt, expectedPolicy: lowerThreshold }), /resolved policy mismatch/);
+  const provenanceChange = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance, max_rounds: 'current_user' } };
+  expectThrow('policy v2 provenance change invalidates completion reuse', () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: v2CompletionCommit, receipt: v2Receipt, expectedPolicy: provenanceChange }), /resolved policy mismatch/);
   fs.rmSync(temp, { recursive: true, force: true });
 }
 
@@ -1143,7 +1225,7 @@ const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',e
   assert.equal(validation.prerequisite_receipt_sha256, prerequisiteReceiptFromApplication(prerequisiteApplication).receipt_sha256);
   const completionReceipt = completionReceiptFor(finalReviewCommit, finalBytes); let completionBytes = applyCompletionReviewBlock(finalBytes, completionReceipt).toString(); completionBytes = replaceOnce(completionBytes, 'review_status: null', 'review_status: passed');
   writeLogical(fixture.repo, TARGET_PLAN, completionBytes); const completionCommit = commitAll(fixture.repo, 'complete compatibility consumer plan');
-  validateCompletionReviewReuse({ repo: fixture.repo, planPath: TARGET_PLAN, reviewedHead: finalReviewCommit, completionCommit, receipt: completionReceipt });
+  validateCompletionReviewReuse({ repo: fixture.repo, planPath: TARGET_PLAN, reviewedHead: finalReviewCommit, completionCommit, receipt: completionReceipt, expectedPolicy: completionReceipt.policy });
   assert.equal(compatibilityRange(fixture.compatibilityHelper, { repo: fixture.repo, planPath: TARGET_PLAN, plannedAtCommit: fixture.plannedAt, executionBaseCommit: fixture.executionBaseCommit, reviewedHead: completionCommit }).execution_review_commit, finalReviewCommit);
   testStrictCompletionReuse(); testCompletionReviewRenderer(); testExecutionScopeLedger();
   makeWritable(fixture.temp); fs.rmSync(fixture.temp, { recursive: true, force: true });
@@ -1309,6 +1391,13 @@ function testContractSurfaces() {
     assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
     assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
   }
+  const workflowMarkers = ['Docks-workflow-models:', 'profile:claude-best', 'minimum_score', 'max_rounds', 'Run up to <max_rounds> more rounds', 'runtime-native picker', 'One review attempt operation means one sealed'];
+  for (const file of [contractPath, templatePath, managerPath, reviewPath]) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    for (const marker of workflowMarkers) assert.match(text, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${file} missing workflow policy marker ${marker}`);
+  }
+  const init = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8');
+  for (const marker of ['STALE_V2', 'plan-init refresh', 'explicit user intent', 'existing `.codex/agents/']) assert.match(init, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-init missing refresh marker ${marker}`);
   const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
   const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
   const regressionCall = "nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'])";
@@ -1343,6 +1432,7 @@ function testReviewRunnerSurfaces() {
   assert.match(skill, /--skip-git-repo-check/); assert.match(skill, /--permission-mode plan/);
   assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
   assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
+  for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
@@ -1362,6 +1452,7 @@ function testManagerSurfaces() {
   for (const marker of ['Review before execution', 'Sole-writer protocol', 'prepare(intent)', 'NeedsMainReviewDispatch', '## `apply`', 'zero_reviewer_policy', 'platform_denied']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   for (const marker of ['Publishing a plan as a GitHub issue', '--issues', 'gh auth status', 'gh repo view --json visibility', 'gh issue create']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager lost publishing operation: ${marker}`);
   for (const marker of ['execution_base_commit', 'acceptance inventory', 'writable main context', 'passed X/S `not_ready`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing completion hardening: ${marker}`);
+  for (const marker of ['Implementation role dispatch', 'relay spawn <repo> --fanout --from', 'relay handback', 'relay collect', 'MUST use exactly one depth-0', 'real worker launch as the model probe', 'candidate-specific terminal model failure']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing implementation dispatch marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);
@@ -1413,6 +1504,8 @@ try {
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'canonical') testCanonical();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'selectors') testClosedSelectors();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'strict-contract') testStrictCorpusContract();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'schemas') testSchemas();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'completion-reuse') testStrictCompletionReuse();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'surfaces') { testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary(); }
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'validation-matrix') testValidationMatrix();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'execution-compatibility') await testExecutionCompatibility();

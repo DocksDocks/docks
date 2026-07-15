@@ -196,59 +196,43 @@ Rubric — run every item before the plan is shown. Each check carries a **weigh
 | Failure mode | 10 | each risky step has a revert trigger / "if this fails, then…" |
 | Assumption → question | 6 | anything *guessed* becomes an `## Open question`, never a silent default |
 
-Sum = 100. **Standalone executability carries the largest weight on purpose:**
-the loop can only climb as high as the rubric lets it perceive quality, so the
-cold-handoff dimension must be scored — and scored heavily — or the hill-climb
-cannot optimize it (anything not scored is not climbed). Score it **objectively**
-against the cold-handoff checklist above (each field present/specific or a
-*justified* `N/A`), not a subjective "how complete does this feel". **Weight the
-items the other rows don't already reward** — decision rationale, known gotchas,
-interface/data contracts, environment & commands, global constraints verbatim —
-so the 22 points buy genuinely cold-handoff content, not work Actionability or
-Executable acceptance already paid for. A de-duplicated, objective sub-checklist
-resists the padding/reward-hacking that a "completeness" score otherwise invites.
+Sum = 100. **Standalone executability carries the largest weight on purpose.**
+Score it objectively against the cold-handoff checklist above (each field
+present/specific or a justified `N/A`), emphasizing rationale, gotchas,
+interface/data contracts, environment and commands, and verbatim constraints
+that other rows do not already reward.
 
-### Scored iterate-until-plateau loop (tiered)
-
-The rubric isn't only a checklist — it's *scored*, and a draft is refined until
-the score stops improving. The score pass is **deliberate and separate**: go
-check by check, assign each its weighted sub-score, sum to a 0–100 total. Then
-hill-climb — critique the lowest-scoring checks, rewrite to fix them, re-score;
-keep the new draft only if it beats the best by a real **margin (+2)**; stop when
-the best score hasn't moved over the last **K=3** rounds (plateau) or at a hard
-**8-round cap**. When hill-climbing stalls below target, take a **best-of-N (N=3)**
-escape — generate 3 genuinely different rewrites in one round, score all, keep
-the winner. Every ~3 rounds **re-anchor on the original rubric + checklist** (re-read
-them) before scoring again — it counters the drift where scores climb but the plan
-doesn't actually get easier to execute cold. Record the outcome in `## Self-review`
-as `Score: <n>/100 · trajectory <a→b→…> · stopped: plateau (K=3) | 8-round cap`.
-
-**Tiered — every plan is scored once; iteration intensity scales with the plan.**
-Small plans no longer *skip* the review; they get the score and simply converge
-out of the loop immediately:
-
-| Tier | Treatment |
-|---|---|
-| Parked / small stub | one weighted **score + single critique** pass — no iteration |
-| Normal substantive plan | hill-climb **only if the first score < 85/100** or the user asks for hardening; iterate to plateau or the 8-round cap |
-| Big / risky (>6 steps or a risk flag) | a **fresh-context subagent** runs the loop (it can't inherit the author's blind spots) + the best-of-N escape |
-| Explicit "make this best possible" | the full iterate-until-plateau loop |
-
-Record what the pass caught in `## Self-review` (it's a real artifact, not
-ceremony). *(Scored-loop technique adapted from Sean Geng, "Iterate a plan until
-it stops improving" — https://seangeng.com/writing/iterate-a-plan-until-it-stops-improving.)*
+Run one deliberate weighted pass: assign each row a sub-score, repair the
+highest-impact holes once, record `Score: <n>/100 · one local pass · caught:
+<short finding list>` in `## Self-review`, and stop. This local author check is
+not independent X/S evidence and never loops. The bounded independent review
+below owns any further review-and-repair rounds.
 
 ### Strong-default independent review
 
 Independent review is the strong default for every plan. Before execution,
-main-context `plan-manager` prepares one immutable, non-git bundle and asks two
-fresh, findings-only reviewers to consume it: X is the best available model from
-the company other than `review_author_company`; S is an independent reviewer
-from the author's company. Both legs use explicit model/effort pins and either
-an in-session read-only dispatch or the portable CLI baseline (`codex exec -s
-read-only` / `claude -p --permission-mode plan`). Session-relay is not a schema-v1
-transport. `plan-review` returns evidence; plan-manager alone reconciles findings,
-writes receipts, and changes lifecycle state.
+main-context `plan-manager` prepares one immutable, non-git bundle and dispatches
+two fresh findings-only reviewers in order: X is from the company other than
+`review_author_company`; S is an independent author-company reviewer. S never
+receives X output. Both legs use explicit model/effort pins and an
+execution-enforced read-only in-session dispatch or direct CLI (`codex exec -s
+read-only` / `claude -p --permission-mode plan`). Session-relay never transports
+review evidence. `plan-review` returns one round of evidence; plan-manager alone
+reconciles findings, writes receipts, and changes lifecycle state.
+
+Resolve workflow roles from current-user instructions, then one byte-deduplicated
+runtime-global record, then dated defaults. The compact runtime form is:
+
+```text
+Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"schema":1}
+```
+
+The defaults are `profile:claude-best` = `claude:fable@high`, then
+`claude:opus@xhigh`; reviewer and implementer =
+`codex:gpt-5.6-sol@xhigh`; `minimum_score=90`; `max_rounds=3`. Bounds are
+strict integers 0..100 and 1..10. New requests keep outer schema 1 and embed
+closed policy v2 with these bounds and per-field provenance; historical policy
+v1 remains valid only for historical verification.
 
 The resolved logical policy has independent choices for cross-company consent
 (`always | ask | never`) and zero-review progression (`ask | proceed | block`).
@@ -257,8 +241,22 @@ An authoritative host denial is `platform_denied` and is not retried through a
 different transport. One successful leg is enough to proceed with the other
 exact outcome recorded, so missing a second subscription is never a hard block.
 Every passed leg persists the exact structured verdict, score, confirmations,
-and output hash. A `not_ready` verdict is ineligible in schema v1; repair and
-review again rather than overriding it.
+and output hash. One review attempt operation means one sealed X-then-S round.
+Under policy v2, each candidate is attempted at most once in that operation;
+only candidate-specific model absence, entitlement, quota, or terminal
+unavailability advances to the next candidate. Authentication, billing,
+provider/session quota, generic rate-limit, invalid request, transport, or
+ambiguous failures stop the leg. Historical policy v1 alone keeps its bounded
+typed transient retry.
+
+Each batch runs X then S for at most `max_rounds`, stopping early only when
+every passed leg is `ready` with `score >= minimum_score`. A low-score
+`ready` result without a reproducible finding still consumes a round and gets
+a fresh request over the unchanged input. At the cap, ask exactly
+`Run up to <max_rounds> more rounds` or `Stop and keep the plan planned`;
+substitute the resolved integer for `<max_rounds>` and present both choices in
+the runtime-native picker. Approval covers only one more bounded batch. A
+`not_ready` result never passes.
 Zero successful legs follow the separately resolved zero-review choice. A
 current-user waiver may name X, S, or both for exactly one phase and canonical
 input hash; consent `never` is not a waiver.
@@ -285,9 +283,10 @@ Completion receipts bind `planned_at_commit`, `execution_base_commit`, canonical
 binary diff bytes/hash, and a nonempty ordered acceptance inventory derived from
 the canonical plan. Primary evidence must cover that inventory one-to-one with
 identical IDs, commands, expected values, and order. The derived verdict is
-`regressed` when either passed X/S reviewer says `not_ready`, CI fails, a
-regression is recorded, or a high primary finding exists; otherwise `passed`
-requires `goal_met=yes` and every acceptance met; all other cases are `partial`.
+`regressed` when a passed X/S reviewer misses the resolved ready/score gate, CI
+fails, a regression is recorded, or a high primary finding exists; otherwise
+`passed` requires `goal_met=yes` and every acceptance met; all other cases are
+`partial`. Policy v1 retains its historical ready-only rule.
 Frontmatter `review_status` must match at apply and ship.
 Disposable cleanup accepts only the helper-returned prepare identity under
 `/tmp/docks-plan-verify`, bound to its random token, original snapshot, reviewed
