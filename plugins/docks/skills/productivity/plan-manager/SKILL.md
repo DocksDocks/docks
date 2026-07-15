@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-15"
-  content_hash: "4ca38c3346116c6d74e3bb96d6ad05df0cb2cd1c2e9915dc81a816327a227abe"
+  content_hash: "7f73c00b24bd27900c5e769cf30bf472f44b9c05ff5d636a279c6579765da045"
 ---
 
 # Plan Manager
@@ -75,6 +75,9 @@ remain valid only for historical verification. Re-resolve before receipt reuse
 and apply; any value, provenance, candidate/tier order, effort, or transport
 change invalidates old evidence. A current user can override standing consent
 without changing zero-review policy.
+Use `validateDraftReviewReuse` for current draft apply/reuse; direct
+`validateDraftReceipt` without the resolved policy is historical structural
+verification only.
 
 ## Author identity and waivers
 

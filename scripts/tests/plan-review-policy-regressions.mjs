@@ -414,6 +414,11 @@ const REGRESSIONS = [
     "validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy });",
     "validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status });",
   )],
+  ['stale policy draft reuse regression', ['--case', 'schemas'], /resolved policy|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "return validateDraftReceipt(input.receipt, input.expectedInput, { expectedPolicy: input.expectedPolicy });",
+    "return validateDraftReceipt(input.receipt, input.expectedInput);",
+  )],
   ['policy-v2 repeated-candidate regression', ['--case', 'validation-matrix'], /at most once|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "      if (attempt.result === 'model_unavailable') {\n        tier += 1;\n        if (i < attempts.length - 1 && !tiers[tier]) throw new Error('attempt continued past tier list');\n      } else if (i !== attempts.length - 1) throw new Error('attempt after terminal result');",

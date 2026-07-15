@@ -13,7 +13,7 @@ import {
   extractReviewerOutput, jcs, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256, parsePlan,
   renderCompatibilityReviewAttribution, renderCompletionReviewBlock, reviewerSchema, sealBundle, sha256,
   validateCompletionReceipt, validateCompletionReviewReuse, validateCompletionRunResult,
-  validateDraftReceipt, validateDraftRunResult, validatePolicy, validateRawLeg, validateRequest,
+  validateDraftReceipt, validateDraftReviewReuse, validateDraftRunResult, validatePolicy, validateRawLeg, validateRequest,
   validateExecutionRange, validateExecutionScope, validateReviewerOutput, validateWaivers, verifyBundle,
 } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 
@@ -582,6 +582,7 @@ function testSchemas() {
   expectThrow('policy v2 caps ordered candidates', () => validatePolicy({ ...POLICY_V2, anthropic_tiers: [...POLICY_V2.anthropic_tiers, { model: 'sonnet', effort: 'high', transports: ['cli'] }, { model: 'haiku', effort: 'medium', transports: ['cli'] }] }), /anthropic_tiers/);
   expectThrow('policy v2 rejects duplicate candidates', () => validatePolicy({ ...POLICY_V2, anthropic_tiers: [POLICY_V2.anthropic_tiers[0], { ...POLICY_V2.anthropic_tiers[0], transports: ['cli'] }] }), /duplicate.*candidate|anthropic_tiers/);
   expectThrow('policy v1 remains closed', () => validatePolicy({ ...POLICY, minimum_score: 90 }), /unknown key/);
+  expectThrow('policy v2 remains closed', () => validatePolicy({ ...POLICY_V2, unexpected: true }), /unknown key/);
   const missingV2Provenance = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance } }; delete missingV2Provenance.provenance.minimum_score;
   expectThrow('policy v2 requires score provenance', () => validatePolicy(missingV2Provenance), /missing minimum_score/);
   const req = request(); validateRequest(req);
@@ -606,8 +607,9 @@ function testSchemas() {
   const persisted = (leg) => ({ request: req, raw: raw(leg), reconciliation: { accepted: [], rejected: [] } });
   const receipt = { schema: 1, phase: 'draft', request: req, input_sha256: req.input_sha256, reviewed_commit: req.reviewed_commit_or_head, author: req.author, policy: req.policy, policy_sha256: req.policy_sha256, X: persisted('X'), S: persisted('S'), reproduced: [], decision_evidence: zeroDecision(req), outcome: 'blocked', pre_execution_eligible: false, reviewed_at: '2026-07-12T00:00:00-03:00' };
   validateDraftReceipt(receipt, req.input_sha256);
-  validateDraftReceipt(receipt, req.input_sha256, { expectedPolicy: POLICY });
-  expectThrow('policy v1 receipt is not reusable under policy v2', () => validateDraftReceipt(receipt, req.input_sha256, { expectedPolicy: POLICY_V2 }), /resolved policy|policy.*mismatch|stale/);
+  validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256, expectedPolicy: POLICY });
+  expectThrow('policy v1 receipt is not reusable under policy v2', () => validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256, expectedPolicy: POLICY_V2 }), /resolved policy|policy.*mismatch|stale/);
+  expectThrow('current draft reuse requires resolved policy', () => validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256 }), /expectedPolicy|policy/);
   expectThrow('malformed receipt extra key', () => validateDraftReceipt({ ...receipt, unauthorized_extra: true }, req.input_sha256), /unknown key/);
   expectThrow('stale receipt input', () => validateDraftReceipt(receipt, 'f'.repeat(64)), /stale/);
   console.log('schema closure goldens passed');

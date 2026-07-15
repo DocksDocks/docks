@@ -650,6 +650,12 @@ export function validateDraftReceipt(receipt, expectedInput = null, { waivers = 
   validateOutcome(receipt.X.raw, receipt.S.raw, receipt.policy, receipt.decision_evidence, receipt.outcome, receipt.pre_execution_eligible); iso(receipt.reviewed_at, 'reviewed_at'); return receipt;
 }
 
+export function validateDraftReviewReuse(input) {
+  assertClosed(input, ['receipt', 'expectedInput', 'expectedPolicy'], 'draft review reuse');
+  digest(input.expectedInput, 'draft review reuse input'); validatePolicy(input.expectedPolicy);
+  return validateDraftReceipt(input.receipt, input.expectedInput, { expectedPolicy: input.expectedPolicy });
+}
+
 export function validateCompletionReceipt(receipt, expected = {}, { waivers = [], expectedPolicy = null } = {}) {
   const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
   assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== 1 || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
