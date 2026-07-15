@@ -27,7 +27,7 @@ affected_paths:
 related_plans: []
 review_status: null
 planned_at_commit: "63015013ee695f967b3fcae35808170730969b5d"
-execution_base_commit: null
+execution_base_commit: "261c3d17ef144463d3f5fdfba294b40fe40686ca"
 ---
 
 # Add workflow model roles and bounded plan reviews
