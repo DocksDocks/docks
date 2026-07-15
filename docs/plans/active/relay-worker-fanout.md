@@ -3,7 +3,7 @@ title: Add bounded relay worktree fan-out
 goal: Let one managed relay worker run two isolated depth-1 children and collect their committed handbacks with process-only lifecycle proof.
 status: in_review
 created: "2026-07-10T22:57:23-03:00"
-updated: "2026-07-15T02:50:44-03:00"
+updated: "2026-07-15T03:14:42-03:00"
 started_at: "2026-07-14T18:52:31-03:00"
 in_review_since: "2026-07-15T01:07:49-03:00"
 assignee: null
@@ -256,7 +256,7 @@ no-launch rollback before a non-counting terminal state, and verified
 merge-abort recovery. One repair pass applied; no further draft-review leg was
 opened.
 
-## Notes
+## Completion repair
 
 - 2026-07-15 completion review S1 reproduced a cross-authority capacity bug:
   lifecycle `TerminalReleasable` incorrectly made `Reserved` and `Running`
