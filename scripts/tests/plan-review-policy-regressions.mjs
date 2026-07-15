@@ -401,8 +401,8 @@ function combine(...variants) {
 const REGRESSIONS = [
   ['policy-v2 score gate regression', ['--case', 'validation-matrix'], /pre_execution_eligible|completion verdict|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    "function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output.verdict === 'ready' && (policy.schema === 1 || raw.reviewer_output.score >= policy.minimum_score); }",
-    "function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output.verdict === 'ready'; }",
+    "function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output?.verdict === 'ready' && (policy.schema === 1 || raw.reviewer_output.score >= policy.minimum_score); }",
+    "function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output?.verdict === 'ready'; }",
   )],
   ['policy-v2 max-round lower-bound regression', ['--case', 'schemas'], /max_rounds|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -429,10 +429,10 @@ const REGRESSIONS = [
     "      if (attempt.result === 'model_unavailable') {\n        tier += 1;\n        if (i < attempts.length - 1 && !tiers[tier]) throw new Error('attempt continued past tier list');\n      } else if (i !== attempts.length - 1) throw new Error('attempt after terminal result');",
     "      if (attempt.result === 'model_unavailable' || i < attempts.length - 1) {\n        tier += 1;\n        if (i < attempts.length - 1 && !tiers[tier]) throw new Error('attempt continued past tier list');\n      }",
   )],
-  ['passed not_ready regression', ['--case', 'validation-matrix'], /not_ready|completion verdict|Assertion/, applyVariant(
+  ['passed not_ready regression', ['--case', 'validation-matrix'], /not_ready|not-ready|pre_execution_eligible|completion verdict|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    "if ([X, S].some((leg) => leg?.result === 'passed' && leg.reviewer_output?.verdict === 'not_ready')) return 'regressed';\n  if ([X, S].some((leg) => leg?.result === 'passed' && !reviewerMeetsPolicy(leg, leg.request.policy))) return 'regressed';",
-    "if ([X, S].some((leg) => leg?.result === 'passed' && leg.request.policy.schema === 2 && leg.reviewer_output.score < leg.request.policy.minimum_score)) return 'regressed';",
+    "function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output?.verdict === 'ready' && (policy.schema === 1 || raw.reviewer_output.score >= policy.minimum_score); }",
+    "function reviewerMeetsPolicy(raw, policy) { return policy.schema === 1 || raw.reviewer_output?.score >= policy.minimum_score; }",
   )],
   ['vacuous acceptance inventory', ['--case', 'validation-matrix'], /acceptance inventory|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',

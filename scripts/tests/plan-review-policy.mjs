@@ -700,6 +700,7 @@ function testValidationMatrix() {
   const completionV2LowX = rawPassed(completionV2Req, 'X', null, [], { score: 89 }); const completionV2S = rawPassed(completionV2Req, 'S', null, [], { score: 100 });
   const completionV2 = { schema: 1, kind: 'completion', request: completionV2Req, plan_input_sha256: completionV2Req.input_sha256, diff_sha256: H0, acceptance_inventory: INVENTORY, acceptance_inventory_sha256: completionV2Req.acceptance_inventory_sha256, X: completionV2LowX, S: completionV2S, reproduced: [], decision_evidence: null, outcome: 'dual', primary: primaryEvidence(), completion_verdict: 'regressed' };
   assert.equal(deriveCompletionVerdict(completionV2.primary, INVENTORY, completionV2LowX, completionV2S), 'regressed');
+  assert.equal(deriveCompletionVerdict(completionV2.primary, INVENTORY, { ...completionV2LowX, reviewer_output: null }, completionV2S), 'regressed', 'missing reviewer output fails closed');
   validateCompletionRunResult(completionV2);
   expectThrow('policy v2 low score cannot pass completion', () => validateCompletionRunResult({ ...completionV2, completion_verdict: 'passed' }), /completion verdict mismatch/);
 
@@ -1434,7 +1435,7 @@ function testReviewRunnerSurfaces() {
   assert.match(skill, /--skip-git-repo-check/); assert.match(skill, /--permission-mode plan/);
   assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
   assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
-  for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
+  for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence', '/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
@@ -1455,6 +1456,7 @@ function testManagerSurfaces() {
   for (const marker of ['Publishing a plan as a GitHub issue', '--issues', 'gh auth status', 'gh repo view --json visibility', 'gh issue create']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager lost publishing operation: ${marker}`);
   for (const marker of ['execution_base_commit', 'acceptance inventory', 'writable main context', 'passed X/S `not_ready`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing completion hardening: ${marker}`);
   for (const marker of ['Implementation role dispatch', 'relay spawn <repo> --fanout --from', 'relay handback', 'relay collect', 'MUST use exactly one depth-0', 'real worker launch as the model probe', 'candidate-specific terminal model failure']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing implementation dispatch marker ${marker}`);
+  for (const marker of ['/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager missing interactive-parent guidance ${marker}`);
   for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);

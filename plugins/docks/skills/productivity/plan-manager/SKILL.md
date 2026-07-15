@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-15"
-  content_hash: "7f73c00b24bd27900c5e769cf30bf472f44b9c05ff5d636a279c6579765da045"
+  content_hash: "e44c8ff7c631fc4a920ab94af0dffb67bc125a0d05ad1cdd773efaf84a97856d"
 ---
 
 # Plan Manager
@@ -194,6 +194,11 @@ model overload/unavailability. Authentication, billing, shared session/weekly
 quota, generic 429, invalid/request-size, transport, and ambiguous failures stop
 that leg with exact degradation; never rotate blindly. Historical policy v1
 retains its bounded transient retry solely for receipt compatibility.
+
+An already-running interactive parent cannot be silently retargeted. On a
+parent-only model failure, surface exact `/model <model>` plus
+`/effort <effort>` commands or equivalent relaunch guidance for the next
+candidate; never claim that the parent switched automatically.
 
 When `cross_company_consent=ask`, ask once before X export and persist closed
 decision evidence bound to request id/input hash. `always` attempts X without a

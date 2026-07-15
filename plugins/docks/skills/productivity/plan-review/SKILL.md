@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-15"
-  content_hash: "58b218416ba582775398f157dacf160dfb94d73534088c346baec55094e4c980"
+  content_hash: "bf951af53df1258c394b371e70e69df0ab662213d63157cc716177d5cd4f65e6"
 ---
 
 # Plan Review Evidence Runner
@@ -138,6 +138,11 @@ after structured or version-pinned evidence of a candidate-specific unknown,
 retired, entitlement, explicit model-quota, or terminal model-unavailability
 failure. Authentication, billing, provider/session/weekly quota, generic 429,
 request-size, transport, and ambiguous failures stop the leg without rotation.
+
+An already-running interactive parent cannot be silently retargeted. On a
+parent-only model failure, return exact `/model <model>` plus
+`/effort <effort>` commands or equivalent relaunch guidance for the next
+candidate; never claim that the parent switched automatically.
 
 Historical policy v1 retains one transient retry per leg, not per tier. It
 repeats the same model/transport only after an execution-layer typed, pre-output

@@ -575,11 +575,10 @@ function validateCi(value) {
   if (value.exit_code === 0 && value.first_failure !== null) throw new Error('passing CI carries failure'); if (value.exit_code !== 0) string(value.first_failure, 'CI first failure');
 }
 
-function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output.verdict === 'ready' && (policy.schema === 1 || raw.reviewer_output.score >= policy.minimum_score); }
+function reviewerMeetsPolicy(raw, policy) { return raw.reviewer_output?.verdict === 'ready' && (policy.schema === 1 || raw.reviewer_output.score >= policy.minimum_score); }
 
 export function deriveCompletionVerdict(primary, inventory, X, S) {
   validatePrimary(primary, inventory);
-  if ([X, S].some((leg) => leg?.result === 'passed' && leg.reviewer_output?.verdict === 'not_ready')) return 'regressed';
   if ([X, S].some((leg) => leg?.result === 'passed' && !reviewerMeetsPolicy(leg, leg.request.policy))) return 'regressed';
   if (primary.ci.exit_code !== 0 || primary.regressions.length > 0 || primary.findings.some((finding) => finding.severity === 'high')) return 'regressed';
   if (primary.goal_met === 'yes' && primary.acceptance.every((criterion) => criterion.met)) return 'passed';
