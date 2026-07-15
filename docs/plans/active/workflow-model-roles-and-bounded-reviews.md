@@ -3,7 +3,7 @@ title: Add workflow model roles and bounded plan reviews
 goal: Ship profile-backed workflow model roles and a three-round, 90-point plan-review gate without weakening sealed review evidence or single-provider degradation.
 status: in_review
 created: "2026-07-15T12:40:17-03:00"
-updated: "2026-07-15T17:15:48-03:00"
+updated: "2026-07-15T18:00:07-03:00"
 started_at: "2026-07-15T15:24:24-03:00"
 assignee: null
 review_author_company: openai
@@ -515,6 +515,17 @@ Score: 92/100 · trajectory 64→92 · stopped: target reached in 2 rounds.
   hit the host read-only app-server restriction → ran exact A4 directly once,
   recorded S as terminal `platform_denied`, and did not retry or change review
   transports.
+- **2026-07-15T18:00:07-03:00**: Completion-review round 2 returned Fable
+  `ready` at 91 but reproduced the missing interactive-parent guidance and an
+  inconsistent exported verdict null guard → added exact `/model`/`/effort`
+  handoff guidance to both skills, pinned both surfaces, and made missing
+  reviewer output fail closed through one shared readiness predicate.
+- **2026-07-15T18:00:07-03:00**: The first two mutation reruns after the verdict
+  repair targeted a stale source anchor and then a now-redundant branch; the
+  third correctly failed earlier than its expected regex → removed the
+  redundant branch, retargeted the mutation to the actual readiness predicate,
+  widened its failure signature, and stopped patching once the full suite
+  proved all 57 mutations were detected.
 
 ## Sources
 
