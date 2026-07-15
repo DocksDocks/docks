@@ -1,10 +1,11 @@
 ---
 title: Refactor Session Relay Rust for clarity
 goal: Make Session Relay Rust and its tests idiomatic and self-explanatory after completing bounded fan-out, without speculative abstractions.
-status: ongoing
+status: in_review
 created: "2026-07-14T19:39:28-03:00"
-updated: "2026-07-14T22:33:12-03:00"
+updated: "2026-07-15T01:07:49-03:00"
 started_at: "2026-07-14T22:30:57-03:00"
+in_review_since: "2026-07-15T01:07:49-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
@@ -94,13 +95,13 @@ not overwrite or fold that skill into the Rust refactor.
 |---|---|---|---|---|
 | 1 | Complete sequential read-only refactor phases 1–5 and present the evidence-tiered plan. | `docs/plans/active/refactor-session-relay-rust.md` | — | done |
 | 2 | Complete F0 exactly as specified by the bounded fan-out plan: authority/custody/worktree behavior, CLI integration, smoke test, and process-only documentation. | `plugins/session-relay/rust/src/{fanout,lib,main,cli,spawn,lifecycle}.rs`, `plugins/session-relay/rust/tests/fanout.rs`, `plugins/session-relay/test/{fanout-smoke,selftest}.mjs`, `plugins/session-relay/{AGENTS.md,skills/productivity/session-relay/SKILL.md}`, `docs/plans/active/relay-worker-fanout.md` | 1 | done |
-| 3 | Add T1, a custody-prefixed collection-boundary test that refuses collection before exact reap and succeeds after `TerminalReleasable`. | `plugins/session-relay/rust/tests/fanout.rs` | 2 | planned |
-| 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | planned |
-| 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | planned |
-| 6 | Apply R7a as one commit, moving guarded-drain policy out of store and covering every disallowed operation kind. | `plugins/session-relay/rust/src/{store,lifecycle,bus,channel,cli,hook,watch}.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs` | 5 | planned |
-| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval and adding concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 6 | planned |
-| 8 | Re-run the depth/deletion test and apply R8 only if its stated precondition holds; otherwise record it skipped without code movement. | `plugins/session-relay/rust/src/lifecycle.rs`, optional `plugins/session-relay/rust/src/lifecycle/gc.rs`, this plan | 7 | planned |
-| 9 | Preserve rationale/public guarantees in owned docs, run A1–A11 in order, then run one full repository CI gate. | Session Relay docs/source/tests and this plan | 8 | planned |
+| 3 | Add T1, a custody-prefixed collection-boundary test that refuses collection before exact reap and succeeds after `TerminalReleasable`. | `plugins/session-relay/rust/tests/fanout.rs` | 2 | done |
+| 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | done |
+| 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | done |
+| 6 | Apply R7a as one commit, moving guarded-drain policy out of store and covering every disallowed operation kind. | `plugins/session-relay/rust/src/{store,lifecycle,bus,channel,cli,hook,watch}.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs` | 5 | done |
+| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval and adding concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 6 | done |
+| 8 | Re-run the depth/deletion test and apply R8 only if its stated precondition holds; otherwise record it skipped without code movement. | `plugins/session-relay/rust/src/lifecycle.rs`, optional `plugins/session-relay/rust/src/lifecycle/gc.rs`, this plan | 7 | skipped |
+| 9 | Preserve rationale/public guarantees in owned docs, run A1–A11 in order, then run one full repository CI gate. | Session Relay docs/source/tests and this plan | 8 | done |
 
 ## Interfaces & data shapes
 
@@ -674,6 +675,11 @@ silently widen that frozen contract.
 
 - Priority tier: 3.
 - Category: solid-violation/module-reorg.
+- Implementation result (2026-07-15): skipped after R7b. The deletion/depth
+  test found that extraction would have to expose `LifecycleStore` root access,
+  registry transactions, binding locks, cancellation timing, and transition
+  helpers to a sibling module. That Interface would be as complex as the moved
+  implementation, so file length alone does not justify the split.
 - Files affected: `plugins/session-relay/rust/src/lifecycle.rs:1981-2403` and
   `plugins/session-relay/rust/src/lifecycle.rs:5585-5833`; possible new
   `plugins/session-relay/rust/src/lifecycle/gc.rs`.
