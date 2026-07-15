@@ -1,9 +1,9 @@
 ---
 title: Add bounded relay worktree fan-out
 goal: Let one managed relay worker run two isolated depth-1 children and collect their committed handbacks with process-only lifecycle proof.
-status: in_review
+status: finished
 created: "2026-07-10T22:57:23-03:00"
-updated: "2026-07-15T03:23:00-03:00"
+updated: "2026-07-15T03:24:30-03:00"
 started_at: "2026-07-14T18:52:31-03:00"
 in_review_since: "2026-07-15T01:07:49-03:00"
 assignee: null
@@ -33,6 +33,7 @@ related_plans:
 review_status: passed
 planned_at_commit: f0f32b14fa7ede042d85ebf00c0dd1dc30c27e7e
 execution_base_commit: 649f8e93ee2994e8ef5da089bec10b742c09920b
+ship_commit: 8c9490755f8a323fe5268f1703fe3d387a7b6b1a
 ---
 
 # Add bounded relay worktree fan-out
