@@ -1,10 +1,11 @@
 ---
 title: Add bounded relay worktree fan-out
 goal: Let one managed relay worker run two isolated depth-1 children and collect their committed handbacks with process-only lifecycle proof.
-status: ongoing
+status: in_review
 created: "2026-07-10T22:57:23-03:00"
-updated: "2026-07-14T21:17:28-03:00"
+updated: "2026-07-15T01:07:49-03:00"
 started_at: "2026-07-14T18:52:31-03:00"
+in_review_since: "2026-07-15T01:07:49-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
