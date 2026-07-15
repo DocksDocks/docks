@@ -75,6 +75,15 @@ proof of the `EINTR` branch. A production decision seam solely for synthetic
 errno injection would add more structure than this private two-arm match
 justifies.
 
+Completion review of R7b found that the refactor preserved path equality,
+canonical-path equality, `NOFOLLOW`, and pinned device/inode checks, but stopped
+repeating the default-root HOME-containment predicate under the legacy GC lock.
+The old defense-in-depth check is restored by making the under-lock reopen reuse
+`safe_existing_root()` before comparing the result with the pinned identity.
+This narrows no contract. A private `GcRootSource` makes configured production
+roots repeat containment while explicit coordinator fixtures reuse the same
+path/canonical validation without mutating process-global HOME.
+
 ## Environment & how-to-run
 
 - Audit date: `2026-07-14`.
@@ -121,7 +130,7 @@ not overwrite or fold that skill into the Rust refactor.
 | 4 | Apply R1–R5 one at a time: clarity names, SHA helper, test support, atomic writer, and narrow fan-out collection phase helpers. | `plugins/session-relay/rust/src/{sha256,appserver,lifecycle,supervisor,store,fanout}.rs`, `plugins/session-relay/rust/tests/{support/mod.rs,fanout.rs,lifecycle_*.rs,lock_race.rs}` | 3 | done |
 | 5 | Apply R6 only after each earlier focused gate is green, preserving `relay::fanout::*` and serialized shapes; retain the deliberate `EINTR` retry micro-repair while preserving `EAGAIN` contention refusal. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/fanout/{authority,git}.rs`, `plugins/session-relay/rust/src/lib.rs` | 4 | done |
 | 6 | Apply R7a as one commit, moving guarded-drain policy out of store and covering every disallowed operation kind. | `plugins/session-relay/rust/src/{store,lifecycle,bus,channel,cli,hook,watch}.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs` | 5 | done |
-| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval and adding concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 6 | done |
+| 7 | Apply R7b separately, moving cross-authority GC composition behind a coordinator while preserving both observations of one shared throttle interval, the under-lock default-root HOME-containment check, and concurrent/fail-closed tests. | `plugins/session-relay/rust/src/{gc,lib,store,lifecycle,bus,hook}.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 6 | done |
 | 8 | Re-run the depth/deletion test and apply R8 only if its stated precondition holds; otherwise record it skipped without code movement. | `plugins/session-relay/rust/src/lifecycle.rs`, optional `plugins/session-relay/rust/src/lifecycle/gc.rs`, this plan | 7 | skipped |
 | 9 | Preserve rationale/public guarantees in owned docs, run A1–A11 in order, then run one full repository CI gate. | Session Relay docs/source/tests and this plan | 8 | done |
 
@@ -676,8 +685,12 @@ silently widen that frozen contract.
   function callbacks/data, not a trait. Preserve one shared throttle interval and
   stamp with both existing observations: initial preflight before managed GC and
   the recheck under the legacy lock before inventory/deletion. Preserve ordering,
-  pinned-root checks, and fail-closed protection. After R7a/R7b, `store.rs` must
-  contain no `crate::lifecycle` reference.
+  both default-root HOME-containment observations, pinned-root checks, and
+  fail-closed protection. The second containment observation is source-inspected
+  through the under-lock `safe_existing_root()` reuse; existing GC tests cover
+  the surrounding lock/order/delete behavior without mutating process-global
+  HOME during a parallel test run. After R7a/R7b, `store.rs` must contain no
+  `crate::lifecycle` reference.
 - Risk: high.
 - Test strategy: a private coordinator seam records exact calls and proves both
   throttle observations, lifecycle-before-legacy order, abort-before-legacy on
@@ -693,8 +706,8 @@ silently widen that frozen contract.
   tests. Do not require one managed-GC invocation across the two-run race.
 - Revert trigger: callback inputs expose mutable registry authority, either
   throttle observation or lifecycle-before-legacy ordering changes, a losing
-  concurrent runner reaches legacy deletion, pinned-root/symlink defenses
-  weaken, or store still imports lifecycle.
+  concurrent runner reaches legacy deletion, either default-root HOME check or
+  pinned-root/symlink defenses weaken, or store still imports lifecycle.
 - Dependencies: R7a; land separately from guarded drain.
 - Pattern: Dependency Direction + Extract Module (D/S).
 
