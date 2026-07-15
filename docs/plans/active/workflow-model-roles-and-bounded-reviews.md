@@ -3,7 +3,7 @@ title: Add workflow model roles and bounded plan reviews
 goal: Ship configurable workflow model roles and a three-round, 90-point plan-review gate without weakening sealed review evidence or single-provider degradation.
 status: planned
 created: "2026-07-15T12:40:17-03:00"
-updated: "2026-07-15T12:40:17-03:00"
+updated: "2026-07-15T13:21:58-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -55,6 +55,8 @@ The user made these decisions:
 - Both available legs target 90/100, with at most three repair/review rounds per
   user-authorized batch. If the target is still missed, use the runtime's native
   user-question UI to ask whether to run another bounded batch.
+- The downstream kit may override both defaults with strict bounded integers:
+  `--review-min-score=<0..100>` and `--review-max-rounds=<1..10>`.
 - GPT-5.6 Sol is the default implementation worker unless a higher-precedence
   workflow-role override selects another kit-verified model.
 - Provider availability is detected at runtime. A missing Claude or Codex
@@ -110,13 +112,14 @@ instruction files. Docks consumes it through existing instruction precedence;
 the plugin does not read a new environment variable or config file.
 
 ```text
-Docks-workflow-models: {"implementer":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"orchestrator":{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},"reviewer":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"schema":1}
+Docks-workflow-models: {"implementer":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"orchestrator":{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"schema":1}
 ```
 
-Each role is closed to `company`, `tool`, `model`, and `effort`. Current-turn
-user instructions override the record; the record overrides dated skill
-defaults. Multiple byte-identical records are deduplicated because Claude and
-Codex receive parallel global instruction files; two valid records with
+Each role is closed to `company`, `tool`, `model`, and `effort`; `review` is
+closed to integer `minimum_score` and `max_rounds` within the policy-v2 ranges.
+Current-turn user instructions override the record; the record overrides dated
+skill defaults. Multiple byte-identical records are deduplicated because Claude
+and Codex receive parallel global instruction files; two valid records with
 different JCS values are a conflicting duplicate and STOP policy resolution.
 An invalid or internally inconsistent record is ignored as a whole with one
 surfaced warning, never partially applied.
@@ -145,10 +148,12 @@ ResolvedReviewPolicyV2 = {
 }
 ```
 
-New defaults are `minimum_score: 90` and `max_rounds: 3`. Existing schema-v1
-requests and receipts remain valid for historical verification and shipping;
-new preparation emits policy v2. A schema-v1 receipt is not reusable against a
-resolved v2 policy.
+New defaults are `minimum_score: 90` and `max_rounds: 3`. The runtime-global
+record may override either independently after `docks-kit` validates its strict
+integer range; current-turn instructions retain highest precedence. Existing
+schema-v1 requests and receipts remain valid for historical verification and
+shipping; new preparation emits policy v2. A schema-v1 receipt is not reusable
+against a resolved v2 policy.
 
 A passed leg satisfies the score gate only when `verdict=ready` and
 `score >= minimum_score`. Eligibility requires every successfully available
@@ -165,10 +170,11 @@ the new candidate, destroys the stale bundle, and prepares the next round.
 
 Stop early when all passed legs satisfy the score gate and the reconciled
 candidate remains current. After `max_rounds` without that result, leave the
-plan non-executing and ask exactly two choices: `Run up to 3 more rounds` or
-`Stop and keep the plan planned`. Approval authorizes one additional bounded
-batch only; a resume without current-turn approval asks again instead of
-continuing automatically. No score waiver is inferred.
+plan non-executing and ask exactly two choices: `Run up to <max_rounds> more
+rounds` or `Stop and keep the plan planned`, substituting the resolved positive
+integer. Approval authorizes one additional bounded batch only; a resume without
+current-turn approval asks again instead of continuing automatically. No score
+waiver is inferred.
 
 When a round returns `ready` below `minimum_score` with no reproducible finding,
 there is nothing to repair. Count the round, destroy its bundle, prepare a new
@@ -202,9 +208,9 @@ opening a worker loop.
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Define workflow-role precedence, Fable/Sol defaults, single-provider degradation, direct review transport, and one-worker implementation dispatch. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md` | none | planned | Both skills describe the exact runtime-global record, X/S mapping, three-round native-question stop, and session-relay implementation-only boundary without contradictory transport guidance. |
-| 2 | Add policy-v2 validation and score-gated eligibility while preserving historical schema-v1 request/receipt validation. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 1 | planned | New fixtures prove 89 fails, 90 passes, single-provider score gating works, policy changes invalidate reuse, unknown v2 keys fail closed, and representative v1 receipts still validate. |
-| 3 | Replace the unbounded/self-review loop contract with the same 90-point, three-round bounded-batch semantics in the repo contract and consumer template. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` | 1, 2 | planned | Source and template agree on target, cap, early stop, continuation question, and the distinction between self-review iteration and sealed X/S evidence. |
+| 1 | Define workflow-role precedence, Fable/Sol defaults, configurable score/round bounds, single-provider degradation, direct review transport, and one-worker implementation dispatch. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md` | none | planned | Both skills describe the exact runtime-global record, X/S mapping, resolved bounded-batch native question, and session-relay implementation-only boundary without contradictory transport guidance. |
+| 2 | Add policy-v2 validation and score-gated eligibility while preserving historical schema-v1 request/receipt validation. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 1 | planned | New fixtures prove 89 fails under the default, 90 passes, configured score/round bounds and provenance are enforced, single-provider score gating works, policy changes invalidate reuse, unknown v2 keys fail closed, and representative v1 receipts still validate. |
+| 3 | Replace the unbounded/self-review loop contract with configurable bounded-batch semantics, defaulting to 90 points and three rounds, in the repo contract and consumer template. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` | 1, 2 | planned | Source and template agree on resolved target, cap, early stop, continuation question, and the distinction between self-review iteration and sealed X/S evidence. |
 | 4 | Add an explicit `plan-init refresh` path for a two-folder contract that predates author identity and strong-default receipts, without moving plans or overwriting Codex agent customizations. | `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` | 3 | planned | Read-only classification reports `STALE_V2`; refresh requires explicit user intent, rewrites only the canonical plans contract/root Plans snippet and missing support files, leaves `active/`, `finished/`, and existing `.codex/agents/*.toml` unchanged, and is idempotent. |
 | 5 | Run focused tests and the Docks plugin gate, then inspect the diff for schema compatibility and transport regressions. | all affected source/test paths | 1-4 | planned | Every acceptance row passes and `node scripts/ci.mjs --plugin docks` exits 0; no review argv or transport enum admits relay. |
 | 6 | Prove the implementation is completion-ready and preserve the exact downstream interface/release handoff in this plan. | all affected source/test paths; `docs/plans/active/workflow-model-roles-and-bounded-reviews.md` (plan-manager-only status/evidence writes) | 5 | planned | A1-A4 and required project CI are green, every source/template role and review-policy statement agrees, all implementation steps are `done`, and no release/cache claim is made before completion review. |
@@ -305,8 +311,8 @@ fresh session for released behavior.
 - Review workers are fresh, findings-only, explicit-model/effort, read-only, and
   consume one byte-identical sealed bundle.
 - One writer owns the shared worktree and plan lifecycle state.
-- No review operation runs more than three rounds without a new current-user
-  continuation decision.
+- No review operation runs more than the resolved `max_rounds` without a new
+  current-user continuation decision; the default remains three.
 
 ## STOP conditions
 
@@ -421,3 +427,6 @@ Score: 92/100 · trajectory 64→92 · stopped: target reached in 2 rounds.
   `docks-kit --model-reviewer=<key>`, and
   `docks-kit --model-implementer=<key>`; bare flags print the strict
   kit-verified workflow selector list.
+- Downstream review controls: `docks-kit --review-min-score=<0..100>` and
+  `docks-kit --review-max-rounds=<1..10>`; omitted values retain defaults 90 and
+  3, and invalid/non-integer values fail before either global file is changed.
