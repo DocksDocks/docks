@@ -68,9 +68,12 @@ R6 also retains one deliberate micro-repair made while extracting collection
 authority: an `EINTR` from the non-blocking `flock` is retried instead of being
 reported as false collector contention. `EAGAIN` remains the only
 "collection already in progress" result. This follows the syscall contract,
-does not change the exclusive-lock guarantee, and is covered at the operational
-boundary by A3's concurrent-collector refusal plus the full Rust and black-box
-gates.
+does not change the exclusive-lock guarantee, and is source-inspected rather
+than deterministically signal-injected. A3 separately proves the real-lock
+`EAGAIN` refusal before Git changes; A9 and A11 are regression gates, not direct
+proof of the `EINTR` branch. A production decision seam solely for synthetic
+errno injection would add more structure than this private two-arm match
+justifies.
 
 ## Environment & how-to-run
 
@@ -140,7 +143,7 @@ that contract.
 |---|---|---|
 | A1 | `cd plugins/session-relay/rust && cargo test --locked --test fanout authority_` | Separate authority compatibility, atomic cap/derived ancestry, proven no-launch rollback, and fail-closed capacity cases pass. |
 | A2 | `cd plugins/session-relay/rust && cargo test --locked --test fanout custody_` | Collection refuses before exact process reap and succeeds only after the managed worker is `TerminalReleasable`; uncertain custody remains counted. |
-| A3 | `cd plugins/session-relay/rust && cargo test --locked --test fanout worktree_` | Clean handback, idempotent collect, exclusive concurrent-collector refusal before Git changes, exact tree removal, and clean merge-abort retry cases pass. |
+| A3 | `cd plugins/session-relay/rust && cargo test --locked --test fanout worktree_` | Clean handback, idempotent collect, exclusive `EAGAIN` concurrent-collector refusal before Git changes, exact tree removal, and clean merge-abort retry cases pass; this does not inject `EINTR`. |
 | A4 | `node plugins/session-relay/test/fanout-smoke.mjs` | Exit 0 and print `fanout smoke: PASS` through the real CLI with two collected leaves and a refused third reservation. |
 | A5 | `cd plugins/session-relay/rust && cargo test --locked sha256` | The shared lowercase 64-character digest helper passes all existing and moved call-site tests. |
 | A6 | `cd plugins/session-relay/rust && cargo test --locked --test lifecycle_admission --test lifecycle_managed --test lifecycle_release --test lifecycle_supervisor` | Guarded drain/rollback, the negative allowlist matrix, managed-GC fail-closed behavior, release, caller-disconnect watchdog custody, and the remaining supervisor regressions pass. |
@@ -623,9 +626,11 @@ silently widen that frozen contract.
   Retry an interrupted non-blocking `flock` instead of misreporting `EINTR` as
   collector contention; retain `EAGAIN` as the exclusive contention result.
 - Risk: medium.
-- Test strategy: `cargo test --locked --test fanout` (including the
-  concurrent-collector refusal before Git changes), public import compile
-  checks, `cargo test --locked`, and clippy.
+- Test strategy: source-inspect the private `EINTR` retry; use
+  `cargo test --locked --test fanout` for the real-lock `EAGAIN`
+  concurrent-collector refusal before Git changes, then public import compile
+  checks, `cargo test --locked`, and clippy. Do not claim deterministic signal
+  injection.
 - Revert trigger: callers must learn an internal module, public paths change,
   private helpers become public merely to compile, or the split scatters one
   transition across files.
