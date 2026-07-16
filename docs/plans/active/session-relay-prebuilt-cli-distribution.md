@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Publish verified Session Relay assets, install them through docks-kit, and replace plugin-bundled executables with a stable CLI launcher.
 status: planned
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-16T04:57:00-03:00"
+updated: "2026-07-16T05:08:46-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -120,7 +120,11 @@ The launcher rejects a resolver target that is itself, preventing recursion. It 
 
 The binary builder is reusable by tag CI and manual dispatch. On `session-relay--v*`, the validation job must pass before publishing. The publisher downloads only artifacts produced by that same workflow run, validates the tag against the manifests and Cargo version, generates `SHA256SUMS`, and creates the GitHub Release with the five assets. The publishing job alone receives `contents: write`; the workflow-level default remains `contents: read`.
 
+The Session Relay GitHub Release install block is exactly `docks-kit sync`, because that command ensures the verified CLI before installing or enabling the plugin for either supported agent runtime. It must not retain the current plugin-only `/plugin install session-relay@docks` instructions. `scripts/lib/plugins.mjs` owns this release-note descriptor, and the distribution-contract test must prove it cannot publish plugin-first instructions after embedded binaries are removed.
+
 `scripts/release.mjs` applies every manifest, marketplace, Cargo, and lockfile version change first, runs the full CI gate on that exact changed tree, and only then commits and pushes. A failed post-bump gate must prevent commit, push, tag, and publication. For Session Relay it must not create a duplicate Release: it waits for authoritative tag CI, then verifies that the expected GitHub Release and all five assets exist. Other plugins retain their current release behavior.
+
+`--dry-run` remains strictly read-only. It computes and prints the manifest, marketplace, Cargo, and lockfile changes without writing them, skips the full CI execution while clearly reporting that the real release will gate the changed tree, and performs no commit, push, tag, or GitHub mutation. The distribution-contract test snapshots tracked status, untracked status, and every release-owned file byte before and after `node scripts/release.mjs --dry-run --plugin session-relay 0.12.0`.
 
 ## Steps
 
@@ -130,7 +134,7 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 | 2 | Add frozen Docks distribution-contract tests before production changes and capture their failure against the embedded-binary design. | `plugins/session-relay/test/distribution-contract.mjs`, `plugins/session-relay/test/selftest.mjs` | 1 | planned | The new tests fail for missing external resolution, version output, release-asset publication, post-bump CI ordering, explicit fresh self-test binary, cross-repo contract receipt, or obsolete committed-binary assumptions; the failing output is recorded before production edits. |
 | 3 | Make the Rust CLI and plugin launcher expose the stable external CLI contract, then remove committed platform executables and their in-plugin checksum file. | `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/bin/relay`, `plugins/session-relay/bin/SHA256SUMS`, `plugins/session-relay/bin/relay-*`, `plugins/session-relay/test/selftest.mjs` | 1, 2 | planned | `--version` reports the Cargo version; launcher tests prove resolution order, recursion rejection, and actionable failure; self-test requires `SESSION_RELAY_TEST_BIN` and fails rather than skips when absent; `git ls-files plugins/session-relay/bin` lists only the launcher. |
 | 4 | Convert binary production to tag-gated GitHub Release assets with least-privilege permissions and same-run artifact provenance. | `.github/workflows/build-binaries.yml`, `.github/workflows/ci.yml`, `.github/AGENTS.md`, `plugins/session-relay/AGENTS.md` | 2 | planned | Workflow contract tests prove all four stable asset names, checksum generation, validation dependency, tag restriction, pinned actions, and publisher-only write permission. |
-| 5 | Update registry-driven CI and release tooling for source-built local tests, post-bump validation, and CI-published release assets. | `scripts/ci.mjs`, `scripts/lib/plugins.mjs`, `scripts/lib/rust-bin.mjs`, `scripts/release.mjs`, `scripts/AGENTS.md` | 3, 4 | planned | Local CI builds/tests the explicit host binary without comparing committed executables; tests prove all version files change before the exact-tree CI gate and any gate failure prevents commit/push/tag; Session Relay release verification expects all five assets without creating a duplicate release. |
+| 5 | Update registry-driven CI and release tooling for source-built local tests, post-bump validation, CI-published release assets, safe release notes, and a non-mutating preview. | `scripts/ci.mjs`, `scripts/lib/plugins.mjs`, `scripts/lib/rust-bin.mjs`, `scripts/release.mjs`, `scripts/AGENTS.md` | 3, 4 | planned | Local CI builds/tests the explicit host binary without comparing committed executables; tests prove all version files change before the exact-tree CI gate and any gate failure prevents commit/push/tag; Session Relay release verification expects all five assets without creating a duplicate release; its install descriptor is exactly `docks-kit sync`; and a dry-run snapshot proves no tracked, untracked, or release-owned-file mutation. |
 | 6 | Update Session Relay usage guidance for the external CLI and refresh its metadata/content hash through the prescribed maintenance flow. | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | 3, 5 | planned | Skill docs name `session-relay` as the installed executable, keep instructions and troubleshooting with the skill, put executable helpers in Rust subcommands rather than skill scripts, and content-hash validation is idempotent. |
 | 7 | Verify the pinned producer/consumer contract, commit and push both repositories, release Session Relay `0.12.0`, smoke-install the live asset through `docks-kit`, then release the next `docks-kit` version. | `plugins/session-relay/test/distribution-contract.mjs` (read-only comparison against `/home/vagrant/projects/public` and live GitHub Release), `/home/vagrant/projects/public` companion plan and release tooling (external repository) | 1–6 | planned | A machine-readable contract report pins both commit SHAs and proves exact URL/tag/assets/checksum/version/install path; both CIs and diffs are green; the live five-asset Session Relay release verifies; a temporary-home `docks-kit` smoke installs it and prints `session-relay 0.12.0`; the new `docks-kit` release is published and verified. |
 
@@ -138,7 +142,7 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node plugins/session-relay/test/distribution-contract.mjs --public-repo /home/vagrant/projects/public` | Exit 0; reports launcher, Rust version, workflow publication, post-bump release ordering, and an exact clean committed producer/consumer contract with both SHAs. |
+| A1 | `node plugins/session-relay/test/distribution-contract.mjs --public-repo /home/vagrant/projects/public` | Exit 0; reports launcher, Rust version, workflow publication, post-bump release ordering, exact `docks-kit sync` release notes, a non-mutating Session Relay dry-run, and an exact clean committed producer/consumer contract with both SHAs. |
 | A2 | `cargo build --manifest-path plugins/session-relay/rust/Cargo.toml --release --locked && SESSION_RELAY_TEST_BIN="$PWD/plugins/session-relay/rust/target/release/relay" node plugins/session-relay/test/selftest.mjs` | Exit 0; black-box Relay behavior passes using only the explicitly supplied fresh release executable. |
 | A3 | `git ls-files plugins/session-relay/bin` | Output is exactly `plugins/session-relay/bin/relay`. |
 | A4 | `node scripts/ci.mjs --plugin session-relay` | Exit 0; Session Relay Rust, launcher, workflow, manifest, skill, and self-test gates pass. |
@@ -194,7 +198,7 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 - **Environment & commands:** Present; Node, pnpm, Rust, focused gates, full CI, and hash maintenance commands are exact.
 - **Interface & data contracts:** Present; asset names, checksum format, installed path, version output, launcher order, and release ownership are fixed.
 - **Executable acceptance:** Present; A1–A9 are commands with exact success conditions.
-- **Out of scope:** Present; release execution, new generated binaries, Windows support, runtime semantics, and direct public edits are prohibited.
+- **Out of scope:** Present; committing generated replacement binaries, Windows support, runtime semantics, and direct public edits are prohibited; the explicitly authorized Session Relay `0.12.0` and subsequent `docks-kit` releases are required.
 - **Decision rationale:** Present; CI assets plus explicit installer are selected to reduce payload size and improve provenance without startup downloads.
 - **Known gotchas:** Present; same-run provenance, action pinning, launcher recursion, offline tests, Cargo lockstep, and pre-release pins are covered.
 - **Global constraints verbatim:** Present; user compiler, checksum, supported-target, binary, security, and release constraints are explicit.
@@ -207,6 +211,8 @@ Score: 98/100 · one local pass · caught: separated the public repository into 
 Cross-check (2026-07-16): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] 5 findings — accepted S1,S2,S3,S4,S5 / rejected none; [Codex main-context orchestrator] reproduced all five against the plan and source before accepting. Repairs reordered Relay bootstrap before binary deletion, incorporated the user's explicit release authorization, required exact-tree post-bump CI, made self-test binary selection explicit and non-skipping, and added pinned cross-repo plus live-release evidence.
 
 Cross-check (2026-07-16, round 2): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] 4 findings — accepted S1,S2,S3,S4 / rejected none; [Codex main-context orchestrator] reproduced all four. Repairs require a complete affected-path review bundle, add every release-mutated manifest/catalog file, bind whitespace validation to the execution range, and make the final cleanliness command prove both repositories.
+
+Cross-check (2026-07-16, round 3): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] score 86 with 3 findings — accepted S1,S2,S3 / rejected none; [Codex main-context orchestrator] reproduced all three. Repairs make Session Relay release notes install through `docks-kit sync`, remove the checklist contradiction around the authorized releases, and preserve `release.mjs --dry-run` as a tested byte-for-byte non-mutating preview. The resolved three-round batch is exhausted; another independent round requires the plan-manager continuation choice.
 
 ## Review
 
