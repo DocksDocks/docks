@@ -19,6 +19,7 @@ const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-revi
 const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_auth', 'unavailable_model', 'timed_out', 'platform_denied', 'failed_unparseable', 'unavailable_unknown']);
 const ATTEMPT_RESULTS = new Set(['passed', 'auth_failed', 'model_unavailable', 'deadline_exceeded', 'platform_denied', 'transient_transport', 'nonzero_exit', 'signaled', 'unparseable']);
 const SOURCES = new Set(['current_user', 'runtime_global', 'skill_default']);
+const REVIEW_ROOT = '/tmp/docks-plan-review';
 const COMPLETION_ROOT = '/tmp/docks-plan-verify';
 const LEGACY_HEX = /^[0-9a-f]{7,39}$/;
 const CORE_SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+$/;
@@ -2235,6 +2236,56 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   return { schema: 1, bundle_sha256: bundleSha256, manifest };
 }
 
+function validateReviewBundleTarget(bundle) {
+  const root = path.resolve(REVIEW_ROOT); const candidate = path.resolve(bundle);
+  if (candidate === path.parse(candidate).root) throw new Error('filesystem root cannot be a review bundle target');
+  if (candidate === path.resolve(os.homedir())) throw new Error('home cannot be a review bundle target');
+  if (candidate === root) throw new Error('review root cannot be a review bundle target');
+  if (bundle !== candidate || path.dirname(candidate) !== root || !inside(root, candidate) || !UUID.test(path.basename(candidate))) throw new Error('review bundle path is outside the supported temporary review root');
+  const rootStat = fs.lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || fs.realpathSync(root) !== root || (rootStat.mode & 0o777) !== 0o700) throw new Error('review root is not a canonical owner-only directory');
+  if (typeof process.getuid === 'function' && rootStat.uid !== process.getuid()) throw new Error('review root ownership mismatch');
+  const bundleStat = fs.lstatSync(candidate);
+  if (!bundleStat.isDirectory() || bundleStat.isSymbolicLink() || fs.realpathSync(candidate) !== candidate) throw new Error('review bundle path is not a canonical real directory');
+  return { root: candidate, identity: { dev: bundleStat.dev, ino: bundleStat.ino } };
+}
+
+function validateReviewBundleOwnership(root) {
+  const visit = (entry) => {
+    const stat = fs.lstatSync(entry);
+    if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) throw new Error('review bundle contains an unsafe entry');
+    if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) throw new Error('review bundle ownership mismatch');
+    if (stat.isDirectory()) for (const name of fs.readdirSync(entry)) visit(path.join(entry, name));
+  };
+  visit(root);
+}
+
+function restoreReviewBundleOwnerWrite(root) {
+  const visit = (entry) => {
+    const stat = fs.lstatSync(entry);
+    if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) throw new Error('review bundle changed before removal');
+    if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) throw new Error('review bundle ownership mismatch');
+    if (stat.isDirectory()) {
+      fs.chmodSync(entry, 0o700);
+      for (const name of fs.readdirSync(entry)) visit(path.join(entry, name));
+    } else fs.chmodSync(entry, 0o600);
+  };
+  visit(root);
+}
+
+export function destroyBundle({ bundle, expectedSha256 }) {
+  digest(expectedSha256, 'expected bundle hash');
+  const target = validateReviewBundleTarget(bundle);
+  const verified = verifyBundle({ bundle: target.root, expectedSha256 });
+  validateReviewBundleOwnership(target.root);
+  const current = fs.lstatSync(target.root);
+  if (current.dev !== target.identity.dev || current.ino !== target.identity.ino) throw new Error('review bundle changed during verification');
+  restoreReviewBundleOwnerWrite(target.root);
+  fs.rmSync(target.root, { recursive: true, force: false });
+  if (fs.existsSync(target.root)) throw new Error('review bundle removal failed');
+  return { schema: 1, bundle_sha256: verified.bundle_sha256, removed: true };
+}
+
 function validateRequestBundle(request, verified) {
   const manifest = verified.manifest;
   if (manifest.reviewed_commit !== request.reviewed_commit_or_head || manifest.input_sha256 !== request.input_sha256) throw new Error('request and bundle identity mismatch');
@@ -2437,6 +2488,9 @@ export function run(argv = process.argv.slice(2)) {
   if (command === 'verify-bundle') {
     const [bundle, expectedSha256 = null] = args; if (args.length < 1 || args.length > 2) throw new Error('verify-bundle accepts bundle [expectedSha256]'); process.stdout.write(`${jcs(verifyBundle({ bundle: path.resolve(bundle), expectedSha256 }))}\n`); return;
   }
+  if (command === 'destroy-bundle') {
+    const [bundle, expectedSha256] = args; if (args.length !== 2) throw new Error('destroy-bundle accepts bundle expectedSha256 only'); process.stdout.write(`${jcs(destroyBundle({ bundle, expectedSha256 }))}\n`); return;
+  }
   if (command === 'completion-prepare') {
     const [repo, reviewedHead, requestId, planPath, plannedAtCommit, executionBaseCommit] = args; if (args.length !== 6) throw new Error('completion-prepare accepts repo reviewedHead requestId planPath plannedAtCommit executionBaseCommit only'); process.stdout.write(`${jcs(prepareCompletionCheckout({ repo: path.resolve(repo), reviewedHead, requestId, planPath, plannedAtCommit, executionBaseCommit }))}\n`); return;
   }
@@ -2448,7 +2502,7 @@ export function run(argv = process.argv.slice(2)) {
     const [tool] = args; const result = spawnSync(tool, tool === 'codex' ? ['login', 'status'] : ['auth', 'status'], { encoding: 'utf8' });
     process.stdout.write(`${jcs({ available: !result.error && result.status === 0, exit_code: result.status ?? null })}\n`); return;
   }
-  throw new Error('usage: review-policy.mjs compatibility-evidence|compatibility-binding|compatibility-prerequisite|execution-range|execution-scope|canonical-plan|schema|validate-reviewer|bundle|verify-bundle|completion-prepare|completion-cleanup|probe ...');
+  throw new Error('usage: review-policy.mjs compatibility-evidence|compatibility-binding|compatibility-prerequisite|execution-range|execution-scope|canonical-plan|schema|validate-reviewer|bundle|verify-bundle|destroy-bundle|completion-prepare|completion-cleanup|probe ...');
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

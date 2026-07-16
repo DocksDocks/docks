@@ -476,6 +476,34 @@ const REGRESSIONS = [
     "if (sha256(bytes) !== row.sha256) throw new Error(`bundle file hash mismatch: ${logical}`);",
     "if (false) throw new Error(`bundle file hash mismatch: ${logical}`);",
   )],
+  ['destroy-bundle expected hash regression', ['--case', 'bundle'], /expected hash mismatch must fail|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'const verified = verifyBundle({ bundle: target.root, expectedSha256 });',
+    'const verified = verifyBundle({ bundle: target.root });',
+  )],
+  ['destroy-bundle root boundary regression', ['--case', 'bundle'], /outside review root must fail|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (bundle !== candidate || path.dirname(candidate) !== root || !inside(root, candidate) || !UUID.test(path.basename(candidate))) throw new Error('review bundle path is outside the supported temporary review root');",
+    "if (false) throw new Error('review bundle path is outside the supported temporary review root');",
+  )],
+  ['destroy-bundle ownership regression', ['--case', 'bundle'], /ownership mismatch must fail|Assertion/, combine(
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+      "if (typeof process.getuid === 'function' && rootStat.uid !== process.getuid()) throw new Error('review root ownership mismatch');",
+      "if (false) throw new Error('review root ownership mismatch');",
+    ),
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+      'validateReviewBundleOwnership(target.root);',
+      'void target.root;',
+    ),
+    applyVariantAll(
+      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+      "if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) throw new Error('review bundle ownership mismatch');",
+      "if (false) throw new Error('review bundle ownership mismatch');",
+      2,
+    ),
+  )],
   ['execution range validator regression', ['--case', 'lifecycle'], /non-start execution base|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     'validateExecutionRange({ repo, planPath: safePlan, plannedAtCommit, executionBaseCommit, reviewedHead: reviewedCommit });',

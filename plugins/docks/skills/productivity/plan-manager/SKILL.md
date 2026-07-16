@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-15"
-  content_hash: "e44c8ff7c631fc4a920ab94af0dffb67bc125a0d05ad1cdd773efaf84a97856d"
+  content_hash: "56875b345c781b4db124679751b186227859a05be5ff412d5426a08b9b8786d0"
 ---
 
 # Plan Manager
@@ -152,6 +152,12 @@ Once the candidate is ready:
    round: destroy the bundle and create a fresh request id over the unchanged
    commit/input. No score waiver is inferred.
 9. Write one canonical receipt only after input/policy/bundle revalidation.
+
+For either stale-bundle case, plan-manager main context must invoke exactly one
+policy-owned cleanup command using the path and hash from the current request:
+`node <plan-review-skill-dir>/scripts/review-policy.mjs destroy-bundle <bundle-path> <expected-bundle-sha256>`.
+Never use shell `chmod` or `rm` for review-bundle cleanup. A cleanup rejection is
+a STOP; preserve the bundle and report the helper error.
 
 ## `prepare(intent)`
 
@@ -388,6 +394,8 @@ when it changes scope, behavior, or a user decision.
 - Before ship, revalidate completion receipt reuse and the exact reviewed diff.
 - Before cleanup, require the helper-returned prepare identity under fixed
   `/tmp/docks-plan-verify`; never accept a caller-selected cleanup root.
+- Destroy stale review bundles only through `destroy-bundle` with the request's
+  expected hash under fixed `/tmp/docks-plan-review`.
 - Re-read every changed frontmatter/receipt line after writing.
 
 ## Success criteria

@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-15"
-  content_hash: "bf951af53df1258c394b371e70e69df0ab662213d63157cc716177d5cd4f65e6"
+  content_hash: "188df7fa5db8b33282058ff1f44f4cfabcc60d22ec69c8b3711fbb03798018a6"
 ---
 
 # Plan Review Evidence Runner
@@ -88,6 +88,12 @@ After plan-manager commits the non-executing input, use the helper to:
 5. Re-hash manifest, file bytes, modes, and read-only directories before each
    launch and after each leg. Any mutation, escape, duplicate, submodule, commit/tree
    mismatch, or unsupported file type is a STOP, not a degraded review.
+
+Bundle destruction remains a plan-manager main context responsibility. It calls
+`node <plan-review-skill-dir>/scripts/review-policy.mjs destroy-bundle <bundle-path> <expected-bundle-sha256>`
+with the path and hash from the current request. The helper verifies the sealed
+bundle before restoring owner-write permissions and removing only that bundle;
+X/S reviewers never perform cleanup.
 
 Return `NeedsMainReviewDispatch = { schema:1, request, bundle_path,
 reviewer_schema_path, X_dispatch, S_dispatch }`. A manager subagent returns this
@@ -303,6 +309,8 @@ raw stdout/stderr before extracting Codex's final schema object or Claude's
 - Confirm both raw legs echo the exact same request and bundle hash.
 - Re-verify sealed bundle manifest, bytes, modes, and read-only directories
   before launch and after each leg.
+- Treat a rejected `destroy-bundle` operation as a STOP; never replace it with
+  shell permission or removal commands.
 - Confirm every started attempt has child id, timeout mode, exit/signal, and raw
   output hashes consistent with its typed result.
 - Confirm waiver uniqueness by `(phase,input_sha256,leg)`; duplicate/conflicting

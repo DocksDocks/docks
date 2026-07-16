@@ -225,6 +225,55 @@ function copiedResealedBundle(source, target, applyChange) {
   return { manifest, bundle_sha256: testBundleHash(target, manifestBytes, manifest) };
 }
 
+function testBundleDestruction({ repo, reviewedCommit, outsideBundle, outsideBundleSha256 }) {
+  const reviewRoot = '/tmp/docks-plan-review'; const ownedPaths = new Set();
+  if (!fs.existsSync(reviewRoot)) fs.mkdirSync(reviewRoot, { mode: 0o700 });
+  const rootStat = fs.lstatSync(reviewRoot);
+  assert.equal(rootStat.isDirectory() && !rootStat.isSymbolicLink() && fs.realpathSync(reviewRoot) === reviewRoot, true, 'review root is a real directory');
+  assert.equal(rootStat.mode & 0o777, 0o700, 'review root is owner-only');
+  if (typeof process.getuid === 'function') assert.equal(rootStat.uid, process.getuid(), 'review root is user-owned');
+  const seal = () => {
+    const bundle = path.join(reviewRoot, randomUUID()); ownedPaths.add(bundle);
+    return { bundle, sealed: sealBundle({ repo, reviewedCommit, planPath: 'docs/plans/active/sample.md', requestedPaths: ['src'], outDir: bundle }) };
+  };
+  const reject = (label, args, pattern) => {
+    const result = helper(ROOT, ['destroy-bundle', ...args]);
+    assert.notEqual(result.status, 0, `${label} must fail`); assert.match(result.stderr, pattern, label);
+  };
+
+  try {
+    const witness = path.join(reviewRoot, `${randomUUID()}.adjacent`); ownedPaths.add(witness); fs.writeFileSync(witness, 'keep\n', { mode: 0o600 });
+    const valid = seal(); const removed = helper(ROOT, ['destroy-bundle', valid.bundle, valid.sealed.bundle_sha256]);
+    assert.equal(removed.status, 0, removed.stderr); assert.deepEqual(JSON.parse(removed.stdout), { schema: 1, bundle_sha256: valid.sealed.bundle_sha256, removed: true });
+    assert.equal(fs.existsSync(valid.bundle), false, 'verified bundle removed'); assert.equal(fs.readFileSync(witness, 'utf8'), 'keep\n', 'adjacent file preserved');
+
+    const wrongHash = seal(); reject('expected hash mismatch', [wrongHash.bundle, 'f'.repeat(64)], /bundle hash mismatch/); assert.equal(fs.existsSync(wrongHash.bundle), true, 'hash mismatch preserves bundle');
+    fs.chmodSync(path.join(wrongHash.bundle, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(wrongHash.bundle, 'plan.review.md'), 'tamper\n'); fs.chmodSync(path.join(wrongHash.bundle, 'plan.review.md'), 0o444);
+    reject('mutated bundle', [wrongHash.bundle, wrongHash.sealed.bundle_sha256], /file hash mismatch|bundle hash mismatch/); assert.equal(fs.existsSync(wrongHash.bundle), true, 'mutation preserves bundle');
+
+    const symlinkTarget = seal(); const symlink = path.join(reviewRoot, randomUUID()); ownedPaths.add(symlink); fs.symlinkSync(symlinkTarget.bundle, symlink);
+    reject('symlink bundle', [symlink, symlinkTarget.sealed.bundle_sha256], /symlink|canonical|review bundle path/); assert.equal(fs.existsSync(symlinkTarget.bundle), true, 'symlink rejection preserves target');
+    reject('outside review root', [outsideBundle, outsideBundleSha256], /supported temporary review root/); assert.equal(fs.existsSync(outsideBundle), true, 'outside bundle preserved');
+
+    const nonBundle = path.join(reviewRoot, randomUUID()); ownedPaths.add(nonBundle); fs.mkdirSync(nonBundle, { mode: 0o700 }); fs.chmodSync(nonBundle, 0o555);
+    reject('non-bundle', [nonBundle, '0'.repeat(64)], /manifest|bundle/); assert.equal(fs.existsSync(nonBundle), true, 'non-bundle preserved');
+    reject('review root target', [reviewRoot, '0'.repeat(64)], /root|review bundle path/); reject('filesystem root target', ['/', '0'.repeat(64)], /root|supported temporary review root/);
+    reject('home target', [os.homedir(), '0'.repeat(64)], /home|supported temporary review root/);
+
+    if (typeof process.getuid === 'function') {
+      const ownership = seal(); const probe = `process.getuid=()=>${process.getuid() + 1};const m=await import(${JSON.stringify(pathToFileURL(HELPER).href)});m.destroyBundle({bundle:process.argv[1],expectedSha256:process.argv[2]});`;
+      const result = spawnSync(process.execPath, ['--input-type=module', '--eval', probe, ownership.bundle, ownership.sealed.bundle_sha256], { encoding: 'utf8' });
+      assert.notEqual(result.status, 0, 'ownership mismatch must fail'); assert.match(result.stderr, /ownership mismatch/, 'ownership mismatch is explicit'); assert.equal(fs.existsSync(ownership.bundle), true, 'ownership mismatch preserves bundle');
+    }
+  } finally {
+    for (const target of [...ownedPaths].reverse()) {
+      let stat; try { stat = fs.lstatSync(target); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      if (stat.isSymbolicLink()) fs.unlinkSync(target);
+      else { makeWritable(target); fs.rmSync(target, { recursive: true, force: true }); }
+    }
+  }
+}
+
 function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' }); assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`); return result.stdout.trim();
 }
@@ -783,6 +832,7 @@ function testBundle() {
   assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.schema.json'))); assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.schema.json')));
   assert.match(fs.readFileSync(path.join(out, 'reviewer-output.S.schema.json'), 'utf8'), /\^S/);
   assert.equal(verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, sealed.bundle_sha256);
+  testBundleDestruction({ repo, reviewedCommit: head, outsideBundle: out, outsideBundleSha256: sealed.bundle_sha256 });
   for (const directory of ['evidence', 'evidence/level-one', 'evidence/level-one/level-two']) assert.equal(fs.statSync(path.join(out, directory)).mode & 0o777, 0o555, `${directory} ancestor is sealed read-only`);
   expectThrow('raw plan requested path', () => sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['docs/plans/active/sample.md'], outDir: path.join(temp, 'raw-plan') }), /raw plan path/);
   expectThrow('raw plan requested ancestor', () => sealBundle({ repo, reviewedCommit: head, planPath: 'docs/plans/active/sample.md', requestedPaths: ['docs/plans/active'], outDir: path.join(temp, 'raw-plan-ancestor') }), /raw plan path or ancestor|emitted/);
@@ -1436,6 +1486,7 @@ function testReviewRunnerSurfaces() {
   assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
   assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
   for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence', '/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
+  for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'plan-manager main context']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing safe cleanup marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
@@ -1457,6 +1508,7 @@ function testManagerSurfaces() {
   for (const marker of ['execution_base_commit', 'acceptance inventory', 'writable main context', 'passed X/S `not_ready`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing completion hardening: ${marker}`);
   for (const marker of ['Implementation role dispatch', 'relay spawn <repo> --fanout --from', 'relay handback', 'relay collect', 'MUST use exactly one depth-0', 'real worker launch as the model probe', 'candidate-specific terminal model failure']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing implementation dispatch marker ${marker}`);
   for (const marker of ['/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager missing interactive-parent guidance ${marker}`);
+  for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'Never use shell `chmod` or `rm`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing safe cleanup marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);
