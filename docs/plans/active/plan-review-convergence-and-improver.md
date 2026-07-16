@@ -3,7 +3,7 @@ title: Bound plan review and add a plan improver
 goal: Make Docks plan review converge within five total rounds using evidence-backed blocking findings and a separate accepted-finding repair skill.
 status: in_review
 created: "2026-07-16T14:47:44-03:00"
-updated: "2026-07-16T15:56:31-03:00"
+updated: "2026-07-16T16:09:39-03:00"
 started_at: "2026-07-16T15:13:44-03:00"
 in_review_since: "2026-07-16T15:56:31-03:00"
 assignee: codex
@@ -17,6 +17,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs
   - scripts/tests/plan-review-policy.mjs
   - scripts/tests/plan-review-policy-regressions.mjs
+  - scripts/tests/plan-review-convergence-repair.mjs
   - plugins/docks/skills/productivity/plan-improver/SKILL.md
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
   - plugins/docks/skills/productivity/plan-review/SKILL.md
@@ -100,6 +101,9 @@ reviews, not a renewable per-batch allowance.
 | 3 | Add the internal `plan-improver` skill and route repairs through it. The skill accepts the literal request, current canonical plan, exact accepted finding set, and current round identity; it returns a minimal section-level patch or a typed cannot-repair handback. It cannot review, accept/reject findings, add unrelated policy, write receipts, change lifecycle state, or expand beyond the request. Plan-manager applies the patch as sole writer, re-runs canonical validation, commits the repaired plan, and prepares the next repair request. | `plugins/docks/skills/productivity/plan-improver/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md` | 2 | done | The new skill validates and scores at least 14/16; surface tests prove review and improvement ownership remain separate and plan-manager remains the sole writer. |
 | 4 | Synchronize the consumer contract, dated defaults, wrappers, and scaffolded copies. Change newly resolved default `max_rounds` from 3 to 5. Define it as the policy-v4 lifetime cap and remove the continuation-batch question only for new policy. Preserve prose describing historical v1-v3 verification. Update plan-init's current marker so stale contracts are offered an explicit refresh. Ensure live and generated Claude/Codex wrappers load the canonical reviewer/improver ownership boundaries without gaining writer authority in plan-review. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`; `plugins/docks/agents/plan-manager.md`; `plugins/docks/agents/plan-review.md`; `.codex/agents/plan-manager.toml`; `.codex/agents/plan-review.toml`; `docs/scaffold/templates/codex-plan-manager.toml.template`; `docs/scaffold/templates/codex-plan-review.toml.template`; `docs/scaffold/templates/root-AGENTS.md.template` | 3 | done | Surface tests prove exact contract/template/default parity, historical language remains explicit, the current marker detects the convergence contract, and every generated wrapper preserves main-context ownership. |
 | 5 | Refresh changed skill metadata/content hashes, run the narrow-to-broad verification ladder, inspect the final diff, and complete the plan lifecycle. | Changed `SKILL.md` frontmatter; this plan only for lifecycle/receipt writes | 4 | done | All acceptance rows pass, `node scripts/ci.mjs --plugin docks` and full `node scripts/ci.mjs` exit 0, `git diff --check` is empty, and completion review derives `review_status: passed`. |
+| 6 | Add a second frozen TDD file for the completion-review findings without changing the original frozen tests. Specify repair bundles that expose an immutable previous canonical plan and exact accepted-target artifact, target-hash recomputation from reproduced evidence, terminal handling for a below-floor result with no actionable finding, and a disposable Codex reviewer work directory outside the sealed bundle. | `scripts/tests/plan-review-convergence-repair.mjs` | 5 | planned | The new test file fails on the four reproduced gaps only, its SHA-256 is recorded, and the original two frozen test hashes remain unchanged. |
+| 7 | Implement the repair transition and reviewer workspace contracts. Add a closed repair-transition preimage whose hash is recomputed from sorted accepted ids plus exact reproduced defect/fix evidence; bind it to the prior and current canonical inputs. Seal `previous-plan.review.md` and `repair-targets.json` for repair rounds and verify their exact manifest/request identities. Run Codex reviewers from a helper-owned disposable work directory with `--ephemeral --ignore-user-config`, explicit model/effort/service tier/sandbox, and an absolute sealed-bundle instruction; never use the sealed bundle as Codex's working root. A below-floor ready result with no reproducible finding terminates as `convergence-exhausted` because there is no authorized repair delta. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` | 6 | planned | The new frozen tests pass; post-leg bundle verification remains byte-identical under current Codex CLI 0.144.4; target or prior-plan substitution fails closed; and the no-actionable-repair branch has one valid terminal result. |
+| 8 | Synchronize the repaired executable contract across plan-manager, plan-review, plan-init/template, wrappers, and scaffold copies; refresh content hashes; rerun focused and full CI; then repeat completion review from a fresh sealed bundle. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`; `plugins/docks/agents/plan-manager.md`; `plugins/docks/agents/plan-review.md`; `.codex/agents/plan-manager.toml`; `.codex/agents/plan-review.toml`; `docs/scaffold/templates/codex-plan-manager.toml.template`; `docs/scaffold/templates/codex-plan-review.toml.template`; `docs/scaffold/templates/root-AGENTS.md.template` | 7 | planned | All contract copies name the sealed repair artifacts, exact digest preimage, terminal no-repair behavior, and isolated reviewer workdir; plugin/full CI pass; fresh completion evidence derives `review_status: passed`. |
 
 ## Interfaces & data shapes
 
@@ -164,7 +168,20 @@ ReviewSeriesV3 = {
   policy_sha256,
   initial_input_sha256,
   current_input_sha256,
-  rounds: DraftRunResultV3[]
+  rounds: DraftRunResultV3[],
+  repairs: ReviewRepairTransitionV1[]
+}
+
+ReviewRepairTransitionV1 = {
+  schema: 1,
+  from_round_index,
+  previous_input_sha256,
+  current_input_sha256,
+  targets: [{
+    id, source, defect, fix,
+    reproduction: {method, command, exit_code, evidence_sha256}
+  }],
+  repair_targets_sha256
 }
 ```
 
@@ -181,6 +198,24 @@ requires `round_index > 1`, and reviewers inspect only the current plan delta,
 the accepted repair targets, and whether those repairs introduced a blocking
 regression. A repair reviewer may not reopen unrelated previously accepted
 design decisions.
+
+For every repair round, the sealed bundle additionally contains
+`previous-plan.review.md` and `repair-targets.json`. The latter is compact JCS
+of `ReviewRepairTransitionV1.targets`, sorted by finding id. Its SHA-256 must
+equal both the transition and request `repair_targets_sha256`; the previous
+plan bytes must hash to `previous_input_sha256`. `validateReviewSeries`
+recomputes both identities and proves every target was present in the prior
+round, independently reproduced, and accepted by plan-manager.
+
+A below-floor `ready` result with no reproducible finding consumes its current
+round and terminates as `convergence-exhausted`; it does not fabricate an
+unchanged-input repair round.
+
+Codex reviewers run from a helper-owned disposable directory outside the
+sealed bundle. The argv includes `--ephemeral --ignore-user-config` plus every
+explicit model, effort, service-tier, and sandbox value. The prompt names the
+absolute sealed bundle path, and post-leg verification must prove the bundle
+remained byte-identical before the helper removes the disposable workdir.
 
 The reviewer prompt is generated by one helper function used by both Codex and
 Claude argv builders. It must state:
@@ -204,6 +239,9 @@ Claude argv builders. It must state:
 | A4 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0 and proves the live contract, plan-init template, manager/reviewer/improver skills, wrappers, scaffold templates, five-round default, and no-continuation semantics agree. |
 | A5 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0 and reports mutation regressions passed for rubric-sum, blocking/verdict, repair identity, lifetime cap, prompt burden-of-proof, and historical compatibility branches. |
 | A6 | `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs validate plugins/docks/skills/productivity/plan-improver && node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file \| grep 'productivity/plan-improver'` | Validation exits 0 and the new internal skill scores at least 14. |
+| A7 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-artifacts` | Exits 0 and proves prior-plan and accepted-target artifacts are sealed, request-bound, byte-verified, and rejected on omission/substitution. |
+| A8 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-series` | Exits 0 and proves exact target preimages are recomputed from accepted reproduced findings, arbitrary hashes fail, and low-score/no-finding terminates without an invalid unchanged-input round. |
+| A9 | `node scripts/tests/plan-review-convergence-repair.mjs --case reviewer-workdir` | Exits 0 and a current Codex reviewer runs from disposable scratch with explicit Standard tier, leaves the sealed bundle byte-identical, and cleans only its bound workdir. |
 
 ## Out of scope / do-NOT-touch
 
@@ -237,6 +275,10 @@ Claude argv builders. It must state:
 - Codex CLI 0.144.4 rejects a structured-output schema when a `const` property
   omits `type` (`invalid_json_schema` at `properties.leg`). Preserve payload
   compatibility while making every emitted schema declaration API-valid.
+- Codex CLI 0.144.4 may create empty `.git` and `.agents` directories in its
+  working root before model-generated commands enter the read-only sandbox.
+  Never set the sealed bundle as the Codex working root; post-leg verification
+  remains mandatory.
 - Skill meaning changes require `metadata.updated: "2026-07-16"` and refreshed
   content hashes. Bundled skill scripts are outside the content hash but still
   require an updated date when their behavior changes.
@@ -311,6 +353,14 @@ schema defect from the sealed bundle and added explicit typed constrained
 scalars to Steps 1-2 and A1/A3. Zero-reviewer continuation is the user's
 standing authorized run-to-completion choice, recorded canonically after this
 repaired plan is resealed.
+
+Completion cross-check (2026-07-16): [X: anthropic fable high] unavailable
+because Claude remains logged out; [S: openai gpt-5.6-sol high default] output
+identified three blocking defects, but the leg is non-canonical because current
+Codex created empty `.git` and `.agents` directories in the sealed working root.
+[codex orchestrator] independently reproduced all three source defects plus the
+transport mutation, accepted them as Steps 6-8, and preserved the original
+frozen tests by requiring a separate TDD file.
 Review-receipt: {"S":{"raw":{"attempts":[{"child_id":"019f6c1b-f8c9-7630-a6d9-ceb7d8751218","denial_source":null,"effort":"high","exit_code":1,"model":"gpt-5.6-sol","output_started":true,"reason":"Codex rejected reviewer output schema with invalid_json_schema at properties.leg","result":"nonzero_exit","retry_cause":null,"schema":2,"service_tier":"default","signal":null,"started":true,"stderr_sha256":"a6d201ab5c92aac11a3de51113a19983473e086ac945242e16dbb30bfc98a37d","stdout_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","timeout_mode":"orchestrator_tool","timeout_seconds":600,"transport":"cli"}],"decision_evidence":null,"findings":[],"findings_sha256":null,"leg":"S","reason":"Codex rejected reviewer output schema with invalid_json_schema at properties.leg","request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"2f036c297416e56d9aff212fdb994886bff8e40bf046f7f334819ec1ed089cea","diff_sha256":null,"execution_base_commit":null,"input_sha256":"d1afe87c9dc32651cafe4906d6713b717e33171c2b6b33d9cacdbf6ada9b7130","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"xhigh","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","max_rounds":3,"minimum_score":90,"openai_tiers":[{"effort":"high","model":"gpt-5.6-sol","service_tier":"default","transports":["cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"runtime_global","cross_company_consent":"runtime_global","max_rounds":"runtime_global","minimum_score":"runtime_global","openai_tiers":"runtime_global","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":3,"zero_reviewer_policy":"ask"},"policy_sha256":"c2beeab0ee239aa12a6e2ff882217be2cd3a53e72a0d4f972620b1330d665b64","request_id":"472dc099-6c9b-44d5-999c-3416c1888255","reviewed_commit_or_head":"d8af2b331213601e77f858e5ae9619694c53a6a9","schema":2},"result":"unavailable_unknown","reviewer_output":null,"schema":2,"selected":null,"severity_totals":{"high":0,"low":0,"medium":0},"waiver":null,"waiver_sha256":null},"reconciliation":{"accepted":[],"rejected":[]},"request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"2f036c297416e56d9aff212fdb994886bff8e40bf046f7f334819ec1ed089cea","diff_sha256":null,"execution_base_commit":null,"input_sha256":"d1afe87c9dc32651cafe4906d6713b717e33171c2b6b33d9cacdbf6ada9b7130","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"xhigh","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","max_rounds":3,"minimum_score":90,"openai_tiers":[{"effort":"high","model":"gpt-5.6-sol","service_tier":"default","transports":["cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"runtime_global","cross_company_consent":"runtime_global","max_rounds":"runtime_global","minimum_score":"runtime_global","openai_tiers":"runtime_global","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":3,"zero_reviewer_policy":"ask"},"policy_sha256":"c2beeab0ee239aa12a6e2ff882217be2cd3a53e72a0d4f972620b1330d665b64","request_id":"472dc099-6c9b-44d5-999c-3416c1888255","reviewed_commit_or_head":"d8af2b331213601e77f858e5ae9619694c53a6a9","schema":2}},"X":{"raw":{"attempts":[],"decision_evidence":null,"findings":[],"findings_sha256":null,"leg":"X","reason":"Claude CLI is installed but reports loggedIn:false and authMethod:none","request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"2f036c297416e56d9aff212fdb994886bff8e40bf046f7f334819ec1ed089cea","diff_sha256":null,"execution_base_commit":null,"input_sha256":"d1afe87c9dc32651cafe4906d6713b717e33171c2b6b33d9cacdbf6ada9b7130","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"xhigh","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","max_rounds":3,"minimum_score":90,"openai_tiers":[{"effort":"high","model":"gpt-5.6-sol","service_tier":"default","transports":["cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"runtime_global","cross_company_consent":"runtime_global","max_rounds":"runtime_global","minimum_score":"runtime_global","openai_tiers":"runtime_global","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":3,"zero_reviewer_policy":"ask"},"policy_sha256":"c2beeab0ee239aa12a6e2ff882217be2cd3a53e72a0d4f972620b1330d665b64","request_id":"472dc099-6c9b-44d5-999c-3416c1888255","reviewed_commit_or_head":"d8af2b331213601e77f858e5ae9619694c53a6a9","schema":2},"result":"unavailable_auth","reviewer_output":null,"schema":2,"selected":null,"severity_totals":{"high":0,"low":0,"medium":0},"waiver":null,"waiver_sha256":null},"reconciliation":{"accepted":[],"rejected":[]},"request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"2f036c297416e56d9aff212fdb994886bff8e40bf046f7f334819ec1ed089cea","diff_sha256":null,"execution_base_commit":null,"input_sha256":"d1afe87c9dc32651cafe4906d6713b717e33171c2b6b33d9cacdbf6ada9b7130","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"xhigh","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","max_rounds":3,"minimum_score":90,"openai_tiers":[{"effort":"high","model":"gpt-5.6-sol","service_tier":"default","transports":["cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"runtime_global","cross_company_consent":"runtime_global","max_rounds":"runtime_global","minimum_score":"runtime_global","openai_tiers":"runtime_global","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":3,"zero_reviewer_policy":"ask"},"policy_sha256":"c2beeab0ee239aa12a6e2ff882217be2cd3a53e72a0d4f972620b1330d665b64","request_id":"472dc099-6c9b-44d5-999c-3416c1888255","reviewed_commit_or_head":"d8af2b331213601e77f858e5ae9619694c53a6a9","schema":2}},"author":{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"},"decision_evidence":{"actor":"repository owner in current conversation","at":"2026-07-16T15:06:50-03:00","decision":"proceed","input_sha256":"d1afe87c9dc32651cafe4906d6713b717e33171c2b6b33d9cacdbf6ada9b7130","kind":"zero_reviewer","reason":"User authorized run-to-completion after approving the plan-review convergence and release scope","request_id":"472dc099-6c9b-44d5-999c-3416c1888255","schema":1},"input_sha256":"d1afe87c9dc32651cafe4906d6713b717e33171c2b6b33d9cacdbf6ada9b7130","outcome":"zero_degraded","phase":"draft","policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"xhigh","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","max_rounds":3,"minimum_score":90,"openai_tiers":[{"effort":"high","model":"gpt-5.6-sol","service_tier":"default","transports":["cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"runtime_global","cross_company_consent":"runtime_global","max_rounds":"runtime_global","minimum_score":"runtime_global","openai_tiers":"runtime_global","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":3,"zero_reviewer_policy":"ask"},"policy_sha256":"c2beeab0ee239aa12a6e2ff882217be2cd3a53e72a0d4f972620b1330d665b64","pre_execution_eligible":true,"reproduced":[],"request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"2f036c297416e56d9aff212fdb994886bff8e40bf046f7f334819ec1ed089cea","diff_sha256":null,"execution_base_commit":null,"input_sha256":"d1afe87c9dc32651cafe4906d6713b717e33171c2b6b33d9cacdbf6ada9b7130","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"xhigh","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","max_rounds":3,"minimum_score":90,"openai_tiers":[{"effort":"high","model":"gpt-5.6-sol","service_tier":"default","transports":["cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"runtime_global","cross_company_consent":"runtime_global","max_rounds":"runtime_global","minimum_score":"runtime_global","openai_tiers":"runtime_global","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":3,"zero_reviewer_policy":"ask"},"policy_sha256":"c2beeab0ee239aa12a6e2ff882217be2cd3a53e72a0d4f972620b1330d665b64","request_id":"472dc099-6c9b-44d5-999c-3416c1888255","reviewed_commit_or_head":"d8af2b331213601e77f858e5ae9619694c53a6a9","schema":2},"reviewed_at":"2026-07-16T15:06:50-03:00","reviewed_commit":"d8af2b331213601e77f858e5ae9619694c53a6a9","schema":2}
 
 ## Review
@@ -354,6 +404,14 @@ scalars gained explicit types and unsupported `uniqueItems` was removed; the
 live collector parsed five findings with no `invalid_json_schema`. Focused
 Docks CI and full three-plugin CI passed before implementation commit
 `26e201f523e2c55a80e5152c325a665c7dd24859`.
+
+Completion dogfood reproduced four additional defects: repair bundles lacked
+the previous plan and accepted-target evidence; the series accepted arbitrary
+target digests; below-floor/no-finding could not form a valid next round; and
+Codex mutated the sealed working root before its read-only command sandbox.
+The invalidated bundle is preserved at
+`/tmp/docks-plan-review/0683565a-85b3-4ede-9fd9-b3e17b85551f` because the safe
+destroy helper correctly refused a mutated bundle.
 
 The follow-on plan for Session Relay will cover correlated `reply_to` /
 `correlation_id`, `send --await`, `relay wait`, explicit delivery outcomes, and
