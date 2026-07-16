@@ -278,33 +278,107 @@ function oneOf(value, allowed, label) { if (!allowed.has(value)) throw new Error
 function digest(value, label) { if (!HEX64.test(value)) throw new Error(`${label} must be sha256`); }
 function iso(value, label) { if (!ISO.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`${label} must be ISO datetime`); }
 
+function workflowCandidate(candidate, schema, label) {
+  const base = ['company', 'tool', 'model', 'effort'];
+  const keys = schema === 2 ? [...base, 'service_tier'] : base;
+  const present = schema === 2 && Object.hasOwn(candidate ?? {}, 'service_tier') ? keys : base;
+  assertClosed(candidate, present, label);
+  oneOf(candidate.company, new Set(['openai', 'anthropic']), `${label} company`);
+  oneOf(candidate.tool, new Set(['codex', 'claude']), `${label} tool`);
+  if ((candidate.company === 'openai') !== (candidate.tool === 'codex')) throw new Error(`${label} company/tool mismatch`);
+  string(candidate.model, `${label} model`); string(candidate.effort, `${label} effort`);
+  if (Object.hasOwn(candidate, 'service_tier')) {
+    if (schema !== 2 || candidate.tool !== 'codex' || candidate.service_tier !== 'fast') throw new Error(`${label} service_tier is invalid`);
+  }
+  return candidate.tool === 'codex' ? { ...candidate, service_tier: candidate.service_tier ?? 'default' } : { ...candidate };
+}
+
+function workflowSelector(candidate) {
+  return `${candidate.tool}:${candidate.model}@${candidate.effort}${candidate.service_tier === 'fast' ? '+fast' : ''}`;
+}
+
+export function validateWorkflowModelRecord(record) {
+  assertClosed(record, ['schema', 'orchestrator', 'reviewer', 'implementer', 'review'], 'workflow model record');
+  if (![1, 2].includes(record.schema)) throw new Error('workflow model record schema');
+  assertClosed(record.review, ['max_rounds', 'minimum_score'], 'workflow review');
+  if (!Number.isInteger(record.review.minimum_score) || record.review.minimum_score < 0 || record.review.minimum_score > 100) throw new Error('workflow minimum_score');
+  if (!Number.isInteger(record.review.max_rounds) || record.review.max_rounds < 1 || record.review.max_rounds > 10) throw new Error('workflow max_rounds');
+  let fastCandidates = 0;
+  const validated = { schema: record.schema, review: { ...record.review } };
+  for (const role of ['orchestrator', 'reviewer', 'implementer']) {
+    const value = record[role]; assertClosed(value, ['candidates', 'selector'], `workflow ${role}`);
+    if (!Array.isArray(value.candidates) || value.candidates.length === 0) throw new Error(`workflow ${role} candidates`);
+    string(value.selector, `workflow ${role} selector`);
+    const candidates = value.candidates.map((candidate, index) => workflowCandidate(candidate, record.schema, `${role} candidate ${index + 1}`));
+    const identities = candidates.map(workflowSelector);
+    if (new Set(identities).size !== identities.length) throw new Error(`duplicate ${role} candidate`);
+    fastCandidates += candidates.filter((candidate) => candidate.service_tier === 'fast').length;
+    let selected;
+    if (value.selector.startsWith('profile:')) {
+      if (!/^profile:[a-z0-9][a-z0-9-]*$/.test(value.selector)) throw new Error(`${role} selector is invalid`);
+      selected = candidates[0];
+    } else {
+      if (!/^[a-z0-9-]+:[^@+]+@[a-z0-9-]+(?:\+fast)?$/.test(value.selector)) throw new Error(`${role} selector is invalid`);
+      const matches = candidates.filter((candidate) => workflowSelector(candidate) === value.selector);
+      if (matches.length !== 1) throw new Error(`${role} selector does not identify exactly one candidate`);
+      selected = matches[0];
+    }
+    validated[role] = { candidates: value.candidates.map((candidate) => ({ ...candidate })), selector: value.selector, selected };
+  }
+  if (record.schema === 2 && fastCandidates === 0) throw new Error('workflow schema 2 requires at least one Fast candidate');
+  return validated;
+}
+
+export function buildImplementerRelayArgv({ repo, invokerSession, candidate, task }) {
+  string(repo, 'implementer repo'); string(invokerSession, 'implementer invoker session'); string(task, 'implementer task');
+  const fields = Object.hasOwn(candidate ?? {}, 'service_tier') ? ['company', 'tool', 'model', 'effort', 'service_tier'] : ['company', 'tool', 'model', 'effort'];
+  assertClosed(candidate, fields, 'implementer');
+  oneOf(candidate.company, new Set(['openai', 'anthropic']), 'implementer company'); oneOf(candidate.tool, new Set(['codex', 'claude']), 'implementer tool');
+  if ((candidate.company === 'openai') !== (candidate.tool === 'codex')) throw new Error('implementer company/tool mismatch');
+  string(candidate.model, 'implementer model'); string(candidate.effort, 'implementer effort');
+  const serviceTier = candidate.service_tier ?? 'default'; oneOf(serviceTier, new Set(['default', 'fast']), 'implementer service tier');
+  if (candidate.tool !== 'codex' && Object.hasOwn(candidate, 'service_tier')) throw new Error('implementer service tier is Codex-only');
+  const normalized = { ...candidate, service_tier: serviceTier };
+  const argv = ['spawn', repo, '--fanout', '--from', invokerSession, '--tool', normalized.tool, '--model', normalized.model, '--effort', normalized.effort];
+  if (normalized.tool === 'codex') argv.push('--service-tier', normalized.service_tier);
+  argv.push('--', task);
+  return argv;
+}
+
+function reviewRecordSchema(request) {
+  return request.policy?.schema === 3 ? 2 : 1;
+}
+
 export function validatePolicy(policy) {
   const baseKeys = ['schema', 'cross_company_consent', 'zero_reviewer_policy', 'orchestrator_preference'];
   const tierKeys = ['openai_tiers', 'anthropic_tiers'];
   if (policy?.schema === 1) assertClosed(policy, [...baseKeys, ...tierKeys, 'provenance'], 'policy');
-  else if (policy?.schema === 2) assertClosed(policy, [...baseKeys, 'minimum_score', 'max_rounds', ...tierKeys, 'provenance'], 'policy');
+  else if (policy?.schema === 2 || policy?.schema === 3) assertClosed(policy, [...baseKeys, 'minimum_score', 'max_rounds', ...tierKeys, 'provenance'], 'policy');
   else throw new Error('policy schema');
   oneOf(policy.cross_company_consent, new Set(['always', 'ask', 'never']), 'cross_company_consent');
   oneOf(policy.zero_reviewer_policy, new Set(['ask', 'proceed', 'block']), 'zero_reviewer_policy');
   oneOf(policy.orchestrator_preference, new Set(['auto', 'in_session', 'cli']), 'orchestrator_preference');
-  if (policy.schema === 2) {
+  if (policy.schema >= 2) {
     if (!Number.isInteger(policy.minimum_score) || policy.minimum_score < 0 || policy.minimum_score > 100) throw new Error('minimum_score');
     if (!Number.isInteger(policy.max_rounds) || policy.max_rounds < 1 || policy.max_rounds > 10) throw new Error('max_rounds');
   }
   for (const company of ['openai', 'anthropic']) {
     const tiers = policy[`${company}_tiers`];
-    if (!Array.isArray(tiers) || tiers.length === 0 || (policy.schema === 2 && tiers.length > 3)) throw new Error(`${company}_tiers`);
+    if (!Array.isArray(tiers) || tiers.length === 0 || (policy.schema >= 2 && tiers.length > 3)) throw new Error(`${company}_tiers`);
     const candidates = new Set();
     for (const tier of tiers) {
-      assertClosed(tier, ['model', 'effort', 'transports'], 'tier'); string(tier.model, 'model'); string(tier.effort, 'effort');
+      const tierFields = policy.schema === 3 && company === 'openai' ? ['model', 'effort', 'service_tier', 'transports'] : ['model', 'effort', 'transports'];
+      assertClosed(tier, tierFields, 'tier'); string(tier.model, 'model'); string(tier.effort, 'effort');
+      if (policy.schema === 3 && company === 'openai') oneOf(tier.service_tier, new Set(['default', 'fast']), 'service_tier');
       if (!Array.isArray(tier.transports) || tier.transports.length === 0 || new Set(tier.transports).size !== tier.transports.length) throw new Error('tier transports');
       tier.transports.forEach((v) => oneOf(v, new Set(['in_session', 'cli']), 'transport'));
-      const candidate = `${tier.model}\0${tier.effort}`;
-      if (policy.schema === 2 && candidates.has(candidate)) throw new Error(`duplicate ${company}_tiers candidate`);
+      if (policy.schema === 3 && company === 'openai' && tier.transports.some((transport) => transport !== 'cli')) throw new Error('schema 3 OpenAI service tiers require cli transport');
+      const candidate = `${tier.model}\0${tier.effort}\0${tier.service_tier ?? ''}`;
+      if (policy.schema >= 2 && candidates.has(candidate)) throw new Error(`duplicate ${company}_tiers candidate`);
       candidates.add(candidate);
     }
   }
-  const provenanceKeys = [...baseKeys.slice(1), ...(policy.schema === 2 ? ['minimum_score', 'max_rounds'] : []), ...tierKeys];
+  const provenanceKeys = [...baseKeys.slice(1), ...(policy.schema >= 2 ? ['minimum_score', 'max_rounds'] : []), ...tierKeys];
   assertClosed(policy.provenance, provenanceKeys, 'provenance');
   Object.values(policy.provenance).forEach((value) => oneOf(value, SOURCES, 'provenance source'));
   return policy;
@@ -312,7 +386,7 @@ export function validatePolicy(policy) {
 
 export function validateRequest(request) {
   assertClosed(request, ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'planned_at_commit', 'execution_base_commit', 'diff_sha256', 'acceptance_inventory_sha256', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'], 'request');
-  if (request.schema !== 1 || !UUID.test(request.request_id)) throw new Error('request identity');
+  if (request.schema !== reviewRecordSchema(request) || !UUID.test(request.request_id)) throw new Error('request identity');
   oneOf(request.phase, new Set(['draft', 'completion']), 'phase');
   oneOf(request.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'lifecycle_intent');
   if (!HEX40.test(request.reviewed_commit_or_head)) throw new Error('reviewed commit');
@@ -327,19 +401,22 @@ export function validateRequest(request) {
   return request;
 }
 
-export function reviewerSchema(leg) {
+export function reviewerSchema(leg, outputSchema = 1) {
   oneOf(leg, new Set(['X', 'S']), 'leg');
+  oneOf(outputSchema, new Set([1, 2]), 'reviewer output schema');
   const closed = (properties, required = Object.keys(properties)) => ({ type: 'object', additionalProperties: false, properties, required });
   const str = { type: 'string', minLength: 1 };
   const tier = closed({ model: str, effort: str, transports: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['in_session', 'cli'] } } });
+  const openaiTierV3 = closed({ model: str, effort: str, service_tier: { enum: ['default', 'fast'] }, transports: { type: 'array', minItems: 1, uniqueItems: true, items: { const: 'cli' } } });
   const provenanceV1 = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
   const provenanceV2 = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, minimum_score: { enum: [...SOURCES] }, max_rounds: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
   const commonPolicy = { cross_company_consent: { enum: ['always', 'ask', 'never'] }, zero_reviewer_policy: { enum: ['ask', 'proceed', 'block'] }, orchestrator_preference: { enum: ['auto', 'in_session', 'cli'] } };
   const policyV1 = closed({ schema: { const: 1 }, ...commonPolicy, openai_tiers: { type: 'array', minItems: 1, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, items: tier }, provenance: provenanceV1 });
   const policyV2 = closed({ schema: { const: 2 }, ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
-  const policy = { oneOf: [policyV1, policyV2] };
+  const policyV3 = closed({ schema: { const: 3 }, ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: openaiTierV3 }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
+  const policy = outputSchema === 1 ? { oneOf: [policyV1, policyV2] } : policyV3;
   const request = closed({
-    schema: { const: 1 }, request_id: { type: 'string', pattern: UUID.source }, phase: { enum: ['draft', 'completion'] },
+    schema: { const: outputSchema }, request_id: { type: 'string', pattern: UUID.source }, phase: { enum: ['draft', 'completion'] },
     lifecycle_intent: { enum: ['none', 'start', 'schedule_fire', 'auto_execute'] }, reviewed_commit_or_head: { type: 'string', pattern: HEX40.source },
     planned_at_commit: { type: ['string', 'null'], pattern: HEX40.source }, execution_base_commit: { type: ['string', 'null'], pattern: HEX40.source },
     diff_sha256: { type: ['string', 'null'], pattern: HEX64.source }, acceptance_inventory_sha256: { type: ['string', 'null'], pattern: HEX64.source },
@@ -348,7 +425,7 @@ export function reviewerSchema(leg) {
     policy, policy_sha256: { type: 'string', pattern: HEX64.source },
   });
   const finding = closed({ id: { type: 'string', pattern: `^${leg}[1-9][0-9]*$` }, severity: { enum: ['high', 'medium', 'low'] }, section: str, path: { type: ['string', 'null'] }, locator: { type: ['string', 'null'] }, defect: str, fix: str, evidence: str });
-  return closed({ schema: { const: 1 }, leg: { const: leg }, request, verdict: { enum: ['ready', 'not_ready'] }, score: { type: 'integer', minimum: 0, maximum: 100 }, findings: { type: 'array', items: finding }, confirmations: { type: 'array', items: str } });
+  return closed({ schema: { const: outputSchema }, leg: { const: leg }, request, verdict: { enum: ['ready', 'not_ready'] }, score: { type: 'integer', minimum: 0, maximum: 100 }, findings: { type: 'array', items: finding }, confirmations: { type: 'array', items: str } });
 }
 
 function validateFinding(finding, leg, ids) {
@@ -370,10 +447,11 @@ function validateDecision(decision, request, expectedKind = null) {
   string(decision.actor, 'decision actor'); string(decision.reason, 'decision reason'); iso(decision.at, 'decision at');
 }
 
-function validateAttempt(attempt) {
-  const keys = ['schema', 'model', 'effort', 'transport', 'started', 'output_started', 'result', 'exit_code', 'signal', 'child_id', 'denial_source', 'retry_cause', 'timeout_mode', 'timeout_seconds', 'reason', 'stdout_sha256', 'stderr_sha256'];
-  assertClosed(attempt, keys, 'attempt'); if (attempt.schema !== 1) throw new Error('attempt schema');
+function validateAttempt(attempt, recordSchema = 1, company = null) {
+  const keys = ['schema', 'model', 'effort', ...(recordSchema === 2 && company === 'openai' ? ['service_tier'] : []), 'transport', 'started', 'output_started', 'result', 'exit_code', 'signal', 'child_id', 'denial_source', 'retry_cause', 'timeout_mode', 'timeout_seconds', 'reason', 'stdout_sha256', 'stderr_sha256'];
+  assertClosed(attempt, keys, 'attempt'); if (attempt.schema !== recordSchema) throw new Error('attempt schema');
   string(attempt.model, 'attempt model'); string(attempt.effort, 'attempt effort'); oneOf(attempt.transport, new Set(['in_session', 'cli']), 'attempt transport');
+  if (recordSchema === 2 && company === 'openai') oneOf(attempt.service_tier, new Set(['default', 'fast']), 'attempt service_tier');
   if (typeof attempt.started !== 'boolean' || typeof attempt.output_started !== 'boolean') throw new Error('attempt booleans');
   oneOf(attempt.result, ATTEMPT_RESULTS, 'attempt result');
   if (attempt.exit_code !== null && (!Number.isInteger(attempt.exit_code) || attempt.exit_code < -2147483648 || attempt.exit_code > 2147483647)) throw new Error('attempt exit code');
@@ -414,11 +492,12 @@ function validateAttemptSequence(attempts, policy, company) {
   const tiers = policy[`${company}_tiers`].filter((tier) => tier.transports.includes(transport));
   const attemptLimit = tiers.length + (policy.schema === 1 ? 1 : 0);
   if (tiers.length === 0 || attempts.length > attemptLimit) throw new Error('raw leg attempt bound');
-  if (policy.schema === 2) {
+  const recordSchema = policy.schema === 3 ? 2 : 1;
+  if (policy.schema >= 2) {
     let tier = 0;
     for (let i = 0; i < attempts.length; i += 1) {
-      const attempt = attempts[i]; validateAttempt(attempt);
-      if (!tiers[tier] || attempt.model !== tiers[tier].model || attempt.effort !== tiers[tier].effort) throw new Error('attempt tier order mismatch');
+      const attempt = attempts[i]; validateAttempt(attempt, recordSchema, company);
+      if (!tiers[tier] || attempt.model !== tiers[tier].model || attempt.effort !== tiers[tier].effort || (policy.schema === 3 && company === 'openai' && attempt.service_tier !== tiers[tier].service_tier)) throw new Error('attempt tier order mismatch');
       if (attempt.result === 'model_unavailable') {
         tier += 1;
         if (i < attempts.length - 1 && !tiers[tier]) throw new Error('attempt continued past tier list');
@@ -428,7 +507,7 @@ function validateAttemptSequence(attempts, policy, company) {
   }
   let tier = 0; let retryUsed = false; let expectRetry = false;
   for (let i = 0; i < attempts.length; i += 1) {
-    const attempt = attempts[i]; validateAttempt(attempt);
+    const attempt = attempts[i]; validateAttempt(attempt, recordSchema, company);
     if (!tiers[tier] || attempt.model !== tiers[tier].model || attempt.effort !== tiers[tier].effort) throw new Error('attempt tier order mismatch');
     if (expectRetry) expectRetry = false;
     if (attempt.result === 'transient_transport') {
@@ -457,10 +536,12 @@ function validateWaiverObject(waiver, phase, inputSha) {
 
 export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}) {
   const keys = ['schema', 'leg', 'request', 'result', 'attempts', 'selected', 'reviewer_output', 'findings', 'findings_sha256', 'severity_totals', 'waiver', 'waiver_sha256', 'decision_evidence', 'reason'];
-  assertClosed(raw, keys, 'raw leg'); if (raw.schema !== 1 || raw.leg !== leg || jcs(raw.request) !== jcs(request)) throw new Error('raw leg request mismatch');
+  const recordSchema = reviewRecordSchema(request);
+  assertClosed(raw, keys, 'raw leg'); if (raw.schema !== recordSchema || raw.leg !== leg || jcs(raw.request) !== jcs(request)) throw new Error('raw leg request mismatch');
   oneOf(raw.result, LEG_RESULTS, 'leg result'); if (!Array.isArray(raw.attempts)) throw new Error('raw leg attempts');
   const company = companyForLeg(request.author.company, leg); const eligibleTierCount = validateAttemptSequence(raw.attempts, request.policy, company);
-  if (raw.selected !== null) { assertClosed(raw.selected, ['model', 'effort', 'transport'], 'selected'); string(raw.selected.model, 'selected model'); string(raw.selected.effort, 'selected effort'); oneOf(raw.selected.transport, new Set(['in_session', 'cli']), 'selected transport'); }
+  const selectedKeys = recordSchema === 2 && company === 'openai' ? ['model', 'effort', 'service_tier', 'transport'] : ['model', 'effort', 'transport'];
+  if (raw.selected !== null) { assertClosed(raw.selected, selectedKeys, 'selected'); string(raw.selected.model, 'selected model'); string(raw.selected.effort, 'selected effort'); if (selectedKeys.includes('service_tier')) oneOf(raw.selected.service_tier, new Set(['default', 'fast']), 'selected service_tier'); oneOf(raw.selected.transport, new Set(['in_session', 'cli']), 'selected transport'); }
   if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => validateFinding(finding, leg, ids));
   if (raw.reviewer_output !== null) {
     assertClosed(raw.reviewer_output, ['verdict', 'score', 'confirmations', 'structured_output_sha256'], 'raw reviewer output');
@@ -469,7 +550,7 @@ export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}
     if (!Array.isArray(raw.reviewer_output.confirmations)) throw new Error('raw reviewer confirmations');
     raw.reviewer_output.confirmations.forEach((value) => string(value, 'raw reviewer confirmation'));
     digest(raw.reviewer_output.structured_output_sha256, 'structured output hash');
-    const structured = { schema: 1, leg, request, verdict: raw.reviewer_output.verdict, score: raw.reviewer_output.score, findings: raw.findings, confirmations: raw.reviewer_output.confirmations };
+    const structured = { schema: recordSchema, leg, request, verdict: raw.reviewer_output.verdict, score: raw.reviewer_output.score, findings: raw.findings, confirmations: raw.reviewer_output.confirmations };
     validateReviewerOutput(structured, request, leg);
     if (raw.reviewer_output.structured_output_sha256 !== sha256(jcs(structured))) throw new Error('structured output hash mismatch');
   }
@@ -489,7 +570,8 @@ export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}
   }
   if (raw.result === 'passed') {
     const last = raw.attempts.at(-1);
-    if (raw.selected === null || raw.reviewer_output === null || last?.result !== 'passed' || jcs(raw.selected) !== jcs({ model: last.model, effort: last.effort, transport: last.transport }) || raw.reason !== null || raw.waiver !== null) throw new Error('invalid passed leg');
+    const expectedSelected = { model: last?.model, effort: last?.effort, ...(selectedKeys.includes('service_tier') ? { service_tier: last?.service_tier } : {}), transport: last?.transport };
+    if (raw.selected === null || raw.reviewer_output === null || last?.result !== 'passed' || jcs(raw.selected) !== jcs(expectedSelected) || raw.reason !== null || raw.waiver !== null) throw new Error('invalid passed leg');
   } else if (raw.selected !== null || raw.reviewer_output !== null) throw new Error('non-passed leg cannot select reviewer output');
   if (raw.result === 'waived') {
     if (raw.waiver === null || raw.attempts.length || raw.findings.length || raw.reason !== null || raw.decision_evidence !== null) throw new Error('invalid waived leg');
@@ -615,7 +697,7 @@ function validateOutcome(X, S, policy, decisionEvidence, outcome, eligible = nul
 
 export function validateDraftRunResult(result, { waivers = [] } = {}) {
   assertClosed(result, ['schema', 'kind', 'request', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible'], 'draft run result');
-  if (result.schema !== 1 || result.kind !== 'draft') throw new Error('draft run kind'); validateRequest(result.request); if (result.request.phase !== 'draft') throw new Error('draft run phase');
+  if (result.schema !== reviewRecordSchema(result.request) || result.kind !== 'draft') throw new Error('draft run kind'); validateRequest(result.request); if (result.request.phase !== 'draft') throw new Error('draft run phase');
   const normalized = validateWaivers(waivers, 'draft', result.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
   validateRawLeg(result.X, result.request, 'X', { expectedWaiver: waiverFor('X') }); validateRawLeg(result.S, result.request, 'S', { expectedWaiver: waiverFor('S') });
   validateReproduced(result.reproduced, result.X, result.S, false); validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome, result.pre_execution_eligible); return result;
@@ -623,7 +705,7 @@ export function validateDraftRunResult(result, { waivers = [] } = {}) {
 
 export function validateCompletionRunResult(result, { waivers = [] } = {}) {
   assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary', 'completion_verdict'], 'completion run result');
-  if (result.schema !== 1 || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
+  if (result.schema !== reviewRecordSchema(result.request) || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
   if (result.plan_input_sha256 !== result.request.input_sha256 || result.diff_sha256 !== result.request.diff_sha256) throw new Error('completion plan or diff input mismatch'); digest(result.diff_sha256, 'completion diff');
   validateAcceptanceInventory(result.acceptance_inventory); if (result.acceptance_inventory_sha256 !== sha256(jcs(result.acceptance_inventory)) || result.acceptance_inventory_sha256 !== result.request.acceptance_inventory_sha256) throw new Error('completion acceptance inventory mismatch');
   const normalized = validateWaivers(waivers, 'completion', result.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
@@ -639,7 +721,7 @@ function validateExpectedPolicy(receipt, expectedPolicy) {
 
 export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [], expectedPolicy = null } = {}) {
   const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible', 'reviewed_at'];
-  assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== 1 || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
+  assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== reviewRecordSchema(receipt.request) || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
   if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('draft receipt input mismatch'); if (expectedInput && receipt.input_sha256 !== expectedInput) throw new Error('stale draft receipt');
   assertClosed(receipt.author, ['company', 'tool', 'model', 'effort'], 'author'); oneOf(receipt.author.company, new Set(['openai', 'anthropic']), 'author company'); for (const key of ['tool', 'model', 'effort']) string(receipt.author[key], `author ${key}`); if (jcs(receipt.author) !== jcs(receipt.request.author)) throw new Error('receipt author mismatch');
   if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('receipt policy mismatch');
@@ -658,7 +740,7 @@ export function validateDraftReviewReuse(input) {
 
 export function validateCompletionReceipt(receipt, expected = {}, { waivers = [], expectedPolicy = null } = {}) {
   const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
-  assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== 1 || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
+  assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== reviewRecordSchema(receipt.request) || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
   if (receipt.request.phase !== 'completion' || receipt.request.lifecycle_intent !== 'none' || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head || receipt.plan_input_sha256 !== receipt.request.input_sha256 || receipt.planned_at_commit !== receipt.request.planned_at_commit || receipt.execution_base_commit !== receipt.request.execution_base_commit || receipt.diff_sha256 !== receipt.request.diff_sha256) throw new Error('completion receipt request mismatch');
   if (!HEX40.test(receipt.planned_at_commit) || !HEX40.test(receipt.execution_base_commit) || !HEX40.test(receipt.reviewed_head)) throw new Error('completion commit'); digest(receipt.diff_sha256, 'completion receipt diff');
   validateAcceptanceInventory(receipt.acceptance_inventory); if (receipt.acceptance_inventory_sha256 !== sha256(jcs(receipt.acceptance_inventory)) || receipt.acceptance_inventory_sha256 !== receipt.request.acceptance_inventory_sha256) throw new Error('completion acceptance inventory mismatch');
@@ -674,7 +756,7 @@ export function validateCompletionReceipt(receipt, expected = {}, { waivers = []
 
 export function validateReviewerOutput(output, request, leg) {
   assertClosed(output, ['schema', 'leg', 'request', 'verdict', 'score', 'findings', 'confirmations'], 'reviewer output');
-  if (output.schema !== 1 || output.leg !== leg || jcs(output.request) !== jcs(request)) throw new Error('reviewer envelope mismatch');
+  if (output.schema !== reviewRecordSchema(request) || output.leg !== leg || jcs(output.request) !== jcs(request)) throw new Error('reviewer envelope mismatch');
   validateRequest(output.request); oneOf(output.verdict, new Set(['ready', 'not_ready']), 'verdict');
   if (!Number.isInteger(output.score) || output.score < 0 || output.score > 100) throw new Error('score');
   if (!Array.isArray(output.findings) || !Array.isArray(output.confirmations)) throw new Error('reviewer arrays');
@@ -2134,7 +2216,10 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
     if (entries.slice(start).some((entry) => entry.path === safePlan)) throw new Error('raw plan path was emitted by requested path expansion');
   }
   entries.push({ path: 'plan.review.md', mode: '100444', bytes: canonical });
-  for (const leg of ['X', 'S']) entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
+  for (const leg of ['X', 'S']) {
+    entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
+    entries.push({ path: `reviewer-output.${leg}.v2.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 2))}\n`) });
+  }
   let completion = null;
   if (plannedAtCommit !== null) {
     validateExecutionRange({ repo, planPath: safePlan, plannedAtCommit, executionBaseCommit, reviewedHead: reviewedCommit });
@@ -2200,10 +2285,12 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   const planView = fileRows.get('plan.review.md');
   if (!planView || planView.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');
   for (const leg of ['X', 'S']) {
-    const schemaPath = `reviewer-output.${leg}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg))}\n`;
-    if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg}`);
+    for (const version of [1, 2]) {
+      const suffix = version === 1 ? '' : '.v2'; const schemaPath = `reviewer-output.${leg}${suffix}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg, version))}\n`;
+      if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);
+    }
   }
-  const reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json']);
+  const reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json']);
   if (manifest.completion !== null) {
     assertClosed(manifest.completion, ['planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_path', 'diff_sha256', 'acceptance_inventory_path', 'acceptance_inventory_sha256'], 'bundle completion');
     if (manifest.completion.reviewed_head !== manifest.reviewed_commit) throw new Error('bundle completion head mismatch');
@@ -2297,11 +2384,19 @@ function validateRequestBundle(request, verified) {
   }
 }
 
-export function buildReviewerArgv({ tool, bundle, model, effort, leg, request }) {
+export function buildReviewerArgv({ tool, bundle, model, effort, serviceTier = null, leg, request }) {
   validateRequest(request); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 })); oneOf(leg, new Set(['X', 'S']), 'leg'); string(model, 'model'); string(effort, 'effort');
   const prompt = `You are the ${leg} independent plan reviewer. Read only the sealed bundle. Return findings only. Copy the request object into ReviewerOutput.request.\nREQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
-  if (tool === 'codex') return ['exec', '-C', bundle, '--skip-git-repo-check', '-s', 'read-only', '-m', model, '-c', `model_reasoning_effort=${effort}`, '--output-schema', path.join(bundle, `reviewer-output.${leg}.schema.json`), '--', prompt];
-  if (tool === 'claude') return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(reviewerSchema(leg)), '--output-format', 'json', '--', prompt];
+  if (tool === 'codex') {
+    const tier = serviceTier ?? 'default'; oneOf(tier, new Set(['default', 'fast']), 'reviewer service tier');
+    const config = ['-c', `model_reasoning_effort=${effort}`, ...(tier === 'fast' ? ['-c', 'features.fast_mode=true', '-c', 'service_tier="fast"'] : ['-c', 'service_tier="default"'])];
+    const suffix = request.schema === 2 ? '.v2' : '';
+    return ['exec', '-C', bundle, '--skip-git-repo-check', '-s', 'read-only', '-m', model, ...config, '--output-schema', path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`), '--', prompt];
+  }
+  if (tool === 'claude') {
+    if (serviceTier !== null) throw new Error('reviewer service tier is Codex-only');
+    return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(reviewerSchema(leg, request.schema)), '--output-format', 'json', '--', prompt];
+  }
   throw new Error('schema v1 supports codex or claude CLI only; relay is not supported');
 }
 

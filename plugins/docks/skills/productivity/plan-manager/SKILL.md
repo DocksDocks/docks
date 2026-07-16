@@ -4,8 +4,8 @@ description: Use when the user asks to list, show, create, review, start, block,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-15"
-  content_hash: "56875b345c781b4db124679751b186227859a05be5ff412d5426a08b9b8786d0"
+  updated: "2026-07-16"
+  content_hash: "71a8d9337183cd205975cf664960df56c5db7a6c90275949784d18d2d7111e50"
 ---
 
 # Plan Manager
@@ -44,34 +44,41 @@ The runtime-global record is closed. Preserve each selector for attribution;
 only its expanded candidates are execution input:
 
 ```text
-Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"schema":1}
+Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"schema":1}
 ```
 
-Each role is closed to `selector` plus one to three ordered candidates closed to
-`company`, `tool`, `model`, and `effort`. Review bounds are strict integers:
+Schema 1 candidates remain closed to `company`, `tool`, `model`, and `effort`.
+Schema 2 permits one additional `service_tier:"fast"` field only on a Codex
+candidate and requires at least one such candidate in the record. Missing
+`service_tier` always means Standard; `default`, unknown values, Claude tier
+fields, and open candidates invalidate the whole record. Review bounds are strict integers:
 `minimum_score` 0..100 and `max_rounds` 1..10. The named profile and exact-target
-grammar are `profile:<name>` and `<tool>:<model>@<effort>`; Docks does not reparse
-or expand them.
+grammar are `profile:<name>` and `<tool>:<model>@<effort>[+fast]`. `+fast` must
+identify a Fast Codex candidate exactly; duplicate/unknown suffixes are invalid.
+Preserve selector bytes for attribution.
 
 Defaults (2026-07):
 
 ```text
 orchestrator: profile:claude-best = claude:fable@high, claude:opus@xhigh
-reviewer: codex:gpt-5.6-sol@xhigh
-implementer: codex:gpt-5.6-sol@xhigh
+reviewer: codex:gpt-5.6-sol@high
+implementer: codex:gpt-5.6-sol@high
 minimum_score: 90
 max_rounds: 3
 cross_company_consent: ask
 zero_reviewer_policy: ask
 orchestrator_preference: auto
-openai_tiers: gpt-5.6-sol/xhigh [in_session,cli]
+openai_tiers: gpt-5.6-sol/high/default [cli]
 anthropic_tiers: fable/high, opus/xhigh [in_session,cli]
 ```
 
-New preparation emits closed `ResolvedReviewPolicy` schema 2, including
+New preparation emits closed `ResolvedReviewPolicy` schema 3, including
 `minimum_score`, `max_rounds`, both company tier lists, and one provenance value
-for every preceding policy field. Historical policy-v1 requests and receipts
-remain valid only for historical verification. Re-resolve before receipt reuse
+for every preceding policy field. Each OpenAI tier carries explicit
+`service_tier: default|fast` and is CLI-only. Historical policy-v1/v2 requests
+and schema-1 receipts remain valid only for historical verification; policy v3
+uses schema-2 requests, attempts, raw legs, reviewer outputs, runs, and receipts.
+Re-resolve before receipt reuse
 and apply; any value, provenance, candidate/tier order, effort, or transport
 change invalidates old evidence. A current user can override standing consent
 without changing zero-review policy.
@@ -185,10 +192,13 @@ path, seal mutation, duplicate, unsupported file, or request mismatch is a STOP.
 
 ## Dispatch and decisions
 
-The outer `ReviewRequestEnvelope` remains schema 1 while its resolved policy is
-schema 2. Both legs are fresh, findings-only, explicit-model/effort, and consume
+The outer `ReviewRequestEnvelope` is schema 1 with historical policy v1/v2 and
+schema 2 with policy v3. Both legs are fresh, findings-only, explicit model,
+effort, and service tier, and consume
 the same bundle in X-then-S order without seeing one another. Select one
-execution-enforced read-only in-session or direct CLI transport before attempts.
+execution-enforced read-only transport before attempts. Tier-controlled Codex
+reviewers use direct CLI because an in-session reviewer cannot prove a different
+effective service tier.
 Session-relay is invalid review transport under either policy version.
 
 Use binary lookup and auth status only as cheap preflight; the real review launch
@@ -264,11 +274,13 @@ excluded lifecycle fields and its own exact line do not.
 
 After eligible start and the execution-base identity commit, resolve the first
 available implementer candidate. Same-tool/current-model work stays in main
-context. A selected different provider MUST use exactly one depth-0 managed
+context only when its required effective service tier is positively known and
+matches. Unknown or mismatched tier isolates through Relay or records explicit
+degradation; ambient Fast is never inherited. A selected different provider MUST use exactly one depth-0 managed
 worktree worker, pinned to the selected model and effort:
 
 ```text
-relay spawn <repo> --fanout --from <invoker-session> --tool <tool> --model <model> --effort <effort> -- "<bounded implementation task>"
+relay spawn <repo> --fanout --from <invoker-session> --tool <tool> --model <model> --effort <effort> [--service-tier default|fast for Codex] -- "<bounded implementation task>"
 relay handback --from <worker-session> --status completed --note "ready"
 relay collect <worker-session> --from <invoker-session>
 ```
@@ -279,6 +291,12 @@ implementer chain, attempting each candidate once. Provider-wide, authentication
 billing, shared-quota, relay, clean-parent, or ambiguous launch failure stops
 rotation and records degradation. Once a worker is created, do not launch
 another candidate.
+
+Every Codex Relay launch includes `--service-tier fast` for a Fast candidate or
+`--service-tier default` for an unsuffixed candidate. Never pass this flag to
+Claude. A Codex orchestrator selector is supported only when the current-context
+tier is provably the requested tier; otherwise reject that candidate clearly or
+run an isolated tier-pinned orchestrator. Never claim an ambient tier satisfies it.
 
 The worker edits only `affected_paths`, never the plan, commits everything,
 proves its worktree clean before handback, starts no leaves, and writes nothing

@@ -8,13 +8,14 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   acceptanceInventory, applyCompletionReviewBlock, applyLifecycleState,
-  buildExecutionBaseCompatibilityApplication, buildReviewerArgv,
+  buildExecutionBaseCompatibilityApplication, buildImplementerRelayArgv, buildReviewerArgv,
   canonicalPlanView, classifyLeg, completionReviewBlockV1, completionStablePlanViewV1, deriveCompletionVerdict,
   extractReviewerOutput, jcs, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256, parsePlan,
   renderCompatibilityReviewAttribution, renderCompletionReviewBlock, reviewerSchema, sealBundle, sha256,
   validateCompletionReceipt, validateCompletionReviewReuse, validateCompletionRunResult,
   validateDraftReceipt, validateDraftReviewReuse, validateDraftRunResult, validatePolicy, validateRawLeg, validateRequest,
-  validateExecutionRange, validateExecutionScope, validateReviewerOutput, validateWaivers, verifyBundle,
+  validateExecutionRange, validateExecutionScope, validateReviewerOutput, validateWaivers,
+  validateWorkflowModelRecord, verifyBundle,
 } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -39,6 +40,20 @@ const POLICY_V2 = {
   max_rounds: 3,
   openai_tiers: [{ model: 'gpt-5.6-sol', effort: 'xhigh', transports: ['in_session', 'cli'] }],
   anthropic_tiers: [{ model: 'fable', effort: 'high', transports: ['in_session', 'cli'] }, { model: 'opus', effort: 'xhigh', transports: ['in_session', 'cli'] }],
+  provenance: { cross_company_consent: 'runtime_global', zero_reviewer_policy: 'skill_default', orchestrator_preference: 'skill_default', minimum_score: 'runtime_global', max_rounds: 'runtime_global', openai_tiers: 'runtime_global', anthropic_tiers: 'runtime_global' },
+};
+const POLICY_V3 = {
+  schema: 3,
+  cross_company_consent: 'always',
+  zero_reviewer_policy: 'ask',
+  orchestrator_preference: 'auto',
+  minimum_score: 90,
+  max_rounds: 3,
+  openai_tiers: [
+    { model: 'gpt-5.6-sol', effort: 'high', service_tier: 'fast', transports: ['cli'] },
+    { model: 'gpt-5.6-sol', effort: 'high', service_tier: 'default', transports: ['cli'] },
+  ],
+  anthropic_tiers: [{ model: 'fable', effort: 'high', transports: ['in_session', 'cli'] }],
   provenance: { cross_company_consent: 'runtime_global', zero_reviewer_policy: 'skill_default', orchestrator_preference: 'skill_default', minimum_score: 'runtime_global', max_rounds: 'runtime_global', openai_tiers: 'runtime_global', anthropic_tiers: 'runtime_global' },
 };
 
@@ -881,6 +896,7 @@ function testLegs() {
   const fixture = draftBundle(); const req = request({ reviewed_commit_or_head: fixture.head, input_sha256: fixture.sealed.input_sha256, bundle_sha256: fixture.sealed.bundle_sha256 });
   const codex = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'X', request: req });
   assert.deepEqual(codex.slice(0, 6), ['exec', '-C', fixture.bundle, '--skip-git-repo-check', '-s', 'read-only']);
+  assert.deepEqual(codex.filter((value, index) => codex[index - 1] === '-c'), ['model_reasoning_effort=xhigh', 'service_tier="default"']);
   assert.match(codex.at(-1), /REQUEST_JCS_BEGIN\n\{/); assert.match(codex.at(-1), /REQUEST_JCS_END$/);
   const claude = buildReviewerArgv({ tool: 'claude', bundle: fixture.bundle, model: 'fable', effort: 'high', leg: 'S', request: req });
   assert.deepEqual(claude.slice(0, 3), ['-p', '--permission-mode', 'plan']); assert.ok(claude.includes('--json-schema'));
@@ -901,6 +917,92 @@ function testLegs() {
   expectThrow('post-leg bundle change', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S', fixture.bundle), /hash mismatch/);
   makeWritable(fixture.bundle); fs.rmSync(fixture.temp, { recursive: true, force: true });
   console.log('legs: direct argv, skip-git, plan mode, JCS echo, attempt bounds, relay rejection, denial and consent separation passed');
+}
+
+function testServiceTiers() {
+  const schema1 = {
+    schema: 1,
+    reviewer: { candidates: [{ company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high' }], selector: 'codex:gpt-5.6-sol@high' },
+    implementer: { candidates: [{ company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high' }], selector: 'codex:gpt-5.6-sol@high' },
+    orchestrator: { candidates: [{ company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high' }], selector: 'profile:claude-best' },
+    review: { minimum_score: 90, max_rounds: 3 },
+  };
+  const schema2 = {
+    ...structuredClone(schema1),
+    schema: 2,
+    reviewer: { candidates: [{ company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high', service_tier: 'fast' }], selector: 'codex:gpt-5.6-sol@high+fast' },
+  };
+
+  assert.equal(validateWorkflowModelRecord(schema1).reviewer.selected.service_tier, 'default');
+  const validated = validateWorkflowModelRecord(schema2);
+  assert.equal(validated.reviewer.selected.service_tier, 'fast');
+  assert.equal(validated.implementer.selected.service_tier, 'default', 'one Fast role cannot affect an unsuffixed role');
+  assert.equal(validated.reviewer.selector, 'codex:gpt-5.6-sol@high+fast', 'selector attribution is preserved');
+
+  const standardRelay = buildImplementerRelayArgv({ repo: '/repo', invokerSession: 'parent', candidate: validated.implementer.selected, task: 'implement standard' });
+  assert.deepEqual(standardRelay, ['spawn', '/repo', '--fanout', '--from', 'parent', '--tool', 'codex', '--model', 'gpt-5.6-sol', '--effort', 'high', '--service-tier', 'default', '--', 'implement standard']);
+  const fastRelay = buildImplementerRelayArgv({ repo: '/repo', invokerSession: 'parent', candidate: validated.reviewer.selected, task: 'implement fast' });
+  assert.deepEqual(fastRelay, ['spawn', '/repo', '--fanout', '--from', 'parent', '--tool', 'codex', '--model', 'gpt-5.6-sol', '--effort', 'high', '--service-tier', 'fast', '--', 'implement fast']);
+  expectThrow('Claude implementer explicit default tier', () => buildImplementerRelayArgv({ repo: '/repo', invokerSession: 'parent', candidate: { company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high', service_tier: 'default' }, task: 'must reject ignored tier' }), /service tier.*Codex-only/i);
+
+  const fixture = draftBundle();
+  const req = request({ reviewed_commit_or_head: fixture.head, input_sha256: fixture.sealed.input_sha256, bundle_sha256: fixture.sealed.bundle_sha256 });
+  const standardReviewer = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'high', serviceTier: 'default', leg: 'S', request: req });
+  assert.deepEqual(standardReviewer.filter((value, index) => standardReviewer[index - 1] === '-c'), ['model_reasoning_effort=high', 'service_tier="default"']);
+  const fastReviewer = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'high', serviceTier: 'fast', leg: 'S', request: req });
+  assert.deepEqual(fastReviewer.filter((value, index) => fastReviewer[index - 1] === '-c'), ['model_reasoning_effort=high', 'features.fast_mode=true', 'service_tier="fast"']);
+  expectThrow('Claude reviewer service tier', () => buildReviewerArgv({ tool: 'claude', bundle: fixture.bundle, model: 'fable', effort: 'high', serviceTier: 'fast', leg: 'S', request: req }), /service tier.*Codex-only/i);
+  makeWritable(fixture.bundle); fs.rmSync(fixture.temp, { recursive: true, force: true });
+
+  validatePolicy(POLICY_V3);
+  expectThrow('schema 3 Claude tier', () => validatePolicy({ ...POLICY_V3, anthropic_tiers: [{ model: 'fable', effort: 'high', service_tier: 'fast', transports: ['cli'] }] }), /service_tier|unknown field/);
+  expectThrow('schema 3 unknown Codex tier', () => validatePolicy({ ...POLICY_V3, openai_tiers: [{ model: 'gpt-5.6-sol', effort: 'high', service_tier: 'turbo', transports: ['cli'] }] }), /service_tier/);
+  expectThrow('schema 3 in-session Codex tier', () => validatePolicy({ ...POLICY_V3, openai_tiers: [{ model: 'gpt-5.6-sol', effort: 'high', service_tier: 'fast', transports: ['in_session'] }] }), /cli|transport/);
+
+  const requestV2 = request({ schema: 2, policy: POLICY_V3, policy_sha256: sha256(jcs(POLICY_V3)) });
+  validateRequest(requestV2);
+  assert.equal(reviewerSchema('S', 2).properties.schema.const, 2, 'schema-2 reviewer output is versioned');
+  const attemptV2 = attempt({ schema: 2, effort: 'high', service_tier: 'fast' });
+  const structuredV2 = { schema: 2, leg: 'S', request: requestV2, verdict: 'ready', score: 100, findings: [], confirmations: ['tier recorded'] };
+  const rawV2 = {
+    schema: 2,
+    leg: 'S',
+    request: requestV2,
+    result: 'passed',
+    attempts: [attemptV2],
+    selected: { model: attemptV2.model, effort: attemptV2.effort, service_tier: 'fast', transport: 'cli' },
+    reviewer_output: { verdict: 'ready', score: 100, confirmations: ['tier recorded'], structured_output_sha256: sha256(jcs(structuredV2)) },
+    findings: [],
+    findings_sha256: sha256(jcs([])),
+    severity_totals: { high: 0, medium: 0, low: 0 },
+    waiver: null,
+    waiver_sha256: null,
+    decision_evidence: null,
+    reason: null,
+  };
+  validateReviewerOutput(structuredV2, requestV2, 'S');
+  validateRawLeg(rawV2, requestV2, 'S');
+  expectThrow('schema-2 attempt missing tier', () => validateRawLeg({ ...rawV2, attempts: [{ ...attemptV2, service_tier: undefined }] }, requestV2, 'S'), /service_tier|unknown key|missing/);
+  expectThrow('schema-1 attempt tier mutation', () => validateRawLeg({ ...rawV2, schema: 1, request: request(), attempts: [attempt({ service_tier: 'fast' })] }, request(), 'S'), /schema|service_tier|unknown key/);
+
+  for (const [label, record] of [
+    ['schema 1 tier field', { ...schema1, reviewer: { candidates: [{ ...schema1.reviewer.candidates[0], service_tier: 'fast' }], selector: 'codex:gpt-5.6-sol@high+fast' } }],
+    ['schema 2 without Fast', { ...structuredClone(schema1), schema: 2 }],
+    ['Claude tier field', { ...schema2, reviewer: { candidates: [{ company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high', service_tier: 'fast' }], selector: 'claude:fable@high+fast' } }],
+    ['unknown tier', { ...schema2, reviewer: { candidates: [{ ...schema2.reviewer.candidates[0], service_tier: 'turbo' }], selector: 'codex:gpt-5.6-sol@high+fast' } }],
+    ['explicit default field', { ...schema2, reviewer: { candidates: [{ ...schema2.reviewer.candidates[0], service_tier: 'default' }], selector: 'codex:gpt-5.6-sol@high' } }],
+    ['open candidate', { ...schema2, reviewer: { candidates: [{ ...schema2.reviewer.candidates[0], extra: true }], selector: 'codex:gpt-5.6-sol@high+fast' } }],
+    ['duplicate suffix', { ...schema2, reviewer: { ...schema2.reviewer, selector: 'codex:gpt-5.6-sol@high+fast+fast' } }],
+    ['unknown suffix', { ...schema2, reviewer: { ...schema2.reviewer, selector: 'codex:gpt-5.6-sol@high+turbo' } }],
+    ['tier ignored by selector', { ...schema2, reviewer: { ...schema2.reviewer, selector: 'codex:gpt-5.6-sol@high' } }],
+    ['duplicate candidate', { ...schema2, reviewer: { candidates: [schema2.reviewer.candidates[0], schema2.reviewer.candidates[0]], selector: 'codex:gpt-5.6-sol@high+fast' } }],
+  ]) expectThrow(label, () => validateWorkflowModelRecord(record), /schema|service.tier|selector|candidate|duplicate|unknown/i);
+
+  const restored = validateWorkflowModelRecord(schema1);
+  const restoredArgv = buildImplementerRelayArgv({ repo: '/repo', invokerSession: 'parent', candidate: restored.reviewer.selected, task: 'restored standard' });
+  assert.ok(restoredArgv.includes('default'));
+  assert.ok(!restoredArgv.includes('fast'));
+  console.log('service tiers: closed workflow schemas, role isolation, exact reviewer and Relay argv, policy v3, and Standard restoration passed');
 }
 
 function productionPrerequisiteProbe(fixture) {
@@ -1551,9 +1653,10 @@ function testSelfDemo(planPath) {
 const args = process.argv.slice(2);
 try {
   if (args.length === 0) {
-    testClosedSelectors(); testStrictCorpusContract(); testCanonical(); testSchemas(); testValidationMatrix(); testBundle(); testLegs(); await testExecutionCompatibility(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary();
+    testClosedSelectors(); testStrictCorpusContract(); testCanonical(); testSchemas(); testValidationMatrix(); testBundle(); testLegs(); testServiceTiers(); await testExecutionCompatibility(); testLifecycle(); testConsumer(); testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary();
     console.log('plan-review-policy contract passed');
   } else if (args.length === 2 && args[0] === '--case' && args[1] === 'legs') testLegs();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'service-tiers') testServiceTiers();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'lifecycle') testLifecycle();
   else if (args.length === 3 && args[0] === '--case' && args[1] === 'self-demo') testSelfDemo(args[2]);
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'bundle') testBundle();

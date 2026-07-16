@@ -4,8 +4,8 @@ description: Use when bootstrapping or migrating docs/plans, or when the user ex
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-15"
-  content_hash: "1f47e0df3e94eb78511cc4f2bf6c4becabb874b43bee5f6b94c9199d51255d2f"
+  updated: "2026-07-16"
+  content_hash: "848d2ef39db455747f0c3d83db5de14c18b4638b329092c4ad6dcd98f6815adf"
 ---
 
 # Plans Directory Bootstrapper

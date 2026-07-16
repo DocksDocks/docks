@@ -4,8 +4,8 @@ description: Use when plan-manager needs internal draft or completion evidence f
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-15"
-  content_hash: "188df7fa5db8b33282058ff1f44f4cfabcc60d22ec69c8b3711fbb03798018a6"
+  updated: "2026-07-16"
+  content_hash: "aa11e838a4f1657eefa480415a63742c89f525293bf31a8138c2e903c06ab480"
 ---
 
 # Plan Review Evidence Runner
@@ -20,7 +20,7 @@ bundle, schema, hashing, and validation implementation.
 </constraint>
 
 <constraint>
-**One immutable input, two fresh reviewers.** X and S consume the same sealed non-git bundle and byte-identical `ReviewRequestEnvelope`. Every launch pins company/model/effort/transport explicitly. Never resume an old session, inherit ambient model/effort, or read the moving source worktree. Session-relay is not a review transport: session-relay never transports review evidence.
+**One immutable input, two fresh reviewers.** X and S consume the same sealed non-git bundle and byte-identical `ReviewRequestEnvelope`. Every launch pins company/model/effort/service-tier/transport explicitly. Never resume an old session, inherit ambient model/effort/Fast state, or read the moving source worktree. Session-relay is not a review transport: session-relay never transports review evidence.
 </constraint>
 
 <constraint>
@@ -33,7 +33,7 @@ bundle, schema, hashing, and validation implementation.
 
 ```text
 ReviewRequestEnvelope = {
-  schema: 1, request_id: uuid, phase: draft|completion,
+  schema: 1|2, request_id: uuid, phase: draft|completion,
   lifecycle_intent: none|start|schedule_fire|auto_execute,
   reviewed_commit_or_head: 40hex,
   planned_at_commit: null|40hex, execution_base_commit: null|40hex,
@@ -50,9 +50,12 @@ Author identity is already persisted in plan frontmatter and byte-bound in the
 request; do not infer it from the current executor. X is the other company. S is
 an independent reviewer from the author's company.
 
-The outer envelope remains schema 1. Its embedded `ResolvedReviewPolicy` is
-closed schema 1 for historical verification or schema 2 for current work.
+The outer envelope remains schema 1 with historical policy v1/v2. Current
+service-tier-aware work uses schema-2 envelopes with closed policy v3; its
+attempts, raw legs, reviewer outputs, runs, and receipts are schema 2 as well.
 Policy v2 adds strict integer `minimum_score` 0..100 and `max_rounds` 1..10;
+policy v3 additionally requires `service_tier: default|fast` on every OpenAI
+tier and permits only direct CLI transport for those tiers.
 plan-manager supplies the resolved values from current-user instructions, one
 deduplicated `Docks-workflow-models:` record, or dated defaults. The named
 orchestrator profile is `profile:claude-best`; plan-review receives only its
@@ -62,12 +65,13 @@ Default dated tiers (2026-07; honor a higher-precedence resolved tier list):
 
 | Company | Ordered tiers | Effort | Eligible transport |
 |---|---|---|---|
-| OpenAI | `gpt-5.6-sol` | `xhigh` | in-session, CLI |
+| OpenAI | `gpt-5.6-sol` | `high` + explicit `default` tier | CLI |
 | Anthropic | `fable`, then `opus` | `high`, then `xhigh` | in-session, CLI |
 
-`orchestrator_preference=auto` prefers an available in-session fresh reviewer,
-then CLI. `in_session` or `cli` narrows selection. `relay` is invalid under
-both policy versions. Select transport once before attempts; an authoritative
+`orchestrator_preference=auto` prefers an available eligible transport. A
+tier-controlled Codex reviewer is direct CLI because an in-session reviewer
+cannot guarantee a different service tier. `relay` is invalid under every
+policy version. Select transport once before attempts; an authoritative
 denial never causes a transport switch.
 
 ## Prepare result
@@ -78,8 +82,9 @@ After plan-manager commits the non-executing input, use the helper to:
 2. Export sorted `affected_paths` at the immutable commit/head into
    `/tmp/docks-plan-review/<request_id>/`; absent CREATE/deleted paths are
    explicit tombstones. Symlinks are target bytes, never followed.
-3. Add distinct generated X and S reviewer JSON Schemas and a manifest without a
-   bundle hash; each launch selects its exact leg schema path. Never export the
+3. Add distinct generated X and S reviewer JSON Schemas for historical schema 1
+   and current schema 2 plus a manifest without a bundle hash; each launch
+   selects its exact leg/version schema path. Never export the
    raw source plan through `affected_paths`; only canonical `plan.review.md` is
    reviewer-visible. Completion also seals canonical binary `completion.diff`
    and the nonempty ordered `acceptance-inventory.json`.
@@ -95,7 +100,7 @@ with the path and hash from the current request. The helper verifies the sealed
 bundle before restoring owner-write permissions and removing only that bundle;
 X/S reviewers never perform cleanup.
 
-Return `NeedsMainReviewDispatch = { schema:1, request, bundle_path,
+Return `NeedsMainReviewDispatch = { schema:1|2, request, bundle_path,
 reviewer_schema_path, X_dispatch, S_dispatch }`. A manager subagent returns this
 to main context; it never launches the collector itself.
 
@@ -119,8 +124,13 @@ Codex CLI argv:
 ```text
 codex exec -C <bundle> --skip-git-repo-check -s read-only
   -m <model> -c model_reasoning_effort=<effort>
-  --output-schema <bundle>/reviewer-output.<X|S>.schema.json -- <prompt>
+  -c service_tier="default"
+  --output-schema <bundle>/reviewer-output.<X|S>[.v2].schema.json -- <prompt>
 ```
+
+For Fast, replace the Standard tier override with both
+`-c features.fast_mode=true -c service_tier="fast"`. Enabling the feature alone
+is insufficient. Missing tier always means Standard, never ambient Fast.
 
 Claude CLI argv (cwd is the bundle):
 
@@ -294,7 +304,7 @@ match the receipt.
 `ReviewerOutput` is closed recursively:
 
 ```text
-{ schema:1, leg:X|S, request:<exact envelope>, verdict:ready|not_ready,
+{ schema:1|2, leg:X|S, request:<exact envelope>, verdict:ready|not_ready,
   score:0..100, findings:[{id,severity,section,path,locator,defect,fix,evidence}],
   confirmations:[non-empty string] }
 ```

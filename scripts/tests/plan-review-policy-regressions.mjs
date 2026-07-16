@@ -463,8 +463,8 @@ const REGRESSIONS = [
   )],
   ['sealed reviewer-schema semantic binding', ['--case', 'bundle'], /reviewer schema substitution|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    "if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg}`);",
-    "if (!schema || schema.mode !== '100444') throw new Error(`bundle reviewer schema mismatch: ${leg}`);",
+    "if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);",
+    "if (!schema || schema.mode !== '100444') throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);",
   )],
   ['requested-row coverage binding', ['--case', 'bundle'], /requested-state substitution|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',

@@ -217,14 +217,16 @@ Resolve workflow roles from current-user instructions, then one byte-deduplicate
 runtime-global record, then dated defaults:
 
 ```text
-Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@xhigh"},"schema":1}
+Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"schema":1}
 ```
 
-Defaults: `profile:claude-best` = `claude:fable@high`, then
-`claude:opus@xhigh`; reviewer/implementer =
-`codex:gpt-5.6-sol@xhigh`; `minimum_score=90`; `max_rounds=3`. Bounds are
-strict integers 0..100 and 1..10. New work embeds closed policy v2 in the
-schema-1 envelope; historical policy v1 remains for historical verification.
+Defaults: `profile:claude-best` = `claude:fable@high`, then `claude:opus@xhigh`; reviewer/implementer = `codex:gpt-5.6-sol@high`; `minimum_score=90`;
+`max_rounds=3`. Bounds are integers 0..100 and 1..10. Schema 1 candidates are
+closed to `company/tool/model/effort`. Schema 2 permits only `service_tier:"fast"`
+on Codex, requires a Fast candidate, and uses exact selector grammar
+`<tool>:<model>@<effort>[+fast]`; omission is Standard. New tier-aware requests use
+outer schema 2 and policy v3 with explicit `default|fast` OpenAI tiers and CLI
+transport; historical schema-1 requests with policy v1/v2 retain their meaning.
 
 Resolve cross-company consent (`always | ask | never`) independently from
 zero-review progression (`ask | proceed | block`). `always` skips only Docks'
