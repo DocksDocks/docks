@@ -875,6 +875,9 @@ export function validateReviewSeries(series) {
   if (series.schema !== 3 || !Array.isArray(series.rounds) || series.rounds.length === 0) throw new Error('review series identity');
   digest(series.policy_sha256, 'review series policy'); digest(series.initial_input_sha256, 'review series initial input'); digest(series.current_input_sha256, 'review series current input');
   const policy = series.rounds[0]?.request?.policy;
+  const kind = series.rounds[0]?.kind;
+  oneOf(kind, new Set(['draft', 'completion']), 'review series run kind');
+  const validateRound = kind === 'draft' ? validateDraftRunResult : validateCompletionRunResult;
   validatePolicy(policy);
   if (policy.schema !== 4 || series.policy_sha256 !== sha256(jcs(policy))) throw new Error('review series policy mismatch');
   if (series.rounds.length > policy.max_rounds) throw new Error('review series exceeds lifetime max_rounds');
@@ -898,7 +901,8 @@ export function validateReviewSeries(series) {
       }
     }
     if (round.request.policy_sha256 !== series.policy_sha256 || jcs(round.request.policy) !== jcs(policy)) throw new Error('review series policy drift');
-    validateDraftRunResult(round);
+    if (round.kind !== kind) throw new Error('review series run kind drift');
+    validateRound(round);
     previousInput = round.request.input_sha256;
   }
   if (series.rounds[0].request.input_sha256 !== series.initial_input_sha256 || previousInput !== series.current_input_sha256) throw new Error('review series input identity mismatch');

@@ -815,6 +815,40 @@ function testSchemas() {
     repairs: [transition],
   };
   validateReviewSeries(series);
+  const completionSeriesRequest = requestV3({
+    request_id: '323e4567-e89b-42d3-a456-426614174000',
+    phase: 'completion',
+    lifecycle_intent: 'none',
+    planned_at_commit: '3'.repeat(40),
+    execution_base_commit: '4'.repeat(40),
+    diff_sha256: H0,
+    acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
+  });
+  const completionSeriesRound = {
+    schema: 3,
+    kind: 'completion',
+    request: completionSeriesRequest,
+    plan_input_sha256: completionSeriesRequest.input_sha256,
+    diff_sha256: H0,
+    acceptance_inventory: INVENTORY,
+    acceptance_inventory_sha256: completionSeriesRequest.acceptance_inventory_sha256,
+    X: unavailableV3(completionSeriesRequest, 'X'),
+    S: unavailableV3(completionSeriesRequest, 'S'),
+    reproduced: [],
+    decision_evidence: zeroDecision(completionSeriesRequest, 'proceed'),
+    outcome: 'zero_degraded',
+    primary: primaryEvidence(),
+    completion_verdict: 'passed',
+  };
+  validateCompletionRunResult(completionSeriesRound);
+  validateReviewSeries({
+    schema: 3,
+    policy_sha256: completionSeriesRequest.policy_sha256,
+    initial_input_sha256: completionSeriesRequest.input_sha256,
+    current_input_sha256: completionSeriesRequest.input_sha256,
+    rounds: [completionSeriesRound],
+    repairs: [],
+  });
   expectThrow('schema-3 review series requires repair after round one', () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, review_mode: 'full', previous_input_sha256: null, repair_targets_sha256: null } }] }), /repair|round/);
   expectThrow('schema-3 review series requires contiguous rounds', () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, round_index: 3 } }] }), /contiguous|round/);
   const sixRounds = Array.from({ length: 6 }, (_, index) => {

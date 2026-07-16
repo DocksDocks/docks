@@ -3,7 +3,7 @@ title: Bound plan review and add a plan improver
 goal: Make Docks plan review converge within five total rounds using evidence-backed blocking findings and a separate accepted-finding repair skill.
 status: in_review
 created: "2026-07-16T14:47:44-03:00"
-updated: "2026-07-16T19:30:15-03:00"
+updated: "2026-07-16T19:40:10-03:00"
 started_at: "2026-07-16T15:13:44-03:00"
 in_review_since: "2026-07-16T15:56:31-03:00"
 assignee: codex
@@ -107,7 +107,7 @@ reviews, not a renewable per-batch allowance.
 | 8 | Synchronize the repaired executable contract across plan-manager, plan-review, plan-init/template, wrappers, scaffold copies, and the repository test gate; refresh content hashes; rerun focused and full CI; then repeat completion review from a fresh sealed bundle. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`; `plugins/docks/agents/plan-manager.md`; `plugins/docks/agents/plan-review.md`; `.codex/agents/plan-manager.toml`; `.codex/agents/plan-review.toml`; `docs/scaffold/templates/codex-plan-manager.toml.template`; `docs/scaffold/templates/codex-plan-review.toml.template`; `docs/scaffold/templates/root-AGENTS.md.template`; `scripts/ci.mjs` | 7 | done | Contract sync, frozen repair-suite CI integration, live isolated Codex smoke, focused A1-A9, and full three-plugin CI passed; the fresh completion reviewer returned four reproduced blocking gaps that are captured in Steps 9-11. |
 | 9 | Add the next frozen red tests for the accepted completion findings. Require repair transitions to carry an exact X/S reconciliation partition and reject a reproduced-but-rejected target; require schema-3 command documentation to use the helper workspace and isolation flags; expand artifact tests to cover omission, consistently resealed previous-plan substitution, and request mismatches; split deterministic workspace proof from a credentialed live Codex acceptance case. Clarify confidence as binary `0\|1`, matching the implemented high/low signal. | `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy.mjs`; this plan | 7 | done | Repair-series failed because `transition.reconciliation` was absent; surfaces failed because schema-3 docs still routed `-C` to the bundle. Artifact mutations already passed and are frozen as regressions. Frozen SHA-256: convergence `d728e870530e60e199d95225b9af159d1ef293542242cd7e243a770722ddb984`; policy `5fd4265053dbd8a4111987d4b5ad0afaaad9a1fc80aff37db7a1373ee2c5011f`. The independent driver changed only to copy the newly asserted plan surface into its isolated corpus; its post-fixture SHA-256 is `4a8d58b572f55d8de51d022a310f8cea3a57abe454363dac5d74aca55fab20aa`, and all mutation cases pass. |
 | 10 | Implement the accepted repair. Extend the unreleased `ReviewRepairTransitionV1` with closed per-leg reconciliation, include it in the repair-target digest preimage/artifact, validate each leg as an exact partition of the prior raw findings, and require target ids to equal the accepted-id union as well as exact reproduced evidence. Update schema-3 command docs and add the explicit credentialed live reviewer test without putting it in ordinary CI. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy.mjs` | 9 | done | Frozen hashes stayed unchanged; matching reconciliation, rejected-target, artifact, CLI-transport, validation, leg, and surface cases pass. The transition digest now covers reconciliation plus targets, and schema-3 docs use the helper workspace with both isolation flags. |
-| 11 | Refresh affected skill hashes and synchronized plan surfaces, run focused tests, the credentialed live acceptance command, Docks CI, full CI, and one repair-mode completion review over the exact accepted S1-S5 target artifact. | `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; this plan | 10 | in-flight | Content hashes and context-tree surfaces are synchronized. After Claude CLI authentication, the non-elevated helper-owned live command passed A10 with current Codex credentials (exit 0; stdout SHA-256 `4a39eb03a6bcdfd95fb41bf6e6770f3c28836d8677b41574237b18532e85209f`) while preserving the sealed bundle and cleaning its bound workspace. The next repair-mode completion round must confirm this corrected acceptance state and the S1-S5 repair. |
+| 11 | Refresh affected skill hashes and synchronized plan surfaces, run focused tests, the credentialed live acceptance command, Docks CI, full CI, and bounded repair-mode completion review. Repair any completion-series validator defect exposed by the real lifecycle before resealing. | `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `scripts/tests/plan-review-policy.mjs`; `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; this plan | 10 | in-flight | A10 passed with current Codex credentials (exit 0; stdout SHA-256 `4a39eb03a6bcdfd95fb41bf6e6770f3c28836d8677b41574237b18532e85209f`). A failing schema case proved `validateReviewSeries` incorrectly routed completion rounds through `validateDraftRunResult`; the helper now selects one immutable run kind for the series, validates every round with the matching completion/draft validator, and rejects kind drift. Updated policy-test SHA-256: `e7de967e041e7bbbc9aa9bd900d402176e28d36e4d738270b0c5ca0d94255c89`. The next repair-mode completion round must pass. |
 
 ## Interfaces & data shapes
 
@@ -172,7 +172,7 @@ ReviewSeriesV3 = {
   policy_sha256,
   initial_input_sha256,
   current_input_sha256,
-  rounds: DraftRunResultV3[],
+  rounds: (DraftRunResultV3 | CompletionRunResultV3)[],
   repairs: ReviewRepairTransitionV1[]
 }
 
@@ -485,6 +485,14 @@ and stderr SHA-256
 The same round's S leg timed out before output because the orchestrator left
 stdin open; policy consumed that attempt as `timed_out` and did not retry it.
 A fresh repair round over the corrected canonical input remains required.
+
+Round-3 preparation exposed a separate executable-contract defect before a
+reviewer launch: `validateReviewSeries` unconditionally called
+`validateDraftRunResult`, so every completion repair series failed with
+`draft run phase`. A new completion-series fixture failed on that exact route
+before production code changed. The helper now selects `draft` or `completion`
+once from round 1, rejects mixed-kind drift, and validates each round through
+the matching typed validator; the focused schema case passes.
 
 The follow-on plan for Session Relay will cover correlated `reply_to` /
 `correlation_id`, `send --await`, `relay wait`, explicit delivery outcomes, and
