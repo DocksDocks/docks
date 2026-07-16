@@ -1,7 +1,7 @@
 {
   "name": "effect-kit",
   "description": "Cross-tool Effect skill kit: Effect 3.x setup, patterns, and porting plus version-gated Effect v4 beta guidance",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": {
     "name": "DocksDocks"
   },
