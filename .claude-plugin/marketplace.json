@@ -9,7 +9,7 @@
       "name": "docks",
       "source": "./plugins/docks",
       "description": "Cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode). Sequential pipeline skills — security audit (OWASP Top 10), refactor (dead code, duplication, SOLID), and skill-agent-pipeline — plus portable convention skills: test-first, coverage, fix workflows, code review, human-docs, design tokens, dependency-vuln triage, lint discipline, UI polish, SOLID, type-safety, React component patterns, capability tuning (max-capability Claude Code + Codex settings), and a docs/plans lifecycle.",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "author": {
         "name": "Eduardo Marquez"
       },
