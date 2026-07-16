@@ -23,6 +23,7 @@ const OWNED_ROOT_PREFIX = ownedRootPrefix(RUN_NAMESPACE);
 const runtime = { signal: null, activeChildren: new Map(), ownedRoots: new Set() };
 const REQUIRED_SURFACES = [
   'docs/plans/AGENTS.md',
+  'docs/plans/active/plan-review-convergence-and-improver.md',
   'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md',
   'plugins/docks/skills/productivity/plan-init/SKILL.md',
   'plugins/docks/skills/productivity/plan-manager/SKILL.md',

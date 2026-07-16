@@ -234,7 +234,7 @@ on Codex, requires a Fast candidate, and uses exact selector grammar
 `<tool>:<model>@<effort>[+fast]`; omission is Standard. New tier-aware requests use
 outer schema 2 and policy v3 with explicit `default|fast` OpenAI tiers and CLI
 transport; historical schema-1 requests with policy v1/v2 retain their meaning.
-New convergence requests use outer schema 3 and policy v4: round 1 has `review_mode: full`; accepted findings are repaired through plan-improver; later rounds use `review_mode: repair` with previous-input and exact repair-target hashes. Each repair bundle seals `previous-plan.review.md` and compact-JCS `repair-targets.json`; the helper recomputes prior/current plan and exact reproduced-target hashes.
+New convergence requests use outer schema 3 and policy v4: round 1 has `review_mode: full`; accepted findings are repaired through plan-improver; later rounds use `review_mode: repair` with previous-input and exact repair-target hashes. Each repair bundle seals `previous-plan.review.md` and compact-JCS `repair-targets.json`; the transition persists an exact X/S accepted/rejected partition, requires the targets to equal the accepted-id union, and hashes that reconciliation with the exact independently reproduced targets.
 Historical policy v1-v3 retain their persisted meanings.
 
 The resolved logical policy has independent choices for cross-company consent

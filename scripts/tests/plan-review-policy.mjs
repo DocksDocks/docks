@@ -774,7 +774,15 @@ function testSchemas() {
     fromRoundIndex: 1,
     previousInputSha256: reqV3.input_sha256,
     currentInputSha256: '2'.repeat(64),
+    reconciliation: {
+      X: { accepted: [], rejected: [] },
+      S: { accepted: ['S2'], rejected: [] },
+    },
     targets: [reproducedBlocking],
+  });
+  assert.deepEqual(transition.reconciliation, {
+    X: { accepted: [], rejected: [] },
+    S: { accepted: ['S2'], rejected: [] },
   });
   const repairRequest = requestV3({
     request_id: '223e4567-e89b-42d3-a456-426614174000',
@@ -1094,6 +1102,10 @@ function testLegs() {
     fromRoundIndex: 1,
     previousInputSha256: sha256(previousPlan),
     currentInputSha256: fixture.sealed.input_sha256,
+    reconciliation: {
+      X: { accepted: [], rejected: [] },
+      S: { accepted: ['S1'], rejected: [] },
+    },
     targets: [{
       id: 'S1', source: 'S', severity: 'high', path: null, locator: null,
       defect: 'The previous repair target was not bound.', fix: 'Bind the exact target.',
@@ -1809,9 +1821,11 @@ function testReviewRunnerSurfaces() {
   const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-review/SKILL.md'), 'utf8');
   assert.match(skill, /user-invocable: false/); assert.match(skill, /NeedsMainReviewDispatch/);
   assert.match(skill, /--skip-git-repo-check/); assert.match(skill, /--permission-mode plan/);
+  assert.match(skill, /Schema 3 Codex CLI argv[\s\S]*codex exec -C <reviewer-workspace>[\s\S]*--ephemeral --ignore-user-config/i);
   assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
   assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
   for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence', '/model <model>', '/effort <effort>', 'provable', 'blocking', 'repair_targets_sha256']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
+  assert.match(fs.readFileSync(path.join(ROOT, 'docs/plans/active/plan-review-convergence-and-improver.md'), 'utf8'), /confidence: integer 0 \| 1/);
   for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'plan-manager main context']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing safe cleanup marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');

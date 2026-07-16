@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "ac99c74e4dbe5f6054393146e0ee4d330a54dc967501ab9bfb6a7db11b16edca"
+  content_hash: "75c9a5e894a8850d405a86a3f32ab690a7d14c37b6571317eb9321f9f3177858"
 ---
 
 # Plan Manager
@@ -154,8 +154,10 @@ Once the candidate is ready:
    Apply its minimal section-level patch as sole writer, commit, destroy the
    stale bundle, build the exact repair transition, and seal
    `previous-plan.review.md` plus `repair-targets.json` with `bundle-repair`.
+   The transition must persist that exact per-leg partition, exclude every
+   rejected id from targets, and make the target ids equal the accepted-id union.
    Prepare `review_mode: repair` over the changed input only after the helper
-   verifies the prior-plan, current-plan, and reproduced-target hashes.
+   verifies the prior plan, current plan, reconciliation, and reproduced targets.
 6. Stop early only when every passed leg is `ready`, its score is at least the
    resolved `minimum_score`, no accepted blocking finding remains, and the
    reconciled candidate remains current. One unavailable leg still permits a

@@ -241,6 +241,32 @@ function reproducedTarget() {
   };
 }
 
+function reconciliation({ accepted = ['S1'], rejected = [] } = {}) {
+  return {
+    X: { accepted: [], rejected: [] },
+    S: { accepted, rejected },
+  };
+}
+
+function sealRepairBundle(fixture, name, previousPlan, transition) {
+  const bundle = path.join(fixture.root, name);
+  const sealed = policy.sealBundle({
+    repo: fixture.repo,
+    reviewedCommit: fixture.currentCommit,
+    planPath: 'docs/plans/active/repair.md',
+    requestedPaths: ['src/example.txt'],
+    outDir: bundle,
+    repair: { previousPlan, transition },
+  });
+  return { bundle, sealed };
+}
+
+function removeSealedFile(bundle, relative) {
+  fs.chmodSync(bundle, 0o755);
+  fs.unlinkSync(path.join(bundle, relative));
+  fs.chmodSync(bundle, 0o555);
+}
+
 function testRepairArtifacts() {
   assert.equal(typeof policy.buildRepairTransition, 'function', 'buildRepairTransition must be exported');
   const fixture = initializeFixture();
@@ -250,21 +276,92 @@ function testRepairArtifacts() {
       fromRoundIndex: 1,
       previousInputSha256: policy.sha256(fixture.previousPlan),
       currentInputSha256: policy.sha256(fixture.currentPlan),
+      reconciliation: reconciliation(),
       targets: [target],
     });
-    const bundle = path.join(fixture.root, 'bundle');
-    const sealed = policy.sealBundle({
-      repo: fixture.repo,
-      reviewedCommit: fixture.currentCommit,
-      planPath: 'docs/plans/active/repair.md',
-      requestedPaths: ['src/example.txt'],
-      outDir: bundle,
-      repair: { previousPlan: fixture.previousPlan, transition },
+    const { bundle, sealed } = sealRepairBundle(fixture, 'bundle', fixture.previousPlan, transition);
+    const repairRequest = request({
+      reviewed_commit_or_head: fixture.currentCommit,
+      input_sha256: sealed.input_sha256,
+      bundle_sha256: sealed.bundle_sha256,
+      review_mode: 'repair',
+      round_index: 2,
+      previous_input_sha256: transition.previous_input_sha256,
+      repair_targets_sha256: transition.repair_targets_sha256,
     });
     assert.equal(sealed.manifest.schema, 2);
     assert.equal(fs.readFileSync(path.join(bundle, 'previous-plan.review.md'), 'utf8'), fixture.previousPlan);
     assert.equal(JSON.parse(fs.readFileSync(path.join(bundle, 'repair-targets.json'), 'utf8')).repair_targets_sha256, transition.repair_targets_sha256);
     assert.equal(policy.verifyBundle({ bundle, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, sealed.bundle_sha256);
+    assert.doesNotThrow(() => policy.buildReviewerArgv({
+      tool: 'claude',
+      bundle,
+      model: 'fable',
+      effort: 'high',
+      leg: 'X',
+      request: repairRequest,
+    }));
+
+    const ordinaryBundle = path.join(fixture.root, 'ordinary-bundle');
+    const ordinary = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: ordinaryBundle,
+    });
+    assert.throws(() => policy.buildReviewerArgv({
+      tool: 'claude',
+      bundle: ordinaryBundle,
+      model: 'fable',
+      effort: 'high',
+      leg: 'X',
+      request: { ...repairRequest, bundle_sha256: ordinary.bundle_sha256 },
+    }), /request and bundle repair mismatch/i);
+
+    const alternatePreviousPlan = policy.canonicalPlanView(Buffer.from(plan(0)));
+    const alternateTransition = policy.buildRepairTransition({
+      fromRoundIndex: 1,
+      previousInputSha256: policy.sha256(alternatePreviousPlan),
+      currentInputSha256: policy.sha256(fixture.currentPlan),
+      reconciliation: reconciliation(),
+      targets: [target],
+    });
+    const alternate = sealRepairBundle(fixture, 'alternate-bundle', alternatePreviousPlan, alternateTransition);
+    assert.equal(policy.verifyBundle({
+      bundle: alternate.bundle,
+      expectedSha256: alternate.sealed.bundle_sha256,
+    }).bundle_sha256, alternate.sealed.bundle_sha256);
+    assert.throws(() => policy.buildReviewerArgv({
+      tool: 'claude',
+      bundle: alternate.bundle,
+      model: 'fable',
+      effort: 'high',
+      leg: 'X',
+      request: { ...repairRequest, bundle_sha256: alternate.sealed.bundle_sha256 },
+    }), /request and bundle repair mismatch/i);
+    assert.throws(() => policy.buildReviewerArgv({
+      tool: 'claude',
+      bundle,
+      model: 'fable',
+      effort: 'high',
+      leg: 'X',
+      request: { ...repairRequest, repair_targets_sha256: H0 },
+    }), /request and bundle repair mismatch/i);
+
+    const missingPrevious = sealRepairBundle(fixture, 'missing-previous', fixture.previousPlan, transition);
+    removeSealedFile(missingPrevious.bundle, 'previous-plan.review.md');
+    assert.throws(() => policy.verifyBundle({
+      bundle: missingPrevious.bundle,
+      expectedSha256: missingPrevious.sealed.bundle_sha256,
+    }), /missing|bundle|repair/i);
+    const missingTargets = sealRepairBundle(fixture, 'missing-targets', fixture.previousPlan, transition);
+    removeSealedFile(missingTargets.bundle, 'repair-targets.json');
+    assert.throws(() => policy.verifyBundle({
+      bundle: missingTargets.bundle,
+      expectedSha256: missingTargets.sealed.bundle_sha256,
+    }), /missing|bundle|repair/i);
+
     fs.chmodSync(path.join(bundle, 'repair-targets.json'), 0o644);
     fs.writeFileSync(path.join(bundle, 'repair-targets.json'), '{}\n');
     fs.chmodSync(path.join(bundle, 'repair-targets.json'), 0o444);
@@ -296,8 +393,10 @@ function testRepairSeries() {
     fromRoundIndex: 1,
     previousInputSha256: first.input_sha256,
     currentInputSha256: H2,
+    reconciliation: reconciliation(),
     targets: [reproduced],
   });
+  assert.deepEqual(transition.reconciliation, reconciliation());
   const second = request({
     request_id: '223e4567-e89b-42d3-a456-426614174000',
     review_mode: 'repair',
@@ -326,9 +425,32 @@ function testRepairSeries() {
     repairs: [transition],
   };
   policy.validateReviewSeries(series);
+  assert.throws(() => policy.buildRepairTransition({
+    fromRoundIndex: 1,
+    previousInputSha256: first.input_sha256,
+    currentInputSha256: H2,
+    reconciliation: reconciliation({
+      accepted: [],
+      rejected: [{ id: 'S1', reason: 'Main context rejected this reproduced finding.' }],
+    }),
+    targets: [reproduced],
+  }), /accepted|rejected|reconciliation|target/i);
   assert.throws(
     () => policy.validateReviewSeries({ ...series, repairs: [{ ...transition, repair_targets_sha256: H0 }] }),
     /repair.*target|target.*hash/i,
+  );
+  const incompleteReconciliation = {
+    ...transition,
+    reconciliation: { X: { accepted: [], rejected: [] }, S: { accepted: [], rejected: [] } },
+  };
+  incompleteReconciliation.repair_targets_sha256 = policy.sha256(policy.jcs({
+    schema: 1,
+    reconciliation: incompleteReconciliation.reconciliation,
+    targets: incompleteReconciliation.targets,
+  }));
+  assert.throws(
+    () => policy.validateReviewSeries({ ...series, repairs: [incompleteReconciliation] }),
+    /partition|reconciliation|accepted/i,
   );
   const manager = fs.readFileSync('plugins/docks/skills/productivity/plan-manager/SKILL.md', 'utf8');
   assert.doesNotMatch(manager, /fresh request over the unchanged input/i);
@@ -393,6 +515,64 @@ function testReviewerWorkdir() {
   console.log('reviewer workdir isolates Codex bootstrap writes from the sealed bundle');
 }
 
+function testReviewerLive() {
+  assert.equal(process.env.DOCKS_LIVE_CODEX_REVIEW, '1', 'set DOCKS_LIVE_CODEX_REVIEW=1 to run the credentialed live acceptance');
+  const fixture = initializeFixture();
+  let prepared;
+  try {
+    const bundle = path.join(fixture.root, 'live-bundle');
+    const sealed = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: bundle,
+    });
+    const req = request({
+      request_id: randomUUID(),
+      reviewed_commit_or_head: fixture.currentCommit,
+      input_sha256: sealed.input_sha256,
+      bundle_sha256: sealed.bundle_sha256,
+    });
+    prepared = policy.prepareReviewerWorkspace({ requestId: req.request_id, leg: 'S' });
+    const argv = policy.buildReviewerArgv({
+      tool: 'codex',
+      bundle,
+      reviewerWorkspace: prepared,
+      model: 'gpt-5.6-sol',
+      effort: 'high',
+      serviceTier: 'default',
+      leg: 'S',
+      request: req,
+    });
+    assert.deepEqual(
+      argv.filter((value, index) => argv[index - 1] === '-c'),
+      ['model_reasoning_effort=high', 'service_tier="default"'],
+    );
+    const before = policy.verifyBundle({ bundle, expectedSha256: sealed.bundle_sha256 }).bundle_sha256;
+    const stdout = execFileSync('codex', argv, {
+      encoding: 'utf8',
+      timeout: 600_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    policy.extractReviewerOutput('codex', stdout, req, 'S', bundle);
+    assert.equal(policy.verifyBundle({ bundle, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, before);
+    assert.equal(policy.cleanupReviewerWorkspace({
+      requestId: req.request_id,
+      leg: 'S',
+      prepared,
+    }).removed, true);
+    prepared = null;
+  } finally {
+    if (prepared?.workspace && fs.existsSync(prepared.workspace)) {
+      policy.cleanupReviewerWorkspace({ requestId: prepared.request_id, leg: prepared.leg, prepared });
+    }
+    makeWritable(fixture.root);
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+  console.log('live Codex reviewer preserves explicit Standard tier, typed output, sealed bundle, and workspace cleanup');
+}
+
 function testCliTransport() {
   const fixture = initializeFixture();
   const requestId = randomUUID();
@@ -410,6 +590,7 @@ function testCliTransport() {
       fromRoundIndex: 1,
       previousInputSha256: policy.sha256(fixture.previousPlan),
       currentInputSha256: policy.sha256(fixture.currentPlan),
+      reconciliation: reconciliation(),
       targets: [reproducedTarget()],
     });
     const previousPlanPath = path.join(fixture.root, 'previous-plan.review.md');
@@ -439,6 +620,7 @@ const cases = new Map([
   ['repair-artifacts', testRepairArtifacts],
   ['repair-series', testRepairSeries],
   ['reviewer-workdir', testReviewerWorkdir],
+  ['reviewer-live', testReviewerLive],
   ['cli-transport', testCliTransport],
 ]);
 const args = process.argv.slice(2);

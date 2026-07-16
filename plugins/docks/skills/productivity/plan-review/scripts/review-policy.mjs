@@ -787,26 +787,68 @@ function repairTargetFromEvidence(finding) {
   };
 }
 
+function validateRepairReconciliation(reconciliation) {
+  assertClosed(reconciliation, ['X', 'S'], 'repair reconciliation');
+  const accepted = new Map();
+  for (const leg of ['X', 'S']) {
+    const value = reconciliation[leg];
+    assertClosed(value, ['accepted', 'rejected'], `repair reconciliation ${leg}`);
+    if (!Array.isArray(value.accepted) || !Array.isArray(value.rejected)) throw new Error('repair reconciliation arrays');
+    const used = new Set(); let previousAccepted = null;
+    for (const id of value.accepted) {
+      string(id, 'repair accepted finding id');
+      if (used.has(id) || accepted.has(id) || (previousAccepted !== null && compareUtf16(previousAccepted, id) >= 0)) throw new Error('repair accepted finding ids must be unique and sorted');
+      used.add(id); accepted.set(id, leg); previousAccepted = id;
+    }
+    let previousRejected = null;
+    for (const row of value.rejected) {
+      assertClosed(row, ['id', 'reason'], 'repair rejected finding');
+      string(row.id, 'repair rejected finding id'); string(row.reason, 'repair rejection reason');
+      if (used.has(row.id) || accepted.has(row.id) || (previousRejected !== null && compareUtf16(previousRejected, row.id) >= 0)) throw new Error('repair rejected finding ids must be unique and sorted');
+      used.add(row.id); previousRejected = row.id;
+    }
+  }
+  return accepted;
+}
+
 function validateRepairTransition(transition) {
-  assertClosed(transition, ['schema', 'from_round_index', 'previous_input_sha256', 'current_input_sha256', 'targets', 'repair_targets_sha256'], 'repair transition');
+  assertClosed(transition, ['schema', 'from_round_index', 'previous_input_sha256', 'current_input_sha256', 'reconciliation', 'targets', 'repair_targets_sha256'], 'repair transition');
   if (transition.schema !== 1 || !Number.isInteger(transition.from_round_index) || transition.from_round_index < 1 || transition.from_round_index >= 10) throw new Error('repair transition identity');
   digest(transition.previous_input_sha256, 'repair previous input'); digest(transition.current_input_sha256, 'repair current input');
   if (transition.previous_input_sha256 === transition.current_input_sha256) throw new Error('repair transition requires changed input');
+  const accepted = validateRepairReconciliation(transition.reconciliation);
   if (!Array.isArray(transition.targets) || transition.targets.length === 0) throw new Error('repair targets must be nonempty');
   const ids = new Set(); let previous = null;
   for (const target of transition.targets) {
     validateRepairTarget(target);
     if (ids.has(target.id) || (previous !== null && compareUtf16(previous, target.id) >= 0)) throw new Error('repair targets must be unique and sorted');
+    if (accepted.get(target.id) !== target.source) throw new Error('repair target is not accepted by its source leg');
     ids.add(target.id); previous = target.id;
   }
+  if (ids.size !== accepted.size || [...accepted.keys()].some((id) => !ids.has(id))) throw new Error('repair targets must equal accepted finding ids');
   digest(transition.repair_targets_sha256, 'repair targets hash');
-  const expected = sha256(jcs({ schema: 1, targets: transition.targets }));
+  const expected = sha256(jcs({ schema: 1, reconciliation: transition.reconciliation, targets: transition.targets }));
   if (transition.repair_targets_sha256 !== expected) throw new Error('repair target hash mismatch');
   return transition;
 }
 
-export function buildRepairTransition({ fromRoundIndex, previousInputSha256, currentInputSha256, targets }) {
+export function buildRepairTransition({ fromRoundIndex, previousInputSha256, currentInputSha256, reconciliation, targets }) {
   if (!Array.isArray(targets)) throw new Error('repair targets');
+  assertClosed(reconciliation, ['X', 'S'], 'repair reconciliation');
+  const normalizedReconciliation = {};
+  for (const leg of ['X', 'S']) {
+    const value = reconciliation[leg];
+    assertClosed(value, ['accepted', 'rejected'], `repair reconciliation ${leg}`);
+    if (!Array.isArray(value.accepted) || !Array.isArray(value.rejected)) throw new Error('repair reconciliation arrays');
+    normalizedReconciliation[leg] = {
+      accepted: [...value.accepted].sort(compareUtf16),
+      rejected: value.rejected.map((row) => {
+        assertClosed(row, ['id', 'reason'], 'repair rejected finding');
+        string(row.id, 'repair rejected finding id'); string(row.reason, 'repair rejection reason');
+        return { id: row.id, reason: row.reason };
+      }).sort((a, b) => compareUtf16(a.id, b.id)),
+    };
+  }
   const normalized = targets.map((target) => {
     assertClosed(target, ['id', 'source', 'severity', 'path', 'locator', 'defect', 'fix', 'reproduction'], 'repair finding evidence');
     string(target.id, 'repair finding id'); oneOf(target.source, new Set(['X', 'S']), 'repair finding source');
@@ -821,8 +863,9 @@ export function buildRepairTransition({ fromRoundIndex, previousInputSha256, cur
     from_round_index: fromRoundIndex,
     previous_input_sha256: previousInputSha256,
     current_input_sha256: currentInputSha256,
+    reconciliation: normalizedReconciliation,
     targets: normalized,
-    repair_targets_sha256: sha256(jcs({ schema: 1, targets: normalized })),
+    repair_targets_sha256: sha256(jcs({ schema: 1, reconciliation: normalizedReconciliation, targets: normalized })),
   };
   return validateRepairTransition(transition);
 }
@@ -848,6 +891,7 @@ export function validateReviewSeries(series) {
       const transition = validateRepairTransition(series.repairs[index - 1]);
       if (transition.from_round_index !== expectedIndex - 1 || transition.previous_input_sha256 !== previousInput || transition.current_input_sha256 !== round.request.input_sha256 || transition.repair_targets_sha256 !== round.request.repair_targets_sha256) throw new Error('review series repair transition mismatch');
       const prior = series.rounds[index - 1]; const reproduced = new Map(prior.reproduced.map((finding) => [finding.id, repairTargetFromEvidence(finding)]));
+      for (const leg of ['X', 'S']) validateReconciliation(transition.reconciliation[leg], prior[leg].findings);
       for (const target of transition.targets) {
         const source = reproduced.get(target.id);
         if (!source || jcs(source) !== jcs(target)) throw new Error('repair target was not exactly reproduced in the prior round');

@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "fc9885f862a87e261bfc291460e501080e27f14f692a3786c1ec68b10547a444"
+  content_hash: "33e7c8953c7fdb891d4c171e3113f999cbffe6eb20ee0de5d4e0253d50718ef6"
 ---
 
 # Plan Review Evidence Runner
@@ -130,13 +130,23 @@ The reviewer copies the object into `ReviewerOutput.request`; the collector JCS
 canonicalizes and compares it with the source. No base64 decoding or byte-perfect
 prose transcription is required.
 
-Codex CLI argv:
+Historical schema 1/2 Codex CLI argv:
 
 ```text
 codex exec -C <bundle> --skip-git-repo-check -s read-only
   -m <model> -c model_reasoning_effort=<effort>
   -c service_tier="default"
-  --output-schema <bundle>/reviewer-output.<X|S>[.v2|.v3].schema.json -- <prompt>
+  --output-schema <bundle>/reviewer-output.<X|S>[.v2].schema.json -- <prompt>
+```
+
+Schema 3 Codex CLI argv:
+
+```text
+codex exec -C <reviewer-workspace> --skip-git-repo-check
+  --ephemeral --ignore-user-config -s read-only
+  -m <model> -c model_reasoning_effort=<effort>
+  -c service_tier="default"
+  --output-schema <bundle>/reviewer-output.<X|S>.v3.schema.json -- <prompt>
 ```
 
 For Fast, replace the Standard tier override with both

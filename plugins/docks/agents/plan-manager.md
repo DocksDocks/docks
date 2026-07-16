@@ -44,6 +44,8 @@ review merely because prepare succeeded.
 
 - Confirm request/input/bundle/policy hashes from the shipped helper.
 - Confirm no child reviewer was launched from this agent.
+- Confirm repair targets equal the persisted accepted-id union and exclude every
+  rejected id.
 - Confirm planned/scheduled/in_review is unchanged on ask/block/stale evidence.
 - Confirm the final commit contains only the target plan.
 - When reconciliation depends on a versioned API claim, verify current primary

@@ -37,6 +37,8 @@ commit only the target plan. Never implement plan steps or create follow-ups.
 
 - Verify all hashes through the shipped helper.
 - Verify no reviewer child was launched here.
+- Verify repair targets equal the persisted accepted-id union and exclude every
+  rejected id.
 - Never claim prepare means review passed.
 - Verify the final commit contains only the target plan.
 """

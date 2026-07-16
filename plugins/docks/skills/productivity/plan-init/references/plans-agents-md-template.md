@@ -231,9 +231,10 @@ New convergence requests use outer schema 3 and policy v4. Round 1 has
 `review_mode: full`; accepted findings are repaired through plan-improver, then
 later rounds use `review_mode: repair` with previous-input and exact
 repair-target hashes. Each repair bundle seals `previous-plan.review.md` and
-compact-JCS `repair-targets.json`; the helper recomputes the prior/current plan
-hashes and target hash from exact independently reproduced findings. Historical
-policy v1-v3 retain their persisted meanings.
+compact-JCS `repair-targets.json`; the transition persists an exact X/S
+accepted/rejected partition, requires the targets to equal the accepted-id
+union, and hashes that reconciliation with the exact independently reproduced
+targets. Historical policy v1-v3 retain their persisted meanings.
 
 Resolve cross-company consent (`always | ask | never`) independently from
 zero-review progression (`ask | proceed | block`). `always` skips only Docks'
