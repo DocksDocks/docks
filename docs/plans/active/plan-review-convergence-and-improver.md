@@ -3,7 +3,7 @@ title: Bound plan review and add a plan improver
 goal: Make Docks plan review converge within five total rounds using evidence-backed blocking findings and a separate accepted-finding repair skill.
 status: in_review
 created: "2026-07-16T14:47:44-03:00"
-updated: "2026-07-16T16:56:51-03:00"
+updated: "2026-07-16T17:18:04-03:00"
 started_at: "2026-07-16T15:13:44-03:00"
 in_review_since: "2026-07-16T15:56:31-03:00"
 assignee: codex
@@ -104,7 +104,10 @@ reviews, not a renewable per-batch allowance.
 | 5 | Refresh changed skill metadata/content hashes, run the narrow-to-broad verification ladder, inspect the final diff, and complete the plan lifecycle. | Changed `SKILL.md` frontmatter; this plan only for lifecycle/receipt writes | 4 | done | All acceptance rows pass, `node scripts/ci.mjs --plugin docks` and full `node scripts/ci.mjs` exit 0, `git diff --check` is empty, and completion review derives `review_status: passed`. |
 | 6 | Add a second frozen TDD file for the completion-review findings without changing the original semantic assertions. Specify repair bundles that expose an immutable previous canonical plan and exact accepted-target artifact, target-hash recomputation from reproduced evidence, terminal handling for a below-floor result with no actionable finding, and a disposable Codex reviewer work directory outside the sealed bundle. Correct only positive fixtures that encoded the rejected loopholes and record every resulting SHA-256. | `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy.mjs` | 5 | done | The new test file fails on the reproduced gaps only, its SHA-256 is recorded, the regression-driver hash remains unchanged, and each original fixture correction is documented without weakening an assertion. |
 | 7 | Implement the repair transition and reviewer workspace contracts. Add a closed repair-transition preimage whose hash is recomputed from sorted accepted ids plus exact reproduced defect/fix evidence; bind it to the prior and current canonical inputs. Seal `previous-plan.review.md` and `repair-targets.json` for repair rounds and verify their exact manifest/request identities. Run Codex reviewers from a helper-owned disposable work directory with `--ephemeral --ignore-user-config`, explicit model/effort/service tier/sandbox, and an absolute sealed-bundle instruction; never use the sealed bundle as Codex's working root. A below-floor ready result with no reproducible finding terminates as `convergence-exhausted` because there is no authorized repair delta. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` | 6 | done | The new frozen tests pass; post-leg bundle verification remains byte-identical under current Codex CLI 0.144.4; target or prior-plan substitution fails closed; and the no-actionable-repair branch has one valid terminal result. |
-| 8 | Synchronize the repaired executable contract across plan-manager, plan-review, plan-init/template, wrappers, scaffold copies, and the repository test gate; refresh content hashes; rerun focused and full CI; then repeat completion review from a fresh sealed bundle. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`; `plugins/docks/agents/plan-manager.md`; `plugins/docks/agents/plan-review.md`; `.codex/agents/plan-manager.toml`; `.codex/agents/plan-review.toml`; `docs/scaffold/templates/codex-plan-manager.toml.template`; `docs/scaffold/templates/codex-plan-review.toml.template`; `docs/scaffold/templates/root-AGENTS.md.template`; `scripts/ci.mjs` | 7 | in-flight | All contract copies name the sealed repair artifacts, exact digest preimage, terminal no-repair behavior, and isolated reviewer workdir; the frozen repair suite runs from CI; plugin/full CI pass; fresh completion evidence derives `review_status: passed`. |
+| 8 | Synchronize the repaired executable contract across plan-manager, plan-review, plan-init/template, wrappers, scaffold copies, and the repository test gate; refresh content hashes; rerun focused and full CI; then repeat completion review from a fresh sealed bundle. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`; `plugins/docks/agents/plan-manager.md`; `plugins/docks/agents/plan-review.md`; `.codex/agents/plan-manager.toml`; `.codex/agents/plan-review.toml`; `docs/scaffold/templates/codex-plan-manager.toml.template`; `docs/scaffold/templates/codex-plan-review.toml.template`; `docs/scaffold/templates/root-AGENTS.md.template`; `scripts/ci.mjs` | 7 | done | Contract sync, frozen repair-suite CI integration, live isolated Codex smoke, focused A1-A9, and full three-plugin CI passed; the fresh completion reviewer returned four reproduced blocking gaps that are captured in Steps 9-11. |
+| 9 | Add the next frozen red tests for the accepted completion findings. Require repair transitions to carry an exact X/S reconciliation partition and reject a reproduced-but-rejected target; require schema-3 command documentation to use the helper workspace and isolation flags; expand artifact tests to cover omission, consistently resealed previous-plan substitution, and request mismatches; split deterministic workspace proof from a credentialed live Codex acceptance case. Clarify confidence as binary `0\|1`, matching the implemented high/low signal. | `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy.mjs`; this plan | 7 | in-flight | Focused cases fail only on absent reconciliation binding, stale command prose, missing artifact mutations/live acceptance inventory, and the confidence declaration mismatch; new test hashes are recorded before Step 10. |
+| 10 | Implement the accepted repair. Extend the unreleased `ReviewRepairTransitionV1` with closed per-leg reconciliation, include it in the repair-target digest preimage/artifact, validate each leg as an exact partition of the prior raw findings, and require target ids to equal the accepted-id union as well as exact reproduced evidence. Update schema-3 command docs and add the explicit credentialed live reviewer test without putting it in ordinary CI. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy.mjs` | 9 | planned | Reproduced-but-rejected repair targets fail closed; matching reconciliation passes; schema-3 docs cannot route `-C` to the bundle; independent repair-artifact mutations fail; deterministic and live reviewer cases both pass with explicit Standard tier and unchanged bundle hash. |
+| 11 | Refresh affected skill hashes and synchronized plan surfaces, run focused tests, the credentialed live acceptance command, Docks CI, full CI, and one repair-mode completion review over the exact accepted S1-S5 target artifact. | `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; this plan | 10 | planned | Every accepted id is addressed, all gates pass, the repair reviewer returns score at least 90 with no blocking finding, and the completion receipt derives `review_status: passed`. |
 
 ## Interfaces & data shapes
 
@@ -148,7 +151,7 @@ ReviewerRubricV3 = {
 ReviewerFindingV3 = {
   id, severity, section, path, locator, defect, fix, evidence,
   priority: 0 | 1 | 2 | 3,
-  confidence: number 0..1,
+  confidence: integer 0 | 1 (0=low, 1=high),
   blocking: boolean,
   requirement: non-empty string
 }
@@ -178,6 +181,10 @@ ReviewRepairTransitionV1 = {
   from_round_index,
   previous_input_sha256,
   current_input_sha256,
+  reconciliation: {
+    X: {accepted: string[], rejected: [{id, reason}]},
+    S: {accepted: string[], rejected: [{id, reason}]}
+  },
   targets: [{
     id, source, defect, fix,
     reproduction: {method, command, exit_code, evidence_sha256}
@@ -243,7 +250,8 @@ Claude argv builders. It must state:
 | A6 | `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs validate plugins/docks/skills/productivity/plan-improver && node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file \| grep 'productivity/plan-improver'` | Validation exits 0 and the new internal skill scores at least 14. |
 | A7 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-artifacts` | Exits 0 and proves prior-plan and accepted-target artifacts are sealed, request-bound, byte-verified, and rejected on omission/substitution. |
 | A8 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-series` | Exits 0 and proves exact target preimages are recomputed from accepted reproduced findings, arbitrary hashes fail, and low-score/no-finding terminates without an invalid unchanged-input round. |
-| A9 | `node scripts/tests/plan-review-convergence-repair.mjs --case reviewer-workdir` | Exits 0 and a current Codex reviewer runs from disposable scratch with explicit Standard tier, leaves the sealed bundle byte-identical, and cleans only its bound workdir. |
+| A9 | `node scripts/tests/plan-review-convergence-repair.mjs --case reviewer-workdir` | Exits 0 and deterministically proves schema-3 Codex argv requires a helper-issued disposable workdir, explicit Standard tier, isolation flags, post-leg bundle verification, and sentinel-bound cleanup. |
+| A10 | `DOCKS_LIVE_CODEX_REVIEW=1 node scripts/tests/plan-review-convergence-repair.mjs --case reviewer-live` | Exits 0 with current Codex credentials, validates typed schema-3 reviewer output and explicit Standard tier, leaves the sealed bundle byte-identical, and cleans only its bound workdir. |
 
 ## Out of scope / do-NOT-touch
 
@@ -431,6 +439,21 @@ helper-owned workspace with `--ephemeral --ignore-user-config`; its sealed
 bundle SHA-256 remained
 `c275deb50760da0eebb910815396dae3b6678e446d13b5d4418122fc823d0d04`
 before and after the leg.
+
+Fresh completion round at committed `b70d592990c8096fd51c92b34671fb778e186707`
+passed A1-A9 and full CI in helper-owned checkout
+`f8d63371-d317-41ec-86eb-908495dac7ca`. The isolated Standard-tier S reviewer
+returned score 74/not-ready with accepted findings S1-S5: missing persisted
+acceptance binding, stale schema-3 command prose, overstated A9 live coverage,
+incomplete A7 mutation coverage, and a binary-confidence declaration mismatch.
+Main context reproduced them with evidence SHA-256 values
+`24337c82b95ea7ab665b5fccaa7b6d8e5aabc108fafa73f3707852b81c82763b`,
+`cd535b927293b58d181deb59302f450984da325be93ec442ce616acb25542e8b`,
+`e38a28f75a8af0b9a70235648a2b65af4b3756b946e72f7e8e54e4dd45a85adc`,
+`628af1a4e61e10a41a511972739b6fd8691732272535fea9a3df5aa9accebebb`,
+and `22435e76d2349390598f101a08089e19bda7fca755f0dfb0d2212551f509dbdf`.
+Plan-improver scope is exactly those five ids; no unrelated plan section may
+change.
 
 The follow-on plan for Session Relay will cover correlated `reply_to` /
 `correlation_id`, `send --await`, `relay wait`, explicit delivery outcomes, and
