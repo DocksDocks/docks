@@ -1,9 +1,9 @@
 ---
 title: Deliver Session Relay as a prebuilt CLI
-goal: Publish verified Session Relay assets, install them through docks-kit, and replace plugin-bundled executables with a stable CLI launcher.
+goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources, then execute their gated post-completion release protocol.
 status: planned
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-16T11:40:16-03:00"
+updated: "2026-07-16T11:54:44-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -47,7 +47,7 @@ execution_base_commit: null
 
 ## Goal
 
-Ship Session Relay as a normal precompiled CLI: GitHub Actions builds the four supported Rust targets, Session Relay `0.12.0` publishes the executables plus `SHA256SUMS`, and the plugin keeps only a small launcher that resolves an installed `session-relay` executable. A companion `DocksDocks/public` release installs and verifies that exact release through `docks-kit`, so plugin installation no longer carries four opaque platform binaries.
+Prepare Session Relay as a normal precompiled CLI: the reviewed `0.12.0` source contains only a small launcher, GitHub Actions can build the four supported Rust targets plus `SHA256SUMS`, and a companion reviewed `docks-kit` `0.9.0` source installs an exact host asset whose digest is pinned independently in its repository. After this plan passes completion review and ships, the authorized post-completion protocol publishes `0.12.0`, pins its live digests into the public repository, completes that repository's plan, releases `0.9.0`, live-smokes the installer, and only then advances Docks `main`.
 
 ## Context & rationale
 
@@ -55,7 +55,7 @@ The current plugin commits four compiled executables and dispatches among them f
 
 The plugin must not download executables from hooks or MCP startup. Those paths are latency-sensitive and operate on untrusted plugin installation state. The plugin launcher therefore performs resolution only and fails with an actionable installation command. `docks-kit` owns downloads, checksum verification, smoke testing, and atomic replacement in the companion repository.
 
-This plan owns the Docks release producer, plugin-consumer contract, and coordinated release ordering. A companion plan in `/home/vagrant/projects/public` owns the `docks-kit` installer and its release. Session Relay is the required cross-project implementation transport; the public worker must be dispatched and return a clean committed handback while the current embedded binary still exists. Each repository retains its own plan lifecycle and commit history.
+This plan owns the Docks release producer, final launcher-only plugin payload, plugin-consumer contract, and immutable release handoff. A companion plan in `/home/vagrant/projects/public` owns the `docks-kit` installer and its source-pinned asset digests. Session Relay is the required cross-project implementation transport; the public worker must be dispatched while the current embedded binary still exists. Each repository retains its own plan lifecycle and commit history. Publication is deliberately not an implementation acceptance row: Docks completion review seals the final source first, then the post-completion protocol performs externally visible tag, release, and branch mutations.
 
 ## Environment & how-to-run
 
@@ -72,10 +72,10 @@ This plan owns the Docks release producer, plugin-consumer contract, and coordin
 - GitHub workflow syntax is validated by the repository CI gate; no release workflow is dispatched before both implementations and local gates are complete.
 - Companion repository commands and prerequisites live in its own plan; the Docks completion receipt consumes only the companion plan's pinned clean commit and the distribution-contract report, not unbound conversational claims.
 - Coordinated release order:
-  1. Implement, test, and commit both repositories locally; do not advance either remote `main` while Session Relay `0.12.0` is unavailable.
-  2. From the local Docks release commit, push only tag `session-relay--v0.12.0`; tag CI publishes and verifies its five assets while remote Docks `main` still serves the embedded-binary plugin.
-  3. Run the public repository's real `docks-kit sync` live installer smoke against `0.12.0`, then push public `main` and release `docks-kit` `0.9.0`.
-  4. Verify `cli-v0.9.0`, then explicitly promote Docks `main` to the already-tagged launcher-only commit. No earlier Docks branch push is permitted.
+  1. Implement, test, commit, completion-review, and ship the final launcher-only Docks source locally; remote Docks `main` remains on compatible `0.11.2`.
+  2. Post-completion, push only final tag `session-relay--v0.12.0`; tag CI publishes and verifies the five assets without advancing Docks `main`.
+  3. Pin the four live target digests into the companion repository, complete and ship its plan at an immutable commit, then release `docks-kit` `0.9.0`.
+  4. Live-smoke a detached `cli-v0.9.0` checkout, then promote the reviewed Docks lineage to `main`. No earlier Docks branch push is permitted.
 
 ## Interfaces & data shapes
 
@@ -95,7 +95,7 @@ SHA256SUMS
 
 ### Installed executable
 
-`docks-kit` pins Session Relay `0.12.0` in `SoT/toolchain.json` and installs one verified host asset as:
+`docks-kit` pins Session Relay `0.12.0` plus one reviewed SHA-256 per supported target in `SoT/toolchain.json` and installs one verified host asset as:
 
 ```text
 ~/.local/bin/session-relay
@@ -103,7 +103,7 @@ SHA256SUMS
 
 The Rust CLI must support `session-relay --version` and print `session-relay <semver>`. The Cargo package version stays synchronized with the Session Relay plugin manifest version during `scripts/release.mjs`.
 
-Every ordinary `docks-kit sync` that targets Claude or Codex must ensure the pinned Session Relay CLI before installing, refreshing, or enabling the Session Relay plugin. The ensure path maps the host OS and architecture to one of the four release targets, downloads the matching executable and `SHA256SUMS`, verifies the digest and exact version, atomically installs it, then proceeds with plugin configuration. An unsupported platform, failed download, checksum mismatch, version mismatch, or replacement failure aborts that sync path clearly; it may not report success with a plugin whose CLI is missing or stale.
+The manifest entry is closed data: repository `DocksDocks/docks`, tag `session-relay--v0.12.0`, exact version `0.12.0`, install path `~/.local/bin/session-relay`, and an `assets` map whose four target keys each hold exactly 64 lowercase hex characters. Every ordinary `docks-kit sync` that targets Claude or Codex must ensure the pinned Session Relay CLI before installing, refreshing, or enabling the Session Relay plugin. The ensure path maps the host OS and architecture to one target, downloads the matching executable and `SHA256SUMS`, requires the manifest entry and downloaded bytes both to equal the repository-pinned digest, verifies the exact version, atomically installs it, then proceeds with plugin configuration. An unsupported platform, absent pin, failed download, checksum mismatch, version mismatch, or replacement failure aborts that sync path clearly and preserves any existing executable.
 
 ### Plugin launcher resolution
 
@@ -114,7 +114,7 @@ Every ordinary `docks-kit sync` that targets Claude or Codex must ensure the pin
 3. `$HOME/.local/bin/session-relay`.
 4. Exit nonzero with a clear `docks-kit sync` / `docks-kit toolchain ensure session-relay` installation message.
 
-The final promoted launcher rejects a resolver target that is itself, preventing recursion. It never downloads, compiles, or silently falls back to an embedded executable. Before `cli-v0.9.0` is verified, the tag-staging commit temporarily adds the matching embedded host binary after the four resolution outcomes above as a compatibility fallback; Step 7 removes that fallback and every embedded binary before Docks `main` advances.
+The launcher rejects a resolver target that is itself, preventing recursion. The reviewed and tagged `0.12.0` payload never downloads, compiles, or falls back to an embedded executable. Remote `main` remains on the distinct compatible `0.11.2` payload until `cli-v0.9.0` is live.
 
 ### Release orchestration
 
@@ -122,7 +122,7 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 
 The Session Relay GitHub Release install block is exactly `docks-kit sync`, because that command ensures the verified CLI before installing or enabling the plugin for either supported agent runtime. It must not retain the current plugin-only `/plugin install session-relay@docks` instructions. `scripts/lib/plugins.mjs` owns this release-note descriptor, and the distribution-contract test must prove it cannot publish plugin-first instructions after embedded binaries are removed.
 
-`scripts/release.mjs` applies every manifest, marketplace, Cargo, and lockfile version change first, runs the full CI gate on that exact changed tree, and only then commits. A failed post-bump gate must prevent commit, push, tag, and publication. For Session Relay, the initial release operation pushes only `session-relay--v0.12.0`, waits for authoritative tag CI, and verifies the expected GitHub Release plus all five assets without advancing remote `main` or creating a duplicate Release. A separate explicit promotion operation requires live verification of `DocksDocks/public` release `cli-v0.9.0`, proves the immutable Session Relay tag commit is an ancestor of the locally tested post-cleanup `HEAD`, and only then pushes Docks `HEAD` to `origin/main`. Other plugins retain their current commit → branch push → tag → release behavior.
+`scripts/release.mjs --prepare --plugin session-relay 0.12.0` applies every manifest, marketplace, Cargo, and lockfile version change, runs the full CI gate on that exact changed tree, and commits locally without pushing or tagging. A failed post-bump gate prevents the commit. Completion review seals that final launcher-only source. Only after the plan ships, `--publish-reviewed` accepts the exact reviewed implementation commit, proves the current plan carries a reusable passed completion receipt for it, pushes only `session-relay--v0.12.0`, waits for authoritative tag CI, and verifies the five assets without advancing remote `main` or creating a duplicate Release. A later `--promote-reviewed` requires live `cli-v0.9.0`, proves the Session Relay tag commit is the reviewed code ancestor of the current plan-only lifecycle lineage, and then pushes Docks `HEAD` to `origin/main`. Other plugins retain their existing release behavior.
 
 `--dry-run` remains strictly read-only. It computes and prints the manifest, marketplace, Cargo, and lockfile changes without writing them, skips the full CI execution while clearly reporting that the real release will gate the changed tree, and performs no commit, push, tag, or GitHub mutation. The distribution-contract test snapshots tracked status, untracked status, and every release-owned file byte before and after `node scripts/release.mjs --dry-run --plugin session-relay 0.12.0`.
 
@@ -130,29 +130,39 @@ The Session Relay GitHub Release install block is exactly `docks-kit sync`, beca
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Dispatch the separate `DocksDocks/public` installer implementation through the currently working embedded Session Relay binary under its own reviewed plan; collect a clean committed handback before deleting any embedded binary. | `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-installation.md` (external companion plan; modified only by its plan-manager), Session Relay lifecycle/handback records (external state) | — | planned | The worker is launched with explicit Codex Standard tier, creates and starts its repository-local plan, freezes failing installer tests, proves every Claude/Codex `docks-kit sync` auto-ensures the correct precompiled host CLI before Session Relay plugin configuration, commits a clean implementation, hands back, and is collected before Docks Step 3 begins. |
+| 1 | Dispatch the separate `DocksDocks/public` installer implementation through the currently working embedded Session Relay binary under its own reviewed plan; collect a clean commit that implements the digest-pinned installer and fixture-driven tests, while its plan remains explicitly blocked only on the four not-yet-published production digests. | `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-installation.md` (external companion plan; modified only by its plan-manager), Session Relay lifecycle/handback records (external state) | — | planned | The worker is launched with explicit Codex Standard tier, creates and starts its repository-local plan, freezes failing installer tests, implements the exact manifest/digest/atomic-replacement contract and Claude/Codex sync ordering, commits cleanly, records `blocked_reason` as awaiting `session-relay--v0.12.0` digests, hands back, and is collected before Docks Step 3. Plan-manager records that exact commit under Notes for immutable Docks acceptance. |
 | 2 | Add frozen Docks distribution-contract tests before production changes and capture their failure against the embedded-binary design. | `plugins/session-relay/test/distribution-contract.mjs`, `plugins/session-relay/test/selftest.mjs` | 1 | planned | The new tests fail for missing external resolution, version output, release-asset publication, post-bump CI ordering, explicit fresh self-test binary, cross-repo contract receipt, or obsolete committed-binary assumptions; the failing output is recorded before production edits. |
-| 3 | Make the Rust CLI and plugin launcher expose the stable external CLI contract; keep the embedded binaries available only until the coordinated release promotion in Step 7. | `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/bin/relay`, `plugins/session-relay/test/selftest.mjs` | 1, 2 | planned | `--version` reports the Cargo version; launcher tests prove external resolution order, recursion rejection, actionable failure, and the temporary embedded compatibility fallback; self-test requires `SESSION_RELAY_TEST_BIN` and fails rather than skips when absent. |
+| 3 | Make the Rust CLI and plugin launcher expose the final stable external CLI contract, then delete every committed platform executable and the in-plugin checksum file. | `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/bin/relay`, `plugins/session-relay/bin/SHA256SUMS`, `plugins/session-relay/bin/relay-*`, `plugins/session-relay/test/selftest.mjs` | 1, 2 | planned | `--version` reports the Cargo version; launcher tests prove external resolution order, recursion rejection, and actionable failure with no embedded fallback; self-test requires `SESSION_RELAY_TEST_BIN`; `git ls-files plugins/session-relay/bin` lists only the launcher. |
 | 4 | Convert binary production to tag-gated GitHub Release assets with least-privilege permissions and same-run artifact provenance. | `.github/workflows/build-binaries.yml`, `.github/workflows/ci.yml`, `.github/AGENTS.md`, `plugins/session-relay/AGENTS.md` | 2 | planned | Workflow contract tests prove all four stable asset names, checksum generation, validation dependency, tag restriction, pinned actions, and publisher-only write permission. |
-| 5 | Update registry-driven CI and release tooling for source-built local tests, post-bump validation, CI-published release assets, safe release notes, a non-mutating preview, and tag-before-branch promotion. | `scripts/ci.mjs`, `scripts/lib/plugins.mjs`, `scripts/lib/rust-bin.mjs`, `scripts/release.mjs`, `scripts/AGENTS.md` | 3, 4 | planned | Local CI builds/tests the explicit host binary without comparing committed executables; tests prove all version files change before the exact-tree CI gate and any gate failure prevents commit/push/tag; Session Relay release verification expects all five assets without creating a duplicate release; its install descriptor is exactly `docks-kit sync`; a dry-run snapshot proves no tracked, untracked, or release-owned-file mutation; and Session Relay cannot push remote `main` until `cli-v0.9.0` is live and verified. |
+| 5 | Update registry-driven CI and release tooling for source-built local tests, local release preparation, post-completion tag publication, safe release notes, a non-mutating preview, and reviewed branch promotion. | `scripts/ci.mjs`, `scripts/lib/plugins.mjs`, `scripts/lib/rust-bin.mjs`, `scripts/release.mjs`, `scripts/AGENTS.md` | 3, 4 | planned | Local CI builds/tests the explicit host binary without comparing committed executables; `--prepare` changes all version files before exact-tree CI and commits locally only; `--publish-reviewed` requires the passed completion receipt and pushes only the final tag; `--promote-reviewed` requires live `cli-v0.9.0`; other plugins retain their prior semantics; the install descriptor is exactly `docks-kit sync`; and dry-run snapshots prove no mutation. |
 | 6 | Update Session Relay usage guidance for the external CLI and refresh its metadata/content hash through the prescribed maintenance flow. | `plugins/session-relay/skills/productivity/session-relay/SKILL.md` | 3, 5 | planned | Skill docs name `session-relay` as the installed executable, keep instructions and troubleshooting with the skill, put executable helpers in Rust subcommands rather than skill scripts, and content-hash validation is idempotent. |
-| 7 | Verify the pinned producer/consumer contract and perform the two-phase release: publish Session Relay `0.12.0` from a tag-only push while remote Docks `main` remains compatible; live-smoke and release `docks-kit` `0.9.0`; then delete the embedded binaries/checksum, remove the temporary fallback, re-run Docks gates, and promote the already-tagged Docks commit lineage to `main`. | `plugins/session-relay/test/distribution-contract.mjs`, `plugins/session-relay/bin/SHA256SUMS`, `plugins/session-relay/bin/relay`, `plugins/session-relay/bin/relay-*` (Docks); `/home/vagrant/projects/public` companion plan and release tooling (external repository) | 1–6 | planned | A machine-readable contract report pins both commit SHAs and proves exact URL/tag/assets/checksum/version/install path; tag CI publishes five verified assets without moving Docks `main`; the real temporary-home `docks-kit sync codex --yes` installs `session-relay 0.12.0`; checksum/version failure tests preserve an existing executable; `cli-v0.9.0` is live before Docks promotion; final `git ls-files plugins/session-relay/bin` lists only the launcher; both remote heads and local worktrees are clean and verified. |
+| 7 | Prepare and seal the exact release-ready source without external publication: run the Session Relay `0.12.0` prepare mode, bind the immutable companion implementation commit, run focused and broad gates, and leave both repositories clean for completion review. | `.claude-plugin/marketplace.json`, `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock`, `plugins/session-relay/test/distribution-contract.mjs`; `/home/vagrant/projects/public` companion commit (read-only) | 1–6 | planned | Every Docks version surface is `0.12.0`; the final source is launcher-only; `--check-prepared` passes; the pinned public commit is clean and passes contract tests in a detached clone; no Docks/public branch, tag, Release, or npm publication occurred; all steps are ready for plan-manager completion review. |
 
 ## Acceptance criteria
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node plugins/session-relay/test/distribution-contract.mjs --public-repo /home/vagrant/projects/public` | Exit 0; reports launcher, Rust version, workflow publication, post-bump release ordering, exact `docks-kit sync` release notes, a non-mutating Session Relay dry-run, and an exact clean committed producer/consumer contract with both SHAs. |
+| A1 | `public_commit=$(sed -n 's/^- Companion implementation commit: //p' docs/plans/active/session-relay-prebuilt-cli-distribution.md); node -e 'process.exit(/^[0-9a-f]{40}$/.test(process.argv[1]) ? 0 : 1)' "$public_commit" && tmp=$(mktemp -d) && git clone --no-local /home/vagrant/projects/public "$tmp/public" && git -C "$tmp/public" checkout --detach "$public_commit" && test "$(git -C "$tmp/public" rev-parse HEAD)" = "$public_commit" && node plugins/session-relay/test/distribution-contract.mjs --public-repo "$tmp/public" --public-commit "$public_commit"` | Exit 0; all public evidence comes from the one plan-pinned immutable commit and reports the installer schema, sync ordering, failure preservation, release URLs, Docks source contract, and both commit identities. |
 | A2 | `cargo build --manifest-path plugins/session-relay/rust/Cargo.toml --release --locked && SESSION_RELAY_TEST_BIN="$PWD/plugins/session-relay/rust/target/release/relay" node plugins/session-relay/test/selftest.mjs` | Exit 0; black-box Relay behavior passes using only the explicitly supplied fresh release executable. |
 | A3 | `git ls-files plugins/session-relay/bin` | Output is exactly `plugins/session-relay/bin/relay`. |
 | A4 | `node scripts/ci.mjs --plugin session-relay` | Exit 0; Session Relay Rust, launcher, workflow, manifest, skill, and self-test gates pass. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only plugins/session-relay/skills` | Exit 0 with no stale hash. |
-| A6 | `base=$(sed -n 's/^execution_base_commit: //p' docs/plans/active/session-relay-prebuilt-cli-distribution.md); printf '%s\n' "$base" | grep -Eq '^[0-9a-f]{40}$' && git diff --check "$base..HEAD"` | Exit 0; the lifecycle base is a full commit SHA and no whitespace error exists anywhere in the immutable implementation range. |
-| A7 | `gh release view session-relay--v0.12.0 --json tagName,isDraft,assets` | Exit 0; non-draft release has exactly the four named executables and `SHA256SUMS`. |
-| A8 | `node plugins/session-relay/test/distribution-contract.mjs --public-repo /home/vagrant/projects/public --release session-relay--v0.12.0` | Exit 0; downloads the live checksum manifest and host asset to a temporary directory, verifies the digest, and observes `session-relay 0.12.0`. |
-| A9 | `cd /home/vagrant/projects/public && bun test cli/test/unit/sessionRelayCli.test.ts && tmp=$(mktemp -d) && env -u SESSION_RELAY_BIN HOME="$tmp" XDG_CACHE_HOME="$tmp/.cache" ./docks-kit sync codex --yes && "$tmp/.local/bin/session-relay" --version` | Tests exit 0, including checksum/version failure preservation; the real live sync starts without `session-relay` on its temporary PATH/home, installs before Codex plugin configuration, and prints exactly `session-relay 0.12.0`. |
-| A10 | `gh release view --repo DocksDocks/public cli-v0.9.0 --json tagName,isDraft,assets && test "$(git rev-parse HEAD)" = "$(git ls-remote origin refs/heads/main | cut -f1)"` | The non-draft docks-kit release exists and Docks `origin/main` equals the post-cleanup local HEAD only after that release was verified. |
-| A11 | `test -z "$(git status --porcelain=v1)" && test -z "$(git -C /home/vagrant/projects/public status --porcelain=v1)"` | Exit 0, proving both repositories are clean after releases complete. |
+| A6 | `base=$(sed -n 's/^execution_base_commit: //p' docs/plans/active/session-relay-prebuilt-cli-distribution.md); node -e 'process.exit(/^[0-9a-f]{40}$/.test(process.argv[1]) ? 0 : 1)' "$base" && git diff --check "$base..HEAD"` | Exit 0; the lifecycle base is a full commit SHA and no whitespace error exists anywhere in the immutable implementation range. |
+| A7 | `node scripts/release.mjs --check-prepared --plugin session-relay 0.12.0` | Exit 0; manifests, marketplace, Cargo metadata, launcher-only payload, workflows, release notes, and local clean state are exactly ready, while no tag/release/branch mutation is attempted. |
+| A8 | `test -z "$(git status --porcelain=v1)" && test -z "$(git -C /home/vagrant/projects/public status --porcelain=v1)"` | Exit 0, proving both implementation worktrees are clean before completion review. |
+
+## Post-completion release protocol
+
+This protocol is explicitly authorized by the user but must not begin until this plan is `finished`, its completion receipt is reusable with `review_status: passed`, and `<DOCKS_REVIEWED_COMMIT>` is the exact reviewed implementation head from that receipt. Publication does not retroactively count as implementation evidence.
+
+1. Run `node scripts/release.mjs --publish-reviewed --plugin session-relay 0.12.0 --reviewed-commit <DOCKS_REVIEWED_COMMIT>`. It may push only `session-relay--v0.12.0`, and must wait for tag CI plus the non-draft five-asset GitHub Release. Docks `origin/main` remains unchanged.
+2. Download live `SHA256SUMS`, require exactly the four planned target entries, independently hash every downloaded asset, and produce one closed target→digest map. No binary is committed.
+3. Spawn a fresh public Session Relay worker at explicit Codex Standard tier with that exact map. The worker replaces only the fixture/pending production digests, regenerates the embedded SoT payload, runs focused and full public gates, completes its repository-local plan through fresh completion review, ships it, and hands back `<PUBLIC_RELEASE_COMMIT>`.
+4. In a `git clone --no-local` detached checkout of `<PUBLIC_RELEASE_COMMIT>`, prove package version `0.9.0`, all four source-pinned digests equal the live independently hashed assets, every Claude/Codex sync path ensures Session Relay before plugin configuration, and checksum/version failure preserves the previous executable.
+5. Push public `main`, create and push immutable tag `cli-v0.9.0` at the reviewed public release lineage, wait for `release-cli.yml`, and verify the non-draft GitHub Release, expected docks-kit binaries/checksum, and `npm view docks-kit@0.9.0 version`.
+6. Clone `cli-v0.9.0` into a new temporary directory and run its real `docks-kit sync codex --yes` with a fresh `HOME`/`XDG_CACHE_HOME` and no installed `session-relay`. Require `~/.local/bin/session-relay --version` to print exactly `session-relay 0.12.0` and the captured command log to place the ensure before Codex plugin configuration.
+7. Run `node scripts/release.mjs --promote-reviewed --plugin session-relay 0.12.0 --reviewed-commit <DOCKS_REVIEWED_COMMIT> --docks-kit-release cli-v0.9.0`. It verifies both release/tag identities, the live installer receipt, and that changes after the reviewed commit are plan-only lifecycle commits before pushing Docks `HEAD` to `origin/main`.
+8. Re-run the live distribution contract against detached release commits, verify both remote `main` heads/tags/releases, run `git diff --check` over both implementation ranges, and require both original worktrees clean before declaring the user goal complete.
 
 ## Out of scope / do-NOT-touch
 
@@ -167,12 +177,12 @@ The Session Relay GitHub Release install block is exactly `docks-kit sync`, beca
 
 - GitHub Actions references must remain pinned to full 40-character commit SHAs, including any download/upload or release action introduced.
 - A reusable workflow called from tag CI must expose artifacts to the publishing job in the same workflow run; do not substitute artifacts from a prior manual run.
-- The Session Relay release commit intentionally exists on the remote only through its tag until `cli-v0.9.0` is live. Do not replace the tag-only push with a normal branch push or run a generic push helper before promotion.
+- The final reviewed Session Relay commit intentionally exists on the remote only through its tag until `cli-v0.9.0` is live. Do not replace the tag-only push with a normal branch push or run a generic push helper before promotion.
 - `actions/download-artifact` extracts per-artifact directories by default; checksum generation must deliberately flatten or reference the resulting paths without accepting duplicate names.
 - A shell `command -v session-relay` hit may resolve the launcher itself through a plugin-added PATH entry. Compare canonical paths before `exec` to prevent recursion.
 - Local self-tests run before any GitHub Release exists. They must use only `SESSION_RELAY_TEST_BIN` pointing at a freshly built host binary, never select debug/committed fallbacks, skip, or attempt a network download.
 - `Cargo.lock` records the package version. Release-version synchronization must update it deterministically, normally through Cargo rather than hand-editing.
-- The companion installer pin is intentionally a future Session Relay version until release. Real installation cannot succeed until the Docks release is published; tests must use mocked/local assets.
+- Before publication, the companion installer uses fixture digests only in tests and its plan remains blocked on the four production digests. Production pins are written and reviewed only after the immutable Session Relay assets exist.
 
 ## Global constraints
 
@@ -195,13 +205,15 @@ The Session Relay GitHub Release install block is exactly `docks-kit sync`, beca
 - STOP collection if the Session Relay worker reports a dirty worktree, out-of-scope edits, an unreviewed plan transition, or a merge conflict.
 - STOP before releasing `docks-kit` if the live Session Relay asset cannot be checksum-verified and installed through its actual installer in a temporary home.
 - STOP before advancing Docks `origin/main` if `cli-v0.9.0` is absent, draft, failed, or does not install the live `0.12.0` asset through the real sync path.
+- STOP any publication if this Docks plan lacks a reusable passed completion receipt for the exact reviewed implementation commit.
+- STOP the public release if any source-pinned target digest differs from the independently hashed live asset or if the public plan has not passed completion review at the pinned release commit.
 
 ## Cold-handoff checklist
 
 - **File manifest:** Present; every Docks-owned step names exact paths and the public-repository boundary is explicitly external.
 - **Environment & commands:** Present; Node, pnpm, Rust, focused gates, full CI, and hash maintenance commands are exact.
 - **Interface & data contracts:** Present; asset names, checksum format, installed path, version output, launcher order, and release ownership are fixed.
-- **Executable acceptance:** Present; A1–A11 are commands with exact success conditions.
+- **Executable acceptance:** Present; A1–A8 are commands with exact success conditions, while externally mutating release actions are isolated in the post-completion protocol.
 - **Out of scope:** Present; committing generated replacement binaries, Windows support, runtime semantics, and direct public edits are prohibited; the explicitly authorized Session Relay `0.12.0` and subsequent `docks-kit` releases are required.
 - **Decision rationale:** Present; CI assets plus explicit installer are selected to reduce payload size and improve provenance without startup downloads.
 - **Known gotchas:** Present; same-run provenance, action pinning, launcher recursion, offline tests, Cargo lockstep, and pre-release pins are covered.
@@ -219,6 +231,8 @@ Cross-check (2026-07-16, round 2): [X: anthropic unavailable] authentication pre
 Cross-check (2026-07-16, round 3): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] score 86 with 3 findings — accepted S1,S2,S3 / rejected none; [Codex main-context orchestrator] reproduced all three. Repairs make Session Relay release notes install through `docks-kit sync`, remove the checklist contradiction around the authorized releases, and preserve `release.mjs --dry-run` as a tested byte-for-byte non-mutating preview. The resolved three-round batch is exhausted; another independent round requires the plan-manager continuation choice.
 
 Cross-check (2026-07-16, round 4): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] score 72 with 4 findings — accepted S2,S3,S4 / rejected S1; [Codex main-context orchestrator] reproduced the rollout exposure, fail-open base extraction, and missing live sync acceptance. S1 was rejected because tracked `plugins/session-relay/rust/rust-toolchain.toml` already pins Rust `1.85.0`; it was absent only from the sealed review bundle, so the next bundle includes it as unchanged evidence. Repairs use a tag-only Session Relay publication, require `cli-v0.9.0` before Docks branch promotion, validate A6's SHA, and execute the real live docks-kit sync plus failure-preservation tests.
+
+Cross-check (2026-07-16, round 5): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] score 55 with 4 findings — accepted S1,S2,S3,S4 / rejected none; [Codex main-context orchestrator] reproduced all four. Repairs move every release mutation after Docks completion review, make `0.12.0` the one final launcher-only payload, require four independently reviewed source-pinned public digests, and bind all cross-repository implementation evidence to detached clones of exact commits.
 
 ## Review
 
@@ -241,9 +255,12 @@ Cross-check (2026-07-16, round 4): [X: anthropic unavailable] authentication pre
 ## Notes
 
 - Companion repository: `/home/vagrant/projects/public`.
+- Companion plan: `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-installation.md`.
+- Companion implementation commit: pending
 - Intended first compatible Session Relay release: `0.12.0`.
-- Release authorization was explicitly granted by the user after the first independent review; Session Relay `0.12.0` and the next compatible `docks-kit` version are now part of the plan.
+- Release authorization was explicitly granted by the user after the first independent review and later expanded to continue without a review-round limit; Session Relay `0.12.0` plus docks-kit `0.9.0` publication are the required post-completion outcome.
 
 ## Mistakes & Dead Ends
 
 - **2026-07-16T04:34:00-03:00**: Sealed the first review bundle under `/tmp/docks-plan-review-<uuid>` instead of the helper-owned `/tmp/docks-plan-review/<uuid>` root → policy cleanup correctly rejected it → preserved those invalidly located read-only bundles and will use the exact helper root for every fresh review.
+- **2026-07-16T11:26:00-03:00**: Ran a reviewer with the sealed bundle as Codex's working directory → nested Codex initialization created `.git`/`.agents`/`.codex` mount points and invalidated directory modes → discarded that output and moved reviewer runtime state to a separate temporary work directory for all later rounds.
