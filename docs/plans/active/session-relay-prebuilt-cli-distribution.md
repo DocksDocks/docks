@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Publish verified Session Relay assets, install them through docks-kit, and replace plugin-bundled executables with a stable CLI launcher.
 status: planned
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-16T04:42:00-03:00"
+updated: "2026-07-16T04:57:00-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -13,10 +13,13 @@ review_author_effort: high
 review_waivers: []
 tags: [session-relay, distribution, rust, github-actions]
 affected_paths:
+  - .claude-plugin/marketplace.json
   - .github/AGENTS.md
   - .github/workflows/build-binaries.yml
   - .github/workflows/ci.yml
   - plugins/session-relay/AGENTS.md
+  - plugins/session-relay/.claude-plugin/plugin.json
+  - plugins/session-relay/.codex-plugin/plugin.json
   - plugins/session-relay/bin/SHA256SUMS
   - plugins/session-relay/bin/relay
   - plugins/session-relay/bin/relay-aarch64-apple-darwin
@@ -140,10 +143,10 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 | A3 | `git ls-files plugins/session-relay/bin` | Output is exactly `plugins/session-relay/bin/relay`. |
 | A4 | `node scripts/ci.mjs --plugin session-relay` | Exit 0; Session Relay Rust, launcher, workflow, manifest, skill, and self-test gates pass. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only plugins/session-relay/skills` | Exit 0 with no stale hash. |
-| A6 | `git diff --check` | Exit 0 with no whitespace errors. |
+| A6 | `base=$(sed -n 's/^execution_base_commit: //p' docs/plans/active/session-relay-prebuilt-cli-distribution.md); git diff --check "$base..HEAD"` | Exit 0 with no whitespace errors anywhere in the immutable implementation range. |
 | A7 | `gh release view session-relay--v0.12.0 --json tagName,isDraft,assets` | Exit 0; non-draft release has exactly the four named executables and `SHA256SUMS`. |
 | A8 | `node plugins/session-relay/test/distribution-contract.mjs --public-repo /home/vagrant/projects/public --release session-relay--v0.12.0` | Exit 0; downloads the live checksum manifest and host asset to a temporary directory, verifies the digest, and observes `session-relay 0.12.0`. |
-| A9 | `git status --short` | Empty in both `/home/vagrant/projects/docks` and `/home/vagrant/projects/public` after releases complete. |
+| A9 | `test -z "$(git status --porcelain=v1)" && test -z "$(git -C /home/vagrant/projects/public status --porcelain=v1)"` | Exit 0, proving both repositories are clean after releases complete. |
 
 ## Out of scope / do-NOT-touch
 
@@ -202,6 +205,8 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 Score: 98/100 · one local pass · caught: separated the public repository into its own lifecycle, prohibited hook-time downloads, made same-run artifact provenance explicit, and added recursion plus pre-release-pin gotchas.
 
 Cross-check (2026-07-16): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] 5 findings — accepted S1,S2,S3,S4,S5 / rejected none; [Codex main-context orchestrator] reproduced all five against the plan and source before accepting. Repairs reordered Relay bootstrap before binary deletion, incorporated the user's explicit release authorization, required exact-tree post-bump CI, made self-test binary selection explicit and non-skipping, and added pinned cross-repo plus live-release evidence.
+
+Cross-check (2026-07-16, round 2): [X: anthropic unavailable] authentication preflight failed; [S: openai gpt-5.6-sol high Standard] 4 findings — accepted S1,S2,S3,S4 / rejected none; [Codex main-context orchestrator] reproduced all four. Repairs require a complete affected-path review bundle, add every release-mutated manifest/catalog file, bind whitespace validation to the execution range, and make the final cleanliness command prove both repositories.
 
 ## Review
 
