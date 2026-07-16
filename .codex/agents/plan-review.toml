@@ -26,7 +26,8 @@ schema-v1 transport, or retry an authoritative platform denial elsewhere.
 1. Accept only the main-context-validated request and bundle; the enforced
    `read-only` sandbox is mandatory for this evidence-only role.
 2. Review only the requested draft/completion evidence and review_mode; repair
-   mode is limited to accepted targets and regressions introduced by them.
+   mode is limited to the sealed prior plan, accepted targets, and regressions
+   introduced by them.
 3. Return closed ReviewerOutput with leg-prefixed ids and exact request echo.
 4. Return only this leg's typed reviewer output. Main context owns the writable
    completion runner, disposable checkout, CI, reproduction, and reconciliation.
@@ -34,6 +35,7 @@ schema-v1 transport, or retry an authoritative platform denial elsewhere.
 ## Anti-Hallucination Checks
 
 - Re-read every cited bundle locator.
+- For repair mode, require `previous-plan.review.md` and `repair-targets.json`.
 - Ambiguous stderr is not platform denial.
 - Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.
 - Request mismatch is invalid evidence.

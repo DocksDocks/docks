@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "024debcccb66f339ea3f5d0d4b647f17cbfc1b8b70acae07bf98cc5bbb444721"
+  content_hash: "ac99c74e4dbe5f6054393146e0ee4d330a54dc967501ab9bfb6a7db11b16edca"
 ---
 
 # Plan Manager
@@ -152,8 +152,10 @@ Once the candidate is ready:
    and preserve disagreements. When findings are accepted, invoke
    `plan-improver` with only those accepted findings and their reproduction.
    Apply its minimal section-level patch as sole writer, commit, destroy the
-   stale bundle, hash the exact accepted repair targets, and prepare
-   `review_mode: repair` over the changed input.
+   stale bundle, build the exact repair transition, and seal
+   `previous-plan.review.md` plus `repair-targets.json` with `bundle-repair`.
+   Prepare `review_mode: repair` over the changed input only after the helper
+   verifies the prior-plan, current-plan, and reproduced-target hashes.
 6. Stop early only when every passed leg is `ready`, its score is at least the
    resolved `minimum_score`, no accepted blocking finding remains, and the
    reconciled candidate remains current. One unavailable leg still permits a
@@ -164,10 +166,17 @@ Once the candidate is ready:
    attributed blockers and keep the plan non-executing. Do not offer another
    batch. Historical policy v1-v3 verification retains its original receipt
    meaning but new work never creates continuation batches.
-8. A `ready` result below the floor with no reproducible finding consumes the
-   round: destroy the bundle and create a fresh request id over the unchanged
-   commit/input. No score waiver is inferred.
+8. A below-floor `ready` result with no reproducible finding consumes the round
+   and returns `convergence-exhausted`: no accepted repair delta exists, so an
+   unchanged-input repair request is invalid. No score waiver is inferred.
 9. Write one canonical receipt only after input/policy/bundle revalidation.
+
+For each schema-3 Codex leg, main context runs
+`reviewer-workspace-prepare <request-id> <leg>`, passes that closed result to
+the argv builder, verifies the sealed bundle again after the leg, then runs
+`reviewer-workspace-cleanup <request-id> <leg> <prepared-json>`. The disposable
+workdir is outside the bundle; Codex receives `--ephemeral --ignore-user-config`
+plus explicit model, effort, service tier, and read-only sandbox values.
 
 For either stale-bundle case, plan-manager main context must invoke exactly one
 policy-owned cleanup command using the path and hash from the current request:

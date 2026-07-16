@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "9062965806bf36bc0e53142231aab86473b5dfcf4a3791f92932e93bc5abdf99"
+  content_hash: "fc9885f862a87e261bfc291460e501080e27f14f692a3786c1ec68b10547a444"
 ---
 
 # Plan Review Evidence Runner
@@ -219,11 +219,19 @@ Plan-manager dispatches X then S without sharing reviewer output and owns
 reconciliation. Policy v4 starts with `review_mode: full`; after plan-manager
 applies accepted findings through plan-improver, later requests use
 `review_mode: repair`, `previous_input_sha256`, and `repair_targets_sha256`.
+Every repair bundle includes immutable `previous-plan.review.md` and compact-JCS
+`repair-targets.json`; the helper recomputes their hashes from the prior
+canonical plan and exact independently reproduced targets.
 The review series has one resolved `max_rounds` lifetime cap (dated default 5)
 and returns `convergence-exhausted` at the cap instead of offering another
 batch. Historical policy v1-v3 verification retains its original receipt
-semantics. A low-score `ready` result without a finding still consumes the round
-and requires a fresh request. This skill does not apply the intent.
+semantics. A below-floor `ready` result with no reproducible finding consumes
+the round and returns `convergence-exhausted`; it cannot authorize an
+unchanged-input repair request. Schema-3 Codex CLI review runs from a
+helper-owned disposable workdir outside the sealed bundle with
+`--ephemeral --ignore-user-config`; main context verifies the bundle after the
+leg and removes the workdir through the helper. This skill does not apply the
+intent.
 
 ## Docks-only legacy compatibility evidence
 

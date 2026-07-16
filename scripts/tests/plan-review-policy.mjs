@@ -134,6 +134,21 @@ function unavailableV3(req, leg) {
     waiver: null, waiver_sha256: null, decision_evidence: null, reason: 'authentication unavailable',
   };
 }
+function passedV3(req, leg, findings, verdict = 'not_ready', score = 63) {
+  const rubric = score === 100
+    ? { standalone_executability: 22, actionability: 16, dependency_order: 12, evidence_reverify: 10, goal_coverage: 12, executable_acceptance: 12, failure_mode: 10, assumption_to_question: 6 }
+    : { standalone_executability: 12, actionability: 14, dependency_order: 10, evidence_reverify: 7, goal_coverage: 5, executable_acceptance: 6, failure_mode: 4, assumption_to_question: 5 };
+  const tier = req.policy.openai_tiers[0];
+  const ledger = [attempt({ schema: 3, model: tier.model, effort: tier.effort, service_tier: tier.service_tier })];
+  const structured = { schema: 3, leg, request: req, verdict, score, rubric, findings, confirmations: ['fixture reviewer completed'] };
+  return {
+    schema: 3, leg, request: req, result: 'passed', attempts: ledger,
+    selected: { model: tier.model, effort: tier.effort, service_tier: tier.service_tier, transport: 'cli' },
+    reviewer_output: { verdict, score, rubric, confirmations: structured.confirmations, structured_output_sha256: sha256(jcs(structured)) },
+    findings, findings_sha256: sha256(jcs(findings)), severity_totals: { high: findings.filter((f) => f.severity === 'high').length, medium: findings.filter((f) => f.severity === 'medium').length, low: findings.filter((f) => f.severity === 'low').length },
+    waiver: null, waiver_sha256: null, decision_evidence: null, reason: null,
+  };
+}
 function draftRunV3(req) {
   return {
     schema: 3, kind: 'draft', request: req, X: unavailableV3(req, 'X'), S: unavailableV3(req, 'S'),
@@ -750,6 +765,17 @@ function testSchemas() {
   expectThrow('schema-3 finding requires attribution', () => validateReviewerOutput({ ...readyV3, findings: [{ ...followup, requirement: '' }] }, reqV3, 'S'), /requirement/);
   expectThrow('schema-3 full review rejects previous identity', () => validateRequest({ ...reqV3, previous_input_sha256: H0 }), /full|previous|repair/);
   expectThrow('schema-3 first round must be full', () => validateRequest({ ...reqV3, review_mode: 'repair' }), /round|full|repair/);
+  const reproducedBlocking = {
+    id: blocking.id, source: 'S', severity: blocking.severity, path: blocking.path, locator: blocking.locator,
+    defect: blocking.defect, fix: blocking.fix,
+    reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+  };
+  const transition = reviewPolicy.buildRepairTransition({
+    fromRoundIndex: 1,
+    previousInputSha256: reqV3.input_sha256,
+    currentInputSha256: '2'.repeat(64),
+    targets: [reproducedBlocking],
+  });
   const repairRequest = requestV3({
     request_id: '223e4567-e89b-42d3-a456-426614174000',
     review_mode: 'repair',
@@ -757,13 +783,20 @@ function testSchemas() {
     input_sha256: '2'.repeat(64),
     bundle_sha256: '3'.repeat(64),
     previous_input_sha256: reqV3.input_sha256,
-    repair_targets_sha256: '4'.repeat(64),
+    repair_targets_sha256: transition.repair_targets_sha256,
   });
   validateRequest(repairRequest);
   expectThrow('schema-3 repair requires changed input', () => validateRequest({ ...repairRequest, input_sha256: repairRequest.previous_input_sha256 }), /changed|input/);
   expectThrow('schema-3 repair requires targets', () => validateRequest({ ...repairRequest, repair_targets_sha256: null }), /repair.*target|target.*repair/);
 
-  const roundOne = draftRunV3(reqV3);
+  const roundOne = {
+    ...draftRunV3(reqV3),
+    S: passedV3(reqV3, 'S', [blocking]),
+    reproduced: [reproducedBlocking],
+    decision_evidence: null,
+    outcome: 'single',
+    pre_execution_eligible: false,
+  };
   const roundTwo = draftRunV3(repairRequest);
   const series = {
     schema: 3,
@@ -771,6 +804,7 @@ function testSchemas() {
     initial_input_sha256: reqV3.input_sha256,
     current_input_sha256: repairRequest.input_sha256,
     rounds: [roundOne, roundTwo],
+    repairs: [transition],
   };
   validateReviewSeries(series);
   expectThrow('schema-3 review series requires repair after round one', () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, review_mode: 'full', previous_input_sha256: null, repair_targets_sha256: null } }] }), /repair|round/);
@@ -788,7 +822,7 @@ function testSchemas() {
     }));
   });
   expectThrow('schema-3 review series lifetime cap is not renewable', () => validateReviewSeries({
-    schema: 3, policy_sha256: reqV3.policy_sha256, initial_input_sha256: '1'.repeat(64), current_input_sha256: '6'.repeat(64), rounds: sixRounds,
+    schema: 3, policy_sha256: reqV3.policy_sha256, initial_input_sha256: '1'.repeat(64), current_input_sha256: '6'.repeat(64), rounds: sixRounds, repairs: [],
   }), /max_rounds|lifetime|round/);
 
   validateWaivers([{ phase: 'draft', input_sha256: req.input_sha256, legs: ['S', 'X'], actor: 'user', reason: 'explicit waiver', at: '2026-07-12T00:00:00-03:00' }], 'draft', req.input_sha256);
@@ -1038,11 +1072,13 @@ function testLegs() {
   const openAiAuthorS = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'S', request: req });
   assert.equal(openAiAuthorS[openAiAuthorS.indexOf('--output-schema') + 1], path.join(fixture.bundle, 'reviewer-output.S.schema.json'), 'OpenAI-author S Codex uses S schema');
   const fullV3 = requestV3({
+    request_id: randomUUID(),
     reviewed_commit_or_head: fixture.head,
     input_sha256: fixture.sealed.input_sha256,
     bundle_sha256: fixture.sealed.bundle_sha256,
   });
-  const fullV3Argv = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'high', serviceTier: 'default', leg: 'S', request: fullV3 });
+  const fullV3Workspace = reviewPolicy.prepareReviewerWorkspace({ requestId: fullV3.request_id, leg: 'S' });
+  const fullV3Argv = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, reviewerWorkspace: fullV3Workspace, model: 'gpt-5.6-sol', effort: 'high', serviceTier: 'default', leg: 'S', request: fullV3 });
   assert.equal(fullV3Argv[fullV3Argv.indexOf('--output-schema') + 1], path.join(fixture.bundle, 'reviewer-output.S.v3.schema.json'));
   for (const marker of [
     'provable, actionable, unintentional defects',
@@ -1052,17 +1088,38 @@ function testLegs() {
     'at most five findings',
     'exact weighted rubric sum',
   ]) assert.match(fullV3Argv.at(-1), new RegExp(marker, 'i'), `full reviewer prompt missing ${marker}`);
+  reviewPolicy.cleanupReviewerWorkspace({ requestId: fullV3.request_id, leg: 'S', prepared: fullV3Workspace });
+  const previousPlan = 'previous canonical plan\n';
+  const transition = reviewPolicy.buildRepairTransition({
+    fromRoundIndex: 1,
+    previousInputSha256: sha256(previousPlan),
+    currentInputSha256: fixture.sealed.input_sha256,
+    targets: [{
+      id: 'S1', source: 'S', severity: 'high', path: null, locator: null,
+      defect: 'The previous repair target was not bound.', fix: 'Bind the exact target.',
+      reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+    }],
+  });
+  const repairBundle = path.join(fixture.temp, 'repair-bundle');
+  const repairSealed = sealBundle({
+    repo: fixture.repo,
+    reviewedCommit: fixture.head,
+    planPath: 'docs/plans/active/sample.md',
+    requestedPaths: [],
+    outDir: repairBundle,
+    repair: { previousPlan, transition },
+  });
   const repairV3 = requestV3({
     request_id: '323e4567-e89b-42d3-a456-426614174000',
     reviewed_commit_or_head: fixture.head,
-    input_sha256: fixture.sealed.input_sha256,
-    bundle_sha256: fixture.sealed.bundle_sha256,
+    input_sha256: repairSealed.input_sha256,
+    bundle_sha256: repairSealed.bundle_sha256,
     review_mode: 'repair',
     round_index: 2,
-    previous_input_sha256: H0,
-    repair_targets_sha256: H1,
+    previous_input_sha256: transition.previous_input_sha256,
+    repair_targets_sha256: transition.repair_targets_sha256,
   });
-  const repairV3Argv = buildReviewerArgv({ tool: 'claude', bundle: fixture.bundle, model: 'fable', effort: 'high', leg: 'X', request: repairV3 });
+  const repairV3Argv = buildReviewerArgv({ tool: 'claude', bundle: repairBundle, model: 'fable', effort: 'high', leg: 'X', request: repairV3 });
   assert.match(repairV3Argv.at(-1), /at most three findings/i);
   assert.match(repairV3Argv.at(-1), /accepted repair targets/i);
   assert.match(repairV3Argv.at(-1), /may not reopen unrelated previously accepted design decisions/i);
@@ -1075,7 +1132,7 @@ function testLegs() {
   assert.equal(classifyLeg({ leg: 'S', policy: never, attempts: [{ result: 'passed' }], eligibleTierCount: 2 }), 'passed');
   fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(fixture.bundle, 'plan.review.md'), 'post-leg tamper\n'); fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o444);
   expectThrow('post-leg bundle change', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S', fixture.bundle), /hash mismatch/);
-  makeWritable(fixture.bundle); fs.rmSync(fixture.temp, { recursive: true, force: true });
+  makeWritable(fixture.temp); fs.rmSync(fixture.temp, { recursive: true, force: true });
   console.log('legs: direct argv, versioned full/repair prompts, skip-git, plan mode, JCS echo, attempt bounds, relay rejection, denial and consent separation passed');
 }
 

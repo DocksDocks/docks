@@ -234,8 +234,7 @@ on Codex, requires a Fast candidate, and uses exact selector grammar
 `<tool>:<model>@<effort>[+fast]`; omission is Standard. New tier-aware requests use
 outer schema 2 and policy v3 with explicit `default|fast` OpenAI tiers and CLI
 transport; historical schema-1 requests with policy v1/v2 retain their meaning.
-New convergence requests use outer schema 3 and policy v4: round 1 has `review_mode: full`; accepted findings are repaired through plan-improver; later
-rounds use `review_mode: repair` with previous-input and exact repair-target hashes.
+New convergence requests use outer schema 3 and policy v4: round 1 has `review_mode: full`; accepted findings are repaired through plan-improver; later rounds use `review_mode: repair` with previous-input and exact repair-target hashes. Each repair bundle seals `previous-plan.review.md` and compact-JCS `repair-targets.json`; the helper recomputes prior/current plan and exact reproduced-target hashes.
 Historical policy v1-v3 retain their persisted meanings.
 
 The resolved logical policy has independent choices for cross-company consent
@@ -253,14 +252,12 @@ provider/session quota, generic rate-limit, invalid request, transport, or
 ambiguous failures stop the leg. Historical policy v1 alone keeps its bounded
 typed transient retry.
 
-Policy v4 runs X then S within one `max_rounds` lifetime cap. Stop early only when every passed leg is `ready` with `score >= minimum_score` and no accepted
-blocking finding remains. Low-score `ready` still consumes a round. At the cap,
+Policy v4 runs X then S within one `max_rounds` lifetime cap. Stop early only when every passed leg is `ready` with `score >= minimum_score` and no accepted blocking finding remains. A below-floor `ready` with no reproducible finding consumes the round and returns `convergence-exhausted`; unchanged-input repair requests are invalid. At the cap,
 return `convergence-exhausted` with attributed blockers and keep the plan non-executing;
 never offer a continuation batch. `not_ready` never passes.
 Historical policy v1-v3 verification preserves its original receipt semantics.
 Zero successful legs follow the separately resolved zero-review choice. A
-current-user waiver may name X, S, or both for exactly one phase and canonical
-input hash; consent `never` is not a waiver.
+current-user waiver may name X, S, or both for exactly one phase and canonical input hash; consent `never` is not a waiver. Schema-3 Codex CLI reviewers run from helper-owned disposable workdirs outside the sealed bundle with `--ephemeral --ignore-user-config`, explicit model/effort/service tier, and a read-only sandbox; main context verifies the bundle after each leg and removes the workdir only through the helper.
 
 Creation first commits `planned` (or `scheduled`) without executing. `start`,
 schedule fire, and `auto_execute` use `prepare(intent) → main review dispatch →

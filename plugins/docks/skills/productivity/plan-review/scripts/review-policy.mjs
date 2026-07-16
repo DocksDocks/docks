@@ -20,6 +20,7 @@ const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_
 const ATTEMPT_RESULTS = new Set(['passed', 'auth_failed', 'model_unavailable', 'deadline_exceeded', 'platform_denied', 'transient_transport', 'nonzero_exit', 'signaled', 'unparseable']);
 const SOURCES = new Set(['current_user', 'runtime_global', 'skill_default']);
 const REVIEW_ROOT = '/tmp/docks-plan-review';
+const REVIEW_WORK_ROOT = '/tmp/docks-plan-review-run';
 const COMPLETION_ROOT = '/tmp/docks-plan-verify';
 const LEGACY_HEX = /^[0-9a-f]{7,39}$/;
 const CORE_SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+$/;
@@ -761,14 +762,80 @@ export function validateDraftRunResult(result, { waivers = [] } = {}) {
   validateReproduced(result.reproduced, result.X, result.S, false); validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome, result.pre_execution_eligible); return result;
 }
 
+function validateRepairTarget(target) {
+  assertClosed(target, ['id', 'source', 'defect', 'fix', 'reproduction'], 'repair target');
+  string(target.id, 'repair target id'); oneOf(target.source, new Set(['X', 'S']), 'repair target source');
+  string(target.defect, 'repair target defect'); string(target.fix, 'repair target fix');
+  assertClosed(target.reproduction, ['method', 'command', 'exit_code', 'evidence_sha256'], 'repair target reproduction');
+  oneOf(target.reproduction.method, new Set(['read', 'command']), 'repair target reproduction method');
+  digest(target.reproduction.evidence_sha256, 'repair target reproduction evidence');
+  if (target.reproduction.method === 'read' && (target.reproduction.command !== null || target.reproduction.exit_code !== null)) throw new Error('read repair target carries command evidence');
+  if (target.reproduction.method === 'command') {
+    string(target.reproduction.command, 'repair target command');
+    if (!Number.isInteger(target.reproduction.exit_code)) throw new Error('repair target command exit code');
+  }
+  return target;
+}
+
+function repairTargetFromEvidence(finding) {
+  return {
+    id: finding.id,
+    source: finding.source,
+    defect: finding.defect,
+    fix: finding.fix,
+    reproduction: finding.reproduction,
+  };
+}
+
+function validateRepairTransition(transition) {
+  assertClosed(transition, ['schema', 'from_round_index', 'previous_input_sha256', 'current_input_sha256', 'targets', 'repair_targets_sha256'], 'repair transition');
+  if (transition.schema !== 1 || !Number.isInteger(transition.from_round_index) || transition.from_round_index < 1 || transition.from_round_index >= 10) throw new Error('repair transition identity');
+  digest(transition.previous_input_sha256, 'repair previous input'); digest(transition.current_input_sha256, 'repair current input');
+  if (transition.previous_input_sha256 === transition.current_input_sha256) throw new Error('repair transition requires changed input');
+  if (!Array.isArray(transition.targets) || transition.targets.length === 0) throw new Error('repair targets must be nonempty');
+  const ids = new Set(); let previous = null;
+  for (const target of transition.targets) {
+    validateRepairTarget(target);
+    if (ids.has(target.id) || (previous !== null && compareUtf16(previous, target.id) >= 0)) throw new Error('repair targets must be unique and sorted');
+    ids.add(target.id); previous = target.id;
+  }
+  digest(transition.repair_targets_sha256, 'repair targets hash');
+  const expected = sha256(jcs({ schema: 1, targets: transition.targets }));
+  if (transition.repair_targets_sha256 !== expected) throw new Error('repair target hash mismatch');
+  return transition;
+}
+
+export function buildRepairTransition({ fromRoundIndex, previousInputSha256, currentInputSha256, targets }) {
+  if (!Array.isArray(targets)) throw new Error('repair targets');
+  const normalized = targets.map((target) => {
+    assertClosed(target, ['id', 'source', 'severity', 'path', 'locator', 'defect', 'fix', 'reproduction'], 'repair finding evidence');
+    string(target.id, 'repair finding id'); oneOf(target.source, new Set(['X', 'S']), 'repair finding source');
+    oneOf(target.severity, new Set(['high', 'medium', 'low']), 'repair finding severity');
+    for (const key of ['path', 'locator']) if (target[key] !== null && typeof target[key] !== 'string') throw new Error(`repair finding ${key}`);
+    string(target.defect, 'repair finding defect'); string(target.fix, 'repair finding fix');
+    validateRepairTarget(repairTargetFromEvidence(target));
+    return repairTargetFromEvidence(target);
+  }).sort((a, b) => compareUtf16(a.id, b.id));
+  const transition = {
+    schema: 1,
+    from_round_index: fromRoundIndex,
+    previous_input_sha256: previousInputSha256,
+    current_input_sha256: currentInputSha256,
+    targets: normalized,
+    repair_targets_sha256: sha256(jcs({ schema: 1, targets: normalized })),
+  };
+  return validateRepairTransition(transition);
+}
+
 export function validateReviewSeries(series) {
-  assertClosed(series, ['schema', 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds'], 'review series');
+  assertClosed(series, ['schema', 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds', 'repairs'], 'review series');
   if (series.schema !== 3 || !Array.isArray(series.rounds) || series.rounds.length === 0) throw new Error('review series identity');
   digest(series.policy_sha256, 'review series policy'); digest(series.initial_input_sha256, 'review series initial input'); digest(series.current_input_sha256, 'review series current input');
   const policy = series.rounds[0]?.request?.policy;
   validatePolicy(policy);
   if (policy.schema !== 4 || series.policy_sha256 !== sha256(jcs(policy))) throw new Error('review series policy mismatch');
   if (series.rounds.length > policy.max_rounds) throw new Error('review series exceeds lifetime max_rounds');
+  if (!Array.isArray(series.repairs) || series.repairs.length !== series.rounds.length - 1) throw new Error('review series repair count mismatch');
   let previousInput = null;
   for (let index = 0; index < series.rounds.length; index += 1) {
     const round = series.rounds[index]; const expectedIndex = index + 1;
@@ -778,6 +845,13 @@ export function validateReviewSeries(series) {
     } else {
       if (round.request.review_mode !== 'repair') throw new Error('review series later rounds must be repair');
       if (round.request.previous_input_sha256 !== previousInput) throw new Error('review series previous input mismatch');
+      const transition = validateRepairTransition(series.repairs[index - 1]);
+      if (transition.from_round_index !== expectedIndex - 1 || transition.previous_input_sha256 !== previousInput || transition.current_input_sha256 !== round.request.input_sha256 || transition.repair_targets_sha256 !== round.request.repair_targets_sha256) throw new Error('review series repair transition mismatch');
+      const prior = series.rounds[index - 1]; const reproduced = new Map(prior.reproduced.map((finding) => [finding.id, repairTargetFromEvidence(finding)]));
+      for (const target of transition.targets) {
+        const source = reproduced.get(target.id);
+        if (!source || jcs(source) !== jcs(target)) throw new Error('repair target was not exactly reproduced in the prior round');
+      }
     }
     if (round.request.policy_sha256 !== series.policy_sha256 || jcs(round.request.policy) !== jcs(policy)) throw new Error('review series policy drift');
     validateDraftRunResult(round);
@@ -2306,7 +2380,7 @@ function bundleHash(manifestBytes, entries) {
   return hash.digest('hex');
 }
 
-export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir, plannedAtCommit = null, executionBaseCommit = null }) {
+export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir, plannedAtCommit = null, executionBaseCommit = null, repair = null }) {
   if (!HEX40.test(reviewedCommit)) throw new Error('reviewedCommit');
   const resolved = git(repo, ['rev-parse', '--verify', `${reviewedCommit}^{commit}`]).trim();
   if (resolved !== reviewedCommit) throw new Error('reviewedCommit does not resolve exactly');
@@ -2330,6 +2404,26 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
     entries.push({ path: `reviewer-output.${leg}.v2.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 2))}\n`) });
     entries.push({ path: `reviewer-output.${leg}.v3.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 3))}\n`) });
   }
+  let repairManifest = null;
+  if (repair !== null) {
+    assertClosed(repair, ['previousPlan', 'transition'], 'bundle repair');
+    if (typeof repair.previousPlan !== 'string' || repair.previousPlan.length === 0 || !repair.previousPlan.endsWith('\n')) throw new Error('bundle previous plan');
+    const transition = validateRepairTransition(repair.transition);
+    const previousPlanBytes = Buffer.from(repair.previousPlan); const targetBytes = Buffer.from(`${jcs(transition)}\n`);
+    if (sha256(previousPlanBytes) !== transition.previous_input_sha256 || sha256(canonical) !== transition.current_input_sha256) throw new Error('bundle repair input mismatch');
+    entries.push(
+      { path: 'previous-plan.review.md', mode: '100444', bytes: previousPlanBytes },
+      { path: 'repair-targets.json', mode: '100444', bytes: targetBytes },
+    );
+    repairManifest = {
+      from_round_index: transition.from_round_index,
+      previous_plan_path: 'previous-plan.review.md',
+      previous_input_sha256: transition.previous_input_sha256,
+      current_input_sha256: transition.current_input_sha256,
+      targets_path: 'repair-targets.json',
+      repair_targets_sha256: transition.repair_targets_sha256,
+    };
+  }
   let completion = null;
   if (plannedAtCommit !== null) {
     validateExecutionRange({ repo, planPath: safePlan, plannedAtCommit, executionBaseCommit, reviewedHead: reviewedCommit });
@@ -2351,8 +2445,8 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
     for (let directory = path.dirname(dest); inside(outDir, directory); directory = path.dirname(directory)) directories.add(directory);
   }
   const manifest = {
-    schema: 1, plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' }, reviewed_commit: reviewedCommit,
-    input_sha256: sha256(canonical), completion, requested,
+    schema: repairManifest === null ? 1 : 2, plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' }, reviewed_commit: reviewedCommit,
+    input_sha256: sha256(canonical), completion, ...(repairManifest === null ? {} : { repair: repairManifest }), requested,
     files: entries.map((entry) => ({ path: entry.path, mode: entry.mode, sha256: sha256(entry.bytes) })),
   };
   const manifestBytes = Buffer.from(`${jcs(manifest)}\n`); fs.writeFileSync(path.join(outDir, 'manifest.json'), manifestBytes, { mode: 0o444 });
@@ -2369,8 +2463,9 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   const manifestBytes = fs.readFileSync(manifestPath); let manifest;
   try { manifest = JSON.parse(manifestBytes); } catch { throw new Error('bundle manifest is not JSON'); }
   if (!manifest || manifestBytes.toString() !== `${jcs(manifest)}\n`) throw new Error('bundle manifest must be compact JCS');
-  assertClosed(manifest, ['schema', 'plan_path', 'plan_view', 'reviewer_schemas', 'reviewed_commit', 'input_sha256', 'completion', 'requested', 'files'], 'bundle manifest');
-  if (manifest.schema !== 1 || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
+  const manifestKeys = ['schema', 'plan_path', 'plan_view', 'reviewer_schemas', 'reviewed_commit', 'input_sha256', 'completion', ...(manifest?.schema === 2 ? ['repair'] : []), 'requested', 'files'];
+  assertClosed(manifest, manifestKeys, 'bundle manifest');
+  if (![1, 2].includes(manifest.schema) || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
   const planPath = safeLogical(manifest.plan_path);
   if (planPath !== manifest.plan_path || manifest.plan_view !== 'plan.review.md') throw new Error('bundle plan identity');
   assertClosed(manifest.reviewer_schemas, ['X', 'S'], 'bundle reviewer schemas');
@@ -2401,6 +2496,17 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
     }
   }
   const reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json', 'reviewer-output.X.v3.schema.json', 'reviewer-output.S.v3.schema.json']);
+  if (manifest.schema === 2) {
+    assertClosed(manifest.repair, ['from_round_index', 'previous_plan_path', 'previous_input_sha256', 'current_input_sha256', 'targets_path', 'repair_targets_sha256'], 'bundle repair manifest');
+    if (!Number.isInteger(manifest.repair.from_round_index) || manifest.repair.from_round_index < 1 || manifest.repair.previous_plan_path !== 'previous-plan.review.md' || manifest.repair.targets_path !== 'repair-targets.json') throw new Error('bundle repair manifest identity');
+    digest(manifest.repair.previous_input_sha256, 'bundle repair previous input'); digest(manifest.repair.current_input_sha256, 'bundle repair current input'); digest(manifest.repair.repair_targets_sha256, 'bundle repair targets');
+    const previousPlan = fileRows.get(manifest.repair.previous_plan_path); const targets = fileRows.get(manifest.repair.targets_path);
+    if (!previousPlan || !targets || previousPlan.mode !== '100444' || targets.mode !== '100444') throw new Error('bundle repair artifacts');
+    let transition; try { transition = JSON.parse(targets.bytes); } catch { throw new Error('bundle repair targets are not JSON'); }
+    validateRepairTransition(transition);
+    if (targets.bytes.toString() !== `${jcs(transition)}\n` || sha256(previousPlan.bytes) !== manifest.repair.previous_input_sha256 || transition.previous_input_sha256 !== manifest.repair.previous_input_sha256 || transition.current_input_sha256 !== manifest.repair.current_input_sha256 || transition.repair_targets_sha256 !== manifest.repair.repair_targets_sha256 || manifest.input_sha256 !== manifest.repair.current_input_sha256) throw new Error('bundle repair artifact mismatch');
+    reserved.add(manifest.repair.previous_plan_path); reserved.add(manifest.repair.targets_path);
+  } else if (Object.hasOwn(manifest, 'repair')) throw new Error('historical bundle carries repair metadata');
   if (manifest.completion !== null) {
     assertClosed(manifest.completion, ['planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_path', 'diff_sha256', 'acceptance_inventory_path', 'acceptance_inventory_sha256'], 'bundle completion');
     if (manifest.completion.reviewed_head !== manifest.reviewed_commit) throw new Error('bundle completion head mismatch');
@@ -2430,7 +2536,7 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   }
   if (evidencePaths.includes(planPath) || [...coverage.values()].some((count) => count !== 1)) throw new Error('bundle requested file coverage or raw plan leak');
   const bundleSha256 = bundleHash(manifestBytes, entries); if (expectedSha256 !== null && bundleSha256 !== expectedSha256) throw new Error('bundle hash mismatch');
-  return { schema: 1, bundle_sha256: bundleSha256, manifest };
+  return { schema: manifest.schema, bundle_sha256: bundleSha256, manifest };
 }
 
 function validateReviewBundleTarget(bundle) {
@@ -2486,6 +2592,9 @@ export function destroyBundle({ bundle, expectedSha256 }) {
 function validateRequestBundle(request, verified) {
   const manifest = verified.manifest;
   if (manifest.reviewed_commit !== request.reviewed_commit_or_head || manifest.input_sha256 !== request.input_sha256) throw new Error('request and bundle identity mismatch');
+  if (request.schema === 3 && request.review_mode === 'repair') {
+    if (manifest.schema !== 2 || manifest.repair?.previous_input_sha256 !== request.previous_input_sha256 || manifest.repair?.current_input_sha256 !== request.input_sha256 || manifest.repair?.repair_targets_sha256 !== request.repair_targets_sha256 || manifest.repair?.from_round_index !== request.round_index - 1) throw new Error('request and bundle repair mismatch');
+  } else if (manifest.schema !== 1) throw new Error('non-repair request carries repair bundle');
   if (request.phase === 'draft') { if (manifest.completion !== null) throw new Error('draft request carries completion bundle'); }
   else {
     if (manifest.completion === null) throw new Error('completion request lacks completion bundle');
@@ -2494,13 +2603,48 @@ function validateRequestBundle(request, verified) {
   }
 }
 
-function reviewerPrompt(leg, request) {
+function reviewerWorkspacePath(requestId, leg) {
+  if (!UUID.test(requestId)) throw new Error('reviewer workspace request id');
+  oneOf(leg, new Set(['X', 'S']), 'reviewer workspace leg');
+  return path.join(REVIEW_WORK_ROOT, `${requestId}-${leg}`);
+}
+
+export function prepareReviewerWorkspace({ requestId, leg }) {
+  const workspace = reviewerWorkspacePath(requestId, leg);
+  if (!fs.existsSync(REVIEW_WORK_ROOT)) fs.mkdirSync(REVIEW_WORK_ROOT, { recursive: false, mode: 0o700 });
+  const root = fs.lstatSync(REVIEW_WORK_ROOT);
+  if (!root.isDirectory() || root.isSymbolicLink() || fs.realpathSync(REVIEW_WORK_ROOT) !== REVIEW_WORK_ROOT || (root.mode & 0o777) !== 0o700 || (typeof process.getuid === 'function' && root.uid !== process.getuid())) throw new Error('reviewer workspace root is unsafe');
+  if (fs.existsSync(workspace)) throw new Error('reviewer workspace already exists');
+  fs.mkdirSync(workspace, { mode: 0o700 });
+  const cleanupToken = sha256(`${randomUUID()}\0${randomUUID()}`);
+  const sentinel = { schema: 1, request_id: requestId, leg, cleanup_token: cleanupToken };
+  fs.writeFileSync(path.join(workspace, '.docks-reviewer-workspace'), `${jcs(sentinel)}\n`, { flag: 'wx', mode: 0o600 });
+  return { schema: 1, request_id: requestId, leg, workspace, cleanup_token: cleanupToken };
+}
+
+export function cleanupReviewerWorkspace({ requestId, leg, prepared }) {
+  assertClosed(prepared, ['schema', 'request_id', 'leg', 'workspace', 'cleanup_token'], 'prepared reviewer workspace');
+  const workspace = reviewerWorkspacePath(requestId, leg);
+  if (prepared.schema !== 1 || prepared.request_id !== requestId || prepared.leg !== leg || prepared.workspace !== workspace) throw new Error('reviewer workspace identity mismatch');
+  digest(prepared.cleanup_token, 'reviewer workspace cleanup token');
+  const stat = fs.lstatSync(workspace);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(workspace) !== workspace || (typeof process.getuid === 'function' && stat.uid !== process.getuid())) throw new Error('reviewer workspace is unsafe');
+  const sentinelPath = path.join(workspace, '.docks-reviewer-workspace'); const sentinelStat = fs.lstatSync(sentinelPath);
+  if (!sentinelStat.isFile() || sentinelStat.isSymbolicLink() || (sentinelStat.mode & 0o777) !== 0o600 || (typeof process.getuid === 'function' && sentinelStat.uid !== process.getuid())) throw new Error('reviewer workspace sentinel is unsafe');
+  const sentinelText = fs.readFileSync(sentinelPath, 'utf8'); let sentinel; try { sentinel = JSON.parse(sentinelText); } catch { throw new Error('reviewer workspace sentinel is invalid'); }
+  const expected = { schema: 1, request_id: requestId, leg, cleanup_token: prepared.cleanup_token };
+  if (sentinelText !== `${jcs(sentinel)}\n` || jcs(sentinel) !== jcs(expected)) throw new Error('reviewer workspace sentinel mismatch');
+  fs.rmSync(workspace, { recursive: true, force: false });
+  return { schema: 1, request_id: requestId, leg, removed: true };
+}
+
+function reviewerPrompt(leg, request, bundle) {
   const requestBlock = `REQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
   if (request.schema !== 3) return `You are the ${leg} independent plan reviewer. Read only the sealed bundle. Return findings only. Copy the request object into ReviewerOutput.request.\n${requestBlock}`;
   const modeRules = request.review_mode === 'full'
     ? 'This is a full review. Return at most five findings.'
     : 'This is a repair review. Inspect the accepted repair targets and their current-plan delta, plus blocking regressions introduced by those repairs. Return at most three findings. You may not reopen unrelated previously accepted design decisions.';
-  return `You are the ${leg} independent plan reviewer. Read only the sealed bundle and return typed findings only. Copy the request object into ReviewerOutput.request.
+  return `You are the ${leg} independent plan reviewer. Read only the sealed bundle and return typed findings only. Sealed bundle: ${path.resolve(bundle)}. Copy the request object into ReviewerOutput.request.
 Report only provable, actionable, unintentional defects with no unstated assumptions and proportionate rigor.
 A blocking finding must identify the exact user requirement, safety property, or execution step that would otherwise fail.
 Priority 2/3 or low-confidence findings are non-blocking follow-ups. verdict=not_ready requires at least one blocking finding.
@@ -2509,14 +2653,22 @@ ${modeRules}
 ${requestBlock}`;
 }
 
-export function buildReviewerArgv({ tool, bundle, model, effort, serviceTier = null, leg, request }) {
+export function buildReviewerArgv({ tool, bundle, reviewerWorkspace = null, model, effort, serviceTier = null, leg, request }) {
   validateRequest(request); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 })); oneOf(leg, new Set(['X', 'S']), 'leg'); string(model, 'model'); string(effort, 'effort');
-  const prompt = reviewerPrompt(leg, request);
+  const prompt = reviewerPrompt(leg, request, bundle);
   if (tool === 'codex') {
     const tier = serviceTier ?? 'default'; oneOf(tier, new Set(['default', 'fast']), 'reviewer service tier');
     const config = ['-c', `model_reasoning_effort=${effort}`, ...(tier === 'fast' ? ['-c', 'features.fast_mode=true', '-c', 'service_tier="fast"'] : ['-c', 'service_tier="default"'])];
     const suffix = request.schema === 1 ? '' : `.v${request.schema}`;
-    return ['exec', '-C', bundle, '--skip-git-repo-check', '-s', 'read-only', '-m', model, ...config, '--output-schema', path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`), '--', prompt];
+    let workdir = bundle; const isolation = [];
+    if (request.schema === 3) {
+      if (reviewerWorkspace === null) throw new Error('schema-3 Codex reviewer workspace is required');
+      assertClosed(reviewerWorkspace, ['schema', 'request_id', 'leg', 'workspace', 'cleanup_token'], 'reviewer workspace');
+      if (reviewerWorkspace.schema !== 1 || reviewerWorkspace.request_id !== request.request_id || reviewerWorkspace.leg !== leg || reviewerWorkspace.workspace !== reviewerWorkspacePath(request.request_id, leg)) throw new Error('reviewer workspace mismatch');
+      workdir = reviewerWorkspace.workspace;
+      isolation.push('--ephemeral', '--ignore-user-config');
+    }
+    return ['exec', '-C', workdir, '--skip-git-repo-check', ...isolation, '-s', 'read-only', '-m', model, ...config, '--output-schema', path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`), '--', prompt];
   }
   if (tool === 'claude') {
     if (serviceTier !== null) throw new Error('reviewer service tier is Codex-only');
@@ -2705,6 +2857,14 @@ export function run(argv = process.argv.slice(2)) {
     const [repo, commit, plan, out, plannedAtCommit, executionBaseCommit, ...paths] = args; const completion = plannedAtCommit === '-' && executionBaseCommit === '-' ? {} : { plannedAtCommit, executionBaseCommit };
     process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), ...completion }))}\n`); return;
   }
+  if (command === 'bundle-repair') {
+    if (args.length < 8) throw new Error('bundle-repair accepts repo commit plan out previous-plan-file transition-file planned-at execution-base [paths...]');
+    const [repo, commit, plan, out, previousPlanPath, transitionPath, plannedAtCommit, executionBaseCommit, ...paths] = args;
+    const completion = plannedAtCommit === '-' && executionBaseCommit === '-' ? {} : { plannedAtCommit, executionBaseCommit };
+    if ((plannedAtCommit === '-') !== (executionBaseCommit === '-')) throw new Error('bundle-repair completion identity must be all-or-none');
+    const previousPlan = fs.readFileSync(previousPlanPath, 'utf8'); const transition = JSON.parse(fs.readFileSync(transitionPath, 'utf8'));
+    process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), repair: { previousPlan, transition }, ...completion }))}\n`); return;
+  }
   if (command === 'verify-bundle') {
     const [bundle, expectedSha256 = null] = args; if (args.length < 1 || args.length > 2) throw new Error('verify-bundle accepts bundle [expectedSha256]'); process.stdout.write(`${jcs(verifyBundle({ bundle: path.resolve(bundle), expectedSha256 }))}\n`); return;
   }
@@ -2718,11 +2878,20 @@ export function run(argv = process.argv.slice(2)) {
     const [repo, requestId, preparedPath] = args; if (args.length !== 3) throw new Error('completion-cleanup accepts repo requestId preparedPath only'); const prepared = JSON.parse(fs.readFileSync(preparedPath, 'utf8'));
     process.stdout.write(`${jcs(cleanupCompletionCheckout({ repo: path.resolve(repo), requestId, prepared }))}\n`); return;
   }
+  if (command === 'reviewer-workspace-prepare') {
+    const [requestId, leg] = args; if (args.length !== 2) throw new Error('reviewer-workspace-prepare accepts requestId leg only');
+    process.stdout.write(`${jcs(prepareReviewerWorkspace({ requestId, leg }))}\n`); return;
+  }
+  if (command === 'reviewer-workspace-cleanup') {
+    const [requestId, leg, preparedPath] = args; if (args.length !== 3) throw new Error('reviewer-workspace-cleanup accepts requestId leg preparedPath only');
+    const prepared = JSON.parse(fs.readFileSync(preparedPath, 'utf8'));
+    process.stdout.write(`${jcs(cleanupReviewerWorkspace({ requestId, leg, prepared }))}\n`); return;
+  }
   if (command === 'probe') {
     const [tool] = args; const result = spawnSync(tool, tool === 'codex' ? ['login', 'status'] : ['auth', 'status'], { encoding: 'utf8' });
     process.stdout.write(`${jcs({ available: !result.error && result.status === 0, exit_code: result.status ?? null })}\n`); return;
   }
-  throw new Error('usage: review-policy.mjs compatibility-evidence|compatibility-binding|compatibility-prerequisite|execution-range|execution-scope|canonical-plan|schema|validate-reviewer|bundle|verify-bundle|destroy-bundle|completion-prepare|completion-cleanup|probe ...');
+  throw new Error('usage: review-policy.mjs compatibility-evidence|compatibility-binding|compatibility-prerequisite|execution-range|execution-scope|canonical-plan|schema|validate-reviewer|bundle|bundle-repair|verify-bundle|destroy-bundle|completion-prepare|completion-cleanup|reviewer-workspace-prepare|reviewer-workspace-cleanup|probe ...');
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

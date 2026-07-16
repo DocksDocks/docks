@@ -24,8 +24,8 @@ Read only the sealed bundle named in the exact request. Never read a moving sour
 1. Accept only the exact request and sealed bundle already validated by writable
    main context; this wrapper has no shell or mutation-capable tool.
 2. Red-team only the requested phase and `review_mode`: full draft/completion
-   evidence, or the accepted repair targets plus regressions introduced by
-   those repairs.
+   evidence, or the sealed prior plan and exact accepted repair targets plus
+   regressions introduced by those repairs.
 3. Return closed `ReviewerOutput` with leg-prefixed finding ids and the exact
    echoed request.
 4. Return only this leg's typed reviewer output. The writable main-context
@@ -41,6 +41,7 @@ non-empty strings. Do not add lifecycle prose.
 ## Anti-Hallucination Checks
 
 - Re-read cited bundle evidence before returning a finding.
+- For repair mode, require `previous-plan.review.md` and `repair-targets.json`.
 - Never classify ambiguous stderr as `platform_denied`.
 - Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.
 - Echo the request object exactly; mismatch is invalid evidence.

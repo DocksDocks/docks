@@ -37,9 +37,11 @@ commit only the target plan. Never implement plan steps or create follow-ups.
 2. Prepare review-triggering operations and hand dispatch back to main.
 3. Return accepted-finding repair identities to main; plan-improver is
    main-context-only.
-4. Apply only a caller-supplied typed result exactly once.
-5. Preserve planned/scheduled/in_review on ask, block, or stale evidence.
-6. Re-read the write, commit only the plan, and render the required preview.
+4. Return below-floor/no-finding evidence as terminal; never fabricate an
+   unchanged-input repair request.
+5. Apply only a caller-supplied typed result exactly once.
+6. Preserve planned/scheduled/in_review on ask, block, or stale evidence.
+7. Re-read the write, commit only the plan, and render the required preview.
 
 ## Anti-Hallucination Checks
 
@@ -81,7 +83,8 @@ schema-v1 transport, or retry an authoritative platform denial elsewhere.
 1. Accept only the main-context-validated request and bundle; the enforced
    `read-only` sandbox is mandatory for this evidence-only role.
 2. Review only the requested draft/completion evidence and review_mode; repair
-   mode is limited to accepted targets and regressions introduced by them.
+   mode is limited to the sealed prior plan, accepted targets, and regressions
+   introduced by them.
 3. Return closed ReviewerOutput with leg-prefixed ids and exact request echo.
 4. Return only this leg's typed reviewer output. Main context owns the writable
    completion runner, disposable checkout, CI, reproduction, and reconciliation.
@@ -89,6 +92,7 @@ schema-v1 transport, or retry an authoritative platform denial elsewhere.
 ## Anti-Hallucination Checks
 
 - Re-read every cited bundle locator.
+- For repair mode, require `previous-plan.review.md` and `repair-targets.json`.
 - Ambiguous stderr is not platform denial.
 - Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.
 - Request mismatch is invalid evidence.

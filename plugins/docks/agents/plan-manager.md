@@ -27,9 +27,11 @@ On `apply`, require the caller-supplied result and prepared request to match byt
    return `NeedsMainReviewDispatch`; do not dispatch.
 4. If accepted findings need repair, return their exact identities to main
    context; plan-improver is a main-context-only repair helper.
-5. When called again with a typed result, apply once or return a stale/blocked
+5. Return below-floor/no-finding evidence as terminal; never fabricate an
+   unchanged-input repair request.
+6. When called again with a typed result, apply once or return a stale/blocked
    handback without changing the non-executing state.
-6. Re-read changed frontmatter/receipt, commit the plan-only edit, and render the
+7. Re-read changed frontmatter/receipt, commit the plan-only edit, and render the
    required preview.
 
 ## Output Format

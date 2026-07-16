@@ -230,7 +230,10 @@ transport; historical schema-1 requests with policy v1/v2 retain their meaning.
 New convergence requests use outer schema 3 and policy v4. Round 1 has
 `review_mode: full`; accepted findings are repaired through plan-improver, then
 later rounds use `review_mode: repair` with previous-input and exact
-repair-target hashes. Historical policy v1-v3 retain their persisted meanings.
+repair-target hashes. Each repair bundle seals `previous-plan.review.md` and
+compact-JCS `repair-targets.json`; the helper recomputes the prior/current plan
+hashes and target hash from exact independently reproduced findings. Historical
+policy v1-v3 retain their persisted meanings.
 
 Resolve cross-company consent (`always | ask | never`) independently from
 zero-review progression (`ask | proceed | block`). `always` skips only Docks'
@@ -247,12 +250,18 @@ leg; policy v1 alone keeps its bounded typed transient retry.
 
 Policy v4 runs X then S within one `max_rounds` lifetime cap. Stop early only
 when every passed leg is `ready` and `score >= minimum_score` with no accepted
-blocking finding. A low-score `ready` with no reproducible finding still
-consumes the round and gets a fresh request. At the cap return
+blocking finding. A below-floor `ready` with no reproducible finding consumes
+the round and returns `convergence-exhausted`; unchanged-input repair requests
+are invalid. At the cap return
 `convergence-exhausted` with attributed remaining blockers and keep the plan
 non-executing; never offer a continuation batch. Historical policy v1-v3
 verification preserves its original receipt semantics.
 Current-user waivers bind one phase+canonical input; consent is not a waiver.
+
+Schema-3 Codex CLI reviewers run from helper-owned disposable workdirs outside
+the sealed bundle with `--ephemeral --ignore-user-config`, explicit
+model/effort/service tier, and a read-only sandbox. Main context verifies the
+bundle after each leg and removes the workdir only through the helper.
 
 Creation commits `planned` or `scheduled` first. `start`, schedule fire, and
 auto execution use `prepare(intent) → main dispatch → apply`; missing/stale/

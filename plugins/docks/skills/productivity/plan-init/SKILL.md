@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "41d5e7b1ffc09449de74e9377a79fee31ee592c0644ac213009c2ed0573a9bdf"
+  content_hash: "1c1d5dc21d5031286c0782ae14c5ee1dfa8a8252e4b9030e0d0d138d56638806"
 ---
 
 # Plans Directory Bootstrapper
@@ -68,6 +68,7 @@ test -d docs/plans/planned || test -d docs/plans/ongoing || test -d docs/plans/_
 grep -l 'must match the containing directory' docs/plans/AGENTS.md 2>/dev/null && echo "V1 contract"
 grep -l 'Docks-workflow-models:' docs/plans/AGENTS.md 2>/dev/null && echo "current workflow marker"
 grep -l 'review_mode: full' docs/plans/AGENTS.md 2>/dev/null && echo "current lifetime review-series marker"
+grep -l 'previous-plan.review.md' docs/plans/AGENTS.md 2>/dev/null && echo "current sealed repair-artifact marker"
 test -f .codex/agents/plan-manager.toml || echo "missing Codex plan-manager agent"
 test -f .codex/agents/plan-review.toml || echo "missing Codex plan-review agent"
 ```
@@ -77,7 +78,7 @@ Resolve to exactly one class:
 - **V1** — any old-model marker exists; this class wins even when v2 folders or
   markers also exist → migrate (Step 4b).
 - **GREENFIELD** — no `docs/plans/` → bootstrap (Step 4a).
-- **CURRENT_V2** — two folders plus the workflow and lifetime review-series markers → no contract
+- **CURRENT_V2** — two folders plus the workflow, lifetime review-series, and sealed repair-artifact markers → no contract
   rewrite; seed only genuinely missing support.
 - **STALE_V2** — two folders and the recognizable Docks v2 status-as-field
   contract, but one or both current workflow markers are absent → report the
