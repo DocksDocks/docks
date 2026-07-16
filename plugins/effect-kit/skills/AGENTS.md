@@ -8,6 +8,8 @@ Skills are the cross-tool payload — each surfaces in Claude Code, Codex, and a
 - Run `node scripts/ci.mjs --plugin effect-kit` before commit (repo-wide checks still run).
 - After changing a skill's meaning, bump `metadata.updated` and re-sync the hash: `node scripts/skills/content-hash.mjs --backfill plugins/effect-kit/skills`.
 
-The Effect skills (`engineering/effect-ts-setup`, `engineering/effect-ts-port`, `engineering/effect-ts-specialist`) target **Effect 3.x stable**. Keep version-specific API claims (Schema in `effect/Schema`, `@effect/platform` HttpApi, `@effect-atom/atom-react`) grounded — verify against current docs before changing them.
+The existing skills (`engineering/effect-ts-setup`, `engineering/effect-ts-port`, `engineering/effect-ts-specialist`) target **Effect 3.x stable**. The separate `engineering/effect-v4` skill provides version-gated **Effect v4 beta/prerelease** guidance: it must inspect `package.json` and the lockfile before version-specific code and must never emit v4 APIs into an Effect 3.x project. Keep every version-specific API claim grounded in the installed package and current official sources.
+
+Adapted upstream skills use `metadata.pattern: upstream-adapted` and a `metadata.upstream` block recording repository, immutable commit, source path/URL, license, vendoring date, and intentional patches. Preserve useful progressive-disclosure references; never require mutable guidance downloads at skill runtime.
 
 Use the `write-skill` skill (from the sibling docks plugin) to author new skills from scratch. Full authoring contract (frontmatter, CSO, scoring, content-hash idempotency, durable-anchors grammar): see `plugins/docks/skills/AGENTS.md`.

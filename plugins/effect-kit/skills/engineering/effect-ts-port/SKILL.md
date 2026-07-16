@@ -1,11 +1,11 @@
 ---
 name: effect-ts-port
-description: "Use when porting an existing TypeScript codebase to Effect-TS (3.x) — Fastify routes, Next.js App Router handlers / server actions, or React components (`useState`/`useEffect` state → `@effect-atom/atom-react`). Detects the framework, asks scope, writes a tiered migration plan to docs/plans/, then migrates one boundary at a time (`Effect.tryPromise` + `ManagedRuntime`), test-gated. Not for first-time Effect setup (use effect-ts-setup) or writing fresh Effect patterns (use effect-ts-specialist)."
+description: "Use when porting existing Fastify, Next.js App Router, or React code to Effect 3.x — detect the framework, plan scope, then wrap one boundary at a time with `Effect.tryPromise` and `ManagedRuntime`, test-gated. Not for Effect v4 porting/migration (unsupported), first-time Effect 3.x setup (use effect-ts-setup), or fresh Effect patterns (use effect-ts-specialist)."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-05"
-  content_hash: "ac4932cbed5f27be21f68248c84ac7652f39edea598ef667a68f19d9a64b2b39"
+  updated: "2026-07-15"
+  content_hash: "196eca1724ce3d65ed827064c54c329d9459bb290d3ebf0d821477821cdc7065"
 ---
 
 # Effect-TS Port (cross-tool pipeline)
@@ -21,7 +21,7 @@ Boundary-first, incremental — never a big-bang rewrite. Wrap existing Promise/
 </constraint>
 
 <constraint>
-Don't guess Effect APIs — defer to the `effect-ts-specialist` skill and verify against current docs (context7 `effect`, or `bunx effect-solutions@latest show <topic>`). Target **Effect 3.x stable**: `Schema` is `effect/Schema`; for HTTP prefer **`@effect/platform` HttpApi** (NOT the deprecated `effect-http`); for React use **`@effect-atom/atom-react`** (the renamed successor to `@effect-rx/rx-react`). A wrong API in a migration is worse than asking.
+Don't guess Effect APIs — defer to the `effect-ts-specialist` skill and verify against current docs. Target **Effect 3.x stable**: before planning version-specific changes, inspect `package.json` plus the lockfile. An explicit Effect v4 target or resolved 4.x dependency is unsupported here; stop rather than applying this v3 port. `Schema` is `effect/Schema`; for HTTP prefer **`@effect/platform` HttpApi**; for React use **`@effect-atom/atom-react`**. A wrong API in a migration is worse than asking.
 </constraint>
 
 ## When to use
@@ -154,5 +154,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 ## When this skill does NOT apply
 
+- The requested target or resolved dependency is Effect v4 — v4 porting/migration is unsupported in this release.
 - Effect isn't set up yet — run **`effect-ts-setup`** (Phase 0 will send you there).
 - You're authoring new Effect code, not migrating — use **`effect-ts-specialist`**.

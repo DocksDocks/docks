@@ -70,7 +70,7 @@ export const PLUGINS = [
     skills: 'plugins/effect-kit/skills',
     agents: null,
     codex: true,
-    selftest: null,
+    selftest: 'plugins/effect-kit/test/selftest.mjs',
     rust: null,
     extraJson: [],
     transformGuard: false,

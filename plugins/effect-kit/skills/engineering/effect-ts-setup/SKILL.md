@@ -1,11 +1,11 @@
 ---
 name: effect-ts-setup
-description: "Use when bootstrapping Effect-TS in a repo — detect the package manager (pnpm/npm/bun), install `effect` (+ `@effect/platform`/`@effect/cli` by project type), wire the `@effect/language-service` tsconfig plugin + `prepare` patch, apply the recommended tsconfig, add a `typecheck` script, and write an Effect best-practices block into AGENTS.md/CLAUDE.md. Effect 3.x. Not for porting Fastify/Next/React code (use effect-ts-port) or writing Effect patterns (use effect-ts-specialist)."
+description: "Use when bootstrapping Effect 3.x in a repo — detect pnpm/npm/bun, install `effect` and relevant official packages, wire `@effect/language-service`, apply tsconfig, add typecheck, and write Effect conventions into AGENTS.md/CLAUDE.md. Not for Effect v4 setup (unsupported), Fastify/Next/React porting (use effect-ts-port), or Effect coding patterns (use effect-ts-specialist)."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "d17f67f804a0b166aacef1800f92ce066c7736011e82d3717c76ed6d3789c37b"
+  updated: "2026-07-15"
+  content_hash: "6244e9ea97588f00f5a944513adb2a83dd8f83e34df912bcdb47bd0a0faea27a"
 ---
 
 # Effect-TS Setup (one-time repo bootstrap)
@@ -17,7 +17,7 @@ Gate every mutation behind explicit confirmation. Before initializing a project,
 </constraint>
 
 <constraint>
-Target **Effect 3.x stable**. Install with NO version pin (let the package manager take latest 3.x). `Schema` lives in **`effect/Schema`** — NEVER install `@effect/schema` (deprecated, folded into core in 3.10). The source-reference clone (Step 7) is **`Effect-TS/effect`** (the v3 monorepo), not `effect-smol` (the v4 beta at last check — re-verify with `npm info effect dist-tags` before relying on this).
+Target **Effect 3.x stable**. If the user explicitly requests Effect v4, or `package.json` plus the lockfile already resolve Effect 4.x, stop: Effect Kit has no v4 setup skill. Install with NO version pin only while the package manager's current default resolves 3.x. `Schema` lives in **`effect/Schema`** — NEVER install `@effect/schema` (deprecated, folded into core in 3.10). The source-reference clone (Step 7) is **`Effect-TS/effect`** (the v3 monorepo), not `effect-smol` (v4 prerelease).
 </constraint>
 
 <constraint>
@@ -154,5 +154,6 @@ Report: package manager, steps completed vs skipped (with reasons), files create
 
 ## When this skill does NOT apply
 
+- Effect v4 setup or a repository already resolved to Effect 4.x — unsupported in this release; do not install v3 over it.
 - The repo already uses Effect and you're writing code — use **`effect-ts-specialist`**.
 - Migrating an existing Fastify/Next/React app — use **`effect-ts-port`** (it runs setup detection as its phase 0).

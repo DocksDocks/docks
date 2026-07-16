@@ -43,7 +43,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `plugins/session-relay/AGENTS.md` | the relay plugin — layout, binary-release discipline, its CI gates |
-| `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x version-pinned conventions |
+| `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x plus version-gated Effect v4 conventions |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 

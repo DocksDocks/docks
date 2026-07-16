@@ -1,11 +1,11 @@
 ---
 name: effect-ts-specialist
-description: "Use when writing or reviewing Effect-TS (`effect` 3.x) — services & layers (`Context.Tag`/`Effect.Service`, DI for a hard-coded SDK), tagged errors, `effect/Schema` data modeling (`Schema.brand` IDs, validating external input/env), `Config`, `ManagedRuntime`, `Scope` resources, `@effect/vitest` testing (`TestClock`, mock service layers), `@effect/language-service` diagnostics. Not for porting a Fastify/Next/React app (use effect-ts-port) or first-time repo bootstrap (use effect-ts-setup)."
+description: "Use when writing or reviewing Effect 3.x code — services and layers (`Context.Tag`/`Effect.Service`), tagged errors, `effect/Schema` data modeling, `Config`, `ManagedRuntime`, scoped resources, `@effect/vitest`, and `@effect/language-service` diagnostics. Not for Effect v4 (use effect-v4), Fastify/Next/React porting (use effect-ts-port), or first-time setup (use effect-ts-setup)."
 user-invocable: false
 metadata:
   pattern: patterns-reference
-  updated: "2026-07-05"
-  content_hash: "61ae9d86c3c9c4e16de7b5c71aa36b1c79e65abe9cbd54a4281567076f0f76f6"
+  updated: "2026-07-15"
+  content_hash: "776d4387c4bfd12d1a4407f9e187d80747df76938abb003119fcfa3d2f853b48"
 ---
 
 # Effect-TS Specialist (idiomatic Effect 3.x)
@@ -13,7 +13,7 @@ metadata:
 Effect rewards a small set of idioms and punishes guessing — the type-level error and requirement channels mean a wrong pattern shows up as a confusing `R`/`E` mismatch, not a runtime bug. This skill is the decision layer: which idiom to reach for, and the two or three mistakes that cost the most. Depth per topic lives in `references/`.
 
 <constraint>
-Never guess an Effect API from memory — the surface is large and moves between minor versions. Target **Effect 3.x stable** (the `effect` package). `Schema` is imported from **`effect/Schema`**, never the deprecated `@effect/schema` (folded into core in 3.10). Before writing an unfamiliar combinator, verify it: `bunx effect-solutions@latest show <topic>`, context7 (`resolve-library-id effect` → `query-docs`), or grep a cloned `effect` source tree. A wrong API shape is worse than asking.
+Never guess an Effect API from memory — the surface is large and moves between minor versions. Target **Effect 3.x stable** (the `effect` package). Before version-specific code, inspect `package.json` and the lockfile; if they resolve Effect 4.x, stop and use **`effect-v4`**. `Schema` is imported from **`effect/Schema`**, never the deprecated `@effect/schema` (folded into core in 3.10). Verify unfamiliar combinators against installed source or current documentation. A wrong API shape is worse than asking.
 </constraint>
 
 <constraint>
@@ -129,5 +129,6 @@ Install the **`@effect/language-service`** tsconfig plugin (the `effect-ts-setup
 
 ## When this skill does NOT apply
 
+- Writing or reviewing Effect v4 code, or a project whose lockfile resolves `effect` 4.x — use **`effect-v4`**.
 - Migrating an existing Fastify / Next.js / React codebase to Effect — use **`effect-ts-port`** (detect → plan → migrate).
 - Bootstrapping `effect` deps, tsconfig, and the language service in a fresh repo — use **`effect-ts-setup`**.
