@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Publish verified Session Relay assets, install them through docks-kit, and replace plugin-bundled executables with a stable CLI launcher.
 status: planned
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-16T04:35:20-03:00"
+updated: "2026-07-16T04:42:00-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -100,6 +100,8 @@ SHA256SUMS
 
 The Rust CLI must support `session-relay --version` and print `session-relay <semver>`. The Cargo package version stays synchronized with the Session Relay plugin manifest version during `scripts/release.mjs`.
 
+Every ordinary `docks-kit sync` that targets Claude or Codex must ensure the pinned Session Relay CLI before installing, refreshing, or enabling the Session Relay plugin. The ensure path maps the host OS and architecture to one of the four release targets, downloads the matching executable and `SHA256SUMS`, verifies the digest and exact version, atomically installs it, then proceeds with plugin configuration. An unsupported platform, failed download, checksum mismatch, version mismatch, or replacement failure aborts that sync path clearly; it may not report success with a plugin whose CLI is missing or stale.
+
 ### Plugin launcher resolution
 
 `plugins/session-relay/bin/relay` resolves in this order:
@@ -121,7 +123,7 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Dispatch the separate `DocksDocks/public` installer implementation through the currently working embedded Session Relay binary under its own reviewed plan; collect a clean committed handback before deleting any embedded binary. | `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-installation.md` (external companion plan; modified only by its plan-manager), Session Relay lifecycle/handback records (external state) | — | planned | The worker is launched with explicit Codex Standard tier, creates and starts its repository-local plan, freezes failing installer tests, commits a clean implementation, hands back, and is collected before Docks Step 3 begins. |
+| 1 | Dispatch the separate `DocksDocks/public` installer implementation through the currently working embedded Session Relay binary under its own reviewed plan; collect a clean committed handback before deleting any embedded binary. | `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-installation.md` (external companion plan; modified only by its plan-manager), Session Relay lifecycle/handback records (external state) | — | planned | The worker is launched with explicit Codex Standard tier, creates and starts its repository-local plan, freezes failing installer tests, proves every Claude/Codex `docks-kit sync` auto-ensures the correct precompiled host CLI before Session Relay plugin configuration, commits a clean implementation, hands back, and is collected before Docks Step 3 begins. |
 | 2 | Add frozen Docks distribution-contract tests before production changes and capture their failure against the embedded-binary design. | `plugins/session-relay/test/distribution-contract.mjs`, `plugins/session-relay/test/selftest.mjs` | 1 | planned | The new tests fail for missing external resolution, version output, release-asset publication, post-bump CI ordering, explicit fresh self-test binary, cross-repo contract receipt, or obsolete committed-binary assumptions; the failing output is recorded before production edits. |
 | 3 | Make the Rust CLI and plugin launcher expose the stable external CLI contract, then remove committed platform executables and their in-plugin checksum file. | `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/bin/relay`, `plugins/session-relay/bin/SHA256SUMS`, `plugins/session-relay/bin/relay-*`, `plugins/session-relay/test/selftest.mjs` | 1, 2 | planned | `--version` reports the Cargo version; launcher tests prove resolution order, recursion rejection, and actionable failure; self-test requires `SESSION_RELAY_TEST_BIN` and fails rather than skips when absent; `git ls-files plugins/session-relay/bin` lists only the launcher. |
 | 4 | Convert binary production to tag-gated GitHub Release assets with least-privilege permissions and same-run artifact provenance. | `.github/workflows/build-binaries.yml`, `.github/workflows/ci.yml`, `.github/AGENTS.md`, `plugins/session-relay/AGENTS.md` | 2 | planned | Workflow contract tests prove all four stable asset names, checksum generation, validation dependency, tag restriction, pinned actions, and publisher-only write permission. |
@@ -169,6 +171,7 @@ The binary builder is reusable by tag CI and manual dispatch. On `session-relay-
 - Run `node scripts/ci.mjs` before any commit.
 - Do not release or modify generated release binaries unless explicitly asked for a release.
 - User installation must not require a Rust compiler.
+- `docks-kit sync` must automatically install or update the verified precompiled Session Relay CLI for the current supported OS/architecture whenever it installs or refreshes the Session Relay plugin.
 - Every downloaded executable must be checksummed before installation and smoke-tested before replacing an existing executable.
 - The stable installed command is `session-relay`; the plugin-internal compatibility launcher remains `plugins/session-relay/bin/relay`.
 - Supported release targets are exactly `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `x86_64-apple-darwin`, and `aarch64-apple-darwin`.
