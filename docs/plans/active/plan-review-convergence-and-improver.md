@@ -3,7 +3,7 @@ title: Bound plan review and add a plan improver
 goal: Make Docks plan review converge within five total rounds using evidence-backed blocking findings and a separate accepted-finding repair skill.
 status: planned
 created: "2026-07-16T14:47:44-03:00"
-updated: "2026-07-16T14:47:44-03:00"
+updated: "2026-07-16T15:00:06-03:00"
 started_at: null
 assignee: codex
 review_author_company: openai
@@ -94,8 +94,8 @@ reviews, not a renewable per-batch allowance.
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Write failing schema, prompt, eligibility, convergence, compatibility, and surface-sync tests. Pin historical v1-v3 behavior, then specify new policy v4 / record schema 3 behavior: exact weighted rubric sum, finding priority/confidence/blocking/requirement fields, full versus repair review identity, five-round lifetime cap, no continuation batch, and exact reviewer prompt criteria. Add mutation regressions for every new fail-closed branch. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | planned | The focused test commands fail only because policy v4, schema 3, convergence validation, and the new prompt/surfaces do not exist; the test diff is frozen before Step 2. |
-| 2 | Implement versioned executable review contracts without changing historical meanings. Add policy v4 and outer record schema 3; schema-3 requests bind `review_mode: full\|repair`, one-based `round_index`, nullable prior-input identity, and accepted repair-target identity. Schema-3 reviewer output retains verdict and score but requires weighted rubric subscores whose exact sum equals score. Findings add integer priority 0..3, confidence 0..1, `blocking`, and a non-empty requirement/contract attribution. Enforce `not_ready` iff at least one blocking finding exists; ready results may carry non-blocking findings. Add a closed review-series validator requiring round 1 full, later rounds repair, contiguous indices, changed input after accepted repairs, and total rounds no greater than policy `max_rounds`. Generate and verify v3 reviewer schema files in sealed bundles. Build a full reviewer prompt carrying the burden-of-proof, proportionality, scope, finding-limit, rubric, and repair-mode rules. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` | 1 | planned | Frozen schema/legs/bundle/regression tests pass. Existing schema-1 and schema-2 fixtures and receipts still validate byte-for-byte under their original policy semantics. |
+| 1 | Write failing schema, prompt, eligibility, convergence, compatibility, and surface-sync tests. Pin historical v1-v3 behavior, then specify new policy v4 / record schema 3 behavior: exact weighted rubric sum, finding priority/confidence/blocking/requirement fields, full versus repair review identity, five-round lifetime cap, no continuation batch, exact reviewer prompt criteria, and API-valid JSON Schemas whose `const`/`enum` properties carry explicit matching `type` declarations. Add mutation regressions for every new fail-closed branch. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | planned | The focused test commands fail only because policy v4, schema 3, convergence validation, API-valid typed schema declarations, and the new prompt/surfaces do not exist; the test diff is frozen before Step 2. |
+| 2 | Implement versioned executable review contracts without changing historical meanings. Add policy v4 and outer record schema 3; schema-3 requests bind `review_mode: full\|repair`, one-based `round_index`, nullable prior-input identity, and accepted repair-target identity. Schema-3 reviewer output retains verdict and score but requires weighted rubric subscores whose exact sum equals score. Findings add integer priority 0..3, confidence 0..1, `blocking`, and a non-empty requirement/contract attribution. Enforce `not_ready` iff at least one blocking finding exists; ready results may carry non-blocking findings. Add a closed review-series validator requiring round 1 full, later rounds repair, contiguous indices, changed input after accepted repairs, and total rounds no greater than policy `max_rounds`. Generate and verify v3 reviewer schema files in sealed bundles. Make every generated reviewer schema accepted by the current Codex structured-output API by pairing each `const` and `enum` with an explicit JSON Schema `type`, without changing accepted historical payloads. Build a full reviewer prompt carrying the burden-of-proof, proportionality, scope, finding-limit, rubric, and repair-mode rules. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` | 1 | planned | Frozen schema/legs/bundle/regression tests pass, and a direct current Codex reviewer launch no longer fails with `invalid_json_schema`. Existing schema-1 and schema-2 fixtures and receipts still validate byte-for-byte under their original policy semantics. |
 | 3 | Add the internal `plan-improver` skill and route repairs through it. The skill accepts the literal request, current canonical plan, exact accepted finding set, and current round identity; it returns a minimal section-level patch or a typed cannot-repair handback. It cannot review, accept/reject findings, add unrelated policy, write receipts, change lifecycle state, or expand beyond the request. Plan-manager applies the patch as sole writer, re-runs canonical validation, commits the repaired plan, and prepares the next repair request. | `plugins/docks/skills/productivity/plan-improver/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md` | 2 | planned | The new skill validates and scores at least 14/16; surface tests prove review and improvement ownership remain separate and plan-manager remains the sole writer. |
 | 4 | Synchronize the consumer contract, dated defaults, wrappers, and scaffolded copies. Change newly resolved default `max_rounds` from 3 to 5. Define it as the policy-v4 lifetime cap and remove the continuation-batch question only for new policy. Preserve prose describing historical v1-v3 verification. Update plan-init's current marker so stale contracts are offered an explicit refresh. Ensure live and generated Claude/Codex wrappers load the canonical reviewer/improver ownership boundaries without gaining writer authority in plan-review. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md`; `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md`; `plugins/docks/agents/plan-manager.md`; `plugins/docks/agents/plan-review.md`; `.codex/agents/plan-manager.toml`; `.codex/agents/plan-review.toml`; `docs/scaffold/templates/codex-plan-manager.toml.template`; `docs/scaffold/templates/codex-plan-review.toml.template`; `docs/scaffold/templates/root-AGENTS.md.template` | 3 | planned | Surface tests prove exact contract/template/default parity, historical language remains explicit, the current marker detects the convergence contract, and every generated wrapper preserves main-context ownership. |
 | 5 | Refresh changed skill metadata/content hashes, run the narrow-to-broad verification ladder, inspect the final diff, and complete the plan lifecycle. | Changed `SKILL.md` frontmatter; this plan only for lifecycle/receipt writes | 4 | planned | All acceptance rows pass, `node scripts/ci.mjs --plugin docks` and full `node scripts/ci.mjs` exit 0, `git diff --check` is empty, and completion review derives `review_status: passed`. |
@@ -167,6 +167,12 @@ ReviewSeriesV3 = {
 }
 ```
 
+All generated schema versions use explicit types for constrained scalar
+properties, for example `{"type":"string","const":"S"}` and
+`{"type":"string","enum":["ready","not_ready"]}`. This changes only the JSON
+Schema declaration accepted by current structured-output APIs; it does not add,
+remove, or reinterpret any historical payload field.
+
 For schema 3, `repair_targets_sha256` is SHA-256 over JCS of the sorted accepted
 finding IDs plus their exact reproduced defect/fix evidence. Full review uses
 both nullable repair fields as `null`. Repair review requires both fields,
@@ -191,9 +197,9 @@ Claude argv builders. It must state:
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node scripts/tests/plan-review-policy.mjs --case schemas` | Exits 0 and proves policy v4 / record schema 3 are closed, rubric sums are exact, finding blocking semantics fail closed, new requests bind full/repair identity, and historical schemas remain valid. |
+| A1 | `node scripts/tests/plan-review-policy.mjs --case schemas` | Exits 0 and proves policy v4 / record schema 3 are closed, rubric sums are exact, finding blocking semantics fail closed, new requests bind full/repair identity, every generated constrained scalar has an explicit matching type, and historical payload schemas remain valid. |
 | A2 | `node scripts/tests/plan-review-policy.mjs --case legs` | Exits 0 and proves schema-3 eligibility distinguishes blocking from follow-up findings while preserving historical ready/score behavior. |
-| A3 | `node scripts/tests/plan-review-policy.mjs --case bundle` | Exits 0 and proves sealed bundles contain and verify exact X/S v1, v2, and v3 reviewer schemas without weakening bundle mutation checks. |
+| A3 | `node scripts/tests/plan-review-policy.mjs --case bundle` | Exits 0 and proves sealed bundles contain and verify exact API-valid X/S v1, v2, and v3 reviewer schemas without weakening bundle mutation checks. |
 | A4 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0 and proves the live contract, plan-init template, manager/reviewer/improver skills, wrappers, scaffold templates, five-round default, and no-continuation semantics agree. |
 | A5 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0 and reports mutation regressions passed for rubric-sum, blocking/verdict, repair identity, lifetime cap, prompt burden-of-proof, and historical compatibility branches. |
 | A6 | `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs validate plugins/docks/skills/productivity/plan-improver && node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file \| grep 'productivity/plan-improver'` | Validation exits 0 and the new internal skill scores at least 14. |
@@ -227,6 +233,9 @@ Claude argv builders. It must state:
 - Existing regression tests mutate exact source strings. Production edits must
   add corresponding mutation cases rather than weakening the driver when a
   target string changes.
+- Codex CLI 0.144.4 rejects a structured-output schema when a `const` property
+  omits `type` (`invalid_json_schema` at `properties.leg`). Preserve payload
+  compatibility while making every emitted schema declaration API-valid.
 - Skill meaning changes require `metadata.updated: "2026-07-16"` and refreshed
   content hashes. Bundled skill scripts are outside the content hash but still
   require an updated date when their behavior changes.
@@ -292,6 +301,15 @@ line anchors will move; goal coverage 12/12; executable acceptance 12/12;
 failure mode 10/10; assumption-to-question 5/6 because bundle-manifest
 versioning is intentionally left to the smallest compatible implementation
 that satisfies the fixed observable contract.
+
+Cross-check (2026-07-16): [X: anthropic fable high] unavailable because the
+installed Claude CLI reports `loggedIn:false`; [S: openai gpt-5.6-sol high
+default] unavailable because current Codex rejects the generated schema with
+`invalid_json_schema` at `properties.leg`; [codex orchestrator] reproduced the
+schema defect from the sealed bundle and added explicit typed constrained
+scalars to Steps 1-2 and A1/A3. Zero-reviewer continuation is the user's
+standing authorized run-to-completion choice, recorded canonically after this
+repaired plan is resealed.
 
 ## Review
 
