@@ -849,6 +849,16 @@ function testSchemas() {
     rounds: [completionSeriesRound],
     repairs: [],
   });
+  expectThrow('schema-3 review series rejects an invalid initial run kind', () => validateReviewSeries({
+    ...series,
+    current_input_sha256: reqV3.input_sha256,
+    rounds: [{ ...roundOne, kind: 'invalid' }],
+    repairs: [],
+  }), /review series run kind/);
+  expectThrow('schema-3 review series rejects run kind drift', () => validateReviewSeries({
+    ...series,
+    rounds: [roundOne, { ...roundTwo, kind: 'completion' }],
+  }), /review series run kind drift/);
   expectThrow('schema-3 review series requires repair after round one', () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, review_mode: 'full', previous_input_sha256: null, repair_targets_sha256: null } }] }), /repair|round/);
   expectThrow('schema-3 review series requires contiguous rounds', () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, round_index: 3 } }] }), /contiguous|round/);
   const sixRounds = Array.from({ length: 6 }, (_, index) => {

@@ -436,6 +436,16 @@ const REGRESSIONS = [
     "if (series.rounds.length > policy.max_rounds) throw new Error('review series exceeds lifetime max_rounds');",
     "if (series.rounds.length > policy.max_rounds + 1) throw new Error('review series exceeds lifetime max_rounds');",
   )],
+  ['schema-3 initial run-kind regression', ['--case', 'schemas'], /review series run kind|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "oneOf(kind, new Set(['draft', 'completion']), 'review series run kind');",
+    'void kind;',
+  )],
+  ['schema-3 run-kind drift regression', ['--case', 'schemas'], /review series run kind drift|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (round.kind !== kind) throw new Error('review series run kind drift');",
+    "if (false) throw new Error('review series run kind drift');",
+  )],
   ['schema-3 reviewer burden-of-proof regression', ['--case', 'legs'], /provable, actionable, unintentional defects|prompt missing|Assertion/i, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     'Report only provable, actionable, unintentional defects',
