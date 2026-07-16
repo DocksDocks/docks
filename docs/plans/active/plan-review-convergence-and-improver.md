@@ -3,7 +3,7 @@ title: Bound plan review and add a plan improver
 goal: Make Docks plan review converge within five total rounds using evidence-backed blocking findings and a separate accepted-finding repair skill.
 status: in_review
 created: "2026-07-16T14:47:44-03:00"
-updated: "2026-07-16T17:37:04-03:00"
+updated: "2026-07-16T18:41:18-03:00"
 started_at: "2026-07-16T15:13:44-03:00"
 in_review_since: "2026-07-16T15:56:31-03:00"
 assignee: codex
@@ -454,6 +454,20 @@ Main context reproduced them with evidence SHA-256 values
 and `22435e76d2349390598f101a08089e19bda7fca755f0dfb0d2212551f509dbdf`.
 Plan-improver scope is exactly those five ids; no unrelated plan section may
 change.
+
+Continuation review (2026-07-16): main-context plan-manager recovered the exact
+prior S output and reproductions, built a helper-verified repair request over
+only S1-S5 (`9bfe415e-19cd-45e6-ac88-69fe5953ba10`), and sealed bundle
+`124bd210aa71a336c6fc6de0bf16718559a1f0a60b80875675d5b0ceca771ca3`.
+The authorized OMP fresh-context X wrapper failed before reviewer contact with
+`404 model: claude-opus-4-0`; this is wrapper model unavailability, not reviewer
+evidence. OMP could not supply the request's CLI-only, explicit Standard-tier S
+transport, and the prior elevated Codex CLI retry remains authoritatively
+`platform_denied` as a private-repository export. No denied transport was
+retried, Session Relay was not used, and zero reviewer legs passed. Completion
+policy therefore forbids `review_status: passed`. The unused sealed bundle was
+removed through `destroy-bundle` with its expected hash. Keep this plan
+`in_review`; do not begin the dependent Session Relay plan or release Docks.
 
 The follow-on plan for Session Relay will cover correlated `reply_to` /
 `correlation_id`, `send --await`, `relay wait`, explicit delivery outcomes, and
