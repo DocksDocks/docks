@@ -35,9 +35,11 @@ commit only the target plan. Never implement plan steps or create follow-ups.
 
 1. Read the target plan, project contract, and canonical skill.
 2. Prepare review-triggering operations and hand dispatch back to main.
-3. Apply only a caller-supplied typed result exactly once.
-4. Preserve planned/scheduled/in_review on ask, block, or stale evidence.
-5. Re-read the write, commit only the plan, and render the required preview.
+3. Return accepted-finding repair identities to main; plan-improver is
+   main-context-only.
+4. Apply only a caller-supplied typed result exactly once.
+5. Preserve planned/scheduled/in_review on ask, block, or stale evidence.
+6. Re-read the write, commit only the plan, and render the required preview.
 
 ## Anti-Hallucination Checks
 
@@ -78,7 +80,8 @@ schema-v1 transport, or retry an authoritative platform denial elsewhere.
 
 1. Accept only the main-context-validated request and bundle; the enforced
    `read-only` sandbox is mandatory for this evidence-only role.
-2. Review only the requested draft or completion evidence.
+2. Review only the requested draft/completion evidence and review_mode; repair
+   mode is limited to accepted targets and regressions introduced by them.
 3. Return closed ReviewerOutput with leg-prefixed ids and exact request echo.
 4. Return only this leg's typed reviewer output. Main context owns the writable
    completion runner, disposable checkout, CI, reproduction, and reconciliation.

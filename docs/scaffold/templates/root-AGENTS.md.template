@@ -33,7 +33,7 @@ The `context-tree` skill maintains these nodes; `scripts/tree/guard.mjs` enforce
 
 ## Codex plan agents
 
-`.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` are repo-local Codex wrappers around the matching `plan-*` skills. They are not plugin payload and stay thin. Main-context plan-manager is the sole public reviewer dispatcher/reconciler/writer. Its wrapper performs only typed `prepare(intent)` or `apply`; the plan-review wrapper returns read-only evidence only. Review dispatch always returns to main context.
+`.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` are repo-local Codex wrappers around the matching `plan-*` skills. They are not plugin payload and stay thin. Main-context plan-manager is the sole public reviewer dispatcher/reconciler/writer and the only context that may route accepted findings through plan-improver. Its wrapper performs only typed `prepare(intent)` or `apply`; the plan-review wrapper returns read-only evidence only. Review dispatch always returns to main context.
 
 ## Tool-agnostic rules
 

@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "aa11e838a4f1657eefa480415a63742c89f525293bf31a8138c2e903c06ab480"
+  content_hash: "9062965806bf36bc0e53142231aab86473b5dfcf4a3791f92932e93bc5abdf99"
 ---
 
 # Plan Review Evidence Runner
@@ -33,16 +33,23 @@ bundle, schema, hashing, and validation implementation.
 
 ```text
 ReviewRequestEnvelope = {
-  schema: 1|2, request_id: uuid, phase: draft|completion,
+  schema: 1|2|3, request_id: uuid, phase: draft|completion,
   lifecycle_intent: none|start|schedule_fire|auto_execute,
   reviewed_commit_or_head: 40hex,
   planned_at_commit: null|40hex, execution_base_commit: null|40hex,
   diff_sha256: null|64hex, acceptance_inventory_sha256: null|64hex,
   input_sha256: 64hex, bundle_sha256: 64hex,
   author: {company:openai|anthropic,tool,model,effort},
-  policy: ResolvedReviewPolicy, policy_sha256: 64hex
+  policy: ResolvedReviewPolicy, policy_sha256: 64hex,
+  review_mode: full|repair, round_index: 1..10,
+  previous_input_sha256: null|64hex,
+  repair_targets_sha256: null|64hex
 }
 ```
+
+The final four fields exist only in schema 3. Full review is round 1 with both
+hashes null. Repair review is a later round and binds the changed input to the
+previous input plus the exact accepted repair-target digest.
 
 The helper must revalidate the complete envelope and policy before launch.
 Policy provenance is closed to `current_user | runtime_global | skill_default`.
@@ -55,7 +62,10 @@ service-tier-aware work uses schema-2 envelopes with closed policy v3; its
 attempts, raw legs, reviewer outputs, runs, and receipts are schema 2 as well.
 Policy v2 adds strict integer `minimum_score` 0..100 and `max_rounds` 1..10;
 policy v3 additionally requires `service_tier: default|fast` on every OpenAI
-tier and permits only direct CLI transport for those tiers.
+tier and permits only direct CLI transport for those tiers. Policy v4 uses
+schema-3 envelopes and adds `review_mode`, round identity, weighted rubric,
+blocking attribution, and a lifetime cap. Historical policy v1-v3 retain their
+persisted meanings.
 plan-manager supplies the resolved values from current-user instructions, one
 deduplicated `Docks-workflow-models:` record, or dated defaults. The named
 orchestrator profile is `profile:claude-best`; plan-review receives only its
@@ -82,8 +92,9 @@ After plan-manager commits the non-executing input, use the helper to:
 2. Export sorted `affected_paths` at the immutable commit/head into
    `/tmp/docks-plan-review/<request_id>/`; absent CREATE/deleted paths are
    explicit tombstones. Symlinks are target bytes, never followed.
-3. Add distinct generated X and S reviewer JSON Schemas for historical schema 1
-   and current schema 2 plus a manifest without a bundle hash; each launch
+3. Add distinct generated X and S reviewer JSON Schemas for historical schema 1,
+   service-tier schema 2, and convergence schema 3 plus a manifest without a
+   bundle hash; each launch
    selects its exact leg/version schema path. Never export the
    raw source plan through `affected_paths`; only canonical `plan.review.md` is
    reviewer-visible. Completion also seals canonical binary `completion.diff`
@@ -100,7 +111,7 @@ with the path and hash from the current request. The helper verifies the sealed
 bundle before restoring owner-write permissions and removing only that bundle;
 X/S reviewers never perform cleanup.
 
-Return `NeedsMainReviewDispatch = { schema:1|2, request, bundle_path,
+Return `NeedsMainReviewDispatch = { schema:1|2|3, request, bundle_path,
 reviewer_schema_path, X_dispatch, S_dispatch }`. A manager subagent returns this
 to main context; it never launches the collector itself.
 
@@ -125,7 +136,7 @@ Codex CLI argv:
 codex exec -C <bundle> --skip-git-repo-check -s read-only
   -m <model> -c model_reasoning_effort=<effort>
   -c service_tier="default"
-  --output-schema <bundle>/reviewer-output.<X|S>[.v2].schema.json -- <prompt>
+  --output-schema <bundle>/reviewer-output.<X|S>[.v2|.v3].schema.json -- <prompt>
 ```
 
 For Fast, replace the Standard tier override with both
@@ -148,7 +159,7 @@ ETIMEDOUT.
 
 Availability preflight is `codex login status` or `claude auth status` after
 binary lookup. Model availability is attempt-as-probe through the ordered tier.
-One review attempt operation means one sealed X-then-S round. Under policy v2,
+One review attempt operation means one sealed X-then-S round. Under policy v2-v4,
 attempt each candidate at most once in that operation and advance only
 after structured or version-pinned evidence of a candidate-specific unknown,
 retired, entitlement, explicit model-quota, or terminal model-unavailability
@@ -164,7 +175,7 @@ Historical policy v1 retains one transient retry per leg, not per tier. It
 repeats the same model/transport only after an execution-layer typed, pre-output
 `EAGAIN`, `ETIMEDOUT`, or `ECONNRESET`. Strings, output-started errors,
 deadline expiry, signals, nonzero exits, and schema errors never retry.
-Policy-v1 attempts remain bounded by `eligible_tier_count + 1`; policy-v2
+Policy-v1 attempts remain bounded by `eligible_tier_count + 1`; policy-v2-v4
 attempts are bounded by `eligible_tier_count`.
 
 Classify in order: matching waiver → `waived`; X consent denied →
@@ -176,10 +187,16 @@ Classify in order: matching waiver → `waived`; X consent denied →
 Each raw leg returns exact request, ordered attempts, selected tier or null,
 typed result, schema-valid findings or none, hashes/severity totals, matching
 waiver or null, prompted decision or null, and reason. A passed leg also retains
-the exact structured reviewer verdict, score, confirmations, and SHA-256 of the
-full JCS `ReviewerOutput`; the helper reconstructs and validates that object.
+the exact structured reviewer verdict, score, confirmations, rubric when
+present, and SHA-256 of the full JCS `ReviewerOutput`; the helper reconstructs
+and validates that object.
 For policy v1, `not_ready` is pre-execution-ineligible. For policy v2, a passed
-leg is eligible only when `verdict=ready` and `score >= minimum_score`. IDs
+leg is eligible only when `verdict=ready` and `score >= minimum_score`. Policy
+v4 additionally requires exact rubric-sum equality and derives `not_ready`
+exactly from at least one blocking finding. A blocking finding names the user
+requirement, safety property, or execution step that would fail; low-confidence
+or priority 2/3 findings are non-blocking. Findings must be provable,
+actionable, unintentional, assumption-free, and proportionate. IDs
 are unique and leg-prefixed (`X1…`, `S1…`). Never construct reconciliation
 here.
 
@@ -197,14 +214,16 @@ In writable main context, independently reproduce each schema-valid finding:
 Return closed `DraftRunResult` with request, X, S, reproduced findings, prompted
 decision evidence or null, `outcome=dual|single|zero_degraded|blocked`, and
 `pre_execution_eligible`. One passed leg permits `single`; zero passed delegates
-to the separately resolved zero-review decision. This is one round of evidence:
-plan-manager dispatches X then S without sharing reviewer output, owns repairs,
-and runs at most the resolved `max_rounds` in one authorized batch. After that
-cap it asks exactly `Run up to <max_rounds> more rounds` or
-`Stop and keep the plan planned`, substituting the resolved integer for
-`<max_rounds>` and using the runtime-native picker. A low-score `ready` result
-without a finding still consumes the round and requires a fresh request. This
-skill does not apply the intent.
+to the separately resolved zero-review decision. This is one round of evidence.
+Plan-manager dispatches X then S without sharing reviewer output and owns
+reconciliation. Policy v4 starts with `review_mode: full`; after plan-manager
+applies accepted findings through plan-improver, later requests use
+`review_mode: repair`, `previous_input_sha256`, and `repair_targets_sha256`.
+The review series has one resolved `max_rounds` lifetime cap (dated default 5)
+and returns `convergence-exhausted` at the cap instead of offering another
+batch. Historical policy v1-v3 verification retains its original receipt
+semantics. A low-score `ready` result without a finding still consumes the round
+and requires a fresh request. This skill does not apply the intent.
 
 ## Docks-only legacy compatibility evidence
 
@@ -306,6 +325,15 @@ match the receipt.
 ```text
 { schema:1|2, leg:X|S, request:<exact envelope>, verdict:ready|not_ready,
   score:0..100, findings:[{id,severity,section,path,locator,defect,fix,evidence}],
+  confirmations:[non-empty string] }
+
+{ schema:3, leg:X|S, request:<exact envelope>, verdict:ready|not_ready,
+  score:<exact rubric sum>,
+  rubric:{standalone_executability,actionability,dependency_order,
+          evidence_reverify,goal_coverage,executable_acceptance,
+          failure_mode,assumption_to_question},
+  findings:[{id,severity,section,path,locator,defect,fix,evidence,
+             priority,confidence,blocking,requirement}],
   confirmations:[non-empty string] }
 ```
 

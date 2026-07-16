@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import * as reviewPolicy from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 import {
   acceptanceInventory, applyCompletionReviewBlock, applyLifecycleState,
   buildExecutionBaseCompatibilityApplication, buildImplementerRelayArgv, buildReviewerArgv,
@@ -56,6 +57,17 @@ const POLICY_V3 = {
   anthropic_tiers: [{ model: 'fable', effort: 'high', transports: ['in_session', 'cli'] }],
   provenance: { cross_company_consent: 'runtime_global', zero_reviewer_policy: 'skill_default', orchestrator_preference: 'skill_default', minimum_score: 'runtime_global', max_rounds: 'runtime_global', openai_tiers: 'runtime_global', anthropic_tiers: 'runtime_global' },
 };
+const POLICY_V4 = {
+  schema: 4,
+  cross_company_consent: 'always',
+  zero_reviewer_policy: 'ask',
+  orchestrator_preference: 'auto',
+  minimum_score: 90,
+  max_rounds: 5,
+  openai_tiers: [{ model: 'gpt-5.6-sol', effort: 'high', service_tier: 'default', transports: ['cli'] }],
+  anthropic_tiers: [{ model: 'fable', effort: 'high', transports: ['in_session', 'cli'] }],
+  provenance: { cross_company_consent: 'runtime_global', zero_reviewer_policy: 'skill_default', orchestrator_preference: 'skill_default', minimum_score: 'runtime_global', max_rounds: 'skill_default', openai_tiers: 'runtime_global', anthropic_tiers: 'runtime_global' },
+};
 
 function request(overrides = {}) {
   const policy = overrides.policy || POLICY;
@@ -101,6 +113,45 @@ function rawAuth(req, leg) {
 }
 function persisted(raw, accepted = []) {
   return { request: raw.request, raw, reconciliation: { accepted, rejected: raw.findings.filter((finding) => !accepted.includes(finding.id)).map((finding) => ({ id: finding.id, reason: 'not accepted in fixture' })) } };
+}
+function requestV3(overrides = {}) {
+  const policy = overrides.policy || POLICY_V4;
+  return request({
+    schema: 3,
+    policy,
+    policy_sha256: sha256(jcs(policy)),
+    review_mode: 'full',
+    round_index: 1,
+    previous_input_sha256: null,
+    repair_targets_sha256: null,
+    ...overrides,
+  });
+}
+function unavailableV3(req, leg) {
+  return {
+    schema: 3, leg, request: req, result: 'unavailable_auth', attempts: [], selected: null, reviewer_output: null,
+    findings: [], findings_sha256: null, severity_totals: { high: 0, medium: 0, low: 0 },
+    waiver: null, waiver_sha256: null, decision_evidence: null, reason: 'authentication unavailable',
+  };
+}
+function draftRunV3(req) {
+  return {
+    schema: 3, kind: 'draft', request: req, X: unavailableV3(req, 'X'), S: unavailableV3(req, 'S'),
+    reproduced: [], decision_evidence: zeroDecision(req, 'proceed'), outcome: 'zero_degraded', pre_execution_eligible: true,
+  };
+}
+function assertConstrainedScalarsTyped(schema, label = '$') {
+  if (!schema || typeof schema !== 'object') return;
+  if (Object.hasOwn(schema, 'const')) assert.ok(Object.hasOwn(schema, 'type'), `${label} const requires type`);
+  if (Object.hasOwn(schema, 'enum')) assert.ok(Object.hasOwn(schema, 'type'), `${label} enum requires type`);
+  for (const [key, value] of Object.entries(schema)) {
+    if (Array.isArray(value)) value.forEach((item, index) => assertConstrainedScalarsTyped(item, `${label}.${key}[${index}]`));
+    else if (value && typeof value === 'object') assertConstrainedScalarsTyped(value, `${label}.${key}`);
+  }
+}
+function validateReviewSeries(series) {
+  assert.equal(typeof reviewPolicy.validateReviewSeries, 'function', 'review-series validator must be exported');
+  return reviewPolicy.validateReviewSeries(series);
 }
 const INVENTORY = acceptanceInventory(fs.readFileSync(FIXTURE));
 function primaryEvidence(inventory = INVENTORY) {
@@ -635,6 +686,7 @@ function testCanonical() {
 function testSchemas() {
   validatePolicy(POLICY);
   validatePolicy(POLICY_V2);
+  validatePolicy(POLICY_V4);
   validatePolicy({ ...POLICY_V2, minimum_score: 0, max_rounds: 1 });
   validatePolicy({ ...POLICY_V2, minimum_score: 100, max_rounds: 10 });
   expectThrow('policy v2 minimum score below range', () => validatePolicy({ ...POLICY_V2, minimum_score: -1 }), /minimum_score/);
@@ -647,6 +699,7 @@ function testSchemas() {
   expectThrow('policy v2 rejects duplicate candidates', () => validatePolicy({ ...POLICY_V2, anthropic_tiers: [POLICY_V2.anthropic_tiers[0], { ...POLICY_V2.anthropic_tiers[0], transports: ['cli'] }] }), /duplicate.*candidate|anthropic_tiers/);
   expectThrow('policy v1 remains closed', () => validatePolicy({ ...POLICY, minimum_score: 90 }), /unknown key/);
   expectThrow('policy v2 remains closed', () => validatePolicy({ ...POLICY_V2, unexpected: true }), /unknown key/);
+  expectThrow('policy v4 remains closed', () => validatePolicy({ ...POLICY_V4, continuation_batches: true }), /unknown key/);
   const missingV2Provenance = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance } }; delete missingV2Provenance.provenance.minimum_score;
   expectThrow('policy v2 requires score provenance', () => validatePolicy(missingV2Provenance), /missing minimum_score/);
   const req = request(); validateRequest(req);
@@ -662,6 +715,82 @@ function testSchemas() {
   assert.equal(policySchemas.find((schema) => schema.properties.schema.const === 2).properties.minimum_score.maximum, 100);
   assert.equal(policySchemas.find((schema) => schema.properties.schema.const === 2).properties.max_rounds.maximum, 10);
   assert.equal(reviewerSchema('X').properties.request.properties.author.additionalProperties, false);
+  for (const version of [1, 2, 3]) assertConstrainedScalarsTyped(reviewerSchema('X', version), `reviewer schema v${version}`);
+
+  const reqV3 = requestV3();
+  validateRequest(reqV3);
+  const rubric = {
+    standalone_executability: 22,
+    actionability: 16,
+    dependency_order: 12,
+    evidence_reverify: 10,
+    goal_coverage: 12,
+    executable_acceptance: 12,
+    failure_mode: 10,
+    assumption_to_question: 6,
+  };
+  const followup = {
+    id: 'S1', severity: 'low', section: 'Notes', path: null, locator: null,
+    defect: 'Optional wording can be clearer', fix: 'Clarify the sentence', evidence: 'Current plan text',
+    priority: 3, confidence: 1, blocking: false, requirement: 'Non-blocking documentation quality',
+  };
+  const blocking = {
+    ...followup, id: 'S2', severity: 'high', section: 'Acceptance criteria',
+    defect: 'Required behavior has no executable proof', fix: 'Add an exact command and expected result',
+    priority: 0, blocking: true, requirement: 'User-required executable acceptance',
+  };
+  const readyV3 = { schema: 3, leg: 'S', request: reqV3, verdict: 'ready', score: 100, rubric, findings: [followup], confirmations: ['full review completed'] };
+  validateReviewerOutput(readyV3, reqV3, 'S');
+  validateReviewerOutput({ ...readyV3, verdict: 'not_ready', findings: [blocking] }, reqV3, 'S');
+  expectThrow('schema-3 score must equal rubric sum', () => validateReviewerOutput({ ...readyV3, score: 99 }, reqV3, 'S'), /rubric|score|sum/);
+  expectThrow('schema-3 ready cannot carry blocking finding', () => validateReviewerOutput({ ...readyV3, findings: [blocking] }, reqV3, 'S'), /blocking|verdict/);
+  expectThrow('schema-3 not_ready requires blocking finding', () => validateReviewerOutput({ ...readyV3, verdict: 'not_ready' }, reqV3, 'S'), /blocking|verdict/);
+  expectThrow('schema-3 finding priority is closed', () => validateReviewerOutput({ ...readyV3, findings: [{ ...followup, priority: 4 }] }, reqV3, 'S'), /priority/);
+  expectThrow('schema-3 finding confidence is bounded', () => validateReviewerOutput({ ...readyV3, findings: [{ ...followup, confidence: 2 }] }, reqV3, 'S'), /confidence/);
+  expectThrow('schema-3 finding requires attribution', () => validateReviewerOutput({ ...readyV3, findings: [{ ...followup, requirement: '' }] }, reqV3, 'S'), /requirement/);
+  expectThrow('schema-3 full review rejects previous identity', () => validateRequest({ ...reqV3, previous_input_sha256: H0 }), /full|previous|repair/);
+  expectThrow('schema-3 first round must be full', () => validateRequest({ ...reqV3, review_mode: 'repair' }), /round|full|repair/);
+  const repairRequest = requestV3({
+    request_id: '223e4567-e89b-42d3-a456-426614174000',
+    review_mode: 'repair',
+    round_index: 2,
+    input_sha256: '2'.repeat(64),
+    bundle_sha256: '3'.repeat(64),
+    previous_input_sha256: reqV3.input_sha256,
+    repair_targets_sha256: '4'.repeat(64),
+  });
+  validateRequest(repairRequest);
+  expectThrow('schema-3 repair requires changed input', () => validateRequest({ ...repairRequest, input_sha256: repairRequest.previous_input_sha256 }), /changed|input/);
+  expectThrow('schema-3 repair requires targets', () => validateRequest({ ...repairRequest, repair_targets_sha256: null }), /repair.*target|target.*repair/);
+
+  const roundOne = draftRunV3(reqV3);
+  const roundTwo = draftRunV3(repairRequest);
+  const series = {
+    schema: 3,
+    policy_sha256: reqV3.policy_sha256,
+    initial_input_sha256: reqV3.input_sha256,
+    current_input_sha256: repairRequest.input_sha256,
+    rounds: [roundOne, roundTwo],
+  };
+  validateReviewSeries(series);
+  expectThrow('schema-3 review series requires repair after round one', () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, review_mode: 'full', previous_input_sha256: null, repair_targets_sha256: null } }] }), /repair|round/);
+  expectThrow('schema-3 review series requires contiguous rounds', () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, round_index: 3 } }] }), /contiguous|round/);
+  const sixRounds = Array.from({ length: 6 }, (_, index) => {
+    const round = index + 1; const input = String(round).repeat(64); const previous = round === 1 ? null : String(round - 1).repeat(64);
+    return draftRunV3(requestV3({
+      request_id: `00000000-0000-4000-8000-00000000000${round}`,
+      review_mode: round === 1 ? 'full' : 'repair',
+      round_index: round,
+      input_sha256: input,
+      bundle_sha256: String(9 - index).repeat(64),
+      previous_input_sha256: previous,
+      repair_targets_sha256: round === 1 ? null : 'a'.repeat(64),
+    }));
+  });
+  expectThrow('schema-3 review series lifetime cap is not renewable', () => validateReviewSeries({
+    schema: 3, policy_sha256: reqV3.policy_sha256, initial_input_sha256: '1'.repeat(64), current_input_sha256: '6'.repeat(64), rounds: sixRounds,
+  }), /max_rounds|lifetime|round/);
+
   validateWaivers([{ phase: 'draft', input_sha256: req.input_sha256, legs: ['S', 'X'], actor: 'user', reason: 'explicit waiver', at: '2026-07-12T00:00:00-03:00' }], 'draft', req.input_sha256);
   expectThrow('duplicate waiver', () => validateWaivers([
     { phase: 'draft', input_sha256: req.input_sha256, legs: ['X'], actor: 'user', reason: 'one', at: '2026-07-12T00:00:00-03:00' },
@@ -676,7 +805,7 @@ function testSchemas() {
   expectThrow('current draft reuse requires resolved policy', () => validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256 }), /expectedPolicy|policy/);
   expectThrow('malformed receipt extra key', () => validateDraftReceipt({ ...receipt, unauthorized_extra: true }, req.input_sha256), /unknown key/);
   expectThrow('stale receipt input', () => validateDraftReceipt(receipt, 'f'.repeat(64)), /stale/);
-  console.log('schema closure goldens passed');
+  console.log('schema closure, typed structured output, rubric, repair identity, and lifetime convergence goldens passed');
 }
 
 function testValidationMatrix() {
@@ -845,7 +974,9 @@ function testBundle() {
   assert.equal(sealed.manifest.files.find((row) => row.path === 'src/example-link.js').mode, '120000');
   assert.equal(fs.readFileSync(path.join(out, 'src/example.js'), 'utf8'), 'export const example = true;\n', 'bundle reads reviewed commit, not moving worktree');
   assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.schema.json'))); assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.schema.json')));
+  assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.v3.schema.json'))); assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.v3.schema.json')));
   assert.match(fs.readFileSync(path.join(out, 'reviewer-output.S.schema.json'), 'utf8'), /\^S/);
+  assertConstrainedScalarsTyped(JSON.parse(fs.readFileSync(path.join(out, 'reviewer-output.S.v3.schema.json'), 'utf8')), 'sealed reviewer schema v3');
   assert.equal(verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, sealed.bundle_sha256);
   testBundleDestruction({ repo, reviewedCommit: head, outsideBundle: out, outsideBundleSha256: sealed.bundle_sha256 });
   for (const directory of ['evidence', 'evidence/level-one', 'evidence/level-one/level-two']) assert.equal(fs.statSync(path.join(out, directory)).mode & 0o777, 0o555, `${directory} ancestor is sealed read-only`);
@@ -906,6 +1037,35 @@ function testLegs() {
   expectThrow('relay rejection', () => buildReviewerArgv({ tool: 'relay', bundle: fixture.bundle, model: 'fable', effort: 'high', leg: 'S', request: req }), /relay is not supported/);
   const openAiAuthorS = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'xhigh', leg: 'S', request: req });
   assert.equal(openAiAuthorS[openAiAuthorS.indexOf('--output-schema') + 1], path.join(fixture.bundle, 'reviewer-output.S.schema.json'), 'OpenAI-author S Codex uses S schema');
+  const fullV3 = requestV3({
+    reviewed_commit_or_head: fixture.head,
+    input_sha256: fixture.sealed.input_sha256,
+    bundle_sha256: fixture.sealed.bundle_sha256,
+  });
+  const fullV3Argv = buildReviewerArgv({ tool: 'codex', bundle: fixture.bundle, model: 'gpt-5.6-sol', effort: 'high', serviceTier: 'default', leg: 'S', request: fullV3 });
+  assert.equal(fullV3Argv[fullV3Argv.indexOf('--output-schema') + 1], path.join(fixture.bundle, 'reviewer-output.S.v3.schema.json'));
+  for (const marker of [
+    'provable, actionable, unintentional defects',
+    'no unstated assumptions',
+    'proportionate rigor',
+    'exact user requirement, safety property, or execution step',
+    'at most five findings',
+    'exact weighted rubric sum',
+  ]) assert.match(fullV3Argv.at(-1), new RegExp(marker, 'i'), `full reviewer prompt missing ${marker}`);
+  const repairV3 = requestV3({
+    request_id: '323e4567-e89b-42d3-a456-426614174000',
+    reviewed_commit_or_head: fixture.head,
+    input_sha256: fixture.sealed.input_sha256,
+    bundle_sha256: fixture.sealed.bundle_sha256,
+    review_mode: 'repair',
+    round_index: 2,
+    previous_input_sha256: H0,
+    repair_targets_sha256: H1,
+  });
+  const repairV3Argv = buildReviewerArgv({ tool: 'claude', bundle: fixture.bundle, model: 'fable', effort: 'high', leg: 'X', request: repairV3 });
+  assert.match(repairV3Argv.at(-1), /at most three findings/i);
+  assert.match(repairV3Argv.at(-1), /accepted repair targets/i);
+  assert.match(repairV3Argv.at(-1), /may not reopen unrelated previously accepted design decisions/i);
   assert.equal(classifyLeg({ leg: 'X', policy: POLICY, attempts: [{ result: 'passed' }], eligibleTierCount: 1 }), 'passed');
   assert.equal(classifyLeg({ leg: 'X', policy: POLICY, attempts: [{ result: 'platform_denied' }], eligibleTierCount: 1 }), 'platform_denied');
   assert.equal(classifyLeg({ leg: 'S', policy: POLICY, attempts: [{ result: 'model_unavailable' }, { result: 'model_unavailable' }], eligibleTierCount: 2 }), 'unavailable_model');
@@ -916,7 +1076,7 @@ function testLegs() {
   fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o644); fs.appendFileSync(path.join(fixture.bundle, 'plan.review.md'), 'post-leg tamper\n'); fs.chmodSync(path.join(fixture.bundle, 'plan.review.md'), 0o444);
   expectThrow('post-leg bundle change', () => extractReviewerOutput('claude', JSON.stringify({ structured_output: echoed }), req, 'S', fixture.bundle), /hash mismatch/);
   makeWritable(fixture.bundle); fs.rmSync(fixture.temp, { recursive: true, force: true });
-  console.log('legs: direct argv, skip-git, plan mode, JCS echo, attempt bounds, relay rejection, denial and consent separation passed');
+  console.log('legs: direct argv, versioned full/repair prompts, skip-git, plan mode, JCS echo, attempt bounds, relay rejection, denial and consent separation passed');
 }
 
 function testServiceTiers() {
@@ -1540,19 +1700,26 @@ function testContractSurfaces() {
   const templatePath = 'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md';
   const managerPath = 'plugins/docks/skills/productivity/plan-manager/SKILL.md';
   const reviewPath = 'plugins/docks/skills/productivity/plan-review/SKILL.md';
+  const improverPath = 'plugins/docks/skills/productivity/plan-improver/SKILL.md';
   const contract = fs.readFileSync(path.join(ROOT, contractPath), 'utf8');
   const template = fs.readFileSync(path.join(ROOT, templatePath), 'utf8');
   for (const marker of ['review_author_company:', 'review_waivers:', 'execution_base_commit:', 'execution_base_commit..HEAD', '### Strong-default independent review', 'platform_denied', 'prepare(intent)', 'X1…', 'S1…']) {
     assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
     assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
   }
-  const workflowMarkers = ['Docks-workflow-models:', 'profile:claude-best', 'minimum_score', 'max_rounds', 'Run up to <max_rounds> more rounds', 'runtime-native picker', 'One review attempt operation means one sealed'];
+  const workflowMarkers = ['Docks-workflow-models:', 'profile:claude-best', 'minimum_score', 'max_rounds', 'review_mode', 'lifetime cap', 'One review attempt operation means one sealed'];
   for (const file of [contractPath, templatePath, managerPath, reviewPath]) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     for (const marker of workflowMarkers) assert.match(text, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${file} missing workflow policy marker ${marker}`);
+    assert.doesNotMatch(text, /Run up to <max_rounds> more rounds/, `${file} must not offer renewable continuation batches`);
+    assert.match(text, /historical policy v1-v3/i, `${file} must preserve historical review semantics explicitly`);
   }
+  for (const file of [contractPath, templatePath, managerPath]) assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /max_rounds: 5/, `${file} missing the dated five-round default`);
+  const improver = fs.readFileSync(path.join(ROOT, improverPath), 'utf8');
+  for (const marker of ['user-invocable: false', 'accepted finding', 'minimal section-level', 'cannot-repair', 'sole writer']) assert.match(improver, new RegExp(marker, 'i'), `plan-improver missing ${marker}`);
+  assert.doesNotMatch(improver, /dispatch.*reviewer|write.*receipt|change.*lifecycle/i, 'plan-improver must not gain review or lifecycle ownership');
   const init = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8');
-  for (const marker of ['STALE_V2', 'plan-init refresh', 'explicit user intent', 'existing `.codex/agents/']) assert.match(init, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-init missing refresh marker ${marker}`);
+  for (const marker of ['STALE_V2', 'plan-init refresh', 'explicit user intent', 'existing `.codex/agents/', 'lifetime review-series marker']) assert.match(init, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-init missing refresh marker ${marker}`);
   const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
   const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
   const regressionCall = "nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'])";
@@ -1587,7 +1754,7 @@ function testReviewRunnerSurfaces() {
   assert.match(skill, /--skip-git-repo-check/); assert.match(skill, /--permission-mode plan/);
   assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
   assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
-  for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence', '/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
+  for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence', '/model <model>', '/effort <effort>', 'provable', 'blocking', 'repair_targets_sha256']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
   for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'plan-manager main context']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing safe cleanup marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -1611,6 +1778,7 @@ function testManagerSurfaces() {
   for (const marker of ['Implementation role dispatch', 'relay spawn <repo> --fanout --from', 'relay handback', 'relay collect', 'MUST use exactly one depth-0', 'real worker launch as the model probe', 'candidate-specific terminal model failure']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing implementation dispatch marker ${marker}`);
   for (const marker of ['/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager missing interactive-parent guidance ${marker}`);
   for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'Never use shell `chmod` or `rm`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing safe cleanup marker ${marker}`);
+  for (const marker of ['plan-improver', 'accepted findings', 'review_mode: repair', 'five-round lifetime cap', 'convergence-exhausted']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing convergence marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "71a8d9337183cd205975cf664960df56c5db7a6c90275949784d18d2d7111e50"
+  content_hash: "024debcccb66f339ea3f5d0d4b647f17cbfc1b8b70acae07bf98cc5bbb444721"
 ---
 
 # Plan Manager
@@ -44,7 +44,7 @@ The runtime-global record is closed. Preserve each selector for attribution;
 only its expanded candidates are execution input:
 
 ```text
-Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"schema":1}
+Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":5,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"schema":1}
 ```
 
 Schema 1 candidates remain closed to `company`, `tool`, `model`, and `effort`.
@@ -64,7 +64,7 @@ orchestrator: profile:claude-best = claude:fable@high, claude:opus@xhigh
 reviewer: codex:gpt-5.6-sol@high
 implementer: codex:gpt-5.6-sol@high
 minimum_score: 90
-max_rounds: 3
+max_rounds: 5
 cross_company_consent: ask
 zero_reviewer_policy: ask
 orchestrator_preference: auto
@@ -72,12 +72,16 @@ openai_tiers: gpt-5.6-sol/high/default [cli]
 anthropic_tiers: fable/high, opus/xhigh [in_session,cli]
 ```
 
-New preparation emits closed `ResolvedReviewPolicy` schema 3, including
+New preparation emits closed `ResolvedReviewPolicy` schema 4, including
 `minimum_score`, `max_rounds`, both company tier lists, and one provenance value
 for every preceding policy field. Each OpenAI tier carries explicit
 `service_tier: default|fast` and is CLI-only. Historical policy-v1/v2 requests
 and schema-1 receipts remain valid only for historical verification; policy v3
 uses schema-2 requests, attempts, raw legs, reviewer outputs, runs, and receipts.
+Policy v4 uses schema-3 records and adds `review_mode`, round identity, rubric,
+blocking attribution, and one lifetime review series capped by `max_rounds`.
+Historical policy v1-v3 retain their persisted meanings; policy v4 never offers
+renewable continuation batches.
 Re-resolve before receipt reuse
 and apply; any value, provenance, candidate/tier order, effort, or transport
 change invalidates old evidence. A current user can override standing consent
@@ -144,17 +148,22 @@ Once the candidate is ready:
 3. Call `prepare(none)` and dispatch ordered X then S over the same sealed bundle;
    S never receives X output.
 4. Independently reproduce every finding against the sealed bundle/source.
-5. Partition all reproduced X/S ids into accepted and rejected (reason required),
-   preserve disagreements, repair accepted findings, commit, destroy the stale
-   bundle, and prepare a fresh request.
+5. Partition all reproduced X/S ids into accepted and rejected (reason required)
+   and preserve disagreements. When findings are accepted, invoke
+   `plan-improver` with only those accepted findings and their reproduction.
+   Apply its minimal section-level patch as sole writer, commit, destroy the
+   stale bundle, hash the exact accepted repair targets, and prepare
+   `review_mode: repair` over the changed input.
 6. Stop early only when every passed leg is `ready`, its score is at least the
-   resolved `minimum_score`, and the reconciled candidate remains current. One
-   unavailable leg still permits a score-qualified `single` outcome.
-7. Run at most `max_rounds` per user-authorized batch. After the cap ask exactly
-   `Run up to <max_rounds> more rounds` or `Stop and keep the plan planned`.
-   Substitute the resolved integer for `<max_rounds>` and present the two choices
-   through the runtime-native picker. Approval covers one additional bounded
-   batch only; resumed work asks again.
+   resolved `minimum_score`, no accepted blocking finding remains, and the
+   reconciled candidate remains current. One unavailable leg still permits a
+   score-qualified `single` outcome.
+7. Policy v4 has a five-round lifetime cap by dated default: round 1 is
+   `review_mode: full`; every later round is `review_mode: repair`. At the
+   resolved `max_rounds`, return `convergence-exhausted` with the remaining
+   attributed blockers and keep the plan non-executing. Do not offer another
+   batch. Historical policy v1-v3 verification retains its original receipt
+   meaning but new work never creates continuation batches.
 8. A `ready` result below the floor with no reproducible finding consumes the
    round: destroy the bundle and create a fresh request id over the unchanged
    commit/input. No score waiver is inferred.
@@ -181,9 +190,11 @@ Valid intents are `none | start | schedule_fire | auto_execute`.
    only `plan.review.md`.
 6. Create one `ReviewRequestEnvelope` carrying phase, intent, immutable input,
    canonical/bundle/policy hashes, persisted author identity, and full policy
-   snapshot. Draft-only completion fields are null. Completion additionally
-   binds `planned_at_commit`, `execution_base_commit`, canonical binary
-   `diff_sha256`, and the canonical acceptance-inventory hash.
+   snapshot. Policy-v4 schema 3 also binds `review_mode: full|repair`,
+   `round_index`, `previous_input_sha256`, and `repair_targets_sha256`.
+   Draft-only completion fields are null. Completion additionally binds
+   `planned_at_commit`, `execution_base_commit`, canonical binary `diff_sha256`,
+   and the canonical acceptance-inventory hash.
 7. Return `NeedsMainReviewDispatch` containing the exact request and X/S dispatch
    descriptions. If already in main context, proceed to dispatch once.
 
@@ -192,8 +203,9 @@ path, seal mutation, duplicate, unsupported file, or request mismatch is a STOP.
 
 ## Dispatch and decisions
 
-The outer `ReviewRequestEnvelope` is schema 1 with historical policy v1/v2 and
-schema 2 with policy v3. Both legs are fresh, findings-only, explicit model,
+The outer `ReviewRequestEnvelope` is schema 1 with historical policy v1/v2,
+schema 2 with policy v3, and schema 3 with policy v4. Both legs are fresh,
+findings-only, explicit model,
 effort, and service tier, and consume
 the same bundle in X-then-S order without seeing one another. Select one
 execution-enforced read-only transport before attempts. Tier-controlled Codex
@@ -241,10 +253,11 @@ Accept only the exact typed run result returned for the prepared request.
    decisions, and waivers. Require byte-identical request echoes from both legs.
 2. Validate attempt bounds/results, finding hashes, reconciliation partition, and
    outcome. A passed raw leg preserves the exact reviewer verdict, score,
-   confirmations, and structured-output hash. Under policy v2, every passed leg
-   requires `verdict=ready` and `score >= minimum_score`; `not_ready` and a
-   low-score `ready` result are ineligible. Plan-review returns one round's typed
-   evidence and never supplies reconciliation; plan-manager owns bounded batches.
+   confirmations, rubric when present, and structured-output hash. Under policy
+   v2-v4, every passed leg requires `verdict=ready` and
+   `score >= minimum_score`; policy v4 additionally derives `not_ready` exactly
+   from blocking findings. Plan-review returns one round's typed evidence and
+   never supplies reconciliation; plan-manager owns the bounded lifetime series.
 3. Write compact JCS `Review-receipt:` (draft) or
    `Completion-review-receipt:` (completion) into the appropriate plan section.
 4. For intent `none`, leave status unchanged. For eligible `start`,

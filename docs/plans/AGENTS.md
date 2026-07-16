@@ -224,16 +224,19 @@ Resolve workflow roles from current-user instructions, then one byte-deduplicate
 runtime-global record, then dated defaults. The compact runtime form is:
 
 ```text
-Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":3,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"schema":1}
+Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":5,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"schema":1}
 ```
 
 Defaults: `profile:claude-best` = `claude:fable@high`, then `claude:opus@xhigh`; reviewer/implementer = `codex:gpt-5.6-sol@high`; `minimum_score=90`;
-`max_rounds=3`. Bounds are integers 0..100 and 1..10. Schema 1 candidates are
+`max_rounds: 5`. Bounds are integers 0..100 and 1..10. Schema 1 candidates are
 closed to `company/tool/model/effort`. Schema 2 permits only `service_tier:"fast"`
 on Codex, requires a Fast candidate, and uses exact selector grammar
 `<tool>:<model>@<effort>[+fast]`; omission is Standard. New tier-aware requests use
 outer schema 2 and policy v3 with explicit `default|fast` OpenAI tiers and CLI
 transport; historical schema-1 requests with policy v1/v2 retain their meaning.
+New convergence requests use outer schema 3 and policy v4: round 1 has `review_mode: full`; accepted findings are repaired through plan-improver; later
+rounds use `review_mode: repair` with previous-input and exact repair-target hashes.
+Historical policy v1-v3 retain their persisted meanings.
 
 The resolved logical policy has independent choices for cross-company consent
 (`always | ask | never`) and zero-review progression (`ask | proceed | block`).
@@ -250,14 +253,11 @@ provider/session quota, generic rate-limit, invalid request, transport, or
 ambiguous failures stop the leg. Historical policy v1 alone keeps its bounded
 typed transient retry.
 
-Each batch runs X then S for at most `max_rounds`, stopping early only when
-every passed leg is `ready` with `score >= minimum_score`. A low-score
-`ready` result without a reproducible finding still consumes a round and gets
-a fresh request over the unchanged input. At the cap, ask exactly
-`Run up to <max_rounds> more rounds` or `Stop and keep the plan planned`;
-substitute the resolved integer for `<max_rounds>` and present both choices in
-the runtime-native picker. Approval covers only one more bounded batch. A
-`not_ready` result never passes.
+Policy v4 runs X then S within one `max_rounds` lifetime cap. Stop early only when every passed leg is `ready` with `score >= minimum_score` and no accepted
+blocking finding remains. Low-score `ready` still consumes a round. At the cap,
+return `convergence-exhausted` with attributed blockers and keep the plan non-executing;
+never offer a continuation batch. `not_ready` never passes.
+Historical policy v1-v3 verification preserves its original receipt semantics.
 Zero successful legs follow the separately resolved zero-review choice. A
 current-user waiver may name X, S, or both for exactly one phase and canonical
 input hash; consent `never` is not a waiver.

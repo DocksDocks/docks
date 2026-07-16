@@ -25,9 +25,11 @@ On `apply`, require the caller-supplied result and prepared request to match byt
 2. For list/show/non-review transitions, follow the normal status-as-field rules.
 3. For new/review/start/fire/auto/completion, prepare the immutable request and
    return `NeedsMainReviewDispatch`; do not dispatch.
-4. When called again with a typed result, apply once or return a stale/blocked
+4. If accepted findings need repair, return their exact identities to main
+   context; plan-improver is a main-context-only repair helper.
+5. When called again with a typed result, apply once or return a stale/blocked
    handback without changing the non-executing state.
-5. Re-read changed frontmatter/receipt, commit the plan-only edit, and render the
+6. Re-read changed frontmatter/receipt, commit the plan-only edit, and render the
    required preview.
 
 ## Output Format

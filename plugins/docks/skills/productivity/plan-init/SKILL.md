@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-16"
-  content_hash: "848d2ef39db455747f0c3d83db5de14c18b4638b329092c4ad6dcd98f6815adf"
+  content_hash: "41d5e7b1ffc09449de74e9377a79fee31ee592c0644ac213009c2ed0573a9bdf"
 ---
 
 # Plans Directory Bootstrapper
@@ -67,7 +67,7 @@ test -d docs/plans/active && test -d docs/plans/finished && echo "two-folder"
 test -d docs/plans/planned || test -d docs/plans/ongoing || test -d docs/plans/_views || test -f docs/plans/index.html && echo "V1 — migrate"
 grep -l 'must match the containing directory' docs/plans/AGENTS.md 2>/dev/null && echo "V1 contract"
 grep -l 'Docks-workflow-models:' docs/plans/AGENTS.md 2>/dev/null && echo "current workflow marker"
-grep -l 'Run up to <max_rounds> more rounds' docs/plans/AGENTS.md 2>/dev/null && echo "current bounded-review marker"
+grep -l 'review_mode: full' docs/plans/AGENTS.md 2>/dev/null && echo "current lifetime review-series marker"
 test -f .codex/agents/plan-manager.toml || echo "missing Codex plan-manager agent"
 test -f .codex/agents/plan-review.toml || echo "missing Codex plan-review agent"
 ```
@@ -77,7 +77,7 @@ Resolve to exactly one class:
 - **V1** — any old-model marker exists; this class wins even when v2 folders or
   markers also exist → migrate (Step 4b).
 - **GREENFIELD** — no `docs/plans/` → bootstrap (Step 4a).
-- **CURRENT_V2** — two folders plus both current workflow markers → no contract
+- **CURRENT_V2** — two folders plus the workflow and lifetime review-series markers → no contract
   rewrite; seed only genuinely missing support.
 - **STALE_V2** — two folders and the recognizable Docks v2 status-as-field
   contract, but one or both current workflow markers are absent → report the

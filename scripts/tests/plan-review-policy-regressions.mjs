@@ -27,6 +27,7 @@ const REQUIRED_SURFACES = [
   'plugins/docks/skills/productivity/plan-init/SKILL.md',
   'plugins/docks/skills/productivity/plan-manager/SKILL.md',
   'plugins/docks/skills/productivity/plan-review/SKILL.md',
+  'plugins/docks/skills/productivity/plan-improver/SKILL.md',
   'plugins/docks/agents/plan-manager.md',
   'plugins/docks/agents/plan-review.md',
   '.codex/agents/plan-manager.toml',
@@ -408,6 +409,41 @@ const REGRESSIONS = [
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "if (!Number.isInteger(policy.max_rounds) || policy.max_rounds < 1 || policy.max_rounds > 10) throw new Error('max_rounds');",
     "if (!Number.isInteger(policy.max_rounds) || policy.max_rounds < 0 || policy.max_rounds > 10) throw new Error('max_rounds');",
+  )],
+  ['structured-output constrained type regression', ['--case', 'schemas'], /const requires type|enum requires type|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "const typedConst = (type, value) => ({ type, const: value });",
+    "const typedConst = (_type, value) => ({ const: value });",
+  )],
+  ['schema-3 rubric sum regression', ['--case', 'schemas'], /rubric|score|sum|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (rubricScore !== output.score) throw new Error('reviewer rubric score sum mismatch');",
+    "if (rubricScore < output.score) throw new Error('reviewer rubric score sum mismatch');",
+  )],
+  ['schema-3 blocking verdict regression', ['--case', 'schemas'], /blocking|verdict|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if ((output.verdict === 'not_ready') !== hasBlocking) throw new Error('reviewer blocking verdict mismatch');",
+    "if (output.verdict === 'not_ready' && !hasBlocking) throw new Error('reviewer blocking verdict mismatch');",
+  )],
+  ['schema-3 repair changed-input regression', ['--case', 'schemas'], /changed|input|repair|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (request.input_sha256 === request.previous_input_sha256) throw new Error('repair review requires changed input');",
+    "if (request.input_sha256 !== request.previous_input_sha256) throw new Error('repair review requires changed input');",
+  )],
+  ['schema-3 lifetime cap regression', ['--case', 'schemas'], /max_rounds|lifetime|round|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (series.rounds.length > policy.max_rounds) throw new Error('review series exceeds lifetime max_rounds');",
+    "if (series.rounds.length > policy.max_rounds + 1) throw new Error('review series exceeds lifetime max_rounds');",
+  )],
+  ['schema-3 reviewer burden-of-proof regression', ['--case', 'legs'], /provable, actionable, unintentional defects|prompt missing|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'Report only provable, actionable, unintentional defects',
+    'Report possible defects',
+  )],
+  ['five-round dated default regression', ['--case', 'surfaces'], /five-round default|max_rounds: 5|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+    'max_rounds: 5',
+    'max_rounds: 3',
   )],
   ['stale policy completion reuse regression', ['--case', 'completion-reuse'], /resolved policy|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',

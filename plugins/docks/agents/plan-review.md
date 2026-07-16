@@ -23,8 +23,9 @@ Read only the sealed bundle named in the exact request. Never read a moving sour
 
 1. Accept only the exact request and sealed bundle already validated by writable
    main context; this wrapper has no shell or mutation-capable tool.
-2. Red-team only the requested phase: draft plan contract, or completion goal and
-   immutable diff evidence.
+2. Red-team only the requested phase and `review_mode`: full draft/completion
+   evidence, or the accepted repair targets plus regressions introduced by
+   those repairs.
 3. Return closed `ReviewerOutput` with leg-prefixed finding ids and the exact
    echoed request.
 4. Return only this leg's typed reviewer output. The writable main-context
@@ -33,8 +34,9 @@ Read only the sealed bundle named in the exact request. Never read a moving sour
 ## Output Format
 
 Return structured JSON only when a schema was supplied. Every object rejects
-extra keys. Findings use `{id,severity,section,path,locator,defect,fix,evidence}`;
-confirmations are non-empty strings. Do not add lifecycle prose.
+extra keys. Schema 3 includes the exact weighted rubric plus finding
+`priority`, `confidence`, `blocking`, and `requirement`; confirmations are
+non-empty strings. Do not add lifecycle prose.
 
 ## Anti-Hallucination Checks
 

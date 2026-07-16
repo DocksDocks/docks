@@ -346,6 +346,7 @@ export function buildImplementerRelayArgv({ repo, invokerSession, candidate, tas
 }
 
 function reviewRecordSchema(request) {
+  if (request.policy?.schema === 4) return 3;
   return request.policy?.schema === 3 ? 2 : 1;
 }
 
@@ -353,7 +354,7 @@ export function validatePolicy(policy) {
   const baseKeys = ['schema', 'cross_company_consent', 'zero_reviewer_policy', 'orchestrator_preference'];
   const tierKeys = ['openai_tiers', 'anthropic_tiers'];
   if (policy?.schema === 1) assertClosed(policy, [...baseKeys, ...tierKeys, 'provenance'], 'policy');
-  else if (policy?.schema === 2 || policy?.schema === 3) assertClosed(policy, [...baseKeys, 'minimum_score', 'max_rounds', ...tierKeys, 'provenance'], 'policy');
+  else if ([2, 3, 4].includes(policy?.schema)) assertClosed(policy, [...baseKeys, 'minimum_score', 'max_rounds', ...tierKeys, 'provenance'], 'policy');
   else throw new Error('policy schema');
   oneOf(policy.cross_company_consent, new Set(['always', 'ask', 'never']), 'cross_company_consent');
   oneOf(policy.zero_reviewer_policy, new Set(['ask', 'proceed', 'block']), 'zero_reviewer_policy');
@@ -367,12 +368,12 @@ export function validatePolicy(policy) {
     if (!Array.isArray(tiers) || tiers.length === 0 || (policy.schema >= 2 && tiers.length > 3)) throw new Error(`${company}_tiers`);
     const candidates = new Set();
     for (const tier of tiers) {
-      const tierFields = policy.schema === 3 && company === 'openai' ? ['model', 'effort', 'service_tier', 'transports'] : ['model', 'effort', 'transports'];
+      const tierFields = policy.schema >= 3 && company === 'openai' ? ['model', 'effort', 'service_tier', 'transports'] : ['model', 'effort', 'transports'];
       assertClosed(tier, tierFields, 'tier'); string(tier.model, 'model'); string(tier.effort, 'effort');
-      if (policy.schema === 3 && company === 'openai') oneOf(tier.service_tier, new Set(['default', 'fast']), 'service_tier');
+      if (policy.schema >= 3 && company === 'openai') oneOf(tier.service_tier, new Set(['default', 'fast']), 'service_tier');
       if (!Array.isArray(tier.transports) || tier.transports.length === 0 || new Set(tier.transports).size !== tier.transports.length) throw new Error('tier transports');
       tier.transports.forEach((v) => oneOf(v, new Set(['in_session', 'cli']), 'transport'));
-      if (policy.schema === 3 && company === 'openai' && tier.transports.some((transport) => transport !== 'cli')) throw new Error('schema 3 OpenAI service tiers require cli transport');
+      if (policy.schema >= 3 && company === 'openai' && tier.transports.some((transport) => transport !== 'cli')) throw new Error('tier-controlled OpenAI service tiers require cli transport');
       const candidate = `${tier.model}\0${tier.effort}\0${tier.service_tier ?? ''}`;
       if (policy.schema >= 2 && candidates.has(candidate)) throw new Error(`duplicate ${company}_tiers candidate`);
       candidates.add(candidate);
@@ -385,7 +386,9 @@ export function validatePolicy(policy) {
 }
 
 export function validateRequest(request) {
-  assertClosed(request, ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'planned_at_commit', 'execution_base_commit', 'diff_sha256', 'acceptance_inventory_sha256', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'], 'request');
+  const baseKeys = ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'planned_at_commit', 'execution_base_commit', 'diff_sha256', 'acceptance_inventory_sha256', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'];
+  const convergenceKeys = ['review_mode', 'round_index', 'previous_input_sha256', 'repair_targets_sha256'];
+  assertClosed(request, request?.schema === 3 ? [...baseKeys, ...convergenceKeys] : baseKeys, 'request');
   if (request.schema !== reviewRecordSchema(request) || !UUID.test(request.request_id)) throw new Error('request identity');
   oneOf(request.phase, new Set(['draft', 'completion']), 'phase');
   oneOf(request.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'lifecycle_intent');
@@ -398,42 +401,96 @@ export function validateRequest(request) {
   assertClosed(request.author, ['company', 'tool', 'model', 'effort'], 'request author'); oneOf(request.author.company, new Set(['openai', 'anthropic']), 'request author company'); for (const key of ['tool', 'model', 'effort']) string(request.author[key], `request author ${key}`);
   validatePolicy(request.policy);
   if (sha256(jcs(request.policy)) !== request.policy_sha256) throw new Error('policy hash mismatch');
+  if (request.schema === 3) {
+    oneOf(request.review_mode, new Set(['full', 'repair']), 'review_mode');
+    if (!Number.isInteger(request.round_index) || request.round_index < 1 || request.round_index > 10) throw new Error('round_index');
+    if (request.review_mode === 'full') {
+      if (request.round_index !== 1 || request.previous_input_sha256 !== null || request.repair_targets_sha256 !== null) throw new Error('full review must be round one without repair identity');
+    } else {
+      if (request.round_index <= 1) throw new Error('repair review requires a later round');
+      digest(request.previous_input_sha256, 'repair previous input'); digest(request.repair_targets_sha256, 'repair targets');
+      if (request.input_sha256 === request.previous_input_sha256) throw new Error('repair review requires changed input');
+    }
+  }
   return request;
 }
 
 export function reviewerSchema(leg, outputSchema = 1) {
   oneOf(leg, new Set(['X', 'S']), 'leg');
-  oneOf(outputSchema, new Set([1, 2]), 'reviewer output schema');
+  oneOf(outputSchema, new Set([1, 2, 3]), 'reviewer output schema');
   const closed = (properties, required = Object.keys(properties)) => ({ type: 'object', additionalProperties: false, properties, required });
   const str = { type: 'string', minLength: 1 };
-  const tier = closed({ model: str, effort: str, transports: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['in_session', 'cli'] } } });
-  const openaiTierV3 = closed({ model: str, effort: str, service_tier: { enum: ['default', 'fast'] }, transports: { type: 'array', minItems: 1, uniqueItems: true, items: { const: 'cli' } } });
-  const provenanceV1 = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
-  const provenanceV2 = closed({ cross_company_consent: { enum: [...SOURCES] }, zero_reviewer_policy: { enum: [...SOURCES] }, orchestrator_preference: { enum: [...SOURCES] }, minimum_score: { enum: [...SOURCES] }, max_rounds: { enum: [...SOURCES] }, openai_tiers: { enum: [...SOURCES] }, anthropic_tiers: { enum: [...SOURCES] } });
-  const commonPolicy = { cross_company_consent: { enum: ['always', 'ask', 'never'] }, zero_reviewer_policy: { enum: ['ask', 'proceed', 'block'] }, orchestrator_preference: { enum: ['auto', 'in_session', 'cli'] } };
-  const policyV1 = closed({ schema: { const: 1 }, ...commonPolicy, openai_tiers: { type: 'array', minItems: 1, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, items: tier }, provenance: provenanceV1 });
-  const policyV2 = closed({ schema: { const: 2 }, ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
-  const policyV3 = closed({ schema: { const: 3 }, ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: openaiTierV3 }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
-  const policy = outputSchema === 1 ? { oneOf: [policyV1, policyV2] } : policyV3;
-  const request = closed({
-    schema: { const: outputSchema }, request_id: { type: 'string', pattern: UUID.source }, phase: { enum: ['draft', 'completion'] },
-    lifecycle_intent: { enum: ['none', 'start', 'schedule_fire', 'auto_execute'] }, reviewed_commit_or_head: { type: 'string', pattern: HEX40.source },
+  const typedConst = (type, value) => ({ type, const: value });
+  const typedEnum = (type, values) => ({ type, enum: values });
+  const tier = closed({ model: str, effort: str, transports: { type: 'array', minItems: 1, items: typedEnum('string', ['in_session', 'cli']) } });
+  const openaiTierV3 = closed({ model: str, effort: str, service_tier: typedEnum('string', ['default', 'fast']), transports: { type: 'array', minItems: 1, items: typedConst('string', 'cli') } });
+  const provenanceV1 = closed({ cross_company_consent: typedEnum('string', [...SOURCES]), zero_reviewer_policy: typedEnum('string', [...SOURCES]), orchestrator_preference: typedEnum('string', [...SOURCES]), openai_tiers: typedEnum('string', [...SOURCES]), anthropic_tiers: typedEnum('string', [...SOURCES]) });
+  const provenanceV2 = closed({ cross_company_consent: typedEnum('string', [...SOURCES]), zero_reviewer_policy: typedEnum('string', [...SOURCES]), orchestrator_preference: typedEnum('string', [...SOURCES]), minimum_score: typedEnum('string', [...SOURCES]), max_rounds: typedEnum('string', [...SOURCES]), openai_tiers: typedEnum('string', [...SOURCES]), anthropic_tiers: typedEnum('string', [...SOURCES]) });
+  const commonPolicy = { cross_company_consent: typedEnum('string', ['always', 'ask', 'never']), zero_reviewer_policy: typedEnum('string', ['ask', 'proceed', 'block']), orchestrator_preference: typedEnum('string', ['auto', 'in_session', 'cli']) };
+  const policyV1 = closed({ schema: typedConst('integer', 1), ...commonPolicy, openai_tiers: { type: 'array', minItems: 1, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, items: tier }, provenance: provenanceV1 });
+  const policyV2 = closed({ schema: typedConst('integer', 2), ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
+  const policyV3 = closed({ schema: typedConst('integer', 3), ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: openaiTierV3 }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
+  const policyV4 = closed({ schema: typedConst('integer', 4), ...commonPolicy, minimum_score: { type: 'integer', minimum: 0, maximum: 100 }, max_rounds: { type: 'integer', minimum: 1, maximum: 10 }, openai_tiers: { type: 'array', minItems: 1, maxItems: 3, items: openaiTierV3 }, anthropic_tiers: { type: 'array', minItems: 1, maxItems: 3, items: tier }, provenance: provenanceV2 });
+  const policy = outputSchema === 1 ? { oneOf: [policyV1, policyV2] } : outputSchema === 2 ? policyV3 : policyV4;
+  const requestProperties = {
+    schema: typedConst('integer', outputSchema), request_id: { type: 'string', pattern: UUID.source }, phase: typedEnum('string', ['draft', 'completion']),
+    lifecycle_intent: typedEnum('string', ['none', 'start', 'schedule_fire', 'auto_execute']), reviewed_commit_or_head: { type: 'string', pattern: HEX40.source },
     planned_at_commit: { type: ['string', 'null'], pattern: HEX40.source }, execution_base_commit: { type: ['string', 'null'], pattern: HEX40.source },
     diff_sha256: { type: ['string', 'null'], pattern: HEX64.source }, acceptance_inventory_sha256: { type: ['string', 'null'], pattern: HEX64.source },
     input_sha256: { type: 'string', pattern: HEX64.source }, bundle_sha256: { type: 'string', pattern: HEX64.source },
-    author: closed({ company: { enum: ['openai', 'anthropic'] }, tool: str, model: str, effort: str }),
+    author: closed({ company: typedEnum('string', ['openai', 'anthropic']), tool: str, model: str, effort: str }),
     policy, policy_sha256: { type: 'string', pattern: HEX64.source },
+  };
+  if (outputSchema === 3) Object.assign(requestProperties, {
+    review_mode: typedEnum('string', ['full', 'repair']),
+    round_index: { type: 'integer', minimum: 1, maximum: 10 },
+    previous_input_sha256: { type: ['string', 'null'], pattern: HEX64.source },
+    repair_targets_sha256: { type: ['string', 'null'], pattern: HEX64.source },
   });
-  const finding = closed({ id: { type: 'string', pattern: `^${leg}[1-9][0-9]*$` }, severity: { enum: ['high', 'medium', 'low'] }, section: str, path: { type: ['string', 'null'] }, locator: { type: ['string', 'null'] }, defect: str, fix: str, evidence: str });
-  return closed({ schema: { const: outputSchema }, leg: { const: leg }, request, verdict: { enum: ['ready', 'not_ready'] }, score: { type: 'integer', minimum: 0, maximum: 100 }, findings: { type: 'array', items: finding }, confirmations: { type: 'array', items: str } });
+  const request = closed(requestProperties);
+  const findingProperties = { id: { type: 'string', pattern: `^${leg}[1-9][0-9]*$` }, severity: typedEnum('string', ['high', 'medium', 'low']), section: str, path: { type: ['string', 'null'] }, locator: { type: ['string', 'null'] }, defect: str, fix: str, evidence: str };
+  if (outputSchema === 3) Object.assign(findingProperties, {
+    priority: { type: 'integer', minimum: 0, maximum: 3 },
+    confidence: { type: 'integer', minimum: 0, maximum: 1 },
+    blocking: { type: 'boolean' },
+    requirement: str,
+  });
+  const finding = closed(findingProperties);
+  const findingsSchema = { type: 'array', items: finding };
+  if (outputSchema === 3) findingsSchema.maxItems = 5;
+  const outputProperties = {
+    schema: typedConst('integer', outputSchema), leg: typedConst('string', leg), request,
+    verdict: typedEnum('string', ['ready', 'not_ready']), score: { type: 'integer', minimum: 0, maximum: 100 },
+    findings: findingsSchema, confirmations: { type: 'array', items: str },
+  };
+  if (outputSchema === 3) outputProperties.rubric = closed({
+    standalone_executability: { type: 'integer', minimum: 0, maximum: 22 },
+    actionability: { type: 'integer', minimum: 0, maximum: 16 },
+    dependency_order: { type: 'integer', minimum: 0, maximum: 12 },
+    evidence_reverify: { type: 'integer', minimum: 0, maximum: 10 },
+    goal_coverage: { type: 'integer', minimum: 0, maximum: 12 },
+    executable_acceptance: { type: 'integer', minimum: 0, maximum: 12 },
+    failure_mode: { type: 'integer', minimum: 0, maximum: 10 },
+    assumption_to_question: { type: 'integer', minimum: 0, maximum: 6 },
+  });
+  return closed(outputProperties);
 }
 
-function validateFinding(finding, leg, ids) {
-  assertClosed(finding, ['id', 'severity', 'section', 'path', 'locator', 'defect', 'fix', 'evidence'], 'finding');
+function validateFinding(finding, leg, ids, recordSchema = 1) {
+  const baseKeys = ['id', 'severity', 'section', 'path', 'locator', 'defect', 'fix', 'evidence'];
+  const convergenceKeys = ['priority', 'confidence', 'blocking', 'requirement'];
+  assertClosed(finding, recordSchema === 3 ? [...baseKeys, ...convergenceKeys] : baseKeys, 'finding');
   if (!new RegExp(`^${leg}[1-9][0-9]*$`).test(finding.id) || ids.has(finding.id)) throw new Error('finding id');
   ids.add(finding.id); oneOf(finding.severity, new Set(['high', 'medium', 'low']), 'severity');
   for (const key of ['section', 'defect', 'fix', 'evidence']) string(finding[key], key);
   for (const key of ['path', 'locator']) if (finding[key] !== null && typeof finding[key] !== 'string') throw new Error(key);
+  if (recordSchema === 3) {
+    if (!Number.isInteger(finding.priority) || finding.priority < 0 || finding.priority > 3) throw new Error('finding priority');
+    if (!Number.isInteger(finding.confidence) || finding.confidence < 0 || finding.confidence > 1) throw new Error('finding confidence');
+    if (typeof finding.blocking !== 'boolean') throw new Error('finding blocking');
+    string(finding.requirement, 'finding requirement');
+    if ((finding.priority >= 2 || finding.confidence === 0) && finding.blocking) throw new Error('low-priority or low-confidence finding cannot block');
+  }
 }
 
 function validateDecision(decision, request, expectedKind = null) {
@@ -448,10 +505,10 @@ function validateDecision(decision, request, expectedKind = null) {
 }
 
 function validateAttempt(attempt, recordSchema = 1, company = null) {
-  const keys = ['schema', 'model', 'effort', ...(recordSchema === 2 && company === 'openai' ? ['service_tier'] : []), 'transport', 'started', 'output_started', 'result', 'exit_code', 'signal', 'child_id', 'denial_source', 'retry_cause', 'timeout_mode', 'timeout_seconds', 'reason', 'stdout_sha256', 'stderr_sha256'];
+  const keys = ['schema', 'model', 'effort', ...(recordSchema >= 2 && company === 'openai' ? ['service_tier'] : []), 'transport', 'started', 'output_started', 'result', 'exit_code', 'signal', 'child_id', 'denial_source', 'retry_cause', 'timeout_mode', 'timeout_seconds', 'reason', 'stdout_sha256', 'stderr_sha256'];
   assertClosed(attempt, keys, 'attempt'); if (attempt.schema !== recordSchema) throw new Error('attempt schema');
   string(attempt.model, 'attempt model'); string(attempt.effort, 'attempt effort'); oneOf(attempt.transport, new Set(['in_session', 'cli']), 'attempt transport');
-  if (recordSchema === 2 && company === 'openai') oneOf(attempt.service_tier, new Set(['default', 'fast']), 'attempt service_tier');
+  if (recordSchema >= 2 && company === 'openai') oneOf(attempt.service_tier, new Set(['default', 'fast']), 'attempt service_tier');
   if (typeof attempt.started !== 'boolean' || typeof attempt.output_started !== 'boolean') throw new Error('attempt booleans');
   oneOf(attempt.result, ATTEMPT_RESULTS, 'attempt result');
   if (attempt.exit_code !== null && (!Number.isInteger(attempt.exit_code) || attempt.exit_code < -2147483648 || attempt.exit_code > 2147483647)) throw new Error('attempt exit code');
@@ -492,12 +549,12 @@ function validateAttemptSequence(attempts, policy, company) {
   const tiers = policy[`${company}_tiers`].filter((tier) => tier.transports.includes(transport));
   const attemptLimit = tiers.length + (policy.schema === 1 ? 1 : 0);
   if (tiers.length === 0 || attempts.length > attemptLimit) throw new Error('raw leg attempt bound');
-  const recordSchema = policy.schema === 3 ? 2 : 1;
+  const recordSchema = policy.schema === 4 ? 3 : policy.schema === 3 ? 2 : 1;
   if (policy.schema >= 2) {
     let tier = 0;
     for (let i = 0; i < attempts.length; i += 1) {
       const attempt = attempts[i]; validateAttempt(attempt, recordSchema, company);
-      if (!tiers[tier] || attempt.model !== tiers[tier].model || attempt.effort !== tiers[tier].effort || (policy.schema === 3 && company === 'openai' && attempt.service_tier !== tiers[tier].service_tier)) throw new Error('attempt tier order mismatch');
+      if (!tiers[tier] || attempt.model !== tiers[tier].model || attempt.effort !== tiers[tier].effort || (policy.schema >= 3 && company === 'openai' && attempt.service_tier !== tiers[tier].service_tier)) throw new Error('attempt tier order mismatch');
       if (attempt.result === 'model_unavailable') {
         tier += 1;
         if (i < attempts.length - 1 && !tiers[tier]) throw new Error('attempt continued past tier list');
@@ -540,17 +597,18 @@ export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}
   assertClosed(raw, keys, 'raw leg'); if (raw.schema !== recordSchema || raw.leg !== leg || jcs(raw.request) !== jcs(request)) throw new Error('raw leg request mismatch');
   oneOf(raw.result, LEG_RESULTS, 'leg result'); if (!Array.isArray(raw.attempts)) throw new Error('raw leg attempts');
   const company = companyForLeg(request.author.company, leg); const eligibleTierCount = validateAttemptSequence(raw.attempts, request.policy, company);
-  const selectedKeys = recordSchema === 2 && company === 'openai' ? ['model', 'effort', 'service_tier', 'transport'] : ['model', 'effort', 'transport'];
+  const selectedKeys = recordSchema >= 2 && company === 'openai' ? ['model', 'effort', 'service_tier', 'transport'] : ['model', 'effort', 'transport'];
   if (raw.selected !== null) { assertClosed(raw.selected, selectedKeys, 'selected'); string(raw.selected.model, 'selected model'); string(raw.selected.effort, 'selected effort'); if (selectedKeys.includes('service_tier')) oneOf(raw.selected.service_tier, new Set(['default', 'fast']), 'selected service_tier'); oneOf(raw.selected.transport, new Set(['in_session', 'cli']), 'selected transport'); }
-  if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => validateFinding(finding, leg, ids));
+  if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => validateFinding(finding, leg, ids, recordSchema));
   if (raw.reviewer_output !== null) {
-    assertClosed(raw.reviewer_output, ['verdict', 'score', 'confirmations', 'structured_output_sha256'], 'raw reviewer output');
+    const reviewerOutputKeys = ['verdict', 'score', ...(recordSchema === 3 ? ['rubric'] : []), 'confirmations', 'structured_output_sha256'];
+    assertClosed(raw.reviewer_output, reviewerOutputKeys, 'raw reviewer output');
     oneOf(raw.reviewer_output.verdict, new Set(['ready', 'not_ready']), 'raw reviewer verdict');
     if (!Number.isInteger(raw.reviewer_output.score) || raw.reviewer_output.score < 0 || raw.reviewer_output.score > 100) throw new Error('raw reviewer score');
     if (!Array.isArray(raw.reviewer_output.confirmations)) throw new Error('raw reviewer confirmations');
     raw.reviewer_output.confirmations.forEach((value) => string(value, 'raw reviewer confirmation'));
     digest(raw.reviewer_output.structured_output_sha256, 'structured output hash');
-    const structured = { schema: recordSchema, leg, request, verdict: raw.reviewer_output.verdict, score: raw.reviewer_output.score, findings: raw.findings, confirmations: raw.reviewer_output.confirmations };
+    const structured = { schema: recordSchema, leg, request, verdict: raw.reviewer_output.verdict, score: raw.reviewer_output.score, ...(recordSchema === 3 ? { rubric: raw.reviewer_output.rubric } : {}), findings: raw.findings, confirmations: raw.reviewer_output.confirmations };
     validateReviewerOutput(structured, request, leg);
     if (raw.reviewer_output.structured_output_sha256 !== sha256(jcs(structured))) throw new Error('structured output hash mismatch');
   }
@@ -703,6 +761,32 @@ export function validateDraftRunResult(result, { waivers = [] } = {}) {
   validateReproduced(result.reproduced, result.X, result.S, false); validateOutcome(result.X, result.S, result.request.policy, result.decision_evidence, result.outcome, result.pre_execution_eligible); return result;
 }
 
+export function validateReviewSeries(series) {
+  assertClosed(series, ['schema', 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds'], 'review series');
+  if (series.schema !== 3 || !Array.isArray(series.rounds) || series.rounds.length === 0) throw new Error('review series identity');
+  digest(series.policy_sha256, 'review series policy'); digest(series.initial_input_sha256, 'review series initial input'); digest(series.current_input_sha256, 'review series current input');
+  const policy = series.rounds[0]?.request?.policy;
+  validatePolicy(policy);
+  if (policy.schema !== 4 || series.policy_sha256 !== sha256(jcs(policy))) throw new Error('review series policy mismatch');
+  if (series.rounds.length > policy.max_rounds) throw new Error('review series exceeds lifetime max_rounds');
+  let previousInput = null;
+  for (let index = 0; index < series.rounds.length; index += 1) {
+    const round = series.rounds[index]; const expectedIndex = index + 1;
+    if (round?.request?.round_index !== expectedIndex) throw new Error('review series rounds must be contiguous');
+    if (expectedIndex === 1) {
+      if (round.request.review_mode !== 'full') throw new Error('review series round one must be full');
+    } else {
+      if (round.request.review_mode !== 'repair') throw new Error('review series later rounds must be repair');
+      if (round.request.previous_input_sha256 !== previousInput) throw new Error('review series previous input mismatch');
+    }
+    if (round.request.policy_sha256 !== series.policy_sha256 || jcs(round.request.policy) !== jcs(policy)) throw new Error('review series policy drift');
+    validateDraftRunResult(round);
+    previousInput = round.request.input_sha256;
+  }
+  if (series.rounds[0].request.input_sha256 !== series.initial_input_sha256 || previousInput !== series.current_input_sha256) throw new Error('review series input identity mismatch');
+  return series;
+}
+
 export function validateCompletionRunResult(result, { waivers = [] } = {}) {
   assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary', 'completion_verdict'], 'completion run result');
   if (result.schema !== reviewRecordSchema(result.request) || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
@@ -755,12 +839,37 @@ export function validateCompletionReceipt(receipt, expected = {}, { waivers = []
 }
 
 export function validateReviewerOutput(output, request, leg) {
-  assertClosed(output, ['schema', 'leg', 'request', 'verdict', 'score', 'findings', 'confirmations'], 'reviewer output');
-  if (output.schema !== reviewRecordSchema(request) || output.leg !== leg || jcs(output.request) !== jcs(request)) throw new Error('reviewer envelope mismatch');
+  const recordSchema = reviewRecordSchema(request);
+  assertClosed(output, ['schema', 'leg', 'request', 'verdict', 'score', ...(recordSchema === 3 ? ['rubric'] : []), 'findings', 'confirmations'], 'reviewer output');
+  if (output.schema !== recordSchema || output.leg !== leg || jcs(output.request) !== jcs(request)) throw new Error('reviewer envelope mismatch');
   validateRequest(output.request); oneOf(output.verdict, new Set(['ready', 'not_ready']), 'verdict');
   if (!Number.isInteger(output.score) || output.score < 0 || output.score > 100) throw new Error('score');
   if (!Array.isArray(output.findings) || !Array.isArray(output.confirmations)) throw new Error('reviewer arrays');
-  const ids = new Set(); output.findings.forEach((finding) => validateFinding(finding, leg, ids)); output.confirmations.forEach((v) => string(v, 'confirmation'));
+  const ids = new Set(); output.findings.forEach((finding) => validateFinding(finding, leg, ids, recordSchema)); output.confirmations.forEach((v) => string(v, 'confirmation'));
+  if (recordSchema === 3) {
+    const rubricMaximums = {
+      standalone_executability: 22,
+      actionability: 16,
+      dependency_order: 12,
+      evidence_reverify: 10,
+      goal_coverage: 12,
+      executable_acceptance: 12,
+      failure_mode: 10,
+      assumption_to_question: 6,
+    };
+    assertClosed(output.rubric, Object.keys(rubricMaximums), 'reviewer rubric');
+    let rubricScore = 0;
+    for (const [key, maximum] of Object.entries(rubricMaximums)) {
+      const value = output.rubric[key];
+      if (!Number.isInteger(value) || value < 0 || value > maximum) throw new Error(`reviewer rubric ${key}`);
+      rubricScore += value;
+    }
+    if (rubricScore !== output.score) throw new Error('reviewer rubric score sum mismatch');
+    const hasBlocking = output.findings.some((finding) => finding.blocking);
+    if ((output.verdict === 'not_ready') !== hasBlocking) throw new Error('reviewer blocking verdict mismatch');
+    const findingLimit = request.review_mode === 'full' ? 5 : 3;
+    if (output.findings.length > findingLimit) throw new Error('reviewer finding limit exceeded');
+  }
   return output;
 }
 
@@ -2219,6 +2328,7 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
   for (const leg of ['X', 'S']) {
     entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
     entries.push({ path: `reviewer-output.${leg}.v2.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 2))}\n`) });
+    entries.push({ path: `reviewer-output.${leg}.v3.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 3))}\n`) });
   }
   let completion = null;
   if (plannedAtCommit !== null) {
@@ -2285,12 +2395,12 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   const planView = fileRows.get('plan.review.md');
   if (!planView || planView.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');
   for (const leg of ['X', 'S']) {
-    for (const version of [1, 2]) {
-      const suffix = version === 1 ? '' : '.v2'; const schemaPath = `reviewer-output.${leg}${suffix}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg, version))}\n`;
+    for (const version of [1, 2, 3]) {
+      const suffix = version === 1 ? '' : `.v${version}`; const schemaPath = `reviewer-output.${leg}${suffix}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg, version))}\n`;
       if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);
     }
   }
-  const reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json']);
+  const reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json', 'reviewer-output.X.v3.schema.json', 'reviewer-output.S.v3.schema.json']);
   if (manifest.completion !== null) {
     assertClosed(manifest.completion, ['planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_path', 'diff_sha256', 'acceptance_inventory_path', 'acceptance_inventory_sha256'], 'bundle completion');
     if (manifest.completion.reviewed_head !== manifest.reviewed_commit) throw new Error('bundle completion head mismatch');
@@ -2384,13 +2494,28 @@ function validateRequestBundle(request, verified) {
   }
 }
 
+function reviewerPrompt(leg, request) {
+  const requestBlock = `REQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
+  if (request.schema !== 3) return `You are the ${leg} independent plan reviewer. Read only the sealed bundle. Return findings only. Copy the request object into ReviewerOutput.request.\n${requestBlock}`;
+  const modeRules = request.review_mode === 'full'
+    ? 'This is a full review. Return at most five findings.'
+    : 'This is a repair review. Inspect the accepted repair targets and their current-plan delta, plus blocking regressions introduced by those repairs. Return at most three findings. You may not reopen unrelated previously accepted design decisions.';
+  return `You are the ${leg} independent plan reviewer. Read only the sealed bundle and return typed findings only. Copy the request object into ReviewerOutput.request.
+Report only provable, actionable, unintentional defects with no unstated assumptions and proportionate rigor.
+A blocking finding must identify the exact user requirement, safety property, or execution step that would otherwise fail.
+Priority 2/3 or low-confidence findings are non-blocking follow-ups. verdict=not_ready requires at least one blocking finding.
+Score is the exact weighted rubric sum: standalone executability 22, actionability 16, dependency order 12, evidence re-verification 10, goal coverage 12, executable acceptance 12, failure mode 10, assumption-to-question 6.
+${modeRules}
+${requestBlock}`;
+}
+
 export function buildReviewerArgv({ tool, bundle, model, effort, serviceTier = null, leg, request }) {
   validateRequest(request); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 })); oneOf(leg, new Set(['X', 'S']), 'leg'); string(model, 'model'); string(effort, 'effort');
-  const prompt = `You are the ${leg} independent plan reviewer. Read only the sealed bundle. Return findings only. Copy the request object into ReviewerOutput.request.\nREQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
+  const prompt = reviewerPrompt(leg, request);
   if (tool === 'codex') {
     const tier = serviceTier ?? 'default'; oneOf(tier, new Set(['default', 'fast']), 'reviewer service tier');
     const config = ['-c', `model_reasoning_effort=${effort}`, ...(tier === 'fast' ? ['-c', 'features.fast_mode=true', '-c', 'service_tier="fast"'] : ['-c', 'service_tier="default"'])];
-    const suffix = request.schema === 2 ? '.v2' : '';
+    const suffix = request.schema === 1 ? '' : `.v${request.schema}`;
     return ['exec', '-C', bundle, '--skip-git-repo-check', '-s', 'read-only', '-m', model, ...config, '--output-schema', path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`), '--', prompt];
   }
   if (tool === 'claude') {
