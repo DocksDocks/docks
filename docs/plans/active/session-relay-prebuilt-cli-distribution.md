@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: in_review
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T20:33:02-03:00"
+updated: "2026-07-17T20:49:52-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 in_review_since: "2026-07-17T20:20:44-03:00"
 assignee: null
@@ -79,10 +79,10 @@ This plan owns the Docks release producer, final launcher-only plugin payload, p
 ## Environment & how-to-run
 
 - Node.js 24 and the lockfile-pinned pnpm dependencies: `corepack enable && pnpm install --frozen-lockfile`.
-- Rust toolchain: `plugins/session-relay/rust/rust-toolchain.toml`; all builds use `cargo build --release --locked`.
+- Rust toolchain: `plugins/session-relay/rust/rust-toolchain.toml`; root-level local builds use the explicit installed `cargo +1.85.0`, while CI jobs install the same pinned toolchain before invoking Cargo.
 - Focused Docks tests:
   - `node plugins/session-relay/test/distribution-contract.mjs`
-  - `cargo build --manifest-path plugins/session-relay/rust/Cargo.toml --release --locked && SESSION_RELAY_TEST_BIN="$PWD/plugins/session-relay/rust/target/release/relay" node plugins/session-relay/test/selftest.mjs`
+  - `cargo +1.85.0 build --manifest-path plugins/session-relay/rust/Cargo.toml --release --locked && SESSION_RELAY_TEST_BIN="$PWD/plugins/session-relay/rust/target/release/relay" node plugins/session-relay/test/selftest.mjs`
   - `node scripts/ci.mjs --plugin session-relay`
 - Required broad Docks gate before commit: `node scripts/ci.mjs`.
 - Cross-repository dispatch while the embedded Relay is still present:
@@ -468,6 +468,7 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - Release authorization was explicitly granted by the user after the first independent review and later expanded to continue without a review-round limit; Session Relay `0.12.0` plus docks-kit `0.9.0` publication are the required post-completion outcome.
 - **2026-07-17T20:24:12-03:00**: Canonical completion-bundle preparation rejected A6 because its JavaScript `||` was unescaped inside the Markdown table and therefore parsed as extra columns. The same parser treats backslash as an escape, so the regex's literal `\s` also requires doubled Markdown escaping. These table escapes preserve the exact executed command after canonical decoding and make the acceptance inventory sealable; no implementation, evidence receipt, or lifecycle identity changed.
 - **2026-07-17T20:33:02-03:00**: The corrected acceptance inventory reached completion diff sealing and reproduced Node `spawnSync`'s documented 1 MiB default `maxBuffer`: deleting the former multi-megabyte embedded Relay binaries terminated `git diff --binary` before bundle creation. A focused lifecycle regression now builds and deletes a deterministic 2 MiB binary, requires a completion diff larger than 1 MiB, and failed before the helper repair. The helper now gives captured Git output a bounded 256 MiB ceiling; the focused case passes without changing the sealed diff bytes or Git argv.
+- **2026-07-17T20:49:52-03:00**: The first schema-5 completion reviewer returned valid evidence with blocking P1 and advisory P2. Main context reproduced P1: the bundle omitted unchanged `plugins/session-relay/rust/rust-toolchain.toml` despite this plan's explicit next-bundle requirement. That is a preparation defect, not a plan repair target; the bundle and request were destroyed and the fresh full bundle must include the immutable toolchain file without adding it to changed `affected_paths`. Main context also reproduced P2: the focused root-level build command still omitted `+1.85.0` despite the recorded no-default-toolchain failure. The command and surrounding environment prose now use the exact source pin. The incomplete-bundle review is not a canonical completion round and makes no pass claim.
 
 ## Mistakes & Dead Ends
 
