@@ -1869,7 +1869,7 @@ function testReviewRunnerSurfaces() {
   assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
   assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
   for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence', '/model <model>', '/effort <effort>', 'provable', 'blocking', 'repair_targets_sha256']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
-  assert.match(fs.readFileSync(path.join(ROOT, 'docs/plans/active/plan-review-convergence-and-improver.md'), 'utf8'), /confidence: integer 0 \| 1/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md'), 'utf8'), /confidence: integer 0 \| 1/);
   for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'plan-manager main context']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing safe cleanup marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');

@@ -1,9 +1,9 @@
 ---
 title: Bound plan review and add a plan improver
 goal: Make Docks plan review converge within five total rounds using evidence-backed blocking findings and a separate accepted-finding repair skill.
-status: in_review
+status: finished
 created: "2026-07-16T14:47:44-03:00"
-updated: "2026-07-16T21:25:05-03:00"
+updated: "2026-07-16T21:36:57-03:00"
 started_at: "2026-07-16T15:13:44-03:00"
 in_review_since: "2026-07-16T15:56:31-03:00"
 assignee: codex
@@ -38,6 +38,7 @@ related_plans:
 review_status: passed
 planned_at_commit: abb48cbfe3c9842077812f2a54186a2dcfbe6412
 execution_base_commit: 214a518fe1fdfdcff578d3e6f07f0cb3318bc7bb
+ship_commit: 5aa86fdeff658048a7cbf6492079fd1dd473e290
 ---
 
 # Bound plan review and add a plan improver
