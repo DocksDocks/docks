@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-05"
-  content_hash: "e2537f7c1ffa80e641f93ddbe94aa84442ae4bdd304385e683fe5506f6cac39c"
+  updated: "2026-07-17"
+  content_hash: "c9d1bd144d53e4c7b1caf1f263c641ce844d0507a487935025cb6f4928fac3f5"
 ---
 
 # Write a Skill (docks conventions)
@@ -79,8 +79,9 @@ metadata:
 3. **Draft the body** in `SKILL.md`. Target 80–310 lines. Include at least: one `<constraint>`, one BAD/GOOD pair, one table, one fenced code block with a language tag. Pick prescriptiveness per "Degrees of freedom" below.
 4. **Score check.** `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also scores with (one rubric, no mirror). Validate one skill: `node …/skill-guard.mjs validate <skill-dir>`. If < 14, find the missing point in the rubric.
 5. **Structural check.** Kit: `node scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
-6. **Full CI.** `node scripts/ci.mjs` where present. Must be green before commit.
-7. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
+6. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `node scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
+7. **Full CI once.** Run `node scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
+8. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
 
 ## Fresh-instance QA (the Claude-A / Claude-B test)
 

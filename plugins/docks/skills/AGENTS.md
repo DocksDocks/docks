@@ -3,7 +3,7 @@
 Skills are the cross-tool payload — every skill here surfaces in Claude Code, Codex, and any agentskills.io runtime. Each skill is a directory `<category>/<name>/SKILL.md` (+ optional `references/`). Categories: `engineering/`, `productivity/`. The description is surfaced in the session listing (loaded every session); the body loads only on activation — spend the effort on the description.
 
 <constraint>
-Run `node scripts/ci.mjs` after any skill change — it must be green before commit. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
+Run the owning plugin gate after each skill change (`node scripts/ci.mjs --plugin docks` here); do not rerun unrelated plugins during the edit loop. Run `node scripts/ci.mjs` once at the final pre-commit/release gate, or earlier only for shared/repo-wide changes. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
 </constraint>
 
 <constraint>
