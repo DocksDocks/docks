@@ -1,9 +1,9 @@
 ---
 title: Adopt one bounded primary plan reviewer
 goal: Make new Docks plan reviews use one GPT-first reviewer role with Claude availability fallback, evidence-backed checklist findings, and at most one repair.
-status: in_review
+status: finished
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-17T05:08:40-03:00"
+updated: "2026-07-17T12:08:42-03:00"
 started_at: "2026-07-17T00:21:34-03:00"
 in_review_since: "2026-07-17T01:42:11-03:00"
 assignee: codex
@@ -42,6 +42,7 @@ related_plans:
 review_status: passed
 planned_at_commit: 3d8e1c531fc65d4ebd50ee9cae5a51a34d4ab1f5
 execution_base_commit: 7dbfb222562f4503cfbde5881fa65e088aa88d23
+ship_commit: b5b4055f94d1a54fde0f678b42967188fd55d738
 ---
 
 # Adopt one bounded primary plan reviewer
