@@ -208,12 +208,16 @@ function ghDownloadArtifact({ artifactId, destination }) {
     '-H', 'Accept: application/vnd.github+json',
     '-H', 'X-GitHub-Api-Version: 2022-11-28',
     `repos/${REPOSITORY_ID}/actions/artifacts/${artifactId}/zip`,
-    '--output', destination,
-  ], { encoding: 'utf8', shell: false, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
+  ], { encoding: null, shell: false, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 });
   if (result.error || result.signal !== null || result.status !== 0) {
-    try { fs.unlinkSync(destination); } catch {}
-    const detail = result.stderr?.trim() || result.error?.message || result.signal || `exit ${result.status}`;
+    const detail = result.stderr?.toString('utf8').trim() || result.error?.message || result.signal || `exit ${result.status}`;
     fail(`artifact ${artifactId} download failed: ${detail}`);
+  }
+  try {
+    fs.writeFileSync(destination, result.stdout, { flag: 'wx', mode: 0o600 });
+  } catch {
+    try { fs.unlinkSync(destination); } catch {}
+    fail(`artifact ${artifactId} download could not be written`);
   }
 }
 
@@ -374,7 +378,7 @@ function extractZipSafely(archiveFile, destination) {
     const unixMode = externalAttributes >>> 16;
     if ((unixMode & 0xf000) === 0xa000) fail(`artifact archive contains symlink member: ${name}`);
     if ((unixMode & 0xf000) !== 0 && (unixMode & 0xf000) !== 0x8000) fail(`artifact archive member is not a regular file: ${name}`);
-    if ((flags & 0x0001) !== 0 || (flags & 0x0008) !== 0 || ![0, 8].includes(method)) fail(`artifact archive member uses unsupported ZIP features: ${name}`);
+    if ((flags & ~0x0808) !== 0 || ![0, 8].includes(method)) fail(`artifact archive member uses unsupported ZIP features: ${name}`);
     if (localOffset + 30 > centralOffset || archive.readUInt32LE(localOffset) !== 0x04034b50) fail(`artifact archive local entry is malformed: ${name}`);
     const localFlags = archive.readUInt16LE(localOffset + 6);
     const localMethod = archive.readUInt16LE(localOffset + 8);
@@ -387,13 +391,23 @@ function extractZipSafely(archiveFile, destination) {
     const dataEnd = dataStart + compressedSize;
     if (uncompressedSize > 256 * 1024 * 1024 || totalUncompressed + uncompressedSize > 512 * 1024 * 1024) fail(`artifact archive expands beyond the verifier limit: ${name}`);
     totalUncompressed += uncompressedSize;
-    if (dataRanges.some(([start, end]) => dataStart < end && dataEnd > start)) fail(`artifact archive members overlap: ${name}`);
-    dataRanges.push([localOffset, dataEnd]);
-    if (dataEnd > centralOffset || localFlags !== flags || localMethod !== method || localCrc !== expectedCrc
-      || localCompressedSize !== compressedSize || localUncompressedSize !== uncompressedSize || localNameLength !== nameLength
+    if (dataEnd > centralOffset || dataStart > centralOffset || localFlags !== flags || localMethod !== method || localNameLength !== nameLength
       || !archive.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(Buffer.from(name))) {
       fail(`artifact archive local entry conflicts with central entry: ${name}`);
     }
+    let entryEnd = dataEnd;
+    if ((flags & 0x0008) !== 0) {
+      if (localCrc !== 0 || localCompressedSize !== 0 || localUncompressedSize !== 0 || dataEnd + 16 > centralOffset
+        || archive.readUInt32LE(dataEnd) !== 0x08074b50 || archive.readUInt32LE(dataEnd + 4) !== expectedCrc
+        || archive.readUInt32LE(dataEnd + 8) !== compressedSize || archive.readUInt32LE(dataEnd + 12) !== uncompressedSize) {
+        fail(`artifact archive data descriptor conflicts with central entry: ${name}`);
+      }
+      entryEnd += 16;
+    } else if (localCrc !== expectedCrc || localCompressedSize !== compressedSize || localUncompressedSize !== uncompressedSize) {
+      fail(`artifact archive local entry conflicts with central entry: ${name}`);
+    }
+    if (dataRanges.some(([start, end]) => localOffset < end && entryEnd > start)) fail(`artifact archive members overlap: ${name}`);
+    dataRanges.push([localOffset, entryEnd]);
     let bytes;
     try {
       bytes = method === 0
