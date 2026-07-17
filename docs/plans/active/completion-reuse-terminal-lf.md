@@ -1,10 +1,10 @@
 ---
 title: Accept terminal-LF normalization in completion receipt reuse
 goal: Let the canonical completion-reuse gate validate a reviewed plan whose source blob lacks a final LF without weakening receipt, plan-delta, or review-block binding.
-status: planned
+status: ongoing
 created: "2026-07-17T05:30:00-03:00"
-updated: "2026-07-17T10:22:16-03:00"
-started_at: null
+updated: "2026-07-17T10:33:13-03:00"
+started_at: "2026-07-17T10:33:13-03:00"
 in_review_since: null
 assignee: codex
 review_author_company: openai
