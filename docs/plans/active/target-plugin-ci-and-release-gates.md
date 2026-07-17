@@ -1,10 +1,11 @@
 ---
 title: Target CI and release gates by plugin
 goal: Make CI measurable, parallel where safe, and plugin-targeted for local and release-tag gates while preserving full pull-request and manual validation.
-status: ongoing
+status: in_review
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-16T23:38:16-03:00"
+updated: "2026-07-17T00:15:14-03:00"
 started_at: "2026-07-16T23:38:16-03:00"
+in_review_since: "2026-07-17T00:15:14-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -19,6 +20,8 @@ affected_paths:
   - scripts/ci.mjs
   - scripts/release.mjs
   - scripts/tests/ci-plugin-targeting.mjs
+  - scripts/tests/plan-review-policy.mjs
+  - scripts/tests/plan-review-policy-regressions.mjs
   - scripts/AGENTS.md
   - .github/workflows/ci.yml
   - .github/AGENTS.md
@@ -74,11 +77,11 @@ node scripts/ci.mjs
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Freeze targeting, timing, and workflow behavior before production edits. | `scripts/tests/ci-plugin-targeting.mjs` (tag parser, author-check selection, shell selection, release args, timing schema, malformed input, event/cache cases) | — | pending | The test fails because strict tag resolution, reusable target selection, timing output, and cache/event contracts do not exist. |
-| 2 | Add registry-driven target and tag resolution. | `scripts/lib/plugins.mjs` (`PLUGINS` author-check capability); `scripts/lib/ci-targeting.mjs` (`resolveCiTargets`, `parseReleaseTag`, `releaseCiArgs`); `scripts/ci-target.mjs` (GitHub-safe resolver CLI) | 1 | pending | Known canonical tags map to one descriptor; malformed/unknown tags throw; selected author/shell/Rust capabilities derive only from the registry. |
-| 3 | Apply selection, phase timing, and background overlap to local CI and release preflight. | `scripts/ci.mjs` (shared phase, selected shell hooks, selected Docks author suites, bounded timing JSON, background mutation driver); `scripts/release.mjs` (preflight argv); `scripts/tests/ci-plugin-targeting.mjs` (timing/release/selection assertions) | 2 | pending | Targeted invocations omit unrelated plugin work; release forwards `--plugin` as separate argv; timing JSON records closed phase/task results; the mutation driver overlaps independent synchronous checks without hiding failures. |
-| 4 | Target release-tag work, cache dependencies, and update the gate contract. | `.github/workflows/ci.yml` (strict resolver, conditional Rust, pnpm/Cargo caches, full PR/manual, targeted tag); `.github/AGENTS.md`, `scripts/AGENTS.md`, `AGENTS.md` (no-drift contract); `scripts/tests/ci-plugin-targeting.mjs` (workflow event/cache matrix) | 2, 3 | pending | PR/manual use full CI; a known tag uses one plugin; Docks/Effect tags skip Rust; Session Relay tags retain Rust; malformed/unknown tags stop before provisioning; cache keys bind lockfiles and target identity. |
-| 5 | Run focused, targeted, measured, and integration verification. | `scripts/tests/ci-plugin-targeting.mjs`; `scripts/ci.mjs`; `scripts/release.mjs`; `.github/workflows/ci.yml` | 3, 4 | pending | A1-A7 pass, then the separate full project CI completion gate passes once; measured output demonstrates that unrelated plugin phases are absent. |
+| 1 | Freeze targeting, timing, and workflow behavior before production edits. | `scripts/tests/ci-plugin-targeting.mjs` (tag parser, author-check selection, shell selection, release args, timing schema, malformed input, event/cache cases) | — | done | The test failed before helpers existed, then passed in both direct and nonrecursive `--unit` modes. |
+| 2 | Add registry-driven target and tag resolution. | `scripts/lib/plugins.mjs` (`PLUGINS` author-check capability); `scripts/lib/ci-targeting.mjs` (`resolveCiTargets`, `parseReleaseTag`, `releaseCiArgs`); `scripts/ci-target.mjs` (GitHub-safe resolver CLI) | 1 | done | Known canonical tags map to one descriptor; malformed/unknown tags throw; selected author/shell/Rust capabilities derive only from the registry. |
+| 3 | Apply selection, phase timing, and background overlap to local CI and release preflight. | `scripts/ci.mjs` (shared phase, selected shell hooks, selected Docks author suites, bounded timing JSON, background mutation driver); `scripts/release.mjs` (preflight argv); `scripts/tests/ci-plugin-targeting.mjs`, `scripts/tests/plan-review-policy.mjs`, `scripts/tests/plan-review-policy-regressions.mjs` (timing/release/selection and scheduling assertions) | 2 | done | Targeted invocations omit unrelated plugin work; release forwards `--plugin` as separate argv; timing JSON records closed phase/task results; the mandatory mutation task starts early and joins once. |
+| 4 | Target release-tag work, cache dependencies, and update the gate contract. | `.github/workflows/ci.yml` (strict resolver, conditional Rust, pnpm/Cargo caches, full PR/manual, targeted tag); `.github/AGENTS.md`, `scripts/AGENTS.md`, `AGENTS.md` (no-drift contract); `scripts/tests/ci-plugin-targeting.mjs` (workflow event/cache matrix) | 2, 3 | done | PR/manual use full CI; known tags use one plugin; non-Rust tags skip Rust; malformed tags stop before caches/provisioning; exact and restore cache keys bind their correctness inputs. |
+| 5 | Run focused, targeted, measured, and integration verification. | `scripts/tests/ci-plugin-targeting.mjs`; `scripts/ci.mjs`; `scripts/release.mjs`; `.github/workflows/ci.yml` | 3, 4 | done | A1-A7 and the separate full project CI completion gate passed; measured output proves unrelated plugin phases are absent from targeted runs. |
 
 ## Interfaces and invariants
 
@@ -195,3 +198,17 @@ descriptor.
 The user approved the measured-CI-first sequence and autonomous execution on
 2026-07-16. Dependency caching and safe overlap are included because targeting
 alone does not reduce Docks' dominant mutation-suite wall time.
+
+The successful measured Docks target recorded `status:"passed"`, nine ordered
+phases, exactly one passed mutation task, and 181600 ms total/task duration.
+The Effect Kit target and release dry-run completed in under two seconds and
+omitted every Docks author suite and unrelated plugin gate. The plan-review
+surface and mutation fixtures are now explicit affected paths because safe
+background scheduling necessarily changed their frozen CI composition anchors.
+
+The final full local gate passed all three plugins with `CI` cleared to preserve
+the documented local warning for cross-image Session Relay binary variance. It
+recorded 177673 ms total versus the previously observed 234–236 seconds: the
+57-second Relay phase overlapped the mandatory mutation task instead of extending
+the critical path. An inherited nonempty `CI` run also exercised the expected
+local byte-identity failure before the clean local rerun passed.
