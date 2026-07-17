@@ -86,10 +86,10 @@ const workflowText = fs.readFileSync(path.join(ROOT, '.github/workflows/ci.yml')
 const workflow = parseDocument(workflowText, { prettyErrors: true, strict: true, uniqueKeys: true });
 assert.equal(workflow.errors.length, 0);
 const steps = workflow.toJS().jobs.validate.steps;
-const step = (name) => steps.find((row) => row.name === name);
+const step = (name) => steps.find((row) => row.name?.startsWith(name));
 assert.equal(step('resolve CI target').if, "github.event_name == 'push'");
 assert.match(step('resolve CI target').run, /scripts\/ci-target\.mjs release-tag/);
-assert.equal(step('provision Rust for the session-relay host leg').if, "github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'");
+assert.equal(step('provision Rust 1.85.0 with musl for the session-relay host leg').if, "github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'");
 assert.match(step('run the authoritative gate').run, /if \[ "\$\{\{ github\.event_name \}\}" = "push" \]/);
 assert.match(step('run the authoritative gate').run, /node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/);
 assert.match(step('run the authoritative gate').run, /node scripts\/ci\.mjs$/m);
