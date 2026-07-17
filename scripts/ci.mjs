@@ -250,6 +250,12 @@ function gatePlugin(p) {
       : fail(`${p.name} distribution contract failed (run: node ${p.distributionContract})`);
   }
 
+  for (const contract of p.releaseContracts ?? []) {
+    nodeOk([contract])
+      ? ok(`${p.name} release contract passed (${path.basename(contract)})`)
+      : fail(`${p.name} release contract failed (run: node ${contract})`);
+  }
+
   if (p.selftest) {
     const testOptions = p.rust
       ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }

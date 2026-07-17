@@ -21,6 +21,7 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `rust` | Rust source/prebuilt capability, or `null`: `{ dir, binName, source: { manifest, lockfile, builtBinary, testBinaryEnv }, prebuilt: { targets, assetPrefix, checksumAsset } }` — `ci.mjs` formats, lints, builds, and exercises the source-selected host binary. Prebuilt target assets and `SHA256SUMS` are release artifacts produced by the pinned native workflow; they are never committed in a plugin payload. Helpers in `lib/rust-bin.mjs` |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
 | `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `scaffold`, `plan-review` for Docks; `[]` otherwise) |
+| `releaseContracts` | ordered production release-state/evidence contract tests owned by the plugin (`[]` when absent) |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `install` | the consumer install snippet for the GitHub Release notes |
 | `release` | Release artifact names, the non-install prerelease staging body, and the stable install command. Session Relay's state machine and workflow consume these identities without inventing alternate asset names or install text. |
@@ -30,7 +31,7 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 
 1. **Payload** at `plugins/<name>/` — `.claude-plugin/plugin.json` (+ `.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
-2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — declare only capabilities that exist (`agents`/`selftest`/`rust` take `null`, `extraJson`/`authorChecks` use `[]` when absent); include the install snippet.
+2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — declare only capabilities that exist (`agents`/`selftest`/`rust` take `null`, `extraJson`/`authorChecks`/`releaseContracts` use `[]` when absent); include the install snippet.
 3. **Two catalog entries**: `.claude-plugin/marketplace.json` (name/source/version — version in lockstep with both manifests) and `.agents/plugins/marketplace.json` (local-source + policy block) for Codex.
 4. **Optional context node** (`plugins/<name>/AGENTS.md` + one-line `CLAUDE.md`) when the plugin carries conventions of its own — `tree/guard` enforces the pair; the durable-anchors guard scans it.
 5. Verify: `node scripts/ci.mjs --list` shows the plugin and full `node scripts/ci.mjs` is green. Docks/effect-kit use the legacy positional release command; a prebuilt CLI uses its reviewed prepare/publication modes.

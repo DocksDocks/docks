@@ -13,7 +13,7 @@ import {
   verifySourceCi,
 } from './session-relay-release-preparation.mjs';
 import { finalizeReviewed, publishReviewed } from './session-relay-release-publication.mjs';
-import { promoteReviewed } from './session-relay-release-promotion.mjs';
+import { promoteReviewed, validatePromotionReceiptForFinalization } from './session-relay-release-promotion.mjs';
 import { positionalPlugin, runFixture } from './session-relay-release-fixture.mjs';
 
 const MODE_SPECS = {
@@ -90,7 +90,7 @@ export async function dispatchSessionRelayRelease(argv = process.argv.slice(2)) 
     if (positionalPlugin(argv) === PLUGIN) fail('Session Relay positional release syntax is disabled; use --prepare');
     return null;
   }
-  assertReceiptOutputFree(parsed.options);
+  if (parsed.mode !== 'resume-promotion') assertReceiptOutputFree(parsed.options);
   let result;
   switch (parsed.mode) {
     case 'prepare': result = prepare(parsed.options, []); break;
@@ -102,7 +102,7 @@ export async function dispatchSessionRelayRelease(argv = process.argv.slice(2)) 
     case 'publish-reviewed': result = publishReviewed(parsed.options); break;
     case 'promote-reviewed': result = promoteReviewed(parsed.options, false); break;
     case 'resume-promotion': result = promoteReviewed(parsed.options, true); break;
-    case 'finalize-reviewed': result = finalizeReviewed(parsed.options); break;
+    case 'finalize-reviewed': result = finalizeReviewed(parsed.options, undefined, validatePromotionReceiptForFinalization); break;
     default: fail(`unhandled release mode: ${parsed.mode}`);
   }
   return result ?? true;

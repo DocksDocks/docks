@@ -21,6 +21,7 @@
 //                 the self-test. No generated executable is written to bin/.
 //   extraJson     additional JSON configs to validate (hooks/mcp/etc.)
 //   authorChecks  repository author suites owned by this plugin
+//   releaseContracts additional release-state/evidence contract tests
 //   transformGuard run scripts/skills/transform-guard.mjs (curated transformers)
 //   install/release consumer installation text; Session Relay additionally owns
 //                 prerelease staging and its closed prebuilt asset set
@@ -50,6 +51,7 @@ export const PLUGINS = [
     rust: null,
     extraJson: [],
     authorChecks: ['idempotency', 'scaffold', 'plan-review'],
+    releaseContracts: [],
     transformGuard: true,
     install: '/plugin marketplace update docks\n/plugin install docks@docks',
   },
@@ -77,6 +79,11 @@ export const PLUGINS = [
       'plugins/session-relay/.codex-plugin/bus.mcp.json',
     ],
     authorChecks: [],
+    releaseContracts: [
+      'plugins/session-relay/test/release-evidence-contract.mjs',
+      'plugins/session-relay/test/release-publication-contract.mjs',
+      'plugins/session-relay/test/release-promotion-contract.mjs',
+    ],
     transformGuard: false,
     release: {
       assets: rustReleaseAssetNames(SESSION_RELAY_PREBUILT),
@@ -94,6 +101,7 @@ export const PLUGINS = [
     rust: null,
     extraJson: [],
     authorChecks: [],
+    releaseContracts: [],
     transformGuard: false,
     install: '/plugin marketplace update docks\n/plugin install effect-kit@docks',
   },

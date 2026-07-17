@@ -381,7 +381,7 @@ jobs:
           test "${#staged[@]}" -eq 5
           printf 'Session Relay %s is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.' \
             "$EXPECTED_VERSION" > "$RUNNER_TEMP/session-relay-prerelease.md"
-      - name: create public prerelease from exactly five same-run assets
+      - name: create or reconcile public prerelease from exactly five same-run assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.identity.outputs.tag }}
@@ -389,13 +389,138 @@ jobs:
         run: |
           set -euo pipefail
           release="$RUNNER_TEMP/session-relay-release"
-          gh release create "$TAG" \
-            "$release/session-relay-aarch64-apple-darwin" \
-            "$release/session-relay-aarch64-unknown-linux-musl" \
-            "$release/session-relay-x86_64-apple-darwin" \
-            "$release/session-relay-x86_64-unknown-linux-musl" \
-            "$release/SHA256SUMS" \
-            --verify-tag \
-            --prerelease \
-            --title "Session Relay $VERSION" \
-            --notes-file "$RUNNER_TEMP/session-relay-prerelease.md"
+          body_file="$RUNNER_TEMP/session-relay-prerelease.md"
+          title="Session Relay $VERSION"
+          assets=(
+            session-relay-aarch64-apple-darwin
+            session-relay-aarch64-unknown-linux-musl
+            session-relay-x86_64-apple-darwin
+            session-relay-x86_64-unknown-linux-musl
+            SHA256SUMS
+          )
+
+          declare -A local_size=()
+          declare -A local_digest=()
+          local_paths=()
+          for name in "${assets[@]}"; do
+            file="$release/$name"
+            test -f "$file"
+            local_paths+=("$file")
+            local_size["$name"]="$(stat --format='%s' "$file")"
+            local_digest["$name"]="$(sha256sum "$file" | cut -d ' ' -f 1)"
+          done
+          expected_assets="$(printf '%s\n' "${assets[@]}" | jq --raw-input --slurp 'split("\n")[:-1]')"
+
+          query_release() {
+            local output="$1"
+            local response="$output.http"
+            local errors="$output.stderr"
+            local command_status=0
+            local http_status
+
+            gh api --include \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+              > "$response" 2> "$errors" || command_status=$?
+            http_status="$(awk 'NR == 1 { print $2 }' "$response")"
+
+            if test "$command_status" -eq 0 && test "$http_status" = 200; then
+              awk 'body { print } /^\r?$/ { body = 1 }' "$response" > "$output"
+              jq -e 'type == "object"' "$output" > /dev/null
+              return 0
+            fi
+            if test "$command_status" -ne 0 && test "$http_status" = 404; then
+              return 44
+            fi
+            cat "$errors" >&2
+            echo "authoritative release query failed (HTTP ${http_status:-unavailable})" >&2
+            return 1
+          }
+
+          missing_paths=()
+          validate_release() {
+            local document="$1"
+            local require_complete="$2"
+            local expected_id="${3:-}"
+            local actual_id
+            local name
+            local size
+            local digest
+            declare -A seen=()
+
+            jq -e \
+              --arg tag "$TAG" \
+              --arg title "$title" \
+              --rawfile body "$body_file" \
+              --argjson expected "$expected_assets" \
+              '
+                type == "object"
+                and (.id | type == "number" and . > 0 and floor == .)
+                and .tag_name == $tag
+                and .draft == false
+                and .prerelease == true
+                and .name == $title
+                and .body == $body
+                and (.assets | type == "array")
+                and all(.assets[];
+                  (.name | type == "string")
+                  and (.size | type == "number" and . >= 0 and floor == .)
+                  and (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+                  and (. as $asset | ($expected | index($asset.name)) != null)
+                )
+                and ([.assets[].name] | length) == ([.assets[].name] | unique | length)
+              ' "$document" > /dev/null
+
+            actual_id="$(jq -r '.id' "$document")"
+            if test -n "$expected_id"; then
+              test "$actual_id" = "$expected_id"
+            fi
+
+            while IFS=$'\t' read -r name size digest; do
+              test -n "$name"
+              test "${local_size[$name]}" = "$size"
+              test "sha256:${local_digest[$name]}" = "$digest"
+              seen["$name"]=1
+            done < <(jq -r '.assets[] | [.name, (.size | tostring), .digest] | @tsv' "$document")
+
+            missing_paths=()
+            for name in "${assets[@]}"; do
+              if [[ ! -v seen["$name"] ]]; then
+                missing_paths+=("$release/$name")
+              fi
+            done
+            if test "$require_complete" = true; then
+              test "${#missing_paths[@]}" -eq 0
+              test "$(jq '.assets | length' "$document")" -eq "${#assets[@]}"
+            fi
+          }
+
+          initial="$RUNNER_TEMP/session-relay-release-initial.json"
+          release_id=''
+          query_status=0
+          query_release "$initial" || query_status=$?
+          case "$query_status" in
+            0)
+              validate_release "$initial" false
+              release_id="$(jq -r '.id' "$initial")"
+              if test "${#missing_paths[@]}" -gt 0; then
+                gh release upload "$TAG" "${missing_paths[@]}"
+              fi
+              ;;
+            44)
+              gh release create "$TAG" \
+                "${local_paths[@]}" \
+                --verify-tag \
+                --prerelease \
+                --title "$title" \
+                --notes-file "$body_file"
+              ;;
+            *)
+              exit "$query_status"
+              ;;
+          esac
+
+          final="$RUNNER_TEMP/session-relay-release-final.json"
+          query_release "$final"
+          validate_release "$final" true "$release_id"
