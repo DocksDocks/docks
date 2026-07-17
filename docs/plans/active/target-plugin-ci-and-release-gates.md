@@ -3,7 +3,7 @@ title: Target CI and release gates by plugin
 goal: Make explicit single-plugin CI, release preflight, and release-tag validation run shared repository guards plus only the selected plugin's owned work, while preserving full pull-request and manual validation.
 status: planned
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-16T22:50:14-03:00"
+updated: "2026-07-16T22:59:00-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -24,7 +24,7 @@ affected_paths:
 related_plans:
   - single-gpt-plan-review-default
 review_status: null
-planned_at_commit: c944a38f1dc09d28d624cbe3a978f93f56395308
+planned_at_commit: 5ba8e810112b1be3570e06fd0b94715630c990b7
 execution_base_commit: null
 ---
 
