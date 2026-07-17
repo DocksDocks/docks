@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: planned
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T12:53:46-03:00"
+updated: "2026-07-17T13:01:22-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -41,7 +41,7 @@ affected_paths:
   - scripts/verify-session-relay-preflight.mjs
 related_plans: []
 review_status: null
-planned_at_commit: b65ca2c9819e3113fa43576b5845f0f33a278a61
+planned_at_commit: 025a00af547547f53fb4e1fbe01823b55a99181a
 execution_base_commit: null
 ---
 
