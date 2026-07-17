@@ -21,7 +21,7 @@ related_plans:
   - single-gpt-plan-review-default
 review_status: null
 planned_at_commit: 1005aa7e5ace531669d34d003d36d5762fe44eec
-execution_base_commit: null
+execution_base_commit: 6e6f89ebf839b19f47568ea669f92c500bc53b4b
 ---
 
 # Accept terminal-LF normalization in completion receipt reuse
