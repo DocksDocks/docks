@@ -1,0 +1,149 @@
+---
+title: Default plan review to one GPT reviewer
+goal: Make Docks use one bounded gpt-5.6-sol high Standard reviewer lane by default, with no cross-company launch and no renewable review batches.
+status: planned
+created: "2026-07-16T22:13:24-03:00"
+updated: "2026-07-16T22:13:24-03:00"
+assignee: codex
+review_author_company: openai
+review_author_tool: codex
+review_author_model: gpt-5.6-sol
+review_author_effort: high
+review_waivers: []
+tags: [plans, review, single-reviewer, convergence]
+affected_paths:
+  - plugins/docks/skills/productivity/plan-manager/SKILL.md
+  - plugins/docks/skills/productivity/plan-review/SKILL.md
+  - plugins/docks/skills/productivity/plan-improver/SKILL.md
+  - plugins/docks/skills/productivity/plan-init/SKILL.md
+  - plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md
+  - docs/plans/AGENTS.md
+  - plugins/docks/agents/plan-manager.md
+  - plugins/docks/agents/plan-review.md
+  - .codex/agents/plan-manager.toml
+  - .codex/agents/plan-review.toml
+  - docs/scaffold/templates/codex-plan-manager.toml.template
+  - docs/scaffold/templates/codex-plan-review.toml.template
+  - docs/scaffold/templates/root-AGENTS.md.template
+  - scripts/tests/plan-review-policy.mjs
+  - scripts/tests/plan-review-convergence-repair.mjs
+  - scripts/tests/plan-review-policy-regressions.mjs
+related_plans:
+  - plan-review-convergence-and-improver
+review_status: null
+planned_at_commit: null
+execution_base_commit: null
+---
+
+# Default plan review to one GPT reviewer
+
+## Goal
+
+Use exactly one normal plan-review model by default: OpenAI Codex
+`gpt-5.6-sol` at `high` effort and Standard service tier. Do not launch a
+cross-company reviewer. Keep review-and-repair bounded by the existing single
+five-round lifetime cap and stop as soon as the GPT reviewer is ready with no
+blocking finding.
+
+## Context and rationale
+
+The current policy-v4 validators already represent this safely without a new
+schema. With `cross_company_consent: never`, X is a persisted
+`not_authorized` outcome with zero attempts; S is the sole launched reviewer.
+A ready, score-qualified S result validates as `outcome: single`. Historical
+X/S policy and receipt records keep their embedded meaning.
+
+The correction is therefore a default and dispatch change, not a wire-format
+rewrite. `plan-improver` remains accepted-findings-only. A repair round may
+inspect only the accepted S findings and the resulting delta. The series cannot
+renew after `max_rounds`.
+
+## Environment and commands
+
+Repository: `/home/vagrant/projects/docks`
+
+```bash
+node scripts/tests/plan-review-policy.mjs --case schemas
+node scripts/tests/plan-review-policy.mjs --case legs
+node scripts/tests/plan-review-policy.mjs --case surfaces
+node scripts/tests/plan-review-convergence-repair.mjs --case repair-series
+node scripts/tests/plan-review-policy-regressions.mjs --self-test
+node scripts/ci.mjs --plugin docks
+node scripts/ci.mjs
+```
+
+## Steps
+
+| # | Task | Files | Depends | Status | Done condition |
+|---|---|---|---|---|---|
+| 1 | Add frozen failing tests for the new default. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | pending | Tests fail because current surfaces default to consent `ask` and promise two launched reviewers. |
+| 2 | Change the current default and dispatch contract to one S lane. | manager/reviewer skills; plan contract/template; wrappers/scaffold | 1 | pending | Resolved default is consent `never`; X has zero attempts and `not_authorized`; only S launches as `gpt-5.6-sol`/`high`/`default`. |
+| 3 | Keep accepted-finding repair and convergence exact. | manager/reviewer/improver skills; tests | 2 | pending | Accepted S findings alone become repair targets; ready terminates immediately; the lifetime cap cannot renew. |
+| 4 | Synchronize skill metadata/hashes and verify. | all affected skill surfaces; tests | 3 | pending | Focused gates, Docks CI, full CI, and one GPT-only completion review pass. |
+
+## Interfaces and invariants
+
+- Current default: `cross_company_consent: never`.
+- Sole launched review candidate: `openai / gpt-5.6-sol / high / default / cli`.
+- X remains present only as the historical schema-required `not_authorized`
+  raw leg with zero attempts, findings, selected reviewer, and decision evidence.
+- S is the only attempted reviewer and is independently fresh, read-only,
+  findings-only, request-bound, and bundle-verified.
+- One passed S leg yields `outcome: single`; readiness still requires score at
+  least 90 and no blocking finding.
+- Repair targets equal the exact accepted S finding set. Rejected findings do
+  not reach `plan-improver`.
+- The lifetime series remains capped at five rounds. No continuation batch or
+  reset is permitted.
+- Historical policy v1-v4 records retain their persisted meanings.
+
+## Acceptance criteria
+
+| ID | Command | Expected |
+|---|---|---|
+| A1 | `node scripts/tests/plan-review-policy.mjs --case schemas` | Exits 0; historical schemas remain valid and the current single-lane policy is closed. |
+| A2 | `node scripts/tests/plan-review-policy.mjs --case legs` | Exits 0; X `not_authorized` has no attempt and sole S readiness produces `outcome: single`. |
+| A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0; every live/generated contract names GPT-only default dispatch and no cross-company launch. |
+| A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-series` | Exits 0; only accepted S findings become repair targets and the series stops ready or at the cap. |
+| A5 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0; mutations cannot restore cross-company default launch or renewable batches. |
+| A6 | `node scripts/ci.mjs` | Exits 0 across all plugins and repository guards. |
+
+## Out of scope
+
+- Do not remove X/S fields from historical schemas or rewrite old receipts.
+- Do not change the implementation/assignee model policy.
+- Do not add Session Relay as review evidence transport.
+- Do not implement Session Relay distribution or messaging work here.
+- Do not move or delete the failed immutable `docks--v0.12.8` tag.
+
+## Failure modes and STOP conditions
+
+- STOP if single-S operation requires changing historical receipt validation.
+- STOP if any path can launch X while consent is `never`.
+- STOP if accepted repair targets can include rejected or unreviewed findings.
+- STOP if a later review round can reset or extend the five-round lifetime cap.
+- A missing sole GPT reviewer never fabricates passed evidence.
+
+## Cold-handoff checklist
+
+- Exact files and commands are listed.
+- Single-lane policy and historical compatibility are explicit.
+- Acceptance covers dispatch suppression, model pinning, repair identity, and lifetime convergence.
+- Release recovery uses a new patch after green CI; the failed tag is not moved.
+
+## Self-review
+
+Score: 98/100. The smallest compatible change reuses the existing validated
+`X=not_authorized`, `S=passed`, `outcome=single` representation instead of
+inventing a new schema. The plan preserves the hard convergence cap and keeps
+`plan-improver` narrower than plan-manager.
+
+## Review
+
+(filled by plan-review on completion)
+
+## Notes
+
+The previous completion review implemented its explicit X/S contract correctly,
+but that contract did not match the user's intended single-GPT workflow. This
+plan is the clean correction and does not reopen unrelated implementation work.
