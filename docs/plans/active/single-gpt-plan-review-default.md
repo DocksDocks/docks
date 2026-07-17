@@ -38,7 +38,7 @@ related_plans:
   - plan-review-convergence-and-improver
   - target-plugin-ci-and-release-gates
 review_status: null
-planned_at_commit: null
+planned_at_commit: 3d8e1c531fc65d4ebd50ee9cae5a51a34d4ab1f5
 execution_base_commit: null
 ---
 
