@@ -3,7 +3,7 @@ title: Adopt one bounded primary plan reviewer
 goal: Make new Docks plan reviews use one GPT-first reviewer role with Claude availability fallback, evidence-backed checklist findings, and at most one repair.
 status: in_review
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-17T03:25:26-03:00"
+updated: "2026-07-17T03:29:31-03:00"
 started_at: "2026-07-17T00:21:34-03:00"
 in_review_since: "2026-07-17T01:42:11-03:00"
 assignee: codex
@@ -41,7 +41,7 @@ related_plans:
   - target-plugin-ci-and-release-gates
 review_status: null
 planned_at_commit: 3d8e1c531fc65d4ebd50ee9cae5a51a34d4ab1f5
-execution_base_commit: bc352e2e308e5b812903c2fdd553b6ece9528baa
+execution_base_commit: 7dbfb222562f4503cfbde5881fa65e088aa88d23
 ---
 
 # Adopt one bounded primary plan reviewer
@@ -341,4 +341,7 @@ Accepted completion-review repair on 2026-07-17:
   all three plugins with only the expected musl path/linker warning.
 - A fresh read-only reviewer rechecked all accepted and follow-up repairs and
   reported no remaining blocking or nonblocking findings.
+- Completion preparation rejected the carried pre-start
+  `execution_base_commit`; it now records the actual plan-only first-start
+  transition `7dbfb222562f4503cfbde5881fa65e088aa88d23`.
 - The live sealed-bundle completion review remains the final Step 5 gate.
