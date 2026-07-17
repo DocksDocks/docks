@@ -27,7 +27,7 @@ related_plans:
   - single-gpt-plan-review-default
 review_status: null
 planned_at_commit: 5ba8e810112b1be3570e06fd0b94715630c990b7
-execution_base_commit: null
+execution_base_commit: 6909ef89cb95f08c344fcfd5686dc3df8d5ffec0
 ---
 
 # Target CI and release gates by plugin
