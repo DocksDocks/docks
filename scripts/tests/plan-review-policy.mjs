@@ -1356,6 +1356,73 @@ function testStrictCompletionReuse() {
   expectThrow('policy v2 threshold change invalidates completion reuse', () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: v2CompletionCommit, receipt: v2Receipt, expectedPolicy: lowerThreshold }), /resolved policy mismatch/);
   const provenanceChange = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance, max_rounds: 'current_user' } };
   expectThrow('policy v2 provenance change invalidates completion reuse', () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit: v2CompletionCommit, receipt: v2Receipt, expectedPolicy: provenanceChange }), /resolved policy mismatch/);
+  git(repo, ['checkout', '-q', '--detach', head]);
+  const currentInventory = acceptanceInventory(Buffer.from(plan));
+  const currentReq = currentRequest({
+    phase: 'completion',
+    reviewed_commit_or_head: head,
+    planned_at_commit: plannedAt,
+    execution_base_commit: executionBase,
+    diff_sha256: H0,
+    acceptance_inventory_sha256: sha256(jcs(currentInventory)),
+    input_sha256: sha256(canonicalPlanView(Buffer.from(plan))),
+  });
+  const currentRunResult = currentRun(currentReq, currentRaw(currentReq), { primary: primaryEvidence(currentInventory) });
+  const currentReceiptValue = currentReceipt(currentReq, currentRunResult);
+  let currentCompleted = applyCompletionReviewBlock(Buffer.from(plan), currentReceiptValue).toString();
+  currentCompleted = replaceOnce(currentCompleted, 'review_status: null', 'review_status: passed');
+  writeLogical(repo, planPath, currentCompleted);
+  const currentCompletionCommit = commitAll(repo, 'complete strict plan with schema-5 primary review');
+  validateCompletionReviewReuse({
+    repo,
+    planPath,
+    reviewedHead: head,
+    completionCommit: currentCompletionCommit,
+    receipt: currentReceiptValue,
+    expectedPolicy: CURRENT_POLICY,
+  });
+  git(repo, ['checkout', '-q', '--detach', head]);
+  const currentWaiver = {
+    phase: 'completion',
+    input_sha256: currentReq.input_sha256,
+    roles: ['primary'],
+    actor: 'test user',
+    reason: 'explicit completion waiver',
+    at: '2026-07-17T00:00:00-03:00',
+  };
+  const waivedRaw = currentRaw(currentReq, null, {
+    result: 'waived',
+    attempts: [],
+    selected: null,
+    reviewer_output: null,
+    findings_sha256: null,
+    waiver: currentWaiver,
+    waiver_sha256: sha256(jcs(currentWaiver)),
+    reason: null,
+  });
+  const waivedRun = currentRun(currentReq, waivedRaw, { primary: primaryEvidence(currentInventory) });
+  const waivedReceipt = currentReceipt(currentReq, waivedRun);
+  let waivedCompleted = applyCompletionReviewBlock(Buffer.from(plan), waivedReceipt, { waivers: [currentWaiver] }).toString();
+  waivedCompleted = replaceOnce(waivedCompleted, 'review_status: null', 'review_status: passed');
+  writeLogical(repo, planPath, waivedCompleted);
+  const waivedCompletionCommit = commitAll(repo, 'complete strict plan with schema-5 waiver');
+  expectThrow('completion waiver reuse requires the exact waiver', () => validateCompletionReviewReuse({
+    repo,
+    planPath,
+    reviewedHead: head,
+    completionCommit: waivedCompletionCommit,
+    receipt: waivedReceipt,
+    expectedPolicy: CURRENT_POLICY,
+  }), /waiver.*snapshot/i);
+  validateCompletionReviewReuse({
+    repo,
+    planPath,
+    reviewedHead: head,
+    completionCommit: waivedCompletionCommit,
+    receipt: waivedReceipt,
+    expectedPolicy: CURRENT_POLICY,
+    waivers: [currentWaiver],
+  });
   fs.rmSync(temp, { recursive: true, force: true });
 }
 
@@ -1816,23 +1883,40 @@ function testContractSurfaces() {
   const improverPath = 'plugins/docks/skills/productivity/plan-improver/SKILL.md';
   const contract = fs.readFileSync(path.join(ROOT, contractPath), 'utf8');
   const template = fs.readFileSync(path.join(ROOT, templatePath), 'utf8');
-  for (const marker of ['review_author_company:', 'review_waivers:', 'execution_base_commit:', 'execution_base_commit..HEAD', '### Strong-default independent review', 'platform_denied', 'prepare(intent)', 'X1…', 'S1…']) {
+  for (const marker of ['review_author_company:', 'review_waivers:', 'execution_base_commit:', 'execution_base_commit..HEAD', '### Strong-default independent review', 'platform_denied', 'prepare(intent)']) {
     assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
     assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
   }
-  const workflowMarkers = ['Docks-workflow-models:', 'profile:claude-best', 'minimum_score', 'max_rounds', 'review_mode', 'lifetime cap', 'One review attempt operation means one sealed'];
+  const workflowMarkers = [
+    /schema[- ]5/i,
+    /role:?\s*[`"']?primary/i,
+    /fallback:?\s*[`"']?availability_only/i,
+    /max_rounds:?\s*[`"']?2/,
+    /service_tier:?\s*[`"']?default/,
+    /standalone_executability/,
+    /actionability/,
+    /dependency_order/,
+    /evidence_reverification/,
+    /goal_coverage/,
+    /executable_acceptance/,
+    /failure_modes/,
+    /open_questions/,
+    /non_blocking_gap/,
+    /blocking_gap/,
+    /roles:\s*\[[`"']?primary/,
+  ];
   for (const file of [contractPath, templatePath, managerPath, reviewPath]) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    for (const marker of workflowMarkers) assert.match(text, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${file} missing workflow policy marker ${marker}`);
+    for (const marker of workflowMarkers) assert.match(text, marker, `${file} missing current workflow marker ${marker}`);
+    assert.match(text, /historical(?: policy v1-v4|[- ]only| validators)/i, `${file} must preserve historical review semantics explicitly`);
     assert.doesNotMatch(text, /Run up to <max_rounds> more rounds/, `${file} must not offer renewable continuation batches`);
-    assert.match(text, /historical policy v1-v3/i, `${file} must preserve historical review semantics explicitly`);
+    assert.match(text, /no round\s+3|round\s+3[^.\n]*reject|reject[^.\n]*round\s+3/i, `${file} must close the current series after one repair`);
   }
-  for (const file of [contractPath, templatePath, managerPath]) assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /max_rounds: 5/, `${file} missing the dated five-round default`);
   const improver = fs.readFileSync(path.join(ROOT, improverPath), 'utf8');
-  for (const marker of ['user-invocable: false', 'accepted finding', 'minimal section-level', 'cannot-repair', 'sole writer']) assert.match(improver, new RegExp(marker, 'i'), `plan-improver missing ${marker}`);
+  for (const marker of ['user-invocable: false', 'blocking_gap', 'independently reproduced', 'cannot-repair', 'sole writer']) assert.match(improver, new RegExp(marker, 'i'), `plan-improver missing ${marker}`);
   assert.doesNotMatch(improver, /dispatch.*reviewer|write.*receipt|change.*lifecycle/i, 'plan-improver must not gain review or lifecycle ownership');
   const init = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8');
-  for (const marker of ['STALE_V2', 'plan-init refresh', 'explicit user intent', 'existing `.codex/agents/', 'lifetime review-series marker']) assert.match(init, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-init missing refresh marker ${marker}`);
+  for (const marker of ['STALE_V2', 'plan-init refresh', 'explicit user intent', 'existing `.codex/agents/', 'schema-5 primary workflow marker', 'current one-repair sealed-artifact marker']) assert.match(init, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-init missing refresh marker ${marker}`);
   const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
   const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*,\s*['"]--case['"]\s*,\s*['"]surfaces['"]\s*\]\)/g) || []).length, 1, 'CI must contain exactly one focused --case surfaces call');
@@ -1843,7 +1927,7 @@ function testContractSurfaces() {
   assert.ok(ci.indexOf(focusedCall) < ci.indexOf('await planPolicyRegressionTask'), 'CI must join the regression driver after focused Docks checks');
   assert.equal((ci.match(/await planPolicyRegressionTask/g) || []).length, 1, 'CI must join the background regression driver exactly once');
   const exactRules = [
-    "Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; schema-v1 validators and receipts remain unchanged.",
+    "Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; historical validators and receipts remain unchanged.",
     'Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition.',
     'Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.',
   ];
@@ -1852,33 +1936,32 @@ function testContractSurfaces() {
     for (const rule of exactRules) assert.equal(normalized.split(rule).length - 1, 1, `${file} must carry the exact verification rule once: ${rule}`);
   }
   for (const file of ['AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md']) {
-    assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /strong|Strong|independent X\/S|independent-review/, `${file} missing public review route`);
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    assert.match(text, /primary/i, `${file} missing primary review route`);
+    assert.match(text, /availability/i, `${file} missing availability-only fallback`);
+    assert.doesNotMatch(text, /Every plan receives independent X\/S review/, `${file} must not advertise historical X/S as current`);
   }
-  assert.match(fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8'), /Independent X\/S plan review/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8'), /Every plan receives independent X\/S review/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/README.md'), 'utf8'), /Plan review is a strong availability-aware default/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/AGENTS.md'), 'utf8'), /independent-review contract/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8'), /strong-default X\/S review receipts/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8'), /schema-5 role `primary`/);
   console.log('CI composition and task-specific acceptance/repair parity passed');
-  console.log('contract/template/public strong-default parity passed');
+  console.log('contract/template/public single-primary schema-5 parity passed');
 }
 
 function testReviewRunnerSurfaces() {
   const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-review/SKILL.md'), 'utf8');
   assert.match(skill, /user-invocable: false/); assert.match(skill, /NeedsMainReviewDispatch/);
   assert.match(skill, /--skip-git-repo-check/); assert.match(skill, /--permission-mode plan/);
-  assert.match(skill, /Schema 3 Codex CLI argv[\s\S]*codex exec -C <reviewer-workspace>[\s\S]*--ephemeral --ignore-user-config/i);
-  assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /eligible_tier_count \+ 1/);
-  assert.match(skill, /git clone --no-local/); assert.match(skill, /Session-relay is not|session-relay in schema v1/i);
-  for (const marker of ['minimum_score', 'max_rounds', 'at most once', 'session-relay never transports review evidence', '/model <model>', '/effort <effort>', 'provable', 'blocking', 'repair_targets_sha256']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
+  assert.match(skill, /Current schema-5 Codex argv[\s\S]*codex exec -C <reviewer-workspace>[\s\S]*--ephemeral --ignore-user-config[\s\S]*service_tier="default"/i);
+  assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /GPT-5\.6-sol\/high[\s\S]*Fable\/high[\s\S]*Opus\/xhigh/);
+  assert.match(skill, /git clone --no-local/); assert.match(skill, /Session Relay never transports review evidence/i);
+  for (const marker of ['fallback:"availability_only"', 'max_rounds:2', 'at most once', 'platform_denied', 'output_started:false', '--model <fable|opus>', '--effort <high|xhigh>', 'every evidence string is nonempty', 'blocking_gap', 'repair_targets_sha256']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
   assert.match(fs.readFileSync(path.join(ROOT, 'docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md'), 'utf8'), /confidence: integer 0 \| 1/);
-  for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'plan-manager main context']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing safe cleanup marker ${marker}`);
+  for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'plan-manager main-context responsibility']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing safe cleanup marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
+    assert.match(text, /primary/i, `${file} lacks current primary role`);
     assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*(?:Bash|Edit|Write)/i, `${file} retains write-capable reviewer tools or writer instructions`);
-    assert.doesNotMatch(text, /acting as primary evidence runner|CI\/acceptance claims require/i, `${file} assigns writable primary work to read-only wrapper`);
-    assert.match(text, /Never run or claim CI, acceptance, clone, cleanup, or lifecycle work/i, `${file} lacks explicit X\/S write boundary`);
+    assert.match(text, /Never run or claim CI, acceptance, clone, cleanup,[^\n]*(?:lifecycle|receipt)/i, `${file} lacks explicit read-only work boundary`);
   }
   const claudeWrapper = fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-review.md'), 'utf8');
   assert.match(claudeWrapper, /^tools: Read, Glob, Grep$/m); assert.match(claudeWrapper, /Return evidence only/);
@@ -1889,17 +1972,18 @@ function testReviewRunnerSurfaces() {
 
 function testManagerSurfaces() {
   const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/SKILL.md'), 'utf8');
-  for (const marker of ['Review before execution', 'Sole-writer protocol', 'prepare(intent)', 'NeedsMainReviewDispatch', '## `apply`', 'zero_reviewer_policy', 'platform_denied']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  for (const marker of ['Review before execution', 'Sole-writer protocol', 'Availability fallback is narrow', 'prepare(intent)', 'NeedsMainReviewDispatch', '## `apply`', 'platform_denied']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   for (const marker of ['Publishing a plan as a GitHub issue', '--issues', 'gh auth status', 'gh repo view --json visibility', 'gh issue create']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager lost publishing operation: ${marker}`);
-  for (const marker of ['execution_base_commit', 'acceptance inventory', 'writable main context', 'passed X/S `not_ready`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing completion hardening: ${marker}`);
+  for (const marker of ['execution_base_commit', 'acceptance inventory', 'writable main context', 'primary high completion finding']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing completion hardening: ${marker}`);
+  assert.match(skill, /primary review is unavailable or\s+not-ready/i, 'plan-manager missing terminal blocking-review completion derivation');
   for (const marker of ['Implementation role dispatch', 'relay spawn <repo> --fanout --from', 'relay handback', 'relay collect', 'MUST use exactly one depth-0', 'real worker launch as the model probe', 'candidate-specific terminal model failure']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing implementation dispatch marker ${marker}`);
   for (const marker of ['/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager missing interactive-parent guidance ${marker}`);
   for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'Never use shell `chmod` or `rm`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing safe cleanup marker ${marker}`);
-  for (const marker of ['plan-improver', 'accepted findings', 'review_mode: repair', 'five-round lifetime cap', 'convergence-exhausted']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing convergence marker ${marker}`);
+  for (const marker of ['plan-improver', 'blocking_gap', 'review_mode: full|repair', 'no round 3', 'continuation batch']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing convergence marker ${marker}`);
   for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    assert.match(text, /NeedsMainReviewDispatch|sole public reviewer dispatcher/i, `${file} missing main handback`);
-    assert.match(text, /Never launch X\/S|Review dispatch always returns to main/i, `${file} permits wrapper dispatch`);
+    assert.match(text, /NeedsMainReviewDispatch|sole public dispatcher/i, `${file} missing main handback`);
+    assert.match(text, /Never launch the primary reviewer|never launches a routine cross-company second review|Review dispatch always returns to main/i, `${file} permits wrapper dispatch`);
   }
   console.log('plan-manager GitHub issue publishing operation preservation passed');
   console.log('plan-manager prepare/dispatch/apply live/generated wrapper parity passed');
@@ -1935,6 +2019,510 @@ function testSelfDemo(planPath) {
   console.log('self-demo: new-helper synthetic conformance receipt validates current implementation input and is not pre-gating proof');
 }
 
+const CURRENT_POLICY = {
+  schema: 5,
+  role: 'primary',
+  fallback: 'availability_only',
+  max_rounds: 2,
+  candidates: [
+    { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high', service_tier: 'default' },
+    { company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high' },
+    { company: 'anthropic', tool: 'claude', model: 'opus', effort: 'xhigh' },
+  ],
+  provenance: {
+    role: 'skill_default',
+    fallback: 'skill_default',
+    max_rounds: 'skill_default',
+    candidates: 'skill_default',
+  },
+};
+
+function currentRequest(overrides = {}) {
+  const resolvedPolicy = overrides.policy || CURRENT_POLICY;
+  return {
+    schema: 5,
+    request_id: '523e4567-e89b-42d3-a456-426614174000',
+    phase: 'draft',
+    lifecycle_intent: 'none',
+    reviewed_commit_or_head: '5'.repeat(40),
+    planned_at_commit: null,
+    execution_base_commit: null,
+    diff_sha256: null,
+    acceptance_inventory_sha256: null,
+    input_sha256: '6'.repeat(64),
+    bundle_sha256: '7'.repeat(64),
+    author: { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
+    policy: resolvedPolicy,
+    policy_sha256: sha256(jcs(resolvedPolicy)),
+    review_mode: 'full',
+    round_index: 1,
+    previous_input_sha256: null,
+    repair_targets_sha256: null,
+    ...overrides,
+  };
+}
+
+const CURRENT_CRITERIA = [
+  'standalone_executability', 'actionability', 'dependency_order', 'evidence_reverification',
+  'goal_coverage', 'executable_acceptance', 'failure_modes', 'open_questions',
+];
+
+function currentChecklist(overrides = {}) {
+  return Object.fromEntries(CURRENT_CRITERIA.map((criterion) => [
+    criterion,
+    overrides[criterion] || { status: 'pass', evidence: `${criterion} checked against the sealed plan` },
+  ]));
+}
+
+function currentFinding(overrides = {}) {
+  return {
+    id: 'P1',
+    criterion: 'executable_acceptance',
+    status: 'blocking_gap',
+    section: 'Acceptance criteria',
+    path: null,
+    locator: 'A1',
+    defect: 'The required behavior has no executable proof.',
+    fix: 'Add an exact command and expected result.',
+    evidence: 'The sealed plan has no command for the required behavior.',
+    ...overrides,
+  };
+}
+
+function currentOutput(req, overrides = {}) {
+  return {
+    schema: 5,
+    role: 'primary',
+    request: req,
+    verdict: 'pass',
+    checklist: currentChecklist(),
+    findings: [],
+    ...overrides,
+  };
+}
+
+function currentAttempt(candidate, overrides = {}) {
+  return {
+    schema: 5,
+    candidate,
+    started: true,
+    output_started: true,
+    result: 'passed',
+    exit_code: 0,
+    signal: null,
+    denial_source: null,
+    reason: 'review completed',
+    stdout_sha256: H0,
+    stderr_sha256: H1,
+    ...overrides,
+  };
+}
+
+function currentRaw(req, output = currentOutput(req), overrides = {}) {
+  const candidate = req.policy.candidates[0];
+  return {
+    schema: 5,
+    role: 'primary',
+    request: req,
+    result: 'passed',
+    attempts: [currentAttempt(candidate)],
+    selected: candidate,
+    reviewer_output: output,
+    findings_sha256: output === null ? null : sha256(jcs(output.findings)),
+    waiver: null,
+    waiver_sha256: null,
+    reason: null,
+    ...overrides,
+  };
+}
+
+function currentReproduction(id = 'P1') {
+  return {
+    id,
+    reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+  };
+}
+
+function currentRun(req, raw = currentRaw(req), overrides = {}) {
+  const findings = raw.reviewer_output?.findings || [];
+  const reviewer = overrides.reviewer || {
+    raw,
+    accepted_finding_ids: [],
+    rejected: findings.map(({ id }) => ({ id, reason: 'independently checked and rejected' })),
+  };
+  const reproduced = overrides.reproduced || findings.map(({ id }) => currentReproduction(id));
+  const hasBlocking = findings.some((finding) => finding.status === 'blocking_gap');
+  const reviewOutcome = raw.result === 'waived' ? 'waived'
+    : raw.result === 'unavailable' ? 'unavailable'
+      : raw.result === 'failed' || hasBlocking ? 'not_ready' : 'passed';
+  if (req.phase === 'completion') {
+    const primary = overrides.primary || primaryEvidence(INVENTORY);
+    const completionVerdict = primary.ci.exit_code !== 0
+      || primary.regressions.length > 0
+      || primary.findings.some((finding) => finding.severity === 'high')
+      || hasBlocking
+      ? 'regressed'
+      : primary.goal_met === 'yes' && primary.acceptance.every((criterion) => criterion.met)
+        ? 'passed'
+        : 'partial';
+    return {
+      schema: 5,
+      kind: 'completion',
+      request: req,
+      plan_input_sha256: req.input_sha256,
+      diff_sha256: req.diff_sha256,
+      acceptance_inventory: INVENTORY,
+      acceptance_inventory_sha256: req.acceptance_inventory_sha256,
+      reviewer,
+      reproduced,
+      outcome: reviewOutcome,
+      primary,
+      completion_verdict: completionVerdict,
+      ...overrides,
+    };
+  }
+  return {
+    schema: 5,
+    kind: 'draft',
+    request: req,
+    reviewer,
+    reproduced,
+    outcome: reviewOutcome,
+    pre_execution_eligible: reviewOutcome === 'passed' || reviewOutcome === 'waived',
+    ...overrides,
+  };
+}
+
+function currentReceipt(req, run = currentRun(req), overrides = {}) {
+  if (req.phase === 'completion') {
+    return {
+      schema: 5,
+      phase: 'completion',
+      request: req,
+      planned_at_commit: req.planned_at_commit,
+      execution_base_commit: req.execution_base_commit,
+      reviewed_head: req.reviewed_commit_or_head,
+      diff_sha256: req.diff_sha256,
+      plan_input_sha256: req.input_sha256,
+      acceptance_inventory: run.acceptance_inventory,
+      acceptance_inventory_sha256: run.acceptance_inventory_sha256,
+      policy: req.policy,
+      policy_sha256: req.policy_sha256,
+      reviewer: run.reviewer,
+      reproduced: run.reproduced,
+      outcome: run.outcome,
+      primary: run.primary,
+      completion_verdict: run.completion_verdict,
+      series: overrides.series || {
+        schema: 5,
+        policy_sha256: req.policy_sha256,
+        initial_input_sha256: req.input_sha256,
+        current_input_sha256: req.input_sha256,
+        rounds: [run],
+        repairs: [],
+      },
+      reviewed_at: '2026-07-17T00:00:00-03:00',
+      ...overrides,
+    };
+  }
+  return {
+    schema: 5,
+    phase: 'draft',
+    request: req,
+    input_sha256: req.input_sha256,
+    reviewed_commit: req.reviewed_commit_or_head,
+    policy: req.policy,
+    policy_sha256: req.policy_sha256,
+    reviewer: run.reviewer,
+    reproduced: run.reproduced,
+    outcome: run.outcome,
+    pre_execution_eligible: run.pre_execution_eligible,
+    series: overrides.series || {
+      schema: 5,
+      policy_sha256: req.policy_sha256,
+      initial_input_sha256: req.input_sha256,
+      current_input_sha256: req.input_sha256,
+      rounds: [run],
+      repairs: [],
+    },
+    reviewed_at: '2026-07-17T00:00:00-03:00',
+    ...overrides,
+  };
+}
+
+function testCurrentSingleLane() {
+  validatePolicy(CURRENT_POLICY);
+  const req = currentRequest();
+  validateRequest(req);
+  const schema = reviewPolicy.currentReviewerSchema();
+  assert.equal(schema.additionalProperties, false);
+  assert.equal(schema.properties.schema.const, 5);
+  assert.equal(schema.properties.role.const, 'primary');
+  assert.equal(Object.hasOwn(schema.properties, 'score'), false);
+  assert.equal(Object.hasOwn(schema.properties, 'rubric'), false);
+  assert.deepEqual(Object.keys(schema.properties.checklist.properties), CURRENT_CRITERIA);
+
+  const [gpt, fable, opus] = CURRENT_POLICY.candidates;
+  const fallback = [
+    currentAttempt(gpt, { started: false, output_started: false, result: 'tool_unavailable', exit_code: null, reason: 'Codex is not installed', stdout_sha256: null, stderr_sha256: null }),
+    currentAttempt(fable, { output_started: false, result: 'auth_failed', exit_code: 1, reason: 'Claude auth is unavailable' }),
+    currentAttempt(opus),
+  ];
+  assert.equal(reviewPolicy.validateCurrentAttemptSequence(fallback, CURRENT_POLICY).selected_index, 2);
+  for (const [label, attempts, pattern] of [
+    ['candidate reorder', [fallback[1], fallback[2]], /candidate order/],
+    ['fallback after platform denial', [currentAttempt(gpt, { output_started: false, result: 'platform_denied', exit_code: null, denial_source: 'managed_policy' }), currentAttempt(fable)], /terminal|platform/],
+    ['fallback after output', [currentAttempt(gpt, { result: 'model_unavailable', exit_code: 1 }), currentAttempt(fable)], /output|terminal/],
+    ['fallback after timeout', [currentAttempt(gpt, { output_started: false, result: 'deadline_exceeded', exit_code: null, signal: 'SIGKILL' }), currentAttempt(fable)], /terminal|deadline/],
+    ['fallback after transport failure', [currentAttempt(gpt, { output_started: false, result: 'transient_transport', exit_code: null }), currentAttempt(fable)], /terminal|transport/],
+    ['fallback after substantive result', [currentAttempt(gpt), currentAttempt(fable)], /terminal|passed/],
+  ]) expectThrow(label, () => reviewPolicy.validateCurrentAttemptSequence(attempts, CURRENT_POLICY), pattern);
+  expectThrow('unstarted model_unavailable is not a real launch', () => reviewPolicy.validateCurrentAttemptSequence([
+    currentAttempt(gpt, {
+      started: false,
+      output_started: false,
+      result: 'model_unavailable',
+      exit_code: null,
+      reason: 'model probe was never launched',
+      stdout_sha256: null,
+      stderr_sha256: null,
+    }),
+  ], CURRENT_POLICY), /model_unavailable.*started|started.*model_unavailable/i);
+
+  for (const [label, invalid, pattern] of [
+    ['current role', { ...CURRENT_POLICY, role: 'X' }, /role/],
+    ['current fallback', { ...CURRENT_POLICY, fallback: 'any_failure' }, /fallback/],
+    ['current rounds', { ...CURRENT_POLICY, max_rounds: 3 }, /max_rounds/],
+    ['candidate order', { ...CURRENT_POLICY, candidates: [fable, gpt, opus] }, /candidate/],
+    ['relay candidate', { ...CURRENT_POLICY, candidates: [{ ...gpt, tool: 'relay' }] }, /candidate|tool/],
+    ['numeric gate', { ...CURRENT_POLICY, minimum_score: 90 }, /unknown key/],
+    ['cross-company consent', { ...CURRENT_POLICY, cross_company_consent: 'always' }, /unknown key/],
+  ]) expectThrow(label, () => validatePolicy(invalid), pattern);
+  console.log('current single-lane policy, schema, and availability-only fallback passed');
+}
+
+function testCurrentReceipts() {
+  const req = currentRequest();
+  const pass = currentOutput(req);
+  reviewPolicy.validateCurrentReviewerOutput(pass, req);
+  const gapFinding = currentFinding({ status: 'non_blocking_gap' });
+  const advisory = currentOutput(req, {
+    verdict: 'non_blocking_gap',
+    checklist: currentChecklist({ executable_acceptance: { status: 'non_blocking_gap', evidence: 'The command is useful but not required.' } }),
+    findings: [gapFinding],
+  });
+  reviewPolicy.validateCurrentReviewerOutput(advisory, req);
+  const blocking = currentOutput(req, {
+    verdict: 'blocking_gap',
+    checklist: currentChecklist({ executable_acceptance: { status: 'blocking_gap', evidence: 'A required command is absent.' } }),
+    findings: [currentFinding()],
+  });
+  reviewPolicy.validateCurrentReviewerOutput(blocking, req);
+
+  for (const [label, output, pattern] of [
+    ['current score rejected', { ...pass, score: 100 }, /unknown key|score/],
+    ['current numeric rubric rejected', { ...pass, rubric: { standalone_executability: 22 } }, /unknown key|rubric/],
+    ['current X leg rejected', { ...pass, X: {} }, /unknown key|X/],
+    ['checklist evidence required', { ...pass, checklist: currentChecklist({ actionability: { status: 'pass', evidence: '' } }) }, /evidence/],
+    ['verdict strongest status', { ...blocking, verdict: 'pass' }, /verdict|strongest/],
+    ['gap finding required', { ...blocking, findings: [] }, /finding|gap/],
+    ['finding criterion status', { ...blocking, findings: [currentFinding({ status: 'non_blocking_gap' })] }, /finding.*status|status.*finding/],
+    ['pass has no findings', { ...pass, findings: [currentFinding({ status: 'non_blocking_gap' })] }, /pass|finding/],
+  ]) expectThrow(label, () => reviewPolicy.validateCurrentReviewerOutput(output, req), pattern);
+
+  const raw = currentRaw(req, advisory);
+  reviewPolicy.validateCurrentRawReview(raw, req);
+  const run = currentRun(req, raw);
+  reviewPolicy.validateCurrentReviewRunResult(run);
+  reviewPolicy.validateCurrentReviewReceipt(currentReceipt(req, run), req.input_sha256);
+  expectThrow('every current finding must be reproduced', () => reviewPolicy.validateCurrentReviewRunResult({ ...run, reproduced: [] }), /reproduced|finding/);
+  expectThrow('current run rejects X/S', () => reviewPolicy.validateCurrentReviewRunResult({ ...run, X: null }), /unknown key|X/);
+  expectThrow('current receipt rejects author duplication', () => reviewPolicy.validateCurrentReviewReceipt({ ...currentReceipt(req, run), author: req.author }), /unknown key|author/);
+  expectThrow('current draft receipt requires the complete review series', () => reviewPolicy.validateCurrentReviewReceipt({
+    ...currentReceipt(req, run),
+    series: undefined,
+  }, req.input_sha256), /series/i);
+
+  const blockedRaw = currentRaw(req, blocking);
+  const blockedRun = currentRun(req, blockedRaw, {
+    reviewer: { raw: blockedRaw, accepted_finding_ids: ['P1'], rejected: [] },
+    reproduced: [currentReproduction()],
+  });
+  assert.equal(blockedRun.outcome, 'not_ready');
+  assert.equal(blockedRun.pre_execution_eligible, false);
+  reviewPolicy.validateCurrentReviewRunResult(blockedRun);
+
+  const rejectedBlockingRun = currentRun(req, blockedRaw);
+  assert.deepEqual(rejectedBlockingRun.reviewer.accepted_finding_ids, []);
+  assert.deepEqual(rejectedBlockingRun.reviewer.rejected.map(({ id }) => id), ['P1']);
+  assert.equal(rejectedBlockingRun.outcome, 'not_ready', 'a blocking_gap is terminal even when rejected');
+  assert.equal(rejectedBlockingRun.pre_execution_eligible, false, 'a rejected blocking_gap cannot become execution-eligible');
+  reviewPolicy.validateCurrentReviewRunResult(rejectedBlockingRun);
+
+  const contradictoryFailedRaw = currentRaw(req, null, {
+    result: 'failed',
+    selected: null,
+    reviewer_output: null,
+    findings_sha256: null,
+    reason: 'discarded successful reviewer output',
+  });
+  expectThrow('current failed review cannot discard a passed attempt', () => reviewPolicy.validateCurrentReviewRunResult(currentRun(req, contradictoryFailedRaw)), /passed attempt|selected.*passed|failed.*passed/i);
+
+  const waiver = { phase: 'draft', input_sha256: req.input_sha256, roles: ['primary'], actor: 'test user', reason: 'explicit current waiver', at: '2026-07-17T00:00:00-03:00' };
+  reviewPolicy.validateCurrentWaivers([waiver], 'draft', req.input_sha256);
+  expectThrow('current waiver rejects historical legs', () => reviewPolicy.validateCurrentWaivers([{ ...waiver, roles: undefined, legs: ['X', 'S'] }], 'draft', req.input_sha256), /unknown key|roles/);
+  const waivedRaw = currentRaw(req, null, {
+    result: 'waived', attempts: [], selected: null, reviewer_output: null, findings_sha256: null,
+    waiver, waiver_sha256: sha256(jcs(waiver)), reason: null,
+  });
+  const waivedRun = currentRun(req, waivedRaw, {
+    reviewer: { raw: waivedRaw, accepted_finding_ids: [], rejected: [] },
+    reproduced: [],
+  });
+  assert.equal(waivedRun.pre_execution_eligible, true);
+  reviewPolicy.validateCurrentReviewRunResult(waivedRun, { waivers: [waiver] });
+  reviewPolicy.validateCurrentReviewReceipt(currentReceipt(req, waivedRun), req.input_sha256, { waivers: [waiver] });
+  const waivedReceipt = currentReceipt(req, waivedRun);
+  expectThrow('generic current series requires the exact waiver', () => reviewPolicy.validateReviewSeries(waivedReceipt.series), /waiver.*snapshot/i);
+  reviewPolicy.validateReviewSeries(waivedReceipt.series, { waivers: [waiver] });
+  expectThrow('current draft receipt reuse requires the exact waiver', () => validateDraftReceipt(
+    waivedReceipt,
+    req.input_sha256,
+    { expectedPolicy: CURRENT_POLICY },
+  ), /waiver.*snapshot/i);
+  expectThrow('current draft reuse requires the exact waiver', () => validateDraftReviewReuse({
+    receipt: waivedReceipt,
+    expectedInput: req.input_sha256,
+    expectedPolicy: CURRENT_POLICY,
+  }), /waiver.*snapshot/i);
+  validateDraftReviewReuse({
+    receipt: waivedReceipt,
+    expectedInput: req.input_sha256,
+    expectedPolicy: CURRENT_POLICY,
+    waivers: [waiver],
+  });
+
+  const completionReq = currentRequest({
+    phase: 'completion',
+    planned_at_commit: '3'.repeat(40),
+    execution_base_commit: '4'.repeat(40),
+    diff_sha256: H0,
+    acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
+  });
+  const completionRaw = currentRaw(completionReq, currentOutput(completionReq));
+  const completionRun = currentRun(completionReq, completionRaw);
+  reviewPolicy.validateCurrentReviewRunResult(completionRun);
+  validateCompletionRunResult(completionRun);
+  const completionReceipt = currentReceipt(completionReq, completionRun);
+  reviewPolicy.validateCurrentReviewReceipt(completionReceipt, completionReq.input_sha256);
+  validateCompletionReceipt(completionReceipt, {
+    reviewed_head: completionReq.reviewed_commit_or_head,
+    diff_sha256: H0,
+    plan_input_sha256: completionReq.input_sha256,
+    review_status: 'passed',
+  });
+  expectThrow('current completion requires inventory evidence', () => validateCompletionRunResult({ ...completionRun, acceptance_inventory: undefined }), /unknown key|inventory/);
+  expectThrow('current completion receipt rejects draft eligibility', () => reviewPolicy.validateCurrentReviewReceipt({ ...completionReceipt, pre_execution_eligible: true }), /unknown key|pre_execution/);
+  const receiptOnlyPrimary = { ...completionReceipt.primary, followups: ['receipt-only follow-up'] };
+  expectThrow('current completion receipt final run must equal its validated series final round', () => reviewPolicy.validateCurrentReviewReceipt({
+    ...completionReceipt,
+    primary: receiptOnlyPrimary,
+  }, completionReq.input_sha256), /series.*final|final.*series|receipt.*series/i);
+  expectThrow('current completion receipt requires the complete review series', () => reviewPolicy.validateCurrentReviewReceipt({
+    ...completionReceipt,
+    series: undefined,
+  }, completionReq.input_sha256), /series/i);
+
+  const highPrimary = {
+    ...primaryEvidence(INVENTORY),
+    findings: [{ id: 'C1', source: 'primary', severity: 'high', path: null, locator: null, defect: 'Regression', fix: 'Repair it', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } }],
+  };
+  const highRun = currentRun(completionReq, completionRaw, { primary: highPrimary });
+  assert.equal(highRun.completion_verdict, 'regressed');
+  validateCompletionRunResult(highRun);
+  expectThrow('current high completion finding cannot pass', () => validateCompletionRunResult({ ...highRun, completion_verdict: 'passed' }), /completion verdict/);
+
+  const completionBlockedRaw = currentRaw(completionReq, currentOutput(completionReq, {
+    verdict: 'blocking_gap',
+    checklist: currentChecklist({ executable_acceptance: { status: 'blocking_gap', evidence: 'A required command is absent.' } }),
+    findings: [currentFinding()],
+  }));
+  const completionBlocked = currentRun(completionReq, completionBlockedRaw, {
+    reviewer: { raw: completionBlockedRaw, accepted_finding_ids: ['P1'], rejected: [] },
+    reproduced: [currentReproduction()],
+  });
+  assert.equal(completionBlocked.completion_verdict, 'regressed');
+  validateCompletionRunResult(completionBlocked);
+
+  const completionRejectedBlocking = currentRun(completionReq, completionBlockedRaw);
+  assert.deepEqual(completionRejectedBlocking.reviewer.accepted_finding_ids, []);
+  assert.equal(completionRejectedBlocking.outcome, 'not_ready', 'rejected completion blocking_gap remains not_ready');
+  assert.equal(completionRejectedBlocking.completion_verdict, 'regressed', 'rejected completion blocking_gap remains regressed');
+  validateCompletionRunResult(completionRejectedBlocking);
+  console.log('current checklist, draft/completion receipts, waivers, and verdict closure passed');
+}
+
+function testCurrentCompletionRenderer() {
+  const plan = Buffer.from(fixturePlan({ cleanReceipt: true }));
+  const reviewedHead = 'c'.repeat(40);
+  const inventory = acceptanceInventory(plan);
+  const req = currentRequest({
+    phase: 'completion',
+    reviewed_commit_or_head: reviewedHead,
+    planned_at_commit: 'a'.repeat(40),
+    execution_base_commit: 'b'.repeat(40),
+    diff_sha256: H0,
+    acceptance_inventory_sha256: sha256(jcs(inventory)),
+    input_sha256: sha256(canonicalPlanView(plan)),
+  });
+  const run = currentRun(req);
+  const receipt = currentReceipt(req, run);
+  const receiptKeys = Object.keys(receipt);
+  assert.equal(Object.hasOwn(receipt, 'X'), false);
+  assert.equal(Object.hasOwn(receipt, 'S'), false);
+
+  const rendered = renderCompletionReviewBlock(receipt);
+  assert.ok(rendered.endsWith(`Completion-review-receipt: ${jcs(receipt)}\n`));
+  assert.doesNotMatch(rendered, /Cross-check:|\[X:|\[S:|"X":|"S":/, 'schema-5 completion rendering is primary-only');
+  assert.deepEqual(Object.keys(receipt), receiptKeys, 'schema-5 renderer leaves receipt keys unchanged');
+
+  const applied = applyCompletionReviewBlock(plan, receipt);
+  assert.equal(applyCompletionReviewBlock(applied, receipt).toString(), applied.toString(), 'schema-5 completion apply is idempotent');
+  assert.equal(completionStablePlanViewV1(plan), completionStablePlanViewV1(applied));
+
+  const waiver = { phase: 'completion', input_sha256: req.input_sha256, roles: ['primary'], actor: 'test user', reason: 'explicit completion waiver', at: '2026-07-17T00:00:00-03:00' };
+  const waivedRaw = currentRaw(req, null, {
+    result: 'waived', attempts: [], selected: null, reviewer_output: null, findings_sha256: null,
+    waiver, waiver_sha256: sha256(jcs(waiver)), reason: null,
+  });
+  const waivedRun = currentRun(req, waivedRaw, {
+    reviewer: { raw: waivedRaw, accepted_finding_ids: [], rejected: [] },
+    reproduced: [],
+  });
+  const waivedReceipt = currentReceipt(req, waivedRun);
+  assert.match(renderCompletionReviewBlock(waivedReceipt, { waivers: [waiver] }), /Primary review:/);
+  applyCompletionReviewBlock(plan, waivedReceipt, { waivers: [waiver] });
+  console.log('schema-5 primary-only completion render and idempotent apply passed');
+}
+
+function testHistoricalSchemas() {
+  for (const historical of [POLICY, POLICY_V2, POLICY_V3, POLICY_V4]) validatePolicy(historical);
+  validateRequest(request());
+  validateRequest(request({ schema: 2, policy: POLICY_V3, policy_sha256: sha256(jcs(POLICY_V3)) }));
+  const reqV3 = requestV3();
+  validateRequest(reqV3);
+  const rubric = {
+    standalone_executability: 22, actionability: 16, dependency_order: 12, evidence_reverify: 10,
+    goal_coverage: 12, executable_acceptance: 12, failure_mode: 10, assumption_to_question: 6,
+  };
+  validateReviewerOutput({ schema: 3, leg: 'S', request: reqV3, verdict: 'ready', score: 100, rubric, findings: [], confirmations: ['historical fixture'] }, reqV3, 'S');
+  validateDraftRunResult(draftRunV3(reqV3));
+  validateWaivers([{ phase: 'draft', input_sha256: reqV3.input_sha256, legs: ['X', 'S'], actor: 'historical user', reason: 'historical waiver shape', at: '2026-07-17T00:00:00-03:00' }], 'draft', reqV3.input_sha256);
+  expectThrow('historical policy remains closed', () => validatePolicy({ ...POLICY_V4, role: 'primary' }), /unknown key/);
+  expectThrow('historical output remains numeric', () => validateReviewerOutput({ schema: 3, role: 'primary', request: reqV3, verdict: 'pass', checklist: currentChecklist(), findings: [] }, reqV3, 'S'), /unknown key|leg/);
+  console.log('historical policy v1-v4 and record schema 1-3 validation results preserved');
+}
+
 const args = process.argv.slice(2);
 try {
   if (args.length === 0) {
@@ -1952,6 +2540,10 @@ try {
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'completion-reuse') testStrictCompletionReuse();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'surfaces') { testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary(); }
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'validation-matrix') testValidationMatrix();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'current-single-lane') testCurrentSingleLane();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'current-receipts') testCurrentReceipts();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'current-completion-renderer') testCurrentCompletionRenderer();
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'historical-schemas') testHistoricalSchemas();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'execution-compatibility') await testExecutionCompatibility();
   else if (args.length === 4 && args[0] === '--case' && args[1] === 'strict-differential' && args[2] === '--baseline') testStrictDifferential(args[3]);
   else throw new Error('unknown or malformed plan-review-policy test selector');

@@ -133,16 +133,16 @@ headings:
 | `## Cold-handoff checklist` | **yes** | the binary required-content gate (see below) — each item present & specific or `N/A — reason` |
 | `## STOP conditions` | on risky/handoff plans | named, plan-specific escape hatches — "if assumption X turns out false, STOP and report; do not improvise" |
 | `## Open questions` | when decisions are pending | agent→user residue; `NEEDS CLARIFICATION` marks a genuine unknown rather than a silent default |
-| `## Self-review` | on substantive plans | what the scored rubric pass caught (see below) |
-| `## Review` | **yes** (placeholder) | `(filled by plan-review on completion)` until shipped |
+| `## Self-review` | on substantive plans | what the checklist pass caught (see below) |
+| `## Review` | **yes** (placeholder) | `(filled by main-context plan-manager after completion evidence)` until shipped |
 | `## Mistakes & Dead Ends` | as they happen | append-only: `- **<ISO>**: <tried> → <why it failed> → <how to avoid>` |
 | `## Sources` | when it cites code | `file:line` / URL — each paired with the one-line evidence it shows |
 | `## Notes` | when useful | design decisions, links |
 
-The first body line repeats the title as `# <Title>`. `plan-review` fills
-`## Review` with: `Goal met: yes|partial|no`, `Regressions`, `CI`,
-`Follow-ups`, `Filed by`, plus an optional `Cross-check` bullet when a
-cross-tool second opinion was accepted (grammar below).
+The first body line repeats the title as `# <Title>`. Main-context
+`plan-manager` fills `## Review` with: `Goal met: yes|partial|no`,
+`Regressions`, `CI`, `Follow-ups`, `Filed by`, plus the primary-review
+`Cross-check` attribution when evidence was applied (grammar below).
 
 ### Cold-handoff checklist — the required-content gate
 
@@ -150,8 +150,8 @@ The cold-handoff test is no longer a reflective question (a draft can satisfy
 that superficially); it is a **binary contract**. Before a plan is shown, walk
 this list — each item is **present & specific**, or marked **`N/A — reason`**
 where the reason proves a cold executor needs nothing there (a generic
-"N/A — not needed" is a **miss**, not a pass — an unjustified N/A is how the
-score gets gamed); a bare gap is a defect, not a default:
+"N/A — not needed" is a **miss**, not a pass — an unjustified N/A can hide a
+real gap); a bare gap is a defect, not a default:
 
 1. **File manifest** — every step names exact path(s) (`path:line-range` to edit).
 2. **Environment & commands** — versions, env vars, exact build/test/lint commands with flags.
@@ -174,121 +174,118 @@ is a defect — fix it, or turn it into an `## Open question` (mark genuine unkn
 Drafting runs in *produce* mode (optimistic, momentum-driven); reviewing runs
 in *critique* mode (adversarial, checks each claim). They are different
 passes, and verification is easier than generation — so a plan is **drafted,
-then red-teamed against the rubric below, before it reaches the user.** This
+then red-teamed against the checklist below, before it reaches the user.** This
 makes "review each detail and revalidate" automatic. Two question layers:
 
-- **agent → agent** (this rubric): the agent interrogates its own draft and
+- **agent → agent** (this checklist): the agent interrogates its own draft and
   fixes what it can. Resolved internally; the user never sees it.
 - **agent → user** (`## Open questions`): only the residue that genuinely
   needs a human decision, surfaced as options.
 
-Rubric — run every item before the plan is shown. Each check carries a **weight**
-(default, tunable; sums to 100) used by the score pass below:
+Checklist — run every criterion before the plan is shown. This is not a numeric
+score:
 
-| Check | Weight | Hole it catches |
-|---|---|---|
-| Standalone executability | 22 | the cold-handoff checklist passes — the **weakest plausible executor** (a smaller/cheaper model: good at following explicit instructions, weak at filling gaps) could act with ONLY this file |
-| Actionability | 16 | every step has a verifiable done-condition — no "improve/handle/clean up X" |
-| Dependency order | 12 | no step needs the output of a later one; prerequisites exist |
-| Evidence re-verify | 10 | every cited `file:line` was opened *this session* and says what the step claims |
-| Goal coverage | 12 | with every step done, is the Goal *actually* met? name the gap |
-| Executable acceptance | 12 | criteria are a command + its expected output, not a prose judgment |
-| Failure mode | 10 | each risky step has a revert trigger / "if this fails, then…" |
-| Assumption → question | 6 | anything *guessed* becomes an `## Open question`, never a silent default |
+| Criterion | Hole it catches |
+|---|---|
+| `standalone_executability` | the cold-handoff checklist passes — the weakest plausible executor could act with only this file |
+| `actionability` | every step has a verifiable done-condition — no "improve/handle/clean up X" |
+| `dependency_order` | no step needs the output of a later one; prerequisites exist |
+| `evidence_reverification` | every cited `file:line` was opened this session and says what the step claims |
+| `goal_coverage` | completing every step actually meets the goal |
+| `executable_acceptance` | criteria are commands plus expected output, not prose judgments |
+| `failure_modes` | each risky step has a revert trigger or explicit stop condition |
+| `open_questions` | anything guessed becomes an `## Open question`, never a silent default |
 
-Sum = 100. **Standalone executability carries the largest weight on purpose.**
-Score it objectively against the cold-handoff checklist above (each field
-present/specific or a justified `N/A`), emphasizing rationale, gotchas,
-interface/data contracts, environment and commands, and verbatim constraints
-that other rows do not already reward.
-
-Run one deliberate weighted pass: assign each row a sub-score, repair the
-highest-impact holes once, record `Score: <n>/100 · one local pass · caught:
-<short finding list>` in `## Self-review`, and stop. This local author check is
-not independent X/S evidence and never loops. The bounded independent review
-below owns any further review-and-repair rounds.
+Run one deliberate checklist pass, repair the highest-impact holes once, and
+record the criteria checked plus a short caught/fixed list in `## Self-review`.
+This local author check is not independent review evidence and never loops.
 
 ### Strong-default independent review
 
 Independent review is the strong default for every plan. Before execution,
-main-context `plan-manager` prepares one immutable, non-git bundle and dispatches
-two fresh findings-only reviewers in order: X is from the company other than
-`review_author_company`; S is an independent author-company reviewer. S never
-receives X output. Both legs use explicit model/effort pins and an
-execution-enforced read-only in-session dispatch or direct CLI (`codex exec -s
-read-only` / `claude -p --permission-mode plan`). Session-relay never transports
-review evidence. `plan-review` returns one round of evidence; plan-manager alone
-reconciles findings, writes receipts, and changes lifecycle state.
+main-context `plan-manager` prepares one immutable non-git bundle and dispatches
+one fresh findings-only `primary` reviewer. `plan-review` returns typed evidence;
+plan-manager alone dispatches, reconciles, writes receipts, and changes lifecycle
+state. Session Relay is never valid review evidence.
 
-Resolve workflow roles from current-user instructions, then one byte-deduplicated
-runtime-global record, then dated defaults. The compact runtime form is:
+Current policy and all new records use schema 5. The closed policy has
+`role: primary`, `fallback: availability_only`, and `max_rounds: 2` exactly.
+Its ordered candidates are (1) `codex:gpt-5.6-sol@high` with `service_tier:
+default`, (2) `claude:fable@high`, and (3) `claude:opus@xhigh`.
 
-```text
-Docks-workflow-models: {"implementer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"orchestrator":{"candidates":[{"company":"anthropic","effort":"high","model":"fable","tool":"claude"},{"company":"anthropic","effort":"xhigh","model":"opus","tool":"claude"}],"selector":"profile:claude-best"},"review":{"max_rounds":5,"minimum_score":90},"reviewer":{"candidates":[{"company":"openai","effort":"high","model":"gpt-5.6-sol","tool":"codex"}],"selector":"codex:gpt-5.6-sol@high"},"schema":1}
-```
+GPT is always first. Claude is availability-only fallback within the same
+primary role, never a routine second reviewer. Every value retains provenance.
+Advance only after `tool_unavailable`, `auth_failed`, or `model_unavailable`
+with no output/result. `platform_denied`, timeout, transport/signal/exit failure,
+parse/schema failure, or substantive output is terminal.
 
-Defaults: `profile:claude-best` = `claude:fable@high`, then `claude:opus@xhigh`; reviewer/implementer = `codex:gpt-5.6-sol@high`; `minimum_score=90`;
-`max_rounds: 5`. Bounds are integers 0..100 and 1..10. Schema 1 candidates are
-closed to `company/tool/model/effort`. Schema 2 permits only `service_tier:"fast"`
-on Codex, requires a Fast candidate, and uses exact selector grammar
-`<tool>:<model>@<effort>[+fast]`; omission is Standard. New tier-aware requests use
-outer schema 2 and policy v3 with explicit `default|fast` OpenAI tiers and CLI
-transport; historical schema-1 requests with policy v1/v2 retain their meaning.
-New convergence requests use outer schema 3 and policy v4: round 1 has `review_mode: full`; accepted findings are repaired through plan-improver; later rounds use `review_mode: repair` with previous-input and exact repair-target hashes. Each repair bundle seals `previous-plan.review.md` and compact-JCS `repair-targets.json`; the transition persists an exact X/S accepted/rejected partition, requires the targets to equal the accepted-id union, and hashes that reconciliation with the exact independently reproduced targets.
-Historical policy v1-v3 retain their persisted meanings.
+The argv builder derives the exact next candidate from the validated
+prior-attempt ledger and rejects any skipped or substituted
+tool/model/effort/service-tier tuple.
 
-The resolved logical policy has independent choices for cross-company consent
-(`always | ask | never`) and zero-review progression (`ask | proceed | block`).
-`always` suppresses only Docks' X-consent picker; it never bypasses host policy.
-An authoritative host denial is `platform_denied` and is not retried through a
-different transport. One successful leg is enough to proceed with the other
-exact outcome recorded, so missing a second subscription is never a hard block.
-Every passed leg persists the exact structured verdict, score, confirmations,
-and output hash. One review attempt operation means one sealed X-then-S round.
-Under policy v2, each candidate is attempted at most once in that operation;
-only candidate-specific model absence, entitlement, quota, or terminal
-unavailability advances to the next candidate. Authentication, billing,
-provider/session quota, generic rate-limit, invalid request, transport, or
-ambiguous failures stop the leg. Historical policy v1 alone keeps its bounded
-typed transient retry.
+Every schema-5 output checks `standalone_executability`, `actionability`,
+`dependency_order`, `evidence_reverification`, `goal_coverage`,
+`executable_acceptance`, `failure_modes`, and `open_questions`.
 
-Policy v4 runs X then S within one `max_rounds` lifetime cap. Stop early only when every passed leg is `ready` with `score >= minimum_score` and no accepted blocking finding remains. A below-floor `ready` with no reproducible finding consumes the round and returns `convergence-exhausted`; unchanged-input repair requests are invalid. At the cap,
-return `convergence-exhausted` with attributed blockers and keep the plan non-executing;
-never offer a continuation batch. `not_ready` never passes.
-Historical policy v1-v3 verification preserves its original receipt semantics.
-Zero successful legs follow the separately resolved zero-review choice. A
-current-user waiver may name X, S, or both for exactly one phase and canonical input hash; consent `never` is not a waiver. Schema-3 Codex CLI reviewers run from helper-owned disposable workdirs outside the sealed bundle with `--ephemeral --ignore-user-config`, explicit model/effort/service tier, and a read-only sandbox; main context verifies the bundle after each leg and removes the workdir only through the helper.
+Each criterion is `{status: pass | non_blocking_gap | blocking_gap, evidence:
+<nonempty string>}`; the verdict is the strongest status. Every gap maps to a
+finding, and `pass` has none. Any blocker makes the run `not_ready`; rejection
+cannot rewrite it to `passed`. New records omit X/S, numeric score/rubric,
+cross-company consent, and zero-review fields.
+Round 1 is full. Plan-manager reproduces every finding and records its
+disposition. Only when every raw blocker is reproduced and accepted may
+plan-improver patch exactly that set; one rejected blocker terminates the
+series. Changed input permits one target-limited repair round, which passes only
+without blockers. There is no round 3, reset, continuation, unchanged-input
+repair, or non-blocking repair target.
 
-Creation first commits `planned` (or `scheduled`) without executing. `start`,
-schedule fire, and `auto_execute` use `prepare(intent) → main review dispatch →
-apply`; apply re-hashes the plan, bundle, policy, and waiver before consuming the
-intent once. Missing, stale, or blocked evidence never enters `ongoing`.
-The first execution transition is a plan-only commit; its exact SHA is then
-recorded as `execution_base_commit` in a second plan-only commit before any
-implementation. Completion first commits the plan-only `in_review` transition, verifies in an
-unlinked disposable clone, then writes one completion receipt after proving the
-original worktree and Git metadata stayed unchanged.
+New waivers bind `roles: [primary]`; historical leg-based waivers retain their
+persisted meaning. Creation first commits `planned` (or `scheduled`) without
+executing. `start`, schedule fire, and `auto_execute` use
+`prepare(intent) → main review dispatch → apply`; apply re-hashes the plan,
+bundle, policy, provenance, and waiver before consuming the intent once.
+Missing, stale, terminal, or blocking evidence never enters `ongoing`.
 
-Canonical input removes only lifecycle fields (`updated`, `status`,
-`started_at`, `in_review_since`, block fields, `assignee`, `review_status`,
-`ship_commit`, `execution_base_commit`) plus `review_waivers`, and exact one-line machine records. All
-ordinary plan prose remains hashed. Receipts bind the author identity, phase,
-lifecycle intent, immutable commit/head, canonical input, sealed bundle,
-resolved policy+provenance, X/S attempt ledgers, decisions/waivers, finding
-reconciliation, outcome, and time. Any substantive or policy change invalidates
-reuse; excluded lifecycle fields and the receipt's own line do not.
-Completion receipts bind `planned_at_commit`, `execution_base_commit`, canonical
-binary diff bytes/hash, and a nonempty ordered acceptance inventory derived from
-the canonical plan. Primary evidence must cover that inventory one-to-one with
-identical IDs, commands, expected values, and order. The derived verdict is
-`regressed` when a passed X/S reviewer misses the resolved ready/score gate, CI
-fails, a regression is recorded, or a high primary finding exists; otherwise
-`passed` requires `goal_met=yes` and every acceptance met; all other cases are
-`partial`. Policy v1 retains its historical ready-only rule.
-Frontmatter `review_status` must match at apply and ship.
+Canonical input removes only lifecycle fields (`updated`, `status`, `started_at`,
+`in_review_since`, block fields, `assignee`, `review_status`, `ship_commit`,
+`execution_base_commit`), `review_waivers`, and exact machine records. Ordinary
+prose stays hashed. Current receipts bind author, phase/intent, immutable head,
+canonical input, bundle, policy/provenance, attempt ledger, waiver,
+checklist/findings/dispositions, eligibility, and time. Every receipt embeds the
+complete `ReviewSeriesV5`; its final round equals the receipt-derived run. A
+repair series is full round 1, one transition, and repair round 2 under the same
+phase, intent, kind, and policy; completion rounds also retain planned/start
+commit identities. Substantive or policy changes invalidate reuse.
+
+Completion first commits the plan-only `in_review` transition, then runs
+plan-documented setup, acceptance, and CI in a sentinel-bound unlinked
+disposable clone. It proves the original worktree and Git metadata stayed
+unchanged before applying evidence. Completion receipts also bind
+`planned_at_commit`, `execution_base_commit`, canonical binary diff bytes/hash,
+and a nonempty ordered acceptance inventory derived from the canonical plan.
+Current bundle manifest schema 3 means full review and schema 4 means repair;
+both carry `review_schema:5` and only the primary v5 output schema. Historical
+manifest schemas 1/2 retain their exact X/S files and bytes.
+Primary evidence covers that inventory one-to-one with identical IDs, commands,
+expected values, and order. The derived completion verdict is `regressed` when
+the primary review is unavailable/not-ready, CI fails, a regression is
+recorded, or a primary high completion finding exists. `passed` requires a
+passed/waived primary outcome, `goal_met=yes`, every acceptance met, CI exit 0,
+no recorded regression, and no primary high completion finding; all other cases
+are `partial`. Frontmatter `review_status` must match that verdict at apply and
+ship. The rendered Review block uses a schema-5 primary-review summary;
+historical receipts retain their exact X/S Cross-check rendering.
+Every schema-5 generic-series, draft/completion reuse, render, and apply path
+receives and validates the exact authoritative waiver set.
 Disposable cleanup accepts only the helper-returned prepare identity under
 `/tmp/docks-plan-verify`, bound to its random token, original snapshot, reviewed
 head, source tree, canonical path, and sentinel—never a caller-selected root.
+
+Policy versions 1–4, record schemas 1–3, and their persisted requests, outputs,
+runs, waivers, and receipts remain valid only under their exact historical
+validators. X/S legs, numeric scores and weighted rubrics, cross-company
+consent, zero-review progression, and five-round receipts are historical-only;
+never reinterpret or upgrade them as schema 5.
 
 ### Docks-only legacy start compatibility
 
@@ -335,33 +332,34 @@ Use this order to remove redundant work without removing evidence:
    the repository's required broad/full gate once at the pre-commit boundary
    after narrower checks pass; any later relevant edit invalidates that run.
 4. Reuse evidence only while every bound identity still matches: canonical
-   plan input, author, policy and provenance, decisions/waivers, sealed bundle,
-   immutable commit/head/tree, diff, ordered acceptance inventory, and any
-   compatibility source/release/cache/application identities. A mismatch
+   plan input, author, policy and provenance, waivers, sealed bundle, immutable
+   commit/head/tree, diff, ordered acceptance inventory, and any compatibility
+   source/release/cache/application identities. A mismatch
    restarts the earliest invalidated rung.
-5. Optimization never skips required X/S review, the nonempty ordered
+5. Optimization never skips required primary review, the nonempty ordered
    acceptance inventory or its one-to-one primary evidence, the start and
    `execution_base_commit` identity commits, the plan-only `in_review` commit,
    the required broad pre-commit gate, or final completion verification,
    receipt application, and reuse validation. Completion still runs each
    inventory row exactly once in its defined order.
 
-Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; schema-v1 validators and receipts remain unchanged.
+Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; historical validators and receipts remain unchanged.
 
 Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition. Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.
 
-Keep findings attributed instead of blending reviewer voices:
+Keep findings attributed instead of blending reviewer and plan-manager voices:
 
 Attributed ingest format:
 
 ```markdown
-Cross-check (<YYYY-MM-DD>): [X: <other-company> <model> <effort>] <N> findings — accepted X<ids> / rejected X<ids> (<reason each>); [S: <author-company> <model> <effort>] <M> findings — accepted S<ids> / rejected S<ids> (<reason each>); [<orchestrator>] independently verified <X/S ids> against source before accepting.
-DISAGREEMENT: <topic> — [X<id>] <position> / [S<id>] <position>. Kept: <choice> — decided by <the orchestrating agent | user via picker>, because <one line>.
+Cross-check (<YYYY-MM-DD>): [primary: <company> <model> <effort>] <N> findings — accepted <ids> / rejected <ids> (<reason each>); [<plan-manager>] independently reproduced accepted blocking ids against source before repair.
 ```
 
-- Draft reviews: these lines append inside `## Self-review`. Completion reviews: a `- **Cross-check:** …` bullet inside the `## Review` block (same line grammar).
-- Finding ids are leg-namespaced (`X1…`, `S1…`); accepted and rejected ids form an exact partition and every rejection preserves a reason.
-- **Reconciliation rule**: both positions are always retained and attributed; a disagreement is never silently dropped or averaged. The orchestrating agent decides and names itself; if the disagreement changes scope, behavior, or a user-made decision, it escalates via the native picker instead.
+- Draft reviews append this line inside `## Self-review`. Completion reviews use
+  a `- **Cross-check:** …` bullet inside the `## Review` block.
+- Accepted and rejected ids form an exact partition, and every rejection
+  preserves a reason. Plan-improver receives only accepted, independently
+  reproduced blocking ids.
 
 ## Open questions — bounded decisions for the user
 
@@ -412,7 +410,7 @@ from committed state — the user can amend.
 | Block | `status: blocked`, set `blocked_reason` + `blocked_since`. No `git mv`. |
 | Unblock | `status: ongoing`, clear `blocked_reason`/`blocked_since`. `started_at` unchanged. |
 | Schedule fires | `status: ongoing`, drop scheduled-only keys, set `started_at`, dispatch. (An `auto_execute` plan still halts at `in_review` for a human ship.) |
-| Steps complete → review | When every `## Steps` row is `done`: `status: in_review`, set `in_review_since`, **auto-dispatch `plan-review`** (completion validates planned/start ancestry, diffs `execution_base_commit..HEAD`, writes `## Review` + `review_status`, file stays in `active/`). No `git mv`. |
+| Steps complete → review | When every `## Steps` row is `done`: `status: in_review`, set `in_review_since`; main-context plan-manager dispatches evidence-only `plan-review`, validates planned/start ancestry, diffs `execution_base_commit..HEAD`, and alone writes `## Review` + `review_status`. The file stays in `active/`. No `git mv`. |
 | Ship | Allowed only when `review_status: passed` and it matches a current derived-passed completion receipt (on `partial`/`regressed`, fix first; if `null`, dispatch the review inline). `git mv active/<slug>.md → finished/<YYYY-MM-DD>-<slug>.md`, `status: finished`, bump `updated`, set `ship_commit` (HEAD). Carries the existing `## Review` forward — **no re-dispatch** (re-run only if HEAD moved since the review). |
 | Supersede | Move to `finished/` with "Superseded by `<slug>`" in `## Notes`. Don't delete. |
 

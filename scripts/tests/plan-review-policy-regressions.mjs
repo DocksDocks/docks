@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const HARNESS = 'scripts/tests/plan-review-policy.mjs';
+const CONVERGENCE_HARNESS = 'scripts/tests/plan-review-convergence-repair.mjs';
 const DEFAULT_JOBS = Math.max(1, Math.min(6, os.availableParallelism()));
 const MAX_CHILD_OUTPUT_BYTES = 16 * 1024 * 1024;
 const CHILD_TIMEOUT_MS = 15 * 60 * 1000;
@@ -43,6 +44,7 @@ const REQUIRED_SURFACES = [
   'scripts/ci.mjs',
   'scripts/tests/fixtures/plan-review-policy/sample-plan.md',
   HARNESS,
+  CONVERGENCE_HARNESS,
 ];
 
 function validatedRunNamespace(value, label) {
@@ -155,9 +157,10 @@ function runChild({ argv, cwd, env = process.env, timeoutMs = CHILD_TIMEOUT_MS, 
   });
 }
 
-function run(root, args) {
-  const privateTemp = path.join(root, '.tmp'); fs.mkdirSync(privateTemp, { mode: 0o700 });
-  return runChild({ argv: [process.execPath, path.join(root, HARNESS), ...args], cwd: root, env: { ...process.env, TMPDIR: privateTemp, TMP: privateTemp, TEMP: privateTemp } });
+function run(root, args, harness = HARNESS) {
+  assert.ok([HARNESS, CONVERGENCE_HARNESS].includes(harness), 'regression harness must be closed');
+  const privateTemp = path.join(root, '.tmp'); fs.mkdirSync(privateTemp, { mode: 0o700, recursive: true });
+  return runChild({ argv: [process.execPath, path.join(root, harness), ...args], cwd: root, env: { ...process.env, TMPDIR: privateTemp, TMP: privateTemp, TEMP: privateTemp } });
 }
 
 function requirePass(label, result, pattern) {
@@ -411,10 +414,11 @@ const REGRESSIONS = [
     "if (!Number.isInteger(policy.max_rounds) || policy.max_rounds < 1 || policy.max_rounds > 10) throw new Error('max_rounds');",
     "if (!Number.isInteger(policy.max_rounds) || policy.max_rounds < 0 || policy.max_rounds > 10) throw new Error('max_rounds');",
   )],
-  ['structured-output constrained type regression', ['--case', 'schemas'], /const requires type|enum requires type|Assertion/, applyVariant(
+  ['structured-output constrained type regression', ['--case', 'schemas'], /const requires type|enum requires type|Assertion/, applyVariantAll(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "const typedConst = (type, value) => ({ type, const: value });",
     "const typedConst = (_type, value) => ({ const: value });",
+    2,
   )],
   ['schema-3 rubric sum regression', ['--case', 'schemas'], /rubric|score|sum|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -451,20 +455,20 @@ const REGRESSIONS = [
     'Report only provable, actionable, unintentional defects',
     'Report possible defects',
   )],
-  ['five-round dated default regression', ['--case', 'surfaces'], /five-round default|max_rounds: 5|Assertion/i, applyVariant(
+  ['two-round current default regression', ['--case', 'surfaces'], /two-round default|max_rounds: 2|Assertion/i, applyVariant(
     'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-    'max_rounds: 5',
+    'max_rounds: 2',
     'max_rounds: 3',
   )],
   ['stale policy completion reuse regression', ['--case', 'completion-reuse'], /resolved policy|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    "validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy });",
-    "validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status });",
+    "validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy, waivers });",
+    "validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { waivers });",
   )],
   ['stale policy draft reuse regression', ['--case', 'schemas'], /resolved policy|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    "return validateDraftReceipt(input.receipt, input.expectedInput, { expectedPolicy: input.expectedPolicy });",
-    "return validateDraftReceipt(input.receipt, input.expectedInput);",
+    "return validateDraftReceipt(normalized.receipt, normalized.expectedInput, { expectedPolicy: normalized.expectedPolicy, waivers: normalized.waivers });",
+    "return validateDraftReceipt(normalized.receipt, normalized.expectedInput, { waivers: normalized.waivers });",
   )],
   ['policy-v2 repeated-candidate regression', ['--case', 'validation-matrix'], /at most once|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
@@ -561,10 +565,10 @@ const REGRESSIONS = [
     'const diffBytes = completionDiff(repo, executionBaseCommit, reviewedCommit);',
     'const diffBytes = completionDiff(repo, plannedAtCommit, reviewedCommit);',
   )],
-  ['read-only wrapper claims primary writes', ['--case', 'surfaces'], /primary work|write boundary|Assertion/, applyVariant(
+  ['read-only wrapper claims primary writes', ['--case', 'surfaces'], /primary work|write boundary|CI, acceptance|Assertion/, applyVariant(
     '.codex/agents/plan-review.toml',
-    '- Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.',
-    '- CI/acceptance claims require fresh disposable-checkout command evidence.',
+    '- Never run or claim CI, acceptance, clone, cleanup, repair, or lifecycle work.',
+    '- CI, acceptance, clone, cleanup, repair, and lifecycle work passed.',
   )],
   ['Claude evidence wrapper regains Bash', ['--case', 'surfaces'], /regression-capable reviewer tools|Assertion/, applyVariant(
     'plugins/docks/agents/plan-review.md',
@@ -911,6 +915,114 @@ const REGRESSIONS = [
     '| A2 | `node --check fixture.js` | exit 0 |',
     '| A1 | `node --check fixture.js` | exit 0 |',
   )],
+  ['current schema closure regression', ['--case', 'current-single-lane'], /current policy missing minimum_score/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "assertClosed(policy, ['schema', 'role', 'fallback', 'max_rounds', 'candidates', 'provenance'], 'current policy');",
+    "assertClosed(policy, ['schema', 'role', 'fallback', 'max_rounds', 'candidates', 'provenance', 'minimum_score'], 'current policy');",
+  )],
+  ['current two-round cap regression', ['--case', 'current-single-lane'], /current rounds|max_rounds|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (policy.max_rounds !== 2) throw new Error('current policy max_rounds must be exactly 2');",
+    "if (policy.max_rounds < 2) throw new Error('current policy max_rounds must be at least 2');",
+  )],
+  ['current platform fallback regression', ['--case', 'current-single-lane'], /platform|terminal|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (index < attempts.length - 1 && !CURRENT_FALLBACK_RESULTS.has(attempt.result)) throw new Error(`current attempt continued after terminal ${attempt.result}`);",
+    "if (index < attempts.length - 1 && attempt.result === 'passed') throw new Error(`current attempt continued after terminal ${attempt.result}`);",
+  )],
+  ['current output fallback regression', ['--case', 'current-single-lane'], /fallback after output|output|terminal|must reject|Assertion/, combine(
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+      "if (CURRENT_FALLBACK_RESULTS.has(attempt.result) && attempt.output_started) throw new Error('availability fallback cannot follow substantive output');",
+      "if (false && CURRENT_FALLBACK_RESULTS.has(attempt.result) && attempt.output_started) throw new Error('availability fallback cannot follow substantive output');",
+    ),
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+      "if (index < attempts.length - 1 && attempt.output_started) throw new Error('current attempt fallback after output is terminal');",
+      "if (false && index < attempts.length - 1 && attempt.output_started) throw new Error('current attempt fallback after output is terminal');",
+    ),
+  )],
+  ['current checklist verdict regression', ['--case', 'current-receipts'], /verdict|strongest|must reject|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (output.verdict !== strongest) throw new Error('current reviewer verdict must equal strongest checklist status');",
+    "if (false && output.verdict !== strongest) throw new Error('current reviewer verdict must equal strongest checklist status');",
+  )],
+  ['current unstarted model-unavailable regression', ['--case', 'current-single-lane'], /unstarted model_unavailable|started real launch|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (attempt.result === 'model_unavailable' && !attempt.started) throw new Error('model_unavailable requires a started real launch');",
+    "if (false && attempt.result === 'model_unavailable' && !attempt.started) throw new Error('model_unavailable requires a started real launch');",
+  )],
+  ['current rejected blocking-gap regression', ['--case', 'current-receipts'], /blocking_gap.*terminal|outcome mismatch|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (currentBlockingFindings(reviewer).length > 0) return { outcome: 'not_ready', eligible: false };",
+    "if (currentAcceptedBlockingFindings(reviewer).length > 0) return { outcome: 'not_ready', eligible: false };",
+  )],
+  ['current failed-after-passed-attempt regression', ['--case', 'current-receipts'], /failed review.*passed attempt|passed attempt|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (raw.result === 'failed' && (!sequence.terminal || sequence.selected_index !== null)) throw new Error('current failed review cannot discard a passed attempt');",
+    "if (raw.result === 'failed' && !sequence.terminal) throw new Error('current failed review requires terminal attempt');",
+  )],
+  ['current completion primary-render regression', ['--case', 'current-completion-renderer'], /schema-5 primary-only|Cross-check:|\[X:|\[S:|"X":|"S":|completionReviewLeg|Cannot read properties|Assertion/, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'const block = receipt.schema === 5 ? completionReviewBlockV5(receipt, { waivers }) : completionReviewBlockV1(receipt, { waivers });',
+    'const block = completionReviewBlockV1(receipt, { waivers });',
+  )],
+  ['current completion waiver-render regression', ['--case', 'current-completion-renderer'], /waiver.*snapshot|explicit completion waiver|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'const block = receipt.schema === 5 ? completionReviewBlockV5(receipt, { waivers }) : completionReviewBlockV1(receipt, { waivers });',
+    'const block = receipt.schema === 5 ? completionReviewBlockV5(receipt) : completionReviewBlockV1(receipt, { waivers });',
+  )],
+  ['current generic-series waiver regression', ['--case', 'current-receipts'], /waiver.*snapshot|generic current series|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'if (series?.schema === 5) return validateCurrentReviewSeries(series, { waivers });',
+    'if (series?.schema === 5) return validateCurrentReviewSeries(series);',
+  )],
+  ['current draft-reuse waiver regression', ['--case', 'current-receipts'], /waiver.*snapshot|draft reuse|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'return validateDraftReceipt(normalized.receipt, normalized.expectedInput, { expectedPolicy: normalized.expectedPolicy, waivers: normalized.waivers });',
+    'return validateDraftReceipt(normalized.receipt, normalized.expectedInput, { expectedPolicy: normalized.expectedPolicy });',
+  )],
+  ['current argv candidate-binding regression', ['--case', 'current-argv'], /candidate|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'const candidate = request.policy.candidates[priorAttempts.length];',
+    'const candidate = request.policy.candidates[0];',
+  ), CONVERGENCE_HARNESS],
+  ['current bundle primary-schema identity regression', ['--case', 'current-bundle'], /primary\.v5|reviewer schema (?:identity|paths)|path.*undefined|Expected values|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "const reviewerSchemas = reviewSchema === 5 ? { primary: 'reviewer-output.primary.v5.schema.json' } : { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' };",
+    "const reviewerSchemas = reviewSchema === 5 ? { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' } : { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' };",
+  ), CONVERGENCE_HARNESS],
+  ['historical bundle fixed-golden regression', ['--case', 'current-bundle'], /historical bundle bytes|fixed pre-schema-5 golden|Assertion/i, applyVariantAll(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "const str = { type: 'string', minLength: 1 };",
+    "const str = { type: 'string', minLength: 1, maxLength: 999 };",
+    2,
+  ), CONVERGENCE_HARNESS],
+  ['current series drift regression', ['--case', 'single-repair'], /phase.*drift|lifecycle.*drift|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (round.request.phase !== phase || round.kind !== kind || round.request.lifecycle_intent !== lifecycleIntent) throw new Error('current review series phase, kind, or lifecycle drift');",
+    "if (false && (round.request.phase !== phase || round.kind !== kind || round.request.lifecycle_intent !== lifecycleIntent)) throw new Error('current review series phase, kind, or lifecycle drift');",
+  ), CONVERGENCE_HARNESS],
+  ['current completion execution-identity drift regression', ['--case', 'single-repair'], /execution.*drift|execution_base_commit|completion.*identity|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (phase === 'completion' && (round.request.planned_at_commit !== first.request.planned_at_commit || round.request.execution_base_commit !== first.request.execution_base_commit)) throw new Error('current completion series execution identity drift');",
+    "if (false && phase === 'completion' && (round.request.planned_at_commit !== first.request.planned_at_commit || round.request.execution_base_commit !== first.request.execution_base_commit)) throw new Error('current completion series execution identity drift');",
+  ), CONVERGENCE_HARNESS],
+  ['current rejected-blocker repair regression', ['--case', 'single-repair'], /rejected.*blocking|blocking.*rejected|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');",
+    "if (false && rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');",
+  ), CONVERGENCE_HARNESS],
+  ['current completion reuse waiver regression', ['--case', 'completion-reuse'], /waiver.*snapshot|completion waiver reuse|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'const expected = applyCompletionReviewBlock(beforeBytes, receipt, { waivers });',
+    'const expected = applyCompletionReviewBlock(beforeBytes, receipt);',
+  )],
+  ['current completion series-final binding regression', ['--case', 'current-receipts'], /series.*final|final.*series|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (jcs(series.rounds.at(-1)) !== jcs(run)) throw new Error('current completion receipt series final run mismatch');",
+    "if (false && jcs(series.rounds.at(-1)) !== jcs(run)) throw new Error('current completion receipt series final run mismatch');",
+  )],
 ];
 
 async function runRegressionSuite(jobs) {
@@ -919,7 +1031,7 @@ async function runRegressionSuite(jobs) {
   assert.doesNotMatch(self, /from ['"].*plan-review-policy\.mjs['"]/);
   assert.doesNotMatch(self, /spawnSync\(/, 'driver must not block the mutation scheduler');
   assert.equal((self.match(/\bspawn\(/g) || []).length, 1, 'driver has one black-box spawn site');
-  console.log('regression driver imports no helper/harness/inventory and spawns only the copied harness');
+  console.log('regression driver imports no helper/harness/inventory and spawns only a copied harness');
 
   const snapshot = createOwnedRoot('snapshot');
   try {
@@ -938,11 +1050,19 @@ async function runRegressionSuite(jobs) {
       assert.match(full.stdout, /canonical root and prepare identity reject arbitrary roots and forged tokens/);
       requirePass('canonical bundle, fence, consumer, and surface matrix', full, /plan-review-policy contract passed/);
       assert.match(full.stdout, /GitHub issue publishing operation preservation passed/);
+      for (const [testCase, proof] of [
+        ['current-argv', /reviewer argv binds prior attempts/],
+        ['current-bundle', /current bundle carries primary v5 identity/],
+        ['single-repair', /single repair requires every raw blocker accepted and reproduced/],
+      ]) {
+        const convergence = await run(baseline, ['--case', testCase], CONVERGENCE_HARNESS);
+        requirePass(`convergence baseline ${testCase}`, convergence, proof);
+      }
     } finally { removeOwnedRoot(baseline); }
 
-    const results = await runPool(REGRESSIONS, jobs, async ([, args, , apply], index) => {
+    const results = await runPool(REGRESSIONS, jobs, async ([, args, , apply, harness = HARNESS], index) => {
       const root = createOwnedRoot(`regression-${index}`);
-      try { copyRoot(snapshot, root); apply(root); return await run(root, args); }
+      try { copyRoot(snapshot, root); apply(root); return await run(root, args, harness); }
       finally { removeOwnedRoot(root); }
     });
     if (runtime.signal !== null) return;

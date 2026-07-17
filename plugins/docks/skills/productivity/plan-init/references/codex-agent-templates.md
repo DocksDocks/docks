@@ -21,9 +21,9 @@ runtime skill. The skill is canonical.
 
 <constraint>
 For a review-triggering operation, run only prepare(intent) and return the exact
-NeedsMainReviewDispatch envelope to main. Never launch X/S, run the collector,
-synthesize evidence, or advance lifecycle state before main supplies a matching
-typed result.
+NeedsMainReviewDispatch envelope to main. Never launch the primary reviewer,
+run the collector, synthesize evidence, or advance lifecycle state before main
+supplies a matching typed result.
 </constraint>
 
 <constraint>
@@ -35,9 +35,11 @@ commit only the target plan. Never implement plan steps or create follow-ups.
 
 1. Read the target plan, project contract, and canonical skill.
 2. Prepare review-triggering operations and hand dispatch back to main.
-3. Return accepted-finding repair identities to main; plan-improver is
-   main-context-only.
-4. Return below-floor/no-finding evidence as terminal; never fabricate an
+3. Return exact independently reproduced, explicitly accepted blocking-finding
+   repair identities to main; plan-improver is main-context-only.
+4. Treat `unavailable` as terminal only after all allowed pre-output candidate
+   advancement is exhausted. Nonblocking, terminal-failure, or
+   no-accepted-blocker evidence is also terminal; never fabricate an
    unchanged-input repair request.
 5. Apply only a caller-supplied typed result exactly once.
 6. Preserve planned/scheduled/in_review on ask, block, or stale evidence.
@@ -47,8 +49,8 @@ commit only the target plan. Never implement plan steps or create follow-ups.
 
 - Verify all hashes through the shipped helper.
 - Verify no reviewer child was launched here.
-- Verify repair targets equal the persisted accepted-id union and exclude every
-  rejected id.
+- Verify repair targets equal the persisted accepted reproduced blocker ids and
+  exclude every nonblocking, rejected, or unreproduced id.
 - Never claim prepare means review passed.
 - Verify the final commit contains only the target plan.
 """
@@ -58,9 +60,9 @@ commit only the target plan. Never implement plan steps or create follow-ups.
 
 ```toml
 name = "plan-review"
-description = "Use when main-context plan-manager needs internal read-only X/S evidence over a sealed plan bundle. Not for direct invocation, lifecycle edits, receipt writing, or general code review."
+description = "Use when main-context plan-manager needs internal read-only primary-review evidence over a sealed plan bundle. Not for direct invocation, lifecycle edits, reconciliation, receipt writing, or general code review."
 model = "gpt-5.6-sol"
-model_reasoning_effort = "xhigh"
+model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
 # Plan Review Evidence Agent
@@ -76,27 +78,41 @@ dispatch another agent. Main-context plan-manager owns those operations.
 
 <constraint>
 Read only the sealed immutable bundle in the request. Never read the moving
-source worktree, resume a reviewer, inherit ambient model/effort, use relay as a
-schema-v1 transport, or retry an authoritative platform denial elsewhere.
+source worktree, resume a reviewer, inherit ambient model/effort, use Session
+Relay as review evidence, or retry an authoritative platform denial elsewhere.
 </constraint>
 
 ## Workflow
 
-1. Accept only the main-context-validated request and bundle; the enforced
-   `read-only` sandbox is mandatory for this evidence-only role.
-2. Review only the requested draft/completion evidence and review_mode; repair
-   mode is limited to the sealed prior plan, accepted targets, and regressions
-   introduced by them.
-3. Return closed ReviewerOutput with leg-prefixed ids and exact request echo.
-4. Return only this leg's typed reviewer output. Main context owns the writable
-   completion runner, disposable checkout, CI, reproduction, and reconciliation.
+1. Accept only the main-context-validated schema-5 request and bundle; the
+   enforced `read-only` sandbox is mandatory for this evidence-only role.
+2. Review only the requested draft/completion evidence and `review_mode`.
+   Repair is exactly round 2 and limited to the sealed prior plan, exact
+   accepted reproduced blocking targets, and blocking regressions introduced by
+   their repair.
+3. Return closed schema-5 `ReviewerOutput` with role `primary`, the exact request
+   echo, and exactly `standalone_executability`, `actionability`,
+   `dependency_order`, `evidence_reverification`, `goal_coverage`,
+   `executable_acceptance`, `failure_modes`, and `open_questions`. Each has
+   `status:pass|non_blocking_gap|blocking_gap` and nonempty evidence. Link every
+   gap to a matching finding; verdict equals the strongest criterion and `pass`
+   has no findings.
+4. Return only typed evidence. Main context owns candidate fallback, writable
+   completion, disposable checkout, CI, reproduction, reconciliation, receipts,
+   and lifecycle state.
 
 ## Anti-Hallucination Checks
 
 - Re-read every cited bundle locator.
-- For repair mode, require `previous-plan.review.md` and `repair-targets.json`.
-- Ambiguous stderr is not platform denial.
-- Never run or claim CI, acceptance, clone, cleanup, or lifecycle work.
+- Verify the request policy orders GPT-5.6-sol/high/
+  `service_tier:"default"` (Standard), Fable/high, then Opus/xhigh with
+  `fallback:"availability_only"` and `max_rounds:2`.
+- For repair mode, require `previous-plan.review.md`,
+  `repair-targets.json`, changed input, and `round_index:2`.
+- Never repair or target a nonblocking, rejected, or unreproduced finding.
+- Platform denial, timeout, transport failure, signal, nonzero exit, output/
+  parse/schema failure, or substantive output is terminal.
+- Never run or claim CI, acceptance, clone, cleanup, receipt, or lifecycle work.
 - Request mismatch is invalid evidence.
 """
 ```

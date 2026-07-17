@@ -33,7 +33,7 @@ The `context-tree` skill maintains these nodes; `scripts/tree/guard.mjs` enforce
 
 ## Codex plan agents
 
-`.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` are repo-local Codex wrappers around the matching `plan-*` skills. They are not plugin payload and stay thin. Main-context plan-manager is the sole public reviewer dispatcher/reconciler/writer and the only context that may route accepted findings through plan-improver. Its wrapper performs only typed `prepare(intent)` or `apply`; the plan-review wrapper returns read-only evidence only. Review dispatch always returns to main context.
+`.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` are repo-local Codex wrappers around the matching `plan-*` skills. They are not plugin payload and stay thin. Current schema-5 review has one `gpt-5.6-sol`/high/Standard primary reviewer; Claude Fable/high then Opus/xhigh are availability-only fallbacks, not a routine cross-company second review. Main-context plan-manager is the sole public dispatcher, finding reconciler, receipt/lifecycle writer, and the only context that may route accepted independently reproduced blockers through plan-improver. Its wrapper performs only typed `prepare(intent)` or `apply`; the plan-review wrapper returns sealed-bundle checklist evidence only. Review dispatch always returns to main context, Session Relay is invalid evidence, and at most one changed-input repair review is allowed. Historical X/S, scores/rubrics, consent, and five-round receipts retain their original validation semantics.
 
 ## Tool-agnostic rules
 

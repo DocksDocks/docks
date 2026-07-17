@@ -1,11 +1,11 @@
 ---
 name: plan-review
-description: Use when plan-manager needs internal draft or completion evidence from two independent reviewers over one sealed input, including fresh-context X/S collection and per-finding reproduction. Returns typed evidence only. Not for direct user invocation, lifecycle writes, general code review, or follow-up-plan creation.
+description: Use when plan-manager needs internal read-only draft or completion evidence from one bounded primary reviewer over a sealed input, with availability-only candidate fallback. Returns typed evidence only. Not for direct user invocation, lifecycle writes, reconciliation, receipt writing, or follow-up-plan creation.
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-16"
-  content_hash: "33e7c8953c7fdb891d4c171e3113f999cbffe6eb20ee0de5d4e0253d50718ef6"
+  updated: "2026-07-17"
+  content_hash: "39ecbc8e6f5f58e757796d80c8988ce52dfdd7e08c7037f470742622f9491672"
 ---
 
 # Plan Review Evidence Runner
@@ -16,73 +16,80 @@ may execute. Its bundled `scripts/review-policy.mjs` is the canonical plan-view,
 bundle, schema, hashing, and validation implementation.
 
 <constraint>
-**Evidence-only ownership.** Accept only a typed request from plan-manager. Return `NeedsMainReviewDispatch`, `DraftRunResult`, or `CompletionRunResult`; never Edit/Write the source plan, create a follow-up, apply a lifecycle transition, or reconcile accepted/rejected findings. Plan-manager is the only public entry, dispatcher, reconciler, receipt writer, and lifecycle writer.
+**Evidence-only ownership.** Accept only a typed request from plan-manager. Return `NeedsMainReviewDispatch`, `DraftRunResult`, or `CompletionRunResult`; never Edit/Write the source plan, create a follow-up, apply a lifecycle transition, reconcile accepted/rejected findings, or accept a repair target. Plan-manager is the only public entry, dispatcher, reconciler, receipt writer, and lifecycle writer.
 </constraint>
 
 <constraint>
-**One immutable input, two fresh reviewers.** X and S consume the same sealed non-git bundle and byte-identical `ReviewRequestEnvelope`. Every launch pins company/model/effort/service-tier/transport explicitly. Never resume an old session, inherit ambient model/effort/Fast state, or read the moving source worktree. Session-relay is not a review transport: session-relay never transports review evidence.
+**One immutable input, one fresh primary review.** The selected primary candidate consumes one sealed non-git bundle and exact schema-5 `ReviewRequestEnvelope`. Every launch pins company/model/effort/service-tier/transport explicitly. Never resume an old session, inherit ambient model/effort/Fast state, or read the moving source worktree. Session Relay never transports review evidence.
 </constraint>
 
 <constraint>
-**Host policy is authoritative.** `cross_company_consent=always` suppresses only Docks' X-consent picker. It cannot override sandbox/export policy. Record an authoritative denial as `platform_denied`, with no launch and no alternate-transport retry. Ambiguous failure is `unavailable_unknown`; free-form stderr is never denial proof.
+**Host policy is authoritative.** Record an authoritative denial as `platform_denied`; do not launch through another candidate or transport. Ambiguous failure is terminal and free-form stderr is never denial proof. Candidate fallback is availability-only and must stop after output starts or any parsed result exists.
 </constraint>
 
 ## Input contract
 
-`prepare` supplies a closed request:
+`prepare` supplies a recursively closed current request:
 
 ```text
 ReviewRequestEnvelope = {
-  schema: 1|2|3, request_id: uuid, phase: draft|completion,
+  schema: 5,
+  request_id: uuid,
+  phase: draft|completion,
   lifecycle_intent: none|start|schedule_fire|auto_execute,
   reviewed_commit_or_head: 40hex,
-  planned_at_commit: null|40hex, execution_base_commit: null|40hex,
-  diff_sha256: null|64hex, acceptance_inventory_sha256: null|64hex,
-  input_sha256: 64hex, bundle_sha256: 64hex,
+  planned_at_commit: null|40hex,
+  execution_base_commit: null|40hex,
+  diff_sha256: null|64hex,
+  acceptance_inventory_sha256: null|64hex,
+  input_sha256: 64hex,
+  bundle_sha256: 64hex,
   author: {company:openai|anthropic,tool,model,effort},
-  policy: ResolvedReviewPolicy, policy_sha256: 64hex,
-  review_mode: full|repair, round_index: 1..10,
+  policy: CurrentReviewPolicyV5,
+  policy_sha256: 64hex,
+  review_mode: full|repair,
+  round_index: 1|2,
   previous_input_sha256: null|64hex,
   repair_targets_sha256: null|64hex
 }
 ```
 
-The final four fields exist only in schema 3. Full review is round 1 with both
-hashes null. Repair review is a later round and binds the changed input to the
-previous input plus the exact accepted repair-target digest.
+Full review is exactly round 1 with both transition hashes null. Repair review
+is exactly round 2 and requires a changed input, the prior input hash, and the
+digest of exact independently reproduced, explicitly accepted blocking
+findings. A nonblocking, rejected, or unreproduced finding cannot be a target.
 
-The helper must revalidate the complete envelope and policy before launch.
-Policy provenance is closed to `current_user | runtime_global | skill_default`.
-Author identity is already persisted in plan frontmatter and byte-bound in the
-request; do not infer it from the current executor. X is the other company. S is
-an independent reviewer from the author's company.
+The helper revalidates the complete envelope and policy before launch. Policy
+provenance is closed to `current_user | runtime_global | skill_default` for
+`role`, `fallback`, `max_rounds`, and `candidates`. The current policy is:
 
-The outer envelope remains schema 1 with historical policy v1/v2. Current
-service-tier-aware work uses schema-2 envelopes with closed policy v3; its
-attempts, raw legs, reviewer outputs, runs, and receipts are schema 2 as well.
-Policy v2 adds strict integer `minimum_score` 0..100 and `max_rounds` 1..10;
-policy v3 additionally requires `service_tier: default|fast` on every OpenAI
-tier and permits only direct CLI transport for those tiers. Policy v4 uses
-schema-3 envelopes and adds `review_mode`, round identity, weighted rubric,
-blocking attribution, and a lifetime cap. Historical policy v1-v3 retain their
-persisted meanings.
-plan-manager supplies the resolved values from current-user instructions, one
-deduplicated `Docks-workflow-models:` record, or dated defaults. The named
-orchestrator profile is `profile:claude-best`; plan-review receives only its
-expanded ordered candidates and never parses mutable global guidance.
+```text
+{schema:5, role:"primary", fallback:"availability_only", max_rounds:2,
+ candidates:[
+   {company:"openai",tool:"codex",model:"gpt-5.6-sol",effort:"high",
+    service_tier:"default"},
+   {company:"anthropic",tool:"claude",model:"fable",effort:"high"},
+   {company:"anthropic",tool:"claude",model:"opus",effort:"xhigh"}],
+ provenance:{role,fallback,max_rounds,candidates}}
+```
 
-Default dated tiers (2026-07; honor a higher-precedence resolved tier list):
+The candidate array and objects are closed, ordered, and nonempty. A
+current-turn user may pin one eligible candidate for one review; this narrows
+the array and never adds another reviewer. Author identity is byte-bound in the
+request but does not select a same- or cross-company leg.
 
-| Company | Ordered tiers | Effort | Eligible transport |
-|---|---|---|---|
-| OpenAI | `gpt-5.6-sol` | `high` + explicit `default` tier | CLI |
-| Anthropic | `fable`, then `opus` | `high`, then `xhigh` | in-session, CLI |
+### Historical v1-v4 request compatibility
 
-`orchestrator_preference=auto` prefers an available eligible transport. A
-tier-controlled Codex reviewer is direct CLI because an in-session reviewer
-cannot guarantee a different service tier. `relay` is invalid under every
-policy version. Select transport once before attempts; an authoritative
-denial never causes a transport switch.
+Historical outer schema 1 with policy v1/v2, schema 2 with policy v3, and schema
+3 with policy v4 retain their persisted meanings and validation results. Their
+X/S author-company rules, numeric `minimum_score`, weighted rubric,
+cross-company consent, zero-review decisions, service-tier transport rules,
+round indexes through 10, and policy-v4 lifetime series remain historical only.
+Schema 3 still binds `review_mode`, previous input, and repair-target hashes.
+Never add schema-5 fields to a historical closed request, attempt, raw leg,
+reviewer output, run, receipt, waiver, bundle, prepared result, or cleanup
+record. Historical waivers retain `legs:[X|S]`; current waivers use exactly
+`roles:["primary"]`.
 
 ## Prepare result
 
@@ -92,33 +99,43 @@ After plan-manager commits the non-executing input, use the helper to:
 2. Export sorted `affected_paths` at the immutable commit/head into
    `/tmp/docks-plan-review/<request_id>/`; absent CREATE/deleted paths are
    explicit tombstones. Symlinks are target bytes, never followed.
-3. Add distinct generated X and S reviewer JSON Schemas for historical schema 1,
-   service-tier schema 2, and convergence schema 3 plus a manifest without a
-   bundle hash; each launch
-   selects its exact leg/version schema path. Never export the
-   raw source plan through `affected_paths`; only canonical `plan.review.md` is
-   reviewer-visible. Completion also seals canonical binary `completion.diff`
-   and the nonempty ordered `acceptance-inventory.json`.
+3. Add only `reviewer-output.primary.v5.schema.json` to a current bundle.
+   Current full bundles use manifest schema 3; current repair bundles use
+   manifest schema 4 and additionally seal `previous-plan.review.md` plus
+   `repair-targets.json`. Both carry `review_schema:5` and
+   `reviewer_schemas:{primary:<path>}`. They contain no X/S schema files.
+   Historical manifest schemas 1/2 and their exact X/S files and bytes remain
+   unchanged. Never export the raw source plan through `affected_paths`; only
+   canonical `plan.review.md` is reviewer-visible. Completion also seals
+   canonical binary `completion.diff` and the nonempty ordered
+   `acceptance-inventory.json`.
 4. Hash canonical manifest bytes plus length-prefixed file bytes, chmod the
    bundle read-only, then create one request carrying `bundle_sha256`.
-5. Re-hash manifest, file bytes, modes, and read-only directories before each
-   launch and after each leg. Any mutation, escape, duplicate, submodule, commit/tree
-   mismatch, or unsupported file type is a STOP, not a degraded review.
 
-Bundle destruction remains a plan-manager main context responsibility. It calls
+Invoke current sealing through `bundle --review-schema=5 ...` or
+`bundle-repair --review-schema=5 ...`; omitting the selector intentionally
+retains the historical manifest-1/2 format.
+
+5. Re-hash manifest, file bytes, modes, and read-only directories before launch
+   and after the attempt. Any mutation, escape, duplicate, submodule,
+   commit/tree mismatch, or unsupported file type is a STOP, not degraded
+   review.
+
+Bundle destruction remains a plan-manager main-context responsibility. It calls
 `node <plan-review-skill-dir>/scripts/review-policy.mjs destroy-bundle <bundle-path> <expected-bundle-sha256>`
 with the path and hash from the current request. The helper verifies the sealed
 bundle before restoring owner-write permissions and removing only that bundle;
-X/S reviewers never perform cleanup.
+the primary reviewer never performs cleanup.
 
-Return `NeedsMainReviewDispatch = { schema:1|2|3, request, bundle_path,
-reviewer_schema_path, X_dispatch, S_dispatch }`. A manager subagent returns this
-to main context; it never launches the collector itself.
+Return `NeedsMainReviewDispatch = {schema:5, request, bundle_path,
+reviewer_schema_path, primary_dispatch}`. A manager subagent returns this to
+main context; it never launches the collector itself. Historical schemas 1-3
+retain their closed `X_dispatch` and `S_dispatch` result shapes.
 
 ## Reviewer launches
 
 Use a direct argv API, never a shell-assembled command. Append this literal block
-to both findings-only prompts:
+to the findings-only prompt:
 
 ```text
 REQUEST_JCS_BEGIN
@@ -127,121 +144,114 @@ REQUEST_JCS_END
 ```
 
 The reviewer copies the object into `ReviewerOutput.request`; the collector JCS
-canonicalizes and compares it with the source. No base64 decoding or byte-perfect
-prose transcription is required.
+canonicalizes and compares it with the source.
 
-Historical schema 1/2 Codex CLI argv:
-
-```text
-codex exec -C <bundle> --skip-git-repo-check -s read-only
-  -m <model> -c model_reasoning_effort=<effort>
-  -c service_tier="default"
-  --output-schema <bundle>/reviewer-output.<X|S>[.v2].schema.json -- <prompt>
-```
-
-Schema 3 Codex CLI argv:
+Current schema-5 Codex argv:
 
 ```text
 codex exec -C <reviewer-workspace> --skip-git-repo-check
   --ephemeral --ignore-user-config -s read-only
-  -m <model> -c model_reasoning_effort=<effort>
+  -m gpt-5.6-sol -c model_reasoning_effort=high
   -c service_tier="default"
-  --output-schema <bundle>/reviewer-output.<X|S>.v3.schema.json -- <prompt>
+  --output-schema <bundle>/reviewer-output.primary.v5.schema.json -- <prompt>
 ```
 
-For Fast, replace the Standard tier override with both
-`-c features.fast_mode=true -c service_tier="fast"`. Enabling the feature alone
-is insufficient. Missing tier always means Standard, never ambient Fast.
-
-Claude CLI argv (cwd is the bundle):
+Current schema-5 Claude argv (cwd is the bundle):
 
 ```text
-claude -p --permission-mode plan --model <model> --effort <effort>
+claude -p --permission-mode plan --model <fable|opus> --effort <high|xhigh>
   --json-schema <closed-schema-json> --output-format json -- <prompt>
 ```
 
+The helper derives the exact next candidate from the validated prior-attempt
+ledger and rejects any tool/model/effort/service-tier tuple that skips or
+substitutes it. Do not inherit a parent model. Current Codex always sets
+`service_tier:"default"` (Standard), never ambient Fast. Session Relay is
+invalid review evidence.
+
+Historical compatibility keeps its original schema-1/2 Codex bundle argv,
+schema-3 helper-owned disposable-workspace argv, X/S output-schema paths,
+optional policy-v3 Fast flags, and Claude plan-mode argv. These commands may
+verify historical records only and never create a current X/S run.
+
 Use a 600-second monotonic deadline. GNU hosts may wrap the child with
-`timeout 600`; otherwise the orchestrator/tool deadline must terminate the child
-and record `timeout_mode=orchestrator_tool`. A deadline expiry is not a transport
-ETIMEDOUT.
+`timeout 600`; otherwise the orchestrator/tool deadline terminates the child and
+records `timeout_mode=orchestrator_tool`. Deadline expiry is terminal, not an
+availability fallback.
 
 ## Attempt and result rules
 
-Availability preflight is `codex login status` or `claude auth status` after
-binary lookup. Model availability is attempt-as-probe through the ordered tier.
-One review attempt operation means one sealed X-then-S round. Under policy v2-v4,
-attempt each candidate at most once in that operation and advance only
-after structured or version-pinned evidence of a candidate-specific unknown,
-retired, entitlement, explicit model-quota, or terminal model-unavailability
-failure. Authentication, billing, provider/session/weekly quota, generic 429,
-request-size, transport, and ambiguous failures stop the leg without rotation.
+Availability preflight is binary lookup followed by `codex login status` or
+`claude auth status`. The real model launch is the probe. Attempt candidates in
+the exact order GPT-5.6-sol/high/`service_tier:"default"` (Standard) →
+Fable/high → Opus/xhigh. The first valid output wins.
 
-An already-running interactive parent cannot be silently retargeted. On a
-parent-only model failure, return exact `/model <model>` plus
-`/effort <effort>` commands or equivalent relaunch guidance for the next
-candidate; never claim that the parent switched automatically.
+Advance only for a typed `tool_unavailable`, `auth_failed`, or
+`model_unavailable` result with `output_started:false` and no parsed reviewer
+result. Every candidate is attempted at most once.
 
-Historical policy v1 retains one transient retry per leg, not per tier. It
-repeats the same model/transport only after an execution-layer typed, pre-output
-`EAGAIN`, `ETIMEDOUT`, or `ECONNRESET`. Strings, output-started errors,
-deadline expiry, signals, nonzero exits, and schema errors never retry.
-Policy-v1 attempts remain bounded by `eligible_tier_count + 1`; policy-v2-v4
-attempts are bounded by `eligible_tier_count`.
+The following are terminal and never rotate or retry: `platform_denied`,
+deadline/timeout, transient transport failure, signal, nonzero exit,
+output/parse/schema failure, any substantive output, any parsed finding, or any
+parsed verdict. Never route around host policy or continue after output to seek
+a different verdict. An already-running interactive parent cannot be silently
+retargeted.
 
-Classify in order: matching waiver → `waived`; X consent denied →
-`not_authorized`; authoritative denial → `platform_denied`; auth failure →
-`unavailable_auth`; all tiers unavailable → `unavailable_model`; deadline →
-`timed_out`; exit-zero/schema-invalid → `failed_unparseable`; valid output →
-`passed`; otherwise `unavailable_unknown`.
+A failed raw review cannot discard a successful passed attempt; that
+contradiction is invalid evidence, not a terminal failure.
+Each current attempt records the exact candidate, whether output started,
+child/deadline/exit/signal data when launched, raw stdout/stderr hashes, parsed
+result or null, and one typed terminal result. The schema-5 run returns one
+selected primary attempt or null, the ordered attempts, exact request, valid
+reviewer output or none, hashes, waiver or null, and reason.
 
-Each raw leg returns exact request, ordered attempts, selected tier or null,
-typed result, schema-valid findings or none, hashes/severity totals, matching
-waiver or null, prompted decision or null, and reason. A passed leg also retains
-the exact structured reviewer verdict, score, confirmations, rubric when
-present, and SHA-256 of the full JCS `ReviewerOutput`; the helper reconstructs
-and validates that object.
-For policy v1, `not_ready` is pre-execution-ineligible. For policy v2, a passed
-leg is eligible only when `verdict=ready` and `score >= minimum_score`. Policy
-v4 additionally requires exact rubric-sum equality and derives `not_ready`
-exactly from at least one blocking finding. A blocking finding names the user
-requirement, safety property, or execution step that would fail; low-confidence
-or priority 2/3 findings are non-blocking. Findings must be provable,
-actionable, unintentional, assumption-free, and proportionate. IDs
-are unique and leg-prefixed (`X1…`, `S1…`). Never construct reconciliation
-here.
+Historical policy v1 retains exactly one typed transient retry per X/S leg after
+pre-output execution-layer `EAGAIN`, `ETIMEDOUT`, or `ECONNRESET`. Strings,
+output-started errors, deadline expiry, signals, nonzero exits, and schema errors
+never retry. Historical policy v2-v4 keep their existing candidate-specific
+rotation classes, attempt bounds, X/S result classification, numeric ready/score
+gates, and policy-v4 blocking derivation. Preserve their validation behavior;
+do not use it for current schema 5.
 
 ## Draft evidence
 
-In writable main context, independently reproduce each schema-valid finding:
+In writable main context, plan-manager independently reproduces each
+schema-valid finding:
 
 - Re-read the cited bundle path and locator.
 - If it claims an executable defect, run the narrow read-only check in the
   immutable bundle where possible.
 - Record method, command/exit code when used, and evidence SHA-256.
-- Drop failed reproductions from `reproduced`; do not silently convert them to
-  accepted or rejected findings.
+- Exclude failed reproductions from accepted targets.
 
-Return closed `DraftRunResult` with request, X, S, reproduced findings, prompted
-decision evidence or null, `outcome=dual|single|zero_degraded|blocked`, and
-`pre_execution_eligible`. One passed leg permits `single`; zero passed delegates
-to the separately resolved zero-review decision. This is one round of evidence.
-Plan-manager dispatches X then S without sharing reviewer output and owns
-reconciliation. Policy v4 starts with `review_mode: full`; after plan-manager
-applies accepted findings through plan-improver, later requests use
-`review_mode: repair`, `previous_input_sha256`, and `repair_targets_sha256`.
-Every repair bundle includes immutable `previous-plan.review.md` and compact-JCS
-`repair-targets.json`; the helper recomputes their hashes from the prior
-canonical plan and exact independently reproduced targets.
-The review series has one resolved `max_rounds` lifetime cap (dated default 5)
-and returns `convergence-exhausted` at the cap instead of offering another
-batch. Historical policy v1-v3 verification retains its original receipt
-semantics. A below-floor `ready` result with no reproducible finding consumes
-the round and returns `convergence-exhausted`; it cannot authorize an
-unchanged-input repair request. Schema-3 Codex CLI review runs from a
-helper-owned disposable workdir outside the sealed bundle with
-`--ephemeral --ignore-user-config`; main context verifies the bundle after the
-leg and removes the workdir through the helper. This skill does not apply the
-intent.
+This evidence-only skill returns closed schema-5 `DraftRunResult` with the exact
+request, ordered attempts, primary reviewer output or null, reproduced evidence,
+matching primary-role waiver or null, outcome
+`passed|not_ready|unavailable|waived`, and `pre_execution_eligible`. It does not
+reconcile or accept findings.
+
+A `pass` output has no findings. `non_blocking_gap` is terminal advisory
+evidence and never enters repair. Any reported `blocking_gap` makes that run
+`not_ready`, even if plan-manager later rejects the finding; reconciliation
+cannot rewrite reviewer evidence into `passed`. Only independently reproduced
+blocking findings that plan-manager explicitly accepts may authorize changed
+plan input and an optional repair-round request. Repair is exactly round 2;
+there is no round 3, reset, continuation, unchanged-input repair, or fallback
+after substantive output. Round 2 passes only with no blocking findings; any
+remaining or newly introduced blocker is terminal `not_ready`.
+
+A repair series is valid only when every raw round-1 blocking finding is in the
+accepted target set; one rejected blocker terminates the series. Completion
+rounds additionally retain identical `planned_at_commit` and
+`execution_base_commit` identities.
+Every schema-5 receipt embeds the complete validated two-round-or-fewer
+`ReviewSeriesV5`; its final round must equal the receipt-derived run byte for
+byte. A repair series is exactly full round 1, one exact transition, and repair
+round 2 with the same phase, lifecycle intent, policy, and request kind.
+
+Historical policy-v1-v4 `DraftRunResult` retains its X/S,
+`dual|single|zero_degraded|blocked`, consent/zero-review, score, and lifetime
+series meaning for validation only.
 
 ## Docks-only legacy compatibility evidence
 
@@ -267,21 +277,23 @@ still requires its exact receipt-derived rendering. Source readiness is not
 active compatibility: the later Docks release/refresh prerequisite supplies
 the immutable release and cache identities.
 
+
 ## Evidence-complete verification order
 
-- Keep X/S and any other independent audit read-only and same-input. Dispatch X
-  then S so neither sees the other's output; one writable main context owns all
-  shared-worktree changes.
+- Keep the current primary review and any additional independent audit
+  read-only and same-input. One writable main context owns all shared-worktree
+  changes.
 - Run syntax/structural and direct acceptance checks before focused regressions,
   then run the required broad/full gate once at the final pre-commit boundary.
   A relevant edit after a gate invalidates its evidence.
-- Reuse a result only while all bound input, author, policy/provenance,
-  decision/waiver, bundle, commit/head/tree, diff, acceptance-inventory, and
-  compatibility identities match byte-for-byte.
-- This ordering never removes X/S review, the ordered acceptance inventory or
-  one-to-one primary evidence, lifecycle identity commits, the plan-only
-  `in_review` transition, the broad gate, or final completion verification.
-  Main context still runs each inventory row exactly once in its defined order.
+- Reuse a result only while all bound input, author, policy/provenance, waiver,
+  bundle, commit/head/tree, diff, acceptance-inventory, and compatibility
+  identities match byte-for-byte.
+- This ordering never removes the current primary review, ordered acceptance
+  inventory or one-to-one primary evidence, lifecycle identity commits, the
+  plan-only `in_review` transition, broad gate, or final completion
+  verification. Historical compatibility still requires its exact X/S
+  evidence. Main context runs each inventory row exactly once in order.
 
 Acceptance inventories remain nonempty and task-specific. Omit a broad check
 only when the plan records the exact project CI command and retains a fast
@@ -290,8 +302,8 @@ containment of the omitted surface; if containment is uncertain or the
 independent proof is absent, retain the row. Newly authored inventories omit
 the project CI command itself because completion executes that exact recorded
 command separately once after the ordered inventory. This is
-plan-manager/plan-review evidence only; schema-v1 validators and receipts remain
-unchanged.
+plan-manager/plan-review evidence only; historical validators and receipts
+remain unchanged.
 
 Completion-review repairs remain `in_review`, preserve the original
 `in_review_since`, reopen affected Step rows, and invalidate prior completion
@@ -302,8 +314,8 @@ input without inventing an undocumented lifecycle transition.
 Completion begins only after plan-manager has committed the plan-only
 `in_review` transition and asserted the plan plus affected paths are clean.
 Plan-manager supplies immutable `planned_at_commit`, `execution_base_commit`,
-`reviewed_head`, and original snapshot. X/S wrappers remain read-only
-findings-only reviewers; they never clone, run acceptance/CI, or clean up.
+`reviewed_head`, and original snapshot. The primary review wrapper remains
+read-only and findings-only; it never clones, runs acceptance/CI, or cleans up.
 
 1. Validate exact commits and ancestry: execution base descends from planned
    base, is the single-parent plan-only first-start transition, and is an
@@ -311,78 +323,110 @@ findings-only reviewers; they never clone, run acceptance/CI, or clean up.
    `execution_base_commit..reviewed_head` binary diff bytes with rename,
    external diff, textconv, and color disabled. Seal/hash that diff and an
    acceptance inventory derived from the canonical plan's ordered table.
-2. In writable main context, create `/tmp/docks-plan-verify/<request_id>` with `git clone --no-local
-   --no-checkout <original> <temp>` and detached checkout of `reviewed_head`.
-3. Verify temp HEAD/tree. Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.
-   Then run each nonempty inventory row exactly once in order, focused
-   reproduction, and the project's CI only inside that checkout.
+2. In writable main context, create `/tmp/docks-plan-verify/<request_id>` with
+   `git clone --no-local --no-checkout <original> <temp>` and detached checkout
+   of `reviewed_head`.
+3. Verify temp HEAD/tree. Main-context completion runs any plan-documented
+   repository setup inside the disposable checkout before acceptance/CI; setup
+   failure stops without a receipt; the generic helper never selects a package
+   manager or copies/symlinks dependencies. Run each nonempty inventory row
+   exactly once in order, focused reproduction, and project CI only there.
 4. Record each acceptance ID/command/expected/exit/output hash with exact
-   one-to-one inventory coverage, plus CI command/exit/
-   first failure/output hash, goal verdict, regressions, and follow-ups.
+   one-to-one inventory coverage, plus CI command/exit/first failure/output hash,
+   goal verdict, regressions, and follow-ups.
 5. Delete only a helper-created sentinel-bearing request directory. Cleanup
    accepts the exact prepare identity, never a root path, and validates its
    random token, original snapshot, reviewed head, source tree, canonical path,
-   owner/mode, and sentinel before deletion; then re-hash the
-   original tracked modes/blobs, untracked content, complete Git metadata tree,
-   and cleanliness. Any delta is a STOP.
+   owner/mode, and sentinel before deletion; then re-hash the original tracked
+   modes/blobs, untracked content, complete Git metadata tree, and cleanliness.
+   Any delta is a STOP.
 
-Return closed `CompletionRunResult` with `plan_input_sha256`, `diff_sha256`,
-acceptance inventory/hash, X, S, reproduced findings, decision evidence, outcome, and primary completion
-evidence plus derived `completion_verdict=passed|partial|regressed`. `regressed`
-means either a passed X/S reviewer missed the resolved ready/score gate, CI
-failed, a regression was recorded, or a primary high finding exists;
-otherwise `passed` requires `goal_met=yes` and every acceptance `met=true`; all
-other cases are `partial`. Never write `## Review` or `review_status`;
-plan-manager applies the validated result and requires frontmatter status to
-match the receipt.
+Return closed schema-5 `CompletionRunResult` with exact request, primary review,
+reproduced evidence, waiver or null, outcome, `plan_input_sha256`,
+`diff_sha256`, acceptance inventory/hash, primary completion evidence, and
+derived `completion_verdict=passed|partial|regressed`. `regressed` means the
+primary review is unavailable/not-ready, CI failed, a regression was recorded,
+or a primary high completion finding exists. Otherwise `passed` requires
+`goal_met=yes` and every acceptance `met=true`; all other cases are `partial`.
+Never write `## Review` or `review_status`; return typed evidence to
+plan-manager, which remains the sole lifecycle and receipt writer.
+Plan-manager validates the receipt's embedded series, forwards the exact
+authoritative waiver set through generic-series, draft/completion reuse,
+render, and apply paths, and requires frontmatter status to match the receipt.
+
+Historical completion run schemas retain their exact X/S ready/score and
+receipt meanings.
 
 ## Output format
 
-`ReviewerOutput` is closed recursively:
+Current `ReviewerOutput` is recursively closed:
 
 ```text
-{ schema:1|2, leg:X|S, request:<exact envelope>, verdict:ready|not_ready,
-  score:0..100, findings:[{id,severity,section,path,locator,defect,fix,evidence}],
-  confirmations:[non-empty string] }
-
-{ schema:3, leg:X|S, request:<exact envelope>, verdict:ready|not_ready,
-  score:<exact rubric sum>,
-  rubric:{standalone_executability,actionability,dependency_order,
-          evidence_reverify,goal_coverage,executable_acceptance,
-          failure_mode,assumption_to_question},
-  findings:[{id,severity,section,path,locator,defect,fix,evidence,
-             priority,confidence,blocking,requirement}],
-  confirmations:[non-empty string] }
+{
+  schema:5,
+  role:"primary",
+  request:<exact schema-5 envelope>,
+  verdict:"pass"|"non_blocking_gap"|"blocking_gap",
+  checklist:{
+    standalone_executability:{status,evidence},
+    actionability:{status,evidence},
+    dependency_order:{status,evidence},
+    evidence_reverification:{status,evidence},
+    goal_coverage:{status,evidence},
+    executable_acceptance:{status,evidence},
+    failure_modes:{status,evidence},
+    open_questions:{status,evidence}
+  },
+  findings:[{id,criterion,status,section,path,locator,defect,fix,evidence}]
+}
 ```
 
-Unknown/missing/mistyped fields, cross-leg IDs, duplicate IDs, request mismatch,
-bad hashes, or output outside the structured object are invalid evidence. Hash
-raw stdout/stderr before extracting Codex's final schema object or Claude's
-`structured_output`.
+Every checklist status is exactly
+`pass|non_blocking_gap|blocking_gap`; every evidence string is nonempty. Verdict
+equals the strongest checklist status. Every gap criterion has at least one
+matching finding and every finding matches its criterion/status. `pass` has no
+findings. A blocking finding names the exact user requirement, safety property,
+or execution step that would fail.
+Any blocking finding forces run outcome `not_ready`; accepted/rejected
+reconciliation governs repair authorization only and cannot downgrade it to
+`passed`.
+
+Historical schema-1/2 reviewer outputs retain their closed X/S
+`ready|not_ready`, numeric score, findings, and confirmations. Historical
+schema-3 outputs additionally retain their weighted rubric, priority,
+confidence, blocking, and requirement fields. Unknown/missing/mistyped fields,
+duplicate ids, request mismatch, bad hashes, or output outside the structured
+object are invalid evidence under every schema. Hash raw stdout/stderr before
+extracting Codex's final schema object or Claude's `structured_output`.
 
 ## Anti-Hallucination checks
 
-- Confirm both raw legs echo the exact same request and bundle hash.
+- Confirm the primary output echoes the exact request and bundle hash.
 - Re-verify sealed bundle manifest, bytes, modes, and read-only directories
-  before launch and after each leg.
+  before launch and after the attempt.
 - Treat a rejected `destroy-bundle` operation as a STOP; never replace it with
   shell permission or removal commands.
 - Confirm every started attempt has child id, timeout mode, exit/signal, and raw
   output hashes consistent with its typed result.
-- Confirm waiver uniqueness by `(phase,input_sha256,leg)`; duplicate/conflicting
-  waivers STOP.
-- Confirm every reproduced finding id exists in its raw leg; do not invent
-  primary X/S findings.
+- Confirm current waiver uniqueness by `(phase,input_sha256,role)` and exactly
+  `roles:["primary"]`; duplicate/conflicting waivers STOP.
+- Confirm every reproduced finding id exists in the primary output; this skill
+  never accepts or rejects it.
+- Never advance candidates after output starts, a parsed result exists, host
+  denial, timeout, transport failure, signal, nonzero exit, or invalid output.
 - Confirm the original repo snapshot is byte-identical after completion work.
-- Return evidence to plan-manager even when both legs degrade; never advance
+- Return typed evidence even when all candidates are unavailable; never advance
   lifecycle state here.
 
 ## Success criteria
 
-- Both legs are fresh, explicit, read-only, same-bundle, and findings-only.
-- Requests/results are closed, echoed, hashed, score-gated, and attempt-bounded.
-- Host denial, consent denial, unavailability, timeout, and schema failure remain
-  distinct outcomes with no forbidden retry.
-- X/S evidence carries no write authority; only writable main context creates
-  the sentinel disposable clone and proves original immutability.
-- The caller receives typed evidence only; plan-manager remains sole writer.
+- One fresh, explicit, read-only primary reviewer sees one sealed input.
+- GPT/Fable/Opus fallback is limited to the three allowed pre-output
+  availability outcomes; every other outcome is terminal.
+- Current requests/results are schema 5, closed, echoed, hashed,
+  evidence-checklisted, and attempt-bounded.
+- Only accepted independently reproduced blockers can cause one changed-input
+  repair round; nonblocking gaps cannot.
+- Session Relay supplies no review evidence.
+- The caller receives typed evidence only; plan-manager remains sole
+  dispatcher, reconciler, receipt writer, and lifecycle writer.

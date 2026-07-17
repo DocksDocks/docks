@@ -50,7 +50,7 @@ Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills brid
 
 `plan-manager` and `plan-review` ship as thin opus-tier Claude subagents (`plugins/docks/agents/`) so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills. Codex plugin installs do not ship subagents, but `plan-init` and `scaffold` can seed project-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers for explicit Codex custom-agent delegation; otherwise Codex runs the skills inline.
 
-Every plan receives independent X/S review before execution by default: the best available other-company model plus an independent author-company reviewer. The policy degrades by availability, so one subscription is never a hard block; standing cross-company consent can suppress Docks' picker but cannot bypass host security. Reviewers consume one sealed read-only bundle, while main-context plan-manager remains the sole receipt and lifecycle writer.
+Current plan review uses one sealed-bundle primary reviewer: `gpt-5.6-sol` at high effort and the Standard/default tier first, with Claude Fable/high then Opus/xhigh only as availability fallbacks—not as a routine cross-company second review. The reviewer returns checklist evidence, and accepted independently reproduced blockers permit at most one changed-input repair. Main-context plan-manager alone dispatches, reconciles, writes receipts, and changes lifecycle state; Session Relay is invalid review evidence. X/S, numeric scoring, consent/zero-review choices, and five-round receipts remain historical-only.
 
 ## Repository layout
 

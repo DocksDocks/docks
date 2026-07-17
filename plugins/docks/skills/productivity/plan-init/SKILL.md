@@ -4,8 +4,8 @@ description: Use when bootstrapping or migrating docs/plans, or when the user ex
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-16"
-  content_hash: "f85309c8e2b0d59bd659c9c9115e72898a23abaa4ad0bac4a148a7390a2c1a29"
+  updated: "2026-07-17"
+  content_hash: "ae7a501123cd1c3b259577b691a2a647e98bed812533844dca3d84bb02077cc3"
 ---
 
 # Plans Directory Bootstrapper
@@ -14,7 +14,7 @@ Bootstraps (or migrates to) the `docs/plans/` convention: two folders —
 `active/` + `finished/` — with a plan's lifecycle stage carried in its `status:`
 frontmatter field, not its directory. The `.md` is the only tracked artifact;
 views render on demand. The full contract is `references/plans-agents-md-template.md`,
-including author identity and the strong-default independent-review gate.
+including author identity and the bounded single-primary schema-5 review gate.
 When missing, it also seeds thin project-local Codex wrappers in `.codex/agents/`
 for plan-manager and plan-review; those wrappers point back to the canonical
 skills and are not plugin payload.
@@ -66,9 +66,9 @@ test -d docs/plans                         || echo "GREENFIELD"
 test -d docs/plans/active && test -d docs/plans/finished && echo "two-folder"
 test -d docs/plans/planned || test -d docs/plans/ongoing || test -d docs/plans/_views || test -f docs/plans/index.html && echo "V1 — migrate"
 grep -l 'must match the containing directory' docs/plans/AGENTS.md 2>/dev/null && echo "V1 contract"
-grep -l 'Docks-workflow-models:' docs/plans/AGENTS.md 2>/dev/null && echo "current workflow marker"
-grep -l 'review_mode: full' docs/plans/AGENTS.md 2>/dev/null && echo "current lifetime review-series marker"
-grep -l 'previous-plan.review.md' docs/plans/AGENTS.md 2>/dev/null && echo "current sealed repair-artifact marker"
+grep -l 'fallback: "availability_only"' docs/plans/AGENTS.md 2>/dev/null && echo "current schema-5 primary workflow marker"
+grep -l 'review_mode: full' docs/plans/AGENTS.md 2>/dev/null && echo "current bounded primary review-series marker"
+grep -l 'previous-plan.review.md' docs/plans/AGENTS.md 2>/dev/null && echo "current one-repair sealed-artifact marker"
 test -f .codex/agents/plan-manager.toml || echo "missing Codex plan-manager agent"
 test -f .codex/agents/plan-review.toml || echo "missing Codex plan-review agent"
 ```
@@ -78,8 +78,9 @@ Resolve to exactly one class:
 - **V1** — any old-model marker exists; this class wins even when v2 folders or
   markers also exist → migrate (Step 4b).
 - **GREENFIELD** — no `docs/plans/` → bootstrap (Step 4a).
-- **CURRENT_V2** — two folders plus the workflow, lifetime review-series, and sealed repair-artifact markers → no contract
-  rewrite; seed only genuinely missing support.
+- **CURRENT_V2** — two folders plus the workflow, bounded primary review-series,
+  and sealed repair-artifact markers → no contract rewrite; seed only genuinely
+  missing support.
 - **STALE_V2** — two folders and the recognizable Docks v2 status-as-field
   contract, but one or both current workflow markers are absent → report the
   exact stale markers. Refresh only after the current turn explicitly requests
@@ -163,7 +164,7 @@ Write as a stub or append to the root `AGENTS.md` (or `CLAUDE.md` when AGENTS.md
 Multi-commit work plans live in `docs/plans/active/` (status is a frontmatter field) and `docs/plans/finished/` (archive). Every plan file is a complete cold-handoff document — goal, context & rationale, environment & how-to-run, steps with exact paths, executable acceptance criteria, and a binary cold-handoff checklist — so any agent (or a weaker model) can pick one up cold without guessing. Skills handle every operation: `plan-init` (bootstrap/migrate), `plan-manager` (list/show/start/block/ship/new, auto-commit on transition, self-review on draft), `plan-review` (verification). Trigger by natural language or the matching `plan-*` skill. `active/` is multi-occupancy.
 </constraint>
 
-The full convention (frontmatter schema, body sections, one-pass local self-review, bounded strong-default X/S review receipts, workflow roles, open-questions, age tokens) lives in `docs/plans/AGENTS.md`. `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested discovery. If `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` exist, Codex may use them for explicit subagent delegation; otherwise run the matching `plan-*` skill inline.
+The full convention (frontmatter schema, body sections, one-pass local checklist self-review, schema-5 role `primary`, GPT-5.6-sol/high/`service_tier:"default"` (Standard) → Fable/high → Opus/xhigh availability-only fallback, exact eight-criterion evidence checklist, primary-role waivers, one full round plus at most one accepted-blocker repair, open questions, and age tokens) lives in `docs/plans/AGENTS.md`. `docs/plans/CLAUDE.md` is a one-line `@AGENTS.md` import for Claude Code's nested discovery. If `.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` exist, Codex may use them for explicit subagent delegation; otherwise run the matching `plan-*` skill inline.
 ```
 
 ## Codex Agent Defaults
@@ -213,8 +214,8 @@ root Plans section, and genuinely missing support files.
 
 ## References
 
-- `references/plans-agents-md-template.md` — the verbatim `docs/plans/AGENTS.md` contract (two-folder model, status-as-field, frontmatter schema, cold-handoff body spine + checklist, one-pass local self-review, bounded X/S review, workflow roles, open-questions, age tokens, audit-first). The source of every project's plans contract — a contract change in any plan-* skill lands here too.
+- `references/plans-agents-md-template.md` — the verbatim `docs/plans/AGENTS.md` contract (two-folder model, status-as-field, frontmatter schema, cold-handoff body spine + checklist, one-pass local self-review, bounded single-primary review, workflow roles, open questions, age tokens, audit-first). The source of every project's plans contract — a contract change in any plan-* skill lands here too.
 - `references/codex-agent-templates.md` — the copy-only `.codex/agents/plan-manager.toml` + `plan-review.toml` seed templates (written only when the file is missing).
-- Sibling `plan-manager` — every runtime operation on plans (list/show/start/block/ship/new, self-review on draft, auto-commit on transition, deprecation detection). Triggered by natural language.
-- Sibling `plan-review` — verifies finished plans against `ship_commit`; also the draft-review pass plan-manager runs on big plans.
+- Sibling `plan-manager` — every runtime operation on plans, including sole primary-review dispatch, finding reconciliation, receipts, and lifecycle writes. Triggered by natural language.
+- Sibling `plan-review` — returns evidence-only schema-5 primary draft/completion review results; historical schemas remain validation-only.
 - Codex custom agents — project-local TOML files under `.codex/agents/` are optional dispatch helpers; the plan skills remain canonical.

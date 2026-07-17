@@ -11,6 +11,8 @@ const HELPER = path.resolve('plugins/docks/skills/productivity/plan-review/scrip
 const H0 = '0'.repeat(64);
 const H1 = '1'.repeat(64);
 const H2 = '2'.repeat(64);
+const HISTORICAL_BUNDLE_SHA256 = '0cd3fbd300adc5b7c217bfd7c2cc8d841c8a15d3311e256d919b1f0817e7c0d7';
+const HISTORICAL_MANIFEST_SHA256 = 'e08efd85f52f731a4d6038b0ed27f415fa051880f2239638a3e805c6f507b8b2';
 const POLICY = {
   schema: 4,
   cross_company_consent: 'always',
@@ -32,7 +34,15 @@ const POLICY = {
 };
 
 function git(repo, args) {
-  return execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
+  return execFileSync('git', args, {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z',
+      GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
+    },
+  }).trim();
 }
 
 function makeWritable(entry) {
@@ -454,7 +464,7 @@ function testRepairSeries() {
   );
   const manager = fs.readFileSync('plugins/docks/skills/productivity/plan-manager/SKILL.md', 'utf8');
   assert.doesNotMatch(manager, /fresh request over the unchanged input/i);
-  assert.match(manager, /below-floor.*no reproducible finding.*convergence-exhausted/is);
+  assert.match(manager, /blocking_gap.*run `not_ready`.*rejected.*reconciliation/is);
   console.log('repair series recomputes targets and no-change review terminates');
 }
 
@@ -616,11 +626,535 @@ function testCliTransport() {
   }
 }
 
+const CURRENT_POLICY = {
+  schema: 5,
+  role: 'primary',
+  fallback: 'availability_only',
+  max_rounds: 2,
+  candidates: [
+    { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high', service_tier: 'default' },
+    { company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high' },
+    { company: 'anthropic', tool: 'claude', model: 'opus', effort: 'xhigh' },
+  ],
+  provenance: { role: 'skill_default', fallback: 'skill_default', max_rounds: 'skill_default', candidates: 'skill_default' },
+};
+
+function currentRequest(overrides = {}) {
+  return {
+    schema: 5,
+    request_id: '523e4567-e89b-42d3-a456-426614174000',
+    phase: 'draft',
+    lifecycle_intent: 'none',
+    reviewed_commit_or_head: '5'.repeat(40),
+    planned_at_commit: null,
+    execution_base_commit: null,
+    diff_sha256: null,
+    acceptance_inventory_sha256: null,
+    input_sha256: H1,
+    bundle_sha256: H2,
+    author: { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
+    policy: CURRENT_POLICY,
+    policy_sha256: policy.sha256(policy.jcs(CURRENT_POLICY)),
+    review_mode: 'full',
+    round_index: 1,
+    previous_input_sha256: null,
+    repair_targets_sha256: null,
+    ...overrides,
+  };
+}
+
+function currentChecklist(executableStatus = 'pass') {
+  const criteria = [
+    'standalone_executability', 'actionability', 'dependency_order', 'evidence_reverification',
+    'goal_coverage', 'executable_acceptance', 'failure_modes', 'open_questions',
+  ];
+  return Object.fromEntries(criteria.map((criterion) => [
+    criterion,
+    { status: criterion === 'executable_acceptance' ? executableStatus : 'pass', evidence: `${criterion} evidence` },
+  ]));
+}
+
+function currentFinding(status = 'blocking_gap') {
+  return {
+    id: 'P1',
+    criterion: 'executable_acceptance',
+    status,
+    section: 'Acceptance criteria',
+    path: 'src/example.txt',
+    locator: 'A1',
+    defect: 'The repair target is not bound.',
+    fix: 'Bind the exact reproduced target.',
+    evidence: 'The sealed plan lacks the required binding.',
+  };
+}
+
+function currentOutput(req, status = 'pass') {
+  return {
+    schema: 5,
+    role: 'primary',
+    request: req,
+    verdict: status,
+    checklist: currentChecklist(status === 'pass' ? 'pass' : status),
+    findings: status === 'pass' ? [] : [currentFinding(status)],
+  };
+}
+
+function currentRaw(req, status = 'pass') {
+  const output = currentOutput(req, status);
+  return {
+    schema: 5,
+    role: 'primary',
+    request: req,
+    result: 'passed',
+    attempts: [{
+      schema: 5,
+      candidate: CURRENT_POLICY.candidates[0],
+      started: true,
+      output_started: true,
+      result: 'passed',
+      exit_code: 0,
+      signal: null,
+      denial_source: null,
+      reason: 'review completed',
+      stdout_sha256: H0,
+      stderr_sha256: H1,
+    }],
+    selected: CURRENT_POLICY.candidates[0],
+    reviewer_output: output,
+    findings_sha256: policy.sha256(policy.jcs(output.findings)),
+    waiver: null,
+    waiver_sha256: null,
+    reason: null,
+  };
+}
+
+function currentAttempt(candidate, overrides = {}) {
+  return {
+    schema: 5,
+    candidate,
+    started: true,
+    output_started: true,
+    result: 'passed',
+    exit_code: 0,
+    signal: null,
+    denial_source: null,
+    reason: 'review completed',
+    stdout_sha256: H0,
+    stderr_sha256: H1,
+    ...overrides,
+  };
+}
+
+function currentPrimary(inventory) {
+  return {
+    goal_met: 'yes',
+    findings: [],
+    acceptance: inventory.criteria.map((criterion) => ({
+      criterion_id: criterion.id,
+      command: criterion.command,
+      expected: criterion.expected,
+      exit_code: 0,
+      actual_sha256: H0,
+      met: true,
+    })),
+    ci: { command: 'node --test', exit_code: 0, first_failure: null, output_sha256: H1 },
+    regressions: [],
+    followups: [],
+  };
+}
+
+function currentCompletionRun(req, inventory) {
+  const raw = currentRaw(req);
+  return {
+    schema: 5,
+    kind: 'completion',
+    request: req,
+    plan_input_sha256: req.input_sha256,
+    diff_sha256: req.diff_sha256,
+    acceptance_inventory: inventory,
+    acceptance_inventory_sha256: req.acceptance_inventory_sha256,
+    reviewer: { raw, accepted_finding_ids: [], rejected: [] },
+    reproduced: [],
+    outcome: 'passed',
+    primary: currentPrimary(inventory),
+    completion_verdict: 'passed',
+  };
+}
+
+function currentRun(req, status = 'pass') {
+  const raw = currentRaw(req, status);
+  const accepted = status === 'blocking_gap' ? ['P1'] : [];
+  const reproduced = status === 'blocking_gap'
+    ? [{ id: 'P1', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } }]
+    : [];
+  return {
+    schema: 5,
+    kind: 'draft',
+    request: req,
+    reviewer: { raw, accepted_finding_ids: accepted, rejected: [] },
+    reproduced,
+    outcome: status === 'blocking_gap' ? 'not_ready' : 'passed',
+    pre_execution_eligible: status !== 'blocking_gap',
+  };
+}
+
+function currentRepairTarget(status = 'blocking_gap') {
+  const source = currentFinding(status);
+  return {
+    id: source.id,
+    criterion: source.criterion,
+    status: source.status,
+    defect: source.defect,
+    fix: source.fix,
+    reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+  };
+}
+
+function testSingleRepair() {
+  const first = currentRequest();
+  const roundOne = currentRun(first, 'blocking_gap');
+  const transition = policy.buildCurrentRepairTransition({
+    fromRoundIndex: 1,
+    previousInputSha256: first.input_sha256,
+    currentInputSha256: H2,
+    acceptedFindingIds: ['P1'],
+    targets: [currentRepairTarget()],
+  });
+  const second = currentRequest({
+    request_id: '623e4567-e89b-42d3-a456-426614174000',
+    review_mode: 'repair',
+    round_index: 2,
+    previous_input_sha256: first.input_sha256,
+    input_sha256: H2,
+    bundle_sha256: H0,
+    repair_targets_sha256: transition.repair_targets_sha256,
+  });
+  const roundTwo = currentRun(second);
+  const series = {
+    schema: 5,
+    policy_sha256: first.policy_sha256,
+    initial_input_sha256: first.input_sha256,
+    current_input_sha256: second.input_sha256,
+    rounds: [roundOne, roundTwo],
+    repairs: [transition],
+  };
+  policy.validateCurrentReviewSeries(series);
+
+  assert.throws(() => policy.buildCurrentRepairTransition({
+    fromRoundIndex: 1,
+    previousInputSha256: first.input_sha256,
+    currentInputSha256: H2,
+    acceptedFindingIds: ['P1'],
+    targets: [currentRepairTarget('non_blocking_gap')],
+  }), /blocking|repair target/i);
+  assert.throws(() => policy.buildCurrentRepairTransition({
+    fromRoundIndex: 1,
+    previousInputSha256: first.input_sha256,
+    currentInputSha256: first.input_sha256,
+    acceptedFindingIds: ['P1'],
+    targets: [currentRepairTarget()],
+  }), /changed input/i);
+  assert.throws(() => policy.buildCurrentRepairTransition({
+    fromRoundIndex: 2,
+    previousInputSha256: first.input_sha256,
+    currentInputSha256: H2,
+    acceptedFindingIds: ['P1'],
+    targets: [currentRepairTarget()],
+  }), /round one|one repair/i);
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [roundOne, { ...roundTwo, request: { ...second, review_mode: 'full', previous_input_sha256: null, repair_targets_sha256: null } }],
+  }), /repair|reset|round two/i);
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [roundOne, roundTwo, { ...roundTwo, request: { ...second, round_index: 3 } }],
+    repairs: [transition, transition],
+  }), /round|two|repair/i);
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [{ ...roundOne, reproduced: [] }, roundTwo],
+  }), /reproduced|target/i);
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [{
+      ...roundOne,
+      reviewer: { ...roundOne.reviewer, accepted_finding_ids: [] },
+    }, roundTwo],
+  }), /accepted|target/i);
+
+  const secondBlockingFinding = { ...currentFinding(), id: 'P2', locator: 'A2' };
+  const rejectedBlockingOutput = {
+    ...roundOne.reviewer.raw.reviewer_output,
+    findings: [currentFinding(), secondBlockingFinding],
+  };
+  const rejectedBlockingRaw = {
+    ...roundOne.reviewer.raw,
+    reviewer_output: rejectedBlockingOutput,
+    findings_sha256: policy.sha256(policy.jcs(rejectedBlockingOutput.findings)),
+  };
+  const rejectedBlockingRoundOne = {
+    ...roundOne,
+    reviewer: {
+      raw: rejectedBlockingRaw,
+      accepted_finding_ids: ['P1'],
+      rejected: [{ id: 'P2', reason: 'plan-manager rejected the blocker' }],
+    },
+    reproduced: [
+      ...roundOne.reproduced,
+      { id: 'P2', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H1 } },
+    ],
+  };
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [rejectedBlockingRoundOne, roundTwo],
+  }), /rejected.*blocking|blocking.*rejected/i);
+
+  const lifecycleDrift = currentRequest({
+    ...second,
+    lifecycle_intent: 'start',
+  });
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [roundOne, currentRun(lifecycleDrift)],
+  }), /lifecycle.*drift/i);
+
+  const inventory = policy.acceptanceInventory(Buffer.from(plan(2)));
+  const phaseDrift = currentRequest({
+    ...second,
+    phase: 'completion',
+    lifecycle_intent: 'none',
+    planned_at_commit: '3'.repeat(40),
+    execution_base_commit: '4'.repeat(40),
+    diff_sha256: H0,
+    acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
+  });
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [roundOne, currentCompletionRun(phaseDrift, inventory)],
+  }), /phase.*drift|kind.*drift/i);
+
+  const completionFirst = currentRequest({
+    ...first,
+    phase: 'completion',
+    lifecycle_intent: 'none',
+    planned_at_commit: '3'.repeat(40),
+    execution_base_commit: '4'.repeat(40),
+    diff_sha256: H0,
+    acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
+  });
+  const completionBlockingRaw = currentRaw(completionFirst, 'blocking_gap');
+  const completionRoundOne = {
+    ...currentCompletionRun(completionFirst, inventory),
+    reviewer: { raw: completionBlockingRaw, accepted_finding_ids: ['P1'], rejected: [] },
+    reproduced: [{ id: 'P1', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } }],
+    outcome: 'not_ready',
+    completion_verdict: 'regressed',
+  };
+  const completionSecond = currentRequest({
+    ...second,
+    phase: 'completion',
+    lifecycle_intent: 'none',
+    planned_at_commit: completionFirst.planned_at_commit,
+    execution_base_commit: '5'.repeat(40),
+    diff_sha256: H1,
+    acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
+  });
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [completionRoundOne, currentCompletionRun(completionSecond, inventory)],
+  }), /execution.*drift|execution_base_commit|completion.*identity/i);
+
+  assert.throws(() => policy.validateCurrentReviewSeries({
+    ...series,
+    rounds: [roundOne, { ...roundTwo, kind: 'completion' }],
+  }), /kind.*drift|run kind/i);
+  console.log('single repair requires every raw blocker accepted and reproduced, changed input, and exactly two rounds');
+}
+
+function testCurrentBundles() {
+  const fixture = initializeFixture();
+  try {
+    const historicalDefault = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: path.join(fixture.root, 'historical-default'),
+    });
+    const historicalExplicit = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: path.join(fixture.root, 'historical-explicit'),
+      reviewSchema: 3,
+    });
+    assert.equal(historicalExplicit.bundle_sha256, historicalDefault.bundle_sha256, 'explicit historical review schema remains byte-compatible');
+    assert.equal(historicalDefault.manifest.schema, 1);
+    assert.equal(Object.hasOwn(historicalDefault.manifest, 'review_schema'), false);
+    assert.deepEqual(historicalDefault.manifest.reviewer_schemas, {
+      X: 'reviewer-output.X.schema.json',
+      S: 'reviewer-output.S.schema.json',
+    });
+    assert.equal(historicalDefault.manifest.files.some(({ path: entry }) => entry === 'reviewer-output.primary.v5.schema.json'), false);
+    assert.deepEqual(historicalExplicit.manifest, historicalDefault.manifest, 'historical/default manifest remains unchanged');
+    assert.equal(historicalDefault.bundle_sha256, HISTORICAL_BUNDLE_SHA256, 'historical bundle bytes match the fixed pre-schema-5 golden');
+    assert.equal(policy.sha256(policy.jcs(historicalDefault.manifest)), HISTORICAL_MANIFEST_SHA256, 'historical manifest bytes match the fixed pre-schema-5 golden');
+
+    const currentBundle = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: path.join(fixture.root, 'current-bundle'),
+      reviewSchema: 5,
+    });
+    assert.equal(currentBundle.manifest.schema, 3);
+    assert.equal(currentBundle.manifest.review_schema, 5);
+    assert.deepEqual(currentBundle.manifest.reviewer_schemas, {
+      primary: 'reviewer-output.primary.v5.schema.json',
+    });
+    assert.equal(fs.existsSync(path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json')), true);
+    assert.equal(currentBundle.manifest.files.some(({ path: entry }) => /^reviewer-output\.[XS](?:\.v[23])?\.schema\.json$/.test(entry)), false);
+    policy.verifyBundle({ bundle: path.join(fixture.root, 'current-bundle'), expectedSha256: currentBundle.bundle_sha256 });
+
+    const transition = policy.buildCurrentRepairTransition({
+      fromRoundIndex: 1,
+      previousInputSha256: policy.sha256(fixture.previousPlan),
+      currentInputSha256: policy.sha256(fixture.currentPlan),
+      acceptedFindingIds: ['P1'],
+      targets: [currentRepairTarget()],
+    });
+    const repaired = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: path.join(fixture.root, 'current-repair-bundle'),
+      reviewSchema: 5,
+      repair: { previousPlan: fixture.previousPlan, transition },
+    });
+    assert.equal(repaired.manifest.schema, 4);
+
+    assert.throws(() => policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: [],
+      outDir: path.join(fixture.root, 'untyped-current-repair'),
+      repair: { previousPlan: fixture.previousPlan, transition },
+    }), /reviewSchema|review schema|schema-5 repair/i);
+    console.log('current bundle carries primary v5 identity while historical bundles remain byte-compatible');
+  } finally {
+    makeWritable(fixture.root);
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
+function testCurrentReviewerArgv() {
+  const fixture = initializeFixture();
+  let prepared = null;
+  try {
+    const bundle = path.join(fixture.root, 'current-argv-bundle');
+    const sealed = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: bundle,
+      reviewSchema: 5,
+    });
+    const req = currentRequest({
+      request_id: randomUUID(),
+      reviewed_commit_or_head: fixture.currentCommit,
+      input_sha256: sealed.input_sha256,
+      bundle_sha256: sealed.bundle_sha256,
+    });
+    prepared = policy.prepareReviewerWorkspace({ requestId: req.request_id, leg: 'primary' });
+    const gpt = CURRENT_POLICY.candidates[0];
+    const correct = {
+      tool: gpt.tool,
+      bundle,
+      reviewerWorkspace: prepared,
+      model: gpt.model,
+      effort: gpt.effort,
+      serviceTier: gpt.service_tier,
+      leg: 'primary',
+      request: req,
+      priorAttempts: [],
+    };
+    const argv = policy.buildReviewerArgv(correct);
+    const modelAt = argv.indexOf('-m');
+    assert.equal(argv[modelAt + 1], 'gpt-5.6-sol');
+    assert.deepEqual(argv.slice(modelAt + 2, modelAt + 6), ['-c', 'model_reasoning_effort=high', '-c', 'service_tier="default"']);
+    assert.equal(argv.includes('features.fast_mode=true'), false);
+    assert.equal(argv[argv.indexOf('--output-schema') + 1], path.join(bundle, 'reviewer-output.primary.v5.schema.json'));
+
+    for (const [label, overrides, pattern] of [
+      ['wrong tool', { tool: 'claude' }, /candidate.*tool|tool.*candidate/i],
+      ['wrong model', { model: 'gpt-5.5' }, /candidate.*model|model.*candidate/i],
+      ['wrong effort', { effort: 'xhigh' }, /candidate.*effort|effort.*candidate/i],
+      ['fast service tier', { serviceTier: 'fast' }, /service.*tier|candidate/i],
+      ['candidate order', {
+        tool: 'claude',
+        model: 'fable',
+        effort: 'high',
+        serviceTier: null,
+        priorAttempts: [],
+      }, /candidate.*order|next candidate/i],
+    ]) assert.throws(() => policy.buildReviewerArgv({ ...correct, ...overrides }), pattern, label);
+    const unavailableGpt = currentAttempt(gpt, {
+      output_started: false,
+      result: 'model_unavailable',
+      exit_code: 1,
+      reason: 'the requested model is unavailable',
+    });
+    const fable = CURRENT_POLICY.candidates[1];
+    const fallbackArgv = policy.buildReviewerArgv({
+      ...correct,
+      tool: fable.tool,
+      model: fable.model,
+      effort: fable.effort,
+      serviceTier: null,
+      priorAttempts: [unavailableGpt],
+    });
+    assert.equal(fallbackArgv[fallbackArgv.indexOf('--model') + 1], 'fable');
+
+    const wrongFirstAttempt = currentAttempt(fable, {
+      started: false,
+      output_started: false,
+      result: 'tool_unavailable',
+      exit_code: null,
+      reason: 'Claude is not installed',
+      stdout_sha256: null,
+      stderr_sha256: null,
+    });
+    assert.throws(() => policy.buildReviewerArgv({
+      ...correct,
+      tool: fable.tool,
+      model: fable.model,
+      effort: fable.effort,
+      serviceTier: null,
+      priorAttempts: [wrongFirstAttempt],
+    }), /candidate.*order|attempt.*order/i);
+    console.log('schema-5 reviewer argv binds prior attempts and the exact next policy candidate');
+  } finally {
+    if (prepared !== null && fs.existsSync(prepared.workspace)) {
+      policy.cleanupReviewerWorkspace({ requestId: prepared.request_id, leg: prepared.leg, prepared });
+    }
+    makeWritable(fixture.root);
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
 const cases = new Map([
   ['repair-artifacts', testRepairArtifacts],
   ['repair-series', testRepairSeries],
   ['reviewer-workdir', testReviewerWorkdir],
   ['reviewer-live', testReviewerLive],
+  ['single-repair', testSingleRepair],
+  ['current-bundle', testCurrentBundles],
+  ['current-argv', testCurrentReviewerArgv],
   ['cli-transport', testCliTransport],
 ]);
 const args = process.argv.slice(2);

@@ -347,11 +347,13 @@ export function buildImplementerRelayArgv({ repo, invokerSession, candidate, tas
 }
 
 function reviewRecordSchema(request) {
+  if (request.policy?.schema === 5) return 5;
   if (request.policy?.schema === 4) return 3;
   return request.policy?.schema === 3 ? 2 : 1;
 }
 
 export function validatePolicy(policy) {
+  if (policy?.schema === 5) return validateCurrentPolicy(policy);
   const baseKeys = ['schema', 'cross_company_consent', 'zero_reviewer_policy', 'orchestrator_preference'];
   const tierKeys = ['openai_tiers', 'anthropic_tiers'];
   if (policy?.schema === 1) assertClosed(policy, [...baseKeys, ...tierKeys, 'provenance'], 'policy');
@@ -389,7 +391,7 @@ export function validatePolicy(policy) {
 export function validateRequest(request) {
   const baseKeys = ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'planned_at_commit', 'execution_base_commit', 'diff_sha256', 'acceptance_inventory_sha256', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'];
   const convergenceKeys = ['review_mode', 'round_index', 'previous_input_sha256', 'repair_targets_sha256'];
-  assertClosed(request, request?.schema === 3 ? [...baseKeys, ...convergenceKeys] : baseKeys, 'request');
+  assertClosed(request, [3, 5].includes(request?.schema) ? [...baseKeys, ...convergenceKeys] : baseKeys, 'request');
   if (request.schema !== reviewRecordSchema(request) || !UUID.test(request.request_id)) throw new Error('request identity');
   oneOf(request.phase, new Set(['draft', 'completion']), 'phase');
   oneOf(request.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'lifecycle_intent');
@@ -402,13 +404,14 @@ export function validateRequest(request) {
   assertClosed(request.author, ['company', 'tool', 'model', 'effort'], 'request author'); oneOf(request.author.company, new Set(['openai', 'anthropic']), 'request author company'); for (const key of ['tool', 'model', 'effort']) string(request.author[key], `request author ${key}`);
   validatePolicy(request.policy);
   if (sha256(jcs(request.policy)) !== request.policy_sha256) throw new Error('policy hash mismatch');
-  if (request.schema === 3) {
+  if ([3, 5].includes(request.schema)) {
     oneOf(request.review_mode, new Set(['full', 'repair']), 'review_mode');
-    if (!Number.isInteger(request.round_index) || request.round_index < 1 || request.round_index > 10) throw new Error('round_index');
+    const maximumRound = request.schema === 5 ? 2 : 10;
+    if (!Number.isInteger(request.round_index) || request.round_index < 1 || request.round_index > maximumRound) throw new Error('round_index');
     if (request.review_mode === 'full') {
       if (request.round_index !== 1 || request.previous_input_sha256 !== null || request.repair_targets_sha256 !== null) throw new Error('full review must be round one without repair identity');
     } else {
-      if (request.round_index <= 1) throw new Error('repair review requires a later round');
+      if (request.schema === 5 ? request.round_index !== 2 : request.round_index <= 1) throw new Error(request.schema === 5 ? 'repair review must be round two' : 'repair review requires a later round');
       digest(request.previous_input_sha256, 'repair previous input'); digest(request.repair_targets_sha256, 'repair targets');
       if (request.input_sha256 === request.previous_input_sha256) throw new Error('repair review requires changed input');
     }
@@ -417,6 +420,10 @@ export function validateRequest(request) {
 }
 
 export function reviewerSchema(leg, outputSchema = 1) {
+  if (outputSchema === 5) {
+    oneOf(leg, new Set(['primary']), 'role');
+    return currentReviewerSchema();
+  }
   oneOf(leg, new Set(['X', 'S']), 'leg');
   oneOf(outputSchema, new Set([1, 2, 3]), 'reviewer output schema');
   const closed = (properties, required = Object.keys(properties)) => ({ type: 'object', additionalProperties: false, properties, required });
@@ -755,6 +762,7 @@ function validateOutcome(X, S, policy, decisionEvidence, outcome, eligible = nul
 }
 
 export function validateDraftRunResult(result, { waivers = [] } = {}) {
+  if (result?.schema === 5) return validateCurrentReviewRunResult(result, { waivers });
   assertClosed(result, ['schema', 'kind', 'request', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible'], 'draft run result');
   if (result.schema !== reviewRecordSchema(result.request) || result.kind !== 'draft') throw new Error('draft run kind'); validateRequest(result.request); if (result.request.phase !== 'draft') throw new Error('draft run phase');
   const normalized = validateWaivers(waivers, 'draft', result.request.input_sha256); const waiverFor = (leg) => normalized.find((waiver) => waiver.legs.includes(leg)) || null;
@@ -870,7 +878,8 @@ export function buildRepairTransition({ fromRoundIndex, previousInputSha256, cur
   return validateRepairTransition(transition);
 }
 
-export function validateReviewSeries(series) {
+export function validateReviewSeries(series, { waivers = [] } = {}) {
+  if (series?.schema === 5) return validateCurrentReviewSeries(series, { waivers });
   assertClosed(series, ['schema', 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds', 'repairs'], 'review series');
   if (series.schema !== 3 || !Array.isArray(series.rounds) || series.rounds.length === 0) throw new Error('review series identity');
   digest(series.policy_sha256, 'review series policy'); digest(series.initial_input_sha256, 'review series initial input'); digest(series.current_input_sha256, 'review series current input');
@@ -910,6 +919,7 @@ export function validateReviewSeries(series) {
 }
 
 export function validateCompletionRunResult(result, { waivers = [] } = {}) {
+  if (result?.schema === 5) return validateCurrentReviewRunResult(result, { waivers });
   assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary', 'completion_verdict'], 'completion run result');
   if (result.schema !== reviewRecordSchema(result.request) || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
   if (result.plan_input_sha256 !== result.request.input_sha256 || result.diff_sha256 !== result.request.diff_sha256) throw new Error('completion plan or diff input mismatch'); digest(result.diff_sha256, 'completion diff');
@@ -926,6 +936,7 @@ function validateExpectedPolicy(receipt, expectedPolicy) {
 }
 
 export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [], expectedPolicy = null } = {}) {
+  if (receipt?.schema === 5) return validateCurrentReviewReceipt(receipt, expectedInput, { waivers, expectedPolicy });
   const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible', 'reviewed_at'];
   assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== reviewRecordSchema(receipt.request) || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
   if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('draft receipt input mismatch'); if (expectedInput && receipt.input_sha256 !== expectedInput) throw new Error('stale draft receipt');
@@ -939,12 +950,14 @@ export function validateDraftReceipt(receipt, expectedInput = null, { waivers = 
 }
 
 export function validateDraftReviewReuse(input) {
-  assertClosed(input, ['receipt', 'expectedInput', 'expectedPolicy'], 'draft review reuse');
-  digest(input.expectedInput, 'draft review reuse input'); validatePolicy(input.expectedPolicy);
-  return validateDraftReceipt(input.receipt, input.expectedInput, { expectedPolicy: input.expectedPolicy });
+  const normalized = { waivers: [], ...input };
+  assertClosed(normalized, ['receipt', 'expectedInput', 'expectedPolicy', 'waivers'], 'draft review reuse');
+  digest(normalized.expectedInput, 'draft review reuse input'); validatePolicy(normalized.expectedPolicy);
+  return validateDraftReceipt(normalized.receipt, normalized.expectedInput, { expectedPolicy: normalized.expectedPolicy, waivers: normalized.waivers });
 }
 
 export function validateCompletionReceipt(receipt, expected = {}, { waivers = [], expectedPolicy = null } = {}) {
+  if (receipt?.schema === 5) return validateCurrentReviewReceipt(receipt, expected, { waivers, expectedPolicy });
   const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
   assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== reviewRecordSchema(receipt.request) || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
   if (receipt.request.phase !== 'completion' || receipt.request.lifecycle_intent !== 'none' || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head || receipt.plan_input_sha256 !== receipt.request.input_sha256 || receipt.planned_at_commit !== receipt.request.planned_at_commit || receipt.execution_base_commit !== receipt.request.execution_base_commit || receipt.diff_sha256 !== receipt.request.diff_sha256) throw new Error('completion receipt request mismatch');
@@ -961,6 +974,10 @@ export function validateCompletionReceipt(receipt, expected = {}, { waivers = []
 }
 
 export function validateReviewerOutput(output, request, leg) {
+  if (request?.schema === 5) {
+    if (leg !== 'primary') throw new Error('current reviewer role must be primary');
+    return validateCurrentReviewerOutput(output, request);
+  }
   const recordSchema = reviewRecordSchema(request);
   assertClosed(output, ['schema', 'leg', 'request', 'verdict', 'score', ...(recordSchema === 3 ? ['rubric'] : []), 'findings', 'confirmations'], 'reviewer output');
   if (output.schema !== recordSchema || output.leg !== leg || jcs(output.request) !== jcs(request)) throw new Error('reviewer envelope mismatch');
@@ -1020,6 +1037,538 @@ export function validateWaivers(waivers, phase, inputSha) {
     string(waiver.actor, 'waiver actor'); string(waiver.reason, 'waiver reason'); iso(waiver.at, 'waiver at'); return { ...waiver, legs };
   });
   return phase && inputSha ? normalized.filter((waiver) => waiver.phase === phase && waiver.input_sha256 === inputSha) : normalized;
+}
+
+const CURRENT_REVIEW_STATUSES = new Set(['pass', 'non_blocking_gap', 'blocking_gap']);
+const CURRENT_GAP_STATUSES = new Set(['non_blocking_gap', 'blocking_gap']);
+const CURRENT_CRITERIA = Object.freeze([
+  'standalone_executability',
+  'actionability',
+  'dependency_order',
+  'evidence_reverification',
+  'goal_coverage',
+  'executable_acceptance',
+  'failure_modes',
+  'open_questions',
+]);
+const CURRENT_FALLBACK_RESULTS = new Set(['tool_unavailable', 'auth_failed', 'model_unavailable']);
+const CURRENT_ATTEMPT_RESULTS = new Set([
+  ...CURRENT_FALLBACK_RESULTS,
+  'passed',
+  'platform_denied',
+  'deadline_exceeded',
+  'transient_transport',
+  'nonzero_exit',
+  'signaled',
+  'output_invalid',
+]);
+const CURRENT_CANDIDATES = Object.freeze([
+  Object.freeze({ company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high', service_tier: 'default' }),
+  Object.freeze({ company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high' }),
+  Object.freeze({ company: 'anthropic', tool: 'claude', model: 'opus', effort: 'xhigh' }),
+]);
+
+function validateCurrentCandidate(candidate, label = 'current candidate') {
+  const keys = candidate?.tool === 'codex'
+    ? ['company', 'tool', 'model', 'effort', 'service_tier']
+    : ['company', 'tool', 'model', 'effort'];
+  assertClosed(candidate, keys, label);
+  oneOf(candidate.company, new Set(['openai', 'anthropic']), `${label} company`);
+  oneOf(candidate.tool, new Set(['codex', 'claude']), `${label} tool`);
+  if ((candidate.company === 'openai') !== (candidate.tool === 'codex')) throw new Error(`${label} company/tool mismatch`);
+  string(candidate.model, `${label} model`);
+  string(candidate.effort, `${label} effort`);
+  if (candidate.tool === 'codex' && candidate.service_tier !== 'default') throw new Error(`${label} service_tier`);
+  return candidate;
+}
+
+export function validateCurrentPolicy(policy) {
+  assertClosed(policy, ['schema', 'role', 'fallback', 'max_rounds', 'candidates', 'provenance'], 'current policy');
+  if (policy.schema !== 5) throw new Error('current policy schema');
+  if (policy.role !== 'primary') throw new Error('current policy role');
+  if (policy.fallback !== 'availability_only') throw new Error('current policy fallback');
+  if (policy.max_rounds !== 2) throw new Error('current policy max_rounds must be exactly 2');
+  if (!Array.isArray(policy.candidates) || ![1, 3].includes(policy.candidates.length)) throw new Error('current policy candidates must be the default chain or one pinned candidate');
+  policy.candidates.forEach((candidate, index) => {
+    validateCurrentCandidate(candidate, `current candidate ${index + 1}`);
+    if (!CURRENT_CANDIDATES.some((allowed) => jcs(allowed) === jcs(candidate))) throw new Error('current policy candidate is not eligible');
+  });
+  if (policy.candidates.length === 3 && jcs(policy.candidates) !== jcs(CURRENT_CANDIDATES)) throw new Error('current policy candidate order mismatch');
+  if (policy.candidates.length === 1 && policy.provenance?.candidates !== 'current_user') throw new Error('a pinned current candidate requires current_user provenance');
+  assertClosed(policy.provenance, ['role', 'fallback', 'max_rounds', 'candidates'], 'current policy provenance');
+  Object.values(policy.provenance).forEach((value) => oneOf(value, SOURCES, 'current policy provenance source'));
+  return policy;
+}
+
+function currentSchemaHelpers() {
+  const closed = (properties, required = Object.keys(properties)) => ({ type: 'object', additionalProperties: false, properties, required });
+  const str = { type: 'string', minLength: 1 };
+  const typedConst = (type, value) => ({ type, const: value });
+  const typedEnum = (type, values) => ({ type, enum: values });
+  return { closed, str, typedConst, typedEnum };
+}
+
+export function currentReviewerSchema() {
+  const { closed, str, typedConst, typedEnum } = currentSchemaHelpers();
+  const candidateSchemas = CURRENT_CANDIDATES.map((candidate) => closed(Object.fromEntries(
+    Object.entries(candidate).map(([key, value]) => [key, typedConst('string', value)]),
+  )));
+  const source = typedEnum('string', [...SOURCES]);
+  const policy = closed({
+    schema: typedConst('integer', 5),
+    role: typedConst('string', 'primary'),
+    fallback: typedConst('string', 'availability_only'),
+    max_rounds: typedConst('integer', 2),
+    candidates: { type: 'array', minItems: 1, maxItems: 3, items: { oneOf: candidateSchemas } },
+    provenance: closed({ role: source, fallback: source, max_rounds: source, candidates: source }),
+  });
+  const request = closed({
+    schema: typedConst('integer', 5),
+    request_id: { type: 'string', pattern: UUID.source },
+    phase: typedEnum('string', ['draft', 'completion']),
+    lifecycle_intent: typedEnum('string', ['none', 'start', 'schedule_fire', 'auto_execute']),
+    reviewed_commit_or_head: { type: 'string', pattern: HEX40.source },
+    planned_at_commit: { type: ['string', 'null'], pattern: HEX40.source },
+    execution_base_commit: { type: ['string', 'null'], pattern: HEX40.source },
+    diff_sha256: { type: ['string', 'null'], pattern: HEX64.source },
+    acceptance_inventory_sha256: { type: ['string', 'null'], pattern: HEX64.source },
+    input_sha256: { type: 'string', pattern: HEX64.source },
+    bundle_sha256: { type: 'string', pattern: HEX64.source },
+    author: closed({ company: typedEnum('string', ['openai', 'anthropic']), tool: str, model: str, effort: str }),
+    policy,
+    policy_sha256: { type: 'string', pattern: HEX64.source },
+    review_mode: typedEnum('string', ['full', 'repair']),
+    round_index: { type: 'integer', minimum: 1, maximum: 2 },
+    previous_input_sha256: { type: ['string', 'null'], pattern: HEX64.source },
+    repair_targets_sha256: { type: ['string', 'null'], pattern: HEX64.source },
+  });
+  const checklistEntry = closed({ status: typedEnum('string', [...CURRENT_REVIEW_STATUSES]), evidence: str });
+  const checklist = closed(Object.fromEntries(CURRENT_CRITERIA.map((criterion) => [criterion, checklistEntry])));
+  const finding = closed({
+    id: { type: 'string', pattern: '^P[1-9][0-9]*$' },
+    criterion: typedEnum('string', CURRENT_CRITERIA),
+    status: typedEnum('string', [...CURRENT_GAP_STATUSES]),
+    section: str,
+    path: { type: ['string', 'null'] },
+    locator: { type: ['string', 'null'] },
+    defect: str,
+    fix: str,
+    evidence: str,
+  });
+  return closed({
+    schema: typedConst('integer', 5),
+    role: typedConst('string', 'primary'),
+    request,
+    verdict: typedEnum('string', [...CURRENT_REVIEW_STATUSES]),
+    checklist,
+    findings: { type: 'array', items: finding },
+  });
+}
+
+function validateCurrentFinding(finding, ids) {
+  assertClosed(finding, ['id', 'criterion', 'status', 'section', 'path', 'locator', 'defect', 'fix', 'evidence'], 'current finding');
+  if (!/^P[1-9][0-9]*$/.test(finding.id) || ids.has(finding.id)) throw new Error('current finding id');
+  ids.add(finding.id);
+  oneOf(finding.criterion, new Set(CURRENT_CRITERIA), 'current finding criterion');
+  oneOf(finding.status, CURRENT_GAP_STATUSES, 'current finding status');
+  for (const key of ['section', 'defect', 'fix', 'evidence']) string(finding[key], `current finding ${key}`);
+  for (const key of ['path', 'locator']) if (finding[key] !== null && typeof finding[key] !== 'string') throw new Error(`current finding ${key}`);
+  return finding;
+}
+
+export function validateCurrentReviewerOutput(output, request) {
+  assertClosed(output, ['schema', 'role', 'request', 'verdict', 'checklist', 'findings'], 'current reviewer output');
+  if (output.schema !== 5 || output.role !== 'primary' || jcs(output.request) !== jcs(request)) throw new Error('current reviewer envelope mismatch');
+  validateRequest(output.request);
+  oneOf(output.verdict, CURRENT_REVIEW_STATUSES, 'current reviewer verdict');
+  assertClosed(output.checklist, CURRENT_CRITERIA, 'current reviewer checklist');
+  const rank = { pass: 0, non_blocking_gap: 1, blocking_gap: 2 };
+  let strongest = 'pass';
+  for (const criterion of CURRENT_CRITERIA) {
+    const entry = output.checklist[criterion];
+    assertClosed(entry, ['status', 'evidence'], `current checklist ${criterion}`);
+    oneOf(entry.status, CURRENT_REVIEW_STATUSES, `current checklist ${criterion} status`);
+    string(entry.evidence, `current checklist ${criterion} evidence`);
+    if (rank[entry.status] > rank[strongest]) strongest = entry.status;
+  }
+  if (output.verdict !== strongest) throw new Error('current reviewer verdict must equal strongest checklist status');
+  if (!Array.isArray(output.findings)) throw new Error('current reviewer findings must be an array');
+  const ids = new Set();
+  output.findings.forEach((finding) => validateCurrentFinding(finding, ids));
+  for (const criterion of CURRENT_CRITERIA) {
+    const status = output.checklist[criterion].status;
+    const matching = output.findings.filter((finding) => finding.criterion === criterion);
+    if (status === 'pass' && matching.length !== 0) throw new Error(`pass criterion ${criterion} cannot carry findings`);
+    if (status !== 'pass' && !matching.some((finding) => finding.status === status)) throw new Error(`current finding status missing for gap criterion ${criterion}`);
+    if (matching.some((finding) => finding.status !== status)) throw new Error(`current finding status does not match checklist ${criterion}`);
+  }
+  if (output.verdict === 'pass' && output.findings.length !== 0) throw new Error('pass reviewer output cannot carry findings');
+  return output;
+}
+
+function validateCurrentAttempt(attempt) {
+  assertClosed(attempt, ['schema', 'candidate', 'started', 'output_started', 'result', 'exit_code', 'signal', 'denial_source', 'reason', 'stdout_sha256', 'stderr_sha256'], 'current attempt');
+  if (attempt.schema !== 5) throw new Error('current attempt schema');
+  validateCurrentCandidate(attempt.candidate, 'current attempt candidate');
+  if (typeof attempt.started !== 'boolean' || typeof attempt.output_started !== 'boolean') throw new Error('current attempt booleans');
+  oneOf(attempt.result, CURRENT_ATTEMPT_RESULTS, 'current attempt result');
+  if (attempt.exit_code !== null && !Number.isInteger(attempt.exit_code)) throw new Error('current attempt exit code');
+  if (attempt.signal !== null) string(attempt.signal, 'current attempt signal');
+  if (attempt.denial_source !== null) oneOf(attempt.denial_source, new Set(['sandbox', 'managed_policy', 'runtime_policy']), 'current attempt denial source');
+  string(attempt.reason, 'current attempt reason');
+  for (const key of ['stdout_sha256', 'stderr_sha256']) if (attempt[key] !== null) digest(attempt[key], `current attempt ${key}`);
+  if (!attempt.started && (attempt.output_started || attempt.exit_code !== null || attempt.signal !== null || attempt.stdout_sha256 !== null || attempt.stderr_sha256 !== null)) throw new Error('unstarted current attempt carries process evidence');
+  if (attempt.started && (attempt.stdout_sha256 === null || attempt.stderr_sha256 === null)) throw new Error('started current attempt requires output hashes');
+  if (CURRENT_FALLBACK_RESULTS.has(attempt.result) && attempt.output_started) throw new Error('availability fallback cannot follow substantive output');
+  if (attempt.result === 'passed' && (!attempt.started || !attempt.output_started || attempt.exit_code !== 0 || attempt.signal !== null || attempt.denial_source !== null)) throw new Error('invalid passed current attempt');
+  if (attempt.result === 'platform_denied' && (attempt.output_started || attempt.denial_source === null)) throw new Error('invalid current platform denial');
+  if (attempt.result !== 'platform_denied' && attempt.denial_source !== null) throw new Error('unexpected current denial source');
+  if (attempt.result === 'model_unavailable' && !attempt.started) throw new Error('model_unavailable requires a started real launch');
+  if (['auth_failed', 'model_unavailable'].includes(attempt.result) && attempt.started && (attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error(`invalid current ${attempt.result}`);
+  if (attempt.result === 'tool_unavailable' && attempt.started && (attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error('invalid current tool_unavailable');
+  if (attempt.result === 'deadline_exceeded' && (!attempt.started || (attempt.exit_code === null && attempt.signal === null))) throw new Error('invalid current deadline');
+  if (attempt.result === 'transient_transport' && (!attempt.started || attempt.output_started || attempt.exit_code !== null || attempt.signal !== null)) throw new Error('invalid current transient transport');
+  if (attempt.result === 'nonzero_exit' && (!attempt.started || attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error('invalid current nonzero exit');
+  if (attempt.result === 'signaled' && (!attempt.started || !attempt.signal || attempt.exit_code !== null)) throw new Error('invalid current signal');
+  if (attempt.result === 'output_invalid' && (!attempt.started || !attempt.output_started)) throw new Error('invalid current output failure');
+  return attempt;
+}
+
+export function validateCurrentAttemptSequence(attempts, policy) {
+  validateCurrentPolicy(policy);
+  if (!Array.isArray(attempts) || attempts.length === 0 || attempts.length > policy.candidates.length) throw new Error('current attempt sequence bound');
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = validateCurrentAttempt(attempts[index]);
+    if (jcs(attempt.candidate) !== jcs(policy.candidates[index])) throw new Error('current attempt candidate order mismatch');
+    if (index < attempts.length - 1 && !CURRENT_FALLBACK_RESULTS.has(attempt.result)) throw new Error(`current attempt continued after terminal ${attempt.result}`);
+    if (index < attempts.length - 1 && attempt.output_started) throw new Error('current attempt fallback after output is terminal');
+  }
+  const last = attempts.at(-1);
+  return {
+    selected_index: last.result === 'passed' ? attempts.length - 1 : null,
+    exhausted: attempts.length === policy.candidates.length && CURRENT_FALLBACK_RESULTS.has(last.result),
+    terminal: !CURRENT_FALLBACK_RESULTS.has(last.result),
+  };
+}
+
+export function validateCurrentWaivers(waivers, phase = null, inputSha = null) {
+  if (!Array.isArray(waivers)) throw new Error('current waivers must be an array');
+  const claimed = new Set();
+  const normalized = waivers.map((waiver) => {
+    assertClosed(waiver, ['phase', 'input_sha256', 'roles', 'actor', 'reason', 'at'], 'current waiver');
+    oneOf(waiver.phase, new Set(['draft', 'completion']), 'current waiver phase');
+    digest(waiver.input_sha256, 'current waiver input');
+    if (!Array.isArray(waiver.roles) || jcs(waiver.roles) !== jcs(['primary'])) throw new Error('current waiver roles must equal [primary]');
+    const key = `${waiver.phase}:${waiver.input_sha256}:primary`;
+    if (claimed.has(key)) throw new Error('duplicate current waiver');
+    claimed.add(key);
+    string(waiver.actor, 'current waiver actor');
+    string(waiver.reason, 'current waiver reason');
+    iso(waiver.at, 'current waiver at');
+    return waiver;
+  });
+  return phase && inputSha ? normalized.filter((waiver) => waiver.phase === phase && waiver.input_sha256 === inputSha) : normalized;
+}
+
+function validateCurrentReproduction(value) {
+  assertClosed(value, ['id', 'reproduction'], 'current reproduced finding');
+  string(value.id, 'current reproduced finding id');
+  assertClosed(value.reproduction, ['method', 'command', 'exit_code', 'evidence_sha256'], 'current reproduction');
+  oneOf(value.reproduction.method, new Set(['read', 'command']), 'current reproduction method');
+  digest(value.reproduction.evidence_sha256, 'current reproduction evidence');
+  if (value.reproduction.method === 'read' && (value.reproduction.command !== null || value.reproduction.exit_code !== null)) throw new Error('current read reproduction carries command evidence');
+  if (value.reproduction.method === 'command') {
+    string(value.reproduction.command, 'current reproduction command');
+    if (!Number.isInteger(value.reproduction.exit_code)) throw new Error('current reproduction exit code');
+  }
+  return value;
+}
+
+export function validateCurrentRawReview(raw, request, { expectedWaiver = null } = {}) {
+  assertClosed(raw, ['schema', 'role', 'request', 'result', 'attempts', 'selected', 'reviewer_output', 'findings_sha256', 'waiver', 'waiver_sha256', 'reason'], 'current raw review');
+  if (raw.schema !== 5 || raw.role !== 'primary' || jcs(raw.request) !== jcs(request)) throw new Error('current raw review request mismatch');
+  validateRequest(request);
+  oneOf(raw.result, new Set(['passed', 'unavailable', 'failed', 'waived']), 'current raw review result');
+  if (!Array.isArray(raw.attempts)) throw new Error('current raw attempts');
+  if (raw.result === 'waived') {
+    if (raw.attempts.length || raw.selected !== null || raw.reviewer_output !== null || raw.findings_sha256 !== null || raw.reason !== null) throw new Error('invalid current waived review');
+    if (raw.waiver === null || raw.waiver_sha256 !== sha256(jcs(raw.waiver))) throw new Error('current waiver hash mismatch');
+    validateCurrentWaivers([raw.waiver], request.phase, request.input_sha256);
+    if (expectedWaiver === null || jcs(raw.waiver) !== jcs(expectedWaiver)) throw new Error('current waiver is not the exact snapshot');
+    return raw;
+  }
+  if (raw.waiver !== null || raw.waiver_sha256 !== null) throw new Error('non-waived current review carries waiver');
+  const sequence = validateCurrentAttemptSequence(raw.attempts, request.policy);
+  const last = raw.attempts.at(-1);
+  if (raw.result === 'passed') {
+    if (last.result !== 'passed' || sequence.selected_index === null || raw.selected === null || jcs(raw.selected) !== jcs(last.candidate) || raw.reviewer_output === null || raw.reason !== null) throw new Error('invalid current passed review');
+    validateCurrentReviewerOutput(raw.reviewer_output, request);
+    digest(raw.findings_sha256, 'current findings hash');
+    if (raw.findings_sha256 !== sha256(jcs(raw.reviewer_output.findings))) throw new Error('current findings hash mismatch');
+  } else {
+    if (raw.selected !== null || raw.reviewer_output !== null || raw.findings_sha256 !== null) throw new Error('non-passed current review carries reviewer result');
+    string(raw.reason, 'current terminal reason');
+    if (raw.result === 'unavailable' && !sequence.exhausted) throw new Error('current unavailable review requires exhausted availability candidates');
+    if (raw.result === 'failed' && (!sequence.terminal || sequence.selected_index !== null)) throw new Error('current failed review cannot discard a passed attempt');
+  }
+  return raw;
+}
+
+function validateCurrentReviewerRecord(reviewer, request, reproduced, context) {
+  assertClosed(reviewer, ['raw', 'accepted_finding_ids', 'rejected'], 'current reviewer record');
+  validateCurrentRawReview(reviewer.raw, request, context);
+  if (!Array.isArray(reviewer.accepted_finding_ids) || !Array.isArray(reviewer.rejected)) throw new Error('current reviewer reconciliation arrays');
+  const findings = reviewer.raw.reviewer_output?.findings || [];
+  const known = new Set(findings.map((finding) => finding.id));
+  const used = new Set();
+  for (const id of reviewer.accepted_finding_ids) {
+    if (!known.has(id) || used.has(id)) throw new Error('current accepted finding id');
+    used.add(id);
+  }
+  for (const row of reviewer.rejected) {
+    assertClosed(row, ['id', 'reason'], 'current rejected finding');
+    if (!known.has(row.id) || used.has(row.id)) throw new Error('current rejected finding id');
+    string(row.reason, 'current rejection reason');
+    used.add(row.id);
+  }
+  if (used.size !== known.size) throw new Error('current reviewer accepted/rejected reconciliation is not an exact partition');
+  if (!Array.isArray(reproduced)) throw new Error('current reproduced must be an array');
+  const reproducedIds = new Set();
+  for (const value of reproduced) {
+    validateCurrentReproduction(value);
+    if (!known.has(value.id) || reproducedIds.has(value.id)) throw new Error('current reproduced finding id');
+    reproducedIds.add(value.id);
+  }
+  for (const id of reviewer.accepted_finding_ids) if (!reproducedIds.has(id)) throw new Error('current accepted finding was not reproduced');
+  if (reproducedIds.size !== known.size) throw new Error('every current finding must have independent reproduction evidence');
+}
+
+function currentBlockingFindings(reviewer) {
+  return (reviewer.raw.reviewer_output?.findings || []).filter((finding) => finding.status === 'blocking_gap');
+}
+
+function currentAcceptedBlockingFindings(reviewer) {
+  const findings = new Map((reviewer.raw.reviewer_output?.findings || []).map((finding) => [finding.id, finding]));
+  return reviewer.accepted_finding_ids.filter((id) => findings.get(id)?.status === 'blocking_gap');
+}
+
+function currentOutcome(reviewer) {
+  const raw = reviewer.raw;
+  if (raw.result === 'waived') return { outcome: 'waived', eligible: true };
+  if (raw.result === 'unavailable') return { outcome: 'unavailable', eligible: false };
+  if (raw.result === 'failed') return { outcome: 'not_ready', eligible: false };
+  if (currentBlockingFindings(reviewer).length > 0) return { outcome: 'not_ready', eligible: false };
+  return { outcome: 'passed', eligible: true };
+}
+
+function deriveCurrentCompletionVerdict(primary, inventory, reviewer) {
+  validatePrimary(primary, inventory);
+  const reviewOutcome = currentOutcome(reviewer);
+  if (
+    reviewOutcome.outcome === 'unavailable'
+    || reviewOutcome.outcome === 'not_ready'
+    || primary.ci.exit_code !== 0
+    || primary.regressions.length > 0
+    || primary.findings.some((finding) => finding.severity === 'high')
+    || currentAcceptedBlockingFindings(reviewer).length > 0
+  ) return 'regressed';
+  if (primary.goal_met === 'yes' && primary.acceptance.every((criterion) => criterion.met)) return 'passed';
+  return 'partial';
+}
+
+export function validateCurrentReviewRunResult(result, { waivers = [] } = {}) {
+  const completion = result?.request?.phase === 'completion';
+  const keys = completion
+    ? ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'reviewer', 'reproduced', 'outcome', 'primary', 'completion_verdict']
+    : ['schema', 'kind', 'request', 'reviewer', 'reproduced', 'outcome', 'pre_execution_eligible'];
+  assertClosed(result, keys, 'current review run');
+  if (result.schema !== 5 || result.kind !== result.request?.phase) throw new Error('current review run kind');
+  validateRequest(result.request);
+  const normalized = validateCurrentWaivers(waivers, result.request.phase, result.request.input_sha256);
+  const expectedWaiver = normalized.find((waiver) => waiver.roles.includes('primary')) || null;
+  validateCurrentReviewerRecord(result.reviewer, result.request, result.reproduced, { expectedWaiver });
+  const expected = currentOutcome(result.reviewer);
+  if (result.outcome !== expected.outcome) throw new Error(`current outcome mismatch: expected ${expected.outcome}`);
+  if (!completion) {
+    if (result.pre_execution_eligible !== expected.eligible) throw new Error('current pre_execution_eligible mismatch');
+    return result;
+  }
+  if (
+    result.request.lifecycle_intent !== 'none'
+    || result.plan_input_sha256 !== result.request.input_sha256
+    || result.diff_sha256 !== result.request.diff_sha256
+    || !HEX40.test(result.request.planned_at_commit)
+    || !HEX40.test(result.request.execution_base_commit)
+  ) throw new Error('current completion request identity mismatch');
+  digest(result.diff_sha256, 'current completion diff');
+  validateAcceptanceInventory(result.acceptance_inventory);
+  if (
+    result.acceptance_inventory_sha256 !== sha256(jcs(result.acceptance_inventory))
+    || result.acceptance_inventory_sha256 !== result.request.acceptance_inventory_sha256
+  ) throw new Error('current completion acceptance inventory mismatch');
+  const verdict = deriveCurrentCompletionVerdict(result.primary, result.acceptance_inventory, result.reviewer);
+  if (result.completion_verdict !== verdict) throw new Error('current completion verdict mismatch');
+  return result;
+}
+
+export function validateCurrentReviewReceipt(receipt, expected = null, { waivers = [], expectedPolicy = null } = {}) {
+  const completion = receipt?.phase === 'completion';
+  const keys = completion
+    ? ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'policy', 'policy_sha256', 'reviewer', 'reproduced', 'outcome', 'primary', 'completion_verdict', 'series', 'reviewed_at']
+    : ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'policy', 'policy_sha256', 'reviewer', 'reproduced', 'outcome', 'pre_execution_eligible', 'series', 'reviewed_at'];
+  assertClosed(receipt, keys, 'current review receipt');
+  if (receipt.schema !== 5 || receipt.phase !== receipt.request?.phase) throw new Error('current review receipt phase');
+  validateRequest(receipt.request);
+  if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('current review receipt policy mismatch');
+  validateExpectedPolicy(receipt, expectedPolicy);
+  const expectedObject = expected && typeof expected === 'object' ? expected : {};
+  const expectedInput = typeof expected === 'string' ? expected : expectedObject.input_sha256 ?? expectedObject.plan_input_sha256 ?? null;
+  let run;
+  if (!completion) {
+    if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('current draft receipt input mismatch');
+    if (expectedInput !== null && receipt.input_sha256 !== expectedInput) throw new Error('stale current draft receipt');
+    run = {
+      schema: 5,
+      kind: 'draft',
+      request: receipt.request,
+      reviewer: receipt.reviewer,
+      reproduced: receipt.reproduced,
+      outcome: receipt.outcome,
+      pre_execution_eligible: receipt.pre_execution_eligible,
+    };
+  } else {
+    if (
+      receipt.request.lifecycle_intent !== 'none'
+      || receipt.reviewed_head !== receipt.request.reviewed_commit_or_head
+      || receipt.plan_input_sha256 !== receipt.request.input_sha256
+      || receipt.planned_at_commit !== receipt.request.planned_at_commit
+      || receipt.execution_base_commit !== receipt.request.execution_base_commit
+      || receipt.diff_sha256 !== receipt.request.diff_sha256
+      || !HEX40.test(receipt.planned_at_commit)
+      || !HEX40.test(receipt.execution_base_commit)
+      || !HEX40.test(receipt.reviewed_head)
+    ) throw new Error('current completion receipt request mismatch');
+    run = {
+      schema: 5,
+      kind: 'completion',
+      request: receipt.request,
+      plan_input_sha256: receipt.plan_input_sha256,
+      diff_sha256: receipt.diff_sha256,
+      acceptance_inventory: receipt.acceptance_inventory,
+      acceptance_inventory_sha256: receipt.acceptance_inventory_sha256,
+      reviewer: receipt.reviewer,
+      reproduced: receipt.reproduced,
+      outcome: receipt.outcome,
+      primary: receipt.primary,
+      completion_verdict: receipt.completion_verdict,
+    };
+  }
+  validateCurrentReviewRunResult(run, { waivers });
+  const series = validateCurrentReviewSeries(receipt.series, { waivers });
+  if (jcs(series.rounds.at(-1)) !== jcs(run)) throw new Error('current completion receipt series final run mismatch');
+  if (completion && expectedInput !== null && receipt.plan_input_sha256 !== expectedInput) throw new Error('stale current completion receipt input');
+  for (const [key, value] of Object.entries(expectedObject)) {
+    if (key === 'review_status') continue;
+    if (value !== undefined && jcs(receipt[key]) !== jcs(value)) throw new Error(`stale current completion receipt ${key}`);
+  }
+  if (completion && expectedObject.review_status !== undefined && expectedObject.review_status !== receipt.completion_verdict) throw new Error('current completion review_status mismatch');
+  iso(receipt.reviewed_at, 'current reviewed_at');
+  return receipt;
+}
+
+function validateCurrentRepairTarget(target) {
+  assertClosed(target, ['id', 'criterion', 'status', 'defect', 'fix', 'reproduction'], 'current repair target');
+  string(target.id, 'current repair target id');
+  oneOf(target.criterion, new Set(CURRENT_CRITERIA), 'current repair target criterion');
+  if (target.status !== 'blocking_gap') throw new Error('current repair target must be blocking_gap');
+  string(target.defect, 'current repair target defect');
+  string(target.fix, 'current repair target fix');
+  validateCurrentReproduction({ id: target.id, reproduction: target.reproduction });
+  return target;
+}
+
+function validateCurrentRepairTransition(transition) {
+  assertClosed(transition, ['schema', 'from_round_index', 'previous_input_sha256', 'current_input_sha256', 'accepted_finding_ids', 'targets', 'repair_targets_sha256'], 'current repair transition');
+  if (transition.schema !== 5 || transition.from_round_index !== 1) throw new Error('current repair transition allows one repair after round one');
+  digest(transition.previous_input_sha256, 'current repair previous input');
+  digest(transition.current_input_sha256, 'current repair current input');
+  if (transition.previous_input_sha256 === transition.current_input_sha256) throw new Error('current repair requires changed input');
+  if (!Array.isArray(transition.accepted_finding_ids) || !Array.isArray(transition.targets) || transition.targets.length === 0) throw new Error('current repair targets must be nonempty');
+  const accepted = [...transition.accepted_finding_ids];
+  if (new Set(accepted).size !== accepted.length || jcs(accepted) !== jcs([...accepted].sort(compareUtf16))) throw new Error('current accepted finding ids must be unique and sorted');
+  const ids = [];
+  for (const target of transition.targets) {
+    validateCurrentRepairTarget(target);
+    ids.push(target.id);
+  }
+  if (new Set(ids).size !== ids.length || jcs(ids) !== jcs([...ids].sort(compareUtf16)) || jcs(ids) !== jcs(accepted)) throw new Error('current repair targets must equal accepted finding ids');
+  digest(transition.repair_targets_sha256, 'current repair targets hash');
+  const expected = sha256(jcs({ schema: 5, accepted_finding_ids: accepted, targets: transition.targets }));
+  if (transition.repair_targets_sha256 !== expected) throw new Error('current repair target hash mismatch');
+  return transition;
+}
+
+export function buildCurrentRepairTransition({ fromRoundIndex, previousInputSha256, currentInputSha256, acceptedFindingIds, targets }) {
+  if (!Array.isArray(acceptedFindingIds) || !Array.isArray(targets)) throw new Error('current repair target arrays');
+  const accepted = [...acceptedFindingIds].sort(compareUtf16);
+  const normalizedTargets = targets.map((target) => {
+    validateCurrentRepairTarget(target);
+    return structuredClone(target);
+  }).sort((a, b) => compareUtf16(a.id, b.id));
+  const transition = {
+    schema: 5,
+    from_round_index: fromRoundIndex,
+    previous_input_sha256: previousInputSha256,
+    current_input_sha256: currentInputSha256,
+    accepted_finding_ids: accepted,
+    targets: normalizedTargets,
+    repair_targets_sha256: sha256(jcs({ schema: 5, accepted_finding_ids: accepted, targets: normalizedTargets })),
+  };
+  return validateCurrentRepairTransition(transition);
+}
+
+export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
+  assertClosed(series, ['schema', 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds', 'repairs'], 'current review series');
+  if (series.schema !== 5 || !Array.isArray(series.rounds) || series.rounds.length < 1 || series.rounds.length > 2) throw new Error('current review series permits at most two rounds');
+  if (!Array.isArray(series.repairs) || series.repairs.length !== series.rounds.length - 1) throw new Error('current review series repair count');
+  digest(series.policy_sha256, 'current review series policy');
+  digest(series.initial_input_sha256, 'current review series initial input');
+  digest(series.current_input_sha256, 'current review series current input');
+  const first = series.rounds[0];
+  validateCurrentReviewRunResult(first, { waivers });
+  validateCurrentPolicy(first.request.policy);
+  if (first.request.review_mode !== 'full' || first.request.round_index !== 1) throw new Error('current review series round one must be full');
+  if (series.policy_sha256 !== first.request.policy_sha256 || series.policy_sha256 !== sha256(jcs(first.request.policy))) throw new Error('current review series policy mismatch');
+  if (first.request.input_sha256 !== series.initial_input_sha256) throw new Error('current review series initial input mismatch');
+  const phase = first.request.phase;
+  const kind = first.kind;
+  const lifecycleIntent = first.request.lifecycle_intent;
+  for (const round of series.rounds) {
+    validateCurrentReviewRunResult(round, { waivers });
+    if (round.request.phase !== phase || round.kind !== kind || round.request.lifecycle_intent !== lifecycleIntent) throw new Error('current review series phase, kind, or lifecycle drift');
+    if (phase === 'completion' && (round.request.planned_at_commit !== first.request.planned_at_commit || round.request.execution_base_commit !== first.request.execution_base_commit)) throw new Error('current completion series execution identity drift');
+  }
+  if (series.rounds.length === 2) {
+    const second = series.rounds[1];
+    if (second.request.review_mode !== 'repair' || second.request.round_index !== 2) throw new Error('current review series round two must be repair without reset');
+    const transition = validateCurrentRepairTransition(series.repairs[0]);
+    if (second.request.previous_input_sha256 !== first.request.input_sha256 || second.request.input_sha256 === first.request.input_sha256) throw new Error('current review series repair requires changed input');
+    if (transition.previous_input_sha256 !== first.request.input_sha256 || transition.current_input_sha256 !== second.request.input_sha256 || transition.repair_targets_sha256 !== second.request.repair_targets_sha256) throw new Error('current review series repair transition mismatch');
+    if (second.request.policy_sha256 !== series.policy_sha256 || jcs(second.request.policy) !== jcs(first.request.policy)) throw new Error('current review series policy drift');
+    const findings = new Map((first.reviewer.raw.reviewer_output?.findings || []).map((finding) => [finding.id, finding]));
+    const reproduced = new Map(first.reproduced.map((value) => [value.id, value.reproduction]));
+    const acceptedBlocking = first.reviewer.accepted_finding_ids.filter((id) => findings.get(id)?.status === 'blocking_gap').sort(compareUtf16);
+    const rejectedBlocking = currentBlockingFindings(first.reviewer).filter((finding) => !first.reviewer.accepted_finding_ids.includes(finding.id));
+    if (rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');
+    if (jcs(transition.accepted_finding_ids) !== jcs(acceptedBlocking)) throw new Error('current repair targets must equal accepted blocking findings');
+    for (const target of transition.targets) {
+      const finding = findings.get(target.id);
+      const reproduction = reproduced.get(target.id);
+      if (!finding || !reproduction || target.criterion !== finding.criterion || target.status !== finding.status || target.defect !== finding.defect || target.fix !== finding.fix || jcs(target.reproduction) !== jcs(reproduction)) throw new Error('current repair target was not exactly reproduced');
+    }
+  }
+  if (series.rounds.at(-1).request.input_sha256 !== series.current_input_sha256) throw new Error('current review series current input mismatch');
+  return series;
 }
 
 function inside(root, candidate) { const rel = path.relative(root, candidate); return rel && !rel.startsWith('..') && !path.isAbsolute(rel); }
@@ -1671,8 +2220,8 @@ function completionReviewLeg(receipt, leg) {
   };
 }
 
-export function completionReviewBlockV1(receipt) {
-  validateCompletionReceipt(receipt);
+export function completionReviewBlockV1(receipt, { waivers = [] } = {}) {
+  validateCompletionReceipt(receipt, {}, { waivers });
   const cross_check = receipt.X.raw.result === 'passed' ? {
     date: receipt.reviewed_at.slice(0, 10),
     X: completionReviewLeg(receipt, 'X'),
@@ -1691,11 +2240,35 @@ export function completionReviewBlockV1(receipt) {
   };
 }
 
+export function completionReviewBlockV5(receipt, { waivers = [] } = {}) {
+  validateCurrentReviewReceipt(receipt, null, { waivers });
+  const raw = receipt.reviewer.raw;
+  return {
+    schema: 5,
+    goal_met: receipt.primary.goal_met,
+    regressions: receipt.primary.regressions,
+    ci: receipt.primary.ci,
+    followups: receipt.primary.followups,
+    filed_by: { role: 'plan-manager', receipt_author: receipt.request.author, reviewed_at: receipt.reviewed_at },
+    primary_review: {
+      date: receipt.reviewed_at.slice(0, 10),
+      selected: raw.selected,
+      result: raw.result,
+      verdict: raw.reviewer_output?.verdict ?? null,
+      finding_count: raw.reviewer_output?.findings.length ?? 0,
+      accepted: receipt.reviewer.accepted_finding_ids.slice().sort(compareUtf16),
+      rejected: receipt.reviewer.rejected.map(({ id, reason }) => ({ id, reason })).sort((a, b) => compareUtf16(a.id, b.id)),
+      reproduced_ids: receipt.reproduced.map((row) => row.id).sort(compareUtf16),
+      orchestrator: receipt.request.author,
+    },
+  };
+}
+
 function reviewIds(ids) { return ids.length === 0 ? 'none' : ids.join(','); }
 function reviewRejections(rows) { return rows.length === 0 ? 'none' : rows.map((row) => `${row.id}=${reviewQuote(row.reason)}`).join(','); }
 
-export function renderCompletionReviewBlock(receipt) {
-  const block = completionReviewBlockV1(receipt); const author = block.filed_by.receipt_author;
+export function renderCompletionReviewBlock(receipt, { waivers = [] } = {}) {
+  const block = receipt.schema === 5 ? completionReviewBlockV5(receipt, { waivers }) : completionReviewBlockV1(receipt, { waivers }); const author = block.filed_by.receipt_author;
   const lines = [
     '## Review',
     '',
@@ -1705,16 +2278,19 @@ export function renderCompletionReviewBlock(receipt) {
     `- **Follow-ups:** ${reviewQuoteArray(block.followups)}`,
     `- **Filed by:** {"role":"plan-manager","receipt_author":{"company":"${author.company}","tool":${reviewQuote(author.tool)},"model":${reviewQuote(author.model)},"effort":${reviewQuote(author.effort)}},"reviewed_at":${reviewQuote(block.filed_by.reviewed_at)}}`,
   ];
-  if (block.cross_check !== null) {
+  if (block.cross_check !== undefined && block.cross_check !== null) {
     const { X, S, orchestrator } = block.cross_check;
     lines.push(`- **Cross-check:** (${block.cross_check.date}) [X: ${X.company} ${reviewQuote(X.model)} ${reviewQuote(X.effort)}; result=${X.result}] ${X.finding_count} findings — accepted ${reviewIds(X.accepted)} / rejected ${reviewRejections(X.rejected)}; [S: ${S.company} ${reviewQuote(S.model)} ${reviewQuote(S.effort)}; result=${S.result}] ${S.finding_count} findings — accepted ${reviewIds(S.accepted)} / rejected ${reviewRejections(S.rejected)}; [orchestrator: ${orchestrator.company} ${reviewQuote(orchestrator.tool)} ${reviewQuote(orchestrator.model)} ${reviewQuote(orchestrator.effort)}] independently verified ${reviewIds(block.cross_check.reproduced_ids)} against source before accepting.`);
+  }
+  if (block.primary_review !== undefined) {
+    lines.push(`- **Primary review:** ${jcs(block.primary_review)}`);
   }
   lines.push('', `Completion-review-receipt: ${jcs(receipt)}`);
   return `${lines.join('\n')}\n`;
 }
 
-export function applyCompletionReviewBlock(bytes, receipt) {
-  const plan = splitPlanText(bytes); const review = uniquePartition(plan.body, 'Review'); const core = renderCompletionReviewBlock(receipt);
+export function applyCompletionReviewBlock(bytes, receipt, { waivers = [] } = {}) {
+  const plan = splitPlanText(bytes); const review = uniquePartition(plan.body, 'Review'); const core = renderCompletionReviewBlock(receipt, { waivers });
   const replacement = review.end < plan.body.length ? `${core}\n` : core;
   return replacePlanBody(bytes, `${plan.body.slice(0, review.start)}${replacement}${plan.body.slice(review.end)}`);
 }
@@ -1725,17 +2301,17 @@ export function completionStablePlanViewV1(bytes) {
   return canonicalPlanView(withoutReview);
 }
 
-export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt, expectedPolicy }) {
+export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt, expectedPolicy, waivers = [] }) {
   const logical = safeLogical(planPath); exactCommit(repo, reviewedHead, 'completion reviewed head'); exactCommit(repo, completionCommit, 'completion receipt commit');
   validatePolicy(expectedPolicy);
   requirePlanOnlyChild(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
   const beforeBytes = planBlob(repo, reviewedHead, logical); const afterBytes = planBlob(repo, completionCommit, logical);
   const afterPlan = parsePlan(afterBytes);
-  validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy });
+  validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy, waivers });
   const record = extractMachineRecord(afterBytes, 'Completion-review-receipt');
   if (record.payload !== jcs(receipt)) throw new Error('completion Review receipt payload mismatch');
   if (completionStablePlanViewV1(beforeBytes) !== completionStablePlanViewV1(afterBytes)) throw new Error('completion stable plan view mismatch');
-  const expected = applyCompletionReviewBlock(beforeBytes, receipt);
+  const expected = applyCompletionReviewBlock(beforeBytes, receipt, { waivers });
   requirePlanDelta(beforeBytes, afterBytes, expected, 'completion Review apply', ['updated', 'review_status']);
   const beforeApplication = extractCompatibilityApplication(beforeBytes, { required: false }); const afterApplication = extractCompatibilityApplication(afterBytes, { required: false });
   if ((beforeApplication === null) !== (afterApplication === null) || (beforeApplication && beforeApplication.markdown !== afterApplication.markdown)) throw new Error('completion compatibility application changed');
@@ -2428,8 +3004,9 @@ function bundleHash(manifestBytes, entries) {
   return hash.digest('hex');
 }
 
-export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir, plannedAtCommit = null, executionBaseCommit = null, repair = null }) {
+export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir, plannedAtCommit = null, executionBaseCommit = null, repair = null, reviewSchema = 3 }) {
   if (!HEX40.test(reviewedCommit)) throw new Error('reviewedCommit');
+  oneOf(reviewSchema, new Set([3, 5]), 'bundle reviewSchema');
   const resolved = git(repo, ['rev-parse', '--verify', `${reviewedCommit}^{commit}`]).trim();
   if (resolved !== reviewedCommit) throw new Error('reviewedCommit does not resolve exactly');
   const safePlan = safeLogical(planPath);
@@ -2447,16 +3024,22 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
     if (entries.slice(start).some((entry) => entry.path === safePlan)) throw new Error('raw plan path was emitted by requested path expansion');
   }
   entries.push({ path: 'plan.review.md', mode: '100444', bytes: canonical });
-  for (const leg of ['X', 'S']) {
-    entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
-    entries.push({ path: `reviewer-output.${leg}.v2.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 2))}\n`) });
-    entries.push({ path: `reviewer-output.${leg}.v3.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 3))}\n`) });
+  const reviewerSchemas = reviewSchema === 5 ? { primary: 'reviewer-output.primary.v5.schema.json' } : { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' };
+  if (reviewSchema === 5) {
+    entries.push({ path: reviewerSchemas.primary, mode: '100444', bytes: Buffer.from(`${jcs(currentReviewerSchema())}\n`) });
+  } else {
+    for (const leg of ['X', 'S']) {
+      entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
+      entries.push({ path: `reviewer-output.${leg}.v2.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 2))}\n`) });
+      entries.push({ path: `reviewer-output.${leg}.v3.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg, 3))}\n`) });
+    }
   }
   let repairManifest = null;
   if (repair !== null) {
     assertClosed(repair, ['previousPlan', 'transition'], 'bundle repair');
     if (typeof repair.previousPlan !== 'string' || repair.previousPlan.length === 0 || !repair.previousPlan.endsWith('\n')) throw new Error('bundle previous plan');
-    const transition = validateRepairTransition(repair.transition);
+    if ((repair.transition?.schema === 5) !== (reviewSchema === 5)) throw new Error('schema-5 repair requires reviewSchema 5 and historical repair requires reviewSchema 3');
+    const transition = repair.transition?.schema === 5 ? validateCurrentRepairTransition(repair.transition) : validateRepairTransition(repair.transition);
     const previousPlanBytes = Buffer.from(repair.previousPlan); const targetBytes = Buffer.from(`${jcs(transition)}\n`);
     if (sha256(previousPlanBytes) !== transition.previous_input_sha256 || sha256(canonical) !== transition.current_input_sha256) throw new Error('bundle repair input mismatch');
     entries.push(
@@ -2492,8 +3075,9 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
     fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, entry.bytes, { mode: 0o444 });
     for (let directory = path.dirname(dest); inside(outDir, directory); directory = path.dirname(directory)) directories.add(directory);
   }
+  const manifestSchema = reviewSchema === 5 ? (repairManifest === null ? 3 : 4) : (repairManifest === null ? 1 : 2);
   const manifest = {
-    schema: repairManifest === null ? 1 : 2, plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' }, reviewed_commit: reviewedCommit,
+    schema: manifestSchema, ...(reviewSchema === 5 ? { review_schema: 5 } : {}), plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: reviewerSchemas, reviewed_commit: reviewedCommit,
     input_sha256: sha256(canonical), completion, ...(repairManifest === null ? {} : { repair: repairManifest }), requested,
     files: entries.map((entry) => ({ path: entry.path, mode: entry.mode, sha256: sha256(entry.bytes) })),
   };
@@ -2511,13 +3095,16 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   const manifestBytes = fs.readFileSync(manifestPath); let manifest;
   try { manifest = JSON.parse(manifestBytes); } catch { throw new Error('bundle manifest is not JSON'); }
   if (!manifest || manifestBytes.toString() !== `${jcs(manifest)}\n`) throw new Error('bundle manifest must be compact JCS');
-  const manifestKeys = ['schema', 'plan_path', 'plan_view', 'reviewer_schemas', 'reviewed_commit', 'input_sha256', 'completion', ...(manifest?.schema === 2 ? ['repair'] : []), 'requested', 'files'];
+  const currentBundle = [3, 4].includes(manifest?.schema);
+  const repairBundle = [2, 4].includes(manifest?.schema);
+  const manifestKeys = ['schema', ...(currentBundle ? ['review_schema'] : []), 'plan_path', 'plan_view', 'reviewer_schemas', 'reviewed_commit', 'input_sha256', 'completion', ...(repairBundle ? ['repair'] : []), 'requested', 'files'];
   assertClosed(manifest, manifestKeys, 'bundle manifest');
-  if (![1, 2].includes(manifest.schema) || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
+  if (![1, 2, 3, 4].includes(manifest.schema) || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
+  if (currentBundle && manifest.review_schema !== 5) throw new Error('current bundle reviewer schema identity');
   const planPath = safeLogical(manifest.plan_path);
   if (planPath !== manifest.plan_path || manifest.plan_view !== 'plan.review.md') throw new Error('bundle plan identity');
-  assertClosed(manifest.reviewer_schemas, ['X', 'S'], 'bundle reviewer schemas');
-  if (manifest.reviewer_schemas.X !== 'reviewer-output.X.schema.json' || manifest.reviewer_schemas.S !== 'reviewer-output.S.schema.json') throw new Error('bundle reviewer schema paths');
+  assertClosed(manifest.reviewer_schemas, currentBundle ? ['primary'] : ['X', 'S'], 'bundle reviewer schemas');
+  if (currentBundle ? manifest.reviewer_schemas.primary !== 'reviewer-output.primary.v5.schema.json' : manifest.reviewer_schemas.X !== 'reviewer-output.X.schema.json' || manifest.reviewer_schemas.S !== 'reviewer-output.S.schema.json') throw new Error('bundle reviewer schema paths');
   digest(manifest.input_sha256, 'bundle input');
   const expectedFiles = new Set(['manifest.json']); const entries = []; const fileRows = new Map(); let previousFile = null;
   for (const row of manifest.files) {
@@ -2537,24 +3124,33 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   visit(root); if (actualFiles.size !== expectedFiles.size || [...actualFiles].some((file) => !expectedFiles.has(file))) throw new Error('bundle contains missing or extra files');
   const planView = fileRows.get('plan.review.md');
   if (!planView || planView.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');
-  for (const leg of ['X', 'S']) {
-    for (const version of [1, 2, 3]) {
-      const suffix = version === 1 ? '' : `.v${version}`; const schemaPath = `reviewer-output.${leg}${suffix}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg, version))}\n`;
-      if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);
+  let reserved;
+  if (currentBundle) {
+    const schemaPath = manifest.reviewer_schemas.primary;
+    const schema = fileRows.get(schemaPath);
+    if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== `${jcs(currentReviewerSchema())}\n`) throw new Error('bundle reviewer schema mismatch: primary v5');
+    reserved = new Set(['plan.review.md', schemaPath]);
+  } else {
+    for (const leg of ['X', 'S']) {
+      for (const version of [1, 2, 3]) {
+        const suffix = version === 1 ? '' : `.v${version}`; const schemaPath = `reviewer-output.${leg}${suffix}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg, version))}\n`;
+        if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);
+      }
     }
+    reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json', 'reviewer-output.X.v3.schema.json', 'reviewer-output.S.v3.schema.json']);
   }
-  const reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json', 'reviewer-output.X.v3.schema.json', 'reviewer-output.S.v3.schema.json']);
-  if (manifest.schema === 2) {
+  if (repairBundle) {
     assertClosed(manifest.repair, ['from_round_index', 'previous_plan_path', 'previous_input_sha256', 'current_input_sha256', 'targets_path', 'repair_targets_sha256'], 'bundle repair manifest');
     if (!Number.isInteger(manifest.repair.from_round_index) || manifest.repair.from_round_index < 1 || manifest.repair.previous_plan_path !== 'previous-plan.review.md' || manifest.repair.targets_path !== 'repair-targets.json') throw new Error('bundle repair manifest identity');
     digest(manifest.repair.previous_input_sha256, 'bundle repair previous input'); digest(manifest.repair.current_input_sha256, 'bundle repair current input'); digest(manifest.repair.repair_targets_sha256, 'bundle repair targets');
     const previousPlan = fileRows.get(manifest.repair.previous_plan_path); const targets = fileRows.get(manifest.repair.targets_path);
     if (!previousPlan || !targets || previousPlan.mode !== '100444' || targets.mode !== '100444') throw new Error('bundle repair artifacts');
     let transition; try { transition = JSON.parse(targets.bytes); } catch { throw new Error('bundle repair targets are not JSON'); }
-    validateRepairTransition(transition);
+    if (transition?.schema === 5) validateCurrentRepairTransition(transition); else validateRepairTransition(transition);
+    if ((transition?.schema === 5) !== currentBundle) throw new Error('bundle repair and reviewer schema identity mismatch');
     if (targets.bytes.toString() !== `${jcs(transition)}\n` || sha256(previousPlan.bytes) !== manifest.repair.previous_input_sha256 || transition.previous_input_sha256 !== manifest.repair.previous_input_sha256 || transition.current_input_sha256 !== manifest.repair.current_input_sha256 || transition.repair_targets_sha256 !== manifest.repair.repair_targets_sha256 || manifest.input_sha256 !== manifest.repair.current_input_sha256) throw new Error('bundle repair artifact mismatch');
     reserved.add(manifest.repair.previous_plan_path); reserved.add(manifest.repair.targets_path);
-  } else if (Object.hasOwn(manifest, 'repair')) throw new Error('historical bundle carries repair metadata');
+  } else if (Object.hasOwn(manifest, 'repair')) throw new Error('non-repair bundle carries repair metadata');
   if (manifest.completion !== null) {
     assertClosed(manifest.completion, ['planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_path', 'diff_sha256', 'acceptance_inventory_path', 'acceptance_inventory_sha256'], 'bundle completion');
     if (manifest.completion.reviewed_head !== manifest.reviewed_commit) throw new Error('bundle completion head mismatch');
@@ -2640,9 +3236,11 @@ export function destroyBundle({ bundle, expectedSha256 }) {
 function validateRequestBundle(request, verified) {
   const manifest = verified.manifest;
   if (manifest.reviewed_commit !== request.reviewed_commit_or_head || manifest.input_sha256 !== request.input_sha256) throw new Error('request and bundle identity mismatch');
-  if (request.schema === 3 && request.review_mode === 'repair') {
-    if (manifest.schema !== 2 || manifest.repair?.previous_input_sha256 !== request.previous_input_sha256 || manifest.repair?.current_input_sha256 !== request.input_sha256 || manifest.repair?.repair_targets_sha256 !== request.repair_targets_sha256 || manifest.repair?.from_round_index !== request.round_index - 1) throw new Error('request and bundle repair mismatch');
-  } else if (manifest.schema !== 1) throw new Error('non-repair request carries repair bundle');
+  const repairRequest = [3, 5].includes(request.schema) && request.review_mode === 'repair';
+  const expectedManifestSchema = request.schema === 5 ? (repairRequest ? 4 : 3) : (repairRequest ? 2 : 1);
+  if (manifest.schema !== expectedManifestSchema) throw new Error(repairRequest ? 'request and bundle repair mismatch' : 'non-repair request carries repair bundle');
+  if (request.schema === 5 && manifest.review_schema !== 5) throw new Error('current request requires current reviewer schema bundle');
+  if (repairRequest && (manifest.repair?.previous_input_sha256 !== request.previous_input_sha256 || manifest.repair?.current_input_sha256 !== request.input_sha256 || manifest.repair?.repair_targets_sha256 !== request.repair_targets_sha256 || manifest.repair?.from_round_index !== request.round_index - 1)) throw new Error('request and bundle repair mismatch');
   if (request.phase === 'draft') { if (manifest.completion !== null) throw new Error('draft request carries completion bundle'); }
   else {
     if (manifest.completion === null) throw new Error('completion request lacks completion bundle');
@@ -2653,7 +3251,7 @@ function validateRequestBundle(request, verified) {
 
 function reviewerWorkspacePath(requestId, leg) {
   if (!UUID.test(requestId)) throw new Error('reviewer workspace request id');
-  oneOf(leg, new Set(['X', 'S']), 'reviewer workspace leg');
+  oneOf(leg, new Set(['X', 'S', 'primary']), 'reviewer workspace role');
   return path.join(REVIEW_WORK_ROOT, `${requestId}-${leg}`);
 }
 
@@ -2667,6 +3265,7 @@ export function prepareReviewerWorkspace({ requestId, leg }) {
   const cleanupToken = sha256(`${randomUUID()}\0${randomUUID()}`);
   const sentinel = { schema: 1, request_id: requestId, leg, cleanup_token: cleanupToken };
   fs.writeFileSync(path.join(workspace, '.docks-reviewer-workspace'), `${jcs(sentinel)}\n`, { flag: 'wx', mode: 0o600 });
+  if (leg === 'primary') fs.writeFileSync(path.join(workspace, 'reviewer-output.primary.v5.schema.json'), `${jcs(currentReviewerSchema())}\n`, { flag: 'wx', mode: 0o444 });
   return { schema: 1, request_id: requestId, leg, workspace, cleanup_token: cleanupToken };
 }
 
@@ -2688,6 +3287,16 @@ export function cleanupReviewerWorkspace({ requestId, leg, prepared }) {
 
 function reviewerPrompt(leg, request, bundle) {
   const requestBlock = `REQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
+  if (request.schema === 5) {
+    const modeRules = request.review_mode === 'full'
+      ? 'This is the full round-one review.'
+      : 'This is the only repair review. Inspect only accepted repair targets and blocking regressions introduced by their repair; do not reopen unrelated decisions.';
+    return `You are the single primary plan reviewer. Read only the sealed bundle and return typed evidence. Sealed bundle: ${path.resolve(bundle)}. Copy the request object exactly into ReviewerOutput.request.
+Evaluate exactly these criteria: ${CURRENT_CRITERIA.join(', ')}. Each criterion needs pass, non_blocking_gap, or blocking_gap plus nonempty evidence. The verdict equals the strongest status. Every gap needs a matching finding; pass has no findings.
+A blocking finding must name the exact user requirement, safety property, or execution step that would fail. Do not emit a numeric score or rubric.
+${modeRules}
+${requestBlock}`;
+  }
   if (request.schema !== 3) return `You are the ${leg} independent plan reviewer. Read only the sealed bundle. Return findings only. Copy the request object into ReviewerOutput.request.\n${requestBlock}`;
   const modeRules = request.review_mode === 'full'
     ? 'This is a full review. Return at most five findings.'
@@ -2701,28 +3310,44 @@ ${modeRules}
 ${requestBlock}`;
 }
 
-export function buildReviewerArgv({ tool, bundle, reviewerWorkspace = null, model, effort, serviceTier = null, leg, request }) {
-  validateRequest(request); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 })); oneOf(leg, new Set(['X', 'S']), 'leg'); string(model, 'model'); string(effort, 'effort');
+export function buildReviewerArgv({ tool, bundle, reviewerWorkspace = null, model, effort, serviceTier = null, leg, request, priorAttempts = [] }) {
+  validateRequest(request); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 }));
+  oneOf(leg, request.schema === 5 ? new Set(['primary']) : new Set(['X', 'S']), request.schema === 5 ? 'role' : 'leg'); string(model, 'model'); string(effort, 'effort');
+  if (request.schema === 5) {
+    if (!Array.isArray(priorAttempts) || priorAttempts.length >= request.policy.candidates.length) throw new Error('reviewer candidate order is exhausted');
+    if (priorAttempts.length > 0) {
+      validateCurrentAttemptSequence(priorAttempts, request.policy);
+      if (!CURRENT_FALLBACK_RESULTS.has(priorAttempts.at(-1).result) || priorAttempts.at(-1).output_started) throw new Error('next candidate requires an availability-only prior result');
+    }
+    const candidate = request.policy.candidates[priorAttempts.length];
+    const launchServiceTier = tool === 'codex' ? (serviceTier ?? 'default') : null;
+    if (request.policy.candidates.slice(priorAttempts.length + 1).some((later) => later.tool === tool && later.model === model && later.effort === effort && (later.service_tier ?? null) === launchServiceTier)) throw new Error('reviewer launch skipped the next candidate order');
+    if (candidate.tool !== tool) throw new Error('reviewer launch does not match the candidate tool');
+    if (candidate.model !== model) throw new Error('reviewer launch does not match the candidate model');
+    if (candidate.effort !== effort) throw new Error('reviewer launch does not match the candidate effort');
+    if (tool === 'codex' && candidate.service_tier !== (serviceTier ?? 'default')) throw new Error('reviewer service tier does not match the selected policy candidate');
+  }
   const prompt = reviewerPrompt(leg, request, bundle);
   if (tool === 'codex') {
     const tier = serviceTier ?? 'default'; oneOf(tier, new Set(['default', 'fast']), 'reviewer service tier');
     const config = ['-c', `model_reasoning_effort=${effort}`, ...(tier === 'fast' ? ['-c', 'features.fast_mode=true', '-c', 'service_tier="fast"'] : ['-c', 'service_tier="default"'])];
     const suffix = request.schema === 1 ? '' : `.v${request.schema}`;
     let workdir = bundle; const isolation = [];
-    if (request.schema === 3) {
-      if (reviewerWorkspace === null) throw new Error('schema-3 Codex reviewer workspace is required');
+    if ([3, 5].includes(request.schema)) {
+      if (reviewerWorkspace === null) throw new Error(`schema-${request.schema} Codex reviewer workspace is required`);
       assertClosed(reviewerWorkspace, ['schema', 'request_id', 'leg', 'workspace', 'cleanup_token'], 'reviewer workspace');
       if (reviewerWorkspace.schema !== 1 || reviewerWorkspace.request_id !== request.request_id || reviewerWorkspace.leg !== leg || reviewerWorkspace.workspace !== reviewerWorkspacePath(request.request_id, leg)) throw new Error('reviewer workspace mismatch');
       workdir = reviewerWorkspace.workspace;
       isolation.push('--ephemeral', '--ignore-user-config');
     }
-    return ['exec', '-C', workdir, '--skip-git-repo-check', ...isolation, '-s', 'read-only', '-m', model, ...config, '--output-schema', path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`), '--', prompt];
+    const schemaPath = request.schema === 5 ? path.join(bundle, 'reviewer-output.primary.v5.schema.json') : path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`);
+    return ['exec', '-C', workdir, '--skip-git-repo-check', ...isolation, '-s', 'read-only', '-m', model, ...config, '--output-schema', schemaPath, '--', prompt];
   }
   if (tool === 'claude') {
     if (serviceTier !== null) throw new Error('reviewer service tier is Codex-only');
-    return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(reviewerSchema(leg, request.schema)), '--output-format', 'json', '--', prompt];
+    return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(request.schema === 5 ? currentReviewerSchema() : reviewerSchema(leg, request.schema)), '--output-format', 'json', '--', prompt];
   }
-  throw new Error('schema v1 supports codex or claude CLI only; relay is not supported');
+  throw new Error('reviewer tool must be codex or claude; relay is not supported');
 }
 
 export function classifyLeg({ leg, policy, waiver = null, decision = null, attempts = [], eligibleTierCount }) {
@@ -2902,16 +3527,18 @@ export function run(argv = process.argv.slice(2)) {
     validateReviewerOutput(output, request, args[2]); process.stdout.write('valid reviewer output\n'); return;
   }
   if (command === 'bundle') {
+    const reviewSchema = args[0] === '--review-schema=5' ? (args.shift(), 5) : 3;
     const [repo, commit, plan, out, plannedAtCommit, executionBaseCommit, ...paths] = args; const completion = plannedAtCommit === '-' && executionBaseCommit === '-' ? {} : { plannedAtCommit, executionBaseCommit };
-    process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), ...completion }))}\n`); return;
+    process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), reviewSchema, ...completion }))}\n`); return;
   }
   if (command === 'bundle-repair') {
-    if (args.length < 8) throw new Error('bundle-repair accepts repo commit plan out previous-plan-file transition-file planned-at execution-base [paths...]');
+    const reviewSchema = args[0] === '--review-schema=5' ? (args.shift(), 5) : 3;
+    if (args.length < 8) throw new Error('bundle-repair accepts [--review-schema=5] repo commit plan out previous-plan-file transition-file planned-at execution-base [paths...]');
     const [repo, commit, plan, out, previousPlanPath, transitionPath, plannedAtCommit, executionBaseCommit, ...paths] = args;
     const completion = plannedAtCommit === '-' && executionBaseCommit === '-' ? {} : { plannedAtCommit, executionBaseCommit };
     if ((plannedAtCommit === '-') !== (executionBaseCommit === '-')) throw new Error('bundle-repair completion identity must be all-or-none');
     const previousPlan = fs.readFileSync(previousPlanPath, 'utf8'); const transition = JSON.parse(fs.readFileSync(transitionPath, 'utf8'));
-    process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), repair: { previousPlan, transition }, ...completion }))}\n`); return;
+    process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), repair: { previousPlan, transition }, reviewSchema, ...completion }))}\n`); return;
   }
   if (command === 'verify-bundle') {
     const [bundle, expectedSha256 = null] = args; if (args.length < 1 || args.length > 2) throw new Error('verify-bundle accepts bundle [expectedSha256]'); process.stdout.write(`${jcs(verifyBundle({ bundle: path.resolve(bundle), expectedSha256 }))}\n`); return;

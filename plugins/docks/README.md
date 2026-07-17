@@ -57,7 +57,7 @@ Plus `capability-tuning` (max-capability settings.json / config.toml templates f
 
 `plan-manager` and `plan-review` ship as thin opus-tier Claude subagents so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills. Codex plugin installs do not ship subagents, but `plan-init` and `scaffold` can seed project-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers for explicit Codex custom-agent delegation; otherwise Codex runs the skills inline. In Claude, force-invoke with `@agent-plan-manager`.
 
-Plan review is a strong availability-aware default: X uses the best available other-company model and S uses an independent author-company reviewer. A missing second subscription degrades to one recorded leg rather than blocking. Reviewers are fresh, explicit-model, read-only and findings-only; main-context plan-manager alone reconciles receipts and changes lifecycle state. Standing consent skips only the product picker and never overrides host policy.
+Current plan review uses one sealed-bundle primary reviewer: `gpt-5.6-sol` at high effort and the Standard/default tier first, with Claude Fable/high then Opus/xhigh only as availability fallbacks—not as a routine cross-company second review. The reviewer is fresh, explicit-model, read-only, and checklist-driven; accepted independently reproduced blockers permit at most one changed-input repair. Main-context plan-manager alone dispatches, reconciles, writes receipts, and changes lifecycle state; Session Relay is invalid review evidence. X/S, numeric scoring, consent/zero-review choices, and five-round receipts remain historical-only.
 
 ## Why sequential, single-context?
 
