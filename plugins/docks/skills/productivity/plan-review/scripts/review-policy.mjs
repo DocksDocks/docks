@@ -1635,6 +1635,11 @@ function exactUtf8(bytes, label) {
   return text;
 }
 
+function completionReviewBytes(bytes) {
+  const text = exactUtf8(bytes, 'plan');
+  return Buffer.from(text.endsWith('\n') ? text : `${text}\n`);
+}
+
 function splitPlanText(bytes) {
   const text = exactUtf8(bytes, 'plan');
   const firstLf = text.indexOf('\n');
@@ -2295,9 +2300,10 @@ export function renderCompletionReviewBlock(receipt, { waivers = [] } = {}) {
 }
 
 export function applyCompletionReviewBlock(bytes, receipt, { waivers = [] } = {}) {
-  const plan = splitPlanText(bytes); const review = uniquePartition(plan.body, 'Review'); const core = renderCompletionReviewBlock(receipt, { waivers });
+  const source = receipt?.schema === 5 ? completionReviewBytes(bytes) : bytes;
+  const plan = splitPlanText(source); const review = uniquePartition(plan.body, 'Review'); const core = renderCompletionReviewBlock(receipt, { waivers });
   const replacement = review.end < plan.body.length ? `${core}\n` : core;
-  return replacePlanBody(bytes, `${plan.body.slice(0, review.start)}${replacement}${plan.body.slice(review.end)}`);
+  return replacePlanBody(source, `${plan.body.slice(0, review.start)}${replacement}${plan.body.slice(review.end)}`);
 }
 
 export function completionStablePlanViewV1(bytes) {
@@ -2311,16 +2317,18 @@ export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, co
   validatePolicy(expectedPolicy);
   requirePlanOnlyChild(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
   const beforeBytes = planBlob(repo, reviewedHead, logical); const afterBytes = planBlob(repo, completionCommit, logical);
+  const beforeReviewBytes = receipt.schema === 5 ? completionReviewBytes(beforeBytes) : beforeBytes;
+  const afterReviewBytes = receipt.schema === 5 ? completionReviewBytes(afterBytes) : afterBytes;
   const afterPlan = parsePlan(afterBytes);
   validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy, waivers });
   const record = extractMachineRecord(afterBytes, 'Completion-review-receipt');
   if (record.payload !== jcs(receipt)) throw new Error('completion Review receipt payload mismatch');
-  if (completionStablePlanViewV1(beforeBytes) !== completionStablePlanViewV1(afterBytes)) throw new Error('completion stable plan view mismatch');
-  const expected = applyCompletionReviewBlock(beforeBytes, receipt, { waivers });
-  requirePlanDelta(beforeBytes, afterBytes, expected, 'completion Review apply', ['updated', 'review_status']);
-  const beforeApplication = extractCompatibilityApplication(beforeBytes, { required: false }); const afterApplication = extractCompatibilityApplication(afterBytes, { required: false });
+  if (completionStablePlanViewV1(beforeReviewBytes) !== completionStablePlanViewV1(afterReviewBytes)) throw new Error('completion stable plan view mismatch');
+  const expected = applyCompletionReviewBlock(beforeReviewBytes, receipt, { waivers });
+  requirePlanDelta(beforeReviewBytes, afterReviewBytes, expected, 'completion Review apply', ['updated', 'review_status']);
+  const beforeApplication = extractCompatibilityApplication(beforeReviewBytes, { required: false }); const afterApplication = extractCompatibilityApplication(afterReviewBytes, { required: false });
   if ((beforeApplication === null) !== (afterApplication === null) || (beforeApplication && beforeApplication.markdown !== afterApplication.markdown)) throw new Error('completion compatibility application changed');
-  const beforeBinding = extractCompatibilityBinding(beforeBytes, { required: false }); const afterBinding = extractCompatibilityBinding(afterBytes, { required: false });
+  const beforeBinding = extractCompatibilityBinding(beforeReviewBytes, { required: false }); const afterBinding = extractCompatibilityBinding(afterReviewBytes, { required: false });
   if ((beforeBinding === null) !== (afterBinding === null) || (beforeBinding && beforeBinding.markdown !== afterBinding.markdown)) throw new Error('completion compatibility binding changed');
   return { schema: 1, reviewed_head: reviewedHead, completion_commit: completionCommit, completion_receipt_sha256: sha256(jcs(receipt)) };
 }
