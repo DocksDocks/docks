@@ -3,7 +3,7 @@ title: Default plan review to one GPT reviewer
 goal: Make Docks use one bounded gpt-5.6-sol high Standard reviewer lane by default, with no cross-company launch and no renewable review batches.
 status: planned
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-16T22:33:10-03:00"
+updated: "2026-07-16T22:50:14-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -17,6 +17,7 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-improver/SKILL.md
   - plugins/docks/skills/productivity/plan-init/SKILL.md
   - plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md
+  - plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md
   - docs/plans/AGENTS.md
   - AGENTS.md
   - README.md
@@ -62,6 +63,7 @@ rewrite. `plan-improver` remains accepted-findings-only. A repair round may
 inspect only the accepted S findings and the resulting delta. The series cannot
 renew after `max_rounds`.
 
+
 ## Environment and commands
 
 Repository: `/home/vagrant/projects/docks`
@@ -74,16 +76,15 @@ node scripts/tests/plan-review-convergence-repair.mjs --case repair-series
 node scripts/tests/plan-review-policy-regressions.mjs --self-test
 node scripts/ci.mjs --plugin docks
 node scripts/ci.mjs
-```
 
 ## Steps
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Add frozen failing tests for the new default. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | pending | Tests fail because current surfaces default to consent `ask` and promise two launched reviewers. |
-| 2 | Change the current default and dispatch contract to one S lane. | manager/reviewer skills; root and plugin public prose; plan contract/template; wrappers/scaffold | 1 | pending | Resolved default is consent `never`; X has zero attempts and `not_authorized`; only S launches as `gpt-5.6-sol`/`high`/`default`. |
-| 3 | Keep accepted-finding repair and convergence exact. | manager/reviewer/improver skills; tests | 2 | pending | Accepted S findings alone become repair targets; ready terminates immediately; the lifetime cap cannot renew. |
-| 4 | Synchronize skill metadata/hashes and verify. | all affected skill surfaces; tests | 3 | pending | Focused gates, Docks CI, full CI, and one GPT-only completion review pass. |
+| 1 | Add frozen failing tests for the new review default. | `scripts/tests/plan-review-policy.mjs` (`schemas`, `legs`, `surfaces`); `scripts/tests/plan-review-convergence-repair.mjs` (`repair-series`); `scripts/tests/plan-review-policy-regressions.mjs` (mutation fixtures) | — | pending | Tests fail because current surfaces default to consent `ask` and promise two launched reviewers. |
+| 2 | Change the current default and public dispatch contract to one S lane. | `plugins/docks/skills/productivity/plan-manager/SKILL.md` (`Policy resolution`, dispatch); `plugins/docks/skills/productivity/plan-review/SKILL.md` (`Input contract`, launch); `plugins/docks/skills/productivity/plan-init/SKILL.md` (`Root Snippet`, agent defaults); `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` (review contract); `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md` (both TOML blocks); `docs/plans/AGENTS.md` (review protocol); `AGENTS.md`, `README.md`, `plugins/docks/README.md`, `plugins/docks/skills/AGENTS.md` (public routing prose); `plugins/docks/agents/plan-manager.md`, `plugins/docks/agents/plan-review.md`, `.codex/agents/plan-manager.toml`, `.codex/agents/plan-review.toml`, `docs/scaffold/templates/codex-plan-manager.toml.template`, `docs/scaffold/templates/codex-plan-review.toml.template`, `docs/scaffold/templates/root-AGENTS.md.template` (live/generated wrappers) | 1 | pending | Resolved default is consent `never`; X has zero attempts and `not_authorized`; only S launches as `gpt-5.6-sol`/`high`/`default`; every live/generated surface agrees. |
+| 3 | Keep accepted-finding repair and convergence exact. | `plugins/docks/skills/productivity/plan-manager/SKILL.md` (`Repair rounds`); `plugins/docks/skills/productivity/plan-review/SKILL.md` (`Repair review`); `plugins/docks/skills/productivity/plan-improver/SKILL.md` (`Input contract`); `scripts/tests/plan-review-policy.mjs` (`schemas`, `legs`, `surfaces`); `scripts/tests/plan-review-convergence-repair.mjs` (`repair-series`); `scripts/tests/plan-review-policy-regressions.mjs` (lifetime mutations) | 2 | pending | Accepted S findings alone become repair targets; ready terminates immediately; the lifetime cap cannot renew. |
+| 4 | Synchronize skill metadata/hashes and verify. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-improver/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 2, 3 | pending | Focused gates, targeted Docks CI, the separate full project CI gate, and one GPT-only completion review pass. |
 
 ## Interfaces and invariants
 
@@ -107,10 +108,14 @@ node scripts/ci.mjs
 |---|---|---|
 | A1 | `node scripts/tests/plan-review-policy.mjs --case schemas` | Exits 0; historical schemas remain valid and the current single-lane policy is closed. |
 | A2 | `node scripts/tests/plan-review-policy.mjs --case legs` | Exits 0; X `not_authorized` has no attempt and sole S readiness produces `outcome: single`. |
-| A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0; every live/generated contract names GPT-only default dispatch and no cross-company launch. |
+| A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0; every live/generated contract, including both copy-only Codex templates, names GPT-only default dispatch and no cross-company launch. |
 | A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-series` | Exits 0; only accepted S findings become repair targets and the series stops ready or at the cap. |
 | A5 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0; mutations cannot restore cross-company default launch or renewable batches. |
-| A6 | `node scripts/ci.mjs` | Exits 0 across all plugins and repository guards. |
+
+## Project CI completion gate
+
+After A1-A5 pass, run `node scripts/ci.mjs` once as the separate full repository
+completion gate. Do not duplicate it inside the ordered acceptance inventory.
 
 ## Out of scope
 
@@ -146,6 +151,21 @@ inventing a new schema. The plan preserves the hard convergence cap and keeps
 
 (filled by plan-review on completion)
 
+## Sources
+
+- `plugins/docks/skills/productivity/plan-manager/SKILL.md:34-73` — dated
+  reviewer/default policy and bounded `max_rounds` before the correction.
+- `plugins/docks/skills/productivity/plan-review/SKILL.md:35-85` — schema-3
+  full/repair identity, company-leg attribution, and direct Codex CLI transport.
+- `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs:540-583`
+  — company routing and bounded attempt sequence.
+- `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs:742-755`
+  — one passed, score-qualified leg yields the validated `single` outcome.
+- `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs:790-909`
+  — accepted-target equality and the one-series lifetime cap.
+- `plugins/docks/skills/productivity/plan-init/SKILL.md:169-217` — the copy-only
+  Codex wrapper source and generation path.
+
 ## Notes
 
 The previous completion review implemented its explicit X/S contract correctly,
@@ -157,3 +177,10 @@ as `blocking: true` with binary `confidence: 0`, so the shipped validator
 correctly rejected the reviewer output. Main context independently reproduced
 the omission in the public-surface assertions and added the four missing paths.
 No invalid reviewer evidence or receipt was persisted.
+
+The validated sole-S draft review reported S1-S4. Main context reproduced and
+accepted all four: the missing copy-only Codex template, category-only step
+paths, absent code-derived Sources evidence, and duplicated full-CI acceptance
+entry. This repair changes only those accepted findings. The user's later
+plugin-targeting request is tracked in a separate plan so it cannot expand this
+bounded review series.
