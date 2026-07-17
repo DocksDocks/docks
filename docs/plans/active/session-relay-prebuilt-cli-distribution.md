@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: ongoing
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T13:56:58-03:00"
+updated: "2026-07-17T14:24:17-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 assignee: null
 review_author_company: openai
@@ -434,8 +434,8 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - Companion TDD-red receipt SHA-256: pending
 - Companion status: pending
 - Companion blocked reason: Awaiting the four independently hashed `session-relay--v0.12.0` production asset digests.
-- Docks TDD-red receipt JCS bytes: pending
-- Docks TDD-red receipt SHA-256: pending
+- Docks TDD-red receipt JCS bytes: {"captured_at":"2026-07-17T17:23:31.760Z","command":{"argv":["node","plugins/session-relay/test/distribution-contract.mjs"],"cwd":"/home/vagrant/projects/docks"},"exit_code":1,"pre_production_commit":"8e0a1cbfa61f01c570579c0514846b38fd95d6ed","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/docks","schema":1,"stderr_sha256":"07f11a899a3be859e00cbd02d594ad4815168d170ee6f77a8962f06c1e5595b4","stdout_sha256":"162e47810a7aa27b9336c71a28c46f4c88d380415bc0636389ed5c2f984bb403","test_paths":[{"blob_id":"406ff4f15446bb7bdccc166f13fce7f1e8456804","path":"plugins/session-relay/test/distribution-contract.mjs"},{"blob_id":"8092e06d30e7d9bdcc75cfa3cd6d629099769061","path":"plugins/session-relay/test/selftest.mjs"}],"type":"TddRedReceiptV1"}
+- Docks TDD-red receipt SHA-256: 2ecd25cd3e3fc0590893ee2fc0107fac1e63b868eda9ff3d627f5bda25769c04
 - TAG_COMMIT / SOURCE_COMMIT: pending
 - PROMOTED_COMMIT / SHIPPED_COMMIT: pending until plan completion
 - Producer preflight branch/ref commit: pending
