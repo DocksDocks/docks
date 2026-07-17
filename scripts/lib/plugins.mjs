@@ -15,17 +15,29 @@
 //   agents        agents root, or null
 //   codex         true when a .codex-plugin/ mirror + Codex marketplace entry ship
 //   selftest      path to a runnable self-test, or null
-//   rust          Rust binary capability, or null: { dir, bin, binName, targets }
-//                 — ci.mjs runs fmt/clippy + a --locked host-leg build into
-//                 bin/ and verifies committed SHA256SUMS; release.mjs refuses
-//                 to tag unless every target binary + the launcher are
-//                 committed and checksums verify (see lib/rust-bin.mjs)
+//   rust          Rust binary capability, or null. `source` owns local build
+//                 paths; `prebuilt` owns immutable release target/asset naming.
+//                 ci.mjs builds source.builtBinary and passes it explicitly to
+//                 the self-test. No generated executable is written to bin/.
 //   extraJson     additional JSON configs to validate (hooks/mcp/etc.)
 //   authorChecks  repository author suites owned by this plugin
 //   transformGuard run scripts/skills/transform-guard.mjs (curated transformers)
-//   install       the consumer install snippet for the GitHub Release notes
+//   install/release consumer installation text; Session Relay additionally owns
+//                 prerelease staging and its closed prebuilt asset set
 import fs from 'node:fs';
 import path from 'node:path';
+import { rustReleaseAssetNames } from './rust-bin.mjs';
+
+const SESSION_RELAY_PREBUILT = Object.freeze({
+  targets: Object.freeze([
+    'x86_64-unknown-linux-musl',
+    'aarch64-unknown-linux-musl',
+    'x86_64-apple-darwin',
+    'aarch64-apple-darwin',
+  ]),
+  assetPrefix: 'session-relay',
+  checksumAsset: 'SHA256SUMS',
+});
 
 export const PLUGINS = [
   {
@@ -50,22 +62,27 @@ export const PLUGINS = [
     selftest: 'plugins/session-relay/test/selftest.mjs',
     rust: {
       dir: 'plugins/session-relay/rust',
-      bin: 'plugins/session-relay/bin',
       binName: 'relay',
-      targets: [
-        'x86_64-unknown-linux-musl',
-        'aarch64-unknown-linux-musl',
-        'x86_64-apple-darwin',
-        'aarch64-apple-darwin',
-      ],
+      source: {
+        manifest: 'plugins/session-relay/rust/Cargo.toml',
+        lockfile: 'plugins/session-relay/rust/Cargo.lock',
+        builtBinary: 'plugins/session-relay/rust/target/release/relay',
+        testBinaryEnv: 'SESSION_RELAY_TEST_BIN',
+      },
+      prebuilt: SESSION_RELAY_PREBUILT,
     },
+    distributionContract: 'plugins/session-relay/test/distribution-contract.mjs',
     extraJson: [
       'plugins/session-relay/hooks/codex-hooks.json',
       'plugins/session-relay/.codex-plugin/bus.mcp.json',
     ],
     authorChecks: [],
     transformGuard: false,
-    install: '/plugin marketplace update docks\n/plugin install session-relay@docks',
+    release: {
+      assets: rustReleaseAssetNames(SESSION_RELAY_PREBUILT),
+      prereleaseBody: 'This prerelease stages Session Relay binaries for downstream checksum pinning. It is not ready for installation.',
+      install: 'docks-kit sync',
+    },
   },
   {
     name: 'effect-kit',
@@ -114,7 +131,7 @@ export function shellHooks(p) {
     ? fs.readdirSync(dir).filter((f) => f.endsWith('.sh')).map((f) => path.join(dir, f))
     : [];
   if (p.rust) {
-    const launcher = path.join(p.rust.bin, p.rust.binName);
+    const launcher = path.join(p.root, 'bin', p.rust.binName);
     if (fs.existsSync(launcher)) out.push(launcher);
   }
   return out;

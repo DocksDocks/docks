@@ -20,6 +20,15 @@ import path from 'node:path';
 import { byName, PLUGINS, claudeManifest, codexManifest, CLAUDE_MARKETPLACE } from './lib/plugins.mjs';
 import { verifySha256Sums } from './lib/rust-bin.mjs';
 import { releaseCiArgs } from './lib/ci-targeting.mjs';
+import { dispatchSessionRelayRelease } from './lib/session-relay-release.mjs';
+
+try {
+  const dispatched = await dispatchSessionRelayRelease(process.argv.slice(2));
+  if (dispatched !== null) process.exit(dispatched ? 0 : 1);
+} catch (error) {
+  console.error(`error: ${error.message}`);
+  process.exit(1);
+}
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const err = (m) => { console.error(`error: ${m}`); process.exit(1); };

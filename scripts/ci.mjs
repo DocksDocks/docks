@@ -10,10 +10,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 import {
-  PLUGINS, presentPlugins, byName, claudeManifest, codexManifest,
+  PLUGINS, presentPlugins, claudeManifest, codexManifest,
   CLAUDE_MARKETPLACE, CODEX_MARKETPLACE, marketEntryVersion, manifestCategories, shellHooks,
 } from './lib/plugins.mjs';
-import { findCargo, rustHostTarget, sha256File, verifySha256Sums } from './lib/rust-bin.mjs';
+import { findCargo } from './lib/rust-bin.mjs';
 import { resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -76,8 +76,8 @@ const section = (m) => {
   activePhase = { name: m, startedAt: performance.now(), failureCount: failures.length };
   if (!QUIET) console.log(`\n\x1b[1m▸ ${m}\x1b[0m`);
 };
-const node = (args) => spawnSync('node', args, { encoding: 'utf8' });
-const nodeOk = (args) => (node(args).status ?? 1) === 0;
+const node = (args, options = {}) => spawnSync('node', args, { encoding: 'utf8', ...options });
+const nodeOk = (args, options) => (node(args, options).status ?? 1) === 0;
 const startNodeTask = (name, args) => {
   const taskStartedAt = performance.now();
   return new Promise((resolve) => {
@@ -236,61 +236,62 @@ function gatePlugin(p) {
     if (!aunder) ok(`${p.name} agents per-file all ≥ ${floor}`);
   }
 
-  // Rust gate runs BEFORE the self-test so a broken/mismatched binary fails
-  // here with a clear message, not as a confusing self-test spawn error.
-  if (p.rust && fs.existsSync(p.rust.dir)) gateRust(p);
+  // Rust source is built before tests so self-tests never resolve a committed
+  // or ambient executable.
+  let rustBinary = null;
+  if (p.rust) {
+    if (fs.existsSync(p.rust.dir)) rustBinary = gateRust(p);
+    else fail(`${p.name}: Rust source directory missing: ${p.rust.dir}`);
+  }
 
-  if (p.selftest) (nodeOk([p.selftest]) ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
-    : fail(`${p.name} self-test failed (run: node ${p.selftest})`));
+  if (p.distributionContract) {
+    nodeOk([p.distributionContract])
+      ? ok(`${p.name} distribution contract passed (${path.basename(p.distributionContract)})`)
+      : fail(`${p.name} distribution contract failed (run: node ${p.distributionContract})`);
+  }
+
+  if (p.selftest) {
+    const testOptions = p.rust
+      ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }
+      : undefined;
+    nodeOk([p.selftest], testOptions) ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
+      : fail(`${p.name} self-test failed (run: ${p.rust ? `${p.rust.source.testBinaryEnv}=${rustBinary ?? '<fresh-release-binary>'} ` : ''}node ${p.selftest})`);
+  }
 }
 
-// Rust capability: fmt + clippy + a --locked release build of the HOST leg
-// only (the other legs come from the build-binaries workflow and are
-// committed in-tree — git-clone plugin delivery never sees Release assets).
-// The host build lands in bin/ and the committed SHA256SUMS is verified
-// against it: a divergent local toolchain fails loudly instead of silently
-// shipping a byte-different binary.
+// Rust capability: format, lint, and build the host executable directly from
+// source. Published target binaries are produced only by the release workflow;
+// local CI never reads or writes plugin bin/ assets or SHA256SUMS.
 function gateRust(p) {
-  const { dir, bin, binName } = p.rust;
+  const { dir, source } = p.rust;
   const cargo = findCargo();
-  if (!cargo) warn(`${p.name}: cargo not found — Rust gate skipped locally (CI enforces)`);
-  else {
-    const cargoRun = (args) => spawnSync(cargo, args, { encoding: 'utf8', cwd: dir });
-    (cargoRun(['fmt', '--check']).status ?? 1) === 0 ? ok(`${p.name} cargo fmt --check clean`)
-      : fail(`${p.name} cargo fmt --check failed (run: cargo fmt, in ${dir})`);
-    (cargoRun(['clippy', '--all-targets', '--', '-D', 'warnings']).status ?? 1) === 0 ? ok(`${p.name} cargo clippy -D warnings clean`)
-      : fail(`${p.name} cargo clippy failed (run: cargo clippy --all-targets -- -D warnings, in ${dir})`);
-    const host = rustHostTarget();
-    if (!host) fail(`${p.name}: unsupported host ${process.platform}/${process.arch} — no launcher target triple`);
-    else if ((cargoRun(['build', '--release', '--locked', '--target', host]).status ?? 1) === 0) {
-      const built = path.join(dir, 'target', host, 'release', binName);
-      const out = path.join(bin, `${binName}-${host}`);
-      if (!fs.existsSync(out)) {
-        // No committed binary yet (pre-flip window) — stage the local build so
-        // the self-test has something to spawn.
-        fs.mkdirSync(bin, { recursive: true });
-        fs.copyFileSync(built, out);
-        fs.chmodSync(out, 0o755);
-        ok(`${p.name} host leg built --locked → ${out}`);
-      } else if (sha256File(built) === sha256File(out)) {
-        // Committed binary is canonical (the build-binaries workflow is the
-        // sole producer) — never overwrite it; a matching rebuild proves the
-        // committed artifact is reproducible from this source.
-        ok(`${p.name} host rebuild byte-identical to committed ${binName}-${host}`);
-      } else {
-        // Binaries embed build paths + the host linker's output, so only a
-        // runner on the SAME image as the producer can expect byte-identity.
-        (process.env.CI ? fail : warn)(`${p.name} host rebuild digest differs from committed ${binName}-${host} — CI enforces byte-identity (same image as build-binaries); locally this is expected path/linker variance`);
-      }
-    } else fail(`${p.name} host build failed (run: rustup target add ${host} && cargo build --release --locked --target ${host}, in ${dir})`);
+  if (!cargo) {
+    fail(`${p.name}: cargo not found — Rust source build is required`);
+    return null;
   }
-  if (!fs.existsSync(path.join(bin, 'SHA256SUMS'))) {
-    warn(`${p.name}: no committed ${bin}/SHA256SUMS yet (binaries land via build-binaries.yml) — checksum verify skipped`);
-    return;
+
+  const cargoRun = (args) => spawnSync(cargo, args, { encoding: 'utf8', cwd: dir });
+  (cargoRun(['fmt', '--check']).status ?? 1) === 0 ? ok(`${p.name} cargo fmt --check clean`)
+    : fail(`${p.name} cargo fmt --check failed (run: cargo fmt, in ${dir})`);
+  (cargoRun(['clippy', '--all-targets', '--', '-D', 'warnings']).status ?? 1) === 0
+    ? ok(`${p.name} cargo clippy -D warnings clean`)
+    : fail(`${p.name} cargo clippy failed (run: cargo clippy --all-targets -- -D warnings, in ${dir})`);
+
+  if ((cargoRun(['build', '--release', '--locked']).status ?? 1) !== 0) {
+    fail(`${p.name} host build failed (run: cargo build --release --locked, in ${dir})`);
+    return null;
   }
-  const { listed, bad } = verifySha256Sums(bin);
-  bad.length === 0 ? ok(`${p.name} bin checksums verify (${listed} listed)`)
-    : fail(`${p.name} bin checksum failures: ${bad.join(', ')} — local build must be byte-identical to committed (pinned toolchain)`);
+
+  const built = path.resolve(REPO, source.builtBinary);
+  try {
+    if (!fs.statSync(built).isFile()) throw new Error('not a regular file');
+    fs.accessSync(built, fs.constants.X_OK);
+  } catch {
+    fail(`${p.name} host build did not produce executable ${source.builtBinary}`);
+    return null;
+  }
+  ok(`${p.name} source-built host executable ready --release --locked → ${source.builtBinary}`);
+  return built;
 }
 
 function gateSkills(p, manifest) {

@@ -18,11 +18,12 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `agents` | agents root, or `null` (agents guard+score run only when set) |
 | `codex` | `true` when a `.codex-plugin/` mirror + Codex marketplace entry ship |
 | `selftest` | path to a runnable self-test, or `null` |
-| `rust` | Rust binary capability, or `null`: `{ dir, bin, binName, targets }` — `ci.mjs` runs `cargo fmt --check` + `clippy -D warnings` + a `--locked` host-leg rebuild, then compares it against the committed `bin/` binary (byte-identity FAILS in CI — same image as the producer `build-binaries.yml` — and warns locally, where path/linker variance is expected; the committed binary is never overwritten) and verifies committed `SHA256SUMS`; `release.mjs` refuses to tag unless every target binary + launcher are committed executable with verifying checksums. Helpers in `lib/rust-bin.mjs` |
+| `rust` | Rust source/prebuilt capability, or `null`: `{ dir, binName, source: { manifest, lockfile, builtBinary, testBinaryEnv }, prebuilt: { targets, assetPrefix, checksumAsset } }` — `ci.mjs` formats, lints, builds, and exercises the source-selected host binary. Prebuilt target assets and `SHA256SUMS` are release artifacts produced by the pinned native workflow; they are never committed in a plugin payload. Helpers in `lib/rust-bin.mjs` |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
 | `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `scaffold`, `plan-review` for Docks; `[]` otherwise) |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `install` | the consumer install snippet for the GitHub Release notes |
+| `release` | Release artifact names, the non-install prerelease staging body, and the stable install command. Session Relay's state machine and workflow consume these identities without inventing alternate asset names or install text. |
 
 `ci.mjs` is **registry-driven**: it runs shared checks **once** (workflow YAML, both marketplace catalogs, tree/guard, durable-anchors), then selects shell hooks, repository author suites, and capability-driven `gatePlugin` work from the target descriptors. A full invocation selects every present plugin; `--plugin <name>` keeps shared guards and runs only that plugin's owned work. Docks' long mutation regression task starts before independent checks and is joined exactly once before success. Flags: `-q` (quiet), `--list` (registry + presence), `--plugin <name>` (one target), `--timings-json <path>` (closed phase/task wall-time report). Versions remain per-plugin and independent.
 
@@ -32,9 +33,9 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — declare only capabilities that exist (`agents`/`selftest`/`rust` take `null`, `extraJson`/`authorChecks` use `[]` when absent); include the install snippet.
 3. **Two catalog entries**: `.claude-plugin/marketplace.json` (name/source/version — version in lockstep with both manifests) and `.agents/plugins/marketplace.json` (local-source + policy block) for Codex.
 4. **Optional context node** (`plugins/<name>/AGENTS.md` + one-line `CLAUDE.md`) when the plugin carries conventions of its own — `tree/guard` enforces the pair; the durable-anchors guard scans it.
-5. Verify: `node scripts/ci.mjs --list` shows the plugin; full `node scripts/ci.mjs` green; release with `node scripts/release.mjs --plugin <name> <bump>` (tag `<name>--v<X.Y.Z>`).
+5. Verify: `node scripts/ci.mjs --list` shows the plugin and full `node scripts/ci.mjs` is green. Docks/effect-kit use the legacy positional release command; a prebuilt CLI uses its reviewed prepare/publication modes.
 
-If a new plugin seems to need an edit to `ci.mjs`/`release.mjs`, the descriptor contract is being violated — extend the capability model in `lib/plugins.mjs` instead of special-casing the orchestrators.
+Ordinary plugin behavior stays registry-driven: extend descriptor capabilities rather than adding orchestrator branches. Session Relay is the deliberate exception because its reviewed source preparation, prerelease publication, serialized promotion, and stable finalization are one fail-closed release protocol, not a generic plugin bump.
 
 ## Validators (orchestrated by ci.mjs)
 
@@ -75,7 +76,7 @@ joined before `ci.mjs` can pass.
 2. `node scripts/ci.mjs` — green before commit (gates **all** present plugins; `--plugin <name>` narrows the per-plugin gate while iterating).
 3. Local Claude Code test (no push): `claude --plugin-dir ./plugins/<name>` (then `/reload-plugins`).
 4. PR to main → PR-CI gates the merge.
-5. After merge, release **one plugin**: `node scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--plugin` defaults to `docks`; add `--dry-run` to preview).
+5. After merge, release **one plugin**. Docks/effect-kit retain `node scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews). Session Relay positional bumps are invalid; begin its reviewed flow with `node scripts/release.mjs --prepare --plugin session-relay <reviewed-version> [--dry-run]`.
 
 ## Release flow (double-layered gating)
 
@@ -91,13 +92,15 @@ edit → node scripts/ci.mjs                   (LAYER 1 — local, fast, ALL plu
         └── tag-CI fails  → exits non-zero, prints recovery
 ```
 
-Two layers: a manual full `ci.mjs` run catches local issues fast (no burned tag); tag CI catches contributor-machine drift and is the authoritative gate that decides whether the GitHub Release is created. `release.mjs` is **registry-driven and single-plugin** (`--plugin <name>`, default `docks`; `--dry-run` previews the bump + manifest diff without tagging): its preflight retains repo-wide checks while targeting the selected plugin, and it bumps only that plugin's manifests + marketplace entry (matched by `name`), so the other plugins' versions never move. It orchestrates targeted preflight → version bump → commit → `claude plugin tag` → targeted tag-CI wait → `gh release create`.
+The positional flow above is preserved for docks/effect-kit, including its existing bump resolution, local and tag CI gates, commit/push/tag behavior, release notes, and read-only dry run. Session Relay dispatches before that legacy path into a closed grammar: source preparation/evidence binding, resumable prerelease publication, serialized promotion or recovery, and stable finalization. Unknown, duplicate, missing, orphaned receipt-digest, and cross-mode options fail before mutation.
 
 GitHub pull requests and `workflow_dispatch` run `node scripts/ci.mjs` without a target. A release-tag push strictly resolves the tag's plugin identity, rejects malformed or unknown targets, and runs `node scripts/ci.mjs --plugin <name>`; plugins outside that release are not re-gated, but repo-wide checks still run. pnpm and conditional Cargo caches only reduce repeated download/build work. Their contents are never validation evidence: the frozen lockfile, pinned Rust toolchain, release preflight, and `ci.mjs` result remain authoritative.
 
 <constraint>
 Run `node scripts/ci.mjs` manually before `node scripts/release.mjs` — iterating on failures is easier without the script's clean-tree requirement. The local ci.mjs must pass before any push that goes near a tag.
 </constraint>
+
+Session Relay evidence is schema-1 closed RFC 8785 JCS. Every receipt input is an explicit adjacent path/SHA-256 pair; readers reject noncanonical bytes, unknown or missing fields, and digest/identity conflicts without ambient file search. Receipt writers use a new explicit path, mode `0600`, sibling exclusive creation, file and directory fsync, and an atomic no-clobber publish. Publication and promotion reconcile authoritative tag, run, Release, asset, transaction, lock, and branch identities before mutation; a retry or resume never substitutes or overwrites a conflicting identity.
 
 ## Versioning
 
