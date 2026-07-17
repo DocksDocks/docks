@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: ongoing
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T19:18:52-03:00"
+updated: "2026-07-17T19:50:28-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 assignee: null
 review_author_company: openai
@@ -437,8 +437,8 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - Companion repository: `/home/vagrant/projects/public`.
 - Companion repository ID: DocksDocks/public
 - Companion plan: `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-installation.md`.
-- Companion validation ref: refs/heads/preflight/session-relay-cli-0.9.0-6834b07e4a20
-- Companion implementation commit: 6834b07e4a20d24fb48f381505e94c5410543b6e
+- Companion validation ref: refs/heads/preflight/session-relay-cli-0.9.0-c3b542220d5a
+- Companion implementation commit: c3b542220d5a24a98ca05383bbe28afc2319b7e2
 - Companion plan input SHA-256: 1889f3d99d63646b8757597e6016db9f4e224f588f13e580b8f24f8ca0287c8e
 - Companion execution base commit: add253bbe43011e1cd8c1333f4e0b2c19883e4e9
 - Companion review receipt SHA-256: 01114385d963fd04870465d64ecea948e81f0e5381b3ba4ad35513d09dab1246
@@ -466,3 +466,5 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - **2026-07-17T18:52:20-03:00**: The first live A1 run exposed a Git namespace collision in the frozen distribution test's optional companion mode: an explicit destination at `refs/remotes/origin/preflight` conflicted with Git's simultaneous remote-tracking update for the versioned `preflight/...` source branch. The frozen test cannot change without invalidating the pre-production TDD-red receipt, so the local distribution/self-test blobs remain byte-identical and A1 now uses the additive `companion-distribution-contract.mjs` harness, which fetches the exact immutable URL/ref into `FETCH_HEAD`, checks the detached companion contract, and creates no remote-tracking ref.
 - **2026-07-17T19:14:21-03:00**: The first producer run succeeded, but the first local verification attempt followed the stale `gh run download` instruction and correctly failed because the hardened verifier requires an empty verifier-owned workspace. The fresh retry then exposed that the installed `gh api` has no `--output` flag. No release/tag/main mutation occurred; the temporary directory was identity-checked and removed by its trap. The verifier now captures the binary API response from stdout without a shell, creates each archive exclusively at mode `0600`, and the obsolete producer/source-CI evidence is discarded in favor of a new immutable source commit and fresh runs.
 - **2026-07-17T19:18:52-03:00**: The first stdout-download retry reached the authoritative GitHub ZIP and exposed its general-purpose bit-3 signed data descriptor, which the initial hardened parser rejected. The evidence test now generates that exact descriptor form, failed before the parser repair, and passes after the closed parser validates descriptor signature, CRC, compressed size, uncompressed size, entry bounds, and overlap. A live re-verification of run `29617040472` then emitted a mode-`0600` receipt whose stdout and file SHA-256 both equal `6f49fa8186f2089ff05974a777d826c5ae26e7fe8e78f718d52f3c8232d28c51`; that receipt is diagnostic only because the verifier repair requires a new `SOURCE_COMMIT`.
+- **2026-07-17T19:34:33-03:00**: The first final `check-prepared` rejected companion integration commit `6834b07e4a20d24fb48f381505e94c5410543b6e` because its second, unrelated release-line parent changed a frozen companion test blob. The strict gate was retained. The corrected create-once companion validation ref resolves to `c3b542220d5a24a98ca05383bbe28afc2319b7e2`, the already reviewed blocked-plan commit whose only difference from companion implementation identity `020fa42ad350d8cd6ddc16be6eb66e46743a3b15` is the companion plan and whose two test blobs exactly equal the sealed TDD-red receipt.
+- **2026-07-17T19:50:28-03:00**: Retrying `check-prepared` with the corrected companion ref exposed that the source-tree guard parsed porcelain-v1 through a helper that trims leading whitespace, so an allowed unstaged active-plan edit became `M ...` and was rejected. A focused contract case failed before the first porcelain-v2 repair and passed after it. Adversarial follow-up then reproduced a suffix-path bypass in that first repair; the final parser uses NUL-delimited porcelain-v2, accepts only ordinary tracked entries, reconstructs the path after the eight fixed metadata fields, and requires exact equality with the active plan. The focused suffix-substitution case failed before that tightening and passes after it. Both failed candidates wrote no receipt and their helper-owned workspaces were removed by the identity-bound trap.

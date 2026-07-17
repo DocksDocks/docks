@@ -738,10 +738,13 @@ function requireSourceTree(deps, sourceCommit) {
   ancestor(deps, sourceCommit, head, 'source-to-evidence');
   const nonPlan = gitValue(deps, ['diff', '--name-only', sourceCommit, head, '--', '.', `:(exclude)${PLAN_PATH}`]);
   if (nonPlan !== '') fail('tree differs from SOURCE_COMMIT outside the active plan');
-  const status = gitValue(deps, ['status', '--porcelain=v1', '--untracked-files=all']);
+  const status = gitValue(deps, ['status', '--porcelain=v2', '-z', '--untracked-files=all']);
   if (status !== '') {
-    const entries = status.split('\n');
-    if (entries.some((entry) => entry.length < 4 || entry.slice(3) !== PLAN_PATH)) fail('working tree is not clean except for the active plan');
+    const entries = status.split('\0').filter(Boolean);
+    if (entries.some((entry) => {
+      const fields = entry.split(' ');
+      return fields[0] !== '1' || fields.slice(8).join(' ') !== PLAN_PATH;
+    })) fail('working tree is not clean except for the active plan');
   }
   return head;
 }
