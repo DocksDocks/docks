@@ -1,11 +1,11 @@
 ---
 title: Accept terminal-LF normalization in completion receipt reuse
 goal: Let the canonical completion-reuse gate validate a reviewed plan whose source blob lacks a final LF without weakening receipt, plan-delta, or review-block binding.
-status: ongoing
+status: in_review
 created: "2026-07-17T05:30:00-03:00"
-updated: "2026-07-17T10:33:13-03:00"
+updated: "2026-07-17T11:06:35-03:00"
 started_at: "2026-07-17T10:33:13-03:00"
-in_review_since: null
+in_review_since: "2026-07-17T11:06:35-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -57,8 +57,8 @@ reviewed-head, plan-only-child, or allowed-frontmatter-delta validation.
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Add a real missing-terminal-LF completion-reuse regression and mutation. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | pending | The focused test fails against the current helper because the reviewed plan blob lacks LF; the mutation driver can restore that failure if normalization is removed. |
-| 2 | Normalize one missing terminal LF across completion Review application, stable-view comparison, and every reuse-time structural read of the reviewed blob; then verify all contracts. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; focused tests; `scripts/ci.mjs` | 1 | pending | The real-plan shape passes receipt reuse through optional compatibility-application and binding extraction; malformed UTF-8/frontmatter/section, substantive delta, and compatibility-record changes still fail; focused tests and full repository CI exit 0. |
+| 1 | Add a real missing-terminal-LF completion-reuse regression and mutation. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | done | The focused test failed against the pre-fix helper with `plan body must end in LF`; the mutation driver restores and detects that failure when current normalization is removed. |
+| 2 | Normalize one missing terminal LF across completion Review application, stable-view comparison, and every reuse-time structural read of the reviewed blob; then verify all contracts. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; focused tests; `scripts/ci.mjs` | 1 | done | Plain and compatibility-record missing-LF shapes pass receipt reuse; the parent receipt now revalidates; focused reuse, mutation, targeted Docks CI, and full repository CI exit 0. |
 
 ## Interfaces and data shapes
 
@@ -137,3 +137,17 @@ receipt input, and names fail-closed checks for every adjacent invariant.
 Authorized by the user after the parent plan's second and final repair review
 passed but the mandatory receipt-reuse check reproduced `plan body must end in
 LF` against the exact reviewed source blob.
+
+Implementation evidence on 2026-07-17:
+
+- The new completion-reuse fixture failed before production changes at
+  `completionStablePlanViewV1` with `plan body must end in LF`.
+- Schema-5 Review application and reuse now normalize only one missing terminal
+  LF; historical receipt paths remain unchanged.
+- Plain reviewed plans and plans carrying optional compatibility application
+  and binding records both pass exact receipt reuse.
+- Removing the current normalization is detected by the mutation suite.
+- The parent plan's exact regressed receipt now passes
+  `validateCompletionReviewReuse`.
+- Focused completion reuse, the full mutation suite, targeted Docks CI, and the
+  separate full three-plugin CI gate all exited 0.
