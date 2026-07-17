@@ -3,7 +3,7 @@ title: Default plan review to one GPT reviewer
 goal: Make Docks use one bounded gpt-5.6-sol high Standard reviewer lane by default, with no cross-company launch and no renewable review batches.
 status: planned
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-16T22:18:40-03:00"
+updated: "2026-07-16T22:33:10-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -18,6 +18,10 @@ affected_paths:
   - plugins/docks/skills/productivity/plan-init/SKILL.md
   - plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md
   - docs/plans/AGENTS.md
+  - AGENTS.md
+  - README.md
+  - plugins/docks/README.md
+  - plugins/docks/skills/AGENTS.md
   - plugins/docks/agents/plan-manager.md
   - plugins/docks/agents/plan-review.md
   - .codex/agents/plan-manager.toml
@@ -77,7 +81,7 @@ node scripts/ci.mjs
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
 | 1 | Add frozen failing tests for the new default. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | pending | Tests fail because current surfaces default to consent `ask` and promise two launched reviewers. |
-| 2 | Change the current default and dispatch contract to one S lane. | manager/reviewer skills; plan contract/template; wrappers/scaffold | 1 | pending | Resolved default is consent `never`; X has zero attempts and `not_authorized`; only S launches as `gpt-5.6-sol`/`high`/`default`. |
+| 2 | Change the current default and dispatch contract to one S lane. | manager/reviewer skills; root and plugin public prose; plan contract/template; wrappers/scaffold | 1 | pending | Resolved default is consent `never`; X has zero attempts and `not_authorized`; only S launches as `gpt-5.6-sol`/`high`/`default`. |
 | 3 | Keep accepted-finding repair and convergence exact. | manager/reviewer/improver skills; tests | 2 | pending | Accepted S findings alone become repair targets; ready terminates immediately; the lifetime cap cannot renew. |
 | 4 | Synchronize skill metadata/hashes and verify. | all affected skill surfaces; tests | 3 | pending | Focused gates, Docks CI, full CI, and one GPT-only completion review pass. |
 
@@ -147,3 +151,9 @@ inventing a new schema. The plan preserves the hard convergence cap and keeps
 The previous completion review implemented its explicit X/S contract correctly,
 but that contract did not match the user's intended single-GPT workflow. This
 plan is the clean correction and does not reopen unrelated implementation work.
+
+The first sole-S draft attempt returned one real scope omission but encoded it
+as `blocking: true` with binary `confidence: 0`, so the shipped validator
+correctly rejected the reviewer output. Main context independently reproduced
+the omission in the public-surface assertions and added the four missing paths.
+No invalid reviewer evidence or receipt was persisted.
