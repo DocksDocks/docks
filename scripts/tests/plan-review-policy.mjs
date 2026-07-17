@@ -1381,6 +1381,45 @@ function testStrictCompletionReuse() {
     receipt: currentReceiptValue,
     expectedPolicy: CURRENT_POLICY,
   });
+  for (const [label, sourcePlan] of [
+    ['plain', plan],
+    ['compatibility records', replaceOnce(
+      plan,
+      '## Review\n',
+      'Compatibility-review-material: {}\n```diff\nunchanged\n```\nExecution-base-compatibility-receipt: {}\nExecution-base-compatibility-binding: {}\n\n## Review\n',
+    )],
+  ]) {
+    git(repo, ['checkout', '-q', '--detach', head]);
+    const withoutFinalLf = sourcePlan.slice(0, -1);
+    writeLogical(repo, planPath, withoutFinalLf);
+    const reviewedWithoutFinalLf = commitAll(repo, `review ${label} without final LF`);
+    const inventoryWithoutFinalLf = acceptanceInventory(Buffer.from(withoutFinalLf));
+    const requestWithoutFinalLf = currentRequest({
+      phase: 'completion',
+      reviewed_commit_or_head: reviewedWithoutFinalLf,
+      planned_at_commit: plannedAt,
+      execution_base_commit: executionBase,
+      diff_sha256: H0,
+      acceptance_inventory_sha256: sha256(jcs(inventoryWithoutFinalLf)),
+      input_sha256: sha256(canonicalPlanView(Buffer.from(withoutFinalLf))),
+    });
+    const runWithoutFinalLf = currentRun(requestWithoutFinalLf, currentRaw(requestWithoutFinalLf), {
+      primary: primaryEvidence(inventoryWithoutFinalLf),
+    });
+    const receiptWithoutFinalLf = currentReceipt(requestWithoutFinalLf, runWithoutFinalLf);
+    let completedWithoutFinalLf = applyCompletionReviewBlock(Buffer.from(`${withoutFinalLf}\n`), receiptWithoutFinalLf).toString();
+    completedWithoutFinalLf = replaceOnce(completedWithoutFinalLf, 'review_status: null', 'review_status: passed');
+    writeLogical(repo, planPath, completedWithoutFinalLf);
+    const completionWithoutFinalLf = commitAll(repo, `complete ${label} without final LF`);
+    validateCompletionReviewReuse({
+      repo,
+      planPath,
+      reviewedHead: reviewedWithoutFinalLf,
+      completionCommit: completionWithoutFinalLf,
+      receipt: receiptWithoutFinalLf,
+      expectedPolicy: CURRENT_POLICY,
+    });
+  }
   git(repo, ['checkout', '-q', '--detach', head]);
   const currentWaiver = {
     phase: 'completion',
