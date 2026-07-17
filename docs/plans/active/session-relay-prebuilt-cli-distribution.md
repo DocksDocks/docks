@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: ongoing
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T14:28:00-03:00"
+updated: "2026-07-17T14:32:52-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 assignee: null
 review_author_company: openai
@@ -434,8 +434,8 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - Companion TDD-red receipt SHA-256: pending
 - Companion status: pending
 - Companion blocked reason: Awaiting the four independently hashed `session-relay--v0.12.0` production asset digests.
-- Docks TDD-red receipt JCS bytes: {"captured_at":"2026-07-17T17:27:32.193Z","command":{"argv":["node","plugins/session-relay/test/distribution-contract.mjs"],"cwd":"/home/vagrant/projects/docks"},"exit_code":1,"pre_production_commit":"71d22324a2b6a37b87fcc6d63d5f58965ef14987","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/docks","schema":1,"stderr_sha256":"07f11a899a3be859e00cbd02d594ad4815168d170ee6f77a8962f06c1e5595b4","stdout_sha256":"162e47810a7aa27b9336c71a28c46f4c88d380415bc0636389ed5c2f984bb403","test_paths":[{"blob_id":"3dc5f68b7bcd82d73606495604229c1f309fc2b0","path":"plugins/session-relay/test/distribution-contract.mjs"},{"blob_id":"8092e06d30e7d9bdcc75cfa3cd6d629099769061","path":"plugins/session-relay/test/selftest.mjs"}],"type":"TddRedReceiptV1"}
-- Docks TDD-red receipt SHA-256: 52a92c7299dd7db8bc91a06cee2f8d8534dc46bb5e4a0a08d3d17d6a368b57b2
+- Docks TDD-red receipt JCS bytes: {"captured_at":"2026-07-17T17:32:23.555Z","command":{"argv":["node","plugins/session-relay/test/distribution-contract.mjs"],"cwd":"/home/vagrant/projects/docks"},"exit_code":1,"pre_production_commit":"d40ec4502ec42bd36792161d442fd91d2addb9f9","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/docks","schema":1,"stderr_sha256":"3e32ca7c3ba173cb9895c9973e6afe59bc5479873185fa245928819977461f45","stdout_sha256":"162e47810a7aa27b9336c71a28c46f4c88d380415bc0636389ed5c2f984bb403","test_paths":[{"blob_id":"e20b90586f468f747edc4d4cf32f842a9ec27fdf","path":"plugins/session-relay/test/distribution-contract.mjs"},{"blob_id":"8092e06d30e7d9bdcc75cfa3cd6d629099769061","path":"plugins/session-relay/test/selftest.mjs"}],"type":"TddRedReceiptV1"}
+- Docks TDD-red receipt SHA-256: 68ba44015dd2a18551fe6856bce817c6998b3e0ec0bcf39749c7bc95ffa3b3c3
 - TAG_COMMIT / SOURCE_COMMIT: pending
 - PROMOTED_COMMIT / SHIPPED_COMMIT: pending until plan completion
 - Producer preflight branch/ref commit: pending
