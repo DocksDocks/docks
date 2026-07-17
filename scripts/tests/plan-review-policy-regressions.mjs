@@ -869,12 +869,12 @@ const REGRESSIONS = [
     ),
     applyVariant(
       'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-      "if (completionStablePlanViewV1(beforeBytes) !== completionStablePlanViewV1(afterBytes)) throw new Error('completion stable plan view mismatch');",
-      'void beforeBytes; void afterBytes; // variant completion stable view',
+      "if (completionStablePlanViewV1(beforeReviewBytes) !== completionStablePlanViewV1(afterReviewBytes)) throw new Error('completion stable plan view mismatch');",
+      'void beforeReviewBytes; void afterReviewBytes; // variant completion stable view',
     ),
     applyVariant(
       'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-      "requirePlanDelta(beforeBytes, afterBytes, expected, 'completion Review apply', ['updated', 'review_status']);",
+      "requirePlanDelta(beforeReviewBytes, afterReviewBytes, expected, 'completion Review apply', ['updated', 'review_status']);",
       'void expected; // variant completion Review exact apply',
     ),
   )],
@@ -992,6 +992,11 @@ const REGRESSIONS = [
     'const block = receipt.schema === 5 ? completionReviewBlockV5(receipt, { waivers }) : completionReviewBlockV1(receipt, { waivers });',
     'const block = receipt.schema === 5 ? completionReviewBlockV5(receipt) : completionReviewBlockV1(receipt, { waivers });',
   )],
+  ['current completion missing-LF normalization regression', ['--case', 'completion-reuse'], /plan body must end in LF|completion reuse|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    'const beforeReviewBytes = receipt.schema === 5 ? completionReviewBytes(beforeBytes) : beforeBytes;',
+    'const beforeReviewBytes = beforeBytes;',
+  )],
   ['current generic-series waiver regression', ['--case', 'current-receipts'], /waiver.*snapshot|generic current series|Assertion/i, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     'if (series?.schema === 5) return validateCurrentReviewSeries(series, { waivers });',
@@ -1035,8 +1040,8 @@ const REGRESSIONS = [
   ), CONVERGENCE_HARNESS],
   ['current completion reuse waiver regression', ['--case', 'completion-reuse'], /waiver.*snapshot|completion waiver reuse|Assertion/i, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
-    'const expected = applyCompletionReviewBlock(beforeBytes, receipt, { waivers });',
-    'const expected = applyCompletionReviewBlock(beforeBytes, receipt);',
+    'const expected = applyCompletionReviewBlock(beforeReviewBytes, receipt, { waivers });',
+    'const expected = applyCompletionReviewBlock(beforeReviewBytes, receipt);',
   )],
   ['current completion series-final binding regression', ['--case', 'current-receipts'], /series.*final|final.*series|Missing expected exception|Assertion/i, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
