@@ -3,7 +3,7 @@ title: Adopt one bounded primary plan reviewer
 goal: Make new Docks plan reviews use one GPT-first reviewer role with Claude availability fallback, evidence-backed checklist findings, and at most one repair.
 status: in_review
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-17T03:29:31-03:00"
+updated: "2026-07-17T03:42:52-03:00"
 started_at: "2026-07-17T00:21:34-03:00"
 in_review_since: "2026-07-17T01:42:11-03:00"
 assignee: codex
@@ -344,4 +344,12 @@ Accepted completion-review repair on 2026-07-17:
 - Completion preparation rejected the carried pre-start
   `execution_base_commit`; it now records the actual plan-only first-start
   transition `7dbfb222562f4503cfbde5881fa65e088aa88d23`.
+- The first validated completion checkout exposed a real-plan compatibility
+  defect: planned plans may omit optional `started_at`, while strict and legacy
+  execution validators accepted only explicit `null`. Both paths now accept
+  omitted or null pre-start values and still require a populated start value;
+  lifecycle and completion-reuse tests cover both shapes.
+- After that repair, lifecycle, null-shape completion reuse, strict/legacy
+  execution compatibility, the full mutation suite, targeted Docks CI, and
+  full three-plugin CI all passed.
 - The live sealed-bundle completion review remains the final Step 5 gate.

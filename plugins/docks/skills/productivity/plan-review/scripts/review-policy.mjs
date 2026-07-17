@@ -1597,7 +1597,7 @@ function validateStrictExecutionRange({ repo, planPath, plannedAtCommit, executi
   if (changed.length !== 1 || changed[0] !== logical) throw new Error('execution base must change only the plan');
   const atBaseBytes = git(repo, ['show', `${executionBaseCommit}:${logical}`], null); const beforeBytes = git(repo, ['show', `${parentRow[1]}:${logical}`], null); const atHeadBytes = git(repo, ['show', `${reviewedHead}:${logical}`], null);
   const atBase = parsePlan(atBaseBytes).frontmatter; const before = parsePlan(beforeBytes).frontmatter; const atHead = parsePlan(atHeadBytes).frontmatter;
-  if (atBase.status !== 'ongoing' || atBase.started_at === null || !['planned', 'scheduled'].includes(before.status) || before.started_at !== null || canonicalPlanView(atBaseBytes) !== canonicalPlanView(beforeBytes)) throw new Error('execution base is not the plan-only first-start transition');
+  if (atBase.status !== 'ongoing' || atBase.started_at === null || atBase.started_at === undefined || !['planned', 'scheduled'].includes(before.status) || (before.started_at !== null && before.started_at !== undefined) || canonicalPlanView(atBaseBytes) !== canonicalPlanView(beforeBytes)) throw new Error('execution base is not the plan-only first-start transition');
   if (atBase.planned_at_commit !== plannedAtCommit || atHead.planned_at_commit !== plannedAtCommit || atHead.execution_base_commit !== executionBaseCommit) throw new Error('plan execution identity mismatch');
   return { schema: 1, planned_at_commit: plannedAtCommit, execution_base_commit: executionBaseCommit, reviewed_head: reviewedHead, execution_parent: parentRow[1] };
 }
@@ -1788,7 +1788,7 @@ function validateLegacyFrontmatter(before, atBase) {
   if (jcs(beforeKeys) !== jcs(baseKeys)) throw new Error('legacy start frontmatter key drift');
   const allowed = new Set(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY.start.allowed_frontmatter_changes);
   for (const key of beforeKeys) if (jcs(before[key]) !== jcs(atBase[key]) && !allowed.has(key)) throw new Error(`legacy start frontmatter changed ${key}`);
-  if (!LEGACY_START_TRANSITION_COMPATIBILITY_POLICY.start.from_status.includes(before.status) || before.started_at !== null || atBase.status !== 'ongoing' || atBase.started_at === null) throw new Error('legacy start lifecycle mismatch');
+  if (!LEGACY_START_TRANSITION_COMPATIBILITY_POLICY.start.from_status.includes(before.status) || (before.started_at !== null && before.started_at !== undefined) || atBase.status !== 'ongoing' || atBase.started_at === null || atBase.started_at === undefined) throw new Error('legacy start lifecycle mismatch');
 }
 
 function pathExistsAt(repo, commit, logical) {
