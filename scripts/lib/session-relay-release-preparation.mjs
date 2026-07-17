@@ -704,7 +704,7 @@ function runAcceptanceChecks(deps, plan, sourceCommit, executionBase) {
   const checks = [
     runCheck(deps, 'A1', [{ executable: 'node', args: ['plugins/session-relay/test/companion-distribution-contract.mjs', '--public-remote', PUBLIC_REMOTE, '--public-ref', publicRef, '--public-commit', publicCommit, '--detached-clone'] }]),
     runCheck(deps, 'A2', [
-      { executable: 'cargo', args: ['build', '--manifest-path', 'plugins/session-relay/rust/Cargo.toml', '--release', '--locked'] },
+      { executable: 'cargo', args: ['+1.85.0', 'build', '--manifest-path', 'plugins/session-relay/rust/Cargo.toml', '--release', '--locked'] },
       { executable: 'node', args: ['plugins/session-relay/test/selftest.mjs'], options: { env: { SESSION_RELAY_TEST_BIN: path.join(REPO, 'plugins/session-relay/rust/target/release/relay') } } },
     ]),
     runCheck(deps, 'A3', [{ executable: 'git', args: ['ls-files', 'plugins/session-relay/bin'] }]),
