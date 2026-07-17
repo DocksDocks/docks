@@ -2107,6 +2107,9 @@ function currentAttempt(candidate, overrides = {}) {
     candidate,
     started: true,
     output_started: true,
+    child_id: 'child-1',
+    timeout_mode: 'orchestrator_tool',
+    timeout_seconds: 600,
     result: 'passed',
     exit_code: 0,
     signal: null,
@@ -2264,7 +2267,7 @@ function testCurrentSingleLane() {
 
   const [gpt, fable, opus] = CURRENT_POLICY.candidates;
   const fallback = [
-    currentAttempt(gpt, { started: false, output_started: false, result: 'tool_unavailable', exit_code: null, reason: 'Codex is not installed', stdout_sha256: null, stderr_sha256: null }),
+    currentAttempt(gpt, { started: false, output_started: false, result: 'tool_unavailable', child_id: null, timeout_mode: null, timeout_seconds: null, exit_code: null, reason: 'Codex is not installed', stdout_sha256: null, stderr_sha256: null }),
     currentAttempt(fable, { output_started: false, result: 'auth_failed', exit_code: 1, reason: 'Claude auth is unavailable' }),
     currentAttempt(opus),
   ];
@@ -2277,6 +2280,13 @@ function testCurrentSingleLane() {
     ['fallback after transport failure', [currentAttempt(gpt, { output_started: false, result: 'transient_transport', exit_code: null }), currentAttempt(fable)], /terminal|transport/],
     ['fallback after substantive result', [currentAttempt(gpt), currentAttempt(fable)], /terminal|passed/],
   ]) expectThrow(label, () => reviewPolicy.validateCurrentAttemptSequence(attempts, CURRENT_POLICY), pattern);
+  for (const [label, attempt, pattern] of [
+    ['started attempt requires child id', currentAttempt(gpt, { child_id: null }), /child/i],
+    ['started attempt requires timeout mode', currentAttempt(gpt, { timeout_mode: null }), /timeout/i],
+    ['started attempt requires 600-second timeout', currentAttempt(gpt, { timeout_seconds: 599 }), /600|timeout/i],
+    ['unstarted attempt rejects launch evidence', currentAttempt(gpt, { started: false, output_started: false, result: 'tool_unavailable', exit_code: null, child_id: 'not-launched', timeout_mode: null, timeout_seconds: null, stdout_sha256: null, stderr_sha256: null }), /unstarted|child|launch/i],
+    ['deadline requires exactly one exit or signal', currentAttempt(gpt, { output_started: false, result: 'deadline_exceeded', exit_code: 124, signal: 'SIGTERM' }), /deadline|exit|signal/i],
+  ]) expectThrow(label, () => reviewPolicy.validateCurrentAttemptSequence([attempt], CURRENT_POLICY), pattern);
   expectThrow('unstarted model_unavailable is not a real launch', () => reviewPolicy.validateCurrentAttemptSequence([
     currentAttempt(gpt, {
       started: false,
@@ -2284,6 +2294,9 @@ function testCurrentSingleLane() {
       result: 'model_unavailable',
       exit_code: null,
       reason: 'model probe was never launched',
+      child_id: null,
+      timeout_mode: null,
+      timeout_seconds: null,
       stdout_sha256: null,
       stderr_sha256: null,
     }),

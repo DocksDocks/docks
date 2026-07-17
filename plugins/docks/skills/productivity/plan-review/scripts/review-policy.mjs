@@ -1207,18 +1207,21 @@ export function validateCurrentReviewerOutput(output, request) {
 }
 
 function validateCurrentAttempt(attempt) {
-  assertClosed(attempt, ['schema', 'candidate', 'started', 'output_started', 'result', 'exit_code', 'signal', 'denial_source', 'reason', 'stdout_sha256', 'stderr_sha256'], 'current attempt');
+  assertClosed(attempt, ['schema', 'candidate', 'started', 'output_started', 'child_id', 'timeout_mode', 'timeout_seconds', 'result', 'exit_code', 'signal', 'denial_source', 'reason', 'stdout_sha256', 'stderr_sha256'], 'current attempt');
   if (attempt.schema !== 5) throw new Error('current attempt schema');
   validateCurrentCandidate(attempt.candidate, 'current attempt candidate');
   if (typeof attempt.started !== 'boolean' || typeof attempt.output_started !== 'boolean') throw new Error('current attempt booleans');
   oneOf(attempt.result, CURRENT_ATTEMPT_RESULTS, 'current attempt result');
+  if (attempt.child_id !== null) string(attempt.child_id, 'current attempt child id');
+  if (attempt.timeout_mode !== null) oneOf(attempt.timeout_mode, new Set(['gnu_timeout', 'orchestrator_tool']), 'current attempt timeout mode');
+  if (attempt.timeout_seconds !== null && !Number.isInteger(attempt.timeout_seconds)) throw new Error('current attempt timeout seconds');
   if (attempt.exit_code !== null && !Number.isInteger(attempt.exit_code)) throw new Error('current attempt exit code');
   if (attempt.signal !== null) string(attempt.signal, 'current attempt signal');
   if (attempt.denial_source !== null) oneOf(attempt.denial_source, new Set(['sandbox', 'managed_policy', 'runtime_policy']), 'current attempt denial source');
   string(attempt.reason, 'current attempt reason');
   for (const key of ['stdout_sha256', 'stderr_sha256']) if (attempt[key] !== null) digest(attempt[key], `current attempt ${key}`);
-  if (!attempt.started && (attempt.output_started || attempt.exit_code !== null || attempt.signal !== null || attempt.stdout_sha256 !== null || attempt.stderr_sha256 !== null)) throw new Error('unstarted current attempt carries process evidence');
-  if (attempt.started && (attempt.stdout_sha256 === null || attempt.stderr_sha256 === null)) throw new Error('started current attempt requires output hashes');
+  if (!attempt.started && (attempt.output_started || attempt.child_id !== null || attempt.timeout_mode !== null || attempt.timeout_seconds !== null || attempt.exit_code !== null || attempt.signal !== null || attempt.stdout_sha256 !== null || attempt.stderr_sha256 !== null)) throw new Error('unstarted current attempt carries launch or process evidence');
+  if (attempt.started && (attempt.child_id === null || attempt.timeout_mode === null || attempt.timeout_seconds !== 600 || attempt.stdout_sha256 === null || attempt.stderr_sha256 === null)) throw new Error('started current attempt requires child id, timeout mode, 600-second deadline, and output hashes');
   if (CURRENT_FALLBACK_RESULTS.has(attempt.result) && attempt.output_started) throw new Error('availability fallback cannot follow substantive output');
   if (attempt.result === 'passed' && (!attempt.started || !attempt.output_started || attempt.exit_code !== 0 || attempt.signal !== null || attempt.denial_source !== null)) throw new Error('invalid passed current attempt');
   if (attempt.result === 'platform_denied' && (attempt.output_started || attempt.denial_source === null)) throw new Error('invalid current platform denial');
@@ -1226,7 +1229,7 @@ function validateCurrentAttempt(attempt) {
   if (attempt.result === 'model_unavailable' && !attempt.started) throw new Error('model_unavailable requires a started real launch');
   if (['auth_failed', 'model_unavailable'].includes(attempt.result) && attempt.started && (attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error(`invalid current ${attempt.result}`);
   if (attempt.result === 'tool_unavailable' && attempt.started && (attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error('invalid current tool_unavailable');
-  if (attempt.result === 'deadline_exceeded' && (!attempt.started || (attempt.exit_code === null && attempt.signal === null))) throw new Error('invalid current deadline');
+  if (attempt.result === 'deadline_exceeded' && (!attempt.started || ((attempt.exit_code === null) === (attempt.signal === null)))) throw new Error('invalid current deadline: exactly one exit code or signal is required');
   if (attempt.result === 'transient_transport' && (!attempt.started || attempt.output_started || attempt.exit_code !== null || attempt.signal !== null)) throw new Error('invalid current transient transport');
   if (attempt.result === 'nonzero_exit' && (!attempt.started || attempt.exit_code === null || attempt.exit_code === 0 || attempt.signal !== null)) throw new Error('invalid current nonzero exit');
   if (attempt.result === 'signaled' && (!attempt.started || !attempt.signal || attempt.exit_code !== null)) throw new Error('invalid current signal');
@@ -1477,12 +1480,13 @@ export function validateCurrentReviewReceipt(receipt, expected = null, { waivers
 }
 
 function validateCurrentRepairTarget(target) {
-  assertClosed(target, ['id', 'criterion', 'status', 'defect', 'fix', 'reproduction'], 'current repair target');
+  assertClosed(target, ['id', 'source', 'criterion', 'status', 'section', 'path', 'locator', 'defect', 'fix', 'evidence', 'reproduction'], 'current repair target');
   string(target.id, 'current repair target id');
+  if (target.source !== 'primary') throw new Error('current repair target source must be primary');
   oneOf(target.criterion, new Set(CURRENT_CRITERIA), 'current repair target criterion');
   if (target.status !== 'blocking_gap') throw new Error('current repair target must be blocking_gap');
-  string(target.defect, 'current repair target defect');
-  string(target.fix, 'current repair target fix');
+  for (const key of ['section', 'defect', 'fix', 'evidence']) string(target[key], `current repair target ${key}`);
+  for (const key of ['path', 'locator']) if (target[key] !== null && typeof target[key] !== 'string') throw new Error(`current repair target ${key}`);
   validateCurrentReproduction({ id: target.id, reproduction: target.reproduction });
   return target;
 }
@@ -1564,7 +1568,8 @@ export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
     for (const target of transition.targets) {
       const finding = findings.get(target.id);
       const reproduction = reproduced.get(target.id);
-      if (!finding || !reproduction || target.criterion !== finding.criterion || target.status !== finding.status || target.defect !== finding.defect || target.fix !== finding.fix || jcs(target.reproduction) !== jcs(reproduction)) throw new Error('current repair target was not exactly reproduced');
+      const findingFields = ['criterion', 'status', 'section', 'path', 'locator', 'defect', 'fix', 'evidence'];
+      if (!finding || !reproduction || target.source !== 'primary' || findingFields.some((key) => target[key] !== finding[key]) || jcs(target.reproduction) !== jcs(reproduction)) throw new Error('current repair target was not exactly reproduced');
     }
   }
   if (series.rounds.at(-1).request.input_sha256 !== series.current_input_sha256) throw new Error('current review series current input mismatch');

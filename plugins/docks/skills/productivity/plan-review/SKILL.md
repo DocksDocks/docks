@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-17"
-  content_hash: "39ecbc8e6f5f58e757796d80c8988ce52dfdd7e08c7037f470742622f9491672"
+  content_hash: "a2d0d5d950207e20b253006e5aa59c3879ef69e61cfed381e3a7088e7b9b59b8"
 ---
 
 # Plan Review Evidence Runner
@@ -200,10 +200,11 @@ retargeted.
 A failed raw review cannot discard a successful passed attempt; that
 contradiction is invalid evidence, not a terminal failure.
 Each current attempt records the exact candidate, whether output started,
-child/deadline/exit/signal data when launched, raw stdout/stderr hashes, parsed
-result or null, and one typed terminal result. The schema-5 run returns one
-selected primary attempt or null, the ordered attempts, exact request, valid
-reviewer output or none, hashes, waiver or null, and reason.
+`child_id`, `timeout_mode`, `timeout_seconds:600`, exit/signal data, raw
+stdout/stderr hashes, parsed result or null, and one typed terminal result. The
+schema-5 run returns one selected primary attempt or null, the ordered attempts,
+the exact request, valid reviewer output or none, hashes, waiver or null, and
+reason.
 
 Historical policy v1 retains exactly one typed transient retry per X/S leg after
 pre-output execution-layer `EAGAIN`, `ETIMEDOUT`, or `ECONNRESET`. Strings,
@@ -406,8 +407,9 @@ extracting Codex's final schema object or Claude's `structured_output`.
   before launch and after the attempt.
 - Treat a rejected `destroy-bundle` operation as a STOP; never replace it with
   shell permission or removal commands.
-- Confirm every started attempt has child id, timeout mode, exit/signal, and raw
-  output hashes consistent with its typed result.
+- Confirm every started attempt has `child_id`, `timeout_mode`,
+  `timeout_seconds:600`, exit/signal, and raw output hashes consistent with its
+  typed result.
 - Confirm current waiver uniqueness by `(phase,input_sha256,role)` and exactly
   `roles:["primary"]`; duplicate/conflicting waivers STOP.
 - Confirm every reproduced finding id exists in the primary output; this skill

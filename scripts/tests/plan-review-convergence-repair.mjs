@@ -711,6 +711,9 @@ function currentRaw(req, status = 'pass') {
       candidate: CURRENT_POLICY.candidates[0],
       started: true,
       output_started: true,
+      child_id: 'child-1',
+      timeout_mode: 'orchestrator_tool',
+      timeout_seconds: 600,
       result: 'passed',
       exit_code: 0,
       signal: null,
@@ -734,6 +737,9 @@ function currentAttempt(candidate, overrides = {}) {
     candidate,
     started: true,
     output_started: true,
+    child_id: 'child-1',
+    timeout_mode: 'orchestrator_tool',
+    timeout_seconds: 600,
     result: 'passed',
     exit_code: 0,
     signal: null,
@@ -801,11 +807,16 @@ function currentRun(req, status = 'pass') {
 function currentRepairTarget(status = 'blocking_gap') {
   const source = currentFinding(status);
   return {
+    source: 'primary',
     id: source.id,
     criterion: source.criterion,
     status: source.status,
+    section: source.section,
+    path: source.path,
+    locator: source.locator,
     defect: source.defect,
     fix: source.fix,
+    evidence: source.evidence,
     reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
   };
 }
@@ -839,6 +850,48 @@ function testSingleRepair() {
     repairs: [transition],
   };
   policy.validateCurrentReviewSeries(series);
+  const completeTarget = currentRepairTarget();
+  for (const key of ['source', 'section', 'path', 'locator', 'evidence']) {
+    const missing = structuredClone(completeTarget);
+    delete missing[key];
+    assert.throws(() => policy.buildCurrentRepairTransition({
+      fromRoundIndex: 1,
+      previousInputSha256: first.input_sha256,
+      currentInputSha256: H2,
+      acceptedFindingIds: ['P1'],
+      targets: [missing],
+    }), new RegExp(`${key}|missing|repair target`, 'i'));
+  }
+  for (const [key, value] of [
+    ['section', 'Different section'],
+    ['path', 'src/other.txt'],
+    ['locator', 'A9'],
+    ['evidence', 'Different evidence'],
+  ]) {
+    const changedTarget = { ...completeTarget, [key]: value };
+    const changedTransition = policy.buildCurrentRepairTransition({
+      fromRoundIndex: 1,
+      previousInputSha256: first.input_sha256,
+      currentInputSha256: H2,
+      acceptedFindingIds: ['P1'],
+      targets: [changedTarget],
+    });
+    assert.throws(() => policy.validateCurrentReviewSeries({
+      ...series,
+      repairs: [changedTransition],
+      rounds: [roundOne, currentRun({
+        ...second,
+        repair_targets_sha256: changedTransition.repair_targets_sha256,
+      })],
+    }), new RegExp(`${key}|exact|reproduced`, 'i'));
+  }
+  assert.throws(() => policy.buildCurrentRepairTransition({
+    fromRoundIndex: 1,
+    previousInputSha256: first.input_sha256,
+    currentInputSha256: H2,
+    acceptedFindingIds: ['P1'],
+    targets: [{ ...completeTarget, source: 'secondary' }],
+  }), /source|primary/i);
 
   assert.throws(() => policy.buildCurrentRepairTransition({
     fromRoundIndex: 1,
@@ -973,6 +1026,7 @@ function testSingleRepair() {
 
 function testCurrentBundles() {
   const fixture = initializeFixture();
+  const directBundles = [];
   try {
     const historicalDefault = policy.sealBundle({
       repo: fixture.repo,
@@ -1017,6 +1071,22 @@ function testCurrentBundles() {
     assert.equal(fs.existsSync(path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json')), true);
     assert.equal(currentBundle.manifest.files.some(({ path: entry }) => /^reviewer-output\.[XS](?:\.v[23])?\.schema\.json$/.test(entry)), false);
     policy.verifyBundle({ bundle: path.join(fixture.root, 'current-bundle'), expectedSha256: currentBundle.bundle_sha256 });
+    fs.mkdirSync('/tmp/docks-plan-review', { recursive: true, mode: 0o700 });
+    const directFullPath = path.join('/tmp/docks-plan-review', randomUUID());
+    directBundles.push(directFullPath);
+    const directFull = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: directFullPath,
+      reviewSchema: 5,
+    });
+    assert.deepEqual(policy.destroyBundle({ bundle: directFullPath, expectedSha256: directFull.bundle_sha256 }), {
+      schema: 1,
+      bundle_sha256: directFull.bundle_sha256,
+      removed: true,
+    });
 
     const transition = policy.buildCurrentRepairTransition({
       fromRoundIndex: 1,
@@ -1035,6 +1105,22 @@ function testCurrentBundles() {
       repair: { previousPlan: fixture.previousPlan, transition },
     });
     assert.equal(repaired.manifest.schema, 4);
+    const directRepairPath = path.join('/tmp/docks-plan-review', randomUUID());
+    directBundles.push(directRepairPath);
+    const directRepair = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: directRepairPath,
+      reviewSchema: 5,
+      repair: { previousPlan: fixture.previousPlan, transition },
+    });
+    assert.deepEqual(policy.destroyBundle({ bundle: directRepairPath, expectedSha256: directRepair.bundle_sha256 }), {
+      schema: 1,
+      bundle_sha256: directRepair.bundle_sha256,
+      removed: true,
+    });
 
     assert.throws(() => policy.sealBundle({
       repo: fixture.repo,
@@ -1046,6 +1132,11 @@ function testCurrentBundles() {
     }), /reviewSchema|review schema|schema-5 repair/i);
     console.log('current bundle carries primary v5 identity while historical bundles remain byte-compatible');
   } finally {
+    for (const directBundle of directBundles) {
+      if (!fs.existsSync(directBundle)) continue;
+      makeWritable(directBundle);
+      fs.rmSync(directBundle, { recursive: true, force: true });
+    }
     makeWritable(fixture.root);
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -1123,6 +1214,9 @@ function testCurrentReviewerArgv() {
     const wrongFirstAttempt = currentAttempt(fable, {
       started: false,
       output_started: false,
+      child_id: null,
+      timeout_mode: null,
+      timeout_seconds: null,
       result: 'tool_unavailable',
       exit_code: null,
       reason: 'Claude is not installed',

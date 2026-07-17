@@ -3,7 +3,7 @@ title: Adopt one bounded primary plan reviewer
 goal: Make new Docks plan reviews use one GPT-first reviewer role with Claude availability fallback, evidence-backed checklist findings, and at most one repair.
 status: in_review
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-17T03:42:52-03:00"
+updated: "2026-07-17T04:29:23-03:00"
 started_at: "2026-07-17T00:21:34-03:00"
 in_review_since: "2026-07-17T01:42:11-03:00"
 assignee: codex
@@ -103,7 +103,7 @@ node scripts/ci.mjs
 | 2 | Add isolated schema-5 policy, request, reviewer, run, receipt, waiver, and bundle validation. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` (`reviewRecordSchema`, `validatePolicy`, `validateRequest`, current reviewer schema/output, attempt classification, run/receipt/series validation, current bundle sealing/verification, primary completion rendering); `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 1 | done | New records use one primary role, exact candidate/checklist contract, complete receipt-bound series, manifest schemas 3/4, and primary-only rendering; historical branches, bundle bytes, and fixtures remain valid. |
 | 3 | Replace current dispatch and receipt prose across every live/generated surface. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; both plan-init references; `docs/plans/AGENTS.md`; both plugin agents; both Codex agents; three scaffold templates; root/plugin READMEs and AGENTS files | 2 | done | Every current surface says GPT-first single primary reviewer, Claude availability fallback, checklist evidence, strict blocker outcome, complete series, current bundle/renderer identity, and no default dual launch; X/S/score/five-round language is explicitly historical only. |
 | 4 | Restrict improvement to one accepted-blocker repair and prove convergence. | `plugins/docks/skills/productivity/plan-improver/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; convergence and regression tests | 2, 3 | done | Round 1 is full; round 2 exists only after accepted reproduced blockers and a changed input; any round-2 blocker is terminal; a third round, reset, continuation, nonblocking target, or fallback after output is rejected. |
-| 5 | Synchronize hashes and verify the current and historical contracts. | Changed skills and references; all three plan-review test drivers; `scripts/ci.mjs` | 3, 4 | in_progress | Focused current/historical/surface/mutation gates, targeted Docks CI, the separate full repository CI gate, and one live GPT completion review pass. |
+| 5 | Repair the accepted blockers, synchronize hashes, and verify the current and historical contracts. | Changed skills and references; all three plan-review test drivers; `scripts/ci.mjs` | 3, 4 | in_progress | Started attempts bind child/deadline identity; complete repair targets bind all finding evidence; each request bundle is accepted by the same hash-verifying cleanup helper; focused positive/negative/mutation gates, targeted Docks CI, the separate full repository CI gate, and one freshly sealed GPT repair review pass. |
 
 ## Interfaces and data shapes
 
@@ -156,6 +156,36 @@ has at least one matching finding; every finding matches its criterion/status.
 safety property, or execution step that would fail.
 
 ```text
+CurrentReviewAttemptV5 = {
+  schema: 5,
+  candidate: <exact policy candidate>,
+  started: boolean,
+  output_started: boolean,
+  child_id: string | null,
+  timeout_mode: "gnu_timeout" | "orchestrator_tool" | null,
+  timeout_seconds: 600 | null,
+  result, exit_code, signal, denial_source, reason,
+  stdout_sha256, stderr_sha256
+}
+```
+
+Every started attempt has a nonempty `child_id`, one allowed timeout mode,
+`timeout_seconds:600`, and both output hashes. Those three launch/deadline fields
+are null when `started:false`. A `deadline_exceeded` attempt records exactly one
+of `exit_code` or `signal`.
+
+```text
+CurrentRepairTargetV5 = {
+  id, source: "primary", criterion, status: "blocking_gap",
+  section, path, locator, defect, fix, evidence, reproduction
+}
+```
+
+The target is a closed projection of the complete accepted round-1 finding plus
+its independent reproduction. The digest and series comparison bind every
+field byte-for-byte.
+
+```text
 CurrentReviewReceiptV5 = {
   schema: 5,
   phase: "draft" | "completion",
@@ -193,6 +223,9 @@ its exact X/S Cross-check.
 - `platform_denied`, deadline, transient transport, signal, nonzero exit,
   unparseable/invalid output, any parsed finding, or a substantive verdict is
   terminal. Never route around host policy or shop for a favorable verdict.
+- Every started launch records a nonempty child id, one allowed timeout mode,
+  and exactly 600 seconds. Unstarted attempts record all three as null; a
+  deadline result carries exactly one of exit code or signal.
 - Any reported `blocking_gap` makes the run `not_ready`; rejecting it during
   reconciliation cannot rewrite the reviewer result into `passed`.
 - The main context independently reproduces findings and records exact accepted
@@ -203,6 +236,11 @@ its exact X/S Cross-check.
   run once.
 - Repair review binds changed input, prior input, and exact repair-target digest;
   completion rounds retain the same planned/start execution identities.
+- Each repair target retains `source`, `section`, `path`, `locator`, and
+  `evidence` alongside finding identity, fix, and reproduction.
+- Seal each request directly at `/tmp/docks-plan-review/<request_id>`. The same
+  hash-verifying `destroy-bundle` helper used for final cleanup must accept that
+  path before dispatch; nested round paths are invalid.
 - Round 2 passes only without blocking findings. No round 3, continuation
   batch, reset, candidate rotation after output, or hidden retry.
 
@@ -210,14 +248,14 @@ its exact X/S Cross-check.
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node scripts/tests/plan-review-policy.mjs --case current-single-lane` | Exits 0; schema 5 accepts the exact GPT/Fable/Opus primary chain and only availability-class fallback before output. |
+| A1 | `node scripts/tests/plan-review-policy.mjs --case current-single-lane` | Exits 0; schema 5 accepts the exact GPT/Fable/Opus primary chain and only availability-class fallback before output; positive attempts bind child id, allowed timeout mode, and 600 seconds, while negative fixtures reject missing, unstarted, or contradictory deadline evidence. |
 | A2 | `node scripts/tests/plan-review-policy.mjs --case current-receipts` | Exits 0; closed checklist/receipt/waiver shapes reject X/S, score, numeric rubric, missing evidence, verdict mismatch, fallback after output, a failed result that discards a passed attempt, and generic-series/draft reuse without the exact waiver. |
 | A3 | `node scripts/tests/plan-review-policy.mjs --case historical-schemas` | Exits 0; policy v1-v4, record schemas 1-3, X/S receipts, and numeric rubric fixtures retain their prior validation results. |
-| A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case single-repair` | Exits 0; repair requires every raw blocker to be accepted and reproduced; unchanged input, rejected blockers, completion execution-identity drift, nonblocking targets, reset, or round 3 fail closed. |
+| A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case single-repair` | Exits 0; repair requires every raw blocker to be accepted and reproduced; targets retain exact `source`, `section`, `path`, `locator`, and `evidence`; omission/substitution, unchanged input, rejected blockers, completion identity drift, nonblocking targets, reset, or round 3 fail closed. |
 | A5 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0; all live/generated surfaces describe the same current single-primary contract and label old X/S/score/five-round records historical. |
-| A6 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0; isolated policy and convergence-harness mutations cannot restore dual launch, numeric current gating, permissive fallback, incomplete blocker repair, unbound argv/bundles/waivers, or renewable rounds. |
+| A6 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0; isolated mutations cannot restore dual launch, numeric current gating, permissive fallback, incomplete blocker repair, unbound argv/bundles/waivers, renewable rounds, missing child/deadline checks, contradictory timeout outcomes, or incomplete repair-target identity. |
 | A7 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-review-ci.json` | Exits 0; all Docks-owned current/historical gates and skill/hash validators pass. |
-| A8 | `node scripts/tests/plan-review-convergence-repair.mjs --case current-bundle` | Exits 0; current full/repair manifests are schemas 3/4 with only the primary v5 schema, while deterministic fixed goldens preserve historical manifest/schema 1/2 bytes. |
+| A8 | `node scripts/tests/plan-review-convergence-repair.mjs --case current-bundle` | Exits 0; current full/repair manifests are schemas 3/4 with only the primary v5 schema, direct per-request paths are accepted and removed by `destroy-bundle`, and deterministic fixed goldens preserve historical manifest/schema 1/2 bytes. |
 | A9 | `node scripts/tests/plan-review-convergence-repair.mjs --case current-argv` | Exits 0; each launch is the exact next policy candidate derived from prior attempts. |
 | A10 | `node scripts/tests/plan-review-policy.mjs --case current-completion-renderer` | Exits 0; schema-5 completion renders a waiver-aware primary summary and historical receipts retain X/S rendering. |
 | A11 | `node scripts/tests/plan-review-policy.mjs --case completion-reuse` | Exits 0; schema-5 waived completion rendering and strict reuse require the exact authoritative waiver set. |

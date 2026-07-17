@@ -952,6 +952,26 @@ const REGRESSIONS = [
     "if (attempt.result === 'model_unavailable' && !attempt.started) throw new Error('model_unavailable requires a started real launch');",
     "if (false && attempt.result === 'model_unavailable' && !attempt.started) throw new Error('model_unavailable requires a started real launch');",
   )],
+  ['current attempt launch-evidence regression', ['--case', 'current-single-lane'], /child|timeout|600|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (attempt.started && (attempt.child_id === null || attempt.timeout_mode === null || attempt.timeout_seconds !== 600 || attempt.stdout_sha256 === null || attempt.stderr_sha256 === null)) throw new Error('started current attempt requires child id, timeout mode, 600-second deadline, and output hashes');",
+    "if (attempt.started && (attempt.stdout_sha256 === null || attempt.stderr_sha256 === null)) throw new Error('started current attempt requires output hashes');",
+  )],
+  ['current deadline contradiction regression', ['--case', 'current-single-lane'], /deadline|exit|signal|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (attempt.result === 'deadline_exceeded' && (!attempt.started || ((attempt.exit_code === null) === (attempt.signal === null)))) throw new Error('invalid current deadline: exactly one exit code or signal is required');",
+    "if (attempt.result === 'deadline_exceeded' && (!attempt.started || (attempt.exit_code === null && attempt.signal === null))) throw new Error('invalid current deadline');",
+  )],
+  ['current repair source-binding regression', ['--case', 'single-repair'], /source|primary|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "if (target.source !== 'primary') throw new Error('current repair target source must be primary');",
+    "if (false && target.source !== 'primary') throw new Error('current repair target source must be primary');",
+  ), CONVERGENCE_HARNESS],
+  ['current repair finding-identity regression', ['--case', 'single-repair'], /section|path|locator|evidence|exact|reproduced|Missing expected exception|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
+    "const findingFields = ['criterion', 'status', 'section', 'path', 'locator', 'defect', 'fix', 'evidence'];",
+    "const findingFields = ['criterion', 'status', 'defect', 'fix'];",
+  ), CONVERGENCE_HARNESS],
   ['current rejected blocking-gap regression', ['--case', 'current-receipts'], /blocking_gap.*terminal|outcome mismatch|Missing expected exception|Assertion/i, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
     "if (currentBlockingFindings(reviewer).length > 0) return { outcome: 'not_ready', eligible: false };",

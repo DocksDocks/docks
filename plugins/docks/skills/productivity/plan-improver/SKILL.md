@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-17"
-  content_hash: "3e2ad4a71115986422653af2222f8f2030078879356d7dc20769f1e6cc833a1f"
+  content_hash: "946ddaa731dc89265d045fbfd8c0f3885d7584829df96df5e97ef31dedc2574b"
 ---
 
 # Plan Improver
@@ -60,6 +60,7 @@ PlanImprovementRequest = {
     locator: string|null,
     defect,
     fix,
+    evidence,
     reproduction
   }]
 }
