@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: in_review
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T20:20:44-03:00"
+updated: "2026-07-17T20:24:12-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 in_review_since: "2026-07-17T20:20:44-03:00"
 assignee: null
@@ -306,7 +306,7 @@ The preserved docks/effect-kit interface retains current bump resolution, manife
 | A3 | `git ls-files plugins/session-relay/bin` | Output is exactly `plugins/session-relay/bin/relay`. |
 | A4 | `node scripts/ci.mjs --plugin session-relay` | Exit 0; Session Relay Rust, launcher, workflow, manifest, skill, and self-test gates pass. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only plugins/session-relay/skills` | Exit 0 with no stale hash. |
-| A6 | `base=$(node -e 'const fs=require("node:fs");const s=fs.readFileSync("docs/plans/active/session-relay-prebuilt-cli-distribution.md","utf8");let v;if(s.trimStart().startsWith("{"))v=JSON.parse(s).execution_base_commit;else v=s.match(/^execution_base_commit:\s*([0-9a-f]{40})$/m)?.[1];if(!/^[0-9a-f]{40}$/.test(v||""))process.exit(1);process.stdout.write(v)') && git diff --check "$base..HEAD"` | Exit 0; the lifecycle base is exactly one full SHA in either tracked YAML or sealed JSON projection, and no whitespace error exists anywhere in the immutable implementation range. |
+| A6 | `base=$(node -e 'const fs=require("node:fs");const s=fs.readFileSync("docs/plans/active/session-relay-prebuilt-cli-distribution.md","utf8");let v;if(s.trimStart().startsWith("{"))v=JSON.parse(s).execution_base_commit;else v=s.match(/^execution_base_commit:\\s*([0-9a-f]{40})$/m)?.[1];if(!/^[0-9a-f]{40}$/.test(v\|\|""))process.exit(1);process.stdout.write(v)') && git diff --check "$base..HEAD"` | Exit 0; the lifecycle base is exactly one full SHA in either tracked YAML or sealed JSON projection, and no whitespace error exists anywhere in the immutable implementation range. |
 | A7 | `node scripts/release.mjs --verify-embedded-preparation --plugin session-relay 0.12.0 --plan docs/plans/active/session-relay-prebuilt-cli-distribution.md` | Exit 0; the command reconstructs the two embedded red receipts plus preflight, source-CI, and candidate JCS bytes, verifies every recorded SHA-256/test blob/ref identity against freshly fetched public and plan-derived Docks commits, proves the current release-owned tree is unchanged, and emits no replacement candidate. |
 | A8 | `test -z "$(git status --porcelain=v1)"` | Exit 0, proving the Docks verification checkout is clean before completion review; companion cleanliness and exact HEAD identity are already verified immutably by A1. |
 
@@ -464,6 +464,7 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - Source preparation candidate SHA-256: 7910647c84150a19ff0382ebb20dcf5619ab3c2a0b7137cd26a0790e9f30728f
 - Intended first compatible Session Relay release: `0.12.0`.
 - Release authorization was explicitly granted by the user after the first independent review and later expanded to continue without a review-round limit; Session Relay `0.12.0` plus docks-kit `0.9.0` publication are the required post-completion outcome.
+- **2026-07-17T20:24:12-03:00**: Canonical completion-bundle preparation rejected A6 because its JavaScript `||` was unescaped inside the Markdown table and therefore parsed as extra columns. The same parser treats backslash as an escape, so the regex's literal `\s` also requires doubled Markdown escaping. These table escapes preserve the exact executed command after canonical decoding and make the acceptance inventory sealable; no implementation, evidence receipt, or lifecycle identity changed.
 
 ## Mistakes & Dead Ends
 
