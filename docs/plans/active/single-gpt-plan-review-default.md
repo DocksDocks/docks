@@ -3,7 +3,7 @@ title: Default plan review to one GPT reviewer
 goal: Make Docks use one bounded gpt-5.6-sol high Standard reviewer lane by default, with no cross-company launch and no renewable review batches.
 status: planned
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-16T22:50:14-03:00"
+updated: "2026-07-16T23:08:00-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -76,6 +76,7 @@ node scripts/tests/plan-review-convergence-repair.mjs --case repair-series
 node scripts/tests/plan-review-policy-regressions.mjs --self-test
 node scripts/ci.mjs --plugin docks
 node scripts/ci.mjs
+```
 
 ## Steps
 
@@ -165,6 +166,12 @@ inventing a new schema. The plan preserves the hard convergence cap and keeps
   — accepted-target equality and the one-series lifetime cap.
 - `plugins/docks/skills/productivity/plan-init/SKILL.md:169-217` — the copy-only
   Codex wrapper source and generation path.
+- `scripts/tests/plan-review-policy.mjs:1936-1955` — exact focused dispatch for
+  `schemas`, `legs`, and `surfaces`.
+- `scripts/tests/plan-review-convergence-repair.mjs:619-631` — closed repair
+  case map and `repair-series` entrypoint.
+- `scripts/tests/plan-review-policy-regressions.mjs:949-978` — mutation result
+  oracle and self-test dispatcher.
 
 ## Notes
 
@@ -184,3 +191,8 @@ paths, absent code-derived Sources evidence, and duplicated full-CI acceptance
 entry. This repair changes only those accepted findings. The user's later
 plugin-targeting request is tracked in a separate plan so it cannot expand this
 bounded review series.
+
+Repair round 2 reported S1-S2. Main context accepted both: restore the command
+fence accidentally removed during the first repair, and cite all three affected
+test entrypoints required by accepted round-1 finding S3. No other section or
+design decision changed.
