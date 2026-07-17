@@ -3,7 +3,7 @@ title: Accept terminal-LF normalization in completion receipt reuse
 goal: Let the canonical completion-reuse gate validate a reviewed plan whose source blob lacks a final LF without weakening receipt, plan-delta, or review-block binding.
 status: planned
 created: "2026-07-17T05:30:00-03:00"
-updated: "2026-07-17T05:30:00-03:00"
+updated: "2026-07-17T10:10:47-03:00"
 started_at: null
 in_review_since: null
 assignee: codex
@@ -20,7 +20,7 @@ affected_paths:
 related_plans:
   - single-gpt-plan-review-default
 review_status: null
-planned_at_commit: null
+planned_at_commit: 1005aa7e5ace531669d34d003d36d5762fe44eec
 execution_base_commit: null
 ---
 
