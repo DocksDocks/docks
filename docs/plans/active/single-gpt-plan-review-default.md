@@ -3,7 +3,7 @@ title: Default plan review to one GPT reviewer
 goal: Make Docks use one bounded gpt-5.6-sol high Standard reviewer lane by default, with no cross-company launch and no renewable review batches.
 status: planned
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-16T22:13:24-03:00"
+updated: "2026-07-16T22:18:40-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -31,7 +31,7 @@ affected_paths:
 related_plans:
   - plan-review-convergence-and-improver
 review_status: null
-planned_at_commit: null
+planned_at_commit: ead53b7ecf3890aaaff23337316f00366319e008
 execution_base_commit: null
 ---
 
