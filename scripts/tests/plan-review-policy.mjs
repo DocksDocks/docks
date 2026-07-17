@@ -1835,11 +1835,13 @@ function testContractSurfaces() {
   for (const marker of ['STALE_V2', 'plan-init refresh', 'explicit user intent', 'existing `.codex/agents/', 'lifetime review-series marker']) assert.match(init, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-init missing refresh marker ${marker}`);
   const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
   const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
-  const regressionCall = "nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'])";
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*,\s*['"]--case['"]\s*,\s*['"]surfaces['"]\s*\]\)/g) || []).length, 1, 'CI must contain exactly one focused --case surfaces call');
-  assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\)/g) || []).length, 1, 'CI must contain exactly one regression-driver --self-test call');
+  assert.equal((ci.match(/startNodeTask\(\s*['"]plan-review-policy regressions['"]\s*,\s*\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\s*\)/g) || []).length, 1, 'CI must contain exactly one background regression-driver --self-test task');
+  assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\)/g) || []).length, 0, 'CI must not synchronously rerun the regression driver');
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*\]\)/g) || []).length, 0, 'CI must contain zero no-argument full policy-harness calls');
-  assert.match(ci, new RegExp(`${focusedCall.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')};\\nconst planPolicyRegressionsPassed = ${regressionCall.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')};`), 'CI must launch focused surfaces before the unconditional regression driver');
+  assert.ok(ci.indexOf("startNodeTask('plan-review-policy regressions'") < ci.indexOf("section('workflow YAML')"), 'CI must start the regression driver before independent shared checks');
+  assert.ok(ci.indexOf(focusedCall) < ci.indexOf('await planPolicyRegressionTask'), 'CI must join the regression driver after focused Docks checks');
+  assert.equal((ci.match(/await planPolicyRegressionTask/g) || []).length, 1, 'CI must join the background regression driver exactly once');
   const exactRules = [
     "Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; schema-v1 validators and receipts remain unchanged.",
     'Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition.',

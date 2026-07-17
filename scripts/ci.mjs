@@ -4,8 +4,8 @@
 // scripts/lib/plugins.mjs is gated through the same capability-driven
 // gatePlugin() (a check runs only when the descriptor declares that capability).
 // Adding a plugin = one registry entry; no edits here.
-// Usage: node scripts/ci.mjs [-q] [--plugin <name>] [--list]
-import { spawnSync } from 'node:child_process';
+// Usage: node scripts/ci.mjs [-q] [--plugin <name>] [--timings-json <path>] [--list]
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
@@ -14,37 +14,111 @@ import {
   CLAUDE_MARKETPLACE, CODEX_MARKETPLACE, marketEntryVersion, manifestCategories, shellHooks,
 } from './lib/plugins.mjs';
 import { findCargo, rustHostTarget, sha256File, verifySha256Sums } from './lib/rust-bin.mjs';
+import { resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 process.chdir(REPO);
-const argv = process.argv.slice(2);
-const QUIET = argv.includes('-q');
-const onlyPlugin = (() => { const i = argv.indexOf('--plugin'); return i >= 0 ? argv[i + 1] : null; })();
+const rawArgv = process.argv.slice(2);
 
+function parseArgs(args) {
+  const options = { quiet: false, list: false, plugin: null, timingsJson: null };
+  const seen = new Set();
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '-q' || arg === '--list') {
+      if (seen.has(arg)) throw new Error(`duplicate argument: ${arg}`);
+      seen.add(arg);
+      if (arg === '-q') options.quiet = true;
+      else options.list = true;
+      continue;
+    }
+    if (arg === '--plugin' || arg === '--timings-json') {
+      if (seen.has(arg)) throw new Error(`duplicate argument: ${arg}`);
+      const value = args[index + 1];
+      if (!value || value.startsWith('-')) throw new Error(`${arg} requires one value`);
+      seen.add(arg); index += 1;
+      if (arg === '--plugin') options.plugin = value;
+      else options.timingsJson = value;
+      continue;
+    }
+    throw new Error(`unknown argument: ${arg}`);
+  }
+  if (options.list && (options.plugin !== null || options.timingsJson !== null)) {
+    throw new Error('--list cannot be combined with --plugin or --timings-json');
+  }
+  return options;
+}
+
+let options;
+try { options = parseArgs(rawArgv); }
+catch (error) { console.error(`error: ${error.message}`); process.exit(2); }
+const QUIET = options.quiet;
+const onlyPlugin = options.plugin;
+const startedAt = performance.now();
+const phases = [];
+const tasks = [];
+let activePhase = null;
 const failures = [];
 const ok = (m) => { if (!QUIET) console.log(`\x1b[1;32m  ✔\x1b[0m ${m}`); };
 const fail = (m) => { console.log(`\x1b[1;31m  ✘\x1b[0m ${m}`); failures.push(m); };
 const warn = (m) => { if (!QUIET) console.log(`\x1b[1;33m  ⚠\x1b[0m ${m}`); };
-const section = (m) => { if (!QUIET) console.log(`\n\x1b[1m▸ ${m}\x1b[0m`); };
+const closePhase = () => {
+  if (activePhase === null) return;
+  phases.push({
+    name: activePhase.name,
+    duration_ms: Math.max(0, Math.round(performance.now() - activePhase.startedAt)),
+    status: failures.length === activePhase.failureCount ? 'passed' : 'failed',
+  });
+  activePhase = null;
+};
+const section = (m) => {
+  closePhase();
+  activePhase = { name: m, startedAt: performance.now(), failureCount: failures.length };
+  if (!QUIET) console.log(`\n\x1b[1m▸ ${m}\x1b[0m`);
+};
 const node = (args) => spawnSync('node', args, { encoding: 'utf8' });
 const nodeOk = (args) => (node(args).status ?? 1) === 0;
+const startNodeTask = (name, args) => {
+  const taskStartedAt = performance.now();
+  return new Promise((resolve) => {
+    const child = spawn('node', args, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] });
+    const limit = 1024 * 1024;
+    let stdout = ''; let stderr = ''; let spawnError = null;
+    const append = (current, chunk) => `${current}${chunk}`.slice(-limit);
+    child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+    child.on('error', (error) => { spawnError = error; });
+    child.on('close', (code, signal) => {
+      const passed = spawnError === null && code === 0;
+      tasks.push({ name, duration_ms: Math.max(0, Math.round(performance.now() - taskStartedAt)), status: passed ? 'passed' : 'failed' });
+      if (!passed) {
+        if (stdout) process.stderr.write(stdout);
+        if (stderr) process.stderr.write(stderr);
+        if (spawnError) console.error(spawnError.message);
+        else if (signal) console.error(`${name} terminated by ${signal}`);
+      }
+      resolve(passed);
+    });
+  });
+};
 const readJSON = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const BUNDLE = 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs';
 const floorOf = (kind, cat) => { const r = node(['scripts/config/read-floor.mjs', kind, ...(cat ? [cat] : [])]); return r.status === 0 ? parseInt(r.stdout.trim(), 10) : null; };
 
 // --list: print the registry and exit.
-if (argv.includes('--list')) {
+if (options.list) {
   for (const p of PLUGINS) console.log(`${p.name}\t${p.root}\t${fs.existsSync(p.root) ? 'present' : 'MISSING'}`);
   process.exit(0);
 }
 
 // Which plugins to gate (default: every present plugin; --plugin narrows it).
-let targets = presentPlugins();
-if (onlyPlugin) {
-  const p = byName(onlyPlugin);
-  if (!p) { console.error(`unknown plugin: ${onlyPlugin} (known: ${PLUGINS.map((x) => x.name).join(', ')})`); process.exit(2); }
-  targets = [p];
-}
+let targets;
+try { targets = resolveCiTargets(presentPlugins(), onlyPlugin); }
+catch (error) { console.error(error.message); process.exit(2); }
+const authorChecks = selectedAuthorChecks(targets);
+const planPolicyRegressionTask = authorChecks.has('plan-review')
+  ? startNodeTask('plan-review-policy regressions', ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'])
+  : null;
 
 // Catalogs are shared; read once (used by the per-plugin version checks too).
 const claudeMarket = readJSON(CLAUDE_MARKETPLACE);
@@ -67,14 +141,20 @@ nodeOk(['scripts/tree/guard.mjs']) ? ok('tree/guard passed (context-tree node pa
 nodeOk(['scripts/skills/durable-anchors.mjs']) ? ok('durable-anchors passed (no live file:line anchors in long-lived docs)')
   : fail("durable-anchors failed (run 'node scripts/skills/durable-anchors.mjs')");
 
-section('skill-maintainer idempotency');
-nodeOk(['tests/idempotency.mjs']) ? ok('skill content_hash determinism; maintainer re-run is a no-op')
-  : fail('skill-maintainer idempotency failed (run: node tests/idempotency.mjs)');
+section('CI targeting contract');
+nodeOk(['scripts/tests/ci-plugin-targeting.mjs', '--unit']) ? ok('CI targeting, tag resolution, and cache contract passed')
+  : fail('CI targeting contract failed (run: node scripts/tests/ci-plugin-targeting.mjs --unit)');
+
+if (authorChecks.has('idempotency')) {
+  section('skill-maintainer idempotency');
+  nodeOk(['tests/idempotency.mjs']) ? ok('skill content_hash determinism; maintainer re-run is a no-op')
+    : fail('skill-maintainer idempotency failed (run: node tests/idempotency.mjs)');
+}
 
 // shell lint — shellHooks(p) collects each plugin's hooks/*.sh plus a rust
 // capability's sh launcher (today: session-relay's bin/relay). Self-skips without shellcheck.
 section('shell lint');
-const bashFiles = PLUGINS.filter((p) => fs.existsSync(p.root)).flatMap(shellHooks);
+const bashFiles = targets.flatMap(shellHooks);
 if (bashFiles.length === 0) ok('no bash to lint (all tooling is Node .mjs)');
 else {
   const shellcheck = spawnSync('shellcheck', ['-S', 'warning', ...bashFiles], { encoding: 'utf8' });
@@ -83,7 +163,7 @@ else {
   else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
 }
 
-if (fs.existsSync('docs/scaffold/spec.yaml')) {
+if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
   section('scaffold');
   nodeOk(['scripts/scaffold/guard-spec.mjs']) ? ok('scaffold/guard-spec passed (spec coherent; referenced paths resolve)')
     : fail('scaffold/guard-spec failed (run: node scripts/scaffold/guard-spec.mjs)');
@@ -91,23 +171,26 @@ if (fs.existsSync('docs/scaffold/spec.yaml')) {
     : fail('scaffold/test failed (run: node scripts/scaffold/test.mjs)');
 }
 
-section('plan review policy');
-const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
-const planPolicyRegressionsPassed = nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test']);
-const planConvergenceRepairPassed = [
-  'repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport',
-].every((testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]));
-planPolicySurfacesPassed ? ok('plan-review-policy fast surfaces passed')
-  : fail('plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)');
-if (planPolicyRegressionsPassed) {
-  ok('plan-review-policy contract passed');
-  ok('plan-review-policy regressions passed');
-} else fail('plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)');
-planConvergenceRepairPassed ? ok('plan-review convergence repair contract passed')
-  : fail('plan-review convergence repair contract failed (run: node scripts/tests/plan-review-convergence-repair.mjs --case <case>)');
 
 // ============================ per-plugin gate ============================
 for (const p of targets) gatePlugin(p);
+
+if (authorChecks.has('plan-review')) {
+  section('plan review policy');
+  const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
+  const planConvergenceRepairPassed = [
+    'repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport',
+  ].every((testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]));
+  const planPolicyRegressionsPassed = await planPolicyRegressionTask;
+  planPolicySurfacesPassed ? ok('plan-review-policy fast surfaces passed')
+    : fail('plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)');
+  if (planPolicyRegressionsPassed) {
+    ok('plan-review-policy contract passed');
+    ok('plan-review-policy regressions passed');
+  } else fail('plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)');
+  planConvergenceRepairPassed ? ok('plan-review convergence repair contract passed')
+    : fail('plan-review convergence repair contract failed (run: node scripts/tests/plan-review-convergence-repair.mjs --case <case>)');
+}
 
 function gatePlugin(p) {
   section(`plugin: ${p.name}`);
@@ -253,11 +336,30 @@ function gateSkills(p, manifest) {
 }
 
 // ============================ summary ============================
+closePhase();
+const timingReport = (status) => ({
+  schema: 1,
+  mode: { plugin: onlyPlugin },
+  status,
+  total_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+  phases,
+  tasks,
+});
+const writeTimings = (status) => {
+  if (options.timingsJson === null) return;
+  try { fs.writeFileSync(options.timingsJson, `${JSON.stringify(timingReport(status))}\n`, { encoding: 'utf8' }); }
+  catch (error) { fail(`cannot write timing report ${options.timingsJson}: ${error.message}`); }
+};
+
 console.log('');
 if (failures.length === 0) {
-  console.log(`\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${onlyPlugin ? `plugin '${onlyPlugin}' + repo-wide` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`);
-  process.exit(0);
+  writeTimings('passed');
+  if (failures.length === 0) {
+    console.log(`\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${onlyPlugin ? `plugin '${onlyPlugin}' + repo-wide` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`);
+    process.exit(0);
+  }
 }
+writeTimings('failed');
 console.log(`\x1b[1;31m✘ ${failures.length} check(s) failed:\x1b[0m`);
 for (const f of failures) console.log(`  - ${f}`);
 process.exit(1);

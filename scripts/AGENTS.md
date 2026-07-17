@@ -1,6 +1,6 @@
 # Plugin-author tooling (scripts/)
 
-These scripts validate and release the repo's plugins. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported) and the cross-tool `context-tree-nudge` PostToolUse hook. The only shell in the repo is session-relay's arch-dispatch launcher (`plugins/session-relay/bin/relay`, POSIX sh, shellcheck-linted). `ci.mjs` is the local gate, and `.github/workflows/ci.yml` runs that same `ci.mjs` — true local↔CI parity.
+These scripts validate and release the repo's plugins. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported) and the cross-tool `context-tree-nudge` PostToolUse hook. The only shell in the repo is session-relay's arch-dispatch launcher (`plugins/session-relay/bin/relay`, POSIX sh, shellcheck-linted). `ci.mjs` is the local gate, and `.github/workflows/ci.yml` invokes that same gate either in full or with its supported `--plugin` target.
 
 <constraint>
 `node scripts/ci.mjs` must be green before any commit — it exits non-zero on any failure. Don't loosen validator floors to make a problematic file pass; fix the file.
@@ -20,15 +20,16 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `selftest` | path to a runnable self-test, or `null` |
 | `rust` | Rust binary capability, or `null`: `{ dir, bin, binName, targets }` — `ci.mjs` runs `cargo fmt --check` + `clippy -D warnings` + a `--locked` host-leg rebuild, then compares it against the committed `bin/` binary (byte-identity FAILS in CI — same image as the producer `build-binaries.yml` — and warns locally, where path/linker variance is expected; the committed binary is never overwritten) and verifies committed `SHA256SUMS`; `release.mjs` refuses to tag unless every target binary + launcher are committed executable with verifying checksums. Helpers in `lib/rust-bin.mjs` |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
+| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `scaffold`, `plan-review` for Docks; `[]` otherwise) |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `install` | the consumer install snippet for the GitHub Release notes |
 
-`ci.mjs` is **registry-driven**: it runs repo-wide checks **once** (workflow YAML, both marketplace catalogs, tree/guard, durable-anchors, idempotency, shellcheck over all plugins, scaffold), then a **capability-driven per-plugin gate** (`gatePlugin`) for each present plugin — a check fires only when its capability is declared, so a skills-only plugin and a skills+agents+selftest plugin share one code path. Flags: `-q` (quiet), `--list` (print the registry + presence), `--plugin <name>` (gate just that one; repo-wide checks still run). Versions are **per-plugin and independent** — `release.mjs` targets exactly one plugin via `--plugin` (default `docks`).
+`ci.mjs` is **registry-driven**: it runs shared checks **once** (workflow YAML, both marketplace catalogs, tree/guard, durable-anchors), then selects shell hooks, repository author suites, and capability-driven `gatePlugin` work from the target descriptors. A full invocation selects every present plugin; `--plugin <name>` keeps shared guards and runs only that plugin's owned work. Docks' long mutation regression task starts before independent checks and is joined exactly once before success. Flags: `-q` (quiet), `--list` (registry + presence), `--plugin <name>` (one target), `--timings-json <path>` (closed phase/task wall-time report). Versions remain per-plugin and independent.
 
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 
 1. **Payload** at `plugins/<name>/` — `.claude-plugin/plugin.json` (+ `.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
-2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — declare only the capabilities that exist (`agents`/`selftest`/`rust` take `null`, `extraJson` `[]` when absent); include the `install` snippet for release notes.
+2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — declare only capabilities that exist (`agents`/`selftest`/`rust` take `null`, `extraJson`/`authorChecks` use `[]` when absent); include the install snippet.
 3. **Two catalog entries**: `.claude-plugin/marketplace.json` (name/source/version — version in lockstep with both manifests) and `.agents/plugins/marketplace.json` (local-source + policy block) for Codex.
 4. **Optional context node** (`plugins/<name>/AGENTS.md` + one-line `CLAUDE.md`) when the plugin carries conventions of its own — `tree/guard` enforces the pair; the durable-anchors guard scans it.
 5. Verify: `node scripts/ci.mjs --list` shows the plugin; full `node scripts/ci.mjs` green; release with `node scripts/release.mjs --plugin <name> <bump>` (tag `<name>--v<X.Y.Z>`).
@@ -39,7 +40,7 @@ If a new plugin seems to need an edit to `ci.mjs`/`release.mjs`, the descriptor 
 
 | Script | Purpose | Floor |
 |---|---|---|
-| `ci.mjs` | the full gate — repo-wide checks once + a per-plugin `gatePlugin` (manifest/version validation, `claude plugin validate`, codex parity, the checks below) for every entry in `lib/plugins.mjs`; `ci.yml` runs this same file | — |
+| `ci.mjs` | the authoritative gate entry point — repo-wide checks once + a per-plugin `gatePlugin` (manifest/version validation, `claude plugin validate`, codex parity, the checks below); without `--plugin` it gates every registry entry, while `--plugin <name>` keeps repo-wide checks and selects one plugin gate | — |
 | `skills/guard.mjs` | runs the skill frontmatter validators (codex + claude via `lib/validate-skills.mjs`) + `codex-facts.mjs` + `refs-guard.mjs` | pass/fail |
 | `lib/validate-skills.mjs` | skill frontmatter per runtime — name/description, 1024-char cap, no `#` truncation, CSO `Use when` prefix, `user-invocable`, `metadata.updated`, `references/` one level deep | pass/fail |
 | `skills/codex-facts.mjs` | pins canonical Codex model ids / `sandbox_mode` / `model_reasoning_effort` + the `agents.max_depth` fact in the skill-agent-pipeline refs (self-skips when absent) | pass/fail |
@@ -55,13 +56,18 @@ If a new plugin seems to need an edit to `ci.mjs`/`release.mjs`, the descriptor 
 | `scaffold/guard-spec.mjs` · `scaffold/test.mjs` | scaffold spec coherence + a full seed starts green | pass/fail |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| shellcheck (repo-wide) | `-S warning` over every plugin's `hooks/*.sh` plus a rust capability's sh launcher (`bin/<binName>`), via `shellHooks(p)` — today that's session-relay's `bin/relay` | pass/warn |
+| shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh` plus a Rust capability's sh launcher (`bin/<binName>`), via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
 
 **Shared author-side libs (`scripts/lib/`):** `rust-bin.mjs` (the `rust` capability's helpers — `rustHostTarget()` maps `process.platform/arch` to the launcher's target triple with Linux always on the static musl leg, `findCargo()` falls back to `~/.cargo/bin` for non-login shells, `verifySha256Sums()` checks a `shasum -a 256`-format file with Node crypto). `skills-walk.mjs` (SKILL.md traversal — `findSkillFiles`/`eachSkillDir`/`findSkillByName`) and `skills-parse.mjs` (frontmatter/body line helpers — `bodyAfterFrontmatter`/`slopCount`/`metaUpdated`/…) are imported by the author-side validators so the walk + body-line method live once. The bundled `write-skill/scripts/skill-guard.mjs` keeps its OWN copies on purpose — it ships standalone into consumer repos where `scripts/lib/` doesn't exist; its body-line method must stay byte-identical to `skills-parse.mjs`'s or scores shift. `skills-walk.mjs` is seeded (the seeded validators import it); `skills-parse.mjs` is not (no seeded script imports it).
 
 **Single-source scorer:** the 16-pt skill scorer lives ONCE, in the bundled `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (`score [--per-file]`). The kit's `ci.mjs` scores with that same shipped file over `plugins/docks/skills`, and consumers run it on their own skills (`validate` / `score`) — one rubric, no author-side mirror, no sync contract. Bundled `scripts/` aren't content-hashed; bump write-skill's `metadata.updated` when the rubric changes.
+
+`--timings-json` is observational: it records ordered phase durations and
+background-task durations without changing gate selection or status. Background
+tasks remain mandatory; their failure output is surfaced and their result is
+joined before `ci.mjs` can pass.
 
 ## Edit → release workflow
 
@@ -76,7 +82,7 @@ If a new plugin seems to need an edit to `ci.mjs`/`release.mjs`, the descriptor 
 ```text
 edit → node scripts/ci.mjs                   (LAYER 1 — local, fast, ALL plugins)
      → node scripts/release.mjs [--plugin <name>] <bump>   (one plugin)
-        ├── runs ci.mjs -q again as precondition (full repo + all plugins)
+        ├── runs ci.mjs -q --plugin <name> as the selected-plugin preflight
         ├── bumps THIS plugin's plugin.json (+ codex mirror) + its marketplace entry
         ├── commits + pushes  (chore(release): <name> v<version>)
         ├── claude plugin tag --push          (creates <name>--v<version>)
@@ -85,7 +91,9 @@ edit → node scripts/ci.mjs                   (LAYER 1 — local, fast, ALL plu
         └── tag-CI fails  → exits non-zero, prints recovery
 ```
 
-Two layers: `ci.mjs` catches local issues fast (no burned tag); tag-CI catches contributor-machine drift and is the authoritative gate that decides whether the GitHub Release is created. `release.mjs` is **registry-driven and single-plugin** (`--plugin <name>`, default `docks`; `--dry-run` previews the bump + manifest diff without tagging): it bumps only the selected plugin's manifests + marketplace entry (matched by `name`), so the other plugins' versions never move. It orchestrates version bump → commit → `claude plugin tag` → tag-CI wait → `gh release create`, calling `node scripts/ci.mjs` as its local gate.
+Two layers: a manual full `ci.mjs` run catches local issues fast (no burned tag); tag CI catches contributor-machine drift and is the authoritative gate that decides whether the GitHub Release is created. `release.mjs` is **registry-driven and single-plugin** (`--plugin <name>`, default `docks`; `--dry-run` previews the bump + manifest diff without tagging): its preflight retains repo-wide checks while targeting the selected plugin, and it bumps only that plugin's manifests + marketplace entry (matched by `name`), so the other plugins' versions never move. It orchestrates targeted preflight → version bump → commit → `claude plugin tag` → targeted tag-CI wait → `gh release create`.
+
+GitHub pull requests and `workflow_dispatch` run `node scripts/ci.mjs` without a target. A release-tag push strictly resolves the tag's plugin identity, rejects malformed or unknown targets, and runs `node scripts/ci.mjs --plugin <name>`; plugins outside that release are not re-gated, but repo-wide checks still run. pnpm and conditional Cargo caches only reduce repeated download/build work. Their contents are never validation evidence: the frozen lockfile, pinned Rust toolchain, release preflight, and `ci.mjs` result remain authoritative.
 
 <constraint>
 Run `node scripts/ci.mjs` manually before `node scripts/release.mjs` — iterating on failures is easier without the script's clean-tree requirement. The local ci.mjs must pass before any push that goes near a tag.

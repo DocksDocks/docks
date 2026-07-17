@@ -85,6 +85,12 @@ The repo's own `.agents/skills/` hosts skills useful only when working ON this p
 
 Claude Code sees these via the symlinks under `.claude/skills/`. Codex sees them directly at `.agents/skills/`.
 
+## CI targeting
+
+Pull requests and manual workflow dispatches run the full `node scripts/ci.mjs` gate. A release-tag push strictly resolves `<plugin>--v<version>` to a known registry plugin before Rust-specific work, then runs `node scripts/ci.mjs --plugin <name>`; this still includes repo-wide checks. The release command's local preflight targets that same selected plugin before creating and waiting on the tag.
+
+CI caches pnpm data by `pnpm-lock.yaml` and restores Cargo dependencies/build outputs only for full runs or a resolved Rust-capable release target. Caches improve speed but carry no authority: frozen dependency resolution, pinned toolchains, and the gate result define correctness.
+
 ## Tool-agnostic rules
 
 - Run `node scripts/ci.mjs` before any commit — guards + scorers must be green

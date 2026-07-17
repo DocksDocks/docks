@@ -8,9 +8,9 @@
 //   node scripts/release.mjs [--dry-run] [--plugin <name>] patch|minor|major
 //   (--plugin defaults to "docks"; use --plugin session-relay for the other)
 //
-// Runs end-to-end: full ci.mjs gate → bump the plugin's manifests (Claude pair +
-// Codex if present) + its marketplace entry → commit+push → claude plugin tag
-// --push (<name>--v<ver>) → wait for tag-CI → gh release create (only if CI green).
+// Runs end-to-end: targeted ci.mjs gate → bump the plugin's manifests (Claude
+// pair + Codex if present) + its marketplace entry → commit+push → claude
+// plugin tag --push (<name>--v<ver>) → wait for tag-CI → gh release create.
 // --dry-run does everything read-only and PRINTS the destructive steps instead.
 //
 // Preconditions: clean working tree, gh + claude on PATH.
@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { byName, PLUGINS, claudeManifest, codexManifest, CLAUDE_MARKETPLACE } from './lib/plugins.mjs';
 import { verifySha256Sums } from './lib/rust-bin.mjs';
+import { releaseCiArgs } from './lib/ci-targeting.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const err = (m) => { console.error(`error: ${m}`); process.exit(1); };
@@ -68,10 +69,10 @@ if (plugin.rust) {
   console.log(`Rust binaries OK: ${targets.length} targets + launcher present in ${bin}/, checksums verify.`);
 }
 
-// --- local CI gate (full repo + all plugins) ---
-console.log('Running local ci.mjs...');
-if ((spawnSync('node', [path.join(REPO, 'scripts/ci.mjs'), '-q'], { stdio: 'inherit' }).status ?? 1) !== 0) {
-  err('scripts/ci.mjs failed — fix issues before releasing (see ci.mjs output)');
+// --- local CI gate (shared guards + selected plugin) ---
+console.log(`Running local ci.mjs for ${plugin.name}...`);
+if ((spawnSync('node', [path.join(REPO, 'scripts/ci.mjs'), ...releaseCiArgs(plugin.name)], { stdio: 'inherit' }).status ?? 1) !== 0) {
+  err(`scripts/ci.mjs --plugin ${plugin.name} failed — fix issues before releasing (see ci.mjs output)`);
 }
 console.log('');
 

@@ -21,6 +21,7 @@
 //                 to tag unless every target binary + the launcher are
 //                 committed and checksums verify (see lib/rust-bin.mjs)
 //   extraJson     additional JSON configs to validate (hooks/mcp/etc.)
+//   authorChecks  repository author suites owned by this plugin
 //   transformGuard run scripts/skills/transform-guard.mjs (curated transformers)
 //   install       the consumer install snippet for the GitHub Release notes
 import fs from 'node:fs';
@@ -36,6 +37,7 @@ export const PLUGINS = [
     selftest: null,
     rust: null,
     extraJson: [],
+    authorChecks: ['idempotency', 'scaffold', 'plan-review'],
     transformGuard: true,
     install: '/plugin marketplace update docks\n/plugin install docks@docks',
   },
@@ -61,6 +63,7 @@ export const PLUGINS = [
       'plugins/session-relay/hooks/codex-hooks.json',
       'plugins/session-relay/.codex-plugin/bus.mcp.json',
     ],
+    authorChecks: [],
     transformGuard: false,
     install: '/plugin marketplace update docks\n/plugin install session-relay@docks',
   },
@@ -73,6 +76,7 @@ export const PLUGINS = [
     selftest: 'plugins/effect-kit/test/selftest.mjs',
     rust: null,
     extraJson: [],
+    authorChecks: [],
     transformGuard: false,
     install: '/plugin marketplace update docks\n/plugin install effect-kit@docks',
   },

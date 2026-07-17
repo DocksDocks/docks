@@ -593,13 +593,13 @@ const REGRESSIONS = [
   )],
   ['CI regression-driver call removed', ['--case', 'surfaces'], /regression.*self-test|exactly one|Assertion/i, applyVariant(
     'scripts/ci.mjs',
-    "const planPolicyRegressionsPassed = nodeOk(['scripts/tests/plan-review-policy-regressions.mjs', '--self-test']);",
-    'const planPolicyRegressionsPassed = true;',
+    "startNodeTask('plan-review-policy regressions', ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'])",
+    'Promise.resolve(true)',
   )],
   ['CI no-argument full policy-harness duplicate restored', ['--case', 'surfaces'], /no-argument full policy-harness|zero no-argument|Assertion/i, applyVariant(
     'scripts/ci.mjs',
-    "section('plan review policy');\nconst planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);",
-    "section('plan review policy');\nnodeOk(['scripts/tests/plan-review-policy.mjs']);\nconst planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);",
+    "  section('plan review policy');\n  const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);",
+    "  section('plan review policy');\n  nodeOk(['scripts/tests/plan-review-policy.mjs']);\n  const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);",
   )],
   ['compatibility authorization-id regression', ['--case', 'execution-compatibility'], /authorization id|source mismatch|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs',
