@@ -1,9 +1,9 @@
 ---
-title: Default plan review to one GPT reviewer
-goal: Make Docks use one bounded gpt-5.6-sol high Standard reviewer lane by default, with no cross-company launch and no renewable review batches.
+title: Adopt one bounded primary plan reviewer
+goal: Make new Docks plan reviews use one GPT-first reviewer role with Claude availability fallback, evidence-backed checklist findings, and at most one repair.
 status: planned
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-16T23:08:00-03:00"
+updated: "2026-07-17T00:18:37-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -14,6 +14,7 @@ tags: [plans, review, single-reviewer, convergence]
 affected_paths:
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
   - plugins/docks/skills/productivity/plan-review/SKILL.md
+  - plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs
   - plugins/docks/skills/productivity/plan-improver/SKILL.md
   - plugins/docks/skills/productivity/plan-init/SKILL.md
   - plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md
@@ -35,46 +36,57 @@ affected_paths:
   - scripts/tests/plan-review-policy-regressions.mjs
 related_plans:
   - plan-review-convergence-and-improver
+  - target-plugin-ci-and-release-gates
 review_status: null
-planned_at_commit: ead53b7ecf3890aaaff23337316f00366319e008
+planned_at_commit: null
 execution_base_commit: null
 ---
 
-# Default plan review to one GPT reviewer
+# Adopt one bounded primary plan reviewer
 
 ## Goal
 
-Use exactly one normal plan-review model by default: OpenAI Codex
-`gpt-5.6-sol` at `high` effort and Standard service tier. Do not launch a
-cross-company reviewer. Keep review-and-repair bounded by the existing single
-five-round lifetime cap and stop as soon as the GPT reviewer is ready with no
-blocking finding.
+Use one logical `primary` reviewer for every substantive Docks plan. Try OpenAI
+Codex `gpt-5.6-sol` at `high` effort and Standard service tier first. Advance to
+Claude Fable and then Opus only when the earlier candidate is genuinely
+unavailable before producing review output. Replace numeric readiness scoring
+with an evidence-backed checklist. Permit one initial review and at most one
+accepted-blocker repair review; never renew or reset the series.
 
 ## Context and rationale
 
-The current policy-v4 validators already represent this safely without a new
-schema. With `cross_company_consent: never`, X is a persisted
-`not_authorized` outcome with zero attempts; S is the sole launched reviewer.
-A ready, score-qualified S result validates as `outcome: single`. Historical
-X/S policy and receipt records keep their embedded meaning.
+The current policy-v4/schema-3 contract is safe but solves the wrong problem: it
+models parallel X/S company legs, a 90-point gate, and up to five rounds. That
+machinery made normal plan work slow and encouraged score/repair iteration. The
+user explicitly wants one good GPT review, no routine cross-company review, and
+a Claude best-model fallback when GPT cannot run.
 
-The correction is therefore a default and dispatch change, not a wire-format
-rewrite. `plan-improver` remains accepted-findings-only. A repair round may
-inspect only the accepted S findings and the resulting delta. The series cannot
-renew after `max_rounds`.
+This is a clean current-contract cutover, not a reinterpretation of old evidence.
+Policy/request/output/run/receipt schema 5 is additive. Historical policy v1-v4,
+record schemas 1-3, X/S receipts, numeric rubrics, consent records, and
+compatibility fixtures keep their persisted meanings and validators. New records
+contain one `primary` role and no X/S, numeric score, or cross-company-consent
+fields.
 
+The rubric categories remain useful, but weights do not. Each criterion instead
+records `pass`, `non_blocking_gap`, or `blocking_gap` plus exact evidence.
+`plan-improver` receives only independently reproduced, explicitly accepted
+blocking findings. Non-blocking gaps stay advisory unless the user separately
+changes scope. User approval remains execution authority; reviewer evidence is a
+bounded quality gate, not recursive planner authority.
 
 ## Environment and commands
 
 Repository: `/home/vagrant/projects/docks`
 
 ```bash
-node scripts/tests/plan-review-policy.mjs --case schemas
-node scripts/tests/plan-review-policy.mjs --case legs
+node scripts/tests/plan-review-policy.mjs --case current-single-lane
+node scripts/tests/plan-review-policy.mjs --case current-receipts
+node scripts/tests/plan-review-policy.mjs --case historical-schemas
+node scripts/tests/plan-review-convergence-repair.mjs --case single-repair
 node scripts/tests/plan-review-policy.mjs --case surfaces
-node scripts/tests/plan-review-convergence-repair.mjs --case repair-series
 node scripts/tests/plan-review-policy-regressions.mjs --self-test
-node scripts/ci.mjs --plugin docks
+node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-review-ci.json
 node scripts/ci.mjs
 ```
 
@@ -82,71 +94,155 @@ node scripts/ci.mjs
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Add frozen failing tests for the new review default. | `scripts/tests/plan-review-policy.mjs` (`schemas`, `legs`, `surfaces`); `scripts/tests/plan-review-convergence-repair.mjs` (`repair-series`); `scripts/tests/plan-review-policy-regressions.mjs` (mutation fixtures) | — | pending | Tests fail because current surfaces default to consent `ask` and promise two launched reviewers. |
-| 2 | Change the current default and public dispatch contract to one S lane. | `plugins/docks/skills/productivity/plan-manager/SKILL.md` (`Policy resolution`, dispatch); `plugins/docks/skills/productivity/plan-review/SKILL.md` (`Input contract`, launch); `plugins/docks/skills/productivity/plan-init/SKILL.md` (`Root Snippet`, agent defaults); `plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md` (review contract); `plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md` (both TOML blocks); `docs/plans/AGENTS.md` (review protocol); `AGENTS.md`, `README.md`, `plugins/docks/README.md`, `plugins/docks/skills/AGENTS.md` (public routing prose); `plugins/docks/agents/plan-manager.md`, `plugins/docks/agents/plan-review.md`, `.codex/agents/plan-manager.toml`, `.codex/agents/plan-review.toml`, `docs/scaffold/templates/codex-plan-manager.toml.template`, `docs/scaffold/templates/codex-plan-review.toml.template`, `docs/scaffold/templates/root-AGENTS.md.template` (live/generated wrappers) | 1 | pending | Resolved default is consent `never`; X has zero attempts and `not_authorized`; only S launches as `gpt-5.6-sol`/`high`/`default`; every live/generated surface agrees. |
-| 3 | Keep accepted-finding repair and convergence exact. | `plugins/docks/skills/productivity/plan-manager/SKILL.md` (`Repair rounds`); `plugins/docks/skills/productivity/plan-review/SKILL.md` (`Repair review`); `plugins/docks/skills/productivity/plan-improver/SKILL.md` (`Input contract`); `scripts/tests/plan-review-policy.mjs` (`schemas`, `legs`, `surfaces`); `scripts/tests/plan-review-convergence-repair.mjs` (`repair-series`); `scripts/tests/plan-review-policy-regressions.mjs` (lifetime mutations) | 2 | pending | Accepted S findings alone become repair targets; ready terminates immediately; the lifetime cap cannot renew. |
-| 4 | Synchronize skill metadata/hashes and verify. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-improver/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 2, 3 | pending | Focused gates, targeted Docks CI, the separate full project CI gate, and one GPT-only completion review pass. |
+| 1 | Freeze the new current contract before production edits. | `scripts/tests/plan-review-policy.mjs` (`current-single-lane`, `current-receipts`, `historical-schemas`, `surfaces`); `scripts/tests/plan-review-convergence-repair.mjs` (`single-repair`); `scripts/tests/plan-review-policy-regressions.mjs` (schema/fallback/checklist/round mutations) | — | pending | Tests fail because current schemas require X/S, numeric score, and the five-round policy-v4 series. |
+| 2 | Add isolated schema-5 policy, request, reviewer, run, receipt, and waiver validation. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` (`reviewRecordSchema`, `validatePolicy`, `validateRequest`, current reviewer schema/output, attempt classification, run/receipt validation); `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | 1 | pending | New records use one primary role and the exact candidate/checklist contract; historical branches and fixtures remain byte-valid. |
+| 3 | Replace current dispatch and receipt prose across every live/generated surface. | `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-init/SKILL.md`; both plan-init references; `docs/plans/AGENTS.md`; both plugin agents; both Codex agents; three scaffold templates; root/plugin READMEs and AGENTS files | 2 | pending | Every current surface says GPT-first single primary reviewer, Claude availability fallback, checklist evidence, and no default dual launch; X/S/score/five-round language is explicitly historical only. |
+| 4 | Restrict improvement to one accepted-blocker repair and prove convergence. | `plugins/docks/skills/productivity/plan-improver/SKILL.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-review/SKILL.md`; `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; convergence and regression tests | 2, 3 | pending | Round 1 is full; round 2 exists only after accepted reproduced blockers and a changed input; a third round, reset, continuation, nonblocking target, or fallback after output is rejected. |
+| 5 | Synchronize hashes and verify the current and historical contracts. | Changed skills and references; all three plan-review test drivers; `scripts/ci.mjs` | 3, 4 | pending | Focused current/historical/surface/mutation gates, targeted Docks CI, the separate full repository CI gate, and one live GPT completion review pass. |
 
-## Interfaces and invariants
+## Interfaces and data shapes
 
-- Current default: `cross_company_consent: never`.
-- Sole launched review candidate: `openai / gpt-5.6-sol / high / default / cli`.
-- X remains present only as the historical schema-required `not_authorized`
-  raw leg with zero attempts, findings, selected reviewer, and decision evidence.
-- S is the only attempted reviewer and is independently fresh, read-only,
-  findings-only, request-bound, and bundle-verified.
-- One passed S leg yields `outcome: single`; readiness still requires score at
-  least 90 and no blocking finding.
-- Repair targets equal the exact accepted S finding set. Rejected findings do
-  not reach `plan-improver`.
-- The lifetime series remains capped at five rounds. No continuation batch or
-  reset is permitted.
-- Historical policy v1-v4 records retain their persisted meanings.
+```text
+CurrentReviewPolicyV5 = {
+  schema: 5,
+  role: "primary",
+  fallback: "availability_only",
+  max_rounds: 2,
+  candidates: [
+    {company:"openai", tool:"codex", model:"gpt-5.6-sol",
+     effort:"high", service_tier:"default"},
+    {company:"anthropic", tool:"claude", model:"fable", effort:"high"},
+    {company:"anthropic", tool:"claude", model:"opus", effort:"xhigh"}
+  ],
+  provenance: {role, fallback, max_rounds, candidates}
+}
+```
+
+The candidate array and every candidate object are closed, ordered, and
+nonempty. Current defaults require exactly the three rows above. A user may pin
+one eligible candidate for one review; that narrows the array and does not add a
+second reviewer.
+
+```text
+CurrentReviewerOutputV5 = {
+  schema: 5,
+  role: "primary",
+  request: <exact echoed request>,
+  verdict: "pass" | "non_blocking_gap" | "blocking_gap",
+  checklist: {
+    standalone_executability: {status, evidence},
+    actionability: {status, evidence},
+    dependency_order: {status, evidence},
+    evidence_reverification: {status, evidence},
+    goal_coverage: {status, evidence},
+    executable_acceptance: {status, evidence},
+    failure_modes: {status, evidence},
+    open_questions: {status, evidence}
+  },
+  findings: [{id, criterion, status, section, path, locator,
+              defect, fix, evidence}]
+}
+```
+
+Every checklist status is the same three-value enum and every evidence string is
+nonempty. The verdict equals the strongest checklist status. Every gap criterion
+has at least one matching finding; every finding matches its criterion/status.
+`pass` has no findings. A blocking finding names the exact user requirement,
+safety property, or execution step that would fail.
+
+```text
+CurrentReviewReceiptV5 = {
+  schema: 5,
+  phase: "draft" | "completion",
+  request, input_sha256, reviewed_commit,
+  policy, policy_sha256,
+  reviewer: {raw, accepted_finding_ids, rejected:[{id, reason}]},
+  reproduced: [{id, reproduction}],
+  outcome: "passed" | "not_ready" | "unavailable" | "waived",
+  pre_execution_eligible: boolean,
+  reviewed_at: ISO
+}
+```
+
+New per-plan waivers bind `phase`, canonical input hash,
+`roles:["primary"]`, actor, reason, and time. Historical waivers retain
+`legs:["X","S"]`. Zero successful candidates never fabricate `passed`; the
+plan stays put unless the current user explicitly waives the exact primary role
+and input.
+
+## Dispatch and convergence invariants
+
+- Candidate order is GPT → Fable → Opus. The first valid output wins.
+- Advance only after `tool_unavailable`, `auth_failed`, or `model_unavailable`
+  with `output_started:false` and no parsed reviewer result.
+- `platform_denied`, deadline, transient transport, signal, nonzero exit,
+  unparseable/invalid output, any parsed finding, or a substantive verdict is
+  terminal. Never route around host policy or shop for a favorable verdict.
+- The main context independently reproduces findings and records exact accepted
+  and rejected partitions. Rejected findings never become repair targets.
+- `non_blocking_gap` is advisory and does not enter the repair loop.
+- Accepted reproduced `blocking_gap` findings invoke `plan-improver` once.
+- Repair review binds changed input, prior input, and exact repair-target digest;
+  it may inspect only those targets and blocking regressions introduced by them.
+- The series is exactly full round 1 plus optional repair round 2. No round 3,
+  continuation batch, reset, candidate rotation after output, or hidden retry.
 
 ## Acceptance criteria
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node scripts/tests/plan-review-policy.mjs --case schemas` | Exits 0; historical schemas remain valid and the current single-lane policy is closed. |
-| A2 | `node scripts/tests/plan-review-policy.mjs --case legs` | Exits 0; X `not_authorized` has no attempt and sole S readiness produces `outcome: single`. |
-| A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0; every live/generated contract, including both copy-only Codex templates, names GPT-only default dispatch and no cross-company launch. |
-| A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-series` | Exits 0; only accepted S findings become repair targets and the series stops ready or at the cap. |
-| A5 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0; mutations cannot restore cross-company default launch or renewable batches. |
+| A1 | `node scripts/tests/plan-review-policy.mjs --case current-single-lane` | Exits 0; schema 5 accepts the exact GPT/Fable/Opus primary chain and only availability-class fallback before output. |
+| A2 | `node scripts/tests/plan-review-policy.mjs --case current-receipts` | Exits 0; closed checklist/receipt/waiver shapes reject X/S, score, numeric rubric, missing evidence, verdict mismatch, and fallback after output. |
+| A3 | `node scripts/tests/plan-review-policy.mjs --case historical-schemas` | Exits 0; policy v1-v4, record schemas 1-3, X/S receipts, and numeric rubric fixtures retain their prior validation results. |
+| A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case single-repair` | Exits 0; only accepted reproduced blockers reach one repair; unchanged input, nonblocking targets, reset, or round 3 fail closed. |
+| A5 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exits 0; all live/generated surfaces describe the same current single-primary contract and label old X/S/score/five-round records historical. |
+| A6 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0; mutations cannot restore dual launch, numeric current gating, permissive fallback, nonblocking repair, or renewable rounds. |
+| A7 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-review-ci.json` | Exits 0; all Docks-owned current/historical gates and skill/hash validators pass. |
 
 ## Project CI completion gate
 
-After A1-A5 pass, run `node scripts/ci.mjs` once as the separate full repository
-completion gate. Do not duplicate it inside the ordered acceptance inventory.
+After A1-A7 pass, run `node scripts/ci.mjs` once as the separate full repository
+completion gate. Do not duplicate that expensive command inside the ordered
+acceptance inventory.
 
-## Out of scope
+## Out of scope / do-NOT-touch
 
-- Do not remove X/S fields from historical schemas or rewrite old receipts.
-- Do not change the implementation/assignee model policy.
-- Do not add Session Relay as review evidence transport.
-- Do not implement Session Relay distribution or messaging work here.
-- Do not move or delete the failed immutable `docks--v0.12.8` tag.
+- Do not rewrite finished plans, historical receipts, policy v1-v4, record
+  schemas 1-3, legacy compatibility constants, or their byte-level fixtures.
+- Do not add a routine second reviewer, cross-company consent flow, numeric score
+  threshold, risk-tier dual launch, or renewable review loop.
+- Do not change implementation/assignee model selection.
+- Do not use Session Relay as canonical review evidence or implement Relay work.
+- Do not release plugins or move/delete the failed immutable `docks--v0.12.8`
+  tag in this implementation plan.
 
 ## Failure modes and STOP conditions
 
-- STOP if single-S operation requires changing historical receipt validation.
-- STOP if any path can launch X while consent is `never`.
-- STOP if accepted repair targets can include rejected or unreviewed findings.
-- STOP if a later review round can reset or extend the five-round lifetime cap.
-- A missing sole GPT reviewer never fabricates passed evidence.
+- STOP if the new single-role schema cannot be added without changing a
+  historical fixture's result.
+- STOP if fallback can occur after output starts or after host/platform denial.
+- STOP if a nonblocking, rejected, or unreproduced finding can reach the improver.
+- STOP if round 2 can occur without changed input and exact accepted targets, or
+  if any path can create round 3.
+- STOP if no reviewer succeeds and no exact current-user waiver exists; preserve
+  plan state and report unavailable rather than inventing evidence.
 
 ## Cold-handoff checklist
 
-- Exact files and commands are listed.
-- Single-lane policy and historical compatibility are explicit.
-- Acceptance covers dispatch suppression, model pinning, repair identity, and lifetime convergence.
-- Release recovery uses a new patch after green CI; the failed tag is not moved.
+- Exact current and historical schema boundaries are named.
+- Candidate order and terminal/fallback outcomes are closed.
+- Eight checklist criteria and finding linkage are explicit.
+- One-repair convergence and improver scope are executable.
+- Every live/generated surface and focused test entrypoint is listed.
+- Release and Session Relay work remain outside this plan.
 
 ## Self-review
 
-Score: 98/100. The smallest compatible change reuses the existing validated
-`X=not_authorized`, `S=passed`, `outcome=single` representation instead of
-inventing a new schema. The plan preserves the hard convergence cap and keeps
-`plan-improver` narrower than plan-manager.
+All eight readiness criteria pass for the revised plan. It is standalone, names
+exact paths and symbols, orders schema before surfaces and convergence, preserves
+historical validators, gives executable current/historical acceptance rows, and
+turns the user's reviewer/fallback/rubric decisions into closed invariants. No
+numeric score is used as authority.
 
 ## Review
 
@@ -154,45 +250,30 @@ inventing a new schema. The plan preserves the hard convergence cap and keeps
 
 ## Sources
 
-- `plugins/docks/skills/productivity/plan-manager/SKILL.md:34-73` — dated
-  reviewer/default policy and bounded `max_rounds` before the correction.
-- `plugins/docks/skills/productivity/plan-review/SKILL.md:35-85` — schema-3
-  full/repair identity, company-leg attribution, and direct Codex CLI transport.
-- `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs:540-583`
-  — company routing and bounded attempt sequence.
-- `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs:742-755`
-  — one passed, score-qualified leg yields the validated `single` outcome.
-- `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs:790-909`
-  — accepted-target equality and the one-series lifetime cap.
-- `plugins/docks/skills/productivity/plan-init/SKILL.md:169-217` — the copy-only
-  Codex wrapper source and generation path.
-- `scripts/tests/plan-review-policy.mjs:1936-1955` — exact focused dispatch for
-  `schemas`, `legs`, and `surfaces`.
-- `scripts/tests/plan-review-convergence-repair.mjs:619-631` — closed repair
-  case map and `repair-series` entrypoint.
-- `scripts/tests/plan-review-policy-regressions.mjs:949-978` — mutation result
-  oracle and self-test dispatcher.
+- `plugins/docks/skills/productivity/plan-manager/SKILL.md` — current policy
+  resolution, dispatch, reconciliation, receipt, and lifecycle ownership.
+- `plugins/docks/skills/productivity/plan-review/SKILL.md` — current X/S request,
+  reviewer-output, and repair-series contract to replace for new records.
+- `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` —
+  `validatePolicy`, `validateRequest`, `reviewerSchema`,
+  `validateReviewerOutput`, run/receipt validators, and attempt classification.
+- `plugins/docks/skills/productivity/plan-improver/SKILL.md` — accepted-finding
+  transformation boundary.
+- `docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md` —
+  historical policy-v4/schema-3 semantics that remain immutable.
+- OMP plan documentation — one read-only planner, explicit user approval,
+  planning skipped for trivial changes: https://omp.sh/docs/plan
 
 ## Notes
 
-The previous completion review implemented its explicit X/S contract correctly,
-but that contract did not match the user's intended single-GPT workflow. This
-plan is the clean correction and does not reopen unrelated implementation work.
+The previous completion work correctly implemented its explicit X/S contract,
+but that contract did not match the user's desired normal workflow. Three
+bounded sole-S draft attempts on the old schema found and repaired real plan
+omissions; no invalid reviewer output or receipt was persisted, and the prepared
+fourth round was never launched. Temporary bundles were destroyed.
 
-The first sole-S draft attempt returned one real scope omission but encoded it
-as `blocking: true` with binary `confidence: 0`, so the shipped validator
-correctly rejected the reviewer output. Main context independently reproduced
-the omission in the public-surface assertions and added the four missing paths.
-No invalid reviewer evidence or receipt was persisted.
-
-The validated sole-S draft review reported S1-S4. Main context reproduced and
-accepted all four: the missing copy-only Codex template, category-only step
-paths, absent code-derived Sources evidence, and duplicated full-CI acceptance
-entry. This repair changes only those accepted findings. The user's later
-plugin-targeting request is tracked in a separate plan so it cannot expand this
-bounded review series.
-
-Repair round 2 reported S1-S2. Main context accepted both: restore the command
-fence accidentally removed during the first repair, and cite all three affected
-test entrypoints required by accepted round-1 finding S3. No other section or
-design decision changed.
+The user approved the replacement on 2026-07-16/17: one GPT-5.6-sol high
+Standard reviewer, Claude Fable then Opus availability fallback, evidence-backed
+checklist statuses instead of a numeric gate, one repair maximum, and autonomous
+execution. The separate targeted-CI plan was completed first, reducing full gate
+wall time and preventing unrelated plugin release failures.
