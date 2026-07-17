@@ -258,7 +258,7 @@ function prepare(options, fixtureJournal) {
     if (relative.endsWith('Cargo.toml')) {
       text = text.replace(/(^\[package\][\s\S]*?^version = ")\d+\.\d+\.\d+("$)/m, `$1${VERSION}$2`);
     } else {
-      text = text.replace(/(^name = "session-relay"\nversion = ")\d+\.\d+\.\d+("$)/m, `$1${VERSION}$2`);
+      text = text.replace(/(^name = "relay"\nversion = ")\d+\.\d+\.\d+("$)/m, `$1${VERSION}$2`);
     }
     if (text === original.toString('utf8') && !text.includes(`version = "${VERSION}"`)) fail(`could not locate version in ${relative}`);
     files.push({ file, original, changed: Buffer.from(text) });
