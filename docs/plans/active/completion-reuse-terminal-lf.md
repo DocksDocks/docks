@@ -3,7 +3,7 @@ title: Accept terminal-LF normalization in completion receipt reuse
 goal: Let the canonical completion-reuse gate validate a reviewed plan whose source blob lacks a final LF without weakening receipt, plan-delta, or review-block binding.
 status: planned
 created: "2026-07-17T05:30:00-03:00"
-updated: "2026-07-17T10:10:47-03:00"
+updated: "2026-07-17T10:22:16-03:00"
 started_at: null
 in_review_since: null
 assignee: codex
@@ -58,7 +58,7 @@ reviewed-head, plan-only-child, or allowed-frontmatter-delta validation.
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
 | 1 | Add a real missing-terminal-LF completion-reuse regression and mutation. | `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs` | — | pending | The focused test fails against the current helper because the reviewed plan blob lacks LF; the mutation driver can restore that failure if normalization is removed. |
-| 2 | Normalize one missing terminal LF only at completion Review application/stable-view boundaries and verify all contracts. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; focused tests; `scripts/ci.mjs` | 1 | pending | The real-plan shape passes receipt reuse, malformed UTF-8/frontmatter/section and substantive delta checks still fail, focused tests and full repository CI exit 0. |
+| 2 | Normalize one missing terminal LF across completion Review application, stable-view comparison, and every reuse-time structural read of the reviewed blob; then verify all contracts. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs`; focused tests; `scripts/ci.mjs` | 1 | pending | The real-plan shape passes receipt reuse through optional compatibility-application and binding extraction; malformed UTF-8/frontmatter/section, substantive delta, and compatibility-record changes still fail; focused tests and full repository CI exit 0. |
 
 ## Interfaces and data shapes
 
@@ -70,15 +70,18 @@ completionReviewBytes(bytes) =
   otherwise the same exact bytes plus one final LF
 ```
 
-`applyCompletionReviewBlock` and `completionStablePlanViewV1` consume that
-normalized view. Receipt hashes and `plan_input_sha256` remain derived from the
-original reviewed blob through `canonicalPlanView`.
+`applyCompletionReviewBlock`, `completionStablePlanViewV1`, and every
+`validateCompletionReviewReuse` structural read that requires row boundaries
+consume that normalized pre-receipt view. This includes optional compatibility
+application and binding extraction. Receipt hashes and `plan_input_sha256`
+remain derived from the original reviewed blob through `canonicalPlanView`;
+the completed plan remains strictly LF-terminated.
 
 ## Acceptance criteria
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node scripts/tests/plan-review-policy.mjs --case completion-reuse` | Exits 0; schema-5 reuse accepts an exact reviewed plan blob missing only terminal LF and still rejects receipt, reviewed-head, machine-record, stable-body, and unapproved-frontmatter drift. |
+| A1 | `node scripts/tests/plan-review-policy.mjs --case completion-reuse` | Exits 0; schema-5 reuse accepts an exact reviewed plan blob missing only terminal LF, exercises absent and present optional compatibility application/binding paths without byte drift, and still rejects receipt, reviewed-head, machine-record, stable-body, and unapproved-frontmatter drift. |
 | A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exits 0; an isolated mutation that removes completion terminal-LF normalization restores the missing-LF regression and is detected. |
 | A3 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-terminal-lf-ci.json` | Exits 0; all Docks schema, historical, mutation, skill, and plan-review gates pass. |
 
@@ -89,7 +92,8 @@ After A1-A3, run the separate full repository gate once with
 
 - STOP if the fix changes bytes other than appending one missing final LF.
 - STOP if invalid UTF-8, malformed frontmatter, duplicate/missing `## Review`,
-  substantive plan-body drift, or unapproved frontmatter drift becomes valid.
+  substantive plan-body drift, changed compatibility application/binding bytes,
+  or unapproved frontmatter drift becomes valid.
 - STOP if historical policy/receipt/bundle fixtures change meaning or bytes.
 - STOP if the parent plan would need a third repair round; this plan owns only
   the newly discovered completion-reuse compatibility defect.
