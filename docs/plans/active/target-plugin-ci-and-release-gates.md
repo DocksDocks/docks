@@ -1,15 +1,16 @@
 ---
 title: Target CI and release gates by plugin
 goal: Make CI measurable, parallel where safe, and plugin-targeted for local and release-tag gates while preserving full pull-request and manual validation.
-status: planned
+status: ongoing
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-16T23:36:53-03:00"
+updated: "2026-07-16T23:38:16-03:00"
+started_at: "2026-07-16T23:38:16-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
 review_author_model: gpt-5.6-sol
 review_author_effort: high
-review_waivers: []
+review_waivers: [{"actor":"user","at":"2026-07-16T23:38:16-03:00","input_sha256":"c9d69c854e3be7719f46f2625ce032512a329e809bebd84e68b29975962915a1","legs":["X","S"],"phase":"draft","reason":"User explicitly approved the measured CI-first recommendation and autonomous execution."}]
 tags: [ci, release, plugins, performance]
 affected_paths:
   - scripts/lib/plugins.mjs
