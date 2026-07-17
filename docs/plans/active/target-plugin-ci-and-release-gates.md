@@ -1,9 +1,9 @@
 ---
 title: Target CI and release gates by plugin
-goal: Make explicit single-plugin CI, release preflight, and release-tag validation run shared repository guards plus only the selected plugin's owned work, while preserving full pull-request and manual validation.
+goal: Make CI measurable, parallel where safe, and plugin-targeted for local and release-tag gates while preserving full pull-request and manual validation.
 status: planned
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-16T22:59:00-03:00"
+updated: "2026-07-16T23:36:53-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
@@ -14,6 +14,7 @@ tags: [ci, release, plugins, performance]
 affected_paths:
   - scripts/lib/plugins.mjs
   - scripts/lib/ci-targeting.mjs
+  - scripts/ci-target.mjs
   - scripts/ci.mjs
   - scripts/release.mjs
   - scripts/tests/ci-plugin-targeting.mjs
@@ -35,7 +36,9 @@ execution_base_commit: null
 Make `node scripts/ci.mjs --plugin <name>` the authoritative fast path for a
 single plugin: always run shared repository guards, then run only the selected
 plugin's shell hooks, author suites, manifest/skill/agent checks, Rust
-capability, and self-test. Forward the selected plugin through local release
+capability, and self-test. Emit machine-readable phase timings, overlap the
+expensive Docks mutation suite with independent gates, cache pnpm and Cargo
+inputs in GitHub Actions, and forward the selected plugin through local release
 preflight and release-tag CI. Keep pull-request and manual workflow runs full.
 
 ## Context and rationale
@@ -60,7 +63,7 @@ Repository: `/home/vagrant/projects/docks`
 
 ```bash
 node scripts/tests/ci-plugin-targeting.mjs
-node scripts/ci.mjs --plugin docks
+node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-ci-timings.json
 node scripts/ci.mjs --plugin effect-kit
 node scripts/release.mjs --dry-run --plugin docks patch
 node scripts/ci.mjs
@@ -70,11 +73,11 @@ node scripts/ci.mjs
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Freeze the plugin-targeting behavior matrix before production edits. | `scripts/tests/ci-plugin-targeting.mjs` (tag parser, author-check selection, shell selection, release args, malformed input cases) | — | pending | The test fails because strict tag resolution and reusable target-selection helpers do not exist. |
-| 2 | Add registry-driven target and tag resolution. | `scripts/lib/plugins.mjs` (`PLUGINS` author-check capability); `scripts/lib/ci-targeting.mjs` (`resolveCiTargets`, `parseReleaseTag`, `releaseCiArgs`) | 1 | pending | Known canonical tags map to one descriptor; malformed/unknown tags throw; selected author/shell/Rust capabilities derive only from the registry. |
-| 3 | Apply selection to local CI and release preflight. | `scripts/ci.mjs` (shared phase, selected shell hooks, selected Docks author suites, per-plugin gate); `scripts/release.mjs` (preflight argv); `scripts/tests/ci-plugin-targeting.mjs` (release/selection assertions) | 2 | pending | `--plugin docks` omits Session Relay/Effect Kit work; `--plugin effect-kit` omits Docks author suites and Session Relay Rust; release preflight forwards `--plugin <name>` as separate argv. |
-| 4 | Target release-tag workflow work and update the gate contract. | `.github/workflows/ci.yml` (strict resolver step, conditional Rust, full PR/manual step, targeted tag step); `.github/AGENTS.md` (`Trigger model`, no-drift contract); `scripts/AGENTS.md` (layered gate/release flow); `AGENTS.md` (`Commands`, tool-agnostic CI rule); `scripts/tests/ci-plugin-targeting.mjs` (workflow event matrix) | 2, 3 | pending | PR/manual use full CI; a known tag uses one plugin; Docks/Effect tags skip Rust; Session Relay tags retain Rust; malformed/unknown tags stop before provisioning. |
-| 5 | Run focused, targeted, and integration verification. | `scripts/tests/ci-plugin-targeting.mjs`; `scripts/ci.mjs`; `scripts/release.mjs`; `.github/workflows/ci.yml` | 3, 4 | pending | A1-A5 pass, then the separate full project CI completion gate passes once. |
+| 1 | Freeze targeting, timing, and workflow behavior before production edits. | `scripts/tests/ci-plugin-targeting.mjs` (tag parser, author-check selection, shell selection, release args, timing schema, malformed input, event/cache cases) | — | pending | The test fails because strict tag resolution, reusable target selection, timing output, and cache/event contracts do not exist. |
+| 2 | Add registry-driven target and tag resolution. | `scripts/lib/plugins.mjs` (`PLUGINS` author-check capability); `scripts/lib/ci-targeting.mjs` (`resolveCiTargets`, `parseReleaseTag`, `releaseCiArgs`); `scripts/ci-target.mjs` (GitHub-safe resolver CLI) | 1 | pending | Known canonical tags map to one descriptor; malformed/unknown tags throw; selected author/shell/Rust capabilities derive only from the registry. |
+| 3 | Apply selection, phase timing, and background overlap to local CI and release preflight. | `scripts/ci.mjs` (shared phase, selected shell hooks, selected Docks author suites, bounded timing JSON, background mutation driver); `scripts/release.mjs` (preflight argv); `scripts/tests/ci-plugin-targeting.mjs` (timing/release/selection assertions) | 2 | pending | Targeted invocations omit unrelated plugin work; release forwards `--plugin` as separate argv; timing JSON records closed phase/task results; the mutation driver overlaps independent synchronous checks without hiding failures. |
+| 4 | Target release-tag work, cache dependencies, and update the gate contract. | `.github/workflows/ci.yml` (strict resolver, conditional Rust, pnpm/Cargo caches, full PR/manual, targeted tag); `.github/AGENTS.md`, `scripts/AGENTS.md`, `AGENTS.md` (no-drift contract); `scripts/tests/ci-plugin-targeting.mjs` (workflow event/cache matrix) | 2, 3 | pending | PR/manual use full CI; a known tag uses one plugin; Docks/Effect tags skip Rust; Session Relay tags retain Rust; malformed/unknown tags stop before provisioning; cache keys bind lockfiles and target identity. |
+| 5 | Run focused, targeted, measured, and integration verification. | `scripts/tests/ci-plugin-targeting.mjs`; `scripts/ci.mjs`; `scripts/release.mjs`; `.github/workflows/ci.yml` | 3, 4 | pending | A1-A7 pass, then the separate full project CI completion gate passes once; measured output demonstrates that unrelated plugin phases are absent. |
 
 ## Interfaces and invariants
 
@@ -93,16 +96,26 @@ node scripts/ci.mjs
 - Session Relay Rust provisioning occurs only for a full workflow or a resolved
   plugin descriptor with a Rust capability.
 - `build-binaries.yml` remains Session Relay-only and unchanged.
+- `--timings-json <path>` writes one closed schema with total status, ordered
+  phase durations, and background-task durations. Timing is observational only:
+  it cannot alter pass/fail behavior or hide child output on failure.
+- The Docks mutation regression driver may start before independent guards and
+  is joined before the Docks gate passes. Its exit status remains mandatory.
+- GitHub caches are dependency caches, not correctness inputs. pnpm keys bind
+  `pnpm-lock.yaml`; Cargo keys bind runner OS/architecture, `Cargo.lock`, and the
+  Rust toolchain. A miss falls back to the ordinary install/build path.
 
 ## Acceptance criteria
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node scripts/tests/ci-plugin-targeting.mjs` | Exits 0; all registry tag/target/release/workflow cases pass and malformed or unknown tags fail closed. |
-| A2 | `node scripts/ci.mjs --plugin docks` | Exits 0; shared and Docks-owned checks run; output contains no Session Relay Rust/self-test or Effect Kit plugin gate. |
+| A1 | `node scripts/tests/ci-plugin-targeting.mjs` | Exits 0; registry tag/target/release/timing/workflow/cache cases pass and malformed or unknown inputs fail closed. |
+| A2 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-ci-timings.json` | Exits 0; shared and Docks-owned checks run; timing JSON validates; output contains no Session Relay Rust/self-test or Effect Kit plugin gate. |
 | A3 | `node scripts/ci.mjs --plugin effect-kit` | Exits 0; shared and Effect Kit checks run; output contains no Docks-only author suites or Session Relay Rust/self-test. |
 | A4 | `node scripts/release.mjs --dry-run --plugin docks patch` | Exits 0 from a clean checkout; output identifies a Docks-targeted preflight and makes no write, tag, push, or release. |
 | A5 | `node scripts/ci.mjs --plugin unknown-plugin` | Exits 2 before plugin work and names the known registry plugins. |
+| A6 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-ci-timings.json` followed by JSON validation | Every phase/task has a nonnegative integer duration and status; the mutation task is joined exactly once before success. |
+| A7 | Workflow fixture assertions in `node scripts/tests/ci-plugin-targeting.mjs` | PR/manual remain full; release tags resolve strictly; pnpm cache is shared and Cargo cache/provisioning is Session Relay-only. |
 
 ## Project CI completion gate
 
@@ -127,6 +140,9 @@ same unfiltered command.
 - STOP if full PR/manual validation no longer gates all present plugins.
 - STOP if a Docks tag can run Session Relay Rust or a Session Relay tag can skip it.
 - STOP if release preflight can target a plugin other than the release descriptor.
+- STOP if timing or background execution can convert a failed child into success.
+- STOP if cache restoration is required for correctness or cache keys do not bind
+  the relevant dependency lockfile.
 
 ## Cold-handoff checklist
 
@@ -141,8 +157,10 @@ same unfiltered command.
 Score: 97/100. The design reuses the existing plugin registry and `--plugin`
 contract rather than adding a second selector. It targets the measured expensive
 work—Docks mutation suites and Session Relay Rust—while preserving shared guards
-and full merge/manual integration. The only new module contains pure selection
-and tag-parsing behavior so tests do not assert incidental source text.
+and full merge/manual integration. Timing is bounded observational data, and
+parallelism changes only scheduling: the same mandatory child status is joined
+before success. The new pure targeting module and resolver CLI keep tests off
+incidental implementation text.
 
 ## Review
 
@@ -172,3 +190,7 @@ Rust provisioning. Main context additionally classified skill-maintainer,
 scaffold, and plan-review suites as Docks-owned because their paths and fixtures
 are Docks-specific; the full unfiltered gate still runs them through the Docks
 descriptor.
+
+The user approved the measured-CI-first sequence and autonomous execution on
+2026-07-16. Dependency caching and safe overlap are included because targeting
+alone does not reduce Docks' dominant mutation-suite wall time.
