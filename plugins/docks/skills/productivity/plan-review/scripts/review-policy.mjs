@@ -1578,8 +1578,10 @@ export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
 
 function inside(root, candidate) { const rel = path.relative(root, candidate); return rel && !rel.startsWith('..') && !path.isAbsolute(rel); }
 
+const CAPTURED_GIT_MAX_BYTES = 256 * 1024 * 1024;
+
 function git(repo, args, encoding = 'utf8') {
-  const result = spawnSync('git', args, { cwd: repo, encoding });
+  const result = spawnSync('git', args, { cwd: repo, encoding, maxBuffer: CAPTURED_GIT_MAX_BYTES });
   if (result.error || result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${encoding ? result.stderr.trim() : result.stderr.toString().trim()}`);
   return result.stdout;
 }

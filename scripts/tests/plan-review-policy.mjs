@@ -1849,9 +1849,16 @@ function testLifecycle() {
   fs.writeFileSync(path.join(original, '.gitignore'), 'ignored-cache\n'); fs.writeFileSync(path.join(original, 'result.txt'), 'original\n'); fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
   git(original, ['add', '.gitignore', 'result.txt']); git(original, ['commit', '-qm', 'fixture']); const plannedAt = git(original, ['rev-parse', 'HEAD']);
   const plannedPlan = fs.readFileSync(FIXTURE, 'utf8').replace('"0000000000000000000000000000000000000000"', `"${plannedAt}"`).replace('started_at: null\n', ''); fs.writeFileSync(path.join(original, planPath), plannedPlan); fs.writeFileSync(path.join(original, 'result.txt'), 'pre-start concurrent work\n'); git(original, ['add', planPath, 'result.txt']); git(original, ['commit', '-qm', 'plan fixture']);
+  const largeBinary = Buffer.alloc(2 * 1024 * 1024);
+  for (let offset = 0, block = 0; offset < largeBinary.length; block += 1) {
+    const bytes = createHash('sha256').update(`completion-diff-${block}`).digest();
+    offset += bytes.copy(largeBinary, offset);
+  }
+  fs.writeFileSync(path.join(original, 'retired-binary'), largeBinary); git(original, ['add', 'retired-binary']); git(original, ['commit', '-qm', 'pre-start binary fixture']);
   fs.writeFileSync(path.join(original, planPath), plannedPlan.replace('status: planned', 'status: ongoing\nstarted_at: "2026-07-12T00:30:00-03:00"')); git(original, ['add', planPath]); git(original, ['commit', '-qm', 'start plan']); const executionBase = git(original, ['rev-parse', 'HEAD']);
-  fs.writeFileSync(path.join(original, planPath), fs.readFileSync(path.join(original, planPath), 'utf8').replace('execution_base_commit: null', `execution_base_commit: "${executionBase}"`)); git(original, ['add', planPath]); git(original, ['commit', '-qm', 'record execution base']); const head = git(original, ['rev-parse', 'HEAD']);
+  fs.rmSync(path.join(original, 'retired-binary')); fs.writeFileSync(path.join(original, planPath), fs.readFileSync(path.join(original, planPath), 'utf8').replace('execution_base_commit: null', `execution_base_commit: "${executionBase}"`)); git(original, ['add', '-A']); git(original, ['commit', '-qm', 'record execution base']); const head = git(original, ['rev-parse', 'HEAD']);
   const completionBundle = path.join(temp, 'completion-bundle'); const sealedCompletion = sealBundle({ repo: original, reviewedCommit: head, planPath, requestedPaths: ['result.txt'], outDir: completionBundle, plannedAtCommit: plannedAt, executionBaseCommit: executionBase });
+  assert.ok(fs.statSync(path.join(completionBundle, 'completion.diff')).size > 1024 * 1024, 'completion bundle preserves diffs larger than spawnSync default maxBuffer');
   assert.equal(sealedCompletion.completion.execution_base_commit, executionBase); assert.equal(sealedCompletion.completion.acceptance_inventory_sha256, sha256(jcs(INVENTORY)));
   assert.doesNotMatch(fs.readFileSync(path.join(completionBundle, 'completion.diff'), 'utf8'), /pre-start concurrent work/, 'execution diff excludes concurrent pre-start changes');
   assert.match(fs.readFileSync(path.join(completionBundle, 'completion.diff'), 'utf8'), /execution_base_commit/, 'execution diff includes post-start identity commit');

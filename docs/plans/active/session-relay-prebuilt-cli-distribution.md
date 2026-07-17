@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: in_review
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T20:24:12-03:00"
+updated: "2026-07-17T20:33:02-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 in_review_since: "2026-07-17T20:20:44-03:00"
 assignee: null
@@ -19,6 +19,7 @@ affected_paths:
   - .github/workflows/build-binaries.yml
   - .github/workflows/ci.yml
   - plugins/docks/skills/AGENTS.md
+  - plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs
   - plugins/docks/skills/productivity/write-skill/SKILL.md
   - plugins/session-relay/AGENTS.md
   - plugins/session-relay/.claude-plugin/plugin.json
@@ -53,6 +54,7 @@ affected_paths:
   - scripts/lib/session-relay-release.mjs
   - scripts/release.mjs
   - scripts/tests/ci-plugin-targeting.mjs
+  - scripts/tests/plan-review-policy.mjs
   - scripts/verify-session-relay-preflight.mjs
 related_plans: []
 review_status: null
@@ -465,6 +467,7 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - Intended first compatible Session Relay release: `0.12.0`.
 - Release authorization was explicitly granted by the user after the first independent review and later expanded to continue without a review-round limit; Session Relay `0.12.0` plus docks-kit `0.9.0` publication are the required post-completion outcome.
 - **2026-07-17T20:24:12-03:00**: Canonical completion-bundle preparation rejected A6 because its JavaScript `||` was unescaped inside the Markdown table and therefore parsed as extra columns. The same parser treats backslash as an escape, so the regex's literal `\s` also requires doubled Markdown escaping. These table escapes preserve the exact executed command after canonical decoding and make the acceptance inventory sealable; no implementation, evidence receipt, or lifecycle identity changed.
+- **2026-07-17T20:33:02-03:00**: The corrected acceptance inventory reached completion diff sealing and reproduced Node `spawnSync`'s documented 1 MiB default `maxBuffer`: deleting the former multi-megabyte embedded Relay binaries terminated `git diff --binary` before bundle creation. A focused lifecycle regression now builds and deletes a deterministic 2 MiB binary, requires a completion diff larger than 1 MiB, and failed before the helper repair. The helper now gives captured Git output a bounded 256 MiB ceiling; the focused case passes without changing the sealed diff bytes or Git argv.
 
 ## Mistakes & Dead Ends
 
