@@ -1,15 +1,16 @@
 ---
 title: Adopt one bounded primary plan reviewer
 goal: Make new Docks plan reviews use one GPT-first reviewer role with Claude availability fallback, evidence-backed checklist findings, and at most one repair.
-status: planned
+status: ongoing
 created: "2026-07-16T22:13:24-03:00"
-updated: "2026-07-17T00:18:37-03:00"
+updated: "2026-07-17T00:21:34-03:00"
+started_at: "2026-07-17T00:21:34-03:00"
 assignee: codex
 review_author_company: openai
 review_author_tool: codex
 review_author_model: gpt-5.6-sol
 review_author_effort: high
-review_waivers: []
+review_waivers: [{"actor":"user","at":"2026-07-17T00:21:34-03:00","input_sha256":"85b8c23c01242fcb4305952149839a47194dfd75d27dbf3c91f88155891746d5","legs":["X","S"],"phase":"draft","reason":"User explicitly approved the single-primary checklist recommendation and autonomous execution."}]
 tags: [plans, review, single-reviewer, convergence]
 affected_paths:
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
@@ -39,7 +40,7 @@ related_plans:
   - target-plugin-ci-and-release-gates
 review_status: null
 planned_at_commit: 3d8e1c531fc65d4ebd50ee9cae5a51a34d4ab1f5
-execution_base_commit: null
+execution_base_commit: bc352e2e308e5b812903c2fdd553b6ece9528baa
 ---
 
 # Adopt one bounded primary plan reviewer
