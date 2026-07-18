@@ -697,36 +697,77 @@ function releaseProvenanceProjection(release) {
 }
 
 
-function validateLiveReleaseProvenance(adapter, release, run, liveAssets) {
+function assertBoundRunMatchesRelease(boundRunAssets, liveAssets) {
+  const liveByName = new Map(liveAssets.map((asset) => [asset.name, asset]));
+  if (!Array.isArray(boundRunAssets) || boundRunAssets.length !== liveAssets.length) {
+    fail('bound run artifact set conflicts with live release assets');
+  }
+  for (const asset of boundRunAssets) {
+    const live = liveByName.get(asset.name);
+    if (!live || live.size !== asset.size || live.digest !== asset.digest) {
+      fail(`bound run artifact conflicts with live release asset ${asset.name}`);
+    }
+  }
+}
+
+function validActor(actor) {
+  return Number.isInteger(actor?.id)
+    && actor.id > 0
+    && typeof actor.login === 'string'
+    && actor.login.length > 0
+    && typeof actor.type === 'string'
+    && actor.type.length > 0;
+}
+
+function validateLiveReleaseProvenance(adapter, release, run, liveAssets, boundRunAssets = null) {
   const start = Date.parse(run.run_started_at);
   const end = Date.parse(run.updated_at);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) fail('bound workflow run timestamp window is invalid');
-  timestampInRunWindow(release.created_at, start, end, 'release created_at');
-  timestampInRunWindow(release.published_at, start, end, 'release published_at');
-  if (!Array.isArray(release.assets) || release.assets.length !== ASSETS.length) fail('live release asset timestamp set is incomplete');
-  const authoritativePublisher = adapter.getPublisherIdentity();
-  if (
-    authoritativePublisher?.login !== 'github-actions[bot]'
-    || authoritativePublisher?.type !== 'Bot'
-    || !Number.isInteger(authoritativePublisher.id)
-    || authoritativePublisher.id <= 0
-  ) fail('authoritative GitHub Actions publisher identity is invalid');
-  if (!sameActor(release.author, authoritativePublisher)) {
-    fail('live release publisher identity is invalid');
+  const releaseCreated = Date.parse(release.created_at);
+  const releasePublished = Date.parse(release.published_at);
+  if (!Number.isFinite(releaseCreated) || !Number.isFinite(releasePublished) || releasePublished < releaseCreated) {
+    fail('live release timestamps are invalid');
   }
+  const reconciledAfterRun = releasePublished > end;
+  let authoritativePublisher;
+  if (reconciledAfterRun) {
+    if (!boundRunAssets) fail('post-run release reconciliation requires bound run artifact verification');
+    if (!validActor(run.actor)) fail('bound workflow run actor identity is invalid');
+    authoritativePublisher = run.actor;
+  } else {
+    timestampInRunWindow(release.created_at, start, end, 'release created_at');
+    timestampInRunWindow(release.published_at, start, end, 'release published_at');
+    authoritativePublisher = adapter.getPublisherIdentity();
+    if (
+      authoritativePublisher?.login !== 'github-actions[bot]'
+      || authoritativePublisher?.type !== 'Bot'
+      || !Number.isInteger(authoritativePublisher.id)
+      || authoritativePublisher.id <= 0
+    ) fail('authoritative GitHub Actions publisher identity is invalid');
+  }
+  if (!sameActor(release.author, authoritativePublisher)) fail('live release publisher identity conflict');
+  if (!Array.isArray(release.assets) || release.assets.length !== ASSETS.length) fail('live release asset timestamp set is incomplete');
   const assetDatabaseIds = new Set();
   for (const asset of release.assets) {
     if (!Number.isInteger(asset.id) || asset.id <= 0 || assetDatabaseIds.has(asset.id)) {
       fail('live release asset database identity is duplicate or invalid');
     }
     assetDatabaseIds.add(asset.id);
-    const created = timestampInRunWindow(asset.created_at, start, end, `${asset.name} created_at`);
-    const updated = timestampInRunWindow(asset.updated_at, start, end, `${asset.name} updated_at`);
-    if (updated < created) fail(`${asset.name} asset timestamps are inconsistent`);
-    if (!sameActor(asset.uploader, authoritativePublisher)) {
-      fail(`${asset.name} publisher identity conflict`);
-    }
+    const created = reconciledAfterRun
+      ? Date.parse(asset.created_at)
+      : timestampInRunWindow(asset.created_at, start, end, `${asset.name} created_at`);
+    const updated = reconciledAfterRun
+      ? Date.parse(asset.updated_at)
+      : timestampInRunWindow(asset.updated_at, start, end, `${asset.name} updated_at`);
+    if (
+      !Number.isFinite(created)
+      || !Number.isFinite(updated)
+      || updated < created
+      || (reconciledAfterRun && created < end)
+    ) fail(`${asset.name} asset timestamps are inconsistent`);
+    if (!sameActor(asset.uploader, authoritativePublisher)) fail(`${asset.name} publisher identity conflict`);
   }
+  if (boundRunAssets) assertBoundRunMatchesRelease(boundRunAssets, liveAssets);
   let bundle;
   try {
     bundle = adapter.downloadReleaseAssets(release.id, release.assets);
@@ -775,16 +816,32 @@ function rebindCompletePublication(options, adapter, proof, state) {
     || run.conclusion !== 'success'
   ) fail('publication rebind requires one successful bound push workflow run');
   const settled = settledRun(adapter, run, proof.value.tag_commit);
-  const verifiedLiveAssets = validateLiveReleaseProvenance(adapter, state.release, settled, liveAssets);
-  return emitReceipt(options, publicationReceipt(
-    proof,
-    state.release,
-    verifiedLiveAssets,
-    workflowIdentity(settled),
-    'reconciled',
-    'prerelease',
-    adapter.now(),
-  ));
+  const requiresBoundArtifacts = Date.parse(state.release.published_at) > Date.parse(settled.updated_at);
+  let bundle;
+  try {
+    bundle = requiresBoundArtifacts ? adapter.downloadRunAssets(settled.id) : null;
+    const boundRunAssets = bundle
+      ? validateRunBundle(bundle, settled, proof.value.tag_commit)
+      : null;
+    const verifiedLiveAssets = validateLiveReleaseProvenance(
+      adapter,
+      state.release,
+      settled,
+      liveAssets,
+      boundRunAssets,
+    );
+    return emitReceipt(options, publicationReceipt(
+      proof,
+      state.release,
+      verifiedLiveAssets,
+      workflowIdentity(settled),
+      'reconciled',
+      'prerelease',
+      adapter.now(),
+    ));
+  } finally {
+    if (bundle) adapter.cleanupRunAssets(bundle);
+  }
 }
 
 
