@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { canonicalPlanView, validateCompletionReceipt as validatePlanCompletionReceipt } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+import { canonicalPlanView, parsePlan, validateCompletionReceipt as validatePlanCompletionReceipt } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
 import {
   COMMIT,
   PLUGIN,
@@ -383,10 +383,15 @@ export function validateSourcePreparationCandidate(value, context = {}) {
   return value;
 }
 
-export function validateCompletionReceiptClosed(value, expected = {}) {
+export function validateCompletionReceiptClosed(value, expected = {}, waivers = []) {
   exactContext(expected, ['reviewedHead'], 'completion validation context');
+  exactArray(waivers, 'completion review waivers');
   try {
-    return validatePlanCompletionReceipt(value, { reviewed_head: expected.reviewedHead, review_status: 'passed' });
+    return validatePlanCompletionReceipt(
+      value,
+      { reviewed_head: expected.reviewedHead, review_status: 'passed' },
+      { waivers },
+    );
   } catch (error) {
     fail(`completion receipt invalid: ${error.message}`);
   }
@@ -896,7 +901,7 @@ function embeddedEvidence(plan) {
 
 export function verifyEmbedded(options, injected) {
   const deps = evidenceDependencies(injected);
-  const planPath = canonicalPath(options.get('plan'), '--plan');
+  const planPath = injected === undefined ? canonicalPath(options.get('plan'), '--plan') : path.resolve(REPO, options.get('plan'));
   if (path.relative(REPO, planPath) !== PLAN_PATH) fail('--plan must be the fixed active Session Relay plan');
   const planBytes = deps.readFile(planPath);
   const plan = planBytes.toString('utf8');
@@ -974,7 +979,7 @@ export function bindCompletion(options, injected) {
   validateSourcePreparationCandidate(candidate.value, { sourceCommit: candidate.value.source_commit });
   const completion = completionRecord(plan);
   const evidenceCommit = commit(completion.value.reviewed_head, 'completion reviewed_head');
-  validateCompletionReceiptClosed(completion.value, { reviewedHead: evidenceCommit });
+  validateCompletionReceiptClosed(completion.value, { reviewedHead: evidenceCommit }, parsePlan(planBytes).frontmatter.review_waivers ?? []);
   const evidencePlan = gitBytes(deps, ['show', `${evidenceCommit}:${PLAN_PATH}`]);
   if (completion.value.plan_input_sha256 !== sha256(canonicalPlanView(evidencePlan))) fail('completion receipt does not bind the reviewed evidence plan');
   const evidenceCandidate = embeddedReceipt(evidencePlan.toString('utf8'), 'Source preparation candidate', 'SourcePreparationCandidateV1');
