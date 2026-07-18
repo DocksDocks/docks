@@ -1008,7 +1008,12 @@ export function bindCompletion(options, injected) {
   const nonPlan = gitValue(deps, ['diff', '--name-only', sourceCommit, shippedCommit, '--no-renames', '--', '.', `:(exclude)${PLAN_PATH}`, `:(exclude)${finishedRelative}`]);
   if (nonPlan !== '') fail('source and shipped commits differ outside the plan lifecycle paths');
   const sourcePlan = gitBytes(deps, ['show', `${sourceCommit}:${PLAN_PATH}`]);
-  if (sha256(sourcePlan) !== candidate.value.plan.source_blob_sha256) fail('source plan blob no longer matches candidate');
+  // Candidates sealed before the raw-byte binder repair recorded the hash of
+  // the trimmed `git show` adapter output; accept exactly that legacy form or
+  // the raw blob hash, and nothing else.
+  const legacyTrimmedSha256 = sha256(Buffer.from(sourcePlan.toString('utf8').trim(), 'utf8'));
+  if (sha256(sourcePlan) !== candidate.value.plan.source_blob_sha256
+    && legacyTrimmedSha256 !== candidate.value.plan.source_blob_sha256) fail('source plan blob no longer matches candidate');
   const receipt = {
     schema: 1, type: 'SourcePreparationProofV1', repository_id: REPOSITORY_ID, version: VERSION,
     source_commit: sourceCommit, tag_commit: sourceCommit, evidence_commit: evidenceCommit,
