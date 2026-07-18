@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: planned
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T15:26:04-03:00"
+updated: "2026-07-18T15:34:57-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -17,6 +17,7 @@ affected_paths:
   - scripts/lib/session-relay-release-preparation.mjs
   - plugins/session-relay/test/release-evidence-contract.mjs
   - plugins/session-relay/test/release-promotion-contract.mjs
+  - plugins/session-relay/test/release-publication-contract.mjs
   - scripts/lib/session-relay-release-promotion.mjs
   - scripts/lib/session-relay-release-cli.mjs
 related_plans:
@@ -133,9 +134,12 @@ FINAL_PUBLICATION_SHA256="$FINAL_RESUME_SHA256"
 # editStable, before the receipt write). The base command revalidates the
 # exact stable state and promotion receipt, emits the canonical stable
 # receipt at a fresh no-clobber path, and performs no second Release
-# mutation; the already-stable base finalization fixture in
-# plugins/session-relay/test/release-publication-contract.mjs proves this
-# behavior.
+# mutation. Step 2 adds the crash-injection fixture in
+# plugins/session-relay/test/release-publication-contract.mjs that
+# terminates finalization immediately after editStable and before the
+# receipt write, asserts no receipt was created, and proves this base
+# recovery emits the canonical already_stable receipt with exactly one
+# total Release mutation.
 FINAL_RECOVERY_RECEIPT="$RECEIPT_DIR/final-publication-recovery-1.json"
 FINAL_PUBLICATION_SHA256="$(node scripts/release.mjs --finalize-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --promotion "$PROMOTION_RECEIPT" --promotion-sha256 "$PROMOTION_SHA256" --receipt-out "$FINAL_RECOVERY_RECEIPT")"
 FINAL_PUBLICATION_RECEIPT="$FINAL_RECOVERY_RECEIPT"
@@ -176,6 +180,7 @@ Authoritative verification ladder before the repair commit:
 ```bash
 node plugins/session-relay/test/release-evidence-contract.mjs
 node plugins/session-relay/test/release-promotion-contract.mjs
+node plugins/session-relay/test/release-publication-contract.mjs
 node scripts/ci.mjs --plugin session-relay --timings-json /tmp/session-relay-ci.json
 node scripts/ci.mjs
 ```
@@ -184,8 +189,8 @@ node scripts/ci.mjs
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Finish the byte-preserving proof-binder repair and commit it after the focused, targeted, and full verification ladder. | `scripts/lib/session-relay-release-core.mjs`; `scripts/lib/session-relay-release-preparation.mjs`; `plugins/session-relay/test/release-evidence-contract.mjs` | reviewed `planned → ongoing` transition | planned | `commandRaw`/`gitRaw` preserve the terminal LF; only `git show` uses raw bytes; the archive commit may be an ancestor of current HEAD; all four ladder commands exit 0; one focused repair commit leaves the worktree clean. |
-| 2 | Extend the release public boundary red/green: freeze failing promotion-contract fixtures first, then implement `--emit-public-request`, `--verify-public-release`, and the extended promotion/finalization receipt validation. | `plugins/session-relay/test/release-promotion-contract.mjs`; `scripts/lib/session-relay-release-promotion.mjs`; `scripts/lib/session-relay-release-cli.mjs` | 1 | planned | New fixtures fail before implementation and pass after; the promotion journal/receipt carry `public_release_commit` and `public_release_receipt_sha256`; companion ancestry is required; the docks-kit smoke target equals `public_release_commit`; the full ladder passes at one focused commit. |
+| 1 | Finish the byte-preserving proof-binder repair and commit it after the focused, targeted, and full verification ladder. | `scripts/lib/session-relay-release-core.mjs`; `scripts/lib/session-relay-release-preparation.mjs`; `plugins/session-relay/test/release-evidence-contract.mjs` | reviewed `planned → ongoing` transition | planned | `commandRaw`/`gitRaw` preserve the terminal LF; only `git show` uses raw bytes; the archive commit may be an ancestor of current HEAD; all five ladder commands exit 0; one focused repair commit leaves the worktree clean. |
+| 2 | Extend the release public boundary red/green: freeze failing promotion-contract and finalization crash-boundary fixtures first, then implement `--emit-public-request`, `--verify-public-release`, and the extended promotion/finalization receipt validation. | `plugins/session-relay/test/release-promotion-contract.mjs`; `plugins/session-relay/test/release-publication-contract.mjs`; `scripts/lib/session-relay-release-promotion.mjs`; `scripts/lib/session-relay-release-cli.mjs` | 1 | planned | New fixtures fail before implementation and pass after; the promotion journal/receipt carry `public_release_commit` and `public_release_receipt_sha256`; companion ancestry is required; the docks-kit smoke target equals `public_release_commit`; the publication-contract crash fixture terminates after `editStable` and before the receipt write, asserts no receipt exists, then proves fresh-path base recovery exits 0 with exactly one total Release mutation and a canonical `already_stable` stable receipt; the full ladder passes at one focused commit. |
 | 3 | Bind the existing finished source proof without reopening source preparation. | `docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md` (read-only); `$SOURCE_PROOF` (runtime receipt) | 2 | planned | Latest-touch/archive/blob/ancestry/candidate identities match; `SourcePreparationProofV1` is canonical mode `0600` and binds the exact source, evidence, shipped, and promoted commits. |
 | 4 | Publish and validate the immutable Session Relay staging prerelease. | `$PUBLICATION_RECEIPT` or one distinct canonical resume receipt; Git tag `session-relay--v0.12.0`; GitHub Release assets (external) | 3 | planned | One immutable tag, one bound producer run, four executables plus `SHA256SUMS`, same-run attestations, and staging prerelease identities validate from the canonical publication receipt. |
 | 5 | Emit the canonical public release request, dispatch the reviewed public production-release worker over Session Relay, and independently verify the shipped release. | `$PUBLIC_REQUEST`; `$PUBLIC_RELEASE_RECEIPT`; `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-production-release.md` (public lifecycle, its plan-manager only); external tag/Release `cli-v0.9.0` | 4 | planned | A7 writes the request; the relay `spawn`/`collect` round-trip (repeat `collect` once; identical committed handback) carries only the request path/digest and returns the shipped public plan path, release commit, and completion receipt SHA-256; the public plan supersedes `session-relay-cli-installation.md` without claiming production completion, pins exactly the four request digests, and ships under its own reviewed lifecycle; A8 verification exits 0. |
@@ -272,7 +277,7 @@ extended shape.
 | ID | Command | Expected |
 |---|---|---|
 | A1 | `node plugins/session-relay/test/release-evidence-contract.mjs` | Exits 0; a temporary Git object ending in LF is byte-identical through `gitRaw`, and completion binding accepts an archive commit that is an ancestor of current HEAD. |
-| A2 | `node plugins/session-relay/test/release-promotion-contract.mjs` | Exits 0; the extended contract proves request/receipt emission and verification, `public_release_commit` binding with companion ancestry, the docks-kit smoke-target change, and the finalization consumer against red/green fixtures. |
+| A2 | `node plugins/session-relay/test/release-promotion-contract.mjs && node plugins/session-relay/test/release-publication-contract.mjs` | Both exit 0; the promotion contract proves request/receipt emission and verification, `public_release_commit` binding with companion ancestry, the docks-kit smoke-target change, and the finalization consumer; the publication contract's crash-injection fixture proves that termination after `editStable` and before the receipt write leaves no receipt, and that fresh-path base recovery exits 0 with exactly one total Release mutation and a canonical `already_stable` stable receipt. |
 | A3 | `node scripts/ci.mjs --plugin session-relay --timings-json /tmp/session-relay-ci.json` | Exits 0; timings are closed/passed and contain no Docks author or Effect Kit plugin gate. |
 | A4 | `node scripts/ci.mjs` | Exits 0 once at each focused implementation commit before release mutation. |
 | A5 | `SOURCE_PROOF_SHA256="$(node scripts/release.mjs --bind-completion --plugin session-relay 0.12.0 --finished-plan docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md --embedded-candidate-sha256 5dc52ca755106f7ad712784f71c74293594e5e903eb25b626ef93770ec48c0fa --receipt-out "$SOURCE_PROOF")"` | Exits 0 and assigns exactly the printed 64-hex digest of the canonical mode-`0600` `SourcePreparationProofV1`, which binds the exact source/evidence/shipped/promoted identities. |
@@ -399,8 +404,12 @@ three-field committed handback protocol whose values parameterize the
 independent `--verify-public-release` validation of the finished public plan's
 passed completion receipt, a source-proof-derived `TAG_COMMIT` with an
 authoritative bound-run inspection command driving the recovery table, and
-closed cold-handoff claims. A fresh full round-one review of this materially
-changed input is a mandatory execution gate.
+closed cold-handoff claims. The second terminal series accepted the
+finalization crash boundary and its fixture coverage; this third revision
+schedules the crash-injection fixture in step 2, corrects the recovery
+evidence claim, and makes A2 execute both boundary contracts. A fresh full
+round-one review of this materially changed input is a mandatory execution
+gate.
 
 ## Review
 
@@ -434,3 +443,12 @@ inspection, and the resulting open decisions). That series is exhausted; this
 materially changed revision closes all four and requires a fresh full
 round-one review — a new series on changed input, not a same-input retry —
 before any `planned → ongoing` transition.
+
+Third revision on 2026-07-18: series 2 (full round then repair round) accepted
+the finalization crash-boundary blocker and, in repair round 2, the missing
+fixture scheduling, the overstated evidence claim, and the missing acceptance
+coverage. This revision adds the crash-injection fixture to step 2 and A2,
+corrects the recovery comment, and adds
+`plugins/session-relay/test/release-publication-contract.mjs` to the ladder
+and affected paths. A fresh full round-one review on this changed input gates
+any `planned → ongoing` transition.
