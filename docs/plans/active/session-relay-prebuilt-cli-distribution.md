@@ -3,7 +3,7 @@ title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
 status: in_review
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-18T02:31:48-03:00"
+updated: "2026-07-18T09:58:42-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 in_review_since: "2026-07-17T20:44:03-03:00"
 assignee: null
@@ -11,7 +11,7 @@ review_author_company: openai
 review_author_tool: codex
 review_author_model: gpt-5.6-sol
 review_author_effort: high
-review_waivers: [{"actor":"user","at":"2026-07-18T01:50:41-03:00","input_sha256":"0b9fe1cce06ac95bd47019312ed657e16be1fc0c7ad152a99a9f37913fa873cd","phase":"completion","reason":"User explicitly waived the terminal source-plan gate because both accepted gaps were repaired in the final tree, ordered acceptance and full CI passed, and the bounded immutable review series has no legal continuation.","roles":["primary"]}]
+review_waivers: [{"actor":"user","at":"2026-07-18T01:50:41-03:00","input_sha256":"0b9fe1cce06ac95bd47019312ed657e16be1fc0c7ad152a99a9f37913fa873cd","phase":"completion","reason":"User explicitly waived the terminal source-plan gate because both accepted gaps were repaired in the final tree, ordered acceptance and full CI passed, and the bounded immutable review series has no legal continuation.","roles":["primary"]},{"actor":"user","at":"2026-07-18T09:58:42-03:00","input_sha256":"a6cdca4002016b5e6830a9e07aef0f5a2a110b752950eb4c2e47715186598168","phase":"completion","reason":"User explicitly waived the corrected terminal source-plan gate after the release binder was fixed to validate the exact finished-plan waiver set; full local CI, producer run 29632116728, and source-CI run 29632165171 passed at source 00284a84acb96d64b357a083258177fca239428f.","roles":["primary"]}]
 tags: [session-relay, distribution, rust, github-actions]
 affected_paths:
   - .claude-plugin/marketplace.json
