@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: planned
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T15:34:57-03:00"
+updated: "2026-07-18T15:41:55-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -84,9 +84,9 @@ chmod 700 "$RECEIPT_DIR"
 cargo +1.85.0 build --manifest-path plugins/session-relay/rust/Cargo.toml \
   --release --locked
 export SESSION_RELAY_BIN="$PWD/plugins/session-relay/rust/target/release/relay"
-"$SESSION_RELAY_BIN" register docks-release --id "$(uuidgen)" \
+PARENT_SESSION_ID="$(uuidgen)"
+"$SESSION_RELAY_BIN" register docks-release --id "$PARENT_SESSION_ID" \
   --dir /home/vagrant/projects/docks
-PARENT_SESSION_ID="docks-release"
 SOURCE_PROOF="$RECEIPT_DIR/source-proof.json"
 PUBLICATION_RECEIPT="$RECEIPT_DIR/publication-initial.json"
 PUBLIC_REQUEST="$RECEIPT_DIR/public-release-request.json"
