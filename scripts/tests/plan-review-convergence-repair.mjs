@@ -1182,6 +1182,7 @@ function testCurrentReviewerArgv() {
     assert.equal(argv[modelAt + 1], 'gpt-5.6-sol');
     assert.deepEqual(argv.slice(modelAt + 2, modelAt + 6), ['-c', 'model_reasoning_effort=high', '-c', 'service_tier="default"']);
     assert.equal(argv.includes('features.fast_mode=true'), false);
+    assert.equal(argv[argv.indexOf('--add-dir') + 1], bundle, 'reviewer can read the sealed bundle outside its isolated workspace');
     assert.equal(argv[argv.indexOf('--output-schema') + 1], path.join(bundle, 'reviewer-output.primary.v5.schema.json'));
 
     for (const [label, overrides, pattern] of [

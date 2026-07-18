@@ -3353,7 +3353,7 @@ export function buildReviewerArgv({ tool, bundle, reviewerWorkspace = null, mode
       assertClosed(reviewerWorkspace, ['schema', 'request_id', 'leg', 'workspace', 'cleanup_token'], 'reviewer workspace');
       if (reviewerWorkspace.schema !== 1 || reviewerWorkspace.request_id !== request.request_id || reviewerWorkspace.leg !== leg || reviewerWorkspace.workspace !== reviewerWorkspacePath(request.request_id, leg)) throw new Error('reviewer workspace mismatch');
       workdir = reviewerWorkspace.workspace;
-      isolation.push('--ephemeral', '--ignore-user-config');
+      isolation.push('--ephemeral', '--ignore-user-config', '--add-dir', bundle);
     }
     const schemaPath = request.schema === 5 ? path.join(bundle, 'reviewer-output.primary.v5.schema.json') : path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`);
     return ['exec', '-C', workdir, '--skip-git-repo-check', ...isolation, '-s', 'read-only', '-m', model, ...config, '--output-schema', schemaPath, '--', prompt];
