@@ -3,7 +3,7 @@ title: Correlate Session Relay messages and worker results
 goal: Add a backward-compatible correlated messaging protocol with bounded await/wait operations, explicit delivery outcomes, and immutable typed fanout worker results without making Session Relay a plan-review evidence transport.
 status: planned
 created: "2026-07-17T21:49:47-03:00"
-updated: "2026-07-17T21:53:39-03:00"
+updated: "2026-07-17T22:17:48-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
@@ -15,6 +15,7 @@ affected_paths:
   - plugins/session-relay/AGENTS.md
   - plugins/session-relay/rust/src/appserver.rs
   - plugins/session-relay/rust/src/bus.rs
+  - plugins/session-relay/rust/src/channel.rs
   - plugins/session-relay/rust/src/cli.rs
   - plugins/session-relay/rust/src/fanout/authority.rs
   - plugins/session-relay/rust/src/hook.rs
@@ -90,28 +91,25 @@ RelayEnvelopeV2 = {
 }
 ```
 
-Initial sends generate both `id` and `correlation_id` and set `reply_to:null`. A reply reuses the referenced envelope's `correlation_id` and sets `reply_to` to that exact envelope id. When `reply_to` is supplied without `correlation_id`, the immutable message index supplies it. When both are supplied, they must agree. Unknown, malformed, cross-correlation, wrong-recipient, or self-forged references fail before enqueue.
+Initial sends generate both `id` and `correlation_id` and set `reply_to:null`. A reply reuses the referenced envelope's `correlation_id` and sets `reply_to` to that exact envelope id. When `reply_to` is supplied without `correlation_id`, the authoritative message record supplies it. When both are supplied, they must agree. Unknown, malformed, cross-correlation, wrong-recipient, or self-forged references fail before enqueue.
 
 Existing v1 rows without `schema`, `correlation_id`, or `reply_to` continue through inbox, hook, and watch paths unchanged. Old send calls require no new argument. New readers normalize v1 rows only in memory; they never rewrite historical mailbox bytes.
 
-### Immutable message index
+### Authoritative message record and derived mailbox
 
-Every v2 enqueue creates one mode-`0600` canonical-JCS metadata record under the Relay store before appending the mailbox row:
+Every v2 enqueue first creates one mode-`0600` canonical-JCS authoritative record:
 
 ```text
-MessageIndexV1 = {
-  schema: 1,
-  message_id: UUID,
-  correlation_id: UUID,
-  reply_to: UUID | null,
-  from: SessionId | null,
-  to: SessionId,
-  body_sha256: 64hex,
-  created_at: ISO-8601
+MessageRecordV2 = {
+  schema: 2,
+  envelope: RelayEnvelopeV2,
+  body_sha256: 64hex
 }
 ```
 
-The index is create-once and contains a body digest rather than a second plaintext body. Enqueue and index publication occur under the existing global store lock with rollback on failure, so neither can become authoritative alone. GC removes an index only after its mailbox row, correlation wait state, delivery journal, and worker-result references are quiescent under the existing retention policy.
+`message-records/<recipient-id>/<message-id>.json` is the sole authority that a v2 message exists and contains the one plaintext body. The recipient mailbox JSONL contains only a derived queue hint for that record. Enqueue publishes and directory-syncs the create-once record before appending the hint. A crash before record rename means no send; a crash after rename leaves an authoritative pending message. Every store entry point first performs the same under-lock reconciliation for the one addressed recipient shard: add a missing hint for each pending unclaimed record, remove or quarantine hints whose record is absent or invalid, and finish interrupted derived-mailbox rewrites before serving data.
+
+A selective claim publishes and directory-syncs one create-once `claims/<recipient-id>/<message-id>.json` record before removing its derived hint. The claim is the sole authority that the reply was consumed; a crash after claim publication is recovered by removing the stale hint, never by returning the reply twice. Failure injection covers process termination before and after every record, claim, hint append, and hint rewrite boundary followed by a fresh-process reconciliation. GC removes record, claim, delivery journal, and derived hint together only after retention and after correlation and worker-result references are quiescent; it never treats a hint as proof of liveness.
 
 ### DeliveryReceiptV1 and result separation
 
@@ -129,15 +127,16 @@ DeliveryReceiptV1 = {
   schema: 1,
   message_id: UUID,
   correlation_id: UUID,
+  attempt: positive integer,
   sequence: positive integer,
   state: DeliveryState,
-  actor: "send" | "hook" | "watch" | "appserver",
+  actor: "send" | "hook" | "watch" | "appserver" | "channel",
   detail: string | null,
   recorded_at: ISO-8601
 }
 ```
 
-`queued` is always first after durable enqueue. `injected`, `injected_ack_deferred`, `refused`, `failed_before_inject`, and `ambiguous_after_inject` are terminal for one delivery attempt. A terminal state cannot be overwritten; a later explicit wake attempt appends a new attempt identity rather than rewriting history. Watcher liveness remains an observation in the send result, not proof of delivery.
+`sequence` is the strictly increasing event sequence for one message; `attempt` groups events for one delivery attempt. Attempt 1 starts with `queued` after durable enqueue. Each attempt has exactly one `queued` event and at most one terminal event. An explicit later wake may create attempt $N+1$ only after attempt $N$ ended `refused` or `failed_before_inject`; it appends a new `queued` event under the same message and correlation. `injected`, `injected_ack_deferred`, and `ambiguous_after_inject` prohibit retry because duplicate delivery cannot be excluded. Concurrent actors use the store lock to admit one terminal event; duplicate or conflicting terminals fail without appending.
 
 ```text
 SendResultV2 = {
@@ -160,7 +159,9 @@ WaitResultV1 = {
 }
 ```
 
-Timeout is a successful command result, not a transport error. Delivery failure does not fabricate recipient execution failure. An after-inject error is explicitly ambiguous and never re-enqueues the message as certainly undelivered.
+Timeout is a successful command result, not a transport error. Delivery failure does not fabricate recipient execution failure. Failure before an inject request is sent is `failed_before_inject`; loss of the inject response after send is `ambiguous_after_inject`; confirmed injection followed by settle or acknowledgement unavailability is `injected_ack_deferred`; confirmed injection plus acknowledgement is `injected`. Neither ambiguous nor confirmed delivery is re-enqueued.
+
+Claude channel delivery has one exact no-ack mapping. Serialization failure before `send_frame` writes any byte is `failed_before_inject`; any stdout write or flush error is `ambiguous_after_inject` because a partial frame may have escaped; successful frame flush is `injected_ack_deferred` because the channel protocol supplies no recipient acknowledgement. Channel never records `injected`, and neither ambiguous nor flushed channel delivery is retried automatically.
 
 ### Send, await, reply, and wait
 
@@ -183,7 +184,7 @@ Await matching requires all of:
 3. when an awaited message id is known, `reply_to` equals it;
 4. for `send --await`, the reply sender equals the original target.
 
-The store performs one locked selective claim: return the earliest append-order matching reply, preserve every unrelated byte and ordering relation, and commit removal only after the caller has a complete typed result. Timeout preserves all mail. A late reply remains available to a later `relay wait`. Concurrent waiters for the same direct reply resolve at most once; losers receive timeout or correlation-without-pending-reply, never a duplicate payload.
+The store performs one locked selective claim: return the earliest append-order matching reply, preserve every unrelated byte and ordering relation, and commit the authoritative claim only after the caller has a complete typed result. Timeout preserves all mail. A late reply remains available to a later `relay wait`. Concurrent waiters for the same direct reply resolve at most once; the winner receives `replied` and every loser remains bounded until the existing `timeout` outcome, never a duplicate payload or an undeclared race value.
 
 ### WorkerResultV1
 
@@ -199,28 +200,29 @@ WorkerResultV1 = {
   worker_id: string,
   generation: positive integer,
   runtime_session_id: SessionId,
-  outcome: "succeeded" | "failed" | "aborted",
+  outcome: "succeeded" | "failed",
   summary: string,
-  handback_commit: 40hex | null,
-  artifacts: [{ path: safe relative path, sha256: 64hex }],
+  handback_commit: 40hex,
   created_at: ISO-8601
 }
 ```
 
-The record is canonical JCS, mode `0600`, written create-once under `worker-results/<worker_id>/<generation>/<result_id>.json`. `FanoutRecord` stores the exact `result_id` and `result_sha256` when it enters a terminal handback state. The lifecycle authority accepts one terminal result for each worker generation and rejects stale generation, parent/runtime mismatch, second terminal result, changed bytes, unsafe artifact paths, duplicate artifacts, or a commit where the outcome does not permit one.
+`spawn --fanout` generates the correlation UUID when it creates the reservation, stores it in the exact `FanoutRecord` generation, and surfaces it in the worker prompt. Handback cannot supply or override it; `WorkerResultV1.correlation_id` must equal that reservation value.
 
-`handback` creates the result from its existing branch/commit/status inputs; it does not accept an arbitrary result file supplied by the worker. `collect` validates and returns the exact typed record plus digest. Asking for a decision remains ordinary correlated messaging and is not a terminal worker result.
+The record is canonical JCS, mode `0600`, written create-once under `worker-results/<worker_id>/<generation>/<result_id>.json`. Existing `handback --status completed|failed --note <text>` is the complete input: `completed` maps to `succeeded`, `failed` maps to `failed`, `summary` is the already bounded note (empty when omitted), and `handback_commit` is the clean exact worktree HEAD already resolved for both statuses. There is no aborted outcome and no artifact list. The lifecycle authority accepts one terminal result for each worker generation and rejects stale generation, parent/runtime mismatch, second terminal result, changed bytes, invalid status mapping, or a commit different from the authoritative handback HEAD.
+
+`handback` creates the result from those existing inputs inside the same authority transition; it does not accept an arbitrary result file supplied by the worker. `collect` validates and returns the exact typed record plus digest. Asking for a decision remains ordinary correlated messaging and is not a terminal worker result.
 
 ## Authority and compatibility invariants
 
-- `store.rs` remains sole writer for mail, indexes, delivery journals, selective claims, and worker-result bytes.
+- `store.rs` remains sole writer for authoritative message records and claims, derived mailbox hints, delivery journals, selective claims, and worker-result bytes.
 - `lifecycle.rs` remains sole authority for active worker generation and terminal transition eligibility.
-- Bus, CLI, hook, watch, app-server, spawn, handback, and collect call typed protocol APIs; they do not assemble ad hoc envelope or receipt maps.
+- Bus, CLI, hook, watch, app-server, channel, spawn, handback, and collect call typed protocol APIs; they do not assemble ad hoc envelope or receipt maps.
 - Additional v2 keys are backward-compatible for old JSONL readers. Legacy rows remain deliverable and drainable but cannot satisfy a correlation wait.
 - Message, correlation, and result IDs are canonical UUIDs. All closed objects reject unknown keys when read through v2 APIs.
 - Every durable creation uses exclusive mode-`0600` staging, flush, atomic rename, directory sync where supported, and exact-byte re-read before success.
 - Body and result size caps are explicit and tested; no wait loop can grow memory with the mailbox size.
-- Mail remains untrusted data. Hook and app-server rendering fence body plus surfaced metadata; correlation fields never become instructions.
+- Mail remains untrusted data. Hook, app-server, and channel rendering fence body plus surfaced metadata; correlation fields never become instructions.
 - `send --await` is bounded, interruptible, and polling-efficient. It never starts or resumes a model session by itself.
 - Session Relay cannot dispatch plan reviewers, carry canonical plan-review evidence, mutate Docks plan lifecycle, or invoke plan-improver. No affected path belongs to those systems.
 
@@ -228,12 +230,12 @@ The record is canonical JCS, mode `0600`, written create-once under `worker-resu
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Freeze complete protocol-v2 red tests before production edits. | `rust/tests/protocol_v2.rs`; `rust/tests/bus_smoke.rs`; `rust/tests/fanout.rs`; `test/selftest.mjs` | — | planned | Focused tests cover closed schemas, legacy reads, reply validation, selective waits, every outcome, concurrency, crash rollback, immutable worker results, and CLI/MCP compatibility; the exact commands fail only because v2 behavior is absent. |
+| 1 | Freeze complete protocol-v2 red tests before production edits. | `rust/tests/protocol_v2.rs`; `rust/tests/bus_smoke.rs`; `rust/tests/fanout.rs`; `test/selftest.mjs` | — | planned | Focused tests cover closed schemas, legacy reads, reply validation, selective waits, every outcome/attempt, concurrency, crash-and-restart reconciliation, immutable worker results, and CLI/MCP compatibility; the exact commands fail only because v2 behavior is absent. |
 | 2 | Add closed protocol types, validation, canonical serialization, and size limits. | `rust/src/protocol.rs`; `rust/src/lib.rs` | 1 | planned | Unit tests reject malformed/unknown/mismatched identities and produce byte-stable canonical records. |
-| 3 | Implement atomic message indexes, delivery journals, and selective correlation claims. | `rust/src/store.rs`; `rust/src/lifecycle.rs` | 2 | planned | Failure injection proves no index/mail split authority, unrelated mailbox bytes survive waits, one concurrent waiter wins, timeout is non-mutating, and GC respects live references. |
-| 4 | Expose backward-compatible MCP/CLI send, reply, await, and wait surfaces. | `rust/src/bus.rs`; `rust/src/cli.rs`; `rust/src/main.rs` | 3 | planned | Legacy calls retain behavior; v2 calls return closed typed results; CLI and MCP match exactly; unknown sender/recipient/correlation and invalid timeouts fail before mutation. |
-| 5 | Map hook, watch, and app-server delivery into durable explicit outcomes. | `rust/src/hook.rs`; `rust/src/watch.rs`; `rust/src/appserver.rs` | 3, 4 | planned | Before-inject rollback, after-inject ambiguity, refusal, deferred acknowledgement, and successful injection append the correct receipt without trusting mail metadata. |
-| 6 | Publish and collect one immutable typed result per fanout worker generation. | `rust/src/spawn.rs`; `rust/src/fanout/authority.rs`; `rust/src/lifecycle.rs`; `rust/src/store.rs` | 2, 3 | planned | Handback creates the result; collect verifies bytes/digest and exact worker authority; stale, duplicate, mutated, or unsafe results fail without changing terminal state. |
+| 3 | Implement authoritative message/claim records, derived mailbox reconciliation, delivery journals, and selective correlation claims. | `rust/src/store.rs`; `rust/src/lifecycle.rs` | 2 | planned | Process-kill injection at every publication boundary plus fresh-process recovery proves record/claim sole authority, rebuilds derived hints, preserves unrelated mail, allows one waiter, leaves timeout non-mutating, and keeps GC reference-safe. |
+| 4 | Expose backward-compatible MCP/CLI send, reply, await, and wait surfaces. | `rust/src/bus.rs`; `rust/src/cli.rs`; `rust/src/main.rs` | 3 | planned | Legacy calls retain behavior; v2 calls return closed typed results; CLI and MCP match exactly; unknown sender/recipient/correlation and invalid timeouts fail before mutation; losing concurrent waits deterministically time out. |
+| 5 | Map hook, watch, app-server, and Claude channel delivery into durable explicit outcomes. | `rust/src/hook.rs`; `rust/src/watch.rs`; `rust/src/appserver.rs`; `rust/src/channel.rs` | 3, 4 | planned | Tests distinguish before-send failure, sent-without-response ambiguity, confirmed injection with deferred acknowledgement, confirmed acknowledgement, refusal, and channel's no-ack at-most-once mapping; each attempt has one terminal receipt and no unsafe retry. |
+| 6 | Publish and collect one immutable typed result per fanout worker generation. | `rust/src/spawn.rs`; `rust/src/fanout/authority.rs`; `rust/src/lifecycle.rs`; `rust/src/store.rs` | 2, 3 | planned | Existing completed/failed plus note/head inputs deterministically create the result; collect verifies bytes/digest and exact worker authority; stale, duplicate, mutated, mismapped, or wrong-head results fail without changing terminal state. |
 | 7 | Update skill and maintainer guidance without granting review authority. | `skills/productivity/session-relay/SKILL.md`; `plugins/session-relay/AGENTS.md` | 4–6 | planned | Guidance documents correlation/reply/await/wait/outcomes/results, keeps Session Relay invalid for plan-review evidence, and the skill content hash is current. |
 | 8 | Run focused acceptance, plugin CI, and full repository CI. | all affected paths | 1–7 | planned | A1–A8 pass on the exact reviewed tree; no generated binary is committed; full CI is green. |
 
@@ -241,10 +243,10 @@ The record is canonical JCS, mode `0600`, written create-once under `worker-resu
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --test protocol_v2` | Exit 0; closed envelope/index/receipt/result schemas, legacy normalization, atomic rollback, selective wait, timeout, concurrency, caps, and immutable-result cases pass. |
+| A1 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --test protocol_v2` | Exit 0; closed envelope/record/claim/receipt/result schemas, legacy normalization, crash-and-restart reconciliation, selective wait, delivery attempts, deterministic waiter timeout, caps, and immutable-result cases pass. |
 | A2 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --test bus_smoke` | Exit 0; MCP send/wait and CLI send/await/wait are behaviorally equivalent and preserve old no-flag calls. |
-| A3 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --test fanout` | Exit 0; handback/collect return one hash-bound `WorkerResultV1` per exact worker generation and reject every stale or duplicate terminal publication. |
-| A4 | `cargo +1.85.0 build --manifest-path plugins/session-relay/rust/Cargo.toml --release --locked && SESSION_RELAY_TEST_BIN="$PWD/plugins/session-relay/rust/target/release/relay" node plugins/session-relay/test/selftest.mjs` | Exit 0; black-box register/send/reply/await/wait/inbox/hook/watch behavior works through the fresh binary with isolated stores. |
+| A3 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --test fanout` | Exit 0; existing completed/failed handback inputs create one hash-bound `WorkerResultV1` with exact note/head mapping per worker generation and reject stale or duplicate terminal publication. |
+| A4 | `cargo +1.85.0 build --manifest-path plugins/session-relay/rust/Cargo.toml --release --locked && SESSION_RELAY_TEST_BIN="$PWD/plugins/session-relay/rust/target/release/relay" node plugins/session-relay/test/selftest.mjs` | Exit 0; black-box register/send/reply/await/wait/inbox/hook/watch/channel behavior works through the fresh binary with isolated stores. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only plugins/session-relay/skills` | Exit 0 with no stale Session Relay skill hash. |
 | A6 | `git ls-files plugins/session-relay/bin` | Output remains exactly `plugins/session-relay/bin/relay`; no compiled executable or protocol fixture secret is committed. |
 | A7 | `node scripts/ci.mjs --plugin session-relay` | Exit 0; Rust formatting, clippy, release build, protocol contracts, launcher, skill, and black-box self-test pass. |
@@ -262,12 +264,12 @@ The record is canonical JCS, mode `0600`, written create-once under `worker-resu
 
 ## Failure modes and STOP conditions
 
-- STOP if a reply cannot be matched without draining or reordering unrelated mailbox entries.
-- STOP if enqueue can leave a valid message index without mailbox bytes, or mailbox bytes without the required index.
-- STOP if an after-inject transport failure is classified as definitely undelivered.
-- STOP if two concurrent waiters can consume the same reply.
-- STOP if a worker can publish a terminal result for another worker, generation, runtime session, or parent.
-- STOP if a terminal worker result can be overwritten, replaced, or rebound to different artifact bytes.
+- STOP if a reply cannot be matched while preserving unrelated mailbox entries and their ordering.
+- STOP if a v2 mailbox hint or partial rewrite can override the authoritative message/claim records after fresh-process reconciliation.
+- STOP if an inject request with no response is classified as definitely undelivered, or a confirmed inject is classified as ambiguous.
+- STOP if two concurrent waiters can consume the same reply or produce different non-timeout loser outcomes.
+- STOP if a worker can publish a terminal result for another worker, generation, runtime session, parent, status mapping, or handback HEAD.
+- STOP if a terminal worker result can be overwritten, replaced, or rebound to different bytes.
 - STOP if any implementation path treats correlation metadata or body text as trusted instructions.
 - STOP if the design requires Session Relay to become canonical plan-review evidence transport.
 - STOP if compatibility requires rewriting historical JSONL or lifecycle-v1 bytes.
@@ -276,10 +278,10 @@ The record is canonical JCS, mode `0600`, written create-once under `worker-resu
 
 - Repository, pinned toolchain, focused commands, and isolated-store requirements are explicit.
 - Current envelope, delivery, fanout, and authority seams are named by exact paths and symbols.
-- V2 envelope, message index, delivery receipt, send/wait result, and worker result shapes are closed.
+- V2 envelope, authoritative message/claim record, derived mailbox, delivery attempt receipt, send/wait result, and worker result shapes are closed.
 - Correlation and `reply_to` semantics distinguish conversation identity from exact-message linkage.
-- Await/wait matching, timeout, late reply, unrelated mail, and concurrent waiter behavior are binary.
-- Delivery outcome, recipient execution, and worker terminal result are separate concepts.
+- Await/wait matching, timeout, late reply, unrelated mail, fresh-process recovery, and concurrent waiter behavior are binary.
+- Delivery attempt outcome, recipient execution, channel no-ack semantics, and worker terminal result are separate concepts.
 - Legacy rows and old send calls have a clean compatibility path without mutation.
 - TDD ordering and immutable assertions are explicit.
 - Security fencing, identity validation, atomic persistence, size caps, and GC ownership are explicit.
@@ -296,7 +298,7 @@ Caught and fixed during self-review:
 - Separated watcher liveness, durable delivery, reply arrival, and worker completion.
 - Made late replies durable and timeout non-mutating instead of treating timeout as cancellation.
 - Bound worker results to parent, worker, generation, and runtime session and prohibited arbitrary worker-supplied result files.
-- Added an immutable message index so replies can validate references after the original mailbox row is drained.
+- Made the message record and claim the sole v2 authorities so reply validation and crash recovery never depend on a derived mailbox hint.
 - Kept the existing plan-review transport prohibition as an explicit scope and authority invariant.
 
 ## Sources
@@ -304,7 +306,7 @@ Caught and fixed during self-review:
 - `plugins/session-relay/rust/src/store.rs` — current registry, JSONL mailbox, generated `id`/`ts`, drain receipts, rollback, and lock authority.
 - `plugins/session-relay/rust/src/bus.rs` — current MCP send/inbox schemas and queue/watch response.
 - `plugins/session-relay/rust/src/cli.rs` and `main.rs` — current send/inbox/wake/watch CLI grammar and dispatch.
-- `plugins/session-relay/rust/src/watch.rs` and `appserver.rs` — current push/wake delivery outcomes and before/after-inject ambiguity boundary.
+- `plugins/session-relay/rust/src/watch.rs`, `appserver.rs`, and `channel.rs` — current push/wake/channel delivery outcomes and before/after-inject or no-ack ambiguity boundaries.
 - `plugins/session-relay/rust/src/lifecycle.rs` — current typed managed-worker, release-receipt, generation, fence, and operation authority patterns.
 - `plugins/session-relay/rust/src/spawn.rs` and `fanout/authority.rs` — current prompt-level `reply_to`, parent/worker/generation identity, and handback state.
 - `omp://tools/hub.md` — OMP replyTo, await, explicit receipts, wait race, buffering, timeout, and lifecycle semantics.
