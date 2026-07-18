@@ -1,9 +1,9 @@
 ---
 title: Target CI and release gates by plugin
 goal: Make CI measurable, parallel where safe, and plugin-targeted for local and release-tag gates while preserving full pull-request and manual validation.
-status: in_review
+status: finished
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-18T14:25:33-03:00"
+updated: "2026-07-18T14:30:50-03:00"
 started_at: "2026-07-16T23:38:16-03:00"
 in_review_since: "2026-07-17T00:15:14-03:00"
 assignee: codex
@@ -32,6 +32,7 @@ related_plans:
 review_status: passed
 planned_at_commit: 5ba8e810112b1be3570e06fd0b94715630c990b7
 execution_base_commit: 6909ef89cb95f08c344fcfd5686dc3df8d5ffec0
+ship_commit: 87d3bd1c592c732d33938837d15222a22ee9f0b9
 ---
 
 # Target CI and release gates by plugin
