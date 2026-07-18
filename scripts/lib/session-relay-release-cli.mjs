@@ -13,7 +13,12 @@ import {
   verifySourceCi,
 } from './session-relay-release-preparation.mjs';
 import { finalizeReviewed, publishReviewed } from './session-relay-release-publication.mjs';
-import { promoteReviewed, validatePromotionReceiptForFinalization } from './session-relay-release-promotion.mjs';
+import {
+  emitPublicRequest,
+  promoteReviewed,
+  validatePromotionReceiptForFinalization,
+  verifyPublicRelease,
+} from './session-relay-release-promotion.mjs';
 import { positionalPlugin, runFixture } from './session-relay-release-fixture.mjs';
 
 const MODE_SPECS = {
@@ -24,8 +29,10 @@ const MODE_SPECS = {
   'check-prepared': { required: ['plugin', 'version', 'source-commit', 'docks-red', 'docks-red-sha256', 'public-red', 'public-red-sha256', 'preflight', 'preflight-sha256', 'source-ci', 'source-ci-sha256', 'receipt-out'] },
   'bind-completion': { required: ['plugin', 'version', 'finished-plan', 'embedded-candidate-sha256', 'receipt-out'] },
   'publish-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'receipt-out'], pairs: [['resume-publication', 'resume-publication-sha256']] },
-  'promote-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'], pairs: [['retry-failed', 'retry-failed-sha256']] },
-  'resume-promotion': { required: ['plugin', 'version', 'transaction-ref', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'] },
+  'emit-public-request': { required: ['plugin', 'version', 'publication', 'publication-sha256', 'receipt-out'] },
+  'verify-public-release': { required: ['plugin', 'version', 'request', 'request-sha256', 'publication', 'publication-sha256', 'public-finished-plan', 'public-release-commit', 'public-completion-sha256', 'receipt-out'] },
+  'promote-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'public-release', 'public-release-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'], pairs: [['retry-failed', 'retry-failed-sha256']] },
+  'resume-promotion': { required: ['plugin', 'version', 'transaction-ref', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'public-release', 'public-release-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'] },
   'finalize-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'promotion', 'promotion-sha256', 'receipt-out'], pairs: [['resume-finalization', 'resume-finalization-sha256']] },
 };
 const MODE_FLAGS = new Map(Object.keys(MODE_SPECS).map((mode) => [`--${mode}`, mode]));
@@ -100,6 +107,8 @@ export async function dispatchSessionRelayRelease(argv = process.argv.slice(2)) 
     case 'check-prepared': result = checkPrepared(parsed.options); break;
     case 'bind-completion': result = bindCompletion(parsed.options); break;
     case 'publish-reviewed': result = publishReviewed(parsed.options); break;
+    case 'emit-public-request': result = emitPublicRequest(parsed.options); break;
+    case 'verify-public-release': result = verifyPublicRelease(parsed.options); break;
     case 'promote-reviewed': result = promoteReviewed(parsed.options, false); break;
     case 'resume-promotion': result = promoteReviewed(parsed.options, true); break;
     case 'finalize-reviewed': result = finalizeReviewed(parsed.options, undefined, validatePromotionReceiptForFinalization); break;

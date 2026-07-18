@@ -8,6 +8,7 @@ import {
   ASSETS,
   COMMIT,
   LOCK_REF,
+  PRERELEASE_BODY,
   REPO,
   REPOSITORY_ID,
   SHA256,
@@ -17,9 +18,12 @@ import {
   canonicalPath,
   canonicalize,
   command,
+  commandRaw,
+  emitReceipt,
   exactKeys,
   fail,
   git,
+  ghJson,
   readCanonical,
   sha256,
   writeCanonicalExclusive,
@@ -28,6 +32,32 @@ import { validateProof } from './session-relay-release-preparation.mjs';
 import { normalizedAssets, releaseState, validatePublicationReceipt } from './session-relay-release-publication.mjs';
 
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
+const PUBLIC_VERSION = '0.9.0';
+const PUBLIC_TAG = `cli-v${PUBLIC_VERSION}`;
+const PUBLIC_WORKFLOW = '.github/workflows/release-cli.yml';
+const COMPANION_BASE_COMMIT = 'c3b542220d5a24a98ca05383bbe28afc2319b7e2';
+const PUBLIC_ASSET_TARGETS = [
+  'x86_64-unknown-linux-musl',
+  'aarch64-unknown-linux-musl',
+  'x86_64-apple-darwin',
+  'aarch64-apple-darwin',
+];
+const PUBLIC_RELEASE_ASSET_NAMES = [
+  'SHA256SUMS',
+  'docks-kit-darwin-arm64',
+  'docks-kit-darwin-x64',
+  'docks-kit-linux-arm64',
+  'docks-kit-linux-x64',
+  'docks-kit-windows-x64.exe',
+];
+const PUBLICATION_TRANSITIONS = new Set([
+  'assets_reconciled',
+  'reconciled',
+  'release_created',
+  'tag_and_assets_reconciled',
+  'tag_and_reconciled',
+  'tag_and_release_created',
+]);
 const DOCKS_KIT_RELEASE = 'cli-v0.9.0';
 const JOURNAL_TYPE = 'PromotionJournalEntryV1';
 const RECEIPT_TYPE = 'PromotionReceiptV1';
@@ -45,7 +75,8 @@ const IMMUTABLE_KEYS = [
   'tag_commit', 'promoted_commit', 'expected_origin_main', 'docks_kit_repository',
   'docks_kit_release', 'transaction_ref', 'lock_ref', 'lock_nonce', 'lock_commit',
   'publication_release_id', 'publication_assets_sha256', 'public_repository_id',
-  'public_reviewed_commit', 'prior_attempt_receipt_sha256',
+  'public_reviewed_commit', 'public_release_commit', 'public_release_receipt_sha256',
+  'prior_attempt_receipt_sha256',
 ];
 const STATE_KEYS = [
   'origin_main', 'observed_lock', 'observed_release', 'pushed_commit', 'restore_commit', 'reapply_commit',
@@ -71,8 +102,9 @@ const RECEIPT_KEYS = [
   'lock_ref', 'lock_nonce', 'lock_commit', 'expected_origin_main', 'observed_origin_main',
   'prepush_commit', 'pushed_commit', 'restore_commit', 'reapply_commit',
   'compatibility_paths', 'compatibility_blobs', 'public_repository_id',
-  'public_reviewed_commit', 'public_tag_commit', 'publication_release_id',
-  'docks_kit', 'session_relay_assets', 'exact_source_smoke', 'live_smoke',
+  'public_reviewed_commit', 'public_release_commit', 'public_release_receipt_sha256',
+  'public_tag_commit', 'publication_release_id', 'docks_kit', 'session_relay_assets',
+  'exact_source_smoke', 'live_smoke',
   'post_restore', 'outcome', 'retryable', 'created_at',
 ];
 const MUTATION_KEYS = [
@@ -81,10 +113,43 @@ const MUTATION_KEYS = [
 ];
 const PROJECTION_KEYS = RECEIPT_KEYS.filter((key) => !['schema', 'type', 'terminal_journal_commit', 'journal_chain_sha256'].includes(key));
 const OUTCOMES = new Set(['success', 'restored_failure', 'failure', 'manual_incident']);
+const PUBLICATION_RECEIPT_KEYS = [
+  'schema', 'type', 'repository_id', 'version', 'source_proof_sha256', 'tag',
+  'tag_commit', 'workflow', 'release_database_id', 'release_state', 'body_sha256',
+  'assets', 'transition', 'created_at',
+];
+const PUBLICATION_WORKFLOW_KEYS = [
+  'file', 'workflow_sha', 'run_id', 'attempt', 'head_sha', 'path', 'event',
+  'inputs', 'conclusion',
+];
+const PUBLIC_REQUEST_KEYS = [
+  'schema', 'type', 'repository_id', 'tag', 'version', 'companion_base_commit',
+  'session_relay', 'assets', 'created_at',
+];
+const PUBLIC_SESSION_RELAY_KEYS = [
+  'repository_id', 'tag', 'version', 'tag_commit', 'publication_receipt_sha256',
+];
+const PUBLIC_RELEASE_RECEIPT_KEYS = [
+  'schema', 'type', 'request_sha256', 'repository_id', 'tag', 'version',
+  'release_commit', 'companion_base_commit', 'ancestry_verified', 'workflow',
+  'release', 'npm', 'pinned_assets', 'public_plan', 'created_at',
+];
+const PUBLIC_RELEASE_WORKFLOW_KEYS = ['file', 'run_database_id', 'run_attempt', 'conclusion'];
+const PUBLIC_RELEASE_KEYS = ['database_id', 'assets', 'checksums_sha256'];
+const PUBLIC_RELEASE_ASSET_KEYS = ['name', 'size', 'digest'];
+const PUBLIC_NPM_KEYS = ['state'];
+const PUBLIC_PLAN_KEYS = ['path', 'completion_receipt_sha256'];
+const PUBLIC_REQUEST_ADAPTER_KEYS = ['now'];
+export const PUBLIC_RELEASE_ADAPTER_KEYS = Object.freeze([
+  'now', 'getTagCommit', 'isAncestor', 'getFinishedPlan', 'listWorkflowRuns',
+  'getRelease', 'downloadReleaseAsset', 'getPinnedAssets', 'getNpmState',
+]);
+
 
 export const PROMOTION_ADAPTER_KEYS = Object.freeze([
-  'now', 'nonce', 'loadProof', 'loadPublication', 'loadRetryReceipt', 'remoteRef', 'isAncestor',
-  'readJournal', 'createLockCommit', 'appendJournal', 'createLock', 'pushMain',
+  'now', 'nonce', 'loadProof', 'loadPublication', 'loadPublicRelease',
+  'loadRetryReceipt', 'remoteRef', 'isAncestor', 'readJournal', 'createLockCommit',
+  'appendJournal', 'createLock', 'pushMain',
   'releaseState', 'compatibilityState', 'validateCommitTransition', 'runPrepushSmoke',
   'runLiveSmoke', 'restoreCompatibility', 'reapplyCompatibility', 'assertReceiptOutputAvailable', 'writeReceipt',
 ]);
@@ -134,6 +199,414 @@ function validateAssets(assets, label, requireSessionRelaySet = false, allowMiss
   if (requireSessionRelaySet && canonicalize(names) !== canonicalize([...ASSETS].sort())) fail(`${label} has the wrong closed asset set`);
 }
 
+function checkedOperations(adapter, keys, label) {
+  if (!record(adapter)) fail(`${label} must be an object`);
+  exactKeys(adapter, keys, label);
+  for (const key of keys) {
+    if (typeof adapter[key] !== 'function') fail(`${label} ${key} must be a function`);
+  }
+  return adapter;
+}
+
+function publicationAssetPins(publication) {
+  const assets = new Map(publication.value.assets.map((asset) => [asset.name, asset]));
+  return Object.fromEntries(PUBLIC_ASSET_TARGETS.map((target) => {
+    const asset = assets.get(`session-relay-${target}`);
+    if (!asset) fail(`publication receipt is missing executable asset ${target}`);
+    assertDigest(asset.digest, `publication executable asset ${target}`);
+    return [target, asset.digest];
+  }));
+}
+
+function validateStandalonePublication(publication, label) {
+  if (!record(publication) || !record(publication.value)) fail(`${label} is invalid`);
+  assertDigest(publication.digest, `${label} digest`);
+  const value = publication.value;
+  exactKeys(value, PUBLICATION_RECEIPT_KEYS, label);
+  if (
+    value.schema !== 1
+    || value.type !== 'SessionRelayPublicationReceiptV1'
+    || value.repository_id !== REPOSITORY_ID
+    || value.version !== VERSION
+    || value.tag !== TAG
+    || value.release_state !== 'prerelease'
+    || value.body_sha256 !== sha256(Buffer.from(PRERELEASE_BODY))
+    || !Number.isInteger(value.release_database_id)
+    || value.release_database_id <= 0
+    || !PUBLICATION_TRANSITIONS.has(value.transition)
+  ) fail(`${label} is not the exact staged Session Relay publication`);
+  assertDigest(value.source_proof_sha256, `${label} source proof digest`);
+  assertCommit(value.tag_commit, `${label} tag commit`);
+  assertTimestamp(value.created_at, `${label} creation time`);
+  exactKeys(value.workflow, PUBLICATION_WORKFLOW_KEYS, `${label} workflow`);
+  exactKeys(value.workflow.inputs, ['expected_commit', 'expected_tag', 'mode'], `${label} workflow inputs`);
+  const expectedWorkflowInputs = value.workflow.event === 'push'
+    ? { expected_commit: '', expected_tag: '', mode: '' }
+    : { expected_commit: value.tag_commit, expected_tag: TAG, mode: 'publish-existing-tag' };
+  if (
+    value.workflow.file !== '.github/workflows/build-binaries.yml'
+    || value.workflow.workflow_sha !== value.tag_commit
+    || value.workflow.head_sha !== value.tag_commit
+    || value.workflow.path !== '.github/workflows/build-binaries.yml'
+    || !['push', 'workflow_dispatch'].includes(value.workflow.event)
+    || canonicalize(value.workflow.inputs) !== canonicalize(expectedWorkflowInputs)
+    || value.workflow.conclusion !== 'success'
+    || !Number.isInteger(value.workflow.run_id)
+    || value.workflow.run_id <= 0
+    || !Number.isInteger(value.workflow.attempt)
+    || value.workflow.attempt <= 0
+  ) fail(`${label} workflow identity is invalid`);
+  validateAssets(value.assets, label, true);
+  if (new Set(value.assets.map(({ database_id: databaseId }) => databaseId)).size !== value.assets.length) {
+    fail(`${label} asset database identities are duplicated`);
+  }
+  publicationAssetPins(publication);
+  return publication;
+}
+
+function validatePublicAssetPins(value, label) {
+  exactKeys(value, PUBLIC_ASSET_TARGETS, label);
+  for (const target of PUBLIC_ASSET_TARGETS) assertDigest(value[target], `${label} ${target}`);
+  return value;
+}
+
+function validatePublicRequest(request, publication) {
+  if (!record(request) || !record(request.value)) fail('public release request is invalid');
+  assertDigest(request.digest, 'public release request digest');
+  const value = request.value;
+  exactKeys(value, PUBLIC_REQUEST_KEYS, 'public release request');
+  exactKeys(value.session_relay, PUBLIC_SESSION_RELAY_KEYS, 'public release request Session Relay identity');
+  if (
+    value.schema !== 1
+    || value.type !== 'PublicReleaseRequestV1'
+    || value.repository_id !== PUBLIC_REPOSITORY_ID
+    || value.tag !== PUBLIC_TAG
+    || value.version !== PUBLIC_VERSION
+    || value.companion_base_commit !== COMPANION_BASE_COMMIT
+    || value.session_relay.repository_id !== REPOSITORY_ID
+    || value.session_relay.tag !== TAG
+    || value.session_relay.version !== VERSION
+    || value.session_relay.tag_commit !== publication.value.tag_commit
+    || value.session_relay.publication_receipt_sha256 !== publication.digest
+  ) fail('public release request immutable identity conflict');
+  assertTimestamp(value.created_at, 'public release request creation time');
+  validatePublicAssetPins(value.assets, 'public release request assets');
+  if (canonicalize(value.assets) !== canonicalize(publicationAssetPins(publication))) {
+    fail('public release request asset digests do not match the publication receipt');
+  }
+  return request;
+}
+
+export function emitPublicRequest(options, injectedAdapter = undefined) {
+  const adapter = checkedOperations(
+    injectedAdapter ?? { now: () => new Date().toISOString() },
+    PUBLIC_REQUEST_ADAPTER_KEYS,
+    'public request dependency adapter',
+  );
+  const publication = validateStandalonePublication(
+    readCanonical(
+      options.get('publication'),
+      options.get('publication-sha256'),
+      'SessionRelayPublicationReceiptV1',
+      '--publication',
+    ),
+    'publication receipt',
+  );
+  const receipt = {
+    schema: 1,
+    type: 'PublicReleaseRequestV1',
+    repository_id: PUBLIC_REPOSITORY_ID,
+    tag: PUBLIC_TAG,
+    version: PUBLIC_VERSION,
+    companion_base_commit: COMPANION_BASE_COMMIT,
+    session_relay: {
+      repository_id: REPOSITORY_ID,
+      tag: TAG,
+      version: VERSION,
+      tag_commit: publication.value.tag_commit,
+      publication_receipt_sha256: publication.digest,
+    },
+    assets: publicationAssetPins(publication),
+    created_at: adapter.now(),
+  };
+  validatePublicRequest({ value: receipt, digest: sha256(Buffer.from(canonicalize(receipt))) }, publication);
+  return emitReceipt(options, receipt);
+}
+
+function finishedPlanCompletion(planBytes, expectedDigest) {
+  if (!Buffer.isBuffer(planBytes)) fail('public finished plan observation must be bytes');
+  const plan = planBytes.toString('utf8');
+  const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(plan);
+  if (!frontmatter) fail('public finished plan frontmatter is absent');
+  const reviewStatuses = [...frontmatter[1].matchAll(/^review_status:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))\s*$/gm)]
+    .map((match) => match[1] ?? match[2] ?? match[3]);
+  if (reviewStatuses.length !== 1 || reviewStatuses[0] !== 'passed') {
+    fail('public finished plan review_status is not passed');
+  }
+  const matches = [...plan.matchAll(/^Completion-review-receipt: (.+)$/gm)];
+  if (matches.length !== 1) fail('public finished plan must contain one Completion-review-receipt line');
+  const receiptText = matches[0][1];
+  if (sha256(Buffer.from(receiptText)) !== expectedDigest) fail('public completion receipt line hash mismatch');
+  let receipt;
+  try { receipt = JSON.parse(receiptText); } catch { fail('public completion receipt line is not JSON'); }
+  if (canonicalize(receipt) !== receiptText) fail('public completion receipt line is not canonical JCS');
+  return expectedDigest;
+}
+
+function successfulPublicWorkflowRun(runs, releaseCommit) {
+  if (!Array.isArray(runs)) fail('public workflow run observation is invalid');
+  const successful = runs.filter((run) => (
+    run?.path === PUBLIC_WORKFLOW
+    && run.head_branch === PUBLIC_TAG
+    && run.event === 'push'
+    && run.status === 'completed'
+    && run.conclusion === 'success'
+  ));
+  if (successful.length !== 1) fail('public release requires exactly one successful release-cli.yml workflow run');
+  const run = successful[0];
+  if (run.head_sha !== releaseCommit) fail('public release workflow run commit mismatch');
+  if (!Number.isInteger(run.id) || run.id <= 0 || !Number.isInteger(run.run_attempt) || run.run_attempt <= 0) {
+    fail('public release workflow run identity is invalid');
+  }
+  return run;
+}
+
+function downloadedPublicRelease(adapter, release) {
+  if (
+    !record(release)
+    || release.tag_name !== PUBLIC_TAG
+    || release.draft !== false
+    || release.prerelease !== false
+    || !Number.isInteger(release.id)
+    || release.id <= 0
+    || !Array.isArray(release.assets)
+  ) fail('public GitHub Release identity is invalid');
+  const sorted = [...release.assets].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+  const names = sorted.map(({ name }) => name);
+  if (canonicalize(names) !== canonicalize(PUBLIC_RELEASE_ASSET_NAMES)) {
+    fail('public GitHub Release has the wrong closed six-asset set');
+  }
+  const downloaded = new Map();
+  const receiptAssets = sorted.map((asset) => {
+    if (!Number.isInteger(asset.id) || asset.id <= 0 || !Number.isInteger(asset.size) || asset.size < 0) {
+      fail('public GitHub Release asset identity is invalid');
+    }
+    const bytes = adapter.downloadReleaseAsset(asset.id);
+    if (!Buffer.isBuffer(bytes)) fail('public GitHub Release asset download must return bytes');
+    const digest = sha256(bytes);
+    if (bytes.length !== asset.size) fail(`public GitHub Release asset size mismatch for ${asset.name}`);
+    if (typeof asset.digest === 'string' && asset.digest.replace(/^sha256:/, '') !== digest) {
+      fail(`public GitHub Release asset digest mismatch for ${asset.name}`);
+    }
+    downloaded.set(asset.name, bytes);
+    return { name: asset.name, size: bytes.length, digest };
+  });
+  const checksumBytes = downloaded.get('SHA256SUMS');
+  const binaryAssets = new Map(receiptAssets.filter(({ name }) => name !== 'SHA256SUMS').map((asset) => [asset.name, asset.digest]));
+  const rows = checksumBytes.toString('utf8').split('\n').filter(Boolean);
+  if (rows.length !== binaryAssets.size) fail('public checksum manifest has the wrong closed row set');
+  const seen = new Set();
+  for (const row of rows) {
+    const match = /^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$/.exec(row);
+    if (!match || seen.has(match[2]) || binaryAssets.get(match[2]) !== match[1]) {
+      fail('public SHA256SUMS digest or row identity conflict');
+    }
+    seen.add(match[2]);
+  }
+  return {
+    database_id: release.id,
+    assets: receiptAssets,
+    checksums_sha256: sha256(checksumBytes),
+  };
+}
+
+export function validatePublicReleaseReceipt(receipt, { publication = null, requestDigest = null } = {}) {
+  if (!record(receipt) || !record(receipt.value)) fail('public release receipt is invalid');
+  assertDigest(receipt.digest, 'public release receipt digest');
+  const value = receipt.value;
+  exactKeys(value, PUBLIC_RELEASE_RECEIPT_KEYS, 'public release receipt');
+  if (
+    value.schema !== 1
+    || value.type !== 'PublicReleaseReceiptV1'
+    || value.repository_id !== PUBLIC_REPOSITORY_ID
+    || value.tag !== PUBLIC_TAG
+    || value.version !== PUBLIC_VERSION
+    || value.companion_base_commit !== COMPANION_BASE_COMMIT
+    || value.ancestry_verified !== true
+  ) fail('public release receipt immutable identity conflict');
+  assertDigest(value.request_sha256, 'public release receipt request digest');
+  assertCommit(value.release_commit, 'public release receipt release commit');
+  assertTimestamp(value.created_at, 'public release receipt creation time');
+  exactKeys(value.workflow, PUBLIC_RELEASE_WORKFLOW_KEYS, 'public release receipt workflow');
+  if (
+    value.workflow.file !== PUBLIC_WORKFLOW
+    || value.workflow.conclusion !== 'success'
+    || !Number.isInteger(value.workflow.run_database_id)
+    || value.workflow.run_database_id <= 0
+    || !Number.isInteger(value.workflow.run_attempt)
+    || value.workflow.run_attempt <= 0
+  ) fail('public release receipt workflow identity is invalid');
+  exactKeys(value.release, PUBLIC_RELEASE_KEYS, 'public release receipt Release');
+  if (!Number.isInteger(value.release.database_id) || value.release.database_id <= 0) {
+    fail('public release receipt Release database identity is invalid');
+  }
+  assertDigest(value.release.checksums_sha256, 'public release receipt checksum digest');
+  if (!Array.isArray(value.release.assets)) fail('public release receipt assets must be an array');
+  for (const asset of value.release.assets) {
+    exactKeys(asset, PUBLIC_RELEASE_ASSET_KEYS, 'public release receipt asset');
+    if (!PUBLIC_RELEASE_ASSET_NAMES.includes(asset.name) || !Number.isInteger(asset.size) || asset.size < 0) {
+      fail('public release receipt asset identity is invalid');
+    }
+    assertDigest(asset.digest, `public release receipt asset ${asset.name} digest`);
+  }
+  if (canonicalize(value.release.assets.map(({ name }) => name)) !== canonicalize(PUBLIC_RELEASE_ASSET_NAMES)) {
+    fail('public release receipt has the wrong closed six-asset set');
+  }
+  if (value.release.assets[0].name !== 'SHA256SUMS' || value.release.assets[0].digest !== value.release.checksums_sha256) {
+    fail('public release receipt checksum asset digest conflict');
+  }
+  exactKeys(value.npm, PUBLIC_NPM_KEYS, 'public release receipt npm');
+  if (!['published', 'oidc_warning'].includes(value.npm.state)) fail('public release receipt npm state is invalid');
+  validatePublicAssetPins(value.pinned_assets, 'public release receipt pinned assets');
+  exactKeys(value.public_plan, PUBLIC_PLAN_KEYS, 'public release receipt public plan');
+  if (!/^docs\/plans\/finished\/[^/]+\.md$/.test(value.public_plan.path)) fail('public release receipt finished plan path is invalid');
+  assertDigest(value.public_plan.completion_receipt_sha256, 'public release receipt completion digest');
+  if (requestDigest !== null && value.request_sha256 !== requestDigest) fail('public release receipt request digest mismatch');
+  if (publication !== null && canonicalize(value.pinned_assets) !== canonicalize(publicationAssetPins(publication))) {
+    fail('public release receipt pinned assets do not match the publication receipt');
+  }
+  return receipt;
+}
+
+function publicFileAtCommit(commit, file) {
+  const encoded = file.split('/').map(encodeURIComponent).join('/');
+  const response = ghJson(`/repos/${PUBLIC_REPOSITORY_ID}/contents/${encoded}?ref=${encodeURIComponent(commit)}`);
+  if (response?.encoding !== 'base64' || typeof response.content !== 'string') {
+    fail(`public repository file observation is invalid: ${file}`, 'failure');
+  }
+  return Buffer.from(response.content.replace(/\s/g, ''), 'base64');
+}
+
+const PUBLIC_RELEASE_ADAPTER = Object.freeze({
+  now: () => new Date().toISOString(),
+  getTagCommit: () => publicTagCommit(PUBLIC_TAG),
+  isAncestor: (ancestor, descendant) => {
+    const comparison = ghJson(`/repos/${PUBLIC_REPOSITORY_ID}/compare/${ancestor}...${descendant}`);
+    return ['ahead', 'identical'].includes(comparison?.status);
+  },
+  getFinishedPlan: (commit, planPath) => publicFileAtCommit(commit, planPath),
+  listWorkflowRuns: () => {
+    const response = ghJson(`/repos/${PUBLIC_REPOSITORY_ID}/actions/workflows/${encodeURIComponent('release-cli.yml')}/runs?branch=${encodeURIComponent(PUBLIC_TAG)}&per_page=100`);
+    if (!Array.isArray(response.workflow_runs) || response.total_count !== response.workflow_runs.length) {
+      fail('public workflow run discovery is incomplete', 'failure');
+    }
+    return response.workflow_runs;
+  },
+  getRelease: () => ghJson(`/repos/${PUBLIC_REPOSITORY_ID}/releases/tags/${encodeURIComponent(PUBLIC_TAG)}`),
+  downloadReleaseAsset: (assetId) => commandRaw('gh', [
+    'api',
+    '-H',
+    'Accept: application/octet-stream',
+    `/repos/${PUBLIC_REPOSITORY_ID}/releases/assets/${assetId}`,
+  ]),
+  getPinnedAssets: (commit) => {
+    let manifest;
+    try { manifest = JSON.parse(publicFileAtCommit(commit, 'SoT/toolchain.json').toString('utf8')); } catch {
+      fail('public release commit SoT/toolchain.json is not JSON');
+    }
+    return manifest?.tools?.['session-relay']?.assets;
+  },
+  getNpmState: (workflowRun) => {
+    try {
+      const observed = JSON.parse(command('npm', ['view', `docks-kit@${PUBLIC_VERSION}`, 'version', '--json']));
+      if (observed === PUBLIC_VERSION) return 'published';
+    } catch (error) {
+      const logs = command('gh', ['run', 'view', String(workflowRun.id), '--repo', PUBLIC_REPOSITORY_ID, '--log']);
+      if (logs.includes("::warning::npm publish failed — if the trusted publisher isn't configured yet")) {
+        return 'oidc_warning';
+      }
+      throw error;
+    }
+    fail('public npm version state does not match docks-kit release');
+  },
+});
+
+export function verifyPublicRelease(options, injectedAdapter = undefined) {
+  const adapter = checkedOperations(
+    injectedAdapter ?? PUBLIC_RELEASE_ADAPTER,
+    PUBLIC_RELEASE_ADAPTER_KEYS,
+    'public release dependency adapter',
+  );
+  const publication = validateStandalonePublication(
+    readCanonical(
+      options.get('publication'),
+      options.get('publication-sha256'),
+      'SessionRelayPublicationReceiptV1',
+      '--publication',
+    ),
+    'publication receipt',
+  );
+  const request = validatePublicRequest(
+    readCanonical(
+      options.get('request'),
+      options.get('request-sha256'),
+      'PublicReleaseRequestV1',
+      '--request',
+    ),
+    publication,
+  );
+  const releaseCommit = options.get('public-release-commit');
+  assertCommit(releaseCommit, '--public-release-commit');
+  const completionDigest = options.get('public-completion-sha256');
+  assertDigest(completionDigest, '--public-completion-sha256');
+  const finishedPlanPath = options.get('public-finished-plan');
+  if (!/^docs\/plans\/finished\/[^/]+\.md$/.test(finishedPlanPath ?? '')) {
+    fail('--public-finished-plan must be a canonical finished-plan path');
+  }
+  if (adapter.getTagCommit() !== releaseCommit) fail('public tag commit does not match --public-release-commit');
+  if (!adapter.isAncestor(request.value.companion_base_commit, releaseCommit)) {
+    fail('public release commit fails companion base ancestry');
+  }
+  finishedPlanCompletion(adapter.getFinishedPlan(releaseCommit, finishedPlanPath), completionDigest);
+  const run = successfulPublicWorkflowRun(adapter.listWorkflowRuns(), releaseCommit);
+  const release = downloadedPublicRelease(adapter, adapter.getRelease());
+  const pinnedAssets = adapter.getPinnedAssets(releaseCommit);
+  validatePublicAssetPins(pinnedAssets, 'public release commit pinned assets');
+  if (canonicalize(pinnedAssets) !== canonicalize(request.value.assets)) {
+    fail('public release commit pinned asset digest mismatch');
+  }
+  const receipt = {
+    schema: 1,
+    type: 'PublicReleaseReceiptV1',
+    request_sha256: request.digest,
+    repository_id: PUBLIC_REPOSITORY_ID,
+    tag: PUBLIC_TAG,
+    version: PUBLIC_VERSION,
+    release_commit: releaseCommit,
+    companion_base_commit: request.value.companion_base_commit,
+    ancestry_verified: true,
+    workflow: {
+      file: PUBLIC_WORKFLOW,
+      run_database_id: run.id,
+      run_attempt: run.run_attempt,
+      conclusion: 'success',
+    },
+    release,
+    npm: { state: adapter.getNpmState(run) },
+    pinned_assets: pinnedAssets,
+    public_plan: {
+      path: finishedPlanPath,
+      completion_receipt_sha256: completionDigest,
+    },
+    created_at: adapter.now(),
+  };
+  validatePublicReleaseReceipt(
+    { value: receipt, digest: sha256(Buffer.from(canonicalize(receipt))) },
+    { publication, requestDigest: request.digest },
+  );
+  return emitReceipt(options, receipt);
+}
+
 function validatePublication(publication, proof) {
   if (!record(publication) || !record(publication.value)) fail('publication receipt is invalid');
   assertDigest(publication.digest, 'publication receipt digest');
@@ -161,6 +634,18 @@ function validateProofBinding(proof) {
     || canonicalize(excludedPaths) !== canonicalize([...excludedPaths].sort())) fail('non-plan tree-equivalence proof is absent');
   if (proof.value.public_repository_id !== PUBLIC_REPOSITORY_ID) fail('public repository identity mismatch');
   assertCommit(proof.value.public_reviewed_commit, 'public reviewed commit');
+}
+
+function validatePromotionPublicRelease(publicRelease, proof, publication, adapter) {
+  validatePublicReleaseReceipt(publicRelease, { publication });
+  if (
+    publicRelease.value.repository_id !== proof.value.public_repository_id
+    || publicRelease.value.companion_base_commit !== proof.value.public_reviewed_commit
+  ) fail('public release receipt does not bind the reviewed companion identity');
+  if (!adapter.isAncestor(proof.value.public_reviewed_commit, publicRelease.value.release_commit)) {
+    fail('public release commit has no reviewed companion ancestor');
+  }
+  return publicRelease;
 }
 
 function validateCompatibility(value, label) {
@@ -275,10 +760,10 @@ function validateImmutable(value) {
     || value.docks_kit_repository !== PUBLIC_REPOSITORY_ID || value.docks_kit_release !== DOCKS_KIT_RELEASE) {
     fail('journal immutable fixed identity mismatch');
   }
-  for (const key of ['source_proof_sha256', 'publication_receipt_sha256', 'publication_assets_sha256']) {
+  for (const key of ['source_proof_sha256', 'publication_receipt_sha256', 'publication_assets_sha256', 'public_release_receipt_sha256']) {
     assertDigest(value[key], `journal immutable ${key}`);
   }
-  for (const key of ['tag_commit', 'promoted_commit', 'expected_origin_main', 'lock_commit', 'public_reviewed_commit']) {
+  for (const key of ['tag_commit', 'promoted_commit', 'expected_origin_main', 'lock_commit', 'public_reviewed_commit', 'public_release_commit']) {
     assertCommit(value[key], `journal immutable ${key}`);
   }
   if (value.public_repository_id !== PUBLIC_REPOSITORY_ID) fail('journal immutable public repository identity mismatch');
@@ -294,8 +779,10 @@ function validateProjection(value, label) {
   if (!Number.isInteger(value.attempt) || value.attempt < 0 || value.attempt > 1
     || !Number.isInteger(value.terminal_key.attempt) || !Number.isInteger(value.terminal_key.sequence)
     || value.terminal_key.attempt !== value.attempt) fail(`${label} terminal key is invalid`);
-  for (const key of ['source_proof_sha256', 'publication_receipt_sha256']) assertDigest(value[key], `${label} ${key}`);
-  for (const key of ['tag_commit', 'promoted_commit', 'lock_commit', 'expected_origin_main', 'public_reviewed_commit', 'public_tag_commit']) {
+  for (const key of ['source_proof_sha256', 'publication_receipt_sha256', 'public_release_receipt_sha256']) {
+    assertDigest(value[key], `${label} ${key}`);
+  }
+  for (const key of ['tag_commit', 'promoted_commit', 'lock_commit', 'expected_origin_main', 'public_reviewed_commit', 'public_release_commit', 'public_tag_commit']) {
     assertCommit(value[key], `${label} ${key}`);
   }
   assertCommit(value.observed_origin_main, `${label} observed_origin_main`, value.outcome === 'manual_incident');
@@ -325,7 +812,7 @@ function validateProjection(value, label) {
   }
   exactKeys(value.docks_kit, DOCKS_KIT_KEYS, `${label} docks-kit`);
   if (value.docks_kit.repository_id !== PUBLIC_REPOSITORY_ID || value.docks_kit.release !== DOCKS_KIT_RELEASE
-    || value.docks_kit.target_commit !== value.public_reviewed_commit || value.public_tag_commit !== value.public_reviewed_commit) fail(`${label} docks-kit or public reviewed identity is invalid`);
+    || value.docks_kit.target_commit !== value.public_release_commit || value.public_tag_commit !== value.public_release_commit) fail(`${label} docks-kit or public release identity is invalid`);
   assertCommit(value.docks_kit.target_commit, `${label} docks-kit target commit`);
   if (value.docks_kit.release_database_id !== null
     && (!Number.isInteger(value.docks_kit.release_database_id) || value.docks_kit.release_database_id <= 0)) fail(`${label} docks-kit release ID is invalid`);
@@ -336,7 +823,7 @@ function validateProjection(value, label) {
   validateSmoke(value.live_smoke, `${label} live smoke`);
   if (value.exact_source_smoke !== null) {
     if (value.exact_source_smoke.kind !== 'exact_source' || value.exact_source_smoke.sync_argv[2] !== value.tag_commit
-      || value.exact_source_smoke.docks_kit_target_commit !== value.public_reviewed_commit) fail(`${label} exact-source smoke binding is invalid`);
+      || value.exact_source_smoke.docks_kit_target_commit !== value.public_release_commit) fail(`${label} exact-source smoke binding is invalid`);
     if (['success', 'restored_failure'].includes(value.outcome)) {
       const hostAsset = value.session_relay_assets.find(({ name }) => name === value.exact_source_smoke.session_relay_asset_name);
       if (!hostAsset || value.exact_source_smoke.installed_binary_sha256 !== hostAsset.digest
@@ -347,7 +834,7 @@ function validateProjection(value, label) {
   }
   if (value.live_smoke !== null) {
     const hostAsset = value.session_relay_assets.find(({ name }) => name === value.live_smoke.session_relay_asset_name);
-    if (value.live_smoke.kind !== 'live' || value.live_smoke.docks_kit_target_commit !== value.public_reviewed_commit) fail(`${label} live smoke binding is invalid`);
+    if (value.live_smoke.kind !== 'live' || value.live_smoke.docks_kit_target_commit !== value.public_release_commit) fail(`${label} live smoke binding is invalid`);
     const liveDocksKitMatches = canonicalize(value.live_smoke.docks_kit_asset) === canonicalize(value.docks_kit.asset);
     const exactLauncherMatches = value.exact_source_smoke !== null
       && value.live_smoke.launcher_sha256 === value.exact_source_smoke.launcher_sha256
@@ -530,13 +1017,15 @@ function receiptProjection(proof, publication, entry, outcome, retryable) {
     },
     public_repository_id: immutable.public_repository_id,
     public_reviewed_commit: immutable.public_reviewed_commit,
-    public_tag_commit: immutable.public_reviewed_commit,
+    public_release_commit: immutable.public_release_commit,
+    public_release_receipt_sha256: immutable.public_release_receipt_sha256,
+    public_tag_commit: immutable.public_release_commit,
     publication_release_id: publication.value.release_database_id,
     docks_kit: {
       repository_id: immutable.docks_kit_repository,
       release: immutable.docks_kit_release,
       release_database_id: state.prepush_smoke?.docks_kit_release_database_id ?? null,
-      target_commit: immutable.public_reviewed_commit,
+      target_commit: immutable.public_release_commit,
       asset: state.prepush_smoke?.docks_kit_asset ?? null,
     },
     session_relay_assets: clone(publication.value.assets),
@@ -986,14 +1475,14 @@ function findLiveLauncher(root) {
   return found[0];
 }
 
-function runSmoke({ sourceCommit = null, docksKitRelease, exactSource, sessionRelayAssets, publicReviewedCommit }) {
+function runSmoke({ sourceCommit = null, docksKitRelease, exactSource, sessionRelayAssets, publicReleaseCommit }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), exactSource ? 'session-relay-exact-source-' : 'session-relay-live-'));
   const home = path.join(root, 'home');
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   let checkout = null;
   try {
     const kit = downloadDocksKit(root, docksKitRelease);
-    if (kit.targetCommit !== publicReviewedCommit) fail('docks-kit release tag does not match the reviewed public commit');
+    if (kit.targetCommit !== publicReleaseCommit) fail('docks-kit release tag does not match the verified public release commit');
     const argv = ['sync'];
     if (exactSource) {
       checkout = path.join(root, 'reviewed-docks');
@@ -1093,6 +1582,7 @@ const PRODUCTION_ADAPTER = Object.freeze({
   nonce: () => randomBytes(16).toString('hex'),
   loadProof: (options) => validateProof(options),
   loadPublication: (options) => readCanonical(options.get('publication'), options.get('publication-sha256'), 'SessionRelayPublicationReceiptV1', '--publication'),
+  loadPublicRelease: (options) => readCanonical(options.get('public-release'), options.get('public-release-sha256'), 'PublicReleaseReceiptV1', '--public-release'),
   loadRetryReceipt: (options) => readCanonical(options.get('retry-failed'), options.get('retry-failed-sha256'), RECEIPT_TYPE, '--retry-failed'),
   remoteRef,
   isAncestor,
@@ -1104,8 +1594,8 @@ const PRODUCTION_ADAPTER = Object.freeze({
   releaseState: productionReleaseState,
   compatibilityState,
   validateCommitTransition,
-  runPrepushSmoke: ({ docksKitRelease, sourceCommit, sessionRelayAssets, publicReviewedCommit }) => runSmoke({ docksKitRelease, sourceCommit, exactSource: true, sessionRelayAssets, publicReviewedCommit }),
-  runLiveSmoke: ({ docksKitRelease, sessionRelayAssets, publicReviewedCommit }) => runSmoke({ docksKitRelease, exactSource: false, sessionRelayAssets, publicReviewedCommit }),
+  runPrepushSmoke: ({ docksKitRelease, sourceCommit, sessionRelayAssets, publicReleaseCommit }) => runSmoke({ docksKitRelease, sourceCommit, exactSource: true, sessionRelayAssets, publicReleaseCommit }),
+  runLiveSmoke: ({ docksKitRelease, sessionRelayAssets, publicReleaseCommit }) => runSmoke({ docksKitRelease, exactSource: false, sessionRelayAssets, publicReleaseCommit }),
   restoreCompatibility,
   reapplyCompatibility,
   assertReceiptOutputAvailable,
@@ -1125,12 +1615,15 @@ export function validatePromotionReceiptForFinalization(receipt, context, inject
     || canonicalize(receipt.non_plan_tree_equivalence) !== canonicalize(proof.value.non_plan_tree_equivalence)
     || receipt.public_repository_id !== proof.value.public_repository_id
     || receipt.public_reviewed_commit !== proof.value.public_reviewed_commit
-    || receipt.public_tag_commit !== proof.value.public_reviewed_commit
+    || receipt.public_tag_commit !== receipt.public_release_commit
     || receipt.publication_release_id !== publication.value.release_database_id
     || canonicalize(receipt.session_relay_assets) !== canonicalize(publication.value.assets)) {
     fail('promotion receipt does not match its finalization proof/publication context');
   }
   const adapter = validateAdapter(injectedAdapter);
+  if (!adapter.isAncestor(proof.value.public_reviewed_commit, receipt.public_release_commit)) {
+    fail('promotion public release commit has no reviewed companion ancestor');
+  }
   for (const commit of [proof.value.source_commit, proof.value.tag_commit, proof.value.promoted_commit]) {
     if (!adapter.isAncestor(receipt.expected_origin_main, commit)) fail('promotion receipt finalization lineage is not descended from expected origin/main');
   }
@@ -1168,7 +1661,7 @@ function appendTerminal(adapter, chain, proof, publication, phase, outcome, retr
   return append(adapter, chain, entry);
 }
 
-function reconcileInputs(validated, proof, publication, options) {
+function reconcileInputs(validated, proof, publication, publicRelease, options) {
   const immutable = validated.tip.entry.immutable;
   const expected = {
     repository_id: REPOSITORY_ID,
@@ -1186,6 +1679,8 @@ function reconcileInputs(validated, proof, publication, options) {
     publication_assets_sha256: sha256(Buffer.from(canonicalize(publication.value.assets))),
     public_repository_id: proof.value.public_repository_id,
     public_reviewed_commit: proof.value.public_reviewed_commit,
+    public_release_commit: publicRelease.value.release_commit,
+    public_release_receipt_sha256: publicRelease.digest,
   };
   for (const [key, value] of Object.entries(expected)) if (canonicalize(immutable[key]) !== canonicalize(value)) fail(`promotion immutable identity mismatch: ${key}`);
 }
@@ -1256,6 +1751,8 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
   validateProofBinding(proof);
   const publication = adapter.loadPublication(options);
   validatePublication(publication, proof);
+  const publicRelease = adapter.loadPublicRelease(options);
+  validatePromotionPublicRelease(publicRelease, proof, publication, adapter);
   if (!COMMIT.test(options.get('expected-origin-main') ?? '')) fail('--expected-origin-main must be 40 lowercase hexadecimal characters');
   if (options.get('docks-kit-release') !== DOCKS_KIT_RELEASE) fail(`--docks-kit-release must be ${DOCKS_KIT_RELEASE}`);
   if (resume && options.get('transaction-ref') !== TRANSACTION_REF) fail('transaction ref mismatch');
@@ -1268,7 +1765,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
     tip = chain.at(-1)?.commit ?? null;
     if (tip === null) fail('authoritative promotion transaction is empty');
     validated = validatePromotionJournal(chain, tip);
-    reconcileInputs(validated, proof, publication, options);
+    reconcileInputs(validated, proof, publication, publicRelease, options);
   }
 
   const retryRequested = options.has('retry-failed');
@@ -1328,6 +1825,8 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       publication_assets_sha256: sha256(Buffer.from(canonicalize(publication.value.assets))),
       public_repository_id: proof.value.public_repository_id,
       public_reviewed_commit: proof.value.public_reviewed_commit,
+      public_release_commit: publicRelease.value.release_commit,
+      public_release_receipt_sha256: publicRelease.digest,
       prior_attempt_receipt_sha256: null,
     };
     chain = append(adapter, [], journalEntry(0, 0, 'initialized', null, immutable, initialState(compatibility, currentMain), adapter.now()));
@@ -1387,7 +1886,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
           docksKitRelease: immutable.docks_kit_release,
           sourceCommit: immutable.tag_commit,
           sessionRelayAssets: publication.value.assets,
-          publicReviewedCommit: immutable.public_reviewed_commit,
+          publicReleaseCommit: immutable.public_release_commit,
         });
       } catch (error) {
         result = { ok: false, evidence: null, error: error.message };
@@ -1474,7 +1973,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
           docksKitRepository: PUBLIC_REPOSITORY_ID,
           docksKitRelease: immutable.docks_kit_release,
           sessionRelayAssets: publication.value.assets,
-          publicReviewedCommit: immutable.public_reviewed_commit,
+          publicReleaseCommit: immutable.public_release_commit,
         });
       } catch (error) {
         liveResult = { ok: false, definitive: true, evidence: failedLiveSmoke(error, state), error: error.message };
@@ -1660,7 +2159,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
           docksKitRepository: PUBLIC_REPOSITORY_ID,
           docksKitRelease: immutable.docks_kit_release,
           sessionRelayAssets: publication.value.assets,
-          publicReviewedCommit: immutable.public_reviewed_commit,
+          publicReleaseCommit: immutable.public_release_commit,
         });
       } catch (error) {
         liveResult = { ok: false, definitive: true, evidence: failedLiveSmoke(error, state), error: error.message };
