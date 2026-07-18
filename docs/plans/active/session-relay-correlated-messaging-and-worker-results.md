@@ -1,9 +1,11 @@
 ---
 title: Correlate Session Relay messages and worker results
 goal: Add a backward-compatible correlated messaging protocol with bounded await/wait operations, explicit delivery outcomes, and immutable typed fanout worker results without making Session Relay a plan-review evidence transport.
-status: planned
+status: blocked
 created: "2026-07-17T21:49:47-03:00"
-updated: "2026-07-17T22:33:25-03:00"
+updated: "2026-07-17T22:36:29-03:00"
+blocked_reason: "Awaiting an explicit current-input primary-review waiver or policy-authorized remedy after terminal schema-5 round 2 accepted four blocking gaps; fallback, repair round 3, reset, and a fresh review series are forbidden."
+blocked_since: "2026-07-17T22:36:29-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
