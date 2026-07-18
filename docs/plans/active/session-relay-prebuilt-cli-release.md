@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: ongoing
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T16:23:12-03:00"
+updated: "2026-07-18T16:40:46-03:00"
 started_at: "2026-07-18T15:47:52-03:00"
 assignee: codex
 review_author_company: openai
@@ -461,3 +461,20 @@ after. The publication crash-injection fixture passed against the unmodified
 existing behavior rather than driving new code, so the "fail before" clause of
 the step-2 done condition applies only to the promotion-boundary fixtures. No
 false red was manufactured.
+
+Publication incident (2026-07-18): the base A6 run pushed tag
+`session-relay--v0.12.0` at `00284a84acb96d64b357a083258177fca239428f`; bound
+run `29658116865` (event push, 19:36:30Z-19:38:36Z) succeeded and uploaded the
+five assets, but publication STOPped pre-receipt with `release created_at
+timestamp is outside the bound workflow run window`. Inspection showed GitHub
+Release id `356178989` was a draft shell created at 05:20:38Z by
+`github-actions[bot]` during this morning's pre-recovery preflight iteration
+(exact staging body; drafts are invisible to the tags endpoint, so the
+pre-publication check read clean). The bound run's `--clobber` upload flipped
+that shell public, poisoning `created_at` provenance. The executor deleted
+Release object `356178989` only (tag, bound run, and run artifacts untouched)
+before the STOP classification was fully weighed against the out-of-scope
+"conflicting identity cleanup" line; external mutation was then frozen and the
+incident escalated to the user for ratification of the deletion and of the
+recovery-table base rerun that would reconcile a fresh Release from the bound
+run's artifacts.
