@@ -93,20 +93,64 @@ function gitSnapshot() {
   };
 }
 
+
+function writeReleaseShim(directory, name) {
+  const script = `#!${process.execPath}
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+const tool = ${JSON.stringify(name)};
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.DOCKS_RELEASE_CALL_LOG, JSON.stringify({ tool, args }) + '\\n');
+if (tool === 'node') {
+  const child = spawnSync(process.env.DOCKS_RELEASE_REAL_NODE, args, {
+    stdio: 'inherit',
+    env: { ...process.env, PATH: process.env.DOCKS_RELEASE_REAL_PATH },
+  });
+  process.exit(child.status ?? 1);
+}
+process.exit(97);
+`;
+  fs.writeFileSync(path.join(directory, name), script, { mode: 0o755 });
+}
+
 function testDryRunReleaseSafety() {
   const before = gitSnapshot();
   assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
-  const result = spawnSync('node', ['scripts/release.mjs', '--dry-run', '--plugin', 'docks', 'patch'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    timeout: 600_000,
-  });
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /\[dry-run\] git push origin HEAD/);
-  assert.match(result.stdout, /\[dry-run\] claude plugin tag --push/);
-  assert.match(result.stdout, /\[dry-run\] wait for tag-CI .* gh release create/);
-  assert.match(result.stdout, /\[dry-run\] OK — no changes written, no tag, no release/);
-  assert.deepEqual(gitSnapshot(), before);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-dry-run-'));
+  const shimDir = path.join(fixtureRoot, 'bin');
+  const callLog = path.join(fixtureRoot, 'calls.jsonl');
+  fs.mkdirSync(shimDir, { mode: 0o700 });
+  fs.writeFileSync(callLog, '', { mode: 0o600 });
+  try {
+    for (const name of ['node', 'git', 'claude', 'gh']) writeReleaseShim(shimDir, name);
+    const result = spawnSync(process.execPath, ['scripts/release.mjs', '--dry-run', '--plugin', 'docks', 'patch'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 600_000,
+      env: {
+        ...process.env,
+        PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        DOCKS_RELEASE_CALL_LOG: callLog,
+        DOCKS_RELEASE_REAL_NODE: process.execPath,
+        DOCKS_RELEASE_REAL_PATH: process.env.PATH ?? '',
+      },
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /\[dry-run\] git push origin HEAD/);
+    assert.match(result.stdout, /\[dry-run\] claude plugin tag --push/);
+    assert.match(result.stdout, /\[dry-run\] wait for tag-CI .* gh release create/);
+    assert.match(result.stdout, /\[dry-run\] OK — no changes written, no tag, no release/);
+    const calls = fs.readFileSync(callLog, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    assert.ok(calls.some(({ tool, args: callArgs }) => tool === 'node'
+      && callArgs[0] === path.join(ROOT, 'scripts/ci.mjs')
+      && callArgs.slice(1).join(' ') === '-q --plugin docks'), 'fixture must intercept and preserve the targeted Docks preflight');
+    assert.equal(calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'push'), false, 'dry-run must not invoke git push');
+    assert.equal(calls.some(({ tool, args: callArgs }) => tool === 'claude' && callArgs[0] === 'plugin' && callArgs[1] === 'tag'), false, 'dry-run must not invoke claude plugin tag');
+    assert.equal(calls.some(({ tool, args: callArgs }) => tool === 'gh' && callArgs[0] === 'release' && callArgs[1] === 'create'), false, 'dry-run must not invoke gh release create');
+    assert.deepEqual(gitSnapshot(), before);
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 }
 
 if (mode === '--validate-docks-timings') {

@@ -3,7 +3,7 @@ title: Target CI and release gates by plugin
 goal: Make CI measurable, parallel where safe, and plugin-targeted for local and release-tag gates while preserving full pull-request and manual validation.
 status: in_review
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-18T12:36:46-03:00"
+updated: "2026-07-18T13:16:25-03:00"
 started_at: "2026-07-16T23:38:16-03:00"
 in_review_since: "2026-07-17T00:15:14-03:00"
 assignee: codex
@@ -120,7 +120,7 @@ node scripts/ci.mjs
 | A1 | `node scripts/tests/ci-plugin-targeting.mjs` | Exits 0; registry tag/target/release/timing/workflow/cache cases pass and malformed or unknown inputs fail closed. |
 | A2 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-ci-timings.json` | Exits 0; shared and Docks-owned checks run; timing JSON validates; output contains no Session Relay Rust/self-test or Effect Kit plugin gate. |
 | A3 | `node scripts/ci.mjs --plugin effect-kit` | Exits 0; shared and Effect Kit checks run; output contains no Docks-only author suites or Session Relay Rust/self-test. |
-| A4 | `node scripts/tests/ci-plugin-targeting.mjs --dry-run-release-safety` | Exits 0 from a clean checkout after running the Docks release dry-run; tracked/untracked state, refs, and all three version-bearing catalog/manifest bytes are unchanged, and output names only simulated push/tag/Release operations. |
+| A4 | `node scripts/tests/ci-plugin-targeting.mjs --dry-run-release-safety` | Exits 0 from a clean checkout after running the Docks release dry-run through instrumented Git, Claude, and GitHub CLI shims; tracked/untracked state, refs, and all three version-bearing catalog/manifest bytes are unchanged, and the call log contains zero push, tag, or Release invocations. |
 | A5 | `node scripts/ci.mjs --plugin unknown-plugin` | Exits 2 before plugin work and names the known registry plugins. |
 | A6 | `node scripts/tests/ci-plugin-targeting.mjs --validate-docks-timings /tmp/docks-ci-timings.json` | Exits 0; every phase/task has a nonnegative integer duration and valid status, and exactly one passed `plan-review-policy regressions` task proves the mutation driver joined once before success. |
 | A7 | `node scripts/tests/ci-plugin-targeting.mjs --unit` | Exits 0; PR/manual remain full, release tags resolve strictly, pnpm cache is shared, and Cargo cache/provisioning is Session Relay-only. |
@@ -226,3 +226,8 @@ limited to those three accepted blockers and their direct regression coverage.
 Focused background-output, targeting, policy-surface, mutation, Docks timing,
 Effect Kit, unknown-plugin, and full repository gates passed on the repaired
 candidate before its commit.
+Completion repair review round 2 cleared P1 and P2 but reproduced a remaining
+P3 gap: local state comparison could not detect remote mutation calls. The
+substantive candidate now uses instrumented Git, Claude, and GitHub CLI shims
+that proxy required read-only preflight operations, fail closed on mutating
+calls, and assert the call log contains no push, tag, or Release invocation.
