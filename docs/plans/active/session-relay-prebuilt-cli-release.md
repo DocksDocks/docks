@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: planned
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T15:17:54-03:00"
+updated: "2026-07-18T15:26:04-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -127,12 +127,26 @@ FINAL_RESUME_RECEIPT="$RECEIPT_DIR/final-publication-resume-1.json"
 FINAL_RESUME_SHA256="$(node scripts/release.mjs --finalize-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --promotion "$PROMOTION_RECEIPT" --promotion-sha256 "$PROMOTION_SHA256" --resume-finalization "$FINAL_PUBLICATION_RECEIPT" --resume-finalization-sha256 "$FINAL_PUBLICATION_SHA256" --receipt-out "$FINAL_RESUME_RECEIPT")"
 FINAL_PUBLICATION_RECEIPT="$FINAL_RESUME_RECEIPT"
 FINAL_PUBLICATION_SHA256="$FINAL_RESUME_SHA256"
+
+# Finalization base recovery — legal exactly when the Release is already
+# stable but no canonical stable receipt was captured (crash after
+# editStable, before the receipt write). The base command revalidates the
+# exact stable state and promotion receipt, emits the canonical stable
+# receipt at a fresh no-clobber path, and performs no second Release
+# mutation; the already-stable base finalization fixture in
+# plugins/session-relay/test/release-publication-contract.mjs proves this
+# behavior.
+FINAL_RECOVERY_RECEIPT="$RECEIPT_DIR/final-publication-recovery-1.json"
+FINAL_PUBLICATION_SHA256="$(node scripts/release.mjs --finalize-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --promotion "$PROMOTION_RECEIPT" --promotion-sha256 "$PROMOTION_SHA256" --receipt-out "$FINAL_RECOVERY_RECEIPT")"
+FINAL_PUBLICATION_RECEIPT="$FINAL_RECOVERY_RECEIPT"
 ```
 
 Each later attempt of the same mode increments the `-N` receipt suffix and
 repeats the same reassignment so downstream consumers always read the active
 path/digest pair. Every resume/retry flag pair names the exact prior canonical
-receipt; no other continuation grammar exists.
+receipt; the only receiptless continuation is the classified finalization base
+recovery above, which requires an already-stable Release and no captured
+stable receipt.
 
 The public boundary uses the source-built Relay CLI:
 
@@ -345,7 +359,7 @@ extended shape.
 - STOP publication/promotion/finalization on any identity conflict or on any
   result that is neither explicitly classified as resumable/retryable by a
   canonical receipt nor listed as a legal base rerun in the publication
-  recovery table.
+  recovery table or the classified finalization base recovery.
 - STOP at the public boundary if Session Relay cannot deliver and collect the
   reviewed handoff; do not substitute direct cross-worktree edits.
 
