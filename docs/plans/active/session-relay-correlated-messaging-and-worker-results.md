@@ -3,7 +3,7 @@ title: Correlate Session Relay messages and worker results
 goal: Add a backward-compatible correlated messaging protocol with bounded await/wait operations, explicit delivery outcomes, and immutable typed fanout worker results without making Session Relay a plan-review evidence transport.
 status: planned
 created: "2026-07-17T21:49:47-03:00"
-updated: "2026-07-17T21:53:39-03:00"
+updated: "2026-07-17T21:49:47-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
@@ -34,7 +34,7 @@ related_plans:
   - session-relay-prebuilt-cli-distribution
   - plan-review-convergence-and-improver
 review_status: null
-planned_at_commit: 8d62f36ca33f4ae81a6928747cfc45ba369d5e84
+planned_at_commit: null
 execution_base_commit: null
 ---
 
