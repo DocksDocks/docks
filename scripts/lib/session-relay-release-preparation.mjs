@@ -24,6 +24,7 @@ import {
   fail,
   ghJson,
   git,
+  gitRaw,
   noteValue,
   readCanonical,
   replaceJsonVersion,
@@ -646,7 +647,7 @@ function inspectPublicRepository(input) {
 function evidenceDependencies(injected) {
   const value = injected ?? {
     repoRoot: REPO,
-    git: (args) => git(args),
+    git: (args) => args[0] === 'show' ? gitRaw(args) : git(args),
     inspectPublic: inspectPublicRepository,
     run: (executable, args, runOptions = {}) => {
       const result = spawnSync(executable, args, {
@@ -985,7 +986,8 @@ export function bindCompletion(options, injected) {
   const evidenceCandidate = embeddedReceipt(evidencePlan.toString('utf8'), 'Source preparation candidate', 'SourcePreparationCandidateV1');
   if (evidenceCandidate.digest !== candidate.digest) fail('candidate was not present at the reviewed evidence commit');
   const sourceCommit = candidate.value.source_commit;
-  const shippedCommit = gitValue(deps, ['rev-parse', 'HEAD^{commit}']);
+  const currentHead = commit(gitValue(deps, ['rev-parse', 'HEAD^{commit}']), 'current release HEAD');
+  const shippedCommit = commit(gitValue(deps, ['log', '-n1', '--format=%H', '--', finishedRelative]), 'finished plan archive commit');
   const status = gitValue(deps, ['status', '--porcelain=v1', '--untracked-files=all']);
   if (status !== '') fail('completion binding requires a clean shipped working tree/archive');
   const shippedPlan = gitBytes(deps, ['show', `${shippedCommit}:${finishedRelative}`]);
@@ -1002,6 +1004,7 @@ export function bindCompletion(options, injected) {
   );
   ancestor(deps, sourceCommit, evidenceCommit, 'source-to-evidence');
   ancestor(deps, evidenceCommit, shippedCommit, 'evidence-to-shipped');
+  ancestor(deps, shippedCommit, currentHead, 'shipped-to-current');
   const nonPlan = gitValue(deps, ['diff', '--name-only', sourceCommit, shippedCommit, '--no-renames', '--', '.', `:(exclude)${PLAN_PATH}`, `:(exclude)${finishedRelative}`]);
   if (nonPlan !== '') fail('source and shipped commits differ outside the plan lifecycle paths');
   const sourcePlan = gitBytes(deps, ['show', `${sourceCommit}:${PLAN_PATH}`]);

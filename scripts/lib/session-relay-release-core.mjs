@@ -134,7 +134,23 @@ export function command(commandName, args, { inherit = false, input, env } = {})
   return inherit ? '' : result.stdout.trim();
 }
 
+export function commandRaw(commandName, args) {
+  const result = spawnSync(commandName, args, {
+    cwd: REPO,
+    encoding: null,
+    shell: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: Infinity,
+  });
+  if (result.error || result.signal || result.status !== 0) {
+    const detail = result.stderr?.toString('utf8').trim() || result.error?.message || result.signal || `exit ${result.status}`;
+    fail(`${commandName} ${args[0] ?? ''} failed: ${detail}`, 'failure');
+  }
+  return result.stdout ?? Buffer.alloc(0);
+}
+
 export const git = (args) => command('git', args);
+export const gitRaw = (args) => commandRaw('git', args);
 export const ghJson = (endpoint) => JSON.parse(command('gh', ['api', endpoint]));
 
 export function assertReceiptOutputFree(options) {
