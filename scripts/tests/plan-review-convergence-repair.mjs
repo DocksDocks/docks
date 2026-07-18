@@ -1069,6 +1069,9 @@ function testCurrentBundles() {
       primary: 'reviewer-output.primary.v5.schema.json',
     });
     assert.equal(fs.existsSync(path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json')), true);
+    const currentSchemaText = fs.readFileSync(path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json'), 'utf8');
+    assert.equal(currentSchemaText.includes('"oneOf":'), false, 'Codex Structured Outputs rejects oneOf');
+    assert.equal(currentSchemaText.includes('"anyOf":'), true, 'current candidate union uses supported anyOf');
     assert.equal(currentBundle.manifest.files.some(({ path: entry }) => /^reviewer-output\.[XS](?:\.v[23])?\.schema\.json$/.test(entry)), false);
     policy.verifyBundle({ bundle: path.join(fixture.root, 'current-bundle'), expectedSha256: currentBundle.bundle_sha256 });
     fs.mkdirSync('/tmp/docks-plan-review', { recursive: true, mode: 0o700 });

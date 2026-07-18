@@ -1119,7 +1119,7 @@ export function currentReviewerSchema() {
     role: typedConst('string', 'primary'),
     fallback: typedConst('string', 'availability_only'),
     max_rounds: typedConst('integer', 2),
-    candidates: { type: 'array', minItems: 1, maxItems: 3, items: { oneOf: candidateSchemas } },
+    candidates: { type: 'array', minItems: 1, maxItems: 3, items: { anyOf: candidateSchemas } },
     provenance: closed({ role: source, fallback: source, max_rounds: source, candidates: source }),
   });
   const request = closed({
