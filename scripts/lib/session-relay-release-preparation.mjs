@@ -419,6 +419,10 @@ export function validateSourcePreparationProof(value) {
   return value;
 }
 
+export function prepareCiCall() {
+  return { argv: ['node', 'scripts/ci.mjs'] };
+}
+
 export function prepare(options, fixtureJournal) {
   const dryRun = options.get('dry-run') === true;
   const files = [
@@ -446,12 +450,13 @@ export function prepare(options, fixtureJournal) {
   }
   ensureCleanTree();
   for (const item of files) fs.writeFileSync(item.file, item.changed);
-  try { command('node', [path.join(REPO, 'scripts/ci.mjs'), '--plugin', PLUGIN], { inherit: true }); }
+  const ciCall = prepareCiCall();
+  try { command(ciCall.argv[0], [path.join(REPO, ciCall.argv[1]), ...ciCall.argv.slice(2)], { inherit: true }); }
   catch (error) { for (const item of files) fs.writeFileSync(item.file, item.original); throw error; }
   const relative = files.map(({ file }) => path.relative(REPO, file));
   command('git', ['add', '--', ...relative]);
   command('git', ['commit', '-m', `chore(release): ${PLUGIN} v${VERSION}`], { inherit: true });
-  return { outcome: 'success', calls: [{ argv: ['node', 'scripts/ci.mjs', '--plugin', PLUGIN] }], mutations: relative, journal: fixtureJournal, receipt: null, state: { version: VERSION, tag: TAG, dry_run: false } };
+  return { outcome: 'success', calls: [ciCall], mutations: relative, journal: fixtureJournal, receipt: null, state: { version: VERSION, tag: TAG, dry_run: false } };
 }
 
 export function materialize(options) {

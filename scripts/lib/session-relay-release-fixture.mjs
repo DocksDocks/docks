@@ -91,7 +91,7 @@ export function runFixture(argv, parsed, parseError) {
     } else if (mode === 'prepare') {
       const dry = parsed.options.get('dry-run') === true;
       state = { version: VERSION, tag: TAG, dry_run: dry, message: dry ? 'The real release will gate the exact changed tree.' : 'prepared' };
-      calls = dry ? [] : [{ argv: ['node', 'scripts/ci.mjs', '--plugin', PLUGIN] }];
+      calls = dry ? [] : [{ argv: ['node', 'scripts/ci.mjs'] }];
       mutations = dry ? [] : ['manifests', 'cargo', 'commit'];
     } else {
       calls = [{ argv: ['fixture', mode, fixture.scenario] }];
