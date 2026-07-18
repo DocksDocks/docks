@@ -64,12 +64,17 @@ Ordinary plugin behavior stays registry-driven: extend descriptor capabilities r
 
 **Shared author-side libs (`scripts/lib/`):** `rust-bin.mjs` (the `rust` capability's helpers — `rustHostTarget()` maps `process.platform/arch` to the launcher's target triple with Linux always on the static musl leg, `findCargo()` falls back to `~/.cargo/bin` for non-login shells, `verifySha256Sums()` checks a `shasum -a 256`-format file with Node crypto). `skills-walk.mjs` (SKILL.md traversal — `findSkillFiles`/`eachSkillDir`/`findSkillByName`) and `skills-parse.mjs` (frontmatter/body line helpers — `bodyAfterFrontmatter`/`slopCount`/`metaUpdated`/…) are imported by the author-side validators so the walk + body-line method live once. The bundled `write-skill/scripts/skill-guard.mjs` keeps its OWN copies on purpose — it ships standalone into consumer repos where `scripts/lib/` doesn't exist; its body-line method must stay byte-identical to `skills-parse.mjs`'s or scores shift. `skills-walk.mjs` is seeded (the seeded validators import it); `skills-parse.mjs` is not (no seeded script imports it).
 
+`ci-background-task.mjs` owns asynchronous Node-task capture for `ci.mjs`.
+Successful tasks remove their private spool. Failed tasks retain complete stdout
+and stderr in an owned mode-`0700` temporary directory with mode-`0600` files,
+and print both exact paths before the gate reports failure.
+
 **Single-source scorer:** the 16-pt skill scorer lives ONCE, in the bundled `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (`score [--per-file]`). The kit's `ci.mjs` scores with that same shipped file over `plugins/docks/skills`, and consumers run it on their own skills (`validate` / `score`) — one rubric, no author-side mirror, no sync contract. Bundled `scripts/` aren't content-hashed; bump write-skill's `metadata.updated` when the rubric changes.
 
 `--timings-json` is observational: it records ordered phase durations and
 background-task durations without changing gate selection or status. Background
-tasks remain mandatory; their failure output is surfaced and their result is
-joined before `ci.mjs` can pass.
+tasks remain mandatory; their failure output is retained behind reported spool
+paths and their result is joined before `ci.mjs` can pass.
 
 ## Edit → release workflow
 
