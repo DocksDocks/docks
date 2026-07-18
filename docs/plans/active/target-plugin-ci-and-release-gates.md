@@ -3,7 +3,7 @@ title: Target CI and release gates by plugin
 goal: Make CI measurable, parallel where safe, and plugin-targeted for local and release-tag gates while preserving full pull-request and manual validation.
 status: in_review
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-18T13:16:25-03:00"
+updated: "2026-07-18T13:48:31-03:00"
 started_at: "2026-07-16T23:38:16-03:00"
 in_review_since: "2026-07-17T00:15:14-03:00"
 assignee: codex
@@ -125,6 +125,7 @@ node scripts/ci.mjs
 | A6 | `node scripts/tests/ci-plugin-targeting.mjs --validate-docks-timings /tmp/docks-ci-timings.json` | Exits 0; every phase/task has a nonnegative integer duration and valid status, and exactly one passed `plan-review-policy regressions` task proves the mutation driver joined once before success. |
 | A7 | `node scripts/tests/ci-plugin-targeting.mjs --unit` | Exits 0; PR/manual remain full, release tags resolve strictly, pnpm cache is shared, and Cargo cache/provisioning is Session Relay-only. |
 | A8 | `node scripts/tests/ci-plugin-targeting.mjs --background-output` | Exits 0; a child emits an identifying prefix, writes more than 1 MiB, fails, and retains the complete prefix/output in reported mode-`0600` artifact files. |
+| A9 | `node scripts/tests/ci-plugin-targeting.mjs --timing-write-failure` | Exits 0; an otherwise passing Effect Kit gate remains passed when timing output cannot be written, an intentionally failing Effect Kit gate remains failed under the same condition, both emit the timing diagnostic, and neither leaves a report that can be mistaken for current evidence. |
 
 ## Project CI completion gate
 
@@ -231,3 +232,8 @@ P3 gap: local state comparison could not detect remote mutation calls. The
 substantive candidate now uses instrumented Git, Claude, and GitHub CLI shims
 that proxy required read-only preflight operations, fail closed on mutating
 calls, and assert the call log contains no push, tag, or Release invocation.
+A fresh full review of the substantively changed candidate found one additional
+blocking invariant violation: timing-output I/O failure changed an otherwise
+passing gate to failure. The scoped repair makes timing writes warn-only,
+best-effort removes unusable output, and adds A9 to prove both passing and
+already-failing underlying CI results retain their status.

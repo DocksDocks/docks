@@ -21,10 +21,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2);
 const mode = args[0] ?? null;
 const validInvocation = args.length === 0
-  || (args.length === 1 && ['--unit', '--background-output', '--dry-run-release-safety'].includes(mode))
+  || (args.length === 1 && ['--unit', '--background-output', '--dry-run-release-safety', '--timing-write-failure'].includes(mode))
   || (args.length === 2 && mode === '--validate-docks-timings');
 if (!validInvocation) {
-  throw new Error('usage: ci-plugin-targeting.mjs [--unit|--background-output|--dry-run-release-safety|--validate-docks-timings <path>]');
+  throw new Error('usage: ci-plugin-targeting.mjs [--unit|--background-output|--dry-run-release-safety|--timing-write-failure|--validate-docks-timings <path>]');
 }
 const unitOnly = mode === '--unit';
 
@@ -153,6 +153,46 @@ function testDryRunReleaseSafety() {
   }
 }
 
+function testTimingWriteFailure() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-timing-write-'));
+  const worktree = path.join(fixtureRoot, 'worktree');
+  let worktreeAdded = false;
+  const runCi = (cwd, timingPath) => spawnSync(process.execPath, ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', timingPath], {
+    cwd,
+    encoding: 'utf8',
+    timeout: 600_000,
+  });
+  try {
+    const passedTiming = path.join(fixtureRoot, 'missing-passed', 'timings.json');
+    const passed = runCi(ROOT, passedTiming);
+    assert.equal(passed.status, 0, `${passed.stdout}\n${passed.stderr}`);
+    assert.match(passed.stderr, /cannot write timing report/);
+    assert.equal(fs.existsSync(passedTiming), false, 'failed timing output must not leave a report');
+
+    const added = spawnSync('git', ['worktree', 'add', '--detach', worktree, 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+    assert.equal(added.status, 0, added.stderr);
+    worktreeAdded = true;
+    fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(worktree, 'node_modules'), 'dir');
+    fs.copyFileSync(path.join(ROOT, 'scripts/ci.mjs'), path.join(worktree, 'scripts/ci.mjs'));
+    const manifestPath = path.join(worktree, 'plugins/effect-kit/.claude-plugin/plugin.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.version = '0.0.0';
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const failedTiming = path.join(fixtureRoot, 'missing-failed', 'timings.json');
+    const failed = runCi(worktree, failedTiming);
+    assert.equal(failed.status, 1, `${failed.stdout}\n${failed.stderr}`);
+    assert.match(failed.stderr, /cannot write timing report/);
+    assert.match(failed.stdout, /check\(s\) failed/);
+    assert.equal(fs.existsSync(failedTiming), false, 'failed timing output must not leave stale evidence');
+  } finally {
+    if (worktreeAdded) {
+      const removed = spawnSync('git', ['worktree', 'remove', '--force', worktree], { cwd: ROOT, encoding: 'utf8' });
+      assert.equal(removed.status, 0, removed.stderr);
+    }
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 if (mode === '--validate-docks-timings') {
   validateTimingReport(path.resolve(args[1]), 'docks', ['plan-review-policy regressions']);
   console.log('Docks timing report and single background join passed');
@@ -166,6 +206,11 @@ if (mode === '--background-output') {
 if (mode === '--dry-run-release-safety') {
   testDryRunReleaseSafety();
   console.log('Docks release dry-run left repository bytes and refs unchanged');
+  process.exit(0);
+}
+if (mode === '--timing-write-failure') {
+  testTimingWriteFailure();
+  console.log('timing write failures preserve the underlying CI result');
   process.exit(0);
 }
 const names = (rows) => rows.map((row) => row.name);

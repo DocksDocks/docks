@@ -333,16 +333,17 @@ const timingReport = (status) => ({
 const writeTimings = (status) => {
   if (options.timingsJson === null) return;
   try { fs.writeFileSync(options.timingsJson, `${JSON.stringify(timingReport(status))}\n`, { encoding: 'utf8' }); }
-  catch (error) { fail(`cannot write timing report ${options.timingsJson}: ${error.message}`); }
+  catch (error) {
+    try { fs.rmSync(options.timingsJson, { force: true }); } catch {}
+    console.error(`[WARN] cannot write timing report ${options.timingsJson}: ${error.message}`);
+  }
 };
 
 console.log('');
 if (failures.length === 0) {
   writeTimings('passed');
-  if (failures.length === 0) {
-    console.log(`\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${onlyPlugin ? `plugin '${onlyPlugin}' + repo-wide` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`);
-    process.exit(0);
-  }
+  console.log(`\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${onlyPlugin ? `plugin '${onlyPlugin}' + repo-wide` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`);
+  process.exit(0);
 }
 writeTimings('failed');
 console.log(`\x1b[1;31m✘ ${failures.length} check(s) failed:\x1b[0m`);
