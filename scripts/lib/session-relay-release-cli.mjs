@@ -28,7 +28,7 @@ const MODE_SPECS = {
   'verify-source-ci': { required: ['plugin', 'version', 'run-id', 'expected-commit', 'receipt-out'] },
   'check-prepared': { required: ['plugin', 'version', 'source-commit', 'docks-red', 'docks-red-sha256', 'public-red', 'public-red-sha256', 'preflight', 'preflight-sha256', 'source-ci', 'source-ci-sha256', 'receipt-out'] },
   'bind-completion': { required: ['plugin', 'version', 'finished-plan', 'embedded-candidate-sha256', 'receipt-out'] },
-  'publish-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'receipt-out'], pairs: [['resume-publication', 'resume-publication-sha256']] },
+  'publish-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'receipt-out'], boolean: ['rebind-complete-publication'], pairs: [['resume-publication', 'resume-publication-sha256']] },
   'emit-public-request': { required: ['plugin', 'version', 'publication', 'publication-sha256', 'receipt-out'] },
   'verify-public-release': { required: ['plugin', 'version', 'request', 'request-sha256', 'publication', 'publication-sha256', 'public-finished-plan', 'public-release-commit', 'public-completion-sha256', 'receipt-out'] },
   'promote-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'public-release', 'public-release-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'], pairs: [['retry-failed', 'retry-failed-sha256']] },

@@ -759,11 +759,40 @@ function validateLiveReleaseProvenance(adapter, release, run, liveAssets) {
   }
 }
 
+function rebindCompletePublication(options, adapter, proof, state) {
+  if (
+    state.commit !== proof.value.tag_commit
+    || !state.release
+    || state.release.prerelease !== true
+  ) fail('publication rebind requires a complete matching prerelease');
+  const liveAssets = completeLivePrerelease(state.release);
+  if (!liveAssets) fail('publication rebind requires a complete matching prerelease');
+  const run = selectUniqueUsableRun(taggedRuns(adapter), proof.value.tag_commit);
+  if (
+    !run
+    || run.event !== 'push'
+    || run.status !== 'completed'
+    || run.conclusion !== 'success'
+  ) fail('publication rebind requires one successful bound push workflow run');
+  const settled = settledRun(adapter, run, proof.value.tag_commit);
+  const verifiedLiveAssets = validateLiveReleaseProvenance(adapter, state.release, settled, liveAssets);
+  return emitReceipt(options, publicationReceipt(
+    proof,
+    state.release,
+    verifiedLiveAssets,
+    workflowIdentity(settled),
+    'reconciled',
+    'prerelease',
+    adapter.now(),
+  ));
+}
+
 
 
 export function publishReviewed(options, injectedAdapter) {
   const adapter = checkedAdapter(injectedAdapter);
   const proof = validateProof(options);
+  const rebind = options.has('rebind-complete-publication');
   const resume = options.has('resume-publication')
     ? validatePublicationReceipt(
       readCanonical(options.get('resume-publication'), options.get('resume-publication-sha256'), 'SessionRelayPublicationReceiptV1', '--resume-publication'),
@@ -771,10 +800,12 @@ export function publishReviewed(options, injectedAdapter) {
       '--resume-publication',
     )
     : null;
+  if (rebind && resume) fail('publication rebind cannot be combined with a captured publication receipt');
   if (resume && resume.value.release_state !== 'prerelease') fail('resume publication is not a prerelease receipt');
   let state = releaseState(adapter);
   if (state.commit && state.commit !== proof.value.tag_commit) fail('tag conflict');
   if (state.release && !state.release.prerelease) fail('premature stable release conflict');
+  if (rebind) return rebindCompletePublication(options, adapter, proof, state);
   let tagCreated = false;
   if (!state.commit) {
     adapter.pushTag(proof.value.tag_commit);
@@ -816,6 +847,9 @@ export function publishReviewed(options, injectedAdapter) {
   state = pollReleaseState(adapter, proof.value.tag_commit);
   if (state.release && !state.release.prerelease) fail('premature stable release conflict');
   const liveAssets = completeLivePrerelease(state.release);
+  if (liveAssets && run.event === 'push' && !tagCreated && !resume) {
+    fail('complete matching prerelease without a captured receipt requires explicit --rebind-complete-publication');
+  }
   if (liveAssets && run.event === 'push') {
     const verifiedLiveAssets = validateLiveReleaseProvenance(adapter, state.release, run, liveAssets);
     const transition = tagCreated ? 'tag_and_reconciled' : 'reconciled';
