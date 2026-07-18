@@ -1,11 +1,12 @@
 ---
 title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
-status: in_review
+status: blocked
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-17T21:26:05-03:00"
+updated: "2026-07-17T21:42:08-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
-in_review_since: "2026-07-17T20:20:44-03:00"
+blocked_reason: "Awaiting an explicit maintainer primary-review waiver or policy-authorized remedy after terminal schema-invalid round-2 output; availability fallback and round 3 are forbidden."
+blocked_since: "2026-07-17T21:42:08-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
@@ -472,6 +473,8 @@ Cross-check (2026-07-17, schema-5 repair round 1): canonical reviewer findings P
 - **2026-07-17T21:00:32-03:00**: Because the accepted completion-preparation repairs added the shipped Docks review helper and its regression test after the prior source receipt, strict `--verify-embedded-preparation` correctly rejected the old `SOURCE_COMMIT`. The create-once validation ref `refs/heads/preflight/session-relay-0.12.0-12fc047e8931` binds repaired source `12fc047e8931ef67b6008c08129eb450be195e6b`; producer run `29621747208` and authoritative full-CI run `29621752878` both passed, and fresh canonical preflight/source-CI/candidate receipts replace the obsolete evidence above. The four Relay asset digests remain byte-identical because the Rust source did not change.
 
 - **2026-07-17T21:26:05-03:00**: Schema-5 completion review round 1 (`request_id` `b3d07f34-d2a1-40e2-990d-fbcbe10f825a`, input `87476bde90e21fb481430bdcf88894a7811526fdfc66fea91f309ab9e5c0fb01`, bundle `8fe4fc0a160e347ad83e124a1cdaf709a22e00be5a81256d1f5727c16d34ef25`) returned two blocking findings. Main context accepted and reproduced P1: A1 checked the companion manifest and review/TDD identities but never ran the frozen installer and sync-order tests. The repaired detached-clone verifier requires `bun.lock`, runs `bun install --frozen-lockfile`, proves the two test blobs still equal the TDD-red receipt, executes that receipt's exact `bun run test:unit -- cli/test/unit/sessionRelayCli.test.ts cli/test/unit/pluginRefresh.test.ts` command, and rechecks clean HEAD/worktree before identity-bound cleanup; the live immutable-ref invocation passes. Main context also accepted and reproduced P2 with a focused red assertion: Session Relay `--prepare` modeled and ran `node scripts/ci.mjs --plugin session-relay` despite promising the full exact-tree gate. Production execution, its returned call journal, and the release fixture now share the exact unscoped `node scripts/ci.mjs` command, and the focused assertion passes. Source-candidate A4 intentionally remains the separately documented plugin-scoped acceptance check; the prepare gate and authoritative source-CI receipt remain full-repository checks. Round 2 must be repair-only for exactly P1 and P2.
+
+- **2026-07-17T21:42:08-03:00**: Repair-only completion round 2 (`request_id` `a7d4e306-fc36-4fc5-9c21-c33d36e2a0cc`, input `bdae5d9c70ba369b61f4f5e5ed670747e3a69ea9d7ffd6e0646739d42decb9be`, bundle `07d13a90af10a2d25644e59b3c46dac85a6f3ae9ba6df0ef88541606a894dd70`, targets `1decfd258b703c915f1fd25b7ad1a6a374869470a08be49c644611f3b25ee215`) produced substantive JSON but failed canonical validation with `current finding status missing for gap criterion dependency_order`: four checklist criteria were marked blocking while only two corresponding findings were emitted. Current schema-5 policy makes parse/schema failure after substantive output terminal, prohibits availability fallback after output, and permits no round 3 or reset, so this output is not reviewer evidence and no pass may be claimed. Main context independently reproduced its concrete P2 observation: production executed an absolute script path while returning the relative journal argv. A focused injected-adapter assertion failed before repair and now proves `runPrepareCi` executes and returns the same exact `node scripts/ci.mjs` argv. Main context also ran A7 and reproduced `error: tree differs from SOURCE_COMMIT outside the active plan`; the retained source/preflight/source-CI/candidate receipts predate the accepted P1/P2 source repairs and therefore cannot support completion. No tag, Release, npm publication, or production-branch promotion occurred. The plan is blocked pending an explicit maintainer primary-review waiver or another policy-authorized remedy; the terminal series will not be renewed.
 
 ## Mistakes & Dead Ends
 

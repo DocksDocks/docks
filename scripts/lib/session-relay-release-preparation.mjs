@@ -422,6 +422,12 @@ export function validateSourcePreparationProof(value) {
 export function prepareCiCall() {
   return { argv: ['node', 'scripts/ci.mjs'] };
 }
+export function runPrepareCi(run = command) {
+  const ciCall = prepareCiCall();
+  run(ciCall.argv[0], ciCall.argv.slice(1), { inherit: true });
+  return ciCall;
+}
+
 
 export function prepare(options, fixtureJournal) {
   const dryRun = options.get('dry-run') === true;
@@ -450,8 +456,8 @@ export function prepare(options, fixtureJournal) {
   }
   ensureCleanTree();
   for (const item of files) fs.writeFileSync(item.file, item.changed);
-  const ciCall = prepareCiCall();
-  try { command(ciCall.argv[0], [path.join(REPO, ciCall.argv[1]), ...ciCall.argv.slice(2)], { inherit: true }); }
+  let ciCall;
+  try { ciCall = runPrepareCi(); }
   catch (error) { for (const item of files) fs.writeFileSync(item.file, item.original); throw error; }
   const relative = files.map(({ file }) => path.relative(REPO, file));
   command('git', ['add', '--', ...relative]);
