@@ -3,7 +3,7 @@ title: Target CI and release gates by plugin
 goal: Make CI measurable, parallel where safe, and plugin-targeted for local and release-tag gates while preserving full pull-request and manual validation.
 status: in_review
 created: "2026-07-16T22:50:14-03:00"
-updated: "2026-07-17T00:15:14-03:00"
+updated: "2026-07-18T12:36:46-03:00"
 started_at: "2026-07-16T23:38:16-03:00"
 in_review_since: "2026-07-17T00:15:14-03:00"
 assignee: codex
@@ -16,6 +16,7 @@ tags: [ci, release, plugins, performance]
 affected_paths:
   - scripts/lib/plugins.mjs
   - scripts/lib/ci-targeting.mjs
+  - scripts/lib/ci-background-task.mjs
   - scripts/ci-target.mjs
   - scripts/ci.mjs
   - scripts/release.mjs
@@ -79,9 +80,9 @@ node scripts/ci.mjs
 |---|---|---|---|---|---|
 | 1 | Freeze targeting, timing, and workflow behavior before production edits. | `scripts/tests/ci-plugin-targeting.mjs` (tag parser, author-check selection, shell selection, release args, timing schema, malformed input, event/cache cases) | — | done | The test failed before helpers existed, then passed in both direct and nonrecursive `--unit` modes. |
 | 2 | Add registry-driven target and tag resolution. | `scripts/lib/plugins.mjs` (`PLUGINS` author-check capability); `scripts/lib/ci-targeting.mjs` (`resolveCiTargets`, `parseReleaseTag`, `releaseCiArgs`); `scripts/ci-target.mjs` (GitHub-safe resolver CLI) | 1 | done | Known canonical tags map to one descriptor; malformed/unknown tags throw; selected author/shell/Rust capabilities derive only from the registry. |
-| 3 | Apply selection, phase timing, and background overlap to local CI and release preflight. | `scripts/ci.mjs` (shared phase, selected shell hooks, selected Docks author suites, bounded timing JSON, background mutation driver); `scripts/release.mjs` (preflight argv); `scripts/tests/ci-plugin-targeting.mjs`, `scripts/tests/plan-review-policy.mjs`, `scripts/tests/plan-review-policy-regressions.mjs` (timing/release/selection and scheduling assertions) | 2 | done | Targeted invocations omit unrelated plugin work; release forwards `--plugin` as separate argv; timing JSON records closed phase/task results; the mandatory mutation task starts early and joins once. |
+| 3 | Apply selection, phase timing, and background overlap to local CI and release preflight. | `scripts/lib/ci-background-task.mjs` (complete mode-`0600` failure spools); `scripts/ci.mjs` (shared phase, selected shell hooks, selected Docks author suites, bounded timing JSON, background mutation driver); `scripts/release.mjs` (preflight argv); `scripts/tests/ci-plugin-targeting.mjs`, `scripts/tests/plan-review-policy.mjs`, `scripts/tests/plan-review-policy-regressions.mjs` (timing/release/selection, failure-output, and scheduling assertions) | 2 | done | Targeted invocations omit unrelated plugin work; release forwards `--plugin` as separate argv; timing JSON records closed phase/task results; the mandatory mutation task starts early and joins once; a failing task retains complete stdout/stderr behind reported artifact paths. |
 | 4 | Target release-tag work, cache dependencies, and update the gate contract. | `.github/workflows/ci.yml` (strict resolver, conditional Rust, pnpm/Cargo caches, full PR/manual, targeted tag); `.github/AGENTS.md`, `scripts/AGENTS.md`, `AGENTS.md` (no-drift contract); `scripts/tests/ci-plugin-targeting.mjs` (workflow event/cache matrix) | 2, 3 | done | PR/manual use full CI; known tags use one plugin; non-Rust tags skip Rust; malformed tags stop before caches/provisioning; exact and restore cache keys bind their correctness inputs. |
-| 5 | Run focused, targeted, measured, and integration verification. | `scripts/tests/ci-plugin-targeting.mjs`; `scripts/ci.mjs`; `scripts/release.mjs`; `.github/workflows/ci.yml` | 3, 4 | done | A1-A7 and the separate full project CI completion gate passed; measured output proves unrelated plugin phases are absent from targeted runs. |
+| 5 | Run focused, targeted, measured, and integration verification. | `scripts/tests/ci-plugin-targeting.mjs`; `scripts/ci.mjs`; `scripts/release.mjs`; `.github/workflows/ci.yml` | 3, 4 | done | A1-A8 and the separate full project CI completion gate pass; measured output proves unrelated plugin phases are absent from targeted runs. |
 
 ## Interfaces and invariants
 
@@ -103,6 +104,9 @@ node scripts/ci.mjs
 - `--timings-json <path>` writes one closed schema with total status, ordered
   phase durations, and background-task durations. Timing is observational only:
   it cannot alter pass/fail behavior or hide child output on failure.
+  Failed background output is written without truncation to an owned mode-`0700`
+  temporary directory containing mode-`0600` stdout/stderr files; the failure
+  diagnostic prints both exact paths.
 - The Docks mutation regression driver may start before independent guards and
   is joined before the Docks gate passes. Its exit status remains mandatory.
 - GitHub caches are dependency caches, not correctness inputs. pnpm keys bind
@@ -116,10 +120,11 @@ node scripts/ci.mjs
 | A1 | `node scripts/tests/ci-plugin-targeting.mjs` | Exits 0; registry tag/target/release/timing/workflow/cache cases pass and malformed or unknown inputs fail closed. |
 | A2 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-ci-timings.json` | Exits 0; shared and Docks-owned checks run; timing JSON validates; output contains no Session Relay Rust/self-test or Effect Kit plugin gate. |
 | A3 | `node scripts/ci.mjs --plugin effect-kit` | Exits 0; shared and Effect Kit checks run; output contains no Docks-only author suites or Session Relay Rust/self-test. |
-| A4 | `node scripts/release.mjs --dry-run --plugin docks patch` | Exits 0 from a clean checkout; output identifies a Docks-targeted preflight and makes no write, tag, push, or release. |
+| A4 | `node scripts/tests/ci-plugin-targeting.mjs --dry-run-release-safety` | Exits 0 from a clean checkout after running the Docks release dry-run; tracked/untracked state, refs, and all three version-bearing catalog/manifest bytes are unchanged, and output names only simulated push/tag/Release operations. |
 | A5 | `node scripts/ci.mjs --plugin unknown-plugin` | Exits 2 before plugin work and names the known registry plugins. |
-| A6 | `node scripts/ci.mjs --plugin docks --timings-json /tmp/docks-ci-timings.json` followed by JSON validation | Every phase/task has a nonnegative integer duration and status; the mutation task is joined exactly once before success. |
-| A7 | Workflow fixture assertions in `node scripts/tests/ci-plugin-targeting.mjs` | PR/manual remain full; release tags resolve strictly; pnpm cache is shared and Cargo cache/provisioning is Session Relay-only. |
+| A6 | `node scripts/tests/ci-plugin-targeting.mjs --validate-docks-timings /tmp/docks-ci-timings.json` | Exits 0; every phase/task has a nonnegative integer duration and valid status, and exactly one passed `plan-review-policy regressions` task proves the mutation driver joined once before success. |
+| A7 | `node scripts/tests/ci-plugin-targeting.mjs --unit` | Exits 0; PR/manual remain full, release tags resolve strictly, pnpm cache is shared, and Cargo cache/provisioning is Session Relay-only. |
+| A8 | `node scripts/tests/ci-plugin-targeting.mjs --background-output` | Exits 0; a child emits an identifying prefix, writes more than 1 MiB, fails, and retains the complete prefix/output in reported mode-`0600` artifact files. |
 
 ## Project CI completion gate
 
@@ -212,3 +217,12 @@ recorded 177673 ms total versus the previously observed 234–236 seconds: the
 57-second Relay phase overlapped the mandatory mutation task instead of extending
 the critical path. An inherited nonempty `CI` run also exercised the expected
 local byte-identity failure before the clean local rerun passed.
+
+Completion review round 1 accepted blockers P1-P3. P1 showed that the background
+driver retained only the last 1 MiB and could hide an earlier failure prefix.
+P2 showed that A6 named no executable timing validator. P3 showed that A4 relied
+on dry-run prose without comparing repository state or refs. The repair is
+limited to those three accepted blockers and their direct regression coverage.
+Focused background-output, targeting, policy-surface, mutation, Docks timing,
+Effect Kit, unknown-plugin, and full repository gates passed on the repaired
+candidate before its commit.

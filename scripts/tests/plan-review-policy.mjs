@@ -1966,7 +1966,8 @@ function testContractSurfaces() {
   const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
   const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*,\s*['"]--case['"]\s*,\s*['"]surfaces['"]\s*\]\)/g) || []).length, 1, 'CI must contain exactly one focused --case surfaces call');
-  assert.equal((ci.match(/startNodeTask\(\s*['"]plan-review-policy regressions['"]\s*,\s*\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\s*\)/g) || []).length, 1, 'CI must contain exactly one background regression-driver --self-test task');
+  assert.equal((ci.match(/startNodeTask\(\s*['"]plan-review-policy regressions['"]\s*,\s*\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\s*,\s*\{\s*cwd:\s*REPO,\s*tasks\s*\}\s*\)/g) || []).length, 1, 'CI must contain exactly one background regression-driver --self-test task with explicit spool ownership');
+  assert.equal((ci.match(/import\s*\{\s*startNodeTask\s*\}\s*from\s*['"]\.\/lib\/ci-background-task\.mjs['"]/g) || []).length, 1, 'CI must import the complete-output background task helper exactly once');
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\)/g) || []).length, 0, 'CI must not synchronously rerun the regression driver');
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*\]\)/g) || []).length, 0, 'CI must contain zero no-argument full policy-harness calls');
   assert.ok(ci.indexOf("startNodeTask('plan-review-policy regressions'") < ci.indexOf("section('workflow YAML')"), 'CI must start the regression driver before independent shared checks');

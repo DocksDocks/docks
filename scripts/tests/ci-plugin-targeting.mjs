@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { PLUGINS } from '../lib/plugins.mjs';
@@ -14,11 +15,115 @@ import {
   selectedAuthorChecks,
   workflowCiSelection,
 } from '../lib/ci-targeting.mjs';
+import { startNodeTask } from '../lib/ci-background-task.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
-if (args.length > 1 || (args.length === 1 && args[0] !== '--unit')) throw new Error('usage: ci-plugin-targeting.mjs [--unit]');
-const unitOnly = args[0] === '--unit';
+const mode = args[0] ?? null;
+const validInvocation = args.length === 0
+  || (args.length === 1 && ['--unit', '--background-output', '--dry-run-release-safety'].includes(mode))
+  || (args.length === 2 && mode === '--validate-docks-timings');
+if (!validInvocation) {
+  throw new Error('usage: ci-plugin-targeting.mjs [--unit|--background-output|--dry-run-release-safety|--validate-docks-timings <path>]');
+}
+const unitOnly = mode === '--unit';
+
+function validateTimingReport(timingPath, plugin, taskNames) {
+  const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
+  assert.deepEqual(Object.keys(timing), ['schema', 'mode', 'status', 'total_ms', 'phases', 'tasks']);
+  assert.equal(timing.schema, 1);
+  assert.deepEqual(timing.mode, { plugin });
+  assert.equal(timing.status, 'passed');
+  assert.ok(Number.isInteger(timing.total_ms) && timing.total_ms >= 0);
+  assert.ok(timing.phases.length > 0);
+  for (const row of [...timing.phases, ...timing.tasks]) {
+    assert.deepEqual(Object.keys(row), ['name', 'duration_ms', 'status']);
+    assert.equal(typeof row.name, 'string');
+    assert.ok(Number.isInteger(row.duration_ms) && row.duration_ms >= 0);
+    assert.ok(['passed', 'failed'].includes(row.status));
+  }
+  assert.deepEqual(timing.tasks.map((task) => task.name), taskNames);
+  assert.ok(timing.tasks.every((task) => task.status === 'passed'));
+}
+
+async function testBackgroundOutputRetention() {
+  const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-background-output-'));
+  const tasks = [];
+  const errorStream = new PassThrough();
+  let diagnostic = '';
+  errorStream.setEncoding('utf8');
+  errorStream.on('data', (chunk) => { diagnostic += chunk; });
+  try {
+    const script = "process.stdout.write('retained-prefix\\n'); process.stdout.write('x'.repeat(1024 * 1024 + 4096), () => process.exit(1));";
+    const passed = await startNodeTask('large failing task', ['-e', script], { cwd: ROOT, tasks, errorStream, artifactRoot });
+    assert.equal(passed, false);
+    assert.deepEqual(tasks.map(({ name, status }) => ({ name, status })), [{ name: 'large failing task', status: 'failed' }]);
+    const artifacts = fs.readdirSync(artifactRoot);
+    assert.equal(artifacts.length, 1);
+    const outputDirectory = path.join(artifactRoot, artifacts[0]);
+    const stdoutPath = path.join(outputDirectory, 'stdout.log');
+    const stderrPath = path.join(outputDirectory, 'stderr.log');
+    const stdout = fs.readFileSync(stdoutPath);
+    assert.equal(stdout.subarray(0, 'retained-prefix\n'.length).toString(), 'retained-prefix\n');
+    assert.ok(stdout.length > 1024 * 1024);
+    assert.equal(fs.statSync(stdoutPath).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(stderrPath).mode & 0o777, 0o600);
+    assert.match(diagnostic, new RegExp(`stdout=${stdoutPath.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`));
+    assert.match(diagnostic, new RegExp(`stderr=${stderrPath.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`));
+  } finally {
+    fs.rmSync(artifactRoot, { recursive: true, force: true });
+  }
+}
+
+function gitSnapshot() {
+  const run = (gitArgs) => {
+    const result = spawnSync('git', gitArgs, { cwd: ROOT, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
+  };
+  const manifests = [
+    'plugins/docks/.claude-plugin/plugin.json',
+    'plugins/docks/.codex-plugin/plugin.json',
+    '.claude-plugin/marketplace.json',
+  ];
+  return {
+    status: run(['status', '--porcelain=v1', '--untracked-files=all']),
+    refs: run(['show-ref']),
+    manifests: manifests.map((file) => fs.readFileSync(path.join(ROOT, file), 'base64')),
+  };
+}
+
+function testDryRunReleaseSafety() {
+  const before = gitSnapshot();
+  assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
+  const result = spawnSync('node', ['scripts/release.mjs', '--dry-run', '--plugin', 'docks', 'patch'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: 600_000,
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /\[dry-run\] git push origin HEAD/);
+  assert.match(result.stdout, /\[dry-run\] claude plugin tag --push/);
+  assert.match(result.stdout, /\[dry-run\] wait for tag-CI .* gh release create/);
+  assert.match(result.stdout, /\[dry-run\] OK — no changes written, no tag, no release/);
+  assert.deepEqual(gitSnapshot(), before);
+}
+
+if (mode === '--validate-docks-timings') {
+  validateTimingReport(path.resolve(args[1]), 'docks', ['plan-review-policy regressions']);
+  console.log('Docks timing report and single background join passed');
+  process.exit(0);
+}
+if (mode === '--background-output') {
+  await testBackgroundOutputRetention();
+  console.log('background failure output retention passed');
+  process.exit(0);
+}
+if (mode === '--dry-run-release-safety') {
+  testDryRunReleaseSafety();
+  console.log('Docks release dry-run left repository bytes and refs unchanged');
+  process.exit(0);
+}
 const names = (rows) => rows.map((row) => row.name);
 const byName = (name) => PLUGINS.find((plugin) => plugin.name === name);
 
@@ -62,20 +167,7 @@ try {
     assert.equal(targeted.status, 0, `${targeted.stdout}\n${targeted.stderr}`);
     assert.doesNotMatch(targeted.stdout, /skill-maintainer idempotency|plan review policy|plugin: docks|plugin: session-relay/);
     assert.match(targeted.stdout, /plugin: effect-kit/);
-    const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
-    assert.deepEqual(Object.keys(timing), ['schema', 'mode', 'status', 'total_ms', 'phases', 'tasks']);
-    assert.equal(timing.schema, 1);
-    assert.deepEqual(timing.mode, { plugin: 'effect-kit' });
-    assert.equal(timing.status, 'passed');
-    assert.ok(Number.isInteger(timing.total_ms) && timing.total_ms >= 0);
-    assert.ok(timing.phases.length > 0);
-    for (const row of [...timing.phases, ...timing.tasks]) {
-      assert.deepEqual(Object.keys(row), ['name', 'duration_ms', 'status']);
-      assert.equal(typeof row.name, 'string');
-      assert.ok(Number.isInteger(row.duration_ms) && row.duration_ms >= 0);
-      assert.ok(['passed', 'failed'].includes(row.status));
-    }
-    assert.equal(timing.tasks.length, 0);
+    validateTimingReport(timingPath, 'effect-kit', []);
     console.log('targeted CI timing report passed');
   }
 } finally {

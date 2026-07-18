@@ -5,7 +5,7 @@
 // gatePlugin() (a check runs only when the descriptor declares that capability).
 // Adding a plugin = one registry entry; no edits here.
 // Usage: node scripts/ci.mjs [-q] [--plugin <name>] [--timings-json <path>] [--list]
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
@@ -15,6 +15,7 @@ import {
 } from './lib/plugins.mjs';
 import { findCargo } from './lib/rust-bin.mjs';
 import { resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
+import { startNodeTask } from './lib/ci-background-task.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 process.chdir(REPO);
@@ -78,29 +79,6 @@ const section = (m) => {
 };
 const node = (args, options = {}) => spawnSync('node', args, { encoding: 'utf8', ...options });
 const nodeOk = (args, options) => (node(args, options).status ?? 1) === 0;
-const startNodeTask = (name, args) => {
-  const taskStartedAt = performance.now();
-  return new Promise((resolve) => {
-    const child = spawn('node', args, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] });
-    const limit = 1024 * 1024;
-    let stdout = ''; let stderr = ''; let spawnError = null;
-    const append = (current, chunk) => `${current}${chunk}`.slice(-limit);
-    child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
-    child.on('error', (error) => { spawnError = error; });
-    child.on('close', (code, signal) => {
-      const passed = spawnError === null && code === 0;
-      tasks.push({ name, duration_ms: Math.max(0, Math.round(performance.now() - taskStartedAt)), status: passed ? 'passed' : 'failed' });
-      if (!passed) {
-        if (stdout) process.stderr.write(stdout);
-        if (stderr) process.stderr.write(stderr);
-        if (spawnError) console.error(spawnError.message);
-        else if (signal) console.error(`${name} terminated by ${signal}`);
-      }
-      resolve(passed);
-    });
-  });
-};
 const readJSON = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const BUNDLE = 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs';
 const floorOf = (kind, cat) => { const r = node(['scripts/config/read-floor.mjs', kind, ...(cat ? [cat] : [])]); return r.status === 0 ? parseInt(r.stdout.trim(), 10) : null; };
@@ -117,7 +95,7 @@ try { targets = resolveCiTargets(presentPlugins(), onlyPlugin); }
 catch (error) { console.error(error.message); process.exit(2); }
 const authorChecks = selectedAuthorChecks(targets);
 const planPolicyRegressionTask = authorChecks.has('plan-review')
-  ? startNodeTask('plan-review-policy regressions', ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'])
+  ? startNodeTask('plan-review-policy regressions', ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'], { cwd: REPO, tasks })
   : null;
 
 // Catalogs are shared; read once (used by the per-plugin version checks too).
