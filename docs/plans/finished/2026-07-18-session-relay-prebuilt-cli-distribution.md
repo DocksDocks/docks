@@ -1,9 +1,9 @@
 ---
 title: Deliver Session Relay as a prebuilt CLI
 goal: Prepare reviewed launcher-only Session Relay 0.12.0 and docks-kit 0.9.0 sources plus the resumable release tooling required by a separate release plan.
-status: in_review
+status: finished
 created: "2026-07-16T04:10:15-03:00"
-updated: "2026-07-18T02:04:31-03:00"
+updated: "2026-07-18T02:06:14-03:00"
 started_at: "2026-07-17T13:55:37-03:00"
 in_review_since: "2026-07-17T20:44:03-03:00"
 assignee: null
@@ -60,6 +60,7 @@ related_plans: []
 review_status: passed
 planned_at_commit: 025a00af547547f53fb4e1fbe01823b55a99181a
 execution_base_commit: 327ea47ec365917b8a268530c565d9397e197655
+ship_commit: fb9d08f0d38a5401f3b905f393ff0dd2701922dc
 ---
 
 # Deliver Session Relay as a prebuilt CLI
