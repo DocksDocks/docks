@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: planned
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T14:32:24-03:00"
+updated: "2026-07-18T14:34:04-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -239,9 +239,10 @@ mandatory execution gate.
 
 ## Notes
 
-The target-CI prerequisite shipped at commit
-`d7ac120024c65e10c2a42858d6b4fee2df2c5989` after a passed schema-5 completion
-receipt and a green full repository gate on integrated `main`. Its earlier GPT
+The target-CI prerequisite was archived by lifecycle commit
+`d7ac120024c65e10c2a42858d6b4fee2df2c5989`; its recorded `ship_commit`
+`87d3bd1c592c732d33938837d15222a22ee9f0b9` names the integrated implementation
+head whose full repository gate passed before archive. Its earlier GPT
 transport probe had exposed unsupported `oneOf` in the helper-generated
 response schema before model output; commit
 `ef289381858b5f85680255d433e6c08b2d36a1cb` fixed that helper defect with a
