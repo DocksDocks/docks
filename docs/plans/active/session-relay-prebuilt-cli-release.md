@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: planned
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T12:03:43-03:00"
+updated: "2026-07-18T14:32:24-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -195,8 +195,8 @@ SHA-256 values. The public plan preserves repository `DocksDocks/docks`, tag
 
 - STOP before execution if this draft lacks an eligible independent review or
   cannot apply `planned → ongoing` exactly once.
-- STOP if `target-plugin-ci-and-release-gates.md` remains without valid terminal
-  completion evidence; do not infer a waiver.
+- STOP if `docs/plans/finished/2026-07-18-target-plugin-ci-and-release-gates.md`
+  loses its passed terminal completion evidence; do not infer a waiver.
 - STOP proof binding on any source/evidence/archive/current identity or ancestry
   mismatch; do not reopen source preparation automatically.
 - STOP publication/promotion/finalization on any identity conflict or result not
@@ -239,11 +239,12 @@ mandatory execution gate.
 
 ## Notes
 
-Creation-time prerequisite check on 2026-07-18 found
-`target-plugin-ci-and-release-gates.md` still `in_review`. Its first GPT transport
-probe exposed unsupported `oneOf` in the helper-generated response schema before
-model output. Commit `ef289381858b5f85680255d433e6c08b2d36a1cb` fixes that
-helper defect with a focused red/green regression and green Docks/full gates.
-No fallback or waiver was inferred from the failed probe. This release plan
-remains non-executing until fresh eligible independent reviews close both this
-draft and the target-CI completion prerequisite.
+The target-CI prerequisite shipped at commit
+`d7ac120024c65e10c2a42858d6b4fee2df2c5989` after a passed schema-5 completion
+receipt and a green full repository gate on integrated `main`. Its earlier GPT
+transport probe had exposed unsupported `oneOf` in the helper-generated
+response schema before model output; commit
+`ef289381858b5f85680255d433e6c08b2d36a1cb` fixed that helper defect with a
+focused red/green regression. No fallback or waiver was inferred from the
+failed probe. This release plan remains non-executing until its own fresh
+eligible independent draft review passes.
