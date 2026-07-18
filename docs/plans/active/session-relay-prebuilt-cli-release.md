@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: ongoing
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T15:47:52-03:00"
+updated: "2026-07-18T16:23:12-03:00"
 started_at: "2026-07-18T15:47:52-03:00"
 assignee: codex
 review_author_company: openai
@@ -452,3 +452,12 @@ corrects the recovery comment, and adds
 `plugins/session-relay/test/release-publication-contract.mjs` to the ladder
 and affected paths. A fresh full round-one review on this changed input gates
 any `planned → ongoing` transition.
+
+Step 2 execution note (2026-07-18, commit `8881a37`): the eleven new
+promotion-boundary fixtures were red by name before implementation and green
+after. The publication crash-injection fixture passed against the unmodified
+`finalizeReviewed` because base recovery already satisfies the crash boundary
+(the series-2 reviewer's own evidence anticipated this); it documents and pins
+existing behavior rather than driving new code, so the "fail before" clause of
+the step-2 done condition applies only to the promotion-boundary fixtures. No
+false red was manufactured.
