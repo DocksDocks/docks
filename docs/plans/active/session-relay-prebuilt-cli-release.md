@@ -1,11 +1,11 @@
 ---
 title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
-status: planned
+status: ongoing
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T15:41:55-03:00"
-started_at: null
-assignee: null
+updated: "2026-07-18T15:47:52-03:00"
+started_at: "2026-07-18T15:47:52-03:00"
+assignee: codex
 review_author_company: openai
 review_author_tool: codex
 review_author_model: gpt-5.6-sol
