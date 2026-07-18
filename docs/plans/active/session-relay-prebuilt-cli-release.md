@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: planned
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T14:53:36-03:00"
+updated: "2026-07-18T15:06:52-03:00"
 started_at: null
 assignee: null
 review_author_company: openai
@@ -16,6 +16,9 @@ affected_paths:
   - scripts/lib/session-relay-release-core.mjs
   - scripts/lib/session-relay-release-preparation.mjs
   - plugins/session-relay/test/release-evidence-contract.mjs
+  - plugins/session-relay/test/release-promotion-contract.mjs
+  - scripts/lib/session-relay-release-promotion.mjs
+  - scripts/lib/session-relay-release-cli.mjs
 related_plans:
   - target-plugin-ci-and-release-gates
   - session-relay-prebuilt-cli-distribution
@@ -41,9 +44,10 @@ Session Relay GitHub Release as stable.
 The source implementation and its independent completion evidence are already
 finished in `docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md`.
 That archive and its embedded candidate are immutable inputs; this plan does not
-reopen or reseal them. The remaining local repair is limited to raw Git byte
-preservation and finished-plan archive ancestry in the proof binder. Publication,
-promotion, and finalization modules are invoked but not edited.
+reopen or reseal them. The remaining local repairs are the raw Git byte
+preservation and finished-plan archive ancestry fix in the proof binder plus
+the sanctioned public-release boundary extension in step 2. The publication and
+finalization state machines are invoked, not redesigned.
 
 Session Relay and docks-kit have separate ownership boundaries. This repository
 owns the Session Relay proof, prerelease, promotion, and stable finalization.
@@ -51,6 +55,16 @@ owns the Session Relay proof, prerelease, promotion, and stable finalization.
 `0.9.0` release through its own reviewed plan. Session Relay transport may carry
 the request and result, but conversational text is never release evidence; only
 canonical receipt bytes plus their SHA-256 cross the boundary.
+
+The sealed promotion contract binds `public_reviewed_commit` to the immutable
+companion implementation commit `c3b542220d5a24a98ca05383bbe28afc2319b7e2` and
+requires the docks-kit smoke target to equal it, but the real `cli-v0.9.0`
+release commit must add production digest pins after that commit. Step 2
+therefore extends the promotion boundary first: a canonical
+`PublicReleaseRequestV1`/`PublicReleaseReceiptV1` pair carries the four digests
+out and the independently verified release identity back, and promotion
+validates the new reviewed public release commit — which must descend from the
+companion commit — instead of assuming the companion commit itself.
 
 ## Environment and how to run
 
@@ -66,19 +80,47 @@ canonical receipt bytes plus their SHA-256 cross the boundary.
 ```bash
 RECEIPT_DIR="$(mktemp -d /tmp/session-relay-release.XXXXXX)"
 chmod 700 "$RECEIPT_DIR"
-SOURCE_PROOF_SHA256=
-PUBLICATION_RECEIPT=
-PUBLICATION_SHA256=
-PROMOTION_RECEIPT=
-PROMOTION_SHA256=
-FINAL_PUBLICATION_RECEIPT=
-FINAL_PUBLICATION_SHA256=
+cargo +1.85.0 build --manifest-path plugins/session-relay/rust/Cargo.toml \
+  --release --locked
+export SESSION_RELAY_BIN="$PWD/plugins/session-relay/rust/target/release/relay"
+"$SESSION_RELAY_BIN" register docks-release --id "$(uuidgen)" \
+  --dir /home/vagrant/projects/docks
+PARENT_SESSION_ID="docks-release"
+SOURCE_PROOF="$RECEIPT_DIR/source-proof.json"
+PUBLICATION_RECEIPT="$RECEIPT_DIR/publication-initial.json"
+PUBLIC_REQUEST="$RECEIPT_DIR/public-release-request.json"
+PUBLIC_RELEASE_RECEIPT="$RECEIPT_DIR/public-release.json"
+PROMOTION_RECEIPT="$RECEIPT_DIR/promotion-initial.json"
+FINAL_PUBLICATION_RECEIPT="$RECEIPT_DIR/final-publication.json"
 ```
+
+Every `scripts/release.mjs` receipt mode writes one canonical mode-`0600`
+receipt at its no-clobber `--receipt-out` path and prints exactly one 64-hex
+digest line on success. Capture that digest with command substitution at the
+moment the command runs, exactly as A5-A10 show
+(`SOURCE_PROOF_SHA256="$(node scripts/release.mjs --bind-completion … --receipt-out "$SOURCE_PROOF")"`).
+A legal resume or retry writes a new distinct path and captures a new digest
+variable; earlier receipt bytes are never edited, copied, or replaced.
+
+The public boundary uses the source-built Relay CLI:
+
+```bash
+PUBLIC_WORKER_ID="$("$SESSION_RELAY_BIN" spawn /home/vagrant/projects/public \
+  --fanout --from "$PARENT_SESSION_ID" \
+  --tool codex --model gpt-5.6-sol --effort high --service-tier default -- \
+  "Read /home/vagrant/projects/public/AGENTS.md and docs/plans/AGENTS.md. Using the public plan-manager: create, independently review, and start docs/plans/active/session-relay-cli-production-release.md from the canonical PublicReleaseRequestV1 at $PUBLIC_REQUEST (SHA-256 $PUBLIC_REQUEST_SHA256); supersede docs/plans/active/session-relay-cli-installation.md without claiming production completion; pin exactly the four request digests in SoT/toolchain.json; regenerate cli/src/generated/sotPayload.ts; run the full public gates; publish tag cli-v0.9.0 and its six-asset Release; complete and ship the plan; reply with the shipped plan path, the release commit, and the completion receipt SHA-256.")"
+"$SESSION_RELAY_BIN" collect "$PUBLIC_WORKER_ID" --from "$PARENT_SESSION_ID"
+```
+
+The collected reply is transport, not evidence; A8's `--verify-public-release`
+independently observes the live tag, workflow run, Release, checksums, npm
+state, and digest pins before promotion consumes the canonical receipt pair.
 
 Authoritative verification ladder before the repair commit:
 
 ```bash
 node plugins/session-relay/test/release-evidence-contract.mjs
+node plugins/session-relay/test/release-promotion-contract.mjs
 node scripts/ci.mjs --plugin session-relay --timings-json /tmp/session-relay-ci.json
 node scripts/ci.mjs
 ```
@@ -87,12 +129,13 @@ node scripts/ci.mjs
 
 | # | Task | Files | Depends | Status | Done condition |
 |---|---|---|---|---|---|
-| 1 | Finish the byte-preserving proof-binder repair and commit it after the focused, targeted, and full verification ladder. | `scripts/lib/session-relay-release-core.mjs`; `scripts/lib/session-relay-release-preparation.mjs`; `plugins/session-relay/test/release-evidence-contract.mjs` | reviewed `planned → ongoing` transition | planned | `commandRaw`/`gitRaw` preserve the terminal LF; only `git show` uses raw bytes; the archive commit may be an ancestor of current HEAD; all three commands exit 0; one focused repair commit leaves the worktree clean. |
-| 2 | Bind the existing finished source proof without reopening source preparation. | `docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md` (read-only); `$RECEIPT_DIR/source-proof.json` (runtime receipt) | 1 | planned | Latest-touch/archive/blob/ancestry/candidate identities match; `SourcePreparationProofV1` is canonical mode `0600` and binds the exact source, evidence, shipped, and promoted commits. |
-| 3 | Publish and validate the immutable Session Relay staging prerelease. | `$RECEIPT_DIR/publication-initial.json` or one distinct canonical resume/reconcile receipt; Git tag `session-relay--v0.12.0`; GitHub Release assets (external) | 2 | planned | One immutable tag, one bound producer run, four executables plus `SHA256SUMS`, same-run attestations, and staging prerelease identities validate from the canonical publication receipt. |
-| 4 | Hand the canonical publication receipt to a separately reviewed public plan and publish docks-kit `cli-v0.9.0`. | `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-production-release.md`; `/home/vagrant/projects/public/SoT/toolchain.json`; `/home/vagrant/projects/public/cli/src/generated/sotPayload.ts`; external tag/Release `cli-v0.9.0` | 3 | planned | Public plan is reviewed and ongoing before edits; the old installation plan is superseded without claiming production completion; four production digests are pinned; public gates pass; exact tag/workflow/six assets/checksums/npm state validate; public completion review ships the plan. |
-| 5 | Promote the reviewed Docks archive with permanent transaction-ref and resumable journal semantics. | `$RECEIPT_DIR/promotion-initial.json` or one distinct legal resume/retry receipt; `refs/heads/transactions/session-relay-0.12.0`; remote `origin/main` | 4 | planned | Expected remote main is resolved once; lock/ref/journal identities are exact; exact-source and live docks-kit smokes pass; compare-and-swap promotion succeeds; compatibility restore/reapply evidence validates. |
-| 6 | Finalize stable Session Relay, verify every remote identity and live install, then complete this plan. | `$RECEIPT_DIR/final-publication.json` or one distinct canonical resume receipt; external Session Relay Release; this plan only for lifecycle receipt/archive | 5 | planned | Terminal receipt validates; stable Release keeps the closed five-asset set/checksums; tag CI, docks-kit release, Docks `origin/main`, and fresh-home `docks-kit sync` all match; completion review passes before plan-only archive/push. |
+| 1 | Finish the byte-preserving proof-binder repair and commit it after the focused, targeted, and full verification ladder. | `scripts/lib/session-relay-release-core.mjs`; `scripts/lib/session-relay-release-preparation.mjs`; `plugins/session-relay/test/release-evidence-contract.mjs` | reviewed `planned → ongoing` transition | planned | `commandRaw`/`gitRaw` preserve the terminal LF; only `git show` uses raw bytes; the archive commit may be an ancestor of current HEAD; all four ladder commands exit 0; one focused repair commit leaves the worktree clean. |
+| 2 | Extend the release public boundary red/green: freeze failing promotion-contract fixtures first, then implement `--emit-public-request`, `--verify-public-release`, and the extended promotion/finalization receipt validation. | `plugins/session-relay/test/release-promotion-contract.mjs`; `scripts/lib/session-relay-release-promotion.mjs`; `scripts/lib/session-relay-release-cli.mjs` | 1 | planned | New fixtures fail before implementation and pass after; the promotion journal/receipt carry `public_release_commit` and `public_release_receipt_sha256`; companion ancestry is required; the docks-kit smoke target equals `public_release_commit`; the full ladder passes at one focused commit. |
+| 3 | Bind the existing finished source proof without reopening source preparation. | `docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md` (read-only); `$SOURCE_PROOF` (runtime receipt) | 2 | planned | Latest-touch/archive/blob/ancestry/candidate identities match; `SourcePreparationProofV1` is canonical mode `0600` and binds the exact source, evidence, shipped, and promoted commits. |
+| 4 | Publish and validate the immutable Session Relay staging prerelease. | `$PUBLICATION_RECEIPT` or one distinct canonical resume receipt; Git tag `session-relay--v0.12.0`; GitHub Release assets (external) | 3 | planned | One immutable tag, one bound producer run, four executables plus `SHA256SUMS`, same-run attestations, and staging prerelease identities validate from the canonical publication receipt. |
+| 5 | Emit the canonical public release request, dispatch the reviewed public production-release worker over Session Relay, and independently verify the shipped release. | `$PUBLIC_REQUEST`; `$PUBLIC_RELEASE_RECEIPT`; `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-production-release.md` (public lifecycle, its plan-manager only); external tag/Release `cli-v0.9.0` | 4 | planned | A7 writes the request; the relay `spawn`/`collect` round-trip (repeat `collect` once; identical committed handback) carries only the request path/digest and returns the shipped public plan path, release commit, and completion receipt SHA-256; the public plan supersedes `session-relay-cli-installation.md` without claiming production completion, pins exactly the four request digests, and ships under its own reviewed lifecycle; A8 verification exits 0. |
+| 6 | Promote the reviewed Docks archive with permanent transaction-ref and resumable journal semantics. | `$PROMOTION_RECEIPT` or one distinct legal resume/retry receipt; `refs/heads/transactions/session-relay-0.12.0`; remote `origin/main` | 5 | planned | Expected remote main is resolved once; promotion consumes the verified `PublicReleaseReceiptV1` pair; lock/ref/journal identities are exact; exact-source and live docks-kit smokes pass against `public_release_commit`; compare-and-swap promotion succeeds; compatibility restore/reapply evidence validates. |
+| 7 | Finalize stable Session Relay, verify every remote identity and live install, then complete this plan. | `$FINAL_PUBLICATION_RECEIPT` or one distinct canonical resume receipt; external Session Relay Release; this plan only for lifecycle receipt/archive | 6 | planned | Terminal receipt validates; stable Release keeps the closed five-asset set/checksums; tag CI, docks-kit release, Docks `origin/main`, and fresh-home `docks-kit sync` all match; completion review passes before plan-only archive/push. |
 
 ## Interfaces and data shapes
 
@@ -123,6 +166,8 @@ requires shipped commit ancestry to current HEAD.
 ```text
 SourcePreparationProofV1 bytes + sha256
   → SessionRelayPublicationReceiptV1 prerelease bytes + sha256
+  → PublicReleaseRequestV1 bytes + sha256
+  → PublicReleaseReceiptV1 bytes + sha256
   → SessionRelayPromotionReceiptV1 bytes + sha256
   → SessionRelayPublicationReceiptV1 stable bytes + sha256
 ```
@@ -130,34 +175,66 @@ SourcePreparationProofV1 bytes + sha256
 Every consumer receives an adjacent path/SHA-256 pair. Resume/retry writes a
 new no-clobber path; it never copies, renames, replaces, or edits earlier bytes.
 
-### Public digest handoff
+### Public release request and receipt
 
-The validated publication receipt supplies exactly four target executable
-SHA-256 values. The public plan preserves repository `DocksDocks/docks`, tag
-`session-relay--v0.12.0`, version `0.12.0`, install path
-`~/.local/bin/session-relay`, and all four existing target mappings.
+`--emit-public-request` derives `PublicReleaseRequestV1` from the validated
+prerelease publication receipt. It is closed to exactly
+`{schema:1, type:"PublicReleaseRequestV1", repository_id:"DocksDocks/public",
+tag:"cli-v0.9.0", version:"0.9.0", companion_base_commit,
+session_relay:{repository_id:"DocksDocks/docks", tag:"session-relay--v0.12.0",
+version:"0.12.0", tag_commit, publication_receipt_sha256},
+assets:{x86_64-unknown-linux-musl, aarch64-unknown-linux-musl,
+x86_64-apple-darwin, aarch64-apple-darwin}, created_at}` with 64-hex digest
+values and `companion_base_commit` fixed to
+`c3b542220d5a24a98ca05383bbe28afc2319b7e2`.
+
+`--verify-public-release` observes live public state only after the public plan
+ships and writes `PublicReleaseReceiptV1`, closed to exactly
+`{schema:1, type:"PublicReleaseReceiptV1", request_sha256,
+repository_id:"DocksDocks/public", tag:"cli-v0.9.0", version:"0.9.0",
+release_commit, companion_base_commit, ancestry_verified:true,
+workflow:{file:".github/workflows/release-cli.yml", run_database_id,
+run_attempt, conclusion:"success"}, release:{database_id, assets:[six exact
+name/size/digest records], checksums_sha256}, npm:{state},
+pinned_assets:{the four request digests re-read from the release commit's
+SoT/toolchain.json}, public_plan:{path, completion_receipt_sha256},
+created_at}`. Verification fails closed unless the tag commit descends from
+`companion_base_commit`, exactly one successful `release-cli.yml` run produced
+the Release, the six assets and checksums match, and every pinned digest
+equals its request value.
+
+The extended `SessionRelayPromotionReceiptV1` and its journal immutable
+identity additionally carry `public_release_commit` and
+`public_release_receipt_sha256`; `public_tag_commit` and
+`docks_kit.target_commit` equal `public_release_commit`, which must descend
+from `public_reviewed_commit`. The finalization consumer validates the same
+extended shape.
 
 ## Acceptance criteria
 
 | ID | Command | Expected |
 |---|---|---|
 | A1 | `node plugins/session-relay/test/release-evidence-contract.mjs` | Exits 0; a temporary Git object ending in LF is byte-identical through `gitRaw`, and completion binding accepts an archive commit that is an ancestor of current HEAD. |
-| A2 | `node scripts/ci.mjs --plugin session-relay --timings-json /tmp/session-relay-ci.json` | Exits 0; timings are closed/passed and contain no Docks author or Effect Kit plugin gate. |
-| A3 | `node scripts/ci.mjs` | Exits 0 once at the repair commit before release mutation. |
-| A4 | `node scripts/release.mjs --bind-completion --plugin session-relay 0.12.0 --finished-plan docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md --embedded-candidate-sha256 5dc52ca755106f7ad712784f71c74293594e5e903eb25b626ef93770ec48c0fa --receipt-out "$RECEIPT_DIR/source-proof.json"` | Exits 0; canonical mode-`0600` `SourcePreparationProofV1` reports its matching digest and exact source/evidence/shipped/promoted identities. |
-| A5 | `node scripts/release.mjs --publish-reviewed --plugin session-relay 0.12.0 --source-proof "$RECEIPT_DIR/source-proof.json" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --receipt-out "$RECEIPT_DIR/publication-initial.json"` | Exits 0 or produces the one canonical resumable failure receipt allowed by the publication state machine; successful receipt validates tag/run/Release/five-asset/checksum identities. |
-| A6 | `git -C /home/vagrant/projects/public rev-parse refs/tags/cli-v0.9.0^{commit}` | Returns the reviewed public release commit whose single successful `release-cli.yml` run and exact six-asset Release were independently verified by the public plan. |
-| A7 | `REMOTE_MAIN="$(git ls-remote origin refs/heads/main)"; EXPECTED_ORIGIN_MAIN="${REMOTE_MAIN%%[[:space:]]*}"; test "${#EXPECTED_ORIGIN_MAIN}" -eq 40; node scripts/release.mjs --promote-reviewed --plugin session-relay 0.12.0 --source-proof "$RECEIPT_DIR/source-proof.json" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --docks-kit-release cli-v0.9.0 --expected-origin-main "$EXPECTED_ORIGIN_MAIN" --receipt-out "$RECEIPT_DIR/promotion-initial.json"` | Exits 0; exactly one 40-hex remote main was used and the canonical terminal promotion receipt validates the transaction ref, gap-free journal, smokes, compare-and-swap, and restore/reapply evidence. |
-| A8 | `node scripts/release.mjs --finalize-reviewed --plugin session-relay 0.12.0 --source-proof "$RECEIPT_DIR/source-proof.json" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --promotion "$PROMOTION_RECEIPT" --promotion-sha256 "$PROMOTION_SHA256" --receipt-out "$RECEIPT_DIR/final-publication.json"` | Exits 0; terminal stable receipt validates unchanged tag/five assets/checksums, tag CI, public docks-kit release, promoted main, and fresh-home live install. |
-| A9 | `git status --short && git -C /home/vagrant/projects/public status --short` | Produces no paths after both completion lifecycle commits; the separately blocked correlated-messaging plan remains unchanged. |
+| A2 | `node plugins/session-relay/test/release-promotion-contract.mjs` | Exits 0; the extended contract proves request/receipt emission and verification, `public_release_commit` binding with companion ancestry, the docks-kit smoke-target change, and the finalization consumer against red/green fixtures. |
+| A3 | `node scripts/ci.mjs --plugin session-relay --timings-json /tmp/session-relay-ci.json` | Exits 0; timings are closed/passed and contain no Docks author or Effect Kit plugin gate. |
+| A4 | `node scripts/ci.mjs` | Exits 0 once at each focused implementation commit before release mutation. |
+| A5 | `SOURCE_PROOF_SHA256="$(node scripts/release.mjs --bind-completion --plugin session-relay 0.12.0 --finished-plan docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md --embedded-candidate-sha256 5dc52ca755106f7ad712784f71c74293594e5e903eb25b626ef93770ec48c0fa --receipt-out "$SOURCE_PROOF")"` | Exits 0 and assigns exactly the printed 64-hex digest of the canonical mode-`0600` `SourcePreparationProofV1`, which binds the exact source/evidence/shipped/promoted identities. |
+| A6 | `PUBLICATION_SHA256="$(node scripts/release.mjs --publish-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --receipt-out "$PUBLICATION_RECEIPT")"` | Exits 0 and assigns the prerelease receipt digest after tag/run/Release/five-asset/checksum identities validate; identity conflicts and failed workflow outcomes exit nonzero without writing a receipt and recovery follows the publication recovery table; `--resume-publication` plus `--resume-publication-sha256` are legal only with a previously captured canonical prerelease receipt. |
+| A7 | `PUBLIC_REQUEST_SHA256="$(node scripts/release.mjs --emit-public-request --plugin session-relay 0.12.0 --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --receipt-out "$PUBLIC_REQUEST")"` | Exits 0; the canonical request carries exactly the four publication digests, the fixed companion base commit, and the immutable Session Relay tag/version/commit identities. |
+| A8 | `PUBLIC_RELEASE_SHA256="$(node scripts/release.mjs --verify-public-release --plugin session-relay 0.12.0 --request "$PUBLIC_REQUEST" --request-sha256 "$PUBLIC_REQUEST_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --receipt-out "$PUBLIC_RELEASE_RECEIPT")"` | Exits 0 only after the public plan ships `cli-v0.9.0`; the canonical receipt proves the release commit, companion ancestry, one successful `release-cli.yml` run, the exact six assets and checksums, npm state, and the re-read digest pins. |
+| A9 | `REMOTE_MAIN="$(git ls-remote origin refs/heads/main)"; EXPECTED_ORIGIN_MAIN="${REMOTE_MAIN%%[[:space:]]*}"; test "${#EXPECTED_ORIGIN_MAIN}" -eq 40; PROMOTION_SHA256="$(node scripts/release.mjs --promote-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --public-release "$PUBLIC_RELEASE_RECEIPT" --public-release-sha256 "$PUBLIC_RELEASE_SHA256" --docks-kit-release cli-v0.9.0 --expected-origin-main "$EXPECTED_ORIGIN_MAIN" --receipt-out "$PROMOTION_RECEIPT")"` | Exits 0; exactly one 40-hex remote main was used and the canonical terminal promotion receipt validates the transaction ref, gap-free journal, `public_release_commit` binding, smokes, compare-and-swap, and restore/reapply evidence. |
+| A10 | `FINAL_PUBLICATION_SHA256="$(node scripts/release.mjs --finalize-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --promotion "$PROMOTION_RECEIPT" --promotion-sha256 "$PROMOTION_SHA256" --receipt-out "$FINAL_PUBLICATION_RECEIPT")"` | Exits 0; terminal stable receipt validates unchanged tag/five assets/checksums, tag CI, public docks-kit release, promoted main, and fresh-home live install. |
+| A11 | `git status --short && git -C /home/vagrant/projects/public status --short` | Produces no paths after both completion lifecycle commits; the separately blocked correlated-messaging plan remains unchanged. |
 
 ## Out of scope
 
 - Do not edit or reseal the finished source-preparation plan.
 - Do not regenerate preflight artifacts or create a waiver when proof binding
   rejects an invariant.
-- Do not edit publication, promotion, or finalization modules; invoke their
-  reviewed closed grammar only.
+- Do not edit the publication or finalization state machines beyond the
+  promotion-receipt shape they consume; the step-2 extension of the promotion
+  module, release CLI grammar, and promotion contract test is the only
+  in-scope module change and must land red/green before any release mutation.
 - Do not edit `/home/vagrant/projects/public` from the Docks worktree or treat a
   relay conversation as review/release evidence.
 - Do not implement correlated messaging, `send --await`, `relay wait`, delivery
@@ -176,6 +253,17 @@ SHA-256 values. The public plan preserves repository `DocksDocks/docks`, tag
   `--clobber`; independent database/asset/hash verification is mandatory.
 - Publication, promotion, and finalization each have distinct legal resume/retry
   grammars. A new base-mode invocation is not a generic retry.
+- Publication recovery before any captured receipt is state-inspected, not
+  receipt-classified. Inspect with `git ls-remote origin
+  refs/tags/session-relay--v0.12.0` and
+  `gh api repos/DocksDocks/docks/releases/tags/session-relay--v0.12.0`, then:
+  no tag and no Release means run base `--publish-reviewed`; a tag exactly at
+  `TAG_COMMIT` with a pending or failed run, a missing Release, or partial
+  assets and no captured receipt means rerun base `--publish-reviewed`, which
+  reconciles idempotently and never deletes; a captured canonical prerelease
+  receipt means `--resume-publication` plus `--resume-publication-sha256`; a
+  tag at any other commit, a stable Release, or a foreign body/asset identity
+  is a STOP handled as a manual incident.
 - npm publication is observationally optional only when the public workflow emits
   its documented OIDC warning; never label that warning as npm success.
 
@@ -185,11 +273,14 @@ SHA-256 values. The public plan preserves repository `DocksDocks/docks`, tag
   `session-relay--v0.12.0`.
 - docks-kit version is exactly `0.9.0` and tag is exactly `cli-v0.9.0`.
 - Receipt directories are mode `0700`; canonical receipt files are mode `0600`.
-- Release transitions are serial: proof → prerelease → public 0.9.0 → promotion
-  → finalization.
+- Release transitions are serial: proof → prerelease → public request/verified
+  release 0.9.0 → promotion → finalization.
 - Tag mismatch, competing usable workflow run, Release identity/state/body
   conflict, asset/digest conflict, premature stable state, journal gap,
   expected-main drift, or nonretryable receipt result is a STOP.
+- `public_release_commit` must descend from companion commit
+  `c3b542220d5a24a98ca05383bbe28afc2319b7e2`, and the docks-kit smoke target
+  must equal `public_release_commit` exactly.
 
 ## STOP conditions
 
@@ -199,26 +290,31 @@ SHA-256 values. The public plan preserves repository `DocksDocks/docks`, tag
   loses its passed terminal completion evidence; do not infer a waiver.
 - STOP proof binding on any source/evidence/archive/current identity or ancestry
   mismatch; do not reopen source preparation automatically.
-- STOP publication/promotion/finalization on any identity conflict or result not
-  explicitly classified as resumable/retryable by the canonical receipt.
+- STOP publication/promotion/finalization on any identity conflict or on any
+  result that is neither explicitly classified as resumable/retryable by a
+  canonical receipt nor listed as a legal base rerun in the publication
+  recovery table.
 - STOP at the public boundary if Session Relay cannot deliver and collect the
   reviewed handoff; do not substitute direct cross-worktree edits.
 
 ## Cold-handoff checklist
 
-- File manifest: each implementation step names the exact three writable source
+- File manifest: each implementation step names its exact writable source
   paths or an exact runtime/external receipt path.
 - Environment and commands: repository roots, versions, variables, release modes,
   and verification ladder are explicit.
-- Interface and data contracts: raw Git APIs, immutable identities, receipt chain,
-  and public digest payload are closed.
-- Executable acceptance: A1-A9 are ordered commands with expected outcomes.
-- Out of scope: source resealing, release-module edits, cross-worktree writes,
-  conflicting identity cleanup, and correlation work are forbidden.
+- Interface and data contracts: raw Git APIs, immutable identities, the
+  receipt chain, and the closed public release request/receipt pair are
+  closed.
+- Executable acceptance: A1-A11 are ordered commands with expected outcomes.
+- Out of scope: source resealing, unsanctioned module edits beyond the step-2
+  promotion boundary extension, cross-worktree writes, conflicting identity
+  cleanup, and correlation work are forbidden.
 - Decision rationale: immutable receipts and separate repository ownership avoid
   conversational or mutable evidence substitution.
-- Known gotchas: text trimming, archive ancestry, masked public release failures,
-  and legal resume modes are explicit.
+- Known gotchas: text trimming, archive ancestry, masked public release
+  failures, legal resume modes, and the pre-receipt recovery table are
+  explicit.
 - Global constraints: exact versions, tags, modes, serialization, and STOP
   identities are copied into this plan.
 - Undefined terms/forward references: runtime variables and every receipt role are
@@ -229,10 +325,14 @@ Review-receipt: {"input_sha256":"7672aaa157450dffce351cea7a54c2d03d2a202c886df91
 
 Checked standalone executability, actionability, dependency order, evidence
 reverification, goal coverage, executable acceptance, failure modes, and open
-questions. Tightened the repository ownership boundary, distinguished receipt
-resume from generic retry, and made the source/archive/current commit identities
-explicit. No open product decision remains; independent draft review is still a
-mandatory execution gate.
+questions. Round-one review accepted blockers P1-P6 and nonblocking P7; this
+repair captures every receipt digest at its producing command, adds the closed
+public release request/receipt handoff with an independent verification mode,
+sanctions the promotion-boundary extension that binds the new
+`public_release_commit` with companion ancestry, replaces the impossible
+resumable-failure acceptance with producible outcomes, adds the pre-receipt
+publication recovery table, and closes both previously open decisions.
+Independent repair-round review remains a mandatory execution gate.
 
 ## Review
 
@@ -250,3 +350,11 @@ response schema before model output; commit
 focused red/green regression. No fallback or waiver was inferred from the
 failed probe. This release plan remains non-executing until its own fresh
 eligible independent draft review passes.
+
+Repair round on 2026-07-18: the round-one schema-5 review returned `not_ready`
+with accepted blockers P1-P6 (variable capture, missing public handoff
+protocol, promotion hard-bound to the companion commit, impossible A5 failure
+receipt, missing pre-receipt recovery rule, and open decisions) plus
+nonblocking P7 (A6 evidence). This revision repairs all seven within the
+accepted fixes; repair round 2 must review the changed input before any
+`planned → ongoing` transition.
