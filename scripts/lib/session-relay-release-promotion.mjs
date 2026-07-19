@@ -59,6 +59,16 @@ const PUBLICATION_TRANSITIONS = new Set([
   'tag_and_release_created',
 ]);
 const DOCKS_KIT_RELEASE = 'cli-v0.9.0';
+const EMPTY_SHA256 = sha256(Buffer.alloc(0));
+const PREPUSH_REPAIR_PATHS = [
+  'plugins/session-relay/test/release-promotion-contract.mjs',
+  'scripts/lib/session-relay-release-cli.mjs',
+  'scripts/lib/session-relay-release-promotion.mjs',
+];
+const PREPUSH_REPAIR_KEYS = [
+  'base_commit', 'commit', 'paths', 'full_ci_exit',
+  'full_ci_stdout_sha256', 'full_ci_stderr_sha256',
+];
 const JOURNAL_TYPE = 'PromotionJournalEntryV1';
 const RECEIPT_TYPE = 'PromotionReceiptV1';
 const TERMINAL_PHASES = new Set(['terminal_success', 'terminal_failure', 'manual_incident']);
@@ -76,7 +86,7 @@ const IMMUTABLE_KEYS = [
   'docks_kit_release', 'transaction_ref', 'lock_ref', 'lock_nonce', 'lock_commit',
   'publication_release_id', 'publication_assets_sha256', 'public_repository_id',
   'public_reviewed_commit', 'public_release_commit', 'public_release_receipt_sha256',
-  'prior_attempt_receipt_sha256',
+  'prior_attempt_receipt_sha256', 'prepush_repair',
 ];
 const STATE_KEYS = [
   'origin_main', 'observed_lock', 'observed_release', 'pushed_commit', 'restore_commit', 'reapply_commit',
@@ -149,7 +159,7 @@ export const PUBLIC_RELEASE_ADAPTER_KEYS = Object.freeze([
 export const PROMOTION_ADAPTER_KEYS = Object.freeze([
   'now', 'nonce', 'loadProof', 'loadPublication', 'loadPublicRelease',
   'loadRetryReceipt', 'remoteRef', 'isAncestor', 'isPublicAncestor', 'readJournal',
-  'createLockCommit', 'appendJournal', 'createLock', 'pushMain',
+  'validatePrepushRepair', 'createLockCommit', 'appendJournal', 'createLock', 'pushMain',
   'releaseState', 'compatibilityState', 'validateCommitTransition', 'runPrepushSmoke',
   'runLiveSmoke', 'restoreCompatibility', 'reapplyCompatibility', 'assertReceiptOutputAvailable', 'writeReceipt',
 ]);
@@ -697,7 +707,10 @@ function validateSmoke(value, label) {
   }
   if (!Array.isArray(value.sync_argv) || value.sync_argv.some((item) => typeof item !== 'string')) fail(`${label} sync argv is invalid`);
   if (value.kind === 'live' && canonicalize(value.sync_argv) !== canonicalize(['sync'])) fail(`${label} live sync argv is invalid`);
-  if (value.kind === 'exact_source' && (value.sync_argv.length !== 3 || value.sync_argv[0] !== 'sync' || value.sync_argv[1] !== '--release-test-source' || !COMMIT.test(value.sync_argv[2]))) fail(`${label} exact-source sync argv is invalid`);
+  const exactSourceArgv = canonicalize(value.sync_argv) === canonicalize(['sync'])
+    || (value.sync_argv.length === 3 && value.sync_argv[0] === 'sync'
+      && value.sync_argv[1] === '--release-test-source' && COMMIT.test(value.sync_argv[2]));
+  if (value.kind === 'exact_source' && !exactSourceArgv) fail(`${label} exact-source sync argv is invalid`);
   if (typeof value.session_relay_asset_name !== 'string' || value.session_relay_asset_name === '') fail(`${label} Session Relay asset name is invalid`);
   if (typeof value.installed_version !== 'string' || typeof value.launcher_version !== 'string') fail(`${label} version evidence is invalid`);
   assertCommit(value.docks_kit_target_commit, `${label} docks-kit target commit`);
@@ -731,20 +744,37 @@ function validateState(value, label) {
   if (value.failure !== null && (typeof value.failure !== 'string' || value.failure === '')) fail(`${label} failure must be a nonempty string or null`);
 }
 
-function sameImmutable(left, right, allowPriorReceiptChange = false) {
-  const leftCopy = clone(left);
-  const rightCopy = clone(right);
+function validatePrepushRepair(value, label) {
+  if (value === null) return;
+  exactKeys(value, PREPUSH_REPAIR_KEYS, label);
+  assertCommit(value.base_commit, `${label} base commit`);
+  assertCommit(value.commit, `${label} commit`);
+  if (!Array.isArray(value.paths) || value.paths.some((item) => typeof item !== 'string')
+    || canonicalize(value.paths) !== canonicalize(PREPUSH_REPAIR_PATHS)) fail(`${label} paths are invalid`);
+  if (value.full_ci_exit !== 0) fail(`${label} full CI did not pass`);
+  assertDigest(value.full_ci_stdout_sha256, `${label} full CI stdout digest`);
+  assertDigest(value.full_ci_stderr_sha256, `${label} full CI stderr digest`);
+}
+
+function sameImmutable(left, right, allowPriorReceiptChange = false, allowRepairChange = false) {
+  const leftCopy = { prepush_repair: null, ...clone(left) };
+  const rightCopy = { prepush_repair: null, ...clone(right) };
   if (allowPriorReceiptChange) {
     delete leftCopy.prior_attempt_receipt_sha256;
     delete rightCopy.prior_attempt_receipt_sha256;
   }
+  if (allowRepairChange) {
+    delete leftCopy.prepush_repair;
+    delete rightCopy.prepush_repair;
+  }
   return canonicalize(leftCopy) === canonicalize(rightCopy);
 }
 
-function legalTransition(attempt, previous, next) {
+function legalTransition(attempt, previous, next, immutable) {
   if (next === 'manual_incident') return !TERMINAL_PHASES.has(previous);
   if (next === 'terminal_failure') return !TERMINAL_PHASES.has(previous) && previous !== 'live_passed';
-  const allowed = attempt === 0
+  const primary = attempt === 0 || (immutable.prepush_repair ?? null) !== null;
+  const allowed = primary
     ? {
         initialized: ['locked'],
         locked: ['prepush_passed'],
@@ -763,7 +793,7 @@ function legalTransition(attempt, previous, next) {
 }
 
 function validateImmutable(value) {
-  exactKeys(value, IMMUTABLE_KEYS, 'journal immutable identities');
+  exactKeys(value, Object.hasOwn(value, 'prepush_repair') ? IMMUTABLE_KEYS : IMMUTABLE_KEYS.filter((key) => key !== 'prepush_repair'), 'journal immutable identities');
   if (value.repository_id !== REPOSITORY_ID || value.version !== VERSION
     || value.transaction_ref !== TRANSACTION_REF || value.lock_ref !== LOCK_REF
     || value.docks_kit_repository !== PUBLIC_REPOSITORY_ID || value.docks_kit_release !== DOCKS_KIT_RELEASE) {
@@ -779,6 +809,9 @@ function validateImmutable(value) {
   if (!/^[0-9a-f]{32}$/.test(value.lock_nonce ?? '')) fail('journal immutable lock nonce is invalid');
   if (!Number.isInteger(value.publication_release_id) || value.publication_release_id <= 0) fail('journal immutable publication release ID is invalid');
   assertDigest(value.prior_attempt_receipt_sha256, 'journal immutable prior receipt digest', true);
+  if (value.prepush_repair !== undefined && value.prepush_repair !== null
+    && value.prepush_repair.base_commit !== value.expected_origin_main) fail('journal immutable pre-push repair base does not match expected origin/main');
+  validatePrepushRepair(value.prepush_repair ?? null, 'journal immutable pre-push repair');
 }
 
 function validateProjection(value, label) {
@@ -831,8 +864,12 @@ function validateProjection(value, label) {
   validateSmoke(value.exact_source_smoke, `${label} exact-source smoke`);
   validateSmoke(value.live_smoke, `${label} live smoke`);
   if (value.exact_source_smoke !== null) {
-    if (value.exact_source_smoke.kind !== 'exact_source' || value.exact_source_smoke.sync_argv[2] !== value.tag_commit
+    const legacyExactSource = value.exact_source_smoke.sync_argv.length === 3
+      && value.exact_source_smoke.sync_argv[2] === value.tag_commit;
+    const repairedExactSource = canonicalize(value.exact_source_smoke.sync_argv) === canonicalize(['sync']);
+    if (value.exact_source_smoke.kind !== 'exact_source' || (!legacyExactSource && !repairedExactSource)
       || value.exact_source_smoke.docks_kit_target_commit !== value.public_release_commit) fail(`${label} exact-source smoke binding is invalid`);
+    if (value.outcome === 'success' && !repairedExactSource && value.attempt !== 1) fail(`${label} successful exact-source smoke must use the URL-rewrite sync binding`);
     if (['success', 'restored_failure'].includes(value.outcome)) {
       const hostAsset = value.session_relay_assets.find(({ name }) => name === value.exact_source_smoke.session_relay_asset_name);
       if (!hostAsset || value.exact_source_smoke.installed_binary_sha256 !== hostAsset.digest
@@ -857,6 +894,28 @@ function validateProjection(value, label) {
   assertTimestamp(value.created_at, `${label} creation time`);
 }
 
+function knownLegacyPrepushFailure(projection, state) {
+  const smoke = projection?.exact_source_smoke;
+  return projection?.outcome === 'failure'
+    && projection.retryable === false
+    && projection.pushed_commit === null
+    && projection.restore_commit === null
+    && projection.reapply_commit === null
+    && projection.live_smoke === null
+    && smoke !== null
+    && canonicalize(smoke?.sync_argv) === canonicalize(['sync', '--release-test-source', projection.tag_commit])
+    && smoke.installed_binary_sha256 === EMPTY_SHA256
+    && smoke.launcher_sha256 === EMPTY_SHA256
+    && smoke.installed_version === ''
+    && smoke.launcher_version === ''
+    && state.pushed_commit === null
+    && state.restore_commit === null
+    && state.reapply_commit === null
+    && state.live_smoke === null
+    && canonicalize(state.compatibility.current) === canonicalize(state.compatibility.before)
+    && /Unknown sync target.*--release-test-source/.test(state.failure ?? '');
+}
+
 function validateEntry(item, index, previous) {
   if (!record(item)) fail('journal chain item must be an object');
   exactKeys(item, ['commit', 'parent', 'entry'], 'journal chain item');
@@ -877,8 +936,14 @@ function validateEntry(item, index, previous) {
     if (entry.receipt_projection.terminal_key.attempt !== entry.attempt
       || entry.receipt_projection.terminal_key.sequence !== entry.sequence
       || entry.receipt_projection.attempt !== entry.attempt
+      || entry.receipt_projection.prior_attempt_receipt_sha256 !== entry.immutable.prior_attempt_receipt_sha256
       || entry.receipt_projection.created_at !== entry.created_at) {
       fail('terminal receipt projection is not derived from its journal entry');
+    }
+    const repairSuccessUsesUrlRewrite = (entry.immutable.prepush_repair ?? null) === null
+      || canonicalize(entry.receipt_projection.exact_source_smoke?.sync_argv) === canonicalize(['sync']);
+    if (entry.phase === 'terminal_success' && !repairSuccessUsesUrlRewrite) {
+      fail('terminal repair success must use the URL-rewrite exact-source binding');
     }
     const expectedOutcome = entry.phase === 'terminal_success'
       ? 'success'
@@ -900,6 +965,7 @@ function validateEntry(item, index, previous) {
   if (index === 0) {
     if (item.parent !== null || entry.prior_entry_commit !== null || entry.attempt !== 0 || entry.sequence !== 0 || entry.phase !== 'initialized') fail('journal must begin at attempt 0 sequence 0 initialized');
     if (entry.immutable.prior_attempt_receipt_sha256 !== null) fail('attempt 0 cannot bind a prior receipt');
+    if ((entry.immutable.prepush_repair ?? null) !== null) fail('attempt 0 cannot bind pre-push repair evidence');
     return;
   }
   if (item.parent !== previous.commit) fail('journal first-parent chain is broken');
@@ -907,11 +973,14 @@ function validateEntry(item, index, previous) {
   if (entry.attempt === prior.attempt) {
     if (entry.sequence !== prior.sequence + 1) fail('journal sequence is not contiguous');
     if (!sameImmutable(entry.immutable, prior.immutable)) fail('journal immutable identities changed within an attempt');
-    if (!legalTransition(entry.attempt, prior.phase, entry.phase)) fail('journal phase transition is illegal');
+    if (!legalTransition(entry.attempt, prior.phase, entry.phase, entry.immutable)) fail('journal phase transition is illegal');
   } else {
     if (prior.attempt !== 0 || entry.attempt !== 1 || entry.sequence !== 0 || entry.phase !== 'initialized' || prior.phase !== 'terminal_failure') fail('journal retry attempt ordering is invalid');
-    if (prior.receipt_projection?.outcome !== 'restored_failure' || prior.receipt_projection.retryable !== true) fail('journal retry lacks a retryable restored_failure authorization');
-    if (!sameImmutable(entry.immutable, prior.immutable, true)) fail('journal immutable identities changed across retry');
+    const restoredRetry = prior.receipt_projection?.outcome === 'restored_failure' && prior.receipt_projection.retryable === true;
+    const repairRetry = (entry.immutable.prepush_repair ?? null) !== null
+      && knownLegacyPrepushFailure(prior.receipt_projection, prior.state);
+    if (!restoredRetry && !repairRetry) fail('journal retry lacks a retryable restored_failure or valid pre-push repair authorization');
+    if (!sameImmutable(entry.immutable, prior.immutable, true, repairRetry)) fail('journal immutable identities changed across retry');
     assertDigest(entry.immutable.prior_attempt_receipt_sha256, 'retry prior receipt digest');
   }
 }
@@ -1470,7 +1539,7 @@ function downloadDocksKit(root, release) {
   };
 }
 
-function findLiveLauncher(root) {
+function findInstalledLaunchers(root) {
   const found = [];
   const walk = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -1480,8 +1549,8 @@ function findLiveLauncher(root) {
     }
   };
   walk(root);
-  if (found.length !== 1) fail('live Session Relay plugin launcher is absent or ambiguous');
-  return found[0];
+  if (found.length === 0) fail('installed Session Relay plugin launcher is absent');
+  return found.sort();
 }
 
 function runSmoke({ sourceCommit = null, docksKitRelease, exactSource, sessionRelayAssets, publicReleaseCommit }) {
@@ -1493,23 +1562,36 @@ function runSmoke({ sourceCommit = null, docksKitRelease, exactSource, sessionRe
     const kit = downloadDocksKit(root, docksKitRelease);
     if (kit.targetCommit !== publicReleaseCommit) fail('docks-kit release tag does not match the verified public release commit');
     const argv = ['sync'];
+    const environment = { HOME: home, AGENTS_DIR: path.join(home, '.agents') };
     if (exactSource) {
       checkout = path.join(root, 'reviewed-docks');
       const add = commandAt(REPO, 'git', ['worktree', 'add', '--detach', checkout, sourceCommit]);
       if (!add.ok) return { ok: false, definitive: true, error: add.stderr, evidence: null };
-      argv.push('--release-test-source', checkout);
+      const sourceRepository = path.join(root, 'reviewed-source.git');
+      const setupCommands = [
+        [root, 'git', ['init', '--bare', sourceRepository], undefined],
+        [REPO, 'git', ['push', sourceRepository, `${sourceCommit}:refs/heads/main`], undefined],
+        [root, 'git', ['config', '--global', `url.file://${sourceRepository}.insteadOf`, 'https://github.com/DocksDocks/docks.git'], environment],
+      ];
+      for (const [cwd, executable, args, env] of setupCommands) {
+        const setup = commandAt(cwd, executable, args, env);
+        if (!setup.ok) return { ok: false, definitive: true, error: setup.stderr, evidence: null };
+      }
     }
-    const normalizedArgv = argv.map((item) => item === checkout ? sourceCommit : item);
-    const environment = { HOME: home, AGENTS_DIR: path.join(home, '.agents') };
+    const normalizedArgv = [...argv];
     const result = commandAt(root, kit.executable, argv, environment);
     const installed = path.join(home, '.local', 'bin', 'session-relay');
     const version = result.ok ? commandAt(root, installed, ['--version'], environment) : { ok: false, stdout: '', stderr: '' };
+    const installedLaunchers = result.ok ? findInstalledLaunchers(home) : [];
     const launcher = result.ok
-      ? (exactSource ? path.join(checkout, 'plugins', 'session-relay', 'bin', 'relay') : findLiveLauncher(home))
+      ? (exactSource ? path.join(checkout, 'plugins', 'session-relay', 'bin', 'relay') : installedLaunchers[0])
       : null;
     const launcherVersion = launcher === null
       ? { ok: false, stdout: '', stderr: '' }
       : commandAt(root, launcher, ['--version'], { ...environment, SESSION_RELAY_BIN: installed });
+    const launcherDigest = launcher !== null && fs.existsSync(launcher) ? sha256(fs.readFileSync(launcher)) : sha256(Buffer.alloc(0));
+    const installedLaunchersMatch = installedLaunchers.length > 0
+      && installedLaunchers.every((candidate) => sha256(fs.readFileSync(candidate)) === launcherDigest);
     const installedDigest = result.ok && fs.existsSync(installed) ? sha256(fs.readFileSync(installed)) : sha256(Buffer.alloc(0));
     const hostAsset = sessionRelayAssets.find(({ name }) => name === sessionRelayHostAssetName());
     const descriptor = {
@@ -1528,13 +1610,13 @@ function runSmoke({ sourceCommit = null, docksKitRelease, exactSource, sessionRe
       installed_binary_sha256: installedDigest,
       session_relay_asset_name: sessionRelayHostAssetName(),
       installed_version: version.stdout.trim(),
-      launcher_sha256: launcher !== null && fs.existsSync(launcher) ? sha256(fs.readFileSync(launcher)) : sha256(Buffer.alloc(0)),
+      launcher_sha256: launcherDigest,
       launcher_version: launcherVersion.stdout.trim(),
       docks_kit_asset: kit.asset,
       docks_kit_target_commit: kit.targetCommit,
       docks_kit_release_database_id: kit.releaseDatabaseId,
     };
-    const ok = result.ok && version.ok && launcherVersion.ok
+    const ok = result.ok && version.ok && launcherVersion.ok && installedLaunchersMatch
       && version.stdout.trim() === `session-relay ${VERSION}`
       && launcherVersion.stdout.trim() === `session-relay ${VERSION}`
       && hostAsset !== undefined && installedDigest === hostAsset.digest;
@@ -1586,6 +1668,37 @@ function isAncestor(ancestor, descendant) {
   fail(`could not validate Git ancestry: ${result.stderr}`);
 }
 
+function validatePrepushRepairCommit({ baseCommit, repairCommit }) {
+  if (!COMMIT.test(baseCommit) || !COMMIT.test(repairCommit)) fail('pre-push repair commit identity is invalid');
+  if (!isAncestor(baseCommit, repairCommit)) fail('pre-push repair commit is not descended from expected origin/main');
+  const diff = commandAt(REPO, 'git', ['diff', '--name-only', '--diff-filter=ACDMRTUXB', `${baseCommit}..${repairCommit}`]);
+  if (!diff.ok) fail(`could not inspect pre-push repair paths: ${diff.stderr}`);
+  const paths = diff.stdout.trim().split('\n').filter(Boolean).sort();
+  if (canonicalize(paths) !== canonicalize(PREPUSH_REPAIR_PATHS)) fail('pre-push repair commit paths are outside the exact allowlist');
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'session-relay-promotion-repair-'));
+  const checkout = path.join(root, 'checkout');
+  try {
+    const added = commandAt(REPO, 'git', ['worktree', 'add', '--detach', checkout, repairCommit]);
+    if (!added.ok) fail(`could not create pre-push repair verification worktree: ${added.stderr}`);
+    const nodeModules = path.join(REPO, 'node_modules');
+    if (fs.existsSync(nodeModules)) fs.symlinkSync(nodeModules, path.join(checkout, 'node_modules'), 'dir');
+    const ci = commandAt(checkout, process.execPath, ['scripts/ci.mjs']);
+    if (!ci.ok) fail(`pre-push repair full CI failed: ${ci.stderr || ci.stdout}`);
+    return {
+      base_commit: baseCommit,
+      commit: repairCommit,
+      paths,
+      full_ci_exit: 0,
+      full_ci_stdout_sha256: sha256(Buffer.from(ci.stdout)),
+      full_ci_stderr_sha256: sha256(Buffer.from(ci.stderr)),
+    };
+  } finally {
+    if (fs.existsSync(checkout)) commandAt(REPO, 'git', ['worktree', 'remove', '--force', checkout]);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 const PRODUCTION_ADAPTER = Object.freeze({
   now: () => new Date().toISOString(),
   nonce: () => randomBytes(16).toString('hex'),
@@ -1597,6 +1710,7 @@ const PRODUCTION_ADAPTER = Object.freeze({
   isAncestor,
   isPublicAncestor,
   readJournal,
+  validatePrepushRepair: validatePrepushRepairCommit,
   createLockCommit: ({ nonce }) => createCommit(canonicalize({ schema: 1, type: 'PromotionLockV1', transaction_ref: TRANSACTION_REF, lock_ref: LOCK_REF, nonce }), null),
   appendJournal,
   createLock,
@@ -1778,7 +1892,9 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
     reconcileInputs(validated, proof, publication, publicRelease, options);
   }
 
+  const repairRequested = options.get('repair-prepush') === true;
   const retryRequested = options.has('retry-failed');
+  if (repairRequested && !retryRequested) fail('--repair-prepush requires the prior --retry-failed receipt pair');
   if (resume && tip === null) fail('promotion transaction is absent');
   if (!resume && !retryRequested && tip !== null) fail('promotion transaction already exists; use --resume-promotion');
   if (resume && retryRequested) fail('resume promotion cannot start a retry');
@@ -1787,22 +1903,65 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
   }
 
   if (retryRequested) {
-    if (validated === null || validated.tip.entry.phase !== 'terminal_failure' || validated.tip.entry.attempt !== 0) fail('retry requires the terminal restored-failure attempt 0 tip');
+    if (validated === null || validated.tip.entry.phase !== 'terminal_failure' || validated.tip.entry.attempt !== 0) fail('retry requires a terminal attempt 0 tip');
     if (adapter.remoteRef(LOCK_REF) !== validated.tip.entry.immutable.lock_commit) fail('promotion lock contention before retry', 'manual_incident');
     const prior = adapter.loadRetryReceipt(options);
     assertDigest(prior.digest, 'retry receipt digest');
     if (prior.digest !== options.get('retry-failed-sha256')) fail('retry receipt digest mismatch');
     validatePromotionReceipt(prior.value);
     const reconstructed = receiptFromTerminal(validated);
-    if (canonicalize(prior.value) !== canonicalize(reconstructed) || prior.value.outcome !== 'restored_failure' || prior.value.retryable !== true) fail('retry receipt is not the fully validated terminal restored_failure');
-    if (adapter.remoteRef('refs/heads/main') !== prior.value.restore_commit) fail('retry restore head mismatch');
-    const compatibility = currentCompatibility(adapter, { expectedOriginMain: prior.value.expected_origin_main, promotedCommit: prior.value.promoted_commit });
-    if (!mapsEqual(compatibility.current, prior.value.compatibility_blobs.restored)) fail('retry restored compatibility set changed');
-    const immutable = { ...clone(validated.tip.entry.immutable), prior_attempt_receipt_sha256: prior.digest };
-    const state = initialState(compatibility, prior.value.restore_commit);
-    state.restore_commit = prior.value.restore_commit;
-    state.compatibility.restored = clone(prior.value.compatibility_blobs.restored);
-    state.prepush_smoke = clone(prior.value.exact_source_smoke);
+    if (canonicalize(prior.value) !== canonicalize(reconstructed)) fail('retry receipt is not the fully validated terminal attempt');
+
+    let immutable;
+    let state;
+    if (repairRequested) {
+      if (!knownLegacyPrepushFailure(prior.value, validated.tip.entry.state)) {
+        fail('repair-prepush is restricted to the known immutable legacy sync-target failure');
+      }
+      validateLiveRelease(adapter.releaseState(), publication, proof);
+      if (adapter.remoteRef('refs/heads/main') !== prior.value.expected_origin_main) fail('repair-prepush origin/main changed', 'manual_incident');
+      const compatibility = currentCompatibility(adapter, {
+        expectedOriginMain: prior.value.expected_origin_main,
+        promotedCommit: prior.value.promoted_commit,
+      });
+      if (compatibility.unexpected_paths.length !== 0
+        || !mapsEqual(compatibility.current, prior.value.compatibility_blobs.before)) fail('repair-prepush compatibility authority changed');
+      const repairCommit = options.get('repair-implementation-commit');
+      if (!COMMIT.test(repairCommit ?? '')) fail('--repair-implementation-commit must be 40 lowercase hexadecimal characters');
+      const repair = adapter.validatePrepushRepair({
+        baseCommit: prior.value.expected_origin_main,
+        repairCommit,
+      });
+      validatePrepushRepair(repair, 'pre-push repair evidence');
+      if (repair.base_commit !== prior.value.expected_origin_main || repair.commit !== repairCommit) fail('pre-push repair evidence identity mismatch');
+      if (adapter.remoteRef(LOCK_REF) !== validated.tip.entry.immutable.lock_commit) fail('promotion lock changed during pre-push repair verification', 'manual_incident');
+      validateLiveRelease(adapter.releaseState(), publication, proof);
+      if (adapter.remoteRef('refs/heads/main') !== prior.value.expected_origin_main) fail('repair-prepush origin/main changed during verification', 'manual_incident');
+      const postRepairCompatibility = currentCompatibility(adapter, {
+        expectedOriginMain: prior.value.expected_origin_main,
+        promotedCommit: prior.value.promoted_commit,
+      });
+      if (postRepairCompatibility.unexpected_paths.length !== 0
+        || !mapsEqual(postRepairCompatibility.current, prior.value.compatibility_blobs.before)) {
+        fail('repair-prepush compatibility authority changed during verification');
+      }
+      immutable = {
+        ...clone(validated.tip.entry.immutable),
+        prior_attempt_receipt_sha256: prior.digest,
+        prepush_repair: clone(repair),
+      };
+      state = initialState(postRepairCompatibility, prior.value.expected_origin_main);
+    } else {
+      if (prior.value.outcome !== 'restored_failure' || prior.value.retryable !== true) fail('retry receipt is not the fully validated terminal restored_failure; use --repair-prepush only for an eligible pre-push failure');
+      if (adapter.remoteRef('refs/heads/main') !== prior.value.restore_commit) fail('retry restore head mismatch');
+      const compatibility = currentCompatibility(adapter, { expectedOriginMain: prior.value.expected_origin_main, promotedCommit: prior.value.promoted_commit });
+      if (!mapsEqual(compatibility.current, prior.value.compatibility_blobs.restored)) fail('retry restored compatibility set changed');
+      immutable = { ...clone(validated.tip.entry.immutable), prior_attempt_receipt_sha256: prior.digest };
+      state = initialState(compatibility, prior.value.restore_commit);
+      state.restore_commit = prior.value.restore_commit;
+      state.compatibility.restored = clone(prior.value.compatibility_blobs.restored);
+      state.prepush_smoke = clone(prior.value.exact_source_smoke);
+    }
     const entry = journalEntry(1, 0, 'initialized', validated.tip.commit, immutable, state, adapter.now());
     chain = append(adapter, chain, entry);
     validated = validatePromotionJournal(chain, chain.at(-1).commit);
@@ -1838,6 +1997,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       public_release_commit: publicRelease.value.release_commit,
       public_release_receipt_sha256: publicRelease.digest,
       prior_attempt_receipt_sha256: null,
+      prepush_repair: null,
     };
     chain = append(adapter, [], journalEntry(0, 0, 'initialized', null, immutable, initialState(compatibility, currentMain), adapter.now()));
     validated = validatePromotionJournal(chain, chain.at(-1).commit);
@@ -1849,6 +2009,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
     const current = chain.at(-1);
     const { entry } = current;
     const immutable = entry.immutable;
+    const primaryAttempt = entry.attempt === 0 || (immutable.prepush_repair ?? null) !== null;
     let state = clone(entry.state);
     const main = adapter.remoteRef('refs/heads/main');
     const lock = adapter.remoteRef(LOCK_REF);
@@ -1884,7 +2045,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       return recover(adapter, options, validatePromotionJournal(chain, chain.at(-1).commit), resume);
     }
 
-    if (entry.attempt === 0 && entry.phase === 'locked') {
+    if (primaryAttempt && entry.phase === 'locked') {
       if (![immutable.expected_origin_main, immutable.promoted_commit].includes(main)) {
         chain = terminalIncident(adapter, chain, proof, publication, 'origin/main changed before pre-push smoke', main);
         return recover(adapter, options, validatePromotionJournal(chain, chain.at(-1).commit), resume);
@@ -1913,7 +2074,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       continue;
     }
 
-    if (entry.attempt === 0 && entry.phase === 'prepush_passed') {
+    if (primaryAttempt && entry.phase === 'prepush_passed') {
       if (main === immutable.expected_origin_main) {
         try {
           adapter.pushMain({ commit: immutable.promoted_commit, expected: immutable.expected_origin_main });
@@ -1949,7 +2110,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       continue;
     }
 
-    if (entry.attempt === 0 && entry.phase === 'main_pushed') {
+    if (primaryAttempt && entry.phase === 'main_pushed') {
       if (main === null) {
         chain = terminalIncident(adapter, chain, proof, publication, 'origin/main was deleted after promotion push', null);
         return recover(adapter, options, validatePromotionJournal(chain, chain.at(-1).commit), resume);
@@ -2052,7 +2213,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       continue;
     }
 
-    if (entry.attempt === 0 && entry.phase === 'live_passed') {
+    if (primaryAttempt && entry.phase === 'live_passed') {
       chain = appendTerminal(adapter, chain, proof, publication, 'terminal_success', 'success', false);
       return recover(adapter, options, validatePromotionJournal(chain, chain.at(-1).commit), resume);
     }
@@ -2063,7 +2224,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       return recover(adapter, options, validatePromotionJournal(chain, chain.at(-1).commit), resume);
     }
 
-    if (entry.attempt === 1 && entry.phase === 'locked') {
+    if (entry.attempt === 1 && (immutable.prepush_repair ?? null) === null && entry.phase === 'locked') {
       if (main === null) {
         chain = terminalIncident(adapter, chain, proof, publication, 'origin/main was deleted before compatibility reapply', null);
         return recover(adapter, options, validatePromotionJournal(chain, chain.at(-1).commit), resume);
@@ -2135,7 +2296,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
       continue;
     }
 
-    if (entry.attempt === 1 && entry.phase === 'reapply_pushed') {
+    if (entry.attempt === 1 && (immutable.prepush_repair ?? null) === null && entry.phase === 'reapply_pushed') {
       if (main === null) {
         chain = terminalIncident(adapter, chain, proof, publication, 'origin/main was deleted after compatibility reapply', null);
         return recover(adapter, options, validatePromotionJournal(chain, chain.at(-1).commit), resume);

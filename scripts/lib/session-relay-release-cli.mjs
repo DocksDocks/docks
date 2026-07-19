@@ -31,7 +31,7 @@ const MODE_SPECS = {
   'publish-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'receipt-out'], boolean: ['rebind-complete-publication'], pairs: [['resume-publication', 'resume-publication-sha256']] },
   'emit-public-request': { required: ['plugin', 'version', 'publication', 'publication-sha256', 'receipt-out'] },
   'verify-public-release': { required: ['plugin', 'version', 'request', 'request-sha256', 'publication', 'publication-sha256', 'public-finished-plan', 'public-release-commit', 'public-plan-commit', 'public-completion-sha256', 'receipt-out'] },
-  'promote-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'public-release', 'public-release-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'], pairs: [['retry-failed', 'retry-failed-sha256']] },
+  'promote-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'public-release', 'public-release-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'], boolean: ['repair-prepush'], optional: ['repair-implementation-commit'], pairs: [['retry-failed', 'retry-failed-sha256']] },
   'resume-promotion': { required: ['plugin', 'version', 'transaction-ref', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'public-release', 'public-release-sha256', 'docks-kit-release', 'expected-origin-main', 'receipt-out'] },
   'finalize-reviewed': { required: ['plugin', 'version', 'source-proof', 'source-proof-sha256', 'publication', 'publication-sha256', 'promotion', 'promotion-sha256', 'receipt-out'], pairs: [['resume-finalization', 'resume-finalization-sha256']] },
 };
@@ -54,7 +54,7 @@ function parseMode(argv) {
   if (argv[0] !== `--${mode}`) fail('release mode must be the first argument');
   const spec = MODE_SPECS[mode];
   const booleans = new Set(spec.boolean ?? []);
-  const allowed = new Set([...spec.required, ...booleans, ...(spec.pairs ?? []).flat()]);
+  const allowed = new Set([...spec.required, ...booleans, ...(spec.optional ?? []), ...(spec.pairs ?? []).flat()]);
   const options = new Map();
   const positional = [];
   for (let index = 1; index < argv.length; index += 1) {
@@ -74,6 +74,9 @@ function parseMode(argv) {
   for (const required of spec.required) if (!options.has(required)) fail(`missing required option: --${required}`);
   for (const [pathName, digestName] of spec.pairs ?? []) {
     if (options.has(pathName) !== options.has(digestName)) fail(`--${pathName} and --${digestName} must be adjacent receipt inputs`);
+  }
+  if (mode === 'promote-reviewed' && options.has('repair-prepush') !== options.has('repair-implementation-commit')) {
+    fail('--repair-prepush and --repair-implementation-commit must be provided together');
   }
   if (options.get('plugin') !== PLUGIN || options.get('version') !== VERSION) fail(`--${mode} is only valid for session-relay ${VERSION}`);
   for (const [pathName, digestName] of [...(spec.pairs ?? []), ...receiptPairs(spec.required)]) {
