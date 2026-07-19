@@ -1,10 +1,12 @@
 ---
 title: Add typed review-controller failure recovery
 goal: Persist exact review requests before launch, reject invalid controller configuration before spawning, support user-authorized provenance-unavailable abandonment without fabricated review evidence, normalize StateV1 reducer outputs to StateV2, and release Docks 0.13.1.
-status: ongoing
+status: blocked
 created: "2026-07-19T11:24:58-03:00"
-updated: "2026-07-19T21:04:00.000Z"
+updated: "2026-07-19T21:08:00.000Z"
 started_at: "2026-07-19T13:10:44-03:00"
+blocked_reason: "The accepted post-review parent-provenance finding materially changed the terminal-family validator and caller sequence; implementation remains paused pending a fresh schema-6 draft review."
+blocked_since: "2026-07-19T21:08:00.000Z"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
@@ -32,7 +34,7 @@ affected_paths:
 related_plans:
   - plan-workflow-phases-and-loop-escape
   - session-relay-prebuilt-cli-release
-review_status: passed
+review_status: null
 planned_at_commit: 41e61f4fdd677556c31de3e89343071d7ac67172
 execution_base_commit: b8735e9aa1a3a2dff8df284e0c706860d3acc24f
 ---
@@ -168,14 +170,19 @@ ReviewDispatchCommitmentV1 = {
 }
 ```
 
-`buildReviewDispatchCommitment` validates the prepared request, requires the
-candidate to equal `request.policy.candidates[candidate_index]`, derives exact
-argv through the existing builder, and fixes the deadline at `600`. The manager
-writes `Review-orchestration-dispatch-commitment: <compact JCS>` and reads it
-back before the consuming dispatch boundary may spawn. `buildReviewerArgv` and
-the launcher reject a missing, uncommitted, orphaned, stale, substituted,
+`buildReviewDispatchCommitment({preparedRequest,candidateIndex,bundle,
+reviewerWorkspace,leg,priorAttempts,committedAt})` validates the prepared
+request, requires the candidate to equal
+`request.policy.candidates[candidate_index]`, derives exact argv through an
+internal ungated builder, and fixes the deadline at `600`. The manager writes
+`Review-orchestration-dispatch-commitment: <compact JCS>` and reads it back
+before the consuming dispatch boundary may spawn. Public
+`buildReviewerArgv({...existing,preparedRequest,dispatchCommitment})` requires
+both exact records for schema-6 orchestration requests and returns only the
+committed argv; it rejects a missing, uncommitted, orphaned, stale, substituted,
 candidate-mismatched, argv-mismatched, or non-600 commitment before process
-creation. Availability-only fallback may replace the commitment with the next
+creation.
+Availability-only fallback may replace the commitment with the next
 candidate only after validated prior availability evidence; the parent Git blob
 retains each prior commitment.
 
@@ -351,16 +358,35 @@ writing terminal state plus receipt. Repair advancement atomically removes the
 round-one prepared request and commitment while writing only the round-two
 active state; its new prepared request is a separate later commit.
 
-Only materially changed canonical input permits plan-manager to compare-and-swap
-an exact terminal family into one fresh active StateV2 with attempt 1, fresh
+`validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})` is the
+parent-aware validator for either terminal family. It parses both closed plan
+families, requires the parent to be exactly the eligible source family for the
+current abort or abandonment, recomputes
+`source_plan_blob_sha256=sha256(parentPlanBytes)`, and binds the current embedded
+source state, prepared request when applicable, terminal record, and StateV2.
+`canonicalPlanView(bytes)` remains the bytes-only structural canonicalizer and
+does not claim parent provenance.
+
+Before a terminal commit, main-context plan-manager calls the validator over the
+exact committed `git show HEAD:<plan>` bytes and the reducer's candidate current
+bytes. It then commits only the plan, resolves the single parent, reads
+`git show <child>:<plan>` and `git show <parent>:<plan>`, calls the validator
+again, and accepts the transition only if both validations and the plan-only
+ancestry check pass. No worktree bytes or session transcript may substitute for
+either read-back blob.
+
+Only materially changed canonical input permits
+`replaceReviewTerminalFamily({sourcePlanBytes,currentPlanBytes,seriesId,
+requestId})` to compare-and-swap an exact committed terminal family retained in
+the candidate current bytes into one fresh active StateV2 with attempt 1, fresh
 series/request IDs, null terminal/series/transition/retry fields, and no stale
-receipt/prepared/dispatch record. The plan-only replacement validates against
-the exact committed source blob, reads back before commit, and proves
-`git show <replacement-parent>:<plan>` recovers the old family. It then commits
-a separate fresh prepared request before any launch. Same-input or metadata-only
-replacement, partial removal, dirty/concurrent source, reused identities, failed
-read-back, retry, repair, settlement, or intent consumption rejects without
-mutation.
+receipt/prepared/dispatch record. It returns `{planBytes,state}`. The plan-only
+replacement validates against the exact committed source blob, reads back
+before commit, and proves `git show <replacement-parent>:<plan>` recovers the
+old family. It then commits a separate fresh prepared request before any
+launch. Same-input or metadata-only replacement, partial removal, dirty or
+concurrent source, reused identities, failed read-back, retry, repair,
+settlement, or intent consumption rejects without mutation.
 
 Finished plans, archived paths, passed states, and existing completion receipts
 are immutable and cannot enter abandonment, replacement, or reopened review.
@@ -385,8 +411,8 @@ outside the step table as plan-manager lifecycle operations.
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; prepared request and each candidate commitment bind exact state/request/policy/argv and precede launch; round-two advancement atomically removes round-one request/commitment before the distinct repair request; proposed timeout 650 produces only pre-dispatch `controller_contract_failure`; exact parent-bound authorized abandonment produces only `authorized_abandonment`; both terminal families preserve a reconstructible exact source state and are nonretryable, receiptless, canonically paired, input-preserving, and changed-input-only. |
-| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, request/policy/candidate/argv/config substitution, spawn-before-commit, stale/reused round-one repair records, stdout self-attestation, missing/changed/replayed user bytes, noncanonical/invalid-UTF-8 base64, authorization text/hash drift, source-plan parent drift, erased prepared/dispatch evidence, post-dispatch abort, attempt-two source/retry reconstruction drift, extra abandonment provenance fields, half/orphan/cross terminal records, receipt/series substitution, same-input CAS, finished-plan reopen, and weakened V1 normalization/preconditions. |
+| A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; prepared request and each candidate commitment bind exact state/request/policy/argv and precede launch; round-two advancement atomically removes round-one request/commitment before the distinct repair request; proposed timeout 650 produces only pre-dispatch `controller_contract_failure`; exact parent-bound authorized abandonment produces only `authorized_abandonment`; `validateReviewTerminalFamily` passes before commit and against exact child/parent Git blobs after commit; both terminal families preserve a reconstructible exact source state and are nonretryable, receiptless, canonically paired, input-preserving, and changed-input-only. |
+| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, request/policy/candidate/argv/config substitution, spawn-before-commit, stale/reused round-one repair records, stdout self-attestation, missing/changed/replayed user bytes, noncanonical/invalid-UTF-8 base64, authorization text/hash drift, current/parent plan-byte or ancestry drift, erased prepared/dispatch evidence, post-dispatch abort, attempt-two source/retry reconstruction drift, extra abandonment provenance fields, half/orphan/cross terminal records, receipt/series substitution, same-input CAS, finished-plan reopen, and weakened V1 normalization/preconditions. |
 | A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; review schema 6, independent current V1 record families, StateV2, validation-only StateV1, and historical review schemas 1–5 remain closed; eligible V1 inputs normalize to equivalent nonterminal V2 only after existing preconditions, including unchanged stale settlement behavior. |
 | A4 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; five-skill ownership and generated manager-wrapper parity require commit-before-launch and reserve abandonment authority to main-context plan-manager/current-user input. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only` | Exit 0; every changed skill hash matches generated content. |
@@ -472,6 +498,9 @@ outside the step table as plan-manager lifecycle operations.
 - Repair advancement leaves, reuses, or separately deletes the round-one
   prepared request/commitment, or any process can spawn before the round-two
   state-only family and later prepared request are separately committed/read back.
+- A terminal reducer output can commit without pre-commit parent-aware
+  validation, or committed child/parent plan blobs and single-parent plan-only
+  ancestry are not read back and revalidated.
 - Any target/state/input/series/request-lineage/hash/candidate/argv/config/error
   mismatch is accepted, or rejection mutates inputs.
 - Any terminal family coexists with a ReviewSeries or any draft/completion
@@ -535,8 +564,9 @@ unavailable provenance. The current Session Relay archive remains untouched.
   from series, receipts, repair, and lifecycle apply.
 - [ ] Eligible direct StateV1 normalization preserves every existing transition
   precondition and rejection/stale behavior.
-- [ ] Changed-input CAS replaces the exact family, uses fresh identities,
-  validates read-back, and proves the parent blob.
+- [ ] Changed-input CAS replaces the exact family, uses fresh identities, and
+  validates exact source/candidate bytes before commit plus child/parent Git
+  blobs and plan-only ancestry after commit.
 - [ ] Finished plans/passed receipts cannot reopen; both related plans stay
   read-only.
 - [ ] A1–A12 are ordered, executable, clean-worktree-safe, and release-bound.
