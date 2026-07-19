@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: in_review
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-19T05:04:08-03:00"
+updated: "2026-07-19T09:10:00-03:00"
 started_at: "2026-07-18T15:47:52-03:00"
 in_review_since: "2026-07-19T02:12:40-03:00"
 assignee: codex
@@ -632,4 +632,6 @@ plan-only commits. A4 now observes the full gate at the reviewed head, while
 A11 observes both worktrees at the pre-receipt review boundary; post-lifecycle
 cleanliness remains plan-manager verification outside the inventory. Historical
 targeted and full CI times of 66.05s and 176.46s remain Notes-only evidence and
-are not asserted by A4. Repair round 2 remains pending.
+are not asserted by A4. The schema-5 repair round never ran; its terminal mismatch is preserved as audit-only evidence and is not current orchestration state.
+
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"c923b9f071d89f9b15dc7eb3a093fef207cc63c6848e89cfd920d7b7e18b84b0","initial_input_sha256":"c923b9f071d89f9b15dc7eb3a093fef207cc63c6848e89cfd920d7b7e18b84b0","lifecycle_intent":"none","orchestration_attempt":1,"phase":"completion","plan_path":"docs/plans/active/session-relay-prebuilt-cli-release.md","request_ids":["02c469ae-6316-4966-a7e0-1ffae8a9bc49"],"retry_authorization":null,"round_index":1,"schema":1,"series_id":"73da6ac7-1c59-421a-b910-05ad71038ce5","series_sha256":null,"state_sha256":"4d2ad35b394ff1d165e844866598d02e771bb0d2d95f9d2798d55007020bc499","status":"active","stop_reason":null,"transitioned_from_state_sha256":null}
