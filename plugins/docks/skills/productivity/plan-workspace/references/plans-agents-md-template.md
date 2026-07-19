@@ -26,6 +26,7 @@ Current records use schema 6. Schemas 1–5 are historical validation-only: pres
 | Bootstrap, migrate, audit, or explicitly refresh the workspace | `plan-workspace` |
 | Draft and commit one previously nonexistent canonical active plan | `plan-creator` |
 | List/show/review or change the lifecycle of an existing plan | `plan-manager` |
+| Publish an existing canonical plan as a GitHub issue (`--issues` or `publish <slug> as an issue`) | `plan-manager` |
 | Produce internal read-only evidence from a sealed review bundle | `plan-reviewer` |
 | Apply the one accepted-blocker repair requested by the manager | `plan-repairer` |
 
@@ -206,6 +207,7 @@ the turn without making a dependent mutation.
 Only `plan-manager` may:
 
 - select or render an existing plan;
+- publish an existing canonical plan as a guarded GitHub issue and record its URL;
 - prepare a draft/completion review and return dispatch to main context;
 - independently reproduce and partition findings;
 - invoke one exact accepted-blocker repair;
@@ -217,6 +219,28 @@ Only `plan-manager` may:
 Every write is read back. Lifecycle transitions are status-field edits and
 plan-only commits; terminal shipment alone moves the plan to a unique
 `finished/<ship-date>-<slug>.md` path.
+
+## GitHub issue publication
+
+`--issues` and `publish <slug> as an issue` route only to `plan-manager`. This
+operation publishes an existing canonical plan; it never dispatches review,
+changes lifecycle status, or transfers creation ownership from `plan-creator`.
+A missing canonical plan is a STOP, not a route to `plan-creator`.
+
+Before publishing, plan-manager must preflight `gh auth status`, require a
+GitHub remote, and run `gh repo view --json visibility`. If authentication,
+the remote, or the visibility lookup fails, publish nothing and report the
+failure. For a public repository, warn that the issue will be public and obtain
+explicit confirmation before publishing a plan that names a vulnerability,
+credential location, or other sensitive finding. Missing or declined required
+confirmation publishes nothing.
+
+Publish with
+`gh issue create --title "<plan title>" --body-file <plan path>`. Record the
+returned issue URL in `## Notes`, read the write back, and auto-commit only the
+plan. Report the issue URL as a successful result only after that Notes commit
+succeeds. The Markdown plan remains the source of truth; GitHub is a published
+view, not a lifecycle or review record.
 
 ## Current schema-6 review orchestration
 

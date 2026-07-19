@@ -407,6 +407,39 @@ function applyVariantLast(relative, before, after) {
 function combine(...variants) {
   return (root) => { for (const apply of variants) apply(root); };
 }
+
+function assertManagerIssuePublishingContract() {
+  const skill = fs.readFileSync('plugins/docks/skills/productivity/plan-manager/SKILL.md', 'utf8');
+  assert.match(skill.match(/^description:.*$/m)?.[0] ?? '', /\bpublish\b.*GitHub issue/i, 'plan-manager description missing publish trigger');
+  assert.match(skill, /^\| publish\/--issues \|.*GitHub issue.*no review or status change \|$/m, 'plan-manager operation table missing publishing operation');
+
+  const heading = '## Publishing a plan as a GitHub issue (`--issues`)';
+  const start = skill.indexOf(heading);
+  assert.notEqual(start, -1, 'plan-manager missing GitHub issue publishing operation');
+  const nextHeading = skill.indexOf('\n## ', start + heading.length);
+  const section = skill.slice(start, nextHeading === -1 ? undefined : nextHeading);
+  for (const marker of [
+    '`publish <slug> as an issue`',
+    '`gh auth status`',
+    'GitHub remote',
+    '`gh repo view --json visibility`',
+    'public repository',
+    'explicit confirmation',
+    'vulnerability',
+    'credential location',
+    'sensitive finding',
+    '`gh issue create --title "<plan title>" --body-file <plan path>`',
+    'URL in `## Notes`',
+    'auto-commit only the plan',
+    'Do not dispatch review',
+    'change lifecycle status',
+    'canonical Markdown plan remains the authoritative',
+  ]) {
+    assert.match(section, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `publishing operation missing ${marker}`);
+  }
+  console.log('GitHub issue publishing operation preservation passed');
+}
+
 function orchestrationCandidate(tool, model, effort, serviceTier = null) {
   return {
     company: tool === 'codex' ? 'openai' : 'anthropic',
@@ -553,6 +586,7 @@ function assertUnchangedAfterThrow(value, operation, pattern) {
 }
 
 async function runOrchestrationOracle() {
+  assertManagerIssuePublishingContract();
   const helperPath = path.resolve('plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs');
   const policy = await import(`${pathToFileURL(helperPath).href}?orchestration-oracle=${randomUUID()}`);
   const exportNames = [
@@ -827,6 +861,11 @@ const REGRESSIONS = [
     'max_rounds:2',
     'max_rounds:3',
   )],
+  ['GitHub publishing contract loss', ['--orchestration-oracle'], /publishing operation|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+    '## Publishing a plan as a GitHub issue (`--issues`)',
+    '## Removed external operation',
+  ), ORCHESTRATION_HARNESS],
   ['stale policy completion reuse regression', ['--case', 'completion-reuse'], /resolved policy|must reject|Assertion/, applyVariant(
     'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
     "validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy, waivers });",
@@ -1535,6 +1574,7 @@ async function runRegressionSuite(jobs) {
         { [ORCHESTRATION_ORACLE_ENV]: '1' },
       );
       requirePass('total result reducer and bounded no-progress orchestration', orchestration, /total result reducer and bounded no-progress orchestration passed/);
+      assert.match(orchestration.stdout, /GitHub issue publishing operation preservation passed/);
       const full = await run(baseline, []);
       requirePass('semantic attempt/ledger/raw/run/receipt validation matrix', full, /semantic validation matrix passed/);
       assert.match(full.stdout, /not_ready verdict and structured-output hash cannot authorize execution/);

@@ -1,5 +1,5 @@
 name = "plan-manager"
-description = "Use when main context delegates a schema-6 existing-plan prepare, apply, or lifecycle operation. Returns reviewer dispatch or creator routing to main. Not for launching plan-reviewer, calling plan-repairer, drafting through plan-creator, or implementing plan steps."
+description = "Use when main context delegates a schema-6 existing-plan prepare, apply, lifecycle, or guarded GitHub issue publication operation. Returns reviewer dispatch, creator routing, or the published issue URL to main. Not for launching plan-reviewer, calling plan-repairer, drafting through plan-creator, or implementing plan steps."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"
@@ -8,8 +8,8 @@ developer_instructions = """
 
 Load `plugins/docks/skills/productivity/plan-manager/SKILL.md`, or the equivalent
 bundled project copy. The skill is canonical. This wrapper may perform bounded
-existing-plan reads and writes, but it returns every `plan-reviewer`,
-`plan-repairer`, or `plan-creator` handoff to main context.
+existing-plan reads and writes or guarded issue publication, but it returns
+every `plan-reviewer`, `plan-repairer`, or `plan-creator` handoff to main.
 
 <constraint>
 For a review-triggering operation, persist and read back the valid schema-6
@@ -39,25 +39,49 @@ previously nonexistent plan. Historical schemas 1–5 are validation-only.
 2. For a creation-shaped request, prove the canonical active path absent and
    return the `plan-creator` route without writing. Never overwrite an existing
    plan.
-3. For list/show/block/unblock/schedule, follow status-as-field, plan-only
+3. For `--issues` or `publish <slug> as an issue`, require the existing
+   canonical plan; a missing plan is a STOP, not a `plan-creator` route.
+   Before mutation, require successful `gh auth status`, a GitHub remote, and
+   `gh repo view --json visibility`.
+   If any preflight fails, publish nothing and return
+   NeedsMainPublicationAction naming the failed check.
+4. If the repository is public, warn that the issue will be public. If that
+   public plan names a vulnerability, credential location, or other sensitive
+   finding, require explicit current-user confirmation. Without it, publish
+   nothing and return NeedsMainPublicationAction carrying the warning and
+   required confirmation. Resume only when main supplies exact current-user
+   confirmation for the same canonical plan and repository visibility, and
+   re-run every preflight before creation. Non-sensitive publication does not
+   require confirmation.
+5. Run `gh issue create --title "<plan title>" --body-file <plan path>`, add its
+   URL to `## Notes`, read back the plan, and auto-commit only that plan. Keep
+   the canonical Markdown plan as the authoritative source of truth, dispatch
+   no review, change no lifecycle status, and return the URL only after the
+   Notes commit succeeds.
+6. For list/show/block/unblock/schedule, follow status-as-field, plan-only
    commit, and read-back rules.
-4. For review/start/fire/auto/completion, enforce persisted no-progress state,
+7. For review/start/fire/auto/completion, enforce persisted no-progress state,
    prepare the immutable schema-6 request, and return NeedsMainReviewDispatch.
-5. Only main context may dispatch `plan-reviewer`, reconcile findings, or call
+8. Only main context may dispatch `plan-reviewer`, reconcile findings, or call
    `plan-repairer`.
-6. Permit one full plus at most one changed-input repair round. Permit a
+9. Permit one full plus at most one changed-input repair round. Permit a
    same-input attempt 2 only after a retryable attempt-1 stop with exact
    current-user authorization; never renew stuck or attempt-2 state.
-7. Apply only exact typed evidence. Settle once, then consume an eligible
-   executing intent once or return NeedsUserAction.
-8. Re-read the write, commit only the plan, and render the required preview.
+10. Apply only exact typed evidence. Settle once, then consume an eligible
+    executing intent once or return NeedsUserAction.
+11. Re-read every orchestration/frontmatter/receipt/Notes write, commit only the
+    plan, and render the required preview.
 
 ## Output Format
 
 Return creator routing with the proved-missing path, the exact
-NeedsMainReviewDispatch envelope, an apply/transition result, or NeedsUserAction
-with the terminal state hash and allowed next action. Never claim prepare means
-review passed.
+NeedsMainReviewDispatch envelope, an apply/transition result,
+NeedsMainPublicationAction naming a failed preflight or the required
+sensitive-public confirmation without an orchestration state hash, a
+publication result containing the GitHub issue URL after its plan-only Notes
+commit, or NeedsUserAction with the terminal orchestration state hash and
+allowed next action. Never claim prepare means review passed or publication
+changed lifecycle status.
 
 ## Anti-Hallucination Checks
 
@@ -71,5 +95,13 @@ review passed.
   exclude nonblocking and rejected findings.
 - Verify nonexecuting state is preserved for terminal, stale, blocking,
   unavailable, or apply-rejected evidence.
+- Before issue creation, verify auth, the GitHub remote, repository visibility,
+  and any required sensitive-public-content confirmation. After creation,
+  verify the URL is in `## Notes` and the plan-only commit succeeded.
+- Verify a publication safety stop created no issue and wrote no plan; resume
+  sensitive publication only with exact current-user confirmation for the same
+  canonical plan and repository visibility.
+- Verify publication never routed to `plan-creator`, dispatched review,
+  consumed an intent, wrote a review receipt, or changed lifecycle status.
 - Verify the final commit contains only the target plan.
 """

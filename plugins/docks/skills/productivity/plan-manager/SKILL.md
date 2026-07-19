@@ -1,11 +1,11 @@
 ---
 name: plan-manager
-description: Use when an existing-plan needs list/show/lifecycle handling, review preparation and dispatch, start, block, unblock, schedule, complete, or ship. Sole schema-6 orchestrator for reconciliation, receipts, persisted no-progress state, and lifecycle writes. Not for drafting a new plan (use plan-creator), workspace setup (use plan-workspace), or sealed-bundle evidence (use plan-reviewer internally).
+description: Use when an existing-plan needs list/show/lifecycle handling, review preparation and dispatch, start, block, unblock, schedule, complete, ship, or publish as a GitHub issue. Sole schema-6 orchestrator for reconciliation, receipts, persisted no-progress state, and lifecycle writes. Not for drafting a new plan (use plan-creator), workspace setup (use plan-workspace), or sealed-bundle evidence (use plan-reviewer internally).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-18"
-  content_hash: "b19b52ddb32404edeb56e3470924d6311501e0fa2e71956d4576d6b879578994"
+  content_hash: "fab18d63b79eef0cf0a56871e38f857e9522c8c9f5ccc7f4885174e67e14d623"
 ---
 
 # Plan Manager
@@ -60,6 +60,7 @@ another live plan block a valid operation.
 | schedule | Persist a valid trigger on an existing nonexecuting plan |
 | schedule fire/auto | Review with the exact intent; remain scheduled unless apply succeeds |
 | complete | Enter `in_review`, run completion review/acceptance, write derived result |
+| publish/--issues | Publish the existing canonical plan as a GitHub issue; no review or status change |
 | ship | Require reusable schema-6 passed completion evidence; move once |
 
 `plan-workspace` alone bootstraps, migrates, audits, or explicitly refreshes the
@@ -269,6 +270,19 @@ matches canonical input, settled state, policy, execution base, head, diff,
 inventory, snapshot, waivers, and series. Move once, set `finished` and
 `ship_commit`, auto-commit, and return the selected finished path.
 
+## Publishing a plan as a GitHub issue (`--issues`)
+
+On `--issues` or `publish <slug> as an issue`, preflight `gh auth status`, a
+GitHub remote, and `gh repo view --json visibility`; any failure publishes
+nothing. For a public repository, warn that the issue is public and obtain
+explicit confirmation before publishing a plan that names a vulnerability,
+credential location, or other sensitive finding. Missing or declined
+confirmation publishes nothing. Then run
+`gh issue create --title "<plan title>" --body-file <plan path>`, record the
+issue URL in `## Notes`, and auto-commit only the plan. Return success and the
+URL only after that commit. Do not dispatch review or change lifecycle status;
+the canonical Markdown plan remains the authoritative source of truth.
+
 ## Anti-Hallucination checks
 
 - Creation routed only after missing-path proof; manager wrote no creation byte.
@@ -283,7 +297,7 @@ inventory, snapshot, waivers, and series. Move once, set `finished` and
 ## Success criteria
 
 - Public ownership is exactly existing-plan list/show/review/start/block/
-  unblock/schedule/complete/ship; creation routes to `plan-creator`.
+  unblock/schedule/complete/ship/publish; creation routes to `plan-creator`.
 - Main plan-manager alone dispatches, reconciles, persists orchestration/
   receipts, and writes lifecycle.
 - Review has one full plus at most one repair round; same-input orchestration
