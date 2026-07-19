@@ -3,7 +3,7 @@ title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
 status: ongoing
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-18T17:43:50-03:00"
+updated: "2026-07-19T01:05:56-03:00"
 started_at: "2026-07-18T15:47:52-03:00"
 assignee: codex
 review_author_company: openai
@@ -220,6 +220,34 @@ that the tagged release commit is its reviewed implementation ancestor, and
 independently observes the workflow run, Release, checksums, npm state, and
 digest pins before promotion consumes the canonical receipt pair.
 
+The first promotion attempt terminated before any `origin/main` mutation because
+the immutable public `docks-kit` `0.9.0` parser correctly rejected the
+nonexistent `sync --release-test-source <checkout>` interface. Its canonical
+`PromotionReceiptV1` remains byte-immutable with `outcome: failure` and
+`retryable: false`; it is not relabeled as a generic retryable result.
+One explicit `--repair-prepush` continuation may append attempt 1 to the same
+authoritative journal only when all of these fail closed: the supplied prior
+receipt is byte-identical to the attempt-0 terminal projection; the lock and
+prerelease are unchanged; `origin/main` still equals the immutable expected
+commit; no push, live smoke, restore, or reapply occurred; the compatibility
+tree still equals the attempt-0 `before` snapshot; and a committed repair is a
+descendant of that expected main whose diff contains only
+`scripts/lib/session-relay-release-promotion.mjs`,
+`scripts/lib/session-relay-release-cli.mjs`, and
+`plugins/session-relay/test/release-promotion-contract.mjs`.
+
+The repaired exact-source smoke invokes the published `docks-kit` binary with
+its real `sync` argv only. Inside the mode-`0700` temporary HOME it installs a
+Git URL rewrite from the immutable Docks repository URL to the detached
+reviewed-source worktree, then requires every installed Session Relay plugin
+launcher copy to equal the reviewed source launcher's SHA-256 and version.
+The evidence descriptor binds that source commit and the actual `["sync"]`
+argv. Historical attempt-0 evidence retaining the rejected argv remains valid
+only as failed evidence; new successful exact-source evidence must use the
+URL-rewrite binding. Attempt 1 reruns pre-push smoke, then uses the original
+lease, push, live-smoke, and terminal-success gates. It never deletes or
+rewrites the failed journal or its receipt.
+
 Authoritative verification ladder before the repair commit:
 
 ```bash
@@ -333,6 +361,7 @@ extended shape.
 | A7 | `PUBLIC_REQUEST_SHA256="$(node scripts/release.mjs --emit-public-request --plugin session-relay 0.12.0 --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --receipt-out "$PUBLIC_REQUEST")"` | Exits 0; the canonical request carries exactly the four publication digests, the fixed companion base commit, and the immutable Session Relay tag/version/commit identities. |
 | A8 | `PUBLIC_RELEASE_SHA256="$(node scripts/release.mjs --verify-public-release --plugin session-relay 0.12.0 --request "$PUBLIC_REQUEST" --request-sha256 "$PUBLIC_REQUEST_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --public-finished-plan "$PUBLIC_FINISHED_PLAN" --public-release-commit "$PUBLIC_RELEASE_COMMIT" --public-plan-commit "$PUBLIC_PLAN_COMMIT" --public-completion-sha256 "$PUBLIC_COMPLETION_SHA256" --receipt-out "$PUBLIC_RELEASE_RECEIPT")"` | Exits 0 only after `cli-v0.9.0` is live and the public plan subsequently ships; the canonical receipt distinguishes the tagged release commit from the later plan-only commit, validates the exact finished-plan slug and closed schema-5 completion receipt with reviewed implementation ancestry, and independently proves companion ancestry, one successful `release-cli.yml` run, the exact six assets/checksums, npm state, and re-read digest pins. |
 | A9 | `REMOTE_MAIN="$(git ls-remote origin refs/heads/main)"; EXPECTED_ORIGIN_MAIN="${REMOTE_MAIN%%[[:space:]]*}"; test "${#EXPECTED_ORIGIN_MAIN}" -eq 40; PROMOTION_SHA256="$(node scripts/release.mjs --promote-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --public-release "$PUBLIC_RELEASE_RECEIPT" --public-release-sha256 "$PUBLIC_RELEASE_SHA256" --docks-kit-release cli-v0.9.0 --expected-origin-main "$EXPECTED_ORIGIN_MAIN" --receipt-out "$PROMOTION_RECEIPT")"` | Exits 0; exactly one 40-hex remote main was used and the canonical terminal promotion receipt validates the transaction ref, gap-free journal, `public_release_commit` binding, smokes, compare-and-swap, and restore/reapply evidence. |
+| A9R | `REPAIR_IMPLEMENTATION_COMMIT="$(git rev-parse HEAD)"; PROMOTION_REPAIR_RECEIPT="$RECEIPT_DIR/promotion-repair-1.json"; PROMOTION_SHA256="$(node scripts/release.mjs --promote-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --public-release "$PUBLIC_RELEASE_RECEIPT" --public-release-sha256 "$PUBLIC_RELEASE_SHA256" --docks-kit-release cli-v0.9.0 --expected-origin-main "$EXPECTED_ORIGIN_MAIN" --repair-prepush --retry-failed "$PROMOTION_RECEIPT" --retry-failed-sha256 "$PROMOTION_SHA256" --repair-implementation-commit "$REPAIR_IMPLEMENTATION_COMMIT" --receipt-out "$PROMOTION_REPAIR_RECEIPT")"; PROMOTION_RECEIPT="$PROMOTION_REPAIR_RECEIPT"` | Exits 0 only for the immutable attempt-0 pre-push failure with unchanged lock/prerelease/main/compatibility authority and an allowlisted committed repair; appends attempt 1 without rewriting history, reruns exact-source sync through the isolated Git URL rewrite, and emits a non-retryable success receipt whose journal binds the repair commit. |
 | A10 | `FINAL_PUBLICATION_SHA256="$(node scripts/release.mjs --finalize-reviewed --plugin session-relay 0.12.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --promotion "$PROMOTION_RECEIPT" --promotion-sha256 "$PROMOTION_SHA256" --receipt-out "$FINAL_PUBLICATION_RECEIPT")"` | Exits 0; terminal stable receipt validates unchanged tag/five assets/checksums, tag CI, public docks-kit release, promoted main, and fresh-home live install. |
 | A11 | `git status --short && git -C /home/vagrant/projects/public status --short` | Produces no paths after both completion lifecycle commits; the separately blocked correlated-messaging plan remains unchanged. |
 
