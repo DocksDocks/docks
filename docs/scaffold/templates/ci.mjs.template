@@ -1,0 +1,92 @@
+#!/usr/bin/env node
+// ci.mjs — local validation gate for {{ plugin_name }}. Run before every commit.
+// Seeded from the docks scaffold (Node port; mirrors the docks ci.mjs shape,
+// trimmed to what a seeded plugin ships — skills only). Validators are Node .mjs;
+// manifests are checked natively (no jq). Usage: node scripts/ci.mjs [-q]
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+process.chdir(REPO);
+const QUIET = process.argv.includes('-q');
+const SKILLS_DIR = 'plugins/{{ plugin_name }}/skills';
+const PLUGIN_DIR = 'plugins/{{ plugin_name }}';
+const BUNDLE = `${SKILLS_DIR}/productivity/write-skill/scripts/skill-guard.mjs`;
+const failures = [];
+const ok = (m) => { if (!QUIET) console.log(`\x1b[1;32m  ✔\x1b[0m ${m}`); };
+const fail = (m) => { console.log(`\x1b[1;31m  ✘\x1b[0m ${m}`); failures.push(m); };
+const warn = (m) => { if (!QUIET) console.log(`\x1b[1;33m  ⚠\x1b[0m ${m}`); };
+const section = (m) => { if (!QUIET) console.log(`\n\x1b[1m▸ ${m}\x1b[0m`); };
+const node = (args) => spawnSync('node', args, { encoding: 'utf8' });
+const nodeOk = (args) => (node(args).status ?? 1) === 0;
+const readJSON = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+
+// --- 1. Claude plugin manifest ---
+section('Claude plugin manifest');
+const plugin = readJSON(`${PLUGIN_DIR}/.claude-plugin/plugin.json`);
+const market = readJSON('.claude-plugin/marketplace.json');
+plugin ? ok('claude plugin.json JSON valid') : fail('claude plugin.json JSON invalid');
+market ? ok('marketplace.json JSON valid') : fail('marketplace.json JSON invalid');
+const PLUGIN_V = plugin?.version;
+const MARKET_V = market?.plugins?.find((p) => p.name === '{{ plugin_name }}')?.version;
+(PLUGIN_V && PLUGIN_V === MARKET_V) ? ok(`plugin.json + marketplace.json versions agree (${PLUGIN_V})`)
+  : fail(`version drift: plugin.json=${PLUGIN_V} marketplace.json=${MARKET_V}`);
+const cl = spawnSync('claude', ['plugin', 'validate', `./${PLUGIN_DIR}`], { encoding: 'utf8' });
+if (cl.error) warn('claude CLI absent — skipping plugin validate (optional)');
+else if (`${cl.stdout}${cl.stderr}`.includes('Validation passed')) ok(`claude plugin validate ./${PLUGIN_DIR}`);
+else fail(`claude plugin validate ./${PLUGIN_DIR} (run manually for details)`);
+
+// --- 2. Codex plugin manifest ---
+section('Codex plugin manifest');
+const cp = readJSON(`${PLUGIN_DIR}/.codex-plugin/plugin.json`);
+cp ? ok('codex plugin.json JSON valid') : fail('codex plugin.json JSON invalid');
+cp?.skills === './skills/' ? ok('codex skills uses string "./skills/"') : fail('codex skills must be string "./skills/" (arrays rejected)');
+cp?.version === PLUGIN_V ? ok(`codex version matches claude (${PLUGIN_V})`) : fail(`version drift: claude=${PLUGIN_V} codex=${cp?.version}`);
+readJSON('.agents/plugins/marketplace.json') ? ok('.agents/plugins/marketplace.json JSON valid') : fail('.agents/plugins/marketplace.json JSON invalid');
+
+// --- 3. category layout ---
+section('category layout');
+let layoutOk = true;
+for (const p of plugin?.skills || []) {
+  if (!fs.existsSync(path.join(PLUGIN_DIR, p.replace(/^\.\//, '')))) { fail(`plugin.json references missing category dir: ${p}`); layoutOk = false; }
+}
+const stray = fs.existsSync(SKILLS_DIR) ? fs.readdirSync(SKILLS_DIR).filter((d) => fs.existsSync(`${SKILLS_DIR}/${d}/SKILL.md`)).length : 0;
+if (stray > 0) { fail(`${stray} skill(s) at skills/<name>/ (should be skills/<category>/<name>/)`); layoutOk = false; }
+if (layoutOk) ok('manifest categories exist; no stray skills');
+
+// --- 4. structural guards ---
+section('structural guards');
+nodeOk(['scripts/skills/guard.mjs', SKILLS_DIR]) ? ok('skills/guard passed') : fail(`skills/guard failed (node scripts/skills/guard.mjs ${SKILLS_DIR})`);
+nodeOk(['scripts/tree/guard.mjs', '.']) ? ok('tree/guard passed') : fail('tree/guard failed (node scripts/tree/guard.mjs .)');
+
+// --- 5 + 6. quality score floors ---
+section('quality score floors');
+const floorOf = (cat) => { const r = node(['scripts/config/read-floor.mjs', 'skills', cat]); return r.status === 0 ? parseInt(r.stdout.trim(), 10) : null; };
+const rows = node([BUNDLE, 'score', '--per-file', SKILLS_DIR]).stdout.trim().split('\n').filter(Boolean)
+  .map((l) => { const [n, s] = l.split(' '); return { name: n, cat: n.split('/')[0], score: parseInt(s, 10) }; });
+for (const c of ['engineering', 'productivity']) {
+  if (!fs.existsSync(`${SKILLS_DIR}/${c}`)) continue;
+  const floor = floorOf(c);
+  if (floor == null) { fail(`scoring.json missing skills.${c}`); continue; }
+  const cr = rows.filter((r) => r.cat === c);
+  if (cr.length === 0) continue;
+  const sum = cr.reduce((a, r) => a + r.score, 0);
+  sum >= cr.length * floor ? ok(`skills score/${c}: ${sum} (floor ${cr.length * floor} = ${cr.length} × ${floor})`)
+    : fail(`skills score/${c}: ${sum} below floor ${cr.length * floor} (${cr.length} × ${floor})`);
+}
+section('per-file score floors');
+let under = 0;
+for (const r of rows) { const floor = floorOf(r.cat); if (floor == null || r.score < floor) { fail(`skills:${r.name} score ${r.score} below per-file floor ${floor}`); under = 1; } }
+if (!under) ok('skills per-file all clear category floors');
+
+// --- 7. content-hash idempotency ---
+section('skill content-hash idempotency');
+nodeOk(['scripts/skills/content-hash.mjs', '--check-only', SKILLS_DIR]) ? ok('skill content_hash in sync; maintainer re-run is a no-op')
+  : fail(`content_hash drift (run: node scripts/skills/content-hash.mjs --backfill ${SKILLS_DIR})`);
+
+console.log('');
+if (failures.length === 0) { console.log('\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m'); process.exit(0); }
+console.log(`\x1b[1;31m✘ ${failures.length} check(s) failed:\x1b[0m`);
+for (const f of failures) console.log(`  - ${f}`);
+process.exit(1);
