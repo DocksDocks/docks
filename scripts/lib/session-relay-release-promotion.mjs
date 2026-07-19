@@ -138,7 +138,7 @@ const PUBLIC_RELEASE_WORKFLOW_KEYS = ['file', 'run_database_id', 'run_attempt', 
 const PUBLIC_RELEASE_KEYS = ['database_id', 'assets', 'checksums_sha256'];
 const PUBLIC_RELEASE_ASSET_KEYS = ['name', 'size', 'digest'];
 const PUBLIC_NPM_KEYS = ['state'];
-const PUBLIC_PLAN_KEYS = ['path', 'completion_receipt_sha256'];
+const PUBLIC_PLAN_KEYS = ['path', 'commit', 'completion_receipt_sha256'];
 const PUBLIC_REQUEST_ADAPTER_KEYS = ['now'];
 export const PUBLIC_RELEASE_ADAPTER_KEYS = Object.freeze([
   'now', 'getTagCommit', 'isAncestor', 'getFinishedPlan', 'listWorkflowRuns',
@@ -470,6 +470,7 @@ export function validatePublicReleaseReceipt(receipt, { publication = null, requ
   validatePublicAssetPins(value.pinned_assets, 'public release receipt pinned assets');
   exactKeys(value.public_plan, PUBLIC_PLAN_KEYS, 'public release receipt public plan');
   if (!/^docs\/plans\/finished\/[^/]+\.md$/.test(value.public_plan.path)) fail('public release receipt finished plan path is invalid');
+  assertCommit(value.public_plan.commit, 'public release receipt plan commit');
   assertDigest(value.public_plan.completion_receipt_sha256, 'public release receipt completion digest');
   if (requestDigest !== null && value.request_sha256 !== requestDigest) fail('public release receipt request digest mismatch');
   if (publication !== null && canonicalize(value.pinned_assets) !== canonicalize(publicationAssetPins(publication))) {
@@ -559,6 +560,8 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
   assertCommit(releaseCommit, '--public-release-commit');
   const completionDigest = options.get('public-completion-sha256');
   assertDigest(completionDigest, '--public-completion-sha256');
+  const planCommit = options.get('public-plan-commit');
+  assertCommit(planCommit, '--public-plan-commit');
   const finishedPlanPath = options.get('public-finished-plan');
   if (!/^docs\/plans\/finished\/[^/]+\.md$/.test(finishedPlanPath ?? '')) {
     fail('--public-finished-plan must be a canonical finished-plan path');
@@ -567,7 +570,10 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
   if (!adapter.isAncestor(request.value.companion_base_commit, releaseCommit)) {
     fail('public release commit fails companion base ancestry');
   }
-  finishedPlanCompletion(adapter.getFinishedPlan(releaseCommit, finishedPlanPath), completionDigest);
+  if (!adapter.isAncestor(releaseCommit, planCommit)) {
+    fail('public finished-plan commit fails release commit ancestry');
+  }
+  finishedPlanCompletion(adapter.getFinishedPlan(planCommit, finishedPlanPath), completionDigest);
   const run = successfulPublicWorkflowRun(adapter.listWorkflowRuns(), releaseCommit);
   const release = downloadedPublicRelease(adapter, adapter.getRelease());
   const pinnedAssets = adapter.getPinnedAssets(releaseCommit);
@@ -596,6 +602,7 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
     pinned_assets: pinnedAssets,
     public_plan: {
       path: finishedPlanPath,
+      commit: planCommit,
       completion_receipt_sha256: completionDigest,
     },
     created_at: adapter.now(),
