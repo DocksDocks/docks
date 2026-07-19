@@ -211,6 +211,15 @@ duplicate lines fail closed. The closed state is:
 }
 ```
 
+`stop_reason` is null exactly for `active|passed`; otherwise it is the closed
+`StopReason` union:
+
+```text
+unavailable_auth|unavailable_model|timed_out|unavailable_unknown|
+failed_unparseable|platform_denied|stale_input|cannot_repair|not_ready|
+apply_rejected
+```
+
 `retry_authorization` is null or the closed value:
 
 ```json
@@ -246,9 +255,18 @@ from substantive input and cannot manufacture progress.
 
 ### Schema-6 review bindings
 
-Current-only request, run, series, transition, bundle, receipt, completion, and
-lifecycle branches become schema 6. Request fields add
-`orchestration_series_id` and `orchestration_state_sha256`. Require:
+Every current record that embeds or validates a request uses one row of this
+closed matrix; no validator may infer a row from filenames alone:
+
+| Request / mode | Embedded record schemas | Structured-output schema | Bundle manifest |
+|---|---|---|---|
+| schema 5 full | `ReviewerOutput`, raw review, run, series, draft/completion receipt, completion/lifecycle branch = 5; repair transition absent | `reviewer-output.primary.v5.schema.json` | `schema:3`, `review_schema:5`, `reviewer_schemas.primary:"reviewer-output.primary.v5.schema.json"` |
+| schema 5 repair | all preceding records plus repair transition = 5 | `reviewer-output.primary.v5.schema.json` | `schema:4`, `review_schema:5`, `reviewer_schemas.primary:"reviewer-output.primary.v5.schema.json"` |
+| schema 6 full | `ReviewerOutputV6`, `RawReviewV6`, `ReviewRunV6`, `ReviewSeriesV6`, draft/completion receipt, completion/lifecycle branch = 6; repair transition absent | `reviewer-output.primary.v6.schema.json` | `schema:5`, `review_schema:6`, `reviewer_schemas.primary:"reviewer-output.primary.v6.schema.json"` |
+| schema 6 repair | all preceding schema-6 records plus `RepairTransitionV6` = 6 | `reviewer-output.primary.v6.schema.json` | `schema:6`, `review_schema:6`, `reviewer_schemas.primary:"reviewer-output.primary.v6.schema.json"` |
+
+Schema-6 request fields add `orchestration_series_id` and
+`orchestration_state_sha256`. Require:
 
 - `request.request_id === state.request_ids.at(-1)`;
 - request round, input, phase, intent, series ID, and state hash equal the
@@ -264,9 +282,17 @@ lifecycle branches become schema 6. Request fields add
   embedded final series; bundle manifests/verifiers and receipt reuse enforce
   the same bindings.
 
-Schemas 1–5 retain their exact historical builders, validators, fixtures,
-request/receipt meanings, and byte behavior. Do not broad-replace schema
-constants or upgrade historical records.
+For schema 6, full and repair bundle builders write the v6 schema file above.
+Codex dispatch passes that exact bundled file as its structured-output schema;
+Claude dispatch requests the same `ReviewerOutputV6` envelope. Both collectors
+validate `ReviewerOutputV6 → RawReviewV6 → ReviewRunV6 → ReviewSeriesV6`, select
+the exact full/repair manifest row, and reject any v5/v6 cross-pair before
+receipt creation or reuse. Tests traverse both tools in full and repair modes.
+
+Schemas 1–5 retain their exact historical builders, validators, schema-file and
+manifest bytes, fixtures, request/receipt meanings, and byte behavior. Schema-6
+builders and validators are separate current branches. Do not broad-replace
+schema constants or upgrade historical records.
 
 ### Pure transition functions and typed handoff
 
@@ -317,21 +343,68 @@ canonical plan path; it never reviews or edits that path again.
 
 ### State-machine result rules
 
-Derive state from validated evidence, never caller-provided result strings:
+Derive state from validated evidence, never caller-provided result strings.
+First derive exactly one result by this total, ordered reducer:
 
-| Evidence/result | Attempt 1 | Explicit same-input attempt 2 |
+1. A committed request/input/state identity mismatch yields `stale_input` before
+   dispatch. A validated repair `cannot-repair` result or rejected repair
+   transition yields `cannot_repair` before a new series can settle.
+2. Otherwise reduce the validated raw/attempt evidence by the table below. For
+   an exhausted availability fallback, inspect all attempts and choose the first
+   present class in precedence `auth_failed` > `model_unavailable` >
+   `tool_unavailable`; this yields `unavailable_auth`, `unavailable_model`, or
+   `unavailable_unknown`, respectively. Candidate order never changes that
+   precedence.
+3. Otherwise a validated raw `passed` with an eligible run, or a validated raw
+   `waived`, yields an eligible pass. A passed raw review with a blocking
+   checklist, draft `pre_execution_eligible:false`, or completion
+   `partial|regressed` yields `not_ready`.
+4. `apply_rejected` is considered only after a settled eligible pass with
+   `apply_state:"pending"`; it cannot overwrite an earlier terminal reason.
+   Malformed, unclosed, or hash-mismatched evidence throws with no state or plan
+   mutation and therefore is never normalized into a stop reason.
+
+| Validated raw/attempt evidence | Derived result |
+|---|---|
+| `passed` and collector eligible, or `waived` | eligible pass |
+| exhausted `auth_failed` / `model_unavailable` / `tool_unavailable` fallback | precedence mapping above |
+| terminal `deadline_exceeded` | `timed_out` |
+| terminal `transient_transport` | `unavailable_unknown` |
+| terminal `nonzero_exit`, `signaled`, or `output_invalid` | `failed_unparseable` |
+| terminal `platform_denied` | `platform_denied` |
+| validated collector not eligible | `not_ready` |
+
+Apply the derived result identically at both attempt numbers:
+
+| Derived result | Attempt 1 | Explicit same-input attempt 2 |
 |---|---|---|
 | eligible pass | `passed`; `stop_reason:null` | `passed`; `stop_reason:null` |
 | `unavailable_auth`, `unavailable_model`, `timed_out`, `unavailable_unknown`, `failed_unparseable` | `stopped`; one current-user retry may be authorized | `stuck`; no further same-input retry |
-| `platform_denied`, `stale_input`, `cannot_repair`, `not_ready`, `apply_rejected` | `stuck`; no retry | unreachable as an authorized retry target |
+| `platform_denied`, `stale_input`, `cannot_repair`, `not_ready`, `apply_rejected` | `stuck`; no retry | `stuck`; no retry |
 
-Candidate fallback for authentication/model/transport availability remains
-inside one orchestration attempt and never creates a series. Attempt 2 requires
-`beginReviewOrchestration` to receive the exact current-user message bytes and
-a matching `ReviewRetryAuthorizationV1`; it recomputes the source hash, requires
-actor `user`, exact message-record time/path/phase/group/input/prior stopped hash,
-and embeds the authorization once. Reject reuse, mismatch, nonretryable prior
-reasons, or missing explicit user input.
+`active` requires null `stop_reason`, null `series_sha256`, and
+`apply_state:"none"`. Attempt 1 carries no retry authorization; attempt 2 and
+all of its later states preserve exactly the one authorization bound to the
+prior stopped-state hash. Every settled state stores the exact series digest.
+`passed` requires null `stop_reason`; before intent consumption it has
+`apply_state:"pending"` only for an eligible executing intent and otherwise
+`none`. `stopped|stuck` require a non-null `StopReason` and
+`apply_state:"none"`. Their transition hash is null except that
+`apply_rejected` stores the settled passed-state hash. Intent consumption is
+once-only: `pending → consumed` retains `passed`, stores the settled-state hash,
+and permits no second apply; expected rejection yields
+`stuck/apply_rejected/none`. Only a retryable attempt-1 `stopped` state may
+authorize the one attempt-2 transition; no attempt-2 or `stuck` state may
+accept another authorization, and neither consume path may re-enter review.
+
+Candidate fallback remains inside one orchestration attempt and never creates a
+series. Attempt 2 requires `beginReviewOrchestration` to receive the exact
+current-user message bytes and a matching `ReviewRetryAuthorizationV1`; it
+recomputes the source hash, requires actor `user`, exact message-record
+time/path/phase/group/input/prior stopped hash, and embeds the authorization
+once. Reject reuse, mismatch, nonretryable prior reasons, or missing explicit
+user input. Red/green tests kill one mutant for each reducer row, fallback
+precedence, attempt-1/attempt-2 status conversion, and apply/retry invariant.
 
 ## Steps
 
@@ -339,13 +412,30 @@ reasons, or missing explicit user input.
 |---|---|---|---|---|---|
 | 1 | Confirm release and lifecycle prerequisites, then start only through the old manager's final schema-5 review/apply path. | `docs/plans/active/plan-workflow-phases-and-loop-escape.md` (plan-manager-only lifecycle fields); `docs/plans/active/session-relay-prebuilt-cli-release.md` (read-only prerequisite) | — | planned | Session Relay `0.12.0` is stable; its release plan is finished with reusable passed evidence; this plan has an eligible draft receipt, a committed `planned → ongoing` transition, and a second plan-only `execution_base_commit` identity commit. Otherwise STOP with no implementation edit or fresh automatic review series. |
 | 2 | Write red tests for the phase split, current schema 6, orchestration attempt/state hashing, terminal result mapping, explicit retry, repair binding, intent consumption, and historical compatibility. | `scripts/tests/plan-skill-phases.mjs` (create); `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-policy-regressions.mjs`; `scripts/tests/ci-plugin-targeting.mjs` | 1 | planned | The new focused cases fail against schema 5 for the intended missing behavior before production changes; preserve the failure output. If they pass without implementation or fail for setup/syntax, STOP and correct the test. |
-| 3 | Move the helper to `plan-reviewer` and add current-only schema 6 plus the persisted orchestration machine and atomic lifecycle consumption. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` → `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs`; `scripts/lib/session-relay-release-preparation.mjs`; `plugins/session-relay/test/release-evidence-contract.mjs`; the four plan test files from Step 2 | 2 | planned | All schema-6 request/bundle/run/series/repair/receipt/reuse/completion/apply bindings and four pure functions satisfy the data/state rules above; schemas 1–5 and historical fixtures validate unchanged. Any historical-byte or schema regression is STOP, not a fixture rewrite. |
+| 3 | Move the helper to `plan-reviewer` and add current-only schema 6 plus the persisted orchestration machine and atomic lifecycle consumption. | `plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs` → `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs`; `scripts/lib/session-relay-release-preparation.mjs`; `plugins/session-relay/test/release-evidence-contract.mjs`; the four plan test files from Step 2 | 2 | planned | Every schema-6 request-embedding record, exact v6 schema filename, full/repair manifest value, Codex/Claude dispatch/collection path, receipt/reuse branch, and four pure functions satisfy the data/state rules above; schemas 1–5, their schema/manifest bytes, and historical fixtures validate unchanged. Any historical-byte or schema regression is STOP, not a fixture rewrite. |
 | 4 | Perform the clean five-skill ownership cutover and remove all old live paths/names. | `plugins/docks/skills/productivity/plan-init/{SKILL.md,references/plans-agents-md-template.md,references/codex-agent-templates.md}` → matching `plan-workspace/` paths; create `plugins/docks/skills/productivity/plan-creator/SKILL.md`; update `plugins/docks/skills/productivity/plan-manager/SKILL.md`; rename `plan-review/{SKILL.md,scripts/review-policy.mjs}` → `plan-reviewer/`; rename `plan-improver/SKILL.md` → `plan-repairer/SKILL.md`; rename `plugins/docks/agents/plan-review.md` → `plan-reviewer.md`; rename `.codex/agents/plan-review.toml` → `plan-reviewer.toml`; update manager wrappers | 3 | planned | Exactly five skill names and ownership contracts resolve. Only manager/reviewer wrappers exist. Old directories/wrappers/imports/triggers are absent from live surfaces; historical strings alone remain. |
 | 5 | Migrate every live contract, trigger, import, seed, cache/guard identifier, scaffold source, and author-check key; rename the author-check key exactly to `plan-reviewer`. | `AGENTS.md`; `README.md`; `docs/plans/AGENTS.md`; `plugins/docks/README.md`; `plugins/docks/skills/AGENTS.md`; `plugins/docks/skills/{engineering/refactor,engineering/security,productivity/context-tree,productivity/multi-tool-bridge,productivity/scaffold,productivity/skill-agent-pipeline}/SKILL.md`; `plugins/effect-kit/skills/engineering/effect-ts-port/SKILL.md`; `plugins/session-relay/skills/productivity/session-relay/SKILL.md`; `docs/scaffold/spec.yaml`; `docs/scaffold/templates/{root-AGENTS.md.template,codex-plan-manager.toml.template,codex-plan-review.toml.template,codex-plan-reviewer.toml.template}`; `plugins/docks/skills/productivity/scaffold/references/spec-schema.md`; `scripts/{AGENTS.md,ci.mjs,lib/plugins.mjs,skills/transform-guard.mjs}` | 4 | planned | Scaffold bundles all five exact skills and emits only manager/reviewer wrappers; current routes are disjoint; `authorChecks` uses `plan-reviewer`; generated/live content has no stale invocation path. Do not add creator/workspace/repairer wrappers. |
 | 6 | Delete `capability-tuning` and prove retained Codex-fact enforcement remains live. | delete `plugins/docks/skills/productivity/capability-tuning/{SKILL.md,references/claude-code-config.md,references/codex-config.md}`; update `README.md`, `plugins/docks/README.md`, `.claude-plugin/marketplace.json`, `plugins/docks/.claude-plugin/plugin.json`, `plugins/docks/.codex-plugin/plugin.json`, `scripts/skills/codex-facts.mjs`, `scripts/tests/plan-skill-phases.mjs` | 5 | planned | Capability tuning is absent from discovery/catalog prose. The test mutates one retained skill-agent-pipeline effort token in a temporary fixture, observes `codex-facts.mjs` fail, restores it, then observes success. No historical file is edited. |
 | 7 | Finish red→green, regenerate skill hashes, run focused checks, execute the helper-owned no-progress smoke, then run targeted and one full repository gate. | Every affected path; helper-owned disposable plan under `/tmp/docks-plan-review/` only | 6 | planned | Commands in Environment pass in order; the no-progress sequence proves stopped attempt 1, one explicit attempt 2, stuck on the second failure, refusal to prepare again, and new attempt 1 only after substantive input change; `platform_denied`/`cannot_repair` stick on attempt 1 and duplicate start apply is rejected. Then `node scripts/ci.mjs --plugin docks` and one `node scripts/ci.mjs` exit 0. Any later relevant edit invalidates the affected gates. |
 | 8 | Release the breaking Docks name/schema surface as `0.13.0` while keeping this plan ongoing. | `.claude-plugin/marketplace.json`; `plugins/docks/.claude-plugin/plugin.json`; `plugins/docks/.codex-plugin/plugin.json` (release-generated version/description bytes); all changed skill catalog bytes (read-only release input) | 7 | planned | `node scripts/release.mjs --plugin docks minor` synchronizes `0.12.9 → 0.13.0`, pushes without force, leaves immutable `docks--v0.13.0` at the release commit, and targeted tag CI/GitHub Release succeed. Installed Claude/Codex catalogs expose the five new names and no old live name. Pre-existing/mismatched tag, Release, manifest, or workflow identity is STOP; never clobber. |
-| 9 | Complete this plan through the new manager/reviewer path, then hand off—but do not execute—the public breaking migration. | `docs/plans/active/plan-workflow-phases-and-loop-escape.md` (plan-manager-only completion and ship); `/home/vagrant/projects/public/docs/plans/active/plan-workflow-name-migration.md` (created later only by public plan workflow through Session Relay; never from this worktree) | 8 | planned | New manager commits `in_review`, executes the ordered inventory plus CI in its disposable checkout, reconciles primary findings, records a schema-6 completion receipt, and archives this plan only on derived `passed`. Afterward Session Relay hands public the pinned Docks `0.13.0` boundary for its own independently reviewed docks-kit `0.10.0` plan. No public repository byte is part of this plan's execution range. |
+| 9 | Prepare the implementation/release evidence for terminal manager review while this plan remains ongoing. | `docs/plans/active/plan-workflow-phases-and-loop-escape.md` (read-only handoff input); released Docks `0.13.0` artifacts (read-only evidence) | 8 | planned | Steps 1–8 evidence is read back, the immutable tag/Release and installed-catalog boundary are verified, the ordered A1–A14 inventory plus separate full-CI command is ready for a disposable completion checkout, and no lifecycle transition, completion receipt, archive, Session Relay handoff, or public-repository write has occurred. |
+
+## Terminal lifecycle and public handoff
+
+Only after every Steps row is `done`, the new manager performs the lifecycle
+sequence outside the all-steps-done gate: commit `ongoing → in_review`, execute
+A1–A14 in order plus the separately recorded full CI once in a disposable
+checkout, reconcile the primary completion review, and record the schema-6
+completion receipt. Only a derived `passed` receipt permits ship/archive to
+`docs/plans/finished/`; any other derived result follows the state-machine STOP
+rules without marking a Steps row incomplete.
+
+Only after that archive, Session Relay may hand the pinned Docks `0.13.0`
+boundary to `/home/vagrant/projects/public` for its separately created,
+independently reviewed `plan-workflow-name-migration.md` and docks-kit `0.10.0`
+work. No public repository byte or public lifecycle action is in this plan's
+execution range, and Session Relay is transport rather than canonical review
+evidence.
 
 ## Acceptance criteria
 
@@ -356,10 +446,10 @@ CI command is intentionally not duplicated in this inventory.
 | ID | Command | Expected |
 |---|---|---|
 | A1 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; five exact skills and public/internal flags, disjoint triggers, wrapper limits, clean old-name removal, guard mutation, and no-progress behavior pass. |
-| A2 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; schema-6 state/request/receipt/lifecycle surfaces and historical validators pass. |
-| A3 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-series` | Exit 0; one full plus at most one repair round remains bounded inside one orchestration series and state hashes bind the transition. |
-| A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-artifacts` | Exit 0; full/repair bundles, prior-plan bytes, accepted targets, and orchestration-state identities verify. |
-| A5 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; attempt 3, nonretryable renewal, duplicate apply, state-hash substitution, and metadata-only progress mutants are killed; schemas 1–5 remain valid. |
+| A2 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; the exact v5/v6 record, schema-filename, full/repair manifest, receipt/reuse, and lifecycle matrix passes; every v5 schema/manifest fixture remains byte-identical. |
+| A3 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-series` | Exit 0; one full plus at most one repair round remains bounded inside one orchestration series, state hashes bind the transition, and the total outcome-to-stop reducer produces the required attempt-1/attempt-2 states. |
+| A4 | `node scripts/tests/plan-review-convergence-repair.mjs --case repair-artifacts` | Exit 0; schema-6 Codex and Claude output validation traverses full and repair bundle/collector paths with the exact v6 manifests; prior-plan bytes, accepted targets, and orchestration-state identities verify. |
+| A5 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; one mutant per attempt/raw/collector mapping class and fallback precedence, plus attempt 3, nonretryable renewal, duplicate apply, state-hash substitution, and metadata-only progress, is killed; schemas 1–5 remain byte-identical. |
 | A6 | `node scripts/skills/codex-facts.mjs` | Exit 0 and reports retained `skill-agent-pipeline` Codex facts; no capability-tuning dependency remains. |
 | A7 | `node scripts/skills/content-hash.mjs --check-only` | Exit 0; every changed skill has a generated current content hash and updated metadata. |
 | A8 | `node scripts/scaffold/guard-spec.mjs && node scripts/scaffold/test.mjs` | Exit 0; scaffold bundles all five skill names and only manager/reviewer wrappers with no stale seed path. |
@@ -451,9 +541,10 @@ CI command is intentionally not duplicated in this inventory.
   eligible schema-5 draft receipt and required start/identity commits.
 - STOP if the current old plan-manager cannot represent or review this complete
   cold handoff; do not shorten the contract or start implementation.
-- STOP on unavailable, platform-denied, stale, `cannot_repair`, not-ready, or
-  rejected draft evidence according to the persisted result; never auto-prepare
-  another series.
+- STOP on every derived `stopped|stuck` result. Only attempt-1
+  `unavailable_auth|unavailable_model|timed_out|unavailable_unknown|failed_unparseable`
+  may accept one explicit current-user retry; every other `StopReason` and every
+  attempt-2 failure is nonrenewable and must never auto-prepare another series.
 - STOP if a red test does not fail for the intended absent schema/state/phase
   behavior, or if production code changes precede the recorded red evidence.
 - STOP if any schemas 1–5 validation result, fixed schema-3 fixture/hash, or
