@@ -1683,9 +1683,7 @@ function validatePrepushRepairCommit({ baseCommit, repairCommit }) {
     if (!added.ok) fail(`could not create pre-push repair verification worktree: ${added.stderr}`);
     const nodeModules = path.join(REPO, 'node_modules');
     if (fs.existsSync(nodeModules)) fs.symlinkSync(nodeModules, path.join(checkout, 'node_modules'), 'dir');
-    const ci = commandAt(checkout, process.execPath, ['scripts/ci.mjs'], {
-      CARGO_TARGET_DIR: path.join(REPO, 'plugins', 'session-relay', 'rust', 'target'),
-    });
+    const ci = commandAt(checkout, process.execPath, ['scripts/ci.mjs']);
     if (!ci.ok) fail(`pre-push repair full CI failed: ${ci.stderr || ci.stdout}`);
     return {
       base_commit: baseCommit,
