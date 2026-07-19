@@ -1,11 +1,11 @@
 ---
 title: Cut over plan workflow to schema 6 and explicit phases
 goal: Persist bounded review attempts, split the five plan phases cleanly, remove capability tuning, release Docks 0.13.0, and hand public its 0.10 boundary.
-status: planned
+status: ongoing
 created: "2026-07-19T03:36:13-03:00"
-updated: "2026-07-19T08:54:33.660Z"
-started_at: null
-assignee: null
+updated: "2026-07-19T05:58:12-03:00"
+started_at: "2026-07-19T05:58:12-03:00"
+assignee: codex
 review_author_company: openai
 review_author_tool: codex
 review_author_model: gpt-5.6-sol
