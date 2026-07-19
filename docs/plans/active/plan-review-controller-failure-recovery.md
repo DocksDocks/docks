@@ -250,3 +250,5 @@ boundary requires Session Relay candidate repair to remain separate.
 ## Review
 
 (filled by main-context plan-manager after completion evidence)
+
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"4e8ce402c20e11c5762ab1252fb85883ed403536e3c948d5917b77f25e1b4cbd","initial_input_sha256":"4e8ce402c20e11c5762ab1252fb85883ed403536e3c948d5917b77f25e1b4cbd","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/plan-review-controller-failure-recovery.md","request_ids":["82cc01d6-2fc3-45c4-86d8-32178bcba995"],"retry_authorization":null,"round_index":1,"schema":1,"series_id":"f5c09a8a-c4a2-4ec8-a6ce-2ba1f90ceb9a","series_sha256":null,"state_sha256":"415263d6dac034bc06c982f76a66d763d563f890fa8882206f228abcb31b3f68","status":"active","stop_reason":null,"transitioned_from_state_sha256":null}
