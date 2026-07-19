@@ -1,9 +1,9 @@
 ---
 title: Publish Session Relay 0.12.0 and docks-kit 0.9.0
 goal: Bind reviewed source evidence, publish immutable prerelease assets, release docks-kit, promote the archive, and finalize Session Relay stable.
-status: in_review
+status: finished
 created: "2026-07-18T11:45:54-03:00"
-updated: "2026-07-19T09:10:00-03:00"
+updated: "2026-07-19T20:06:00+00:00"
 started_at: "2026-07-18T15:47:52-03:00"
 in_review_since: "2026-07-19T02:12:40-03:00"
 assignee: codex
@@ -26,7 +26,7 @@ related_plans:
   - target-plugin-ci-and-release-gates
   - session-relay-prebuilt-cli-distribution
   - session-relay-cli-installation
-review_status: null
+review_status: passed
 planned_at_commit: ef289381858b5f85680255d433e6c08b2d36a1cb
 execution_base_commit: b136e034806e634a891bd918d5664202d7362e01
 ---
