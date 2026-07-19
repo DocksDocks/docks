@@ -28,13 +28,14 @@ import {
   sha256,
   writeCanonicalExclusive,
 } from './session-relay-release-core.mjs';
-import { validateProof } from './session-relay-release-preparation.mjs';
+import { validateCompletionReceiptClosed, validateProof } from './session-relay-release-preparation.mjs';
 import { normalizedAssets, releaseState, validatePublicationReceipt } from './session-relay-release-publication.mjs';
 
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
 const PUBLIC_VERSION = '0.9.0';
 const PUBLIC_TAG = `cli-v${PUBLIC_VERSION}`;
 const PUBLIC_WORKFLOW = '.github/workflows/release-cli.yml';
+const PUBLIC_FINISHED_PLAN_PATH = /^docs\/plans\/finished\/[0-9]{4}-[0-9]{2}-[0-9]{2}-session-relay-cli-production-release\.md$/;
 const COMPANION_BASE_COMMIT = 'c3b542220d5a24a98ca05383bbe28afc2319b7e2';
 const PUBLIC_ASSET_TARGETS = [
   'x86_64-unknown-linux-musl',
@@ -343,7 +344,7 @@ export function emitPublicRequest(options, injectedAdapter = undefined) {
   return emitReceipt(options, receipt);
 }
 
-function finishedPlanCompletion(planBytes, expectedDigest) {
+function finishedPlanCompletion(planBytes, expectedDigest, reviewedHead) {
   if (!Buffer.isBuffer(planBytes)) fail('public finished plan observation must be bytes');
   const plan = planBytes.toString('utf8');
   const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(plan);
@@ -360,6 +361,10 @@ function finishedPlanCompletion(planBytes, expectedDigest) {
   let receipt;
   try { receipt = JSON.parse(receiptText); } catch { fail('public completion receipt line is not JSON'); }
   if (canonicalize(receipt) !== receiptText) fail('public completion receipt line is not canonical JCS');
+  validateCompletionReceiptClosed(receipt, { reviewedHead });
+  if (receipt.phase !== 'completion' || receipt.outcome !== 'passed' || receipt.completion_verdict !== 'passed') {
+    fail('public completion receipt must record a passed completion review');
+  }
   return expectedDigest;
 }
 
@@ -479,7 +484,7 @@ export function validatePublicReleaseReceipt(receipt, { publication = null, requ
   if (!['published', 'oidc_warning'].includes(value.npm.state)) fail('public release receipt npm state is invalid');
   validatePublicAssetPins(value.pinned_assets, 'public release receipt pinned assets');
   exactKeys(value.public_plan, PUBLIC_PLAN_KEYS, 'public release receipt public plan');
-  if (!/^docs\/plans\/finished\/[^/]+\.md$/.test(value.public_plan.path)) fail('public release receipt finished plan path is invalid');
+  if (!PUBLIC_FINISHED_PLAN_PATH.test(value.public_plan.path)) fail('public release receipt finished plan path is invalid');
   assertCommit(value.public_plan.commit, 'public release receipt plan commit');
   assertDigest(value.public_plan.completion_receipt_sha256, 'public release receipt completion digest');
   if (requestDigest !== null && value.request_sha256 !== requestDigest) fail('public release receipt request digest mismatch');
@@ -575,8 +580,8 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
   const planCommit = options.get('public-plan-commit');
   assertCommit(planCommit, '--public-plan-commit');
   const finishedPlanPath = options.get('public-finished-plan');
-  if (!/^docs\/plans\/finished\/[^/]+\.md$/.test(finishedPlanPath ?? '')) {
-    fail('--public-finished-plan must be a canonical finished-plan path');
+  if (!PUBLIC_FINISHED_PLAN_PATH.test(finishedPlanPath ?? '')) {
+    fail('--public-finished-plan must be the dated session-relay-cli-production-release finished-plan path');
   }
   if (adapter.getTagCommit() !== releaseCommit) fail('public tag commit does not match --public-release-commit');
   if (!adapter.isAncestor(request.value.companion_base_commit, releaseCommit)) {
@@ -585,7 +590,7 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
   if (!adapter.isAncestor(releaseCommit, planCommit)) {
     fail('public finished-plan commit fails release commit ancestry');
   }
-  finishedPlanCompletion(adapter.getFinishedPlan(planCommit, finishedPlanPath), completionDigest);
+  finishedPlanCompletion(adapter.getFinishedPlan(planCommit, finishedPlanPath), completionDigest, releaseCommit);
   const run = successfulPublicWorkflowRun(adapter.listWorkflowRuns(), releaseCommit);
   const release = downloadedPublicRelease(adapter, adapter.getRelease());
   const pinnedAssets = adapter.getPinnedAssets(releaseCommit);
