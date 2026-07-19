@@ -1,12 +1,12 @@
 ---
 title: Add typed review-controller failure recovery
 goal: Persist exact review requests before launch, reject invalid controller configuration before spawning, support user-authorized provenance-unavailable abandonment without fabricated review evidence, normalize StateV1 reducer outputs to StateV2, and release Docks 0.13.1.
-status: blocked
+status: ongoing
 created: "2026-07-19T11:24:58-03:00"
-updated: "2026-07-19T21:28:17.548Z"
+updated: "2026-07-19T21:29:12.528Z"
 started_at: "2026-07-19T13:10:44-03:00"
-blocked_reason: "The accepted post-review parent-provenance finding materially changed the terminal-family validator and caller sequence; implementation remains paused pending a fresh schema-6 draft review."
-blocked_since: "2026-07-19T21:08:00.000Z"
+blocked_reason: null
+blocked_since: null
 assignee: null
 review_author_company: openai
 review_author_tool: codex
