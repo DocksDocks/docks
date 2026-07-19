@@ -1,0 +1,2995 @@
+---
+title: Build relay worker lifecycle primitives
+goal: Add Linux-authoritative managed admission, stable-handle process control, and worker quiescence, with typed Darwin unavailability and no false fallback confirmation.
+status: finished
+created: "2026-07-11T03:31:53-03:00"
+updated: "2026-07-14T09:34:54-03:00"
+started_at: "2026-07-11T11:29:49-03:00"
+assignee: null
+review_author_company: openai
+review_author_tool: codex
+review_author_model: gpt-5.6-sol
+review_author_effort: xhigh
+review_waivers: []
+tags: [session-relay, lifecycle, rust, safety]
+affected_paths:
+  - plugins/session-relay/rust/src/appserver.rs
+  - plugins/session-relay/rust/src/bin/runner_job_custodian.rs
+  - plugins/session-relay/rust/src/bus.rs
+  - plugins/session-relay/rust/src/channel.rs
+  - plugins/session-relay/rust/src/cli.rs
+  - plugins/session-relay/rust/src/hook.rs
+  - plugins/session-relay/rust/src/lib.rs
+  - plugins/session-relay/rust/src/lifecycle.rs
+  - plugins/session-relay/rust/src/main.rs
+  - plugins/session-relay/rust/src/process_identity.rs
+  - plugins/session-relay/rust/src/runtime_install.rs
+  - plugins/session-relay/rust/src/spawn.rs
+  - plugins/session-relay/rust/src/store.rs
+  - plugins/session-relay/rust/src/supervisor.rs
+  - plugins/session-relay/rust/src/watch.rs
+  - plugins/session-relay/rust/tests/lifecycle_supervisor.rs
+  - plugins/session-relay/rust/tests/lifecycle_turn_cancellation.rs
+  - plugins/session-relay/rust/tests/lifecycle_store_compat.rs
+  - plugins/session-relay/rust/tests/lifecycle_managed.rs
+  - plugins/session-relay/rust/tests/lifecycle_admission.rs
+  - plugins/session-relay/rust/tests/lifecycle_controller.rs
+  - plugins/session-relay/rust/tests/process_identity.rs
+  - plugins/session-relay/rust/tests/lifecycle_proof.rs
+  - plugins/session-relay/rust/tests/lifecycle_terminal.rs
+  - plugins/session-relay/rust/Cargo.toml
+  - plugins/session-relay/rust/Cargo.lock
+  - plugins/session-relay/hooks/hooks.json
+  - plugins/session-relay/hooks/codex-hooks.json
+  - plugins/session-relay/test/fake-app-server.mjs
+  - plugins/session-relay/test/feasibility-probe.mjs
+  - plugins/session-relay/test/lifecycle-smoke.mjs
+  - plugins/session-relay/test/mixed-version-lifecycle-store.mjs
+  - plugins/session-relay/test/process-signal-inventory.mjs
+  - plugins/session-relay/test/reentry-inventory.mjs
+  - plugins/session-relay/test/run-build-matrix.mjs
+  - plugins/session-relay/test/runtime-appserver-quiescence.mjs
+  - plugins/session-relay/test/runtime-hook-abort.mjs
+  - plugins/session-relay/test/runtime-hook-upgrade.mjs
+  - plugins/session-relay/test/runner-job-custodian.mjs
+  - plugins/session-relay/test/selftest.mjs
+  - plugins/session-relay/test/supervisor-custody.mjs
+  - plugins/session-relay/test/appserver-schema-contract.mjs
+  - plugins/session-relay/test/wip-snapshot.mjs
+  - plugins/session-relay/test/rust-test-inventory.mjs
+  - plugins/session-relay/test/final-scope.mjs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-schema.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-schema.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/doctor-ready.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/doctor-degraded.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/doctor-unavailable.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-changed.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-current.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-lower-no-op.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-previous-retained.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/command-inability.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/usage-error.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/schema-error.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/validation-error.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/tamper-error.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/io-error.json
+  - plugins/session-relay/test/fixtures/runtime-doctor-goldens/lock-error.json
+  - plugins/session-relay/test/fixtures/process-signal-inventory.json
+  - plugins/session-relay/test/fixtures/reentry-inventory.json
+  - plugins/session-relay/test/fixtures/rust-test-inventory.json
+  - plugins/session-relay/test/fixtures/appserver-server-requests.json
+  - plugins/session-relay/test/fixtures/wip-step-allowlist.json
+  - plugins/session-relay/test/fixtures/wip-historical-baseline.json
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.toml
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.lock
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/guardless.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/wrong-target.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fence-reentry.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/reentry-fence.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/cancel-reentry.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/child-cancel-reentry.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-owned-proof.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-pidfd-proof.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/tampered-cgroup-proof.rs
+  - plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-protocol-proof.rs
+  - plugins/session-relay/AGENTS.md
+  - plugins/session-relay/skills/productivity/session-relay/SKILL.md
+  - .github/workflows/build-binaries.yml
+related_plans:
+  - relay-worker-fanout
+  - legacy-start-transition-compatibility
+  - relay-worker-lifecycle-primitives-continuation
+review_status: null
+planned_at_commit: 12cf2ead208fe932084890b8e3fbd5c72591f3db
+execution_base_commit: de925e9bc046645a72f59bcd493da44d53adaf5a
+ship_commit: "3e6486e45859cfeccd7b1ecf6d7c539c163a4ab5"
+---
+
+# Build relay worker lifecycle primitives
+
+> **Superseded by `relay-worker-lifecycle-primitives-continuation` on
+> 2026-07-14.** This file remains the immutable technical specification and
+> completed-prefix evidence. The successor preserves its Goal, deliverable,
+> implementation branch, 38 completion criteria, and 82-event contract while
+> establishing a normal current-lifecycle execution base; this historical plan
+> is not itself shipped as completed work.
+
+## Goal
+
+Build three general, independently testable relay capabilities. On **Linux**, the authoritative path must (A) prevent a managed hook-born Claude CLI **or relay-owned Codex app-server thread** from processing its first prompt when attach fails—Claude through the required `UserPromptSubmit` barrier and Codex through direct lifecycle binding after `thread/start` but before the first `turn/start`; (B) signal processes only through a kernel-stable handle or an unreaped supervisor-owned child, and confirm the cooperatively launched worker tree only behind the bounded confinement contract in this plan; and (C) cancel and prove app-server lineage only after a verified graceful stop/reap plus durable protocol flush, while capability-binding every relay drain, resume, injection, turn start, process launch, attach, interrupt, clean, and signal to the exact lifecycle/binding/fence epoch. On **Darwin**, success is the portable supervisor-owned-child/process-observation behavior plus closed typed `UnavailablePlatform` for the authoritative managed-controller/fd-exec/cgroup path; no Darwin fallback may inherit the Linux guarantee.
+
+The result must distinguish **process-only**, **protocol-only**, and **worker-tree** evidence. Observation-only PID/start-time data, stable-looking descendant snapshots, any live shared-server scan, a single interrupted turn, `thread/read idle`, root-process exit, frozen-but-unflushed protocol artifacts, or `cgroup.events populated 0` outside the stated cooperative-worker boundary can never release a worker-tree capacity slot. ProtocolTree proof requires a verified graceful stop/reap whose durability contract flushes every accepted lineage/turn/terminal mutation before a complete offline scan; freezing is only a temporary WorkerTree snapshot aid and must end in kill plus `populated 0`, never thaw/release. Unsupported or lost capabilities remain `FencingUnconfirmed`, refuse every re-entry/drain, survive GC, and expose bounded reconcile/abandon paths.
+
+Lifecycle authority must also survive an already-running released 0.10.0 process rewriting the legacy discovery registry, and release/abandon must atomically terminalize worker, session binding, retained authority, and any capacity charge without reopening the runtime id. Completing this plan proves one exact merged **source-ready** tip. It does not itself make the consumer payload packaged-ready: `relay-worker-fanout` remains blocked until a later immutable Session Relay tag/release descends from that tip, carries producer-built verifying binaries/checksums and matching manifests, and passes the packaged 0.10.0→N/N→N live-upgrade plus mixed-version-writer matrices.
+
+## Context & rationale
+
+- `relay-worker-fanout` is blocked on three general relay-core primitives. Its lifecycle-specific recovery/collection items remain out of scope; this plan provides only reusable attach, admission, process, quiescence, and reconciliation contracts.
+- **Owner-approved Draft-13 boundary (2026-07-12):** after review proved that `hooks/list` is a snapshot with no expected-hash-bound child launch, the owner approved replacing the strict “hook-born Codex CLI” deliverable with relay-owned app-server birth. `thread/start` may discover the Codex runtime id, but relay must complete the direct lifecycle claim before it sends any `turn/start`. Managed Codex CLI fallback and direct human/third-party resume are outside the managed guarantee; unmanaged compatibility remains.
+- **Observed upgrade failure (2026-07-12):** a long-lived Codex process retained an absolute hook command into a pruned versioned plugin cache and emitted repeated SessionStart/UserPromptSubmit exit 127 after `docks-kit sync codex`; the current trusted 0.10.0 hooks and binary passed when invoked directly, and a fresh ephemeral Codex session registered successfully. Draft-13 therefore treats executable-path durability across N→N+1 refresh as a separate capability from hook trust and adds a stable monotonic relay runtime plus live-upgrade acceptance.
+- **Mixed-version writer boundary (Draft-24):** the released 0.10.0 registry writer parses and rewrites only `agents` and `names`; preserving unknown keys in the new writer cannot stop an already-running old bus/register/GC process from erasing lifecycle maps in `registry.json`. All lifecycle, binding, custody, proof, audit, and capacity authority therefore moves to a separate versioned `lifecycle-v1.json` that 0.10.0 never opens. The legacy registry becomes a repairable discovery projection, never authority. This closes old-writer non-erasure only; an old binary remains lifecycle-unaware and must never be treated as a managed controller.
+- **Standalone-hook trust boundary (Draft-19):** the literal `/bin/sh` bootstrap is responsible for ordinary cache-prune/upgrade durability and fail-closed corruption checks, not authenticity against a deliberate same-UID actor that atomically replaces the plugin root, launcher, manifests, checksums, and payload before cached code executes. Known-at-check symlinks/non-regular launchers/bad modes fail; ordinary deletion races fall through only when the root is then truly absent and non-link. Once the selected native installer begins, its retained dirfds/fds prevent mixed-generation splice. docks-kit provides the optional higher-assurance proactive path by independently hashing a retained selected-native fd against its expected external digest and invoking `__install-stable` through those same verified bytes, bypassing the mutable cache dispatcher; standalone first bootstrap remains plugin-owned and does not depend on docks-kit.
+- Independent red-team verification confirmed the feasibility foundation: Codex app-server returns the exact `turn.id`, supports `turn/interrupt {threadId,turnId}`, and emits terminal completion; both runtimes support `UserPromptSubmit` blocking; exit-0 universal `continue:false` is documented for SessionStart but Claude's event-specific section describes SessionStart as context-oriented, so the real-runtime matrix treats Claude SessionStart stop as version-pinned empirical defense-in-depth rather than the only prompt barrier. Hook timeout is configurable and fail-open. Linux has pidfd, `/proc` field-22, cgroup v2 kill/populated; rustix gates pidfd to Linux; Darwin exposes observation APIs. Current Codex app-server exposes no public mutation-rejecting durable-flush watermark, so `ProtocolTree` is unavailable for the installed runtime and cannot be a positive completion dependency.
+- A start-time comparison followed by raw `kill`/`killpg` is check-then-act: the target can exit and its PID/PGID can recycle between operations. Darwin `proc_bsdinfo` and Linux start-time fallback are therefore **observation only**, not generation-safe signal handles.
+- A delegated cgroup writable by the same user is not adversarial containment: a deliberately cooperating-violating process can request migration or use a broker. `CooperativeWorkerV1` proves only gated initial placement plus inherited membership for ordinary/nested-namespace descendants created by the relay-launched task, tied to generation-bound manager authority. Intentional same-UID ancestor/sibling migration is recorded as an out-of-model negative capability observation and never folded into a successful proof.
+- A read/write flock alone cannot bound fencing. A writer may starve behind new readers, and a reader may hold through a 300-second pump, unbounded wake, or any lifecycle-sensitive `attach --exec`; CLOEXEC then drops even an Unmanaged guard while the resumed CLI continues across Claiming. Fence intent must publish before drain, new admissions must refuse without joining the reader queue, and every admitted operation—including pre-claim attach/resume—must be cancelable, parent-waited, and bounded.
+- Re-entry is broader than `watch --auto-turn`: current drains exist in CLI inbox, MCP inbox, channel, hook, watch, and wake. Current app-server status/ack/deliver call `thread/resume`; pending acknowledgement is its own turn-start path. The inventory must be mechanically complete, not a hand-counted list.
+- Codex CLI has no pre-minted session id. Managed state therefore keeps a pre-launch `worker_id` and pending token-hash index, and the authoritative claimant is only the relay-owned app-server controller. Current Codex `0.144.1` returns an idle thread from `thread/start` and emits a separate `thread/started`; it does not run SessionStart until the first `turn/start`. The controller must join the successful response with exactly one matching `thread/started`, atomically bind that exact runtime identity Active, and only then may send `turn/start`. SessionStart and UserPromptSubmit are post-Active first-turn observers/drains, never birth claimants. Controller retry is idempotent; token replay to another identity is refused.
+- Codex plugin hooks are non-managed, trust is snapshot-only, and a long-lived session can retain a versioned executable path after cache refresh. Managed Codex first-prompt safety therefore does not depend on hook trust. Production still inspects both rows through `hooks/list` for diagnostics and ordinary registration/re-entry coverage, never uses the broad bypass, and runs hooks through a monotonic stable relay runtime so an N→N+1 refresh cannot strand an old session.
+- Admission authority is time-sensitive: an Unmanaged guard issued before first SessionStart cannot remain valid after the same runtime id becomes Managed. Binding epoch, Claiming publication, prior-guard drain, target-free lower APIs, and use-time re-resolution are one mandatory invariant.
+- Two equal asynchronous app-server scans are not a fixed point, and a shared second client can create lineage after the final page. Shared scans are observation-only unless the server supplies a held mutation-rejecting barrier. A frozen dedicated writer can still hold queued child creation or unflushed state, so only a verified graceful stop/reap with a durable flush contract can support final offline ProtocolTree proof; freeze followed by kill/`populated 0` proves only the bounded physical tree.
+- Every fence attempt has its own epoch/version. Interrupt, clean, signal, timeout, finish, reconcile, release, and abandon must CAS or re-resolve that exact epoch so a late fencer cannot overwrite newer state.
+- The pre-plan baseline GC aged registry entries/surfaces without managed exemptions; checkpoint `701cea7` already delegates lifecycle-bound sessions to the Step-2 GC rules. Remaining work must extend that protection to versioned active operations, supervisor/socket custody, handoffs, stale-event audits, and later proof records regardless of age.
+
+### Step-8 immutable live-evidence rehash
+
+Step 1b creates validation-only rehash mode before any live gate and records the active runner generation in `RunnerLayoutV2`; Step 8 derives exact `STEP8_REHASH_RECEIPT` from that authenticated layout. The closed `LiveEvidenceRehashReceipt {schema:2,step:"8",plan_blob_sha256,step8_head,binding_sha256,root_generation_ledger_sha256,root_migration_active_phase_sha256,runner_layout_sha256,runner_state_receipt_sha256,runner_attempt_chain_sha256,terminal_attempt_receipt_sha256,ordered_gate_result_sha256s,gate_artifact_manifest_sha256,bootstrap_receipt_manifest_sha256,prior_step_range_receipt_chain_sha256,terminal_reason,cleanup_sha256,receipt_sha256}` contains no timestamp. `step8_head` is the clean A133 HEAD and later equals Step-8 A106 base/head. Gate hashes are exactly A110→A111→A119→A120→A121→A125; terminal reason is `Complete`; prior range chain ends at Step 7. Rehash reads only immutable receipt/artifact/coordinator-snapshot bytes, recomputes every migration/equivalence/nested hash and binary/Cargo identity, and opens no capability, runtime, auth, cgroup, authority socket, or process handle. It makes no liveness claim; A137 owns live authority challenge. Retry returns byte-identical bytes or refuses.
+
+## Threat model
+
+These primitives defend a **cooperative worker**: the relay launches the user's own task under the user's own credentials and must contain accidental runaway descendants, crashes, PID/PGID reuse, signal TOCTOU, stale re-entry, and capacity overrun. `WorkerTree` means every process in the relay-controlled launch boundary that a cooperative task creates directly under the isolated wrapper. Its proof is authoritative only for that bounded set and only while the exact manager cgroup fd, namespace/setup receipt, kill result, and `populated 0` evidence remain valid.
+
+A deliberately adversarial same-UID worker is outside this guarantee. In particular, it can ask a same-user broker such as `systemd-run --user` / D-Bus `StartTransientUnit` to create or move a process into a sibling cgroup, or pass work/authority through an already-reachable same-user service or `SCM_RIGHTS`. That broker-assisted writer can survive `cgroup.kill` while the worker leaf reports `populated 0`; neither seccomp on the worker nor its cgroup namespace can revoke authority already held by the broker. The fan-out hard cap accepts this bounded cooperative scope; tests must not relabel broker escape as covered WorkerTree evidence.
+
+The same cooperative boundary applies to local plugin-cache authenticity. A same-UID actor can deliberately replace both code and the metadata that the standalone cached dispatcher has not yet pinned; the shell bootstrap cannot authenticate that race and makes no such claim. Its predicates detect the object state actually observed, ordinary package-manager deletion is covered, and the native installer becomes splice-resistant only after it has started and opened its no-follow source fds. The docks-kit proactive verified-native path is a separate stronger provenance path, not evidence that the standalone shell acquired adversarial authenticity.
+
+Adversarial-grade containment is a future, separately scoped capability requiring IPC and network namespace isolation, broker-socket denial, a complete service/FD handoff policy, and a full sandbox threat review. Cheap defense-in-depth in this plan still closes accidental/direct escape paths: architecture-validated seccomp, wholesale `clone3` denial returning `ENOSYS`, x86 x32 rejection, capability drop, inherited-fd closure, and a fresh PID/proc/cgroup view. The owner confirmed **`CooperativeWorkerV1`** on 2026-07-11; implementation and acceptance use it and must label it in every WorkerTree proof/status response.
+
+## Feasibility and guarantee tiers
+
+| Capability | Confirmed buildable path | What can never be claimed |
+|---|---|---|
+| Managed first-prompt admission | **Claude:** Claiming publication is the first short hook transaction and required `UserPromptSubmit` returns structured stop for non-Active workers; SessionStart stop remains empirical defense-in-depth. **Codex:** the relay-owned controller obtains the thread id from `thread/start`, directly performs the exact pending-token lifecycle claim, and emits no `turn/start` until the claim commits Active. Both runtimes retain supervisor custody and a measured deadline ≤20 seconds. Codex hook health is diagnostic/defense-in-depth and stable-runtime-backed, not the first-prompt linearization point. | A trusted `hooks/list` snapshot cannot atomically bind a later CLI child and may not be presented as such. Plugin enablement is not hook trust; production bypass is forbidden. Managed Codex CLI fallback is forbidden. Direct human/third-party clients are outside relay ownership. Root kill alone is not tree proof. |
+| Process signal | Linux: open pidfd **before** validating start generation, then signal that pinned task. Live supervisor: signal/kill an unreaped `Child` it still owns. Cooperative WorkerTree (`ConfinedCgroupCooperative`, both runtimes): gated placement (`CLONE_INTO_CGROUP`/stop-GO) into a generation-bound domain cgroup leaf, then `cgroup.kill` and `populated 0`. | Darwin or Linux without pidfd after supervisor recovery must not raw-signal. PID/start-time is observation only. Process exit or owned process-group exit never proves an arbitrary worker tree, and the cgroup tier makes no adversarial same-UID broker claim. |
+| Cgroup tree (`ConfinedCgroupCooperative`, both runtimes) | Under `CooperativeWorkerV1`, place the runtime in a delegated, newly created **domain** cgroup leaf with **atomic/gated initial placement** (`clone3 CLONE_INTO_CGROUP` or a separately capability-checked pre-exec stop/GO handshake so no runtime code forks before verified leaf membership); retain the generation-bound leaf fd; assert `cgroup.type=domain`, empty `cgroup.subtree_control`, and writable `cgroup.kill`; write `cgroup.kill=1`, then wait for `cgroup.events populated=0`. Optional freeze is diagnostic only and, if used, must end in kill rather than thaw-through-release. Works for **both** Claude and Codex because cgroup membership is namespace-independent. The anti-escape seccomp deny-list is a **Claude-only `FilteredCgroupHardening`** upgrade, never required for the cooperative tier. | Plain delegation, non-atomic placement, threaded/domain-invalid topology, manager-fd loss, unsupported direct placement without a verified stop/GO fallback, or any claim against broker-assisted / explicit same-UID cgroup migration is unconfirmed even if kill succeeds and `populated 0` is observed. Freeze is not confinement proof. `FilteredCgroupHardening` is best-effort defense-in-depth and makes **no** adversarial-containment claim. |
+| App-server protocol | Current Codex supports exact owned-turn interruption and exact per-background-terminal termination, but the installed app-server has no public mutation-rejecting durable shutdown/flush watermark or persisted terminal ledger. Therefore real-runtime `ProtocolTree` is explicitly `UnavailableCurrentCodexAppServer`; the typed positive proof path is exercised only against a fake/future adapter that implements the full contract. | Process exit, stdio EOF, internal shutdown completion, `clean {}`, terminal-list emptiness, equal async scans, live shared-server scans, idle, freeze, or readable but unflushed offline artifacts never construct ProtocolTree proof. |
+| Worker-tree release | Exhaustive proof validation accepts only a strong confined-cgroup proof explicitly labeled `CooperativeWorkerV1`, or compound gracefully flushed app-server lineage proof plus that physical containment for a relay-owned dedicated server. | Shared app-server, tracked descendant trees, stable snapshots, observation-only identities, root-only proofs, and deliberately broker-escaped same-UID processes remain outside/`FencingUnconfirmed`; no adversarial-sandbox claim is made. |
+
+## Environment & how-to-run
+
+- **Plan source:** the orchestrator and every worker read `/home/vagrant/projects/docks/docs/plans/active/relay-worker-lifecycle-primitives.md` from the main worktree at dispatch time; the older implementation-branch copy is non-authoritative. Step P first closes E/R/B/Q. Final ordinary review seals Q, then plan-manager commits only the mandatory derived Cross-check attribution, replacement schema-v1 `Review-receipt:`, and optional `updated` as F. That exact receipt-bearing F commit and plan blob become the sole execution authority after the released validator proves the apply delta, the receipt's `reviewed_commit=Q`, findings-free `dual|single`, and retained E/R/B/Q bytes. The orchestrator exports F as `PLAN_COMMIT`, its exact plan blob oid as `PLAN_BLOB`, exports the frontmatter's full `execution_base_commit` as `EXECUTION_BASE_COMMIT`, and records all three in every dispatch. `EXECUTION_BASE_COMMIT` must equal the pinned plan blob's frontmatter value and remain an ancestor of the implementation tip. Step 3b is clean at `STEP3B_HEAD=2a864e9b6f966384e4c4ed0e4b3d563b348a3830`; the first Step-1b worker runs A103 before creating the helper and closed step allowlist. After Step 1b commits them, every later step runs reusable pre-edit A104 and every committed step runs post-step A106. Unrelated main commits do not invalidate a path-specific snapshot; any later change to the plan path invalidates `PLAN_COMMIT`/`PLAN_BLOB` and requires a new review before execution resumes.
+- **Implementation checkout/base:** the registered checkout is `/tmp/docks-primitives-collab` on branch `codex/primitives-collab`, clean at `2a864e9b6f966384e4c4ed0e4b3d563b348a3830` after Step 3b. After Step 1b, every redispatch records `WIP_PATCH_SHA256` over `git diff --binary HEAD` plus `WIP_UNTRACKED_SHA256` over a sorted path/mode/content-hash manifest generated by committed `test/wip-snapshot.mjs`; the helper enforces the step allowlist and rejects any unexpected path/mode/byte. Clean checkouts use canonical empty hashes. A new worker independently verifies hashes before editing. Each step records `STEP_BASE` before its first edit and, after committing clean, records `STEP_HEAD` and runs A106 over that exact range. `/home/vagrant/projects` and `/tmp` are different filesystems, so `git worktree move` is invalid. Before final handoff, commit and verify all intended work, require clean status, record branch/full HEAD, run non-forced `git worktree remove /tmp/docks-primitives-collab`, then `git worktree add /home/vagrant/projects/docks-primitives-collab codex/primitives-collab`, and verify the same branch/HEAD. Never remove a dirty checkout. Drift base remains `12cf2ea`; A137/A138 run against the recorded clean implementation tip. After integration and evidence import, generic completion runs every canonical verifier once in plan-review's disposable detached `reviewed_head` clone, never in the implementation worktree.
+- **One-time preserved-WIP bootstrap (orchestrator-observed 2026-07-12 before Draft-14 edits):** before the missing reusable helper exists, A102 independently binds the checkout to `HEAD=701cea7e671bc40ee23d69abf79ff102e0eecb20`, NUL status hash `2911f30fa11a2b6b49cbb3ad4635bddc0bdc6d96a31c8204bdfea279bf226afd`, tracked binary-patch hash `20a63f01d8bd4580aa03a46d368c16b2e27741170bae67b2e98f8f6b15ec0a9a`, and canonical sorted untracked-manifest hash `905f7207f73273efc2b24fd016acaa9fd04548bf6cb9c2414867fc1105968587`. The five sorted `path|100644|sha256` lines are: `plugins/session-relay/rust/src/supervisor.rs|100644|be15fc6f22fa8d327df6dde9428c4e2600ed05dc8fefbe7e0634405adac433f1`; `plugins/session-relay/rust/tests/lifecycle_supervisor.rs|100644|6978cf1be1a010b58c0dc8e2b61e1842d9fced1e4ac74f8eafdbd015bdd5dbc5`; `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/child-cancel-reentry.rs|100644|8744fc369ab9ab3c25025b718dd60ab244f617e6b7e4fe5a7579087e492e3946`; `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-owned-proof.rs|100644|d4c220f679dd0fee706b4d8f637f5c64a966ee6c5d20bbe2b6a64a9fec4fd2fd`; `plugins/session-relay/test/supervisor-custody.mjs|100644|2068054bf8bc2d91b93978cea1c32384b24c3aba07b91a4d349bc9ab9c940f21`. A102 verifies exact paths/digests, non-symlink/non-executable modes, and exact status before any edit. The worker repairs/commits Step 3b to clean status first. Step 1b then creates `wip-snapshot.mjs` and proves canonical empty hashes plus negative tracked/staged/unstaged/untracked/symlink/executable/rename/delete fixtures. All later dispatches use A104 with `--allow-step "$STEP_ID"`; the hard-coded initial manifest is never reused after Step 3b.
+- **Exact A102 command (run once, before any Step-3b edit):** from `/tmp/docks-primitives-collab`, run:
+  ```bash
+  set -euo pipefail
+  test "$(git rev-parse HEAD)" = 701cea7e671bc40ee23d69abf79ff102e0eecb20
+  test "$(git status --porcelain=v1 -z | sha256sum | cut -d' ' -f1)" = 2911f30fa11a2b6b49cbb3ad4635bddc0bdc6d96a31c8204bdfea279bf226afd
+  test "$(git diff --binary HEAD | sha256sum | cut -d' ' -f1)" = 20a63f01d8bd4580aa03a46d368c16b2e27741170bae67b2e98f8f6b15ec0a9a
+  files=(plugins/session-relay/rust/src/supervisor.rs plugins/session-relay/rust/tests/lifecycle_supervisor.rs plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/child-cancel-reentry.rs plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-owned-proof.rs plugins/session-relay/test/supervisor-custody.mjs)
+  expected=(be15fc6f22fa8d327df6dde9428c4e2600ed05dc8fefbe7e0634405adac433f1 6978cf1be1a010b58c0dc8e2b61e1842d9fced1e4ac74f8eafdbd015bdd5dbc5 8744fc369ab9ab3c25025b718dd60ab244f617e6b7e4fe5a7579087e492e3946 d4c220f679dd0fee706b4d8f637f5c64a966ee6c5d20bbe2b6a64a9fec4fd2fd 2068054bf8bc2d91b93978cea1c32384b24c3aba07b91a4d349bc9ab9c940f21)
+  for i in "${!files[@]}"; do test -f "${files[$i]}"; test ! -L "${files[$i]}"; test ! -x "${files[$i]}"; test "$(sha256sum -- "${files[$i]}" | cut -d' ' -f1)" = "${expected[$i]}"; done
+  manifest_hash="$({ for i in "${!files[@]}"; do printf '%s|100644|%s\n' "${files[$i]}" "${expected[$i]}"; done; } | sha256sum | cut -d' ' -f1)"
+  test "$manifest_hash" = 905f7207f73273efc2b24fd016acaa9fd04548bf6cb9c2414867fc1105968587
+  ```
+- **Toolchain:** Rust `1.85.0`; locked rustix `1.1.4`; Node 24; committed Cargo lock. Targets: x86_64/aarch64 musl-linux and x86_64/aarch64 Darwin.
+- **Confirmed-source rule:** Step 1 preserves original evidence; Step 1b migrates stale verdicts and adds raw app-server ordering (feasibility-only), stable-generation, hook-health, and experimental-capability evidence. Production direct claim/controller behavior is Step 5/A121 (RunGate A6). No row may substitute hand-written booleans or re-argue docs.
+- **Draft-22 pre-edit hard-stop evidence (reproduced 2026-07-12):** `git diff --raw 12cf2ea..2a864e9b6f966384e4c4ed0e4b3d563b348a3830` returned exactly 35 entries, all `A|M` with final mode `100644`. Real multi-owner examples include `rust/src/lifecycle.rs` (Steps 2, 3a, 3b), `rust/src/spawn.rs` (3a, 3b), `test/reentry-inventory.mjs` (3a, 3b), and `test/selftest.mjs` (3a plus both Step-3b commits). Node 24 reported `net.createSocketPair`, `net.socketpair`, `constants.SOCK_SEQPACKET`, and `constants.SCM_CREDENTIALS` all `undefined`; the plan had no executable WIP negative matrix, runner matrix, stable-generation/pointer matrix, or post-step range gate. Host `claude auth status --json` reported `loggedIn:false`; `codex login status` reported ChatGPT login ready. Authentication therefore remains an external mandatory gate: never skip, fake, or convert an unavailable row to PASS.
+- **Local commands:**
+  ```bash
+  export PATH="$HOME/.cargo/bin:$PATH"
+  (cd plugins/session-relay/rust && cargo test --locked)
+  node plugins/session-relay/test/selftest.mjs
+  node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix
+  node plugins/session-relay/test/reentry-inventory.mjs
+  node scripts/ci.mjs --plugin session-relay
+  ```
+- **Exact A103 command (run once, before any Step-1b edit):** only after Step 3b is committed and the orchestrator has independently recorded its full tip, dispatch `PLAN_COMMIT`, `PLAN_BLOB`, and `STEP3B_HEAD`; from `/tmp/docks-primitives-collab`, run:
+  ```bash
+  set -euo pipefail
+  test -n "$PLAN_COMMIT" && test -n "$PLAN_BLOB" && test -n "$STEP3B_HEAD"
+  test "$(git branch --show-current)" = codex/primitives-collab
+  test "$(git rev-parse HEAD)" = "$STEP3B_HEAD"
+  test -z "$(git status --porcelain)"
+  test "$(git -C /home/vagrant/projects/docks log -1 --format=%H -- docs/plans/active/relay-worker-lifecycle-primitives.md)" = "$PLAN_COMMIT"
+  test "$(git -C /home/vagrant/projects/docks show "$PLAN_COMMIT:docs/plans/active/relay-worker-lifecycle-primitives.md" | git hash-object --stdin)" = "$PLAN_BLOB"
+  test "$(git -C /home/vagrant/projects/docks hash-object docs/plans/active/relay-worker-lifecycle-primitives.md)" = "$PLAN_BLOB"
+  git diff --check HEAD
+  ```
+  This one-time bridge authenticates the clean post-3b tip before `wip-snapshot.mjs` exists. Step 1b creates schema-v2 historical and future fixtures plus the helper. The closed historical shape is `{schema:2,base,tip,commit_owners,entries,manifest_sha256}`. `commit_owners` contains exactly the 22 commits from `git rev-list --reverse --topo-order 12cf2ea..STEP3B_HEAD`; every row binds full commit, ordered parents, tree, `kind:"content"|"merge"`, and byte-sorted `changes:[{path,owner}]`. Owner is exactly `plan-history|1|2|3a|3b`. Content changes exact-match `git diff-tree --first-parent --raw -z --no-renames`; merge carriers have exact parents/tree, `changes:[]`, and no merge-resolution delta. The exhaustive owner map is: plan-history-only `07ad2df,e80edc3,73aca9b,610ca11,8879d89,de925e9,4302d0b,80c0f65,21026c5,b89c8b2,9e0bd6a`; Step 1 `ef90239,c32aafa`; Step 2 `066262f`; Step 3a `bb69601`; Step 3b `06d2324,2a864e9`; merge carriers `242d823,70dfbee,730409f`; mixed `cdc70f0` maps its plan path to `plan-history` and its two plugin paths to `1`; mixed `701cea7` maps only the plan path to `plan-history` and every other first-parent change to `3a`. Full SHAs are resolved from these unique prefixes and stored; a prefix is never stored. Each of the 35 historical A/M regular-100644 entries derives its grouped owners from that map, retains old/new modes+oids and `final_disposition`, and hashes RFC-8785 JCS minus its own digest. Only the stale implementation-branch plan is `must_be_absent_at_final_tip`. Missing/extra commit/path, wrong parent/tree, assigning a merge change, the `cdc70f0`/`701cea7` split differing, or a 34/36-row range fails.
+
+  The future fixture is recursively closed as `{schema:2,historical_manifest_sha256,steps,manifest_sha256}` with exact execution order `1b,3c,3d,1c,1d,4,5,6,7,8,9`; each step carries byte-sorted literal `{path,status,old_kind,new_kind,final_mode,historical_entry_sha256?}` rows. `A` is absent→regular, `M` is regular→different regular, and `D` is regular→absent; directories/globs/optional rows are forbidden. Steps 1c, 1d, and 8 have empty mutation arrays. Step 8 is verification-only: a newly discovered missing target forces STOP and plan/fixture review before any edit. Step 9 alone deletes the stale branch-plan and treats both WIP fixtures as read-only. Step 5 lists exactly the fourteen named doctor goldens, never their directory. Every path in Steps 1b/3c/3d/4/5/6/7/9 is a literal mutation row except paths the step explicitly labels read-only; the fixture generator exact-compares this closed step manifest to the plan table. Production `rust/Cargo.toml` and `Cargo.lock` are read-only after `STEP3B_HEAD`; the exact authoritative blobs are `Cargo.toml sha256=de0ae13cced9fb6c0b8c7dc869db82f3e4590875eb9ac2b19669f17d223e5627` with `libc="0.2"` and `rustix={version="1.1",features=["fs","net","process"]}`, and `Cargo.lock sha256=9f926f41f1df7395e9064f48542ce4be91cbce1566d04bf35a4f6fba08a8bb74`; the older main-worktree Cargo bytes are not the implementation baseline. `libc` owns raw `prctl`/subreaper, seqpacket credentials and `sendmsg`/`recvmsg`, `execveat`, waits/signals/poll/fcntl, ptrace, clone3, seccomp, and setsid; rustix `fs|net|process` owns safe fd/filesystem, peer-credential, uid, pidfd, and process helpers; the generated C seccomp probe is test-only. A103 verifies both hashes, `RunnerBinaryIdentityV2` binds `cargo_toml_sha256`, A109 offline validation maps every native syscall to this closed supplier set, and A106/A137 reject either Cargo byte changing. An unmapped API or needed feature/dependency is a plan STOP, not an implicit allowance. A103 is never reused after Step 1b.
+
+  **Future mutation grammar (Draft-35 execution-blocker clarification):** the authoritative source is each literal repo-root-relative backticked path item in the Steps-table **Files** cell. A parenthetical annotation applies only to its immediately preceding path and is classified by its first token: `(new)` asserts absent-before and creates an `A` row; `(modify …)` asserts a projected-present `M` row; `(delete …)` creates the sole `D` row; `(read-only …)` excludes that path from mutations. An otherwise unannotated path in a mutating step is a mutation whose `A|M` status is derived by folding projected existence through exact step order. Unknown annotation tokens fail. Steps 1c, 1d, and 8 are verification-only and therefore have empty mutation arrays regardless of their explicitly read-only files. Directory-prefix inheritance, shorthand paths, globs, optional rows, and annotation carry-forward are forbidden. Every future `A` or `M` row is regular→regular/absent→regular as applicable with `final_mode:"100644"`; the `D` row is regular→absent with `final_mode:null`; no executable-mode mutation is authorized. The Step-3c/4/6 compile-fixture `Cargo.lock` items are explicitly read-only because target declarations do not change dependency resolution; their companion fixture `Cargo.toml` items mutate to declare the new binary targets. The generator parses this grammar from the exact pinned plan blob, folds state from `STEP3B_HEAD`, and exact-compares the recursively closed future fixture; a hard-coded second source of truth is forbidden.
+
+- **Sentinel roots:** `wip-snapshot.mjs` created the preserved schema-v2 step-range and runner-receipt generation roots; Draft 44 migrates them into the five-generation ledger and never creates another generation root. Separately, the native runner creates exactly three immutable layout roots—build, matrix parent, and live parent—under `/tmp/relay-runner-{build,state}.*`; final-scope creates `/tmp/relay-final-scope.*`. There is no separate receipt root: durable runner receipts remain under the active runner-receipt generation. Every root is a canonical non-link directory owned by the current uid, mode 0700, held by a dirfd, and contains an exclusive `.relay-root.json` equal to `{schema:1,purpose,token:<32-random-byte-hex>,canonical_path,uid,dev,ino}`. Stable identity is type/dev/inode/owner/mode plus sentinel hash; directory size/nlink are snapshot data only and never authority. Every ordinary use revalidates path, dirfd, sentinel, owner, mode, dev, and inode. Cleanup is fd-relative and begins only from the exact sentinel-bearing root; symlink/special/missing/swapped sentinel, identity change, caller-selected root, or escape poisons/stops. A138 alone may unlink each ledger generation's quarantine sentinel after that generation's durable cleanup phase binds its exact bytes/hash, directory dev/inode/owner/mode, empty payload manifest, parent identity, authority record, and closed custodian generation. Its append-only progress/phase receipts live under `$FINAL_SCOPE_ROOT/a138-state/`, never inside a quarantine. A retry at the sentinel boundary accepts only the fixed per-generation quarantine either sentinel-only with exact identity or sentinel-absent and literally empty with that same dev/inode/owner/mode; any other state stops. Final manifests live inside the final-scope root, never a fixed caller path.
+
+- **Draft-44 Step-1b implementation-review repair and root generations:** independent Draft-42/43 source, architecture, acceptance, migration, and cold-handoff reviews rejected Step 1b without finding the Goal unbuildable. No A107/A108/A109/A106 Step-1b event may be appended, and no later step may start, until the repairs below commit, the related `legacy-start-transition-compatibility` Docks policy plan is independently reviewed, shipped, and installed, this plan carries its exact compatibility application plus eligible review receipt and binding identity, the descriptor-free migration reaches `Active`, A109 runs first, and a superseding Step-1b A106 receipt closes the original `2a864e9b6f966384e4c4ed0e4b3d563b348a3830..STEP1B_REPAIR_HEAD` range. The preserved schema-v2 inputs remain exactly: step root `/tmp/relay-step-range.yjd6ZO`, authority `/tmp/relay-root-authority.3793b40842934249e31d4ad8.json`, pin `aa48c80e67095d6d5820bee843434843dcd882f58dfd0397cc32163a434a8291`, source `1ad1e3d0c66c6e7458825b88e713ee06a6fe2052b67573d67b90b57e48f00432`; canonical runner root `/tmp/relay-runner-receipt.LZSKK0`, authority `/tmp/relay-root-authority.17133faf3313608750b9060b.json`, pin `04258c2c7724ae1132af3ec84dd70e63afa866d46a8075f757bf061e10315655`, source `1ad1e3d0c66c6e7458825b88e713ee06a6fe2052b67573d67b90b57e48f00432`; and equivalent runner root `/tmp/relay-runner-receipt.WVK0ld`, authority `/tmp/relay-root-authority.c2b3a975d023bc33378540d3.json`, pin `4a96479edac09a124d0280adfdec40311a4202fd2b76e7224c3b2509a0dd832a`, source `a3a173e1b030d25219ed94128c7448c81d9a154e96147f664f3c17773a0e6e0a`. Migration-only legacy validation accepts only these exact root/source/pin/sentinel/process tuples and fresh signed schema-v2 challenges; ordinary validation rejects schema 2. All three remain read-only and live until A138.
+
+  The frozen live legacy authority uses `LegacyAuthorityRequestV1 {schema:1,action:"validate"|"shutdown",nonce:<64-lowercase-hex>,authority_sha256:<64-lowercase-hex>}` and `LegacyAuthorityResponseV1 {schema:1,action,nonce,authority_sha256,signature:<base64-ed25519>}`; response fields exact-match the request and the signature covers compact JCS without `signature`. Its honest protocol literal is `{"name":"legacy-root-authority-v1","request":{"actions":["validate","shutdown"],"approved_client_encoding":"compact-jcs","fields":["schema","action","nonce","authority_sha256"],"nonce_encoding":"64-lowercase-hex","schema":1,"server_validation":"json-parse-plus-exact-fields"},"response":{"fields":["schema","action","nonce","authority_sha256","signature"],"schema":1,"signature":"base64-ed25519-over-compact-jcs-without-signature"},"schema":1,"transport":{"address_prefix":"relay-root-authority-","approved_client_framing":"one-compact-jcs-plus-lf-then-shut-wr","family":"AF_UNIX","legacy_server_limit":"acts-after-first-lf-without-eof-or-trailing-byte-rejection","max_input_code_units":16384,"namespace":"linux-abstract","read_deadline_ms":2000,"socket_id_encoding":"32-lowercase-hex","type":"SOCK_STREAM"}}` with SHA-256 `2eee9de02ad3e2dd9f179d4c3c75b4f117e8ee34f938cac0454cb6514671ad53`. The pinned approved migration/cleanup client sends exactly that canonical single line and half-closes, verifies the signed canonical response, and never claims the legacy server authenticates requests or rejects bytes after its first LF; those limitations are frozen because the three custodians are already live.
+
+  Schema-v3 authorities instead use the literal compact-JCS protocol `{"name":"root-authority-v2","request":{"actions":["validate","shutdown"],"authentication":"hmac-sha256-over-jcs-without-mac","fields":["schema","protocol_sha256","action","nonce","authority_sha256","mac"],"mac_encoding":"lowercase-hex-32-byte","schema":2},"response":{"authentication":"hmac-sha256-over-jcs-without-mac","fields":["schema","protocol_sha256","action","nonce","authority_sha256","mac"],"mac_encoding":"lowercase-hex-32-byte"},"schema":2,"transport":{"address_prefix":"relay-root-authority-","family":"AF_UNIX","framing":"one-rfc8785-jcs-plus-lf-per-connection","max_frame_bytes":16384,"namespace":"linux-abstract","read_deadline_ms":2000,"sockaddr_length":"offsetof(sun_path)+1+prefix+socket_id","socket_id_encoding":"32-lowercase-hex","type":"SOCK_STREAM","write_deadline_ms":2000}}`; its exact SHA-256 is `db3a361a1b29b1ee85742af628cf616bf7755a83a214cc76d1a8d35062f6118c`. `AuthorityRequestV2 {schema:2,protocol_sha256,action:"validate"|"shutdown",nonce:<64-lowercase-hex>,authority_sha256,mac:<64-lowercase-hex>}` and `AuthorityResponseV2 {schema:2,protocol_sha256,action,nonce,authority_sha256,mac:<64-lowercase-hex>}` exact-match; request and response each use `mac=HMAC-SHA256(challenge_key,JCS(frame_without_mac))`, compared in constant time. The server verifies the request MAC and exact fields before performing either action; knowing the socket id and public authority hash is never enough. The Linux abstract address is the leading NUL byte plus ASCII `relay-root-authority-<32-lowercase-hex-socket_id>`, with addrlen exactly `offsetof(sockaddr_un,sun_path)+1+ASCII-length` and no trailing NUL. One connection carries one request LF, client `shutdown(SHUT_WR)`, required EOF, then one response LF; malformed UTF-8/JCS, unknown/extra byte, second frame, missing EOF, wrong MAC/protocol/hash, or more than 16,384 bytes refuses without action.
+
+  `RootAuthorityV3 {schema:3,migration_id,protocol_sha256,purpose,ordinal,generation_intent_sha256,canonical_path,uid,dev,ino,root_mode,sentinel_dev,sentinel_ino,sentinel_sha256,custodian_pid,custodian_start_ticks,boot_id,socket_id,challenge_key_sha256,custodian_binary_sha256,bootstrap_sha256,authority_sha256}` uses decimal-string kernel identities, `root_mode:"0700"`, purpose `step-range|runner-receipt`, ordinal `2|3`, UUID boot id, and self-hash with only `authority_sha256` omitted. Its root contains reserved mode-0600 `.relay-authority-key`; the file is excluded from copied-payload equivalence, included in identity validation and A138 cleanup, and never exposed in stdout, Node, an execution event, or final evidence. The native custodian implements HMAC using the already-present SHA-256 module plus `libc::getrandom`; no Cargo dependency or feature changes. Node remains a bounded schema-v2 Ed25519 validator only.
+
+  Migration and layout publication are two serialized phases of one deterministic write-ahead protocol. `migration_id` is SHA-256 of compact JCS `{schema:1,uid,plan_commit,plan_blob,implementation_head,protocol_sha256,legacy_validator_identity_sha256,predecessors:[step-range/1,runner-receipt/1,runner-receipt/2]}`, with each predecessor the exact ordered `{purpose,ordinal,root,authority,pin,source_sha256}` sealed above. The sole coordinator is `/tmp/relay-root-migration.<migration_id>`; no CLI accepts a coordinator, predecessor, successor, root, authority, ledger, layout, receipt, quarantine, or cleanup pathname. Every mutating invocation opens `/tmp` once with `O_DIRECTORY|O_NOFOLLOW`, creates or exact-validates the uid-owned 0700 coordinator, and independently opens its permanent zero-length regular mode-0600 `.lock`. It polls `flock(LOCK_EX|LOCK_NB)` to one absolute `CLOCK_BOOTTIME` deadline `root_migration_lock_wait_ms=5000` at `root_migration_lock_poll_ms=25` and never converts lock mode. `--migration-apply` retains its open-file description through durable `Active`, then exits and releases it. The separately execed `--bootstrap-layout` independently reacquires the unchanged file, exact-revalidates the complete Active chain, retains its own open-file description through durable `RunnerLayoutV2`, then releases it. Retry/revalidation follows the same phase-specific transaction; no descriptor is claimed to survive process exit. A `.lock`-only coordinator is the exact recoverable post-create/pre-anchor state. Before mutation it scans current-uid `relay-root-migration.*` anchors and schema-v3 sentinels; another coordinator referencing a sealed predecessor or an unlisted successor is STOP.
+
+  Before the anchor, coordinator children may be exactly `.lock`, `.lock + .secrets.pending`, or `.lock + .secrets`; unknown state refuses. `.secrets.pending` may be regenerated only before an anchor. It is file-fsynced, renamed, and coordinator-fsynced to mode-0600 `MigrationSecretsV1 {schema:1,migration_id,step_root_token,step_socket_id,step_challenge_key,runner_root_token,runner_socket_id,runner_challenge_key,secrets_sha256}` where tokens/keys are 64 lower-hex and socket ids 32 lower-hex. Once the anchor exists, `.secrets` is immutable and its hash is bound. All coordinator objects are recursively closed RFC-8785 JCS; decimal kernel values are strings, modes four-character octal strings, self-hashes omit only themselves, manifests sort by raw UTF-8 path bytes, and unknown fields refuse. Every write is file-fsync then containing-directory fsync; every `/tmp` create/rename/removal also fsyncs the retained `/tmp` fd.
+
+  Closed identity and migration objects separate stable inode identity from mutable snapshot metadata. `FsIdentityV1 {schema:1,type:"regular"|"directory",dev,ino,uid,mode,identity_sha256}` hashes only stable type/dev/inode/owner/mode; directory nlink/size are never identity. `RegularFileIdentityV1 {schema:1,fs:FsIdentityV1,size,sha256,identity_sha256}` adds exact content/size for a closed regular-file snapshot. `LegacyValidatorIdentityV1 {schema:1,node:RegularFileIdentityV1,helper:RegularFileIdentityV1,identity_sha256}` binds the exact executable and helper opened by migration. `RootMigrationAnchorV2 {schema:2,migration_id,uid,plan_commit,plan_blob,implementation_head,protocol_sha256,legacy_validator_identity_sha256,predecessor_set_sha256,secrets_sha256,coordinator:FsIdentityV1,lock:RegularFileIdentityV1,anchor_sha256}` requires the lock snapshot to remain zero length with SHA-256 of empty bytes; later coordinator writes do not invalidate its stable directory identity. Two `SuccessorIntentV2 {schema:2,migration_id,purpose,ordinal,copied_from_ordinal:1,equivalent_ordinals,root_basename,authority_basename,root_token_sha256,socket_id,challenge_key_sha256,protocol_sha256,intent_sha256}` rows fix step/2 and runner/3; step has `equivalent_ordinals:[]`, runner/3 has `[2]` and copies runner/1. Prepared names, tokens, socket ids, and keys are immutable across retry.
+
+  `RootGenerationRecordV2 {schema:2,migration_id,purpose,ordinal,role:"predecessor"|"successor",relation:"canonical"|"equivalent"|"active",predecessor_generation_sha256s,root_parent:FsIdentityV1,root_basename,root:FsIdentityV1,sentinel_sha256,authority_parent:FsIdentityV1,authority_basename,authority:RegularFileIdentityV1,authority_schema:2|3,authority_sha256,protocol_sha256:null|<hex>,payload_manifest_sha256,chain_head_sha256,generation_sha256}` has semantic order step/1, step/2, runner/1, runner/2, runner/3. `RootGenerationLedgerV2 {schema:2,migration_id,anchor_sha256,protocol_sha256,verified_phase_head_sha256,generations,active:{step_range_generation_sha256,runner_receipt_generation_sha256},ledger_sha256}` binds exactly `RunnerVerified`, never a phase that binds the ledger. `ActiveRootSetV2 {schema:2,migration_id,anchor_sha256,ledger_sha256,active_phase_sha256,active,active_root_set_sha256}` alone adds the final Active phase hash, eliminating a hash cycle.
+
+  Coordinator filenames are exactly `.lock`, `.secrets`, `anchor.json`, `successor-intents.json`, `phases/<two-digit-ordinal>-<phase>.json`, `authority-ready/<purpose>.json`, `authority-challenges/<purpose>-initial.json`, `ledger.json`, and later `layout-intent.json` plus `layout.json`; no latest pointer exists. `RootMigrationPhaseReceiptV2 {schema:2,migration_id,ordinal,phase,anchor_sha256,previous_phase_sha256,payload,receipt_sha256}` follows exactly `Prepared→StepRootCreated→StepAuthorityReady→StepCopied→StepVerified→RunnerRootCreated→RunnerAuthorityReady→RunnerCopied→RunnerVerified→LedgerReady→Active`. Payloads are closed: `Prepared {secrets_sha256,legacy_validator_identity_sha256,predecessor_generation_sha256s,successor_intents,successor_intent_set_sha256}`; `*RootCreated {purpose,ordinal,intent_sha256,root:FsIdentityV1,sentinel_sha256,challenge_key_file:RegularFileIdentityV1,challenge_key_sha256}`; `*AuthorityReady {purpose,ordinal,intent_sha256,authority:RegularFileIdentityV1,authority_sha256,ready_record_sha256,initial_challenge_receipt_sha256}`; `*Copied {purpose,source_generation_sha256,source_payload_manifest_sha256,destination_payload_manifest_sha256,copied_prefix_manifest_sha256}`; `*Verified {purpose,source_payload_manifest_sha256,destination_payload_manifest_sha256,chain_head_sha256,equivalence_sha256}`; `LedgerReady {verified_phase_head_sha256,ledger_sha256}`; `Active {ledger_ready_phase_sha256,ledger_sha256,active_step_generation_sha256,active_runner_generation_sha256}`. Existing phases byte-equal recomputation; copy resumes only an exact prefix; neither purpose activates alone.
+
+  After durable `Prepared`, the migration parent forks each successor custodian, calls `setsid`, and self-execs the retained runner binary fd with `execveat(AT_EMPTY_PATH)`. `RootAuthorityBootstrapV1 {schema:1,migration_id,purpose,ordinal,intent_sha256,protocol_sha256,socket_id,challenge_key_sha256,binary_identity_sha256,bootstrap_sha256}` is written before fork, passed through one fixed read-only bootstrap fd with the key on a separate fixed fd, and hash-matched by the child. The child receives only bootstrap/key/ready fds, restores CLOEXEC after validation, creates the complete authority record and abstract listener, fsyncs authority plus `/tmp`, then writes coordinator-relative `RootAuthorityReadyRecordV1 {schema:1,migration_id,purpose,ordinal,intent_sha256,custodian_pid,custodian_start_ticks,boot_id,authority_sha256,protocol_sha256,socket_id,challenge_key_sha256,bootstrap_sha256,binary_identity_sha256,ready_boottime_ns,ready_sha256}` before the fixed `root_authority_ready_ms=5000` deadline. The parent then writes `RootAuthorityChallengeReceiptV1 {schema:1,migration_id,purpose,ordinal,authority_schema:3,authority_sha256,protocol_sha256,action:"validate",nonce,request_sha256,response_sha256,verified_boottime_ns,receipt_sha256}` after an exact initial HMAC challenge; this is the `initial_challenge_receipt_sha256` referenced by the phase. A child dying before valid readiness may be exact-cleaned and relaunched only under the same intent; a valid ready record whose process generation dies is STOP. A ready child survives the migration parent and remains live through A138. `root_authority_connect_ms=2000`, read/write deadlines are 2000 ms, shutdown total is 5000 ms with 25-ms poll; all are one absolute boottime deadline each.
+
+  Authoritative consumers accept only `migration_id + anchor_sha256 + ledger_sha256 + active_phase_sha256 + expected generation_sha256`, derive the coordinator internally, and resolve below retained fds. The native `RootHandle` retains original parent fd+basename, root dirfd, sentinel/key fds when applicable, authority parent fd+basename+record fd, parent/root/authority identities and hashes; canonical paths are diagnostics only. All I/O uses `openat`/`renameat2`/`unlinkat`; `Drop` closes only. C alone holds `RootAuthorityCapabilityV2 {root,authority_sha256,authority_pin,protocol_sha256,custodian_pid,custodian_start_ticks,ledger_sha256,active_phase_sha256,challenge_receipt_sha256}`. Before its first artifact it fsyncs `ProducerRootBindingReceiptV2 {schema:2,migration_id,anchor_sha256,ledger_sha256,active_phase_sha256,purpose:"runner-receipt",ordinal:3,generation_sha256,root_identity_sha256,sentinel_sha256,authority_sha256,challenge_nonce,challenge_response_sha256,producer_pid,producer_start_ticks,self_identity_sha256,binding_sha256}`; every state/context/result/attempt/manifest/cleanup/rehash object binds `binding_sha256`. It re-challenges before public state advance and Complete. D/G receive no root fd or coordinator access.
+
+  Native completion returns `Result`; after D exits, C bounded-signals and exact-waits every owned/adopted descendant until `waitpid(-1,WNOHANG)` returns `ECHILD`. Timeout, any remaining generation, failed fd-relative scratch cleanup, or failed manifest fsync writes `CleanupFailed`/`Poisoned`, never `Complete`. A109 uses the real production transition/root/attempt functions and closed `TransitionTrace {schema,case_id,operation,injected_condition,before_state_sha256,input_sha256,credential_sha256,decision,refusal_code,after_state_sha256,effects_sha256,artifact_delta_sha256,trace_sha256}`; refusal preserves state with empty effects/delta. `NativeOperationSupplierInventoryV2` covers every OS-affecting libc/rustix/retained-std callsite and exact locked version. Mutation injects standard filesystem/process calls and rejects alias, stale, duplicate, unclassified, or wrong-version rows. Adding a dependency or Cargo feature remains STOP.
+
+  A108 constants are exact: `appserver_cleanup_total_ms=5000`, `appserver_sigterm_grace_ms=1000`, `appserver_exit_deadline_ms=4000`, `appserver_close_deadline_ms=5000`, `appserver_cleanup_poll_ms=25`, `appserver_test_scheduler_slack_ms=250`, `stable_install_lock_wait_ms=5000`, `stable_install_lock_poll_ms=25`. App-server cleanup uses one `process.hrtime.bigint()` deadline: end stdin and SIGTERM at start, SIGKILL the same PID/start generation once at 1000 ms, require exit by 4000 ms, destroy local streams after exit, and require close plus exact generation absence by 5000 ms; elapsed is at most 5250 ms. The stable installer uses the one existing same-owner regular 0600 `runtime/install.lock`: independently open with no-follow checks, poll `flock(LOCK_EX|LOCK_NB)` to one 5000-ms monotonic deadline at 25 ms, acquire before reading `current`, retain the same fd through validation/writes/fsyncs/pointer rename/root fsync, then close. There is no owner directory, owner record, stale quarantine, replacement, or pre-lock selection. Two execed higher/lower installers overlap behind deterministic barriers in both orders; a holder exits while locked and the waiter acquires the unchanged file after kernel release. No wait resets its deadline.
+
+  `RunnerLayoutIntentV1 {schema:1,migration_id,anchor_sha256,ledger_sha256,active_phase_sha256,runner_generation_sha256,plan_blob,source_head,roots:[{purpose:"runner-build"|"runner-matrix-state"|"runner-live-state",basename,token_sha256}],intent_sha256}` is durable before a layout effect. `RunnerLayoutV2 {schema:2,migration_id,anchor_sha256,ledger_sha256,active_phase_sha256,runner_generation_sha256,plan_blob,source_head,layout_intent_sha256,build_root,matrix_parent_root,live_parent_root,binary:RunnerBinaryIdentityV2,artifacts:{matrix_result,runner_state_receipt,synthetic_producer_receipt,step8_rehash_receipt},layout_sha256}` uses closed `LayoutRootIdentityV1` roots and `ArtifactLocatorV1 {schema:1,scope:"active-runner-generation",relative_path,locator_sha256}`. Durable artifacts live under the active runner generation. Matrix/live parents contain only scratch `runs/<matrix-run-id>/` and `attempts/<four-digit-ordinal>/scratch`; each child has a closed identity/manifest/cleanup receipt and is removed fd-relatively. `capability_id` is bound inside the attempt receipt, never selected from a filename. Retry creates a child under the same live parent, never another top-level root or layout.
+
+  A109 migration/wire/layout interruption matrices are fixture-only under an internally created scratch child of the matrix parent and accept no live migration/root/authority/layout pathname. A138 crash matrices are likewise fixture-only before real cleanup. Both record `LiveMigrationStateSnapshotV1 {schema:1,migration_id,coordinator_manifest_sha256,generation_identity_sha256s,authority_record_sha256s,custodian_generation_sha256s,layout_sha256,layout_root_identity_sha256s,runner_receipt_manifest_sha256,snapshot_sha256}` before/after and require byte equality. Fixtures exercise `.lock`-only, `.secrets.pending`, every effect-before-phase boundary, readiness death, ledger-before-LedgerReady, Active-before-stdout, malformed frames, layout partials, and every A138 phase; they clean only their sentinel-bound scratch. Real A138 is the sole live cleanup writer.
+
+  A137 validates the exact five-generation ledger, `verified_phase_head_sha256`, LedgerReady/Active, active schema-v3 pair, three schema-v2 predecessors, every live custodian, stable layout parents, zero scratch, and no unlisted generation; it owns the final live challenge selected by `authority_schema`. Its two prerequisite results are durable files under `$FINAL_SCOPE_ROOT/a137-state/`: `negative-matrix.json` is `FinalScopeNegativeMatrixReceiptV1 {schema:1,plan_blob,implementation_tip,fixture_only:true,live_snapshot_before_sha256,cases_sha256,live_snapshot_after_sha256,live_unchanged:true,receipt_sha256}` and `range.json` is `FinalScopeRangeReceiptV1 {schema:1,plan_blob,implementation_tip,root_generation_ledger_sha256,root_active_phase_sha256,runner_layout_sha256,runner_attempt_chain_sha256,step_range_chain_sha256,event_chain_head,event_count:80,legacy_validator_identity_sha256,authority_challenge_receipt_sha256s,receipt_sha256}`. The negative command accepts `--emit`; range verification accepts that receipt plus `--emit`; prefix sealing accepts both receipts and binds both hashes into event 81, `AcceptancePrefixSnapshot`, and `AcceptancePrefixReceipt`. Before any schema-v2 validation, range verification opens the exact `--legacy-validator-node` and `--legacy-validator-helper`, recomputes `LegacyValidatorIdentityV1`, and exact-matches the migration anchor; it never resolves an unbound executable or helper.
+
+  A138 derives `cleanup_id = sha256(JCS({schema:1,execution_plan_blob,implementation_tip,a137_prefix_sha256,root_generation_ledger_sha256,runner_layout_sha256}))`; no caller supplies it. Before any other A138 effect it exclusive-creates and fsyncs top-level `BootstrapIntent`. That intent fixes the quarantine/recovery/snapshot relative paths, source binary identity, ordered fixture inventories, and all immutable input hashes. `$FINAL_SCOPE_ROOT/quarantine/.a138-quarantine-parent.json` is mode-0600 `A138QuarantineMarkerV1 {schema:1,cleanup_id,relative_path:"quarantine",marker_sha256}` with self-hash omitted; the mode-0700 parent is `A138QuarantineParentV1 {schema:1,cleanup_id,relative_path:"quarantine",fs:FsIdentityV1,marker_sha256,identity_sha256}` and must share the retained `/tmp` filesystem. A crash after create but before `QuarantinePrepared` adopts only that exact marker/root identity; absent creates it, and any other state stops.
+
+  `CoordinatorSnapshotV1 {schema:1,migration_id,coordinator:FsIdentityV1,coordinator_manifest_sha256,anchor_sha256,ledger_sha256,active_phase_sha256,layout_sha256,snapshot_sha256}` is the exact `coordinator_snapshot_sha256` producer. `A138RecoveryBundleV1 {schema:1,cleanup_id,entries,manifest_sha256}` has byte-sorted exact entries for the mode-0500 `recovery/runner_job_custodian`, coordinator snapshot, ledger, every migration/journal/authority-ready/challenge record, layout intent/layout, and live snapshot. Each entry binds relative path, `FsIdentityV1`, size, and SHA-256. Fixed `.pending` files are written and file-fsynced, then no-replace-renamed and parent-fsynced; retry after `BootstrapIntent` accepts only absent, an exact source-hash pending file it can finish, or the exact final file. `RecoveryPrepared` binds the complete bundle and `RunnerRecoveryIdentityV1 {schema:1,relative_path:"recovery/runner_job_custodian",source_binary_sha256,fs:FsIdentityV1,size,sha256,identity_sha256}`. Generation quarantine basenames are `generation-<two-digit-ledger-index>-<generation_sha256>`; coordinator and layout basenames are `coordinator-<migration_id>` and `layout-<01|02|03>-<root-identity-sha256>`. Every `renameat2(...,RENAME_NOREPLACE)` and removal is fd-relative and parent-fsynced.
+
+  Before cleanup, the A138 entrypoint derives two closed fixture-only results. `Step8ScopeResultV1 {schema:1,plan_blob,implementation_tip,step8_rehash_sha256,runner_attempt_chain_sha256,step_range_chain_sha256,event_chain_head,result_sha256}` is produced by the real Step-8 scope validator over the named immutable inputs; `result_sha256` hashes JCS without itself. `SourceReadyDerivationMatrixReceiptV1 {schema:1,plan_blob,implementation_tip,fixture_only:true,case_ids,case_inventory_sha256,results_sha256,receipt_sha256}` is produced by the source-ready derivation matrix over internally created fixtures; `case_ids` exact-match the ordered `SourceReadyDerivationCaseInventoryV1`, `results_sha256` hashes their closed ordered results, and `receipt_sha256` hashes JCS without itself. The exact inventory JCS is `{"cases":["missing-handoff","duplicate-handoff","changed-handoff","missing-completion-receipt","duplicate-completion-receipt","changed-completion-receipt","verifier-output-mismatch","external-tmp-dependency","missing-event","extra-event","forked-event","missing-summary","extra-summary","forked-summary","absent-migration-cleanup","absent-coordinator-cleanup","absent-root-generation-cleanup","absent-runner-layout-cleanup","absent-finalization","latest-result-substitution","wrong-archive-path","wrong-archive-date","wrong-archive-commit","wrong-ancestry","wrong-order","wrong-count","wrong-hash","packaged-ready-true","fanout-unblock-true"],"schema":1}` with SHA-256 `6d1f1d4f7bad29d0009152c1eadc448c17987bc503269066fc8b2b8251420ee2`.
+
+  Both fixture matrices resume through `A138FixtureCaseProgressV1 {schema:1,cleanup_id,matrix:"cleanup-crash"|"source-ready-derivation",case_ordinal,case_id,phase:"Intent"|"ResultPersisted"|"FixtureRemoved",previous_case_phase_sha256,payload,receipt_sha256}`. `Intent {case_input_sha256,fixture_basename}` fsyncs before fixture creation; `ResultPersisted {result_sha256,artifact_manifest_sha256}` fsyncs before removal; `FixtureRemoved {result_persisted_sha256,fixture_absence_sha256}` closes the case. Case ids are mechanically derived in plan order from every closed top-level and nested journal phase as `<journal>/<phase>/after-intent` and `<journal>/<phase>/after-effect-before-receipt`, plus every source-ready projection negative named in A138; A109 exact-validates the derived vector and its hash. Retry loads the latest progress row, never reruns a `FixtureRemoved` case, resumes an exact in-progress fixture from its own phase journal, and rejects an unjournaled child. Neither matrix accepts a live root/coordinator/layout path. One `LiveMigrationStateSnapshotV1` is taken before the first case and after the last; hashes must be equal, and `Prepared.live_snapshot_sha256` is exactly that common hash.
+
+  A138 journals are recursively closed. `FinalAcceptancePhaseReceiptV2 {schema:2,cleanup_id,ordinal,phase,previous_phase_sha256,payload,receipt_sha256}` has exactly one each of `BootstrapIntent`, `QuarantinePrepared`, `RecoveryPrepared`, `FixtureMatricesPrepared`, and `Prepared`; five `GenerationCleanup` rows in ledger order; one `CoordinatorCleanup`; three `LayoutCleanup` rows in build/matrix/live order; then exactly one each of `AllRootsRemoved`, `Event82Written`, `SummaryPublished`, `Finalized`, and `ExecutionEvidencePublished`. Top-level payloads are exact: `BootstrapIntent {execution_plan_commit,execution_plan_blob,implementation_tip,cleanup_id,a137_prefix_snapshot_sha256,a137_prefix_sha256,a137_negative_matrix_receipt_sha256,a137_range_receipt_sha256,root_generation_ledger_sha256,root_active_phase_sha256,runner_layout_sha256,source_binary_sha256,quarantine_relative_path,recovery_relative_path,fixture_case_inventory_sha256,source_ready_case_inventory_sha256,live_snapshot_before_sha256,coordinator_snapshot_sha256}`; `QuarantinePrepared {bootstrap_intent_sha256,quarantine_parent_identity_sha256}`; `RecoveryPrepared {quarantine_prepared_sha256,recovery_identity_sha256,recovery_bundle_manifest_sha256,coordinator_snapshot_sha256}`; `FixtureMatricesPrepared {recovery_prepared_sha256,step8_scope_result_sha256,a138_fixture_matrix_receipt_sha256,source_ready_matrix_receipt_sha256,fixture_progress_chain_sha256,live_snapshot_before_sha256,live_snapshot_after_sha256,live_unchanged:true}`; `Prepared {bootstrap_intent_sha256,execution_plan_commit,execution_plan_blob,implementation_tip,cleanup_id,a137_prefix_snapshot_sha256,a137_prefix_sha256,a137_negative_matrix_receipt_sha256,a137_range_receipt_sha256,step8_scope_result_sha256,a138_fixture_matrix_receipt_sha256,source_ready_matrix_receipt_sha256,root_generation_ledger_sha256,root_active_phase_sha256,live_snapshot_sha256,coordinator_snapshot_sha256,runner_layout_sha256,quarantine_parent_identity_sha256,recovery_identity_sha256,recovery_bundle_manifest_sha256}`; `GenerationCleanup {generation_index,generation_sha256,generation_cleanup_receipt_sha256}`; `CoordinatorCleanup {coordinator_cleanup_receipt_sha256}`; `LayoutCleanup {layout_index,layout_purpose,layout_root_identity_sha256,layout_cleanup_receipt_sha256}`; `AllRootsRemoved {generation_completion_sha256s,coordinator_completion_sha256,layout_completion_sha256s,absence_manifest_sha256}`; `Event82Written {event82_sha256,event_chain_head}`; `SummaryPublished {summary_sha256,criteria_sha256}`; `Finalized {all_roots_removed_sha256,event82_sha256,summary_sha256,finalized_sha256}`; and `ExecutionEvidencePublished {finalized_sha256,final_execution_evidence_sha256,evidence_file_identity_sha256}`. Unknown, duplicate, missing, or out-of-order row/payload fields fail.
+
+  Each `GenerationCleanupReceiptV2 {schema:2,cleanup_id,generation_index,generation_sha256,ordinal,phase,previous_generation_phase_sha256,payload,receipt_sha256}` orders exactly `Bound→ShutdownIntent→CustodianClosed→QuarantineIntent→Quarantined→PayloadRemovalIntent→PayloadRemoved→SentinelRemovalIntent→SentinelRemoved→RootRemovalIntent→RootRemoved→AuthorityRemovalIntent→AuthorityRemoved→Complete`. Payloads are exact: `Bound {generation_record_sha256,root_parent:FsIdentityV1,root:FsIdentityV1,sentinel_sha256,authority_parent:FsIdentityV1,authority:RegularFileIdentityV1,authority_schema,authority_sha256,custodian_pid,custodian_start_ticks,boot_id}`; `ShutdownIntent {authority_schema,wire_protocol_sha256,action:"shutdown",nonce,request_sha256,custodian_pid,custodian_start_ticks,boot_id,deadline_boottime_ns,intent_sha256}`; `CustodianClosed {outcome:"AckedThenAbsent"|"AlreadyAbsentAfterIntent",shutdown_intent_sha256,response_sha256:null|<hex>,absence_sha256}`; `QuarantineIntent {original_parent_identity_sha256,original_basename,quarantine_parent_identity_sha256,quarantine_basename,root_identity_sha256,intent_sha256}`; `Quarantined {quarantine_intent_sha256,original_absence_sha256,quarantine_root_identity_sha256,quarantine_parent_fsync_completed:true}`; `PayloadRemovalIntent {payload_manifest_sha256,removal_order_sha256,intent_sha256}`; `PayloadRemoved {payload_removal_intent_sha256,removed_manifest_sha256,remaining_names:[".relay-root.json"]}`; `SentinelRemovalIntent {sentinel_sha256,empty_after_removal_identity_sha256,intent_sha256}`; `SentinelRemoved {sentinel_removal_intent_sha256,removed_sentinel_sha256,empty_root_identity_sha256}`; `RootRemovalIntent {quarantine_parent_identity_sha256,quarantine_basename,empty_root_identity_sha256,intent_sha256}`; `RootRemoved {root_removal_intent_sha256,root_absence_sha256,quarantine_parent_fsync_completed:true}`; `AuthorityRemovalIntent {authority_parent_identity_sha256,authority_basename,authority_identity_sha256,authority_sha256,intent_sha256}`; `AuthorityRemoved {authority_removal_intent_sha256,authority_absence_sha256,authority_parent_fsync_completed:true}`; and `Complete {terminal_generation_phase_sha256,root_absence_sha256,authority_absence_sha256,completion_sha256}`. `ShutdownIntent.wire_protocol_sha256` is exact: `authority_schema=2` maps only to frozen legacy protocol `2eee9de02ad3e2dd9f179d4c3c75b4f117e8ee34f938cac0454cb6514671ad53`, while `authority_schema=3` maps only to HMAC protocol `db3a361a1b29b1ee85742af628cf616bf7755a83a214cc76d1a8d35062f6118c`; any other pairing fails before an effect. Schema 2 uses the exact anchored `LegacyValidatorIdentityV1`, nullable authority-record boot id plus live observed boot, and the approved legacy client behavior above; schema 3 uses native HMAC. A reused PID is never signalled.
+
+  `CoordinatorCleanupReceiptV1 {schema:1,cleanup_id,ordinal,phase,previous_coordinator_phase_sha256,payload,receipt_sha256}` orders exactly `Bound→QuarantineIntent→Quarantined→RemovalIntent→Removed→Complete`. Payloads are `Bound {coordinator:FsIdentityV1,lock:RegularFileIdentityV1,coordinator_manifest_sha256,quarantine_parent_identity_sha256}`; `QuarantineIntent {original_parent_identity_sha256,original_basename,quarantine_parent_identity_sha256,quarantine_basename,coordinator_identity_sha256,intent_sha256}`; `Quarantined {quarantine_intent_sha256,original_absence_sha256,quarantine_coordinator_identity_sha256,quarantine_parent_fsync_completed:true}`; `RemovalIntent {coordinator_manifest_sha256,removal_order_sha256,lock_relative_path:".lock",lock_removed_last:true,intent_sha256}`; `Removed {removal_intent_sha256,removed_manifest_sha256,coordinator_absence_sha256,quarantine_parent_fsync_completed:true}`; `Complete {terminal_coordinator_phase_sha256,coordinator_absence_sha256,completion_sha256}`. It snapshots every anchor/secrets/phase/ready/ledger/layout/lock file, moves while holding `.lock`, removes `.lock` last, then removes the quarantine.
+
+  Each `LayoutCleanupReceiptV1 {schema:1,cleanup_id,layout_index,layout_purpose,layout_root_identity_sha256,ordinal,phase,previous_layout_phase_sha256,payload,receipt_sha256}` orders exactly `Bound→QuarantineIntent→Quarantined→PayloadRemovalIntent→PayloadRemoved→SentinelRemovalIntent→SentinelRemoved→RootRemovalIntent→RootRemoved→Complete`. Its payloads mirror the generation root phases without authority/custodian fields: `Bound {layout_root_identity_sha256,root_parent:FsIdentityV1,root:FsIdentityV1,sentinel_sha256,payload_manifest_sha256,quarantine_parent_identity_sha256}`; `QuarantineIntent {original_parent_identity_sha256,original_basename,quarantine_parent_identity_sha256,quarantine_basename,root_identity_sha256,intent_sha256}`; `Quarantined {quarantine_intent_sha256,original_absence_sha256,quarantine_root_identity_sha256,quarantine_parent_fsync_completed:true}`; `PayloadRemovalIntent {payload_manifest_sha256,removal_order_sha256,intent_sha256}`; `PayloadRemoved {payload_removal_intent_sha256,removed_manifest_sha256,remaining_names:[".relay-root.json"]}`; `SentinelRemovalIntent {sentinel_sha256,empty_after_removal_identity_sha256,intent_sha256}`; `SentinelRemoved {sentinel_removal_intent_sha256,removed_sentinel_sha256,empty_root_identity_sha256}`; `RootRemovalIntent {quarantine_parent_identity_sha256,quarantine_basename,empty_root_identity_sha256,intent_sha256}`; `RootRemoved {root_removal_intent_sha256,root_absence_sha256,quarantine_parent_fsync_completed:true}`; `Complete {terminal_layout_phase_sha256,root_absence_sha256,completion_sha256}`. All manifests use `FileManifestV1 {schema:1,entries,removal_order,manifest_sha256}` and byte-sorted `FileManifestEntryV1 {schema:1,relative_path,fs:FsIdentityV1,size:null|<decimal-string>,content_sha256:null|<hex>,entry_sha256}`; directories carry null size/content, regular files carry exact size/content, removal order is child-before-parent, and links/specials refuse.
+
+  The fixture-only interruption result is durable `A138FixtureMatrixReceiptV1 {schema:1,plan_blob,implementation_tip,live_snapshot_before_sha256,fixture_case_ids,fixture_results_sha256,fixture_progress_chain_sha256,live_snapshot_after_sha256,live_unchanged:true,receipt_sha256}`. The single A138 entrypoint always loads the latest top-level receipt before resolving a runner/coordinator path. With no receipt it derives and writes only `BootstrapIntent`; every later invocation resumes the one next phase from authenticated final-scope bytes. It never reruns a closed fixture case, overwrites an artifact, or guesses whether an unjournaled effect occurred. Before layout removal it opens/retains the layout binary; after the first completed layout removal it executes only the authenticated recovery binary and never resolves deleted `RUNNER_BIN`. Retry after every pre-Prepared, nested-cleanup, and terminal barrier converges to byte-identical hashes. Only exact continued absence of all five roots/authorities/custodian generations, coordinator, three layout roots, and every quarantine child permits event82, the 38-row summary, Finalized, and `FinalExecutionEvidenceV1`; final-scope evidence/recovery remain until committed evidence import.
+
+- **Exact Draft-44 native bootstrap and descriptor-free migration gate (after the repair commit, before A109 and any further event):** run from clean `/tmp/docks-primitives-collab` with Cargo cwd fixed to `plugins/session-relay/rust/`:
+
+  ```bash
+  set -euo pipefail
+  test -n "$PLAN_COMMIT" && test -n "$PLAN_BLOB" && test -n "$STEP1B_REPAIR_HEAD"
+  test "$(git rev-parse HEAD)" = "$STEP1B_REPAIR_HEAD" && test -z "$(git status --porcelain)"
+  (cd plugins/session-relay/rust && cargo build --locked --bin runner_job_custodian)
+  export RUNNER_BOOTSTRAP_BIN="$PWD/plugins/session-relay/rust/target/debug/runner_job_custodian"
+  test -x "$RUNNER_BOOTSTRAP_BIN"
+  export ROOT_MIGRATION_ID="$(node plugins/session-relay/test/wip-snapshot.mjs --derive-root-migration-id --plan-commit "$PLAN_COMMIT" --plan-blob "$PLAN_BLOB" --implementation-head "$STEP1B_REPAIR_HEAD")"
+  "$RUNNER_BOOTSTRAP_BIN" --migration-apply --migration-id "$ROOT_MIGRATION_ID" --plan-commit "$PLAN_COMMIT" --plan-blob "$PLAN_BLOB" --implementation-head "$STEP1B_REPAIR_HEAD" --legacy-validator-node "$(command -v node)" --legacy-validator-helper plugins/session-relay/test/wip-snapshot.mjs
+  export ROOT_ACTIVE_JSON="$("$RUNNER_BOOTSTRAP_BIN" --migration-describe --migration-id "$ROOT_MIGRATION_ID" --expect-active)"
+  export ROOT_MIGRATION_PIN="$(printf %s "$ROOT_ACTIVE_JSON" | jq -er ".anchor_sha256")"
+  export ROOT_GENERATION_LEDGER_SHA256="$(printf %s "$ROOT_ACTIVE_JSON" | jq -er ".ledger_sha256")"
+  export ROOT_ACTIVE_PHASE_SHA256="$(printf %s "$ROOT_ACTIVE_JSON" | jq -er ".active_phase_sha256")"
+  export STEP_RECEIPT_GENERATION_SHA256="$(printf %s "$ROOT_ACTIVE_JSON" | jq -er ".active.step_range_generation_sha256")"
+  export RUNNER_RECEIPT_GENERATION_SHA256="$(printf %s "$ROOT_ACTIVE_JSON" | jq -er ".active.runner_receipt_generation_sha256")"
+  "$RUNNER_BOOTSTRAP_BIN" --migration-validate --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256"
+  "$RUNNER_BOOTSTRAP_BIN" --bootstrap-layout --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --plan-blob "$PLAN_BLOB" --source-head "$STEP1B_REPAIR_HEAD"
+  export RUNNER_LAYOUT_JSON="$("$RUNNER_BOOTSTRAP_BIN" --layout-describe --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256")"
+  export RUNNER_LAYOUT_SHA256="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".layout.layout_sha256")"
+  export RUNNER_BUILD_DIR="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.build_root")"
+  export RUNNER_BIN="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.binary")"
+  export RUNNER_BIN_SHA256="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".layout.binary.layout_binary.sha256")"
+  export RUNNER_MATRIX_STATE_DIR="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.matrix_parent_root")"
+  export RUNNER_LIVE_STATE_DIR="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.live_parent_root")"
+  export RUNNER_MATRIX_RESULT="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.artifacts.matrix_result")"
+  export RUNNER_STATE_RECEIPT="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.artifacts.runner_state_receipt")"
+  export RUNNER_SYNTHETIC_PRODUCER_RECEIPT="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.artifacts.synthetic_producer_receipt")"
+  export STEP8_REHASH_RECEIPT="$(printf %s "$RUNNER_LAYOUT_JSON" | jq -er ".diagnostic_paths.artifacts.step8_rehash_receipt")"
+  test -x "$RUNNER_BIN" && test "$(sha256sum "$RUNNER_BIN" | cut -d" " -f1)" = "$RUNNER_BIN_SHA256"
+  "$RUNNER_BIN" --layout-validate --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256"
+  ```
+
+  `--migration-apply` owns coordinator/root transaction state; it uses native HMAC schema-v3 custodians and invokes the fixed Node helper only for bounded schema-v2 validation. `--migration-describe` emits exactly one compact-JCS `ActiveRootSetV2`. Validation prints `ROOT_AUTHORITY_MIGRATION PASS step_generations=2 runner_generations=3 phases=11 events=8 step_receipts=1 ledger_sha256=<hex> active_phase_sha256=<hex>`. `--bootstrap-layout` precommits `RunnerLayoutIntentV1`, copies retained bootstrap bytes to the immutable build root, creates stable sentinel-bound matrix/live parent roots, and writes coordinator-relative `RunnerLayoutV2`; it never creates or selects a receipt root. `--layout-describe` emits closed `RunnerLayoutDescriptionV1 {schema:1,layout:RunnerLayoutV2,diagnostic_paths:{build_root,binary,matrix_parent_root,live_parent_root,artifacts},description_sha256}`; paths are diagnostic only. Every native mode reopens through migration/ledger/Active/generation/layout hashes. Final validation prints `RUNNER_LAYOUT PASS layout_sha256=<hex> binary_sha256=<hex>`. Later dispatches reconstruct the same exports; no stdout path is authority.
+
+- **Exact A106 post-step range contract:** set `STEP_BASE` and `STEP_HEAD` to clean committed tips and run the helper after every step in canonical order `1b,3c,3d,1c,1d,4,5,6,7,8,9`. It writes exclusive-create append-only `StepRangeReceipt {schema:2,step,ordinal,base,head,previous_receipt_sha256,supersedes_receipt_sha256|null,historical_manifest_sha256,allowlist_manifest_sha256,entries,entries_sha256,receipt_sha256}` at `<ordinal>-<step>-<receipt_sha256>.json`, fsyncs file+directory, and prints `STEP_RANGE PASS step=<id> ordinal=<n> base=<sha> head=<sha> entries=<n> receipt_sha256=<hex>`. Each actual raw mutation must exact-match an allowed literal row; acceptance gates, not unused allowlist rows, prove completeness. A same-step repair appends a superseding receipt only while the old receipt is latest, uses the same original base and an ancestor-expanded head, points both previous+supersedes to the old hash, and retains the old file. A later-step receipt makes earlier supersession illegal. Missing/overwritten/deleted/forked/reordered receipt, wrong previous hash, cross-step supersession, narrowed base, nonancestor head, dirty/noncurrent HEAD, or unallowed mutation fails. A137 validates the full append ledger, selects one terminal active receipt per step, and requires exact active-step contiguity. A104 binds pre-edit/WIP bytes; A106 binds committed-clean ranges.
+
+- **Exact Step-P Docks-only prerequisite:** main-context plan-manager first completes and ships `legacy-start-transition-compatibility` and records its returned date-prefixed `FINISHED_COMPAT_PLAN` plus `FINISHED_COMPAT_COMMIT`. The owner authorization is `owner-2026-07-13-four-release-order-docks-prerequisite`, SHA-256 `f8f38319a72f258dd66d9b31f620cd13ec1968f1d1d169d94e3ebc6b55dde77a`; it permits the Docks-only patch release and two runtime refreshes after that plan passes. From clean main, run exactly:
+
+  ```bash
+  set -euo pipefail
+  test -n "$FINISHED_COMPAT_PLAN" && test -n "$FINISHED_COMPAT_COMMIT"
+  case "$FINISHED_COMPAT_PLAN" in docs/plans/finished/????-??-??-legacy-start-transition-compatibility.md) ;; *) exit 1 ;; esac
+  test "$(git rev-parse "$FINISHED_COMPAT_COMMIT^{commit}")" = "$FINISHED_COMPAT_COMMIT"
+  git cat-file -e "$FINISHED_COMPAT_COMMIT:$FINISHED_COMPAT_PLAN"
+  test "$(git branch --show-current)" = main
+  test "$(git rev-parse HEAD)" = "$FINISHED_COMPAT_COMMIT"
+  test -z "$(git status --porcelain)"
+  export DOCKS_RELEASE_AUTHORIZATION_ID=owner-2026-07-13-four-release-order-docks-prerequisite
+  export DOCKS_RELEASE_AUTHORIZATION_SHA256=f8f38319a72f258dd66d9b31f620cd13ec1968f1d1d169d94e3ebc6b55dde77a
+  export PLAN_PATH=docs/plans/active/relay-worker-lifecycle-primitives.md
+  export PLANNED_AT_COMMIT=12cf2ead208fe932084890b8e3fbd5c72591f3db
+  export EXECUTION_BASE_COMMIT=de925e9bc046645a72f59bcd493da44d53adaf5a
+  export EFFECT_VERSION_BEFORE="$(jq -er '.version' plugins/effect-kit/.claude-plugin/plugin.json)"
+  export RELAY_VERSION_BEFORE="$(jq -er '.version' plugins/session-relay/.claude-plugin/plugin.json)"
+  node scripts/ci.mjs
+  node scripts/release.mjs --dry-run --plugin docks patch
+  node scripts/release.mjs --plugin docks patch
+  export RELEASE_COMMIT="$(git rev-parse HEAD)"
+  export RELEASE_VERSION="$(jq -er '.version' plugins/docks/.codex-plugin/plugin.json)"
+  export RELEASE_TAG="docks--v$RELEASE_VERSION"
+  test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"
+  test "$(git ls-remote --heads origin refs/heads/main | awk 'NR==1 {print $1}')" = "$RELEASE_COMMIT"
+  test "$(jq -er '.version' plugins/effect-kit/.claude-plugin/plugin.json)" = "$EFFECT_VERSION_BEFORE"
+  test "$(jq -er '.version' plugins/session-relay/.claude-plugin/plugin.json)" = "$RELAY_VERSION_BEFORE"
+  export RELEASE_URL="$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,url --jq 'select(.isDraft == false and .isPrerelease == false and .tagName == env.RELEASE_TAG) | .url')"
+  test -n "$RELEASE_URL"
+  codex plugin marketplace upgrade docks --json
+  codex plugin add docks@docks --json
+  claude plugin update docks@docks --scope user
+  export SOURCE_POLICY=plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs
+  export CODEX_POLICY="$HOME/.codex/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs"
+  export CLAUDE_POLICY="$HOME/.claude/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs"
+  test -f "$CODEX_POLICY" && test -f "$CLAUDE_POLICY"
+  export SOURCE_POLICY_SHA256="$(sha256sum "$SOURCE_POLICY" | cut -d' ' -f1)"
+  test "$SOURCE_POLICY_SHA256" = "$(sha256sum "$CODEX_POLICY" | cut -d' ' -f1)"
+  test "$SOURCE_POLICY_SHA256" = "$(sha256sum "$CLAUDE_POLICY" | cut -d' ' -f1)"
+  codex plugin list | grep -F "docks@docks" | grep -F "$RELEASE_VERSION"
+  claude plugin list | grep -A3 -F "docks@docks" | grep -F "Version: $RELEASE_VERSION"
+  export E0="$RELEASE_COMMIT"
+  ```
+
+  The two update commands must complete before new Codex and Claude processes are used; the current long-lived session never claims its already-loaded skill bytes changed. Plan-manager then uses the released helper explicitly and performs this exact plan-only sequence: (1) from clean `E0`, run `node "$CODEX_POLICY" compatibility-evidence . "$E0" "$PLAN_PATH" "$PLANNED_AT_COMMIT" "$EXECUTION_BASE_COMMIT" owner-2026-07-13-remodel-and-review-plan 1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96`, apply only its Markdown plus `updated`, and commit E; (2) ordinary findings-only review E with exact eligible outcome `dual|single`, apply its mandatory attribution plus receipt, and commit R; (3) run `node "$CODEX_POLICY" compatibility-binding . "$PLAN_PATH" "$E" "$R"`, apply only its Markdown plus `updated`, and commit B; (4) run `node "$CODEX_POLICY" compatibility-prerequisite . "$PLAN_PATH" "$FINISHED_COMPAT_PLAN" "$FINISHED_COMPAT_COMMIT" "$RELEASE_VERSION" "$E" "$R" "$B" "$DOCKS_RELEASE_AUTHORIZATION_ID" "$DOCKS_RELEASE_AUTHORIZATION_SHA256"`, require one validated compact-JCS `DocksCompatibilityPrerequisiteApplicationV1`, apply only its `markdown`, change only Step P `planned→done` plus `updated`, and commit Q; (5) ordinary findings-only review the exact Q blob, require `dual|single`, apply its mandatory attribution and replacement receipt, and commit F. The prerequisite constructor—not plan-manager prose—owns remote-main/tag, GitHub Release, Codex/Claude plugin/cache, source-policy, authorization, archive/release, E/R/B, observation, receipt, and application validation. No implementation path changes in E/R/B/Q/F.
+
+  Finally set `PLAN_COMMIT=F` and `PLAN_BLOB=$(git rev-parse "$PLAN_COMMIT:$PLAN_PATH")`; require `node "$CODEX_POLICY" execution-range . "$PLAN_COMMIT" "$PLAN_PATH" "$PLANNED_AT_COMMIT" "$EXECUTION_BASE_COMMIT"` and the identical Claude-cache command to emit byte-identical schema-1 `LegacyExecutionRangeValidationV1`, and require the ordinary F receipt to bind reviewed commit Q with findings-free `dual|single`. Only that F commit/blob is dispatch authority.
+- **Execution-event accounting versus completion acceptance:** A101–A138 remain shared criterion identities, but the `## Execution gate catalogue` and `## Acceptance criteria` are intentionally different command surfaces. Only the already-recorded eight-event/one-range-receipt prefix is immutable byte-for-byte; all not-yet-executed command/expected pairs are remodeled by this Draft-44 author snapshot and become immutable only when that reviewed plan commit/blob is sealed. The sealed execution catalogue is the sole source for the 82 `AcceptanceEventReceipt.command_sha256/expected_sha256` values. The canonical acceptance table contains only repeatable read-only completion verifiers; running one never appends an event. Every actual execution occurrence appends and fsyncs one exclusive-create `AcceptanceEventReceipt {schema:1,event_ordinal,occurrence_id,phase,criterion_id,scope,command_sha256,expected_sha256,exit_code,met,result_sha256,previous_event_sha256,event_sha256}`; ordinals 1–80 live below the active runner generation's `acceptance-events/`, while terminal A137/A138 ordinals 81–82 live below sentinel-bound `$FINAL_SCOPE_ROOT/acceptance-events/` so their evidence survives runner/coordinator cleanup. `event_sha256` is JCS SHA-256 over every preceding field. `occurrence_id` is exactly `<phase>/<criterion_id>/<scope>`, unique in the closed schedule below; `scope` is `default` unless written explicitly. The first Step-1b repair commit imports the exact already-immutable prefix without rerunning it and binds each imported result to its original Git/evidence hash. Later events are written only after the sealed execution-catalogue command returns or, for A137/A138, by its final durable sub-operation. No overwrite, deletion, duplicate id, gap, fork, reordered ordinal, unlisted phase/criterion/scope, result substitution, completion-command hash, or `met:true` with nonzero exit is valid.
+
+  `AcceptanceEventScheduleV1` is the following literal dependency-ordered map; order within each row and row order are semantic:
+
+  ```text
+  historical: A101,A102,A112,A114,A115,A132
+  1b: A103,A105,A109,A107,A108,A106
+  3c: A104,A113,A116,A106
+  3d: A104,A117,A127/pre-controller,A128/pre-controller,A106
+  1c: A104,A110,A106
+  1d: A104,A111,A106
+  4: A104,A118,A119,A120,A106
+  5: A104,A121,A122,A123,A124,A127/complete,A128/post-controller,A106
+  6: A104,A125,A126,A131/protocol,A106
+  7: A104,A128/post-terminal,A129,A130,A131/terminal,A106
+  8: A104,A105,A107,A108,A109,A112,A113,A114,A115,A116,A117,A118,A122,A123,A124,A126,A127,A128,A129,A130,A131,A132,A133,A106
+  9: A104,A134,A136,A106,A135,A137,A138
+  ```
+
+  Step 9 applies its allowed mutations after A104, runs A134 and A136 against that uncommitted tree, commits, appends A106 for the exact `STEP9_BASE..STEP9_HEAD` range, then hands the clean exact `STEP9_HEAD` to the orchestrator for the already-owner-authorized non-forced publication. Only after the remote ref byte-equals `STEP9_HEAD` may A135 run; A137–A138 follow contiguously. This is the sole deliberate numeric-order break inside that phase. A109 parses the execution catalogue plus literal map, requires all and only A101–A138, the exact occurrence counts, scoped A127/A128/A131 rows, Step-8 repeat set, and six one-shot RunGate positions; separately it parses the canonical completion inventory and requires exactly 38 criterion-specific verifier commands. A137 validates events 1–80, then appends event 81 and fsyncs `AcceptancePrefixSnapshot {schema:1,schedule_sha256,event_count:81,events,partial_criteria,negative_matrix_receipt_sha256,range_receipt_sha256,event_chain_head,snapshot_sha256}` plus `AcceptancePrefixReceipt {schema:1,schedule_sha256,event_count:81,event_chain_head,criteria_through:A137,negative_matrix_receipt_sha256,range_receipt_sha256,prefix_snapshot_sha256,receipt_sha256}` under final scope.
+
+  A138's single entrypoint owns the recursively closed `FinalAcceptancePhaseReceiptV2` and nested generation/coordinator/layout journals defined above. Its exact top-level cardinality is one each of `BootstrapIntent`, `QuarantinePrepared`, `RecoveryPrepared`, `FixtureMatricesPrepared`, and `Prepared`; five `GenerationCleanup`; one `CoordinatorCleanup`; three `LayoutCleanup`; and one each of `AllRootsRemoved`, `Event82Written`, `SummaryPublished`, `Finalized`, and `ExecutionEvidencePublished`. The first durable intent precedes every quarantine/recovery/matrix effect; the four following pre-cleanup rows close exact adoption/resume behavior. `Prepared` only validates and binds already-durable artifacts and the equal live snapshot; it performs no unjournaled setup. Each cleanup row references exactly one terminal nested receipt. The three `LayoutCleanup` rows bind authenticated fd-relative removal of the build, matrix, and live stable parents after the coordinator is absent. `AllRootsRemoved` requires five roots/quarantines/authority files/custodian generations, the coordinator, three layout roots, and every quarantine child absent. Only then may event 82 and `AcceptanceSummaryReceipt {schema:1,schedule_sha256,event_chain_head,criteria,criteria_sha256,root_generation_cleanup_sha256,runner_layout_cleanup_sha256,all_roots_removed_sha256,receipt_sha256}` be written. Its 38 ordered `AcceptanceCriterionSummary {schema:1,criterion_id,events,met,summary_sha256}` rows contain every exact scheduled `{occurrence_id,event_sha256,result_sha256}`; `met=true` requires every occurrence and no extra one.
+
+  After `Finalized`, the same entrypoint emits byte-identical `$FINAL_SCOPE_ROOT/final-execution-evidence.json` as closed `FinalExecutionEvidenceV1 {schema:1,execution_plan_commit,execution_plan_blob,execution_base_commit,implementation_tip,implementation_tree,implementation_scope_tree_sha256,execution_catalogue_sha256,acceptance_inventory_sha256,schedule_sha256,event_count,event_chain_head,step_range_chain_head,runner_attempt_chain_head,root_migration_snapshot_sha256,step8_rehash_sha256,a137_prefix_snapshot_sha256,a137_prefix_sha256,acceptance_summary,root_cleanup_receipt_sha256s,root_generation_cleanup_sha256,runner_layout_cleanup_sha256,all_roots_removed_sha256,finalized_phase_sha256,final_scope_result_sha256,evidence_sha256}`. `event_count=82`; root-generation cleanup hashes have exactly five entries in ledger order, and `runner_layout_cleanup_sha256` binds authenticated removal of the build, matrix, and live stable parents plus their closed artifact manifests. It contains no timestamp, absolute temporary path, PID/fd, credential, runtime token, or readiness boolean. Main-context plan-manager performs only the exact ancestry-preserving integration and evidence-projection/import sequence below to create `LifecycleCompletionEvidenceV1 {schema:1,execution_plan_commit,execution_plan_blob,execution_base_commit,implementation_tip,implementation_tree,implementation_scope_tree_sha256,integrated_source_commit,integrated_source_tree,execution_catalogue_sha256,acceptance_inventory_sha256,schedule_sha256,event_count,event_chain_head,step_range_chain_head,runner_attempt_chain_head,root_migration_snapshot_sha256,step8_rehash_sha256,a137_prefix_snapshot_sha256,a137_prefix_sha256,acceptance_summary,root_cleanup_receipt_sha256s,root_generation_cleanup_sha256,runner_layout_cleanup_sha256,all_roots_removed_sha256,finalized_phase_sha256,final_scope_result_sha256,final_execution_evidence_sha256,evidence_sha256}`. This post-execution record cannot authorize resumed implementation; removing final scope before its verified commit, importing after `in_review`, changing any other plan byte, or adding a completion event is STOP.
+
+### Exact Step-9 publication, source integration, and evidence import
+
+The implementation scope is exactly `plugins/session-relay/**` plus `.github/workflows/build-binaries.yml`. Its deterministic identity is `sha256(JCS({schema:1,entries:[{path:".github/workflows/build-binaries.yml",object:<blob-oid>},{path:"plugins/session-relay",object:<tree-oid>}]}))`; entries are byte-sorted by path, and `final-scope.mjs` recomputes the objects at both `IMPL_TIP` and `INTEGRATED_SOURCE_COMMIT`. The deliberately deleted implementation-branch copy of this plan is outside source scope. No other path may differ from the pre-merge main parent.
+
+After A134/A136 pass on the Step-9 worktree, the worker commits, records `STEP9_HEAD`, and runs A106 over exact `STEP9_BASE..STEP9_HEAD`. The orchestrator then uses the owner's already-recorded authorization for this repository/ref/release work; standing review consent alone is insufficient. The literal handoff is:
+
+```bash
+set -euo pipefail
+test -n "$STEP9_HEAD"
+export PUSH_AUTHORIZATION_REFERENCE=owner-2026-07-13-four-release-order
+export PUSH_AUTHORIZATION_SHA256=5845ca800f87cf35becf385318c8ef2d8e04b23eb076d17cc5b8e036d6ba7dc1
+test "$PUSH_AUTHORIZATION_REFERENCE" = owner-2026-07-13-four-release-order
+test "$PUSH_AUTHORIZATION_SHA256" = 5845ca800f87cf35becf385318c8ef2d8e04b23eb076d17cc5b8e036d6ba7dc1
+test "$(git -C /tmp/docks-primitives-collab rev-parse HEAD)" = "$STEP9_HEAD"
+test -z "$(git -C /tmp/docks-primitives-collab status --porcelain)"
+
+git -C /tmp/docks-primitives-collab push origin "$STEP9_HEAD:refs/heads/codex/primitives-collab"
+
+REMOTE_STEP9_HEAD="$(git -C /tmp/docks-primitives-collab ls-remote --heads origin refs/heads/codex/primitives-collab | awk 'NR == 1 { print $1 }')"
+test "$REMOTE_STEP9_HEAD" = "$STEP9_HEAD"
+export IMPL_TIP="$REMOTE_STEP9_HEAD"
+test "$IMPL_TIP" = "$STEP9_HEAD"
+
+cd /tmp/docks-primitives-collab
+node plugins/session-relay/test/run-build-matrix.mjs --ref codex/primitives-collab --sha "$STEP9_HEAD"
+```
+
+Missing authorization, a non-clean/different tip, remote mismatch, failed publication, or any need for force is STOP. `run-build-matrix.mjs` never pushes. Only its exact successful committed/published result may append A135.
+
+After A138, integration on `main` is a two-parent `--no-ff` merge. Squash, cherry-pick, rebase, patch replay, and implementation edits in main are forbidden. Preconditions and the sole permitted modify/delete conflict are:
+
+```bash
+set -euo pipefail
+cd /home/vagrant/projects/docks
+
+PLAN_PATH=docs/plans/active/relay-worker-lifecycle-primitives.md
+test "$(git branch --show-current)" = main
+test -z "$(git status --porcelain)"
+
+MAIN_INTEGRATION_PARENT="$(git rev-parse HEAD)"
+test -n "$PLAN_COMMIT"
+test -n "$PLAN_BLOB"
+test -n "$EXECUTION_BASE_COMMIT"
+IMPL_TIP="$(git ls-remote --heads origin refs/heads/codex/primitives-collab | awk 'NR == 1 { print $1 }')"
+test "$IMPL_TIP" != ""
+git merge-base --is-ancestor "$PLAN_COMMIT" "$MAIN_INTEGRATION_PARENT"
+git merge-base --is-ancestor "$EXECUTION_BASE_COMMIT" "$IMPL_TIP"
+
+MAIN_PLAN_BLOB="$(git rev-parse "$MAIN_INTEGRATION_PARENT:$PLAN_PATH")"
+test "$MAIN_PLAN_BLOB" = "$PLAN_BLOB"
+test "$(git log -1 --format=%H -- "$PLAN_PATH")" = "$PLAN_COMMIT"
+
+FINAL_SCOPE_ID="$(node plugins/session-relay/test/final-scope.mjs --derive-root-id --plan-blob "$PLAN_BLOB" --tip "$IMPL_TIP")"
+FINAL_SCOPE_JSON="$(node plugins/session-relay/test/final-scope.mjs --describe-root --root-id "$FINAL_SCOPE_ID")"
+FINAL_SCOPE_PIN="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.root_pin')"
+FINAL_SCOPE_ROOT="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.canonical_path')"
+EXECUTION_EVIDENCE="$FINAL_SCOPE_ROOT/final-execution-evidence.json"
+test -f "$EXECUTION_EVIDENCE"
+test ! -L "$EXECUTION_EVIDENCE"
+node plugins/session-relay/test/final-scope.mjs --verify-integration-inputs --execution-evidence "$EXECUTION_EVIDENCE" --expected-execution-plan-commit "$PLAN_COMMIT" --expected-execution-plan-blob "$PLAN_BLOB" --expected-execution-base-commit "$EXECUTION_BASE_COMMIT" --expected-implementation-tip "$IMPL_TIP" --expected-remote-ref refs/heads/codex/primitives-collab --expected-final-scope-pin "$FINAL_SCOPE_PIN"
+
+if git cat-file -e "$IMPL_TIP:$PLAN_PATH" 2>/dev/null; then
+  printf '%s\n' "STOP: Step 9 did not delete the stale implementation-branch plan" >&2
+  exit 1
+fi
+
+set +e
+git merge --no-ff --no-commit "$IMPL_TIP"
+MERGE_RC=$?
+set -e
+test "$MERGE_RC" -eq 1
+
+mapfile -t UNMERGED < <(git diff --name-only --diff-filter=U)
+test "${#UNMERGED[@]}" -eq 1
+test "${UNMERGED[0]}" = "$PLAN_PATH"
+git checkout --ours -- "$PLAN_PATH"
+git add "$PLAN_PATH"
+test -z "$(git ls-files -u)"
+test "$(git rev-parse ":$PLAN_PATH")" = "$MAIN_PLAN_BLOB"
+test "$(git hash-object "$PLAN_PATH")" = "$MAIN_PLAN_BLOB"
+
+git diff --cached --quiet "$IMPL_TIP" -- plugins/session-relay .github/workflows/build-binaries.yml
+test -z "$(git diff --cached --name-only "$MAIN_INTEGRATION_PARENT" -- . ':(exclude)plugins/session-relay' ':(exclude).github/workflows/build-binaries.yml')"
+git diff --check --cached
+node scripts/ci.mjs
+git commit -m "merge: relay worker lifecycle primitives"
+INTEGRATED_SOURCE_COMMIT="$(git rev-parse HEAD)"
+
+test "$(git show -s --format=%P "$INTEGRATED_SOURCE_COMMIT")" = "$MAIN_INTEGRATION_PARENT $IMPL_TIP"
+test "$(git rev-parse "$INTEGRATED_SOURCE_COMMIT:$PLAN_PATH")" = "$MAIN_PLAN_BLOB"
+git diff --quiet "$IMPL_TIP" "$INTEGRATED_SOURCE_COMMIT" -- plugins/session-relay .github/workflows/build-binaries.yml
+test -z "$(git diff --name-only "$MAIN_INTEGRATION_PARENT" "$INTEGRATED_SOURCE_COMMIT" -- . ':(exclude)plugins/session-relay' ':(exclude).github/workflows/build-binaries.yml')"
+```
+
+Any other conflict, changed kept-main plan byte, wrong parent order, out-of-scope path, or source-scope difference is STOP. Preserve the evidence, then abort an unfinished merge; never improvise another resolution.
+
+Reconstruct final scope from immutable identities rather than an inherited absolute path, invoke the single projector twice, and require byte identity:
+
+```bash
+set -euo pipefail
+cd /home/vagrant/projects/docks
+
+FINAL_SCOPE_ID="$(node plugins/session-relay/test/final-scope.mjs --derive-root-id --plan-blob "$PLAN_BLOB" --tip "$IMPL_TIP")"
+FINAL_SCOPE_JSON="$(node plugins/session-relay/test/final-scope.mjs --describe-root --root-id "$FINAL_SCOPE_ID")"
+FINAL_SCOPE_PIN="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.root_pin')"
+FINAL_SCOPE_ROOT="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.canonical_path')"
+test -d "$FINAL_SCOPE_ROOT"
+test ! -L "$FINAL_SCOPE_ROOT"
+EXECUTION_EVIDENCE="$FINAL_SCOPE_ROOT/final-execution-evidence.json"
+test -f "$EXECUTION_EVIDENCE"
+test ! -L "$EXECUTION_EVIDENCE"
+
+PROJECTION_ONE="$(mktemp /tmp/lifecycle-completion-evidence.XXXXXX)"
+PROJECTION_TWO="$(mktemp /tmp/lifecycle-completion-evidence.XXXXXX)"
+node plugins/session-relay/test/final-scope.mjs --project-completion-evidence --execution-evidence "$EXECUTION_EVIDENCE" --integrated-source-commit "$INTEGRATED_SOURCE_COMMIT" --plan "$PLAN_PATH" --expected-execution-plan-commit "$PLAN_COMMIT" --expected-execution-plan-blob "$PLAN_BLOB" --expected-implementation-tip "$IMPL_TIP" --json >"$PROJECTION_ONE"
+node plugins/session-relay/test/final-scope.mjs --project-completion-evidence --execution-evidence "$EXECUTION_EVIDENCE" --integrated-source-commit "$INTEGRATED_SOURCE_COMMIT" --plan "$PLAN_PATH" --expected-execution-plan-commit "$PLAN_COMMIT" --expected-execution-plan-blob "$PLAN_BLOB" --expected-implementation-tip "$IMPL_TIP" --json >"$PROJECTION_TWO"
+cmp -s "$PROJECTION_ONE" "$PROJECTION_TWO"
+test "$(wc -l <"$PROJECTION_ONE")" -eq 1
+```
+
+The projector validates `Finalized`, all 82 events, A137/A138, closed cleanup hashes, reconstructed final-root identity, merge ancestry, exact scope equality, and both Git identities. No second implementation reinterprets the evidence. Plan-manager then performs one `apply_patch` that replaces only the pending handoff sentence with one fenced compact-JCS line byte-equal to `PROJECTION_ONE` and changes exactly Steps 1b, 1c, 1d, 3c, 3d, 4, 5, 6, 7, 8, and 9 from `planned` to `done`. Steps 1, 2, 3a, and 3b and every other byte remain identical; `status: ongoing` remains unchanged. Validate before and after commit:
+
+```bash
+node plugins/session-relay/test/final-scope.mjs --verify-completion-import --before-plan-commit "$INTEGRATED_SOURCE_COMMIT" --after-plan "$PLAN_PATH" --projected-evidence "$PROJECTION_ONE" --execution-evidence "$EXECUTION_EVIDENCE" --integrated-source-commit "$INTEGRATED_SOURCE_COMMIT"
+test "$(git diff --name-only "$INTEGRATED_SOURCE_COMMIT")" = "$PLAN_PATH"
+git diff --check
+node scripts/ci.mjs
+git add "$PLAN_PATH"
+git commit -m "docs(plans): import lifecycle completion evidence"
+EVIDENCE_IMPORT_COMMIT="$(git rev-parse HEAD)"
+node plugins/session-relay/test/final-scope.mjs --verify-completion-import --before-plan-commit "$INTEGRATED_SOURCE_COMMIT" --after-plan-commit "$EVIDENCE_IMPORT_COMMIT" --projected-evidence "$PROJECTION_ONE" --execution-evidence "$EXECUTION_EVIDENCE" --integrated-source-commit "$INTEGRATED_SOURCE_COMMIT"
+```
+
+Only this committed verification permits the separate canonical `ongoing → in_review` transition. `INTEGRATED_SOURCE_COMMIT` is always the merge commit, not the later evidence-import or lifecycle commit. Retain final scope through the verified import commit.
+- **Runner live job capability:** Node 24 exposes no public `AF_UNIX SOCK_SEQPACKET`/`SCM_CREDENTIALS`, so JavaScript is validation-only and never owns the native driver, sockets, gates, credentials, root cleanup, or migration. Step 1b adds `rust/src/bin/runner_job_custodian.rs` without a new package. The exact bootstrap block above builds once, then `--bootstrap-layout` copies retained self bytes into the sentinel-bound immutable build parent and records `BinaryFileIdentityV1 {schema:1,fs:FsIdentityV1,size,sha256,identity_sha256}` for source and copy plus `RunnerBinaryIdentityV2 {schema:2,source_binary:BinaryFileIdentityV1,layout_binary:BinaryFileIdentityV1,source_head,cargo_toml_sha256,cargo_lock_sha256,node_wrapper_sha256,binary_identity_sha256}`. Direct path execution is bootstrap only. On live entry the binary opens and retains `/proc/self/exe`, exact-matches layout plus active-phase identity, restores CLOEXEC, opens the active schema-v3 runner `RootAuthorityCapabilityV2`, calls `PR_SET_CHILD_SUBREAPER`, and the original foreground PID becomes custodian C. C launches driver D from retained self fd with `execveat(AT_EMPTY_PATH)`; D launches every gate G from that fd. C is G's ancestor subreaper: D normally exact-waits G; if D dies, C adopts, bounded-kills, and exact-waits G plus payload descendants, then D. No native role after bootstrap reopens or executes a pathname. The fixed retained/hash-checked Node helper may run only as a bounded C child for frozen schema-v2 Ed25519 validation and exits before a gate opens; schema-v3 HMAC validation is native. Retarget/unlink leaves descendants on retained bytes; wrong/missing/leaked self/root/helper fd or identity fails before sockets/children. Non-Linux returns typed unavailability; no Node fallback exists.
+
+  On the owner-provisioned Linux job, set only nonempty `RELAY_RUNNER_ID` and validated delegated `RELAY_CGROUP_ROOT`; neither is root authority. After Steps 1b→3c→3d, start one foreground `RELAY_RUNNER_JOB=1 "$RUNNER_BIN" --custodian-driver --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256" --node-wrapper plugins/session-relay/test/runner-job-custodian.mjs --runner-id "$RELAY_RUNNER_ID" --cgroup-root "$RELAY_CGROUP_ROOT"` and retain C/D plus the live capability through A125. C derives the non-authoritative `RELAY_RUNNER_RECEIPT` payload path from its held root; the caller never supplies it. The native process accepts only the six compiled literal recursively closed RunGate rows A110/A1c→A111/A1d→A119/A5→A120/A5b→A121/A6→A125/A7. `node_script`, `args`, sorted `env`, and compact-JCS hash must byte-equal the compiled row. No caller supplies executable, cwd, receipt/state path, raw environment, shell text, assignment prefix, or extra field. Base child names are exactly `HOME|LANG|LC_ALL|PATH|TMPDIR`; auth contributes only the preflight-sealed runtime artifact/name. Duplicate/ambient names fail before gate spawn.
+
+  D creates C↔D credential-checked control plus one per-gate capability channel, one private one-shot GO channel, and one result channel. It launches G from the retained self fd with exactly fixed self-exec, capability, GO-read, and result-write fds. G's first actions restore CLOEXEC on all four, validate each fd/peer/self identity, and close everything else. Before G can send OPEN it blocks on GO. D records G's kernel PID, sends C an authenticated `DriverArm`, completes challenge/response, receives `DriverArmAck`, then writes exactly one matching GO record. C requires C↔D `SO_PASSCRED` sender PID/uid/gid, while OPEN/COMMIT require G's kernel credentials. G cannot spawn Node or emit an authoritative byte before matching GO and OPEN acknowledgement. Node stdin is `/dev/null`; stdout is exactly one bounded canonical `PayloadResult`; stderr is bounded diagnostic; capability/self/GO/result fds are CLOEXEC and absent from Node/runtime descendants. G exact-waits Node, COMMITs evidence, writes exactly one `GateExitRecord`, closes, and exits. D buffers the record, exact-waits G, sends authenticated `DriverReap`, and C advances/emits public `GateResult` only after `DriverReapAck`. COMMIT acknowledgement alone never advances capacity.
+
+  A109 is native-rooted and auth-free and begins by validating Draft-44 migration, ledger, active-phase, and layout hashes, then captures one compact-JCS `LiveMigrationStateSnapshotV1`. Its exact synthetic producer command is `"$RUNNER_BIN" --matrix-driver --fixture-only --plan-commit "$PLAN_COMMIT" --plan-blob "$PLAN_BLOB" --source-head "$STEP1B_REPAIR_HEAD"`; fixture modes accept no live migration, anchor, ledger, active-phase, generation, layout, root, authority, or result pathname. Every injected migration/wire/layout interruption runs only under a fresh internally generated fixture id and scratch root. After all matrices, a validation-only snapshot command reopens the live state from its identities and must byte-equal the first snapshot. Compiled synthetic payload modes call the production `RunnerMachine` transition/root/attempt functions and must not invoke Claude, Codex, real runtime scripts, auth, or cgroups. The later Node process is offline artifact/source/lineage validation only. It exact-validates refusal traces, supplier coverage, and one actual synthetic producer chain through the exported unmodified A133 `deriveRehashInputs`. The literal validators are `node plugins/session-relay/test/runner-job-custodian.mjs --validate-matrix "$RUNNER_MATRIX_RESULT" --native-source plugins/session-relay/rust/src/bin/runner_job_custodian.rs`, `node plugins/session-relay/test/runner-job-custodian.mjs --supplier-negative-matrix --matrix-result "$RUNNER_MATRIX_RESULT" --native-source plugins/session-relay/rust/src/bin/runner_job_custodian.rs`, and `node plugins/session-relay/test/runner-job-custodian.mjs --producer-to-rehash-integration --producer-receipt "$RUNNER_SYNTHETIC_PRODUCER_RECEIPT" --plan-blob "$PLAN_BLOB" --source-head "$STEP1B_REPAIR_HEAD" --through-step 1b`. Fixture cleanup removes only fixture roots; immutable build/live parents, active receipts, coordinator, and predecessors remain byte-identical. Live A110→A125 removes only its per-attempt scratch child after exact terminal cleanup. A137 defers root/authority/coordinator cleanup; A138 alone closes/removes them. Failure retains redacted evidence, closes fds, exact-waits owned/adopted processes, and never records `Complete` while a descendant remains.
+
+  Literal compact-JCS frames (`args` excludes Node argv[0]; `env` is sorted and every object is closed):
+
+  ```json
+  {"args":["--case","exec-stop-feasibility","--matrix","--receipt-phase","exec-stop"],"env":[{"name":"RELAY_REAL_RUNTIME_TEST","source":"literal_one"},{"name":"RELAY_RUNNER_ID","source":"runner_id"},{"name":"RELAY_RUNNER_RECEIPT","source":"runner_receipt"}],"gate":"A1c","node_script":"plugins/session-relay/test/feasibility-probe.mjs","schema":1}
+  {"args":["--case","delegated-runner-preflight","--receipt-phase","delegation"],"env":[{"name":"RELAY_CGROUP_ROOT","source":"cgroup_root"},{"name":"RELAY_REAL_RUNTIME_TEST","source":"literal_one"},{"name":"RELAY_RUNNER_ID","source":"runner_id"},{"name":"RELAY_RUNNER_RECEIPT","source":"runner_receipt"}],"gate":"A1d","node_script":"plugins/session-relay/test/runtime-hook-abort.mjs","schema":1}
+  {"args":["--case","containment"],"env":[{"name":"RELAY_CGROUP_ROOT","source":"cgroup_root"},{"name":"RELAY_REAL_RUNTIME_TEST","source":"literal_one"},{"name":"RELAY_RUNNER_ID","source":"runner_id"},{"name":"RELAY_RUNNER_RECEIPT","source":"runner_receipt"}],"gate":"A5","node_script":"plugins/session-relay/test/lifecycle-smoke.mjs","schema":1}
+  {"args":["--case","cgroup-cooperative-child-spawn","--matrix"],"env":[{"name":"RELAY_CGROUP_ROOT","source":"cgroup_root"},{"name":"RELAY_REAL_RUNTIME_TEST","source":"literal_one"},{"name":"RELAY_RUNNER_ID","source":"runner_id"},{"name":"RELAY_RUNNER_RECEIPT","source":"runner_receipt"}],"gate":"A5b","node_script":"plugins/session-relay/test/runtime-hook-abort.mjs","schema":1}
+  {"args":["--matrix"],"env":[{"name":"RELAY_CGROUP_ROOT","source":"cgroup_root"},{"name":"RELAY_REAL_RUNTIME_TEST","source":"literal_one"},{"name":"RELAY_RUNNER_ID","source":"runner_id"},{"name":"RELAY_RUNNER_RECEIPT","source":"runner_receipt"}],"gate":"A6","node_script":"plugins/session-relay/test/runtime-hook-abort.mjs","schema":1}
+  {"args":["--matrix"],"env":[{"name":"RELAY_CGROUP_ROOT","source":"cgroup_root"},{"name":"RELAY_REAL_RUNTIME_TEST","source":"literal_one"},{"name":"RELAY_RUNNER_ID","source":"runner_id"},{"name":"RELAY_RUNNER_RECEIPT","source":"runner_receipt"}],"gate":"A7","node_script":"plugins/session-relay/test/runtime-appserver-quiescence.mjs","schema":1}
+  ```
+- **Runner capability protocol:** `RUNNER_BOOTSTRAP_INPUT_SHA256` remains exactly 64 ASCII zeroes. All control/result packets are one canonical-JCS `SOCK_SEQPACKET` packet, maximum 64 KiB, with exact one-message framing; `MSG_TRUNC|MSG_CTRUNC`, missing/extra/duplicate ancillary credentials, unknown fields, extra packet, early EOF, or oversized/noncanonical bytes poison. C↔D control requires credentials for the recorded D; gate capability requires credentials for the armed G. The closed pre-OPEN handshake is `DriverArm → DriverArmChallenge → DriverArmResponse → DriverArmAck → GateGo → GateOpen`. `DriverArm={schema:1,capability_id,sequence,gate,gate_pid,run_gate_sha256,live_tuple_sha256,input_receipt_sha256,self_identity_sha256,go_channel_sha256,result_channel_sha256}`. GO is a one-shot private record `{schema:1,arm_ack_sha256,gate_pid,sequence,gate}`; G cannot reach OPEN without exact GO, and GO EOF/duplicate/mismatch poisons with zero authoritative bytes. OPEN selectors add `driver_arm_ack_sha256` and `self_identity_sha256` and must exact-match C's `DriverArmed` state.
+
+  The state machine is `Idle{next_sequence} → DriverArmed{arm,arm_ack_sha256} → OpenReserved{...} → CommitReserved{...} → CommittedAwaitingReap{commit_ack_sha256,gate_exit_sha256} → Idle(next)|Complete`; every invalid packet/credential/transition/crash goes terminal `Poisoned`. OPEN and COMMIT retain their challenge/ack hashes and exact receipt/evidence binding, but COMMIT ack never advances. G writes one bounded `GateExitRecord {schema:1,gate,sequence,pid,payload_result_sha256,input_receipt_sha256,result_receipt_sha256,evidence_sha256,open_ack_sha256,commit_ack_sha256}` to its dedicated result channel, closes, and exits. D buffers it, exact-waits the same G PID, sends authenticated `DriverReap {arm_ack_sha256,gate_exit,status}`, and C advances/prints public GateResult only after `DriverReapAck`. Equality is `D-spawn pid = armed pid = OPEN credential pid = selectors.gate_pid = COMMIT credential pid = D wait pid = GateExitRecord.pid = GateResult.pid`; uid/gid and self identity also match. If D dies, C poisons, closes every channel, adopts/kills/waits G and payload as subreaper, and emits no result/capacity advance.
+
+  Fixed G fds are exactly self-exec, capability, GO-read, and result-write. G restores CLOEXEC on all four before validation; none reaches Node. External driver stdin accepts exactly one compiled RunGate JCS line at a time; stdout emits exactly one GateResult only after reap ack; stderr is diagnostic only. Node stdout is exactly one `PayloadResult {schema:1,gate,result_receipt_sha256,evidence_sha256}` and multiple/partial/extra output poisons. Wrapper/borrower/copy-no-fd, OPEN-before-arm/GO, wrong PID/frame/hash, pathname retarget, driver/gate crash at every state, result-before-wait, adopted descendant not reaped, fd leak, duplicate/stale/concurrent sequence, and missing/wrong COMMIT are mandatory negatives.
+
+  C persists immutable `RunnerStateReceipt {schema:3,kind:"RunnerStateReceipt",plan_blob_sha256,source_head,protocol_sha256,binary_identity_sha256,root_generation_ledger_sha256,root_migration_active_phase_sha256,runner_layout_sha256,live_parent_root_identity_sha256,root_authority_capability_sha256,host_boot_id,runner_receipt_ttl_ms:7200000,max_attempts:5,expected_gates,attempts_relative:"runner/live/attempts",bootstrap_manifest_relative:"runner/live/bootstrap-receipt-manifest.json",gate_manifest_relative:"runner/live/gate-artifact-manifest.json",state_receipt_sha256}` before any gate. `expected_gates` is the literal six ordered `{sequence,criterion_id,run_gate,frame_sha256}` rows. The live parent identity and active schema-v3 runner generation remain identical for every attempt. All boottime nanoseconds are decimal strings.
+
+  Each append-only `RunnerAttemptReceipt {schema:3,kind:"RunnerAttemptReceipt",attempt_ordinal,previous_attempt_sha256,runner_state_receipt_sha256,binary_identity_sha256,root_authority_capability_sha256,capability_id,live_parent_root_identity_sha256,scratch_relative_path,scratch_root_identity_sha256,receipt_generation_root_identity_sha256,host_boot_id,started_boottime_ns,expires_boottime_ns,finished_boottime_ns,ordered_gate_artifacts,attempt_artifact_manifest_sha256,cleanup,outcome,receipt_sha256}` has `scratch_relative_path` exactly `attempts/<four-digit-ordinal>/scratch`, and `ordered_gate_artifacts:[{sequence,criterion_id,run_gate,context_sha256,open_ack_sha256,commit_ack_sha256,gate_exit_sha256,reap_ack_sha256,gate_result_sha256,evidence_sha256}]`; closed cleanup is `{status:"Complete",cleanup_receipt_sha256,scratch_absence_sha256}` or `{status:"Incomplete",cleanup_attempt_sha256,remaining_process_generations}`; closed outcome is exactly `{type:"Partial",next_sequence,reason:"SyntheticCheckpoint"}`, `{type:"Expired",outstanding_sequence,observed_boottime_ns}`, `{type:"Poisoned",phase,code,transition_trace_sha256}`, `{type:"CleanupFailed",code:"DescendantDrainDeadline",cleanup_attempt_sha256,remaining_process_generations}`, or `{type:"Complete",terminal_sequence:6,terminal_reason:"Complete"}`. `Partial` is A109-only and invalid in the final live chain. `Complete` requires six ordered gates, complete scratch removal beneath the unchanged live parent, finish before expiry, and the terminal global manifest.
+
+  Attempt layout is exactly `runner/live/attempts/<four-digit-ordinal>/{contexts,acknowledgements,results,cleanup.json,attempt-artifact-manifest.json,attempt-receipt.json}`. The attempt manifest covers every prior file in that attempt; its receipt binds the manifest. Named bootstrap manifest covers producer/bootstrap/root-binding receipts. Terminal `gate-artifact-manifest.json` covers bootstrap manifest, every attempt manifest/receipt, selected contexts/acknowledgements/results, and cleanup receipts, excluding only itself. A133 loads this manifest and rejects every unlisted/extra file below `runner/live`; key-presence classification and an ignored `other` bucket are forbidden.
+
+  A110 uses bootstrap input and commits a partial delegated receipt; A111 opens against it and commits the sealed delegated receipt; A119/A120/A121/A125 preserve that receipt while binding evidence. Poison/expiry keeps the same active schema-v3 runner-receipt generation and stable live parent, closes/removes only its per-attempt scratch child, creates a fresh capability and next attempt ordinal under that parent, and replays the exact prefix through the predecessor of the outstanding gate. Before A119 replay A110→A111; before A120 replay A110→A111→A119; before A121 replay A110→A111→A119→A120; before A125 replay A110→A111→A119→A120→A121. Retry is allowed only after terminal `Expired|Poisoned`, requires the prior producer generation absent and scratch child absent, and strictly exceeds the prior high-water prefix. Same/lower high water on a second failure, more than five attempts, second concurrent attempt, filename-count selection, root-generation or live-parent change, shortened/changed/skipped prefix, or incomplete prior recovery is STOP. Earlier attempts never authorize a skip; reconstruction calls the production machine.
+
+- **Runner receipt lifetime:** each attempt starts one authoritative `CLOCK_BOOTTIME` lifetime at its A110 OPEN and computes `expires_boottime_ns=checked_add(started_boottime_ns,7_200_000_000_000)`; no transition within that attempt resets it. A genuinely new bounded attempt gets its own A110 start/deadline, while the five-attempt and strictly-advancing-prefix rules bound total retries. `DriverReapAck`, not COMMIT, must occur before expiry for a gate to join the prefix. A110 COMMIT writes closed `PartialDelegatedRunnerReceipt {schema:1,phase:"exec-stop",runner_id,capability_id,host_boot_id,kernel_release,uid,observed_at,expires_at,started_boottime_ns,expires_boottime_ns,yama_ptrace_scope,ptrace_policy_sha256,exec_stop_results,evidence_sha256,receipt_sha256}`; A111 writes the final `DelegatedRunnerReceipt` with `partial_receipt_sha256` plus delegation/child-cleanup fields. Boot change, expiry, different runtime bytes, missing/changed partial receipt, dead/poisoned capability, skipped prefix, or live-tuple mismatch fails before authoritative bytes. These are integrity evidence only—not signatures, attestations, auth tokens, or later-run authority—and are never accepted without successful OPEN, live field/delegation revalidation, COMMIT, and reap acknowledgement.
+- **Real runtime:** `runtime-hook-abort.mjs`, `runtime-hook-upgrade.mjs`, `runtime-appserver-quiescence.mjs`, and `feasibility-probe.mjs` create isolated temporary `HOME`, `CODEX_HOME`, plugin config, relay store, cwd, and sentinels. They record exact hook health and stable-runtime manifest/digest plus runtime version. Missing auth/runtime is failure for the real-runtime gate, never skip/pass.
+- **Authentication preflight:** before isolated-home tests, run `claude -p 'Print exactly RELAY_AUTH_OK'` and `codex exec --sandbox read-only 'Print exactly RELAY_AUTH_OK'`; each must exit 0 and print only the marker. Step 1 records, from current runtime docs/probes, the exact credential artifact or allowlisted secret-environment variable each CLI supports. The harness creates a mode-0700 temporary home/config, installs only test hook/plugin files, and either read-only references the supported credential artifact at its runtime-defined location or forwards the allowlisted secret variable by name. It never copies credential bytes into artifacts, logs paths/values/hashes, or broad-copies the user's config. If neither safe mechanism is available, STOP and report the runtime row unavailable; do not skip/pass or weaken home isolation.
+- **Threat-model owner gate:** RESOLVED 2026-07-11 — owner selected Option 1 (`CooperativeWorkerV1`). This resolves the product boundary only; Draft-23 implementation remains paused for current eligible schema-v1 review evidence, and Step 4 separately requires capability-bound A110 (RunGate A1c)+A111 (RunGate A1d) PASS.
+- **Probe evidence contract:** each capability row contains `runtime`, `runtime_version`, `platform`, `argv`, `started_at`, `finished_at`, `exit_status`, base64 or artifact-path `stdout`/`stderr`, artifact SHA-256, parser rule, and derived verdict. The harness rejects a verdict without matching raw evidence, rejects unknown/missing schema fields, verifies its own committed git-blob hash, and emits the raw-record hash chain. There is no editable pass/fail fixture. Partial and final delegated-runner receipts use their recursively closed shapes below and JCS SHA-256 over every field except their own `receipt_sha256`; a matching digest detects accidental byte change only and never proves who produced the receipt.
+- **Independent cgroup feasibility verdicts:** Step 1b migrates the evidence schema from stale `strong_cgroup` to two independent verdicts. `cooperative_cgroup` depends only on a fresh domain leaf, gated placement, retained manager authority, `cgroup.kill`, and `populated 0`; freeze is optional. `filtered_hardening` depends on the namespace/seccomp/legacy-clone real-spawn probe and is Claude-only. Failure of either verdict never changes the other. The raw filter row still proves `clone3` returns `-1/ENOSYS` without creating a child and requires a real shell/tool child+wait sentinel for each runtime on which filtered hardening is advertised.
+- **Feasibility-first exec-stop gate:** before Step 4, A110 (RunGate A1c) runs the production-shaped blocked-child/host-PID/fd-exec protocol independently for Claude and Codex in the owner-provisioned job and begins `RELAY_RUNNER_RECEIPT`. The supervisor must seize the exact reported task, observe that same tracee at `PTRACE_EVENT_EXEC`, open the procfs magic-link target while it is stopped, compare the opened file's fstat/content hash to the retained executable fd, and detach only after the target-code sentinel is still absent. Any runtime row that cannot meet this contract is `unavailable`; STOP before Step 4 rather than inventing a weaker launch. A110 (RunGate A1c) alone never authorizes Step 4: A111 (RunGate A1d) must complete the same host-bound receipt before expiry.
+- **Owner-provisioned positive Linux runner:** authoritative managed-controller/fd-exec and WorkerTree positives are Linux-only in this plan and require an owner-provisioned delegated cgroup-v2 runner before Step 4. The runner must set `RELAY_CGROUP_ROOT` to a writable delegated domain owned by the test uid, on a read-write cgroup2 mount, with permission to create/move into a disposable child and with `cgroup.kill`, `cgroup.events`, and `cgroup.procs` usable in that child; the kernel must support pidfd, `clone3(CLONE_INTO_CGROUP)` or the separately proven stop/GO fallback, ptrace seize/TRACEEXEC, `execveat(AT_EMPTY_PATH)`, and `AF_UNIX SOCK_SEQPACKET`. Provisioning may use a system service/unit with `Delegate=yes` or equivalent CI runner setup, but the tests do not attempt to grant themselves delegation. The current orchestrator sandbox has a read-only cgroup2 view and no user bus, so it is explicitly **not** a positive runner. A111 (RunGate A1d) consumes the partial A110 (RunGate A1c) receipt under live sequence 2, creates one disposable leaf under the supplied fd-root, validates mount id/dev/inode/domain/writable control files, moves one exact stopped child, writes `cgroup.kill`, exact-`waitpid`s and reaps that child with the recorded terminal status before accepting `populated 0`, removes the leaf, completes the receipt, and fails (never skips) on timeout, zombie/unreaped child, populated mismatch, or cleanup failure. A119 (RunGate A5)/A120 (RunGate A5b)/A121 (RunGate A6)/A125 (RunGate A7) consume sequences 3–6 and each live-revalidate the receipt's unexpired runner/boot/kernel/uid/mount/root/runtime identities and current delegation before any child/RPC/fence byte; no cached receipt or copied bytes authorize GO. No Step-4 implementation or any A119 (RunGate A5)/A120 (RunGate A5b)/A121 (RunGate A6)/A125 (RunGate A7) completion claim may begin without capability-bound A110 (RunGate A1c)+A111 (RunGate A1d) PASS from the still-live custodian.
+- **Measured attach deadline:** the probe runs 10 isolated cold starts per runtime including sequential store-lock contention. Set `managed_attach_deadline_ms = max_observed_ms + max(2000, ceil(max_observed_ms / 2))`; it must be `<= 20_000`, preserving at least 10 seconds inside the project's explicitly configured 30-second UserPromptSubmit hook budget. If the formula exceeds 20 seconds, STOP. Never lengthen the three-second global store lock.
+- **Hook budget:** set `timeout: 30` explicitly on both runtimes' SessionStart and UserPromptSubmit command handlers. Timeout is fail-open and is tested as such; 30 seconds is a configured project budget, not a runtime minimum.
+- **Codex hook health and runtime durability:** query `hooks/list` for the exact target cwd and record the two required rows as `HookHealthSnapshot`; missing/untrusted/drifted rows degrade diagnostics/re-entry but are not the managed first-turn linearization point. The app-server direct claim is authoritative. Hook commands use the monotonic stable runtime contract from §5. Production never writes Codex's internal trust state and never uses `--dangerously-bypass-hook-trust`; the feasibility harness may use the bypass only inside its isolated allowlisted home and labels it `test_only_bypass=true`. A live-upgrade matrix starts an N session, validates/installs N+1, ordinarily prunes the N plugin cache, then proves both the old session's UserPromptSubmit and a new/subagent SessionStart execute through the stable runtime. Lower-version concurrency cannot downgrade; known-at-check symlink/nonregular/mode corruption fails the standalone invocation, and once the native installer starts, same-version target/binary/payload/hook identity mismatch plus pinned-source tamper fails closed. Deliberate same-UID replace-all before cached code executes is outside standalone authenticity and is never a positive test expectation.
+- **Cancellation/control bounds:** `managed_cancel_poll_ms = 100`, `managed_cancel_grace_ms = 5_000`, `supervisor_control_bind_deadline_ms = 5_000`, `watchdog_heartbeat_interval_ms = 250`, and `watchdog_stale_after_ms = 1_000`. Every admitted blocking loop checks a nonblocking generation/epoch-specific marker at least once per poll interval; it must not acquire the three-second global store lock merely to poll. At grace expiry, the guard must have either completed its external operation or exact-CAS transferred retained authority/evidence to a typed cancellation handoff before releasing. If exact turn identity, exact fence epoch/version, or live child custody cannot be transferred, exact-CAS the still-active operation to `FencingUnconfirmed`, retain it for status/reconcile, and stop waiting; never extend the grace to obtain a green test. `pending_attach.expires_at` is launch time plus the measured `managed_attach_deadline_ms`, so claim-vs-expiry is decided by the one atomic claim transaction. A caller that receives bootstrap data but never binds Control is killed/reaped or durably handed off by the fixed control-bind deadline; no retry resets it.
+- **Protocol scan bound:** `protocol_lineage_deadline_ms = 20_000` is one monotonic deadline for all lineage/turn/terminal pages, verified graceful shutdown/reap/flush, and final offline scan. A page, continuous spawner, graceful stop/flush, or offline read that exhausts it returns `ProtocolIncomplete`; no retry loop may extend the same proof attempt. Freeze/kill is a separate physical-containment path and never upgrades protocol evidence.
+- **Native platform matrix:** re-verify runner labels in Step 1, then run Darwin process probes natively on `macos-15-intel` and `macos-15`; cross-linking x86_64 on arm64 is not semantic verification. Darwin preserves the portable supervisor-owned-child/process-observation path but must compile and report managed controller/fd-exec/cgroup admission as the closed typed `UnavailablePlatform`; it may not silently emulate the Linux authoritative path. A future Darwin equivalent requires a separately reviewed plan.
+- **Remote mutation gate:** canonical A135 is the only acceptance criterion that dispatches external CI. Owner authorization `owner-2026-07-13-four-release-order` with SHA-256 `5845ca800f87cf35becf385318c8ef2d8e04b23eb076d17cc5b8e036d6ba7dc1` already permits the exact non-forced `refs/heads/codex/primitives-collab` publication, workflow dispatch, and post-completion release; no redundant prompt is permitted. A hash/ref/repository mismatch, withheld narrower scope, unavailable GitHub, or any force/history-rewrite requirement is STOP with A135 unverified. `run-build-matrix.mjs` never pushes; it only verifies the already-authorized remote SHA and dispatches/watches that exact run.
+- **Binary discipline:** do not edit `plugins/session-relay/bin/`, manifest versions, marketplace versions, tags, or releases in this source plan. A123 uses isolated source-built synthetic payloads because the committed binaries predate these commands. After source acceptance, the separate owner-gated producer/release workflow must rebuild actual target binaries and rerun packaged 0.10.0→N/N→N hook/live-upgrade plus old-writer authority matrices before release; implementation evidence is never relabeled packaged evidence. Source-plan finish records `packaged_ready=false` and cannot unblock fan-out.
+
+## Interfaces & data shapes
+
+### 1. Durable worker identity, pending attach, and lifecycle
+
+Managed lifecycle is keyed by a pre-launch UUIDv4 `worker_id`, never by the not-yet-known Codex session id. `<AGENT_RELAY_HOME>/lifecycle-v1.json` is the sole authority for lifecycle, binding, operation, supervisor, proof/audit, terminal, and capacity state. `registry.json` remains only the released-format discovery projection (`agents`/`names` and compatibility metadata); old-process loss or rewrite of an Entry never means Unmanaged, never clears authority, and never releases capacity. Every admission/status/re-entry/GC path reads the authority file first. A missing projection for an authoritative session reports `discovery_degraded` and may repair a minimal Entry only after the authority decision.
+
+The authority document is recursively closed and canonical: `LifecycleAuthorityV1 {schema:1,store_id,generation,managed_workers,pending_managed,prebinding_pending_retirements,session_bindings,managed_tombstones,lifecycle_audit,managed_gc_manifests,active_operations,operation_tombstones,cancellation_handoffs,lifecycle_supervisors,lifecycle_watchdogs,managed_appserver_controllers,managed_command_authorizations,loss_cleanup_records,fence_proof_records,capacity_charges,managed_terminal_records,prebinding_terminal_records,worker_generation_fences,content_sha256}`. `store_id` is immutable UUIDv4; `generation` is a checked canonical decimal u64 incremented once per successful transaction; `content_sha256` is SHA-256 of JCS over the document without that field. Unknown/duplicate/noncanonical/hash-invalid content, or a missing file after initialization, fails closed and is never the registry reader's empty fallback. Under the existing relay-home `.lock`, commit is `create_new` same-directory temp mode 0600 → write all bytes → `sync_all(temp)` → atomic rename over `lifecycle-v1.json` → fsync relay-home directory → unlock. A failure exposes the complete prior or next generation, never an empty/mixed store; orphan exact-name temps are cleaned only under that lock.
+
+The five explicit live-authority collections added after the original lifecycle maps are canonical byte-sorted maps keyed by their embedded immutable ids: `cancellation_handoffs[handoff_id]`, `managed_appserver_controllers[controller_instance_id]`, `managed_command_authorizations[authorization_id]`, `loss_cleanup_records[cleanup_id]`, and `fence_proof_records[proof_record_sha256]`. Pre-binding loss additionally uses byte-sorted `prebinding_pending_retirements[worker_id/generation]`, with exactly one retained record for that authority generation. Terminal authority uses byte-sorted `managed_terminal_records[receipt_sha256]`, `prebinding_terminal_records[receipt_sha256]`, and permanent `worker_generation_fences[worker_id/generation]`; their variants never share sentinel session strings. Every key, record version, content hash, and live cross-reference is validated within the same authority generation. A missing, duplicate, mismatched, dangling, or cross-family live reference makes the whole authority document malformed and fails closed; no record is synthesized from `registry.json`, a socket, marker, or live process. The explicitly named `retired_pending_sha256` and `retired_authority_sha256` fields are historical content commitments, not live map references: the transaction that creates them validates and hashes the exact source records before retiring those records, and later reload validates the receipt's own content hash rather than dereferencing removed source objects. By contrast, every `terminal_receipt_sha256` in `ManagedTerminal`, `ManagedGcDeleting`, `TerminalFence`, or `WorkerGenerationFence` is a live required reference to the matching permanently retained record in `managed_terminal_records` or `prebinding_terminal_records`; removing that receipt makes the authority document malformed. There is at most one live controller for an exact worker/generation/binding/control tuple, one live cleanup record for an exact post-loss tuple, one pending-retirement record for an exact worker/generation, one immutable proof record for an exact worker/generation/fence epoch/fencing version, and one charge for a generation whose immutable capacity discriminator is `Charged`; an `Unreserved` generation has none. Every charge points back to exactly that one generation until joint terminal GC. An `Issued` command authorization references the exact live controller and operation version; a live handoff references the exact `HandedOff` operation custody. Creation, version/state consumption, terminal retirement, and tombstoning occur in the same `lifecycle-v1.json` generation as the worker/binding/operation transition they authorize. A terminal transaction retires every matching live entry into its closed audit/tombstone representation; GC cannot collect a live/referenced entry independently. Step 3c migration creates all nine post-original maps empty when no valid legacy record exists; the released 0.10.0 registry writer cannot create, delete, or alter them.
+
+One-time migration is authority-first under `.lock`: if the authority file exists, exact-validate and use it while treating any registry lifecycle extras as stale projection; else exact-validate all known legacy lifecycle keys, durably create the authority document, and only then scrub those extras from `registry.json`; with no legacy keys, create the closed empty authority before first lifecycle use. Crash after authority creation but before scrub resumes from authority. Conflicting registry extras never overwrite it. Every safety decision—including pending creation, Claiming/Managed/Active, fencing, release, and abandonment—commits entirely in `lifecycle-v1.json`; Entry/name/marker writes happen afterward as repairable projection and cannot participate in the linearization point. The plan promises old 0.10.0 **non-erasure**, not managed behavior from an already-running old executable.
+
+```rust
+pub enum ManagedState {
+    Attaching,
+    Active,
+    Fencing,
+    FencingUnconfirmed,
+    Fenced,
+    TerminalRetained,
+    TerminalReleasable,
+    PreBindingGcDeleting,
+}
+
+pub enum RequiredScope { ProcessOnly, ProtocolTree, WorkerTree }
+
+pub enum ExecutionBackend {
+    LinuxPidFdProcess,
+    SupervisorOwnedProcess,
+    SupervisorOwnedGroup,
+    ConfinedCgroupCooperative,
+    TrackedTree,
+    SharedAppServer,
+    DedicatedConfinedAppServer,
+    ObservationOnly,
+}
+
+pub struct ReleaseReceipt {
+    pub worker_id: String,
+    pub generation: String,
+    pub released_at: String,
+    pub mode: String,       // "proved" | "risk-accepted"
+    pub reason: String,
+    pub evidence_sha256: String,
+}
+
+pub enum ManagedTerminalOutcome { ProvedReleased, RiskAcceptedAbandoned }
+
+pub enum CapacityChargeState {
+    Held,
+    Released { terminal_receipt_sha256: String },
+}
+
+pub enum WorkerCapacityReservation {
+    Unreserved,
+    Charged { charge_id: String },
+}
+
+pub struct CapacityCharge {
+    charge_id: String,
+    scope_id: String,
+    worker_id: String,
+    generation: String,
+    version: String,
+    state: CapacityChargeState,
+}
+
+`ManagedWorker.capacity` is fixed in the same birth transaction that creates the worker generation and can never change. `PendingAttach`, `WaitingManagedClaim`, `ManagedBirthPermit`, and `PreBindingPendingRetirement` copy that exact discriminator and validation rejects any mismatch. For every live/preterminal worker generation the relation is bidirectionally closed: `Unreserved` requires zero `capacity_charges` entries whose worker/generation match; `Charged {charge_id}` requires exactly one `capacity_charges[charge_id]` with the same worker/generation and no second charge may name that tuple. Conversely every Held or Released charge must be named by exactly one matching worker generation until joint terminal GC. A missing, duplicate, cross-worker, reused, or discriminator-mismatched charge makes the whole authority document malformed; a charge id is never reassigned across generations. Terminalization requires receipt `capacity_charge_id` and both capacity-version fields to be `None` exactly for `Unreserved`, or `Some(exact charge_id/version)` exactly for `Charged`; caller `none` cannot convert a charged birth. Until GC, Released charge, terminal worker/binding or pre-binding worker, and receipt cross-validate. After joint terminal GC removes the heavy worker and released charge, the permanent fence's live receipt preserves the immutable reservation discriminator and optional charge id/version as historical terminal evidence; no absent charge is reinterpreted as Unreserved.
+
+pub struct ManagedTerminalReceipt {
+    schema: u8, // exactly 1
+    worker_id: String,
+    generation: String,
+    prior_worker_version: String,
+    terminal_worker_version: String,
+    runtime_session_id: String,
+    prior_binding_epoch: String,
+    terminal_binding_epoch: String,
+    outcome: ManagedTerminalOutcome,
+    proof_sha256: Option<String>,
+    reason: String,
+    acknowledgement: Option<String>,
+    capacity: WorkerCapacityReservation,
+    capacity_charge_id: Option<String>,
+    prior_capacity_version: Option<String>,
+    terminal_capacity_version: Option<String>,
+    retired_authority_sha256: String,
+    terminal_at: String,
+    gc_eligible_at: String,
+    not_quiescence_proven: bool,
+    receipt_sha256: String,
+}
+
+pub struct PreBindingTerminalReceipt {
+    schema: u8, // exactly 1
+    worker_id: String,
+    generation: String,
+    prior_worker_version: String,
+    terminal_worker_version: String,
+    birth_operation_id: String,
+    prior_birth_operation_version: String,
+    terminal_birth_operation_version: String,
+    prior_pending_retirement_version: String,
+    terminal_pending_retirement_version: String,
+    retired_pending_sha256: String,
+    outcome: PreBindingTerminalOutcome,
+    proof_sha256: Option<String>, // Some only for ProvedReleased
+    reason: String,
+    acknowledgement: Option<String>, // Some only for RiskAcceptedAbandoned
+    capacity: WorkerCapacityReservation,
+    capacity_charge_id: Option<String>,
+    prior_capacity_version: Option<String>,
+    terminal_capacity_version: Option<String>,
+    retired_authority_sha256: String,
+    terminal_at: String,
+    gc_eligible_at: String,
+    not_quiescence_proven: bool, // false for proved; true for risk-accepted
+    receipt_sha256: String,
+}
+
+pub enum PreBindingTerminalOutcome { ProvedReleased, RiskAcceptedAbandoned }
+
+pub struct WorkerGenerationFence {
+    schema: u8, // exactly 1
+    worker_id: String,
+    generation: String,
+    terminal_worker_version: String,
+    terminal_receipt_sha256: String,
+    not_quiescence_proven: bool, // copied exactly from the retained receipt
+    fenced_at: String,
+    fence_sha256: String,
+}
+
+pub struct FenceProofRecord {
+    worker_id: String,
+    generation: String,
+    fence_epoch: String,
+    fencing_version: String,
+    scope: RequiredScope,
+    backend: ExecutionBackend,
+    evidence_sha256: String,
+    completed_at: String,
+    proof_record_sha256: String, // JCS SHA-256 of every preceding field
+    _sealed: lifecycle::Sealed,
+}
+
+pub enum SessionOperationOutcome { Reaped, RiskAccepted }
+
+pub struct SessionOperationReceipt {
+    runtime_session_id: String,
+    terminal_binding_epoch: String,
+    operation_id: String,
+    final_operation_version: String,
+    outcome: SessionOperationOutcome,
+    authority_binding_sha256: String,
+    evidence_sha256: String,
+    terminal_at: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct SessionOperationTombstone {
+    runtime_session_id: String,
+    terminal_binding_epoch: String,
+    operation_id: String,
+    final_operation_version: String,
+    outcome: SessionOperationOutcome,
+    receipt_sha256: String,
+    terminal_at: String,
+    gc_eligible_at: String,
+}
+
+pub enum CodexManagedBoundary {
+    RelayOwnedAppServer {
+        server_fingerprint: String,
+        thread_id: String,
+        controller_instance_id: String,
+        thread_birth_barrier_sha256: String,
+    },
+}
+
+pub enum LostAuthorityReason {
+    CancelDeadline,
+    HandoffRebindFailed,
+    SupervisorLost,
+    CustodyLost,
+    ProxyStartupFailed,
+    AppServerClaimFailed,
+}
+
+pub struct PendingAttach {
+    pub worker_id: String,
+    pub generation: String,
+    pub capacity: WorkerCapacityReservation,
+    pub token_sha256: String,
+    pub expected_runtime_session_id: Option<String>, // Claude Some; Codex None until thread/start
+    pub expected_tool: String,
+    pub expected_cwd: String,
+    pub expires_at: String,
+    pub version: String,
+    pub claim_state: PendingClaimState,
+}
+
+pub enum PendingClaimState {
+    Available,
+    WaitingOnCancel {
+        runtime_session_id: String,
+        binding_epoch: String,
+        operation_id: String,
+        cancellation_epoch: String,
+        claim_version: String,
+    },
+    Claiming { runtime_session_id: String, claim_version: String },
+}
+
+pub enum PreBindingPendingDisposition { Consumed, Refused }
+
+pub struct PreBindingPendingRetirement {
+    pub schema: u8, // exactly 1
+    pub worker_id: String,
+    pub generation: String,
+    pub capacity: WorkerCapacityReservation,
+    pub token_sha256: String, // the persisted pending hash; raw token is never retained
+    pub prior_pending_version: String,
+    pub terminal_pending_version: String,
+    pub birth_operation_id: String,
+    pub birth_operation_version: String,
+    pub disposition: PreBindingPendingDisposition,
+    pub reason: String,
+    pub evidence_sha256: String,
+    pub retirement_version: String,
+    pub retired_at: String,
+    pub record_sha256: String, // JCS SHA-256 of every preceding field
+}
+
+// Closed lifecycle: PendingAttach(Available|WaitingOnCancel|Claiming)
+// -> PreBindingPendingRetirement (Retained by worker_id/generation)
+// -> PreBindingTerminalReceipt (the retirement record is removed atomically).
+// Claiming can win only before the retirement CAS; once Retained exists,
+// every claim/token replay refuses without mutation.
+
+pub struct WaitingManagedClaim {
+    pub worker_id: String,
+    pub generation: String,
+    pub capacity: WorkerCapacityReservation,
+    pub token_sha256: String,
+    pub runtime_session_id: String,
+    pub tool: String,
+    pub canonical_cwd: String,
+    pub pending_version: String,
+    pub claim_version: String,
+    pub deadline_at: String,
+}
+
+pub struct ManagedWorker {
+    pub worker_id: String,
+    pub generation: String,
+    pub capacity: WorkerCapacityReservation, // immutable for this generation
+    pub runtime_session_id: Option<String>,
+    pub claimed_token_sha256: Option<String>,
+    pub tool: String,
+    pub cwd: String,
+    pub state: ManagedState,
+    pub version: String,                 // canonical checked u64 decimal string
+    pub fence_epoch: Option<String>,     // Some only while Fencing; copied into terminal proof/audit
+    pub required_scope: RequiredScope,
+    pub execution: ExecutionBackend,
+    pub process_identity: Option<ProcessIdentityRecord>,
+    pub appserver_lineage: Option<AppServerLineageRecord>,
+    pub codex_boundary: Option<CodexManagedBoundary>,
+    pub fence_reason: Option<String>,
+    pub proof_gap: Option<String>,
+    pub lost_authority: Vec<LostAuthorityEvidence>,
+    pub release_receipt: Option<ReleaseReceipt>,
+}
+
+pub struct SessionBinding {
+    pub runtime_session_id: String,
+    pub binding_epoch: String, // canonical checked u64 decimal string
+    pub state: BindingState,
+}
+
+pub enum BindingState {
+    Unmanaged,
+    UnmanagedCanceling {
+        operation_id: String,
+        cancellation_epoch: String,
+        binding_epoch: String,
+        waiting_claim: Option<WaitingManagedClaim>,
+        lost_operations: Vec<LostAuthorityEvidence>,
+    },
+    GcDeleting { gc_epoch: String, binding_epoch: String, entry_version: String },
+    Claiming { worker_id: String, generation: String, claim_version: String },
+    Managed { worker_id: String, generation: String },
+    ManagedTerminal {
+        worker_id: String,
+        generation: String,
+        terminal_epoch: String,
+        outcome: ManagedTerminalOutcome,
+        terminal_receipt_sha256: String,
+    },
+    ManagedGcDeleting {
+        gc_epoch: String,
+        worker_id: String,
+        generation: String,
+        terminal_epoch: String,
+        outcome: ManagedTerminalOutcome,
+        terminal_receipt_sha256: String,
+    },
+    TerminalFence {
+        terminal_epoch: String,
+        outcome: ManagedTerminalOutcome,
+        terminal_receipt_sha256: String,
+    },
+}
+
+pub struct ProcessIdentityRecord {
+    pub observation: ProcessObservation,
+    pub live_supervisor_instance_id: Option<String>,
+    pub cgroup_boundary: Option<CgroupBoundary>,
+    pub recorded_at: String,
+}
+
+pub struct AppServerLineageRecord {
+    pub authority: AppServerAuthority,
+    pub root_thread_id: String,
+    pub thread_edges: Vec<ThreadEdge>,
+    pub turn_ids: Vec<String>,
+    pub last_complete_page_hash: Option<String>,
+}
+
+pub struct ManagedAppServerControllerRecord {
+    worker_id: String,
+    generation: String,
+    binding_epoch: String,
+    controller_instance_id: String,
+    controller_version: String,
+    supervisor_instance_id: String,
+    control_epoch: String,
+    server_fingerprint: String,
+    root_thread_id: String,
+    thread_birth_barrier_sha256: String,
+    socket_path: PathBuf,
+    socket_dev: u64,
+    socket_ino: u64,
+    request_sequence: String,
+    connection_state: AppServerConnectionState,
+    in_flight: Vec<AppServerRequestCustody>,
+    notification_sequence: String,
+}
+
+pub enum AppServerConnectionState { Starting, Ready, LostAuthority, Terminal }
+
+pub struct CodexThreadBirthBarrier {
+    schema: u8,
+    worker_id: String,
+    generation: String,
+    birth_operation_id: String,
+    birth_operation_version: String,
+    controller_instance_id: String,
+    request_id: RpcId,
+    request_sha256: String,
+    response_sha256: String,
+    thread_id: String,
+    server_fingerprint: String,
+    thread_started_sha256: String,
+    barrier_sha256: String,
+}
+
+pub struct AppServerRequestCustody {
+    operation_id: String,
+    operation_version: String,
+    direction: RpcDirection,
+    request_id: RpcId,
+    method: String,
+    request_sequence: String,
+    state: AppServerRequestState,
+}
+
+pub enum RpcDirection { ClientToServer, ServerToClient }
+pub enum AppServerRequestState { Prepared, RequestSentUnknown, Completed, LostAuthority }
+
+pub struct LostAuthorityEvidence {
+    operation_id: String,
+    operation_version: String,
+    reason: LostAuthorityReason,
+    observed_at: String,
+}
+
+pub enum AppServerAuthority {
+    SharedSocket { server: String },
+    DedicatedStdio { supervisor_instance_id: String, process: ProcessObservation },
+}
+
+pub struct ThreadEdge {
+    pub parent_thread_id: String,
+    pub child_thread_id: String,
+}
+```
+
+Claude's launcher generates a 256-bit random raw token, persists only SHA-256, and passes `RELAY_MANAGED_WORKER_ID`, `RELAY_MANAGED_GENERATION`, and `RELAY_MANAGED_ATTACH_TOKEN` to the owned CLI child. The worker-birth transaction first fixes `WorkerCapacityReservation`; `PendingAttach`, every claim/birth capability, and any later retirement copy it byte-for-byte. A charged birth atomically creates the sole matching Held `CapacityCharge`; an unreserved birth proves no charge names that worker/generation. Codex token custody is controller-local: after an authenticated supervisor resolves `ChildLaunchSpec::ManagedCodexAppServer`, the supervisor generates the raw token, atomically creates the pending attach with only its hash, and retains the raw token only in the controller's locked memory. It starts the dedicated server, runs `thread/start`, claims the returned identity, then zeroizes/drops the raw token after the final claim result. The raw token never crosses caller/watchdog bootstrap, argv, environment, store, log, diagnostic, event, or later controller socket. Before claim it authorizes one identity binding; after claim only the claimed-token hash supports idempotency for the same worker/generation/session/tool/canonical-cwd/controller tuple and can never bind another tuple. Supervisor/controller loss before final claim consumes/refuses the exact pending record and applies the pre-binding loss row below; no replacement controller can recover the secret or adopt the child.
+
+Every runtime session, including a not-yet-managed Codex id, has a persisted monotonically increasing `binding_epoch`. Admission, first SessionStart claim, unmanaged-operation cancellation, pending-token creation, and Unmanaged GC serialize through that record; this is mandatory. `UnmanagedCanceling` is the exact pre-claim cancellation linearization state and refuses new mutation. `GcDeleting` is a separate internal durable exclusion state: admission/claim/pending creation seeing it refuses or bounded-retries without creating surfaces.
+
+Unmanaged disconnect and first SessionStart race in one short `with_lock` transaction. If disconnect wins, exact-CAS `Unmanaged@epoch + ActiveOperation@version → UnmanagedCanceling` with a new stable `cancellation_epoch`, and mint `CancellationAuthority::UnmanagedOperation` for only that session/epoch/operation/cancellation epoch; mutable custody version is checked separately on every command. A claim that sees `UnmanagedCanceling` does not wait only in memory: in one transaction it validates the pending token, reserves its exact pending version as `WaitingOnCancel`, and installs the full `WaitingManagedClaim`. An exact duplicate joins that durable waiter; a conflicting tuple refuses. Exact reap with `Some(waiter)` atomically advances `UnmanagedCanceling@N→Claiming@N+1`, advances the same pending record to Claiming, and preserves its claim version for exactly one finalization; with `None` it advances to `Unmanaged@N+1`. If the fixed claim deadline expires with `Some(waiter)`, one transaction consumes that exact pending token, advances the binding to `Managed@N+1`, rebinds the operation to a new exact fence epoch/version, and applies the exceptional `Attaching→FencingUnconfirmed` transition with `LostAuthority/CancelDeadline`; it never publishes Active. If SessionStart wins and publishes Claiming/increments epoch first, the old unmanaged authority is stale and emits zero signal/state bytes; Claim authority owns cancellation. Late reap/cancel reports after any winner only append stale audit. `UnmanagedCanceling` with lost/unreaped authority is non-GCable and status-addressable by session+operation. Crash/retry reconstructs the waiter only from these durable records; it never relies on a live hook call.
+
+`claim_managed_attach(token, runtime_session_id, tool, cwd)` for Claude and `claim_managed_appserver(token, runtime_session_id, birth_barrier, cwd)` for Codex share one two-phase bind whose **first operation is one short `with_lock` publication transaction**:
+
+1. Hash token; validate `pending_managed[token_hash]`, generation/tool/canonical cwd/expiry and optional Claude id; reject conflicting binding; increment `binding_epoch`; atomically write `BindingState::Claiming { worker_id, generation, claim_version }`, mark the token claim-in-progress, and publish cancellation for all older-epoch guards. Do not run GC, marker writes, ordinary register, drain, RPC, process work, or wait first.
+2. Outside the global lock, acquire the session binding/activity lock exclusively and drain prior epoch guards within `managed_cancel_grace_ms`. New admission sees `Claiming` and refuses. Older `Unmanaged` guards may finish work begun before Claiming, but cannot survive into Managed because final binding waits for their shared guards to release and every lower use re-resolves the epoch.
+3. Under one second short `with_lock`, CAS the exact Claiming `binding_epoch + claim_version`, pending token, and worker `Attaching` version to `BindingState::Managed` + worker `Active`; for Codex, exact-validate the closed barrier against the pending worker/generation/birth operation/controller/runtime id/server fingerprint, persist its JCS hash in both the managed boundary and controller record in this same transaction, write Entry/session binding/claimed-token hash, and remove pending. If drain or final CAS fails, exact-CAS Claiming to `BindingState::Managed` bound to the worker in `ManagedState::Fencing` (never Active), retain the binding/epoch, and block the prompt; future admission therefore resolves managed refusal rather than recreating Unmanaged authority.
+
+For Codex the detached supervisor is also the durable app-server controller: it retains the dedicated server Child, stdin/stdout JSON-RPC transport, request map, server-request/approval handler, and notification pump for the full managed lifetime. It sends `thread/start`, then forms one recursively closed `CodexThreadBirthBarrier` only after a successful idle-thread response and exactly one matching `thread/started` have both arrived, in either wire order. `barrier_sha256` is SHA-256 of JCS over every preceding field; the request/response/notification hashes bind the exact raw typed messages, and the worker/generation/birth-operation/controller fields bind the one pending authority. Missing, duplicate, conflicting, non-idle, wrong-thread, wrong-operation, wrong-controller, changed-hash, or post-deadline halves fail before claim and before any `turn/start`. The barrier is evidence consumed by the pending claim, never standalone authority. The controller invokes `claim_managed_appserver`; it MUST NOT emit `turn/start` before the exact claim transaction persists the same barrier hash in the managed boundary/controller record and commits Active. The controller is the sole claimant; exact controller retry with the same barrier joins the durable claim, while a different barrier refuses. Claim failure or deadline emits no `turn/start`, exact-transitions through the existing pre-binding loss row, and asks the retained supervisor to stop/reap the dedicated app-server and its confined tree.
+
+Current Codex `0.144.1` runs SessionStart and UserPromptSubmit only after the first `turn/start` is accepted. They therefore carry no pending token, birth permit, or claim authority and cannot create/publish Active. After the controller has durably committed Active, the first `ControllerStartTurn` request must produce one same-thread/same-turn synchronous chain `sessionStart started → sessionStart completed → userPromptSubmit started → userPromptSubmit completed`; both completions must be successful with no stop/error entry, and the whole chain must precede the first `item/started`, agent/reasoning delta, command/tool item, or other observable model item. This version-pinned contract makes no claim about internal model scheduling before those events. The SessionStart hook resolves the already-Managed binding and performs only its ordinary idempotent resume/registration/drain work. Missing, duplicated, mismatched, reordered, failed, or item-after-incomplete-hook evidence stops forwarding, exact-records the known turn when available, and applies the existing `CustodyLost` controller-loss transaction plus bounded interrupt/cleanup; it never retroactively supplies birth authority. Managed Codex wake/resume from a later relay process uses a short-lived, same-UID, capability-bound controller command over the recorded socket; it never depends on the original caller, forwards arbitrary JSON bytes, or falls back to `codex exec`, TUI resume, or a third-party client.
+
+After Active, marker/ordinary registration/GC run as best-effort follow-ups and cannot undo the authoritative binding. An exact duplicate **Claude** SessionStart during Claiming joins/polls that claim result. Codex birth never waits for SessionStart: controller retry supplies birth idempotency, while the first post-Active SessionStart resolves only the already-Managed binding and cannot consume or join the birth claim.
+
+Duplicate/resume semantics are exact:
+
+| Input | Result |
+|---|---|
+| Concurrent duplicate with same claimed token + same runtime id/generation/tool/cwd and, for Codex, exact controller retry with same server/controller boundary | Join the one durable claim and return its exact committed result without version/state churn: Active only if the original finalized Active, otherwise the same structured stop/refusal. Managed Codex SessionStart never enters this row. |
+| SessionStart resume without token + exact existing session binding/tool/cwd | Re-evaluate lifecycle: Active continues; any fenced/nonterminal-stop state emits structured stop. |
+| Claimed token with different runtime id/tool/cwd/generation or Codex server/controller boundary | Refuse and audit; never rebind. |
+| Expired unclaimed token | Refuse; `Attaching→Fencing`; supervisor fences using retained handles. |
+| Token replay after bind to a second worker/id | Refuse and audit. |
+
+The closed worker transitions are `Attaching→Active|Fencing`; exceptional `Attaching→FencingUnconfirmed` only through the exact lost-authority mapping below; `Active→Fencing`; `Fencing→Fenced|FencingUnconfirmed`; `FencingUnconfirmed→Fencing` only through reconcile; `Fenced→TerminalRetained` only through crash-resumable proof retention; `TerminalRetained→TerminalReleasable` only through explicit bound or pre-binding proved release; `FencingUnconfirmed→TerminalReleasable` only through audited bound or pre-binding abandonment; and a pre-binding `TerminalReleasable→PreBindingGcDeleting→WorkerGenerationFence` GC path. `Active→Fencing` and reconcile mint `fence_epoch=Some(new_uuid)` and the resulting worker `version` is the exact `fencing_version`; later states clear the live field only after copying both values into proof/audit records.
+
+Bound release/abandon linearize as one authority-file CAS, never as a worker-only transition. The transaction revalidates exact worker/generation/version, immutable capacity discriminator and its bidirectional zero-or-one charge relation, runtime session, `BindingState::Managed` tuple and binding epoch, capacity selector/version, proof hash or abandonment acknowledgement, and no competing `ManagedGcDeleting`; it refuses while any `LossCleanupRecord` is Pending/Running. Proved release requires `TerminalRetained` plus the retained proof at the required scope. Risk-accepted bound abandonment requires `FencingUnconfirmed`, explicit reason and acknowledgement, emits no signal, and records `not_quiescence_proven=true`. In one `lifecycle-v1.json` generation it writes worker `TerminalReleasable`, binding epoch N→N+1 as `ManagedTerminal`, the closed `ManagedTerminalReceipt` carrying the unchanged capacity discriminator, every matching live operation/controller/custody/supervisor/watchdog/handoff as terminal audit/tombstone bound to that receipt, and `CapacityCharge::Held→Released` bound to the same receipt for `Charged`. `capacity_charge_id=None` and both version fields `None` are allowed only for `Unreserved`; later fan-out-reserved workers are `Charged` from birth, must carry the exact `Some`, and cannot substitute None. Bound capacity excludes the worker only when discriminator, released charge when required, terminal worker, terminal binding, and receipt hashes all agree; any missing/duplicate/mismatch remains charged or fails the authority document. Retry returns the same receipt; stale actors are audit-only.
+
+Every pre-binding loss transaction that consumes or refuses `PendingAttach` removes `pending_managed[token_sha256]` and inserts exactly one `prebinding_pending_retirements[worker_id/generation]` in the same authority generation as `Attaching→Fencing|FencingUnconfirmed` and the terminal birth-operation version. The retained record copies only the already-persisted token hash, immutable capacity discriminator, exact prior/terminal pending versions, birth operation/version, typed disposition/reason/evidence, and a monotonic retirement version; it never retains or reconstructs the raw token. The transaction revalidates the discriminator's exact zero-or-one charge relation. Exact loss retry returns the same record. A different token, capacity/charge relation, pending version, birth operation, or worker generation refuses. Crash/reload after that CAS reconstructs the operator selector only from this record. Claim and retirement have one authority-generation winner: Claiming can win only while the live pending record exists; once the retirement record exists, claim, pending recreation, and token replay emit zero state/process/RPC bytes.
+
+Pre-binding release/abandon are distinct authority-file transactions and never invent a session or binding epoch. Both require `runtime_session_id=None`, no claimed token/boundary, no `SessionBinding` owned by that worker/generation, the exact terminal worker-owned birth operation and exact `PreBindingPendingRetirement` key/version/hash/capacity discriminator, no Pending/Running cleanup, and the matching zero-or-one capacity selector/version. Proved release accepts only `TerminalRetained` plus the retained proof at the required scope, writes `PreBindingTerminalOutcome::ProvedReleased`, `proof_sha256=Some`, `acknowledgement=None`, and `not_quiescence_proven=false`. Risk-accepted abandonment accepts only `FencingUnconfirmed` plus explicit reason/acknowledgement, emits no signal, and writes `RiskAcceptedAbandoned`, `proof_sha256=None`, `acknowledgement=Some`, and `not_quiescence_proven=true`. Either one CAS writes worker `TerminalReleasable`, a closed `PreBindingTerminalReceipt` carrying the unchanged capacity discriminator, removes the retained pending-retirement record into the receipt's historical `retired_pending_sha256` commitment, writes terminal tombstones for birth-operation/supervisor/watchdog/controller authority bound to that receipt, and applies `CapacityCharge::Held→Released` exactly for `Charged`; a foreign session binding is byte-identical. `capacity_charge_id=None` with both version fields `None` is valid only for `Unreserved`; `Charged` requires the exact `Some`. Capacity excludes a pre-binding worker only when discriminator, terminal worker, permanently retained receipt, retired-authority commitments, and released charge when required all agree. Claim versus pending retirement has one authority-generation winner before either terminal path; proved release versus abandonment and either terminal path versus GC/stale actors also have one winner. If Claiming, a live pending record, or any owned binding exists, both pre-binding terminal commands emit zero mutation and the bound path is required. Before terminalization exact retry resolves the retained record; after terminalization it returns the same permanently retained receipt; stale proof, operation, pending-retirement, worker, or charge versions are audit-only.
+
+`ManagedTerminal|ManagedGcDeleting|TerminalFence` and `PreBindingGcDeleting|WorkerGenerationFence` always refuse the authority family they fence before registry, marker, mailbox, RPC, process, or new-pending bytes. After the ordinary cutoff and exact receipt/reference validation, bound managed GC CASes `ManagedTerminal→ManagedGcDeleting`, performs crash-resumable physical projection cleanup, then in one final authority transaction removes the heavy worker/released charge/retired-authority records and replaces the binding with compact `TerminalFence`; the exact `ManagedTerminalReceipt` remains permanently keyed by its receipt hash so the fence reference and idempotent retry remain valid, and Unmanaged is never recreated. Pre-binding GC exact-CASes the matching terminal worker `TerminalReleasable→PreBindingGcDeleting`, persists a crash-resumable manifest without touching any session binding, cleans only worker-owned projections, and in one final transaction removes heavy worker/released-charge/retired-authority records while installing permanent `WorkerGenerationFence`; the exact `PreBindingTerminalReceipt` likewise remains permanently keyed by its receipt hash. Both compact fences and their referenced receipts are permanent under this plan, especially for risk-accepted abandonment where a process may still exist. A future explicit purge policy requires separate review.
+
+Every lost-authority source and reason uses exactly one row; a stale actor is audit-only and cannot skip a state:
+
+| Source at exact CAS | Required transition |
+|---|---|
+| Pending worker `Attaching`, no owned session binding | A claim-validation refusal (expired token, returned id already foreign-bound, wrong cwd/tool/server/controller, or crash before Claiming) preserves the foreign/absent binding byte-for-byte and exact-CASes the live pending token into one retained `prebinding_pending_retirements[worker_id/generation]`. With retained supervisor/cgroup custody, worker-only `Attaching→Fencing` fences the dedicated child; with lost custody, exceptional worker-only `Attaching→FencingUnconfirmed`. Never invent or mutate a session binding. Validation refusal is distinct from `LostAuthority`; controller/supervisor loss after pending creation records the matching typed loss on the worker-owned operation. Claim versus retirement has one authority-generation winner, and reload uses only the retirement record. |
+| `Unmanaged` / pre-bind operation | `Unmanaged→UnmanagedCanceling` plus typed operation `LostAuthority(reason)` and append exact `LostAuthorityEvidence`. |
+| Already `UnmanagedCanceling` | Keep lifecycle state; exact-CAS each additional current operation to typed loss and append its original evidence. A waiting claim binds the complete loss set; it never rewrites non-deadline reasons to `CancelDeadline`. |
+| `Claiming` / worker `Attaching` | Atomically bind the exact worker as Managed and apply exceptional `Attaching→FencingUnconfirmed` with the complete typed loss set; consume the pending token; never Active. |
+| `Active` | In one store transaction mark every matching unresolved operation lost, preserve each reason, and apply `Active→Fencing` with a new fence epoch/version then exact `Fencing→FencingUnconfirmed`; direct `Active→FencingUnconfirmed` is forbidden. |
+| `Fencing` for the matching fence epoch/version | Batch-mark every matching unresolved operation and apply `Fencing→FencingUnconfirmed` with the typed loss set. |
+| Already `FencingUnconfirmed` | Keep lifecycle state; exact-CAS any additional current operation loss and append its typed evidence. |
+| Exact current `Fenced|TerminalRetained|TerminalReleasable` | Lifecycle and custody are immutable; append audit only, even when the reporting actor otherwise matches. |
+| Any stale binding/operation/handoff/claim/fence version | Append stale audit only; zero state, signal, RPC, or output bytes. |
+
+The table applies to every enumerated `LostAuthorityReason`; reason-specific code may not invent strings or another transition. One supervisor/watchdog/controller failure is processed as one atomic batch across every matching operation, so later current reports see an already-fail-closed row rather than an undefined intermediate state. When a row's closed transaction ends in `FencingUnconfirmed` and still has exact live supervisor plus retained child/cgroup custody, that transaction also creates one durable `LossCleanupRecord::Pending` and returns one sealed `LossCleanupPermit` bound to `{worker_id,generation,fence_epoch,post_loss_fencing_version,supervisor_instance_id,control_epoch,loss_batch_sha256,host_boot_id,deadline_boottime_ns,cleanup_handle_slot}`. The record atomically fixes `created_boottime_ns` and that deadline when it is created. This permit is the sole exception to the ordinary “current Fencing only” action rule: it is explicitly valid only against the exact post-loss `FencingUnconfirmed` version written by the same transaction. A retained-custody `Attaching→Fencing` row uses the ordinary fence path instead; no live matching custody means no permit and no guessed cleanup.
+
+`perform_loss_cleanup` atomically consumes `Pending@cleanup_version→Running@cleanup_version+1` only after re-resolving the exact post-loss worker/version, supervisor/control epoch, loss batch, host boot id, unexpired fixed deadline, and private composite cleanup-handle slot; the transaction writes one fresh `cleanup_attempt_id`. Replay, stale version/epoch/attempt, a different loss batch or boot, another handle, or an expired deadline emits zero close/signal/RPC bytes. The deadline is fixed once at record creation as `created_boottime_ns + managed_cancel_grace_ms`; permit delivery, Running transition, retry, and supervisor health never reset it.
+
+A crash after durable Pending but before permit delivery/consumption is bounded: at or after that fixed deadline, the watchdog or explicit reconcile may exact-CAS only the matching Pending version to `Failed(PendingPermitExpired)` with zero cleanup bytes and no reminted permit. A late original permit loses CAS and emits zero bytes. Running uses the same deadline. At or after it, watchdog or reconcile may exact-CAS the exact Running version and `cleanup_attempt_id` to `Failed(RunningDeadlineOutcomeUnknown)` even when the supervisor remains health-responsive; health is diagnostic and cannot make a stalled executor immortal. Boot-id change exact-CASes the matching nonterminal record to `Failed(HostBootChanged)` with zero action. Timeout/boot recovery never closes, signals, emits RPC, constructs proof, changes `FencingUnconfirmed`, or releases capacity.
+
+The cleanup actor revalidates exact Running tuple/attempt/deadline before each new close/kill/reap operation and issues no new operation after deadline or stale state. It targets only retained exact stdio/Child/cgroup-fd authority; operations are monotonic/idempotent. An operation already entered before timeout may finish, but its late completion CAS loses and cannot alter lifecycle, proof, receipt, or capacity. Completion versus timeout has exactly one exact-CAS winner. Reconcile/release/abandon seeing unexpired `Pending|Running` refuses without epoch/state change; after a terminal `Failed|Completed`, a separately authorized new fence epoch or explicit audited abandonment may proceed, but Failed never implies quiescence and ordinary proved release still cannot. The worker stays `FencingUnconfirmed` before, during, and after cleanup. `LossCleanupOutcome` is diagnostic evidence only: it cannot construct `FenceEvidence`, `FenceProofRecord`, `ReleaseReceipt`, `TerminalRetained`, or free a capacity slot even when close/kill/reap/populated-zero all succeed.
+
+A claim arriving after pre-bind loss transfers the original typed evidence; only expiry of still-live cancellation authority adds `CancelDeadline`. Closed unmanaged transitions are `Unmanaged@N→UnmanagedCanceling@N`; exact reap with a durable waiting claim `UnmanagedCanceling@N→Claiming@N+1`; exact reap/reconcile without one `→Unmanaged@N+1`; exact live cancel deadline with a durable waiter `→Managed@N+1` paired with exceptional `Attaching→FencingUnconfirmed(CancelDeadline)`; risk-accepted `abandon-session→Unmanaged@N+1` with `NOT QUIESCENCE-PROVEN` receipt. No other unmanaged transitions exist. Only releasable managed records and terminal unmanaged-operation tombstones with their required receipt may age out. Binding GC alone may exact-CAS plain `Unmanaged→GcDeleting→removed`; `UnmanagedCanceling` is never GC-eligible. Failed pre-delete lock acquisition restores untouched Unmanaged; once deletion starts `GcDeleting` is crash-resumable. `Claiming`, `Managed`, `ManagedTerminal`, `ManagedGcDeleting`, and `TerminalFence` never age or disappear independently of their exact authority-file protocol.
+
+### 2. Binding-safe admission, fence intent, and sealed capabilities
+
+Admission first resolves a binding capability, then applies the already-sound publish-first fence protocol. The atomically saved `ManagedState::Fencing` record remains the fence-intent publication and linearization point; a separate generation-bound marker may cache it for fast refusal but is never authoritative:
+
+1. `admit_operation(target, kind)` resolves/creates the target session's `SessionBinding` under `with_lock`. `Claiming` refuses. `Unmanaged` or Active Managed captures the exact runtime session, worker (if any), generation, `binding_epoch`, lifecycle version, canonical tool/cwd/app-server selectors, and one allowed `OperationKind`.
+2. Admission checks authoritative binding/lifecycle before touching the per-session binding lock or per-worker `activity.lock`, acquires the required shared locks, then re-resolves the same binding epoch/state/generation/version. A changed record releases and refuses. The returned guard retains both locks for its lifetime.
+3. Under one short `with_lock`, fencing validates generation and CAS `Active→Fencing` with a new `fence_epoch`/version; release the global lock. Only then materialize a cache marker or drain. A crash between CAS and cache remains fenced.
+4. A caller whose first lifecycle read follows Fencing refuses without joining activity. The fencer publishes cancellation, then acquires **every session binding lock currently bound to the worker plus worker activity** exclusively in deterministic session-id order. This includes an older Unmanaged guard caught by Claiming/attach failure even though it never joined worker activity. Previously admitted operations poll cancellation and release; any binding/activity drain timeout CASes the exact fence epoch to `FencingUnconfirmed`.
+5. No global store lock is held while acquiring binding/activity locks, waiting, spawning, pumping, interrupting, or signaling.
+
+```rust
+pub enum OperationKind {
+    SessionStartDrain,
+    UserPromptDrain,
+    CliInboxDrain,
+    McpInboxDrain,
+    ChannelDeliver,
+    WatchInject,
+    WatchAutoTurn,
+    WatchAck,
+    WatchWakeFallback,
+    WakeAppServer,
+    WakeCli,
+    AttachResume,
+    InitialTurn,
+    ControllerRead,
+    ControllerInjectItems,
+    ControllerStartTurn,
+}
+
+pub enum GuardTarget {
+    Session {
+        runtime_session_id: String,
+        worker_id: Option<String>,
+        generation: Option<String>,
+        binding_epoch: String,
+        tool: String,
+        canonical_cwd: String,
+    },
+    AppServerThread {
+        runtime_session_id: String,
+        worker_id: Option<String>,
+        generation: Option<String>,
+        binding_epoch: String,
+        tool: String,
+        canonical_cwd: String,
+        server_fingerprint: String,
+        thread_id: String,
+    },
+    PendingWorker {
+        worker_id: String,
+        generation: String,
+        worker_version: String,
+        tool: String,
+        canonical_cwd: String,
+        birth_operation_id: String,
+        birth_operation_version: String,
+    },
+}
+
+pub struct SharedFileLock { file: File, _sealed: lifecycle::Sealed }
+pub struct ExclusiveFileLock { file: File, _sealed: lifecycle::Sealed }
+pub struct CancelToken {
+    marker_path: PathBuf,
+    operation_id: String,
+    expected_operation_version: String,
+    binding_epoch: String,
+    generation: Option<String>,
+    claim_or_fence_epoch: Option<String>,
+}
+
+pub enum ExternalCustody {
+    None,
+    TurnNotSent,
+    TurnStartSentUnknown { thread_id: String, server_fingerprint: String },
+    TurnKnown { thread_id: String, turn_id: String, server_fingerprint: String },
+    TurnTerminal { thread_id: String, turn_id: String, status: String },
+    ChildStarting { supervisor_instance_id: String },
+    ChildOwned { supervisor_instance_id: String, process: ProcessObservation },
+    ChildCancelRequested { supervisor_instance_id: String, process: ProcessObservation, request_id: String },
+    ChildReaped { supervisor_instance_id: String, process: ProcessObservation, exit_status: i32 },
+    HandedOff { handoff_id: String },
+    LostAuthority { last_observation: Option<ProcessObservation>, reason: LostAuthorityReason },
+}
+
+pub struct ActiveOperationRecord {
+    operation_id: String,
+    runtime_session_id: String,
+    worker_id: Option<String>,
+    generation: Option<String>,
+    binding_epoch: String,
+    lifecycle_version: Option<String>,
+    operation_version: String, // checked u64 decimal; incremented by every custody transition
+    kind: OperationKind,
+    custody: ExternalCustody,
+}
+
+pub enum CancellationAuthority {
+    UnmanagedOperation {
+        runtime_session_id: String,
+        binding_epoch: String,
+        operation_id: String,
+        cancellation_epoch: String,
+    },
+    Claim { binding_epoch: String, claim_version: String },
+    Fence { generation: String, fence_epoch: String, fencing_version: String },
+}
+
+pub enum HandoffCustody {
+    KnownTurn { thread_id: String, turn_id: String, server_fingerprint: String },
+    SupervisorChild {
+        supervisor_instance_id: String,
+        process: ProcessObservation,
+        cancel_request_id: String,
+    },
+}
+
+pub struct CancellationHandoff {
+    handoff_id: String,
+    handoff_version: String,
+    operation_id: String,
+    source_operation_version: String,
+    authority: CancellationAuthority,
+    custody: HandoffCustody,
+    transferred_at: String,
+}
+
+pub struct ReentryGuard {
+    target: GuardTarget,             // private; lower APIs derive target from here
+    allowed: OperationKind,          // exactly one operation family
+    lifecycle_version: Option<String>,
+    binding_guard: SharedFileLock,   // retained for the guard lifetime
+    activity_guard: Option<SharedFileLock>,
+    deadline: Instant,
+    cancel: CancelToken,
+    operation_id: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub enum Admission {
+    Unmanaged(ReentryGuard),
+    Managed(ReentryGuard),
+    Refused {
+        runtime_session_id: String,
+        binding_epoch: String,
+        worker_id: Option<String>,
+        managed_state: Option<ManagedState>,
+        reason: String,
+    },
+}
+
+pub fn admit_operation(session_or_worker: &str, kind: OperationKind) -> Result<Admission, String>;
+pub fn publish_fence(worker_id: &str, generation: &str, reason: &str) -> Result<FenceIntent, String>;
+pub fn drain_prior_operations(intent: FenceIntent) -> Result<FencePermit, DrainError>;
+```
+
+`ReentryGuard` construction, fields, target resolution, and seal remain private to `lifecycle.rs`. Admission durably creates one versioned `ActiveOperationRecord`; `drop` may remove it only when no external action was sent or exact terminal/reap evidence is recorded. Unresolved custody survives guard/process loss and is non-GCable. A session with unresolved unmanaged custody refuses every later mutating admission (pure reads/status only) until a claim binds it into Fencing/FencingUnconfirmed or an operator resolves/abandons it. Immediately before every lower mutation, `authorize_use(&mut guard, expected_kind)` re-reads the binding and lifecycle under one short `with_lock`; it rejects a changed epoch/state/generation/version or wrong kind, then releases the global lock before the external action. Because the guard still holds the shared binding/activity locks, a Claiming transition cannot finalize Managed and a Fencing transition cannot finish drain while that authorized action remains live.
+
+Every custody mutation uses `cas_operation_custody(operation_id, expected_operation_version, expected_variant, next)` in one short store transaction and increments `operation_version`; no external work occurs under the lock. `cancellation_epoch` is stable across those custody versions, while every supervisor command separately exact-checks the current operation version. The closed transitions are `None→TurnStartSentUnknown|ChildStarting`; `TurnStartSentUnknown→TurnNotSent|TurnKnown|LostAuthority`; `TurnKnown→TurnTerminal|HandedOff|LostAuthority`; `ChildStarting→ChildOwned|LostAuthority`; `ChildOwned→ChildCancelRequested|ChildReaped|LostAuthority`; `ChildCancelRequested→ChildReaped|HandedOff|LostAuthority`; and `HandedOff→TurnTerminal|ChildReaped|LostAuthority`. Creating a handoff atomically creates `{handoff_id,handoff_version=1,source_operation_version}` and CASes custody to `HandedOff`; consuming/updating it checks both operation and handoff versions. A losing delayed response/terminal/supervisor report writes at most an append-only stale-event audit and cannot change custody, lifecycle, signal, or RPC bytes. At the `TurnStartSentUnknown` grace deadline the guard closes its connection and exact-CASes `LostAuthority`; a response that arrives after that CAS is never allowed to resurrect the operation.
+
+Lower APIs take **no independently supplied session, worker, server, thread, cwd, tool, process target, program, raw argv, or raw environment**. They derive all authority selectors and executable identity from the capability. The only separate launch payload is a closed typed value whose variants contain validated behavior data, never an escape hatch:
+
+```rust
+store::drain_with_guard(&mut ReentryGuard)
+appserver::resume_with_guard(&mut ReentryGuard)
+appserver::inject_with_guard(&mut ReentryGuard, items)
+appserver::start_turn_with_guard(&mut ReentryGuard, prompt)
+spawn::run_child_with_guard(&mut ReentryGuard, ChildLaunchSpec)
+spawn::run_managed_codex_with_permit(&mut ManagedBirthPermit, ManagedCodexBirthOptions)
+
+pub enum ChildLaunchSpec {
+    AttachResume(AttachOptions),
+    WakeDoorbell(DoorbellMessage),
+    WatchWakeFallback(DoorbellMessage),
+}
+
+pub struct AttachOptions {
+    pub model: Option<ValidatedModel>,
+    pub effort: Option<ValidatedEffort>,
+}
+
+pub struct ManagedCodexBirthOptions {
+    pub model: Option<ValidatedModel>,
+    pub effort: Option<ValidatedEffort>,
+    pub sandbox: ValidatedSandbox,
+    pub initial_prompt: ValidatedAppServerInput,
+}
+
+pub enum ValidatedSandbox { ReadOnly, WorkspaceWrite, DangerFullAccess }
+
+pub struct ManagedBirthPermit {
+    worker_id: String,
+    generation: String,
+    worker_version: String,
+    capacity: WorkerCapacityReservation,
+    tool: String,
+    canonical_cwd: String,
+    birth_operation_id: String,
+    birth_operation_version: String,
+    consumed: bool,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct ValidatedThreadView {
+    pub thread_id: String,
+    pub status: String,
+    pub cwd: PathBuf,
+    pub source_kind: String,
+}
+
+pub struct SupervisorRecord {
+    supervisor_instance_id: String,
+    control_epoch: String,
+    operation_id: String,
+    operation_version: String,
+    process: ProcessObservation,
+    socket_path: PathBuf,
+    socket_dev: u64,
+    socket_ino: u64,
+    version: String,
+    state: SupervisorState,
+}
+
+pub enum SupervisorState { Starting, Ready, LostAuthority, Terminal }
+
+pub struct SupervisorLaunchRecord {
+    operation_id: String,
+    expected_operation_version: String,
+    control_epoch: String,
+    control_nonce_sha256: String,
+    spec: ChildLaunchSpec,
+    stdio: StdioProfile,
+}
+
+pub struct StdioProfile {
+    stdin: StdioEndpointMode,
+    stdout: StdioEndpointMode,
+    stderr: StdioEndpointMode,
+}
+
+pub enum StdioEndpointMode {
+    Closed,
+    Pipe,
+    Pty { terminal_group: String, rows: u16, cols: u16 },
+}
+
+pub enum SupervisorCommand {
+    LaunchOwned { operation_id: String, expected_operation_version: String },
+    Input { operation_id: String, expected_operation_version: String, bytes_b64: String },
+    InputEof { operation_id: String, expected_operation_version: String },
+    ResizePty { operation_id: String, expected_operation_version: String, terminal_group: String, rows: u16, cols: u16 },
+    ForwardSignal { operation_id: String, expected_operation_version: String, signal: OwnedSignal },
+    CancelOwned {
+        operation_id: String,
+        expected_operation_version: String,
+        authority: CancellationAuthority,
+        request_id: String,
+    },
+    QueryOwned { operation_id: String, expected_operation_version: String },
+}
+
+pub enum ManagedAppServerCommand {
+    ReadThread,
+    InjectItems { items: ValidatedAppServerInput },
+    StartTurn { prompt: ValidatedAppServerInput },
+    InterruptOwnedTurn,
+    ListDescendants { cursor: Option<String> },
+    ListOwnedTerminals { cursor: Option<String> },
+    TerminateOwnedTerminal { terminal: OwnedBackgroundTerminalRef },
+}
+
+pub enum RpcId { Integer(u64), String(String) } // float, null, negative, and duplicate directional ids refuse
+
+pub struct OwnedBackgroundTerminalRef {
+    controller_instance_id: String,
+    control_epoch: String,
+    operation_id: String,
+    operation_version: String,
+    process_id: String,
+    page_evidence_sha256: String,
+    _sealed: appserver::Sealed,
+}
+
+pub struct ManagedAppServerRequestEnvelope {
+    schema: u8, // exactly 1
+    worker_id: String,
+    generation: String,
+    binding_epoch: String,
+    controller_instance_id: String,
+    controller_version: String,
+    control_epoch: String,
+    operation_id: String,
+    expected_operation_version: String,
+    authorization_id: String,
+    expected_authorization_version: String,
+    request_sequence: String,
+    command: ManagedAppServerCommand,
+}
+
+pub struct ManagedCommandAuthorizationRecord {
+    authorization_id: String,
+    authorization_version: String,
+    worker_id: String,
+    generation: String,
+    binding_epoch: String,
+    controller_instance_id: String,
+    control_epoch: String,
+    operation_id: String,
+    operation_version: String,
+    command_discriminant: String,
+    authority: ManagedCommandAuthority,
+    state: ManagedCommandAuthorizationState,
+    expires_at: String,
+}
+
+pub enum ManagedCommandAuthority {
+    Reentry { operation_kind: OperationKind },
+    TurnCancellation { custody_version: String, permit_binding_sha256: String },
+    Fence { fence_epoch: String, fencing_version: String, proof_attempt_sha256: String },
+}
+
+pub enum ManagedCommandAuthorizationState { Issued, Consumed, Refused, Expired }
+
+pub enum ManagedAppServerResult {
+    Thread { operation_version: String, thread: ValidatedThreadView },
+    Injected { operation_version: String, item_ids: Vec<String> },
+    TurnStarted { operation_version: String, turn_id: String },
+    TurnInterrupted { operation_version: String, turn_id: String, terminal_status: String },
+    DescendantsPage { operation_version: String, threads: Vec<ValidatedThreadView>, next_cursor: Option<String> },
+    TerminalsPage { operation_version: String, terminals: Vec<OwnedBackgroundTerminalRef>, next_cursor: Option<String> },
+    TerminalTerminated { operation_version: String, terminal: OwnedBackgroundTerminalRef },
+    RefusedStale { observed_operation_version: String },
+    LostAuthority { operation_version: String, reason: LostAuthorityReason },
+}
+
+pub struct ValidatedAppServerInput { items: Vec<serde_json::Value>, _sealed: appserver::Sealed }
+
+pub enum SupervisorHello {
+    Health {
+        supervisor_instance_id: String,
+        supervisor_version: String,
+        nonce: String,
+    },
+    Control {
+        supervisor_instance_id: String,
+        control_epoch: String,
+        operation_id: String,
+        expected_operation_version: String,
+        control_nonce: String,
+    },
+    ManagedOperation(ManagedAppServerRequestEnvelope),
+}
+
+pub enum SupervisorEvent {
+    Started { control_epoch: String, operation_id: String, operation_version: String, process: ProcessObservation },
+    ControlBound { control_epoch: String, operation_id: String, operation_version: String },
+    Output { control_epoch: String, operation_id: String, operation_version: String, sequence: String, stream: String, bytes_b64: String },
+    InputAccepted { control_epoch: String, operation_id: String, operation_version: String, sequence: String, byte_count: u32 },
+    PtyResized { control_epoch: String, operation_id: String, operation_version: String, sequence: String, terminal_group: String, rows: u16, cols: u16 },
+    Reaped { control_epoch: String, operation_id: String, operation_version: String, exit_status: i32 },
+    RefusedStale { control_epoch: String, operation_id: String, observed_operation_version: String },
+    LostAuthority { control_epoch: String, operation_id: String, operation_version: String, reason: LostAuthorityReason },
+}
+
+pub struct SupervisorHealthPong {
+    supervisor_instance_id: String,
+    supervisor_version: String,
+    challenge_nonce: String,
+}
+
+pub struct SupervisorWatchdogRecord {
+    watchdog_instance_id: String,
+    supervisor_instance_id: String,
+    control_epoch: String,
+    operation_id: String,
+    process: ProcessObservation,
+    version: String,
+    heartbeat_at: String,
+}
+
+pub enum SupervisorStartupPhase {
+    WatchdogBootstrap,
+    SupervisorBootstrap,
+    ListenerBound,
+    GlobalQueuesReady,
+    AcceptorsReady,
+    ControlAuthenticated,
+    OperationQueuesReady,
+    ChildSpawned,
+    ProxyThreadsReady,
+    StartedPublished,
+}
+
+pub enum ManagedAppServerStartupPhase {
+    ManagedPendingCreated,
+    AppServerChildSpawned,
+    AppServerTransportReady,
+    AppServerRequestMapReady,
+    AppServerNotificationPumpReady,
+    AppServerServerRequestHandlersReady,
+    ThreadStarted,
+    ClaimFinalized,
+    ControllerReadyPersisted,
+}
+
+pub struct ChildCancellationPermit {
+    supervisor_instance_id: String,
+    operation_id: String,
+    operation_version: String,
+    authority: CancellationAuthority,
+    child_slot: u64,
+    _sealed: supervisor::Sealed,
+}
+```
+
+Managed Codex birth is not a session re-entry and cannot fabricate a `ReentryGuard` before `thread/start` returns an id. In the same store transaction that creates the exact `Attaching` pending worker and versioned birth operation, `mint_managed_birth_permit` privately seals the tuple `{worker_id,generation,worker_version,capacity,tool,canonical_cwd,birth_operation_id,birth_operation_version}`. `run_managed_codex_with_permit` re-resolves that tuple and the bidirectional charge invariant immediately before supervisor launch, then atomically consumes the permit once; wrong state/version/capacity/charge/tool/cwd, replay, expiry, or launch after any worker transition emits zero child/app-server bytes. The supervisor launch record carries only the exact consumed birth operation/version/capacity discriminator and may progress only through the managed startup phases. A `ManagedBirthPermit` cannot authorize any existing-session drain, controller command, signal, fence, or second child, and no public constructor or deserializable wire representation exists.
+
+Before a later process can construct the wire envelope, the matching in-process sealed capability mints exactly one random `ManagedCommandAuthorizationRecord` in the store. The wire carries only its id/version. The supervisor atomically re-resolves and consumes the exact `Issued` record before emitting any app-server byte; a replay, wrong command discriminant, wrong controller/operation/version, expired record, or cross-family substitution writes only `Refused` and emits zero bytes. The existing `OperationKind::InitialTurn` remains distinct and is retained only for the legacy **unmanaged** app-server `spawn::run_appserver_pump → SpawnedThread::start_initial_turn_with_guard/pump_with_guard` chain under `ReentryGuard<AppServerThread>`; Step 3d's `unmanaged_initial_turn` behavior row proves success/wrong-kind/stale/pre-fence/mid-block-fence with zero unauthorized RPC bytes. Managed birth uses only `ManagedBirthPermit`, and after Active every managed initial or later `turn/start` uses `ControllerStartTurn`. The closed family matrix is:
+
+| Command | Required persisted authority |
+|---|---|
+| `ReadThread` | `Reentry { operation_kind: ControllerRead }`; result is snapshot-only and cannot guide a later mutation after that operation goes stale. |
+| `InjectItems` | `Reentry { operation_kind: ControllerInjectItems }` for the same binding/controller. |
+| `StartTurn` | `Reentry { operation_kind: ControllerStartTurn }` for the same binding/controller. |
+| `InterruptOwnedTurn` | Exact `TurnCancellation` for the operation's persisted owned turn, or exact current `Fence` whose action set includes interrupt. |
+| `ListDescendants` / `ListOwnedTerminals` | Exact current `Fence` and proof attempt; pages and refs inherit that attempt binding. |
+| `TerminateOwnedTerminal` | Exact current `Fence` plus same-attempt `OwnedBackgroundTerminalRef`; no Active re-entry authorization can terminate. |
+
+`OperationKind`, capability constructor, command discriminant, and allowed result are source-derived into the re-entry inventory. A JSON command variant, same-UID socket access, or sealed target ref alone is never authority.
+
+`ChildLaunchSpec`, `AttachOptions`, `ValidatedModel`, `ValidatedEffort`, and `DoorbellMessage` are closed types constructed by parsers with explicit length/value bounds. They contain no `OsString`, executable path, cwd, session/worker/thread id, arbitrary flag list, environment map, fd, or authority-selector field. `run_child_with_guard` matches `(guard.allowed, spec.variant)`. `AttachResume` derives each endpoint from the caller via `isatty` plus fstat dev/inode grouping; `WakeDoorbell` and `WatchWakeFallback` explicitly use `{stdin: Closed, stdout: Pipe, stderr: Pipe}` to preserve checkpoint behavior. It writes a version-bound `SupervisorLaunchRecord` and sends only operation id/version to the supervisor. The supervisor re-resolves the record, derives program/session/cwd/generation/environment internally, builds env from an allowlist, maps `Closed` to null/closed input, creates pipes for `Pipe`, and creates PTY controller/slave pairs for terminal groups. It spawns the child itself as PTY session/foreground owner where applicable and owns the unreaped `Child` from birth. No `Child` or caller fd is transferred between processes and no public/internal target-taking mutator remains.
+
+The supervisor is the hidden detached `relay __lifecycle-supervisor` process. The separately detached watchdog starts first and spawns/owns the supervisor `Child`; both use real new sessions, no parent-death signal, and closed/independent stdio. On pinned Rust 1.85, `CommandExt::process_group(0)` is insufficient and stable `CommandExt::setsid` is unavailable; use the minimal async-signal-safe `pre_exec` wrapper around `libc::setsid()` and propagate failure from spawn. Acceptance proves watchdog SID=watchdog PID and supervisor SID=supervisor PID, both differ from the caller, and caller exit or caller-process-group SIGHUP leaves watchdog custody live.
+
+The supervisor owns a mode-0600 Unix socket and validates same-UID peer credentials (`SO_PEERCRED` on Linux, `getpeereid` on Darwin), exact socket dev/inode, supervisor instance/version, stable `control_epoch`, mutable operation/version, and current Claim/Fence authority from the store; caller-supplied command fields are selectors, never authority. Bootstrap uses two explicit one-shot pipe pairs as the sole temporary inherited-fd exception. The caller spawns the watchdog with a caller↔watchdog bootstrap pair. The watchdog generates the random `control_epoch` and 256-bit nonce, persists only `control_nonce_sha256`, creates a watchdog→supervisor nonce pipe, spawns the supervisor, writes/closes the supervisor nonce pipe, writes the raw nonce to the caller response pipe, then closes both bootstrap pairs. The supervisor reads/closes its nonce fd before listener setup; the caller reads/closes its response fd. All bootstrap fds are `CLOEXEC` except the one endpoint deliberately inherited by its immediate child, never enter argv/environment/log/event/store, and must be absent from caller/watchdog/supervisor before `Ready`; caller death at any boundary leads to the numeric control-bind deadline and bounded cleanup, never leaked authority. The first socket frame is mandatory `SupervisorHello`: `Health` receives `SupervisorHealthPong` echoing its one-use challenge nonce, which is liveness-only and never command authority; exactly one matching CLI-child `Control { control_epoch, control_nonce }` stream binds, receives `ControlBound` without echoing the secret, and only that stream's EOF can publish that CLI operation's cancellation. `ManagedOperation` is a distinct one-request role for a later process: it carries the full closed envelope, never the control nonce or raw pending token, exact-validates worker/generation/binding/controller/control/operation/request sequence before any app-server byte, returns exactly one `ManagedAppServerResult`, and disconnects without changing durable controller custody. Each later command independently validates mutable `expected_operation_version`. A second, stale, replayed, sequence-skipping, or role-confused stream is refused with zero app-server bytes.
+
+Portable CLI-child startup phases are the closed `SupervisorStartupPhase` enum; managed Codex adds the separate closed `ManagedAppServerStartupPhase` in Step 5. Global `Ready` means listener/socket identity, watchdog record, acceptors, global bounded queues, and zero bootstrap fds are durably live. Per-operation `ControlBound` means the authenticated control reader and all per-operation queues exist. Only then may the supervisor spawn a CLI child; after child creation every required pipe/PTY thread must start before `Started` or any output byte. Managed Codex may emit no app-server request until its request map, notification pump, and complete server-request handlers are ready; it may emit no `turn/start` before ClaimFinalized and ControllerReadyPersisted. Any failure at a source-derived phase kills/waits/reaps any created child and applies the phase-appropriate pre-binding or `LostAuthority(ProxyStartupFailed)` transition. CI derives phase names from production transitions and fails if a phase lacks before/after failure injection. `Input` carries exact bytes (max 64 KiB/frame), `InputEof` closes only child stdin, `ResizePty` is bounded to 1..4096 rows/cols and the named PTY group, and `ForwardSignal` accepts only SIGINT/SIGTERM/SIGHUP. Output frames preserve exact per-stream bytes and carry the control epoch, current operation version, and monotonic sequence; PTY endpoints preserve `isatty`, controlling terminal, foreground group, Ctrl-C, and resize behavior. Each direction has a 1 MiB bounded queue. A slow connected caller applies child-visible pipe/PTY backpressure as before, while cancellation/control polling runs independently at ≤100 ms.
+
+There is no silent reattach policy for an interactive CLI-child Control stream. Its EOF/disconnect exact-CASes that operation to cancellation using current authority, drops caller-bound output, drains/discards child output, and asks the supervisor to kill/wait/reap within grace. `ManagedCodexAppServer` has no caller Control lease: after `ControllerReadyPersisted`, the initiating caller receives a versioned durable-handoff result and may exit; death before that point follows the pre-binding loss/deadline row, while EOF afterward does not cancel the server. Short-lived later relay invocations authenticate, admit a sealed lifecycle operation, send one `ManagedOperation` envelope, receive one result, and disconnect without canceling custody. Arbitrary JSON/target forwarding is impossible; terminal termination consumes only a sealed same-controller/page/operation `OwnedBackgroundTerminalRef`. `CancelOwned` is accepted only after the supervisor privately constructs `ChildCancellationPermit`; `kill_wait_owned_child(&mut ChildCancellationPermit)` re-resolves exact authority before signal, then kill/waits/reaps its own slot. A stale request reports `RefusedStale` and emits zero bytes. The supervisor remains alive until every owned CLI/app-server child is reaped or exact lifecycle abandonment records loss.
+
+Supervisor startup/crash recovery is explicit. The watchdog records its generation-bound identity and control epoch, waits/reaps the supervisor, and on exit exact-CASes every matching unresolved operation to `LostAuthority(SupervisorLost)` plus the state-specific lifecycle transition within `managed_cancel_grace_ms`. Health checks are mandatory only for sessions whose records assert matching supervisor custody; ordinary unmanaged sessions without a supervisor retain compatibility. Every custody-bearing admission, claim, fence drain, status, and reconcile performs a ≤100 ms `Health` challenge plus supervisor/watchdog generation, control epoch, and heartbeat check before mutation; health EOF never changes custody. Missing supervisor/watchdog records while any nonterminal `ChildStarting|ChildOwned|ChildCancelRequested|LostAuthority` operation exists are fail-closed: exact-CAS loss where authority still matches and refuse the mutation. If the watchdog dies first, the next such check applies `SupervisorLost`; it never reconstructs/adopts the supervisor or worker Child. Tests cover caller exit and process-group SIGHUP, supervisor death with no connected caller (watchdog publishes within 5s), watchdog-then-supervisor death (first re-entry refuses/CASes), health-first/control-first connection order, stale replacement instances, every startup phase failure, and stale control-epoch/version races. `QueryOwned` is snapshot-only, checks expected version, and returns control epoch+observed operation version; it cannot guide later mutation without new authorization. The supervisor is also the later Step-4 cgroup manager; Step 3b adds portable owned-child custody, bidirectional stdio/PTY IPC, exact cancellation, watchdog, and reap proof, while pidfd/cgroup authority remains Step 4.
+
+Managed app-server controller recovery is separately exact. `server_fingerprint` is SHA-256 of JCS over `{schema:1,supervisor_instance_id,control_epoch,controller_instance_id,owned_child_slot,process_generation,initialized_codex_version,executable_identity_sha256,stdio_transport_instance_id}`. JSON-RPC ids are `RpcId::Integer(u64)|String(String)` and are keyed by direction+method+id; float/null/negative ids and numeric/string collisions refuse. Immediately before any request bytes, the controller exact-CASes custody `Prepared→RequestSentUnknown`; after the matching typed response it exact-CASes to the command-specific result with the same operation/controller/sequence. A write/response ambiguity remains sent-unknown and applies typed custody loss at the fixed deadline—never retries or guesses.
+
+The committed `appserver-server-requests.json` is recursively closed: `{schema:1,codex_version,targets:[{target,executable_sha256}],generator_argv:[string],schema_bundle_sha256,methods:[{method,params_schema_sha256,response_schema_sha256,policy,response_template_sha256}]}`. Targets and methods are UTF-8 byte-sorted and unique; policy is `decline|cancel|unsupported_loss`; no extra key/result exists. Its canonical `generator_argv` is exactly `["codex","app-server","generate-json-schema","--experimental","--out","<OUT>"]`; raw temporary paths are execution-only and never enter committed bytes. Generation fixes `umask 077`, normalizes every recorded file/dir mode to the closed expected mode table, rejects links/special files, sorts relative UTF-8 paths bytewise, excludes mtimes/inodes/temp-root names, and proves two distinct sentinel temp roots produce byte-identical candidate bytes and manifest hash.
+
+`node plugins/session-relay/test/appserver-schema-contract.mjs --regenerate --codex <invoked-native-codex-path> --out <sentinel-temp>` records the invoked path and an ephemeral canonical-resolution receipt. It resolves the bounded symlink chain with `readlinkat` relative to pinned parent dirfds, recording each link identity/target, then opens the canonical parent dirfd and **final canonical component** `O_RDONLY|O_NOFOLLOW|O_CLOEXEC`; non-native/script/loop/owner-mode-invalid chains refuse. This permits the current `command -v codex` symlink while preventing a final-component follow race. The same retained fd is fstat/hashed and invokes the production Rust fd-exec helper for exact argv `codex app-server generate-json-schema --experimental --out <raw-temp>/schema`; no later pathname lookup may choose either generator or server bytes. The harness installs deterministic barriers that retarget any invoked-chain symlink and atomically replace the canonical pathname before/after final open: validation must fail or produce one internally consistent receipt, and after open it must execute/hash the retained original fd, never describe or execute the replacement. `--verify-current --codex <invoked-native-codex-path>` regenerates twice in distinct sentinel-bearing temp directories, byte-compares version/target/executable/schema/method/response-template hashes, separately asserts the invoked+canonical resolution receipts, and cleans only its temps. It never edits the fixture or embeds host-specific absolute paths in it. Step 5's supervisor runs the same production fd-exec generator from the retained executable fd before managed server spawn, retains that exact fd for actual app-server launch, and refuses before pending creation/Active when any identity or schema hash differs.
+
+For the currently researched contract the methods are `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/tool/requestUserInput`, `mcpServer/elicitation/request`, `item/permissions/requestApproval`, `item/tool/call`, `account/chatgptAuthTokens/refresh`, `attestation/generate`, `currentTime/read`, and legacy `applyPatchApproval`/`execCommandApproval`. The managed controller advertises no interactive/dynamic/auth-refresh/attestation/current-time capability. Approval/permission/legacy rows use exact hashed schema-valid decline/cancel templates; MCP elicitation uses its real `cancel` variant. `ToolRequestUserInputResponse` has no cancel variant in 0.144.1, so `item/tool/requestUserInput` is `unsupported_loss`: send the fixture's exact JSON-RPC error `{code:-32601,message:"unsupported managed controller request: item/tool/requestUserInput"}` for the same typed `RpcId`, then atomically mark matching in-flight operations `LostAuthority(CustodyLost)`. Dynamic tool/auth refresh/attestation/current-time and any unknown method follow the same method-specific hashed error+loss policy. Never emit `{answers:{}}` as an invented cancellation, accept command/file/permission, fabricate input, supply tokens/attestation, or hang. A Codex version, target executable digest, generated schema, method set, or response/error template that differs is `unavailable` until the fixture and policy are re-reviewed.
+
+Controller-pump exit while the supervisor remains live, app-server stdio EOF, malformed/ambiguous response, request-map corruption, or an unsupported/unhandled/unknown server request first atomically batch-marks every matching in-flight operation `LostAuthority(CustodyLost)`, applies the closed post-loss lifecycle transition, persists `LossCleanupRecord::Pending`, and returns the exact sealed `LossCleanupPermit` in that transaction. The still-live supervisor immediately consumes that permit through `perform_loss_cleanup`; it never attempts to mint a normal `SupervisorFencePermit` after leaving Fencing. Cleanup closes app-server stdin/stdout/stderr, emits no further application bytes, kills the retained cgroup/owned child, and bounded-waits for exact reap plus `populated 0`. Physical cleanup never upgrades or clears the logical failure: custody and lifecycle remain `FencingUnconfirmed`, the outcome cannot construct WorkerTree proof or release capacity, and only a later new-epoch reconcile may attempt ordinary proof. If supervisor/cgroup authority is already lost, the batch loss persists without a permit and cleanup remains unconfirmed; it never reconnects, swaps in a new transport, or guesses a response. A later relay process can wake an idle Active worker only through the same controller instance/control epoch and typed admitted command; a stale controller/socket/sequence emits zero app-server bytes. Tests keep the original launcher dead, then use a second relay process for read/inject/start/interrupt; separately kill only the controller pump, only the app-server child, and only the initiating caller, and exercise concurrent numeric/string request ids, cross-thread terminal substitution, every source-derived server-request policy, unknown methods, atomic permit mint, post-publication permit use, replay/stale/cross-loss zero-byte refusal, no-remint crash recovery, no-capacity-release success, and cleanup completion/failure inside `managed_cancel_grace_ms`.
+
+`ProcessObservation` is the immutable observation record defined in the next section; Step 3b introduces that data shape in `supervisor.rs` for child identity/status only. Step 4 adds pidfd/cgroup `SignalHandle` constructors and authoritative process actions. An observation alone never authorizes signaling.
+
+A guard admitted for unmanaged A cannot name managed B; a guard for `CliInboxDrain` cannot start a turn; and a guard from binding epoch N fails after Claiming increments to N+1. Queue, peek, registry reads, and pure observation may remain allowed.
+
+The committed source-derived inventory maps every drain, generic outbound app-server mutation primitive plus all callers, process creation/exec/signal, and pending acknowledgement callsite to a concrete `ReentryGuard`, `TurnCancellationPermit`, or `FencePermit` API and an executed unique behavior-test id. `FenceControl` is not a manifest-only exception and `UnmanagedOnly` is not a bypass: unmanaged mutations still require a bound `ReentryGuard`. Only pure `ReadOnly` observations may lack a capability. CI fails on any unmapped/stale callsite, rationale-only mutating class, name-only classification, or matrix row that does not invoke its production wrapper.
+
+Every admitted external operation has a cancellation contract: WebSocket/socket reads and supervisor event waits use individual timeouts no greater than `managed_cancel_poll_ms`; settle sleep is interruptible; turn pumps persist `TurnStartSentUnknown` before the send, persist the exact returned `turn.id` before pumping, and interrupt only that owned exact turn on cancellation; wake/attach/resume ask the detached supervisor to spawn/own the child from birth, poll cancel, then request exact-authority kill/wait/reap; watch fallback does the same. A single monotonic `managed_cancel_grace_ms` deadline covers the guard-owned cancellation/handoff attempt and cannot be reset by retries. **Every attach or resume whose session binding can ever transition uses supervisor-owned spawn+event-wait even when admission returns `Unmanaged`; no lifecycle-sensitive path calls `CommandExt::exec`.**
+
+The live guard may construct a sealed `TurnCancellationPermit` only for its own persisted `TurnKnown` custody and only after exact re-resolution of the current `UnmanagedCanceling`, Claiming, or Fencing authority. It derives server/thread/turn from the operation record, permits exactly one `turn/interrupt`, and waits for the matching turn's terminal status. It cannot re-enter, start, inject, terminate terminals, signal processes, select another target, or substitute for `FencePermit`. BeforeSend failure exact-CASes `TurnNotSent`; a lost/delayed/malformed response after send remains `TurnStartSentUnknown` until the fixed deadline, then closes the connection and becomes `LostAuthority`—never latest-turn guessing. On matching turn terminal or supervisor child-reap event the guard resolves custody and releases. Otherwise, before grace expiry it exact-CASes a known-turn or `ChildCancelRequested` handoff to the same unmanaged/claim/fence authority; unknown/lost authority exact-CASes the corresponding UnmanagedCanceling evidence or managed `FencingUnconfirmed`. The supervisor continues owning and reaping the child after caller/guard release. No thread-local custodian or reconstructable PID is treated as live authority.
+
+The relay caller retains the binding guard until the external CLI exits, supervisor reap completes, or exact custody handoff is durable. Claiming cannot publish Active while any unresolved operation or handoff remains; its one final CAS publishes Managed/Fencing with a new fence epoch/version and atomically rebinds each exact Claim handoff to that Fence authority, or publishes FencingUnconfirmed if the handoff cannot be rebound. Plain attach prints no copyable command for a transition-capable session and routes through this guarded supervisor path. `exec` is allowed only for a statically separate command with no session binding and no route to managed claim—not for any attach/resume.
+
+### 3. Stable signal handles and containment proof
+
+```rust
+pub enum SignalHandle {
+    LinuxPidFd { fd: OwnedFd, expected: ProcessObservation },
+    SupervisorOwnedChild {
+        supervisor_instance_id: String,
+        operation_id: String,
+        operation_version: String,
+        expected: ProcessObservation,
+        _sealed: supervisor::Sealed,
+    },
+    SupervisorConfinedCgroup {
+        supervisor_instance_id: String,
+        boundary: CgroupBoundary,
+        _sealed: supervisor::Sealed,
+    },
+    ObservationOnly(ProcessObservation),
+}
+
+pub enum SupervisorFenceCommand {
+    SignalOwned {
+        operation_id: String,
+        expected_operation_version: String,
+        fence_epoch: String,
+        fencing_version: String,
+        signal: OwnedSignal,
+    },
+    FenceConfinedCgroup {
+        worker_id: String,
+        generation: String,
+        fence_epoch: String,
+        fencing_version: String,
+        action: CgroupFenceAction,
+    },
+}
+
+pub struct SupervisorFencePermit {
+    supervisor_instance_id: String,
+    worker_id: String,
+    generation: String,
+    fence_epoch: String,
+    fencing_version: String,
+    handle_slot: u64,
+    _sealed: supervisor::Sealed,
+}
+
+pub struct LossCleanupRecord {
+    cleanup_id: String,
+    cleanup_version: String,
+    worker_id: String,
+    generation: String,
+    fence_epoch: String,
+    post_loss_fencing_version: String,
+    supervisor_instance_id: String,
+    control_epoch: String,
+    loss_batch_sha256: String,
+    host_boot_id: String,
+    created_boottime_ns: String,
+    deadline_boottime_ns: String,
+    state: LossCleanupState,
+}
+
+pub enum LossCleanupState {
+    Pending,
+    Running {
+        cleanup_attempt_id: String,
+        started_boottime_ns: String,
+    },
+    Completed { evidence_sha256: String },
+    Failed { reason: LossCleanupFailureReason, evidence_sha256: String },
+}
+
+pub enum LossCleanupFailureReason {
+    PendingPermitExpired,
+    RunningDeadlineOutcomeUnknown,
+    SupervisorLost,
+    HostBootChanged,
+    CleanupFailed,
+}
+
+pub struct LossCleanupPermit {
+    cleanup_id: String,
+    cleanup_version: String,
+    worker_id: String,
+    generation: String,
+    fence_epoch: String,
+    post_loss_fencing_version: String,
+    supervisor_instance_id: String,
+    control_epoch: String,
+    loss_batch_sha256: String,
+    host_boot_id: String,
+    deadline_boottime_ns: String,
+    cleanup_handle_slot: u64, // private composite: app-server stdio + owned child + optional cgroup fd
+    consumed: bool,
+    _sealed: supervisor::Sealed,
+}
+
+pub struct LossCleanupOutcome {
+    cleanup_id: String,
+    cleanup_version: String,
+    closed_all_stdio: bool,
+    child_reaped: bool,
+    cgroup_populated_zero: bool,
+    evidence_sha256: String,
+}
+
+pub fn perform_loss_cleanup(permit: LossCleanupPermit) -> Result<LossCleanupOutcome, String>;
+
+pub struct ProcessObservation {
+    pub pid: u32,
+    pub pgid: Option<i32>,
+    pub start: StartGeneration,
+}
+
+pub struct PartialDelegatedRunnerReceipt {
+    schema: u8, // exactly 1; phase exactly "exec-stop"
+    phase: String,
+    runner_id: String,
+    capability_id: String,
+    host_boot_id: String,
+    kernel_release: String,
+    uid: u32,
+    observed_at: String,
+    expires_at: String,
+    started_boottime_ns: u64,
+    expires_boottime_ns: u64,
+    yama_ptrace_scope: String,
+    ptrace_policy_sha256: String,
+    exec_stop_results: Vec<RunnerExecStopResult>,
+    evidence_sha256: String,
+    receipt_sha256: String, // JCS SHA-256 of every preceding field
+}
+
+pub struct DelegatedRunnerReceipt {
+    schema: u8, // exactly 1; recursively closed JSON representation
+    partial_receipt_sha256: String,
+    runner_id: String,
+    capability_id: String, // public correlation id; never authority by itself
+    host_boot_id: String,
+    kernel_release: String,
+    uid: u32,
+    observed_at: String,
+    expires_at: String,
+    started_boottime_ns: u64,
+    expires_boottime_ns: u64,
+    cgroup_mount_id: u64,
+    cgroup_mount_dev: u64,
+    cgroup_mount_ino: u64,
+    canonical_root: String,
+    root_dev: u64,
+    root_ino: u64,
+    root_owner_uid: u32,
+    root_mode: u32,
+    yama_ptrace_scope: String,
+    ptrace_policy_sha256: String,
+    exec_stop_results: Vec<RunnerExecStopResult>, // exact Claude+Codex rows, runtime-byte sorted
+    probe_child: RunnerProbeChildReceipt,
+    populated_zero: bool,
+    leaf_removed: bool,
+    evidence_sha256: String,
+    receipt_sha256: String, // JCS SHA-256 of every preceding field; integrity only
+}
+
+pub enum RunnerCapabilityGate { A1c, A1d, A5, A5b, A6, A7 }
+pub const RUNNER_BOOTSTRAP_INPUT_SHA256: &str =
+    "0000000000000000000000000000000000000000000000000000000000000000";
+
+pub enum GateEnvSource { LiteralOne, RunnerId, RunnerReceipt, CgroupRoot }
+
+pub struct GateEnvBinding {
+    name: String, // exact gate-row allowlist; UTF-8 byte-sorted and unique
+    source: GateEnvSource,
+}
+
+pub struct RunGate {
+    schema: u8, // exactly 1; recursively closed JCS
+    gate: RunnerCapabilityGate,
+    node_script: String, // exact fixed repo-relative path for gate
+    args: Vec<String>,   // exact fixed Node args; no argv[0], shell, or assignments
+    env: Vec<GateEnvBinding>, // exact fixed row; only literal base/sealed-auth names may be added
+}
+
+pub struct FsIdentityV1 {
+    schema: u8, // exactly 1
+    r#type: String, // "regular" | "directory"
+    dev: String,
+    ino: String,
+    uid: String,
+    mode: String, // four-character octal
+    identity_sha256: String,
+}
+
+pub struct BinaryFileIdentityV1 {
+    schema: u8, // exactly 1
+    fs: FsIdentityV1,
+    size: String,
+    sha256: String,
+    identity_sha256: String,
+}
+
+pub struct RunnerBinaryIdentityV2 {
+    schema: u8, // exactly 2
+    source_binary: BinaryFileIdentityV1,
+    layout_binary: BinaryFileIdentityV1,
+    source_head: String,
+    cargo_toml_sha256: String,
+    cargo_lock_sha256: String,
+    node_wrapper_sha256: String,
+    binary_identity_sha256: String,
+}
+
+pub struct LayoutRootIdentityV1 {
+    schema: u8, // exactly 1
+    purpose: String, // runner-build | runner-matrix-state | runner-live-state
+    root: FsIdentityV1,
+    sentinel_sha256: String,
+    root_identity_sha256: String,
+}
+
+pub struct RunnerStateIdentityV2 {
+    schema: u8, // exactly 2
+    migration_id: String,
+    anchor_sha256: String,
+    ledger_sha256: String,
+    active_phase_sha256: String,
+    runner_generation_sha256: String,
+    layout_sha256: String,
+    binary_identity_sha256: String,
+    build_root_identity_sha256: String,
+    matrix_parent_root_identity_sha256: String,
+    live_parent_root_identity_sha256: String,
+    state_receipt_sha256: String,
+}
+
+pub struct DriverArm {
+    schema: u8,
+    capability_id: String,
+    sequence: u64,
+    gate: RunnerCapabilityGate,
+    gate_pid: u32,
+    run_gate_sha256: String,
+    live_tuple_sha256: String,
+    input_receipt_sha256: String,
+    self_identity_sha256: String,
+    go_channel_sha256: String,
+    result_channel_sha256: String,
+}
+
+pub struct DriverArmChallenge { arm: DriverArm, challenge: [u8; 32] }
+pub struct DriverArmResponse { arm: DriverArm, challenge_sha256: String }
+pub struct DriverArmAck { arm: DriverArm, arm_ack_sha256: String }
+pub struct GateGo {
+    schema: u8,
+    arm_ack_sha256: String,
+    gate_pid: u32,
+    sequence: u64,
+    gate: RunnerCapabilityGate,
+}
+
+pub struct GateResult {
+    schema: u8,
+    gate: RunnerCapabilityGate,
+    sequence: u64,
+    pid: u32, // exact driver-spawn/native-gate/OPEN/COMMIT/wait PID
+    status: i32,
+    input_receipt_sha256: String,
+    result_receipt_sha256: String,
+    open_ack_sha256: String,
+    commit_ack_sha256: String,
+    evidence_sha256: String,
+}
+
+pub enum RunnerCapabilityState {
+    Idle { next_sequence: u64 },
+    DriverArmed { arm: DriverArm, arm_ack_sha256: String },
+    OpenReserved {
+        selectors: RunnerGateOpenSelectors,
+        open_ack_sha256: String,
+    },
+    CommitReserved {
+        selectors: RunnerGateCommitSelectors,
+        commit_ack_sha256: String,
+    },
+    CommittedAwaitingReap {
+        commit_ack_sha256: String,
+        gate_exit_sha256: String,
+    },
+    Poisoned { sequence: u64, reason: String },
+    Complete { final_commit_ack_sha256: String },
+}
+
+pub struct RunnerGateOpenSelectors {
+    schema: u8, // exactly 1
+    capability_id: String,
+    sequence: u64, // exactly 1..=6 in enum order
+    gate: RunnerCapabilityGate,
+    gate_pid: u32,
+    driver_arm_ack_sha256: String,
+    self_identity_sha256: String,
+    live_tuple_sha256: String, // fresh boot/kernel/uid/mount/root/runtime tuple
+    input_receipt_sha256: String, // A1c: 64-zero bootstrap sentinel; later: prior receipt hash
+}
+
+pub struct RunnerGateOpenChallenge {
+    selectors: RunnerGateOpenSelectors,
+    challenge: [u8; 32], // fd-only, one-use, never persisted raw
+}
+
+pub struct RunnerGateOpenResponse {
+    selectors: RunnerGateOpenSelectors,
+    challenge_sha256: String,
+}
+
+pub struct RunnerGateOpenAck {
+    selectors: RunnerGateOpenSelectors,
+    open_ack_sha256: String,
+}
+
+pub struct RunnerGateCommitSelectors {
+    open: RunnerGateOpenSelectors,
+    open_ack_sha256: String,
+    result_receipt_sha256: String,
+    evidence_sha256: String,
+}
+
+pub struct RunnerGateCommitChallenge {
+    selectors: RunnerGateCommitSelectors,
+    challenge: [u8; 32],
+}
+
+pub struct RunnerGateCommitResponse {
+    selectors: RunnerGateCommitSelectors,
+    challenge_sha256: String,
+}
+
+pub struct RunnerGateCommitAck {
+    selectors: RunnerGateCommitSelectors,
+    commit_ack_sha256: String, // binds work; sequence advances only after DriverReapAck
+}
+
+pub struct PayloadResult {
+    schema: u8,
+    gate: RunnerCapabilityGate,
+    result_receipt_sha256: String,
+    evidence_sha256: String,
+}
+
+pub struct GateExitRecord {
+    schema: u8,
+    gate: RunnerCapabilityGate,
+    sequence: u64,
+    pid: u32,
+    payload_result_sha256: String,
+    input_receipt_sha256: String,
+    result_receipt_sha256: String,
+    evidence_sha256: String,
+    open_ack_sha256: String,
+    commit_ack_sha256: String,
+}
+
+pub struct DriverReap { arm_ack_sha256: String, gate_exit: GateExitRecord, status: i32 }
+pub struct DriverReapAck { driver_reap_sha256: String, next_sequence: u64 }
+
+pub struct RunnerExecStopResult {
+    runtime: String,
+    runtime_version: String,
+    invoked_path_sha256: String,
+    canonical_path_sha256: String,
+    executable_dev: u64,
+    executable_ino: u64,
+    executable_size: u64,
+    executable_sha256: String,
+    tracee_pid: u32,
+    ptrace_event: u32, // exactly PTRACE_EVENT_EXEC
+    proc_exe_fd_identity_sha256: String,
+    retained_fd_identity_sha256: String,
+    target_sentinel_absent_before_detach: bool,
+    detached_and_terminal_sentinel: bool,
+}
+
+pub struct RunnerProbeChildReceipt {
+    pid: u32,
+    start: StartGeneration,
+    stopped_before_move: bool,
+    leaf_membership_sha256: String,
+    cgroup_kill_write_sha256: String,
+    wait_status: i32,
+    waitpid_reaped: bool,
+    reaped_at: String,
+}
+
+pub enum StartGeneration {
+    LinuxProcStartTicks(u64),
+    DarwinBsdStartTime { sec: i64, usec: i64 },
+    Unavailable,
+}
+
+pub struct CgroupBoundary {
+    worker_id: String,
+    generation: String,
+    mount_id: u64,
+    manager_root_dev: u64,
+    manager_root_ino: u64,
+    worker_dir_dev: u64,
+    worker_dir_ino: u64,
+    worker_dir_owner_uid: u32,
+    worker_dir_mode: u32,
+    relative_path: String,
+    generation_component: String,
+    placement: CgroupPlacementReceipt,
+    filtered_hardening: Option<FilteredCgroupHardeningReceipt>,
+    _sealed: supervisor::Sealed,
+}
+
+pub enum GatedPlacementMode {
+    Clone3IntoCgroup, // clone3(CLONE_INTO_CGROUP): runtime is born directly in the leaf
+    PreExecStopGo,    // pre-exec stop/GO: manager moves+verifies before any runtime code runs
+}
+
+// Setup-time evidence only. It exists before GO and contains no post-kill claim.
+pub struct CgroupPlacementReceipt {
+    worker_id: String,
+    generation: String,
+    supervisor_instance_id: String,
+    control_epoch: String,
+    runtime: String,
+    runtime_version: String,
+    runtime_executable_path: PathBuf,
+    runtime_executable_dev: u64,
+    runtime_executable_ino: u64,
+    runtime_executable_size: u64,
+    runtime_executable_sha256: String,
+    runtime_executable_fd_identity_sha256: String,
+    child_kernel_executable_identity_sha256: String,
+    target_triple: String,
+    sandbox_version: String,
+    host_boot_id: String,
+    kernel_release: String,
+    gated_placement: GatedPlacementMode,
+    no_runtime_code_before_membership: bool,
+    leaf_membership_verified: bool,
+    cgroup_type_domain: bool,
+    subtree_control_empty: bool,
+    cgroup_kill_writable: bool,
+    setup_transcript_sha256: String,
+    _sealed: supervisor::Sealed,
+}
+
+// Terminal action evidence. Only the live matching supervisor constructs it after kill.
+pub struct CgroupKillReceipt {
+    worker_id: String,
+    generation: String,
+    fence_epoch: String,
+    fencing_version: String,
+    placement_receipt_sha256: String,
+    host_boot_id: String,
+    kernel_release: String,
+    kill_write_evidence_sha256: String,
+    populated_zero: bool,
+    no_surviving_host_pid_under_leaf: bool,
+    optional_freeze_observation: Option<String>,
+    terminal_evidence_sha256: String,
+    _sealed: supervisor::Sealed,
+}
+
+// OPTIONAL Claude-only defense-in-depth. Failure disables ONLY this layer, never the
+// cooperative WorkerTree. Codex is expected to lack this (bwrap needs the denied syscalls).
+pub struct FilteredCgroupHardeningReceipt {
+    cgroup_namespace_ino: u64,
+    moved_before_cgroup_unshare: bool,
+    cgroup_root_is_worker_leaf: bool,
+    new_user_mount_pid_cgroup_namespaces: bool,
+    fresh_proc_mount: bool,
+    inherited_proc_mounts_detached: u32,
+    proc_pid_fd_authority_denied: bool,
+    single_read_only_cgroup2_mount: bool,
+    inherited_control_fds: u32,
+    no_new_privs: bool,
+    seccomp_audit_arch: u32,
+    x32_syscalls_rejected: bool,
+    clone3_denied_wholesale: bool,
+    clone3_denial_action: u32,
+    clone3_denial_errno: i32,
+    ordinary_spawn_probe_sha256: String,
+    namespace_mount_seccomp_sha256: String,
+    pre_go_escape_probe_sha256: String,
+    _sealed: supervisor::Sealed,
+}
+```
+
+`ProcessIdentityRecord` is durable observation/recovery input. `SignalHandle` is live sealed authority: pidfd is local; supervisor variants are usable only through the matching live supervisor instance, which retains the actual Child/cgroup fd. Step 4 extends the closed supervisor protocol with `SupervisorFenceCommand`; immediately before an ordinary fence action the supervisor re-resolves exact operation plus current Fencing generation/epoch/version and privately mints `SupervisorFencePermit`. Post-loss cleanup never uses this constructor; it uses only the transaction-returned `LossCleanupPermit` against the exact post-loss `FencingUnconfirmed` version. Stale commands emit zero signal/state bytes. Linux pidfd recovery order is **open pidfd first, then read/compare the generation while the fd pins the task**, then signal via pidfd. If pidfd open fails or the pinned observation mismatches, do not raw-signal. `PidFdExitProof` additionally requires a sealed whole-process exit receipt from pidfd `POLLIN` (or `waitid(P_PIDFD)` where the supervisor also owns the child); identity alone is never exit proof. On Darwin and Linux without pidfd, recovery produces `ObservationOnly` and returns unconfirmed. A live supervisor may safely act through its unreaped `Child` only when its instance id and operation version match; once reaped/restarted, that authority is gone. `killpg` is permitted only inside the supervisor while its unreaped owned group leader prevents PGID reuse, and it proves group scope only—not escaped descendants or WorkerTree.
+
+Managed launch uses `__managed-child-exec` with this executable cgroup setup contract (mandatory cooperative steps + optional Claude-only `FilteredCgroupHardening`):
+
+1. **Preflight or fail closed (cooperative = mandatory; filter = optional Claude-only).** For the **cooperative** tier (both runtimes) require Linux cgroup v2, a newly created **`domain`** worker leaf with empty `cgroup.subtree_control` and writable `cgroup.kill`, a writable delegation permitting create/move at both destination and common ancestor, and at least one independently proven gated-placement capability. Classify direct `CLONE_INTO_CGROUP` failure exactly: `EACCES` means placement/delegation restrictions failed; `EBUSY` means a domain controller is enabled in the target; `EOPNOTSUPP` means domain-invalid; `ENOSYS` means the syscall path is unavailable. `EINVAL` means unsupported `CLONE_INTO_CGROUP` only when a same-binary control proves the `clone_args` size/base clone3 call valid and a disposable-leaf probe reproduces failure with the exact otherwise-valid flag/fd; malformed size/flags/fd remain implementation errors and STOP. Do not generic-retry clone3; use stop/GO only if its own capability probe already passed. If neither path is available, record `ObservationOnly`/`Unconfirmed` and never label the backend `ConfinedCgroupCooperative`. The **`FilteredCgroupHardening`** add-on additionally requires cgroup+mount+PID namespaces, either current-user-namespace `CAP_SYS_ADMIN` or enabled unprivileged user namespaces with uid/gid mapping, fresh proc mounting, `no_new_privs`, and seccomp filtering; if any of these fail, record `filtered_hardening: None` — this never reduces the cooperative WorkerTree.
+2. **Create and retain manager authority.** Derive `<manager-root>` from the active cgroup2 mount plus this process's exact unified `0::` membership row; an optional `RELAY_CGROUP_ROOT` override is accepted only after the same mount-id/dev/inode/common-ancestor and delegation validation. Require create/move permission at destination and common ancestor before launch. The manager creates `<manager-root>/<worker_id>-<generation>/`, opens the exact directory `O_PATH|O_DIRECTORY|O_CLOEXEC`, records mount/dev/inode/uid/mode/path/generation, and keeps that fd private. All `cgroup.procs`, optional `cgroup.freeze`, `cgroup.kill`, `cgroup.subtree_control`, and `cgroup.events` access uses `openat` from this fd; no later path lookup is signaling authority.
+3. **Pin executable bytes, gate placement, and stop at successful exec before target code (mandatory Linux path, both runtimes).** Resolve the final native executable once; reject symlinks, scripts, and dispatch launchers for the authoritative confined path. Open the regular executable `O_RDONLY|O_NOFOLLOW|O_CLOEXEC`, fstat/hash that fd, and retain it through launch. The minimal trusted wrapper creates the final execing task (for the filtered path, after creating the PID namespace), reports that task's host PID over a one-shot private pipe, and blocks the task on a second private release pipe before untrusted exec. The supervisor is its ancestor and sole tracer; it uses `PTRACE_SEIZE` with `PTRACE_O_TRACEEXEC` on that blocked exact task, verifies the seize, and either created it in the leaf through `clone3(CLONE_INTO_CGROUP)` or moves/verifies it through the retained cgroup fd for the separately proven stop/GO fallback. Only then does the supervisor release the trusted task to finish namespace/seccomp setup and call `execveat(fd, "", argv, envp, AT_EMPTY_PATH)` on the retained fd—never a pathname lookup. Successful exec produces exact `PTRACE_EVENT_EXEC` before the new program begins execution.
+
+   The event PID returned by `waitpid` must equal the seized tracee identity tracked by the supervisor; no descendant/adopted PID is accepted. At that exact `PTRACE_EVENT_EXEC` stop, the same seized task cannot run another exec and cannot exit/reuse its PID until the tracer resumes it. `/proc/<event-pid>/exe` is a procfs magic symlink, so the supervisor deliberately opens it **without `O_NOFOLLOW`** while the tracee is stopped, immediately fstats and hashes that opened fd, and compares dev/ino/size/content with the independently retained executable fd. `O_NOFOLLOW` on this procfs path must be a negative probe returning `ELOOP`, never the positive algorithm. Only after executable identity, leaf membership/domain, and kill authority all match does the receipt bind the tracee/event/fd identities and `PTRACE_DETACH` with signal 0; detach is final GO. Any PID-handoff/event-PID mismatch, seize/event timeout, wrong event/status, procfs open/fstat/hash mismatch, ptrace loss, exec failure, membership mismatch, or early exit kills/waits/reaps and refuses without target code. The final task is single-threaded at seize/exec; PID handoff/release fds close before detach; no external attach/adoption is allowed. **(Claude-only `FilteredCgroupHardening` continues from the blocked final task:)** it must already be in the leaf when it calls `unshare(CLONE_NEWCGROUP)`, so `/` inside that namespace is the worker leaf rather than an ancestor.
+4. **Build an isolated view (Claude-only `FilteredCgroupHardening`; Codex skips this and stays cooperative).** For the rootless path, the wrapper first creates a user namespace, pauses while the manager installs `setgroups=deny` and uid/gid maps, then creates private mount+cgroup+PID namespaces and forks the namespace PID 1. It makes mounts private, enumerates and detaches **every inherited procfs and cgroup2 mount**, mounts one fresh `/proc` for the new PID namespace, proves `/proc/<host-pid>/{fd,fdinfo,root,cwd}` grants no host authority, and mounts exactly one cgroup2 view at `/sys/fs/cgroup`, rooted at the worker leaf and remounted read-only/nosuid/nodev/noexec. The privileged path must produce the identical observable view/receipt.
+5. **Remove alternate authority before untrusted exec (Claude-only `FilteredCgroupHardening`).** Explicitly close every non-allowlisted fd (including manager/cgroup/mount namespace fds) with close-range plus fresh-`/proc/self/fd` verification; retain only stdio and the pinned target fd until `execveat`. The parent-owned ptrace relationship is already established before seccomp. Set `no_new_privs`, drop namespace capabilities, then install an architecture-validating seccomp filter. It accepts only `AUDIT_ARCH_X86_64` or `AUDIT_ARCH_AARCH64` matching the compiled target; on x86_64 it rejects every syscall number carrying `__X32_SYSCALL_BIT`. Because classic seccomp BPF cannot dereference the `clone3` pointer argument, deny `clone3` wholesale with **exactly `SECCOMP_RET_ERRNO | (ENOSYS & SECCOMP_RET_DATA)`**, never `EPERM`, kill, trap, or a generic deny action. This makes glibc `posix_spawn` take its verified legacy-`clone` fallback. On that legacy path, allow ordinary child flags but deny every namespace-creating flag. Deny later `mount`, `umount2`, `fsopen`, `fsmount`, `open_tree`, `move_mount`, `mount_setattr`, `fsconfig`, `fspick`, `pivot_root`, `chroot`, `setns`, `unshare`, namespace-creating legacy `clone` flags, tracee-side `ptrace`, `process_vm_readv`, `process_vm_writev`, and `pidfd_getfd`; allow the one fd-based `execveat` required to reach the exec stop. Most controls are defense-in-depth after capability drop and the fresh PID/proc view; failure of the architecture/x32/clone3-return/exec-stop checks is independently fatal to the filtered hardening layer only, never to cooperative WorkerTree.
+6. **Adversarial and compatibility gates, then GO.** Preserve the raw-syscall namespace-denial fixture in the exact namespaces: it must prove `clone3` creates no child and returns `-1/ENOSYS`; namespace flags through legacy `clone` remain denied; wrong-arch and x32 actions are asserted exactly; ancestor/sibling write, remount, new namespace, inherited-fd, alternate proc/cgroup mount, and `/proc/<pid>/{fd,fdinfo,root,cwd}` attacks fail in the filtered layer. A deterministic barrier replaces the executable pathname after the fd hash and before exec; the pinned original reaches `PTRACE_EVENT_EXEC` or launch refuses, and the receipt never describes the replacement. Negative rows inject forged/wrong host-PID handoff, release-before-seize, seize denial, missing/wrong exec event, exec timeout/failure, event-PID substitution, `O_NOFOLLOW` proc-exe `ELOOP`, proc-exe fd/hash mismatch, ptrace detach failure, and identity replacement; all kill/reap before target sentinel. Separately, A120 (RunGate A5b) drives each real runtime through blocked final task→seize→gated leaf→fd exec→same-tracee exec-event→followed proc-magic-link fd identity→detach GO, then real sandbox tool child plus nested double-fork/fork storm and `cgroup.kill`→`populated 0`. Optional freeze is not a GO/proof prerequisite. Only a runtime passing this cooperative gate may receive `ConfinedCgroupCooperative`; inability to establish the ancestor tracer, fd-bound exec stop, placement, or leaf containment records it unavailable. Claude additionally attempts filtered hardening; Codex is expected filtered-unavailable. The manager constructs the receipt at the exec stop and sends GO only by validated detach.
+
+The detached lifecycle supervisor is the cgroup manager and retains the exact directory fd until terminal release. Ordinary CLI exit/restart asks that supervisor to act; it does not reopen the path. Each production launch privately constructs its own `CgroupPlacementReceipt` from the live host boot id, kernel, runtime binary/version, exact leaf fd, and gated placement; each fence constructs its own matching `CgroupKillReceipt`. A120 (RunGate A5b) is CI/release regression evidence only and never authorizes a later host, runtime, or worker. Any cached capability/status record is explicitly non-authoritative diagnostic input, is bound to host boot id+kernel+runtime binary digest, and is invalidated on any change. If the supervisor or fd is lost, mount/dev/inode/path revalidation is observation only because the path/inode could have been recycled; this plan defines no fd-reconstruction/transfer path, so recovery remains `FencingUnconfirmed`. A **cooperative** failure — gated-placement/leaf-membership loss, non-domain/non-empty-subtree leaf, non-writable `cgroup.kill`, typed-placement fallback failure, kill/`populated 0` failure, surviving host PID, retained-fd loss, or supervisor-authority loss — makes WorkerTree unavailable for that runtime. A **filtered-hardening** failure records `filtered_hardening: None` and disables only the Claude-only layer. This direct boundary does not claim to stop a deliberately adversarial same-user broker or service from creating a sibling process; every `CgroupTreeProof` is stamped `CooperativeWorkerV1` and diagnostics repeat that scope.
+
+### 4. Exhaustive, scope-bound proof validation
+
+```rust
+pub enum ProcessProof {
+    PidFdExited(PidFdExitProof),
+    OwnedChildReaped(OwnedChildReapProof),
+}
+
+pub struct PidFdExitProof {
+    worker_id: String,
+    generation: String,
+    pid: u32,
+    pidfd_identity_sha256: String,
+    exit_receipt: PidFdExitReceipt,
+    _sealed: process_identity::Sealed,
+}
+
+pub struct PidFdExitReceipt {
+    observation: String, // "pollin-whole-process" | "waitid-p-pidfd-owned"
+    observed_at: String,
+    raw_evidence_sha256: String,
+    _sealed: process_identity::Sealed,
+}
+
+pub struct OwnedChildReapProof {
+    worker_id: String,
+    generation: String,
+    operation_id: String,
+    supervisor_instance_id: String,
+    pid: u32,
+    exit_status: i32,
+    operation_version: String,
+    _sealed: supervisor::Sealed,
+}
+
+pub struct CgroupTreeProof {
+    worker_id: String,
+    generation: String,
+    boundary: CgroupBoundary,
+    termination: CgroupKillReceipt,
+    threat_model: WorkerThreatModel,
+    fence_epoch: String,
+    fencing_version: String,
+    _sealed: supervisor::Sealed,
+}
+
+pub enum WorkerThreatModel { CooperativeWorkerV1 }
+
+pub struct ProtocolProofAttempt {
+    worker_id: String,
+    generation: String,
+    server_fingerprint: String,
+    supervisor_instance_id: String,
+    fence_epoch: String,
+    fencing_version: String,
+    adapter_instance_id: String,
+    attempt_binding_sha256: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct ThreadQuiescence {
+    attempt_binding_sha256: String,
+    thread_id: String,
+    parent_thread_id: Option<String>,
+    turns: Vec<TurnTerminalProof>,
+    terminals: Vec<TerminalTerminationProof>,
+    terminal_pages_sha256: String,
+    terminal_next_cursor_is_null: bool,
+    evidence_sha256: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct TerminalTerminationProof {
+    attempt_binding_sha256: String,
+    process_id: String,
+    persisted_status: String,
+    source: String,
+    evidence_sha256: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct TurnTerminalProof {
+    attempt_binding_sha256: String,
+    turn_id: String,
+    persisted_status: String,
+    source: String, // "includeTurns" | "thread/turns/list"
+    evidence_sha256: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct ProtocolTreeProof {
+    attempt: ProtocolProofAttempt,
+    worker_id: String,
+    generation: String,
+    server_fingerprint: String,
+    supervisor_instance_id: String,
+    fence_epoch: String,
+    fencing_version: String,
+    root_thread_id: String,
+    lineage_hash: String,
+    threads: Vec<ThreadQuiescence>,
+    boundary: DedicatedOfflineBoundaryProof,
+    completed_before_deadline: bool,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct DedicatedOfflineBoundaryProof {
+    attempt_binding_sha256: String,
+    worker_id: String,
+    generation: String,
+    server_fingerprint: String,
+    fence_epoch: String,
+    fencing_version: String,
+    supervisor_instance_id: String,
+    no_listener_evidence_sha256: String,
+    graceful_stop_reaped_evidence_sha256: String,
+    durable_flush: DurableFlushReceipt,
+    complete_offline_artifact_set_sha256: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct DurableFlushReceipt {
+    attempt_binding_sha256: String,
+    contract_version: String,
+    accepted_mutation_watermark: String,
+    flushed_mutation_watermark: String,
+    shutdown_ack_sha256: String,
+    storage_sync_evidence_sha256: String,
+    evidence_sha256: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct ProtocolObservation {
+    pub root_thread_id: String,
+    pub observed_lineage_hash: String,
+    pub completed_pages: u32,
+    pub reason_not_proof: String,
+}
+
+pub enum WorkerTreeProof {
+    ConfinedCgroup(CgroupTreeProof),
+    AppServerTreeAndContainment {
+        protocol: ProtocolTreeProof,
+        containment: CgroupTreeProof,
+    },
+}
+
+pub enum FenceEvidence {
+    ProcessOnly(ProcessProof),
+    ProtocolOnly(ProtocolTreeProof),
+    WorkerTree(WorkerTreeProof),
+    Unconfirmed { reason: String, observations: Vec<ProcessObservation> },
+}
+
+pub struct FenceIntent {
+    worker_id: String,
+    generation: String,
+    fence_epoch: String, // UUIDv4, new for every reconcile attempt
+    fencing_version: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct FenceTurnRef {
+    thread_id: String,
+    turn_id: String,
+    fence_epoch: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct OwnedTurnRef {
+    operation_id: String,
+    thread_id: String,
+    turn_id: String,
+    binding_epoch: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct TurnCancellationPermit {
+    operation_id: String,
+    worker_id: Option<String>,
+    generation: Option<String>,
+    binding_epoch: String,
+    authority: CancellationAuthority,
+    turn: OwnedTurnRef,
+    _sealed: lifecycle::Sealed,
+}
+
+pub struct FenceTerminalRef {
+    thread_id: String,
+    process_id: String,
+    fence_epoch: String,
+    _sealed: lifecycle::Sealed,
+}
+
+pub enum FenceAction { InterruptKnownTurn, TerminateKnownTerminal, SignalRecordedHandle, FenceConfinedCgroup }
+
+pub enum OwnedSignal { SigInt, SigTerm, SigHup }
+pub enum CgroupFenceAction { Kill, DiagnosticFreeze }
+
+pub enum FenceAppServerHandle {
+    SharedSocket { server: String, server_fingerprint: String },
+    DedicatedStdio { supervisor_instance_id: String, io: AppServerIo },
+}
+
+pub struct AppServerIo { reader: File, writer: File, _sealed: lifecycle::Sealed }
+
+pub struct FencePermit {
+    intent: FenceIntent,
+    worker_snapshot: ManagedWorker,
+    allowed: Vec<FenceAction>,
+    signal_handle: Option<SignalHandle>,
+    appserver_handle: Option<FenceAppServerHandle>,
+    binding_guards: Vec<ExclusiveFileLock>,
+    activity_guard: ExclusiveFileLock,
+    _sealed: lifecycle::Sealed,
+}
+
+pub enum DrainError {
+    TimedOut { prior_operations: Vec<String> },
+    StaleGeneration,
+    StateChanged,
+}
+
+pub enum FenceOutcome {
+    Confirmed { worker_id: String, generation: String, scope: RequiredScope },
+    Unconfirmed { worker_id: String, generation: String, reason: UnconfirmedReason },
+}
+
+pub enum UnconfirmedReason {
+    ObservationOnly,
+    UnconfirmedDescendants,
+    ContainmentMismatch,
+    ProtocolIncomplete,
+    LostAuthority,
+}
+
+pub fn finish_fence(permit: FencePermit, evidence: FenceEvidence) -> Result<FenceOutcome, String>;
+pub fn mark_fence_unconfirmed(intent: FenceIntent, error: DrainError) -> Result<FenceOutcome, String>;
+pub fn finalize_fenced_retention(worker_id: &str, generation: &str, expected_version: &str, proof_sha256: &str) -> Result<(), String>;
+```
+
+`TurnCancellationPermit`, `OwnedTurnRef`, `FencePermit`, `FenceTurnRef`, and `FenceTerminalRef` construction/seals remain private. A `TurnCancellationPermit` is the deliberately weaker pre-drain authority for one live guard's own exact persisted turn; every use re-resolves its exact UnmanagedCanceling session/binding/cancellation epoch plus current operation version, Claiming epoch/version, or Fencing generation/epoch/version, derives the target from sealed custody, and may only interrupt that one turn. A full `FencePermit` is still post-drain and every fence mutation re-resolves exact `Fencing + worker_id + generation + fence_epoch + fencing_version` immediately before use. The only lower mutators that accept them are:
+
+```rust
+appserver::interrupt_owned_turn_on_cancel(&mut TurnCancellationPermit)
+appserver::interrupt_with_fence(&mut FencePermit, &FenceTurnRef)
+appserver::terminate_terminal_with_fence(&mut FencePermit, &FenceTerminalRef)
+process_identity::signal_recorded_with_fence(&mut FencePermit, OwnedSignal) // no pid/pgid/path argument
+process_identity::fence_cgroup_with_fence(&mut FencePermit, CgroupFenceAction) // no path/fd argument
+```
+
+The full-fence refs are emitted only by exact custody handoff or enumeration under the same permit epoch. Terminal refs use the current exact `thread/backgroundTerminals/list` process id and terminate it with `thread/backgroundTerminals/terminate`; bulk `clean {}` acknowledgement is never completion evidence. There is deliberately no resume/start/inject/drain/spawn overload for either permit, and no interrupt/terminate/signal overload without the matching sealed capability. Every call verifies its `FenceAction`; the cancellation permit cannot clean/signal/re-enter, a process-only permit cannot terminate a terminal, and an app-server permit cannot signal an unrelated handle.
+
+`drain_prior_operations` cannot mint `FencePermit` until it holds all bound-session locks plus worker activity exclusively and every released guard has either resolved custody or written an exact-version `CancellationHandoff`. A handoff is consumed into the permit only when its authority matches the same current fence epoch/version; unknown-turn or lost-supervisor handoffs instead force `FencingUnconfirmed`. `finish_fence` consumes that permit and, in one `with_lock`, exhaustively validates evidence, writes immutable `FenceProofRecord`, then CASes only the exact current `Fencing` fence epoch/version to `Fenced` or `FencingUnconfirmed`. On confirmed proof it immediately calls idempotent `finalize_fenced_retention`, which exact-CASes `Fenced@version→TerminalRetained@version+1` only after the proof record and terminal evidence are durable and no unresolved operation/handoff remains. A crash after the Fenced write is resumed by `lifecycle reconcile`; it never recomputes or substitutes proof. `mark_fence_unconfirmed` consumes the exact intent after any binding/activity drain timeout and performs the exact version CAS. A stale completion returns `StateChanged` and writes nothing.
+
+Reconcile, release, and abandon are also exact-version operations. Reconcile first resumes an exact `Fenced→TerminalRetained` retention gap, otherwise CASes `FencingUnconfirmed@version N` to `Fencing@version N+1` with a new `fence_epoch`; release CASes only `TerminalRetained@expected_version` and only when `--proof-sha256` matches the stored `FenceProofRecord`; abandon CASes only `FencingUnconfirmed@expected_version`. Thus an old fencer cannot signal, finish, release, or overwrite state after reconcile or audited abandonment.
+
+Proof scope remains exhaustive: `ProcessProof` satisfies only `ProcessOnly`; `ProtocolTreeProof` only `ProtocolTree`; only `WorkerTreeProof` satisfies `WorkerTree`. Every proof attempt privately mints one canonical `ProtocolProofAttempt` over worker, generation, server fingerprint, supervisor, fence epoch, fencing version, and adapter instance. `DurableFlushReceipt`, `ThreadQuiescence`, every `TurnTerminalProof`, every `TerminalTerminationProof`, and the offline boundary all carry that exact `attempt_binding_sha256` plus their own evidence hash. The builder rejects any N/N+1 mixing before a `FenceEvidence` value exists; serialization round-trips cannot replace nested receipts. Every proof-critical protocol field is private/sealed; only a private adapter builder holding the exact `FencePermit` constructs the complete proof. `DedicatedOfflineBoundaryProof` is constructible only by an adapter that reports a mutation-rejecting durable flush watermark covering every accepted mutation and whose complete offline scan reaches that watermark. The current Codex adapter is hard-coded `UnavailableCurrentCodexAppServer` and cannot construct it; the positive path exists only in the fake/future-adapter contract test. Freeze evidence is deliberately absent from this type. A `TrackedTree` backend always returns `Unconfirmed`, root exit never promotes to tree proof, and unknown evidence/backend variants fail closed. `CgroupTreeProof` satisfies WorkerTree only for `CooperativeWorkerV1`; its setup-time boundary cannot be promoted without the same-fence sealed `CgroupKillReceipt`, and attempting to omit or widen that threat-model tag fails closed.
+
+All `CgroupBoundary`, placement/kill/filtered receipt, and `CgroupTreeProof` fields are private. Public methods are read-only accessors returning copies/borrows; no mutable accessor or public constructor exists. A120 (RunGate A5b) produces CI/release regression evidence only. Every production worker constructs fresh placement evidence on its actual host/runtime/leaf; no cached attestation authorizes GO or proof. Only the live matching supervisor may construct the final `CgroupTreeProof`, after re-resolving its private `SupervisorFencePermit`, writing kill, observing populated-zero, validating every in-model membership row, and binding the exact placement receipt plus fence epoch/version. Compile-fail fixtures reject construction and field mutation; runtime tests prove a stale supervisor or altered serialized observation cannot enter `FenceEvidence::WorkerTree`.
+
+### 5. Managed first-prompt admission, hook health, and measured dead-man
+
+Claude SessionStart performs only the short atomic Claiming publication first, drains old binding-epoch guards outside the global lock, then CASes Claiming→Managed/Active. It does not run GC, marker, ordinary register, or mailbox drain before Active. On claim/drain/CAS failure it returns exit-0 JSON with top-level `continue:false`/`stopReason`, records the error, and notifies the detached supervisor. Claude's current SessionStart behavior is captured by a version-pinned empirical row because its event-specific documentation emphasizes context even though universal `continue:false` is documented. Claude UserPromptSubmit is the required prompt barrier: it admits a binding-bound `UserPromptDrain`, and non-Active/Claiming state returns `decision:"block"` without draining. Both handlers explicitly configure `timeout: 30`; timeout remains fail-open and activates supervisor fencing.
+
+Managed Codex does not depend on either hook to prevent the first prompt. The relay-owned app-server controller starts the dedicated server, obtains the exact thread id, completes `claim_managed_appserver`, then authorizes the first `turn/start` only after Active; failure emits no turn request. Codex SessionStart/UserPromptSubmit remain ordinary registration, mailbox/re-entry defense, and diagnostic surfaces. A non-Active managed Codex hook still refuses/drains nothing, but hook skip/timeout cannot bypass controller admission. Direct CLI/TUI or third-party app-server sessions remain unmanaged and make no managed guarantee. Ordinary unmanaged behavior in both tools remains byte-compatible and fail-open, but unmanaged mutations still require a session/epoch-bound guard.
+
+Hook health is a versioned diagnostic snapshot, not child-spawn authority:
+
+```rust
+pub struct HookHealthSnapshot {
+    codex_version: String,
+    schema_bundle_sha256: String,
+    entry_cwd: String,
+    entry_warnings: Vec<String>,
+    entry_errors: Vec<HookErrorInfo>,
+    hook: HookMetadataSnapshot,
+    source_path: String,
+    source_dev: u64,
+    source_ino: u64,
+    source_sha256: String,
+    expected_command_schema: String,
+    normalized_expected_command_sha256: String,
+    normalized_observed_command_sha256: String,
+    mismatch_reason: Option<String>,
+}
+
+pub struct HookErrorInfo { path: String, message: String }
+
+pub struct HookMetadataSnapshot {
+    key: String,
+    event_name: String,
+    handler_type: String,
+    is_managed: bool,
+    plugin_id: Option<String>,
+    source: String,
+    source_path: String,
+    command: Option<String>,
+    matcher: Option<String>,
+    status_message: Option<String>,
+    current_hash: String,
+    display_order: i64,
+    timeout_seconds: u64,
+    enabled: bool,
+    trust_status: String,
+}
+```
+
+The installed-version wire type is preserved before deriving health: response `data[]` contains `{cwd,warnings:[string],errors:[{path,message}],hooks:[HookMetadataSnapshot]}`; nullable `command`, `matcher`, `pluginId`, and `statusMessage` remain null rather than invented defaults. Hook normalization is literal and version-pinned: JCS-encode the exact containing-entry cwd/warnings/structured errors plus every hook field in generated-schema placement and SHA-256 those bytes. The required Docks rows then demand `plugin_id=Some("session-relay@docks")`, `handler_type=command`, non-null exact command string, and the expected event/source/trust fields. No argv split, shell-semantic equivalence parser, whitespace folding, path resolution, stringified error, or stderr interpretation is allowed.
+
+`hooks/list` for the exact cwd must return exactly one session-relay row per required event whose plugin id, event, enabled state, timeout, command semantics, source identity/hash, `currentHash`, and `trustStatus` match the shipped expectation; the trusted status applies only to that returned current hash. A later re-list/source re-hash can detect version/source/semantic/post-list drift and report `HookHealthDegraded`, but no snapshot or private re-hash is described as an atomic expected-hash-bound launch guarantee. Production never passes `--dangerously-bypass-hook-trust`.
+
+The two committed Codex hook commands are the exact durable shell bootstraps below; their first executable is `/bin/sh`, never the versioned relay. SessionStart has no suffix; UserPromptSubmit passes the required event suffix:
+
+```sh
+/bin/sh -c 'plugin=$1; shift; root=${XDG_DATA_HOME:-${HOME:?HOME required}/.local/share}/docks/session-relay/runtime; if test -L "$plugin"; then exit 4; fi; if test ! -e "$plugin"; then exec "$root/current/relay" hook codex "$@"; fi; if test ! -d "$plugin"; then exit 4; fi; launcher=$plugin/bin/relay; if test -L "$launcher" || test ! -f "$launcher" || test ! -x "$launcher"; then if test ! -e "$plugin" && test ! -L "$plugin"; then exec "$root/current/relay" hook codex "$@"; fi; exit 4; fi; "$launcher" __install-stable --plugin-root "$plugin" --json >/dev/null; rc=$?; if test "$rc" -eq 0; then exec "$root/current/relay" hook codex "$@"; fi; if test ! -e "$plugin" && test ! -L "$plugin"; then exec "$root/current/relay" hook codex "$@"; fi; exit "$rc"' relay-hook "${CLAUDE_PLUGIN_ROOT}"
+/bin/sh -c 'plugin=$1; shift; root=${XDG_DATA_HOME:-${HOME:?HOME required}/.local/share}/docks/session-relay/runtime; if test -L "$plugin"; then exit 4; fi; if test ! -e "$plugin"; then exec "$root/current/relay" hook codex "$@"; fi; if test ! -d "$plugin"; then exit 4; fi; launcher=$plugin/bin/relay; if test -L "$launcher" || test ! -f "$launcher" || test ! -x "$launcher"; then if test ! -e "$plugin" && test ! -L "$plugin"; then exec "$root/current/relay" hook codex "$@"; fi; exit 4; fi; "$launcher" __install-stable --plugin-root "$plugin" --json >/dev/null; rc=$?; if test "$rc" -eq 0; then exec "$root/current/relay" hook codex "$@"; fi; if test ! -e "$plugin" && test ! -L "$plugin"; then exec "$root/current/relay" hook codex "$@"; fi; exit "$rc"' relay-hook "${CLAUDE_PLUGIN_ROOT}" --event prompt
+```
+
+Shell/argv quoting is emitted literally by `codex-hooks.json`; neither cwd nor hook input is interpolated into code. Installer JSON is redirected so complete hook stdout contains exactly one hook response object. The shell predicates are corruption and ordinary-prune checks at the instant observed, not a cache-authentication primitive. A plugin-root symlink—including a dangling symlink—that is present at the root check fails; a launcher symlink/nonregular/nonexecutable object present at its checks fails. When N's cached plugin root remains an ordinary real directory, the launcher validates/installs. If ordinary cache pruning removes the root before the first existence check, after the directory check but before launcher validation, before launcher execution, or while installer source opens are beginning, the applicable branch must re-evaluate `! -e && ! -L` and may fall through to stable `current/relay` only while the whole root is then truly absent and non-link; a present invalid object fails. Missing/invalid `current` fails visibly and the hook never searches cache directories. A deliberate same-UID replace-all can change the root and launcher between shell predicates and execution, so standalone bootstrap explicitly does **not** claim that the code first executed from the cache is authentic or race-pinned. A123 covers ordinary deletion at every named window, known-at-check dangling/non-dangling root and launcher links/nonregular/mode corruption, exact stdout, and the transition to native-installer pinning; it does not install an impossible pre-exec symlink/recreate authenticity barrier.
+
+The runtime root is same-owner mode 0700 and contains `install.lock` (same-owner regular mode 0600), immutable `generations/<plugin_version>-<binary_sha256>/{relay,runtime.json}`, a staging directory, and an intentional relative `current` symlink to one complete generation. Once the native installer process starts, it opens the exact supplied plugin root as a same-owner `O_PATH|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC` dirfd, then opens exact `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, `hooks/codex-hooks.json`, `hooks/hooks.json`, `bin/SHA256SUMS`, `bin/relay`, the selected `bin/<target>`, and every canonical payload-manifest member relative to pinned parent dirfds with per-component no-follow checks. It retains all manifest/checksum/hook-definition/payload-member/selected-binary fds through validation and copy; the selected payload is hashed and copied from the same open fd, and `plugin_payload_sha256`/`hook_definitions_sha256` are computed only from those retained fds. From that native-installer boundary onward, rename/recreate/symlink barriers at every source component must either fail validation or preserve the originally opened bytes—never mix manifests, checksum, hook definitions, dispatcher, or payload across generations. This post-start splice guarantee does not retroactively authenticate the cache launcher that the standalone shell already executed.
+
+The pinned manifests must match `name=session-relay` and identical strict-semver `version`; `bin/SHA256SUMS` has a unique lowercase SHA-256 plus basename for exactly the closed target mapping `Linux x86_64→relay-x86_64-unknown-linux-musl`, `Linux aarch64→relay-aarch64-unknown-linux-musl`, `Darwin x86_64→relay-x86_64-apple-darwin`, `Darwin arm64→relay-aarch64-apple-darwin`; selected payload is a regular executable matching its digest. `bin/relay` is only the dispatcher used by standalone bootstrap to invoke the native installer; stable generation copies the selected native binary, never that shell launcher. Never use Cargo package version. The installer locks `install.lock` across current-state read, source validation, generation staging, every fsync, and pointer commit. It lstat-validates every runtime parent/generation object; hostile symlinks are rejected, while managed `current` is allowed only when its target is one same-root immutable generation with matching regular 0755 binary and closed record. Exact portable commit sequence: write+fsync binary and record in staging; fsync staging generation directory; rename staging into `generations/`; fsync `generations/`; create temporary relative symlink in runtime root; fsync runtime root; rename it over `current`; fsync root again. Never fsync the symlink inode. Crash selects complete old or new pair; partial staging is never selected and is cleaned under next lock. Keep current+previous; delete older unselected only after pointer durability. Higher semver replaces; lower no-ops. A same-version no-op is permitted only when the complete canonical identity tuple `{plugin_version,target,binary_sha256,plugin_payload_sha256,hook_definitions_sha256}` equals the selected record; a mismatch in **any** field is fatal and cannot repair/replace/no-op. Lock serialization prevents downgrade. Core standalone hooks own ordinary-upgrade durability and post-start native pinning. For the optional high-assurance proactive path, docks-kit obtains an expected selected-native digest from its own trusted distribution input, opens and hashes those native bytes independently of the cache dispatcher, and invokes `__install-stable --plugin-root <exact-root> --json` through that same retained fd or equivalent identity-pinned direct-native primitive; digest mismatch or identity drift fails before installer execution. That stronger path does not become a standalone-hook dependency and must not be cited as standalone authenticity.
+
+```rust
+pub struct StableRuntimeRecord {
+    schema: u8, // exactly 1
+    plugin_version: String,
+    target: String,
+    binary_sha256: String,
+    plugin_payload_sha256: String,
+    hook_definitions_sha256: String,
+    installed_at: String,
+}
+
+pub struct RuntimeInstallResult {
+    schema: u8,
+    changed: bool,
+    selected: StableRuntimeRecord,
+    selected_generation: String,
+    previous_generation: Option<String>,
+    reason_code: Option<String>,
+}
+
+pub struct RuntimeDoctorResult {
+    schema: u8,
+    state: String, // ready | degraded | unavailable
+    stable_path: Option<String>,
+    selected: Option<StableRuntimeRecord>,
+    hook_health: String, // healthy | degraded | unknown
+    capabilities: BTreeMap<String, String>, // available | unavailable | unknown
+    reason_code: Option<String>,
+}
+
+pub struct RuntimeToolError {
+    schema: u8,
+    state: String, // exactly "error"
+    reason_code: String,
+    detail: String,
+}
+```
+
+Every object is recursively closed in the committed JSON schema. Doctor capability keys are exactly `stable_runtime`, `hook_session_start`, `hook_user_prompt_submit`, `managed_appserver`, `cooperative_cgroup`, and `filtered_hardening`; values are `available|unavailable|unknown`. Result reason codes are exactly `ready`, `hook_health_degraded`, `capability_unavailable`, `stable_runtime_absent`, and `unsupported_runtime_contract`; install reason codes are `installed`, `already_current`, `lower_version_ignored`, and `previous_retained`. `previous_retained` is exit-0 only when a lower candidate's complete canonical identity exactly matches the retained previous generation: current remains selected, `changed=false`, and `previous_generation` names that retained generation; mismatched/corrupt retained bytes cannot qualify. Error reason codes are exactly `usage`, `schema_mismatch`, `unsupported_target`, `unsupported_install_source`, `validation_failed`, `tamper_detected`, `owner_mode_invalid`, `lock_failed`, and `io_failed`. Unknown keys/codes/extra fields fail validation. `ready|degraded|unavailable` are normal exit-0 `RuntimeDoctorResult` readiness states; exit 3 is reserved for command inability such as an unsupported install target and emits `RuntimeToolError`. Exit 2 is usage/schema, 4 validation/tamper, and 5 I/O/lock. JSON-mode nonzero paths, including usage once `--json` is recognized, emit exactly one schema-valid `RuntimeToolError` on stdout; stderr is human diagnostic only. Fourteen golden fixtures cover doctor ready/degraded/unavailable, install changed/current/lower-no-op/previous-retained, and every error exit, and the schema and implementation are independently checked against them. `plugin_payload_sha256` is a canonical sorted path/mode/content manifest over the installed plugin payload excluding the mutable stable runtime root; `hook_definitions_sha256` is the canonical normalized shipped SessionStart/UserPromptSubmit definition set. They drive diagnostics/restart delta only, never lifecycle proof.
+
+The Codex plugin manager's installed plugin root is the standalone bootstrap trust input. `SHA256SUMS` proves package-internal corruption/target selection, not authenticity against a malicious same-UID actor who rewrites both binary and checksum; that actor is outside the cooperative same-user threat boundary already stated. The installer never claims signature verification. A higher-assurance docks-kit proactive path must open the selected native payload, compare that retained fd's digest to an immutable reviewed Docks contract/release fixture **before** any cache execution, and invoke `__install-stable` through those same retained verified native bytes (platform fd-exec or an equivalently identity-pinned direct-native primitive); it cannot execute the dispatcher, re-resolve the selected path, or treat self-reported cache checksums as an external anchor.
+
+`relay doctor --json --capabilities` is the versioned consumer contract for docks-kit and operators. Its closed schema reports stable generation/path/version/target/binary digest, plugin payload digest, normalized hook-definition digest/health, and typed capability availability/reason codes; it is diagnostic, never lifecycle proof. `__install-stable --json` uses a separate closed result schema with `changed`, selected/previous generation, and typed error. Both schemas live in `test/fixtures/runtime-doctor-schema.json`; docks-kit consumes an exact reviewed schema/commit rather than parsing stderr.
+
+The supervisor holds the unreaped root child and, where available, strong cgroup control. Its deadline comes from the measured formula in Environment—not a hard-coded four seconds. Sequential contention tests queue multiple near-timeout store users and prove the attach claim is still first; failure blocks the prompt and fences, never lengthens `with_lock` beyond three seconds.
+
+The bounded race is explicit for Claude: the required UserPromptSubmit block has an explicitly configured 30-second hook timeout; the watchdog deadline is at most 20 seconds, leaving at least 10 seconds of project-configured margin for owned-child termination and wait. SessionStart stop is an earlier defense where the exact version honors it, but the Claude safety claim does not require SessionStart alone. If UserPromptSubmit is skipped or violates that contract, Claude prompt execution may begin any time from CLI exec until the watchdog acts; the residual window is at most `managed_attach_deadline_ms` for a scheduled supervisor with a live owned-child handle, but it is not zero and cannot be a hard scheduler guarantee. Codex has no corresponding first-turn race because the relay controller withholds `turn/start` until Active. Root termination is only ProcessOnly unless strong containment proves the tree.
+
+### 6. App-server lineage, terminal flush, and physical scope
+
+Persist every successful `turn/start` response's exact `turn.id` before pumping. Persist `TurnStartSentUnknown` before the send so an ambiguous after-send failure cannot disappear. Fencing first blocks relay re-entry. Async repeated scans are observations, not a fixed point: equality of two scans cannot construct `ProtocolTreeProof`.
+
+1. A live guard first uses `TurnCancellationPermit` to interrupt only its own exact persisted turn and requires a matching terminal event; after drain, `FencePermit` may interrupt exact handed-off or enumerated turns. List background terminals and terminate each exact returned `processId`; never treat bulk `clean {}` acceptance as terminal completion. Enumerate descendants/turns/terminals through all pages under one `protocol_lineage_deadline_ms` deadline. `thread/read idle` alone remains forbidden.
+2. Every connection that uses descendant filters, `thread/turns/list`, `thread/items/list`, or background-terminal list/terminate sends `initialize` with `capabilities.experimentalApi=true`, verifies the initialization response under the recorded runtime version, then sends `initialized`. Missing/unsupported experimental methods return typed `ProtocolIncomplete`; they never fall back to partial stable scans or bulk clean.
+3. A **shared socket server** always yields `ProtocolObservation`, never `ProtocolTreeProof`, and cannot transition a ProtocolTree worker to Fenced. Two sequence reads or a snapshot without durable mutation rejection are insufficient. Step 1 records whether a future authoritative barrier exists, but this plan does not add unverified acquire/hold/release mutators; adopting it requires a separately reviewed capability contract.
+4. The installed Codex adapter is explicitly `UnavailableCurrentCodexAppServer`: it has no public mutation-rejecting durable shutdown/flush watermark or persisted terminal-completion ledger, so every real dedicated-server ProtocolTree attempt returns `ProtocolIncomplete { reason: MissingDurableFlushContract }`. The positive adapter contract remains testable with the fake server: reject new mutations, flush every accepted lineage/turn/terminal mutation through an explicit durable watermark, acknowledge it, exit/reap, then complete a finite offline scan through the same-or-later watermark. Process exit, stdio EOF, internal shutdown completion, `clean {}`, and process kill are not a protocol flush.
+5. Cgroup kill is the authoritative physical path: write `cgroup.kill=1`, then wait for `populated 0`. Freeze is optional diagnostic/snapshot aid only; processes may migrate while frozen. Freeze cannot construct `DedicatedOfflineBoundaryProof` or `ProtocolTreeProof`, and if used it must proceed to kill without thaw-through-release.
+6. For notification-loss recovery, accept exact persisted turn terminal state only from the complete gracefully stopped/flushed offline artifact set. Live `includeTurns`/`turns/list` on a shared server is supporting observation only.
+7. A real child-agent test creates a child-thread writer; a real background terminal writes another sentinel; queued-after-parent and continuous-spawner fixtures create descendants after the second equal live scan. A thaw-after-candidate-proof fixture queues a child plus unflushed write before freeze and proves freeze/offline equality is rejected. Every writer must be covered by graceful flush or physically killed behind the confined cgroup. If the deadline expires, a writer continues, a child appears outside the flushed watermark, or any code attempts thaw-through-release, return `ProtocolIncomplete`/refuse release.
+
+Compound WorkerTree+Protocol proof remains a future-adapter path requiring the relay-owned dedicated stdio server, verified graceful flush, and cooperative-scope cgroup containment. The current runtime can still confirm the bounded physical WorkerTree after `cgroup.kill`→`populated 0` when protocol evidence is incomplete, but no ProtocolTree proof is fabricated. The live app-server Child/stdio authority is tied to `supervisor_instance_id`; if that child/protocol authority fails while the same supervisor remains live, its retained cgroup fd may still prove the bounded physical tree. Supervisor loss also loses that fd and remains `FencingUnconfirmed`; no path reopen reconstructs it. Shared servers are observation-only and killing one is forbidden.
+
+### 7. GC retention and durable reconciliation
+
+GC eligibility is lifecycle-aware before surface deletion. `Attaching|Active|Fencing|FencingUnconfirmed|Fenced|TerminalRetained`, pending attaches, pre-binding pending retirements, `SessionBinding::Claiming|Managed`, versioned unresolved `ActiveOperationRecord`, `CancellationHandoff`, live/lost `SupervisorRecord` and socket identity, generation tombstones, fence-intent markers, activity locks, stale-event audits, and proof records are non-GCable regardless of `last_seen` or mtime. `SessionBinding::GcDeleting|ManagedGcDeleting` and worker `PreBindingGcDeleting` are non-admissible and processed only by exact-epoch GC resume. Only an atomically matching bound `TerminalReleasable + ManagedTerminal + permanently retained ManagedTerminalReceipt + Released capacity charge when present` tuple or structurally separate unbound `TerminalReleasable + permanently retained PreBindingTerminalReceipt + retired birth/pending authority commitments + Released capacity charge when present` tuple can enter the ordinary managed age check. Final GC retains the exact receipt plus `TerminalFence` for the bound variant or the exact receipt plus `WorkerGenerationFence` for the pre-binding variant permanently; neither recreates Unmanaged or an attachable generation.
+
+`SessionOperationTombstone` is keyed by runtime session plus operation. Reaped and risk-accepted outcomes carry distinct receipt hashes; `gc_eligible_at` is `terminal_at +` the existing ordinary age cutoff, never a new shorter cutoff. Even after that time it is deletable only when no pending attach, Claiming/Managed/UnmanagedCanceling binding, unresolved operation/custody, handoff, supervisor/watchdog record, proof, or audit reference points to the session/operation. Risk-accepted deletion never upgrades its `NOT QUIESCENCE-PROVEN` meaning.
+
+`SessionBinding::Unmanaged` preserves legacy aging through this exact two-lock/CAS protocol; neither lock is nested and no external work occurs under either:
+
+1. Under `with_gc_lock`, enumerate old candidates and immutable surface identities, then release it without deleting.
+2. Under one short `with_lock`, revalidate that the registry Entry projection and every ordinary surface are older than cutoff; the binding lock is neither live nor unknown; no Claiming/cancel marker exists; no unexpired/retained pending token, managed worker, tombstone, proof, or audit record references the runtime id; and binding epoch/Entry version still match. Exact-CAS `Unmanaged→GcDeleting { gc_epoch, binding_epoch, entry_version }` in one `lifecycle-v1.json` authority generation. This is the GC linearization point; the registry Entry is not authority. Admission, pending-token creation, and SessionStart claim all re-read the authority binding under `with_lock` and refuse/retry `GcDeleting`; they can never publish Claiming across it.
+3. Outside global locks, acquire the exact binding lock exclusively with a bounded try-lock. If it cannot be acquired before deletion begins, exact-CAS the untouched record back to Unmanaged and skip. Once held, reacquire `with_gc_lock`, revalidate pinned dev/inode/name/age identities, and delete ordinary surfaces except the binding lock, Entry, and binding record; release `with_gc_lock` before any `with_lock` call. A crash or I/O failure leaves durable `GcDeleting`; later GC resumes only with the exact `gc_epoch` and already-deleted surfaces are idempotently absent. Claim/admission remain refused.
+4. After every ordinary surface is absent and while the exclusive binding fd is still held, acquire `with_gc_lock`, revalidate and unlink the binding-lock pathname while its old inode remains pinned by the fd, then release `with_gc_lock`. Remove the registry Entry projection, then one final short `with_lock` exact-CASes the same authority `GcDeleting` epoch/version to remove the Unmanaged binding last. Only then release the fd. A projection-write crash or final-CAS failure retains authoritative `GcDeleting`; admission still refuses and exact-epoch GC can resume/finalize despite an absent Entry/lock pathname. No authority-removal-before-lock-unlink window may let admission create a replacement lock that GC then unlinks.
+
+Malformed/unknown binding state is preserved, never guessed eligible. Race tests pause after enumeration, after `GcDeleting` publication, after the first ordinary-surface deletion, and after binding-lock unlink; concurrent pending creation/SessionStart either wins before the CAS (GC makes zero deletions and preserves every byte) or sees `GcDeleting` (the claimant makes zero state/surface changes while GC deletes only the exact old candidate manifest and resumes idempotently). No fresh or out-of-candidate mailbox, audit, marker, lock, or registry byte may be lost.
+
+Add CLI surfaces:
+
+```text
+relay lifecycle status <worker|session> --json
+relay lifecycle reconcile <worker> --generation <uuid> --expected-version <n> --json
+relay lifecycle reconcile-session <session> --binding-epoch <n> --operation <uuid> --cancellation-epoch <uuid> --expected-operation-version <n> --json
+relay lifecycle release <worker> --generation <uuid> --expected-version <n> --session <id> --binding-epoch <n> --capacity-charge <id|none> --expected-capacity-version <n|none> --proof-sha256 <hex>
+relay lifecycle abandon <worker> --generation <uuid> --expected-version <n> --session <id> --binding-epoch <n> --capacity-charge <id|none> --expected-capacity-version <n|none> --reason <text> --i-understand-processes-may-still-be-running
+relay lifecycle release-prebinding <worker> --generation <uuid> --expected-version <n> --birth-operation <uuid> --expected-birth-operation-version <n> --expected-pending-retirement-version <n> --capacity-charge <id|none> --expected-capacity-version <n|none> --proof-sha256 <hex>
+relay lifecycle abandon-prebinding <worker> --generation <uuid> --expected-version <n> --birth-operation <uuid> --expected-birth-operation-version <n> --expected-pending-retirement-version <n> --capacity-charge <id|none> --expected-capacity-version <n|none> --reason <text> --i-understand-processes-may-still-be-running
+relay lifecycle abandon-session <session> --binding-epoch <n> --operation <uuid> --cancellation-epoch <uuid> --expected-operation-version <n> --reason <text> --i-understand-processes-may-still-be-running
+```
+
+`status` reports authority-store id/generation, state/version/fence epoch, immutable `Unreserved|Charged(charge_id)` discriminator, optional binding/terminal epoch, operation/handoff/supervisor authority, optional pre-binding pending-retirement version/hash, matching optional capacity charge/version, backend/scope, proof gap, last attempts, and one exact version-bound retry/recovery command selected by structural state. Worker `reconcile` behaves as before. `reconcile-session` acts only on exact `UnmanagedCanceling` session/binding/cancellation epoch, operation, current operation version, and the still-live matching supervisor; successful reap writes a terminal tombstone and advances binding epoch. `abandon-session` requires the same exact selectors, reason, and acknowledgement, advances the binding epoch with a risk-accepted tombstone, and prints **“NOT QUIESCENCE-PROVEN”**. `release-prebinding` is offered only for exact unbound `TerminalRetained` with retained matching proof; `abandon-prebinding` is offered only for exact unbound `FencingUnconfirmed`. Each requires every literal worker/birth-operation/pending-retirement/charge selector shown; `none` is emitted only for an authoritative `Unreserved` generation. Neither accepts `--session`, infers capacity from an absent charge/projection, invents a binding, or touches a foreign binding. No session or pre-binding command raw-signals observation-only PIDs. Shared servers cannot reconcile to ProtocolTree. Bound worker release/abandon require every literal worker/binding/charge/proof selector shown above and never infer one from the registry projection. Any stale selector changes nothing.
+
+### 8. Source-ready versus packaged-ready release handoff
+
+Source-ready authority is the pair of (a) the exact `LifecycleCompletionEvidenceV1` compact-JCS object embedded below `### Completion evidence handoff` before `in_review` and retained in the archived plan blob, and (b) that archived plan's canonical schema-v1 **`Completion-review-receipt:`** machine line. The evidence object carries the 38 deterministic execution-summary hashes and integrated source identity; the generic completion receipt carries the exact 38 read-only verifier commands, exit/met results, and stdout hashes. Neither alone is sufficient, and neither proves `packaged_ready`.
+
+After plan-manager validates a `passed` completion receipt, archives the plan, and commits that lifecycle transition, the orchestrator records `FINISHED_PLAN_COMMIT` and returned `FINISHED_PLAN_PATH`, requires the exact date-prefixed slug, and runs `node plugins/session-relay/test/final-scope.mjs --derive-source-ready-from-completion --finished-plan "$FINISHED_PLAN_PATH" --finished-plan-commit "$FINISHED_PLAN_COMMIT" --json`. The projector exact-loads the archived plan blob, validates exactly one handoff object and one completion receipt, requires `completion_verdict="passed"`, zero regressions, and exact A101→A138 inventory. For each row it reconstructs the deterministic verifier stdout from the handoff, SHA-256-matches it to `primary.acceptance[i].actual_sha256`, and requires exact command/expected, exit 0, and `met=true`; it sources the 38 chronological `summary_sha256` values only from the validated handoff. It also requires the handoff's integrated source commit to be an ancestor of receipt `reviewed_head`, identical implementation-scope tree, exact 82-event/A137/A138/rehash/five-generation/coordinator/runner-layout cleanup evidence, and no source mutation after integration except the plan evidence/import and lifecycle transitions.
+
+The projector emits compact `SourceReadyHandoffReceipt {schema:1,plan_path,finished_plan_commit,completion_receipt_sha256,completion_evidence_sha256,reviewed_source_tip,completion_reviewed_head,acceptance_inventory_sha256,acceptance_output_sha256s,criterion_summary_sha256s,final_scope_result_sha256,root_generation_cleanup_result_sha256,runner_layout_cleanup_result_sha256,source_ready,packaged_ready,fanout_unblock,receipt_sha256}`. `reviewed_source_tip` is the handoff's integrated source commit; `completion_reviewed_head` is the generic receipt head; `acceptance_output_sha256s` are its 38 actual stdout hashes; `criterion_summary_sha256s` are the handoff's 38 chronological summaries. The booleans are exactly `true,false,false`. Re-running prints byte-identical bytes plus `SOURCE_READY_HANDOFF PASS receipt_sha256=<same-hex>`. A missing/duplicate/changed handoff or receipt, verifier-output mismatch, external `/tmp` dependency, missing/extra/forked event/summary, absent migration/coordinator/root-generation/runner-layout cleanup/finalization, latest-result substitution, wrong archive path/date/commit/ancestry/order/count/hash, or any true packaged/fanout claim fails.
+
+The later owner-approved producer/release workflow must consume that exact source-ready receipt hash and record an immutable `session-relay--vN` tag with `N > 0.10.0`, a published non-draft GitHub Release, a tag commit descending from `reviewed_source_tip`, exact producer workflow/run/commit identity, Rust source tree equality with the reviewed source tree, four committed target binaries byte-equal to producer artifacts, verifying `SHA256SUMS`, matching Claude/Codex/marketplace version N, and packaged-artifact 0.10.0→N plus N→N hook/live-upgrade and mixed-version old-writer matrices. Synthetic source-built canonical A123 evidence cannot substitute. Until that later receipt exists, `packaged_ready=false`, `fanout_unblock=false`, and `relay-worker-fanout` remains blocked even if this plan moves to `finished/`.
+
+### Docks compatibility prerequisite evidence
+
+```json
+{"authorization_id":"owner-2026-07-13-four-release-order-docks-prerequisite","authorization_sha256":"f8f38319a72f258dd66d9b31f620cd13ec1968f1d1d169d94e3ebc6b55dde77a","binding_commit":"3d8f5c0e198298689c1b091cfdeb38c0b1e5ea99","binding_sha256":"d02d83401530a38e2f8e2d12a0f2e821e120dfc7ec3ea3cd140f84c9c2eeb4ad","claude_policy_sha256":"9eba4f8f80b95915fa0b69ce1b1451cbe62f598f6ae7e4b12c831de6cd65681b","codex_policy_sha256":"9eba4f8f80b95915fa0b69ce1b1451cbe62f598f6ae7e4b12c831de6cd65681b","compatibility_review_commit":"d72d38ead012967da5b77b122f6a1d47fdf39694","evidence_commit":"9797e0e454d6f67205a2c01be6c493367a4ac871","finished_plan_commit":"366ff6c17904e50b24ebbac6a564c8816be14ba0","finished_plan_path":"docs/plans/finished/2026-07-14-legacy-start-transition-compatibility.md","observations":{"claude_cache":{"absolute_path":"/home/vagrant/.claude/plugins/cache/docks/docks/0.12.5/skills/productivity/plan-review/scripts/review-policy.mjs","home_relative_path":".claude/plugins/cache/docks/docks/0.12.5/skills/productivity/plan-review/scripts/review-policy.mjs","schema":1,"sha256":"9eba4f8f80b95915fa0b69ce1b1451cbe62f598f6ae7e4b12c831de6cd65681b"},"claude_plugin":{"argv":["claude","plugin","list","--json"],"exit_code":0,"projection":{"enabled":true,"id":"docks@docks","installPath":"/home/vagrant/.claude/plugins/cache/docks/docks/0.12.5","scope":"user","version":"0.12.5"},"schema":1,"stderr_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","stdout_sha256":"74cf3e8939fed9274f67a45b68448773c29796b0504a3ca4983d21067706ceb0"},"codex_cache":{"absolute_path":"/home/vagrant/.codex/plugins/cache/docks/docks/0.12.5/skills/productivity/plan-review/scripts/review-policy.mjs","home_relative_path":".codex/plugins/cache/docks/docks/0.12.5/skills/productivity/plan-review/scripts/review-policy.mjs","schema":1,"sha256":"9eba4f8f80b95915fa0b69ce1b1451cbe62f598f6ae7e4b12c831de6cd65681b"},"codex_plugin":{"argv":["codex","plugin","list","--marketplace","docks","--json"],"exit_code":0,"projection":{"enabled":true,"installed":true,"marketplaceName":"docks","name":"docks","pluginId":"docks@docks","source":{"path":"plugins/docks","ref":"main","source":"git-subdir","url":"https://github.com/DocksDocks/docks.git"},"version":"0.12.5"},"schema":1,"stderr_sha256":"d47a06d59aba2814c3fb7460049fc2ccbfc834196c956d6c6558e8be8b079e24","stdout_sha256":"ed88765218e0ace17c3bbbe838f0f2031ba790a1a04ab9ba2ace005c6d0753fd"},"github_release":{"argv":["gh","release","view","docks--v0.12.5","--repo","DocksDocks/docks","--json","isDraft,isPrerelease,tagName,url"],"exit_code":0,"projection":{"isDraft":false,"isPrerelease":false,"tagName":"docks--v0.12.5","url":"https://github.com/DocksDocks/docks/releases/tag/docks--v0.12.5"},"schema":1,"stderr_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","stdout_sha256":"df15532dd591a6c838a26a5ae8ede9e0ba8c08223bc88eae54a1a832ea35e80a"},"observations_sha256":"9c2855ce0b7a626a8568e4a355626b029287183b9ef1656eb2b1b0300505860b","observed_at":"2026-07-14T04:28:17.600Z","remote_main":{"argv":["git","ls-remote","--exit-code","--branches","https://github.com/DocksDocks/docks.git","refs/heads/main"],"exit_code":0,"projection":{"commit":"a228d846592fc5b383e101ee9260f4a18776d17b","ref":"refs/heads/main"},"schema":1,"stderr_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","stdout_sha256":"7cb28dec464b6c57cdbbb8c84a5621a0de3a51fb64c44dc6af1f0e099e4f97e5"},"remote_tag":{"argv":["git","ls-remote","--exit-code","--tags","https://github.com/DocksDocks/docks.git","refs/tags/docks--v0.12.5","refs/tags/docks--v0.12.5^{}"],"exit_code":0,"projection":{"annotated":true,"peeled_commit":"a228d846592fc5b383e101ee9260f4a18776d17b","ref":"refs/tags/docks--v0.12.5","tag_object":"415fb18b1b9507e33498806dad3cdf65e0089496"},"schema":1,"stderr_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","stdout_sha256":"b78bd253a4376ec04fb6610c4149ac86cb14aff1768335ac6379c0d59a41aa40"},"schema":1,"source_policy":{"git_spec":"a228d846592fc5b383e101ee9260f4a18776d17b:plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs","schema":1,"sha256":"9eba4f8f80b95915fa0b69ce1b1451cbe62f598f6ae7e4b12c831de6cd65681b"}},"receipt_sha256":"4bbc70801fb2ea7cfe2653e8f3838d748c137ccc17ef7ce10d39883177080b46","release_commit":"a228d846592fc5b383e101ee9260f4a18776d17b","release_tag":"docks--v0.12.5","release_url":"https://github.com/DocksDocks/docks/releases/tag/docks--v0.12.5","release_version":"0.12.5","schema":1,"source_policy_sha256":"9eba4f8f80b95915fa0b69ce1b1451cbe62f598f6ae7e4b12c831de6cd65681b"}
+```
+
+### Completion evidence handoff
+
+Pending until A138 `ExecutionEvidencePublished`, implementation integration, and main-context projection. In the same scoped `apply_patch`, plan-manager replaces this sentence with one fenced, one-line compact-JCS `LifecycleCompletionEvidenceV1` and changes exactly the eleven remaining `planned` Step rows to `done`; it validates both the evidence and row transitions from the resulting Git blob and commits that plan-only before `in_review`. Workers and completion reviewers never author or alter it.
+
+## Steps
+
+| # | Task | Files | Depends | Status | Done condition / STOP trigger |
+|---|---|---|---|---|---|
+| 1 | Codify the original feasibility foundation in a committed probe harness: runtime/hook/process rows, explicit absence of a current durable app-server flush contract, raw `clone3→ENOSYS`, and per-runtime ordinary-spawn probes. Emit raw-record hashes and measure attach/protocol bounds. | `plugins/session-relay/test/feasibility-probe.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-schema.json`, `docs/plans/active/relay-worker-lifecycle-primitives.md:Notes` | — | done | Commit `c32aafa17d1408157f87de5b616135212f33a2ed` established the original evidence, but its stale `strong_cgroup`/freeze coupling is superseded by Step 1b and cannot by itself advertise Option-A cooperative containment. |
+| P | Complete the exact Docks-only compatibility prerequisite before any implementation worker resumes: finish/archive the compatibility plan, release/install/cache-verify Docks under the recorded authorization, commit contiguous E/R/B, commit prerequisite closure Q with P `done`, then obtain findings-free final ordinary review F and revalidate the range. | Plan-manager-returned `docs/plans/finished/<date>-legacy-start-transition-compatibility.md` (read-only), `docs/plans/active/relay-worker-lifecycle-primitives.md` (plan-manager-only E/R/B/Q/F writes), `$HOME/.codex/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs` (read-only), `$HOME/.claude/plugins/cache/docks/docks/$RELEASE_VERSION/skills/productivity/plan-review/scripts/review-policy.mjs` (read-only) | 1, 3b | done | The exact Step-P block above passes. Q embeds one valid `DocksCompatibilityPrerequisiteReceiptV1` and changes only its pending sentence, P status, and `updated`; F's findings-free `dual|single` receipt reviews Q. The current plan retains exact E material/receipt, immutable R review, B binding, Q prerequisite evidence, and F receipt. Both released cache helpers emit byte-identical schema-1 `LegacyExecutionRangeValidationV1`; only F becomes `PLAN_COMMIT`/`PLAN_BLOB`. Effect Kit and Session Relay versions are unchanged. Any other outcome, stale cache, absent release, E/R/B/Q/F gap, non-plan delta, or authorization mismatch is STOP. P appends no acceptance event or implementation-range receipt. |
+| 1b | From clean `STEP3B_HEAD`, run A103, create the schema-v2 WIP/history/allowlist/receipt machinery; migrate feasibility evidence to independent cooperative/filtered verdicts; prototype post-decision Codex ordering; define hook-health and stable-runtime evidence; build the retained-self-fd native C/D/G custodian with validation-only Node wrapper; repair the independent implementation-review findings; and migrate every preserved schema-v2 step/runner root into one linked schema-v3 authority lineage. | `plugins/session-relay/rust/src/bin/runner_job_custodian.rs` (new), `plugins/session-relay/test/feasibility-probe.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-schema.json`, `plugins/session-relay/test/fixtures/wip-historical-baseline.json` (new), `plugins/session-relay/test/fixtures/wip-step-allowlist.json` (new), `plugins/session-relay/test/runtime-hook-abort.mjs` (new), `plugins/session-relay/test/runtime-hook-upgrade.mjs` (new), `plugins/session-relay/test/runner-job-custodian.mjs` (new), `plugins/session-relay/test/wip-snapshot.mjs` (new); `plugins/session-relay/rust/Cargo.toml` (read-only production), `plugins/session-relay/rust/Cargo.lock` (read-only production). | 1, 3b, P | planned | A103 and the existing eight-event/one-range prefix remain immutable; the repair commits cleanly; the exact Draft-44 descriptor-free migration/layout gates print `ROOT_AUTHORITY_MIGRATION PASS phases=11` and `RUNNER_LAYOUT PASS ...`; then native-rooted auth-free fixture-only A109 runs before A107/A108, fixed-deadline app-server cleanup and true concurrent stable selection pass, and a superseding A106 covers the original Step-1b base through repair head. Historical fixture exact-maps 22 commits/35 entries; future fixture retains literal rows and empty 1c/1d/8. A108 has zero pre-decision turn bytes and one post-decision harmless turn. Native matrix proves self/root/Active authority identity, exact descendant drain, DriverArm/GO/OPEN/COMMIT/reap ordering, production transition/retry negatives, complete OS-operation suppliers, bounded channels, and every credential/fd/PID/crash/cleanup row without auth/runtime/cgroup access while the live snapshot remains unchanged. Its producer emits the closed binding/state/attempt/context/GateResult/bootstrap/gate-manifest/cleanup chain consumed by unmodified A133. Migration concurrency/crash matrices are fixture-only and prove one coordinator/successor per purpose and exact retry. No implementation-branch plan/doc edit or dependency drift is permitted. |
+| 1c | Through sequence 1 of the still-live owner-runner custodian, feasibility-first prototype the exact blocked-child→host-PID handoff→seize/TRACEEXEC→retained-fd `execveat`→same-tracee exec-stop identity sequence independently for Claude and Codex and begin the closed runner receipt. This is raw evidence, not the Step-4 production implementation. | `plugins/session-relay/test/runner-job-custodian.mjs`, `plugins/session-relay/test/feasibility-probe.mjs`, `plugins/session-relay/test/runtime-hook-abort.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-schema.json` | 1b, 3d | planned | The exact A110 (RunGate A1c) frame runs through C/D/G `DriverArm→GO→OPEN→COMMIT→GateExit→exact wait→DriverReapAck`; fixed native fds restore CLOEXEC before protocol and never reach Node. Sequence 1 proves armed/spawn/credential/wait/result PID equality, binds retained self identity, live tuple, and exact bootstrap input before probe bytes, then binds partial receipt and exec-stop evidence before reap-ack advance. The partial unexpired receipt proves target sentinel absent until detach, procfs magic-link fd matching retained fd, `O_NOFOLLOW→ELOOP`, and mismatch kill/reap before target code. A111 (RunGate A1d) must immediately arm sequence 2 against that partial on the same live capability. Any mandatory row unavailable poisons/stops before Step 4 and reports the primitive unbuildable on the proposed Linux path. |
+| 1d | Through sequence 2 of the same live custodian, validate the owner-provisioned delegated Linux runner without self-provisioning: pin `RELAY_CGROUP_ROOT`, create a disposable domain leaf, exercise stopped-child placement, `cgroup.kill`, exact wait/reap, `populated 0`, and leaf removal, then seal the closed integrity-only receipt. | `plugins/session-relay/test/runner-job-custodian.mjs`, `plugins/session-relay/test/runtime-hook-abort.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-schema.json` | 1b, 1c | planned | The exact A111 (RunGate A1d) frame preserves direct native-gate spawn/OPEN/COMMIT/wait/result PID equality. OPEN binds its live tuple and A110 (RunGate A1c) partial-receipt hash before Node/delegation/probe-child bytes. It exact-waits/reaps the killed probe child before populated-zero/removal and records every result; COMMIT then binds the new sealed final receipt and delegation/kill/reap/removal evidence hashes before sequence advance. Copied receipt/environment without the inherited fd, wrapper/borrower PID mismatch, duplicate/stale OPEN, authoritative-before-OPEN, missing/wrong COMMIT, timeout, EOF, zombie/unreaped child, receipt expiry/mismatch, or cleanup failure poisons and closes the capability. The current read-only-cgroup/no-user-bus sandbox is not eligible. Missing delegation/runner is never a skip; no Step 4 or A119 (RunGate A5)/A120 (RunGate A5b)/A121 (RunGate A6)/A125 (RunGate A7) completion begins until resolved. |
+| 2 | Add binding epochs/states, two-phase pending-token claim, binding/activity serialization, exact duplicate/resume rules, versioned lifecycle transitions, tombstones, receipts, and GC exclusions plus exact `GcDeleting` CAS/resume. Claiming publication remains the first short hook transaction; Active waits for older unmanaged guards to drain. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/lib.rs`, `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock`, `plugins/session-relay/rust/tests/lifecycle_managed.rs` | 1 | done | Commit `066262feda00cd416aad748cf89b4b4a28eb773a` independently passed the Step-2 managed lifecycle suite. Later steps may extend types but may not weaken the verified transition/GC invariants. |
+| 3a | Retain the delivered capability-bound admission and publish-first fencing foundation, limited to its verified surface: target-free lower APIs, closed `ChildLaunchSpec`, no lifecycle-sensitive `exec`, exact guard target/kind/binding re-resolution, and the existing four compile boundaries. Do not call cancellation or inventories complete yet. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/bus.rs`, `plugins/session-relay/rust/src/channel.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.toml`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.lock`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/guardless.rs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/wrong-target.rs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fence-reentry.rs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/reentry-fence.rs` | 2 | done | Checkpoint `701cea7e671bc40ee23d69abf79ff102e0eecb20` independently passed A114's narrowed existing guard/compile suite. The false-green cancellation/inventory claims are explicitly deferred to 3b–3d. |
+| 3b | Repair and commit the detached watchdog-first supervisor and versioned operation substrate after A102. | Exact paths are frozen in the historical fixture from commits `06d2324e981eed576d1c8cd3d796a5258f6fd159` and `2a864e9b6f966384e4c4ed0e4b3d563b348a3830`. | 3a | done | A112/A115, three consecutive 122-check selftests, full Rust, clippy/fmt, and plugin CI passed; clean `STEP3B_HEAD=2a864e9b6f966384e4c4ed0e4b3d563b348a3830`. The caller-death Control repair terminalizes abandoned pre-child startup instead of false `SupervisorLost`. |
+| 3c | First migrate every lifecycle/binding/custody/proof/audit/capacity map to the sole crash-durable `lifecycle-v1.json` authority and prove an exact released 0.10.0 writer cannot erase or reopen it; then add exact turn/child cancellation on the 3b substrate: persist `TurnStartSentUnknown` before send and exact returned `turn.id` before pump; add `TurnCancellationPermit`, exact terminal observation, versioned `CancellationHandoff`, nonblocking 100 ms polling, fixed 5s guard resolution/handoff, and apply every authority loss only through the source-state×reason table. A child handoff remains owned by the detached supervisor. Extend the closed Rust target fixture with the Step-3c target/case before A113/A116 run. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/tests/lifecycle_store_compat.rs` (new), `plugins/session-relay/rust/tests/lifecycle_turn_cancellation.rs` (new), `plugins/session-relay/test/mixed-version-lifecycle-store.mjs` (new), `plugins/session-relay/bin/relay` (read-only), `plugins/session-relay/test/fake-app-server.mjs` (read-only), `plugins/session-relay/test/lifecycle-smoke.mjs` (read-only), `plugins/session-relay/test/rust-test-inventory.mjs` (read-only), `plugins/session-relay/test/fixtures/rust-test-inventory.json`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.toml`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.lock` (read-only), `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/cancel-reentry.rs` (new), `plugins/session-relay/test/reentry-inventory.mjs` (read-only) | 1b, 3b | planned | The Step-3c fixture extension lands before the gates; A113/A116 and A106 pass authority-first migration, durable commit crash barriers, exact 0.10.0 register/GC rewrite non-erasure, projection loss/repair, malformed-store refusal, deterministic send/response/terminal, child-ignore-kill, every source/reason/crash row, operation-version races, and exact step-range ownership. Any registry-first authority decision, empty fallback, cross-file claim linearization, old write changing authority bytes/generation, direct Active→FencingUnconfirmed, latest-turn guess, stale mutation, >100 ms individual block, guard held after 5s, dropped child authority, unresolved operation disappearance, zero/missing target, or unreceipted mutation: STOP. |
+| 3d | Close the pre-controller source-derived admission surface: make wake/watch mutation-guiding status guard-aware, map every generic outbound mutation primitive/caller available before Step 5 to an executed unique behavior test, invoke every then-existing non-controller `OperationKind` wrapper, and replace all placeholder/name-only counts. Include the existing unmanaged `InitialTurn` spawn→start→pump wrapper as behavior `unmanaged_initial_turn`, plus first-birth collision and wrong/stale/mid-block-fence rows. Step 5 owns `ControllerRead`, `ControllerInjectItems`, and `ControllerStartTurn` and the post-Step-5 A127/A128 rerun. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/watch.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/test/reentry-inventory.mjs`, `plugins/session-relay/test/fixtures/reentry-inventory.json`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/selftest.mjs` | 3c | planned | A117 passes its explicitly pre-controller matrix with no placeholder behavior ids; its A127/A128 invocation is scoped to variants then present and proves `InitialTurn` only for unmanaged app-server spawn while managed turns remain unavailable until Step 5. Any mutation-guiding RPC precedes admission, a stale response guides a later mutation, or an inventory row lacks an executed production-wrapper test: STOP. |
+| 4 | **Only after capability-bound A110 (RunGate A1c)+A111 (RunGate A1d) PASS seals the owner-provisioned Linux runner receipt while its custodian remains live**, extend the Step-3b supervisor with Linux pidfd and `ConfinedCgroupCooperative`: fd-pin/hash/fd-exec the exact native runtime; same-tracee TRACEEXEC/proc-magic-link identity; gated placement into a fresh delegated domain leaf; retained generation-bound fd; setup-only placement receipt; post-kill same-fence termination receipt; exact domain/empty-subtree/kill checks; `cgroup.kill`→exact reap→`populated 0`; fail-closed fd loss. Classify `CLONE_INTO_CGROUP` errors exactly; use stop/GO only when independently proven. Add Claude-only best-effort filtered hardening, Darwin closed `UnavailablePlatform`, inventory every signal callsite, and extend the Rust target fixture before A118. | `plugins/session-relay/rust/src/process_identity.rs` (new), `plugins/session-relay/rust/tests/process_identity.rs` (new), `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/test/runner-job-custodian.mjs`, `plugins/session-relay/test/rust-test-inventory.mjs`, `plugins/session-relay/test/fixtures/rust-test-inventory.json`, `plugins/session-relay/test/process-signal-inventory.mjs` (new), `plugins/session-relay/test/fixtures/process-signal-inventory.json` (new), `plugins/session-relay/test/runtime-hook-abort.mjs` (modify created in Step 1b), `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.toml`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.lock` (read-only), `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-pidfd-proof.rs` (new), `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/tampered-cgroup-proof.rs` (new), `plugins/session-relay/test/reentry-inventory.mjs`, `.github/workflows/build-binaries.yml` | 1c, 1d, 3d | planned | Fixture extension precedes A118. A118 passes its local command; A119 (RunGate A5)/A120 (RunGate A5b) use the six-gate literal set and consume live sequences 3–4 while preserving direct native-gate spawn/OPEN/COMMIT/wait/result PID equality and revalidating unexpired runner/boot/kernel/uid/mount/root/runtime receipt fields. Together they prove stable signaling, retained-fd/path-race closure, same-seized-tracee exec-stop identity, gated membership, typed fallback, phase-correct kill/reap/populated-0 with no surviving in-model PID for both runtimes, and independently labeled Claude-only filtered hardening. A109 rejects A118 or any extra gate as a RunGate. A receipt hash/copy or wrapper/borrowed credential fd never authorizes GO; a pre-kill boundary can never become WorkerTree proof. Missing/dead/mismatched custodian/A110 (RunGate A1c)/runner/A111 (RunGate A1d): BLOCK/STOP before this step. |
+| 5 | Implement managed first-prompt admission, durable controller, post-loss cleanup authority, stable hook runtime/installer, deterministic schema, and exact doctor/install contracts; extend the Rust fixture before A121 (RunGate A6)/A122 and rerun complete A127/A128. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/hook.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/runtime_install.rs` (new), `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/src/supervisor.rs`, `plugins/session-relay/rust/tests/lifecycle_admission.rs`, `plugins/session-relay/rust/tests/lifecycle_managed.rs`, `plugins/session-relay/rust/tests/lifecycle_controller.rs` (new), `plugins/session-relay/hooks/hooks.json`, `plugins/session-relay/hooks/codex-hooks.json`, `plugins/session-relay/test/appserver-schema-contract.mjs` (new), `plugins/session-relay/test/fixtures/appserver-server-requests.json` (new), `plugins/session-relay/test/rust-test-inventory.mjs`, `plugins/session-relay/test/fixtures/rust-test-inventory.json`, `plugins/session-relay/test/reentry-inventory.mjs`, `plugins/session-relay/test/fixtures/reentry-inventory.json`, `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/fixtures/runtime-doctor-schema.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/doctor-ready.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/doctor-degraded.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/doctor-unavailable.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-changed.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-current.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-lower-no-op.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/install-previous-retained.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/command-inability.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/usage-error.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/schema-error.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/validation-error.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/tamper-error.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/io-error.json` (new), `plugins/session-relay/test/fixtures/runtime-doctor-goldens/lock-error.json` (new), `plugins/session-relay/test/runtime-hook-abort.mjs` (modify created in Step 1b), `plugins/session-relay/test/runtime-hook-upgrade.mjs` (modify created in Step 1b), `plugins/session-relay/test/selftest.mjs` | 1b-4 | planned | A121 (RunGate A6)/A122/A123/A124 plus post-Step-5 A127/A128 prove every Step-5 authority contract already specified in Interfaces. The fourteen golden filenames are the closed set; no directory allowance exists. `previous_retained` requires an exact retained previous-generation identity, returns `changed:false` and the selected current unchanged; corrupt/mismatched retained generations refuse. Managed CLI fallback, pre-Active turn, arbitrary forwarding, reconnect guessing, bytes after loss, cleanup through normal post-loss FencePermit, non-atomic runtime pair, or standalone adversarial-cache-authenticity claim: STOP. A106 must exact-match this row's mutation set. |
+| 6 | Consume Step-5 controller and Step-3c exact-turn handoffs through post-drain `FencePermit`; initialize with experimental API capability; implement finite recursive lineage/turn pagination and exact sealed-ref background-terminal list/terminate; mint one sealed `ProtocolProofAttempt` and require its binding on every nested receipt/evidence hash before `FenceEvidence` construction. The real current Codex adapter must always return `MissingDurableFlushContract`; positive graceful reject/flush/watermark/reap/offline remains fake/future-only; shared scans stay observation-only; physical fallback is cgroup kill. Extend the Rust target fixture before A131. | `plugins/session-relay/rust/src/appserver.rs`, `plugins/session-relay/rust/src/spawn.rs`, `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/tests/lifecycle_proof.rs` (new), `plugins/session-relay/test/rust-test-inventory.mjs`, `plugins/session-relay/test/fixtures/rust-test-inventory.json`, `plugins/session-relay/test/fake-app-server.mjs`, `plugins/session-relay/test/runtime-appserver-quiescence.mjs` (new), `plugins/session-relay/test/lifecycle-smoke.mjs`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.toml`, `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/Cargo.lock` (read-only), `plugins/session-relay/test/fixtures/lifecycle-capability-bypass/src/bin/fabricated-protocol-proof.rs` (new), `plugins/session-relay/test/reentry-inventory.mjs`, `plugins/session-relay/test/fixtures/reentry-inventory.json` | 3c-5 | planned | Fixture extension precedes A131; A125 (RunGate A7)/A126/A131 prove typed experimental-method failure, real runtime ProtocolIncomplete, private attempt-bound fake proof construction, N/N+1 nested-receipt mix rejection, finite pagination, exact terminal termination, later-fence replay rejection, late/continuous writer rejection, and physical fallback. |
+| 7 | Add version-CAS lifecycle status/reconcile/release/abandon, cancellation-handoff diagnostics, immutable fence-proof records, crash-resumable `Fenced→TerminalRetained`, stale-fencer rejection, and the structurally distinct authority-file terminal transactions: bound worker+immutable capacity discriminator+Managed binding+retired authority+receipt+exact zero-or-one charge before crash-resumable `ManagedGcDeleting→TerminalFence`, or pre-binding worker+immutable capacity discriminator+birth operation+retired pending authority+receipt+exact zero-or-one charge before `PreBindingGcDeleting→WorkerGenerationFence`. Extend the closed Rust target fixture before A130. Every cancellation/fence/terminal transition consumes exact generation+binding/fence epoch+version/discriminator/charge authority. | `plugins/session-relay/rust/src/lifecycle.rs`, `plugins/session-relay/rust/src/cli.rs`, `plugins/session-relay/rust/src/main.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/tests/lifecycle_terminal.rs` (new), `plugins/session-relay/test/rust-test-inventory.mjs`, `plugins/session-relay/test/fixtures/rust-test-inventory.json`, `plugins/session-relay/test/lifecycle-smoke.mjs` | 2-6 | planned | Fixture extension precedes A130. A128-A131 prove crash-after-proof retention resumes exactly once, stale cancellation/fence completion loses, unresolved custody is non-GCable, release matches the stored proof hash, release/abandon races with re-entry/GC have one winner, Unreserved never gains a charge, Charged capacity stays held until the matching terminal receipt and releases once, old registry writers cannot change terminal authority, and GC retains a compact refusal fence plus exact receipt without dangling references. Any proved worker is stranded in Fenced, terminalization is cross-file/partial, a risk-accepted runtime id reopens, charge absence is interpreted as Unreserved, duplicate/cross-worker charge is accepted, capacity releases on mismatch, zero/missing target, or any late actor overwrites newer state: STOP. |
+| 8 | Verification-only completeness audit over already-landed per-step adversarial matrices; preserve all relay tests and mutate no file. Re-run only repeatable checks: A105, A107, A108, A109, A112, A113, A114, A115, A116, A117, A118, A122, A123, A124, A126, A127, A128, A129, A130, A131, A132, and the Step-8-only A133. Do not replay historical bootstrap gates A101/A102/A103 or one-shot live gates A110 (RunGate A1c)/A111 (RunGate A1d)/A119 (RunGate A5)/A120 (RunGate A5b)/A121 (RunGate A6)/A125 (RunGate A7). A133 invokes the committed validation-only `runner-job-custodian.mjs --rehash-live-evidence` command to emit and verify the closed `LiveEvidenceRehashReceipt` without reconnecting to or waking the completed capability. | Read-only: `plugins/session-relay/rust/src/appserver.rs` (read-only), `plugins/session-relay/rust/src/hook.rs` (read-only), `plugins/session-relay/rust/src/lifecycle.rs` (read-only), `plugins/session-relay/rust/src/process_identity.rs` (read-only), `plugins/session-relay/rust/src/runtime_install.rs` (read-only), `plugins/session-relay/rust/src/supervisor.rs` (read-only), `plugins/session-relay/rust/src/spawn.rs` (read-only), `plugins/session-relay/rust/src/store.rs` (read-only); `plugins/session-relay/test/rust-test-inventory.mjs` (read-only), `plugins/session-relay/test/fixtures/rust-test-inventory.json` (read-only), `plugins/session-relay/test/fixtures/wip-historical-baseline.json` (read-only), `plugins/session-relay/test/fixtures/wip-step-allowlist.json` (read-only), `plugins/session-relay/test/runner-job-custodian.mjs` (read-only), `plugins/session-relay/test/feasibility-probe.mjs` (read-only), `plugins/session-relay/test/supervisor-custody.mjs` (read-only), `plugins/session-relay/test/lifecycle-smoke.mjs` (read-only), `plugins/session-relay/test/process-signal-inventory.mjs` (read-only), `plugins/session-relay/test/reentry-inventory.mjs` (read-only), `plugins/session-relay/test/runtime-hook-abort.mjs` (read-only), `plugins/session-relay/test/runtime-hook-upgrade.mjs` (read-only), `plugins/session-relay/test/runtime-appserver-quiescence.mjs` (read-only), `plugins/session-relay/test/fake-app-server.mjs` (read-only), `plugins/session-relay/test/selftest.mjs` (read-only). | 2-7 | planned | Every listed repeatable check appends its exact Step-8 occurrence in `AcceptanceEventScheduleV1` and passes; A133 emits `LIVE_EVIDENCE_REHASH PASS` and byte-identical verify output, then Step-8 A106 records the empty Git range and final Step-8 event. Offline rehash recomputes every `RunnerAttemptReceipt`, GateResult, OPEN/COMMIT acknowledgement, result/evidence hash, binary/Cargo identity, previous-attempt link, historical bootstrap receipt, prior A106 receipt, and acceptance event through Step 8; it requires final RunGate order A110→A111→A119→A120→A121→A125, terminal `Complete`, and recorded cleanup while making no liveness claim from receipt bytes. Any changed/missing/reordered/forked artifact fails. If audit discovers a missing row/target/case, STOP, return the affected earlier step to planned, remodel its literal mutation allowance, implement there, and rerun that earlier gate; Step 8 never retroactively edits coverage or broadens ownership. Any replay/wake/reconnect of the completed capability, Step-8 mutation, zero/missing target, late-first-introduced case, or historical/future fixture change is a STOP. |
+| 9 | Document the accepted guarantee tiers, recovery contract, and exact source-ready release handoff; delete the one stale implementation-branch plan; add exact-SHA Darwin and final-scope verification without binary/release changes. | `plugins/session-relay/AGENTS.md`, `plugins/session-relay/skills/productivity/session-relay/SKILL.md`, `plugins/session-relay/rust/src/main.rs`, `docs/plans/active/relay-worker-lifecycle-primitives.md` (delete stale implementation-branch copy only), `plugins/session-relay/test/fixtures/wip-historical-baseline.json` (read-only verification), `plugins/session-relay/test/fixtures/wip-step-allowlist.json` (read-only verification), `plugins/session-relay/test/run-build-matrix.mjs` (new), `plugins/session-relay/test/final-scope.mjs` (new), `.github/workflows/build-binaries.yml` | 1b-8 | planned | Run A134–A136, commit exact Step-9 mutations, append A106, then run A137–A138. `final-scope` verifies history, step/event/attempt chains, deterministic 38-row execution summary, build/state cleanup, Step-8 rehash, and ordered tree fold. A137 appends event 81 and seals prefix evidence while retaining all five ledger roots/authorities and coordinator. A138 runs the migration/authority/cleanup crash matrices; for every generation it writes intent before shutdown/quarantine/payload/sentinel/root/authority effect, then removes the coordinator through retained parent fd. Only exact absence permits event82, summary, `Finalized`, and deterministic `FinalExecutionEvidenceV1`. The verifier exact-matches base-to-final Git state; historical branch-plan A plus Step-9 D yields zero final plan delta. After integration, plan-manager projects/imports `LifecycleCompletionEvidenceV1` plan-only before `in_review`; the disposable completion checkout runs only canonical read-only verifier commands. The archived paired evidence+completion receipt produces `source_ready=true`, `packaged_ready=false`, `fanout_unblock=false`. Latest-result selection, external completion dependency, set union, wildcard, caller-selected cleanup path, unlisted generation/coordinator, premature cleanup, binary/version/release surface, or unexplained mutation fails. Darwin preserves portable behavior and typed unavailability. |
+
+Every planned implementation row must finish with A106 over its exact `STEP_BASE..STEP_HEAD`; Steps 1c/1d produce authenticated empty-range receipts because they execute already-committed harnesses. Prerequisite P is a main-context plan-policy transition outside the implementation fixture/event/range catalogues and must be `done` before Step 1b dispatch; it appends no A106 or acceptance event. In Step 8, `wip-historical-baseline.json` and `wip-step-allowlist.json` are read-only verification inputs, never mutations. In Step 9 those same fixtures remain read-only; the sole plan-path mutation is the authenticated deletion of the implementation-branch copy `docs/plans/active/relay-worker-lifecycle-primitives.md`, represented by one `D` allowlist row with `final_mode:null` and its historical entry hash. The `docs/plans/**` phrase in the task is a zero-delta assertion, not a wildcard mutation allowance. No directory or glob in prose authorizes a mutation.
+
+For cold execution, the following ownership clauses are part of the corresponding table rows. Step 3c creates/migrates all five explicit live-authority collections, the pre-binding pending-retirement collection, and the three structurally distinct terminal collections, seeds valid cross-referenced records in A113, and proves the exact 0.10.0 writer changes neither their bytes nor the authority generation; A116 proves durable `cancellation_handoffs` reload and rejects dangling/mismatched references. Step 5 owns controller, authorization, cleanup, and pre-binding pending-retirement persistence/restart behavior plus the fixed-deadline Pending and healthy-stalled Running recovery barriers, including exact terminalizable pre-binding loss selectors. Step 7 owns immutable proof-map insertion and same-generation retirement of every matching live authority entry during bound or pre-binding terminalization while permanently retaining terminal receipts referenced by compact fences. Step 8 runs A133 after its closed repeatable set and then writes the empty-range A106 receipt; Step 9 runs A134–A137 plus A138. These clauses narrow and complete the existing row contracts; they do not add files, change the mutation allowlist, or alter step order.
+
+## Acceptance criteria
+
+These are the canonical plan-review inventory rows. Each command is read-only, runs exactly once in A101→A138 order inside the disposable detached `reviewed_head` clone, and reads only Git plus the exact plan-embedded `LifecycleCompletionEvidenceV1`; it never reads `/tmp`, a process, runtime/auth state, cgroup, socket, root authority, or execution receipt root. The verifier exact-validates the execution-plan commit/blob, integrated source ancestry/scope tree, canonical inventory, 82-event schedule, A137/A138 evidence, five cleanup receipts, coordinator absence, `Finalized`, full ordered met criterion summary, and current reviewed head. It writes nothing and emits zero stderr. Dynamic hash placeholders below mean lowercase 64-hex.
+
+| ID | Command | Expected |
+|---|---|---|
+| A101 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A101 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A101 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A102 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A102 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A102 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A103 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A103 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A103 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A104 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A104 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A104 occurrences=10 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A105 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A105 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A105 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A106 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A106 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A106 occurrences=11 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A107 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A107 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A107 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A108 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A108 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A108 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A109 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A109 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A109 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A110 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A110 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A110 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A111 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A111 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A111 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A112 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A112 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A112 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A113 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A113 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A113 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A114 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A114 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A114 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A115 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A115 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A115 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A116 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A116 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A116 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A117 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A117 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A117 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A118 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A118 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A118 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A119 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A119 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A119 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A120 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A120 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A120 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A121 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A121 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A121 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A122 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A122 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A122 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A123 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A123 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A123 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A124 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A124 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A124 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A125 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A125 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A125 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A126 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A126 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A126 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A127 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A127 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A127 occurrences=3 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A128 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A128 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A128 occurrences=4 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A129 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A129 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A129 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A130 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A130 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A130 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A131 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A131 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A131 occurrences=3 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A132 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A132 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A132 occurrences=2 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A133 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A133 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A133 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A134 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A134 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A134 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A135 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A135 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A135 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A136 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A136 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A136 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A137 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A137 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A137 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+| A138 | `node plugins/session-relay/test/final-scope.mjs --verify-completion-criterion --plan docs/plans/active/relay-worker-lifecycle-primitives.md --criterion A138 --reviewed-head "$(git rev-parse HEAD)"` | Exit 0; stdout exactly `COMPLETION_ACCEPTANCE PASS criterion=A138 occurrences=1 summary_sha256=<hex> evidence_receipt_sha256=<hex>`. |
+
+## Execution gate catalogue
+
+Run Node commands from repository root with `PATH="$HOME/.cargo/bin:$PATH"`; every Cargo command explicitly changes directory to `plugins/session-relay/rust/` first so `rust-toolchain.toml` pins Rust 1.85.0. A criterion passes only with its stated evidence; skips, placeholder behavior labels, self-authored booleans, or empty fixtures fail.
+
+`rust-test-inventory.mjs` owns a closed source-derived map for `lifecycle_managed`, `lifecycle_admission`, `lifecycle_supervisor`, `lifecycle_store_compat`, `lifecycle_turn_cancellation`, `lifecycle_controller`, `process_identity`, `lifecycle_proof`, and `lifecycle_terminal`. For each target it parses `cargo test --test <target> -- --list`, requires a nonzero set, compares every required production behavior id to the listed tests, and then parses the executed test summary to require the same nonzero count with zero ignored/filtered required ids. `reentry-inventory.mjs --compile-fail` enumerates the actual sorted `lifecycle-capability-bypass/src/bin/*.rs` set from disk, compares it to its closed expected-boundary fixture, and accepts only the intended privacy/type/trait failure signature for each bin. Cargo exit 0 with zero tests is a hard failure everywhere.
+
+Canonical receipt/inventory IDs are reserved in the disjoint numeric range A101–A138 and serialize in that exact inventory order; chronological executions follow `AcceptanceEventScheduleV1` and may repeat a criterion only at its explicitly listed occurrence. The `Legacy label` column preserves prior historical names for archaeology only; no prose dependency, lifecycle rule, completion claim, or receipt generator may use those labels as acceptance identities. The six compiled native protocol names remain explicitly `RunGate A1c`, `RunGate A1d`, `RunGate A5`, `RunGate A5b`, `RunGate A6`, and `RunGate A7`; they map only to canonical A110, A111, A119, A120, A121, and A125 respectively and are never acceptance IDs themselves. A static Step-1b mapping check parses this table plus the literal event schedule, requires exactly the 38 unique A101→A138 inventory rows, every closed occurrence, and six exact RunGate mappings, and rejects any unqualified legacy acceptance reference or unscheduled execution in step/dependency/completion prose.
+
+| ID | Legacy label | Criterion | Command | Expected |
+|---|---|---|---|---|
+| A101 | A0 | Verify the one-time clean bootstrap checkpoint before first implementation dispatch. | `test "$(pwd)" = /tmp/docks-primitives-collab && test "$(git branch --show-current)" = codex/primitives-collab && test "$(git rev-parse HEAD)" = 701cea7e671bc40ee23d69abf79ff102e0eecb20 && test -z "$(git status --porcelain)"` | Exit 0 once before implementation. This historical bootstrap precondition is not rerun after work advances or dirties the checkout. |
+| A102 | A0b-bootstrap | Authenticate the preserved dirty Step-3b checkout before its missing helper can exist. | Run the exact multi-line **A102 command** in Environment from `/tmp/docks-primitives-collab`. | Exit 0 before any new edit. HEAD, NUL status, binary patch, five explicit untracked paths/modes/digests, and aggregate manifest match the orchestrator-observed values. Any staged/unstaged/untracked path, byte, symlink, or executable-mode change fails. This gate is used only to finish Step 3b. |
+| A103 | A0c-step1b-bootstrap | Authenticate the first clean post-Step-3b handoff before the reusable helper exists. | Run the exact multi-line **A103 command** from Environment with orchestrator-recorded `PLAN_COMMIT`, `PLAN_BLOB`, and `STEP3B_HEAD`. | Exit 0 before the first Step-1b edit. Exact main plan snapshot, implementation branch/tip, clean status, and diff check match. Step 1b then commits the helper, immutable historical baseline, and separate closed future-step allowlist; A103 is never reused. |
+| A104 | A0b | After Step 1b, bind every dispatch to plan snapshot, implementation tip, active root generations, step allowlist, and exact WIP bytes. | `test -n "$PLAN_COMMIT" && test -n "$PLAN_BLOB" && test -n "$IMPL_HEAD" && test -n "$STEP_ID" && test -n "$WIP_PATCH_SHA256" && test -n "$WIP_UNTRACKED_SHA256" && test -n "$ROOT_MIGRATION_ID" && test -n "$ROOT_MIGRATION_PIN" && test -n "$ROOT_GENERATION_LEDGER_SHA256" && test -n "$ROOT_ACTIVE_PHASE_SHA256" && test -n "$STEP_RECEIPT_GENERATION_SHA256" && test -n "$RUNNER_RECEIPT_GENERATION_SHA256" && test "$(git -C /home/vagrant/projects/docks log -1 --format=%H -- docs/plans/active/relay-worker-lifecycle-primitives.md)" = "$PLAN_COMMIT" && test "$(git -C /home/vagrant/projects/docks show "$PLAN_COMMIT:docs/plans/active/relay-worker-lifecycle-primitives.md" \| git hash-object --stdin)" = "$PLAN_BLOB" && test "$(git -C /home/vagrant/projects/docks hash-object docs/plans/active/relay-worker-lifecycle-primitives.md)" = "$PLAN_BLOB" && test "$(git rev-parse HEAD)" = "$IMPL_HEAD" && "$RUNNER_BIN" --migration-validate --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --step-generation-sha256 "$STEP_RECEIPT_GENERATION_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" && node plugins/session-relay/test/wip-snapshot.mjs --verify --patch-sha256 "$WIP_PATCH_SHA256" --untracked-sha256 "$WIP_UNTRACKED_SHA256" --allow-step "$STEP_ID" --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --step-generation-sha256 "$STEP_RECEIPT_GENERATION_SHA256"` | Exit 0 before each post-1b worker step. Exact current plan/blob/tip, coordinator/ledger/Active receipts, both active generations, binary diff, and sorted path/git-mode/content manifest match; unexpected tracked/staged/unstaged/untracked/symlink/executable/rename/delete entry or inactive/dead/substituted root authority fails. New workers reconstruct hashes from migration id and review verified WIP before edits. |
+| A105 | A0b-matrix | Prove pre-edit WIP binding rejects every dirty/path/mode class rather than trusting prose. | `node plugins/session-relay/test/wip-snapshot.mjs --negative-matrix` | Exit 0 with one named PASS each for tracked, staged, unstaged, untracked, symlink, executable, rename, delete, unexpected path, wrong step, historical overlap without hash, and cleanup; each disposable fixture fails verification for its intended reason and the source checkout remains byte-identical. |
+| A106 | A0d | Authenticate every committed step range, including the superseding Step 1b repair range. | `test -n "$STEP_ID" && test -n "$STEP_BASE" && test -n "$STEP_HEAD" && test -n "$ROOT_MIGRATION_ID" && test -n "$ROOT_MIGRATION_PIN" && test -n "$ROOT_ACTIVE_PHASE_SHA256" && test -n "$STEP_RECEIPT_GENERATION_SHA256" && node plugins/session-relay/test/wip-snapshot.mjs --verify-step-range --step "$STEP_ID" --base "$STEP_BASE" --head "$STEP_HEAD" --historical plugins/session-relay/test/fixtures/wip-historical-baseline.json --allowlist plugins/session-relay/test/fixtures/wip-step-allowlist.json --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --step-generation-sha256 "$STEP_RECEIPT_GENERATION_SHA256"` | Exit 0 with `STEP_RANGE PASS step=<id> ordinal=<n> ... receipt_sha256=<hex>`. Helper resolves the active step generation through the exact ledger/Active chain below retained coordinator/root fds, challenges its schema-selected authority, and validates clean current HEAD, ancestry, sentinel identity, literal A/M/D scope, historical hashes, append-only previous/supersession chain, fsync, and receipt digest. Overwrite/delete/fork/wrong-prev/cross-step supersede/supersede-after-later/narrowed-base/nonancestor-head, read-only mutation, Cargo drift, caller path, inactive generation, dead authority, or unowned commit fails. |
+| A107 | A1 | Full feasibility evidence comes from the migrated committed harness. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/feasibility-probe.mjs --verify-current` | Exit 0; validates raw schema/hash chain; records protocol unavailability, 20s deadline, native process rows, and independent `cooperative_cgroup=<available\|unavailable>` plus `filtered_hardening=<available\|unavailable>` per runtime/platform. Cooperative requires fresh domain/gated placement/manager authority/kill/populated-zero and never requires freeze or seccomp. Filtered hardening records raw clone3 ENOSYS/no-child, legacy denial, policy hash, and real spawn/wait only where advertised. No stale `strong_cgroup` verdict can drive availability. |
+| A108 | A1b | Raw Codex API ordering, controller-first activation, post-Active hook health, bounded child cleanup, locked concurrent stable-generation selection, and experimental capability are feasible. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/feasibility-probe.mjs --case codex-managed-boundary && node plugins/session-relay/test/runtime-hook-upgrade.mjs --case stable-generation-pointer --matrix` | Exit 0 on installed Codex `0.144.1` with raw transcript/closed hashes. `hooks/list` has exactly enabled/trusted SessionStart and UserPromptSubmit. Idle `thread/start` response plus exactly one matching `thread/started` form the closed birth barrier in either order; missing/duplicate/conflict/non-idle/change fails. Zero `turn/start` bytes occur before explicit prototype Active; exactly one harmless turn follows, with matching response/turn/started and successful SessionStart→UserPromptSubmit chain before any user/model/tool item, then successful completion. Hooks never carry birth authority. Cleanup uses one monotonic start: TERM at 0, KILL once at 1000 ms if same generation lives, exit by 4000 ms, close+generation absence by 5000 ms, ≤5250 ms with test slack; normal/TERM/KILL/held-pipe/already-closed/no-reset/wrong-generation rows call the production function and missed deadline emits no artifact. Stable selection independently opens the one unchanged same-owner regular mode-0600 `runtime/install.lock`, acquires `flock(LOCK_EX|LOCK_NB)` within one 5000-ms monotonic deadline, and holds the same open-file description across read→validate→generation fsync→pointer fsync/rename→parent fsync. Separate higher/lower processes genuinely overlap behind barriers in both orders; one holder exits while locked and the waiter then acquires the unchanged file by kernel release; no owner record, boot/PID-start metadata, lock replacement, stale quarantine, or pre-lock `current` read exists. Highest valid generation wins, total wait is ≤5250 ms, and sequential pairs fail. Missing auth is unavailable/STOP. Production Rust claim is A121 only. |
+| A109 | A1e-custodian-matrix | Prove deterministic migration, active native authority, C/D/G protocol, bounded retry reconstruction, production transition negatives, complete OS-operation provenance, producer-to-rehash chain, and split execution/completion maps without auth/runtime/cgroup use. | `test -n "$PLAN_COMMIT" && test -n "$PLAN_BLOB" && test -n "$STEP1B_REPAIR_HEAD" && test -n "$ROOT_MIGRATION_ID" && test -n "$ROOT_MIGRATION_PIN" && test -n "$ROOT_GENERATION_LEDGER_SHA256" && test -n "$ROOT_ACTIVE_PHASE_SHA256" && test -n "$RUNNER_RECEIPT_GENERATION_SHA256" && test -n "$RUNNER_LAYOUT_SHA256" && test -x "$RUNNER_BIN" && "$RUNNER_BIN" --migration-validate --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" && "$RUNNER_BIN" --layout-validate --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256" && export LIVE_STATE_SNAPSHOT_BEFORE="$("$RUNNER_BIN" --snapshot-live-state --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256")" && "$RUNNER_BIN" --migration-negative-matrix --fixture-only --plan-commit "$PLAN_COMMIT" --plan-blob "$PLAN_BLOB" --source-head "$STEP1B_REPAIR_HEAD" && "$RUNNER_BIN" --matrix-driver --fixture-only --plan-commit "$PLAN_COMMIT" --plan-blob "$PLAN_BLOB" --source-head "$STEP1B_REPAIR_HEAD" && node plugins/session-relay/test/runner-job-custodian.mjs --validate-matrix "$RUNNER_MATRIX_RESULT" --native-source plugins/session-relay/rust/src/bin/runner_job_custodian.rs && node plugins/session-relay/test/runner-job-custodian.mjs --supplier-negative-matrix --matrix-result "$RUNNER_MATRIX_RESULT" --native-source plugins/session-relay/rust/src/bin/runner_job_custodian.rs && node plugins/session-relay/test/runner-job-custodian.mjs --producer-to-rehash-integration --producer-receipt "$RUNNER_SYNTHETIC_PRODUCER_RECEIPT" --plan-blob "$PLAN_BLOB" --source-head "$STEP1B_REPAIR_HEAD" --through-step 1b && node plugins/session-relay/test/runner-job-custodian.mjs --rehash-negative-matrix --matrix-result "$RUNNER_MATRIX_RESULT" --native-source plugins/session-relay/rust/src/bin/runner_job_custodian.rs && node plugins/session-relay/test/runner-job-custodian.mjs --validate-acceptance-map /home/vagrant/projects/docks/docs/plans/active/relay-worker-lifecycle-primitives.md --plan-blob "$PLAN_BLOB" --execution-section "Execution gate catalogue" --completion-section "Acceptance criteria" --canonical-range A101:A138 --event-schedule acceptance-event-schedule-v1 --run-gates A110:A1c,A111:A1d,A119:A5,A120:A5b,A121:A6,A125:A7 && "$RUNNER_BIN" --verify-live-state-snapshot "$LIVE_STATE_SNAPSHOT_BEFORE" --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256"` | Exit 0 with `ROOT_AUTHORITY_MIGRATION PASS phases=11`, `RUNNER_LAYOUT PASS`, `ROOT_MIGRATION_MATRIX PASS fixture_only=1`, native `RUNNER_MATRIX PASS fixture_only=1`, `RUNNER_MATRIX_VALIDATION PASS`, `NATIVE_OPERATION_SUPPLIER_MATRIX PASS`, `PRODUCER_REHASH_INTEGRATION PASS`, `LIVE_EVIDENCE_REHASH_NEGATIVE_MATRIX PASS`, `EXECUTION_CATALOGUE PASS A101..A138 events=82`, `COMPLETION_INVENTORY PASS A101..A138 criteria=38`, and final `LIVE_STATE_UNCHANGED PASS snapshot_sha256=<hex>`. Fixture launchers cover `.lock`-only, ready-before-phase, ledger-before-LedgerReady, Active-before-stdout, request/response MAC failures, layout partials, and every coordinator/root/authority/copy boundary without receiving a live identity. The live chain has two persistent native schema-v3 custodians and all three schema-v2 predecessors. Every protocol/transition negative calls production code and emits a closed trace; hand models fail. A surviving adopted payload proves no `Complete` before terminal `ECHILD` and scratch cleanup. Supplier mutation rejects standard filesystem/process calls. The synthetic producer fsyncs binding/state, all attempt outcomes, contexts/acks/results, manifests, terminal cleanup, then passes unmodified A133 derivation. Retry keeps runner generation 3 and stable live parent, uses fresh scratch/capability/ordinal, strictly advances prior high water, and stops at five attempts. Node has no gate/credential/root-cleanup authority. No Cargo dependency or feature changes. |
+| A110 | A1c | The retained-fd/TRACEEXEC architecture is buildable for both Linux runtimes and sequence 1 proves live job continuity. | Submit the compiled literal RunGate A1c for canonical A110 to the still-live native custodian; no shell/caller argv/env. | `DriverArm→ArmAck→GO→OPEN→COMMIT→GateExit→wait→DriverReapAck` passes with retained self identity and exact armed/spawn/credential/wait/result PID equality. Fixed self/capability/GO/result fds restore CLOEXEC and never reach Node. OPEN binds bootstrap+live tuple before probe bytes; reap-ack alone advances after partial receipt+exec-stop evidence. Both runtime rows prove stopped tracee/fd/proc identity/sentinel behavior and mismatch kill/reap. Copy/no-fd, wrapper/borrower, OPEN-before-arm/GO, self-path retarget, crash/result/framing/reap faults poison before advance. Any mandatory row unavailable is a hard STOP before Step 4. |
+| A111 | A1d | The same live custodian supplies sequence 2 while the owner-provisioned Linux job validates writable cgroup-v2 delegation and completes the receipt. | Submit the compiled literal RunGate A1d for canonical A111 to that same custodian. | The full arm/GO/open/commit/reap-ack chain exact-validates the canonical A110 partial receipt produced by RunGate A1c plus live runner/boot/kernel/uid/runtime tuple before delegation bytes. It pins root dirfd/mount/dev/inode, validates domain delegation, creates/removes one leaf, moves and cgroup-kills one stopped child, exact-waits/reaps before `populated 0`, and seals the final receipt. Only DriverReapAck advances to sequence 3. Missing/read-only delegation, poison/replay/crash, zombie, populated mismatch, expiry, sentinel/cleanup fault, or any PID/self/frame mismatch is FAIL/BLOCK, never skip. |
+| A112 | A2 | Core pending identity, unmanaged cancellation, and multi-operation lost-authority transitions are atomic, durable, typed, and controller-independent. | `node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_managed && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_managed -- --nocapture)` | Exit 0 with nonzero source-derived required IDs. Token hashing/pending creation, two-phase generic claim, durable waiter, exact duplicate/refusal, UnmanagedCanceling transfer, crash/reload, worker-only pre-binding refusal, and every typed multi-operation loss/source-state row pass without a Codex controller, app-server, or non-claiming hook assumption. Foreign bindings remain byte-identical; terminal/stale rows are audit-only. |
+| A113 | A2b | Lifecycle authority survives old registry writers and crash-durable migration. | `(cd plugins/session-relay/rust && cargo test --locked --test lifecycle_store_compat -- --nocapture) && RELAY_OLD_BIN="$PWD/plugins/session-relay/bin/relay" node plugins/session-relay/test/mixed-version-lifecycle-store.mjs --expect-old-version 0.10.0` | Exit 0 with nonzero migration/commit tests. Exact committed 0.10.0 checksum/version is verified, then same-id/renamed/unrelated register and old GC/hook writer paths may rewrite registry projection but cannot change `lifecycle-v1.json` bytes/generation or managed refusal/status. Missing Entry repairs without authority drift. The migration also creates and exact-validates empty `prebinding_pending_retirements`, `prebinding_terminal_records`, and `worker_generation_fences`; released 0.10.0 writers cannot change them. Valid Unreserved and Charged generations reload; missing/duplicate/cross-worker/reused charge, worker-discriminator mismatch, and charge without one inverse worker reference make the whole authority document malformed. Crash barriers before/after temp sync/rename/parent fsync expose one complete generation; malformed/missing-after-init authority refuses; migration crash after authority commit resumes without registry rollback. |
+| A114 | A3a | Capabilities bind authority and preserve publish-first fencing/attach lifetime. | `node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_admission && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_admission -- --nocapture) && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | All exit 0 with nonzero required IDs. Wrong target is inexpressible and wrong `OperationKind` refuses at use; source finds zero lifecycle-sensitive `exec`; closed launch specs have no raw authority selectors; guard A cannot operate on B. Compile-fail enumerates every `src/bin/*.rs`, fails if one is skipped, and proves each fails at the expected capability boundary rather than an unrelated compiler error. |
+| A115 | A3b | Detached watchdog/supervisor own each transition-capable CLI child from birth and preserve attach/wake I/O without depending on the later app-server controller. | `node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_supervisor && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_supervisor -- --nocapture) && node plugins/session-relay/test/supervisor-custody.mjs --matrix && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | Exit 0 with nonzero required IDs. Source-derived portable startup phases inject before/after failure. Rows prove both bootstrap pipes, zero bootstrap fds, independent SID/custody, numeric bind/heartbeat deadlines, CLI Control bind/EOF cancellation, caller death before/after spawn, exact operation/handoff versions, pipe/PTY proxy, kill/wait/reap, compatibility, and zero-byte stale events. No managed Codex token, `ControllerReady`, `CodexThreadBirthBarrier`, first-turn hook chain, or app-server behavior is required before Step 5. |
+| A116 | A3c | Exact-turn and supervisor-owned-child cancellation close the guard-drain cycle within fixed bounds. | `node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_turn_cancellation && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_turn_cancellation -- --nocapture) && node plugins/session-relay/test/lifecycle-smoke.mjs --case cancellation-custody && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | Exit 0 with nonzero required IDs. Send/response/terminal/child-ignore barriers and every lost-authority source/reason/crash row pass. Each custody/handoff CAS checks exact versions; delayed losers audit only. Cancellation interrupts exactly the persisted turn and accepts only matching terminal. Every wait ≤100 ms; one 5s deadline ends terminal/reap/handoff or applies the closed state-specific Unconfirmed path. Guard releases while supervisor retains child authority. |
+| A117 | A3d | Every production pre-controller re-entry wrapper is guarded before any mutation-guiding observation and has executed behavior evidence. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix --phase pre-controller && node plugins/session-relay/test/reentry-inventory.mjs --behavior-evidence --phase pre-controller` | Exit 0; wake/watch admission precedes status RPC, a fence during status discards the response, and fenced first-read preserves mailbox. Every source-derived pre-Step-5 mutator/caller and non-controller `OperationKind` has unique executed success/wrong-kind/stale/pre-fence/mid-block evidence. `unmanaged_initial_turn` maps existing `InitialTurn` only to the legacy spawn→start→pump wrapper; managed `ControllerStartTurn` is forbidden in this phase and added/rechecked by Step 5/A127/A128. First-birth collision refuses and never starts a turn. |
+| A118 | A4 | Linux has no check-then-kill path; Darwin preserves only the portable supervisor/observation contract. | `node plugins/session-relay/test/rust-test-inventory.mjs --case process_identity && node plugins/session-relay/test/process-signal-inventory.mjs && (cd plugins/session-relay/rust && cargo test --locked --test process_identity -- --nocapture)` | All exit 0 with nonzero fixture-backed IDs added before this gate. Inventory rejects ObservationOnly/start-check+kill; PID substitution receives zero signal; Linux pidfd-open-before-validation targets only the pinned task; exit proof needs terminal evidence; live unreaped-Child signaling affects only its child. Darwin/no-pidfd and every authoritative managed-controller/fd-exec/cgroup constructor return typed `UnavailablePlatform`/Unconfirmed with zero raw signal. |
+| A119 | A5 | Linux tree proof requires same-tracee fd-bound exec-stop placement, same-fence kill evidence, and live sequence 3. | Submit the exact literal `RunGate A5` for canonical A119 frame from Environment. | Direct native-gate PID equality holds across spawn/OPEN/COMMIT/wait/result. OPEN sequence 3 first acknowledges the final sealed receipt input hash and freshly revalidated unexpired runner/boot/kernel/uid/mount/root/runtime tuple/current delegation. Only then may the native gate spawn Node or production `launch_confined` emit a child/ptrace/exec byte. It verifies private host-PID handoff, seized tracee/event PID equality, gated leaf placement, retained-fd exec, exact TRACEEXEC stop, followed procfs magic-link fd fstat/hash equality while stopped, then detach/GO. `O_NOFOLLOW` gets `ELOOP`. COMMIT keeps the same sealed receipt as result and binds the complete containment evidence hash before GateResult/sequence 4. Forged/substituted PID, wrapper/borrowed credential PID, early release, seize/event timeout, wrong event, proc fd/hash mismatch, exec/detach failure, scripts/symlinks, membership mismatch, target sentinel before detach, stale receipt, dead/duplicated capability, wrong/missing COMMIT, or live-field mismatch all kill/reap, poison, and fail. Receipt bytes alone never authorize OPEN/GO. |
+| A120 | A5b | The owner-provisioned delegated Linux runner drives BOTH real runtimes through the production confined launcher under live sequence 4. | Submit the exact literal `RunGate A5b` for canonical A120 frame from Environment. | Direct native-gate PID equality holds across spawn/OPEN/COMMIT/wait/result. OPEN sequence 4 binds the final sealed receipt input hash and live revalidation on the same unexpired receipt-bound `RELAY_CGROUP_ROOT` runner from canonical A111 (RunGate A1d) before Node or either real runtime launches. Harness calls production supervisor/`launch_confined`, captures tracee/event/fd/proc-identity/placement and same-fence kill receipts, creates real child/grandchild/storm under leaf, exact-waits/reaps owned roots, and reaches populated-zero. Target sentinel proves no target instruction before detach. A second worker mints a distinct placement receipt. COMMIT keeps the sealed receipt as result and binds the full two-runtime evidence hash before GateResult/sequence 5. Cached/fixture/copied evidence or wrapper/borrowed-fd credentials cannot authorize OPEN/GO; missing/wrong COMMIT poisons. Missing/stale/mismatched runner or capability is BLOCK, not skip; Claude filtered hardening stays separate. |
+| A121 | A6 | Real Linux managed admission and durable controller are runtime-correct and fail closed on custody loss under live sequence 5. | Submit the exact literal `RunGate A6` for canonical A121 frame from Environment. | Direct native-gate PID equality holds across spawn/OPEN/COMMIT/wait/result. OPEN sequence 5 binds the final sealed receipt input hash and live runner-receipt/delegation revalidation before Node, pending creation, child, RPC, or fence bytes. Claude barriers pass. Codex pending creation atomically mints one sealed `ManagedBirthPermit`; only its exact Attaching tuple launches once, and replay/wrong tuple emits zero bytes. The controller joins the successful idle `thread/start` response with exactly one matching `thread/started`, constructs the closed `CodexThreadBirthBarrier`, and alone claims Active; the Active transaction exact-validates it and persists the same barrier hash in the managed boundary and controller record. Transcript has zero `turn/start` before durable Active. Only then may one typed `ControllerStartTurn` begin. Its same-thread/same-turn SessionStart→UserPromptSubmit synchronous hook chain completes successfully before the first observable user/model/tool item; neither hook carries birth authority and no internal scheduling claim is made. Missing/mismatched/duplicate/reordered birth or hook events, first item before hook completion, or hook failure applies the existing controller `CustodyLost` transaction and bounded interrupt/cleanup. Foreign/refusal rows preserve foreign state. After caller exit a second invocation uses one typed result. Every unsupported/unknown/custody-loss row atomically records logical loss plus one exact `LossCleanupPermit`; after publication that permit alone closes stdio, emits no further bytes, kills live retained custody, and bounded-reaps/observes populated-zero. Replay/stale/cross-loss/no-live-custody emits zero bytes; crash cannot remint; success leaves lifecycle unconfirmed and capacity held. COMMIT keeps the sealed receipt as result and binds the complete admission/controller/loss evidence hash before GateResult/sequence 6; missing/wrong COMMIT or credential PID mismatch poisons. No CLI fallback/bypass. |
+| A122 | A6a | Managed Codex controller, schema, and command authority are complete after Step 5. | `node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_controller && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_controller -- --nocapture) && node plugins/session-relay/test/appserver-schema-contract.mjs --verify-current --codex "$(command -v codex)" && node plugins/session-relay/test/reentry-inventory.mjs && node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix` | Exit 0 with nonzero fixture-backed IDs. Birth permit, immutable capacity discriminator and zero-or-one charge relation, token secrecy, pending→thread/start→claim→ControllerReady, caller death, exact retries/loss, `ControllerRead\|ControllerInjectItems\|ControllerStartTurn`, command authorization consumption, cross-family/replay/expiry zero-byte behavior, atomic loss+cleanup-permit mint, exact post-loss consumption, replay/stale/cross-batch refusal, Pending/Running reconcile refusal, watchdog exact timeout-to-Failed with no signal, crash no-remint, cleanup-success-no-release, and pre-binding loss that preserves an absent/foreign binding while retaining the exact terminal birth-operation/pending-retirement/charge selectors pass. Its future Step-5 birth rows prove Unreserved creates no charge and Charged atomically creates exactly one Held charge copied through worker/pending/waiter/birth permit; missing/duplicate/cross-worker/reused/substituted charge or wrong discriminator refuses before child/state bytes. Crash and reload after pending retirement but before operator abandonment reproduce the byte-identical keyed record, unchanged capacity discriminator, matching charge relation, and status command; wrong token/worker/generation/capacity/charge/pending version/retirement version/birth operation refuses, duplicate loss returns the same record, and claim/replay/pending recreation emits zero bytes after retirement. The birth matrix covers response-before-notification and notification-before-response; missing, duplicate, wrong-thread, non-idle, changed-message-hash, wrong operation/controller, deadline, different-barrier retry, and crash/restart cases all refuse before Active/turn bytes, while the exact retry reloads the same barrier hash from both durable records. The first-turn matrix covers same-thread/same-turn hook success plus every missing/duplicate/mismatch/reorder/failure/pre-completion-item case and proves the exact loss/interrupt/cleanup path. Schema verification records invoked+canonical native path, uses one retained no-follow fd for generator and server, survives retarget/replacement barriers, canonicalizes `<OUT>`, fixed modes/umask/relative sorting, and proves byte-identical candidates from two temp roots. Exact schema/version/identity matches before pending creation/Active. |
+| A123 | A6b | Source-built N/N+1 payloads exercise exact hooks, the honest standalone trust boundary, and fd-pinned crash-atomic monotonic selection. | `RELAY_REAL_RUNTIME_TEST=1 node plugins/session-relay/test/runtime-hook-upgrade.mjs --matrix` | Exit 0. Real Codex uses synthetic N/N+1 payloads with exact hook JSON, both manifests, checksums, and hook/payload identities. Old UserPromptSubmit and new/subagent SessionStart execute through stable current; stdout is one hook JSON with exact event suffix. Known-at-check plugin-root/launcher dangling or non-dangling symlink, nonregular object, or wrong executable mode fails; only a root observed truly absent and non-link falls through. Deterministic ordinary-prune barriers delete the real root before the first existence check, after the successful directory check but before launcher validation, after valid launcher checks but before exec, and while initial installer source opens begin; every row either falls through stable only after `! -e && ! -L` or fails visibly, never executes a now-missing path. A deliberate same-UID atomic replace-all row is labeled `outside_standalone_authenticity`, proves no false guarantee, and is not required-denial evidence. After the native installer starts, dirfd/openat barriers rename/recreate every manifest/checksum/hook/payload/selected-binary component; installer either fails or copies/hashes its pinned fd bytes without mixing. A synthetic docks-kit-style proactive row opens the selected payload, independently verifies the retained fd against an external expected digest, invokes `__install-stable` through those same fd-pinned native bytes, and rejects dispatcher/payload digest substitution or path re-resolution before install. Same-version no-op requires equality of version,target,binary,payload,hook; each single-field mismatch is fatal. A lower candidate exactly matching the retained previous identity returns `previous_retained`, `changed:false`, and preserves current; each retained-identity mismatch/corruption refuses. Lock/generation/pointer crash/races pass. Implementation evidence is not packaged evidence. |
+| A124 | A6c | Installer and doctor expose the exact closed consumer contract without promoting diagnostics to proof. | `node plugins/session-relay/test/runtime-hook-upgrade.mjs --case doctor-schema` | Exit 0; implementation and schema independently validate all fourteen committed goldens: doctor ready/degraded/unavailable exit 0; install changed/current/lower-no-op/previous-retained exit 0; typed command inability exit 3; usage/schema 2; validation/tamper 4; I/O/lock 5. Unknown capability/reason/extra/malformed field fails. Both payload/hook digests and literal hook inventory fields match; human stderr cannot classify state. |
+| A125 | A7 | Real app-server fencing distinguishes exact cancellation, shared observation, current ProtocolTree unavailability, and physical kill under final live sequence 6. | Submit the exact literal `RunGate A7` for canonical A125 frame from Environment. | Direct native-gate PID equality holds across spawn/OPEN/COMMIT/wait/result. OPEN sequence 6 binds the final sealed receipt input hash and live runner/delegation revalidation before Node or any RPC/fence byte; initialize advertises `experimentalApi=true` before descendant/turn/item/terminal methods and records runtime/method availability; unsupported methods fail typed. Exact interrupt reaches matching terminal; each terminal is paged and terminated only through its sealed same-attempt reference. Shared rows remain observation; current dedicated rows report MissingDurableFlushContract. Physical cgroup kill produces only WorkerTree. COMMIT keeps the sealed receipt as result, binds the complete final evidence hash, records both terminal OPEN/COMMIT acknowledgement links, and only then closes the capability as Complete; missing/wrong COMMIT or credential PID mismatch poisons instead. Any later/replayed gate fails. |
+| A126 | A8 | Protocol recovery is attempt-bound, terminal-boundary, and finite, with a fake/future positive adapter only. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case appserver-recovery` | Exit 0; fake positive proof requires one attempt binding across flush, thread, turn, terminal, boundary, and evidence hashes plus mutation rejection/watermark/reap/offline pagination. Mixing any nested N receipt into N+1 is rejected before FenceEvidence. Missing/partial evidence and all prior negative rows return ProtocolIncomplete ≤20s. Real Codex cannot construct DurableFlushReceipt. |
+| A127 | A9 | Every mutator has a concrete matching capability and executed behavior evidence. | `node plugins/session-relay/test/reentry-inventory.mjs` | Exit 0; scans generic app-server primitives/callers, every drain/resume/inject/start/interrupt/list/terminate, process create/exec/signal, pending acknowledgement, and all Step-5 controller variants. Existing-session actions map to target-free `ReentryGuard`, exact-owned-turn cancellation, or post-drain `FencePermit`; managed first birth maps only to the sealed exact-tuple one-use `ManagedBirthPermit`. Pure reads cannot guide later mutation after stale. Source-derived N is reported; every row has a unique production behavior id; no rationale/name-only or generic “first birth” exemption passes. |
+| A128 | A10 | Every production re-entry/controller surface enforces target/kind/binding/cancellation/terminal epoch at use. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reentry-matrix` | Exit 0 after Step 5 and again after Step 7; one production-wrapper row per source-derived `OperationKind` covers success, wrong kind, stale binding/controller/operation version, pre-fence, and mid-block fence with no-mutation evidence. `InitialTurn` maps only to the legacy unmanaged wrapper; `ControllerRead\|ControllerInjectItems\|ControllerStartTurn` map only to the managed controller. `ManagedTerminal\|ManagedGcDeleting\|TerminalFence` and `PreBindingGcDeleting\|WorkerGenerationFence` refuse before context/RPC/process/new-pending bytes. Wake/watch status is admitted and stale responses discarded; queue/peek remain allowed. No placeholder label. |
+| A129 | A11 | GC cannot erase durable authority/custody, preserves legacy Unmanaged aging, and never reopens terminal managed sessions. | `node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_managed && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_managed -- --nocapture)` | Exit 0 with nonzero required GC IDs. Aged lifecycle states plus `UnmanagedCanceling`, pending/Claiming/Managed binding, pre-binding pending retirement, tombstone, lock, proof, unresolved custody, supervisor/watchdog/socket/heartbeat, handoff, stale audit, and every live discriminator/charge relation survive. Only plain old Unmanaged enters ordinary `GcDeleting`; matching bound terminal tuples enter `ManagedGcDeleting`, crash-resume projection cleanup, and finish as compact `TerminalFence` while the exact referenced receipt preserves reservation provenance and capacity stays released exactly once. Matching proved-release and risk-accepted pre-binding terminal workers enter `PreBindingGcDeleting`, never touch a session binding, and finish as permanent `WorkerGenerationFence` while the exact referenced outcome/receipt preserves reservation provenance and optional capacity stays released exactly once. Charge deletion/duplication or None substitution before joint GC fails; after heavy worker/charge/retired-authority deletion, reload exact-validates both fence→receipt references, discriminator history, and commitment fields without dereferencing retired source records. Deleting/substituting either receipt, changing proved-versus-risk or Unreserved-versus-Charged semantics, or treating a historical commitment as a required live object fails closed. Registry Entry loss/recreation cannot change authority; deterministic crash/race barriers preserve one complete authority generation. |
+| A130 | A12 | Operator transitions, joint terminalization, retention recovery, session-operation recovery, supervisor reports, custody CAS, and competing fencers are exact-version. | `node plugins/session-relay/test/lifecycle-smoke.mjs --case reconcile && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_terminal -- --nocapture)` | Exit 0 with nonzero terminal IDs. Crash after durable FenceProofRecord/Fenced resumes exactly once to TerminalRetained; release rejects a different proof hash. Release/abandon versus SessionStart/admission/GC/stale supervisor has exactly one winner; pre-rename crash exposes all preterminal state, post-rename all terminal state, and retry returns the same receipt. Bound Unreserved and Charged paths preserve the birth discriminator; Charged capacity remains Held until the joint worker+binding+retired-authority+receipt CAS and becomes Released once only when every hash agrees, while Unreserved has no charge before or after. Pre-binding Charged and Unreserved loss uses only the exact worker/birth-operation/pending-retirement/retired-authority/discriminator/charge transaction and leaves every absent/foreign binding byte-identical. Both successful `Attaching→Fencing→Fenced→TerminalRetained→release-prebinding` and `Attaching→FencingUnconfirmed→abandon-prebinding` atomically remove the retained pending record into the receipt commitment, release the exact charge only for Charged, return one idempotent permanently retained `PreBindingTerminalReceipt` with structurally exact capacity/proof/acknowledgement/not-quiescence fields, and retain `WorkerGenerationFence`; claim versus retirement, proved release versus abandonment, and GC versus stale actor have one authority-generation winner across pre/post-rename crashes and intervening reloads. Bound/pre-binding, Charged/Unreserved, proved/risk, missing/duplicate/cross-worker charge, None substitution on Charged, Some substitution on Unreserved, wrong proof, and wrong retirement key/version/hash rows all execute; any mismatch fails without mutation. Post-GC retry returns the same receipt through the live fence reference; receipt deletion/substitution and dangling fence references fail closed. Risk acceptance emits no signal and prints NOT QUIESCENCE-PROVEN; proved release never does. Session reconcile uses exact binding/operation/current custody version plus stable cancellation epoch; stale completions are audit-only. |
+| A131 | A13 | Proof validation and capability families are exhaustive, sealed, scope-safe, epoch/attempt-bound, phase-correct, and threat-model-labeled. | `node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_proof && (cd plugins/session-relay/rust && cargo test --locked --test lifecycle_proof -- --nocapture) && node plugins/session-relay/test/reentry-inventory.mjs --compile-fail` | All exit 0 with nonzero required IDs. Backend×scope×evidence rows pass. Process/protocol/boundary/kill/fence fields are private. Compile-fail auto-enumeration rejects fabrication/mutation at expected boundaries; runtime rows reject later-fence replay, nested attempt mixing, cached authorization, pre-kill promotion, serialized tamper, stale controller/supervisor, cross-thread terminal refs, and host/runtime executable mismatch. Current Codex cannot build offline boundary. |
+| A132 | A14 | Existing behavior remains green. | `(cd plugins/session-relay/rust && cargo test --locked) && node plugins/session-relay/test/selftest.mjs` | Exit 0; all Rust tests pass and selftest ends with its runtime-derived PASS count. Ordinary unmanaged hook/output/mailbox bytes remain compatible; attach output remains compatible except the intentional guarded spawn+wait behavior. |
+| A133 | A14r | Step 8 cryptographically revalidates completed one-shot evidence without replay or liveness access. | `test -n "$PLAN_BLOB" && STEP8_HEAD="$(git rev-parse HEAD)" && test -n "$STEP8_HEAD" && test -n "$ROOT_MIGRATION_ID" && test -n "$ROOT_MIGRATION_PIN" && test -n "$ROOT_GENERATION_LEDGER_SHA256" && test -n "$ROOT_ACTIVE_PHASE_SHA256" && test -n "$RUNNER_RECEIPT_GENERATION_SHA256" && test -n "$RUNNER_LAYOUT_SHA256" && test -n "$RUNNER_STATE_RECEIPT" && test -n "$STEP8_REHASH_RECEIPT" && node plugins/session-relay/test/runner-job-custodian.mjs --rehash-live-evidence --plan-blob "$PLAN_BLOB" --step8-head "$STEP8_HEAD" --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256" --runner-state "$RUNNER_STATE_RECEIPT" --through-step 7 --emit "$STEP8_REHASH_RECEIPT" && node plugins/session-relay/test/runner-job-custodian.mjs --verify-rehash-receipt "$STEP8_REHASH_RECEIPT" --plan-blob "$PLAN_BLOB" --step8-head "$STEP8_HEAD" --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256" --runner-state "$RUNNER_STATE_RECEIPT" --through-step 7` | Exit 0 with `LIVE_EVIDENCE_REHASH PASS receipt_sha256=<hex>` then byte-identical `LIVE_EVIDENCE_REHASH_VERIFY PASS`. It exact-loads named manifests and rejects every unlisted file; binds clean Step-8 head, coordinator/ledger/Active snapshot hashes, active plus predecessor generation records, stable layout identities, binding/state/attempt/bootstrap/artifact/prior-A106/event chains, terminal `Complete`, and exact scratch cleanup. It opens no authority socket or process/runtime/auth/cgroup/capability handle and makes no liveness claim. Missing/changed/reordered/forked input, unlinked generation, lost predecessor snapshot, non-Complete terminal, wrong gate order/count, path outside authenticated layout, existing-byte mismatch, live access, or liveness claim fails. Step 8 then writes empty-range A106 with base=head=`STEP8_HEAD`; final scope derives it from that receipt. |
+| A134 | A15 | Formatting and warnings are clean. | `(cd plugins/session-relay/rust && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings)` | Exit 0, no format diff, no warnings. |
+| A135 | A16 | Four architectures compile; Darwin runs the portable supervisor and reports authoritative managed paths unavailable. | `node plugins/session-relay/test/run-build-matrix.mjs --ref codex/primitives-collab --sha "$(git rev-parse HEAD)"` | Canonical owner authorization `owner-2026-07-13-four-release-order` with SHA-256 `5845ca800f87cf35becf385318c8ef2d8e04b23eb076d17cc5b8e036d6ba7dc1` is already recorded; no redundant approval prompt is permitted. Exact clean remote SHA only, and the result receipt binds the requested ref plus SHA. Linux targets compile. Native macos-15-intel and macos-15 run the portable A115 getpeereid/session/PTY/signal/EOF/health/watchdog subset and explicit constructors/status rows proving managed controller, TRACEEXEC fd-exec, pidfd, and cgroup WorkerTree are typed `UnavailablePlatform` with no child/RPC/signal side effect. No Darwin equivalent is advertised. |
+| A136 | A17 | Full plugin/repo gates pass. | `node scripts/ci.mjs` | Exit 0 with all repo/plugin guards, Rust, selftest, hooks, skills, and manifests green; documented local binary digest warning only. |
+| A137 | A18 | The clean implementation tip equals the ordered historical tree plus active append-only step/event/attempt evidence; all five root generations, authority records/custodians, coordinator, and stable layout parents remain live until contiguous A138. | `test "$(git branch --show-current)" = codex/primitives-collab && test "$(git rev-parse HEAD)" = "$IMPL_TIP" && test -z "$(git status --porcelain)" && git diff --check 12cf2ea.."$IMPL_TIP" && test -n "$ROOT_ACTIVE_PHASE_SHA256" && export FINAL_SCOPE_ID="$(node plugins/session-relay/test/final-scope.mjs --derive-root-id --plan-blob "$PLAN_BLOB" --tip "$IMPL_TIP")" && node plugins/session-relay/test/final-scope.mjs --prepare-root --root-id "$FINAL_SCOPE_ID" --plan-blob "$PLAN_BLOB" --tip "$IMPL_TIP" && export FINAL_SCOPE_JSON="$(node plugins/session-relay/test/final-scope.mjs --describe-root --root-id "$FINAL_SCOPE_ID")" && export FINAL_SCOPE_PIN="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.root_pin')" && export FINAL_SCOPE_ROOT="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.canonical_path')" && export A137_NEGATIVE_MATRIX_RECEIPT="$FINAL_SCOPE_ROOT/a137-state/negative-matrix.json" && export A137_RANGE_RECEIPT="$FINAL_SCOPE_ROOT/a137-state/range.json" && export LEGACY_VALIDATOR_NODE="$(command -v node)" && export LEGACY_VALIDATOR_HELPER=plugins/session-relay/test/wip-snapshot.mjs && node plugins/session-relay/test/final-scope.mjs --negative-matrix --fixture-only --base 12cf2ea --tip "$IMPL_TIP" --historical plugins/session-relay/test/fixtures/wip-historical-baseline.json --allowlist plugins/session-relay/test/fixtures/wip-step-allowlist.json --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256" --runner-state "$RUNNER_STATE_RECEIPT" --event-schedule acceptance-event-schedule-v1 --defer-root-generation-cleanup --step-order 1b,3c,3d,1c,1d,4,5,6,7,8,9 --final-scope-id "$FINAL_SCOPE_ID" --final-scope-pin "$FINAL_SCOPE_PIN" --emit "$A137_NEGATIVE_MATRIX_RECEIPT" && node plugins/session-relay/test/final-scope.mjs --verify-range --base 12cf2ea --tip "$IMPL_TIP" --historical plugins/session-relay/test/fixtures/wip-historical-baseline.json --allowlist plugins/session-relay/test/fixtures/wip-step-allowlist.json --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256" --runner-state "$RUNNER_STATE_RECEIPT" --negative-matrix-receipt "$A137_NEGATIVE_MATRIX_RECEIPT" --legacy-validator-node "$LEGACY_VALIDATOR_NODE" --legacy-validator-helper "$LEGACY_VALIDATOR_HELPER" --event-schedule acceptance-event-schedule-v1 --challenge-live-authorities --defer-root-generation-cleanup --step-order 1b,3c,3d,1c,1d,4,5,6,7,8,9 --final-scope-id "$FINAL_SCOPE_ID" --final-scope-pin "$FINAL_SCOPE_PIN" --emit "$A137_RANGE_RECEIPT" && node plugins/session-relay/test/final-scope.mjs --seal-acceptance-prefix --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --negative-matrix-receipt "$A137_NEGATIVE_MATRIX_RECEIPT" --range-receipt "$A137_RANGE_RECEIPT" --event-schedule acceptance-event-schedule-v1 --criterion A137 --final-scope-id "$FINAL_SCOPE_ID" --final-scope-pin "$FINAL_SCOPE_PIN"` | Exit 0 with `FINAL_SCOPE_NEGATIVE_MATRIX PASS fixture_only=1 live_unchanged=1 receipt_sha256=<hex>`, `FINAL_SCOPE PASS ... root_generation_cleanup=deferred authorities_challenged=5 receipt_sha256=<hex>`, `ACCEPTANCE_PREFIX_SNAPSHOT PASS events=81`, and `ACCEPTANCE_PREFIX PASS ... through=A137`. Both prerequisite receipts are fsync-durable and bound into event 81 plus the prefix. The final-scope root is uid-owned 0700, sentinel/pin authenticated, and reconstructible from plan blob+tip; stdout path is not authority. Before event 81, helper verifies 22 commits/35 entries, full step/event/attempt chains, Cargo/supplier/layout identities, zero live/matrix scratch, the anchored legacy validator identity, and the exact five-generation lineage. It performs the sole final live validation challenge for every custodian using its generation-selected protocol. Final attempt carries ordered A110→A111→A119→A120→A121→A125. Any live snapshot mutation by the fixture matrix, missing/substituted result receipt, unbound validator, missing/extra/reordered/forked event/receipt/attempt/migration, wrong scope, predecessor change/loss, dead/substituted custodian, tree/Cargo mismatch, premature cleanup, binary/version/release surface, or live process/fd fails. |
+| A138 | A18a | Through one phase-aware entrypoint, bind Step-8/A137 evidence to the exact event/attempt/root lineage, write intent before every irreversible effect, remove all five generations plus authorities, coordinator, and three stable layout parents, then emit event82, the 38-row summary, Finalized, and deterministic execution handoff. | `test -n "$PLAN_BLOB" && test -n "$IMPL_TIP" && test -n "$EXECUTION_BASE_COMMIT" && test -n "$ROOT_ACTIVE_PHASE_SHA256" && export FINAL_SCOPE_ID="$(node plugins/session-relay/test/final-scope.mjs --derive-root-id --plan-blob "$PLAN_BLOB" --tip "$IMPL_TIP")" && export FINAL_SCOPE_JSON="$(node plugins/session-relay/test/final-scope.mjs --describe-root --root-id "$FINAL_SCOPE_ID")" && export FINAL_SCOPE_PIN="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.root_pin')" && export FINAL_SCOPE_ROOT="$(printf '%s' "$FINAL_SCOPE_JSON" | jq -er '.canonical_path')" && export A137_NEGATIVE_MATRIX_RECEIPT="$FINAL_SCOPE_ROOT/a137-state/negative-matrix.json" && export A137_RANGE_RECEIPT="$FINAL_SCOPE_ROOT/a137-state/range.json" && export LEGACY_VALIDATOR_NODE="$(command -v node)" && export LEGACY_VALIDATOR_HELPER=plugins/session-relay/test/wip-snapshot.mjs && test -d "$FINAL_SCOPE_ROOT" && node plugins/session-relay/test/final-scope.mjs --run-a138 --initial-runner-bin "$RUNNER_BIN" --recovery-relative recovery/runner_job_custodian --legacy-validator-node "$LEGACY_VALIDATOR_NODE" --legacy-validator-helper "$LEGACY_VALIDATOR_HELPER" --a137-negative-matrix-receipt "$A137_NEGATIVE_MATRIX_RECEIPT" --a137-range-receipt "$A137_RANGE_RECEIPT" --tip "$IMPL_TIP" --plan-commit "$PLAN_COMMIT" --plan-blob "$PLAN_BLOB" --execution-base-commit "$EXECUTION_BASE_COMMIT" --migration-id "$ROOT_MIGRATION_ID" --anchor-sha256 "$ROOT_MIGRATION_PIN" --ledger-sha256 "$ROOT_GENERATION_LEDGER_SHA256" --active-phase-sha256 "$ROOT_ACTIVE_PHASE_SHA256" --runner-generation-sha256 "$RUNNER_RECEIPT_GENERATION_SHA256" --layout-sha256 "$RUNNER_LAYOUT_SHA256" --runner-state "$RUNNER_STATE_RECEIPT" --step8-rehash "$STEP8_REHASH_RECEIPT" --event-schedule acceptance-event-schedule-v1 --final-scope-id "$FINAL_SCOPE_ID" --final-scope-pin "$FINAL_SCOPE_PIN" --step-order 1b,3c,3d,1c,1d,4,5,6,7,8,9` | A fresh run exits 0 with `A138_BOOTSTRAP PASS phases=5`, then `A138_CRASH_MATRIX PASS fixture_only=1 live_unchanged=1 receipt_sha256=<hex>` naming every top-level and nested barrier, `STEP8_REHASH_SCOPE PASS`, source-ready projection matrix, `ROOT_GENERATION_CLEANUP PASS purposes=2 generations=5 roots_removed=5 authorities_removed=5 custodians_closed=5 coordinator_removed=1`, `RUNNER_LAYOUT_CLEANUP PASS roots_removed=3`, `ACCEPTANCE_SUMMARY PASS events=82 criteria=38`, `A138_FINALIZED PASS`, and `EXECUTION_EVIDENCE PASS evidence_sha256=<hex>`. Retry after every BootstrapIntent→Prepared barrier reads the latest receipt first, adopts/resumes only exact marker/pending/progress state, never reruns a closed fixture case, and returns identical terminal hashes without resolving a removed initial runner/coordinator/layout path. `Prepared` only authenticates the already-durable A137 receipts, anchored legacy validator, coordinator/ledger/Active/journal and root/sentinel/authority/custodian/payload/layout manifests, equal live snapshot, fixture receipts, recovery bundle, and closed cleanup id. Each later intent fsyncs before effect. Any unjournaled pre-Prepared child/byte, live-fixture mutation, result/validator substitution, schema mismatch, process substitution/survival, effect without intent, manifest drift, phase skip/fork/duplicate, original+quarantine coexistence, cross-device move, deleted-path access, missing cleanup hash, nondeterministic field, or differing retry hash fails. |
+
+The named acceptance rows additionally require these exact Draft-27 closures:
+
+- **A109:** its literal `--rehash-negative-matrix` command flips each RunnerAttemptReceipt, GateResult, OPEN/COMMIT acknowledgement, evidence/result hash, binary/Cargo identity, prior-attempt link, bootstrap receipt, and A106 receipt class; every mutation fails without auth, runtime, cgroup, wake, reconnect, or live-gate replay.
+- **A113:** migration creates the five explicit live-authority maps, the pre-binding pending-retirement map, and the three structurally separate terminal maps. The mixed-version fixture seeds each with valid cross-referenced records and valid Unreserved/Charged worker generations, invokes exact 0.10.0 register/GC/hook writers, and proves neither map bytes nor authority generation changes; missing/dangling/mismatched key, version, hash, live reference, or inverse charge relation fails the whole authority document. Historical commitment fields are separately validated at creation and reload without pretending their retired source records remain live.
+- **A116:** a versioned `cancellation_handoffs` entry survives crash/reload, remains bound to its exact `HandedOff` operation custody, and is retired only in the matching authority transaction; dangling and cross-operation references refuse.
+- **A121 (RunGate A6)/A122:** controller, command-authorization, cleanup, and pre-binding pending-retirement records survive restart in their explicit maps while the immutable capacity discriminator and inverse charge relation remain identical. Crash after Pending commit/before permit return reaches exactly one `Failed(PendingPermitExpired)` at the fixed deadline; a late permit/replay emits zero bytes. Running stalled before the first action and after every close/kill/reap boundary reaches exactly one `Failed(RunningDeadlineOutcomeUnknown)` even while health succeeds. Completion-versus-timeout has one CAS winner; late results are audit-only. Wrong version/capacity/charge/attempt/boot, pre-deadline timeout, deadline reset, permit remint, or pending-retirement recreation changes nothing. Failed does not imply quiescence or release capacity.
+- **A129:** every live/referenced entry in all five explicit maps plus the pre-binding pending-retirement map is non-GCable. GC rejects dangling live references and malformed discriminator/charge relations rather than erasing them; terminal GC retains the matching exact receipt plus compact `TerminalFence` or `WorkerGenerationFence` after same-generation retirement. Historical commitment and reservation fields remain valid without requiring removed source records or interpreting absence as Unreserved.
+- **A130:** immutable proof-map insertion/reload, pending-retirement creation/removal, and terminal retirement are in the same authority generation as their worker/binding/receipt/charge transitions. Pending/Running block competing terminalization only until their fixed terminal timeout; afterward reconcile or audited abandonment may proceed. Bound and pre-binding proved release both require exact retained proof; the pre-binding variant additionally consumes the exact retirement record without touching a binding. Every terminal path preserves the birth discriminator, and every terminal fence keeps a live exact receipt reference across GC and retry.
+- **A137/A138:** final scope validates the rehash receipt against the same immutable complete A110→A111→A119→A120→A121→A125 RunGate attempt chain, full step ledger, empty Step-8 A106 receipt, and events 1–80. A137 runs negatives only on fixtures, proves the live snapshot unchanged, performs the sole final live challenge, appends event 81, and seals a byte-complete snapshot plus digest-bound prefix. A138's one phase-aware entrypoint loads append-only state before any root or runner path, writes the recovery binary before cleanup, and resumes every top-level plus nested generation/coordinator/layout journal barrier. The exhaustive fixture matrix covers every closed intent/effect boundary, including sentinel unlink before root removal and retry after layout-binary removal; it does not mutate live state. `Finalized` remains mandatory for PASS/source-ready. No sentinel-less directory is guessed, no success evidence precedes path/process absence, no completed capability is replayed, and no repeated criterion is collapsed to its latest result.
+
+## Out of scope / do-NOT-touch
+
+- Fan-out-specific recovery for never-Idle `Stopping`, partial `git worktree remove`, fence-owner lease/steal, cap/depth, handback, merge, and collection remains in `relay-worker-fanout` Draft-5.
+- No raw kill fallback is added for Darwin/recovered non-pidfd Linux. Observation-only cleanup is intentionally incomplete and must remain unconfirmed.
+- No claim that a merely delegated or partially isolated cgroup is authoritative; privileged/system-wide cgroup setup, root helper, launchd service, kernel extension, or system daemon requires separate approval.
+- No claim that WorkerTree contains a deliberately adversarial same-UID task. Broker-assisted spawn or handoff through `systemd-run --user`, D-Bus `StartTransientUnit`, `SCM_RIGHTS`, or another reachable same-user service is outside `CooperativeWorkerV1`. IPC/network namespaces, broker-socket denial, and a full adversarial sandbox are future separate scope.
+- No claim that standalone `/bin/sh` bootstrap authenticates cached code against a deliberate same-UID atomic root/launcher/metadata/payload replacement before the native installer starts. Ordinary prune durability, known-at-check corruption refusal, post-start fd pinning, and the optional docks-kit externally verified-native path are the exact scopes.
+- No claim that the live runner-job capability is remote attestation or resists a malicious same-UID actor controlling the orchestrator job. It proves non-copyable descriptor continuity and strict sequence under `CooperativeWorkerV1`; a stronger CI-provider identity/attestation service is separate scope.
+- No claim that relay controls direct human/third-party app-server clients. Relay gates all of its own surfaces; external mutation remains outside the trust boundary. Only a relay-owned stdio-only dedicated server plus physical containment proves exclusivity.
+- Do not kill a shared app-server or promote any of its scans to ProtocolTree proof in this plan. A future barrier API requires a separate acquire/hold/release capability review. Dedicated stdio containment is explicit, never inferred.
+- Do not change ordinary unmanaged mailbox semantics, trust fencing, discovery, or the age cutoff for legacy Unmanaged GC; only add the binding-lock/pending-reference safety predicates specified here. Do not change committed binaries, versions, tags, or releases.
+- Do not edit `plugins/session-relay/bin/**`: plan acceptance builds native targets but committing generated binaries would mix producer/release work into the source change.
+- Do not edit plugin manifests or `.claude-plugin/marketplace.json` / `.agents/plugins/marketplace.json`: no version or release is authorized by this implementation plan.
+- Do not edit `docs/plans/active/relay-worker-fanout.md` during implementation. Its fan-out-specific lifecycle design consumes these primitives only after both this plan's source completion receipt and the later immutable `packaged_ready` Session Relay release receipt exist; moving this source plan to `finished/` alone is insufficient.
+
+## Known gotchas
+
+- Opening pidfd **after** a generation check still races; open first, then validate the pinned target.
+- An unreaped Child prevents PID reuse but does not prevent descendants escaping its process group. Its proof scope is explicit.
+- A new process group is not a new session. On Rust 1.85 use the reviewed async-signal-safe `pre_exec(libc::setsid)` path; `process_group(0)` alone does not detach custody.
+- `populated 0` says nothing about a process intentionally migrated outside the leaf. It is authoritative only for the explicit `CooperativeWorkerV1` set: runtime born in the leaf plus ordinary/nested descendants whose membership probes stayed there; intentional same-UID migration is outside the claim.
+- Flock writer fairness is not a safety primitive. Fence intent keeps post-intent readers out; cancellation bounds pre-intent readers.
+- `attach --exec` closes CLOEXEC locks. Even an Unmanaged attach can become Claiming while its resumed CLI lives, so every transition-capable attach/resume keeps relay as the waiting parent; “managed only” is insufficient.
+- An Unmanaged guard is not timeless. First SessionStart must publish Claiming/increment binding epoch, drain older guards, and finalize Managed only after they release; every use re-resolves the epoch.
+- Capability targets and kinds cannot be caller arguments. If a lower mutator accepts both a guard and an independent session/thread/process selector, the guard is forgeable by substitution.
+- `thread_state` currently calls `thread/resume`; status must use pure `thread/read` or an admitted resume.
+- First birth is not session re-entry. Managed Codex app-server birth therefore takes only the sealed one-use `ManagedBirthPermit` minted from its exact Attaching worker/generation/version/tool/cwd/birth-operation tuple; unmanaged hook-born CLI remains a separately classified creation whose collision path rejects an existing fenced id. Existing legacy unmanaged app-server spawn uses `InitialTurn`; after managed Active, every initial/later `turn/start` uses `ControllerStartTurn`, and its returned exact turn id becomes durable custody before pumping.
+- `registry.json` is not lifecycle authority. An old 0.10.0 writer may erase unknown registry keys or the projected Entry; only exact-valid `lifecycle-v1.json` controls Managed/terminal/admission/capacity state, and parse failure is never empty-Unmanaged fallback.
+- Worker birth fixes an immutable Unreserved-or-Charged discriminator; worker terminal state, Managed binding or exact pre-binding pending retirement, retired custody, receipt, and the exact zero-or-one capacity charge are one authority generation. A worker-only `TerminalReleasable`, missing/duplicate/cross-worker charge, absent-charge-as-Unreserved inference, dangling terminal-receipt reference, registry-derived selector, or GC recreation of Unmanaged is unsafe.
+- Source-ready is not packaged-ready. No source CI, synthetic A123 payload, plan archive, or local binary can substitute for producer artifacts, verifying checksums, immutable tag/release, and packaged live-upgrade/old-writer evidence.
+- App-server `turn/start` may have succeeded when the response is lost. Persist the pending-send state before writing; never erase or guess an unknown active turn.
+- `turn/interrupt` completion does not stop background terminals or child threads. Every thread/page/terminal needs evidence.
+- A daemonized process can evade app-server terminal bookkeeping. Without authoritative process containment, protocol proof is not WorkerTree proof.
+- Two identical lineage passes prove neither completeness nor exclusion. A shared server needs a held mutation-rejecting barrier; a dedicated server needs graceful mutation rejection, durable flush watermark, exit/reap, and final offline scan. Freeze is not a flush.
+- A `FencePermit` from an older fence epoch is hostile stale authority after timeout, reconcile, release, or abandon; every fence action and terminal transition must re-resolve/CAS exact version.
+- A read-only cgroup mount is bypassable through inherited fds, inherited procfs/alternate mounts, `/proc/<host-pid>/{fd,fdinfo,root,cwd}`, new namespaces, or remount syscalls unless the ordered namespace/proc/fd/seccomp contract closes every direct route.
+- Seccomp BPF cannot dereference `clone3`'s pointer argument; filtering namespace flags inside that struct is fictitious. Deny `clone3` wholesale with `SECCOMP_RET_ERRNO|ENOSYS`, **not EPERM**, so glibc `posix_spawn` falls back to legacy `clone`; keep namespace flags denied on that legacy path and prove ordinary spawn/wait for **Claude** under the filter (the Claude-only `FilteredCgroupHardening` tier). **Codex's `bwrap` sandbox needs the denied `unshare`/`mount`, so it cannot run under this filter and uses the unfiltered `ConfinedCgroupCooperative` tier instead** — its containment comes from cgroup membership (namespace-independent) + `cgroup.kill`, not the filter. Validate `seccomp_data.arch`, and on x86_64 reject `__X32_SYSCALL_BIT` before dispatch.
+- A same-user broker acts outside the worker's seccomp/cgroup namespace. `populated 0` cannot prove absence of intentionally broker-spawned sibling work; that is an explicit threat-model boundary, not a cgroup proof bug hidden by wording.
+- Frozen state can contain queued children or unflushed writes, and tasks may migrate while frozen. Freeze is optional observation only; if used it must end in kill plus `populated 0`, never thaw-through-release or ProtocolTree promotion.
+- Cgroup placement evidence exists before GO; kill/populated-zero evidence exists only after fencing. Never put terminal booleans into the immutable live boundary or reuse the A120 (RunGate A5b) fixture transcript as per-worker action proof.
+- `/proc/<pid>/exe` is a magic symlink. `O_NOFOLLOW` correctly returns `ELOOP`; the positive exec-stop algorithm follows it only while the exact seized tracee is stopped at its `PTRACE_EVENT_EXEC`, then immediately fstat/hashes the opened fd against the retained executable fd before detach.
+- A delegated-runner receipt hash is not a signature or durable attestation. It detects changed canonical evidence bytes only; every later real gate must live-revalidate the same unexpired runner/boot/kernel/uid/mount/root/runtime tuple and current delegation.
+- `cgroup.events populated 0` may precede parent reap. A111 (RunGate A1d) and production cleanup must exact-wait/reap every owned probe/root child before accepting populated-zero and removing the leaf.
+- Durable logical loss moves the worker to `FencingUnconfirmed`, where a normal `SupervisorFencePermit` is intentionally unavailable. Only the one sealed `LossCleanupPermit` returned by the same loss transaction may close/kill/reap after publication, and even complete cleanup cannot release capacity.
+- The hook's invalid-launcher branch is itself a prune race. It must recheck the whole root as truly absent and non-link before stable fallback; an invalid launcher under any still-present/link/non-directory root remains exit 4.
+- The final full-range scope gate begins before the future allowlist exists. Preserve the exact historical manifest and its owner commits separately; a path's historical appearance is never a future allowance.
+- Claude's event-specific SessionStart documentation is context-oriented while universal `continue:false` is documented globally. Preserve a version-pinned empirical row, but make Claude prompt safety depend on UserPromptSubmit+supervisor; Codex safety depends on withholding `turn/start` until controller claim. Keep explicit 30-second hook timeouts for bounded diagnostics/re-entry.
+- Codex plugin enablement does not imply hook health, and `hooks/list` is only a snapshot. Record exact semantic/version/source/hash drift and never relabel it atomic launch authority. `--dangerously-bypass-hook-trust` remains test-only because it would authorize unrelated untrusted hooks.
+- A versioned plugin-cache path is not durable across refresh. Codex hooks must execute the stable monotonic runtime; the installer must derive version/digest from plugin manifest+SHA256SUMS and survive crash as either valid old or valid new, never a partial binary/record pair.
+- A SessionStart token inherited or repeated for the exact bound session is an idempotency key, not a globally reusable attach credential.
+- Managed hook claim must precede current GC/marker/register/drain work. One nearly exhausted three-second lock attempt cannot be followed by more pre-Active lock paths.
+- Queue/peek are safe while fenced; drains are not. Refused drains must preserve mailbox bytes exactly.
+- GC must inspect lifecycle before deleting **any** candidate surface; preserving only the registry row after deleting locks/tombstones is insufficient.
+- Wall-clock stability of a sentinel is supporting evidence only; terminal/process exit and complete pagination remain authoritative.
+- `/tmp` and `/home/vagrant/projects` are different filesystems here; `git worktree move` cannot relocate between them. Only remove/re-add an already clean, committed worktree while preserving the exact branch and HEAD.
+
+## Global constraints
+
+- **“FEASIBILITY FIRST. Step 1 must be a research/feasibility spike; design only what the platforms actually allow.”** Current evidence makes absent app-server durable flush and any unavailable cgroup/runtime-spawn capability explicit unavailability, never optimistic proof.
+- **“never call git/process/RPC while holding with_lock/with_gc_lock.”** Also never sleep or wait under those locks.
+- Keep the global store flock timeout exactly three seconds.
+- Target x86_64+aarch64 musl-linux and Darwin builds. The authoritative managed controller/fd-exec/cgroup path is Linux-only in this plan; Darwin must compile and return typed closed unavailability while preserving the portable supervisor-owned-child path.
+- Fallback tiers can never claim a stronger scope than their evidence.
+- Keep primitives general and independently testable; fan-out is only the first consumer.
+- WorkerTree guarantees are bounded to the explicit cooperative-worker threat model unless the owner chooses a future adversarial-isolation expansion.
+- Claude managed full-access requires the UserPromptSubmit barrier plus numeric supervisor deadline; Codex managed full-access requires controller-withheld first turn. Any WorkerTree claim additionally requires that runtime's fd-bound physical-containment capability. Hook health remains diagnostic for Codex.
+- Never weaken validators, security fences, test assertions, or binary provenance.
+
+## STOP conditions
+
+- `lifecycle-v1.json` is not the sole authority, uses empty fallback, lacks temp+file-fsync+rename+parent-fsync durability, migration scrubs registry before authority commit, any safety decision linearizes across authority and registry, or the exact released 0.10.0 writer changes/reopens managed authority. Old-binary non-erasure is required; claiming full managed behavior from an already-running old executable is forbidden.
+- Any of `cancellation_handoffs`, `managed_appserver_controllers`, `managed_command_authorizations`, `loss_cleanup_records`, `fence_proof_records`, or `prebinding_pending_retirements` is omitted from the closed authority schema, stored in a shadow file/projection, excluded from JCS/generation CAS, left live after matching terminalization, independently GCed while live/referenced, or accepted with a missing/dangling/cross-family key, version, hash, or live reference.
+- Release/abandon changes a bound worker without the exact immutable-discriminator/Managed-binding/retired-authority/terminal-receipt/zero-or-one-charge transaction; changes a pre-binding worker without the exact immutable-discriminator/absent-owned-binding/birth-operation/pending-retirement/retired-authority/terminal-receipt/zero-or-one-charge transaction; accepts `none` for Charged or `Some` for Unreserved; leaves a proved pre-binding `TerminalRetained` worker without `release-prebinding`; accepts proof fields on risk abandonment or acknowledgement/not-quiescence fields on proved release; frees capacity on any mismatch; races Pending/Running loss cleanup; permits terminal re-entry; or GC removes a matching permanent fence or its live referenced receipt/recreates an attachable generation.
+- Loss cleanup can strand Pending after permit-delivery crash or Running under a healthy-but-stalled supervisor; any retry resets the fixed deadline; timeout recovery emits a cleanup/signal/RPC byte, remints authority, wins on a stale version/attempt/boot, changes `FencingUnconfirmed`, constructs proof, or releases capacity; or a late cleanup completion mutates state after losing the terminal CAS.
+- Step 8 reruns a historical bootstrap or one-shot A110 (RunGate A1c)/A111 (RunGate A1d)/A119 (RunGate A5)/A120 (RunGate A5b)/A121 (RunGate A6)/A125 (RunGate A7) gate, reconnects to/wakes the completed capability, treats immutable receipts as current liveness, omits a named repeatable check, or accepts a rehash with any changed/missing/reordered/forked evidence/link.
+- A poisoned/expired fresh custodian skips any required A110 (RunGate A1c)→predecessor prefix, overwrites an earlier RunnerAttemptReceipt, treats reconstruction as same-capability replay, or A137's final active attempt lacks ordered A110 (RunGate A1c)→A125 (RunGate A7) evidence.
+- Source-plan completion, local/source-built artifacts, or synthetic N/N+1 evidence is relabeled packaged-ready or unblocks fan-out before the immutable producer/tag/release/checksum/packaged-matrix receipt.
+- One live ancestor-subreaper custodian does not retain exact self/capability/state authority across A110 (RunGate A1c)→A111 (RunGate A1d)→A119 (RunGate A5)→A120 (RunGate A5b)→A121 (RunGate A6)→A125 (RunGate A7); any post-bootstrap role path-execs instead of retained-fd `execveat`; `DriverArm→ArmAck→GO→OPEN→COMMIT→GateExit→wait→DriverReapAck` is reordered, forgeable, uncredentialed, unbounded, or advances before reap; fixed self/capability/GO/result fds are not immediately CLOEXEC or leak to Node/runtime; armed/spawn/OPEN/COMMIT/wait/result PID/self/frame/uid/gid differ; D death does not cause C to adopt/kill/wait G+payload; an authoritative byte precedes GO+OPEN; copied/wrapped/borrowed/replayed traffic succeeds; any malformed/extra/truncated packet/result/credential does not poison; matrix invokes auth/runtime/cgroup or Node launches native roles; cleanup of the build, matrix-parent, live-parent, or active runner-receipt generation crosses a sentinel identity; or live receipt/revalidation fails. The current read-only cgroup/no-user-bus sandbox cannot be relabeled positive.
+- Node creates or retains the socketpair, receives `SCM_CREDENTIALS`, spawns a credential gate, or supplies any substitute for the native Rust driver/custodian/gate; the native binary is not built from the exact committed `runner_job_custodian.rs` with locked Cargo input; `--matrix` is missing a named positive/negative row; cleanup leaves any native PID/fd/temp alive; or non-Linux silently falls back instead of typed unavailability.
+- Step 1b proceeds past A105 before the exact three preserved schema-v2 authorities are re-challenged; schema-v2 state becomes active in place; whole-helper hash remains the ordinary schema-v3 compatibility rule; migration lacks a unique predecessor→successor/equivalence/phase/manifest/chain-head link; any predecessor changes or disappears before A138; A133/A137 validate only the active root; or A138 leaves any active/superseded step/runner root, quarantine, authority record, or custodian generation.
+- A109 accepts a hand-modeled ordering/sequence/prefix/hash row, an arbitrary non-placeholder evidence digest, an OS-affecting `std`/libc/rustix callsite absent from the closed supplier inventory, or a validator-only artifact that the real native producer cannot durably emit. A live GateResult may not exist only on stdout; `Complete` may not precede exact adopted-descendant drain to `ECHILD`, all six fsynced gate artifacts, both named manifests, the terminal cleanup receipt, and a terminal attempt binding them.
+- Claude/Codex authentication preflight is unavailable or not marker-exact; it is never a skip, fixture, zero-turn pass, or reason to weaken isolated-home/auth handling. The orchestrator reverified Claude `loggedIn:true` and Codex ChatGPT login before Draft-23 review, but the implementation worker must repeat the marker-exact A107 preflight in its isolated runner.
+- Managed Codex birth lacks the exact-tuple sealed one-use permit, permits replay/cross-worker launch, or requires a fabricated runtime-session guard before `thread/start` returns.
+- Any observation/start-time check is followed by raw PID/PGID signal without a live pidfd, unreaped Child, or verified confined-cgroup handle.
+- An in-model ordinary/nested/double-fork/fork-storm descendant leaves the worker leaf, or boundary mount/dev/inode/generation/threat-model tag does not match. Intentional same-UID ancestor/sibling migration and broker/SCM_RIGHTS fixtures must be labeled `outside_threat_model`, not required-denial proof or adversarial containment.
+- Cooperative placement is non-atomic, the fresh leaf is not exact domain/empty-subtree with writable kill, clone3 errors are generically retried, `EINVAL` falls back without proving valid args plus unsupported feature, stop/GO was not separately proven, an in-model descendant survives outside the leaf, or `populated 0` is claimed while an in-model host-visible PID remains.
+- `FilteredCgroupHardening` (Claude-only) setup moves the wrapper after cgroup-namespace creation, retains an inherited procfs mount, exposes host proc/alternate cgroupfs/proc-pid-fd authority, leaks a control fd, omits native arch/x32 validation, lets raw `clone3` create a child or return anything except `-1/ENOSYS`, permits namespace/remount syscalls through legacy paths, or tries to recover proof after losing the exact manager fd. Codex being filtered-unavailable is expected and must NOT reduce its cooperative-tier availability.
+- Fence intent is not visible before reader drain, post-intent readers can start external work, a prior operation lacks exact cancellation, or any lifecycle-sensitive attach/resume uses `exec` or releases its guard before supervisor reap/exact custody handoff.
+- The transition-capable child is spawned outside the detached supervisor, caller exit drops child authority, supervisor commands accept raw executable/target authority, a stale operation/claim/fence version signals, supervisor loss adopts/reconstructs a Child/PID, watchdogless supervisor death remains Ready/Active, or pipe/PTY stdin/EOF/output/resize/signal/backpressure/disconnect semantics regress.
+- Health and control connections lack distinct authenticated first frames, health EOF changes custody, more than one control binds, a child spawns before ControlBound, Ready precedes durable listener/socket/watchdog/thread setup, required thread-spawn errors are discarded, or the supervisor does not enter a real new session.
+- A pre-SessionStart unmanaged child cannot be canceled by exact session+binding epoch+operation+version authority, disconnect-vs-Claiming is not one atomic winner, `UnmanagedCanceling` admits new mutation/GC, or an unresolved no-worker operation lacks exact status/reconcile/abandon surfaces.
+- A claim waiting behind `UnmanagedCanceling` is not durably bound to its pending token/tuple, cancellation authority changes merely because custody version advances, a crash loses the waiter, or an exact duplicate returns a different committed result.
+- `turn/start` does not persist pending-send and exact returned id, cancellation guesses latest/thread-only targets, matching terminal evidence is absent, a stale claim/fence epoch emits an RPC, an individual cancellation block exceeds 100 ms, a guard survives the 5s grace, or a live Child is dropped/waited indefinitely instead of remaining owned by the detached supervisor.
+- Admission returns a capability with an independently supplied authority target, fails to bind kind/epoch, or lets an old Unmanaged guard cross Claiming→Managed/Fencing.
+- The source-derived inventory finds an unmapped generic mutator/caller, a rationale-only mutation, a placeholder/name-only behavior row, a mutation-guiding status RPC before admission, or a lower API callable without its matching sealed `ReentryGuard`/`ManagedBirthPermit`/`TurnCancellationPermit`/`FencePermit`.
+- Any Step-3c/4/5/6 Rust target/case is first added after A116/A118/A122/A131, Step 8 retroactively legitimizes a prior zero-test pass, or `ControllerRead|ControllerInjectItems|ControllerStartTurn` are absent from the enum/matrix/post-Step-5 A127/A128 run.
+- Claude first SessionStart or Codex direct app-server claim cannot publish Claiming/increment epoch first, drain older guards, exact-CAS Managed, or reject conflicting/replayed identity/server/controller; duplicate semantics differ from the table; or Codex emits `turn/start` before Active.
+- GC removes or makes unreachable any non-releasable worker, pending claim, pre-binding pending retirement, active operation/custody handoff/supervisor record, session binding, live-referenced terminal receipt, tombstone, fence marker, lifecycle lock, proof, or audit surface.
+- Unmanaged GC deletes any surface before exact `GcDeleting` publication, permits pending/Claiming/admission across that state, rolls back after deletion begins, or cannot idempotently resume an exact `gc_epoch` after crash.
+- `finish_fence` accepts root/process/protocol evidence for a recorded WorkerTree requirement, or any tracked-tree path returns confirmed.
+- A confirmed fence lacks an immutable fence-bound proof record, `Fenced→TerminalRetained` has no idempotent crash-resume path, release accepts a different proof hash, or a setup-time cgroup boundary constructs proof without a same-fence post-kill receipt.
+- Any custody/supervisor/fence action or finish/timeout/reconcile/release/abandon transition omits exact operation+handoff+generation+claim/fence epoch+version validation/CAS, or a stale actor changes newer state.
+- `FenceIntent`, pidfd-exit/owned-child-reap/cgroup proof is caller-constructible or proof-critical cgroup fields are externally mutable without the private matching supervisor constructor.
+- The installed current-Codex adapter constructs `ProtocolTreeProof` or `DurableFlushReceipt`; app-server proof uses live shared/equal scan, `clean {}`, stdio EOF, internal shutdown, freeze, process kill, or unflushed offline artifacts; exact terminal pagination is incomplete; or the 20s deadline expires without `ProtocolIncomplete`.
+- Any protocol proof-critical field is publicly constructible/mutable, omits worker/generation/server/supervisor/fence binding, replays across reconcile, or experimental list/filter methods run without negotiated `experimentalApi=true`.
+- A107 can pass with fabricated booleans, A120 (RunGate A5b) does not run both real runtimes in recorded live capability/delegation context, A121 (RunGate A6) omits Claude timeout/block or Codex pre-Active zero-turn evidence, A123 omits old+new session ordinary-prune/known-corruption/post-installer-pinning rows or relabels deliberate same-UID replace-all as standalone authenticity, A125 (RunGate A7) never starts real writers, or A127 uses a fixed count/placeholder test id.
+- Managed attach performs GC/register/marker/mailbox drain before Claiming publication, waits while holding the global lock, deadline formula exceeds 20s, or global lock timeout is lengthened.
+- Managed Codex uses CLI/TUI fallback, treats a hook-health snapshot as atomic spawn authority, uses the hook-trust bypass in production, fails to join the successful idle `thread/start` response with exactly one matching `thread/started`, emits a first turn before direct Active claim, gives either first-turn hook birth authority, accepts an observable user/model/tool item before the complete same-thread/same-turn hook chain, or runs a hook from a pruned versioned path instead of the valid stable runtime.
+- The committed Codex hook command begins with a versioned plugin executable, old cached command is not executed verbatim after deleting its whole plugin root, stable install does not hold the one unchanged mode-0600 `install.lock` open-file description under kernel `flock` around the complete selection transaction, an installer reads `current` before acquiring, the matrix substitutes sequential calls for overlapping higher/lower installers in both start orders, holder exit does not release to the bounded waiter, concurrent lower install can overwrite higher, or any crash selects mismatched binary/record bytes.
+- A root/launcher symlink, nonregular object, or bad mode already present at its exact shell check is accepted; ordinary prune at a named pre-launch window does not fall through only after the root is observed `! -e && ! -L` or fail visibly; standalone bootstrap claims adversarial same-UID pre-exec cache authenticity; installer validation after native start reopens a source pathname instead of using retained dirfds/fds; selected payload hashing/copying use different fds; post-start rename/recreate barriers mix source generations; the docks-kit proactive path executes before external expected-digest verification; or same-version no-op ignores target/payload/hook identity.
+- Schema fixture bytes contain a raw temp path, depend on temp root/mtime/umask/order, generator and managed server do not use the same retained no-follow native fd, or symlink retarget/path replacement selects different bytes after identity validation.
+- Managed Codex waits for SessionStart during `thread/start`, lets SessionStart create/join the birth claim, sends the first turn before `CodexThreadBirthBarrier` plus durable Active, or accepts a missing/failed/reordered first-turn hook chain; the original caller owns the active app-server transport; later relay invocation cannot issue a typed guarded command; arbitrary JSON/target forwarding exists; or controller/server/caller failure can reconnect/guess instead of typed loss.
+- Unsupported/unknown controller input or custody loss fails to atomically preserve logical loss plus one exact post-loss cleanup record/permit, tries to mint a normal FencePermit after leaving Fencing, accepts replay/stale/cross-loss cleanup, remints after crash, emits bytes after loss, leaves stdio open, omits immediate physical kill/reap when retained authority is live, or lets successful cleanup construct proof/change `FencingUnconfirmed`/release capacity.
+- A supervisor/watchdog failure updates only one of multiple matching operations, rewrites an original typed reason, has no already-UnmanagedCanceling/FencingUnconfirmed/terminal row, or a current terminal report mutates lifecycle/custody.
+- A102 hashes differ before first repair, the first Step-3b edit precedes that gate, Step 1b starts before clean `STEP3B_HEAD`, `wip-snapshot --negative-matrix` is incomplete, the Draft-44 repair fails to preserve the exact eight-event/one-range-receipt prefix, A109 does not run before A107/A108 after migration, the repair lacks a superseding Step-1b A106 from the original base, any step omits A106 after committing, A106 accepts an unowned committed-clean mutation, the external receipt/root-migration chain is missing/forked/reordered, or final A137 accepts dirty/non-current HEAD.
+- The historical fixture has other than 35 A/M regular-100644 rows, collapses a multi-owner path, lacks recursively closed byte-sorted `owners/commits`, or hashes anything other than the specified JCS-minus-own-digest bytes. The future fixture contains a read-only mention, glob/directory, non-A/M/D row, wrong final mode, or unauthenticated historical overlap.
+- A137 uses wildcard/regex/“seen historically”, omits the exhaustive 22-commit mixed-path owner map, permits receipt or root-migration overwrite/fork/reorder, uses a set union/dedup instead of ordered tree-state folding, fails old-state or final `ls-tree` equality, accepts an unallowed path/mode/type/gitlink/oid/status, leaves the stale plan or any `docs/plans/**` delta, ignores runner PID/fd/root/authority lineage, cleans a generation before A138, or fails historical/allowlist/step-ledger/root-ledger/final manifest rehash.
+- A108 omits either half of the joined thread-birth barrier, accepts mismatched/duplicate/non-idle thread evidence, sends any `turn/start` before the explicit prototype Active decision, records other than one harmless post-decision turn, fails to bind its response plus `turn/started` to one thread/turn, observes any user/model/tool item before the exact successful SessionStart→UserPromptSubmit chain, waits without a fixed total app-server close/reap deadline, or leaves the exact child generation. The stable-generation/pointer matrix is absent, nondeterministic, sequential, unlocked, or lacks both overlapping start orders and stale-owner crash recovery.
+- Shared-server loss has neither actionable status/reconcile nor explicit audited abandonment, or abandonment is presented as quiescence.
+- Three attempts repeat the same test/lint failure without a new diagnosis; append `## Mistakes & Dead Ends` and reassess.
+
+## Cold-handoff checklist
+
+1. **File manifest:** present — each step names exact existing/new paths; cited baseline callsites carry checkpoint/path evidence in Sources.
+2. **Environment & commands:** present — receipt-bearing execution plan/blob/base, exact clean Step-3b head, one-time bridge, recursively closed historical/future fixtures, three live schema-v2 predecessors, deterministic coordinator/anchor/noncircular ledger/Active chain, native schema-v3 custodian/bootstrap/layout commands, pre-edit A104 plus superseding post-commit A106 receipts, exact Step-9 publication order, two-parent source integration, deterministic evidence projection/import, four targets, six literal RunGate frames, isolated real-runtime setup/auth STOP, and owner-provisioned delegated Linux prerequisite are explicit. The separate Docks compatibility-policy release is an explicit pre-execution prerequisite rather than an inferred exception.
+3. **Interface & data contracts:** present — byte-sorted multi-owner/JCS historical entries, mutation-only A/M/D future rows, immutable per-step and schema-v3 runner state/attempt receipts, frozen schema-v2 Ed25519 plus literal schema-v3 HMAC authority protocols, closed migration journal and five-generation ledger, stable build/matrix/live parents with per-run scratch, retained fd-relative handles, recursively closed generation/coordinator/layout cleanup journals, authenticated recovery binary, sole crash-durable lifecycle authority plus five explicit live-authority collections, one keyed pre-binding pending-retirement collection, and three terminal collections with repairable legacy projection, immutable Unreserved-or-Charged birth provenance with a bidirectional zero-or-one charge invariant, exact-tuple ManagedBirthPermit, joined `CodexThreadBirthBarrier`, controller-only Active claim, post-Active first-turn hook chain, fixed-deadline app-server and post-loss cleanup, structurally separate bound and pre-binding terminal receipts with exact capacity release and permanent receipt-referencing fences, stable custody versions, executable-bound cgroup receipts, attempt-bound proof, immutable runtime generations, fourteen exact doctor goldens, tombstone GC, and operator APIs are explicit.
+4. **Executable acceptance:** present — the sealed execution catalogue machine-parses the dependency-ordered 82-event schedule, while the canonical A101–A138 completion table separately contains exactly 38 read-only, once-per-review verifiers over Git plus embedded evidence. A108 requires a joined thread-birth barrier, an explicit prototype Active decision, one harmless first turn whose exact successful hook chain precedes every observable user/model/tool item, bounded child cleanup, and a genuinely concurrent stable-generation matrix. A109 validates the 11-phase live migration and exact live snapshot, then runs every injected migration/wire/layout interruption only on fixtures plus native transition/root/attempt negatives and producer-to-rehash integration. Step 8 offline-rehashes the immutable completed RunGate chain plus migration lineage; A137 runs fixture-only negatives before the sole final live authority challenge, and A138 runs its barrier matrix only on fixtures before one real closed cleanup through recovery. Exact Step-9 publication, source-scope equality, two-parent merge ancestry, double projection, and restricted plan import are executable gates rather than prose handoffs.
+5. **Out of scope:** present — fan-out specifics, unsafe raw signaling, adversarial same-UID broker isolation, privileged helpers, arbitrary clients, shared-server kill, binaries/releases, and unrelated changes are excluded.
+6. **Decision rationale:** present — every non-obvious choice is tied to a red-team defect and failure mode.
+7. **Known gotchas:** present — TOCTOU, Unmanaged attach transition, capability substitution, fence epoch, namespace/remount/proc/fd/ABI escape, freeze/unflushed lineage, broker scope, GC, and timing traps are explicit.
+8. **Global constraints verbatim:** present — feasibility-first, no external work under locks, targets, and honest tiering are carried forward.
+9. **No undefined terms / forward refs:** present — every state, scope, guard, proof, receipt, test harness, and structured question is defined; no TODO/TBD remains.
+
+Adversarial cold-read result: Draft 44 preserves the lifecycle/controller/process/proof/installer/platform goal while closing Draft 43's execution-base prerequisite, noncircular migration, native authority, stable-parent, fixture-isolation, recovery-binary, publication-order, ancestry-preserving integration, and exact evidence-import gaps. History retains its exhaustive 22-commit mixed-path owner map; future mutations remain literal and Step 8 remains mutation-empty. Execution stays paused until the related Docks compatibility policy is independently reviewed, released, installed, and this plan carries eligible compatibility evidence plus a fresh ordinary review receipt. A deterministic coordinator anchors the three preserved schema-v2 predecessors and two active native schema-v3 successors; workers reconstruct authority from migration/generation hashes rather than caller paths. Runner attempts share one stable live parent and active receipt generation across retry. Only the existing eight-event/one-range prefix is immutable before sealing; the reviewed Draft-44 catalogue then fixes all 82 occurrences, while completion runs 38 read-only Git-plus-embedded-evidence verifiers in a disposable checkout. A138 preserves deterministic evidence through an exact two-parent source integration, projector/import verification, and plan-only import before `in_review`; source-ready remains distinct from packaged-ready. No cold executor must infer owner attribution, mutation status, attempt prefix, dependency supplier, process ancestry, deadline, migration locator, root/layout cleanup, integration scope, completion evidence, or downstream release readiness.
+
+## Decision log
+
+- **Resolved 2026-07-11** — `threat-model-scope`: owner selected **Option 1, `CooperativeWorkerV1`**. Implementation and acceptance adopt the cooperative model; broker-assisted same-UID evasion is out of scope. See ## Threat model.
+
+- **Resolved 2026-07-11** — `codex-cooperative-cgroup-tier`: the filtered candidate passes Claude but blocks Codex's normal `bwrap` namespace/mount path, so the owner selected **Option A**: a `ConfinedCgroupCooperative` WorkerTree tier for both runtimes and a separate Claude-only `FilteredCgroupHardening` best-effort layer. Primary-source re-review preserves the decision but tightens it: the cooperative proof is gated placement into a fresh domain leaf with empty `cgroup.subtree_control`, retained fd, `cgroup.kill=1`, and `populated=0`; freeze is optional observation. Direct placement classifies `EACCES|EBUSY|EOPNOTSUPP|ENOSYS` plus narrowly validated unsupported-feature `EINVAL` and falls back only to separately proven stop/GO. In-model ordinary/nested descendants must remain in the leaf; intentional same-UID migration/brokers are diagnostic and outside `CooperativeWorkerV1`. Option B and Option C remain rejected.
+
+- **Resolved 2026-07-12** — `codex-managed-boundary`: owner approved replacing managed hook-born Codex CLI with relay-owned dedicated app-server birth. The controller binds the exact `thread/start` id before first `turn/start`; CLI/TUI/third-party fallback is unmanaged and never inherits the guarantee.
+
+- **Resolved 2026-07-12** — `stable-hook-runtime-ownership`: Docks/session-relay owns standalone ordinary-prune durability, corruption checks, and the monotonic post-start installer because plugin operation cannot depend on another repo. Standalone does not claim adversarial cache authenticity. docks-kit may proactively deploy the same interface through its stronger external-digest/direct-native path and expose status, but remains optional rather than the sole runtime owner.
+
+- **Resolved 2026-07-13** — `owner-publication-authorization`: the repository owner explicitly authorized finishing all four ordered release steps, including the non-forced implementation-ref publication, exact-ref build workflow, and release after completion. The canonical `OwnerPublicationAuthorizationV1` is `{"authorization_id":"owner-2026-07-13-four-release-order","decision":"allow","implementation_ref":"refs/heads/codex/primitives-collab","operations":["non_force_push","workflow_dispatch","release_after_completion"],"plan_path":"docs/plans/active/relay-worker-lifecycle-primitives.md","recorded_at":"2026-07-13T06:10:09-03:00","repository":"DocksDocks/docks","schema":1,"source":"repository-owner-current-conversation","source_text_sha256":"2bb31558648994b7d4fbba15abf3ed981c556c91e5ead91712f281d18acbac92"}` with SHA-256 `5845ca800f87cf35becf385318c8ef2d8e04b23eb076d17cc5b8e036d6ba7dc1`. This satisfies the plan's publication gate without another prompt; it does not authorize force, history rewrite, a different ref/repository, or release before completion evidence.
+
+- **Resolved 2026-07-13** — `docks-compatibility-release-authorization`: the same four-step owner instruction separately authorizes the prerequisite Docks-only patch release after the compatibility source plan passes, plus Codex/Claude plugin refresh. `DocksCompatibilityReleaseAuthorizationV1` is `{"authorization_id":"owner-2026-07-13-four-release-order-docks-prerequisite","decision":"allow","operations":["non_force_push_main","docks_patch_release_after_compatibility_completion","codex_plugin_refresh","claude_plugin_refresh"],"plan_path":"docs/plans/active/legacy-start-transition-compatibility.md","recorded_at":"2026-07-13T06:44:36-03:00","repository":"DocksDocks/docks","schema":1,"source":"repository-owner-current-conversation","source_text_sha256":"2bb31558648994b7d4fbba15abf3ed981c556c91e5ead91712f281d18acbac92"}` with SHA-256 `f8f38319a72f258dd66d9b31f620cd13ec1968f1d1d169d94e3ebc6b55dde77a`. It does not authorize force, a Session Relay/Effect Kit release, or release before compatibility completion.
+
+## Self-review
+Review-receipt: {"S":{"raw":{"attempts":[{"child_id":"lifecycle_e_review_s","denial_source":null,"effort":"xhigh","exit_code":0,"model":"gpt-5.6-sol","output_started":true,"reason":"completed","result":"passed","retry_cause":null,"schema":1,"signal":null,"started":true,"stderr_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","stdout_sha256":"019299b16b281a1c72f7095738cef3db00b32cab913a3744998ccfe3a2c64109","timeout_mode":"orchestrator_tool","timeout_seconds":600,"transport":"in_session"}],"decision_evidence":null,"findings":[],"findings_sha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","leg":"S","reason":null,"request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"1c1cb2a06ab1b77826e6ef625e535d8cd77097538c810ea11de48048dcacf740","diff_sha256":null,"execution_base_commit":null,"input_sha256":"53ff352b8d62a18bfcd4eb55391968ccc116f760a36efed26f7ef7e1cb4fdaaf","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"max","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","openai_tiers":[{"effort":"xhigh","model":"gpt-5.6-sol","transports":["in_session","cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"skill_default","cross_company_consent":"current_user","openai_tiers":"skill_default","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":1,"zero_reviewer_policy":"ask"},"policy_sha256":"3c95e5e16578dbf7b675ed6324de50e5cd749744239d2b2bea45603cf766bee1","request_id":"10d7c17f-87a2-4db1-be5f-2c0cf6e8a362","reviewed_commit_or_head":"9797e0e454d6f67205a2c01be6c493367a4ac871","schema":1},"result":"passed","reviewer_output":{"confirmations":["The embedded historical transition is reviewable and internally coherent: the fenced diff hashes exactly to transition_diff_sha256 2b89e2b141007fb94dfc6bc23da90300a81ec44dc8b7a87cab869229606cfce1, and its parent/base blob identities agree with Compatibility-review-material and the compatibility receipt.","The Execution-base-compatibility-receipt is acceptable evidence for the legacy start exception: its JCS self-hash recomputes to receipt_sha256 929aea4ca622f7f8a814f58803e4f55db1bd34887064e1a7031bd7b9a444ae54, all shared material fields agree, and the receipt explicitly binds the abbreviated legacy planned-at value, full replacement identity, owner authorization, changed-section hashes, and protected-section commitment.","Step P is now executable and internally consistent: it releases and refreshes only Docks under the recorded authorization, uses the released compatibility-evidence, compatibility-binding, compatibility-prerequisite, and execution-range constructors, restricts E/R/B/Q/F to plan-only deltas, and requires a final findings-free review of Q before F becomes dispatch authority.","The compatibility prerequisite remains fail-closed: implementation cannot resume until the compatibility plan is archived, the Docks release and both runtime caches are verified, the contiguous E/R/B/Q/F chain is validated, Step P is done, and both installed helpers emit byte-identical execution-range validation.","The execution and completion accounting is closed: AcceptanceEventScheduleV1 contains exactly 82 chronological events, its per-criterion occurrence counts exactly match all 38 A101-A138 completion rows, and Step P correctly contributes neither an implementation-range receipt nor an acceptance event.","The source-ready handoff is separated from packaged readiness and has an executable ancestry-preserving path through exact publication, two-parent integration, deterministic evidence projection/import, read-only completion verification, and explicit packaged_ready=false and fanout_unblock=false outcomes."],"score":96,"structured_output_sha256":"e67ad7af387c0f3167687a0a20ce958c7557b80b8cdb5746a3c4d2565f105359","verdict":"ready"},"schema":1,"selected":{"effort":"xhigh","model":"gpt-5.6-sol","transport":"in_session"},"severity_totals":{"high":0,"low":0,"medium":0},"waiver":null,"waiver_sha256":null},"reconciliation":{"accepted":[],"rejected":[]},"request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"1c1cb2a06ab1b77826e6ef625e535d8cd77097538c810ea11de48048dcacf740","diff_sha256":null,"execution_base_commit":null,"input_sha256":"53ff352b8d62a18bfcd4eb55391968ccc116f760a36efed26f7ef7e1cb4fdaaf","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"max","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","openai_tiers":[{"effort":"xhigh","model":"gpt-5.6-sol","transports":["in_session","cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"skill_default","cross_company_consent":"current_user","openai_tiers":"skill_default","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":1,"zero_reviewer_policy":"ask"},"policy_sha256":"3c95e5e16578dbf7b675ed6324de50e5cd749744239d2b2bea45603cf766bee1","request_id":"10d7c17f-87a2-4db1-be5f-2c0cf6e8a362","reviewed_commit_or_head":"9797e0e454d6f67205a2c01be6c493367a4ac871","schema":1}},"X":{"raw":{"attempts":[],"decision_evidence":null,"findings":[],"findings_sha256":null,"leg":"X","reason":"Claude authentication preflight reported loggedIn=false; no reviewer process was launched.","request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"1c1cb2a06ab1b77826e6ef625e535d8cd77097538c810ea11de48048dcacf740","diff_sha256":null,"execution_base_commit":null,"input_sha256":"53ff352b8d62a18bfcd4eb55391968ccc116f760a36efed26f7ef7e1cb4fdaaf","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"max","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","openai_tiers":[{"effort":"xhigh","model":"gpt-5.6-sol","transports":["in_session","cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"skill_default","cross_company_consent":"current_user","openai_tiers":"skill_default","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":1,"zero_reviewer_policy":"ask"},"policy_sha256":"3c95e5e16578dbf7b675ed6324de50e5cd749744239d2b2bea45603cf766bee1","request_id":"10d7c17f-87a2-4db1-be5f-2c0cf6e8a362","reviewed_commit_or_head":"9797e0e454d6f67205a2c01be6c493367a4ac871","schema":1},"result":"unavailable_auth","reviewer_output":null,"schema":1,"selected":null,"severity_totals":{"high":0,"low":0,"medium":0},"waiver":null,"waiver_sha256":null},"reconciliation":{"accepted":[],"rejected":[]},"request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"1c1cb2a06ab1b77826e6ef625e535d8cd77097538c810ea11de48048dcacf740","diff_sha256":null,"execution_base_commit":null,"input_sha256":"53ff352b8d62a18bfcd4eb55391968ccc116f760a36efed26f7ef7e1cb4fdaaf","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"max","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","openai_tiers":[{"effort":"xhigh","model":"gpt-5.6-sol","transports":["in_session","cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"skill_default","cross_company_consent":"current_user","openai_tiers":"skill_default","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":1,"zero_reviewer_policy":"ask"},"policy_sha256":"3c95e5e16578dbf7b675ed6324de50e5cd749744239d2b2bea45603cf766bee1","request_id":"10d7c17f-87a2-4db1-be5f-2c0cf6e8a362","reviewed_commit_or_head":"9797e0e454d6f67205a2c01be6c493367a4ac871","schema":1}},"author":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"decision_evidence":null,"input_sha256":"53ff352b8d62a18bfcd4eb55391968ccc116f760a36efed26f7ef7e1cb4fdaaf","outcome":"single","phase":"draft","policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"max","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","openai_tiers":[{"effort":"xhigh","model":"gpt-5.6-sol","transports":["in_session","cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"skill_default","cross_company_consent":"current_user","openai_tiers":"skill_default","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":1,"zero_reviewer_policy":"ask"},"policy_sha256":"3c95e5e16578dbf7b675ed6324de50e5cd749744239d2b2bea45603cf766bee1","pre_execution_eligible":true,"reproduced":[],"request":{"acceptance_inventory_sha256":null,"author":{"company":"openai","effort":"xhigh","model":"gpt-5.6-sol","tool":"codex"},"bundle_sha256":"1c1cb2a06ab1b77826e6ef625e535d8cd77097538c810ea11de48048dcacf740","diff_sha256":null,"execution_base_commit":null,"input_sha256":"53ff352b8d62a18bfcd4eb55391968ccc116f760a36efed26f7ef7e1cb4fdaaf","lifecycle_intent":"none","phase":"draft","planned_at_commit":null,"policy":{"anthropic_tiers":[{"effort":"high","model":"fable","transports":["in_session","cli"]},{"effort":"max","model":"opus","transports":["in_session","cli"]}],"cross_company_consent":"always","openai_tiers":[{"effort":"xhigh","model":"gpt-5.6-sol","transports":["in_session","cli"]}],"orchestrator_preference":"auto","provenance":{"anthropic_tiers":"skill_default","cross_company_consent":"current_user","openai_tiers":"skill_default","orchestrator_preference":"skill_default","zero_reviewer_policy":"skill_default"},"schema":1,"zero_reviewer_policy":"ask"},"policy_sha256":"3c95e5e16578dbf7b675ed6324de50e5cd749744239d2b2bea45603cf766bee1","request_id":"10d7c17f-87a2-4db1-be5f-2c0cf6e8a362","reviewed_commit_or_head":"9797e0e454d6f67205a2c01be6c493367a4ac871","schema":1},"reviewed_at":"2026-07-14T01:15:50-03:00","reviewed_commit":"9797e0e454d6f67205a2c01be6c493367a4ac871","schema":1}
+
+**Draft-45 prerequisite-constructor alignment (2026-07-13T09:13:40-03:00):** an exact-pair cold review found Step P still instructed plan-manager to hand-author the pre-observation `DocksCompatibilityPrerequisiteReceiptV1`, conflicting with the compatibility plan's new released constructor and mandatory observation object. This repair changes only `updated`, this Self-review entry, and the Step-P procedure prose: after B it invokes `compatibility-prerequisite` with exact finished/release/E/R/B/authorization arguments and applies only the validated application Markdown as Q. The pending-marker sentence and the unique Step-P row remain byte-identical, so their compatibility-plan SHA-256 literals and Q delta remain valid. Goal, deliverable, completed prefix, 38 criteria, 82 events, implementation mutation set, and E/R/B/Q/F ownership are unchanged; implementation remains paused.
+
+**Draft-44 final cold-handoff closure (2026-07-13T07:02:40-03:00):** three fresh independent read-only reviewers returned NOT READY on the exact prior bytes, and the orchestrator reproduced every accepted finding. The compatibility plan's R apply omitted mandatory canonical attribution; H→C reuse ignored deterministic Review-block replacement; B had no production constructor or receipt-hash preimage; eligibility confused `single` with degraded; the strict differential corpus and committed-scope proof were underclosed; binding-bearing B lacked a final review; Step P had no executable release/install/E-R-B-Q-F handoff or separately bound Docks-release authority; and A138 performed quarantine/recovery/matrix effects before its first durable phase while leaving cleanup id, coordinator snapshot, live-snapshot selection, and marker bytes undefined. Repairs keep the Goal, source-versus-packaged boundary, completed prefix, 38 criteria, 82 events, and implementation mutation set. They add exact E/R/B/Q/F review/attribution semantics and Step-P commands, separate Docks authorization, a 23-case strict corpus and per-commit scope, honest frozen-legacy wire behavior, deterministic A138 BootstrapIntent plus four pre-cleanup closure phases, exact marker/recovery/coordinator/live-snapshot producers, resumable per-case fixture journals, and a 29-case source-ready inventory. No implementation event has resumed; fresh exact-byte review must still pass.
+
+**Draft-44 migration/integration and lifecycle-policy closure (2026-07-13T06:44:36-03:00):** three independent read-only Draft-43 reviewers all returned NOT READY, and the orchestrator reproduced their blocking claims. The generic completion validator rejects historical `execution_base_commit=de925e9bc046645a72f59bcd493da44d53adaf5a` because that pre-policy plan-only start also resolved one already-present owner question and its historical `planned_at_commit` identity was abbreviated; changing the SHA cannot repair committed history. Execution therefore remains paused behind the separately scoped `legacy-start-transition-compatibility` Docks policy plan, patch release, installed validator, exact E/R/B compatibility chain, and fresh ordinary review. The other accepted defects were a circular/underspecified migration ledger, `.lock`-only recovery omission, undefined native successor-custodian lifecycle and wire framing, live-state mutation by negative matrices, retry dependence on a deleted runner path, unstable runner parents, mismatched schema-v2/v3 shutdown, contradictory installer locking, underclosed cleanup journals, Step-9 A135 before commit/publication, and non-exact integration/evidence import. Draft 44 keeps the Goal, deliverable, step rows, 38 criteria, 82 occurrences, existing eight-event/one-range prefix, future mutation ownership, and source-versus-packaged boundary. It adds both literal wire protocol hashes and the schema-selected shutdown mapping, 11-phase noncircular migration, native persistent schema-v3 custodians, stable layout parents, fixture-only matrices with live snapshot equality, closed Step-8/source-ready result receipts, recovery-binary execution, recursively closed cleanup journals, fixed-file `flock` installer arbitration, corrected Step-9 order, exact two-parent source integration, deterministic double-projected restricted evidence import, and the already-recorded publication authorization without a duplicate prompt. Primary Linux API research confirmed abstract Unix address length/lifetime, `flock` open-description lifetime, same-filesystem no-replace rename, and retained-fd `execveat(AT_EMPTY_PATH)`. Fresh formal X/S review is deferred until the compatibility policy is released and its evidence is bound; no Draft-43 receipt may resume implementation.
+
+**Draft-43 completion/migration closure (2026-07-13T05:01:02-03:00):** three fresh read-only Draft-42 reviewers and the orchestrator independently reproduced twelve buildable defects without changing the Goal or deliverable. The generic completion contract would rerun historical/one-shot commands; A133 mixed offline verification with live authority contact; migration had no durable discoverable coordinator; A108 lacked literal deadlines; the schema-v2→v3 transaction omitted exact closed schemas and singleton arbitration; the producer was not bound to the active v3 lineage; runner attempt/state shapes omitted manifest/cleanup discriminators; retry could create unbounded receipt generations; A138 lacked intent-before-effect; cleanup lacked retained parent-fd/basename authority; A109's bootstrap/layout commands were undefined; and stable-install lock timing/recovery was underspecified. Draft 43 splits the immutable 82-event execution catalogue from 38 deterministic read-only completion verifiers, carries a closed execution-evidence object through source integration, and imports one plan-embedded completion object before `in_review`. It defines the literal protocol hash, deterministic coordinator, exact anchor/intent/generation/ledger/phase objects, two-successor migration, active-root producer binding, fixed deadlines, closed runner receipts, one active retry generation, retained fd-relative cleanup, exact bootstrap/layout commands, durable cleanup intents, and separate root-generation plus runner-layout cleanup hashes. A138 reconstructs final scope from plan blob+tip rather than inherited shell state. The completed historical prefix, future mutation grammar, step order, A101–A138 identities, 82 occurrences, and source-versus-packaged boundary remain unchanged. Fresh sealed OpenAI same-company and Anthropic other-company plan-review legs are required before execution resumes; any older receipt is superseded.
+
+**Draft-42 Step-1b implementation-review remodel (2026-07-13T03:18:00-03:00):** two fresh read-only implementation reviewers and the orchestrator independently reproduced eight defects at clean `22b754ad`: completion could follow a silent adopted-descendant wait deadline; native roots retained only paths and used substring sentinel checks/path cleanup; A108 shutdown was unbounded; the stable-generation “race” was sequential and selection unlocked; several A109 negatives modeled states instead of exercising transitions; the live producer could not emit the artifact/manifest/cleanup chain A133/A137 consume; the supplier scanner ignored standard-library OS operations; and whole-helper source equality invalidated both root classes without migration or complete final cleanup. The `/tmpfoo` subclaim attached to the root finding was rejected because official Rust documentation confirms `Path::starts_with` matches whole components; the fd-relative root defect remains. Draft 42 keeps the Goal, deliverable, completed historical receipts, future mutation paths, canonical A101–A138 inventory, 82 occurrences, and source-versus-packaged boundary. It reorders only the unexecuted Step-1b suffix to A109→A107→A108→A106, defines a one-time exact schema-v2→schema-v3 root lineage for the live preserved roots, makes protocol compatibility independent of unrelated helper edits, requires retained root handles/exact descendant drain/real transition negatives/complete supplier coverage/durable producer artifacts, bounds A108 cleanup, requires genuinely concurrent generation selection, and extends A133/A137/A138 through final cleanup of two step and three runner generations plus authorities. All three preserved authority pins were independently re-challenged immediately before authoring and remained live; no A107+ event, A106 supersession, merge, push, or release occurred. Author company is now OpenAI because this remodel is authored in Codex; standing cross-company consent applies, so fresh sealed OpenAI and Anthropic findings-only legs are required without prompting before implementation resumes. The prior Draft-41 receipt is superseded and must be replaced by one current schema-v1 receipt over the exact Draft-42 plan commit/blob.
+
+**Draft-41 immutable birth-capacity provenance closure (2026-07-13T01:41:30-03:00):** the exact sealed Draft-40 OpenAI X leg scored 88 NOT READY with one high finding, X1; direct reproduction accepted it. The plan allowed `capacity_charge_id=None` only for a durably unreserved generation but no worker, pending, birth-permit, or retirement record represented that provenance, so a missing charge was indistinguishable from Unreserved and duplicate charges were representable. Draft 41 adds immutable `WorkerCapacityReservation::Unreserved|Charged {charge_id}` at worker birth, copies it through pending/waiting/birth/retirement authority, requires a bidirectional exact zero-or-one charge relation, and carries it in both terminal receipt families. `none` is valid only for Unreserved; Charged requires the sole exact charge/version through terminal CAS, while the permanent fence→receipt preserves provenance after joint GC removes heavy worker/charge records. A bounded check confirmed the data-model repair and caught one placement error before sealing: new birth assertions cannot retroactively expand historical A114, so that row remains unchanged and future Step-5 A122 owns them. A113/A122/A129/A130 execute valid reload, birth, loss/reload, bound/pre-binding terminal, GC, deletion/duplication/cross-worker/reuse, and None/Some substitution rows. The sealed Draft-40 Claude S call preflighted logged-in but returned HTTP 401 before any model token and supplied no finding. Goal, step order, mutation table, acceptance schedule, and source-versus-packaged release boundary are unchanged. A fresh sealed review must replace the superseded receipt before Step 1b resumes.
+
+**Draft-40 symmetric pre-binding proved-release closure (2026-07-13T01:21:51-03:00):** the bounded read-only check of Draft 39 confirmed its pending-retirement and fence-reference repair, then exposed one directly adjacent high gap that direct reproduction accepted: retained-custody pre-binding loss may complete `Attaching→Fencing→Fenced→TerminalRetained`, but only the unproved abandonment path could consume its pending retirement or release capacity. Draft 40 adds `PreBindingTerminalOutcome::ProvedReleased`, structurally exclusive proof versus acknowledgement/not-quiescence receipt fields, exact `release-prebinding` CLI selectors, and the same authority-generation retirement/charge/receipt/fence transaction without inventing a session binding. A129/A130 cover reserved/unreserved proved and risk outcomes, proof mismatch, crash/reload/retry, one-winner races, permanent receipt/fence retention, and GC. The Draft-38 sealed Claude S attempt remained HTTP 401 before any model token and supplied no finding. Goal, step order, mutation table, acceptance schedule, and source-versus-packaged release boundary are unchanged. A fresh sealed review must replace the superseded receipt before Step 1b resumes.
+
+**Draft-39 pending-retirement and receipt-reference closure (2026-07-13T01:14:13-03:00):** the exact sealed Draft-38 OpenAI X leg scored 86 NOT READY with one high finding, X1; direct reproduction accepted both halves. The plan required a consumed/refused pending record after pre-binding loss but defined neither a terminal pending variant nor a durable location, and GC deleted the receipt still named by a permanent fence despite the global no-dangling-live-reference rule. Draft 39 adds the canonical `prebinding_pending_retirements[worker_id/generation]` map and closed `PendingAttach→PreBindingPendingRetirement→PreBindingTerminalReceipt` lifecycle, exact token-hash/version/birth-operation selectors, crash/reload/idempotency rules, and a literal CLI retirement-version selector. Both terminal receipt families now remain permanently keyed while GC removes only heavy worker/charge/retired-authority records; fence receipt hashes are live references, whereas explicitly named retired-source hashes are non-dereferencing historical commitments verified at creation and reload. A113/A122/A129/A130 cover migration, crash between loss and abandonment, wrong selectors, terminal consumption, post-GC reload, receipt deletion/substitution, and dangling-reference negatives. The Claude S attempt for the sealed Draft-38 input returned HTTP 401 before any model token and supplied no finding. Goal, step order, mutation table, acceptance schedule, and source-versus-packaged release boundary are unchanged. A fresh sealed review must replace the superseded receipt before Step 1b resumes.
+
+**Draft-38 pre-binding terminal closure (2026-07-13T00:52:59-03:00):** the exact final Draft-37 sealed OpenAI X leg scored 88 NOT READY with one high finding, X1; direct reproduction accepted it. A worker may reach worker-only `FencingUnconfirmed` before acquiring any owned runtime-session binding, while the prior terminal receipt and CLI required non-optional session/binding selectors. Draft 38 adds a structurally separate `PreBindingTerminalReceipt`, exact `abandon-prebinding` transaction/command, optional-charge release only in that same authority generation, crash-resumable `PreBindingGcDeleting`, and permanent `WorkerGenerationFence`. Claim versus abandonment and GC versus stale actors have one winner; absent/foreign session bindings remain byte-identical; no sentinel session string is permitted. A113/A122/A128/A129/A130 now execute migration, persistence, refusal, terminalization, crash/race, reserved/unreserved capacity, and GC coverage. The Claude S attempt for the sealed Draft-37 input returned HTTP 401 before any model token and supplied no finding. Goal, step order, mutation table, acceptance schedule, and source-versus-packaged release boundary are unchanged. A fresh sealed review must replace the superseded receipt before Step 1b resumes.
+
+**Draft-37 current-Codex ordering remodel (2026-07-13T00:37:36-03:00):** execution reached a plan-mandated STOP at A108 because installed Codex `0.144.1` does not run SessionStart during `thread/start`. Official app-server documentation describes `thread/start`/`thread/started` and lifecycle-hook events but promises no pre-response hook order. Two independent isolated-home first-turn observations used the exact enabled/trusted Session Relay hooks and `experimentalApi:true`: worker timeline `2135d85bbd186c261d850b6cd5a7fb223c9eb7de146fd9034e46ed8a13972f4f` and orchestrator timeline `0e4f48d6beb0e33016206cf7870263636b451f6a52a71435a12278861dba70f4`. Both saw an idle `thread/start` response with no hook event, then on the single first turn saw successful same-thread/same-turn SessionStart followed by UserPromptSubmit before the first user/model item. A third isolated observation withheld every `turn/start` byte for five seconds: the idle response was followed 2 ms later by matching idle `thread/started`; its timeline hash is `bcf8ed2924922184fa160e903a2615ca5e2c2e204bede628e312316e750293d0` and artifact hash is `416ca9c1a84af8d33a7c40b6303368fe079b7144d5a0112cf6349344ae6e73c8`. The controller can therefore join both birth halves before Active without a first-turn cycle. Draft 37 preserves the Goal, controller-only claim, zero pre-Active turn/model/tool bytes, custody/loss rules, step order, mutation table, event schedule, and release boundary; it replaces only the unbuildable pre-response hook assumption with `CodexThreadBirthBarrier → durable Active → first turn → exact pre-item hook chain`. The user explicitly selected this remodel after the STOP. The prior Draft-36 receipt below is superseded for execution and cannot authorize resumption; the finalized Draft-37 receipt must replace it before Step 1b resumes.
+
+Author self-score: **99/100 (Draft-45 prerequisite-constructor alignment, blocked on exact-byte review and Step P)** · trajectory **97→fresh reviews NOT READY→99** · stopped: **plateau (K=3)**. Execution eligibility requires the released validator, exact E/R/B/Q/F chain, and F commit/blob as sole dispatch authority.
+
+**Draft-34 bounded repair (2026-07-12T16:41:50-03:00):** the exact sealed Draft-33 X leg scored 87 NOT READY with one high finding; direct reproduction accepted it. The quarantine retained its sentinel and progress receipts yet later required a literally empty directory, leaving final-file-unlink before rmdir unauthenticated across crash. Draft-34 moves every progress receipt outside quarantine, defines CleanupComplete as sentinel-only, and adds `RemovalPrepared→SentinelRemoved→QuarantineRemoved`. RemovalPrepared binds the final sentinel plus exact directory/parent identity; retry after sentinel unlink accepts only that same fixed path as a literally empty exact dev/inode/owner/mode directory; SentinelRemoved alone authorizes rmdir, and QuarantineRemoved alone permits event 82. The ninth crash barrier targets final-sentinel-unlink before rmdir. Goal/deliverable/completed receipts/step order remain byte-unchanged.
+
+**Draft-35 bounded execution-blocker repair (2026-07-12):** Step-1b implementation and two independent read-only reviews proved that the sealed Draft-34 future-fixture contract could not mechanically derive exact mutation rows: `final_mode` had no rule, Step 3c's unscoped `read-only` preceded required/new mutations, Step 8 used forbidden shorthand, and compile-fixture lockfiles were undecided. This repair adds one normative per-item grammar, fixes Step 3c's path-local read-only annotations, declares Step-3c/4/6 fixture locks read-only while their manifests mutate, expands every Step-8 path, fixes every future mode to non-executable `100644`, and requires projected-state parsing from the pinned plan blob. Goal, deliverables, completed historical receipts, acceptance schedule, step order, runtime design, and release contract remain byte-unchanged.
+
+**Draft-36 bounded parser-closure repair (2026-07-12):** the sealed Draft-35 X leg scored 82 NOT READY with three high findings; direct reproduction accepted all three. The direct Claude Fable/high S leg timed out after 600 seconds with no output, so it supplied no finding and cannot override X. Step 1b now names both production Cargo files as separate literal repo-root paths with path-local read-only annotations; Step 4/5 remove punctuation from the recognized `modify` token; Step 3d replaces the pipe-delimited code span with three separate code spans so every Steps row has exactly six Markdown columns. Parser negatives must reject shorthand, annotation carry-forward, unknown/punctuated tokens, and malformed column counts. Goal, deliverables, completed historical receipts, acceptance schedule, step order, runtime design, mutation classification, and release contract remain byte-unchanged.
+
+**Draft-33 bounded repair (2026-07-12T16:32:23-03:00):** the exact sealed Draft-32 X leg scored 87 NOT READY with one high finding; direct reproduction accepted it. CleanupComplete previously permitted event 82 and summary before the empty quarantine directory was removed, so a persistent removal failure could leave durable success evidence without A138 PASS. Draft-33 inserts `RemovalPrepared→QuarantineRemoved` before event 82. RemovalPrepared binds and authorizes idempotent removal plus parent fsync; a crash after removal is recognized only from that exact phase and cleanup chain. Event 82, the 38-row summary, completion evidence, and source-ready all require QuarantineRemoved; A138 PASS additionally requires Finalized and continued absence of both paths. The crash matrix adds immediately-before/after-removal barriers and forbids any met/summary artifact while either path exists. Goal/deliverable/completed receipts/step order remain byte-unchanged.
+
+**Draft-32 bounded repair (2026-07-12T16:22:45-03:00):** the exact sealed Draft-31 X leg scored 87 NOT READY with one high finding; direct reproduction accepted it. A crash immediately after pending fsync but before cleanup left the original root present, while the binary pending/no-pending branch could falsely continue to event 82. Draft-32 replaces that boolean with an append-only six-phase receipt chain: `Prepared→Quarantined→CleanupComplete→Event82Written→SummaryPublished→Finalized`. The same A138 entrypoint validates once, atomically renames the same-device root to a fixed identity-checked quarantine, resumes fd-relative manifest-driven deletion across crashes, and cannot write event 82 until an empty verified quarantine produces durable cleanup evidence. Its crash matrix covers after Prepared, after rename, during deletion, after cleanup, after event 82, and after summary; every retry must finish with identical hashes and both original/quarantine paths absent. Goal/deliverable/completed receipts/step order remain byte-unchanged.
+
+**Draft-31 bounded repair (2026-07-12T16:13:35-03:00):** the exact sealed Draft-30 X leg scored 87 NOT READY with one high finding; direct reproduction accepted it. Although surviving bytes were sufficient, retrying A138's shell chain still failed on its initial deleted `STEP8_REHASH_RECEIPT` test before reaching resume logic. Draft-31 replaces that chain with one literal `--run-a138` entrypoint that checks the exact pending record before any runner-root test/open/verifier. The fresh branch performs every root-dependent positive/negative/source-ready check and fsyncs their hashes into pending before cleanup; the matching resume branch skips them and uses only final-scope snapshot, prefix, pending, terminal-event state, and summary path. A preceding synthetic `--a138-crash-matrix` invokes that same entrypoint after cleanup and after event 82, requiring byte-identical output and zero deleted-root access. Goal/deliverable/completed receipts/step order remain byte-unchanged.
+
+**Draft-30 bounded repair (2026-07-12T16:04:46-03:00):** the exact sealed Draft-29 X leg scored 84 NOT READY with one high finding; direct reproduction accepted it. A137's prefix previously retained only hashes, so a crash after A138 deleted events 1–80 but before summary publication could authenticate yet not reconstruct their bytes. Draft-30 makes A137 fsync and re-read a byte-complete ordered `AcceptancePrefixSnapshot` containing events 1–81 and partial A101–A137 summaries before it emits a digest-bound prefix. A138 binds the snapshot digest in its pending intent and reconstructs the final 38 summaries solely from that surviving snapshot plus cleanup-bound event 82. Explicit crash barriers immediately after cleanup and after event 82/before summary must resume byte-identically without reading the deleted root. Goal/deliverable/completed receipts/step order remain byte-unchanged.
+
+**Draft-29 bounded repair (2026-07-12T15:55:18-03:00):** the exact sealed Draft-28 X leg scored 86 NOT READY with one high finding; direct reproduction accepted it. Canonical A101–A138 were incorrectly described as chronological execution order even though the fixed dependency graph intentionally runs higher IDs before lower IDs and reruns A104/A106/A127/A128/A131 plus the Step-8 repeat set. Draft-29 preserves every step and RunGate but defines one closed 82-occurrence `AcceptanceEventScheduleV1`, append-only unique event receipts in dependency order, and deterministic aggregation into exactly 38 criterion-summary hashes in inventory order. A109 statically validates the map; Step 9 now explicitly commits and records A106 before final A137/A138; A137 seals event 81/prefix only after its checks; A138 crash-durably binds cleanup into event 82 and the final summary before source-ready projection. Missing/extra/reordered/forked occurrences and latest-result selection fail. The still-running Anthropic Fable/high leg was dispatched on the rejected sealed input and cannot make Draft-29 current. Goal/deliverable/completed receipts/step order remain byte-unchanged.
+
+**Draft-28 bounded repair (2026-07-12T15:29:23-03:00):** the exact sealed Draft-27 X leg scored 82 NOT READY with two findings; direct reproduction accepted both. X1 found that canonical A1–A38 collided with numeric-looking legacy labels and left remote CI, Step 9, Step 8, and completion ranges ambiguous. Draft-28 moves canonical IDs to the disjoint A101–A138 range, translates executable Environment/Steps/Interfaces/acceptance/STOP/handoff prose, preserves six explicitly named RunGates with a closed mapping, and adds a static A109 mapping check; historical labels remain only in the descriptive column and Self-review history. X2 found that `source_ready` named no durable receipt authority. Draft-28 binds the immutable schema-v1 `Completion-review-receipt:` line at the exact date-prefixed archive path returned by ship, defines a closed deterministic `SourceReadyHandoffReceipt` projection and exact post-completion command, adds wrong-prefix/path/date/commit negatives to A138's synthetic derivation matrix, and requires the later packaged receipt to carry the source-ready hash. The Anthropic Fable/high leg timed out at 600 seconds without a verdict; because X already rejected this sealed draft, no fallback result is relabeled green. Goal/deliverable/completed receipts/step order remain byte-unchanged.
+
+**Draft-27 bounded repair (2026-07-12T15:05:43-03:00):** the second final-diff audit accepted Draft-26's receipt/command semantics but found A18a outside the Markdown acceptance table and ordered after A18's final runner-receipt cleanup. The finding is accepted. Draft-27 keeps A18a contiguous in the canonical table, makes Step 9 explicitly require A15–A18a, has A18 validate final scope with runner-receipt cleanup deferred, and has A18a consume plus mutation-test the rehash receipt before the sole sentinel-bound final cleanup. Step-8 head is derived from its empty A0d receipt and checked as an ancestor of final tip; no later environment variable is trusted. The legacy completion table is also migrated to current schema: canonical numeric IDs A1–A38, exact `Expected` header, escaped internal pipes, and a separate unique Legacy-label column preserve every protocol/gate name. The final fresh-context audit returned READY, independently parsed all 38 rows, and found no circular dependency or new contradiction. Goal/deliverable/completed receipts/order remain byte-unchanged.
+
+**Draft-26 bounded repair (2026-07-12T14:52:15-03:00):** a fresh-context final-diff audit accepted Draft-25's durable-map and cleanup-recovery closures but found Step 8's replacement rehash path remained prose-only: no closed receipt, literal command, actual A1e negative invocation, or explicit final-scope consumer. The finding is accepted. Draft-26 defines the fsync-durable closed `LiveEvidenceRehashReceipt` at the exact sentinel-bound path, adds A1e-custodian-matrix's literal mutation matrix, A14r's exact emit+verify command and outputs, and A18a's independent final-scope binding plus negatives. Step 8 runs only the closed repeatable set, A14r, then empty-range A0d; Step 9 runs A15–A18a. No live gate, capability, runtime, auth, cgroup, or process handle is reopened, and Goal/deliverable/completed receipts/order remain byte-unchanged.
+
+**Draft-25 bounded repair (2026-07-12T14:37:52-03:00):** exact sealed Draft-24 bundle `c287be60ee87cf68f2c0636c9d5261f937011eae90931ac66fee796f1860c019` received X score 84 NOT READY with three findings; an independent fresh-context reproduction accepted X1–X3 and confirmed none makes the Goal/deliverable unbuildable. X1 is closed by five explicit canonical authority maps with same-generation cross-reference, migration, terminal-retirement, GC, and old-writer invariants. X2 is closed by one boot-bound fixed cleanup deadline plus effect-free exact-CAS recovery for permit-delivery-crashed Pending and healthy-but-stalled Running, with late authority/results unable to act or release capacity. X3 is closed by an explicit repeatable Step-8 set and validation-only offline rehash of the immutable completed A1c→A7 chain; completed capability replay remains forbidden. Anthropic Fable/high and Opus/max direct CLI attempts each timed out at 600 seconds without schema-valid output and are recorded unavailable, never green. Existing completed step receipts, statuses, dependency order, Goal, deliverable, and mutation ownership remain unchanged; implementation resumes only after a fresh sealed review returns eligible READY evidence.
+
+Cross-check (2026-07-12): [X: openai gpt-5.6-sol xhigh] accepted X1 missing closed durable collections, X2 unrecoverable Pending/healthy-stalled Running windows, X3 impossible Step-8 one-shot replay; [S: anthropic fable high then opus max] both timed out/unavailable with no verdict; [gpt-5.6-sol orchestrator + fresh-context reproducer] independently accepted all three against the exact sealed bundle and separately reviewed the bounded repair design.
+
+**Draft-24 bounded repair (2026-07-12T13:53:50-03:00):** the sealed Draft-23 X/S pair both returned NOT READY. All nine findings are accepted after independent reproduction; S3's claim about missing dependencies and S4's claim that `InitialTurn` was implementation-orphaned were corrected against exact `STEP3B_HEAD`, while their cold-handoff mapping gaps remain accepted. Draft-24 moves lifecycle authority out of the old-writable registry into crash-durable `lifecycle-v1.json`, adds an exact 0.10.0 mixed-writer matrix, defines one joint worker/binding/retired-authority/receipt/capacity terminal CAS plus permanent terminal fence, and makes source-ready distinct from immutable packaged-ready/fanout unblock. It closes duplicate A/M ownership, fresh-custodian prefix reconstruction and attempt receipts, exact Cargo hashes/syscall suppliers, unmanaged `InitialTurn` versus managed `ControllerStartTurn`, A4's local/non-gate identity, and the fourteenth `previous_retained` golden. Existing completed step receipts and canonical future order remain unchanged; implementation resumes only after a fresh sealed review returns READY.
+
+Cross-check (2026-07-12): [X: openai gpt-5.6-sol xhigh] 3 findings — accepted X1,X2,X3 / rejected none; [S: anthropic fable high] 6 findings — accepted S1,S2,S3,S4,S5,S6 / rejected none (S3/S4 factual premises corrected against `2a864e9`, repair retained); [gpt-5.6-sol orchestrator] independently reproduced every id against sealed input and exact implementation head before accepting.
+
+**Draft-23 bounded repair (2026-07-12T12:55:36-03:00):** two fresh-context `gpt-5.6-sol` reviews independently reproduced nine Draft-22 defects and rejected execution. All are accepted. Draft-23 makes the native binary—not Node—the A1e root; separates immutable build from matrix/live/receipt scratch; retains verified self bytes for `execveat`; makes the foreground custodian an ancestor subreaper; adds credentialed `DriverArm→Ack→GO` before OPEN and exact reap acknowledgement after COMMIT; closes packet/fd/result bounds; and makes A1e synthetic/auth-free. It replaces authored historical ownership with an exhaustive 22-commit first-parent map including mixed `cdc70f0`/`701cea7`, makes Step 8 read-only, uses append-only superseding receipts, sentinel-binds every temp root, and replaces A18's invalid set union with ordered tree-state folding plus exact Git/tree equality. It also migrates legacy author/execution-base frontmatter to the v0.12.3 review contract. Goal and deliverable are byte-unchanged. A prior Relay-based Claude export attempt was authoritatively `platform_denied`; under v0.12.3 it is not retried, one available reviewer is sufficient, and current direct Claude/Codex authentication is separately available for the portable schema-v1 runner.
+
+**Draft-22 bounded repair (2026-07-12T05:19:13-03:00):** pre-edit reproduction found exactly 35 historical A/M regular-100644 rows, real paths owned across Steps 2/3a/3b, no Node 24 socketpair/`SOCK_SEQPACKET`/`SCM_CREDENTIALS` API, missing executable negative/range matrices, Claude `loggedIn:false`, and Codex ready. Draft-22 replaces single-owner history with recursively closed byte-sorted `owners[{step,commits}]` plus exact JCS-minus-own-digest hashes; makes future authorization exact mutation-only A/M/D rows with thirteen named doctor goldens, read-only Step-8/9 fixture mentions, and one Step-9 stale-plan deletion; adds post-step A0d receipts and ordered A18 recomputation; binds every requested matrix to a command; moves socketpair/credential/gate authority into one pinned Rust autobin with Node validation-only; and requires A1b to send and receive one harmless turn only after the prototype decision. Authentication remains mandatory external evidence. Goal, deliverable, and all Draft-21 lifecycle/process/controller/proof/installer/platform authority contracts are unchanged.
+
+**Draft-20 immutable acceptance re-review (superseded candidate):** exact commit `d86f418b1a6e2755f988fad984bf1dd876495047`, plan blob `5960fcc4eb0e9236c959588de4338cb199427bbf`, score **95/100, NOT READY**. It accepted the honest hook boundary, two-phase runner receipt order, live inherited capability, LossCleanupPermit, ManagedBirthPermit, inventory/A18, and platform contracts. Its sole HIGH blocker was gate-PID executability: acceptance described shell environment assignments as argv, did not close RunGate environment injection, and did not prove that the driver-spawn PID was the same credential sender at both OPEN and COMMIT.
+
+**Draft-21 bounded repair (2026-07-12T04:03:59-03:00):** defines six literal compact-JCS RunGate rows with exact Node script/args, literal base names, sealed auth names, and closed allowlisted env sources; arbitrary executable/cwd/env/shell syntax or ambient inheritance is inexpressible. The driver directly spawns a committed native credential gate, passes one fixed capability fd only for that spawn, and the gate restores CLOEXEC as its first fd action before validation, OPEN, or Node spawn. Every positive binds `driver_spawn_pid == OPEN SCM_CREDENTIALS.pid == selectors.gate_pid == COMMIT SCM_CREDENTIALS.pid == exact_wait_pid == GateResult.pid`. Non-exec shell wrappers and sibling borrowers fail the PID check, poison before Node/authoritative bytes, and cannot COMMIT. The two-phase receipt/evidence contract and all other Draft-20 invariants remain unchanged.
+
+**Draft-19 immutable acceptance re-review (superseded candidate):** exact commit `7a32b46c0af503e96acb2e9d2514228e4e0db74b`, plan blob `f26d730e4d83f6389593f4625057befe17f5cfcd`, score **92/100, NOT READY**. It reproduced A0b-bootstrap and shell/source syntax, accepted the honest standalone-hook boundary, live inherited `SOCK_SEQPACKET` capability, LossCleanupPermit, ManagedBirthPermit, inventory ownership, historical-plus-future A18, and Linux/Darwin split. Its sole HIGH blocker was receipt ordering: the one-phase handshake could not both fail no-fd copies before authoritative work and bind the partial/final receipt produced by that work.
+
+**Draft-20 bounded repair (2026-07-12T03:48:40-03:00):** splits each exact runner sequence into credential-bound OPEN and COMMIT. OPEN binds gate/sequence/pid/live tuple plus prior input receipt before any authoritative byte; A1c uses the closed 64-zero bootstrap sentinel. COMMIT on the same reserved sequence binds the resulting receipt and evidence hashes before GateResult or sequence advance. A1c commits its closed partial receipt; A1d opens against that hash and commits the final sealed receipt; A5/A5b/A6/A7 open against the final hash and commit new evidence while preserving it. Missing/wrong COMMIT, bytes before OPEN, copy/no-fd, replay, mismatch, EOF, or crash poisons the capability and blocks later gates. Every other Draft-19 contract is unchanged.
+
+**Draft-18 immutable acceptance re-review (superseded candidate):** exact commit `8f390d5ac6d5d0e8401928aef2865585b7e47ca9`, plan blob `fcca189d7862d0acf99a3580b52aa4d6fade46b6`, score **90/100, NOT READY**. It reproduced exact A0b-bootstrap and shell syntax, confirmed LossCleanupPermit, ManagedBirthPermit/controller/inventory/schema, A1c+A1d gate placement/reap/live revalidation, historical-plus-future A18, and the Linux/Darwin Goal. Two HIGH blockers remained: the literal hook could execute a replacement cache launcher before native dirfd pinning while claiming root-link authenticity, and the receipt's caller-supplied runner id/nonce/hash tuple was entirely copyable and could not make a copied later-job receipt fail.
+
+**Draft-19 bounded repair (2026-07-12T03:14:31-03:00):** narrows standalone hooks to the executable `CooperativeWorkerV1` boundary—known-at-check corruption refusal plus ordinary deletion fallback, with deliberate same-UID pre-exec replace-all outside authenticity and fd splice resistance beginning only once native installer starts—while preserving docks-kit's optional external-digest/direct-native path. It replaces the copyable same-job assertion with a foreground custodian-created `AF_UNIX SOCK_SEQPACKET` capability, public `capability_id`, inherited gate-only fd, exact A1c→A1d→A5→A5b→A6→A7 challenge/ack chain, receipt/live-tuple binding, CLOEXEC non-leakage, fatal sequence/EOF/crash behavior, and copy-all-bytes/no-fd plus duplicate/stale/concurrent negatives. All Draft-18 loss-cleanup, exact reap/live delegation, immutable-scope, controller, schema/installer-after-start, and platform repairs are preserved.
+
+**Draft-17 immutable architecture re-review (superseded candidate):** exact commit `74476bcbef85e5de2a4d4aa0136d92f72935a938`, plan blob `c089dab342a90f7736ecad46773fd6dcf198bbee`, score **86/100, NOT READY**. It independently reproduced A0b and accepted the proc-magic-link, ManagedBirthPermit, controller/inventory, fd-pinned installer/schema, same-version tuple, and Linux/Darwin repairs. It rejected dispatch because the closed loss table left `Fencing` before attempting to mint normal fence authority; the literal hook missed the prune window between directory and launcher checks; the delegated-runner receipt had no closed integrity-only shape/co-located gate/reap/live-revalidation contract; A18 did not explicitly own the already-landed historical range; and the headline Goal did not state the existing Linux/Darwin completion boundary.
+
+**Draft-18 bounded repair (2026-07-12T02:48:01-03:00):** adds `LossCleanupRecord/Permit/Outcome`, minted in the durable loss transaction and valid exactly once against the resulting `FencingUnconfirmed` version, with replay/stale/crash/no-capacity-release rules in A6/A6a. Both literal hook commands now recheck truly absent non-link root before invalid-launcher fallback and A6b barriers that exact window. `DelegatedRunnerReceipt` is recursively closed over runner/boot/kernel/uid/mount/root/ptrace/runtime/time/expiry/child-wait/reap/populated/removal evidence; its JCS hash is explicitly integrity-only. A1c+A1d are one non-migrating host run, exact-reap before populated-zero/removal, and A5/A5b/A6/A7 live-revalidate before execution. Step 1b now freezes exact `12cf2ea..STEP3B_HEAD` path/status/mode/oid/commit ownership separately from future per-step allowances, and A18 verifies their exact union while requiring the stale plan absent. The Goal now states, without expanding or reducing behavior, the platform contract already present since Draft-17: Linux is authoritative; Darwin success is portable supervisor behavior plus typed unavailability.
+
+Cross-check attempted (2026-07-12): [claude opus xhigh] `platform_denied` before the reviewer process launched because the host security layer denied the cross-company runtime; attempted:false, selected:null, no review findings, no retry. This transport result is recorded separately and is not a READY verdict or a waiver of the fresh dual-review requirement.
+
+**Draft-17 author score:** **96/100 (independent re-review was pending)** · trajectory **95 Draft-16 author → 79 architecture / 82 acceptance NOT READY → 96 authority/feasibility/TOCTOU/platform repair** · superseded by the exact 86/100 review and Draft-18 repair above.
+
+**Draft-17 extended remodel (2026-07-12T02:17:03-03:00):** The immutable Draft-16 architecture review scored **79/100, NOT READY** and the acceptance review scored **82/100, NOT READY**. Their blocking findings are all accepted. Draft-17 adds a sealed one-use `ManagedBirthPermit` bound to the exact Attaching worker/generation/version/tool/cwd/birth operation; defines `ControllerRead|ControllerInjectItems|ControllerStartTurn` and reruns full A9/A10 after Step 5; makes Steps 3c/4/5/6 extend a closed `rust-test-inventory.json` before their first gate; adds A1c raw per-runtime same-tracee TRACEEXEC feasibility and A1d owner-provisioned delegated-runner preflight before Step 4; pins installer manifests/checksum/hooks/payload/selected binary through dirfds/fds and makes complete same-version identity equality mandatory; canonicalizes schema argv with `<OUT>`, modes, ordering, and two-root byte equality; pins invoked/canonical native command identity and uses the same retained fd for generator/server across retarget barriers; makes unsupported/unknown/custody loss atomic before immediate same-fence close/kill/reap while preserving logical failure; scopes authoritative controller/fd-exec/cgroup paths to Linux and gives Darwin explicit closed-unavailable tests; makes every dangling/non-dangling plugin-root symlink fail; corrects `/proc/<pid>/exe` to a deliberately followed magic link at the exact seized tracee's exec stop with `O_NOFOLLOW→ELOOP` negative; and replaces A18 wildcard acceptance with exact path+mode-union/raw-diff verification plus a canonical manifest hash. Exact HooksList wire shape, `request_user_input=unsupported_loss`, one-document hook stdout, preserved A0b hashes, Step-3b split, exact server-method set, controller one-use authorization, and zero implementation-range plan/docs delta remain unchanged. No implementation may resume until a fresh immutable pair returns READY; no Step 4 work may start without A1c+A1d PASS.
+
+**Draft-16 immutable review (superseded):** architecture **79/100, NOT READY**; acceptance/contract **82/100, NOT READY**. Both preserved the verified wire/policy closures but rejected dispatch for unrepresentable managed-birth authority, late/missing inventory ownership, controller enum/matrix drift, exec-stop feasibility/identity ambiguity, installer/schema TOCTOU, loss cleanup gaps, Darwin overclaim, incomplete hook-link policy, wildcard final scope, and lack of a real positive delegated Linux runner.
+
+**Draft-16 extended remodel (2026-07-12):** Draft-15 architecture found a Step-3b→Step-5 gate cycle, missing pre-target exec stop, unbound controller command families, and non-regenerable runtime request fixture. Acceptance additionally reproduced double-JSON hook stdout, the Rust inventory created after first use, hooks/list wire-type drift, nonexistent request-user-input cancel response, prune-after-check failure, ambiguous installer paths, and A18 allowing the stale branch plan. Draft-16 splits core A2/A3b from new post-Step-5 A6a, creates the inventory inside Step 3b, uses a blocked final task plus ancestor `PTRACE_SEIZE|PTRACE_O_TRACEEXEC` and detaches only after fd/kernel identity at `PTRACE_EVENT_EXEC`, persists one-use command authorizations minted from Reentry/TurnCancel/Fence capabilities, pins the exact generated schema+native fd before pending creation, redirects installer JSON and rechecks disappearance races, preserves exact HooksList null/error placement, makes request-user-input an exact JSON-RPC error+loss, pins both manifests/`bin/SHA256SUMS`/four target names, and removes every `docs/plans/**` net delta before A18. No implementation may resume until a new immutable pair returns READY.
+
+**Draft-15 immutable review (superseded):** architecture **82/100, NOT READY**; acceptance/contract **72/100, NOT READY**. Both independently validated A0b and most Draft-14 closures, then rejected the controller dependency cycle. Architecture required an actual exec-stop and persisted command-family authority; acceptance reproduced hook protocol corruption, late inventory creation, generated wire-schema mismatches, cache-prune TOCTOU, installer path ambiguity, and plan-file scope leakage.
+
+**Draft-15 extended remodel (2026-07-12):** The immutable Draft-14 reviewers both reproduced that the name-filtered A3b command exits 0 with zero tests and that UserPromptSubmit lost `--event prompt`. They also found no authenticated Step-3b→1b bridge, no representable controller-local pending-token path, no distinct later-process controller handshake/result, no pre-binding foreign-identity refusal row, incomplete server-request/RPC authority, check-then-exec provenance, a broken Step-6 dependency, a contradictory doctor-unavailable taxonomy, a source-binary versus shipped-binary evidence mismatch, and prose-only A18 negatives. Draft-15 replaces filtered Cargo gates with exact integration targets plus nonzero/source-derived inventory, adds A0c and a closed step allowlist, makes the supervisor create/hold/zeroize the Codex token, defines the full controller envelope/results/fingerprint/RpcId/sealed terminal refs and generated request-policy fixture, closes pre-binding loss, pins native executable bytes through fd-exec and kernel identity, specifies two root-state-sensitive hook commands and portable pointer durability, enumerates doctor keys/reasons/goldens, separates source-built implementation evidence from the later owner-gated packaged rerun, makes Step 6 depend on Step 5, and executes final-scope negatives in a disposable checkout. No implementation may resume until a new immutable pair returns READY.
+
+**Draft-14 immutable review (superseded):** architecture **86/100, NOT READY**; acceptance/contract **78/100, NOT READY**. Both validated A0b-bootstrap and rejected dispatch on controller/token authority, event-correct hook execution, and executable provenance. Acceptance independently demonstrated the zero-test Cargo false green and added the unauthenticated 3b→1b gap, pre-binding lifecycle hole, source-vs-packaged evidence split, dependency/taxonomy contradictions, and missing executable negative gates.
+
+**Draft-14 extended remodel (2026-07-12):** Two immutable Draft-13 reviewers independently reproduced the cache-prune bootstrap impossibility, missing atomic binary+record commit, SessionStart/thread-response ordering cycle, absent durable active controller, unclosed multi-operation loss fan-in, and circular WIP helper. Acceptance additionally required full executable provenance and clean exact-tip completion; architecture required consistent event control epochs and resolved-decision placement. Draft-14 specifies the exact shell-first hook command; owner-locked immutable generations and one atomic `current` pointer; managed SessionStart as non-claiming; supervisor-owned JSON-RPC controller custody with later-process typed commands; explicit caller→watchdog→supervisor nonce pipes and source-derived startup phases; atomic typed loss batches including already-fail-closed and terminal states; a helper-free observed WIP bootstrap followed by Step-3b clean commit before helper creation; production-path executable digest receipts; closed installer/doctor schemas for docks-kit; and dirty/current A18 gates. No implementation may resume until a new immutable pair returns READY.
+
+**Draft-13 immutable review (superseded):** architecture **84/100, NOT READY**; acceptance/contract **82/100, NOT READY**. Shared blockers: stable launcher begins inside the pruned root; binary+record replacement is non-atomic/unlocked; active app-server controller lacks durable custody; loss graph omits multi-operation/already-fail-closed states; and A0b requires a helper that does not exist. Additional blockers: SessionStart occurs before the `thread/start` response, nonce pipe inheritance was contradictory, cgroup receipts omitted executable provenance/production path, and A18 ignored dirty/current HEAD.
+
+**Draft-13 extended remodel (2026-07-12):** The owner approved the required goal boundary after Draft-12 review proved an atomic hook-hash-bound Codex CLI launch was not available. Codex managed birth is now a relay-owned app-server with direct claim before first turn. Draft-13 also defines a self-bootstrapping monotonic stable hook runtime that survives plugin-cache pruning; semantic hook health without false atomicity; a closed source-state×lost-reason graph; watchdog-first independent session custody; stable control epoch plus private nonce and strict Ready/ControlBound/spawn/proxy phases; attempt-bound nested protocol receipts; per-launch cgroup evidence instead of cached authorization; exact tracked+untracked WIP hashes; and complete session-operation receipts. No implementation may resume until fresh immutable reviews return READY and the exact plan blob plus WIP hashes are re-dispatched.
+
+**Draft-12 immutable extended review (superseded):** architecture reviewer **88/100, NOT READY** and contract/acceptance reviewer **88/100, NOT READY**. Blocking findings were: unclosed lost-authority transitions; watchdog detachment unspecified; supervisor control nonce/health/startup authority incomplete; nested protocol receipts not attempt-bound; hook trust claimed atomicity unavailable from `hooks/list`; cgroup capability attestation incorrectly authorized later launches; and A0b omitted dirty WIP content. Draft-13 maps each finding to an interface plus executable row.
+
+**Draft-12 extended remodel (2026-07-11):** Two fresh gpt-5.6-sol audits invalidated Draft-11's narrow READY verdict. The remodel adds a durable waiting-claim tuple and stable cancellation epoch; durable `fence_epoch`; immutable fence-proof retention plus crash-resumable `Fenced→TerminalRetained`; role-authenticated supervisor Health/Control handshakes, ControlBound-before-spawn, true `setsid`, and startup-error propagation; setup/post-kill cgroup receipt separation with runtime capability attestation; sealed fence-bound protocol proofs and experimental API negotiation; pidfd exit receipts; supported Codex `hooks/list` production trust preflight; explicit session-operation tombstone GC; native Darwin supervisor tests; path-specific plan snapshots; and cross-filesystem-safe worktree handoff. Step 1b is reopened and Step 3b is correctly in-flight. No implementation may resume until a fresh immutable review returns READY and the plan blob is re-dispatched.
+
+Cross-check (2026-07-11): [claude opus xhigh] platform_denied before plan-specific launch because the host security layer had already denied the required relay cross-company launch; attempted:false, selected:null, no user refusal; [codex gpt-5.6-sol xhigh] two independent read-only audits returned NOT READY and their verified findings were folded into Draft-12.
+
+**Historical Draft-11 verdict (invalidated):**
+
+Score: **97/100 (Draft-11 dual-review READY)** · trajectory **96 Draft-10 author → 94/NOT READY dual state-graph check → 96 explicit-transition repair → 98 architecture READY / 97 acceptance READY**.
+
+**Immutable Draft-11 recheck (`9bc4c24`, 2026-07-11):** Independent architecture review returned **READY 98/100** and acceptance review returned **READY 97/100**. Both confirmed the closed graph, cancel-first deadline bind, reap-with-waiter exactly-once path, no-waiter return, claim-first staleness, audit-only late losers, and UnmanagedCanceling permit alignment. The reviewers were read-only; the orchestrator independently ran `git diff --check`, `node scripts/tree/guard.mjs`, and `node scripts/ci.mjs --plugin session-relay` green before this verdict record.
+
+**Draft-11 repair (2026-07-11):** Both targeted Draft-10 reviewers found the same narrow contradiction: the cancel-deadline acceptance required `UnmanagedCanceling→Managed/FencingUnconfirmed`, while the closed graph forbade it. Draft-11 explicitly adds the exact atomic binding transition and exceptional `Attaching→FencingUnconfirmed` only for that deadline, plus the reap-with-waiter `→Claiming` path, exactly-once Active finalization, late-event loser behavior, and matching A2 rows. It also aligns TurnCancellationPermit use-time resolution with UnmanagedCanceling.
+
+Weighted author result: standalone **22/22**; actionability **15/16**; dependency **12/12**; evidence **10/10**; goal **12/12**; executable acceptance **12/12**; failure **9/10**; assumption→question **4/6**.
+
+**Historical Draft-10 author/review:** author **96/100**; targeted acceptance **94/100 NOT READY** and architecture **NOT READY** on the same closed-transition contradiction.
+
+**Historical Draft-10 author pass:**
+
+Score: **96/100** · trajectory **95 Draft-9 author → 96 READY architecture / 90 NOT READY acceptance → 94 unmanaged-authority repair → 96 cold-read**.
+
+**Draft-10 remodel (2026-07-11):** The Draft-9 architecture leg returned READY 96/100; the acceptance leg found one remaining pre-claim hole: an unmanaged attach has neither Claim nor Fence authority. Draft-10 adds exact `UnmanagedOperation` cancellation, durable `UnmanagedCanceling`, an atomic disconnect-vs-Claiming winner table, session-operation reconcile/abandon with risk receipts, non-GC retention, and explicit race tests. It also preserves wake/watch's existing null stdin through `StdioEndpointMode::Closed` and removes backend-name remnants.
+
+Weighted author result: standalone executability **22/22**; actionability **15/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **12/12**; executable acceptance **12/12**; failure mode **9/10**; assumption→question **4/6**. The only deductions are the intentional owner-gated remote run and explicit product-risk abandonment surface.
+
+**Draft-9 immutable review result:** architecture **READY 96/100**; acceptance **NOT READY 90/100** solely on unmanaged cancellation authority, with Closed stdin as a nonblocking refinement. Draft-10 closes both.
+
+**Historical Draft-9 author pass:**
+
+Score: **95/100** · trajectory **93 Draft-8 author → 84/87 immutable reviews → 92 interactive/watchdog repair → 95 proof-immutability repair**.
+
+**Draft-9 remodel (2026-07-11):** Draft-8's immutable reviews agreed the dependency/CAS/scope repairs worked but found three remaining gaps: output-only IPC broke inherited interactive attach, no live actor could publish supervisor death after caller exit, and public cgroup fields allowed proof tampering. Draft-9 defines per-endpoint pipe/PTY transport with stdin/EOF/output/resize/signal/backpressure and disconnect-fence behavior; adds a detached watchdog that owns/reaps the supervisor plus mandatory liveness checks; and makes every proof-critical cgroup field private with supervisor-only exact-fence construction and tamper fixtures. It also names the reverse worktree move and aligns the backend enum with `ConfinedCgroupCooperative`.
+
+Weighted author result: standalone executability **22/22**; actionability **15/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **11/12**; failure mode **9/10**; assumption→question **5/6**. Remaining deductions are the deliberately unavailable current ProtocolTree and implementation risk guarded by Step-3b's hard STOP.
+
+**Draft-8 immutable review result (superseded by Draft-9):** architecture reviewer **84/100, NOT READY**; acceptance/source reviewer **87/100, NOT READY**. Both converged on the interactive transport blocker; architecture additionally required idle supervisor-death detection and immutable cgroup proof fields.
+
+**Historical Draft-8 author pass:**
+
+Score: **93/100** · trajectory **94 Draft-7 author claim → 72/77 immutable agent reviews → 90 supervisor/CAS repair → 93 cold-read repair**.
+
+**Draft-8 remodel (2026-07-11):** The two immutable Draft-7 reviews rejected the thread-local child custodian, absent operation versioning, A3 dependency cycle, forgeable process proof, broken A18 regex, stale-plan handoff, incomplete `EINVAL` routing, and mixed cooperative/adversarial cgroup matrix. Draft-8 moves a real detached supervisor before cancellation, makes it own Child from birth, defines exact IPC/crash/proxy semantics and private child cancellation/reap authority, adds operation/handoff CAS versions and a closed transition table, splits 3a–3d without cycles, seals process proofs/FenceIntent, makes intentional same-UID migration diagnostic/out-of-model, and repairs the executable commands.
+
+Weighted author result: standalone executability **21/22**; actionability **15/16**; dependency order **11/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **11/12**; failure mode **9/10**; assumption→question **5/6**. The remaining dependency deduction is implementation risk in portable detached-supervisor output proxying; Step 3b now has a binary STOP rather than an invented fallback.
+
+**Draft-7 immutable review result (superseded by Draft-8):** architecture reviewer **72/100, NOT READY**; acceptance/source reviewer **77/100, NOT READY**. Their blocking findings are the explicit Draft-8 closure list above.
+
+**Draft-7 remodel (2026-07-11):** Two independent gpt-5.6-sol cold reviews reproduced that the previous Step 3 could false-green: `turn/start` discarded the returned turn id, cancellation only stopped the local pump, child cancellation could wait indefinitely after marking unconfirmed, wake/watch used unguarded mutation-guiding status, and A9/A10 accepted name/placeholder evidence. The dependency repair keeps Steps 1–2, narrows delivered Step 3 to 3a, adds 3b exact turn/child custody and 3c behavior-complete inventory, then lets containment consume those handoffs. Primary-source research additionally pins explicit hook timeouts, makes Claude SessionStart an empirical extra rather than the sole barrier, makes freeze optional, adds typed `CLONE_INTO_CGROUP` fallback, and makes current Codex ProtocolTree explicitly unavailable. The goal and final proof tiers are unchanged; unsupported tiers remain fail-closed.
+
+Draft-7 weighted author result: standalone executability **21/22**; actionability **15/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **11/12**; failure mode **9/10**; assumption→question **5/6**. The independent reviews superseded this optimistic score.
+
+**Historical Draft-4–Draft-6 review log (superseded where Draft-7 conflicts):**
+
+Score: **96/100** · trajectory **93→95→95→95→95→96** · stopped: **plateau (K=3)**, then a Draft-6 delta from the Step-1 feasibility finding.
+
+**Draft-6 revision (2026-07-11, from Step-1 real-runtime evidence + gpt-5.6-sol tier consultation):** The feasibility spike falsified the Draft-5 assumption that both runtimes spawn under the exact anti-escape filter — Codex's `bwrap` needs the very syscalls the filter denies. Rather than route the primary fan-out worker to `ProcessOnly`, Draft-6 resolves `codex-cooperative-cgroup-tier` = **Option A**: a `ConfinedCgroupCooperative` WorkerTree tier (delegated domain leaf + gated placement + `cgroup.kill`/freeze/populated-0, no filter) for **both** runtimes, with the anti-escape filter demoted to a Claude-only `FilteredCgroupHardening`. This is the faithful consequence of the confirmed `CooperativeWorkerV1` (the filter only buys deliberate-escape defense, already out of scope), and it lifts goal coverage 11→12 (the primary worker now gets a real kill-boundary). Two soundness must-haves surfaced by gpt-5.6-sol and folded into A5b/A13/Step 4/STOP: (a) atomic/gated initial placement (`CLONE_INTO_CGROUP` or stop/GO) closes the spawn-then-move race; (b) `cgroup.type=domain` assertion, fail-closed on threaded (`cgroup.kill`→`EOPNOTSUPP`). Independently orchestrator-verified: cgroup v2 membership is namespace-independent, so Codex's bwrap-nested descendants stay in the leaf and are killed. No affirmed invariant reopened; the historical Draft-4/Draft-5 closures below are unchanged.
+
+Weighted result: standalone executability **21/22**; actionability **15/16**; dependency order **12/12**; evidence re-verify **10/10**; goal coverage **11/12**; executable acceptance **12/12**; failure mode **9/10**; assumption→question **5/6**. Draft-5 is a single-item delta: it pins the only safe glibc-compatible `clone3` return action, separates the unchanged raw denial probe from dual-real-runtime functionality, and makes failure disable the strong tier per runtime. The retained deductions remain because durable protocol proof is deliberately unavailable without a verified graceful flush contract, WorkerTree is cooperative rather than adversarial-grade, native probes may disable strong containment, and the pre-dispatch owner gate remains open. The plan does not paper over any tier.
+
+The Draft-5 critique pass checked the return action against current glibc fallback and Linux seccomp semantics, then checked the candidate-filter feasibility row, installed-filter identity, real Claude/Codex tool+child+wait sentinels, raw namespace-denial retention, and runtime-specific downgrade through A13. Three no-improvement passes held at 95. B1/B2/B3, `ChildLaunchSpec`, `GcDeleting`, fence-version CAS, sealed permits, mutator inventory, watchdog, lock order, and shared-server observation-only behavior were checked for churn and remained unchanged.
+
+Draft-5 single-item closure:
+
+1. **BLOCKING closed — clone3 return action and worker functionality:** wholesale `clone3` denial is exactly `SECCOMP_RET_ERRNO|ENOSYS`, while namespace flags stay denied on legacy `clone`. A1 prototypes the exact policy; A5 retains the raw no-child namespace-denial probe; A5b runs real Claude and Codex under the installed filter and requires actual shell/tool child creation, wait, and ordered sentinels. A runtime without a safe fallback is explicitly strong-cgroup unavailable and cannot construct `ConfinedCgroup` in A13.
+
+Draft-4 closure log:
+
+1. **B1 closed — Unmanaged attach lifetime:** every transition-capable attach/resume now uses guard-held spawn+wait/cancel-reap, including `Admission::Unmanaged`; no lifecycle-sensitive path may `exec`. A3 reproduces Unmanaged epoch N→Claiming N+1 while a write-loop CLI is live and forbids Active until child reap/guard release.
+2. **B2 closed — freeze is not terminal protocol proof:** `DedicatedOfflineBoundaryProof` requires verified graceful mutation rejection, durable flush watermark/ack, process reap, and complete offline scan. Freeze can aid physical containment only, must continue to cgroup kill+`populated 0`, and can never thaw through release. A7/A8 add queued-unflushed/thaw-after-candidate sentinels.
+3. **B3 closed/bounded — cgroup hardening and threat model:** setup detaches every procfs mount, probes proc-pid-fd authority, validates seccomp architecture, rejects x32, denies `clone3` wholesale (with the Draft-5 ENOSYS return contract), and adds direct-ABI/defense-in-depth syscall probes. `WorkerTree` is explicitly `CooperativeWorkerV1`; same-user broker/SCM_RIGHTS escape is out of scope and adversarial isolation is a future plan. `threat-model-scope` asks the owner to confirm that product boundary.
+4. **Refinement closed — closed child payload:** `run_child_with_guard` accepts only `ChildLaunchSpec` closed variants; executable/session/cwd/env authority is derived from the guard and raw argv/env/authority fields are inexpressible.
+5. **Refinement closed — exact Unmanaged GC:** only old, unreferenced, unlocked `SessionBinding::Unmanaged` records can exact-CAS to durable `GcDeleting`. Claim/admission/pending creation refuse that epoch; deletion is crash-resumable; paused races prove the claimant either wins before deletion (zero GC deletions) or loses to the GC epoch (zero claimant changes); binding/Entry removal is last.
+
+Affirmed invariants are intentionally unchanged: publish-first Fencing prevents reader starvation; exact generation/fence-version CAS rejects stale fencers; sealed `FencePermit` plus the complete source-derived mutator inventory prevent escape hatches; Claiming cancellation drains old epochs; the measured watchdog remains `<=20s` with a 10s UserPromptSubmit margin; the both-hooks-skipped scheduler race remains an explicit unsupported-contract residual; global/activity lock ordering remains acyclic; shared servers remain ProtocolObservation-only; pidfd signal tiers, durable fences, and operator abandonment remain fail-closed.
+Cross-check (2026-07-14): [X: anthropic none none; result=unavailable_auth] 0 findings — accepted none / rejected none (none); [S: openai gpt-5.6-sol xhigh; result=passed] 0 findings — accepted none / rejected none (none); [orchestrator: openai codex gpt-5.6-sol xhigh] independently verified none against source before accepting.
+
+## Mistakes & Dead Ends
+
+- **2026-07-13T03:18:00-03:00**: Accepted Step-1b green commands before source review traced whether the named negatives and later rehash inputs were actually produced → modeled enum/array checks and validator-only fixture expectations hid missing native transitions and durable artifacts → require production-function fault injection plus one producer-to-unmodified-consumer integration gate before A107.
+- **2026-07-13T03:18:00-03:00**: Bound every long-lived root authority to the entire mutable helper source while the same step was still allowed to repair that helper → an otherwise valid recorder edit invalidated step and runner authorities and encouraged an unlinked replacement root → bind ordinary compatibility to a closed stable protocol hash, retain source hash as provenance, and migrate every real predecessor through one crash-durable lineage before any new event.
+- **2026-07-13T03:18:00-03:00**: Repeated a reviewer's claim that Rust `Path::starts_with("/tmp")` accepts `/tmpfoo` before checking the official API contract → Rust compares whole path components and the subclaim was false → reject that premise while retaining the independently reproduced path-reopen, weak-sentinel, and path-based-cleanup findings.
+- **2026-07-12T04:03:59-03:00**: Wrote gate commands as shell assignment text inside an alleged argv and left the sender PID implicit → a shell/wrapper could be the spawned PID while another process held the fd and sent credentials → use literal closed frames, direct-spawn one native credential gate, restore fd CLOEXEC there, and require spawn/OPEN/COMMIT/wait/result PID equality.
+- **2026-07-12T03:48:40-03:00**: Bound each gate's only capability handshake to the receipt hash produced by that same gate while also requiring no-fd copies to fail before probing → the receipt did not exist until after the forbidden work → reserve with credential-bound OPEN over the prior/bootstrap input, then COMMIT the result/evidence on the same sequence before advance.
+- **2026-07-12T03:14:31-03:00**: Claimed that shell predicates plus a later native installer made the cached launcher authentic across deliberate same-UID atomic replacement → the replacement launcher executes before dirfd pinning can help → narrow standalone to ordinary prune/observed corruption, begin splice resistance only after native start, and preserve docks-kit's separate externally verified-native path.
+- **2026-07-12T03:14:31-03:00**: Claimed a caller-supplied runner id, copyable nonce/hash, and live host tuple made copied evidence fail in a later job → every byte could be copied on the same host before expiry → require one retained inherited `SOCK_SEQPACKET` capability with credential-bound monotonic challenges across all six real gates.
+- **2026-07-11T23:52:32-03:00**: Treated Draft-11's two narrow state-graph reviews as sufficient → extended cold reviews found missing durable waiter identity, unreachable terminal retention, forgeable protocol proof, phase-confused cgroup receipts, and unmodeled Codex hook trust → invalidate the READY record and require a fresh full-contract review after Draft-12.
+- **2026-07-11T23:52:32-03:00**: Prescribed `git worktree move` between `/home/vagrant/projects` and `/tmp` → the filesystems differ and the move failed → use clean verified remove/re-add of the same branch/full HEAD only.
+- **2026-07-11T23:52:32-03:00**: Let the Step-1 harness's isolated `--dangerously-bypass-hook-trust` row stand in for production feasibility → current Codex explicitly skips untrusted plugin hooks and the flag would authorize unrelated hooks → production now requires exact `hooks/list` trust/hash preflight and never uses the bypass.
+- **2026-07-11T23:52:32-03:00**: First Step-3b WIP passed its authored tests → independent code review reproduced fail-open missing-supervisor admission, health/control first-connection cancellation, process-group-without-session detach, discarded thread-start failures, and incomplete matrix rows → implementation stays paused until the remodeled contract is approved, then the worker repairs against that blob.
+- **2026-07-12T00:37:40-03:00**: Treated a trusted `hooks/list` snapshot plus immediate source re-hash as a production launch barrier → the API supplies no atomic expected-hash-bound child launch and cache refresh can strand already-resolved hook commands → move managed Codex to direct app-server claim and treat hook health as diagnostic, backed by a monotonic stable executable.
+- **2026-07-12T00:37:40-03:00**: Bound redispatch only to plan blob and implementation HEAD → the preserved Step-3b checkout has tracked and untracked WIP not covered by either value → require binary patch and sorted untracked-manifest hashes before every handoff.
+
+## Notes
+
+- Step 1 appends the committed harness git-blob hash, raw artifact hashes, exact runtime versions, 10-run timing samples, derived deadline, and capability verdicts here. Large raw protocol/hook transcripts remain in the harness-owned temporary artifact directory, not pasted into the plan.
+- Independent red-team trajectory: Draft-1 **56/100**; Draft-2 **74/100**; Draft-3 **80/100**; Draft-4 **93/100** after its final convergence pass. Draft-5 changes only the clone3 return action plus its feasibility/acceptance proof and reaches **95/100** without reopening affirmed invariants.
+
+- **Historical Step-1 feasibility result (2026-07-11, orchestrator-run in the real authenticated env; harness on `codex/primitives-impl`, git-blob `02cea7b`, commit `c32aafa`):** the original harness exited 0 with an intact 49-record hash chain, current protocol unavailability, 20-second lineage deadline, and `managed_attach_deadline_ms=4360`. Its `strong_cgroup`/mandatory-freeze schema and test-only Codex hook-trust bypass are now explicitly superseded by Step 1b; this evidence cannot satisfy remodeled A1/A1b until cooperative/filtered, direct app-server claim, semantic hook-health, and stable-runtime rows pass.
+
+## Sources
+
+- `docs/plans/active/relay-worker-fanout.md:456-473` — final red-team splits general primitives (this plan) from fan-out-specific recovery.
+- `plugins/session-relay/rust/src/appserver.rs:84-107,399-418,916-925` at checkpoint `701cea7` — `turn/start` result is discarded and cancellation only exits the local pump; no exact remote interrupt exists yet.
+- `plugins/session-relay/rust/src/bus.rs:283-315` — MCP inbox drains directly.
+- `plugins/session-relay/rust/src/channel.rs:174-195` — channel drains then emits context directly.
+- `plugins/session-relay/rust/src/cli.rs:920-930` and `plugins/session-relay/rust/src/watch.rs:620-640` at checkpoint `701cea7` — mutation-guiding status reads can run outside the admitted guard.
+- `plugins/session-relay/rust/src/spawn.rs:268-301` at checkpoint `701cea7` — child cancellation marks unconfirmed after grace but keeps waiting indefinitely.
+- `plugins/session-relay/rust/tests/lifecycle_admission.rs:596-647` at checkpoint `701cea7` — five operation rows report the placeholder `dedicated_behavior_test` rather than executing the production wrapper.
+- `plugins/session-relay/rust/src/store.rs:1081-1083,1179-1181` at checkpoint `701cea7` — store GC already delegates lifecycle-bound sessions to Step-2 protection; Draft-8 extends retention to operation/supervisor/handoff custody.
+- `plugins/session-relay/rust/src/watch.rs:245-310,555-640` — pending acknowledgement, mailbox drain/deliver, and wake fallback are distinct re-entry paths.
+- `plugins/session-relay/rust/src/main.rs:14-59` — multi-call routing to extend with lifecycle reconcile and hidden managed launcher.
+- [Claude hooks](https://code.claude.com/docs/en/hooks) — universal `continue:false`, UserPromptSubmit blocking, and configurable handler defaults; SessionStart's event-specific surface is context-oriented, so its stop row is version-pinned.
+- [Codex hooks](https://learn.chatgpt.com/docs/hooks#common-output-fields) — SessionStart/common stop and UserPromptSubmit behavior; timeout failures are fail-open.
+- [Codex hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks) — plugin hooks use the same exact-hash review flow; new/changed unmanaged hooks are skipped, and the bypass flag is only for already-vetted automation.
+- [Codex app-server](https://learn.chatgpt.com/docs/app-server#api-overview) — `turn/start` returns the initial turn; exact interrupt, turn pagination, and exact background-terminal list/terminate exist, but no public durable shutdown/flush watermark exists.
+- [Codex app-server hook inventory](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md) — `hooks/list` returns effective-cwd `currentHash`, `trustStatus`, enabled state, source, and plugin id; experimental methods require initialization opt-in.
+- [Codex app-server `ServerRequest` source](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/src/protocol/common.rs) — current source-of-truth generated request union includes approval, user-input, MCP elicitation, permission, dynamic-tool, auth-refresh, attestation, current-time, and legacy request variants; the implementation fixture is regenerated from the exact supported installed version.
+- [Codex plugin/bundle hook execution issue](https://github.com/openai/codex/issues/16466) — current upstream evidence that stable plugin hook execution context/path is not yet a runtime-provided durability guarantee; session-relay must own its stable executable contract.
+- [Codex interrupt example](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#example-interrupt-an-active-turn) — exact interrupt request and terminal event; background terminals survive interrupt.
+- [Linux pidfd](https://man7.org/linux/man-pages/man2/pidfd_open.2.html) and [`/proc/pid/stat`](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html) — stable fd vs observation-only start generation.
+- [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) — namespace delegation reachability, `cgroup.freeze`/`frozen`, `cgroup.kill`, `populated`, and the fact that freeze alone still permits migration.
+- [Linux cgroup namespaces](https://man7.org/linux/man-pages/man7/cgroup_namespaces.7.html), [mount namespaces](https://man7.org/linux/man-pages/man7/mount_namespaces.7.html), and [user namespaces](https://man7.org/linux/man-pages/man7/user_namespaces.7.html) — namespace root is the creator's current cgroup; private cgroupfs mounts and user-namespace capabilities/mappings establish the setup order and prerequisites.
+- [Linux seccomp filters](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html), [`seccomp.h`](https://github.com/torvalds/linux/blob/master/include/uapi/linux/seccomp.h), [`seccomp(2)`](https://man7.org/linux/man-pages/man2/seccomp.2.html), and [`no_new_privs`](https://www.kernel.org/doc/html/latest/userspace-api/no_new_privs.html) — classic BPF cannot dereference pointer arguments; `SECCOMP_RET_ERRNO` returns its lower data bits as `errno`; filters must validate architecture; and x86-64/x32 need explicit syscall-number discrimination.
+- [`clone(2)` / `clone3`](https://man7.org/linux/man-pages/man2/clone.2.html) — direct `CLONE_INTO_CGROUP` placement and its `EACCES`/`EBUSY`/`EOPNOTSUPP` failure modes; `clone3` pointer arguments remain opaque to classic seccomp.
+- [`execveat(2)`](https://man7.org/linux/man-pages/man2/execveat.2.html) — `AT_EMPTY_PATH` executes the already-open executable fd and closes the path-hash-to-exec race for the authoritative Linux confined launcher.
+- [`ptrace(2)`](https://man7.org/linux/man-pages/man2/ptrace.2.html) — `PTRACE_SEIZE` establishes the ancestor-owned trace without an attach SIGSTOP and `PTRACE_O_TRACEEXEC` yields `PTRACE_EVENT_EXEC` before the new program begins execution; detach is the explicit target-code GO boundary.
+- [`fsync(2)`](https://man7.org/linux/man-pages/man2/fsync.2.html) and [`rename(2)`](https://man7.org/linux/man-pages/man2/rename.2.html) — crash durability requires syncing containing directories around entry renames; the plan never attempts to fsync a symlink inode.
+- [glibc Linux `spawni.c`](https://github.com/bminor/glibc/blob/master/sysdeps/unix/sysv/linux/spawni.c#L416-L438) — current `posix_spawn` tries `clone3` first and takes the legacy-clone fallback only for `ENOSYS`/`EINVAL`; `EPERM` would make managed child/tool spawn fail instead of falling back.
+- [`proc_pid_fd(5)`](https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html), [`ptrace(2)`](https://man7.org/linux/man-pages/man2/ptrace.2.html), [`process_vm_readv(2)`](https://man7.org/linux/man-pages/man2/process_vm_readv.2.html), and [`pidfd_getfd(2)`](https://man7.org/linux/man-pages/man2/pidfd_getfd.2.html) — proc/fd and cross-process fd/memory surfaces are authority paths to probe/deny after namespace setup.
+- [Rust Unix `CommandExt`](https://doc.rust-lang.org/std/os/unix/process/trait.CommandExt.html) and [`setsid(2)`](https://man7.org/linux/man-pages/man2/setsid.2.html) — process-group creation is not session creation; pinned Rust 1.85 needs the reviewed `pre_exec(libc::setsid)` path.
+- [Apple XNU process info](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h) and [`libproc.h`](https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.h) — Darwin observation fields/private enumeration, not an atomic signal handle.
+
+Compatibility-review-material: {"base_plan_blob":"beedde52b50b6384129e8cf39a0b3bde585ea0dc","execution_base_commit":"de925e9bc046645a72f59bcd493da44d53adaf5a","execution_parent":"8879d898bab2b3156f536a0515e185446f488473","parent_plan_blob":"60e5caef7b89062f49a54cd86a544772a69fb06c","partition_manifest_sha256":"01b7beeac5ec7e3052d772169833b01879c295a8895de40d67cd4dbd0daaf154","plan_creation_commit":"07ad2df486f35fabed0b0ee18bd95134e3d70ab7","plan_path":"docs/plans/active/relay-worker-lifecycle-primitives.md","planned_at_commit":"12cf2ead208fe932084890b8e3fbd5c72591f3db","policy_sha256":"b224d8fc3f8ba6921aec38e834ec2f812954aff79859734e988fb03caf9f1253","review_material_sha256":"1fca3efda7eda7b965e1e968c53a8b2e551be58eabaac7fc41cc3da122414773","schema":1,"transition_diff_sha256":"2b89e2b141007fb94dfc6bc23da90300a81ec44dc8b7a87cab869229606cfce1"}
+````diff
+diff --git a/docs/plans/active/relay-worker-lifecycle-primitives.md b/docs/plans/active/relay-worker-lifecycle-primitives.md
+index 60e5caef7b89062f49a54cd86a544772a69fb06c..beedde52b50b6384129e8cf39a0b3bde585ea0dc 100644
+--- a/docs/plans/active/relay-worker-lifecycle-primitives.md
++++ b/docs/plans/active/relay-worker-lifecycle-primitives.md
+@@ -1,10 +1,10 @@
+ ---
+ title: Build relay worker lifecycle primitives
+ goal: Add verified hook abort, stable-handle process control, and lifecycle-gated worker quiescence without allowing fallback tiers to claim false confirmation.
+-status: planned
++status: ongoing
+ created: "2026-07-11T03:31:53-03:00"
+-updated: "2026-07-11T05:58:51-03:00"
+-started_at: null
++updated: "2026-07-11T11:29:49-03:00"
++started_at: "2026-07-11T11:29:49-03:00"
+ assignee: null
+ tags: [session-relay, lifecycle, rust, safety]
+ affected_paths:
+@@ -78,7 +78,7 @@ These primitives defend a **cooperative worker**: the relay launches the user's
+ 
+ A deliberately adversarial same-UID worker is outside this guarantee. In particular, it can ask a same-user broker such as `systemd-run --user` / D-Bus `StartTransientUnit` to create or move a process into a sibling cgroup, or pass work/authority through an already-reachable same-user service or `SCM_RIGHTS`. That broker-assisted writer can survive `cgroup.kill` while the worker leaf reports `populated 0`; neither seccomp on the worker nor its cgroup namespace can revoke authority already held by the broker. The fan-out hard cap accepts this bounded cooperative scope; tests must not relabel broker escape as covered WorkerTree evidence.
+ 
+-Adversarial-grade containment is a future, separately scoped capability requiring IPC and network namespace isolation, broker-socket denial, a complete service/FD handoff policy, and a full sandbox threat review. Cheap defense-in-depth in this plan still closes accidental/direct escape paths: architecture-validated seccomp, wholesale `clone3` denial returning `ENOSYS`, x86 x32 rejection, capability drop, inherited-fd closure, and a fresh PID/proc/cgroup view. The unresolved scope confirmation is recorded as `threat-model-scope` in Open questions; until changed by the owner, implementation and acceptance use the recommended cooperative model above and must label it in every WorkerTree proof/status response.
++Adversarial-grade containment is a future, separately scoped capability requiring IPC and network namespace isolation, broker-socket denial, a complete service/FD handoff policy, and a full sandbox threat review. Cheap defense-in-depth in this plan still closes accidental/direct escape paths: architecture-validated seccomp, wholesale `clone3` denial returning `ENOSYS`, x86 x32 rejection, capability drop, inherited-fd closure, and a fresh PID/proc/cgroup view. The owner confirmed **`CooperativeWorkerV1`** on 2026-07-11; implementation and acceptance use it and must label it in every WorkerTree proof/status response.
+ 
+ ## Feasibility and guarantee tiers
+ 
+@@ -106,7 +106,7 @@ Adversarial-grade containment is a future, separately scoped capability requirin
+   ```
+ - **Real runtime:** `runtime-hook-abort.mjs`, `runtime-appserver-quiescence.mjs`, and `feasibility-probe.mjs` create isolated temporary `HOME`, `CODEX_HOME`, plugin config, relay store, cwd, and sentinels. They must record the exact loaded hook path/hash and runtime version. Missing auth/runtime is failure for the real-runtime gate, never skip/pass.
+ - **Authentication preflight:** before isolated-home tests, run `claude -p 'Print exactly RELAY_AUTH_OK'` and `codex exec --sandbox read-only 'Print exactly RELAY_AUTH_OK'`; each must exit 0 and print only the marker. Step 1 records, from current runtime docs/probes, the exact credential artifact or allowlisted secret-environment variable each CLI supports. The harness creates a mode-0700 temporary home/config, installs only test hook/plugin files, and either read-only references the supported credential artifact at its runtime-defined location or forwards the allowlisted secret variable by name. It never copies credential bytes into artifacts, logs paths/values/hashes, or broad-copies the user's config. If neither safe mechanism is available, STOP and report the runtime row unavailable; do not skip/pass or weaken home isolation.
+-- **Pre-dispatch owner gate:** do not begin Step 1/Rust implementation until `threat-model-scope` is answered. Option 1 is the authored/recommended design; Options 2/3 change scope and require updating this plan first. Draft authoring/commit may proceed with the structured question open so the owner can answer it at handoff.
++- **Pre-dispatch owner gate:** RESOLVED 2026-07-11 — owner selected Option 1 (`CooperativeWorkerV1`). Implementation may proceed.
+ - **Probe evidence contract:** each capability row contains `runtime`, `runtime_version`, `platform`, `argv`, `started_at`, `finished_at`, `exit_status`, base64 or artifact-path `stdout`/`stderr`, artifact SHA-256, parser rule, and derived verdict. The harness rejects a verdict without matching raw evidence, rejects unknown/missing schema fields, verifies its own committed git-blob hash, and emits the raw-record hash chain. There is no editable pass/fail fixture.
+ - **Strong-tier spawn feasibility:** Step 1 prototypes the exact architecture-specific seccomp policy, records its BPF/policy hash, and runs authenticated real Claude and Codex beneath it. For each runtime, the harness first proves raw `clone3` returns `-1/ENOSYS` without creating a child, then requires a real shell/tool launch, an ordinary descendant, a wait, and an ordered completion sentinel. Step 4's installed filter must reproduce the same canonical policy and return action. A runtime without a safe legacy-`clone` fallback is recorded `strong_cgroup=unavailable` for that runtime; it is never allowed to advertise `ConfinedCgroup`/WorkerTree.
+ - **Measured attach deadline:** the probe runs 10 isolated cold starts per runtime including sequential store-lock contention. Set `managed_attach_deadline_ms = max_observed_ms + max(2000, ceil(max_observed_ms / 2))`; it must be `<= 20_000`, preserving at least 10 seconds below the 30-second UserPromptSubmit minimum. If the formula exceeds 20 seconds, STOP. Never lengthen the three-second global store lock.
+@@ -775,13 +775,7 @@ Adversarial cold-read result: a cold executor need not invent binding serializat
+ 
+ ## Open questions
+ 
+-### threat-model-scope
+-
+-- **Type:** choice — NEEDS CLARIFICATION (custom allowed)
+-- **Context:** The buildable cgroup contract contains a cooperative relay-launched tree, including accidental direct escape attempts. A deliberately adversarial same-UID worker can delegate work to an already-authorized user broker/service outside the leaf; closing that requires materially broader IPC/network/service isolation. This is a pre-dispatch owner gate: no implementation starts until one option is selected. The authored design is Option 1; Options 2/3 require revising the Goal, proof types, steps, and acceptance before dispatch.
+-- **Option 1 — Cooperative worker (recommended):** adopt `CooperativeWorkerV1` exactly as specified in Threat model; label proofs/status/docs and accept broker-assisted evasion as out of scope.
+-- **Option 2 — Expand to adversarial isolation:** block implementation and author a separate prerequisite plan for IPC/network namespaces, broker-socket denial, service/FD handoff policy, and a full sandbox threat review.
+-- **Option 3 — Disable WorkerTree:** ship ProcessOnly/ProtocolObservation primitives but keep WorkerTree and the fan-out hard cap unavailable until adversarial isolation exists.
++*(none — `threat-model-scope` resolved 2026-07-11: owner selected **Option 1, `CooperativeWorkerV1`**. Implementation and acceptance adopt the cooperative model; broker-assisted same-UID evasion is out of scope. See ## Threat model.)*
+ 
+ ## Self-review
+ 
+````
+Execution-base-compatibility-receipt: {"base_plan_blob":"beedde52b50b6384129e8cf39a0b3bde585ea0dc","changed_sections":[{"after_sha256":"f13f288a044459821fa0160b0322fd8e2064346f983bce1dab55061314be59e1","before_sha256":"96dd0937556d6b5f552630faea234dc4e4e5de302e78561544bb2d89e6e2ef95","name":"Environment & how-to-run","transition_sha256":"e92978ca0bb3fd7ad65eddd9b3f1a47c3ad18039107a2246922a485d11343e3b"},{"after_sha256":"a8264dec8a5fe7256d56975ce5fb76b09aa4b5a747f5d633be5ec72c12fd80eb","before_sha256":"fc92400271b13db228a59285eb0c24edf608d76cffa6cb886da8478c11570094","name":"Open questions","transition_sha256":"2b40eb767c330645134f0c81f5a6ff9eda697ac32e2189a203dceb74a57e9a93"},{"after_sha256":"9b5a85897862270a17b086aa4071fb66c2e99df4458d8f78e1b73a3094556888","before_sha256":"7a683f761a2c908053a8bdbb8cb1d4561181557902ffe5b77602845fc5e9d04f","name":"Threat model","transition_sha256":"fd5fe2277354a1cae0eda54744736b4ec756c41e31927e851d1280ce8f4d256f"}],"evidence_input_commit":"a228d846592fc5b383e101ee9260f4a18776d17b","evidence_input_plan_blob":"158c362346398f693e813b8eb524a2872517ab0b","execution_base_commit":"de925e9bc046645a72f59bcd493da44d53adaf5a","execution_parent":"8879d898bab2b3156f536a0515e185446f488473","kind":"legacy_start_transition","legacy_planned_at_value":"12cf2ea","owner_confirmation":{"authorization_id":"owner-2026-07-13-remodel-and-review-plan","authorization_scope_sha256":"1c5cb608957a4589a4ac2bba05f4df29a6255c45034f9b59ecfda36a73327e10","decision":"allow","kind":"legacy_start_transition_authorization","schema":1,"source":"current_user","source_text_sha256":"1979e51b8ae33cd1de3af5e820200e1988d56363a9b7af1cae9523c7c20ddc96","target":{"execution_base_commit":"de925e9bc046645a72f59bcd493da44d53adaf5a","plan_path":"docs/plans/active/relay-worker-lifecycle-primitives.md","planned_at_commit":"12cf2ead208fe932084890b8e3fbd5c72591f3db","schema":1}},"parent_plan_blob":"60e5caef7b89062f49a54cd86a544772a69fb06c","partition_manifest_sha256":"01b7beeac5ec7e3052d772169833b01879c295a8895de40d67cd4dbd0daaf154","plan_creation_commit":"07ad2df486f35fabed0b0ee18bd95134e3d70ab7","plan_creation_parent":"12cf2ead208fe932084890b8e3fbd5c72591f3db","plan_path":"docs/plans/active/relay-worker-lifecycle-primitives.md","planned_at_commit":"12cf2ead208fe932084890b8e3fbd5c72591f3db","policy_sha256":"b224d8fc3f8ba6921aec38e834ec2f812954aff79859734e988fb03caf9f1253","protected_sections_sha256":"27795c2eea45e0f47a604a1848a3b8dc6769f14c50479737f82dbf5c2d8b1eac","receipt_sha256":"929aea4ca622f7f8a814f58803e4f55db1bd34887064e1a7031bd7b9a444ae54","review_material_sha256":"1fca3efda7eda7b965e1e968c53a8b2e551be58eabaac7fc41cc3da122414773","schema":1,"transition_diff_sha256":"2b89e2b141007fb94dfc6bc23da90300a81ec44dc8b7a87cab869229606cfce1"}
+Execution-base-compatibility-binding: {"binding_parent":"d72d38ead012967da5b77b122f6a1d47fdf39694","binding_sha256":"d02d83401530a38e2f8e2d12a0f2e821e120dfc7ec3ea3cd140f84c9c2eeb4ad","compatibility_evidence_commit":"9797e0e454d6f67205a2c01be6c493367a4ac871","compatibility_receipt_sha256":"929aea4ca622f7f8a814f58803e4f55db1bd34887064e1a7031bd7b9a444ae54","review_attribution_sha256":"a9682eff8da048b7a7be09df3b7a921f88e5eb02af27f588dc2e0f24d8bf24ce","review_commit":"d72d38ead012967da5b77b122f6a1d47fdf39694","review_receipt_sha256":"7fa5d2542375fa2a6c5172a8ee9de70d45419b66f1f70b8f6f9d1e3459aeaa29","reviewed_commit":"9797e0e454d6f67205a2c01be6c493367a4ac871","schema":1}
+## Review
+
+*(filled by plan-review on completion)*

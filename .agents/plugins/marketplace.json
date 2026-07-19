@@ -1,0 +1,44 @@
+{
+  "name": "docks",
+  "interface": {
+    "displayName": "docks"
+  },
+  "plugins": [
+    {
+      "name": "docks",
+      "source": {
+        "source": "local",
+        "path": "./plugins/docks"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "session-relay",
+      "source": {
+        "source": "local",
+        "path": "./plugins/session-relay"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "effect-kit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/effect-kit"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

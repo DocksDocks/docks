@@ -1,0 +1,97 @@
+{
+  "name": "docks",
+  "description": "Cross-tool engineering skill kit marketplace — sequential pipeline skills (security/refactor/skill-agent-pipeline) plus portable engineering-convention skills",
+  "owner": {
+    "name": "Eduardo Marquez (DocksDocks)"
+  },
+  "plugins": [
+    {
+      "name": "docks",
+      "source": "./plugins/docks",
+      "description": "Cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode). Sequential pipeline skills — security audit (OWASP Top 10), refactor (dead code, duplication, SOLID), and skill-agent-pipeline — plus portable convention skills: test-first, coverage, fix workflows, code review, human-docs, design tokens, dependency-vuln triage, lint discipline, UI polish, SOLID, type-safety, React component patterns, capability tuning (max-capability Claude Code + Codex settings), and a docs/plans lifecycle.",
+      "version": "0.12.9",
+      "author": {
+        "name": "Eduardo Marquez"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/DocksDocks/docks",
+      "repository": "https://github.com/DocksDocks/docks",
+      "keywords": [
+        "pipeline",
+        "multi-agent",
+        "skills",
+        "agents",
+        "security",
+        "refactor",
+        "test",
+        "review"
+      ],
+      "category": "engineering-workflows",
+      "tags": [
+        "pipeline",
+        "builder-verifier",
+        "cross-tool",
+        "skills",
+        "codex"
+      ]
+    },
+    {
+      "name": "session-relay",
+      "source": "./plugins/session-relay",
+      "description": "Cross-session, cross-project, cross-tool agent message bus (Claude Code + Codex). A SessionStart hook auto-registers each session and drains its inbox; an MCP server (bus) exposes whoami/register/roster/send/inbox over a shared on-disk store keyed by session id; and a relay CLI wakes an idle target with a tool-aware doorbell — headless `claude -p --resume` (from its project dir) or `codex exec resume`.",
+      "version": "0.12.0",
+      "author": {
+        "name": "Eduardo Marquez"
+      },
+      "homepage": "https://github.com/DocksDocks/docks",
+      "repository": "https://github.com/DocksDocks/docks",
+      "license": "MIT",
+      "keywords": [
+        "multi-agent",
+        "sessions",
+        "mcp",
+        "message-bus",
+        "cross-project",
+        "cross-tool",
+        "codex"
+      ],
+      "category": "engineering-workflows",
+      "tags": [
+        "multi-agent",
+        "sessions",
+        "mcp",
+        "cross-project",
+        "cross-tool",
+        "codex"
+      ]
+    },
+    {
+      "name": "effect-kit",
+      "source": "./plugins/effect-kit",
+      "description": "Cross-tool Effect skill kit: Effect 3.x setup (effect-ts-setup), patterns (effect-ts-specialist), and porting (effect-ts-port), plus version-gated Effect v4 beta guidance (effect-v4).",
+      "version": "0.3.1",
+      "author": {
+        "name": "Eduardo Marquez"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/DocksDocks/docks",
+      "repository": "https://github.com/DocksDocks/docks",
+      "keywords": [
+        "effect",
+        "effect-ts",
+        "typescript",
+        "skills",
+        "cross-tool",
+        "codex"
+      ],
+      "category": "engineering-workflows",
+      "tags": [
+        "effect",
+        "typescript",
+        "cross-tool",
+        "skills",
+        "codex"
+      ]
+    }
+  ]
+}

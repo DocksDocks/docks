@@ -1,0 +1,59 @@
+# scaffold spec — what `scaffold <target>` seeds into a new docks-style plugin.
+# Schema: plugins/docks/skills/productivity/scaffold/references/spec-schema.md
+# Validated by scripts/scaffold/guard-spec.mjs (paths resolve) + scripts/scaffold/test.mjs (templates render + seed starts green).
+version: 1
+
+plugin:
+  name_placeholder: "{{ plugin_name }}"
+  license: MIT
+
+# Variable-substituted files rendered into the new project (dest may contain {{ var }}).
+templated_files:
+  - { template: plugin.json.template,            dest: "plugins/{{ plugin_name }}/.claude-plugin/plugin.json" }
+  - { template: codex-plugin.json.template,      dest: "plugins/{{ plugin_name }}/.codex-plugin/plugin.json" }
+  - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
+  - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
+  - { template: codex-plan-manager.toml.template, dest: ".codex/agents/plan-manager.toml" }
+  - { template: codex-plan-review.toml.template,  dest: ".codex/agents/plan-review.toml" }
+  - { template: package.json.template,          dest: "package.json" }
+  - { template: pnpm-lock.yaml.template,        dest: "pnpm-lock.yaml" }
+  - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
+  - { template: root-CLAUDE.md.template,         dest: "CLAUDE.md" }
+  - { template: gitignore.template,              dest: ".gitignore" }
+  - { template: ci.mjs.template,                 dest: "scripts/ci.mjs" }
+  - { template: release.mjs.template,            dest: "scripts/release.mjs" }
+
+# Context-tree node pairs (each gets AGENTS.md + one-line CLAUDE.md). Exactly one seed source per node.
+tree_nodes:
+  - { path: "docs/plans", seed_from_skill: plan-init }
+  - { path: "plugins/{{ plugin_name }}/skills", template: "node-templates/skills-AGENTS.md" }
+  - { path: "scripts", template: "node-templates/scripts-AGENTS.md" }
+  - { path: "docs/scaffold", seed: { type: self-reference } }
+
+# Skills copied verbatim from this repo (pinned to its revision).
+bundled_skills:
+  - { source: plugins/docks/skills/productivity/context-tree }
+  - { source: plugins/docks/skills/productivity/plan-init }
+  - { source: plugins/docks/skills/productivity/plan-manager }
+  - { source: plugins/docks/skills/productivity/plan-review }
+  - { source: plugins/docks/skills/productivity/write-skill }
+
+# Validator scripts copied verbatim. They accept a path arg, so the seeded project
+# invokes them against its own plugins/<name>/skills (see scripts/AGENTS.md template).
+scripts:
+  - { source: scripts/lib/skills-walk.mjs }
+  - { source: scripts/lib/validate-skills.mjs }
+  - { source: scripts/skills/guard.mjs }
+  - { source: scripts/skills/refs-guard.mjs }
+  - { source: scripts/skills/codex-facts.mjs }
+  - { source: scripts/skills/content-hash.mjs }
+  - { source: scripts/config/read-floor.mjs }
+  - { source: scripts/config/scoring.json }
+  - { source: scripts/tree/guard.mjs }
+
+variables:
+  plugin_name:        { prompt: "Plugin name (kebab-case, not 'docks')" }
+  plugin_description: { prompt: "Short description" }
+  author_name:        { prompt: "Author name",  default_from: "git config user.name" }
+  author_email:       { prompt: "Author email", default_from: "git config user.email" }
+  license:            { prompt: "License", default: MIT }

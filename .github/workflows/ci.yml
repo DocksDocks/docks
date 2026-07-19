@@ -1,0 +1,80 @@
+name: validate
+
+# Triggers:
+#   - pull_request: validate before merge into main
+#   - push: tags: resolve and validate the released plugin (release.mjs creates
+#     the GitHub Release only if this authoritative tag-CI run succeeds)
+#   - workflow_dispatch: manual run for ad-hoc validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    tags:
+      - '*--v*'   # any <plugin>--v<version> release tag (docks--v*, session-relay--v*, ...)
+  workflow_dispatch:
+
+# Least privilege: the single validator job is read-only.
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: "validate (scripts/ci.mjs)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: "setup Node 24"
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+      - name: resolve CI target
+        id: target
+        if: github.event_name == 'push'
+        run: node scripts/ci-target.mjs release-tag "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"
+      - name: "enable corepack"
+        run: corepack enable
+      - name: "configure deterministic pnpm store"
+        run: pnpm config set store-dir "$HOME/.pnpm-store"
+      - name: "cache pnpm store"
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
+          restore-keys: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-
+      - name: "cache Cargo dependencies and target outputs"
+        if: github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            plugins/session-relay/rust/target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-${{ hashFiles('plugins/session-relay/rust/src/**/*.rs') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-
+      - name: "install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
+        run: pnpm install --frozen-lockfile
+      - name: "verify registry signatures (non-blocking)"
+        continue-on-error: true
+        run: npm audit signatures
+      - name: "materialize claude-code binary (allowBuilds denies it by default)"
+        run: node node_modules/@anthropic-ai/claude-code/install.cjs
+      - name: "add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)"
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: provision Rust 1.85.0 with musl for the session-relay host leg
+        if: github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'
+        run: |
+          if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+            (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)
+          fi
+      - name: "run the authoritative gate (scripts/ci.mjs)"
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            node scripts/ci.mjs --plugin "${{ steps.target.outputs.plugin }}"
+          else
+            node scripts/ci.mjs
+          fi
