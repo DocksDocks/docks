@@ -163,6 +163,10 @@ ReviewDispatchCommitmentV1 = {
   candidate: CurrentCandidateV6,
   prior_attempts: [CurrentAttemptV6, ...],
   prior_attempts_sha256: sha256(JCS(prior_attempts)),
+  bundle_path: absolute safe path,
+  bundle_sha256: 64hex,
+  reviewer_workspace: ReviewerWorkspaceV1 | null,
+  reviewer_workspace_sha256: sha256(JCS(reviewer_workspace)),
   argv: [string, ...],
   argv_sha256: sha256(JCS(argv)),
   controller_config: {
@@ -178,12 +182,16 @@ reviewerWorkspace,leg,priorAttempts,committedAt})` validates and deep-copies the
 exact ordered availability-only `priorAttempts`, requires
 `candidate_index === prior_attempts.length` and the candidate to equal
 `request.policy.candidates[candidate_index]`, stores
-`prior_attempts_sha256`, derives exact argv through
-`buildReviewerArgv({tool,bundle,reviewerWorkspace=null,model,effort,
-serviceTier=null,leg,request,priorAttempts})`, and fixes the deadline at `600`.
-Candidate zero requires an empty prior-attempt array. `buildReviewerArgv`
-remains derivation-only and never authorizes spawn.
-The manager writes
+`prior_attempts_sha256`, and verifies and binds the absolute sealed bundle path
+plus its request-bound digest. Before a Codex commitment, plan-manager creates
+the schema-6 reviewer workspace through `prepareReviewerWorkspace`; the builder
+validates its exact request/leg/path/sentinel identity, deep-copies the complete
+non-secret workspace record and its hash, and passes that record—not `null`—to
+`buildReviewerArgv({tool,bundle,reviewerWorkspace,model,effort,serviceTier,leg,
+request,priorAttempts})`. Claude commitments require a null workspace. The
+builder fixes the deadline at `600`; candidate zero requires an empty
+prior-attempt array. `buildReviewerArgv` remains derivation-only and never
+authorizes spawn. The manager writes
 `Review-orchestration-dispatch-commitment: <compact JCS>` in a plan-only commit
 and reads it back before dispatch.
 
@@ -196,10 +204,15 @@ the exact current `HEAD`, a single-parent plan-only commitment commit, reads
 `git show <commit>:<plan>`, requires the current worktree plan bytes to equal
 that committed blob, and parses one active state + exact prepared request +
 exact commitment. It verifies both expected hashes, request/state/policy/
-candidate position, the closed prior-attempt array and its hash, rederived argv
-and argv hash, and exact JCS equality of `proposedControllerConfig` to the
-commitment's candidate index, argv, argv hash, and fixed
-`orchestrator_tool/600` controller config.
+candidate position, the closed prior-attempt array and its hash, the exact
+bundle path/content digest, and the committed workspace record/hash. For Codex
+it independently rejects a missing, substituted, unsafe, symlinked,
+wrong-owner/mode, or sentinel-mismatched workspace before rederiving argv with
+the committed workspace object; for Claude it requires null workspace.
+It then verifies argv/hash and exact JCS equality of
+`proposedControllerConfig` to the commitment's candidate index, argv, argv hash,
+workspace hash, bundle hash, and fixed `orchestrator_tool/600` controller
+config before one adapter call.
 
 For candidate index greater than zero, the gate additionally traverses parent
 plan blobs and requires a matching earlier commitment for every prior candidate
@@ -428,8 +441,8 @@ are immutable and cannot enter abandonment, replacement, or reopened review.
 
 | # | Task | Files | Depends | Status | Done when / failure action |
 |---|---|---|---|---|---|
-| 1 | Add red contract, integration-gate, and mutation tests for prepared-request commit/read-back, per-candidate exact-600 commitment with persisted/hash-bound prior attempts and parent-history proof, authoritative Git/read-back/config/spawn dispatch, worktree/path drift, atomic round-two cleanup, invalid-config abort, exact-parent authorized abandonment, full source reconstruction, generic terminal StateV2 pairing and convergence-schema parity, changed-input CAS, finished immutability, and direct eligible StateV1 inputs. | `scripts/tests/plan-review-policy-regressions.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-skill-phases.mjs` | — | planned | A temporary Git fixture and counting adapter prove candidate zero and a candidate-one fallback dispatch exactly once only with committed evidence; stale/missing/substituted commit/blob/worktree/path/config/argv/prior-attempt/history cases dispatch zero times. Other focused tests prove repair cleanup, terminal auditability, changed-input-only replacement, and unchanged historical behavior. |
-| 2 | Implement closed prepared-request, prior-attempt-bound dispatch commitment, authoritative dispatch gate, controller-abort, abandonment-authorization/record validators and full-plan compare-and-swap reducers; generalize StateV2 terminal/source fields; add atomic repair-family cleanup, canonical family validation, changed-input CAS, and safe logical-path rejection; normalize only otherwise eligible direct StateV1 reducer outputs. | `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs` | 1 | planned | A1–A3 pass. One gate verifies exact current HEAD, plan-only ancestry, committed/worktree byte equality, prior availability attempts plus earlier commitments, and actual proposed config before one adapter call. Invalid/substituted input never spawns; stale round-one records cannot survive repair; terminal records cannot produce series/receipt/retry/apply; schemas 1–5 and rejected inputs remain unchanged. |
+| 1 | Add red contract, integration-gate, and mutation tests for prepared-request commit/read-back, per-candidate exact-600 commitment with persisted/hash-bound prior attempts, sealed-bundle identity, prepared-workspace sentinel proof, and parent-history proof, authoritative Git/read-back/config/spawn dispatch, worktree/path drift, atomic round-two cleanup, invalid-config abort, exact-parent authorized abandonment, full source reconstruction, generic terminal StateV2 pairing and convergence-schema parity, changed-input CAS, finished immutability, and direct eligible StateV1 inputs. | `scripts/tests/plan-review-policy-regressions.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-review-convergence-repair.mjs`; `scripts/tests/plan-skill-phases.mjs` | — | planned | A temporary Git fixture and counting adapter prove candidate zero and a candidate-one fallback dispatch exactly once only with committed evidence and an exact safe reviewer workspace; stale/missing/substituted commit/blob/worktree/path/bundle/workspace/sentinel/config/argv/prior-attempt/history cases dispatch zero times. Other focused tests prove repair cleanup, terminal auditability, changed-input-only replacement, and unchanged historical behavior. |
+| 2 | Implement closed prepared-request, prior-attempt/bundle/workspace-bound dispatch commitment, authoritative dispatch gate with independent workspace-sentinel validation, controller-abort, abandonment-authorization/record validators and full-plan compare-and-swap reducers; generalize StateV2 terminal/source fields; add atomic repair-family cleanup, canonical family validation, changed-input CAS, and safe logical-path rejection; normalize only otherwise eligible direct StateV1 reducer outputs. | `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs` | 1 | planned | A1–A3 pass. One gate verifies exact current HEAD, plan-only ancestry, committed/worktree byte equality, sealed bundle, prepared workspace sentinel, prior availability attempts plus earlier commitments, and actual proposed config before one adapter call. Invalid/substituted input never spawns; stale round-one records cannot survive repair; terminal records cannot produce series/receipt/retry/apply; schemas 1–5 and rejected inputs remain unchanged. |
 | 3 | Document manager/reviewer ownership, commit-before-launch ordering, administrative abandonment authority, current record-family versions, generated-wrapper parity, and no-progress rules; regenerate changed skill hashes. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-reviewer/SKILL.md`; `plugins/docks/agents/plan-manager.md`; `.codex/agents/plan-manager.toml`; `docs/scaffold/templates/{codex-plan-manager.toml,root-AGENTS.md}.template`; `plugins/docks/skills/productivity/plan-workspace/references/{codex-agent-templates.md,plans-agents-md-template.md}` | 2 | planned | Live and generated contracts require plan-manager to commit/read back the request and commitment before launch; reviewer/repairer cannot abandon; `authorized_abandonment` offers only materially changed input; generated hashes pass check-only. |
 | 4 | Bind the implementation commit durably, then run the focused oracle, mutation/surface/phase checks, Docks-targeted gate, and one full gate. | All changed implementation/docs/tests; `/tmp/docks-plan-review-controller-failure-recovery-implementation.sha`; `refs/docks/release/docks-0.13.1-tested` | 3 | planned | A1–A7 pass from empty porcelain including untracked files. A7 writes exact HEAD to the collision-specific file and repository-local ref, runs full CI once, and proves HEAD/file/ref/worktree remain identical. |
 | 5 | Patch-release and verify Docks `0.13.1`. | `.claude-plugin/marketplace.json`; `plugins/docks/.claude-plugin/plugin.json`; `plugins/docks/.codex-plugin/plugin.json` | 4 | planned | A8–A11 pass: dry run resolves `0.13.0 → 0.13.1` without mutation; actual release is the direct child of the bound implementation commit; tag CI and GitHub Release pass; installed Claude/Codex helper bytes equal the tag and pass the oracle/catalog checks. |
@@ -444,8 +457,8 @@ outside the step table as plan-manager lifecycle operations.
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; a temporary Git repository proves candidate zero dispatches once from empty prior attempts and candidate one dispatches once only after a matching parent candidate-zero commitment plus persisted/hash-bound availability evidence; `dispatchCommittedReviewer` reads exact current plan-only HEAD, compares worktree bytes, and calls its adapter only for matching committed argv and actual `orchestrator_tool/600`. Stale/missing/substituted commit/blob/worktree/path/config/argv/prior-attempt/history and proposed 650 cases call it zero times; terminal and repair invariants remain closed. |
-| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, stale/non-plan/multi-parent commitment commits, uncommitted worktree drift, unsafe backslash/traversal paths, request/policy/candidate/argv/config substitution, missing/reordered/unhashed prior attempts, missing parent commitments, post-validation replacement, adapter double-call/spawn-before-gate, stale repair records, stdout self-attestation, user-byte/base64/hash drift, parent ancestry drift, terminal/receipt/series crossover, same-input CAS, finished reopen, and weakened V1 preconditions. |
+| A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; a temporary Git repository proves candidate zero dispatches once from empty prior attempts and candidate one dispatches once only after a matching parent candidate-zero commitment plus persisted/hash-bound availability evidence; `dispatchCommittedReviewer` reads exact current plan-only HEAD, compares worktree bytes, independently verifies the committed sealed-bundle digest and safe reviewer-workspace sentinel, and calls its adapter only for matching committed argv and actual `orchestrator_tool/600`. Stale/missing/substituted commit/blob/worktree/path/bundle/workspace/sentinel/config/argv/prior-attempt/history and proposed 650 cases call it zero times; terminal and repair invariants remain closed. |
+| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, stale/non-plan/multi-parent commitment commits, uncommitted worktree drift, unsafe backslash/traversal paths, request/policy/candidate/bundle/workspace/sentinel/argv/config substitution, missing/reordered/unhashed prior attempts, missing parent commitments, post-validation replacement, adapter double-call/spawn-before-gate, stale repair records, stdout self-attestation, user-byte/base64/hash drift, parent ancestry drift, terminal/receipt/series crossover, same-input CAS, finished reopen, and weakened V1 preconditions. |
 | A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; review schema 6, independent current V1 record families, StateV2, validation-only StateV1, and historical review schemas 1–5 remain closed; eligible V1 inputs normalize to equivalent nonterminal V2 only after existing preconditions, including unchanged stale settlement behavior. |
 | A4 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; five-skill ownership and generated manager-wrapper parity require commit-before-launch and reserve abandonment authority to main-context plan-manager/current-user input. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only` | Exit 0; every changed skill hash matches generated content. |
@@ -523,12 +536,15 @@ outside the step table as plan-manager lifecycle operations.
   commits are read back, or a non-600 commitment can be formed.
 - Any schema-6 reviewer process is created outside
   `dispatchCommittedReviewer`, the gate receives a noncurrent or non-plan-only
-  commit, or its adapter is called before all Git/blob/config checks pass.
+  commit, or its adapter is called before all Git/blob/bundle/workspace/config
+  checks pass.
 - Candidate fallback lacks exact persisted/hash-bound availability-only attempts,
   candidate index differs from their count, or parent history lacks the matching
   earlier candidate commitments under the same request/state lineage.
-- Current worktree plan bytes differ from the exact committed plan blob, or an
-  unsafe backslash, NUL, empty, `.` or `..` logical-path segment is accepted.
+- Current worktree plan bytes differ from the exact committed plan blob; the
+  bound bundle digest or workspace record/hash/sentinel differs; an unsafe,
+  symlinked, wrong-owner/mode workspace is accepted; or an unsafe backslash,
+  NUL, empty, `.` or `..` logical-path segment is accepted.
 - A controller abort accepts an exact-600 valid config, lacks exact committed
   parent/state/prepared evidence, contains process/attempt/output fields, erases
   a disqualifying record, or follows a commitment or spawned process.
@@ -597,13 +613,15 @@ The current Session Relay archive remains untouched.
 - [ ] Every step names exact files, dependency, owner, command, and STOP action.
 - [ ] Prepared request is recursively closed, deep-copied, committed, read back,
   and identity-bound before any config or launch.
-- [ ] Each candidate commitment binds exact request/policy position, argv,
-  `600`, and the deep-copied/hash-bound prior availability attempts; candidate
-  zero has none and later candidates prove matching parent commitments.
+- [ ] Each candidate commitment binds exact request/policy position, sealed
+  bundle path/digest, reviewer workspace record/hash, argv, `600`, and the
+  deep-copied/hash-bound prior availability attempts; candidate zero has none
+  and later candidates prove matching parent commitments.
 - [ ] `dispatchCommittedReviewer` owns exact HEAD/plan-only ancestry,
-  committed/worktree byte equality, fallback-history proof, and actual config
-  checks before invoking its trusted adapter exactly once; derivation-only argv
-  is never reusable spawn authority.
+  committed/worktree byte equality, bundle verification, workspace/sentinel
+  safety, fallback-history proof, and actual config checks before invoking its
+  trusted adapter exactly once; derivation-only argv is never reusable spawn
+  authority.
 - [ ] Repair advancement atomically removes the old request/commitment, commits
   a state-only round-two family, then commits its distinct prepared request.
 - [ ] Invalid config aborts from exact parent/state/prepared bytes before spawn
@@ -637,4 +655,4 @@ The current Session Relay archive remains untouched.
 
 (filled by main-context plan-manager after completion evidence)
 
-Review-orchestration-state: {"apply_state":"none","current_input_sha256":"b1e564255a864f077bd252724798e8b57998a388a188f0354ffed5e6252a51c6","initial_input_sha256":"b1e564255a864f077bd252724798e8b57998a388a188f0354ffed5e6252a51c6","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/plan-review-controller-failure-recovery.md","request_ids":["50b0686d-9578-4857-86b7-4138e44f1cf6"],"retry_authorization":null,"round_index":1,"schema":1,"series_id":"11907338-db2a-4ee2-a04c-b0c38f62a294","series_sha256":null,"state_sha256":"1a1f9774bd3b81aa5e79588c7f6c3ca114a65facff9fd529d0b5b937e6e827da","status":"active","stop_reason":null,"transitioned_from_state_sha256":null}
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"ee17699af9b9ee762a0b7624c5a3d8f38a9a352417ff8d1aff4cf8cda23bafb6","initial_input_sha256":"b1e564255a864f077bd252724798e8b57998a388a188f0354ffed5e6252a51c6","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/plan-review-controller-failure-recovery.md","request_ids":["50b0686d-9578-4857-86b7-4138e44f1cf6","13ae978a-7054-4d36-b376-0aa4e75a941c"],"retry_authorization":null,"round_index":2,"schema":1,"series_id":"11907338-db2a-4ee2-a04c-b0c38f62a294","series_sha256":null,"state_sha256":"1029be9588d83c7d1e1ed18d305812a7908c5e21b30d813b23eacd4dc708253f","status":"active","stop_reason":null,"transitioned_from_state_sha256":null}
