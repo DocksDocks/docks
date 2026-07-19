@@ -1635,7 +1635,7 @@ export function validatePromotionReceiptForFinalization(receipt, context, inject
     fail('promotion public release commit has no reviewed companion ancestor');
   }
   for (const commit of [proof.value.source_commit, proof.value.tag_commit, proof.value.promoted_commit]) {
-    if (!adapter.isAncestor(receipt.expected_origin_main, commit)) fail('promotion receipt finalization lineage is not descended from expected origin/main');
+    if (!adapter.isAncestor(commit, receipt.expected_origin_main)) fail('expected origin/main is not descended from the promotion receipt lineage');
   }
   const tip = adapter.remoteRef(TRANSACTION_REF);
   if (tip !== receipt.terminal_journal_commit) fail('promotion receipt terminal journal tip is not authoritative');
@@ -1809,7 +1809,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
   } else if (tip === null) {
     const currentMain = adapter.remoteRef('refs/heads/main');
     if (currentMain !== options.get('expected-origin-main')) fail('expected origin/main drift', 'manual_incident');
-    if (!adapter.isAncestor(currentMain, proof.value.tag_commit) || !adapter.isAncestor(currentMain, proof.value.promoted_commit)) fail('expected origin/main is not an ancestor of the reviewed promotion lineage', 'manual_incident');
+    if (!adapter.isAncestor(proof.value.tag_commit, currentMain) || !adapter.isAncestor(proof.value.promoted_commit, currentMain)) fail('expected origin/main is not descended from the reviewed promotion lineage', 'manual_incident');
     validateLiveRelease(adapter.releaseState(), publication, proof);
     const compatibility = currentCompatibility(adapter, { expectedOriginMain: currentMain, promotedCommit: proof.value.promoted_commit });
     if (!mapsEqual(compatibility.current, compatibility.before)) fail('initial compatibility set does not match expected origin/main');
