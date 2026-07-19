@@ -1,11 +1,11 @@
 ---
 name: context-tree
-description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh folder / refresh all. Not for single-root-context repos, CLAUDE.md↔AGENTS.md canonicalization/multi-tool setup (use multi-tool-bridge), generic doc generation, or docs/plans/ which is already a node."
+description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh folder / refresh all. Not for single-root-context repos, CLAUDE.md↔AGENTS.md canonicalization/multi-tool setup (use multi-tool-bridge), generic doc generation, or docs/plans/ workspace setup/refresh (use plan-workspace)."
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-05"
-  content_hash: "a762a748f2e40ceee5dffb2a731503b2f89fa585e428aaf6fb568ad1f6ae1c39"
+  updated: "2026-07-18"
+  content_hash: "8a71e3c6002b1080e27e393aea9be19eb9ca2d05419ea4de6044f3bc41f6e2aa"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -41,11 +41,12 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 
 `context-tree` is not a plan operator, but user-triggered fixes can be risky
 enough to need the plan lifecycle. Keep `audit` read-only. For `init`, full
-`refresh`, or "fix the audit findings", create a `plan-manager` plan before
-writing when the change affects more than one node, moves/prunes root content,
-changes conventions, or needs multi-step verification. Trivial half-pair repairs
-(`AGENTS.md` exists but `CLAUDE.md` is missing, or vice versa) may be applied
-directly after the normal approval gate.
+`refresh`, or "fix the audit findings", route a missing canonical plan to
+`plan-creator`, then route review, `start`, and later lifecycle work to
+`plan-manager` before writing when the change affects more than one node,
+moves/prunes root content, changes conventions, or needs multi-step
+verification. Trivial half-pair repairs (`AGENTS.md` exists but `CLAUDE.md` is
+missing, or vice versa) may be applied directly after the normal approval gate.
 
 ## What counts as a node
 
@@ -142,8 +143,8 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | Wrote `AGENTS.md` but no `CLAUDE.md` | Claude Code can't see it. Always write the pair; CLAUDE.md = `@AGENTS.md`. |
 | CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — anything else breaks the pair. |
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
-| `init` clobbered `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them from the write set. |
-| Fixed a multi-node audit directly in chat | Risky fix path. Create a `plan-manager` plan first unless it is a trivial half-pair repair. |
+| `init` tried to clobber `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them; route plans-workspace setup or refresh to `plan-workspace`. |
+| Fixed a multi-node audit directly in chat | Risky fix path. Create the missing plan through `plan-creator`, then use `plan-manager` for review and `start`, unless it is a trivial half-pair repair. |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
 | Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + the pair check, prune root LAST (Phase B). |
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
@@ -155,7 +156,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 ## When NOT to use
 
 - A small repo with one root context file that fits comfortably — a tree adds indirection with no payoff.
-- `docs/plans/` — it's already a node; `init` detects and leaves it.
+- `docs/plans/` workspace setup or refresh — use `plan-workspace`; context-tree `init` detects an existing plans node and leaves it.
 - Generating generic docs/READMEs — this skill only manages the AGENTS.md+CLAUDE.md pair convention.
 - Rewriting a consumer project's non-conforming AGENTS.md — `audit` surfaces them; it does not auto-rewrite.
 
@@ -165,4 +166,4 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 - [`references/node-template.md`](references/node-template.md) — the AGENTS.md skeleton, the CLAUDE.md one-liner, the root "Context tree" section, the self-sufficiency checklist.
 - [`references/conflict-resolution.md`](references/conflict-resolution.md) — existing-file detection, drift/audit logic, merge-vs-overwrite, no-op refresh.
 - [`references/data-preservation.md`](references/data-preservation.md) — the section-inventory algorithm, per-section relocation table, two-phase write, and the verbatim verification snippet (self-contained; the kit pattern is in `write-skill/references/data-preservation.md`).
-- Companion: `plan-manager` (durable plan for risky user-triggered fixes) · `skill-maintenance` (the update-only-when-meaning-changed discipline the refresh op mirrors) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).
+- Companion: `plan-creator` (create the missing durable plan) · `plan-manager` (review, start, and lifecycle for that plan) · `skill-maintenance` (the update-only-when-meaning-changed discipline the refresh op mirrors) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).

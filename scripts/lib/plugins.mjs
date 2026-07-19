@@ -50,7 +50,7 @@ export const PLUGINS = [
     selftest: null,
     rust: null,
     extraJson: [],
-    authorChecks: ['idempotency', 'scaffold', 'plan-review'],
+    authorChecks: ['idempotency', 'scaffold', 'plan-reviewer'],
     releaseContracts: [],
     transformGuard: true,
     install: '/plugin marketplace update docks\n/plugin install docks@docks',

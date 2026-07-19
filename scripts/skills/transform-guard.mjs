@@ -12,7 +12,7 @@ const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 const DIR = path.resolve(process.argv[2] || path.join(REPO_DIR, 'plugins/docks/skills'));
 
-const TRANSFORMING_SKILLS = ['context-tree', 'multi-tool-bridge', 'skill-agent-pipeline', 'skill-maintenance', 'refactor', 'plan-init'];
+const TRANSFORMING_SKILLS = ['context-tree', 'multi-tool-bridge', 'skill-agent-pipeline', 'skill-maintenance', 'refactor', 'plan-workspace'];
 const PENDING = [];
 
 const PRES_RE = /content loss|no content|preserv|verbatim|net.?shrink|byte.?delta|section presence|drop a section|relocate.{0,12}verbatim/i;

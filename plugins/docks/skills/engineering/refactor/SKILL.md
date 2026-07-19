@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-05"
-  content_hash: "a9869c4ee2ac9d72267267c7d874450b3251139d22128e00c7530ef770ed88c8"
+  updated: "2026-07-18"
+  content_hash: "6e4453fc3b59998f195185d09864b28958942aba7e4f03d011a7f064523ce966"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -17,7 +17,7 @@ Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS con
 </constraint>
 
 <constraint>
-Two-stage gate, not Plan Mode. Phases 1–5 are READ-ONLY analysis. After Phase 5, STOP: the plan file is the deliverable for approval. Do NOT call `ExitPlanMode` (Claude-only) and do NOT edit code yet. Implementation (Phases 7–8) runs only after the user approves via the plan lifecycle (`start <slug>`).
+Two-stage gate, not Plan Mode. Phases 1–5 are READ-ONLY analysis. After Phase 5, STOP: the plan file is the deliverable for approval. Do NOT call `ExitPlanMode` (Claude-only) and do NOT edit code yet. For the tracked path, `plan-workspace` owns missing-workspace bootstrap, `plan-creator` owns creation of the previously nonexistent plan, and `plan-manager` owns review, `start <slug>`, and all later lifecycle work. Implementation (Phases 7–8) runs only after `plan-manager` applies `start <slug>`.
 </constraint>
 
 <constraint>
@@ -61,15 +61,15 @@ Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 mer
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`), record scope (a path, or the whole project).
-2. Create/open the plan file; write an `## Environment` block (date, branch, short git status).
+2. Resolve the artifact path. If the tracked workspace is absent, route bootstrap to `plan-workspace`; if the canonical plan path is missing, route the complete draft to `plan-creator`; route any existing-plan write to `plan-manager`. Write an `## Environment` block (date, branch, short git status).
 3. For each read-only row (1 → 5), in order: read `references/<phase>.md`, perform it, write under the row's heading, confirm the heading landed before the next phase. If a phase finds nothing, write "no findings" — never silently skip.
 4. At the GATE, hand off (below). Resume at Phase 7 only after approval.
 
 ## The plan file (IPC + deliverable)
 
 ```text
-docs/plans/active/refactor-<scope>.md   (preferred — tracked by plan-manager; status is a frontmatter field)
-docs/refactor-plan-<YYYYMMDD>.md        (fallback when docs/plans/ is absent)
+docs/plans/active/refactor-<scope>.md   (preferred — created by plan-creator; then managed by plan-manager)
+docs/refactor-plan-<YYYYMMDD>.md        (untracked fallback only when the user declines workspace bootstrap)
 ```
 
 Write as you go — do not hold all phase output in context and dump it at the end. Downstream phases and a resumed run locate prior output by grepping the headings.
@@ -83,7 +83,7 @@ After Phase 5, write `## Phase 6: Plan Presentation` to the plan file:
 3. Skipped findings (including over-engineering and unreproducible drops).
 4. Any MUST FIX from the pre-verifier requiring plan adjustment first.
 
-Then print "Refactoring plan written to `<path>`; review and say `start <slug>` to implement." as your final message and end the turn — do not call Edit/Write until the user replies. Approval flows through the plan lifecycle — never `ExitPlanMode`.
+Then print "Refactoring plan written to `<path>`; review and say `start <slug>` to implement." as your final message and end the turn — do not call Edit/Write until the user replies. Public review and `start` flow through `plan-manager`; never call `ExitPlanMode`.
 
 After approval, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same `docs/plans/` verdict; just who does the edits.
 
@@ -143,4 +143,4 @@ No content loss outside the planned diff: every deletion must be a planned dead-
 | Raw `rm` to delete dead code | Unstaged, harder to recover | `git rm` only; revert via `git restore` |
 | Flagging modernization from memory | Ships a backwards "fix" (e.g. Next.js `proxy.ts`) | Verify against current docs for the installed version |
 | Resolving one SOLID violation but adding another | Net-negative refactor ships | Phase 8 re-checks all 5 principles; revert on any new violation |
-| Assuming `docs/plans/` exists in a consumer repo | Write fails or lands nowhere | Check first; `plan-init` or use the fallback path |
+| Assuming `docs/plans/` exists in a consumer repo | Write fails or lands nowhere | Route workspace bootstrap to `plan-workspace`, or use the untracked fallback only if the user declines |

@@ -219,7 +219,7 @@ const byName = (name) => PLUGINS.find((plugin) => plugin.name === name);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'session-relay', 'effect-kit']);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, 'docks')), ['docks']);
 assert.throws(() => resolveCiTargets(PLUGINS, 'unknown-plugin'), /unknown plugin.*docks, session-relay, effect-kit/);
-assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'scaffold', 'plan-review']);
+assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'scaffold', 'plan-reviewer']);
 assert.deepEqual([...selectedAuthorChecks([byName('effect-kit')])], []);
 assert.deepEqual(releaseCiArgs('docks'), ['-q', '--plugin', 'docks']);
 console.log('registry targeting and author-check selection passed');

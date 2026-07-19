@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-05"
-  content_hash: "f2a6619e3277285def8902646753c5fb11241c38c9429c9c00b9341227f6cfea"
+  updated: "2026-07-18"
+  content_hash: "02ce57d9b4bb89d9e4558258b0965a84d566665bdff034bfa57ed0e743931831"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -21,7 +21,7 @@ Read-only. This pipeline never modifies source. Its only deliverable is the audi
 </constraint>
 
 <constraint>
-Approval via the plan lifecycle, not Plan Mode. Write the report to a plan file under `docs/plans/` and surface it — do NOT call `ExitPlanMode` (Claude-only). If `docs/plans/` does not exist, run `plan-init` first, or write the report to `docs/security-audit-<date>.md` and tell the user where it is.
+Approval via the plan lifecycle, not Plan Mode. Write the report to a plan file under `docs/plans/` and surface it — do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns missing-workspace bootstrap, `plan-creator` owns creation of the previously nonexistent report plan, and `plan-manager` owns existing-plan writes, review, `start <slug>`, and lifecycle. Use `docs/security-audit-<date>.md` only as an untracked fallback when the user declines workspace bootstrap.
 </constraint>
 
 <constraint>
@@ -60,7 +60,7 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
-2. Create or open the audit file (see below). Write an `## Environment` block: date, branch, short git status.
+2. Resolve the audit artifact. For the tracked path, route an absent workspace to `plan-workspace`, a missing canonical plan to `plan-creator`, and subsequent writes to `plan-manager`. Write an `## Environment` block: date, branch, short git status.
 3. For each pipeline row, in order:
    - Read `references/<phase>.md`.
    - Perform that analysis against the scope, using Phase 1's map as the starting point for phases 2–3.
@@ -73,8 +73,8 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 One Markdown file holds the whole run. It doubles as inter-phase memory and the final artifact.
 
 ```text
-docs/plans/active/security-audit.md   (preferred — tracked by plan-manager; status is a frontmatter field)
-docs/security-audit-<YYYYMMDD>.md      (fallback when docs/plans/ is absent)
+docs/plans/active/security-audit.md   (preferred — created by plan-creator; then managed by plan-manager)
+docs/security-audit-<YYYYMMDD>.md     (untracked fallback only when the user declines workspace bootstrap)
 ```
 
 Write as you go — do not hold all phase output in context and dump it at the end. The headings above are the contract; downstream phases (and a resumed run) locate prior output by grepping for them.
@@ -100,7 +100,7 @@ Synthesis (Phase 3) re-greps each pattern and traces taint to a real input sourc
 The report is terminal for this pipeline (read-only). After Phase 3:
 
 1. Tell the user where the report is and give the executive-summary counts (Critical/High/Medium/Low).
-2. If the report was written into `docs/plans/`, it is a tracked plan — the user can `start` it to drive remediation.
+2. If the report was written into `docs/plans/`, it is a tracked plan — route review and `start <slug>` through `plan-manager` to drive remediation.
 3. To remediate, hand confirmed findings to the `fix-workflow` skill:
 
 ```bash
@@ -128,5 +128,5 @@ Never auto-remediate from this skill.
 | Dumping all findings at the end instead of writing per-phase | A compaction mid-run loses every prior phase | Write each phase's output to the audit file immediately |
 | Reporting a grep hit without reading context | False positives; erodes trust in the whole report | Read 5+ lines around each cited line; trace taint before asserting severity |
 | Skipping synthesis because the scanners "already found everything" | Duplicate, mis-severitied, unreproducible findings ship | Always run Phase 3 — challenge, dedupe, drop unreproducible |
-| Assuming `docs/plans/` exists in a consumer repo | Write fails or lands nowhere | Check first; `plan-init` or use the fallback path |
+| Assuming `docs/plans/` exists in a consumer repo | Write fails or lands nowhere | Route workspace bootstrap to `plan-workspace`, or use the untracked fallback only if the user declines |
 | Trusting a library API from memory in a suggested fix | A wrong security fix is worse than none | Verify the API against current docs before recommending it |

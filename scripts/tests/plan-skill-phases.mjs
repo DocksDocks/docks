@@ -1,0 +1,316 @@
+#!/usr/bin/env node
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseDocument } from 'yaml';
+
+import { PLUGINS } from '../lib/plugins.mjs';
+import { selectedAuthorChecks } from '../lib/ci-targeting.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const PRODUCTIVITY = path.join(ROOT, 'plugins/docks/skills/productivity');
+const EXPECTED_PHASES = [
+  'plan-workspace',
+  'plan-creator',
+  'plan-manager',
+  'plan-reviewer',
+  'plan-repairer',
+];
+const EXPECTED_PUBLIC = new Map([
+  ['plan-workspace', true],
+  ['plan-creator', true],
+  ['plan-manager', true],
+  ['plan-reviewer', false],
+  ['plan-repairer', false],
+]);
+const OLD_LIVE_NAMES = ['plan-init', 'plan-review', 'plan-improver', 'capability-tuning'];
+
+function parseArgs(argv) {
+  if (argv.length === 0) return { caseName: 'default', version: null };
+  if (argv.length === 2 && argv[0] === '--case' && argv[1] === 'resumed-release-plan') {
+    return { caseName: argv[1], version: null };
+  }
+  if (argv.length === 4 && argv[0] === '--case' && argv[1] === 'installed-catalogs' && argv[2] === '--version') {
+    assert.match(argv[3], /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, '--version must be canonical semver');
+    return { caseName: argv[1], version: argv[3] };
+  }
+  throw new Error('usage: plan-skill-phases.mjs [--case installed-catalogs --version <v>|--case resumed-release-plan]');
+}
+
+function parseYaml(text, label) {
+  const document = parseDocument(text, { prettyErrors: true, strict: true, uniqueKeys: true });
+  assert.equal(document.errors.length, 0, `${label}: ${document.errors.join('\n')}`);
+  return document.toJS();
+}
+
+function readFrontmatter(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  assert.ok(text.startsWith('---\n'), `${path.relative(ROOT, file)} must start with frontmatter`);
+  const end = text.indexOf('\n---\n', 4);
+  assert.notEqual(end, -1, `${path.relative(ROOT, file)} must close frontmatter`);
+  return {
+    metadata: parseYaml(text.slice(4, end), path.relative(ROOT, file)),
+    body: text.slice(end + 5),
+  };
+}
+
+function immediateSkillMetadata(skillsRoot) {
+  return fs.readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(skillsRoot, entry.name, 'SKILL.md'))
+    .filter((file) => fs.existsSync(file))
+    .map((file) => ({ file, ...readFrontmatter(file) }));
+}
+
+function phaseMetadata(skillsRoot) {
+  return immediateSkillMetadata(skillsRoot)
+    .filter(({ metadata }) => metadata.name.startsWith('plan-'))
+    .sort((left, right) => left.metadata.name.localeCompare(right.metadata.name));
+}
+
+function useWhenClaim(description) {
+  assert.match(description, /^Use when\b/, 'skill description must use the CSO trigger form');
+  return description.split(/\bNot for\b/i, 1)[0];
+}
+
+function assertPhaseMetadata(skillsRoot = PRODUCTIVITY) {
+  const phases = phaseMetadata(skillsRoot);
+  assert.deepEqual(phases.map(({ metadata }) => metadata.name).sort(), [...EXPECTED_PHASES].sort(), 'live plan skill names');
+
+  for (const { file, metadata } of phases) {
+    assert.equal(metadata['user-invocable'], EXPECTED_PUBLIC.get(metadata.name), `${metadata.name} public/internal flag`);
+    assert.equal(path.basename(path.dirname(file)), metadata.name, `${metadata.name} directory must match its public name`);
+  }
+
+  const claims = new Map(phases.map(({ metadata }) => [metadata.name, useWhenClaim(metadata.description)]));
+  const expectedClaims = new Map([
+    ['plan-workspace', [/bootstrapp/i, /migrat/i, /audit/i, /refresh/i, /docs\/plans/i]],
+    ['plan-creator', [/draft/i, /self-review/i, /previously nonexistent/i, /`?planned`?\s+or\s+`?scheduled`?/i]],
+    ['plan-manager', [/existing-plan/i, /list\/show\/lifecycle/i, /review preparation/i, /dispatch/i]],
+    ['plan-reviewer', [/read-only/i, /typed evidence/i, /sealed bundle/i]],
+    ['plan-repairer', [/one patch/i, /exact accepted blocking set/i, /cannot_repair/i]],
+  ]);
+  for (const [name, patterns] of expectedClaims) {
+    for (const pattern of patterns) assert.match(claims.get(name), pattern, `${name} trigger claim must include ${pattern}`);
+  }
+  assert.equal(new Set(claims.values()).size, EXPECTED_PHASES.length, 'each phase must have a distinct positive trigger claim');
+
+  for (const oldName of OLD_LIVE_NAMES) {
+    assert.equal(fs.existsSync(path.join(skillsRoot, oldName)), false, `${oldName} must not resolve as a live skill`);
+  }
+}
+
+function parseTomlIdentity(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  const value = (key) => {
+    const match = text.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, 'm'));
+    assert.ok(match, `${path.relative(ROOT, file)} missing ${key}`);
+    return match[1];
+  };
+  return { name: value('name'), sandboxMode: value('sandbox_mode'), text };
+}
+
+function assertWrappers() {
+  const claudeRoot = path.join(ROOT, 'plugins/docks/agents');
+  const codexRoot = path.join(ROOT, '.codex/agents');
+  const expected = ['plan-manager', 'plan-reviewer'];
+  const claudeFiles = fs.readdirSync(claudeRoot)
+    .filter((name) => /^plan-.*\.md$/.test(name))
+    .sort();
+  const codexFiles = fs.readdirSync(codexRoot)
+    .filter((name) => /^plan-.*\.toml$/.test(name))
+    .sort();
+  assert.deepEqual(claudeFiles, expected.map((name) => `${name}.md`).sort(), 'Claude wrappers are manager/reviewer only');
+  assert.deepEqual(codexFiles, expected.map((name) => `${name}.toml`).sort(), 'Codex wrappers are manager/reviewer only');
+
+  const claude = new Map(claudeFiles.map((name) => {
+    const parsed = readFrontmatter(path.join(claudeRoot, name));
+    return [parsed.metadata.name, parsed];
+  }));
+  assert.deepEqual([...claude.keys()].sort(), expected, 'Claude wrapper identities');
+  assert.match(String(claude.get('plan-manager').metadata.tools), /Edit/, 'manager wrapper may apply a prepared lifecycle write');
+  assert.doesNotMatch(String(claude.get('plan-reviewer').metadata.tools), /Edit|Write/, 'reviewer wrapper must remain read-only');
+  assert.match(claude.get('plan-manager').body, /skills\/productivity\/plan-manager\/SKILL\.md/, 'manager wrapper dispatch target');
+  assert.match(claude.get('plan-reviewer').body, /skills\/productivity\/plan-reviewer\/SKILL\.md/, 'reviewer wrapper dispatch target');
+
+  const codex = new Map(codexFiles.map((name) => {
+    const parsed = parseTomlIdentity(path.join(codexRoot, name));
+    return [parsed.name, parsed];
+  }));
+  assert.deepEqual([...codex.keys()].sort(), expected, 'Codex wrapper identities');
+  assert.equal(codex.get('plan-manager').sandboxMode, 'workspace-write');
+  assert.equal(codex.get('plan-reviewer').sandboxMode, 'read-only');
+  assert.match(codex.get('plan-manager').text, /skills\/productivity\/plan-manager\/SKILL\.md/, 'Codex manager dispatch target');
+  assert.match(codex.get('plan-reviewer').text, /skills\/productivity\/plan-reviewer\/SKILL\.md/, 'Codex reviewer dispatch target');
+}
+
+function assertScaffoldContract() {
+  const spec = parseYaml(fs.readFileSync(path.join(ROOT, 'docs/scaffold/spec.yaml'), 'utf8'), 'docs/scaffold/spec.yaml');
+  const planSeed = spec.tree_nodes.find((node) => node.path === 'docs/plans');
+  assert.deepEqual(planSeed, { path: 'docs/plans', seed_from_skill: 'plan-workspace' });
+
+  const bundledPlanSkills = spec.bundled_skills
+    .map(({ source }) => path.basename(source))
+    .filter((name) => name.startsWith('plan-'))
+    .sort();
+  assert.deepEqual(bundledPlanSkills, [...EXPECTED_PHASES].sort(), 'scaffold must bundle all five plan skills');
+
+  const wrapperDestinations = spec.templated_files
+    .map(({ dest }) => dest)
+    .filter((dest) => dest.startsWith('.codex/agents/plan-'))
+    .sort();
+  assert.deepEqual(wrapperDestinations, ['.codex/agents/plan-manager.toml', '.codex/agents/plan-reviewer.toml']);
+  for (const entry of spec.bundled_skills.filter(({ source }) => EXPECTED_PHASES.includes(path.basename(source)))) {
+    assert.ok(fs.existsSync(path.join(ROOT, entry.source, 'SKILL.md')), `scaffold source must resolve: ${entry.source}`);
+  }
+}
+
+function assertAuthorCheckKey() {
+  const docks = PLUGINS.find(({ name }) => name === 'docks');
+  assert.ok(docks, 'docks plugin descriptor');
+  const routed = [...selectedAuthorChecks([docks])];
+  assert.deepEqual(routed.filter((name) => name.startsWith('plan-')), ['plan-reviewer']);
+  assert.equal(routed.includes('plan-review'), false, 'old plan-review author-check key must not route');
+}
+
+function assertCatalogMetadata() {
+  const files = [
+    'plugins/docks/.claude-plugin/plugin.json',
+    'plugins/docks/.codex-plugin/plugin.json',
+    '.claude-plugin/marketplace.json',
+  ];
+  for (const relative of files) {
+    const parsed = JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8'));
+    const description = parsed.plugins
+      ? parsed.plugins.find(({ name }) => name === 'docks').description
+      : parsed.description;
+    assert.doesNotMatch(description, /capability[ -]tuning/i, `${relative} must not advertise deleted capability tuning`);
+  }
+}
+
+function runCodexFacts(scriptRoot) {
+  return spawnSync(process.execPath, [path.join(scriptRoot, 'scripts/skills/codex-facts.mjs')], {
+    cwd: scriptRoot,
+    encoding: 'utf8',
+  });
+}
+
+function assertRetainedCodexFactMutation() {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-plan-skill-phases-'));
+  try {
+    const guardDestination = path.join(temporaryRoot, 'scripts/skills/codex-facts.mjs');
+    const pipelineDestination = path.join(temporaryRoot, 'plugins/docks/skills/productivity/skill-agent-pipeline');
+    fs.mkdirSync(path.dirname(guardDestination), { recursive: true });
+    fs.mkdirSync(path.dirname(pipelineDestination), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'scripts/skills/codex-facts.mjs'), guardDestination);
+    fs.cpSync(path.join(PRODUCTIVITY, 'skill-agent-pipeline'), pipelineDestination, { recursive: true });
+
+    const baseline = runCodexFacts(temporaryRoot);
+    assert.equal(baseline.status, 0, `${baseline.stdout}\n${baseline.stderr}`);
+    assert.match(baseline.stdout, /Guard PASSED/);
+
+    const factFile = path.join(pipelineDestination, 'references/codex-agents-builder.md');
+    const original = fs.readFileSync(factFile, 'utf8');
+    assert.match(original, /"minimal"/, 'retained effort token fixture');
+    fs.writeFileSync(factFile, original.replace('"minimal"', '"mutated-minimal"'));
+    const mutant = runCodexFacts(temporaryRoot);
+    assert.notEqual(mutant.status, 0, 'corrupting a retained effort token must make codex-facts fail');
+    assert.match(mutant.stderr, /missing model_reasoning_effort value "minimal"/);
+
+    fs.writeFileSync(factFile, original);
+    const restored = runCodexFacts(temporaryRoot);
+    assert.equal(restored.status, 0, `${restored.stdout}\n${restored.stderr}`);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+
+  const realGuard = runCodexFacts(ROOT);
+  assert.equal(realGuard.status, 0, `${realGuard.stdout}\n${realGuard.stderr}`);
+  assert.match(realGuard.stdout, /Guard PASSED: skill-agent-pipeline Codex facts match canonical sets/);
+}
+
+function assertHistoricalNamesRemainHistorical() {
+  const oldWorkflow = readFrontmatter(path.join(ROOT, 'docs/plans/finished/2026-05-12-plan-review-smoke.md'));
+  assert.equal(oldWorkflow.metadata.status, 'finished');
+  assert.match(oldWorkflow.body, /\bplan-init\b/);
+  assert.match(oldWorkflow.body, /\bplan-review\b/);
+
+  const retiredCapability = readFrontmatter(path.join(ROOT, 'docs/plans/finished/2026-06-10-capability-tuning-research-rollout.md'));
+  assert.equal(retiredCapability.metadata.status, 'finished');
+  assert.match(retiredCapability.body, /capability-tuning/i);
+}
+
+function resolveCatalogRoots() {
+  const claude = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin/marketplace.json'), 'utf8'));
+  const codex = JSON.parse(fs.readFileSync(path.join(ROOT, '.agents/plugins/marketplace.json'), 'utf8'));
+  const claudeEntry = claude.plugins.find(({ name }) => name === 'docks');
+  const codexEntry = codex.plugins.find(({ name }) => name === 'docks');
+  assert.ok(claudeEntry && codexEntry, 'both installed catalogs must expose docks');
+  assert.equal(codexEntry.source.source, 'local');
+  const claudeRoot = path.resolve(ROOT, claudeEntry.source);
+  const codexRoot = path.resolve(ROOT, codexEntry.source.path);
+  assert.equal(claudeRoot, codexRoot, 'Claude and Codex catalogs must resolve the same plugin payload');
+  return { claudeEntry, claudeRoot, codexRoot };
+}
+
+function assertInstalledCatalogs(version) {
+  const { claudeEntry, claudeRoot, codexRoot } = resolveCatalogRoots();
+  assert.equal(claudeEntry.version, version);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(claudeRoot, '.claude-plugin/plugin.json'), 'utf8')).version, version);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(codexRoot, '.codex-plugin/plugin.json'), 'utf8')).version, version);
+
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-installed-catalogs-'));
+  try {
+    for (const [catalog, source] of [['claude', claudeRoot], ['codex', codexRoot]]) {
+      const installed = path.join(temporaryRoot, catalog, 'docks');
+      fs.mkdirSync(path.dirname(installed), { recursive: true });
+      fs.cpSync(source, installed, { recursive: true });
+      assertPhaseMetadata(path.join(installed, 'skills/productivity'));
+    }
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+function assertResumedReleasePlan() {
+  const active = path.join(ROOT, 'docs/plans/active/session-relay-prebuilt-cli-release.md');
+  const finishedRoot = path.join(ROOT, 'docs/plans/finished');
+  const archived = fs.readdirSync(finishedRoot)
+    .filter((name) => /^\d{4}-\d{2}-\d{2}-session-relay-prebuilt-cli-release\.md$/.test(name));
+  assert.equal(fs.existsSync(active), false, 'resumed release plan must no longer resolve in active/');
+  assert.equal(archived.length, 1, 'resumed release plan must have one unique ship-date archive');
+
+  const plan = readFrontmatter(path.join(finishedRoot, archived[0]));
+  assert.equal(plan.metadata.status, 'finished');
+  assert.equal(plan.metadata.review_status, 'passed');
+  const rows = [...plan.body.matchAll(/^\|\s*([1-7])\s*\|.*$/gm)].map((match) => match[0].split('|').slice(1, -1).map((cell) => cell.trim()));
+  assert.deepEqual(rows.map((row) => [row[0], row[4]]), [
+    ['1', 'done'], ['2', 'done'], ['3', 'done'], ['4', 'done'], ['5', 'done'], ['6', 'done'], ['7', 'done'],
+  ], 'all seven release steps must remain done');
+
+  const receipts = [...plan.body.matchAll(/^Review-receipt:\s*(\{.*\})$/gm)].map((match) => JSON.parse(match[1]));
+  const completion = receipts.find((receipt) => receipt.phase === 'completion' && receipt.policy?.schema === 6);
+  assert.ok(completion, 'archived release plan must retain one schema-6 completion receipt');
+  assert.equal(completion.outcome, 'passed');
+}
+
+const invocation = parseArgs(process.argv.slice(2));
+if (invocation.caseName === 'installed-catalogs') {
+  assertInstalledCatalogs(invocation.version);
+  console.log(`installed Claude/Codex catalogs expose the five plan phases at ${invocation.version}`);
+} else if (invocation.caseName === 'resumed-release-plan') {
+  assertResumedReleasePlan();
+  console.log('resumed Session Relay release plan archive passed');
+} else {
+  assertPhaseMetadata();
+  assertWrappers();
+  assertScaffoldContract();
+  assertAuthorCheckKey();
+  assertCatalogMetadata();
+  assertRetainedCodexFactMutation();
+  assertHistoricalNamesRemainHistorical();
+  console.log('plan skill phase, wrapper, scaffold, guard, and history contracts passed');
+}

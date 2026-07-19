@@ -15,7 +15,7 @@ const EXCLUDED_FRONTMATTER = new Set([
   'blocked_since', 'assignee', 'review_status', 'ship_commit', 'review_waivers',
   'execution_base_commit',
 ]);
-const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt): (\{.*\})$/;
+const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt|Review-orchestration-state): (\{.*\})$/;
 const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_auth', 'unavailable_model', 'timed_out', 'platform_denied', 'failed_unparseable', 'unavailable_unknown']);
 const ATTEMPT_RESULTS = new Set(['passed', 'auth_failed', 'model_unavailable', 'deadline_exceeded', 'platform_denied', 'transient_transport', 'nonzero_exit', 'signaled', 'unparseable']);
 const SOURCES = new Set(['current_user', 'runtime_global', 'skill_default']);
@@ -231,6 +231,7 @@ export function canonicalPlanView(bytes) {
     if (count > 1) throw new Error(`duplicate ${kind}`);
     let parsed; try { parsed = JSON.parse(payload); } catch { throw new Error(`${kind} must be one-line JSON`); }
     if (jcs(parsed) !== payload) throw new Error(`${kind} must be compact JCS`);
+    if (kind === 'Review-orchestration-state') validateReviewOrchestrationState(parsed);
   }
   return `${jcs(kept)}\n${retained.join('\n').replace(/\n*$/, '')}\n`;
 }
@@ -347,13 +348,13 @@ export function buildImplementerRelayArgv({ repo, invokerSession, candidate, tas
 }
 
 function reviewRecordSchema(request) {
-  if (request.policy?.schema === 5) return 5;
+  if ([5, 6].includes(request.policy?.schema)) return request.policy.schema;
   if (request.policy?.schema === 4) return 3;
   return request.policy?.schema === 3 ? 2 : 1;
 }
 
 export function validatePolicy(policy) {
-  if (policy?.schema === 5) return validateCurrentPolicy(policy);
+  if ([5, 6].includes(policy?.schema)) return validateCurrentPolicy(policy);
   const baseKeys = ['schema', 'cross_company_consent', 'zero_reviewer_policy', 'orchestrator_preference'];
   const tierKeys = ['openai_tiers', 'anthropic_tiers'];
   if (policy?.schema === 1) assertClosed(policy, [...baseKeys, ...tierKeys, 'provenance'], 'policy');
@@ -391,7 +392,10 @@ export function validatePolicy(policy) {
 export function validateRequest(request) {
   const baseKeys = ['schema', 'request_id', 'phase', 'lifecycle_intent', 'reviewed_commit_or_head', 'planned_at_commit', 'execution_base_commit', 'diff_sha256', 'acceptance_inventory_sha256', 'input_sha256', 'bundle_sha256', 'author', 'policy', 'policy_sha256'];
   const convergenceKeys = ['review_mode', 'round_index', 'previous_input_sha256', 'repair_targets_sha256'];
-  assertClosed(request, [3, 5].includes(request?.schema) ? [...baseKeys, ...convergenceKeys] : baseKeys, 'request');
+  const orchestrationKeys = ['orchestration_series_id', 'orchestration_state_sha256'];
+  assertClosed(request, [3, 5, 6].includes(request?.schema)
+    ? [...baseKeys, ...convergenceKeys, ...(request.schema === 6 ? orchestrationKeys : [])]
+    : baseKeys, 'request');
   if (request.schema !== reviewRecordSchema(request) || !UUID.test(request.request_id)) throw new Error('request identity');
   oneOf(request.phase, new Set(['draft', 'completion']), 'phase');
   oneOf(request.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'lifecycle_intent');
@@ -404,25 +408,29 @@ export function validateRequest(request) {
   assertClosed(request.author, ['company', 'tool', 'model', 'effort'], 'request author'); oneOf(request.author.company, new Set(['openai', 'anthropic']), 'request author company'); for (const key of ['tool', 'model', 'effort']) string(request.author[key], `request author ${key}`);
   validatePolicy(request.policy);
   if (sha256(jcs(request.policy)) !== request.policy_sha256) throw new Error('policy hash mismatch');
-  if ([3, 5].includes(request.schema)) {
+  if ([3, 5, 6].includes(request.schema)) {
     oneOf(request.review_mode, new Set(['full', 'repair']), 'review_mode');
-    const maximumRound = request.schema === 5 ? 2 : 10;
+    const maximumRound = [5, 6].includes(request.schema) ? 2 : 10;
     if (!Number.isInteger(request.round_index) || request.round_index < 1 || request.round_index > maximumRound) throw new Error('round_index');
     if (request.review_mode === 'full') {
       if (request.round_index !== 1 || request.previous_input_sha256 !== null || request.repair_targets_sha256 !== null) throw new Error('full review must be round one without repair identity');
     } else {
-      if (request.schema === 5 ? request.round_index !== 2 : request.round_index <= 1) throw new Error(request.schema === 5 ? 'repair review must be round two' : 'repair review requires a later round');
+      if ([5, 6].includes(request.schema) ? request.round_index !== 2 : request.round_index <= 1) throw new Error([5, 6].includes(request.schema) ? 'repair review must be round two' : 'repair review requires a later round');
       digest(request.previous_input_sha256, 'repair previous input'); digest(request.repair_targets_sha256, 'repair targets');
       if (request.input_sha256 === request.previous_input_sha256) throw new Error('repair review requires changed input');
     }
+  }
+  if (request.schema === 6) {
+    if (!UUID.test(request.orchestration_series_id)) throw new Error('request orchestration series identity');
+    digest(request.orchestration_state_sha256, 'request orchestration state');
   }
   return request;
 }
 
 export function reviewerSchema(leg, outputSchema = 1) {
-  if (outputSchema === 5) {
+  if ([5, 6].includes(outputSchema)) {
     oneOf(leg, new Set(['primary']), 'role');
-    return currentReviewerSchema();
+    return currentReviewerSchema(outputSchema);
   }
   oneOf(leg, new Set(['X', 'S']), 'leg');
   oneOf(outputSchema, new Set([1, 2, 3]), 'reviewer output schema');
@@ -762,6 +770,7 @@ function validateOutcome(X, S, policy, decisionEvidence, outcome, eligible = nul
 }
 
 export function validateDraftRunResult(result, { waivers = [] } = {}) {
+  if (result?.schema === 6) return validateCurrentReviewRunResult(result, { waivers });
   if (result?.schema === 5) return validateCurrentReviewRunResult(result, { waivers });
   assertClosed(result, ['schema', 'kind', 'request', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible'], 'draft run result');
   if (result.schema !== reviewRecordSchema(result.request) || result.kind !== 'draft') throw new Error('draft run kind'); validateRequest(result.request); if (result.request.phase !== 'draft') throw new Error('draft run phase');
@@ -879,6 +888,7 @@ export function buildRepairTransition({ fromRoundIndex, previousInputSha256, cur
 }
 
 export function validateReviewSeries(series, { waivers = [] } = {}) {
+  if (series?.schema === 6) return validateCurrentReviewSeries(series, { waivers });
   if (series?.schema === 5) return validateCurrentReviewSeries(series, { waivers });
   assertClosed(series, ['schema', 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds', 'repairs'], 'review series');
   if (series.schema !== 3 || !Array.isArray(series.rounds) || series.rounds.length === 0) throw new Error('review series identity');
@@ -919,6 +929,7 @@ export function validateReviewSeries(series, { waivers = [] } = {}) {
 }
 
 export function validateCompletionRunResult(result, { waivers = [] } = {}) {
+  if (result?.schema === 6) return validateCurrentReviewRunResult(result, { waivers });
   if (result?.schema === 5) return validateCurrentReviewRunResult(result, { waivers });
   assertClosed(result, ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'primary', 'completion_verdict'], 'completion run result');
   if (result.schema !== reviewRecordSchema(result.request) || result.kind !== 'completion') throw new Error('completion run kind'); validateRequest(result.request); if (result.request.phase !== 'completion' || result.request.lifecycle_intent !== 'none') throw new Error('completion request phase/intent');
@@ -935,7 +946,8 @@ function validateExpectedPolicy(receipt, expectedPolicy) {
   if (jcs(receipt.policy) !== jcs(expectedPolicy) || receipt.policy_sha256 !== sha256(jcs(expectedPolicy))) throw new Error('receipt resolved policy mismatch');
 }
 
-export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [], expectedPolicy = null } = {}) {
+export function validateDraftReceipt(receipt, expectedInput = null, { waivers = [], expectedPolicy = null, orchestration = null } = {}) {
+  if (receipt?.schema === 6) return validateCurrentReviewReceipt(receipt, expectedInput, { waivers, expectedPolicy, orchestration });
   if (receipt?.schema === 5) return validateCurrentReviewReceipt(receipt, expectedInput, { waivers, expectedPolicy });
   const keys = ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'outcome', 'pre_execution_eligible', 'reviewed_at'];
   assertClosed(receipt, keys, 'draft receipt'); if (receipt.schema !== reviewRecordSchema(receipt.request) || receipt.phase !== 'draft') throw new Error('draft receipt phase'); validateRequest(receipt.request);
@@ -950,13 +962,15 @@ export function validateDraftReceipt(receipt, expectedInput = null, { waivers = 
 }
 
 export function validateDraftReviewReuse(input) {
-  const normalized = { waivers: [], ...input };
-  assertClosed(normalized, ['receipt', 'expectedInput', 'expectedPolicy', 'waivers'], 'draft review reuse');
+  const normalized = { waivers: [], orchestration: null, ...input };
+  assertClosed(normalized, ['receipt', 'expectedInput', 'expectedPolicy', 'waivers', 'orchestration'], 'draft review reuse');
   digest(normalized.expectedInput, 'draft review reuse input'); validatePolicy(normalized.expectedPolicy);
+  if (normalized.receipt?.schema === 6) return validateDraftReceipt(normalized.receipt, normalized.expectedInput, { expectedPolicy: normalized.expectedPolicy, waivers: normalized.waivers, orchestration: normalized.orchestration });
   return validateDraftReceipt(normalized.receipt, normalized.expectedInput, { expectedPolicy: normalized.expectedPolicy, waivers: normalized.waivers });
 }
 
-export function validateCompletionReceipt(receipt, expected = {}, { waivers = [], expectedPolicy = null } = {}) {
+export function validateCompletionReceipt(receipt, expected = {}, { waivers = [], expectedPolicy = null, orchestration = null } = {}) {
+  if (receipt?.schema === 6) return validateCurrentReviewReceipt(receipt, expected, { waivers, expectedPolicy, orchestration });
   if (receipt?.schema === 5) return validateCurrentReviewReceipt(receipt, expected, { waivers, expectedPolicy });
   const keys = ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'author', 'policy', 'policy_sha256', 'X', 'S', 'reproduced', 'decision_evidence', 'primary', 'completion_verdict', 'outcome', 'reviewed_at'];
   assertClosed(receipt, keys, 'completion receipt'); if (receipt.schema !== reviewRecordSchema(receipt.request) || receipt.phase !== 'completion') throw new Error('completion receipt phase'); validateRequest(receipt.request);
@@ -974,6 +988,10 @@ export function validateCompletionReceipt(receipt, expected = {}, { waivers = []
 }
 
 export function validateReviewerOutput(output, request, leg) {
+  if (request?.schema === 6) {
+    if (leg !== 'primary') throw new Error('current reviewer role must be primary');
+    return validateCurrentReviewerOutput(output, request);
+  }
   if (request?.schema === 5) {
     if (leg !== 'primary') throw new Error('current reviewer role must be primary');
     return validateCurrentReviewerOutput(output, request);
@@ -1084,7 +1102,7 @@ function validateCurrentCandidate(candidate, label = 'current candidate') {
 
 export function validateCurrentPolicy(policy) {
   assertClosed(policy, ['schema', 'role', 'fallback', 'max_rounds', 'candidates', 'provenance'], 'current policy');
-  if (policy.schema !== 5) throw new Error('current policy schema');
+  if (![5, 6].includes(policy.schema)) throw new Error('current policy schema');
   if (policy.role !== 'primary') throw new Error('current policy role');
   if (policy.fallback !== 'availability_only') throw new Error('current policy fallback');
   if (policy.max_rounds !== 2) throw new Error('current policy max_rounds must be exactly 2');
@@ -1108,22 +1126,23 @@ function currentSchemaHelpers() {
   return { closed, str, typedConst, typedEnum };
 }
 
-export function currentReviewerSchema() {
+export function currentReviewerSchema(schema = 5) {
+  oneOf(schema, new Set([5, 6]), 'current reviewer schema');
   const { closed, str, typedConst, typedEnum } = currentSchemaHelpers();
   const candidateSchemas = CURRENT_CANDIDATES.map((candidate) => closed(Object.fromEntries(
     Object.entries(candidate).map(([key, value]) => [key, typedConst('string', value)]),
   )));
   const source = typedEnum('string', [...SOURCES]);
   const policy = closed({
-    schema: typedConst('integer', 5),
+    schema: typedConst('integer', schema),
     role: typedConst('string', 'primary'),
     fallback: typedConst('string', 'availability_only'),
     max_rounds: typedConst('integer', 2),
     candidates: { type: 'array', minItems: 1, maxItems: 3, items: { anyOf: candidateSchemas } },
     provenance: closed({ role: source, fallback: source, max_rounds: source, candidates: source }),
   });
-  const request = closed({
-    schema: typedConst('integer', 5),
+  const requestProperties = {
+    schema: typedConst('integer', schema),
     request_id: { type: 'string', pattern: UUID.source },
     phase: typedEnum('string', ['draft', 'completion']),
     lifecycle_intent: typedEnum('string', ['none', 'start', 'schedule_fire', 'auto_execute']),
@@ -1141,7 +1160,12 @@ export function currentReviewerSchema() {
     round_index: { type: 'integer', minimum: 1, maximum: 2 },
     previous_input_sha256: { type: ['string', 'null'], pattern: HEX64.source },
     repair_targets_sha256: { type: ['string', 'null'], pattern: HEX64.source },
-  });
+    ...(schema === 6 ? {
+      orchestration_series_id: { type: 'string', pattern: UUID.source },
+      orchestration_state_sha256: { type: 'string', pattern: HEX64.source },
+    } : {}),
+  };
+  const request = closed(requestProperties);
   const checklistEntry = closed({ status: typedEnum('string', [...CURRENT_REVIEW_STATUSES]), evidence: str });
   const checklist = closed(Object.fromEntries(CURRENT_CRITERIA.map((criterion) => [criterion, checklistEntry])));
   const finding = closed({
@@ -1156,7 +1180,7 @@ export function currentReviewerSchema() {
     evidence: str,
   });
   return closed({
-    schema: typedConst('integer', 5),
+    schema: typedConst('integer', schema),
     role: typedConst('string', 'primary'),
     request,
     verdict: typedEnum('string', [...CURRENT_REVIEW_STATUSES]),
@@ -1178,7 +1202,7 @@ function validateCurrentFinding(finding, ids) {
 
 export function validateCurrentReviewerOutput(output, request) {
   assertClosed(output, ['schema', 'role', 'request', 'verdict', 'checklist', 'findings'], 'current reviewer output');
-  if (output.schema !== 5 || output.role !== 'primary' || jcs(output.request) !== jcs(request)) throw new Error('current reviewer envelope mismatch');
+  if (output.schema !== request?.schema || ![5, 6].includes(output.schema) || output.role !== 'primary' || jcs(output.request) !== jcs(request)) throw new Error('current reviewer envelope mismatch');
   validateRequest(output.request);
   oneOf(output.verdict, CURRENT_REVIEW_STATUSES, 'current reviewer verdict');
   assertClosed(output.checklist, CURRENT_CRITERIA, 'current reviewer checklist');
@@ -1206,9 +1230,9 @@ export function validateCurrentReviewerOutput(output, request) {
   return output;
 }
 
-function validateCurrentAttempt(attempt) {
+function validateCurrentAttempt(attempt, schema = 5) {
   assertClosed(attempt, ['schema', 'candidate', 'started', 'output_started', 'child_id', 'timeout_mode', 'timeout_seconds', 'result', 'exit_code', 'signal', 'denial_source', 'reason', 'stdout_sha256', 'stderr_sha256'], 'current attempt');
-  if (attempt.schema !== 5) throw new Error('current attempt schema');
+  if (attempt.schema !== schema || ![5, 6].includes(schema)) throw new Error('current attempt schema');
   validateCurrentCandidate(attempt.candidate, 'current attempt candidate');
   if (typeof attempt.started !== 'boolean' || typeof attempt.output_started !== 'boolean') throw new Error('current attempt booleans');
   oneOf(attempt.result, CURRENT_ATTEMPT_RESULTS, 'current attempt result');
@@ -1241,7 +1265,7 @@ export function validateCurrentAttemptSequence(attempts, policy) {
   validateCurrentPolicy(policy);
   if (!Array.isArray(attempts) || attempts.length === 0 || attempts.length > policy.candidates.length) throw new Error('current attempt sequence bound');
   for (let index = 0; index < attempts.length; index += 1) {
-    const attempt = validateCurrentAttempt(attempts[index]);
+    const attempt = validateCurrentAttempt(attempts[index], policy.schema);
     if (jcs(attempt.candidate) !== jcs(policy.candidates[index])) throw new Error('current attempt candidate order mismatch');
     if (index < attempts.length - 1 && !CURRENT_FALLBACK_RESULTS.has(attempt.result)) throw new Error(`current attempt continued after terminal ${attempt.result}`);
     if (index < attempts.length - 1 && attempt.output_started) throw new Error('current attempt fallback after output is terminal');
@@ -1289,7 +1313,7 @@ function validateCurrentReproduction(value) {
 
 export function validateCurrentRawReview(raw, request, { expectedWaiver = null } = {}) {
   assertClosed(raw, ['schema', 'role', 'request', 'result', 'attempts', 'selected', 'reviewer_output', 'findings_sha256', 'waiver', 'waiver_sha256', 'reason'], 'current raw review');
-  if (raw.schema !== 5 || raw.role !== 'primary' || jcs(raw.request) !== jcs(request)) throw new Error('current raw review request mismatch');
+  if (raw.schema !== request?.schema || ![5, 6].includes(raw.schema) || raw.role !== 'primary' || jcs(raw.request) !== jcs(request)) throw new Error('current raw review request mismatch');
   validateRequest(request);
   oneOf(raw.result, new Set(['passed', 'unavailable', 'failed', 'waived']), 'current raw review result');
   if (!Array.isArray(raw.attempts)) throw new Error('current raw attempts');
@@ -1385,7 +1409,7 @@ export function validateCurrentReviewRunResult(result, { waivers = [] } = {}) {
     ? ['schema', 'kind', 'request', 'plan_input_sha256', 'diff_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'reviewer', 'reproduced', 'outcome', 'primary', 'completion_verdict']
     : ['schema', 'kind', 'request', 'reviewer', 'reproduced', 'outcome', 'pre_execution_eligible'];
   assertClosed(result, keys, 'current review run');
-  if (result.schema !== 5 || result.kind !== result.request?.phase) throw new Error('current review run kind');
+  if (result.schema !== result.request?.schema || ![5, 6].includes(result.schema) || result.kind !== result.request?.phase) throw new Error('current review run kind');
   validateRequest(result.request);
   const normalized = validateCurrentWaivers(waivers, result.request.phase, result.request.input_sha256);
   const expectedWaiver = normalized.find((waiver) => waiver.roles.includes('primary')) || null;
@@ -1414,13 +1438,14 @@ export function validateCurrentReviewRunResult(result, { waivers = [] } = {}) {
   return result;
 }
 
-export function validateCurrentReviewReceipt(receipt, expected = null, { waivers = [], expectedPolicy = null } = {}) {
+export function validateCurrentReviewReceipt(receipt, expected = null, { waivers = [], expectedPolicy = null, orchestration = null } = {}) {
   const completion = receipt?.phase === 'completion';
+  const orchestrationKeys = receipt?.schema === 6 ? ['settled_orchestration_state_sha256'] : [];
   const keys = completion
-    ? ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'policy', 'policy_sha256', 'reviewer', 'reproduced', 'outcome', 'primary', 'completion_verdict', 'series', 'reviewed_at']
-    : ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'policy', 'policy_sha256', 'reviewer', 'reproduced', 'outcome', 'pre_execution_eligible', 'series', 'reviewed_at'];
+    ? ['schema', 'phase', 'request', 'planned_at_commit', 'execution_base_commit', 'reviewed_head', 'diff_sha256', 'plan_input_sha256', 'acceptance_inventory', 'acceptance_inventory_sha256', 'policy', 'policy_sha256', 'reviewer', 'reproduced', 'outcome', 'primary', 'completion_verdict', 'series', ...orchestrationKeys, 'reviewed_at']
+    : ['schema', 'phase', 'request', 'input_sha256', 'reviewed_commit', 'policy', 'policy_sha256', 'reviewer', 'reproduced', 'outcome', 'pre_execution_eligible', 'series', ...orchestrationKeys, 'reviewed_at'];
   assertClosed(receipt, keys, 'current review receipt');
-  if (receipt.schema !== 5 || receipt.phase !== receipt.request?.phase) throw new Error('current review receipt phase');
+  if (receipt.schema !== receipt.request?.schema || ![5, 6].includes(receipt.schema) || receipt.phase !== receipt.request?.phase) throw new Error('current review receipt phase');
   validateRequest(receipt.request);
   if (jcs(receipt.policy) !== jcs(receipt.request.policy) || receipt.policy_sha256 !== receipt.request.policy_sha256) throw new Error('current review receipt policy mismatch');
   validateExpectedPolicy(receipt, expectedPolicy);
@@ -1431,7 +1456,7 @@ export function validateCurrentReviewReceipt(receipt, expected = null, { waivers
     if (receipt.input_sha256 !== receipt.request.input_sha256 || receipt.reviewed_commit !== receipt.request.reviewed_commit_or_head) throw new Error('current draft receipt input mismatch');
     if (expectedInput !== null && receipt.input_sha256 !== expectedInput) throw new Error('stale current draft receipt');
     run = {
-      schema: 5,
+      schema: receipt.schema,
       kind: 'draft',
       request: receipt.request,
       reviewer: receipt.reviewer,
@@ -1452,7 +1477,7 @@ export function validateCurrentReviewReceipt(receipt, expected = null, { waivers
       || !HEX40.test(receipt.reviewed_head)
     ) throw new Error('current completion receipt request mismatch');
     run = {
-      schema: 5,
+      schema: receipt.schema,
       kind: 'completion',
       request: receipt.request,
       plan_input_sha256: receipt.plan_input_sha256,
@@ -1469,6 +1494,24 @@ export function validateCurrentReviewReceipt(receipt, expected = null, { waivers
   validateCurrentReviewRunResult(run, { waivers });
   const series = validateCurrentReviewSeries(receipt.series, { waivers });
   if (jcs(series.rounds.at(-1)) !== jcs(run)) throw new Error('current completion receipt series final run mismatch');
+  if (receipt.schema === 6) {
+    digest(receipt.settled_orchestration_state_sha256, 'settled orchestration state');
+    if (orchestration === null) throw new Error('schema-6 receipt requires settled orchestration state');
+    validateReviewOrchestrationState(orchestration);
+    const requestIds = series.rounds.map((round) => round.request.request_id);
+    if (
+      !['passed', 'stopped', 'stuck'].includes(orchestration.status)
+      || orchestration.series_sha256 !== sha256(jcs(series))
+      || receipt.settled_orchestration_state_sha256 !== orchestration.state_sha256
+      || orchestration.series_id !== series.orchestration_series_id
+      || orchestration.initial_input_sha256 !== series.initial_input_sha256
+      || orchestration.current_input_sha256 !== series.current_input_sha256
+      || orchestration.phase !== series.rounds.at(-1).request.phase
+      || orchestration.lifecycle_intent !== series.rounds.at(-1).request.lifecycle_intent
+      || orchestration.round_index !== series.rounds.length
+      || jcs(orchestration.request_ids) !== jcs(requestIds)
+    ) throw new Error('schema-6 receipt settled orchestration mismatch');
+  }
   if (completion && expectedInput !== null && receipt.plan_input_sha256 !== expectedInput) throw new Error('stale current completion receipt input');
   for (const [key, value] of Object.entries(expectedObject)) {
     if (key === 'review_status') continue;
@@ -1492,11 +1535,21 @@ function validateCurrentRepairTarget(target) {
 }
 
 function validateCurrentRepairTransition(transition) {
-  assertClosed(transition, ['schema', 'from_round_index', 'previous_input_sha256', 'current_input_sha256', 'accepted_finding_ids', 'targets', 'repair_targets_sha256'], 'current repair transition');
-  if (transition.schema !== 5 || transition.from_round_index !== 1) throw new Error('current repair transition allows one repair after round one');
+  const schema = transition?.schema;
+  const orchestrationKeys = schema === 6
+    ? ['orchestration_series_id', 'previous_orchestration_state_sha256', 'current_orchestration_state_sha256']
+    : [];
+  assertClosed(transition, ['schema', 'from_round_index', 'previous_input_sha256', 'current_input_sha256', ...orchestrationKeys, 'accepted_finding_ids', 'targets', 'repair_targets_sha256'], 'current repair transition');
+  if (![5, 6].includes(schema) || transition.from_round_index !== 1) throw new Error('current repair transition allows one repair after round one');
   digest(transition.previous_input_sha256, 'current repair previous input');
   digest(transition.current_input_sha256, 'current repair current input');
   if (transition.previous_input_sha256 === transition.current_input_sha256) throw new Error('current repair requires changed input');
+  if (schema === 6) {
+    if (!UUID.test(transition.orchestration_series_id)) throw new Error('current repair orchestration series identity');
+    digest(transition.previous_orchestration_state_sha256, 'current repair previous orchestration state');
+    digest(transition.current_orchestration_state_sha256, 'current repair current orchestration state');
+    if (transition.previous_orchestration_state_sha256 === transition.current_orchestration_state_sha256) throw new Error('current repair orchestration state must change');
+  }
   if (!Array.isArray(transition.accepted_finding_ids) || !Array.isArray(transition.targets) || transition.targets.length === 0) throw new Error('current repair targets must be nonempty');
   const accepted = [...transition.accepted_finding_ids];
   if (new Set(accepted).size !== accepted.length || jcs(accepted) !== jcs([...accepted].sort(compareUtf16))) throw new Error('current accepted finding ids must be unique and sorted');
@@ -1507,12 +1560,23 @@ function validateCurrentRepairTransition(transition) {
   }
   if (new Set(ids).size !== ids.length || jcs(ids) !== jcs([...ids].sort(compareUtf16)) || jcs(ids) !== jcs(accepted)) throw new Error('current repair targets must equal accepted finding ids');
   digest(transition.repair_targets_sha256, 'current repair targets hash');
-  const expected = sha256(jcs({ schema: 5, accepted_finding_ids: accepted, targets: transition.targets }));
+  const expected = sha256(jcs({ schema, accepted_finding_ids: accepted, targets: transition.targets }));
   if (transition.repair_targets_sha256 !== expected) throw new Error('current repair target hash mismatch');
   return transition;
 }
 
-export function buildCurrentRepairTransition({ fromRoundIndex, previousInputSha256, currentInputSha256, acceptedFindingIds, targets }) {
+export function buildCurrentRepairTransition({
+  schema = 5,
+  fromRoundIndex,
+  previousInputSha256,
+  currentInputSha256,
+  orchestrationSeriesId,
+  previousOrchestrationStateSha256,
+  currentOrchestrationStateSha256,
+  acceptedFindingIds,
+  targets,
+}) {
+  oneOf(schema, new Set([5, 6]), 'current repair transition schema');
   if (!Array.isArray(acceptedFindingIds) || !Array.isArray(targets)) throw new Error('current repair target arrays');
   const accepted = [...acceptedFindingIds].sort(compareUtf16);
   const normalizedTargets = targets.map((target) => {
@@ -1520,20 +1584,28 @@ export function buildCurrentRepairTransition({ fromRoundIndex, previousInputSha2
     return structuredClone(target);
   }).sort((a, b) => compareUtf16(a.id, b.id));
   const transition = {
-    schema: 5,
+    schema,
     from_round_index: fromRoundIndex,
     previous_input_sha256: previousInputSha256,
     current_input_sha256: currentInputSha256,
+    ...(schema === 6 ? {
+      orchestration_series_id: orchestrationSeriesId,
+      previous_orchestration_state_sha256: previousOrchestrationStateSha256,
+      current_orchestration_state_sha256: currentOrchestrationStateSha256,
+    } : {}),
     accepted_finding_ids: accepted,
     targets: normalizedTargets,
-    repair_targets_sha256: sha256(jcs({ schema: 5, accepted_finding_ids: accepted, targets: normalizedTargets })),
+    repair_targets_sha256: sha256(jcs({ schema, accepted_finding_ids: accepted, targets: normalizedTargets })),
   };
   return validateCurrentRepairTransition(transition);
 }
 
 export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
-  assertClosed(series, ['schema', 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds', 'repairs'], 'current review series');
-  if (series.schema !== 5 || !Array.isArray(series.rounds) || series.rounds.length < 1 || series.rounds.length > 2) throw new Error('current review series permits at most two rounds');
+  const schema = series?.schema;
+  const orchestrationKeys = schema === 6 ? ['orchestration_series_id'] : [];
+  assertClosed(series, ['schema', ...orchestrationKeys, 'policy_sha256', 'initial_input_sha256', 'current_input_sha256', 'rounds', 'repairs'], 'current review series');
+  if (![5, 6].includes(schema) || !Array.isArray(series.rounds) || series.rounds.length < 1 || series.rounds.length > 2) throw new Error('current review series permits at most two rounds');
+  if (schema === 6 && !UUID.test(series.orchestration_series_id)) throw new Error('current review series orchestration identity');
   if (!Array.isArray(series.repairs) || series.repairs.length !== series.rounds.length - 1) throw new Error('current review series repair count');
   digest(series.policy_sha256, 'current review series policy');
   digest(series.initial_input_sha256, 'current review series initial input');
@@ -1547,17 +1619,30 @@ export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
   const phase = first.request.phase;
   const kind = first.kind;
   const lifecycleIntent = first.request.lifecycle_intent;
+  const orchestrationStateHashes = new Set();
   for (const round of series.rounds) {
     validateCurrentReviewRunResult(round, { waivers });
+    if (round.schema !== schema || round.request.schema !== schema) throw new Error('current review series schema drift');
     if (round.request.phase !== phase || round.kind !== kind || round.request.lifecycle_intent !== lifecycleIntent) throw new Error('current review series phase, kind, or lifecycle drift');
     if (phase === 'completion' && (round.request.planned_at_commit !== first.request.planned_at_commit || round.request.execution_base_commit !== first.request.execution_base_commit)) throw new Error('current completion series execution identity drift');
+    if (schema === 6) {
+      if (round.request.orchestration_series_id !== series.orchestration_series_id) throw new Error('current review series orchestration series drift');
+      if (orchestrationStateHashes.has(round.request.orchestration_state_sha256)) throw new Error('current review series orchestration state hash must advance');
+      orchestrationStateHashes.add(round.request.orchestration_state_sha256);
+    }
   }
   if (series.rounds.length === 2) {
     const second = series.rounds[1];
     if (second.request.review_mode !== 'repair' || second.request.round_index !== 2) throw new Error('current review series round two must be repair without reset');
     const transition = validateCurrentRepairTransition(series.repairs[0]);
+    if (transition.schema !== schema) throw new Error('current review series repair schema mismatch');
     if (second.request.previous_input_sha256 !== first.request.input_sha256 || second.request.input_sha256 === first.request.input_sha256) throw new Error('current review series repair requires changed input');
     if (transition.previous_input_sha256 !== first.request.input_sha256 || transition.current_input_sha256 !== second.request.input_sha256 || transition.repair_targets_sha256 !== second.request.repair_targets_sha256) throw new Error('current review series repair transition mismatch');
+    if (schema === 6 && (
+      transition.orchestration_series_id !== series.orchestration_series_id
+      || transition.previous_orchestration_state_sha256 !== first.request.orchestration_state_sha256
+      || transition.current_orchestration_state_sha256 !== second.request.orchestration_state_sha256
+    )) throw new Error('current review series repair orchestration state hash mismatch');
     if (second.request.policy_sha256 !== series.policy_sha256 || jcs(second.request.policy) !== jcs(first.request.policy)) throw new Error('current review series policy drift');
     const findings = new Map((first.reviewer.raw.reviewer_output?.findings || []).map((finding) => [finding.id, finding]));
     const reproduced = new Map(first.reproduced.map((value) => [value.id, value.reproduction]));
@@ -1574,6 +1659,281 @@ export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
   }
   if (series.rounds.at(-1).request.input_sha256 !== series.current_input_sha256) throw new Error('current review series current input mismatch');
   return series;
+}
+
+const ORCHESTRATION_STATE_KEYS = [
+  'schema', 'plan_path', 'phase', 'lifecycle_intent', 'initial_input_sha256',
+  'current_input_sha256', 'orchestration_attempt', 'series_id', 'request_ids',
+  'round_index', 'status', 'stop_reason', 'series_sha256', 'apply_state',
+  'transitioned_from_state_sha256', 'retry_authorization', 'state_sha256',
+];
+const ORCHESTRATION_RETRY_AUTHORIZATION_KEYS = [
+  'schema', 'authorization_id', 'actor', 'authorized_at', 'plan_path', 'phase',
+  'intent_group', 'input_sha256', 'stopped_state_sha256', 'source_text_sha256',
+];
+const ORCHESTRATION_STOP_REASONS = new Set([
+  'unavailable_auth', 'unavailable_model', 'timed_out', 'unavailable_unknown',
+  'failed_unparseable', 'platform_denied', 'stale_input', 'cannot_repair',
+  'not_ready', 'apply_rejected',
+]);
+const ORCHESTRATION_NONRETRYABLE_REASONS = new Set(['platform_denied', 'stale_input', 'cannot_repair', 'not_ready', 'apply_rejected']);
+const ORCHESTRATION_FALLBACK_PRECEDENCE = ['auth_failed', 'model_unavailable', 'tool_unavailable'];
+const ORCHESTRATION_RESULT_MAP = Object.freeze({
+  auth_failed: 'unavailable_auth',
+  model_unavailable: 'unavailable_model',
+  tool_unavailable: 'unavailable_unknown',
+  deadline_exceeded: 'timed_out',
+  transient_transport: 'unavailable_unknown',
+  nonzero_exit: 'failed_unparseable',
+  signaled: 'failed_unparseable',
+  output_invalid: 'failed_unparseable',
+  platform_denied: 'platform_denied',
+  stale_input: 'stale_input',
+  cannot_repair: 'cannot_repair',
+  not_ready: 'not_ready',
+  apply_rejected: 'apply_rejected',
+});
+
+function orchestrationIntentGroup(phase, lifecycleIntent) {
+  if (phase === 'completion') return 'completion';
+  if (['schedule_fire', 'auto_execute'].includes(lifecycleIntent)) return 'scheduled_execution';
+  return lifecycleIntent;
+}
+
+function orchestrationWithHash(fields) {
+  const state = structuredClone(fields);
+  delete state.state_sha256;
+  return { ...state, state_sha256: sha256(jcs(state)) };
+}
+
+function validateReviewRetryAuthorization(authorization, previousState = null, sourceText = undefined) {
+  assertClosed(authorization, ORCHESTRATION_RETRY_AUTHORIZATION_KEYS, 'review retry authorization');
+  if (authorization.schema !== 1 || !UUID.test(authorization.authorization_id) || authorization.actor !== 'user') throw new Error('review retry authorization identity or actor');
+  iso(authorization.authorized_at, 'review retry authorization time');
+  string(authorization.plan_path, 'review retry authorization plan path');
+  oneOf(authorization.phase, new Set(['draft', 'completion']), 'review retry authorization phase');
+  oneOf(authorization.intent_group, new Set(['none', 'start', 'scheduled_execution', 'completion']), 'review retry authorization intent group');
+  digest(authorization.input_sha256, 'review retry authorization input');
+  digest(authorization.stopped_state_sha256, 'review retry authorization stopped state');
+  digest(authorization.source_text_sha256, 'review retry authorization source text');
+  if (previousState !== null) {
+    validateReviewOrchestrationState(previousState);
+    if (
+      previousState.status !== 'stopped'
+      || previousState.orchestration_attempt !== 1
+      || ORCHESTRATION_NONRETRYABLE_REASONS.has(previousState.stop_reason)
+      || authorization.plan_path !== previousState.plan_path
+      || authorization.phase !== previousState.phase
+      || authorization.intent_group !== orchestrationIntentGroup(previousState.phase, previousState.lifecycle_intent)
+      || authorization.input_sha256 !== previousState.current_input_sha256
+      || authorization.stopped_state_sha256 !== previousState.state_sha256
+    ) throw new Error('review retry authorization does not match the retryable stopped state');
+    if (typeof sourceText !== 'string' && !(sourceText instanceof Uint8Array)) throw new Error('review retry authorization requires exact current-user source text');
+    if (sha256(typeof sourceText === 'string' ? Buffer.from(sourceText, 'utf8') : sourceText) !== authorization.source_text_sha256) throw new Error('review retry authorization source text mismatch');
+  }
+  return authorization;
+}
+
+function validateReviewOrchestrationState(state) {
+  assertClosed(state, ORCHESTRATION_STATE_KEYS, 'review orchestration state');
+  if (state.schema !== 1) throw new Error('review orchestration state schema');
+  string(state.plan_path, 'review orchestration plan path');
+  oneOf(state.phase, new Set(['draft', 'completion']), 'review orchestration phase');
+  oneOf(state.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'review orchestration lifecycle intent');
+  digest(state.initial_input_sha256, 'review orchestration initial input');
+  digest(state.current_input_sha256, 'review orchestration current input');
+  if (![1, 2].includes(state.orchestration_attempt)) throw new Error('review orchestration attempt must be 1 or 2');
+  if (!UUID.test(state.series_id)) throw new Error('review orchestration series id');
+  if (!Array.isArray(state.request_ids) || ![1, 2].includes(state.round_index) || state.request_ids.length !== state.round_index || new Set(state.request_ids).size !== state.request_ids.length || state.request_ids.some((id) => !UUID.test(id))) throw new Error('review orchestration request ids or round');
+  oneOf(state.status, new Set(['active', 'passed', 'stopped', 'stuck']), 'review orchestration status');
+  oneOf(state.apply_state, new Set(['none', 'pending', 'consumed']), 'review orchestration apply state');
+  if (state.stop_reason !== null) oneOf(state.stop_reason, ORCHESTRATION_STOP_REASONS, 'review orchestration stop reason');
+  if (state.series_sha256 !== null) digest(state.series_sha256, 'review orchestration series');
+  if (state.transitioned_from_state_sha256 !== null) digest(state.transitioned_from_state_sha256, 'review orchestration transition');
+  if (state.retry_authorization !== null) validateReviewRetryAuthorization(state.retry_authorization);
+  if (state.orchestration_attempt === 1 && state.retry_authorization !== null) throw new Error('review orchestration attempt one cannot carry retry authorization');
+  if (state.orchestration_attempt === 2 && state.retry_authorization === null) throw new Error('review orchestration attempt two requires retry authorization');
+  if (state.status === 'active') {
+    if (state.stop_reason !== null || state.series_sha256 !== null || state.apply_state !== 'none' || state.transitioned_from_state_sha256 !== null) throw new Error('active review orchestration state is not clean');
+  } else if (state.status === 'passed') {
+    if (state.stop_reason !== null || state.series_sha256 === null) throw new Error('passed review orchestration state is incomplete');
+    if (state.apply_state === 'none' && state.lifecycle_intent !== 'none') throw new Error('executing passed orchestration must be pending or consumed');
+    if (state.apply_state === 'pending' && state.lifecycle_intent === 'none') throw new Error('non-executing orchestration cannot be pending');
+    if ((state.apply_state === 'consumed') !== (state.transitioned_from_state_sha256 !== null)) throw new Error('consumed review orchestration transition mismatch');
+  } else {
+    if (state.stop_reason === null || state.apply_state !== 'none') throw new Error('stopped review orchestration state is incomplete');
+    if (state.series_sha256 === null && state.stop_reason !== 'cannot_repair') throw new Error('cannot_repair is the only terminal review orchestration state without a series hash');
+    if ((state.stop_reason === 'apply_rejected') !== (state.transitioned_from_state_sha256 !== null)) throw new Error('apply_rejected review orchestration transition mismatch');
+  }
+  digest(state.state_sha256, 'review orchestration state hash');
+  const { state_sha256: stateSha256, ...preimage } = state;
+  if (stateSha256 !== sha256(jcs(preimage))) throw new Error('review orchestration state hash mismatch');
+  return state;
+}
+
+export function beginReviewOrchestration(input) {
+  assertClosed(input, ['planPath', 'phase', 'lifecycleIntent', 'inputSha256', 'seriesId', 'requestId', 'orchestrationAttempt', 'previousState', 'retryAuthorization', 'sourceText'], 'begin review orchestration');
+  const {
+    planPath, phase, lifecycleIntent, inputSha256, seriesId, requestId,
+    orchestrationAttempt, previousState, retryAuthorization, sourceText,
+  } = input;
+  string(planPath, 'review orchestration plan path');
+  oneOf(phase, new Set(['draft', 'completion']), 'review orchestration phase');
+  oneOf(lifecycleIntent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'review orchestration lifecycle intent');
+  digest(inputSha256, 'review orchestration input');
+  if (!UUID.test(seriesId) || !UUID.test(requestId)) throw new Error('review orchestration series or request identity');
+  if (![1, 2].includes(orchestrationAttempt)) throw new Error('review orchestration attempt must be 1 or 2');
+  if (orchestrationAttempt === 1) {
+    if (retryAuthorization !== null || sourceText !== null) throw new Error('review orchestration attempt one cannot carry retry authorization or source text');
+    if (previousState !== null) {
+      validateReviewOrchestrationState(previousState);
+      if (previousState.current_input_sha256 === inputSha256) throw new Error('same-input review orchestration requires explicit attempt-two retry');
+    }
+  }
+  if (orchestrationAttempt === 2) validateReviewRetryAuthorization(retryAuthorization, previousState, sourceText);
+  if (orchestrationAttempt === 2 && (
+    previousState.current_input_sha256 !== inputSha256
+    || previousState.plan_path !== planPath
+    || previousState.phase !== phase
+    || previousState.lifecycle_intent !== lifecycleIntent
+  )) throw new Error('review retry attempt identity mismatch');
+  return validateReviewOrchestrationState(orchestrationWithHash({
+    schema: 1,
+    plan_path: planPath,
+    phase,
+    lifecycle_intent: lifecycleIntent,
+    initial_input_sha256: inputSha256,
+    current_input_sha256: inputSha256,
+    orchestration_attempt: orchestrationAttempt,
+    series_id: seriesId,
+    request_ids: [requestId],
+    round_index: 1,
+    status: 'active',
+    stop_reason: null,
+    series_sha256: null,
+    apply_state: 'none',
+    transitioned_from_state_sha256: null,
+    retry_authorization: retryAuthorization === null ? null : structuredClone(retryAuthorization),
+  }));
+}
+
+export function advanceReviewOrchestrationRepair(input) {
+  assertClosed(input, ['state', 'requestId', 'currentInputSha256'], 'advance review orchestration repair');
+  const { state, requestId, currentInputSha256 } = input;
+  validateReviewOrchestrationState(state);
+  if (state.status !== 'active' || state.round_index !== 1) throw new Error('repair requires active review orchestration round one');
+  if (!UUID.test(requestId) || state.request_ids.includes(requestId)) throw new Error('repair request id must be new');
+  digest(currentInputSha256, 'repair orchestration current input');
+  if (currentInputSha256 === state.current_input_sha256) {
+    return validateReviewOrchestrationState(orchestrationWithHash({
+      ...structuredClone(state),
+      status: 'stuck',
+      stop_reason: ORCHESTRATION_RESULT_MAP.cannot_repair,
+    }));
+  }
+  return validateReviewOrchestrationState(orchestrationWithHash({
+    ...structuredClone(state),
+    current_input_sha256: currentInputSha256,
+    request_ids: [...state.request_ids, requestId],
+    round_index: 2,
+  }));
+}
+
+function orchestrationTerminalStatus(orchestration, stopReason) {
+  if (ORCHESTRATION_NONRETRYABLE_REASONS.has(stopReason)) return 'stuck';
+  return orchestration.orchestration_attempt === 1 ? 'stopped' : 'stuck';
+}
+
+function orchestrationRequestIdentityMismatch(state, request) {
+  return (
+    request?.request_id !== state.request_ids.at(-1)
+    || request?.round_index !== state.round_index
+    || request?.input_sha256 !== state.current_input_sha256
+    || request?.phase !== state.phase
+    || request?.lifecycle_intent !== state.lifecycle_intent
+    || request?.orchestration_series_id !== state.series_id
+    || request?.orchestration_state_sha256 !== state.state_sha256
+  );
+}
+
+function deriveOrchestrationResult(state, series) {
+  const final = series.rounds.at(-1);
+  const request = final.request;
+  if (orchestrationRequestIdentityMismatch(state, request)) return { eligible: false, stopReason: ORCHESTRATION_RESULT_MAP.stale_input };
+  const raw = final.reviewer.raw;
+  if (raw.result === 'unavailable') {
+    const result = ORCHESTRATION_FALLBACK_PRECEDENCE.find((candidate) => raw.attempts.some((attempt) => attempt.result === candidate));
+    return { eligible: false, stopReason: ORCHESTRATION_RESULT_MAP[result] };
+  }
+  if (raw.result === 'failed') return { eligible: false, stopReason: ORCHESTRATION_RESULT_MAP[raw.attempts.at(-1).result] };
+  const eligible = raw.result === 'waived'
+    || (raw.result === 'passed' && final.outcome === 'passed' && (
+      final.kind === 'draft' ? final.pre_execution_eligible === true : final.completion_verdict === 'passed'
+    ));
+  return eligible ? { eligible: true, stopReason: null } : { eligible: false, stopReason: ORCHESTRATION_RESULT_MAP.not_ready };
+}
+
+export function settleReviewOrchestration(input) {
+  assertClosed(input, ['state', 'series'], 'settle review orchestration');
+  const { state, series } = input;
+  validateReviewOrchestrationState(state);
+  if (state.status !== 'active') throw new Error('review orchestration can settle only once from active state');
+  if (series?.schema !== 6 || !Array.isArray(series.rounds) || series.rounds.length === 0) throw new Error('review orchestration requires ReviewSeriesV6');
+  const stale = orchestrationRequestIdentityMismatch(state, series.rounds.at(-1)?.request);
+  if (stale) {
+    const internallyBound = structuredClone(series);
+    internallyBound.initial_input_sha256 = internallyBound.rounds[0]?.request?.input_sha256;
+    internallyBound.current_input_sha256 = internallyBound.rounds.at(-1)?.request?.input_sha256;
+    validateCurrentReviewSeries(internallyBound);
+  } else validateCurrentReviewSeries(series);
+  const derived = deriveOrchestrationResult(state, series);
+  const seriesSha256 = sha256(jcs(series));
+  const status = derived.eligible ? 'passed' : orchestrationTerminalStatus(state, derived.stopReason);
+  return validateReviewOrchestrationState(orchestrationWithHash({
+    ...structuredClone(state),
+    status,
+    stop_reason: derived.stopReason,
+    series_sha256: seriesSha256,
+    apply_state: derived.eligible && state.lifecycle_intent !== 'none' ? 'pending' : 'none',
+  }));
+}
+
+export function consumeReviewIntent(input) {
+  assertClosed(input, ['state', 'intent', 'eligible', 'orchestration'], 'consume review intent');
+  const { state, intent, eligible, orchestration } = input;
+  oneOf(state, new Set(['planned', 'scheduled', 'ongoing', 'in_review']), 'state');
+  oneOf(intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'intent');
+  if (typeof eligible !== 'boolean') throw new Error('review intent eligibility must be boolean');
+  validateReviewOrchestrationState(orchestration);
+  if (orchestration.status !== 'passed' || orchestration.lifecycle_intent !== intent) throw new Error('review intent requires the matching passed orchestration');
+  if (intent === 'none') {
+    if (orchestration.apply_state !== 'none' || orchestration.transitioned_from_state_sha256 !== null) throw new Error('non-executing review intent carries apply state');
+    return { kind: 'applied', state, orchestration: structuredClone(orchestration) };
+  }
+  if (orchestration.apply_state !== 'pending') throw new Error('review intent is not pending');
+  const expectedState = intent === 'start' ? 'planned' : 'scheduled';
+  if (!eligible || state !== expectedState) {
+    return {
+      kind: 'rejected',
+      state,
+      orchestration: validateReviewOrchestrationState(orchestrationWithHash({
+        ...structuredClone(orchestration),
+        status: 'stuck',
+        stop_reason: ORCHESTRATION_RESULT_MAP.apply_rejected,
+        apply_state: 'none',
+        transitioned_from_state_sha256: orchestration.state_sha256,
+      })),
+    };
+  }
+  return {
+    kind: 'applied',
+    state: 'ongoing',
+    orchestration: validateReviewOrchestrationState(orchestrationWithHash({
+      ...structuredClone(orchestration),
+      apply_state: 'consumed',
+      transitioned_from_state_sha256: orchestration.state_sha256,
+    })),
+  };
 }
 
 function inside(root, candidate) { const rel = path.relative(root, candidate); return rel && !rel.startsWith('..') && !path.isAbsolute(rel); }
@@ -2252,11 +2612,11 @@ export function completionReviewBlockV1(receipt, { waivers = [] } = {}) {
   };
 }
 
-export function completionReviewBlockV5(receipt, { waivers = [] } = {}) {
-  validateCurrentReviewReceipt(receipt, null, { waivers });
+export function completionReviewBlockV5(receipt, { waivers = [], orchestration = null } = {}) {
+  validateCurrentReviewReceipt(receipt, null, { waivers, orchestration });
   const raw = receipt.reviewer.raw;
   return {
-    schema: 5,
+    schema: receipt.schema,
     goal_met: receipt.primary.goal_met,
     regressions: receipt.primary.regressions,
     ci: receipt.primary.ci,
@@ -2279,8 +2639,13 @@ export function completionReviewBlockV5(receipt, { waivers = [] } = {}) {
 function reviewIds(ids) { return ids.length === 0 ? 'none' : ids.join(','); }
 function reviewRejections(rows) { return rows.length === 0 ? 'none' : rows.map((row) => `${row.id}=${reviewQuote(row.reason)}`).join(','); }
 
-export function renderCompletionReviewBlock(receipt, { waivers = [] } = {}) {
-  const block = receipt.schema === 5 ? completionReviewBlockV5(receipt, { waivers }) : completionReviewBlockV1(receipt, { waivers }); const author = block.filed_by.receipt_author;
+function legacyCompletionReviewBlock(receipt, waivers) {
+  const block = receipt.schema === 5 ? completionReviewBlockV5(receipt, { waivers }) : completionReviewBlockV1(receipt, { waivers });
+  return block;
+}
+
+export function renderCompletionReviewBlock(receipt, { waivers = [], orchestration = null } = {}) {
+  const block = receipt.schema === 6 ? completionReviewBlockV5(receipt, { waivers, orchestration }) : legacyCompletionReviewBlock(receipt, waivers); const author = block.filed_by.receipt_author;
   const lines = [
     '## Review',
     '',
@@ -2301,9 +2666,14 @@ export function renderCompletionReviewBlock(receipt, { waivers = [] } = {}) {
   return `${lines.join('\n')}\n`;
 }
 
-export function applyCompletionReviewBlock(bytes, receipt, { waivers = [] } = {}) {
+function legacyCompletionReviewSource(bytes, receipt) {
   const source = receipt?.schema === 5 ? completionReviewBytes(bytes) : bytes;
-  const plan = splitPlanText(source); const review = uniquePartition(plan.body, 'Review'); const core = renderCompletionReviewBlock(receipt, { waivers });
+  return source;
+}
+
+export function applyCompletionReviewBlock(bytes, receipt, { waivers = [], orchestration = null } = {}) {
+  const source = receipt?.schema === 6 ? completionReviewBytes(bytes) : legacyCompletionReviewSource(bytes, receipt);
+  const plan = splitPlanText(source); const review = uniquePartition(plan.body, 'Review'); const core = renderCompletionReviewBlock(receipt, { waivers, orchestration });
   const replacement = review.end < plan.body.length ? `${core}\n` : core;
   return replacePlanBody(source, `${plan.body.slice(0, review.start)}${replacement}${plan.body.slice(review.end)}`);
 }
@@ -2314,19 +2684,34 @@ export function completionStablePlanViewV1(bytes) {
   return canonicalPlanView(withoutReview);
 }
 
-export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt, expectedPolicy, waivers = [] }) {
+function legacyCompletionReuseBytes(beforeBytes, afterBytes, receipt) {
+  const beforeReviewBytes = receipt.schema === 5 ? completionReviewBytes(beforeBytes) : beforeBytes;
+  const afterReviewBytes = receipt.schema === 5 ? completionReviewBytes(afterBytes) : afterBytes;
+  return { beforeReviewBytes, afterReviewBytes };
+}
+
+function legacyCompletionReviewApplication(beforeReviewBytes, receipt, waivers) {
+  const expected = applyCompletionReviewBlock(beforeReviewBytes, receipt, { waivers });
+  return expected;
+}
+
+export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt, expectedPolicy, waivers = [], orchestration = null }) {
   const logical = safeLogical(planPath); exactCommit(repo, reviewedHead, 'completion reviewed head'); exactCommit(repo, completionCommit, 'completion receipt commit');
   validatePolicy(expectedPolicy);
   requirePlanOnlyChild(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
   const beforeBytes = planBlob(repo, reviewedHead, logical); const afterBytes = planBlob(repo, completionCommit, logical);
-  const beforeReviewBytes = receipt.schema === 5 ? completionReviewBytes(beforeBytes) : beforeBytes;
-  const afterReviewBytes = receipt.schema === 5 ? completionReviewBytes(afterBytes) : afterBytes;
+  const legacyBytes = legacyCompletionReuseBytes(beforeBytes, afterBytes, receipt);
+  const beforeReviewBytes = receipt.schema === 6 ? completionReviewBytes(beforeBytes) : legacyBytes.beforeReviewBytes;
+  const afterReviewBytes = receipt.schema === 6 ? completionReviewBytes(afterBytes) : legacyBytes.afterReviewBytes;
   const afterPlan = parsePlan(afterBytes);
-  validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy, waivers });
+  if (receipt.schema === 6) validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy, waivers, orchestration });
+  else validateCompletionReceipt(receipt, { reviewed_head: reviewedHead, plan_input_sha256: sha256(canonicalPlanView(beforeBytes)), review_status: afterPlan.frontmatter.review_status }, { expectedPolicy, waivers });
   const record = extractMachineRecord(afterBytes, 'Completion-review-receipt');
   if (record.payload !== jcs(receipt)) throw new Error('completion Review receipt payload mismatch');
   if (completionStablePlanViewV1(beforeReviewBytes) !== completionStablePlanViewV1(afterReviewBytes)) throw new Error('completion stable plan view mismatch');
-  const expected = applyCompletionReviewBlock(beforeReviewBytes, receipt, { waivers });
+  const expected = receipt.schema === 6
+    ? applyCompletionReviewBlock(beforeReviewBytes, receipt, { waivers, orchestration })
+    : legacyCompletionReviewApplication(beforeReviewBytes, receipt, waivers);
   requirePlanDelta(beforeReviewBytes, afterReviewBytes, expected, 'completion Review apply', ['updated', 'review_status']);
   const beforeApplication = extractCompatibilityApplication(beforeReviewBytes, { required: false }); const afterApplication = extractCompatibilityApplication(afterReviewBytes, { required: false });
   if ((beforeApplication === null) !== (afterApplication === null) || (beforeApplication && beforeApplication.markdown !== afterApplication.markdown)) throw new Error('completion compatibility application changed');
@@ -3021,7 +3406,7 @@ function bundleHash(manifestBytes, entries) {
 
 export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, outDir, plannedAtCommit = null, executionBaseCommit = null, repair = null, reviewSchema = 3 }) {
   if (!HEX40.test(reviewedCommit)) throw new Error('reviewedCommit');
-  oneOf(reviewSchema, new Set([3, 5]), 'bundle reviewSchema');
+  oneOf(reviewSchema, new Set([3, 5, 6]), 'bundle reviewSchema');
   const resolved = git(repo, ['rev-parse', '--verify', `${reviewedCommit}^{commit}`]).trim();
   if (resolved !== reviewedCommit) throw new Error('reviewedCommit does not resolve exactly');
   const safePlan = safeLogical(planPath);
@@ -3040,8 +3425,11 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
   }
   entries.push({ path: 'plan.review.md', mode: '100444', bytes: canonical });
   const reviewerSchemas = reviewSchema === 5 ? { primary: 'reviewer-output.primary.v5.schema.json' } : { X: 'reviewer-output.X.schema.json', S: 'reviewer-output.S.schema.json' };
-  if (reviewSchema === 5) {
-    entries.push({ path: reviewerSchemas.primary, mode: '100444', bytes: Buffer.from(`${jcs(currentReviewerSchema())}\n`) });
+  const selectedReviewerSchemas = reviewSchema === 6
+    ? { primary: 'reviewer-output.primary.v6.schema.json' }
+    : reviewerSchemas;
+  if ([5, 6].includes(reviewSchema)) {
+    entries.push({ path: selectedReviewerSchemas.primary, mode: '100444', bytes: Buffer.from(`${jcs(currentReviewerSchema(reviewSchema))}\n`) });
   } else {
     for (const leg of ['X', 'S']) {
       entries.push({ path: `reviewer-output.${leg}.schema.json`, mode: '100444', bytes: Buffer.from(`${jcs(reviewerSchema(leg))}\n`) });
@@ -3053,8 +3441,8 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
   if (repair !== null) {
     assertClosed(repair, ['previousPlan', 'transition'], 'bundle repair');
     if (typeof repair.previousPlan !== 'string' || repair.previousPlan.length === 0 || !repair.previousPlan.endsWith('\n')) throw new Error('bundle previous plan');
-    if ((repair.transition?.schema === 5) !== (reviewSchema === 5)) throw new Error('schema-5 repair requires reviewSchema 5 and historical repair requires reviewSchema 3');
-    const transition = repair.transition?.schema === 5 ? validateCurrentRepairTransition(repair.transition) : validateRepairTransition(repair.transition);
+    if ([5, 6].includes(reviewSchema) ? repair.transition?.schema !== reviewSchema : [5, 6].includes(repair.transition?.schema)) throw new Error('repair transition and review schema mismatch');
+    const transition = [5, 6].includes(repair.transition?.schema) ? validateCurrentRepairTransition(repair.transition) : validateRepairTransition(repair.transition);
     const previousPlanBytes = Buffer.from(repair.previousPlan); const targetBytes = Buffer.from(`${jcs(transition)}\n`);
     if (sha256(previousPlanBytes) !== transition.previous_input_sha256 || sha256(canonical) !== transition.current_input_sha256) throw new Error('bundle repair input mismatch');
     entries.push(
@@ -3068,6 +3456,11 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
       current_input_sha256: transition.current_input_sha256,
       targets_path: 'repair-targets.json',
       repair_targets_sha256: transition.repair_targets_sha256,
+      ...(transition.schema === 6 ? {
+        orchestration_series_id: transition.orchestration_series_id,
+        previous_orchestration_state_sha256: transition.previous_orchestration_state_sha256,
+        current_orchestration_state_sha256: transition.current_orchestration_state_sha256,
+      } : {}),
     };
   }
   let completion = null;
@@ -3090,9 +3483,11 @@ export function sealBundle({ repo, reviewedCommit, planPath, requestedPaths, out
     fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, entry.bytes, { mode: 0o444 });
     for (let directory = path.dirname(dest); inside(outDir, directory); directory = path.dirname(directory)) directories.add(directory);
   }
-  const manifestSchema = reviewSchema === 5 ? (repairManifest === null ? 3 : 4) : (repairManifest === null ? 1 : 2);
+  const manifestSchema = reviewSchema === 6
+    ? (repairManifest === null ? 5 : 6)
+    : reviewSchema === 5 ? (repairManifest === null ? 3 : 4) : (repairManifest === null ? 1 : 2);
   const manifest = {
-    schema: manifestSchema, ...(reviewSchema === 5 ? { review_schema: 5 } : {}), plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: reviewerSchemas, reviewed_commit: reviewedCommit,
+    schema: manifestSchema, ...([5, 6].includes(reviewSchema) ? { review_schema: reviewSchema } : {}), plan_path: safePlan, plan_view: 'plan.review.md', reviewer_schemas: selectedReviewerSchemas, reviewed_commit: reviewedCommit,
     input_sha256: sha256(canonical), completion, ...(repairManifest === null ? {} : { repair: repairManifest }), requested,
     files: entries.map((entry) => ({ path: entry.path, mode: entry.mode, sha256: sha256(entry.bytes) })),
   };
@@ -3110,16 +3505,17 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   const manifestBytes = fs.readFileSync(manifestPath); let manifest;
   try { manifest = JSON.parse(manifestBytes); } catch { throw new Error('bundle manifest is not JSON'); }
   if (!manifest || manifestBytes.toString() !== `${jcs(manifest)}\n`) throw new Error('bundle manifest must be compact JCS');
-  const currentBundle = [3, 4].includes(manifest?.schema);
-  const repairBundle = [2, 4].includes(manifest?.schema);
+  const currentBundle = [3, 4, 5, 6].includes(manifest?.schema);
+  const repairBundle = [2, 4, 6].includes(manifest?.schema);
   const manifestKeys = ['schema', ...(currentBundle ? ['review_schema'] : []), 'plan_path', 'plan_view', 'reviewer_schemas', 'reviewed_commit', 'input_sha256', 'completion', ...(repairBundle ? ['repair'] : []), 'requested', 'files'];
   assertClosed(manifest, manifestKeys, 'bundle manifest');
-  if (![1, 2, 3, 4].includes(manifest.schema) || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
-  if (currentBundle && manifest.review_schema !== 5) throw new Error('current bundle reviewer schema identity');
+  if (![1, 2, 3, 4, 5, 6].includes(manifest.schema) || !HEX40.test(manifest.reviewed_commit) || !Array.isArray(manifest.requested) || !Array.isArray(manifest.files)) throw new Error('bundle manifest identity');
+  const expectedReviewSchema = [3, 4].includes(manifest.schema) ? 5 : [5, 6].includes(manifest.schema) ? 6 : null;
+  if (currentBundle && manifest.review_schema !== expectedReviewSchema) throw new Error('current bundle reviewer schema identity');
   const planPath = safeLogical(manifest.plan_path);
   if (planPath !== manifest.plan_path || manifest.plan_view !== 'plan.review.md') throw new Error('bundle plan identity');
   assertClosed(manifest.reviewer_schemas, currentBundle ? ['primary'] : ['X', 'S'], 'bundle reviewer schemas');
-  if (currentBundle ? manifest.reviewer_schemas.primary !== 'reviewer-output.primary.v5.schema.json' : manifest.reviewer_schemas.X !== 'reviewer-output.X.schema.json' || manifest.reviewer_schemas.S !== 'reviewer-output.S.schema.json') throw new Error('bundle reviewer schema paths');
+  if (currentBundle ? manifest.reviewer_schemas.primary !== `reviewer-output.primary.v${manifest.review_schema}.schema.json` : manifest.reviewer_schemas.X !== 'reviewer-output.X.schema.json' || manifest.reviewer_schemas.S !== 'reviewer-output.S.schema.json') throw new Error('bundle reviewer schema paths');
   digest(manifest.input_sha256, 'bundle input');
   const expectedFiles = new Set(['manifest.json']); const entries = []; const fileRows = new Map(); let previousFile = null;
   for (const row of manifest.files) {
@@ -3143,7 +3539,7 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   if (currentBundle) {
     const schemaPath = manifest.reviewer_schemas.primary;
     const schema = fileRows.get(schemaPath);
-    if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== `${jcs(currentReviewerSchema())}\n`) throw new Error('bundle reviewer schema mismatch: primary v5');
+    if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== `${jcs(currentReviewerSchema(manifest.review_schema))}\n`) throw new Error(`bundle reviewer schema mismatch: primary v${manifest.review_schema}`);
     reserved = new Set(['plan.review.md', schemaPath]);
   } else {
     for (const leg of ['X', 'S']) {
@@ -3155,14 +3551,22 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
     reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json', 'reviewer-output.X.v3.schema.json', 'reviewer-output.S.v3.schema.json']);
   }
   if (repairBundle) {
-    assertClosed(manifest.repair, ['from_round_index', 'previous_plan_path', 'previous_input_sha256', 'current_input_sha256', 'targets_path', 'repair_targets_sha256'], 'bundle repair manifest');
+    const repairOrchestrationKeys = manifest.review_schema === 6
+      ? ['orchestration_series_id', 'previous_orchestration_state_sha256', 'current_orchestration_state_sha256']
+      : [];
+    assertClosed(manifest.repair, ['from_round_index', 'previous_plan_path', 'previous_input_sha256', 'current_input_sha256', 'targets_path', 'repair_targets_sha256', ...repairOrchestrationKeys], 'bundle repair manifest');
     if (!Number.isInteger(manifest.repair.from_round_index) || manifest.repair.from_round_index < 1 || manifest.repair.previous_plan_path !== 'previous-plan.review.md' || manifest.repair.targets_path !== 'repair-targets.json') throw new Error('bundle repair manifest identity');
     digest(manifest.repair.previous_input_sha256, 'bundle repair previous input'); digest(manifest.repair.current_input_sha256, 'bundle repair current input'); digest(manifest.repair.repair_targets_sha256, 'bundle repair targets');
     const previousPlan = fileRows.get(manifest.repair.previous_plan_path); const targets = fileRows.get(manifest.repair.targets_path);
     if (!previousPlan || !targets || previousPlan.mode !== '100444' || targets.mode !== '100444') throw new Error('bundle repair artifacts');
     let transition; try { transition = JSON.parse(targets.bytes); } catch { throw new Error('bundle repair targets are not JSON'); }
-    if (transition?.schema === 5) validateCurrentRepairTransition(transition); else validateRepairTransition(transition);
-    if ((transition?.schema === 5) !== currentBundle) throw new Error('bundle repair and reviewer schema identity mismatch');
+    if ([5, 6].includes(transition?.schema)) validateCurrentRepairTransition(transition); else validateRepairTransition(transition);
+    if (currentBundle ? transition?.schema !== manifest.review_schema : [5, 6].includes(transition?.schema)) throw new Error('bundle repair and reviewer schema identity mismatch');
+    if (manifest.review_schema === 6 && (
+      manifest.repair.orchestration_series_id !== transition.orchestration_series_id
+      || manifest.repair.previous_orchestration_state_sha256 !== transition.previous_orchestration_state_sha256
+      || manifest.repair.current_orchestration_state_sha256 !== transition.current_orchestration_state_sha256
+    )) throw new Error('bundle repair orchestration identity mismatch');
     if (targets.bytes.toString() !== `${jcs(transition)}\n` || sha256(previousPlan.bytes) !== manifest.repair.previous_input_sha256 || transition.previous_input_sha256 !== manifest.repair.previous_input_sha256 || transition.current_input_sha256 !== manifest.repair.current_input_sha256 || transition.repair_targets_sha256 !== manifest.repair.repair_targets_sha256 || manifest.input_sha256 !== manifest.repair.current_input_sha256) throw new Error('bundle repair artifact mismatch');
     reserved.add(manifest.repair.previous_plan_path); reserved.add(manifest.repair.targets_path);
   } else if (Object.hasOwn(manifest, 'repair')) throw new Error('non-repair bundle carries repair metadata');
@@ -3251,11 +3655,17 @@ export function destroyBundle({ bundle, expectedSha256 }) {
 function validateRequestBundle(request, verified) {
   const manifest = verified.manifest;
   if (manifest.reviewed_commit !== request.reviewed_commit_or_head || manifest.input_sha256 !== request.input_sha256) throw new Error('request and bundle identity mismatch');
-  const repairRequest = [3, 5].includes(request.schema) && request.review_mode === 'repair';
-  const expectedManifestSchema = request.schema === 5 ? (repairRequest ? 4 : 3) : (repairRequest ? 2 : 1);
+  const repairRequest = [3, 5, 6].includes(request.schema) && request.review_mode === 'repair';
+  const expectedManifestSchema = request.schema === 6
+    ? (repairRequest ? 6 : 5)
+    : request.schema === 5 ? (repairRequest ? 4 : 3) : (repairRequest ? 2 : 1);
   if (manifest.schema !== expectedManifestSchema) throw new Error(repairRequest ? 'request and bundle repair mismatch' : 'non-repair request carries repair bundle');
-  if (request.schema === 5 && manifest.review_schema !== 5) throw new Error('current request requires current reviewer schema bundle');
+  if ([5, 6].includes(request.schema) && manifest.review_schema !== request.schema) throw new Error('current request requires matching current reviewer schema bundle');
   if (repairRequest && (manifest.repair?.previous_input_sha256 !== request.previous_input_sha256 || manifest.repair?.current_input_sha256 !== request.input_sha256 || manifest.repair?.repair_targets_sha256 !== request.repair_targets_sha256 || manifest.repair?.from_round_index !== request.round_index - 1)) throw new Error('request and bundle repair mismatch');
+  if (request.schema === 6 && repairRequest && (
+    manifest.repair?.orchestration_series_id !== request.orchestration_series_id
+    || manifest.repair?.current_orchestration_state_sha256 !== request.orchestration_state_sha256
+  )) throw new Error('request and bundle repair orchestration mismatch');
   if (request.phase === 'draft') { if (manifest.completion !== null) throw new Error('draft request carries completion bundle'); }
   else {
     if (manifest.completion === null) throw new Error('completion request lacks completion bundle');
@@ -3270,8 +3680,9 @@ function reviewerWorkspacePath(requestId, leg) {
   return path.join(REVIEW_WORK_ROOT, `${requestId}-${leg}`);
 }
 
-export function prepareReviewerWorkspace({ requestId, leg }) {
+export function prepareReviewerWorkspace({ requestId, leg, reviewSchema = 5 }) {
   const workspace = reviewerWorkspacePath(requestId, leg);
+  oneOf(reviewSchema, new Set([5, 6]), 'reviewer workspace schema');
   if (!fs.existsSync(REVIEW_WORK_ROOT)) fs.mkdirSync(REVIEW_WORK_ROOT, { recursive: false, mode: 0o700 });
   const root = fs.lstatSync(REVIEW_WORK_ROOT);
   if (!root.isDirectory() || root.isSymbolicLink() || fs.realpathSync(REVIEW_WORK_ROOT) !== REVIEW_WORK_ROOT || (root.mode & 0o777) !== 0o700 || (typeof process.getuid === 'function' && root.uid !== process.getuid())) throw new Error('reviewer workspace root is unsafe');
@@ -3280,7 +3691,7 @@ export function prepareReviewerWorkspace({ requestId, leg }) {
   const cleanupToken = sha256(`${randomUUID()}\0${randomUUID()}`);
   const sentinel = { schema: 1, request_id: requestId, leg, cleanup_token: cleanupToken };
   fs.writeFileSync(path.join(workspace, '.docks-reviewer-workspace'), `${jcs(sentinel)}\n`, { flag: 'wx', mode: 0o600 });
-  if (leg === 'primary') fs.writeFileSync(path.join(workspace, 'reviewer-output.primary.v5.schema.json'), `${jcs(currentReviewerSchema())}\n`, { flag: 'wx', mode: 0o444 });
+  if (leg === 'primary') fs.writeFileSync(path.join(workspace, `reviewer-output.primary.v${reviewSchema}.schema.json`), `${jcs(currentReviewerSchema(reviewSchema))}\n`, { flag: 'wx', mode: 0o444 });
   return { schema: 1, request_id: requestId, leg, workspace, cleanup_token: cleanupToken };
 }
 
@@ -3302,7 +3713,7 @@ export function cleanupReviewerWorkspace({ requestId, leg, prepared }) {
 
 function reviewerPrompt(leg, request, bundle) {
   const requestBlock = `REQUEST_JCS_BEGIN\n${jcs(request)}\nREQUEST_JCS_END`;
-  if (request.schema === 5) {
+  if ([5, 6].includes(request.schema)) {
     const modeRules = request.review_mode === 'full'
       ? 'This is the full round-one review.'
       : 'This is the only repair review. Inspect only accepted repair targets and blocking regressions introduced by their repair; do not reopen unrelated decisions.';
@@ -3327,8 +3738,9 @@ ${requestBlock}`;
 
 export function buildReviewerArgv({ tool, bundle, reviewerWorkspace = null, model, effort, serviceTier = null, leg, request, priorAttempts = [] }) {
   validateRequest(request); validateRequestBundle(request, verifyBundle({ bundle, expectedSha256: request.bundle_sha256 }));
-  oneOf(leg, request.schema === 5 ? new Set(['primary']) : new Set(['X', 'S']), request.schema === 5 ? 'role' : 'leg'); string(model, 'model'); string(effort, 'effort');
-  if (request.schema === 5) {
+  const currentRequest = [5, 6].includes(request.schema);
+  oneOf(leg, currentRequest ? new Set(['primary']) : new Set(['X', 'S']), currentRequest ? 'role' : 'leg'); string(model, 'model'); string(effort, 'effort');
+  if (currentRequest) {
     if (!Array.isArray(priorAttempts) || priorAttempts.length >= request.policy.candidates.length) throw new Error('reviewer candidate order is exhausted');
     if (priorAttempts.length > 0) {
       validateCurrentAttemptSequence(priorAttempts, request.policy);
@@ -3348,19 +3760,19 @@ export function buildReviewerArgv({ tool, bundle, reviewerWorkspace = null, mode
     const config = ['-c', `model_reasoning_effort=${effort}`, ...(tier === 'fast' ? ['-c', 'features.fast_mode=true', '-c', 'service_tier="fast"'] : ['-c', 'service_tier="default"'])];
     const suffix = request.schema === 1 ? '' : `.v${request.schema}`;
     let workdir = bundle; const isolation = [];
-    if ([3, 5].includes(request.schema)) {
+    if ([3, 5, 6].includes(request.schema)) {
       if (reviewerWorkspace === null) throw new Error(`schema-${request.schema} Codex reviewer workspace is required`);
       assertClosed(reviewerWorkspace, ['schema', 'request_id', 'leg', 'workspace', 'cleanup_token'], 'reviewer workspace');
       if (reviewerWorkspace.schema !== 1 || reviewerWorkspace.request_id !== request.request_id || reviewerWorkspace.leg !== leg || reviewerWorkspace.workspace !== reviewerWorkspacePath(request.request_id, leg)) throw new Error('reviewer workspace mismatch');
       workdir = reviewerWorkspace.workspace;
       isolation.push('--ephemeral', '--ignore-user-config', '--add-dir', bundle);
     }
-    const schemaPath = request.schema === 5 ? path.join(bundle, 'reviewer-output.primary.v5.schema.json') : path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`);
+    const schemaPath = currentRequest ? path.join(bundle, `reviewer-output.primary.v${request.schema}.schema.json`) : path.join(bundle, `reviewer-output.${leg}${suffix}.schema.json`);
     return ['exec', '-C', workdir, '--skip-git-repo-check', ...isolation, '-s', 'read-only', '-m', model, ...config, '--output-schema', schemaPath, '--', prompt];
   }
   if (tool === 'claude') {
     if (serviceTier !== null) throw new Error('reviewer service tier is Codex-only');
-    return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(request.schema === 5 ? currentReviewerSchema() : reviewerSchema(leg, request.schema)), '--output-format', 'json', '--', prompt];
+    return ['-p', '--permission-mode', 'plan', '--model', model, '--effort', effort, '--json-schema', jcs(currentRequest ? currentReviewerSchema(request.schema) : reviewerSchema(leg, request.schema)), '--output-format', 'json', '--', prompt];
   }
   throw new Error('reviewer tool must be codex or claude; relay is not supported');
 }
@@ -3380,13 +3792,9 @@ export function classifyLeg({ leg, policy, waiver = null, decision = null, attem
   return 'unavailable_unknown';
 }
 
-export function applyLifecycleState({ state, intent, eligible, intentUsed = false }) {
-  oneOf(state, new Set(['planned', 'scheduled', 'ongoing', 'in_review']), 'state');
-  oneOf(intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'intent');
-  if (intentUsed || intent === 'none' || !eligible) return { state, intent_used: intentUsed, applied: false };
-  if (intent === 'start' && state !== 'planned') throw new Error('start requires planned');
-  if ((intent === 'schedule_fire' || intent === 'auto_execute') && state !== 'scheduled') throw new Error(`${intent} requires scheduled`);
-  return { state: 'ongoing', intent_used: true, applied: true };
+export function applyLifecycleState(input) {
+  assertClosed(input, ['state', 'intent', 'eligible', 'orchestration'], 'apply lifecycle state');
+  return consumeReviewIntent(input);
 }
 
 function digestFilesystem(root, paths = null, excludedTopLevel = new Set()) {
@@ -3508,6 +3916,16 @@ export function cleanupCompletionCheckout({ repo, requestId, prepared }) {
   return { schema: 1, request_id: requestId, removed: true, original_snapshot: final };
 }
 
+function takeReviewSchemaSelector(args, defaultSchema) {
+  const selector = args[0];
+  if (typeof selector !== 'string' || !selector.startsWith('--review-schema')) return defaultSchema;
+  if (selector !== '--review-schema=5' && selector !== '--review-schema=6') {
+    throw new Error('review schema selector must be exactly --review-schema=5|6');
+  }
+  args.shift();
+  return Number(selector.slice('--review-schema='.length));
+}
+
 export function run(argv = process.argv.slice(2)) {
   const [command, ...args] = argv;
   if (command === 'compatibility-evidence') {
@@ -3542,13 +3960,13 @@ export function run(argv = process.argv.slice(2)) {
     validateReviewerOutput(output, request, args[2]); process.stdout.write('valid reviewer output\n'); return;
   }
   if (command === 'bundle') {
-    const reviewSchema = args[0] === '--review-schema=5' ? (args.shift(), 5) : 3;
+    const reviewSchema = takeReviewSchemaSelector(args, 3);
     const [repo, commit, plan, out, plannedAtCommit, executionBaseCommit, ...paths] = args; const completion = plannedAtCommit === '-' && executionBaseCommit === '-' ? {} : { plannedAtCommit, executionBaseCommit };
     process.stdout.write(`${jcs(sealBundle({ repo: path.resolve(repo), reviewedCommit: commit, planPath: plan, requestedPaths: paths, outDir: path.resolve(out), reviewSchema, ...completion }))}\n`); return;
   }
   if (command === 'bundle-repair') {
-    const reviewSchema = args[0] === '--review-schema=5' ? (args.shift(), 5) : 3;
-    if (args.length < 8) throw new Error('bundle-repair accepts [--review-schema=5] repo commit plan out previous-plan-file transition-file planned-at execution-base [paths...]');
+    const reviewSchema = takeReviewSchemaSelector(args, 3);
+    if (args.length < 8) throw new Error('bundle-repair accepts [--review-schema=5|6] repo commit plan out previous-plan-file transition-file planned-at execution-base [paths...]');
     const [repo, commit, plan, out, previousPlanPath, transitionPath, plannedAtCommit, executionBaseCommit, ...paths] = args;
     const completion = plannedAtCommit === '-' && executionBaseCommit === '-' ? {} : { plannedAtCommit, executionBaseCommit };
     if ((plannedAtCommit === '-') !== (executionBaseCommit === '-')) throw new Error('bundle-repair completion identity must be all-or-none');
@@ -3569,8 +3987,9 @@ export function run(argv = process.argv.slice(2)) {
     process.stdout.write(`${jcs(cleanupCompletionCheckout({ repo: path.resolve(repo), requestId, prepared }))}\n`); return;
   }
   if (command === 'reviewer-workspace-prepare') {
-    const [requestId, leg] = args; if (args.length !== 2) throw new Error('reviewer-workspace-prepare accepts requestId leg only');
-    process.stdout.write(`${jcs(prepareReviewerWorkspace({ requestId, leg }))}\n`); return;
+    const reviewSchema = takeReviewSchemaSelector(args, 5);
+    const [requestId, leg] = args; if (args.length !== 2) throw new Error('reviewer-workspace-prepare accepts [--review-schema=5|6] requestId leg only');
+    process.stdout.write(`${jcs(prepareReviewerWorkspace({ requestId, leg, reviewSchema }))}\n`); return;
   }
   if (command === 'reviewer-workspace-cleanup') {
     const [requestId, leg, preparedPath] = args; if (args.length !== 3) throw new Error('reviewer-workspace-cleanup accepts requestId leg preparedPath only');
@@ -3581,7 +4000,7 @@ export function run(argv = process.argv.slice(2)) {
     const [tool] = args; const result = spawnSync(tool, tool === 'codex' ? ['login', 'status'] : ['auth', 'status'], { encoding: 'utf8' });
     process.stdout.write(`${jcs({ available: !result.error && result.status === 0, exit_code: result.status ?? null })}\n`); return;
   }
-  throw new Error('usage: review-policy.mjs compatibility-evidence|compatibility-binding|compatibility-prerequisite|execution-range|execution-scope|canonical-plan|schema|validate-reviewer|bundle|bundle-repair|verify-bundle|destroy-bundle|completion-prepare|completion-cleanup|reviewer-workspace-prepare|reviewer-workspace-cleanup|probe ...');
+  throw new Error('usage: review-policy.mjs compatibility-evidence|compatibility-binding|compatibility-prerequisite|execution-range|execution-scope|canonical-plan|schema|validate-reviewer|bundle|bundle-repair|verify-bundle|destroy-bundle|completion-prepare|completion-cleanup|reviewer-workspace-prepare|reviewer-workspace-cleanup|probe ...; bundle [--review-schema=5|6] ...; bundle-repair [--review-schema=5|6] ...; reviewer-workspace-prepare [--review-schema=5|6] requestId leg');
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

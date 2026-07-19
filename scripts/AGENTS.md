@@ -20,13 +20,27 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `selftest` | path to a runnable self-test, or `null` |
 | `rust` | Rust source/prebuilt capability, or `null`: `{ dir, binName, source: { manifest, lockfile, builtBinary, testBinaryEnv }, prebuilt: { targets, assetPrefix, checksumAsset } }` — `ci.mjs` formats, lints, builds, and exercises the source-selected host binary. Prebuilt target assets and `SHA256SUMS` are release artifacts produced by the pinned native workflow; they are never committed in a plugin payload. Helpers in `lib/rust-bin.mjs` |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
-| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `scaffold`, `plan-review` for Docks; `[]` otherwise) |
+| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `scaffold`, `plan-reviewer` for Docks; `[]` otherwise) |
 | `releaseContracts` | ordered production release-state/evidence contract tests owned by the plugin (`[]` when absent) |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `install` | the consumer install snippet for the GitHub Release notes |
 | `release` | Release artifact names, the non-install prerelease staging body, and the stable install command. Session Relay's state machine and workflow consume these identities without inventing alternate asset names or install text. |
 
 `ci.mjs` is **registry-driven**: it runs shared checks **once** (workflow YAML, both marketplace catalogs, tree/guard, durable-anchors), then selects shell hooks, repository author suites, and capability-driven `gatePlugin` work from the target descriptors. A full invocation selects every present plugin; `--plugin <name>` keeps shared guards and runs only that plugin's owned work. Docks' long mutation regression task starts before independent checks and is joined exactly once before success. Flags: `-q` (quiet), `--list` (registry + presence), `--plugin <name>` (one target), `--timings-json <path>` (closed phase/task wall-time report). Versions remain per-plugin and independent.
+
+The Docks plan-workflow author suite follows the live five-phase contract:
+`plan-workspace` owns `docs/plans` bootstrap, migration, audit, and explicit
+refresh; `plan-creator` owns creation of one missing canonical plan and
+`PlanCreatedV1`; `plan-manager` owns existing-plan operations, review
+orchestration, receipts, and lifecycle; `plan-reviewer` provides internal
+read-only typed evidence over one sealed bundle; and `plan-repairer` provides
+one bounded internal patch for the accepted blocking set. Only manager and
+reviewer have dispatch wrappers. Schema 6 is the current review/orchestration
+contract; schemas 1–5 remain validation-only historical
+compatibility. The `plan-reviewer` author check runs the focused policy surface,
+bounded repair/convergence cases, and the single background mutation-regression
+driver from `scripts/tests/`, all against the helper bundled under
+`plan-reviewer/scripts/`.
 
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 

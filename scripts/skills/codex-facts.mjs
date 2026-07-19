@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// codex-facts.mjs — pin the Codex platform facts the skill-agent-pipeline and
-// capability-tuning reference docs assert. Author-side only; skips when absent.
+// codex-facts.mjs — pin the Codex platform facts asserted by
+// skill-agent-pipeline. Author-side only; skips when absent.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -8,12 +8,6 @@ const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 const SAP = path.join(REPO_DIR, 'plugins/docks/skills/productivity/skill-agent-pipeline');
 const DOC = path.join(SAP, 'references/codex-agents-builder.md');
-// Effort-scoped only: capability-tuning's codex reference must carry the effort
-// set, but NOT the sandbox_mode / agents.max_depth tokens pinned to DOC below.
-const EFFORT_DOCS = [
-  DOC,
-  path.join(REPO_DIR, 'plugins/docks/skills/productivity/capability-tuning/references/codex-config.md'),
-];
 
 if (!fs.existsSync(DOC)) {
   console.log(`Guard SKIPPED: codex-agents-builder.md not present (${DOC})`);
@@ -32,19 +26,14 @@ for (const tok of toks) {
   if (!allowed.has(tok)) fail(`codex-agents-builder.md references unknown Codex model id '${tok}' (allowed: ${CODEX_MODELS})`);
 }
 
-// 2. model_reasoning_effort canonical set (both pinned docs); `none` left the
-//    set and is valid only on plan_mode_reasoning_effort
-for (const file of EFFORT_DOCS) {
-  if (!fs.existsSync(file)) continue;
-  const name = path.basename(file);
-  const text = fs.readFileSync(file, 'utf8');
-  for (const v of ['minimal', 'low', 'medium', 'high', 'xhigh']) {
-    if (!text.includes(`"${v}"`)) fail(`${name} missing model_reasoning_effort value "${v}" (set: minimal/low/medium/high/xhigh)`);
-  }
-  for (const line of text.split('\n')) {
-    if (line.includes('model_reasoning_effort') && line.includes('"none"') && !line.includes('plan_mode_reasoning_effort')) {
-      fail(`${name} lists "none" as a model_reasoning_effort value without re-scoping it to plan_mode_reasoning_effort (the only key where none remains valid)`);
-    }
+// 2. model_reasoning_effort canonical set; `none` left the set and is valid
+//    only on plan_mode_reasoning_effort
+for (const v of ['minimal', 'low', 'medium', 'high', 'xhigh']) {
+  if (!doc.includes(`"${v}"`)) fail(`codex-agents-builder.md missing model_reasoning_effort value "${v}" (set: minimal/low/medium/high/xhigh)`);
+}
+for (const line of doc.split('\n')) {
+  if (line.includes('model_reasoning_effort') && line.includes('"none"') && !line.includes('plan_mode_reasoning_effort')) {
+    fail('codex-agents-builder.md lists "none" as a model_reasoning_effort value without re-scoping it to plan_mode_reasoning_effort (the only key where none remains valid)');
   }
 }
 
@@ -70,5 +59,5 @@ const sapHas = (() => {
 })();
 if (sapHas) fail("skill-agent-pipeline revives the discredited 'cannot spawn subagents' claim — Codex allows depth-1 dispatch (agents.max_depth: 1)");
 
-if (errors > 0) { console.error(`Guard FAILED: ${errors} Codex-fact drift error(s) in the pinned reference docs`); process.exit(1); }
-console.log('Guard PASSED: skill-agent-pipeline + capability-tuning Codex facts match canonical sets');
+if (errors > 0) { console.error(`Guard FAILED: ${errors} Codex-fact drift error(s) in skill-agent-pipeline`); process.exit(1); }
+console.log('Guard PASSED: skill-agent-pipeline Codex facts match canonical sets');

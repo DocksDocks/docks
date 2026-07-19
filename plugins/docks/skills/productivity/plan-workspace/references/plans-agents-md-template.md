@@ -1,3 +1,10 @@
+# Embedded Template — `docs/plans/AGENTS.md`
+
+Copy the fenced block verbatim to `docs/plans/AGENTS.md`. Also write
+`docs/plans/CLAUDE.md` as the one line `@AGENTS.md`. Example timestamps are
+illustrative and remain part of the template.
+
+````markdown
 # AGENTS.md — docs/plans/
 
 Multi-commit work lives here as complete cold-handoff plan files. A fresh agent
@@ -300,3 +307,4 @@ frontmatter, required body sections, plan-only commit path set, and relevant
 hash/parent identities. Never claim a wrapper ran merely because its file
 exists, never claim review passed from preparation, and never translate invalid
 evidence into a lifecycle mutation.
+````

@@ -5,9 +5,9 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import * as policy from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+import * as policy from '../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
 
-const HELPER = path.resolve('plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs');
+const HELPER = path.resolve('plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs');
 const H0 = '0'.repeat(64);
 const H1 = '1'.repeat(64);
 const H2 = '2'.repeat(64);
@@ -380,6 +380,7 @@ function testRepairArtifacts() {
     makeWritable(fixture.root);
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
+  testSchema6RepairArtifacts();
   console.log('repair artifacts are sealed and substitution fails closed');
 }
 
@@ -465,6 +466,7 @@ function testRepairSeries() {
   const manager = fs.readFileSync('plugins/docks/skills/productivity/plan-manager/SKILL.md', 'utf8');
   assert.doesNotMatch(manager, /fresh request over the unchanged input/i);
   assert.match(manager, /blocking_gap.*run `not_ready`.*rejected.*reconciliation/is);
+  testSchema6RepairSeries();
   console.log('repair series recomputes targets and no-change review terminates');
 }
 
@@ -638,6 +640,7 @@ const CURRENT_POLICY = {
   ],
   provenance: { role: 'skill_default', fallback: 'skill_default', max_rounds: 'skill_default', candidates: 'skill_default' },
 };
+const SCHEMA6_POLICY = { ...CURRENT_POLICY, schema: 6 };
 
 function currentRequest(overrides = {}) {
   return {
@@ -819,6 +822,446 @@ function currentRepairTarget(status = 'blocking_gap') {
     evidence: source.evidence,
     reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
   };
+}
+
+const ORCHESTRATION_SERIES_ID = '723e4567-e89b-42d3-a456-426614174000';
+const FULL_REQUEST_ID = '823e4567-e89b-42d3-a456-426614174000';
+const REPAIR_REQUEST_ID = '923e4567-e89b-42d3-a456-426614174000';
+
+function assertOrchestrationStateHash(state) {
+  assert.deepEqual(Object.keys(state).sort(), [
+    'schema',
+    'plan_path',
+    'phase',
+    'lifecycle_intent',
+    'initial_input_sha256',
+    'current_input_sha256',
+    'orchestration_attempt',
+    'series_id',
+    'request_ids',
+    'round_index',
+    'status',
+    'stop_reason',
+    'series_sha256',
+    'apply_state',
+    'transitioned_from_state_sha256',
+    'retry_authorization',
+    'state_sha256',
+  ].sort());
+  const payload = structuredClone(state);
+  delete payload.state_sha256;
+  assert.equal(state.state_sha256, policy.sha256(policy.jcs(payload)), 'orchestration state hash covers every other closed field');
+}
+
+function beginSchema6State({
+  inputSha256,
+  requestId = FULL_REQUEST_ID,
+  seriesId = ORCHESTRATION_SERIES_ID,
+} = {}) {
+  return policy.beginReviewOrchestration({
+    planPath: 'docs/plans/active/repair.md',
+    phase: 'draft',
+    lifecycleIntent: 'none',
+    inputSha256,
+    seriesId,
+    requestId,
+    orchestrationAttempt: 1,
+    previousState: null,
+    retryAuthorization: null,
+    sourceText: null,
+  });
+}
+
+function schema6Request(state, {
+  bundleSha256 = H2,
+  reviewedCommitOrHead = '5'.repeat(40),
+  reviewMode = state.round_index === 1 ? 'full' : 'repair',
+  previousInputSha256 = null,
+  repairTargetsSha256 = null,
+} = {}) {
+  return currentRequest({
+    schema: 6,
+    request_id: state.request_ids.at(-1),
+    reviewed_commit_or_head: reviewedCommitOrHead,
+    input_sha256: state.current_input_sha256,
+    bundle_sha256: bundleSha256,
+    policy: SCHEMA6_POLICY,
+    policy_sha256: policy.sha256(policy.jcs(SCHEMA6_POLICY)),
+    review_mode: reviewMode,
+    round_index: state.round_index,
+    previous_input_sha256: previousInputSha256,
+    repair_targets_sha256: repairTargetsSha256,
+    orchestration_series_id: state.series_id,
+    orchestration_state_sha256: state.state_sha256,
+  });
+}
+
+function schema6Output(req, status = 'pass') {
+  return {
+    ...currentOutput(req, status),
+    schema: 6,
+    request: req,
+  };
+}
+
+function schema6Attempt(candidate, overrides = {}) {
+  return {
+    ...currentAttempt(candidate, overrides),
+    schema: 6,
+  };
+}
+
+function schema6Raw(req, status = 'pass', reviewerOutput = null, attempts = null) {
+  const output = reviewerOutput ?? schema6Output(req, status);
+  const evidence = attempts ?? [schema6Attempt(CURRENT_POLICY.candidates[0])];
+  return {
+    schema: 6,
+    role: 'primary',
+    request: req,
+    result: 'passed',
+    attempts: evidence,
+    selected: evidence.at(-1).candidate,
+    reviewer_output: output,
+    findings_sha256: policy.sha256(policy.jcs(output.findings)),
+    waiver: null,
+    waiver_sha256: null,
+    reason: null,
+  };
+}
+
+function schema6Run(req, status = 'pass', reviewerOutput = null, attempts = null) {
+  const raw = schema6Raw(req, status, reviewerOutput, attempts);
+  const accepted = status === 'blocking_gap' ? ['P1'] : [];
+  const reproduced = status === 'blocking_gap'
+    ? [{ id: 'P1', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } }]
+    : [];
+  return {
+    schema: 6,
+    kind: 'draft',
+    request: req,
+    reviewer: { raw, accepted_finding_ids: accepted, rejected: [] },
+    reproduced,
+    outcome: status === 'blocking_gap' ? 'not_ready' : 'passed',
+    pre_execution_eligible: status !== 'blocking_gap',
+  };
+}
+
+function buildSchema6RepairTransition(firstState, repairState) {
+  return policy.buildCurrentRepairTransition({
+    schema: 6,
+    fromRoundIndex: 1,
+    previousInputSha256: firstState.current_input_sha256,
+    currentInputSha256: repairState.current_input_sha256,
+    orchestrationSeriesId: firstState.series_id,
+    previousOrchestrationStateSha256: firstState.state_sha256,
+    currentOrchestrationStateSha256: repairState.state_sha256,
+    acceptedFindingIds: ['P1'],
+    targets: [currentRepairTarget()],
+  });
+}
+
+function schema6Series(rounds, repairs = []) {
+  return {
+    schema: 6,
+    orchestration_series_id: rounds[0].request.orchestration_series_id,
+    policy_sha256: rounds[0].request.policy_sha256,
+    initial_input_sha256: rounds[0].request.input_sha256,
+    current_input_sha256: rounds.at(-1).request.input_sha256,
+    rounds,
+    repairs,
+  };
+}
+
+function replaceRoundRequest(run, req) {
+  run.request = req;
+  run.reviewer.raw.request = req;
+  run.reviewer.raw.reviewer_output.request = req;
+}
+
+function testSchema6RepairSeries() {
+  for (const name of [
+    'beginReviewOrchestration',
+    'advanceReviewOrchestrationRepair',
+    'settleReviewOrchestration',
+    'consumeReviewIntent',
+  ]) assert.equal(typeof policy[name], 'function', `${name} must be exported`);
+
+  const firstState = beginSchema6State({ inputSha256: H1 });
+  assertOrchestrationStateHash(firstState);
+  assert.equal(firstState.orchestration_attempt, 1);
+  assert.equal(firstState.round_index, 1);
+  assert.deepEqual(firstState.request_ids, [FULL_REQUEST_ID]);
+  assert.equal(firstState.status, 'active');
+  assert.equal(firstState.series_sha256, null);
+
+  const repairState = policy.advanceReviewOrchestrationRepair({
+    state: firstState,
+    requestId: REPAIR_REQUEST_ID,
+    currentInputSha256: H2,
+  });
+  assertOrchestrationStateHash(repairState);
+  assert.equal(repairState.orchestration_attempt, 1, 'repair does not increment the orchestration attempt');
+  assert.equal(repairState.round_index, 2, 'repair independently increments the round index');
+  assert.equal(repairState.series_id, firstState.series_id);
+  assert.equal(repairState.initial_input_sha256, firstState.initial_input_sha256);
+  assert.deepEqual(repairState.request_ids, [FULL_REQUEST_ID, REPAIR_REQUEST_ID]);
+
+  const transition = buildSchema6RepairTransition(firstState, repairState);
+  assert.equal(transition.schema, 6);
+  assert.equal(transition.orchestration_series_id, firstState.series_id);
+  assert.equal(transition.previous_orchestration_state_sha256, firstState.state_sha256);
+  assert.equal(transition.current_orchestration_state_sha256, repairState.state_sha256);
+  assert.deepEqual(transition.accepted_finding_ids, ['P1']);
+  assert.deepEqual(transition.targets, [currentRepairTarget()]);
+
+  const firstRequest = schema6Request(firstState);
+  const repairRequest = schema6Request(repairState, {
+    bundleSha256: H0,
+    previousInputSha256: firstRequest.input_sha256,
+    repairTargetsSha256: transition.repair_targets_sha256,
+  });
+  assert.equal(firstRequest.orchestration_state_sha256, firstState.state_sha256);
+  assert.equal(repairRequest.orchestration_state_sha256, repairState.state_sha256);
+  assert.equal(firstRequest.orchestration_series_id, repairRequest.orchestration_series_id);
+  assert.equal(repairRequest.request_id, repairState.request_ids.at(-1));
+
+  const series = schema6Series([
+    schema6Run(firstRequest, 'blocking_gap'),
+    schema6Run(repairRequest),
+  ], [transition]);
+  policy.validateReviewSeries(series);
+
+  for (const field of ['previous_orchestration_state_sha256', 'current_orchestration_state_sha256']) {
+    const changed = structuredClone(series);
+    changed.repairs[0][field] = H0;
+    assert.throws(() => policy.validateReviewSeries(changed), /orchestration.*state|state.*hash/i, `${field} substitution`);
+  }
+  const substituted = structuredClone(series);
+  const substitutedRequest = {
+    ...substituted.rounds[1].request,
+    orchestration_state_sha256: H0,
+  };
+  replaceRoundRequest(substituted.rounds[1], substitutedRequest);
+  assert.throws(
+    () => policy.validateReviewSeries(substituted),
+    /orchestration.*state|state.*hash/i,
+    'each request binds its persisted orchestration state hash',
+  );
+
+  const settled = policy.settleReviewOrchestration({ state: repairState, series });
+  assertOrchestrationStateHash(settled);
+  assert.equal(settled.status, 'passed');
+  assert.equal(settled.stop_reason, null);
+  assert.equal(settled.apply_state, 'none');
+  assert.equal(settled.series_sha256, policy.sha256(policy.jcs(series)));
+  assert.notEqual(settled.state_sha256, repairState.state_sha256);
+  assert.throws(
+    () => policy.settleReviewOrchestration({ state: settled, series }),
+    /active|settled|once/i,
+    'a series settles exactly once',
+  );
+
+  const historicalRequest = currentRequest();
+  const historicalSeries = {
+    schema: 5,
+    policy_sha256: historicalRequest.policy_sha256,
+    initial_input_sha256: historicalRequest.input_sha256,
+    current_input_sha256: historicalRequest.input_sha256,
+    rounds: [currentRun(historicalRequest)],
+    repairs: [],
+  };
+  const historicalBytes = policy.jcs(historicalSeries);
+  policy.validateReviewSeries(historicalSeries);
+  assert.equal(policy.jcs(historicalSeries), historicalBytes, 'schema-5 series remains byte-compatible');
+}
+
+function testSchema6RepairArtifacts() {
+  const fixture = initializeFixture();
+  const prepared = [];
+  try {
+    const fullBundlePath = path.join(fixture.root, 'schema-6-full');
+    const fullBundle = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: fullBundlePath,
+      reviewSchema: 6,
+    });
+    assert.equal(fullBundle.manifest.schema, 5);
+    assert.equal(fullBundle.manifest.review_schema, 6);
+    assert.deepEqual(fullBundle.manifest.reviewer_schemas, {
+      primary: 'reviewer-output.primary.v6.schema.json',
+    });
+    assert.equal(fs.existsSync(path.join(fullBundlePath, 'reviewer-output.primary.v6.schema.json')), true);
+    assert.equal(fullBundle.manifest.files.some(({ path: entry }) => entry === 'reviewer-output.primary.v5.schema.json'), false);
+    const bundledV6Schema = JSON.parse(fs.readFileSync(path.join(fullBundlePath, 'reviewer-output.primary.v6.schema.json'), 'utf8'));
+    assert.equal(bundledV6Schema.properties.schema.const, 6);
+    assert.deepEqual(bundledV6Schema, policy.currentReviewerSchema(6));
+    policy.verifyBundle({ bundle: fullBundlePath, expectedSha256: fullBundle.bundle_sha256 });
+
+    const fullState = beginSchema6State({
+      inputSha256: fullBundle.input_sha256,
+      requestId: FULL_REQUEST_ID,
+      seriesId: ORCHESTRATION_SERIES_ID,
+    });
+    const fullRequest = schema6Request(fullState, {
+      bundleSha256: fullBundle.bundle_sha256,
+      reviewedCommitOrHead: fixture.currentCommit,
+    });
+
+    const firstState = beginSchema6State({
+      inputSha256: policy.sha256(fixture.previousPlan),
+      requestId: 'a23e4567-e89b-42d3-a456-426614174000',
+      seriesId: 'b23e4567-e89b-42d3-a456-426614174000',
+    });
+    const repairState = policy.advanceReviewOrchestrationRepair({
+      state: firstState,
+      requestId: 'c23e4567-e89b-42d3-a456-426614174000',
+      currentInputSha256: policy.sha256(fixture.currentPlan),
+    });
+    const transition = buildSchema6RepairTransition(firstState, repairState);
+    const repairBundlePath = path.join(fixture.root, 'schema-6-repair');
+    const repairBundle = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: repairBundlePath,
+      reviewSchema: 6,
+      repair: { previousPlan: fixture.previousPlan, transition },
+    });
+    assert.equal(repairBundle.manifest.schema, 6);
+    assert.equal(repairBundle.manifest.review_schema, 6);
+    assert.deepEqual(repairBundle.manifest.reviewer_schemas, {
+      primary: 'reviewer-output.primary.v6.schema.json',
+    });
+    assert.equal(
+      fs.readFileSync(path.join(repairBundlePath, 'previous-plan.review.md')).equals(Buffer.from(fixture.previousPlan)),
+      true,
+      'repair preserves exact prior-plan bytes',
+    );
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(repairBundlePath, 'repair-targets.json'), 'utf8')),
+      transition,
+      'repair artifact carries the accepted target and both orchestration-state hashes',
+    );
+    assert.equal(repairBundle.manifest.repair.previous_orchestration_state_sha256, firstState.state_sha256);
+    assert.equal(repairBundle.manifest.repair.current_orchestration_state_sha256, repairState.state_sha256);
+    assert.equal(repairBundle.manifest.repair.orchestration_series_id, repairState.series_id);
+    policy.verifyBundle({ bundle: repairBundlePath, expectedSha256: repairBundle.bundle_sha256 });
+
+    const firstRequest = schema6Request(firstState, {
+      bundleSha256: H0,
+      reviewedCommitOrHead: fixture.previousCommit,
+    });
+    const repairRequest = schema6Request(repairState, {
+      bundleSha256: repairBundle.bundle_sha256,
+      reviewedCommitOrHead: fixture.currentCommit,
+      previousInputSha256: firstRequest.input_sha256,
+      repairTargetsSha256: transition.repair_targets_sha256,
+    });
+    const firstRun = schema6Run(firstRequest, 'blocking_gap');
+
+    for (const scenario of [
+      { mode: 'full', bundle: fullBundlePath, request: fullRequest, firstRun: null, transition: null },
+      { mode: 'repair', bundle: repairBundlePath, request: repairRequest, firstRun, transition },
+    ]) {
+      const workspace = policy.prepareReviewerWorkspace({ requestId: scenario.request.request_id, leg: 'primary' });
+      prepared.push(workspace);
+      for (const tool of ['codex', 'claude']) {
+        const candidate = tool === 'codex' ? CURRENT_POLICY.candidates[0] : CURRENT_POLICY.candidates[1];
+        const priorAttempts = tool === 'codex' ? [] : [schema6Attempt(CURRENT_POLICY.candidates[0], {
+          output_started: false,
+          result: 'model_unavailable',
+          exit_code: 1,
+          reason: 'the requested model is unavailable',
+        })];
+        const argv = policy.buildReviewerArgv({
+          tool,
+          bundle: scenario.bundle,
+          reviewerWorkspace: tool === 'codex' ? workspace : null,
+          model: candidate.model,
+          effort: candidate.effort,
+          serviceTier: candidate.service_tier ?? null,
+          leg: 'primary',
+          request: scenario.request,
+          priorAttempts,
+        });
+        if (tool === 'codex') {
+          assert.equal(argv[argv.indexOf('--output-schema') + 1], path.join(scenario.bundle, 'reviewer-output.primary.v6.schema.json'));
+        } else {
+          const claudeSchema = JSON.parse(argv[argv.indexOf('--json-schema') + 1]);
+          assert.equal(claudeSchema.properties.schema.const, 6, 'Claude receives the ReviewerOutputV6 envelope');
+          assert.deepEqual(claudeSchema, policy.currentReviewerSchema(6));
+        }
+
+        const output = schema6Output(scenario.request);
+        const stdout = tool === 'codex'
+          ? `${JSON.stringify({ transport: 'noise' })}\n${JSON.stringify(output)}\n`
+          : JSON.stringify({ structured_output: output });
+        const collected = policy.extractReviewerOutput(tool, stdout, scenario.request, 'primary', scenario.bundle);
+        assert.deepEqual(collected, output);
+        const collectorAttempts = [...priorAttempts, schema6Attempt(candidate)];
+        const raw = schema6Raw(scenario.request, 'pass', collected, collectorAttempts);
+        policy.validateCurrentRawReview(raw, scenario.request);
+        const run = schema6Run(scenario.request, 'pass', collected, collectorAttempts);
+        policy.validateDraftRunResult(run);
+        const series = scenario.mode === 'full'
+          ? schema6Series([run])
+          : schema6Series([scenario.firstRun, run], [scenario.transition]);
+        policy.validateReviewSeries(series);
+      }
+    }
+
+    const v5TransitionArgs = {
+      fromRoundIndex: 1,
+      previousInputSha256: policy.sha256(fixture.previousPlan),
+      currentInputSha256: policy.sha256(fixture.currentPlan),
+      acceptedFindingIds: ['P1'],
+      targets: [currentRepairTarget()],
+    };
+    const implicitV5Transition = policy.buildCurrentRepairTransition(v5TransitionArgs);
+    const explicitV5Transition = policy.buildCurrentRepairTransition({ schema: 5, ...v5TransitionArgs });
+    assert.equal(policy.jcs(explicitV5Transition), policy.jcs(implicitV5Transition), 'explicit schema 5 retains transition bytes');
+    const v5Full = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: path.join(fixture.root, 'schema-5-full'),
+      reviewSchema: 5,
+    });
+    const v5Repair = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: path.join(fixture.root, 'schema-5-repair'),
+      reviewSchema: 5,
+      repair: { previousPlan: fixture.previousPlan, transition: explicitV5Transition },
+    });
+    assert.deepEqual(
+      [v5Full.manifest.schema, v5Full.manifest.review_schema, v5Full.manifest.reviewer_schemas.primary],
+      [3, 5, 'reviewer-output.primary.v5.schema.json'],
+    );
+    assert.deepEqual(
+      [v5Repair.manifest.schema, v5Repair.manifest.review_schema, v5Repair.manifest.reviewer_schemas.primary],
+      [4, 5, 'reviewer-output.primary.v5.schema.json'],
+    );
+  } finally {
+    for (const workspace of prepared) {
+      if (fs.existsSync(workspace.workspace)) {
+        policy.cleanupReviewerWorkspace({
+          requestId: workspace.request_id,
+          leg: workspace.leg,
+          prepared: workspace,
+        });
+      }
+    }
+    makeWritable(fixture.root);
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
 }
 
 function testSingleRepair() {

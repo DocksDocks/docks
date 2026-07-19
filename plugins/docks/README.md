@@ -43,7 +43,6 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
-| `plan-init` | Bootstrap the `docs/plans/` active/finished lifecycle and repo-local Codex plan-agent defaults in a project |
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
 | `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment *(vendored, MIT)* |
@@ -51,13 +50,21 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
-Plus `capability-tuning` (max-capability settings.json / config.toml templates for Claude Code + Codex, grounded in context engineering), `write-skill`, `multi-tool-bridge`, `plan-manager`, `plan-review`, and `zoom-out` under `productivity/`.
+Plus `write-skill`, `multi-tool-bridge`, and `zoom-out` under `productivity/`.
 
-### Plan-lifecycle agents
+### Plan lifecycle
 
-`plan-manager` and `plan-review` ship as thin opus-tier Claude subagents so Claude agents can dispatch the plan lifecycle via `Agent(subagent_type=…)`. They wrap the cross-tool `plan-manager` / `plan-review` skills. Codex plugin installs do not ship subagents, but `plan-init` and `scaffold` can seed project-local `.codex/agents/plan-manager.toml` and `plan-review.toml` wrappers for explicit Codex custom-agent delegation; otherwise Codex runs the skills inline. In Claude, force-invoke with `@agent-plan-manager`.
+| Phase | Skill | Invocation | Ownership |
+|---|---|---|---|
+| Workspace | `plan-workspace` | Public | Bootstrap, migrate, audit, or explicitly refresh `docs/plans/`; never draft a plan |
+| Create | `plan-creator` | Public | Draft, self-review, and commit one previously nonexistent `planned` or `scheduled` plan |
+| Manage | `plan-manager` | Public | Every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write |
+| Review | `plan-reviewer` | Internal | Return typed read-only evidence over one sealed bundle |
+| Repair | `plan-repairer` | Internal | Apply one patch for the exact accepted blocking set or return `cannot_repair` |
 
-Current plan review uses one sealed-bundle primary reviewer: `gpt-5.6-sol` at high effort and the Standard/default tier first, with Claude Fable/high then Opus/xhigh only as availability fallbacks—not as a routine cross-company second review. The reviewer is fresh, explicit-model, read-only, and checklist-driven; accepted independently reproduced blockers permit at most one changed-input repair. Main-context plan-manager alone dispatches, reconciles, writes receipts, and changes lifecycle state; Session Relay is invalid review evidence. X/S, numeric scoring, consent/zero-review choices, and five-round receipts remain historical-only.
+Creation returns the committed, read-back `PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}` handoff; the creator never reviews or edits that path again. Current review records use schema 6. The manager persists the exact `Review-orchestration-state: <compact JCS object>` record, permits one full round plus at most one repair round per attempt, and returns retryable attempt-1 failures as `stopped`. Only explicit current-user authorization can start same-input attempt 2; another failure is `stuck`, with no automatic reprepare or third attempt. A substantive canonical-input change starts a new attempt 1; metadata-only changes do not count as progress.
+
+Skills are canonical. Only `plan-manager` and `plan-reviewer` ship as thin opus-tier Claude subagents; only those two may be seeded as project-local Codex wrappers by `plan-workspace` or `scaffold`. The manager is the sole dispatcher/reconciler and lifecycle writer; the reviewer is sealed-bundle evidence-only. Schemas 1–5 remain historical validation/audit-only, and Session transport is never canonical review evidence. In Claude, force-invoke the public manager with `@agent-plan-manager`.
 
 ## Why sequential, single-context?
 

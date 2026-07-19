@@ -94,7 +94,7 @@ let targets;
 try { targets = resolveCiTargets(presentPlugins(), onlyPlugin); }
 catch (error) { console.error(error.message); process.exit(2); }
 const authorChecks = selectedAuthorChecks(targets);
-const planPolicyRegressionTask = authorChecks.has('plan-review')
+const planPolicyRegressionTask = authorChecks.has('plan-reviewer')
   ? startNodeTask('plan-review-policy regressions', ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'], { cwd: REPO, tasks })
   : null;
 
@@ -153,7 +153,7 @@ if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
 // ============================ per-plugin gate ============================
 for (const p of targets) gatePlugin(p);
 
-if (authorChecks.has('plan-review')) {
+if (authorChecks.has('plan-reviewer')) {
   section('plan review policy');
   const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
   const planConvergenceRepairPassed = [

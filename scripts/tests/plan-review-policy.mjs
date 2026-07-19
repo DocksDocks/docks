@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import * as reviewPolicy from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+import * as reviewPolicy from '../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
 import {
   acceptanceInventory, applyCompletionReviewBlock, applyLifecycleState,
   buildExecutionBaseCompatibilityApplication, buildImplementerRelayArgv, buildReviewerArgv,
@@ -17,12 +17,12 @@ import {
   validateDraftReceipt, validateDraftReviewReuse, validateDraftRunResult, validatePolicy, validateRawLeg, validateRequest,
   validateExecutionRange, validateExecutionScope, validateReviewerOutput, validateWaivers,
   validateWorkflowModelRecord, verifyBundle,
-} from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+} from '../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const HARNESS = fileURLToPath(import.meta.url);
 const FIXTURE = path.join(ROOT, 'scripts/tests/fixtures/plan-review-policy/sample-plan.md');
-const HELPER = path.join(ROOT, 'plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs');
+const HELPER = path.join(ROOT, 'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs');
 const POLICY = {
   schema: 1,
   cross_company_consent: 'always',
@@ -1836,14 +1836,72 @@ try { process.stdout.write(policy.jcs(policy.validateExecutionRange({repo,review
 }
 
 function testLifecycle() {
-  assert.deepEqual(applyLifecycleState({ state: 'planned', intent: 'none', eligible: true }), { state: 'planned', intent_used: false, applied: false });
-  assert.deepEqual(applyLifecycleState({ state: 'scheduled', intent: 'none', eligible: false }), { state: 'scheduled', intent_used: false, applied: false });
-  assert.equal(applyLifecycleState({ state: 'planned', intent: 'start', eligible: true }).state, 'ongoing');
-  assert.equal(applyLifecycleState({ state: 'scheduled', intent: 'schedule_fire', eligible: true }).state, 'ongoing');
-  assert.equal(applyLifecycleState({ state: 'scheduled', intent: 'auto_execute', eligible: false }).state, 'scheduled');
-  assert.equal(applyLifecycleState({ state: 'planned', intent: 'start', eligible: true, intentUsed: true }).applied, false);
-  expectThrow('wrong state start', () => applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true }), /requires planned/);
-  expectThrow('wrong state fire', () => applyLifecycleState({ state: 'planned', intent: 'schedule_fire', eligible: true }), /requires scheduled/);
+  const settledPassed = (lifecycleIntent) => orchestrationStateV1({
+    lifecycle_intent: lifecycleIntent,
+    status: 'passed',
+    series_sha256: H0,
+    apply_state: lifecycleIntent === 'none' ? 'none' : 'pending',
+  });
+  const transitioned = (orchestration, overrides) => {
+    const { state_sha256: priorStateSha256, ...unhashed } = orchestration;
+    return stateWithHash({
+      ...unhashed,
+      ...overrides,
+      transitioned_from_state_sha256: priorStateSha256,
+    });
+  };
+  const none = settledPassed('none');
+  assert.deepEqual(
+    applyLifecycleState({ state: 'planned', intent: 'none', eligible: true, orchestration: none }),
+    { kind: 'applied', state: 'planned', orchestration: none },
+  );
+  assert.deepEqual(
+    applyLifecycleState({ state: 'scheduled', intent: 'none', eligible: false, orchestration: none }),
+    { kind: 'applied', state: 'scheduled', orchestration: none },
+  );
+
+  const start = settledPassed('start');
+  assert.deepEqual(
+    applyLifecycleState({ state: 'planned', intent: 'start', eligible: true, orchestration: start }),
+    { kind: 'applied', state: 'ongoing', orchestration: transitioned(start, { apply_state: 'consumed' }) },
+  );
+  const scheduleFire = settledPassed('schedule_fire');
+  assert.deepEqual(
+    applyLifecycleState({ state: 'scheduled', intent: 'schedule_fire', eligible: true, orchestration: scheduleFire }),
+    { kind: 'applied', state: 'ongoing', orchestration: transitioned(scheduleFire, { apply_state: 'consumed' }) },
+  );
+  const autoExecute = settledPassed('auto_execute');
+  assert.deepEqual(
+    applyLifecycleState({ state: 'scheduled', intent: 'auto_execute', eligible: false, orchestration: autoExecute }),
+    {
+      kind: 'rejected',
+      state: 'scheduled',
+      orchestration: transitioned(autoExecute, { status: 'stuck', stop_reason: 'apply_rejected', apply_state: 'none' }),
+    },
+  );
+  assert.deepEqual(
+    applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true, orchestration: start }),
+    {
+      kind: 'rejected',
+      state: 'scheduled',
+      orchestration: transitioned(start, { status: 'stuck', stop_reason: 'apply_rejected', apply_state: 'none' }),
+    },
+  );
+  assert.deepEqual(
+    applyLifecycleState({ state: 'planned', intent: 'schedule_fire', eligible: true, orchestration: scheduleFire }),
+    {
+      kind: 'rejected',
+      state: 'planned',
+      orchestration: transitioned(scheduleFire, { status: 'stuck', stop_reason: 'apply_rejected', apply_state: 'none' }),
+    },
+  );
+  expectThrow('legacy intentUsed lifecycle input', () => applyLifecycleState({
+    state: 'planned',
+    intent: 'start',
+    eligible: true,
+    orchestration: start,
+    intentUsed: false,
+  }), /unknown key|intentUsed/i);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-lifecycle-')); const original = path.join(temp, 'original'); const verifyRoot = '/tmp/docks-plan-verify'; const requestId = randomUUID();
   const planPath = 'docs/plans/active/sample.md'; fs.mkdirSync(path.join(original, 'docs/plans/active'), { recursive: true }); git(original, ['init', '-q']); git(original, ['config', 'user.email', 'policy@example.test']); git(original, ['config', 'user.name', 'Policy Test']);
   fs.writeFileSync(path.join(original, '.gitignore'), 'ignored-cache\n'); fs.writeFileSync(path.join(original, 'result.txt'), 'original\n'); fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
@@ -1923,22 +1981,21 @@ function testConsumer() {
 
 function testContractSurfaces() {
   const contractPath = 'docs/plans/AGENTS.md';
-  const templatePath = 'plugins/docks/skills/productivity/plan-init/references/plans-agents-md-template.md';
+  const templatePath = 'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md';
   const managerPath = 'plugins/docks/skills/productivity/plan-manager/SKILL.md';
-  const reviewPath = 'plugins/docks/skills/productivity/plan-review/SKILL.md';
-  const improverPath = 'plugins/docks/skills/productivity/plan-improver/SKILL.md';
+  const reviewPath = 'plugins/docks/skills/productivity/plan-reviewer/SKILL.md';
+  const repairerPath = 'plugins/docks/skills/productivity/plan-repairer/SKILL.md';
   const contract = fs.readFileSync(path.join(ROOT, contractPath), 'utf8');
   const template = fs.readFileSync(path.join(ROOT, templatePath), 'utf8');
-  for (const marker of ['review_author_company:', 'review_waivers:', 'execution_base_commit:', 'execution_base_commit..HEAD', '### Strong-default independent review', 'platform_denied', 'prepare(intent)']) {
+  for (const marker of ['review_author_company:', 'review_waivers:', 'execution_base_commit:', '## Current schema-6 review orchestration', 'Review-orchestration-state:', 'plan-reviewer', 'plan-repairer']) {
     assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
     assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
   }
-  const workflowMarkers = [
-    /schema[- ]5/i,
-    /role:?\s*[`"']?primary/i,
-    /fallback:?\s*[`"']?availability_only/i,
-    /max_rounds:?\s*[`"']?2/,
-    /service_tier:?\s*[`"']?default/,
+  const contractMarkers = [
+    /schema 6/i,
+    /historical schemas 1–5/i,
+    /one full round plus at most one changed-input repair/i,
+    /attempt 2 requires explicit\s+current-user retry/i,
     /standalone_executability/,
     /actionability/,
     /dependency_order/,
@@ -1947,22 +2004,33 @@ function testContractSurfaces() {
     /executable_acceptance/,
     /failure_modes/,
     /open_questions/,
-    /non_blocking_gap/,
-    /blocking_gap/,
-    /roles:\s*\[[`"']?primary/,
+    /cannot_repair/,
   ];
-  for (const file of [contractPath, templatePath, managerPath, reviewPath]) {
+  for (const file of [contractPath, templatePath]) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    for (const marker of workflowMarkers) assert.match(text, marker, `${file} missing current workflow marker ${marker}`);
-    assert.match(text, /historical(?: policy v1-v4|[- ]only| validators)/i, `${file} must preserve historical review semantics explicitly`);
-    assert.doesNotMatch(text, /Run up to <max_rounds> more rounds/, `${file} must not offer renewable continuation batches`);
-    assert.match(text, /no round\s+3|round\s+3[^.\n]*reject|reject[^.\n]*round\s+3/i, `${file} must close the current series after one repair`);
+    for (const marker of contractMarkers) assert.match(text, marker, `${file} missing current workflow marker ${marker}`);
   }
-  const improver = fs.readFileSync(path.join(ROOT, improverPath), 'utf8');
-  for (const marker of ['user-invocable: false', 'blocking_gap', 'independently reproduced', 'cannot-repair', 'sole writer']) assert.match(improver, new RegExp(marker, 'i'), `plan-improver missing ${marker}`);
-  assert.doesNotMatch(improver, /dispatch.*reviewer|write.*receipt|change.*lifecycle/i, 'plan-improver must not gain review or lifecycle ownership');
-  const init = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8');
-  for (const marker of ['STALE_V2', 'plan-init refresh', 'explicit user intent', 'existing `.codex/agents/', 'schema-5 primary workflow marker', 'current one-repair sealed-artifact marker']) assert.match(init, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-init missing refresh marker ${marker}`);
+  const policyMarkers = [
+    /schema[- ]6/i,
+    /role:?\s*[`"']?primary|role `primary`/i,
+    /fallback:?\s*[`"']?availability_only|availability-only fallback/i,
+    /max_rounds:?\s*[`"']?2/,
+    /service_tier:?\s*[`"']?default/,
+  ];
+  for (const file of [managerPath, reviewPath]) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    for (const marker of policyMarkers) assert.match(text, marker, `${file} missing current workflow marker ${marker}`);
+    assert.match(text, /historical schemas 1–5|historical validation|persisted historical evidence/i, `${file} must preserve historical review semantics explicitly`);
+    assert.match(text, /no round\s+3|round\s+3[^.\n]*reject|reject[^.\n]*round\s+3|one changed-input repair round is the maximum/i, `${file} must close the current series after one repair`);
+  }
+  const reviewer = fs.readFileSync(path.join(ROOT, reviewPath), 'utf8');
+  assert.match(reviewer, /non_blocking_gap/);
+  assert.match(reviewer, /blocking_gap/);
+  const repairer = fs.readFileSync(path.join(ROOT, repairerPath), 'utf8');
+  for (const marker of ['user-invocable: false', 'blocking_gap', 'independently reproduced', 'cannot_repair', 'validates and applies any returned patch']) assert.match(repairer, new RegExp(marker, 'i'), `plan-repairer missing ${marker}`);
+  assert.match(repairer, /Never write the plan[\s\S]*write a receipt[\s\S]*change status/i, 'plan-repairer must explicitly reject review and lifecycle ownership');
+  const workspace = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-workspace/SKILL.md'), 'utf8');
+  for (const marker of ['STALE', 'explicitly refresh', 'explicit current-turn refresh', '.codex/agents/plan-reviewer.toml', 'current schema 6', 'historical schemas 1–5']) assert.match(workspace, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-workspace missing refresh marker ${marker}`);
   const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
   const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*,\s*['"]--case['"]\s*,\s*['"]surfaces['"]\s*\]\)/g) || []).length, 1, 'CI must contain exactly one focused --case surfaces call');
@@ -1972,75 +2040,80 @@ function testContractSurfaces() {
   assert.equal((ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*\]\)/g) || []).length, 0, 'CI must contain zero no-argument full policy-harness calls');
   assert.ok(ci.indexOf("startNodeTask('plan-review-policy regressions'") < ci.indexOf("section('workflow YAML')"), 'CI must start the regression driver before independent shared checks');
   assert.ok(ci.indexOf(focusedCall) < ci.indexOf('await planPolicyRegressionTask'), 'CI must join the regression driver after focused Docks checks');
-  assert.equal((ci.match(/await planPolicyRegressionTask/g) || []).length, 1, 'CI must join the background regression driver exactly once');
-  const exactRules = [
-    "Acceptance inventories remain nonempty and task-specific. Omit a broad check only when the plan records the exact project CI command and retains a fast independent acceptance row that proves that command's composition or strict containment of the omitted surface; if containment is uncertain or the independent proof is absent, retain the row. Newly authored inventories omit the project CI command itself because completion executes that exact recorded command separately once after the ordered inventory. This is plan-manager/plan-review evidence only; historical validators and receipts remain unchanged.",
-    'Completion-review repairs remain `in_review`, preserve the original `in_review_since`, reopen affected Step rows, and invalidate prior completion input without inventing an undocumented lifecycle transition.',
-    'Main-context completion runs any plan-documented repository setup inside the disposable checkout before acceptance/CI; setup failure stops without a receipt; the generic helper never selects a package manager or copies/symlinks dependencies.',
-  ];
-  for (const file of [contractPath, templatePath, managerPath, reviewPath]) {
-    const normalized = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\s+/g, ' ');
-    for (const rule of exactRules) assert.equal(normalized.split(rule).length - 1, 1, `${file} must carry the exact verification rule once: ${rule}`);
-  }
   for (const file of ['AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    assert.match(text, /primary/i, `${file} missing primary review route`);
-    assert.match(text, /availability/i, `${file} missing availability-only fallback`);
+    assert.match(text, /plan-reviewer/, `${file} missing reviewer route`);
+    assert.match(text, /schema[- ]6/i, `${file} missing current schema`);
+    assert.match(text, /historical/i, `${file} missing historical validation boundary`);
     assert.doesNotMatch(text, /Every plan receives independent X\/S review/, `${file} must not advertise historical X/S as current`);
   }
-  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-init/SKILL.md'), 'utf8'), /schema-5 role `primary`/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-workspace/SKILL.md'), 'utf8'), /schema 6[\s\S]*historical schemas 1–5/i);
   console.log('CI composition and task-specific acceptance/repair parity passed');
-  console.log('contract/template/public single-primary schema-5 parity passed');
+  console.log('contract/template/public single-primary schema-6 parity passed');
 }
 
 function testReviewRunnerSurfaces() {
-  const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-review/SKILL.md'), 'utf8');
-  assert.match(skill, /user-invocable: false/); assert.match(skill, /NeedsMainReviewDispatch/);
-  assert.match(skill, /--skip-git-repo-check/); assert.match(skill, /--permission-mode plan/);
-  assert.match(skill, /Current schema-5 Codex argv[\s\S]*codex exec -C <reviewer-workspace>[\s\S]*--ephemeral --ignore-user-config[\s\S]*service_tier="default"/i);
-  assert.match(skill, /REQUEST_JCS_BEGIN/); assert.match(skill, /GPT-5\.6-sol\/high[\s\S]*Fable\/high[\s\S]*Opus\/xhigh/);
-  assert.match(skill, /git clone --no-local/); assert.match(skill, /Session Relay never transports review evidence/i);
-  for (const marker of ['fallback:"availability_only"', 'max_rounds:2', 'at most once', 'platform_denied', 'output_started:false', '--model <fable|opus>', '--effort <high|xhigh>', 'every evidence string is nonempty', 'blocking_gap', 'repair_targets_sha256']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing workflow marker ${marker}`);
+  const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-reviewer/SKILL.md'), 'utf8');
+  assert.match(skill, /user-invocable: false/);
+  for (const marker of [
+    'Evidence only', 'One sealed input', 'schema 6', 'role `primary`', 'availability-only fallback',
+    'max_rounds:2', '--review-schema=6', 'reviewer-output.primary.v6.schema.json',
+    'REQUEST_JCS_BEGIN', 'GPT-5.6-sol/high', 'Fable/high', 'Opus/xhigh',
+    'output_started:false', 'blocking_gap', 'repair_targets_sha256',
+  ]) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-reviewer missing workflow marker ${marker}`);
+  assert.match(skill, /Session Relay as review\s+evidence/i);
   assert.match(fs.readFileSync(path.join(ROOT, 'docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md'), 'utf8'), /confidence: integer 0 \| 1/);
-  for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'plan-manager main-context responsibility']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-review missing safe cleanup marker ${marker}`);
-  for (const file of ['plugins/docks/agents/plan-review.md', '.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) {
+  for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'reviewer never changes permissions or performs cleanup']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-reviewer missing safe cleanup marker ${marker}`);
+  for (const file of ['plugins/docks/agents/plan-reviewer.md', '.codex/agents/plan-reviewer.toml', 'docs/scaffold/templates/codex-plan-reviewer.toml.template', 'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
     assert.match(text, /primary/i, `${file} lacks current primary role`);
     assert.doesNotMatch(text, /write the idempotent|and write the .*Review|tools:.*(?:Bash|Edit|Write)/i, `${file} retains write-capable reviewer tools or writer instructions`);
     assert.match(text, /Never run or claim CI, acceptance, clone, cleanup,[^\n]*(?:lifecycle|receipt)/i, `${file} lacks explicit read-only work boundary`);
   }
-  const claudeWrapper = fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-review.md'), 'utf8');
-  assert.match(claudeWrapper, /^tools: Read, Glob, Grep$/m); assert.match(claudeWrapper, /Return evidence only/);
-  for (const file of ['.codex/agents/plan-review.toml', 'docs/scaffold/templates/codex-plan-review.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md']) assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /Return typed evidence only/);
-  assert.match(fs.readFileSync(path.join(ROOT, '.codex/agents/plan-review.toml'), 'utf8'), /sandbox_mode = "read-only"/);
-  console.log('plan-review evidence-only live/generated wrapper parity passed');
+  const claudeWrapper = fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-reviewer.md'), 'utf8');
+  assert.match(claudeWrapper, /^tools: Read, Glob, Grep$/m); assert.match(claudeWrapper, /Return typed evidence only/);
+  for (const file of ['.codex/agents/plan-reviewer.toml', 'docs/scaffold/templates/codex-plan-reviewer.toml.template', 'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md']) assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /Return typed evidence only/);
+  assert.match(fs.readFileSync(path.join(ROOT, '.codex/agents/plan-reviewer.toml'), 'utf8'), /sandbox_mode = "read-only"/);
+  console.log('plan-reviewer evidence-only live/generated wrapper parity passed');
 }
 
 function testManagerSurfaces() {
   const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/SKILL.md'), 'utf8');
-  for (const marker of ['Review before execution', 'Sole-writer protocol', 'Availability fallback is narrow', 'prepare(intent)', 'NeedsMainReviewDispatch', '## `apply`', 'platform_denied']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  for (const marker of ['Publishing a plan as a GitHub issue', '--issues', 'gh auth status', 'gh repo view --json visibility', 'gh issue create']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager lost publishing operation: ${marker}`);
-  for (const marker of ['execution_base_commit', 'acceptance inventory', 'writable main context', 'primary high completion finding']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing completion hardening: ${marker}`);
-  assert.match(skill, /primary review is unavailable or\s+not-ready/i, 'plan-manager missing terminal blocking-review completion derivation');
-  for (const marker of ['Implementation role dispatch', 'relay spawn <repo> --fanout --from', 'relay handback', 'relay collect', 'MUST use exactly one depth-0', 'real worker launch as the model probe', 'candidate-specific terminal model failure']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing implementation dispatch marker ${marker}`);
-  for (const marker of ['/model <model>', '/effort <effort>']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `plan-manager missing interactive-parent guidance ${marker}`);
-  for (const marker of ['destroy-bundle <bundle-path> <expected-bundle-sha256>', 'Never use shell `chmod` or `rm`']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing safe cleanup marker ${marker}`);
-  for (const marker of ['plan-improver', 'blocking_gap', 'review_mode: full|repair', 'no round 3', 'continuation batch']) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing convergence marker ${marker}`);
-  for (const file of ['plugins/docks/agents/plan-manager.md', '.codex/agents/plan-manager.toml', 'docs/scaffold/templates/codex-plan-manager.toml.template', 'plugins/docks/skills/productivity/plan-init/references/codex-agent-templates.md', 'docs/scaffold/templates/root-AGENTS.md.template']) {
+  for (const marker of [
+    'Sole-writer orchestration', 'No renewable review loop', 'Review-orchestration-state:',
+    'NeedsUserAction', 'NeedsMainReviewDispatch', 'beginReviewOrchestration',
+    'advanceReviewOrchestrationRepair', 'settleReviewOrchestration', 'consumeReviewIntent',
+    'review_schema:6', 'plan-repairer', 'cannot_repair', 'No round 3',
+    'execution-base..head binary diff', 'acceptance inventory', 'schemas 1–5 are validation-only',
+  ]) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing schema-6 marker ${marker}`);
+
+  for (const file of [
+    'plugins/docks/agents/plan-manager.md',
+    '.codex/agents/plan-manager.toml',
+    'docs/scaffold/templates/codex-plan-manager.toml.template',
+    'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
+  ]) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    assert.match(text, /NeedsMainReviewDispatch|sole public dispatcher/i, `${file} missing main handback`);
-    assert.match(text, /Never launch the primary reviewer|never launches a routine cross-company second review|Review dispatch always returns to main/i, `${file} permits wrapper dispatch`);
+    assert.match(text, /NeedsMainReviewDispatch/i, `${file} missing main handback`);
+    assert.match(text, /Never launch (?:the )?(?:reviewer|plan-reviewer)|do not dispatch/i, `${file} permits wrapper dispatch`);
+    assert.match(text, /schema-6/i, `${file} missing current schema`);
   }
-  console.log('plan-manager GitHub issue publishing operation preservation passed');
-  console.log('plan-manager prepare/dispatch/apply live/generated wrapper parity passed');
+  const rootTemplate = fs.readFileSync(path.join(ROOT, 'docs/scaffold/templates/root-AGENTS.md.template'), 'utf8');
+  for (const owner of ['plan-workspace', 'plan-creator', 'plan-manager', 'plan-reviewer', 'plan-repairer']) assert.match(rootTemplate, new RegExp(owner));
+  console.log('plan-manager schema-6 prepare/dispatch/apply live/generated wrapper parity passed');
 }
 
 function testRelayBoundary() {
   const relay = fs.readFileSync(path.join(ROOT, 'plugins/session-relay/skills/productivity/session-relay/SKILL.md'), 'utf8');
-  for (const marker of ['not** Docks\' canonical strong-default', 'sealed non-git read-only', 'rejected as a schema-v1 policy', 'future', 'approved release']) assert.match(relay, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-  assert.match(relay, /ordinary collaborative debate/); assert.doesNotMatch(relay, /relay spawn.*canonical.*schema-v1/i);
-  console.log('session-relay schema-v1 rejection and future-mode boundary passed');
+  for (const marker of [
+    'Canonical Docks plan review with sealed input and closed structured evidence',
+    'resumable bus output is not the canonical receipt boundary',
+    'rejected as canonical review transport',
+    'plan-manager', 'plan-reviewer', 'future', 'approved release',
+  ]) assert.match(relay, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  assert.doesNotMatch(relay, /relay spawn.*canonical.*reviewer mode/i);
+  console.log('session-relay canonical Docks review boundary passed');
 }
 
 function testSelfDemo(planPath) {
@@ -2298,6 +2371,550 @@ function currentReceipt(req, run = currentRun(req), overrides = {}) {
     reviewed_at: '2026-07-17T00:00:00-03:00',
     ...overrides,
   };
+}
+
+const ORCHESTRATION_STATE_KEYS = [
+  'schema', 'plan_path', 'phase', 'lifecycle_intent', 'initial_input_sha256',
+  'current_input_sha256', 'orchestration_attempt', 'series_id', 'request_ids',
+  'round_index', 'status', 'stop_reason', 'series_sha256', 'apply_state',
+  'transitioned_from_state_sha256', 'retry_authorization', 'state_sha256',
+];
+const RETRY_AUTHORIZATION_KEYS = [
+  'schema', 'authorization_id', 'actor', 'authorized_at', 'plan_path', 'phase',
+  'intent_group', 'input_sha256', 'stopped_state_sha256', 'source_text_sha256',
+];
+
+function stateWithHash(fields) {
+  return { ...fields, state_sha256: createHash('sha256').update(jcs(fields)).digest('hex') };
+}
+
+function orchestrationStateV1(overrides = {}) {
+  return stateWithHash({
+    schema: 1,
+    plan_path: 'docs/plans/active/sample.md',
+    phase: 'draft',
+    lifecycle_intent: 'none',
+    initial_input_sha256: H1,
+    current_input_sha256: H1,
+    orchestration_attempt: 1,
+    series_id: '123e4567-e89b-42d3-a456-426614174000',
+    request_ids: ['223e4567-e89b-42d3-a456-426614174000'],
+    round_index: 1,
+    status: 'active',
+    stop_reason: null,
+    series_sha256: null,
+    apply_state: 'none',
+    transitioned_from_state_sha256: null,
+    retry_authorization: null,
+    ...overrides,
+  });
+}
+
+const RETRY_SOURCE_TEXT = 'schema-6 retry authorization source';
+
+function retryAuthorizationV1(overrides = {}) {
+  return {
+    schema: 1,
+    authorization_id: '323e4567-e89b-42d3-a456-426614174000',
+    actor: 'user',
+    authorized_at: '2026-07-19T10:00:00-03:00',
+    plan_path: 'docs/plans/active/sample.md',
+    phase: 'draft',
+    intent_group: 'none',
+    input_sha256: H1,
+    stopped_state_sha256: H0,
+    source_text_sha256: sha256(RETRY_SOURCE_TEXT),
+    ...overrides,
+  };
+}
+
+function schema6Policy() {
+  return { ...structuredClone(CURRENT_POLICY), schema: 6 };
+}
+
+function schema6Request(sealed, state, overrides = {}) {
+  const policy = schema6Policy();
+  return currentRequest({
+    schema: 6,
+    request_id: state.request_ids.at(-1),
+    reviewed_commit_or_head: sealed.manifest.reviewed_commit,
+    input_sha256: state.current_input_sha256,
+    bundle_sha256: sealed.bundle_sha256,
+    policy,
+    policy_sha256: sha256(jcs(policy)),
+    review_mode: state.round_index === 1 ? 'full' : 'repair',
+    round_index: state.round_index,
+    previous_input_sha256: state.round_index === 1 ? null : state.initial_input_sha256,
+    orchestration_series_id: state.series_id,
+    orchestration_state_sha256: state.state_sha256,
+    ...overrides,
+  });
+}
+
+function schema6Series(req, run, repairs = []) {
+  return {
+    schema: 6,
+    orchestration_series_id: req.orchestration_series_id,
+    policy_sha256: req.policy_sha256,
+    initial_input_sha256: req.previous_input_sha256 ?? req.input_sha256,
+    current_input_sha256: req.input_sha256,
+    rounds: [run],
+    repairs,
+  };
+}
+
+function schema6Receipt(req, run, series, settledState, overrides = {}) {
+  return currentReceipt(req, run, {
+    schema: 6,
+    series,
+    settled_orchestration_state_sha256: settledState.state_sha256,
+    ...overrides,
+  });
+}
+
+function reviewBundleRepository() {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-schema6-surfaces-'));
+  const repo = path.join(temp, 'repo');
+  const planPath = 'docs/plans/active/sample.md';
+  fs.mkdirSync(path.join(repo, path.dirname(planPath)), { recursive: true });
+  fs.copyFileSync(FIXTURE, path.join(repo, planPath));
+  initializeRepository(repo);
+  const previousCommit = commitAll(repo, 'previous plan');
+  const previousPlan = canonicalPlanView(fs.readFileSync(path.join(repo, planPath)));
+  const changed = replaceOnce(
+    fs.readFileSync(path.join(repo, planPath), 'utf8'),
+    '## Goal\n\nProve canonical policy behavior.',
+    '## Goal\n\nProve canonical policy behavior with a schema-six surface.',
+    'schema-six plan change',
+  );
+  fs.writeFileSync(path.join(repo, planPath), changed);
+  const reviewedCommit = commitAll(repo, 'current plan');
+  const currentPlan = canonicalPlanView(fs.readFileSync(path.join(repo, planPath)));
+  return { temp, repo, planPath, previousCommit, reviewedCommit, previousPlan, currentPlan };
+}
+
+function currentRepairTarget() {
+  return {
+    ...currentFinding(),
+    source: 'primary',
+    reproduction: currentReproduction().reproduction,
+  };
+}
+
+function assertManifestRow(sealed, expected) {
+  assert.equal(sealed.manifest.schema, expected.manifestSchema);
+  assert.equal(sealed.manifest.review_schema, expected.reviewSchema);
+  assert.deepEqual(sealed.manifest.reviewer_schemas, { primary: expected.schemaFile });
+  assert.equal(sealed.manifest.files.filter(({ path: file }) => file === expected.schemaFile).length, 1);
+  assert.equal(Object.hasOwn(sealed.manifest, 'repair'), expected.repair);
+}
+
+async function testSchema6PolicySurfaces() {
+  const fixture = reviewBundleRepository();
+  const bundles = [];
+  const preparedWorkspaces = [];
+  try {
+    const target = currentRepairTarget();
+    const v5Transition = reviewPolicy.buildCurrentRepairTransition({
+      fromRoundIndex: 1,
+      previousInputSha256: sha256(fixture.previousPlan),
+      currentInputSha256: sha256(fixture.currentPlan),
+      acceptedFindingIds: ['P1'],
+      targets: [target],
+    });
+    const explicitV5Transition = reviewPolicy.buildCurrentRepairTransition({
+      schema: 5,
+      fromRoundIndex: 1,
+      previousInputSha256: sha256(fixture.previousPlan),
+      currentInputSha256: sha256(fixture.currentPlan),
+      acceptedFindingIds: ['P1'],
+      targets: [target],
+    });
+    assert.equal(jcs(explicitV5Transition), jcs(v5Transition), 'explicit schema 5 must preserve repair-transition bytes');
+
+    const v5FullDir = path.join(fixture.temp, 'v5-full');
+    const v5RepairDir = path.join(fixture.temp, 'v5-repair');
+    const v5Full = sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.reviewedCommit,
+      planPath: fixture.planPath,
+      requestedPaths: [],
+      outDir: v5FullDir,
+      reviewSchema: 5,
+    });
+    const v5Repair = sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.reviewedCommit,
+      planPath: fixture.planPath,
+      requestedPaths: [],
+      outDir: v5RepairDir,
+      reviewSchema: 5,
+      repair: { previousPlan: fixture.previousPlan, transition: v5Transition },
+    });
+    bundles.push(v5FullDir, v5RepairDir);
+    assertManifestRow(v5Full, {
+      manifestSchema: 3, reviewSchema: 5, schemaFile: 'reviewer-output.primary.v5.schema.json', repair: false,
+    });
+    assertManifestRow(v5Repair, {
+      manifestSchema: 4, reviewSchema: 5, schemaFile: 'reviewer-output.primary.v5.schema.json', repair: true,
+    });
+    assert.equal(
+      fs.readFileSync(path.join(v5FullDir, 'reviewer-output.primary.v5.schema.json'), 'utf8'),
+      `${jcs(reviewPolicy.currentReviewerSchema())}\n`,
+      'schema-5 bundled reviewer schema bytes remain unchanged',
+    );
+    verifyBundle({ bundle: v5FullDir, expectedSha256: v5Full.bundle_sha256 });
+    verifyBundle({ bundle: v5RepairDir, expectedSha256: v5Repair.bundle_sha256 });
+    const v5CliDir = path.join(fixture.temp, 'v5-cli-full');
+    const v5CliResult = helper(fixture.repo, [
+      'bundle', '--review-schema=5', fixture.repo, fixture.reviewedCommit, fixture.planPath, v5CliDir, '-', '-',
+    ]);
+    assert.equal(v5CliResult.status, 0, v5CliResult.stderr);
+    assert.equal(v5CliResult.stderr, '');
+    const v5CliFull = JSON.parse(v5CliResult.stdout);
+    bundles.push(v5CliDir);
+    assertManifestRow(v5CliFull, {
+      manifestSchema: 3, reviewSchema: 5, schemaFile: 'reviewer-output.primary.v5.schema.json', repair: false,
+    });
+    verifyBundle({ bundle: v5CliDir, expectedSha256: v5CliFull.bundle_sha256 });
+    const v5PreviousPlanPath = path.join(fixture.temp, 'v5-previous-plan.review.md');
+    const v5TransitionPath = path.join(fixture.temp, 'schema-5-repair-transition.json');
+    fs.writeFileSync(v5PreviousPlanPath, fixture.previousPlan);
+    fs.writeFileSync(v5TransitionPath, `${jcs(v5Transition)}\n`);
+    const v5CliRepairDir = path.join(fixture.temp, 'v5-cli-repair');
+    const v5CliRepairResult = helper(fixture.repo, [
+      'bundle-repair', '--review-schema=5', fixture.repo, fixture.reviewedCommit, fixture.planPath,
+      v5CliRepairDir, v5PreviousPlanPath, v5TransitionPath, '-', '-',
+    ]);
+    assert.equal(v5CliRepairResult.status, 0, v5CliRepairResult.stderr);
+    assert.equal(v5CliRepairResult.stderr, '');
+    const v5CliRepair = JSON.parse(v5CliRepairResult.stdout);
+    bundles.push(v5CliRepairDir);
+    assertManifestRow(v5CliRepair, {
+      manifestSchema: 4, reviewSchema: 5, schemaFile: 'reviewer-output.primary.v5.schema.json', repair: true,
+    });
+    verifyBundle({ bundle: v5CliRepairDir, expectedSha256: v5CliRepair.bundle_sha256 });
+    const v5WorkspaceRequestId = randomUUID();
+    const v5WorkspaceResult = helper(fixture.repo, [
+      'reviewer-workspace-prepare', '--review-schema=5', v5WorkspaceRequestId, 'primary',
+    ]);
+    assert.equal(v5WorkspaceResult.status, 0, v5WorkspaceResult.stderr);
+    assert.equal(v5WorkspaceResult.stderr, '');
+    const v5PreparedWorkspace = JSON.parse(v5WorkspaceResult.stdout);
+    preparedWorkspaces.push({ requestId: v5WorkspaceRequestId, prepared: v5PreparedWorkspace });
+    const v5WorkspaceSchemaPath = path.join(v5PreparedWorkspace.workspace, 'reviewer-output.primary.v5.schema.json');
+    assert.equal(fs.existsSync(v5WorkspaceSchemaPath), true, 'schema-5 CLI workspace selector remains supported');
+    assert.equal(JSON.parse(fs.readFileSync(v5WorkspaceSchemaPath, 'utf8')).properties.schema.const, 5);
+
+    for (const exportName of [
+      'beginReviewOrchestration',
+      'advanceReviewOrchestrationRepair',
+      'settleReviewOrchestration',
+      'consumeReviewIntent',
+    ]) {
+      assert.equal(typeof reviewPolicy[exportName], 'function', `missing schema-6 export ${exportName}`);
+    }
+
+    const fixedState = orchestrationStateV1();
+    const compactState = '{"apply_state":"none","current_input_sha256":"1111111111111111111111111111111111111111111111111111111111111111","initial_input_sha256":"1111111111111111111111111111111111111111111111111111111111111111","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/sample.md","request_ids":["223e4567-e89b-42d3-a456-426614174000"],"retry_authorization":null,"round_index":1,"schema":1,"series_id":"123e4567-e89b-42d3-a456-426614174000","series_sha256":null,"status":"active","stop_reason":null,"transitioned_from_state_sha256":null}';
+    const { state_sha256: fixedHash, ...fixedUnhashed } = fixedState;
+    assert.equal(jcs(fixedUnhashed), compactState, 'orchestration hash preimage is compact JCS');
+    assert.equal(fixedHash, createHash('sha256').update(compactState).digest('hex'), 'orchestration state hash binds compact JCS without state_sha256');
+
+    const active = reviewPolicy.beginReviewOrchestration({
+      planPath: fixedState.plan_path,
+      phase: fixedState.phase,
+      lifecycleIntent: fixedState.lifecycle_intent,
+      inputSha256: fixedState.current_input_sha256,
+      seriesId: fixedState.series_id,
+      requestId: fixedState.request_ids[0],
+      orchestrationAttempt: 1,
+      retryAuthorization: null,
+      previousState: null,
+      sourceText: null,
+    });
+    assert.deepEqual([...Object.keys(active)].sort(), [...ORCHESTRATION_STATE_KEYS].sort(), 'ReviewOrchestrationStateV1 is closed');
+    assert.deepEqual(active, fixedState);
+
+    const retryPreviousState = orchestrationStateV1({
+      status: 'stopped',
+      stop_reason: 'unavailable_auth',
+      series_sha256: '3'.repeat(64),
+    });
+
+    const retryAuthorization = retryAuthorizationV1({ stopped_state_sha256: retryPreviousState.state_sha256 });
+    assert.deepEqual([...Object.keys(retryAuthorization)].sort(), [...RETRY_AUTHORIZATION_KEYS].sort(), 'ReviewRetryAuthorizationV1 fixture is closed');
+    const retryState = reviewPolicy.beginReviewOrchestration({
+      planPath: retryAuthorization.plan_path,
+      phase: retryAuthorization.phase,
+      lifecycleIntent: 'none',
+      inputSha256: retryAuthorization.input_sha256,
+      seriesId: '423e4567-e89b-42d3-a456-426614174000',
+      requestId: '523e4567-e89b-42d3-a456-426614174000',
+      orchestrationAttempt: 2,
+      retryAuthorization,
+      previousState: retryPreviousState,
+      sourceText: RETRY_SOURCE_TEXT,
+    });
+    assert.deepEqual([...Object.keys(retryState.retry_authorization)].sort(), [...RETRY_AUTHORIZATION_KEYS].sort(), 'embedded retry authorization is closed');
+    expectThrow('retry authorization unknown key', () => reviewPolicy.beginReviewOrchestration({
+      planPath: retryAuthorization.plan_path,
+      phase: retryAuthorization.phase,
+      lifecycleIntent: 'none',
+      inputSha256: retryAuthorization.input_sha256,
+      seriesId: '623e4567-e89b-42d3-a456-426614174000',
+      requestId: '723e4567-e89b-42d3-a456-426614174000',
+      orchestrationAttempt: 2,
+      retryAuthorization: { ...retryAuthorization, intentUsed: false },
+      previousState: retryPreviousState,
+      sourceText: RETRY_SOURCE_TEXT,
+    }), /unknown key|intentUsed/i);
+
+    const fullState = reviewPolicy.beginReviewOrchestration({
+      planPath: fixture.planPath,
+      phase: 'draft',
+      lifecycleIntent: 'none',
+      inputSha256: sha256(fixture.currentPlan),
+      seriesId: '823e4567-e89b-42d3-a456-426614174000',
+      requestId: '923e4567-e89b-42d3-a456-426614174000',
+      orchestrationAttempt: 1,
+      retryAuthorization: null,
+      previousState: null,
+      sourceText: null,
+    });
+    const previousState = reviewPolicy.beginReviewOrchestration({
+      planPath: fixture.planPath,
+      phase: 'draft',
+      lifecycleIntent: 'none',
+      inputSha256: sha256(fixture.previousPlan),
+      seriesId: 'a23e4567-e89b-42d3-a456-426614174000',
+      requestId: 'b23e4567-e89b-42d3-a456-426614174000',
+      orchestrationAttempt: 1,
+      retryAuthorization: null,
+      previousState: null,
+      sourceText: null,
+    });
+    const repairState = reviewPolicy.advanceReviewOrchestrationRepair({
+      state: previousState,
+      requestId: 'c23e4567-e89b-42d3-a456-426614174000',
+      currentInputSha256: sha256(fixture.currentPlan),
+    });
+    const v6Transition = reviewPolicy.buildCurrentRepairTransition({
+      schema: 6,
+      fromRoundIndex: 1,
+      previousInputSha256: sha256(fixture.previousPlan),
+      currentInputSha256: sha256(fixture.currentPlan),
+      acceptedFindingIds: ['P1'],
+      targets: [target],
+      orchestrationSeriesId: repairState.series_id,
+      previousOrchestrationStateSha256: previousState.state_sha256,
+      currentOrchestrationStateSha256: repairState.state_sha256,
+    });
+
+    const v6FullDir = path.join(fixture.temp, 'v6-full');
+    const v6RepairDir = path.join(fixture.temp, 'v6-repair');
+    const v6Full = sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.reviewedCommit,
+      planPath: fixture.planPath,
+      requestedPaths: [],
+      outDir: v6FullDir,
+      reviewSchema: 6,
+    });
+    const v6Repair = sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.reviewedCommit,
+      planPath: fixture.planPath,
+      requestedPaths: [],
+      outDir: v6RepairDir,
+      reviewSchema: 6,
+      repair: { previousPlan: fixture.previousPlan, transition: v6Transition },
+    });
+    bundles.push(v6FullDir, v6RepairDir);
+    assertManifestRow(v6Full, {
+      manifestSchema: 5, reviewSchema: 6, schemaFile: 'reviewer-output.primary.v6.schema.json', repair: false,
+    });
+    assertManifestRow(v6Repair, {
+      manifestSchema: 6, reviewSchema: 6, schemaFile: 'reviewer-output.primary.v6.schema.json', repair: true,
+    });
+    verifyBundle({ bundle: v6FullDir, expectedSha256: v6Full.bundle_sha256 });
+    verifyBundle({ bundle: v6RepairDir, expectedSha256: v6Repair.bundle_sha256 });
+    assert.equal(reviewPolicy.reviewerSchema('primary', 5).properties.schema.const, 5);
+    assert.equal(reviewPolicy.reviewerSchema('primary', 6).properties.schema.const, 6);
+    const previousPlanPath = path.join(fixture.temp, 'previous-plan.review.md');
+    const transitionPath = path.join(fixture.temp, 'schema-6-repair-transition.json');
+    fs.writeFileSync(previousPlanPath, fixture.previousPlan);
+    fs.writeFileSync(transitionPath, `${jcs(v6Transition)}\n`);
+
+    const v6CliFullDir = path.join(fixture.temp, 'v6-cli-full');
+    const v6CliFullResult = helper(fixture.repo, [
+      'bundle', '--review-schema=6', fixture.repo, fixture.reviewedCommit, fixture.planPath, v6CliFullDir, '-', '-',
+    ]);
+    assert.equal(v6CliFullResult.status, 0, v6CliFullResult.stderr);
+    assert.equal(v6CliFullResult.stderr, '');
+    const v6CliFull = JSON.parse(v6CliFullResult.stdout);
+    bundles.push(v6CliFullDir);
+    assertManifestRow(v6CliFull, {
+      manifestSchema: 5, reviewSchema: 6, schemaFile: 'reviewer-output.primary.v6.schema.json', repair: false,
+    });
+    verifyBundle({ bundle: v6CliFullDir, expectedSha256: v6CliFull.bundle_sha256 });
+
+    const v6CliRepairDir = path.join(fixture.temp, 'v6-cli-repair');
+    const v6CliRepairResult = helper(fixture.repo, [
+      'bundle-repair', '--review-schema=6', fixture.repo, fixture.reviewedCommit, fixture.planPath,
+      v6CliRepairDir, previousPlanPath, transitionPath, '-', '-',
+    ]);
+    assert.equal(v6CliRepairResult.status, 0, v6CliRepairResult.stderr);
+    assert.equal(v6CliRepairResult.stderr, '');
+    const v6CliRepair = JSON.parse(v6CliRepairResult.stdout);
+    bundles.push(v6CliRepairDir);
+    assertManifestRow(v6CliRepair, {
+      manifestSchema: 6, reviewSchema: 6, schemaFile: 'reviewer-output.primary.v6.schema.json', repair: true,
+    });
+    verifyBundle({ bundle: v6CliRepairDir, expectedSha256: v6CliRepair.bundle_sha256 });
+
+    for (const command of ['bundle', 'bundle-repair', 'reviewer-workspace-prepare']) {
+      for (const selector of ['--review-schema=7', '--review-schema=06']) {
+        const invalidSelector = helper(fixture.repo, [command, selector]);
+        assert.notEqual(invalidSelector.status, 0, `${command} must reject unsupported review schema selector ${selector}`);
+        assert.equal(invalidSelector.stdout, '');
+        assert.match(invalidSelector.stderr, /review schema selector.*--review-schema=5\|6/i);
+      }
+    }
+    const usage = helper(fixture.repo, ['not-a-command']);
+    assert.notEqual(usage.status, 0);
+    assert.match(usage.stderr, /bundle \[--review-schema=5\|6\]/);
+    assert.match(usage.stderr, /reviewer-workspace-prepare \[--review-schema=5\|6\]/);
+
+    const workspaceRequestId = randomUUID();
+    const workspaceResult = helper(fixture.repo, [
+      'reviewer-workspace-prepare', '--review-schema=6', workspaceRequestId, 'primary',
+    ]);
+    assert.equal(workspaceResult.status, 0, workspaceResult.stderr);
+    assert.equal(workspaceResult.stderr, '');
+    const preparedWorkspace = JSON.parse(workspaceResult.stdout);
+    preparedWorkspaces.push({ requestId: workspaceRequestId, prepared: preparedWorkspace });
+    const workspaceSchemaPath = path.join(preparedWorkspace.workspace, 'reviewer-output.primary.v6.schema.json');
+    assert.equal(fs.existsSync(workspaceSchemaPath), true, 'schema-6 CLI workspace writes the primary v6 schema file');
+    assert.equal(JSON.parse(fs.readFileSync(workspaceSchemaPath, 'utf8')).properties.schema.const, 6);
+
+    const extraArgumentRequestId = randomUUID();
+    const extraWorkspaceArgument = helper(fixture.repo, [
+      'reviewer-workspace-prepare', '--review-schema=6', extraArgumentRequestId, 'primary', 'extra',
+    ]);
+    assert.notEqual(extraWorkspaceArgument.status, 0, 'reviewer workspace prepare must reject extra arguments');
+    assert.equal(extraWorkspaceArgument.stdout, '');
+    assert.match(extraWorkspaceArgument.stderr, /accepts \[--review-schema=5\|6\] requestId leg only/);
+
+    const matrix = [
+      { label: 'full', sealed: v6Full, bundle: v6FullDir, state: fullState },
+      { label: 'repair', sealed: v6Repair, bundle: v6RepairDir, state: repairState },
+    ];
+    for (const row of matrix) {
+      const req = schema6Request(row.sealed, row.state, row.label === 'repair' ? {
+        repair_targets_sha256: v6Transition.repair_targets_sha256,
+      } : {});
+      validatePolicy(req.policy);
+      validateRequest(req);
+      const output = currentOutput(req, { schema: 6 });
+      validateReviewerOutput(output, req, 'primary');
+      reviewPolicy.validateCurrentReviewerOutput(output, req);
+
+      const prepared = reviewPolicy.prepareReviewerWorkspace({
+        requestId: req.request_id,
+        leg: 'primary',
+        reviewSchema: 6,
+      });
+      preparedWorkspaces.push({ requestId: req.request_id, prepared });
+      const codexArgv = buildReviewerArgv({
+        tool: 'codex',
+        bundle: row.bundle,
+        reviewerWorkspace: prepared,
+        model: 'gpt-5.6-sol',
+        effort: 'high',
+        serviceTier: 'default',
+        leg: 'primary',
+        request: req,
+      });
+      assert.equal(codexArgv[codexArgv.indexOf('--output-schema') + 1], path.join(row.bundle, 'reviewer-output.primary.v6.schema.json'), `schema-6 ${row.label} Codex schema path`);
+      assert.deepEqual(extractReviewerOutput('codex', `${JSON.stringify(output)}\n`, req, 'primary', row.bundle), output);
+
+      const unavailableCodex = currentAttempt(req.policy.candidates[0], {
+        schema: 6,
+        started: false,
+        output_started: false,
+        result: 'tool_unavailable',
+        exit_code: null,
+        child_id: null,
+        timeout_mode: null,
+        timeout_seconds: null,
+        reason: 'Codex unavailable for Claude path fixture',
+        stdout_sha256: null,
+        stderr_sha256: null,
+      });
+      const claudeArgv = buildReviewerArgv({
+        tool: 'claude',
+        bundle: row.bundle,
+        model: 'fable',
+        effort: 'high',
+        leg: 'primary',
+        request: req,
+        priorAttempts: [unavailableCodex],
+      });
+      const claudeSchema = JSON.parse(claudeArgv[claudeArgv.indexOf('--json-schema') + 1]);
+      assert.equal(claudeSchema.properties.schema.const, 6, `schema-6 ${row.label} Claude schema envelope`);
+      assert.deepEqual(extractReviewerOutput('claude', JSON.stringify({ structured_output: output }), req, 'primary', row.bundle), output);
+    }
+
+    const req = schema6Request(v6Full, fullState);
+    const raw = currentRaw(req, currentOutput(req, { schema: 6 }), {
+      schema: 6,
+      attempts: [currentAttempt(req.policy.candidates[0], { schema: 6 })],
+    });
+    const run = currentRun(req, raw, { schema: 6 });
+    const series = schema6Series(req, run);
+    reviewPolicy.validateCurrentRawReview(raw, req);
+    reviewPolicy.validateCurrentReviewRunResult(run);
+    reviewPolicy.validateReviewSeries(series);
+    const settled = reviewPolicy.settleReviewOrchestration({ state: fullState, series });
+    assert.equal(settled.series_sha256, sha256(jcs(series)));
+    const receipt = schema6Receipt(req, run, series, settled);
+    reviewPolicy.validateCurrentReviewReceipt(receipt, req.input_sha256, { orchestration: settled });
+    validateDraftReceipt(receipt, req.input_sha256, { expectedPolicy: req.policy, orchestration: settled });
+    validateDraftReviewReuse({
+      receipt,
+      expectedInput: req.input_sha256,
+      expectedPolicy: req.policy,
+      waivers: [],
+      orchestration: settled,
+    });
+    expectThrow('schema-6 receipt settled-state substitution', () => validateDraftReviewReuse({
+      receipt: { ...receipt, settled_orchestration_state_sha256: H0 },
+      expectedInput: req.input_sha256,
+      expectedPolicy: req.policy,
+      waivers: [],
+      orchestration: settled,
+    }), /orchestration|settled|state/i);
+
+    expectThrow('old intentUsed lifecycle input', () => applyLifecycleState({
+      state: 'planned',
+      intent: 'start',
+      eligible: true,
+      orchestration: settled,
+      intentUsed: false,
+    }), /unknown key|intentUsed/i);
+    console.log('schema-6 orchestration, bundle, collector, receipt, and lifecycle surfaces passed');
+  } finally {
+    for (const workspace of preparedWorkspaces.reverse()) {
+      reviewPolicy.cleanupReviewerWorkspace({
+        requestId: workspace.requestId,
+        leg: 'primary',
+        prepared: workspace.prepared,
+      });
+    }
+    makeWritable(fixture.temp);
+    fs.rmSync(fixture.temp, { recursive: true, force: true });
+  }
 }
 
 function testCurrentSingleLane() {
@@ -2598,7 +3215,17 @@ try {
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'strict-contract') testStrictCorpusContract();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'schemas') testSchemas();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'completion-reuse') testStrictCompletionReuse();
-  else if (args.length === 2 && args[0] === '--case' && args[1] === 'surfaces') { testContractSurfaces(); testReviewRunnerSurfaces(); testManagerSurfaces(); testRelayBoundary(); }
+  else if (args.length === 2 && args[0] === '--case' && args[1] === 'surfaces') {
+    testSchemas();
+    testHistoricalSchemas();
+    testCurrentSingleLane();
+    testCurrentReceipts();
+    testContractSurfaces();
+    testReviewRunnerSurfaces();
+    testManagerSurfaces();
+    testRelayBoundary();
+    await testSchema6PolicySurfaces();
+  }
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'validation-matrix') testValidationMatrix();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'current-single-lane') testCurrentSingleLane();
   else if (args.length === 2 && args[0] === '--case' && args[1] === 'current-receipts') testCurrentReceipts();

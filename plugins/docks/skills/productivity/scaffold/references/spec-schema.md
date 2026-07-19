@@ -35,7 +35,7 @@ plugin:
 
 ## `templated_files`
 
-Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted. Codex custom agents are plain templated files under `.codex/agents/`; they are project-local wrappers, not plugin-shipped agents.
+Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted. The only Codex plan wrappers are manager and reviewer, rendered under `.codex/agents/`; they are project-local files, not plugin-shipped agents.
 
 ```yaml
 templated_files:
@@ -44,7 +44,7 @@ templated_files:
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
   - { template: codex-plan-manager.toml.template, dest: ".codex/agents/plan-manager.toml" }
-  - { template: codex-plan-review.toml.template,  dest: ".codex/agents/plan-review.toml" }
+  - { template: codex-plan-reviewer.toml.template, dest: ".codex/agents/plan-reviewer.toml" }
   - { template: package.json.template,           dest: "package.json" }
   - { template: pnpm-lock.yaml.template,         dest: "pnpm-lock.yaml" }
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
@@ -60,7 +60,7 @@ Each entry is `{ path, <one seed source> }`. `path` may contain `{{ var }}` toke
 
 | Seed source | Meaning |
 |---|---|
-| `seed_from_skill: <skill-name>` | Run that bundled skill's bootstrap to populate the folder (e.g. `plan-init` for `docs/plans`). |
+| `seed_from_skill: <skill-name>` | Run that bundled skill's bootstrap to populate the folder (for `docs/plans`, use `plan-workspace`). |
 | `template: <file>` | Render `templates/<file>` into the node's `AGENTS.md`, then add the one-line `CLAUDE.md` (`@AGENTS.md`). |
 | `seed: { type: self-reference }` | The folder documents the scaffold itself (e.g. `docs/scaffold`). |
 
@@ -68,7 +68,7 @@ Every node is written as the **pair** `AGENTS.md` + `CLAUDE.md` (see the `contex
 
 ```yaml
 tree_nodes:
-  - { path: "docs/plans", seed_from_skill: plan-init }
+  - { path: "docs/plans", seed_from_skill: plan-workspace }
   - { path: "docs/scaffold", seed: { type: self-reference } }
   - { path: "plugins/{{ plugin_name }}/skills", template: "node-templates/skills-AGENTS.md" }
   - { path: "scripts", template: "node-templates/scripts-AGENTS.md" }
@@ -79,10 +79,17 @@ tree_nodes:
 ```yaml
 bundled_skills:
   - { source: plugins/docks/skills/productivity/context-tree }
-  - { source: plugins/docks/skills/productivity/plan-init, destination: plugins/{{ plugin_name }}/skills/productivity/plan-init }
+  - { source: plugins/docks/skills/productivity/plan-workspace }
+  - { source: plugins/docks/skills/productivity/plan-creator }
+  - { source: plugins/docks/skills/productivity/plan-manager }
+  - { source: plugins/docks/skills/productivity/plan-reviewer }
+  - { source: plugins/docks/skills/productivity/plan-repairer }
+  - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-- `source` — path in the SOURCE repo. Setup must read these from the LIVE repo (don't hand-copy a stale example — the skill is `context-tree`, not `tree`; the old `agents` skill was removed).
+The five exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, missing-path creation, existing-plan management, read-only review, and bounded repair. `plan-creator` returns `PlanCreatedV1`; main context may then ask `plan-manager` for a schema-6 review with lifecycle intent `none`. Only manager and reviewer receive Codex wrappers. Schemas 1–5 remain validation-only.
+
+- `source` — path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` — optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.
 - Copied verbatim (pinned). Consumers update them later via `claude plugin update`.
 

@@ -15,7 +15,7 @@
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .codex/agents/                    repo-local Codex plan lifecycle wrappers
-├── docs/plans/                       plan lifecycle (bootstrapped by plan-init)
+├── docs/plans/                       plan lifecycle (bootstrapped by plan-workspace)
 └── scripts/                          author-side validators
 ```
 
@@ -33,7 +33,7 @@ The `context-tree` skill maintains these nodes; `scripts/tree/guard.mjs` enforce
 
 ## Codex plan agents
 
-`.codex/agents/plan-manager.toml` and `.codex/agents/plan-review.toml` are repo-local Codex wrappers around the matching `plan-*` skills. They are not plugin payload and stay thin. Current schema-5 review has one `gpt-5.6-sol`/high/Standard primary reviewer; Claude Fable/high then Opus/xhigh are availability-only fallbacks, not a routine cross-company second review. Main-context plan-manager is the sole public dispatcher, finding reconciler, receipt/lifecycle writer, and the only context that may route accepted independently reproduced blockers through plan-improver. Its wrapper performs only typed `prepare(intent)` or `apply`; the plan-review wrapper returns sealed-bundle checklist evidence only. Review dispatch always returns to main context, Session Relay is invalid evidence, and at most one changed-input repair review is allowed. Historical X/S, scores/rubrics, consent, and five-round receipts retain their original validation semantics.
+The plan contract has five exact owners: `plan-workspace` bootstraps, migrates, audits, or explicitly refreshes the workspace; public `plan-creator` drafts, self-reviews, and commits one previously nonexistent plan; public `plan-manager` owns every existing-plan operation, review orchestration, receipt, and lifecycle write; internal `plan-reviewer` returns sealed-bundle evidence; and internal `plan-repairer` returns one exact accepted-blocker patch or `cannot_repair`. Only `.codex/agents/plan-manager.toml` and `.codex/agents/plan-reviewer.toml` exist as repo-local wrappers; the other three skills run without wrappers. For creation, manager proves the canonical path is missing and routes to creator, creator returns the closed `PlanCreatedV1` handoff, and main context may separately invoke manager review with lifecycle intent `none`. Current schema 6 uses one `gpt-5.6-sol`/high/Standard primary reviewer, with Claude Fable/high then Opus/xhigh as availability-only fallbacks. Main-context manager alone dispatches review, reconciles findings, writes persisted orchestration and receipts, applies lifecycle, and may call repairer once for the complete accepted independently reproduced blocking set. Review has one full round plus at most one changed-input repair round; Session Relay is invalid evidence. Historical schemas 1–5 are validation-only and retain their exact persisted meanings.
 
 ## Tool-agnostic rules
 

@@ -4,8 +4,8 @@ description: "Use when porting existing Fastify, Next.js App Router, or React co
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-15"
-  content_hash: "196eca1724ce3d65ed827064c54c329d9459bb290d3ebf0d821477821cdc7065"
+  updated: "2026-07-18"
+  content_hash: "3454d48ce6025e65eb81207506c817ef426daaefc25ed799e63c84d68e98561b"
 ---
 
 # Effect-TS Port (cross-tool pipeline)
@@ -13,7 +13,7 @@ metadata:
 Migrate an existing Fastify / Next.js / React codebase to Effect 3.x as one sequential pass: detect the framework, map the surface, agree the scope, write a tiered plan, gate on approval, then port one boundary at a time with tests as the ratchet. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. Framework specifics live in `references/`; this body is the orchestration. Pattern mirrors the `security` / `refactor` pipelines.
 
 <constraint>
-Single-agent sequential, gated on the plan lifecycle — NOT Plan Mode. Run the phases IN ORDER, in THIS context. Phases 0–3 are read-only analysis; the deliverable is a plan file under `docs/plans/`. Do NOT call `ExitPlanMode` (Claude-only) and do NOT edit source until the user approves via `start <slug>`. If `docs/plans/` is absent, run `plan-init` first; hand the written plan to `plan-manager` and tell the user "review and say `start <slug>` to migrate." Append each phase's output to the plan file under its exact heading so a mid-run compaction resumes by re-reading the file.
+Single-agent sequential, gated on the plan lifecycle — NOT Plan Mode. Run the phases IN ORDER, in THIS context. Phases 0–3 are read-only analysis; the deliverable is a plan file under `docs/plans/`. Do NOT call `ExitPlanMode` (Claude-only) and do NOT edit source until the user approves via `start <slug>`. If the workspace is absent, route bootstrap to `plan-workspace`; route creation of the previously nonexistent migration plan to `plan-creator`; route review, `start <slug>`, and all later lifecycle work to `plan-manager`. Tell the user "review and say `start <slug>` to migrate." Append each phase's output under its exact heading so a mid-run compaction resumes by re-reading the artifact.
 </constraint>
 
 <constraint>
@@ -55,16 +55,16 @@ Run in order. Each phase reads its reference (where listed), then writes output 
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`); record scope (a path arg, or the whole project).
-2. Create/open the plan file (below). Run Phases 0→3, writing each under its heading; confirm the prior heading landed before the next. A phase with nothing to report writes "none" — never silently skip.
+2. Resolve the artifact path. For the tracked path, route an absent workspace to `plan-workspace`, a missing canonical plan plus the complete draft to `plan-creator`, and any existing-plan write to `plan-manager`. Run Phases 0→3, writing each under its heading; confirm the prior heading landed before the next. A phase with nothing to report writes "none" — never silently skip.
 3. At the GATE, hand off (below). Resume at Phase 4 only after `start <slug>`.
 
 ## The plan file (IPC + deliverable)
 
 ```text
-docs/plans/active/effect-port-<scope>.md   (preferred — tracked by plan-manager; status lives in
-                                            frontmatter, not the path — confirm the layout against
-                                            the project's docs/plans/AGENTS.md)
-docs/effect-port-<YYYYMMDD>.md             (fallback when docs/plans/ is absent)
+docs/plans/active/effect-port-<scope>.md   (preferred — created by plan-creator; then managed by
+                                            plan-manager; status lives in frontmatter, not the path;
+                                            confirm the layout against docs/plans/AGENTS.md)
+docs/effect-port-<YYYYMMDD>.md             (untracked fallback only when the user declines workspace bootstrap)
 ```
 
 Write as you go — never hold all phase output in context and dump at the end. The plan's `## Steps` table is the slice list; `## Mistakes & Dead Ends` records every `REVERTED:` slice so a resumed run skips known dead ends.
@@ -100,7 +100,7 @@ Record answers under `## Phase 2: Scope`. Do not proceed to the plan until the u
 
 ## Phase 3 — Migration plan → GATE
 
-Read the relevant framework reference(s). Write `## Phase 3: Migration Plan` and populate the plan's `## Steps` table with ordered slices (each: file:line, wrap-or-replace, the Effect shape it becomes, test command, risk). Tier them: **(1)** shared boundary (the `ManagedRuntime` + base layers), **(2)** leaf slices (one handler/component), **(3)** structural (replace a router, lift state to atoms). Then STOP: "Migration plan written to `<path>`; review and say `start <slug>` to begin." Approval flows through the plan lifecycle — never `ExitPlanMode`.
+Read the relevant framework reference(s). Write `## Phase 3: Migration Plan` and populate the plan's `## Steps` table with ordered slices (each: file:line, wrap-or-replace, the Effect shape it becomes, test command, risk). Tier them: **(1)** shared boundary (the `ManagedRuntime` + base layers), **(2)** leaf slices (one handler/component), **(3)** structural (replace a router, lift state to atoms). Then STOP: "Migration plan written to `<path>`; review and say `start <slug>` to begin." Public review and `start` flow through `plan-manager`; never call `ExitPlanMode`.
 
 ## Phase 4 — Implementation (after `start <slug>`)
 
@@ -150,7 +150,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 | Using `@effect-rx/rx-react` for React | Renamed/superseded | `@effect-atom/atom-react` |
 | Editing code during Phases 0–3 | Breaks the read-only-then-approve gate | Analysis only until `start <slug>` |
 | Module-scope runtime on edge/serverless without a caveat | Cold-start surprises | Note the deploy target in Phase 2; see the references |
-| `docs/plans/` assumed to exist in a consumer repo | Plan write lands nowhere | Check first; `plan-init`, or use the fallback path |
+| `docs/plans/` assumed to exist in a consumer repo | Plan write lands nowhere | Route workspace bootstrap to `plan-workspace`, or use the untracked fallback only if the user declines |
 
 ## When this skill does NOT apply
 
