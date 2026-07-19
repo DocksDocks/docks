@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { canonicalPlanView, parsePlan, validateCompletionReceipt as validatePlanCompletionReceipt } from '../../plugins/docks/skills/productivity/plan-review/scripts/review-policy.mjs';
+import { canonicalPlanView, parsePlan, validateCompletionReceipt as validatePlanCompletionReceipt } from '../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
 import {
   COMMIT,
   PLUGIN,
