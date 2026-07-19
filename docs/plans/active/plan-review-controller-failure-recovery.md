@@ -5,8 +5,6 @@ status: ongoing
 created: "2026-07-19T11:24:58-03:00"
 updated: "2026-07-19T21:04:00.000Z"
 started_at: "2026-07-19T13:10:44-03:00"
-blocked_reason: null
-blocked_since: null
 assignee: null
 review_author_company: openai
 review_author_tool: codex
