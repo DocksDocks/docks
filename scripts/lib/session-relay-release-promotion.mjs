@@ -35,7 +35,7 @@ const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
 const PUBLIC_VERSION = '0.9.0';
 const PUBLIC_TAG = `cli-v${PUBLIC_VERSION}`;
 const PUBLIC_WORKFLOW = '.github/workflows/release-cli.yml';
-const PUBLIC_FINISHED_PLAN_PATH = /^docs\/plans\/finished\/[0-9]{4}-[0-9]{2}-[0-9]{2}-session-relay-cli-production-release\.md$/;
+const PUBLIC_FINISHED_PLAN_PATH = /^docs\/plans\/finished\/2026-07-18-session-relay-cli-production-release\.md$/;
 const COMPANION_BASE_COMMIT = 'c3b542220d5a24a98ca05383bbe28afc2319b7e2';
 const PUBLIC_ASSET_TARGETS = [
   'x86_64-unknown-linux-musl',
