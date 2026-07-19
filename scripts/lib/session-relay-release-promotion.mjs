@@ -148,8 +148,8 @@ export const PUBLIC_RELEASE_ADAPTER_KEYS = Object.freeze([
 
 export const PROMOTION_ADAPTER_KEYS = Object.freeze([
   'now', 'nonce', 'loadProof', 'loadPublication', 'loadPublicRelease',
-  'loadRetryReceipt', 'remoteRef', 'isAncestor', 'readJournal', 'createLockCommit',
-  'appendJournal', 'createLock', 'pushMain',
+  'loadRetryReceipt', 'remoteRef', 'isAncestor', 'isPublicAncestor', 'readJournal',
+  'createLockCommit', 'appendJournal', 'createLock', 'pushMain',
   'releaseState', 'compatibilityState', 'validateCommitTransition', 'runPrepushSmoke',
   'runLiveSmoke', 'restoreCompatibility', 'reapplyCompatibility', 'assertReceiptOutputAvailable', 'writeReceipt',
 ]);
@@ -488,13 +488,15 @@ function publicFileAtCommit(commit, file) {
   return Buffer.from(response.content.replace(/\s/g, ''), 'base64');
 }
 
+function isPublicAncestor(ancestor, descendant) {
+  const comparison = ghJson(`/repos/${PUBLIC_REPOSITORY_ID}/compare/${ancestor}...${descendant}`);
+  return ['ahead', 'identical'].includes(comparison?.status);
+}
+
 const PUBLIC_RELEASE_ADAPTER = Object.freeze({
   now: () => new Date().toISOString(),
   getTagCommit: () => publicTagCommit(PUBLIC_TAG),
-  isAncestor: (ancestor, descendant) => {
-    const comparison = ghJson(`/repos/${PUBLIC_REPOSITORY_ID}/compare/${ancestor}...${descendant}`);
-    return ['ahead', 'identical'].includes(comparison?.status);
-  },
+  isAncestor: isPublicAncestor,
   getFinishedPlan: (commit, planPath) => publicFileAtCommit(commit, planPath),
   listWorkflowRuns: () => {
     const response = ghJson(`/repos/${PUBLIC_REPOSITORY_ID}/actions/workflows/${encodeURIComponent('release-cli.yml')}/runs?branch=${encodeURIComponent(PUBLIC_TAG)}&per_page=100`);
@@ -649,7 +651,7 @@ function validatePromotionPublicRelease(publicRelease, proof, publication, adapt
     publicRelease.value.repository_id !== proof.value.public_repository_id
     || publicRelease.value.companion_base_commit !== proof.value.public_reviewed_commit
   ) fail('public release receipt does not bind the reviewed companion identity');
-  if (!adapter.isAncestor(proof.value.public_reviewed_commit, publicRelease.value.release_commit)) {
+  if (!adapter.isPublicAncestor(proof.value.public_reviewed_commit, publicRelease.value.release_commit)) {
     fail('public release commit has no reviewed companion ancestor');
   }
   return publicRelease;
@@ -1593,6 +1595,7 @@ const PRODUCTION_ADAPTER = Object.freeze({
   loadRetryReceipt: (options) => readCanonical(options.get('retry-failed'), options.get('retry-failed-sha256'), RECEIPT_TYPE, '--retry-failed'),
   remoteRef,
   isAncestor,
+  isPublicAncestor,
   readJournal,
   createLockCommit: ({ nonce }) => createCommit(canonicalize({ schema: 1, type: 'PromotionLockV1', transaction_ref: TRANSACTION_REF, lock_ref: LOCK_REF, nonce }), null),
   appendJournal,
@@ -1628,7 +1631,7 @@ export function validatePromotionReceiptForFinalization(receipt, context, inject
     fail('promotion receipt does not match its finalization proof/publication context');
   }
   const adapter = validateAdapter(injectedAdapter);
-  if (!adapter.isAncestor(proof.value.public_reviewed_commit, receipt.public_release_commit)) {
+  if (!adapter.isPublicAncestor(proof.value.public_reviewed_commit, receipt.public_release_commit)) {
     fail('promotion public release commit has no reviewed companion ancestor');
   }
   for (const commit of [proof.value.source_commit, proof.value.tag_commit, proof.value.promoted_commit]) {
