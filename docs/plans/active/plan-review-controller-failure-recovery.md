@@ -221,6 +221,7 @@ ReviewAbandonmentAuthorizationV1 = {
   orchestration_series_id: uuid,
   source_state_sha256: 64hex,
   request_ids: [uuid] | [uuid, uuid],
+  source_text_utf8_base64: base64(exact current-user UTF-8 bytes),
   source_text_sha256: sha256(exact current-user UTF-8 bytes)
 }
 
@@ -244,10 +245,14 @@ ReviewOrchestrationAbandonmentV1 = {
 
 `abandonReviewOrchestration({state,authorization,sourceTextBytes,recordedAt})`
 accepts only an exact active StateV1 with no prepared-request or dispatch record.
-Main context supplies the current-user bytes separately; the reducer recomputes
-their digest, validates every authorization/state identity, deep-copies the
-authorization, and returns a new abandonment/state pair without mutating any
-input. The abandonment shape is recursively closed and forbids request, policy,
+Main context supplies the current-user bytes separately; the reducer validates
+UTF-8, stores their canonical base64 encoding, recomputes the digest, validates
+every authorization/state identity, deep-copies the authorization, and returns
+a new abandonment/state pair without mutating any input. Canonical read-back
+decodes the persisted base64, rejects noncanonical or invalid UTF-8 bytes, and
+recomputes `source_text_sha256`; the authorization is cold-auditable without
+session history or an external mutable locator.
+The abandonment shape is recursively closed and forbids request, policy,
 policy hash, candidate, config, argv, attempt, validation error, stdout/stderr,
 reviewer result, series, receipt, retry, repair, verdict, or lifecycle-apply
 authority. The authorization proves only the user's exact administrative
@@ -344,7 +349,7 @@ outside the step table as plan-manager lifecycle operations.
 | ID | Command | Expected |
 |---|---|---|
 | A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; prepared request and each candidate commitment bind exact state/request/policy/argv and precede launch; proposed timeout 650 produces only pre-dispatch `controller_contract_failure`; exact authorized no-provenance abandonment produces only `authorized_abandonment`; both terminal families are nonretryable, receiptless, canonically paired, input-preserving, and changed-input-only. |
-| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, request/policy/candidate/argv/config substitution, spawn-before-commit, stdout self-attestation, missing/changed/replayed user bytes, extra abandonment provenance fields, half/orphan/cross terminal records, receipt/series substitution, same-input CAS, finished-plan reopen, and weakened V1 normalization/preconditions. |
+| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, request/policy/candidate/argv/config substitution, spawn-before-commit, stdout self-attestation, missing/changed/replayed user bytes, noncanonical/invalid-UTF-8 base64, authorization text/hash drift, extra abandonment provenance fields, half/orphan/cross terminal records, receipt/series substitution, same-input CAS, finished-plan reopen, and weakened V1 normalization/preconditions. |
 | A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; review schema 6, independent current V1 record families, StateV2, validation-only StateV1, and historical review schemas 1–5 remain closed; eligible V1 inputs normalize to equivalent nonterminal V2 only after existing preconditions, including unchanged stale settlement behavior. |
 | A4 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; five-skill ownership and generated manager-wrapper parity require commit-before-launch and reserve abandonment authority to main-context plan-manager/current-user input. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only` | Exit 0; every changed skill hash matches generated content. |
@@ -378,8 +383,10 @@ outside the step table as plan-manager lifecycle operations.
   launched and therefore must not acquire attempt/process/output fields.
 - Reviewer stdout can corroborate bytes after launch but can never establish
   manager dispatch provenance.
-- User authorization proves only abandonment of one exact active state. It is
-  not a request, verdict, retry, repair, receipt, or general lifecycle grant.
+- User authorization persists canonical base64 of the exact current-user UTF-8
+  bytes plus their digest, so read-back can verify both without session history.
+  It proves only abandonment of one exact active state, not a request, verdict,
+  retry, repair, receipt, or general lifecycle grant.
 - Candidate equality and argv are position-sensitive. Default fallback replaces
   commitments in exact order only after validated availability evidence; pinned
   policy permits index 0 only.
@@ -417,9 +424,10 @@ outside the step table as plan-manager lifecycle operations.
   commits are read back, or a non-600 commitment can be formed.
 - A controller abort accepts an exact-600 valid config, contains process/attempt/
   output fields, lacks its prepared request, or follows a spawned process.
-- Abandonment accepts missing/changed/replayed user bytes, a nonactive or
-  StateV2 source, a prepared/dispatch record, or any request/policy/candidate/
-  config/attempt/stdout/verdict/retry/receipt/apply field.
+- Abandonment accepts missing/changed/replayed user bytes, a noncanonical or
+  digest-mismatched persisted authorization text, a nonactive or StateV2 source,
+  a prepared/dispatch record, or any request/policy/candidate/config/attempt/
+  stdout/verdict/retry/receipt/apply field.
 - Any target/state/input/series/request-lineage/hash/candidate/argv/config/error
   mismatch is accepted, or rejection mutates inputs.
 - Any terminal family coexists with a ReviewSeries or any draft/completion
@@ -468,8 +476,8 @@ unavailable provenance. The current Session Relay archive remains untouched.
 - [ ] Each candidate commitment binds exact request/policy position, argv, and
   `600`; availability fallback preserves order and Git history.
 - [ ] Invalid config aborts before spawn with no attempt/process/output fields.
-- [ ] Abandonment requires exact current-user bytes and contains no dispatch or
-  review provenance claims.
+- [ ] Abandonment persists canonical base64 plus the digest of exact current-user
+  bytes, verifies both on read-back, and contains no dispatch/review provenance.
 - [ ] StateV2 terminal/source digests, stop reasons, and canonical families are
   disjoint from series, receipts, retry, repair, and lifecycle apply.
 - [ ] Eligible direct StateV1 normalization preserves every existing transition
