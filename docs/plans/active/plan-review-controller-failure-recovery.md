@@ -1,0 +1,252 @@
+---
+title: Add typed review-controller failure recovery
+goal: Persist exact invalid-controller evidence as a terminal stuck orchestration, release Docks 0.13.1, and leave candidate-plan repair to its owning workflow.
+status: planned
+created: "2026-07-19T11:24:58-03:00"
+updated: "2026-07-19T11:24:58-03:00"
+started_at: null
+assignee: null
+review_author_company: openai
+review_author_tool: codex
+review_author_model: gpt-5.6-sol
+review_author_effort: high
+review_waivers: []
+tags: [plans, schema-6, orchestration, recovery, patch-release]
+affected_paths:
+  - .claude-plugin/marketplace.json
+  - .codex/agents/plan-manager.toml
+  - docs/plans/AGENTS.md
+  - docs/scaffold/templates/codex-plan-manager.toml.template
+  - docs/scaffold/templates/root-AGENTS.md.template
+  - plugins/docks/.claude-plugin/plugin.json
+  - plugins/docks/.codex-plugin/plugin.json
+  - plugins/docks/agents/plan-manager.md
+  - plugins/docks/skills/productivity/plan-manager/SKILL.md
+  - plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs
+  - plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md
+  - plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md
+  - scripts/tests/plan-review-policy-regressions.mjs
+related_plans:
+  - plan-workflow-phases-and-loop-escape
+  - session-relay-prebuilt-cli-release
+review_status: null
+planned_at_commit: 41e61f4fdd677556c31de3e89343071d7ac67172
+execution_base_commit: null
+---
+
+# Add typed review-controller failure recovery
+
+## Goal
+
+Add one fail-closed schema-6 path that records exact reviewer-controller contract
+failures, terminalizes the active orchestration without fabricating a review
+series or receipt, and ships the correction as Docks `0.13.1`.
+
+## Context & rationale
+
+A Session Relay completion review produced substantive reviewer output, but its
+controller used an evidenced `650`-second ceiling while current schema 6 requires
+exactly `600`. The exact attempts therefore fail `validateCurrentAttempt`; they
+cannot truthfully become `ReviewRunV6`, `ReviewSeriesV6`, or a completion receipt.
+The current helper also cannot terminalize an active state from exact malformed
+controller evidence, leaving a durable active record with no valid settlement.
+
+This is a helper defect, not a reason to alter the reviewed Session Relay
+candidate. That plan remains fail-closed at reviewed head
+`41e61f4fdd677556c31de3e89343071d7ac67172`. Its A6 command defect and any new
+changed-input completion series belong to the owning workflow only after this
+independently reviewed helper patch is released.
+
+The recovery keeps the existing exact-`600` attempt contract. It adds a distinct
+closed abort record for evidence that is intentionally invalid as a normal
+attempt. No invalid attempt is reclassified as passed, no receipt is emitted,
+and no same-input retry is authorized.
+
+## Environment & how-to-run
+
+- Repository: `/home/vagrant/projects/docks`, branch `main`.
+- Runtime: repository Node 24; `pnpm` dependencies already installed.
+- Focused oracle:
+  `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle`.
+- Focused mutation suite:
+  `node scripts/tests/plan-review-policy-regressions.mjs --self-test`.
+- Release gates: `node scripts/ci.mjs --plugin docks`, then one
+  `node scripts/ci.mjs`.
+- Release only through `node scripts/release.mjs --plugin docks patch`; never
+  hand-edit tags, Releases, or version triples.
+
+## Interfaces & data shapes
+
+Add this closed current-only record:
+
+```text
+ReviewOrchestrationAbortV1 = {
+  schema: 1,
+  type: "ReviewOrchestrationAbortV1",
+  plan_path: string,
+  phase: "draft" | "completion",
+  lifecycle_intent: "none" | "start" | "schedule_fire" | "auto_execute",
+  orchestration_series_id: uuid,
+  orchestration_state_sha256: 64hex,
+  request_ids: [uuid] | [uuid, uuid],
+  reason: "controller_contract_failure",
+  observed_attempts: [{
+    request_id: uuid,
+    attempt: {
+      schema: 6,
+      candidate: CurrentCandidateV6,
+      started: boolean,
+      output_started: boolean,
+      child_id: string | null,
+      timeout_mode: "gnu_timeout" | "orchestrator_tool" | null,
+      timeout_seconds: integer | null,
+      result: CurrentAttemptResultV6,
+      exit_code: integer | null,
+      signal: string | null,
+      denial_source: "sandbox" | "managed_policy" | "runtime_policy" | null,
+      reason: string,
+      stdout_sha256: 64hex | null,
+      stderr_sha256: 64hex | null
+    },
+    validation_error: string
+  }],
+  recorded_at: ISO-8601-with-offset
+}
+```
+
+Add:
+
+```text
+abortReviewOrchestration({state, failure}) -> ReviewOrchestrationStateV1
+```
+
+The function accepts only an `active` state. Failure identities and request IDs
+must exactly equal the state, every observed attempt must be closed and must
+actually fail the normal current-attempt validator with the exact recorded error,
+and the observations must cover the state's request IDs once in order. It returns
+`status:"stuck"`, `stop_reason:"failed_unparseable"`, `apply_state:"none"`, and
+binds `series_sha256` to `sha256(JCS(failure))` as terminal evidence. It does not
+construct a series or receipt.
+
+The plan machine line is exactly:
+
+```text
+Review-orchestration-abort: <compact JCS ReviewOrchestrationAbortV1>
+```
+
+`canonicalPlanView` validates and excludes it, permits at most one abort record,
+and when a terminal state record is present requires
+`state.series_sha256 === sha256(JCS(abort))`. Existing schema-1 state and
+historical schema-1–5 bytes remain valid.
+
+## Steps
+
+| # | Task | Files | Depends | Status | Done when / failure action |
+|---|---|---|---|---|---|
+| 1 | Add red contract and mutation tests for controller-failure abort, identity binding, exact invalid-attempt proof, canonical exclusion, duplicate rejection, and changed-input-only recovery. | `scripts/tests/plan-review-policy-regressions.mjs` | — | planned | The focused oracle fails only because `abortReviewOrchestration`/abort record support is absent; preserve the failure. A prematurely passing or setup-failing test STOPs. |
+| 2 | Implement the closed abort validator, terminal reducer, and machine-record validation without loosening the exact 600-second normal-attempt contract. | `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs` | 1 | planned | Focused oracle and abort mutation cases pass; a valid 600-second attempt, stale state, missing observation, duplicate request, forged error, or valid ReviewSeries substitution is rejected without input mutation. |
+| 3 | Document manager ownership and generated-wrapper parity, then regenerate changed skill hashes. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/agents/plan-manager.md`; `.codex/agents/plan-manager.toml`; `docs/scaffold/templates/{codex-plan-manager.toml,root-AGENTS.md}.template`; `plugins/docks/skills/productivity/plan-workspace/references/{codex-agent-templates.md,plans-agents-md-template.md}` | 2 | planned | Live/generated manager contracts say abort is terminal evidence only: no receipt, retry, repair, lifecycle apply, or candidate edit. Changed hashes are generator-produced. |
+| 4 | Run focused oracle, mutation suite, Docks-targeted gate, and one full gate. | All changed implementation/docs/tests | 3 | planned | All commands in Environment exit 0 in order. Any failure is fixed at source before release; do not lower guards or suppress diagnostics. |
+| 5 | Patch-release and verify Docks `0.13.1`. | `.claude-plugin/marketplace.json`; `plugins/docks/.claude-plugin/plugin.json`; `plugins/docks/.codex-plugin/plugin.json` | 4 | planned | Dry run resolves `0.13.0 → 0.13.1`; actual release tag peels to the release commit; tag CI passes; GitHub Release is published non-draft/non-prerelease; fresh installed catalogs retain the five plan phases. |
+| 6 | Prepare this plan's completion handoff without touching either related active plan. | This plan read-only; release artifacts read-only | 5 | planned | Exact commits, focused/full gate output, tag/CI/Release identities, and A1–A8 inventory are ready for manager completion; related plans remain byte-unchanged. |
+
+## Acceptance criteria
+
+| ID | Command | Expected |
+|---|---|---|
+| A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; typed abort terminalizes exact invalid controller evidence as stuck/failed_unparseable, rejects valid or forged evidence, preserves inputs, and allows only materially changed input to start attempt 1. |
+| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutation coverage kills removal or weakening of abort export, identity/error binding, terminal hash binding, duplicate/malformed-record rejection, and canonical exclusion. |
+| A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; current schema-6 and historical schema-1–5 surfaces remain closed and byte-compatible. |
+| A4 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; exact five-skill ownership and generated wrapper parity remain intact. |
+| A5 | `node scripts/skills/content-hash.mjs --check-only` | Exit 0; every changed skill hash matches generated content. |
+| A6 | `node scripts/ci.mjs --plugin docks` | Exit 0; Docks plus repo-wide targeted release gate is green. |
+| A7 | `node scripts/ci.mjs` | Exit 0 once after A1–A6; all three plugins and repo-wide gates pass. |
+| A8 | `node scripts/tests/plan-skill-phases.mjs --case installed-catalogs --version 0.13.1` | Exit 0 after release; fresh Claude/Codex catalogs expose the same five exact plan phases at `0.13.1`. |
+
+## Out of scope / do-NOT-touch
+
+- Do not edit `docs/plans/active/session-relay-prebuilt-cli-release.md` or claim
+  its failed completion settled while implementing this plan.
+- Do not repair or rerun Session Relay A6 here. Its owner must later use read-only
+  `gh api repos/DocksDocks/docks/releases/tags/session-relay--v0.12.0` and a new
+  changed-input series; the already-failed inventory is never resumed.
+- Do not edit `docs/plans/active/plan-workflow-phases-and-loop-escape.md`; its
+  Step 9 remains blocked on this independent helper release.
+- Do not loosen `timeout_seconds === 600`, reinterpret 650 as 600, fabricate a
+  ReviewSeries/receipt, or permit same-input reset.
+- Do not change Session Relay publication, promotion, release assets, or public
+  repository bytes.
+
+## Known gotchas
+
+- `series_sha256` normally binds a valid ReviewSeries. For the distinct abort
+  path it binds the persisted abort record; receipt validation must never accept
+  that digest as a series.
+- `canonicalPlanView` must validate machine records before excluding them;
+  exclusion without validation would let forged aborts reset input invisibly.
+- A controller output can be semantically useful yet inadmissible evidence. The
+  abort records observed bytes and the validator error; it never adopts findings.
+- Patch release `0.13.1` supersedes helper behavior only. Public migration and
+  Session Relay candidate repair remain separate reviewed work.
+
+## Global constraints
+
+- Exact normal reviewer deadline remains 600 seconds.
+- At most two orchestration attempts and two review rounds remain unchanged.
+- Abort is nonretryable for the same substantive input.
+- No current schema below 6 is emitted; historical schemas remain validation-only.
+- Every write is plan-only or within this plan's affected paths and is committed
+  atomically by its owning phase.
+
+## STOP conditions
+
+- The test cannot reproduce rejection of the exact observed 650-second attempt.
+- The proposed abort can accept any normally valid current attempt.
+- Abort changes candidate input, creates a receipt, consumes intent, or permits
+  same-input retry/reset.
+- Existing current state records or historical fixtures fail validation.
+- Any related active plan must be edited to make helper tests pass.
+- Targeted or full CI fails, version triples disagree, tag CI fails, or release
+  verification cannot bind the exact commit.
+
+## Self-review
+
+One cold-read critique found and fixed two scope defects before creation:
+
+- The first draft mixed Session Relay A6 repair into the helper patch. It now
+  explicitly leaves candidate repair and a new review series to the owning plan.
+- The first interface idea overloaded normal attempt validation. The final
+  contract keeps exact-600 validation unchanged and uses a distinct closed abort
+  record that cannot become a review receipt.
+
+All eight criteria are covered: exact paths/commands make the plan standalone and
+actionable; red→green→docs→gates→release ordering is acyclic; acceptance proves
+the interface and release; STOP conditions cover unsafe broadening; no unresolved
+human decision remains.
+
+## Open questions
+
+N/A — the user selected typed recovery plus Docks `0.13.1`, and the ownership
+boundary requires Session Relay candidate repair to remain separate.
+
+## Cold-handoff checklist
+
+- [ ] Every step names exact files and one owner.
+- [ ] Node, setup assumptions, focused commands, gates, and release command are explicit.
+- [ ] Abort input/output, hash, canonicalization, and state invariants are closed.
+- [ ] A1–A8 are ordered, executable, and have concrete expected results.
+- [ ] Related active plans, candidate repair, public work, and release semantics are protected.
+- [ ] Exact-600 preservation and separate-plan rationale are recorded.
+- [ ] Invalid-attempt, canonical-record, version, and release gotchas are explicit.
+- [ ] No undefined forward reference, placeholder, or unresolved question remains.
+
+## Sources
+
+- `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs:1233-1261,1664-1898` — current attempt/state/settlement invariants.
+- `scripts/tests/plan-review-policy-regressions.mjs:443-803` — current no-progress oracle and mutation surface.
+- `docs/plans/AGENTS.md:7-35,295-307` — five-phase ownership, current schema, canonical records, and atomic writes.
+- `docs/plans/active/plan-workflow-phases-and-loop-escape.md:426-456` — released workflow plan and blocked Session Relay handoff boundary.
+
+## Review
+
+(filled by main-context plan-manager after completion evidence)
