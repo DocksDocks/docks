@@ -587,13 +587,15 @@ function assertUnchangedAfterThrow(value, operation, pattern) {
 
 async function runOrchestrationOracle() {
   assertManagerIssuePublishingContract();
-  const helperPath = path.resolve('plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs');
+  const helperPath = path.resolve(process.env.DOCKS_REVIEW_POLICY_HELPER
+    ?? 'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs');
   const policy = await import(`${pathToFileURL(helperPath).href}?orchestration-oracle=${randomUUID()}`);
   const exportNames = [
     'beginReviewOrchestration',
     'advanceReviewOrchestrationRepair',
     'settleReviewOrchestration',
     'consumeReviewIntent',
+    'abortReviewOrchestration',
   ];
   const absent = exportNames.filter((name) => typeof policy[name] !== 'function');
   assert.deepEqual(absent, [], `planned orchestration exports absent: ${absent.join(', ')}`);
@@ -625,6 +627,53 @@ async function runOrchestrationOracle() {
     state,
     series: orchestrationSeries(policy, state, attemptResults, options),
   });
+  const assertNormalStateV2 = (state, label) => {
+    assert.equal(state.schema, 2, `${label} emits ReviewOrchestrationStateV2`);
+    assert.equal(state.abort_sha256, null, `${label} carries no abort digest`);
+    assert.equal(state.aborted_from_state_sha256, null, `${label} carries no abort source`);
+    return state;
+  };
+  const withStateHash = (state) => {
+    const preimage = structuredClone(state);
+    delete preimage.state_sha256;
+    return { ...preimage, state_sha256: policy.sha256(policy.jcs(preimage)) };
+  };
+  const stateV1 = (state) => {
+    const previous = structuredClone(state);
+    previous.schema = 1;
+    delete previous.abort_sha256;
+    delete previous.aborted_from_state_sha256;
+    return withStateHash(previous);
+  };
+  const invalidAttempt = (candidate = orchestrationCandidate('codex', 'gpt-5.6-sol', 'high', 'default')) => ({
+    ...orchestrationAttempt(candidate, 'deadline_exceeded'),
+    timeout_seconds: 650,
+  });
+  const validationError = 'started current attempt requires child id, timeout mode, 600-second deadline, and output hashes';
+  const abortFailure = (state) => ({
+    schema: 1,
+    type: 'ReviewOrchestrationAbortV1',
+    plan_path: state.plan_path,
+    phase: state.phase,
+    lifecycle_intent: state.lifecycle_intent,
+    orchestration_series_id: state.series_id,
+    orchestration_state_sha256: state.state_sha256,
+    request_ids: structuredClone(state.request_ids),
+    reason: 'controller_contract_failure',
+    observed_attempts: state.request_ids.map((requestId) => ({
+      request_id: requestId,
+      attempt: invalidAttempt(),
+      validation_error: validationError,
+    })),
+    recorded_at: '2026-07-19T12:30:00-03:00',
+  });
+  const assertAbortReject = (state, failure, pattern) => {
+    const beforeState = structuredClone(state);
+    const beforeFailure = structuredClone(failure);
+    assert.throws(() => policy.abortReviewOrchestration({ state, failure }), pattern);
+    assert.deepEqual(state, beforeState, 'rejected abort mutated its state');
+    assert.deepEqual(failure, beforeFailure, 'rejected abort mutated its failure');
+  };
 
   const first = settle(begin(), ['auth_failed', 'model_unavailable', 'tool_unavailable']);
   assert.equal(first.orchestration_attempt, 1);
@@ -775,6 +824,85 @@ async function runOrchestrationOracle() {
   assert.equal(rejected.orchestration.status, 'stuck');
   assert.equal(rejected.orchestration.stop_reason, 'apply_rejected');
   assert.equal(rejected.orchestration.orchestration_attempt, 1);
+  for (const [state, label] of [
+    [first, 'settle stopped'],
+    [secondActive, 'begin retry'],
+    [second, 'settle stuck'],
+    [changed, 'begin changed input'],
+    [repairStart, 'begin repair'],
+    [repaired, 'repair advance'],
+    [cannotRepair, 'repair cannot proceed'],
+    [nonretryable, 'settle nonretryable'],
+    [nonExecuting, 'settle non-executing pass'],
+    [none.orchestration, 'consume no intent'],
+    [executing, 'begin executing'],
+    [passed, 'settle executing pass'],
+    [consumed.orchestration, 'consume intent'],
+    [rejected.orchestration, 'reject intent apply'],
+  ]) assertNormalStateV2(state, label);
+
+  const abortActive = begin();
+  const failure = abortFailure(abortActive);
+  const abortStateBefore = structuredClone(abortActive);
+  const failureBefore = structuredClone(failure);
+  const aborted = policy.abortReviewOrchestration({ state: abortActive, failure });
+  assert.deepEqual(abortActive, abortStateBefore, 'abort reducer preserves source state');
+  assert.deepEqual(failure, failureBefore, 'abort reducer preserves failure evidence');
+  assert.equal(aborted.schema, 2);
+  assert.equal(aborted.status, 'stuck');
+  assert.equal(aborted.stop_reason, 'failed_unparseable');
+  assert.equal(aborted.apply_state, 'none');
+  assert.equal(aborted.series_sha256, null);
+  assert.equal(aborted.abort_sha256, policy.sha256(policy.jcs(failure)));
+  assert.equal(aborted.aborted_from_state_sha256, abortActive.state_sha256);
+  assert.equal(aborted.transitioned_from_state_sha256, null);
+  assert.throws(() => begin({ previousState: aborted }), /same|input|stuck|attempt/i);
+  assertNormalStateV2(begin({ inputSha256: '4'.repeat(64), previousState: aborted }), 'restart after abort with changed input');
+
+  const invalidSeries = orchestrationSeries(policy, abortActive, ['deadline_exceeded']);
+  invalidSeries.rounds[0].reviewer.raw.attempts[0].timeout_seconds = 650;
+  assertUnchangedAfterThrow(invalidSeries, () => policy.settleReviewOrchestration({
+    state: abortActive,
+    series: invalidSeries,
+  }), new RegExp(validationError.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+
+  const repairedFailure = abortFailure(repaired);
+  const repairedAbort = policy.abortReviewOrchestration({ state: repaired, failure: repairedFailure });
+  assert.equal(repairedAbort.abort_sha256, policy.sha256(policy.jcs(repairedFailure)));
+  assert.deepEqual(repairedFailure.request_ids, repaired.request_ids, 'abort request order is state order');
+
+  const validAttemptFailure = abortFailure(abortActive);
+  validAttemptFailure.observed_attempts[0].attempt.timeout_seconds = 600;
+  assertAbortReject(abortActive, validAttemptFailure, /valid|attempt|failure/i);
+  const forgedError = abortFailure(abortActive);
+  forgedError.observed_attempts[0].validation_error = 'forged validator message';
+  assertAbortReject(abortActive, forgedError, /validation|error|exact|mismatch/i);
+  assertAbortReject(first, abortFailure(first), /active|state|abort/i);
+  const openAttempt = abortFailure(abortActive);
+  openAttempt.observed_attempts[0].attempt.signal = null;
+  openAttempt.observed_attempts[0].validation_error = 'invalid current deadline: exactly one exit code or signal is required';
+  assertAbortReject(abortActive, openAttempt, /closed|attempt|process/i);
+  const missingObservation = abortFailure(repaired);
+  missingObservation.observed_attempts.pop();
+  assertAbortReject(repaired, missingObservation, /request|observation|cover|order/i);
+  const duplicateObservation = abortFailure(repaired);
+  duplicateObservation.observed_attempts[1] = structuredClone(duplicateObservation.observed_attempts[0]);
+  assertAbortReject(repaired, duplicateObservation, /request|observation|duplicate|order/i);
+  const reversedObservation = abortFailure(repaired);
+  reversedObservation.observed_attempts.reverse();
+  assertAbortReject(repaired, reversedObservation, /request|observation|order/i);
+  for (const forgedFailure of [
+    { ...abortFailure(abortActive), plan_path: 'docs/plans/active/other.md' },
+    { ...abortFailure(abortActive), phase: 'completion' },
+    { ...abortFailure(abortActive), lifecycle_intent: 'start' },
+    { ...abortFailure(abortActive), orchestration_series_id: nextUuid() },
+    { ...abortFailure(abortActive), orchestration_state_sha256: 'e'.repeat(64) },
+    { ...abortFailure(abortActive), request_ids: [nextUuid()] },
+    { ...abortFailure(abortActive), reason: 'review_failed' },
+    { ...abortFailure(abortActive), type: 'ReviewSeriesV6' },
+    { ...abortFailure(abortActive), schema: 2 },
+    { ...abortFailure(abortActive), extra: true },
+  ]) assertAbortReject(abortActive, forgedFailure, /abort|identity|request|reason|type|schema|unknown|closed|state/i);
 
   const fixture = fs.readFileSync('scripts/tests/fixtures/plan-review-policy/sample-plan.md', 'utf8');
   const metadataOnly = fixture
@@ -799,6 +927,103 @@ async function runOrchestrationOracle() {
     () => policy.canonicalPlanView(`${metadataOnly.trimEnd()}\n\nReview-orchestration-state: ${policy.jcs(mismatchedRecord)}\n`),
     /hash|orchestration|state/i,
   );
+  const recordPlan = (...records) => `${metadataOnly.trimEnd()}\n\n${records.map(
+    ([kind, value]) => `${kind}: ${policy.jcs(value)}`,
+  ).join('\n')}\n`;
+  const abortRecord = ['Review-orchestration-abort', failure];
+  const abortedStateRecord = ['Review-orchestration-state', aborted];
+  const canonicalFixture = policy.canonicalPlanView(fixture);
+  assert.equal(policy.canonicalPlanView(recordPlan(abortRecord, abortedStateRecord)), canonicalFixture);
+  assert.equal(policy.canonicalPlanView(recordPlan(abortedStateRecord, abortRecord)), canonicalFixture);
+  assert.equal(
+    policy.canonicalPlanView(recordPlan(['Review-orchestration-state', stateV1(abortActive)])),
+    canonicalFixture,
+    'schema-1 orchestration state remains validation-only compatible',
+  );
+
+  const expectCanonicalReject = (records, pattern) => assert.throws(
+    () => policy.canonicalPlanView(recordPlan(...records)),
+    pattern,
+  );
+  expectCanonicalReject([abortRecord], /orphan|pair|abort|state/i);
+  expectCanonicalReject([abortedStateRecord], /orphan|pair|abort|state/i);
+  expectCanonicalReject([abortRecord, abortedStateRecord, abortRecord], /duplicate|abort/i);
+  expectCanonicalReject([abortRecord, abortedStateRecord, abortedStateRecord], /duplicate|state|orchestration/i);
+
+  const mismatchDigest = withStateHash({ ...aborted, abort_sha256: 'd'.repeat(64) });
+  expectCanonicalReject([abortRecord, ['Review-orchestration-state', mismatchDigest]], /digest|abort|pair|mismatch/i);
+  const mismatchSource = withStateHash({ ...aborted, aborted_from_state_sha256: 'c'.repeat(64) });
+  expectCanonicalReject([abortRecord, ['Review-orchestration-state', mismatchSource]], /source|abort|state|mismatch/i);
+  const transitionedAbort = withStateHash({ ...aborted, transitioned_from_state_sha256: 'b'.repeat(64) });
+  expectCanonicalReject([abortRecord, ['Review-orchestration-state', transitionedAbort]], /transition|abort|state/i);
+  const seriesSubstitution = withStateHash({
+    ...aborted,
+    series_sha256: aborted.abort_sha256,
+    abort_sha256: null,
+    aborted_from_state_sha256: null,
+  });
+  expectCanonicalReject([abortRecord, ['Review-orchestration-state', seriesSubstitution]], /series|abort|pair|state/i);
+
+  for (const pairedState of [
+    withStateHash({ ...aborted, status: 'active', stop_reason: null }),
+    withStateHash({ ...aborted, status: 'stopped', series_sha256: 'a'.repeat(64) }),
+    withStateHash({
+      ...aborted,
+      status: 'passed',
+      stop_reason: null,
+      series_sha256: 'a'.repeat(64),
+    }),
+    withStateHash({
+      ...aborted,
+      stop_reason: 'cannot_repair',
+      abort_sha256: null,
+      aborted_from_state_sha256: null,
+    }),
+  ]) expectCanonicalReject([abortRecord, ['Review-orchestration-state', pairedState]], /abort|pair|status|state|stuck|active|passed|stopped/i);
+
+  for (const field of ['plan_path', 'phase', 'lifecycle_intent', 'orchestration_series_id', 'request_ids']) {
+    const mismatchedAbort = structuredClone(failure);
+    if (field === 'plan_path') mismatchedAbort[field] = 'docs/plans/active/other.md';
+    else if (field === 'phase') mismatchedAbort[field] = 'completion';
+    else if (field === 'lifecycle_intent') mismatchedAbort[field] = 'start';
+    else if (field === 'orchestration_series_id') mismatchedAbort[field] = nextUuid();
+    else mismatchedAbort[field] = [nextUuid()];
+    const paired = withStateHash({ ...aborted, abort_sha256: policy.sha256(policy.jcs(mismatchedAbort)) });
+    expectCanonicalReject([
+      ['Review-orchestration-abort', mismatchedAbort],
+      ['Review-orchestration-state', paired],
+    ], /abort|identity|request|pair|mismatch/i);
+  }
+  const mismatchedAbortSource = {
+    ...failure,
+    orchestration_state_sha256: '9'.repeat(64),
+  };
+  const mismatchedAbortSourceState = withStateHash({
+    ...aborted,
+    abort_sha256: policy.sha256(policy.jcs(mismatchedAbortSource)),
+  });
+  expectCanonicalReject([
+    ['Review-orchestration-abort', mismatchedAbortSource],
+    ['Review-orchestration-state', mismatchedAbortSourceState],
+  ], /abort|source|state|pair|mismatch/i);
+
+  const seriesRecord = orchestrationSeries(policy, abortActive, ['passed']);
+  expectCanonicalReject([
+    abortRecord,
+    ['Review-orchestration-state', seriesRecord],
+  ], /orchestration|state|unknown|schema|pair/i);
+  for (const receiptKind of ['Review-receipt', 'Completion-review-receipt']) {
+    const receipt = {
+      schema: 6,
+      request: { orchestration_series_id: aborted.series_id },
+    };
+    expectCanonicalReject([
+      abortRecord,
+      abortedStateRecord,
+      [receiptKind, receipt],
+    ], /abort|receipt|series|pair/i);
+  }
+  console.log('typed controller-failure abort and state-V2 orchestration passed');
   assert.notEqual(policy.canonicalPlanView(fixture.replace('Prove canonical policy behavior.', 'Changed substantive goal.')), policy.canonicalPlanView(fixture));
   console.log('total result reducer and bounded no-progress orchestration passed');
 }
@@ -1546,8 +1771,88 @@ const REGRESSIONS = [
   ), ORCHESTRATION_HARNESS],
   ['orchestration machine-record exclusion regression', ['--orchestration-oracle'], /canonical|orchestration|Expected values|Assertion/i, applyVariant(
     'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-    'const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt|Review-orchestration-state): (\\{.*\\})$/;',
+    'const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt|Review-orchestration-state|Review-orchestration-abort): (\\{.*\\})$/;',
     'const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt): (\\{.*\\})$/;',
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort export removal', ['--orchestration-oracle'], /abortReviewOrchestration|exports absent|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    'export function abortReviewOrchestration(input) {',
+    'function abortReviewOrchestration(input) {',
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort exact validation-error binding', ['--orchestration-oracle'], /validation|error|exact|mismatch|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "if (error.message !== observed.validation_error) throw new Error('review orchestration abort validation error mismatch');",
+    "if (false && error.message !== observed.validation_error) throw new Error('review orchestration abort validation error mismatch');",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort normally-valid attempt rejection', ['--orchestration-oracle'], /valid|attempt|failure|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "throw new Error('review orchestration abort observed attempt is normally valid');",
+    'continue;',
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort closed-attempt proof', ['--orchestration-oracle'], /closed|attempt|process|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "if (observed.attempt.started && observed.attempt.exit_code === null && observed.attempt.signal === null) throw new Error('review orchestration abort observed attempt is not closed');",
+    "if (false && observed.attempt.started && observed.attempt.exit_code === null && observed.attempt.signal === null) throw new Error('review orchestration abort observed attempt is not closed');",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort identity binding', ['--orchestration-oracle'], /abort|identity|path|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    'failure.plan_path !== state.plan_path',
+    'false && failure.plan_path !== state.plan_path',
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort request-order binding', ['--orchestration-oracle'], /request|observation|order|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    'observed.request_id !== failure.request_ids[index]',
+    'false && observed.request_id !== failure.request_ids[index]',
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration state abort-series disjointness', ['--orchestration-oracle'], /series|abort|state|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "if (state.series_sha256 !== null || state.transitioned_from_state_sha256 !== null) throw new Error('aborted review orchestration cannot carry series or transition hash');",
+    "if (state.transitioned_from_state_sha256 !== null) throw new Error('aborted review orchestration cannot carry series or transition hash');",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort-source transition substitution', ['--orchestration-oracle'], /abort|source|transition|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    'aborted_from_state_sha256: state.state_sha256,',
+    'transitioned_from_state_sha256: state.state_sha256,',
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration begin state-V2 emission', ['--orchestration-oracle'], /schema|state.?V2|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    '    schema: 2,\n    plan_path: planPath,',
+    '    schema: 1,\n    plan_path: planPath,',
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration repair null-abort preservation', ['--orchestration-oracle'], /repair|abort|active|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    '    current_input_sha256: currentInputSha256,\n    request_ids: [...state.request_ids, requestId],',
+    "    current_input_sha256: currentInputSha256,\n    abort_sha256: 'a'.repeat(64),\n    request_ids: [...state.request_ids, requestId],",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration settle null-abort preservation', ['--orchestration-oracle'], /settle|abort|state|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    '    series_sha256: seriesSha256,\n    apply_state:',
+    "    series_sha256: seriesSha256,\n    abort_sha256: 'a'.repeat(64),\n    apply_state:",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration apply-reject null-abort preservation', ['--orchestration-oracle'], /apply|reject|abort|state|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "        stop_reason: ORCHESTRATION_RESULT_MAP.apply_rejected,\n        apply_state: 'none',",
+    "        stop_reason: ORCHESTRATION_RESULT_MAP.apply_rejected,\n        abort_sha256: 'a'.repeat(64),\n        apply_state: 'none',",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration consume null-abort preservation', ['--orchestration-oracle'], /consume|abort|state|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "      apply_state: 'consumed',\n      transitioned_from_state_sha256:",
+    "      abort_sha256: 'a'.repeat(64),\n      apply_state: 'consumed',\n      transitioned_from_state_sha256:",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort bijective pairing', ['--orchestration-oracle'], /orphan|pair|abort|state|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "if (aborts.length !== abortStates.length) throw new Error('review orchestration abort/state pair is orphaned');",
+    "if (false && aborts.length !== abortStates.length) throw new Error('review orchestration abort/state pair is orphaned');",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort canonical identity pairing', ['--orchestration-oracle'], /abort|identity|request|pair|mismatch|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "if (abort.plan_path !== state.plan_path) throw new Error('review orchestration abort/state identity mismatch');",
+    "if (false && abort.plan_path !== state.plan_path) throw new Error('review orchestration abort/state identity mismatch');",
+  ), ORCHESTRATION_HARNESS],
+  ['orchestration abort receipt exclusion', ['--orchestration-oracle'], /abort|receipt|series|pair|Assertion/i, applyVariant(
+    'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+    "throw new Error('review orchestration abort cannot have a schema-6 receipt');",
+    'continue;',
   ), ORCHESTRATION_HARNESS],
 ];
 
@@ -1575,6 +1880,7 @@ async function runRegressionSuite(jobs) {
       );
       requirePass('total result reducer and bounded no-progress orchestration', orchestration, /total result reducer and bounded no-progress orchestration passed/);
       assert.match(orchestration.stdout, /GitHub issue publishing operation preservation passed/);
+      assert.match(orchestration.stdout, /typed controller-failure abort and state-V2 orchestration passed/);
       const full = await run(baseline, []);
       requirePass('semantic attempt/ledger/raw/run/receipt validation matrix', full, /semantic validation matrix passed/);
       assert.match(full.stdout, /not_ready verdict and structured-output hash cannot authorize execution/);
