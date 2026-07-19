@@ -135,6 +135,20 @@ equality. Main-context plan-manager writes
 one plan-only commit, reads back the exact commit/blob, and reruns canonical
 validation before constructing any launch.
 
+`advanceReviewOrchestrationRepairFamily({sourcePlanBytes,
+expectedStateSha256,expectedPreparedRequestSha256,
+expectedDispatchCommitmentSha256,requestId,currentInputSha256})` parses one
+exact committed round-one active family, requires the matching prepared request
+and dispatch commitment that produced the accepted blocker set, and rejects any
+terminal record, series, receipt, or launch outside that commitment. In one
+pure compare-and-swap it removes both round-one records and replaces the state
+through `advanceReviewOrchestrationRepair`, returning `{planBytes,state}` with
+an active round-two state and no prepared request or commitment. Main-context
+plan-manager writes that exact result in one plan-only commit, validates the
+parent source blob and read-back family, then commits the distinct round-two
+prepared request before constructing a new commitment or spawning. No process
+may start during the record-free repair transition.
+
 For each candidate launch:
 
 ```text
@@ -186,6 +200,7 @@ ReviewControllerConfigAbortV1 = {
   lifecycle_intent: "none" | "start" | "schedule_fire" | "auto_execute",
   orchestration_series_id: uuid,
   source_state_sha256: 64hex,
+  source_plan_blob_sha256: sha256(exact committed parent plan bytes),
   request_ids: [uuid] | [uuid, uuid],
   prepared_request_sha256: 64hex,
   proposed_controller_config: ProposedControllerConfigV1,
@@ -196,14 +211,19 @@ ReviewControllerConfigAbortV1 = {
 }
 ```
 
-`abortReviewControllerConfig({state,preparedRequest,proposedConfig,recordedAt})`
-accepts only an active state plus its exact committed/read-back prepared request.
-It first binds candidate position and derived argv to that request, then requires
-the unchanged controller-config validator to reject the proposal and requires
-the recomputed exact error to equal `validation_error`. The abort shape forbids
+`abortReviewControllerConfig({sourcePlanBytes,expectedStateSha256,
+expectedPreparedRequestSha256,proposedConfig,recordedAt})` parses the exact
+committed parent plan bytes and accepts only one active StateV1/V2 plus its
+matching prepared request, with no dispatch commitment, launch evidence,
+terminal record, series, or receipt. It first binds candidate position and
+derived argv to that request, then requires the unchanged controller-config
+validator to reject the proposal and the recomputed exact error to equal
+`validation_error`. It returns `{planBytes,abort,state}` by atomically replacing
+the active source family with its controller-abort family and binds
+`source_plan_blob_sha256` to the supplied parent bytes. The abort shape forbids
 attempt, started, child, stdout/stderr, exit, signal, reviewer output, series,
-receipt, and dispatch-commitment fields because no process ran. A normally valid
-exact-600 proposal cannot abort.
+receipt, and dispatch-commitment fields because no process ran. A normally
+valid exact-600 proposal cannot abort.
 
 ### Authorized provenance-unavailable abandonment
 
@@ -233,6 +253,7 @@ ReviewOrchestrationAbandonmentV1 = {
   lifecycle_intent: "none" | "start" | "schedule_fire" | "auto_execute",
   orchestration_series_id: uuid,
   source_state_sha256: 64hex,
+  source_plan_blob_sha256: sha256(exact committed parent plan bytes),
   request_ids: [uuid] | [uuid, uuid],
   current_input_sha256: 64hex,
   round_index: 1 | 2,
@@ -243,20 +264,25 @@ ReviewOrchestrationAbandonmentV1 = {
 }
 ```
 
-`abandonReviewOrchestration({state,authorization,sourceTextBytes,recordedAt})`
-accepts only an exact active StateV1 with no prepared-request or dispatch record.
-Main context supplies the current-user bytes separately; the reducer validates
-UTF-8, stores their canonical base64 encoding, recomputes the digest, validates
-every authorization/state identity, deep-copies the authorization, and returns
-a new abandonment/state pair without mutating any input. Canonical read-back
-decodes the persisted base64, rejects noncanonical or invalid UTF-8 bytes, and
-recomputes `source_text_sha256`; the authorization is cold-auditable without
-session history or an external mutable locator.
-The abandonment shape is recursively closed and forbids request, policy,
-policy hash, candidate, config, argv, attempt, validation error, stdout/stderr,
-reviewer result, series, receipt, retry, repair, verdict, or lifecycle-apply
-authority. The authorization proves only the user's exact administrative
-decision for that one state; it never proves what was dispatched.
+`abandonReviewOrchestration({sourcePlanBytes,expectedStateSha256,
+authorization,sourceTextBytes,recordedAt})` parses the exact committed parent
+plan bytes and accepts only a state-only active StateV1/V2 family with no
+prepared request, dispatch commitment, launch evidence, terminal record,
+series, or receipt. Main context supplies the current-user bytes separately;
+the reducer validates UTF-8, stores their canonical base64 encoding, recomputes
+the digest, validates every authorization/state identity, and deep-copies the
+authorization. It returns `{planBytes,abandonment,state}` by atomically
+replacing that source family and binds `source_plan_blob_sha256` to the supplied
+parent bytes without mutating any input. Canonical read-back decodes the
+persisted base64, rejects noncanonical or invalid UTF-8 bytes, recomputes
+`source_text_sha256`, and verifies the committed transition parent against
+`source_plan_blob_sha256`; authorization is cold-auditable without session
+history or an external mutable locator. The abandonment shape is recursively
+closed and forbids request, policy, policy hash, candidate, config, argv,
+attempt, validation error, stdout/stderr, reviewer result, series, receipt,
+retry, repair, verdict, or lifecycle-apply authority. The authorization proves
+only the user's exact administrative decision for that source family; it never
+proves what was dispatched.
 
 ### StateV2 and canonical families
 
@@ -264,12 +290,16 @@ decision for that one state; it never proves what was dispatched.
 ReviewOrchestrationStateV2 =
   all ReviewOrchestrationStateV1 fields, with schema: 2, plus {
     terminal_evidence_sha256: 64hex | null,
-    terminated_from_state_sha256: 64hex | null
+    terminated_from_state_sha256: 64hex | null,
+    terminated_from_state:
+      exact active ReviewOrchestrationStateV1 |
+      exact active nonterminal ReviewOrchestrationStateV2 |
+      null
   }
 ```
 
-Every ordinary active/passed/stopped/stuck StateV2 has both terminal fields null
-and retains all StateV1 status, stop, series, retry, apply, and transition
+Every ordinary active/passed/stopped/stuck StateV2 has all three terminal fields
+null and retains all StateV1 status, stop, series, retry, apply, and transition
 semantics. Direct otherwise eligible StateV1 inputs to
 `beginReviewOrchestration`, `advanceReviewOrchestrationRepair`,
 `settleReviewOrchestration`, `consumeReviewIntent`, and its apply-reject branch
@@ -280,11 +310,16 @@ rejection or stale-terminalization behavior.
 
 A config abort returns StateV2
 `stuck/controller_contract_failure/none`; authorized abandonment returns
-`stuck/authorized_abandonment/none`. Both have `series_sha256:null`,
-`transitioned_from_state_sha256:null`, no retry authorization, and
-`terminal_evidence_sha256:sha256(JCS(typed terminal record))` with
-`terminated_from_state_sha256` equal to the source active-state hash. The two new
-stop reasons exist only in StateV2 and are always nonretryable.
+`stuck/authorized_abandonment/none`. Both have `series_sha256:null` and
+`terminal_evidence_sha256:sha256(JCS(typed terminal record))`.
+`terminated_from_state` is a deep copy of the exact active source state,
+including attempt-two `retry_authorization` and prior transition lineage, while
+`terminated_from_state_sha256` equals that embedded state's valid
+`state_sha256`. The terminal state preserves those historical lineage fields at
+top level but remains nonretryable by its new stop reason. An embedded V2 source
+must be active and have all terminal fields null, preventing recursive terminal
+chains. The two new stop reasons exist only in StateV2 and are always
+nonretryable.
 
 `MACHINE_RECORD` and `canonicalPlanView` recognize, recursively validate, then
 exclude these exact unfenced records:
@@ -298,21 +333,25 @@ Review-orchestration-abandonment: <ReviewOrchestrationAbandonmentV1 JCS>
 
 The current canonical families are disjoint:
 
-- active state + one prepared request + zero/one valid dispatch commitment;
+- active state plus zero/one prepared request plus zero/one valid dispatch
+  commitment; a commitment requires its prepared request;
 - controller-abort StateV2 + its prepared request + exactly one abort and no
   dispatch commitment;
 - abandonment StateV2 + exactly one abandonment and no prepared request or
   dispatch commitment;
 - ordinary state/series/receipt families with no terminal record.
 
-Canonical read-back reconstructs the source active state and verifies its
-self-hash, every record/state digest and identity, candidate/argv position,
-request closure/hash, and permitted stop tuple before exclusion. It rejects
-duplicates, orphans, half-null terminal fields, cross-pairs, record/reason
-substitution, series-backed terminal states, and any completion/draft receipt
-coexisting with either terminal record regardless of receipt series. Normal
-settlement atomically removes prepared/dispatch records while writing terminal
-state plus receipt.
+Canonical read-back validates the embedded exact source active state and its
+self-hash, the applicable parent-plan binding, every record/state digest and identity,
+candidate/argv position, request closure/hash, and permitted stop tuple before
+exclusion. It rejects duplicates, orphans, stale round-one request/commitment
+records after repair advancement, half-null terminal fields, cross-pairs,
+record/reason substitution, series-backed terminal states, and any completion
+or draft receipt coexisting with either terminal record regardless of receipt
+series. Normal settlement atomically removes prepared/dispatch records while
+writing terminal state plus receipt. Repair advancement atomically removes the
+round-one prepared request and commitment while writing only the round-two
+active state; its new prepared request is a separate later commit.
 
 Only materially changed canonical input permits plan-manager to compare-and-swap
 an exact terminal family into one fresh active StateV2 with attempt 1, fresh
@@ -332,8 +371,8 @@ are immutable and cannot enter abandonment, replacement, or reopened review.
 
 | # | Task | Files | Depends | Status | Done when / failure action |
 |---|---|---|---|---|---|
-| 1 | Add red contract and mutation tests for prepared-request commit/read-back, per-candidate exact-600 dispatch commitment, pre-dispatch invalid-config abort, target-bound authorized abandonment, generic terminal StateV2 pairing, changed-input CAS, finished-plan immutability, and direct eligible StateV1 inputs across begin/repair/settle/consume/apply-reject. | `scripts/tests/plan-review-policy-regressions.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-skill-phases.mjs` | — | planned | The focused oracle fails only for missing new behavior. Tests prove no spawn precedes a committed/read-back request and valid commitment; a proposed 650 config aborts as `not_dispatched`; abandonment accepts only exact current-user authority and makes no request/controller claim; each reducer preserves old preconditions; the finished Session Relay archive cannot reopen. Setup/syntax failure is STOP. |
-| 2 | Implement closed prepared-request, dispatch-commitment, controller-abort, abandonment-authorization/record validators and reducers; generalize StateV2 terminal fields; add canonical family validation and changed-input CAS; normalize only otherwise eligible direct StateV1 reducer outputs. | `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs` | 1 | planned | A1–A3 pass. Exact-600 normal attempt validation and schemas 1–5 are unchanged. No invalid config spawns; no terminal record can produce a ReviewSeries/receipt/retry/apply; no input is mutated. |
+| 1 | Add red contract and mutation tests for prepared-request commit/read-back, per-candidate exact-600 dispatch commitment, atomic round-two request/commitment cleanup, pre-dispatch invalid-config abort, exact-parent target-bound authorized abandonment, full source-state reconstruction, generic terminal StateV2 pairing, changed-input CAS, finished-plan immutability, and direct eligible StateV1 inputs across begin/repair/settle/consume/apply-reject. | `scripts/tests/plan-review-policy-regressions.mjs`; `scripts/tests/plan-review-policy.mjs`; `scripts/tests/plan-skill-phases.mjs` | — | planned | The focused oracle fails only for missing new behavior. Tests prove no spawn precedes a committed/read-back request and valid commitment; repair atomically leaves a record-free round-two active family before its distinct prepared-request commit; a proposed 650 config aborts as `not_dispatched`; abandonment accepts only exact parent bytes/current-user authority; attempt-two source reconstruction preserves retry lineage; neither terminal path can erase disqualifying source records. |
+| 2 | Implement closed prepared-request, dispatch-commitment, controller-abort, abandonment-authorization/record validators and full-plan compare-and-swap reducers; generalize StateV2 terminal/source fields; add atomic repair-family cleanup, canonical family validation, and changed-input CAS; normalize only otherwise eligible direct StateV1 reducer outputs. | `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs` | 1 | planned | A1–A3 pass. Exact-600 normal attempt validation and schemas 1–5 are unchanged. No invalid config spawns; stale round-one records cannot survive repair; no terminal record can produce a ReviewSeries/receipt/retry/apply; exact committed source bytes and attempt-two lineage remain auditable; no rejected input is mutated. |
 | 3 | Document manager/reviewer ownership, commit-before-launch ordering, administrative abandonment authority, current record-family versions, generated-wrapper parity, and no-progress rules; regenerate changed skill hashes. | `docs/plans/AGENTS.md`; `plugins/docks/skills/productivity/plan-manager/SKILL.md`; `plugins/docks/skills/productivity/plan-reviewer/SKILL.md`; `plugins/docks/agents/plan-manager.md`; `.codex/agents/plan-manager.toml`; `docs/scaffold/templates/{codex-plan-manager.toml,root-AGENTS.md}.template`; `plugins/docks/skills/productivity/plan-workspace/references/{codex-agent-templates.md,plans-agents-md-template.md}` | 2 | planned | Live and generated contracts require plan-manager to commit/read back the request and commitment before launch; reviewer/repairer cannot abandon; `authorized_abandonment` offers only materially changed input; generated hashes pass check-only. |
 | 4 | Bind the implementation commit durably, then run the focused oracle, mutation/surface/phase checks, Docks-targeted gate, and one full gate. | All changed implementation/docs/tests; `/tmp/docks-plan-review-controller-failure-recovery-implementation.sha`; `refs/docks/release/docks-0.13.1-tested` | 3 | planned | A1–A7 pass from empty porcelain including untracked files. A7 writes exact HEAD to the collision-specific file and repository-local ref, runs full CI once, and proves HEAD/file/ref/worktree remain identical. |
 | 5 | Patch-release and verify Docks `0.13.1`. | `.claude-plugin/marketplace.json`; `plugins/docks/.claude-plugin/plugin.json`; `plugins/docks/.codex-plugin/plugin.json` | 4 | planned | A8–A11 pass: dry run resolves `0.13.0 → 0.13.1` without mutation; actual release is the direct child of the bound implementation commit; tag CI and GitHub Release pass; installed Claude/Codex helper bytes equal the tag and pass the oracle/catalog checks. |
@@ -348,8 +387,8 @@ outside the step table as plan-manager lifecycle operations.
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; prepared request and each candidate commitment bind exact state/request/policy/argv and precede launch; proposed timeout 650 produces only pre-dispatch `controller_contract_failure`; exact authorized no-provenance abandonment produces only `authorized_abandonment`; both terminal families are nonretryable, receiptless, canonically paired, input-preserving, and changed-input-only. |
-| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, request/policy/candidate/argv/config substitution, spawn-before-commit, stdout self-attestation, missing/changed/replayed user bytes, noncanonical/invalid-UTF-8 base64, authorization text/hash drift, extra abandonment provenance fields, half/orphan/cross terminal records, receipt/series substitution, same-input CAS, finished-plan reopen, and weakened V1 normalization/preconditions. |
+| A1 | `env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle` | Exit 0; prepared request and each candidate commitment bind exact state/request/policy/argv and precede launch; round-two advancement atomically removes round-one request/commitment before the distinct repair request; proposed timeout 650 produces only pre-dispatch `controller_contract_failure`; exact parent-bound authorized abandonment produces only `authorized_abandonment`; both terminal families preserve a reconstructible exact source state and are nonretryable, receiptless, canonically paired, input-preserving, and changed-input-only. |
+| A2 | `node scripts/tests/plan-review-policy-regressions.mjs --self-test` | Exit 0; mutations kill missing commit/read-back, request/policy/candidate/argv/config substitution, spawn-before-commit, stale/reused round-one repair records, stdout self-attestation, missing/changed/replayed user bytes, noncanonical/invalid-UTF-8 base64, authorization text/hash drift, source-plan parent drift, erased prepared/dispatch evidence, post-dispatch abort, attempt-two source/retry reconstruction drift, extra abandonment provenance fields, half/orphan/cross terminal records, receipt/series substitution, same-input CAS, finished-plan reopen, and weakened V1 normalization/preconditions. |
 | A3 | `node scripts/tests/plan-review-policy.mjs --case surfaces` | Exit 0; review schema 6, independent current V1 record families, StateV2, validation-only StateV1, and historical review schemas 1–5 remain closed; eligible V1 inputs normalize to equivalent nonterminal V2 only after existing preconditions, including unchanged stale settlement behavior. |
 | A4 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; five-skill ownership and generated manager-wrapper parity require commit-before-launch and reserve abandonment authority to main-context plan-manager/current-user input. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only` | Exit 0; every changed skill hash matches generated content. |
@@ -391,10 +430,13 @@ outside the step table as plan-manager lifecycle operations.
   commitments in exact order only after validated availability evidence; pinned
   policy permits index 0 only.
 - `series_sha256` always binds a valid ReviewSeries. Terminal administrative
-  evidence uses only the generic terminal/source digest pair; lifecycle
-  transition hashes retain their StateV1 meaning.
-- Current-only replacement removes the complete terminal family. Parent Git
-  history, not an orphan current record, preserves it.
+  evidence binds the applicable exact parent plan plus an embedded, self-hashed
+  active source state; lifecycle transition hashes retain their StateV1 meaning.
+- Repair advancement removes the old prepared request and commitment in the
+  same plan-byte compare-and-swap as the round-two state. Parent Git history
+  preserves them; no stale current record may survive.
+- Current-only changed-input replacement removes the complete terminal family.
+  Parent Git history, not an orphan current record, preserves it.
 - Record `schema:1` is version 1 of its own family; it does not make historical
   review schema 1 current.
 - The finished Session Relay archive is regression evidence, never a live target.
@@ -422,12 +464,16 @@ outside the step table as plan-manager lifecycle operations.
 
 - Any reviewer process can start before prepared-request and exact commitment
   commits are read back, or a non-600 commitment can be formed.
-- A controller abort accepts an exact-600 valid config, contains process/attempt/
-  output fields, lacks its prepared request, or follows a spawned process.
+- A controller abort accepts an exact-600 valid config, lacks exact committed
+  parent/state/prepared evidence, contains process/attempt/output fields, erases
+  a disqualifying record, or follows a commitment or spawned process.
 - Abandonment accepts missing/changed/replayed user bytes, a noncanonical or
-  digest-mismatched persisted authorization text, a nonactive or StateV2 source,
-  a prepared/dispatch record, or any request/policy/candidate/config/attempt/
-  stdout/verdict/retry/receipt/apply field.
+  digest-mismatched persisted authorization text, a nonactive source, missing
+  exact parent/source-state evidence, a prepared/dispatch/launch record, or any
+  request/policy/candidate/config/attempt/stdout/verdict/receipt/apply field.
+- Repair advancement leaves, reuses, or separately deletes the round-one
+  prepared request/commitment, or any process can spawn before the round-two
+  state-only family and later prepared request are separately committed/read back.
 - Any target/state/input/series/request-lineage/hash/candidate/argv/config/error
   mismatch is accepted, or rejection mutates inputs.
 - Any terminal family coexists with a ReviewSeries or any draft/completion
@@ -447,10 +493,13 @@ The material rewrite resolves every accepted round-two blocker:
 
 - stdout is no longer an origin source;
 - every future request and candidate launch is committed/read back before spawn;
+- repair advancement atomically removes the old request and commitment before
+  a distinct round-two prepared-request commit;
 - invalid controller configuration stops before dispatch and is not an attempt;
 - provenance-unavailable closure is a separate request-free,
-  current-user-authorized administrative record;
-- StateV2 uses generic terminal/source digests and distinct nonretryable reasons;
+  current-user-authorized administrative record bound to exact parent bytes;
+- StateV2 embeds the exact self-hashed source state, including attempt-two retry
+  lineage, and uses distinct nonretryable reasons;
 - terminal/receipt families are disjoint and changed-input replacement is an
   exact plan-only CAS with parent-blob proof;
 - direct eligible StateV1 inputs normalize uniformly without changing reducer
@@ -475,11 +524,16 @@ unavailable provenance. The current Session Relay archive remains untouched.
   and identity-bound before any config or launch.
 - [ ] Each candidate commitment binds exact request/policy position, argv, and
   `600`; availability fallback preserves order and Git history.
-- [ ] Invalid config aborts before spawn with no attempt/process/output fields.
+- [ ] Repair advancement atomically removes the old request/commitment, commits
+  a state-only round-two family, then commits its distinct prepared request.
+- [ ] Invalid config aborts from exact parent/state/prepared bytes before spawn
+  with no commitment or attempt/process/output fields.
 - [ ] Abandonment persists canonical base64 plus the digest of exact current-user
-  bytes, verifies both on read-back, and contains no dispatch/review provenance.
-- [ ] StateV2 terminal/source digests, stop reasons, and canonical families are
-  disjoint from series, receipts, retry, repair, and lifecycle apply.
+  bytes, verifies parent/source/authorization on read-back, and contains no
+  dispatch/review provenance.
+- [ ] StateV2 embeds and self-hashes the exact active source state, including
+  attempt-two retry lineage; terminal families remain nonretryable and disjoint
+  from series, receipts, repair, and lifecycle apply.
 - [ ] Eligible direct StateV1 normalization preserves every existing transition
   precondition and rejection/stale behavior.
 - [ ] Changed-input CAS replaces the exact family, uses fresh identities,
@@ -502,4 +556,4 @@ unavailable provenance. The current Session Relay archive remains untouched.
 
 (filled by main-context plan-manager after completion evidence)
 
-Review-orchestration-state: {"apply_state":"none","current_input_sha256":"376da5a0d244e06a1e3c56c252120bc0d0929f8578af60f6bc39a7ba25bf1d65","initial_input_sha256":"376da5a0d244e06a1e3c56c252120bc0d0929f8578af60f6bc39a7ba25bf1d65","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/plan-review-controller-failure-recovery.md","request_ids":["243596c2-b40c-4a40-bf53-ae6160bc9964"],"retry_authorization":null,"round_index":1,"schema":1,"series_id":"07b6c66d-fcb4-47a8-97f5-f49664d516a4","series_sha256":null,"state_sha256":"9348fc3336c8f7b96dc7a27e82ac95b68e8cbf182154f08caa2e727421d61501","status":"active","stop_reason":null,"transitioned_from_state_sha256":null}
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"be985c12405f29ebbc0e20f7947b01a91b25b3bca17c2d08e98d3f5ee826da25","initial_input_sha256":"376da5a0d244e06a1e3c56c252120bc0d0929f8578af60f6bc39a7ba25bf1d65","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/plan-review-controller-failure-recovery.md","request_ids":["243596c2-b40c-4a40-bf53-ae6160bc9964","dcfd72ae-cc78-439d-ae5c-4eff40652f14"],"retry_authorization":null,"round_index":2,"schema":1,"series_id":"07b6c66d-fcb4-47a8-97f5-f49664d516a4","series_sha256":null,"state_sha256":"480bc7ecff641a7ae079c8df0c68417690d635a4614e160f08a09fe57ca9c17c","status":"active","stop_reason":null,"transitioned_from_state_sha256":null}
