@@ -81,40 +81,42 @@ and no same-input retry is authorized.
 
 ## Interfaces & data shapes
 
-Add this closed current-only record:
+Add this closed current-only record. `ReviewRequestEnvelopeV6` and
+`CurrentPolicyV6` name the existing recursively closed schema-6 request and
+policy contracts enforced by `validateRequest`/`currentReviewerSchema(6)` and
+`validateCurrentPolicy`; `CurrentAttemptV6` and `CurrentCandidateV6` retain their
+existing closed meanings.
 
 ```text
-ReviewOrchestrationAbortV1 = {
-  schema: 1,
-  type: "ReviewOrchestrationAbortV1",
+ControllerContractFailureV1 = {
   plan_path: string,
   phase: "draft" | "completion",
   lifecycle_intent: "none" | "start" | "schedule_fire" | "auto_execute",
   orchestration_series_id: uuid,
   orchestration_state_sha256: 64hex,
   request_ids: [uuid] | [uuid, uuid],
+  failed_request_id: uuid,
+  policy: CurrentPolicyV6,
+  policy_sha256: 64hex,
+  request_provenance: "pre_dispatch" | "reviewer_stdout",
+  reviewer_stdout_sha256: 64hex | null,
   reason: "controller_contract_failure",
-  observed_attempts: [{
-    request_id: uuid,
-    attempt: {
-      schema: 6,
-      candidate: CurrentCandidateV6,
-      started: boolean,
-      output_started: boolean,
-      child_id: string | null,
-      timeout_mode: "gnu_timeout" | "orchestrator_tool" | null,
-      timeout_seconds: integer | null,
-      result: CurrentAttemptResultV6,
-      exit_code: integer | null,
-      signal: string | null,
-      denial_source: "sandbox" | "managed_policy" | "runtime_policy" | null,
-      reason: string,
-      stdout_sha256: 64hex | null,
-      stderr_sha256: 64hex | null
-    },
-    validation_error: string
-  }],
+  attempt_sequence: {
+    preceding: [{candidate_index: integer, attempt: CurrentAttemptV6}],
+    failing: {
+      candidate_index: integer,
+      attempt: CurrentAttemptV6,
+      validation_error: string
+    }
+  },
   recorded_at: ISO-8601-with-offset
+}
+
+ReviewOrchestrationAbortV1 = all ControllerContractFailureV1 fields, plus {
+  schema: 1,
+  type: "ReviewOrchestrationAbortV1",
+  expected_request: ReviewRequestEnvelopeV6,
+  expected_request_sha256: sha256(JCS(expected_request))
 }
 
 ReviewOrchestrationStateV2 = all ReviewOrchestrationStateV1 fields, with `schema` replaced by `2`, plus {
@@ -134,19 +136,73 @@ abort terminal has `status:"stuck"`, `stop_reason:"failed_unparseable"`,
 `abort_sha256:sha256(JCS(abort))`,
 `aborted_from_state_sha256:abort.orchestration_state_sha256`, and
 `transitioned_from_state_sha256:null`. Schema-1 state records remain accepted for
-validation only and are never newly emitted.
+validation only and are never newly emitted. Request/policy provenance is not
+added to state V1 or V2, so eligible V1-to-V2 normalization remains exact.
 
 Add:
 
 ```text
-abortReviewOrchestration({state, failure}) -> ReviewOrchestrationStateV2
+abortReviewOrchestration({
+  state,
+  expectedRequest,
+  failure,
+  reviewer_stdout_bytes = null
+}) -> {
+  state: ReviewOrchestrationStateV2,
+  abort: ReviewOrchestrationAbortV1
+}
 ```
 
-The function accepts only an `active` state. Failure identities and request IDs
-must exactly equal the state, every observed attempt must be closed and must
-actually fail the normal current-attempt validator with the exact recorded error,
-and the observations must cover the state's request IDs once in order. It emits
-the abort-terminal V2 variant above. It does not construct a series or receipt.
+`expectedRequest` is the manager-trusted exact closed `ReviewRequestEnvelopeV6`
+resolved independently of `failure`; a request or policy originating only in the
+caller-controlled failure cannot authorize abort. `failure` must be the exact
+closed `ControllerContractFailureV1`; it contains no request envelope. The
+builder deep-copies `expectedRequest` into a newly constructed `abort` and never
+retains a caller-mutable reference. `validateRequest(expectedRequest)` must pass;
+the returned embedded copy must be recursively closed and JCS-equal; and
+canonical read-back reruns `validateRequest(abort.expected_request)`. Its
+`failure.plan_path` must equal `state.plan_path`; request phase/intent/series/
+state/request identities must exactly equal the active state and failure; its
+`input_sha256` and `round_index` must equal
+`state.current_input_sha256` and `state.round_index`; and its
+previous-input/repair-target fields retain the existing full-versus-repair
+invariants. The reducer recomputes
+`sha256(JCS(expectedRequest)) === sha256(JCS(abort.expected_request)) ===
+abort.expected_request_sha256` and
+`sha256(JCS(expectedRequest.policy)) === expectedRequest.policy_sha256 ===
+abort.expected_request.policy_sha256 === failure.policy_sha256`, requires
+`failure.policy` to JCS-equal both request policies, and validates that policy as
+the exact default chain or one current-user-pinned candidate. Future managers
+resolve and retain this exact envelope before dispatch. For the existing
+output-started legacy failure, `expectedRequest` may be recovered only from
+supplied exact raw reviewer stdout bytes: the bytes must hash to both the failing
+attempt's `stdout_sha256` and `failure.reviewer_stdout_sha256`, parse as the one
+closed `ReviewerOutputV6`, and contain a request JCS-equal to `expectedRequest`.
+`pre_dispatch` requires `reviewer_stdout_sha256:null`; no other post-dispatch
+provenance is valid.
+
+The function accepts only an `active` state. `failure.request_ids` must exactly
+equal the state; `failure.failed_request_id` and `expectedRequest.request_id`
+must equal `state.request_ids.at(-1)`. The returned
+`abort.expected_request.request_id` must equal the same latest ID.
+Thus on round 2 all prior request IDs and round-1 evidence are lineage only: only
+the latest request may fail, and no observation for an earlier round is required
+or interpreted as a failure.
+
+Candidate provenance is checked independently before the expected malformed
+attempt. `failing.candidate_index` must be in range and its candidate must
+JCS-equal `expectedRequest.policy.candidates[index]`. A pinned one-candidate
+policy permits only index 0 with an empty `preceding` array. Under the default
+policy, `preceding` must contain exactly indices `0..index-1`, each candidate
+must equal that policy position, and every attempt must pass normal attempt
+validation with an availability-only fallback result, `output_started:false`,
+and the exact launch/process evidence its result requires. The failing attempt
+is checked last: it must be closed and must fail the normal current-attempt
+validator with the exact recorded error. Any skipped/reordered/substituted
+candidate, policy/request/hash drift, non-fallback predecessor, or provenance
+mismatch rejects without mutating `state`, `expectedRequest`, `failure`, or
+stdout bytes. Success returns a new deep-copied abort and its digest-bound
+abort-terminal StateV2; it never mutates inputs or constructs a series/receipt.
 
 The plan machine line is exactly:
 
@@ -156,16 +212,36 @@ Review-orchestration-abort: <compact JCS ReviewOrchestrationAbortV1>
 
 `canonicalPlanView` validates and excludes the record and enforces one bijective
 pair: an abort exists iff exactly one state V2 has its digest in `abort_sha256`;
-the pair's plan path, phase, lifecycle intent, series identity, and request IDs
-match, and `abort.orchestration_state_sha256` equals only the state's
+the pair's plan path, phase, lifecycle intent, series identity, request lineage,
+latest failed request, policy shape/hash, candidate positions, source-state
+identity, and provenance fields are self-consistent. Read-back revalidates the
+embedded request as closed, recomputes its request and policy hashes, and binds
+its plan path, phase, lifecycle intent, input, round, series, state hash, and
+latest request ID to the paired state and abort. The abort's
+`orchestration_state_sha256` equals only the state's
 `aborted_from_state_sha256`. The paired state must have the exact abort-terminal
 tuple above, including `transitioned_from_state_sha256:null`, and no schema-6
-receipt may reference that series. Reject an orphan abort or abort digest, more
-than one abort or paired state, active/stopped/passed/ordinary-stuck pairing,
-non-null `series_sha256` or transition hash, a mismatched
-identity/request/abort-source/digest, any
-ReviewSeries substitution, or any receipt-backed variant. Existing state V1 and
-historical review schema-1–5 bytes remain valid for validation only.
+receipt may reference that series. Reject an orphan abort or abort digest; more
+than one abort or state; active/stopped/passed/ordinary-stuck pairing; non-null
+`series_sha256` or transition hash; a mismatched identity/request/policy/
+candidate/source/digest; any ReviewSeries substitution; or any receipt-backed
+variant. The manager-as-sole-writer boundary is the authority for the persisted
+`expected_request`; the reducer may deep-copy it only from the independently
+supplied trusted envelope under the two provenance rules above, and canonical
+read-back never trusts its digest without revalidating the embedded envelope.
+Existing state V1 and historical review schema-1–5 bytes remain valid for
+validation only.
+
+The abort and terminal state are current-only. The manager commits the returned
+abort and paired terminal StateV2 atomically. Only after canonical input bytes
+materially change may the owning workflow atomically replace exactly both
+records with one fresh active StateV2 carrying a new series ID, attempt-1 request
+ID, and hashes. The parent Git commit and plan blob remain the durable old abort
+evidence; current content retains no historical pair. The manager resolves a new
+exact request before dispatch. Canonicalize-and-read-back must succeed after the
+abort commit and after replacement, and `git show` of the replacement parent must
+recover the exact old pair; same-input replacement, partial removal, reuse of an
+old series/request, or dispatch without fresh request identity is rejected.
 
 ## Steps
 
@@ -178,7 +254,33 @@ historical review schema-1–5 bytes remain valid for validation only.
 | 5 | Patch-release and verify Docks `0.13.1`. | `.claude-plugin/marketplace.json`; `plugins/docks/.claude-plugin/plugin.json`; `plugins/docks/.codex-plugin/plugin.json` | 4 | planned | Run A8–A11 exactly: dry run resolves `0.13.0 → 0.13.1` without mutation; actual release succeeds; the annotated tag peels to the release commit tested by successful tag CI; GitHub Release is published non-draft/non-prerelease; freshly updated `0.13.1` caches match tagged helper bytes and pass the abort oracle plus five-phase catalog check. |
 | 6 | Prepare this plan's completion handoff without touching either related active plan. | This plan read-only; release artifacts read-only | 5 | planned | A12 proves the release commit retains reviewed-head `8962626229c1a56aafc282c10c6d5f7de34015a5` blob/SHA-256 baselines `722dc5f331d8350faf2a773cb5ed7e285340ff12`/`a0ee64f34cbe00fb1920c0f0793e61f1bd0a1b5799bf29315fff0e79ff26b717` for Session Relay and `be2097a8716195dc0002baaead5bd4222fbb34c4`/`9d772025a513b5100caef105ce4d72af639ccb6891f26ff64ca1d6b4ff441bd3` for workflow phases; exact commits, focused/full gate output, tag/CI/Release identities, and A1–A12 are ready for manager completion. |
 
+Step 1's red oracle additionally constructs the expected request independently of
+`failure` and covers exact embedded-request/state/policy/candidate-index binding,
+default fallback prefixes, pinned index 0, round-2 latest-request-only failure,
+legacy raw-stdout provenance, input preservation, and canonical two-record
+changed-input replacement/read-back with parent-blob proof. Step 2 implements
+that closed seam before malformed-attempt validation; Step 3 documents manager
+ownership of the separately retained pre-dispatch request. These clauses are
+conjunctive with existing StateV1-normalization and exact-600 requirements.
+
 ## Acceptance criteria
+
+A1–A3 are also conjunctive with these provenance clauses:
+
+- A1 proves both `pre_dispatch` and exact-stdout legacy provenance, the exact
+  embedded request closure/JCS and policy hash, state/series/phase/input/round/
+  latest-request identities, candidate equality/index, exact default
+  availability-only prefix, pinned index 0, input preservation, and atomic
+  two-record changed-input replacement with canonical read-back and parent-plan-
+  blob evidence.
+- A2 mutations must reject another eligible candidate, a changed position,
+  skipped/reordered predecessor, pinned/default switch, policy-hash drift,
+  embedded-request drift, changed raw stdout, or a prior-round request, without
+  mutating any input.
+- A3 keeps the abort and expected-request API recursively closed, requires the
+  manager-trusted expected request separately from failure, returns a newly constructed
+  deep-copied abort/state pair, revalidates the abort on canonical read-back, and preserves every existing
+  V1/V2 transition behavior.
 
 | ID | Command | Expected |
 |---|---|---|
@@ -188,8 +290,8 @@ historical review schema-1–5 bytes remain valid for validation only.
 | A4 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; exact five-skill ownership and generated wrapper parity remain intact. |
 | A5 | `node scripts/skills/content-hash.mjs --check-only` | Exit 0; every changed skill hash matches generated content. |
 | A6 | `node scripts/ci.mjs --plugin docks` | Exit 0; Docks plus repo-wide targeted release gate is green. |
-| A7 | `IMPLEMENTATION_SHA_FILE=/tmp/docks-plan-review-controller-failure-recovery-implementation.sha IMPLEMENTATION_REF=refs/docks/release/docks-0.13.1-tested && git diff --quiet && git diff --cached --quiet && git rev-parse HEAD > "$IMPLEMENTATION_SHA_FILE" && git update-ref "$IMPLEMENTATION_REF" "$(cat "$IMPLEMENTATION_SHA_FILE")" && node scripts/ci.mjs && test "$(git rev-parse HEAD)" = "$(cat "$IMPLEMENTATION_SHA_FILE")" && test "$(git rev-parse "$IMPLEMENTATION_REF")" = "$(cat "$IMPLEMENTATION_SHA_FILE")" && git diff --quiet && git diff --cached --quiet` | Exit 0 once after A1–A6; requires clean tracked state, captures the exact pre-CI implementation HEAD in the collision-specific file and durable repository-local ref, all three plugins and repo-wide gates pass, and HEAD/file/ref remain identical with tracked state still clean. |
-| A8 | `IMPLEMENTATION_SHA_FILE=/tmp/docks-plan-review-controller-failure-recovery-implementation.sha IMPLEMENTATION_REF=refs/docks/release/docks-0.13.1-tested && FILE_IMPLEMENTATION_COMMIT=$(cat "$IMPLEMENTATION_SHA_FILE") && IMPLEMENTATION_COMMIT=$(git rev-parse "$IMPLEMENTATION_REF") && test "$FILE_IMPLEMENTATION_COMMIT" = "$IMPLEMENTATION_COMMIT" && test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_COMMIT" && git diff --quiet && git diff --cached --quiet && node scripts/release.mjs --dry-run --plugin docks patch && test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_COMMIT" && test "$(git rev-parse "$IMPLEMENTATION_REF")" = "$IMPLEMENTATION_COMMIT" && test "$(cat "$IMPLEMENTATION_SHA_FILE")" = "$IMPLEMENTATION_COMMIT" && git diff --quiet && git diff --cached --quiet` | Exit 0; resolves the durable ref as source of truth, reads the exact A7-captured file and requires parity before the dry run, requires current HEAD to equal the bound SHA, reports `0.13.0 → 0.13.1`, prints destructive actions only, and changes neither HEAD, ref, file, nor tracked bytes. |
+| A7 | `IMPLEMENTATION_SHA_FILE=/tmp/docks-plan-review-controller-failure-recovery-implementation.sha IMPLEMENTATION_REF=refs/docks/release/docks-0.13.1-tested && test -z "$(git status --porcelain=v1 --untracked-files=all)" && git diff --quiet && git diff --cached --quiet && git rev-parse HEAD > "$IMPLEMENTATION_SHA_FILE" && git update-ref "$IMPLEMENTATION_REF" "$(cat "$IMPLEMENTATION_SHA_FILE")" && node scripts/ci.mjs && test "$(git rev-parse HEAD)" = "$(cat "$IMPLEMENTATION_SHA_FILE")" && test "$(git rev-parse "$IMPLEMENTATION_REF")" = "$(cat "$IMPLEMENTATION_SHA_FILE")" && git diff --quiet && git diff --cached --quiet && test -z "$(git status --porcelain=v1 --untracked-files=all)"` | Exit 0 once after A1–A6; requires empty porcelain including untracked files, captures the exact pre-CI implementation HEAD in the collision-specific file and durable repository-local ref, all three plugins and repo-wide gates pass, and HEAD/file/ref remain identical with the entire worktree still clean. |
+| A8 | `IMPLEMENTATION_SHA_FILE=/tmp/docks-plan-review-controller-failure-recovery-implementation.sha IMPLEMENTATION_REF=refs/docks/release/docks-0.13.1-tested && FILE_IMPLEMENTATION_COMMIT=$(cat "$IMPLEMENTATION_SHA_FILE") && IMPLEMENTATION_COMMIT=$(git rev-parse "$IMPLEMENTATION_REF") && test "$FILE_IMPLEMENTATION_COMMIT" = "$IMPLEMENTATION_COMMIT" && test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_COMMIT" && test -z "$(git status --porcelain=v1 --untracked-files=all)" && git diff --quiet && git diff --cached --quiet && node scripts/release.mjs --dry-run --plugin docks patch && test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_COMMIT" && test "$(git rev-parse "$IMPLEMENTATION_REF")" = "$IMPLEMENTATION_COMMIT" && test "$(cat "$IMPLEMENTATION_SHA_FILE")" = "$IMPLEMENTATION_COMMIT" && git diff --quiet && git diff --cached --quiet && test -z "$(git status --porcelain=v1 --untracked-files=all)"` | Exit 0; resolves the durable ref as source of truth, requires parity with the A7 file and empty porcelain including untracked files before the dry run, reports `0.13.0 → 0.13.1`, prints destructive actions only, and changes neither HEAD, ref, file, tracked bytes, nor untracked state. |
 | A9 | `IMPLEMENTATION_SHA_FILE=/tmp/docks-plan-review-controller-failure-recovery-implementation.sha IMPLEMENTATION_REF=refs/docks/release/docks-0.13.1-tested && FILE_IMPLEMENTATION_COMMIT=$(cat "$IMPLEMENTATION_SHA_FILE") && IMPLEMENTATION_COMMIT=$(git rev-parse "$IMPLEMENTATION_REF") && test "$FILE_IMPLEMENTATION_COMMIT" = "$IMPLEMENTATION_COMMIT" && test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_COMMIT" && node scripts/release.mjs --plugin docks patch && RELEASE_COMMIT=$(git rev-parse 'docks--v0.13.1^{commit}') && test "$(git show -s --format='%P' "$RELEASE_COMMIT")" = "$IMPLEMENTATION_COMMIT"` | Exit 0; resolves the durable ref as source of truth, reads the exact A7-captured file and requires parity, requires pre-release HEAD to equal the bound SHA, creates/pushes the one version commit and annotated tag, waits for green tag CI, publishes the Release, and proves the release commit has exactly one parent equal to that tested implementation SHA. |
 | A10 | `RELEASE_TAG=docks--v0.13.1 RELEASE_COMMIT=$(git rev-parse 'docks--v0.13.1^{commit}') && test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)" && test "$(gh run list --repo DocksDocks/docks --commit "$RELEASE_COMMIT" --event push --json databaseId,status,conclusion,headBranch,headSha --limit 20 --jq "map(select(.headBranch == \"$RELEASE_TAG\" and .headSha == \"$RELEASE_COMMIT\" and .status == \"completed\" and .conclusion == \"success\")) \| length")" = 1 && test "$(gh release view "$RELEASE_TAG" --repo DocksDocks/docks --json tagName --jq .tagName)" = "$RELEASE_TAG" && test "$(gh release view "$RELEASE_TAG" --repo DocksDocks/docks --json isDraft --jq .isDraft)" = false && test "$(gh release view "$RELEASE_TAG" --repo DocksDocks/docks --json isPrerelease --jq .isPrerelease)" = false` | Exit 0; tag peels to HEAD, exactly one successful completed tag-push CI run tested that commit, and GitHub Release `docks--v0.13.1` is published non-draft/non-prerelease. |
 | A11 | `RELEASE_COMMIT=$(git rev-parse 'docks--v0.13.1^{commit}') && codex plugin marketplace upgrade docks --json && codex plugin add docks@docks --json && claude plugin update docks@docks --scope user && CLAUDE_HELPER="$HOME/.claude/plugins/cache/docks/docks/0.13.1/skills/productivity/plan-reviewer/scripts/review-policy.mjs" CODEX_HELPER="$HOME/.codex/plugins/cache/docks/docks/0.13.1/skills/productivity/plan-reviewer/scripts/review-policy.mjs" && git show "$RELEASE_COMMIT:plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs" \| cmp - "$CLAUDE_HELPER" && cmp "$CLAUDE_HELPER" "$CODEX_HELPER" && env DOCKS_REVIEW_POLICY_ORCHESTRATION_ORACLE=1 DOCKS_REVIEW_POLICY_HELPER="$CLAUDE_HELPER" node scripts/tests/plan-review-policy-regressions.mjs --orchestration-oracle && node scripts/tests/plan-skill-phases.mjs --case installed-catalogs --version 0.13.1` | Exit 0; fresh Claude/Codex `0.13.1` caches equal the tagged helper bytes, the installed helper passes the abort oracle, and both catalogs expose five exact plan phases. |
@@ -211,6 +313,17 @@ historical review schema-1–5 bytes remain valid for validation only.
 
 ## Known gotchas
 
+- A request or policy originating only inside caller-controlled `failure` is
+  self-consistent, not origin evidence. The reducer receives the exact expected
+  request separately from the manager-as-sole-writer boundary, deep-copies it
+  into the abort, and revalidates that embedded copy on read-back; the sole
+  legacy recovery path derives it from exact reviewer stdout bytes.
+- Candidate equality is position-sensitive. Default candidate index `i` is
+  admissible only with the exact availability-only prefix `0..i-1`; a pinned
+  policy never falls through and permits only index 0.
+- On round 2, prior request IDs and round-1 evidence remain lineage. Treating all
+  state request IDs as malformed observations would reject a lawful latest-round
+  abort and falsely relabel prior evidence.
 - `series_sha256` always binds a valid ReviewSeries. Abort evidence uses only
   state-V2 `abort_sha256`, while `aborted_from_state_sha256` alone binds the
   source active-state hash; receipt validation must never accept either as a
@@ -218,6 +331,9 @@ historical review schema-1–5 bytes remain valid for validation only.
   transition meaning.
 - `canonicalPlanView` must validate machine records before excluding them;
   exclusion without validation would let forged aborts reset input invisibly.
+- Current-only means changed-input restart replaces the abort and terminal state
+  together. Their durable historical proof is the parent Git plan blob, not an
+  orphan record retained in current canonical content.
 - A controller output can be semantically useful yet inadmissible evidence. The
   abort records observed bytes and the validator error; it never adopts findings.
 - Patch release `0.13.1` supersedes helper behavior only. Public migration and
@@ -228,11 +344,19 @@ historical review schema-1–5 bytes remain valid for validation only.
 - Exact normal reviewer deadline remains 600 seconds.
 - At most two orchestration attempts and two review rounds remain unchanged.
 - Abort is nonretryable for the same substantive input.
+- The manager-trusted expected request remains a separate API input and is
+  deep-copied into the newly returned abort; no request, policy, candidate, or
+  provenance fields are added to orchestration state merely to make a
+  caller-controlled failure self-consistent.
+- A round-2 abort binds only the latest request; prior request IDs remain lineage.
 - No current review schema below 6 or orchestration state schema below 2 is
   emitted; state V1 and historical review schemas remain validation-only.
 - Every non-abort state V2 has both abort fields null and preserves V1
   `transitioned_from_state_sha256` semantics; every abort state V2 has a distinct
   abort source hash and a null transition hash.
+- Same-input restart remains forbidden. Changed-input restart uses a fresh
+  series/request and atomically replaces exactly the abort and terminal state;
+  the parent plan blob preserves the old evidence.
 - Every write is plan-only or within this plan's affected paths and is committed
   atomically by its owning phase.
 
@@ -240,8 +364,21 @@ historical review schema-1–5 bytes remain valid for validation only.
 
 - The test cannot reproduce rejection of the exact observed 650-second attempt.
 - The proposed abort can accept any normally valid current attempt.
+- The expected request is sourced from caller-controlled failure data rather than
+  supplied separately by the manager, is not deep-copied into a newly returned
+  abort, the API does not return the abort/state pair, or the abort cannot be
+  fully revalidated after canonical read-back.
+- The one legacy output-started case cannot be tied to exact stdout bytes and a
+  JCS-equal parsed reviewer request.
+- Any request/state/policy hash, embedded-request field, candidate position/
+  equality, fallback prefix, latest-request, raw-byte, or provenance mismatch is
+  accepted, or rejection mutates any supplied input.
+- A round-2 abort requires earlier request IDs to be restated as failed attempts.
 - Abort changes candidate input, creates a receipt, consumes intent, overloads
   `transitioned_from_state_sha256`, or permits same-input retry/reset.
+- Changed-input restart leaves an orphan old record, does not replace exactly the
+  abort/state pair atomically, reuses a series/request, lacks canonical read-back,
+  or cannot prove the parent plan blob retains the exact pair.
 - Existing current state records or historical fixtures fail validation.
 - Any related active plan must be edited to make helper tests pass.
 - Targeted or full CI fails, version triples disagree, tag CI fails, or release
@@ -249,34 +386,60 @@ historical review schema-1–5 bytes remain valid for validation only.
 
 ## Self-review
 
-One cold-read critique found and fixed two scope defects before creation:
+The original cold-read critique fixed two scope defects before creation:
 
 - The first draft mixed Session Relay A6 repair into the helper patch. It now
   explicitly leaves candidate repair and a new review series to the owning plan.
-- The first interface idea overloaded normal attempt validation. The final
-  contract keeps exact-600 validation unchanged and uses a distinct closed abort
-  record that cannot become a review receipt.
+- The first interface idea overloaded normal attempt validation. The contract
+  keeps exact-600 validation unchanged and uses a distinct closed abort record
+  that cannot become a review receipt.
+
+Independent provenance-design critiques rejected both a request/policy originating
+only inside caller-controlled failure and policy fields added to StateV2: the
+former does not prove origin and the latter breaks exact V1 normalization. The
+repaired seam receives the manager-trusted exact request separately, deep-copies
+it plus its recomputed digest and complete validated policy/candidate evidence
+into the self-validating abort, revalidates that embedded envelope on canonical
+read-back, uses exact reviewer stdout as the only legacy bridge, binds candidate
+order before checking the expected malformed attempt, treats only the latest
+round-2 request as failing, and atomically replaces the two current-only records
+with parent Git history as durable abort evidence.
 
 All twelve criteria are covered: exact paths/commands make the plan standalone and
 actionable; red→green→docs→gates→release ordering is acyclic; acceptance proves
-the interface and release; STOP conditions cover unsafe broadening; no unresolved
-human decision remains.
+the closed abort/request API, persisted-envelope read-back, provenance mutations,
+canonical replacement/read-back, parent-blob evidence, untracked cleanliness,
+and release; STOP conditions cover unsafe broadening; no unresolved human
+decision remains.
 
 ## Open questions
 
-N/A — the user selected typed recovery plus Docks `0.13.1`, and the ownership
-boundary requires Session Relay candidate repair to remain separate.
+N/A — the selected persistence rule is current-only replacement: commit the
+provenance-bound abort (including its revalidatable exact expected request) and
+terminal StateV2 pair, then only for materially changed canonical input replace
+exactly both with a fresh active StateV2 and new series/request; verify canonical
+read-back and retain the old pair only in the replacement parent Git plan blob.
+The user-selected typed recovery plus Docks `0.13.1` and the ownership boundary
+keep Session Relay candidate repair separate.
 
 ## Cold-handoff checklist
 
 - [ ] Every step names exact files and one owner.
 - [ ] Node, setup assumptions, focused commands, gates, and release command are explicit.
-- [ ] Abort input/output, digest, source-state, canonicalization, and disjoint
-  transition invariants are closed without overloading V1 fields.
-- [ ] A1–A12 are ordered, executable, and have concrete expected results.
+- [ ] Abort input/output and the separately supplied expected request are closed;
+  the builder returns a new deep-copied abort/state pair, and read-back revalidates the envelope's closure/JCS,
+  state/series/phase/input/round, policy digest, latest request, and state hash.
+- [ ] Default fallback requires exact preceding availability-only evidence;
+  pinned policy permits index 0 only; round 2 fails only its latest request.
+- [ ] State-V2 digest, abort-source, canonicalization, and disjoint transition
+  invariants remain closed without overloading V1 fields.
+- [ ] Changed-input restart atomically replaces exactly abort/state, canonical
+  read-back succeeds, and the parent plan blob retains the old pair.
+- [ ] A1–A12 are ordered, executable, and have concrete expected results; A7/A8
+  require empty porcelain including untracked files before and after their gates.
 - [ ] Related active plans, candidate repair, public work, and release semantics are protected.
 - [ ] Exact-600 preservation and separate-plan rationale are recorded.
-- [ ] Invalid-attempt, canonical-record, version, and release gotchas are explicit.
+- [ ] Provenance, invalid-attempt, canonical-record, version, and release gotchas are explicit.
 - [ ] No undefined forward reference, placeholder, or unresolved question remains.
 
 ## Sources
