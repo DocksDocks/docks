@@ -262,7 +262,7 @@ export function acceptanceInventory(bytes) {
   for (const row of rows.slice(2)) {
     if (row.length !== header.length) throw new Error('acceptance table column mismatch');
     const id = uncode(row[idAt]); const command = uncode(row[commandAt]); const expected = uncode(row[expectedAt]);
-    if (!/^A[1-9][0-9]*R?$/.test(id) || ids.has(id)) throw new Error('acceptance criterion id');
+    if (!/^A[1-9][0-9]*$/.test(id) || ids.has(id)) throw new Error('acceptance criterion id');
     string(command, 'acceptance criterion command'); string(expected, 'acceptance criterion expected'); ids.add(id); criteria.push({ id, command, expected });
   }
   if (criteria.length === 0) throw new Error('acceptance inventory must be nonempty');
@@ -704,7 +704,7 @@ export function validateAcceptanceInventory(value) {
   const ids = new Set();
   for (const criterion of value.criteria) {
     assertClosed(criterion, ['id', 'command', 'expected'], 'acceptance inventory criterion');
-    if (!/^A[1-9][0-9]*R?$/.test(criterion.id) || ids.has(criterion.id)) throw new Error('acceptance inventory criterion id');
+    if (!/^A[1-9][0-9]*$/.test(criterion.id) || ids.has(criterion.id)) throw new Error('acceptance inventory criterion id');
     string(criterion.command, 'acceptance inventory command'); string(criterion.expected, 'acceptance inventory expected'); ids.add(criterion.id);
   }
   return value;
