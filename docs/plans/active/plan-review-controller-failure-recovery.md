@@ -1,12 +1,12 @@
 ---
 title: Add typed review-controller failure recovery
 goal: Persist exact review requests before launch, reject invalid controller configuration before spawning, support user-authorized provenance-unavailable abandonment without fabricated review evidence, normalize StateV1 reducer outputs to StateV2, and release Docks 0.13.1.
-status: blocked
+status: ongoing
 created: "2026-07-19T11:24:58-03:00"
-updated: "2026-07-19T22:38:53.517Z"
+updated: "2026-07-19T22:44:05.487Z"
 started_at: "2026-07-19T13:10:44-03:00"
-blocked_reason: "The passed draft receipt predates the required fallback-attempt persistence, parent-commitment ancestry, and worktree-drift dispatch guards; implementation remains isolated pending a refreshed changed-input review."
-blocked_since: "2026-07-19T22:21:47.883Z"
+blocked_reason: null
+blocked_since: null
 assignee: null
 review_author_company: openai
 review_author_tool: codex
