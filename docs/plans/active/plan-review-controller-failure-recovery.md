@@ -177,7 +177,9 @@ request, requires the candidate to equal
 internal ungated builder, and fixes the deadline at `600`. The manager writes
 `Review-orchestration-dispatch-commitment: <compact JCS>` and reads it back
 before the consuming dispatch boundary may spawn. Public
-`buildReviewerArgv({...existing,preparedRequest,dispatchCommitment})` requires
+`buildReviewerArgv({tool,bundle,reviewerWorkspace=null,model,effort,
+serviceTier=null,leg,request,priorAttempts=[],preparedRequest,
+dispatchCommitment})` requires
 both exact records for schema-6 orchestration requests and returns only the
 committed argv; it rejects a missing, uncommitted, orphaned, stale, substituted,
 candidate-mismatched, argv-mismatched, or non-600 commitment before process
@@ -585,4 +587,4 @@ unavailable provenance. The current Session Relay archive remains untouched.
 
 (filled by main-context plan-manager after completion evidence)
 
-Review-orchestration-state: {"apply_state":"none","current_input_sha256":"be985c12405f29ebbc0e20f7947b01a91b25b3bca17c2d08e98d3f5ee826da25","initial_input_sha256":"376da5a0d244e06a1e3c56c252120bc0d0929f8578af60f6bc39a7ba25bf1d65","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/plan-review-controller-failure-recovery.md","request_ids":["243596c2-b40c-4a40-bf53-ae6160bc9964","dcfd72ae-cc78-439d-ae5c-4eff40652f14"],"retry_authorization":null,"round_index":2,"schema":1,"series_id":"07b6c66d-fcb4-47a8-97f5-f49664d516a4","series_sha256":"4e272c9d34bb1b1423f5c2d64d005a342cac1a0d70c4f8a043e4fca464d1742e","state_sha256":"f9d70cee965780c2c62b23c9270b1a1a628e5d8c76c2c5a6a1b16c391b6bf042","status":"passed","stop_reason":null,"transitioned_from_state_sha256":null}
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"0a2148c542b5da822e78b7d8dcc9fc657b7365e0afaedb81506870f3a91f4a97","initial_input_sha256":"0a2148c542b5da822e78b7d8dcc9fc657b7365e0afaedb81506870f3a91f4a97","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/plan-review-controller-failure-recovery.md","request_ids":["d2031968-312d-451e-881d-68953cb618c4"],"retry_authorization":null,"round_index":1,"schema":1,"series_id":"2a48a14e-62e4-4349-9e50-df38dfc4d578","series_sha256":null,"state_sha256":"104d33cff08397981127586f86deb166249cbcbb849ca0ee4852060915565732","status":"active","stop_reason":null,"transitioned_from_state_sha256":null}
