@@ -10,6 +10,16 @@ Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cro
 /reload-plugins
 ```
 
+## Platform support
+
+All three marketplace plugins support Linux and macOS only:
+
+| Plugin | Supported hosts |
+|---|---|
+| `docks` | Linux and macOS only |
+| `session-relay` | Linux and macOS only; official prebuilts are available for x64 and arm64 |
+| `effect-kit` | Linux and macOS only |
+
 After install, the pipeline skills are user-invocable — ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `skill-agent-pipeline` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
 
 ## What's inside

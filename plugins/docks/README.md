@@ -10,6 +10,10 @@ A cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, 
 /reload-plugins
 ```
 
+## Platform support
+
+The `docks` plugin supports Linux and macOS only.
+
 For local development:
 
 ```bash
