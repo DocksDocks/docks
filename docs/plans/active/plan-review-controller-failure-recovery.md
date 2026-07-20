@@ -1,12 +1,12 @@
 ---
 title: Add typed review-controller failure recovery
 goal: Persist exact review requests before launch, reject invalid controller configuration before spawning, support user-authorized provenance-unavailable abandonment without fabricated review evidence, normalize StateV1 reducer outputs to StateV2, and release Docks 0.13.1.
-status: blocked
+status: ongoing
 created: "2026-07-19T11:24:58-03:00"
-updated: "2026-07-20T00:19:45.572Z"
+updated: "2026-07-20T00:25:21.601Z"
 started_at: "2026-07-19T13:10:44-03:00"
-blocked_reason: "The exhausted workspace review identified a repair-introduced launch-envelope contradiction. The materially changed plan now keeps bundle/workspace verification independent from the closed proposed controller configuration and requires a fresh review series."
-blocked_since: "2026-07-19T23:34:34.816Z"
+blocked_reason: null
+blocked_since: null
 assignee: null
 review_author_company: openai
 review_author_tool: codex
