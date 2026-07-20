@@ -2994,21 +2994,56 @@ function replacePlanBody(bytes, body) {
   return Buffer.from(`${plan.prefix}${body}`);
 }
 
-function normalizeAllowedFrontmatter(bytes, allowed) {
+function normalizeAllowedFrontmatter(bytes, allowed, insertionAllowed = []) {
   const text = exactUtf8(bytes, 'plan'); const lines = text.split('\n'); const end = lines.indexOf('---', 1);
   if (lines[0] !== '---' || end < 0) throw new Error('plan frontmatter boundary');
+  const insertionAllowedKeys = new Set(insertionAllowed); const strippedIndexes = new Set();
   for (const key of allowed) {
     const indexes = [];
     for (let i = 1; i < end; i += 1) if (lines[i].startsWith(`${key}:`)) indexes.push(i);
     if (indexes.length > 1) throw new Error(`duplicate frontmatter key: ${key}`);
-    if (indexes.length === 1) lines[indexes[0]] = `${key}: <allowed>`;
+    if (indexes.length === 1) {
+      if (insertionAllowedKeys.has(key)) strippedIndexes.add(indexes[0]);
+      else lines[indexes[0]] = `${key}: <allowed>`;
+    }
   }
-  return lines.join('\n');
+  return lines.filter((_, index) => !strippedIndexes.has(index)).join('\n');
 }
 
-function requirePlanDelta(beforeBytes, afterBytes, expectedBytes, label, allowed = ['updated']) {
+function frontmatterFieldLines(bytes, key) {
+  const lines = exactUtf8(bytes, 'plan').split('\n'); const end = lines.indexOf('---', 1);
+  if (lines[0] !== '---' || end < 0) throw new Error('plan frontmatter boundary');
+  return lines.slice(1, end).filter((line) => line.startsWith(`${key}:`));
+}
+
+function validateSchema6CompletionLifecycle(beforeBytes, afterBytes) {
+  const before = parsePlan(beforeBytes).frontmatter; const after = parsePlan(afterBytes).frontmatter;
+  if (!['ongoing', 'in_review'].includes(before.status)) throw new Error('schema-6 completion source status');
+  if (after.status !== 'in_review') throw new Error('schema-6 completion status must be in_review');
+  if (frontmatterFieldLines(beforeBytes, 'status').length !== 1 || frontmatterFieldLines(afterBytes, 'status').length !== 1) throw new Error('duplicate completion status');
+  const beforeReviewLines = frontmatterFieldLines(beforeBytes, 'in_review_since');
+  const afterReviewLines = frontmatterFieldLines(afterBytes, 'in_review_since');
+  if (afterReviewLines.length !== 1 || typeof after.in_review_since !== 'string') throw new Error('schema-6 completion requires one in_review_since timestamp');
+  iso(after.in_review_since, 'schema-6 completion in_review_since');
+  if (afterReviewLines[0] !== `in_review_since: "${after.in_review_since}"`) throw new Error('schema-6 completion in_review_since must be quoted');
+  if (before.status === 'ongoing') {
+    if (beforeReviewLines.length !== 0) throw new Error('ongoing completion source carries in_review_since');
+  } else {
+    if (beforeReviewLines.length !== 1 || typeof before.in_review_since !== 'string') throw new Error('in_review completion source requires one in_review_since timestamp');
+    iso(before.in_review_since, 'schema-6 source in_review_since');
+    if (
+      beforeReviewLines[0] !== `in_review_since: "${before.in_review_since}"`
+      || after.in_review_since !== before.in_review_since
+    ) throw new Error('schema-6 completion cannot rewrite in_review_since');
+  }
+}
+
+function requirePlanDelta(beforeBytes, afterBytes, expectedBytes, label, allowed = ['updated'], insertionAllowed = []) {
   parsePlan(beforeBytes); parsePlan(afterBytes); parsePlan(expectedBytes);
-  if (normalizeAllowedFrontmatter(afterBytes, allowed) !== normalizeAllowedFrontmatter(expectedBytes, allowed)) throw new Error(`${label} delta mismatch`);
+  if (
+    normalizeAllowedFrontmatter(afterBytes, allowed, insertionAllowed)
+    !== normalizeAllowedFrontmatter(expectedBytes, allowed, insertionAllowed)
+  ) throw new Error(`${label} delta mismatch`);
 }
 
 function gitResult(repo, args, encoding = 'buffer', extra = {}) {
@@ -3051,6 +3086,20 @@ function requirePlanOnlyChild(repo, commit, parent, planPath, label) {
   const paths = changedPaths(repo, parent, commit);
   if (paths.length !== 1 || paths[0] !== planPath) throw new Error(`${label} must change only the plan`);
 }
+
+function requirePlanOnlyRange(repo, commit, ancestorCommit, planPath, label) {
+  exactCommit(repo, ancestorCommit, `${label} ancestor`);
+  exactCommit(repo, commit, label);
+  if (commit === ancestorCommit) throw new Error(`${label} is absent from history`);
+  let current = commit;
+  while (current !== ancestorCommit) {
+    const parent = commitParent(repo, current, label);
+    const paths = changedPaths(repo, parent, current);
+    if (paths.length !== 1 || paths[0] !== planPath) throw new Error(`${label} range must change only the plan`);
+    current = parent;
+  }
+}
+
 
 function nextCommit(repo, parent, head, label) {
   if (!ancestor(repo, parent, head) || parent === head) throw new Error(`${label} is absent from history`);
@@ -3621,7 +3670,8 @@ function legacyCompletionReviewApplication(beforeReviewBytes, receipt, waivers) 
 export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, completionCommit, receipt, expectedPolicy, waivers = [], orchestration = null }) {
   const logical = safeLogical(planPath); exactCommit(repo, reviewedHead, 'completion reviewed head'); exactCommit(repo, completionCommit, 'completion receipt commit');
   validatePolicy(expectedPolicy);
-  requirePlanOnlyChild(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
+  if (receipt?.schema === 6) requirePlanOnlyRange(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
+  else requirePlanOnlyChild(repo, completionCommit, reviewedHead, logical, 'completion receipt commit');
   const beforeBytes = planBlob(repo, reviewedHead, logical); const afterBytes = planBlob(repo, completionCommit, logical);
   const legacyBytes = legacyCompletionReuseBytes(beforeBytes, afterBytes, receipt);
   const beforeReviewBytes = receipt.schema === 6 ? completionReviewBytes(beforeBytes) : legacyBytes.beforeReviewBytes;
@@ -3635,7 +3685,11 @@ export function validateCompletionReviewReuse({ repo, planPath, reviewedHead, co
   const expected = receipt.schema === 6
     ? applyCompletionReviewBlock(beforeReviewBytes, receipt, { waivers, orchestration })
     : legacyCompletionReviewApplication(beforeReviewBytes, receipt, waivers);
-  requirePlanDelta(beforeReviewBytes, afterReviewBytes, expected, 'completion Review apply', ['updated', 'review_status']);
+  if (receipt.schema === 6) validateSchema6CompletionLifecycle(beforeReviewBytes, afterReviewBytes);
+  const allowedCompletionMetadata = receipt.schema === 6
+    ? ['updated', 'review_status', 'status', 'in_review_since']
+    : ['updated', 'review_status'];
+  requirePlanDelta(beforeReviewBytes, afterReviewBytes, expected, 'completion Review apply', allowedCompletionMetadata, receipt.schema === 6 ? ['in_review_since'] : []);
   const beforeApplication = extractCompatibilityApplication(beforeReviewBytes, { required: false }); const afterApplication = extractCompatibilityApplication(afterReviewBytes, { required: false });
   if ((beforeApplication === null) !== (afterApplication === null) || (beforeApplication && beforeApplication.markdown !== afterApplication.markdown)) throw new Error('completion compatibility application changed');
   const beforeBinding = extractCompatibilityBinding(beforeReviewBytes, { required: false }); const afterBinding = extractCompatibilityBinding(afterReviewBytes, { required: false });

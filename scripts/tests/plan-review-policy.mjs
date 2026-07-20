@@ -1381,6 +1381,163 @@ function testStrictCompletionReuse() {
     receipt: currentReceiptValue,
     expectedPolicy: CURRENT_POLICY,
   });
+
+  const schema6Plan = plan;
+  const schema6Head = head;
+  const schema6Inventory = acceptanceInventory(Buffer.from(schema6Plan));
+  const schema6State = reviewPolicy.beginReviewOrchestration({
+    planPath,
+    phase: 'completion',
+    lifecycleIntent: 'none',
+    inputSha256: sha256(canonicalPlanView(Buffer.from(schema6Plan))),
+    seriesId: 'd23e4567-e89b-42d3-a456-426614174000',
+    requestId: 'e23e4567-e89b-42d3-a456-426614174000',
+    orchestrationAttempt: 1,
+    retryAuthorization: null,
+    previousState: null,
+    sourceText: null,
+  });
+  const schema6Req = schema6Request(
+    { manifest: { reviewed_commit: schema6Head }, bundle_sha256: H0 },
+    schema6State,
+    {
+      phase: 'completion',
+      planned_at_commit: plannedAt,
+      execution_base_commit: executionBase,
+      diff_sha256: H0,
+      acceptance_inventory_sha256: sha256(jcs(schema6Inventory)),
+      input_sha256: schema6State.current_input_sha256,
+    },
+  );
+  const schema6Raw = currentRaw(schema6Req, currentOutput(schema6Req, { schema: 6 }), {
+    schema: 6,
+    attempts: [currentAttempt(schema6Req.policy.candidates[0], { schema: 6 })],
+  });
+  const schema6Run = currentRun(schema6Req, schema6Raw, {
+    schema: 6,
+    primary: primaryEvidence(schema6Inventory),
+  });
+  const schema6SeriesValue = schema6Series(schema6Req, schema6Run);
+  const schema6Settled = reviewPolicy.settleReviewOrchestration({
+    state: schema6State,
+    series: schema6SeriesValue,
+  });
+  const schema6ReceiptValue = schema6Receipt(
+    schema6Req,
+    schema6Run,
+    schema6SeriesValue,
+    schema6Settled,
+  );
+  let preparedPlan = replaceOnce(
+    schema6Plan,
+    '## Review\n',
+    `## Review\n\nReview-orchestration-state: ${jcs(schema6State)}\n`,
+  );
+  preparedPlan = replaceOnce(preparedPlan, 'status: ongoing', 'status: in_review');
+  preparedPlan = replaceOnce(
+    preparedPlan,
+    'started_at: "2026-07-13T12:00:00.000Z"',
+    'started_at: "2026-07-13T12:00:00.000Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
+  );
+  writeLogical(repo, planPath, preparedPlan);
+  commitAll(repo, 'persist schema-6 completion state');
+  preparedPlan = replaceOnce(
+    preparedPlan,
+    'Review-orchestration-state: ',
+    'Review-orchestration-prepared-request: {}\nReview-orchestration-state: ',
+  );
+  writeLogical(repo, planPath, preparedPlan);
+  commitAll(repo, 'persist schema-6 completion request');
+  let schema6Completed = applyCompletionReviewBlock(
+    Buffer.from(preparedPlan),
+    schema6ReceiptValue,
+    { orchestration: schema6Settled },
+  ).toString();
+  schema6Completed = replaceOnce(schema6Completed, 'review_status: null', 'review_status: passed');
+  writeLogical(repo, planPath, schema6Completed);
+  const schema6CompletionCommit = commitAll(repo, 'complete strict plan with schema-6 primary review');
+  validateCompletionReviewReuse({
+    repo,
+    planPath,
+    reviewedHead: schema6Head,
+    completionCommit: schema6CompletionCommit,
+    receipt: schema6ReceiptValue,
+    expectedPolicy: schema6Req.policy,
+    orchestration: schema6Settled,
+  });
+
+  git(repo, ['checkout', '-q', '--detach', schema6Head]);
+  let lifecyclePreparedPlan = replaceOnce(schema6Plan, 'status: ongoing', 'status: in_review');
+  lifecyclePreparedPlan = replaceOnce(
+    lifecyclePreparedPlan,
+    'started_at: "2026-07-13T12:00:00.000Z"',
+    'started_at: "2026-07-13T12:00:00.000Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
+  );
+  lifecyclePreparedPlan = replaceOnce(
+    lifecyclePreparedPlan,
+    '## Review\n',
+    `## Review\n\nReview-orchestration-state: ${jcs(schema6State)}\n`,
+  );
+  writeLogical(repo, planPath, lifecyclePreparedPlan);
+  commitAll(repo, 'enter schema-6 completion review');
+  let lifecycleCompleted = applyCompletionReviewBlock(
+    Buffer.from(lifecyclePreparedPlan),
+    schema6ReceiptValue,
+    { orchestration: schema6Settled },
+  ).toString();
+  lifecycleCompleted = replaceOnce(lifecycleCompleted, 'review_status: null', 'review_status: passed');
+  writeLogical(repo, planPath, lifecycleCompleted);
+  const lifecycleCompletionCommit = commitAll(repo, 'complete schema-6 lifecycle review');
+  validateCompletionReviewReuse({
+    repo,
+    planPath,
+    reviewedHead: schema6Head,
+    completionCommit: lifecycleCompletionCommit,
+    receipt: schema6ReceiptValue,
+    expectedPolicy: schema6Req.policy,
+    orchestration: schema6Settled,
+  });
+
+  for (const [label, mutate] of [
+    ['blocked status', (value) => replaceOnce(value, 'status: in_review', 'status: blocked')],
+    ['missing in-review timestamp', (value) => replaceOnce(value, 'in_review_since: "2026-07-20T02:20:03.254Z"\n', '')],
+    ['missing updated field', (value) => replaceOnce(value, 'updated: "2026-07-12T00:00:00-03:00"\n', '')],
+    ['duplicate in-review timestamp', (value) => replaceOnce(
+      value,
+      'in_review_since: "2026-07-20T02:20:03.254Z"',
+      'in_review_since: "2026-07-20T02:20:03.254Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
+    )],
+  ]) {
+    git(repo, ['checkout', '-q', '--detach', schema6Head]);
+    writeLogical(repo, planPath, mutate(lifecycleCompleted));
+    const invalidLifecycleCommit = commitAll(repo, `invalid schema-6 lifecycle ${label}`);
+    expectThrow(`schema-6 completion reuse rejects ${label}`, () => validateCompletionReviewReuse({
+      repo,
+      planPath,
+      reviewedHead: schema6Head,
+      completionCommit: invalidLifecycleCommit,
+      receipt: schema6ReceiptValue,
+      expectedPolicy: schema6Req.policy,
+      orchestration: schema6Settled,
+    }), /status|in.review|timestamp|duplicate|frontmatter|lifecycle|updated|delta/i);
+  }
+
+  git(repo, ['checkout', '-q', '--detach', schema6Head]);
+  writeLogical(repo, 'unexpected.txt', 'not plan-only\n');
+  commitAll(repo, 'unexpected schema-6 completion mutation');
+  writeLogical(repo, planPath, preparedPlan);
+  commitAll(repo, 'persist schema-6 request after mutation');
+  writeLogical(repo, planPath, schema6Completed);
+  const invalidSchema6CompletionCommit = commitAll(repo, 'complete schema-6 plan after mutation');
+  expectThrow('schema-6 completion reuse rejects an intermediate non-plan mutation', () => validateCompletionReviewReuse({
+    repo,
+    planPath,
+    reviewedHead: schema6Head,
+    completionCommit: invalidSchema6CompletionCommit,
+    receipt: schema6ReceiptValue,
+    expectedPolicy: schema6Req.policy,
+    orchestration: schema6Settled,
+  }), /plan|path|mutation|scope/i);
   for (const [label, sourcePlan] of [
     ['plain', plan],
     ['compatibility records', replaceOnce(

@@ -4,7 +4,7 @@ description: Use when plan-manager dispatches an internal read-only reviewer for
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-19"
+  updated: "2026-07-20"
   content_hash: "fed2fe90627bece3d8b787e438a1fead3591c21e623314e650cee7468f554bf8"
 ---
 

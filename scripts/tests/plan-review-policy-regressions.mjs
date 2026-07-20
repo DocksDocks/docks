@@ -2627,8 +2627,8 @@ const REGRESSIONS = [
     ),
     applyVariant(
       'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-      "requirePlanDelta(beforeReviewBytes, afterReviewBytes, expected, 'completion Review apply', ['updated', 'review_status']);",
-      'void expected; // variant completion Review exact apply',
+      "requirePlanDelta(beforeReviewBytes, afterReviewBytes, expected, 'completion Review apply', allowedCompletionMetadata, receipt.schema === 6 ? ['in_review_since'] : []);",
+      'void expected; void allowedCompletionMetadata; // variant completion Review exact apply',
     ),
   )],
   ['execution scope chronological empty-ledger regression', ['--case', 'execution-compatibility'], /scope ledger|empty commits|Assertion/, combine(
