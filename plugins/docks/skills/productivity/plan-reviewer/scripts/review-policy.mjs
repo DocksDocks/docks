@@ -15,7 +15,7 @@ const EXCLUDED_FRONTMATTER = new Set([
   'blocked_since', 'assignee', 'review_status', 'ship_commit', 'review_waivers',
   'execution_base_commit',
 ]);
-const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt|Review-orchestration-state): (\{.*\})$/;
+const MACHINE_RECORD = /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt|Review-orchestration-state|Review-orchestration-prepared-request|Review-orchestration-dispatch-commitment|Review-orchestration-controller-abort|Review-orchestration-abandonment): (\{.*\})$/;
 const LEG_RESULTS = new Set(['passed', 'waived', 'not_authorized', 'unavailable_auth', 'unavailable_model', 'timed_out', 'platform_denied', 'failed_unparseable', 'unavailable_unknown']);
 const ATTEMPT_RESULTS = new Set(['passed', 'auth_failed', 'model_unavailable', 'deadline_exceeded', 'platform_denied', 'transient_transport', 'nonzero_exit', 'signaled', 'unparseable']);
 const SOURCES = new Set(['current_user', 'runtime_global', 'skill_default']);
@@ -215,7 +215,7 @@ export function parsePlan(bytes) {
 export function canonicalPlanView(bytes) {
   const { frontmatter, body } = parsePlan(bytes);
   const kept = Object.fromEntries(Object.entries(frontmatter).filter(([key]) => !EXCLUDED_FRONTMATTER.has(key)));
-  const counts = new Map(); let fence = null; const retained = [];
+  const counts = new Map(); const records = new Map(); let fence = null; const retained = [];
   for (const line of body.split('\n')) {
     const fenceMatch = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence === null && fenceMatch) {
@@ -231,8 +231,10 @@ export function canonicalPlanView(bytes) {
     if (count > 1) throw new Error(`duplicate ${kind}`);
     let parsed; try { parsed = JSON.parse(payload); } catch { throw new Error(`${kind} must be one-line JSON`); }
     if (jcs(parsed) !== payload) throw new Error(`${kind} must be compact JCS`);
+    records.set(kind, parsed);
     if (kind === 'Review-orchestration-state') validateReviewOrchestrationState(parsed);
   }
+  validateCanonicalOrchestrationFamily(records);
   return `${jcs(kept)}\n${retained.join('\n').replace(/\n*$/, '')}\n`;
 }
 
@@ -1661,11 +1663,16 @@ export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
   return series;
 }
 
-const ORCHESTRATION_STATE_KEYS = [
+const ORCHESTRATION_STATE_V1_KEYS = [
   'schema', 'plan_path', 'phase', 'lifecycle_intent', 'initial_input_sha256',
   'current_input_sha256', 'orchestration_attempt', 'series_id', 'request_ids',
   'round_index', 'status', 'stop_reason', 'series_sha256', 'apply_state',
   'transitioned_from_state_sha256', 'retry_authorization', 'state_sha256',
+];
+const ORCHESTRATION_STATE_V2_KEYS = [
+  ...ORCHESTRATION_STATE_V1_KEYS.filter((key) => !['schema', 'state_sha256'].includes(key)),
+  'schema', 'terminal_evidence_sha256', 'terminated_from_state_sha256',
+  'terminated_from_state', 'state_sha256',
 ];
 const ORCHESTRATION_RETRY_AUTHORIZATION_KEYS = [
   'schema', 'authorization_id', 'actor', 'authorized_at', 'plan_path', 'phase',
@@ -1676,7 +1683,11 @@ const ORCHESTRATION_STOP_REASONS = new Set([
   'failed_unparseable', 'platform_denied', 'stale_input', 'cannot_repair',
   'not_ready', 'apply_rejected',
 ]);
-const ORCHESTRATION_NONRETRYABLE_REASONS = new Set(['platform_denied', 'stale_input', 'cannot_repair', 'not_ready', 'apply_rejected']);
+const ORCHESTRATION_TERMINAL_REASONS = new Set(['controller_contract_failure', 'authorized_abandonment']);
+const ORCHESTRATION_NONRETRYABLE_REASONS = new Set([
+  'platform_denied', 'stale_input', 'cannot_repair', 'not_ready', 'apply_rejected',
+  ...ORCHESTRATION_TERMINAL_REASONS,
+]);
 const ORCHESTRATION_FALLBACK_PRECEDENCE = ['auth_failed', 'model_unavailable', 'tool_unavailable'];
 const ORCHESTRATION_RESULT_MAP = Object.freeze({
   auth_failed: 'unavailable_auth',
@@ -1704,6 +1715,21 @@ function orchestrationWithHash(fields) {
   const state = structuredClone(fields);
   delete state.state_sha256;
   return { ...state, state_sha256: sha256(jcs(state)) };
+}
+
+function normalOrchestrationStateV2(state, overrides = {}) {
+  const fields = Object.fromEntries(Object.entries(structuredClone(state)).filter(([key]) => ![
+    'schema', 'state_sha256', 'terminal_evidence_sha256',
+    'terminated_from_state_sha256', 'terminated_from_state',
+  ].includes(key)));
+  return orchestrationWithHash({
+    ...fields,
+    schema: 2,
+    terminal_evidence_sha256: null,
+    terminated_from_state_sha256: null,
+    terminated_from_state: null,
+    ...structuredClone(overrides),
+  });
 }
 
 function validateReviewRetryAuthorization(authorization, previousState = null, sourceText = undefined) {
@@ -1735,8 +1761,9 @@ function validateReviewRetryAuthorization(authorization, previousState = null, s
 }
 
 function validateReviewOrchestrationState(state) {
-  assertClosed(state, ORCHESTRATION_STATE_KEYS, 'review orchestration state');
-  if (state.schema !== 1) throw new Error('review orchestration state schema');
+  const schema = state?.schema;
+  assertClosed(state, schema === 2 ? ORCHESTRATION_STATE_V2_KEYS : ORCHESTRATION_STATE_V1_KEYS, 'review orchestration state');
+  if (![1, 2].includes(schema)) throw new Error('review orchestration state schema');
   string(state.plan_path, 'review orchestration plan path');
   oneOf(state.phase, new Set(['draft', 'completion']), 'review orchestration phase');
   oneOf(state.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'review orchestration lifecycle intent');
@@ -1747,23 +1774,53 @@ function validateReviewOrchestrationState(state) {
   if (!Array.isArray(state.request_ids) || ![1, 2].includes(state.round_index) || state.request_ids.length !== state.round_index || new Set(state.request_ids).size !== state.request_ids.length || state.request_ids.some((id) => !UUID.test(id))) throw new Error('review orchestration request ids or round');
   oneOf(state.status, new Set(['active', 'passed', 'stopped', 'stuck']), 'review orchestration status');
   oneOf(state.apply_state, new Set(['none', 'pending', 'consumed']), 'review orchestration apply state');
-  if (state.stop_reason !== null) oneOf(state.stop_reason, ORCHESTRATION_STOP_REASONS, 'review orchestration stop reason');
+  const terminalReason = schema === 2 && ORCHESTRATION_TERMINAL_REASONS.has(state.stop_reason);
+  if (state.stop_reason !== null) oneOf(state.stop_reason, terminalReason ? ORCHESTRATION_TERMINAL_REASONS : ORCHESTRATION_STOP_REASONS, 'review orchestration stop reason');
   if (state.series_sha256 !== null) digest(state.series_sha256, 'review orchestration series');
   if (state.transitioned_from_state_sha256 !== null) digest(state.transitioned_from_state_sha256, 'review orchestration transition');
   if (state.retry_authorization !== null) validateReviewRetryAuthorization(state.retry_authorization);
   if (state.orchestration_attempt === 1 && state.retry_authorization !== null) throw new Error('review orchestration attempt one cannot carry retry authorization');
   if (state.orchestration_attempt === 2 && state.retry_authorization === null) throw new Error('review orchestration attempt two requires retry authorization');
-  if (state.status === 'active') {
-    if (state.stop_reason !== null || state.series_sha256 !== null || state.apply_state !== 'none' || state.transitioned_from_state_sha256 !== null) throw new Error('active review orchestration state is not clean');
-  } else if (state.status === 'passed') {
-    if (state.stop_reason !== null || state.series_sha256 === null) throw new Error('passed review orchestration state is incomplete');
-    if (state.apply_state === 'none' && state.lifecycle_intent !== 'none') throw new Error('executing passed orchestration must be pending or consumed');
-    if (state.apply_state === 'pending' && state.lifecycle_intent === 'none') throw new Error('non-executing orchestration cannot be pending');
-    if ((state.apply_state === 'consumed') !== (state.transitioned_from_state_sha256 !== null)) throw new Error('consumed review orchestration transition mismatch');
-  } else {
-    if (state.stop_reason === null || state.apply_state !== 'none') throw new Error('stopped review orchestration state is incomplete');
-    if (state.series_sha256 === null && state.stop_reason !== 'cannot_repair') throw new Error('cannot_repair is the only terminal review orchestration state without a series hash');
-    if ((state.stop_reason === 'apply_rejected') !== (state.transitioned_from_state_sha256 !== null)) throw new Error('apply_rejected review orchestration transition mismatch');
+
+  if (schema === 2) {
+    const terminalFields = [
+      state.terminal_evidence_sha256,
+      state.terminated_from_state_sha256,
+      state.terminated_from_state,
+    ];
+    const allNull = terminalFields.every((value) => value === null);
+    const allPresent = terminalFields.every((value) => value !== null);
+    if (!allNull && !allPresent) throw new Error('review orchestration terminal fields must be all null or all present');
+    if (terminalReason !== allPresent) throw new Error('review orchestration terminal evidence and stop reason mismatch');
+    if (allPresent) {
+      digest(state.terminal_evidence_sha256, 'review orchestration terminal evidence');
+      digest(state.terminated_from_state_sha256, 'review orchestration terminal source');
+      const source = validateReviewOrchestrationState(state.terminated_from_state);
+      if (source.status !== 'active' || (source.schema === 2 && source.terminal_evidence_sha256 !== null)) throw new Error('review orchestration terminal source must be active and nonterminal');
+      if (source.state_sha256 !== state.terminated_from_state_sha256) throw new Error('review orchestration terminal source hash mismatch');
+      const preserved = [
+        'plan_path', 'phase', 'lifecycle_intent', 'initial_input_sha256',
+        'current_input_sha256', 'orchestration_attempt', 'series_id', 'request_ids',
+        'round_index', 'transitioned_from_state_sha256', 'retry_authorization',
+      ];
+      if (preserved.some((key) => jcs(state[key]) !== jcs(source[key]))) throw new Error('review orchestration terminal source lineage mismatch');
+      if (state.status !== 'stuck' || state.series_sha256 !== null || state.apply_state !== 'none') throw new Error('review orchestration administrative terminal tuple');
+    }
+  }
+
+  if (!terminalReason) {
+    if (state.status === 'active') {
+      if (state.stop_reason !== null || state.series_sha256 !== null || state.apply_state !== 'none' || state.transitioned_from_state_sha256 !== null) throw new Error('active review orchestration state is not clean');
+    } else if (state.status === 'passed') {
+      if (state.stop_reason !== null || state.series_sha256 === null) throw new Error('passed review orchestration state is incomplete');
+      if (state.apply_state === 'none' && state.lifecycle_intent !== 'none') throw new Error('executing passed orchestration must be pending or consumed');
+      if (state.apply_state === 'pending' && state.lifecycle_intent === 'none') throw new Error('non-executing orchestration cannot be pending');
+      if ((state.apply_state === 'consumed') !== (state.transitioned_from_state_sha256 !== null)) throw new Error('consumed review orchestration transition mismatch');
+    } else {
+      if (state.stop_reason === null || state.apply_state !== 'none') throw new Error('stopped review orchestration state is incomplete');
+      if (state.series_sha256 === null && state.stop_reason !== 'cannot_repair') throw new Error('cannot_repair is the only terminal review orchestration state without a series hash');
+      if ((state.stop_reason === 'apply_rejected') !== (state.transitioned_from_state_sha256 !== null)) throw new Error('apply_rejected review orchestration transition mismatch');
+    }
   }
   digest(state.state_sha256, 'review orchestration state hash');
   const { state_sha256: stateSha256, ...preimage } = state;
@@ -1778,6 +1835,7 @@ export function beginReviewOrchestration(input) {
     orchestrationAttempt, previousState, retryAuthorization, sourceText,
   } = input;
   string(planPath, 'review orchestration plan path');
+  activePlanPath(planPath, 'review orchestration plan path');
   oneOf(phase, new Set(['draft', 'completion']), 'review orchestration phase');
   oneOf(lifecycleIntent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'review orchestration lifecycle intent');
   digest(inputSha256, 'review orchestration input');
@@ -1787,6 +1845,7 @@ export function beginReviewOrchestration(input) {
     if (retryAuthorization !== null || sourceText !== null) throw new Error('review orchestration attempt one cannot carry retry authorization or source text');
     if (previousState !== null) {
       validateReviewOrchestrationState(previousState);
+      if (ORCHESTRATION_TERMINAL_REASONS.has(previousState.stop_reason)) throw new Error('administrative terminal orchestration requires changed-input family replacement');
       if (previousState.current_input_sha256 === inputSha256) throw new Error('same-input review orchestration requires explicit attempt-two retry');
     }
   }
@@ -1797,8 +1856,7 @@ export function beginReviewOrchestration(input) {
     || previousState.phase !== phase
     || previousState.lifecycle_intent !== lifecycleIntent
   )) throw new Error('review retry attempt identity mismatch');
-  return validateReviewOrchestrationState(orchestrationWithHash({
-    schema: 1,
+  return validateReviewOrchestrationState(normalOrchestrationStateV2({
     plan_path: planPath,
     phase,
     lifecycle_intent: lifecycleIntent,
@@ -1825,14 +1883,12 @@ export function advanceReviewOrchestrationRepair(input) {
   if (!UUID.test(requestId) || state.request_ids.includes(requestId)) throw new Error('repair request id must be new');
   digest(currentInputSha256, 'repair orchestration current input');
   if (currentInputSha256 === state.current_input_sha256) {
-    return validateReviewOrchestrationState(orchestrationWithHash({
-      ...structuredClone(state),
+    return validateReviewOrchestrationState(normalOrchestrationStateV2(state, {
       status: 'stuck',
       stop_reason: ORCHESTRATION_RESULT_MAP.cannot_repair,
     }));
   }
-  return validateReviewOrchestrationState(orchestrationWithHash({
-    ...structuredClone(state),
+  return validateReviewOrchestrationState(normalOrchestrationStateV2(state, {
     current_input_sha256: currentInputSha256,
     request_ids: [...state.request_ids, requestId],
     round_index: 2,
@@ -1889,8 +1945,7 @@ export function settleReviewOrchestration(input) {
   const derived = deriveOrchestrationResult(state, series);
   const seriesSha256 = sha256(jcs(series));
   const status = derived.eligible ? 'passed' : orchestrationTerminalStatus(state, derived.stopReason);
-  return validateReviewOrchestrationState(orchestrationWithHash({
-    ...structuredClone(state),
+  return validateReviewOrchestrationState(normalOrchestrationStateV2(state, {
     status,
     stop_reason: derived.stopReason,
     series_sha256: seriesSha256,
@@ -1905,19 +1960,18 @@ export function consumeReviewIntent(input) {
   oneOf(intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'intent');
   if (typeof eligible !== 'boolean') throw new Error('review intent eligibility must be boolean');
   validateReviewOrchestrationState(orchestration);
-  if (orchestration.status !== 'passed' || orchestration.lifecycle_intent !== intent) throw new Error('review intent requires the matching passed orchestration');
   if (intent === 'none') {
-    if (orchestration.apply_state !== 'none' || orchestration.transitioned_from_state_sha256 !== null) throw new Error('non-executing review intent carries apply state');
-    return { kind: 'applied', state, orchestration: structuredClone(orchestration) };
+    if (!['active', 'passed'].includes(orchestration.status) || orchestration.lifecycle_intent !== 'none' || orchestration.apply_state !== 'none' || orchestration.transitioned_from_state_sha256 !== null || ORCHESTRATION_TERMINAL_REASONS.has(orchestration.stop_reason)) throw new Error('non-executing review intent has wrong status, apply state, or terminal evidence');
+    return { kind: 'applied', state, orchestration: validateReviewOrchestrationState(normalOrchestrationStateV2(orchestration)) };
   }
+  if (orchestration.status !== 'passed' || orchestration.lifecycle_intent !== intent) throw new Error('review intent requires the matching passed orchestration');
   if (orchestration.apply_state !== 'pending') throw new Error('review intent is not pending');
   const expectedState = intent === 'start' ? 'planned' : 'scheduled';
   if (!eligible || state !== expectedState) {
     return {
       kind: 'rejected',
       state,
-      orchestration: validateReviewOrchestrationState(orchestrationWithHash({
-        ...structuredClone(orchestration),
+      orchestration: validateReviewOrchestrationState(normalOrchestrationStateV2(orchestration, {
         status: 'stuck',
         stop_reason: ORCHESTRATION_RESULT_MAP.apply_rejected,
         apply_state: 'none',
@@ -1928,12 +1982,879 @@ export function consumeReviewIntent(input) {
   return {
     kind: 'applied',
     state: 'ongoing',
-    orchestration: validateReviewOrchestrationState(orchestrationWithHash({
-      ...structuredClone(orchestration),
+    orchestration: validateReviewOrchestrationState(normalOrchestrationStateV2(orchestration, {
       apply_state: 'consumed',
       transitioned_from_state_sha256: orchestration.state_sha256,
     })),
   };
+}
+
+const PREPARED_REQUEST_KIND = 'Review-orchestration-prepared-request';
+const DISPATCH_COMMITMENT_KIND = 'Review-orchestration-dispatch-commitment';
+const CONTROLLER_ABORT_KIND = 'Review-orchestration-controller-abort';
+const ABANDONMENT_KIND = 'Review-orchestration-abandonment';
+const ORCHESTRATION_STATE_KIND = 'Review-orchestration-state';
+const REVIEW_RECEIPT_KINDS = new Set(['Review-receipt', 'Completion-review-receipt']);
+const PREPARED_REQUEST_KEYS = [
+  'schema', 'type', 'plan_path', 'phase', 'lifecycle_intent',
+  'orchestration_series_id', 'orchestration_state_sha256', 'request_ids',
+  'request', 'request_sha256', 'prepared_at',
+];
+const DISPATCH_COMMITMENT_KEYS = [
+  'schema', 'type', 'plan_path', 'orchestration_state_sha256',
+  'prepared_request_sha256', 'candidate_index', 'candidate', 'prior_attempts',
+  'prior_attempts_sha256', 'bundle_path', 'bundle_sha256',
+  'reviewer_workspace', 'reviewer_workspace_sha256', 'argv', 'argv_sha256',
+  'controller_config', 'committed_at',
+];
+const PROPOSED_CONTROLLER_CONFIG_KEYS = [
+  'candidate_index', 'timeout_mode', 'timeout_seconds', 'argv', 'argv_sha256',
+];
+const CONTROLLER_ABORT_KEYS = [
+  'schema', 'type', 'plan_path', 'phase', 'lifecycle_intent',
+  'orchestration_series_id', 'source_state_sha256', 'source_plan_blob_sha256',
+  'request_ids', 'prepared_request_sha256', 'proposed_controller_config',
+  'dispatch_status', 'reason', 'validation_error', 'recorded_at',
+];
+const ABANDONMENT_AUTHORIZATION_KEYS = [
+  'schema', 'authorization_id', 'actor', 'decision', 'authorized_at',
+  'plan_path', 'phase', 'lifecycle_intent', 'input_sha256',
+  'orchestration_series_id', 'source_state_sha256', 'request_ids',
+  'source_text_utf8_base64', 'source_text_sha256',
+];
+const ABANDONMENT_KEYS = [
+  'schema', 'type', 'plan_path', 'phase', 'lifecycle_intent',
+  'orchestration_series_id', 'source_state_sha256', 'source_plan_blob_sha256',
+  'request_ids', 'current_input_sha256', 'round_index', 'outcome', 'reason',
+  'authorization', 'recorded_at',
+];
+
+function activePlanPath(planPath, label) {
+  string(planPath, label);
+  const logical = safeLogical(planPath);
+  if (logical.split('/').includes('.') || !logical.startsWith('docs/plans/active/') || !logical.endsWith('.md')) throw new Error(`${label} must be an active plan path; finished archives are immutable`);
+  return logical;
+}
+
+function orchestrationPlanRecords(bytes) {
+  const text = exactUtf8(bytes, 'orchestration plan');
+  const records = new Map();
+  let fence = null;
+  for (const line of text.split('\n')) {
+    const fenceMatch = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence === null && fenceMatch) {
+      fence = { marker: fenceMatch[2][0], length: fenceMatch[2].length };
+      continue;
+    }
+    if (fence !== null && fenceMatch && fenceMatch[2][0] === fence.marker && fenceMatch[2].length >= fence.length && /^\s*$/.test(fenceMatch[3])) {
+      fence = null;
+      continue;
+    }
+    const match = fence === null ? MACHINE_RECORD.exec(line) : null;
+    if (!match) continue;
+    const [, kind, payload] = match;
+    if (records.has(kind)) throw new Error(`duplicate ${kind}`);
+    let value;
+    try { value = JSON.parse(payload); } catch { throw new Error(`${kind} must be one-line JSON`); }
+    if (jcs(value) !== payload) throw new Error(`${kind} must be compact JCS`);
+    records.set(kind, value);
+  }
+  return { text, records };
+}
+
+function validateRequestIds(requestIds, label) {
+  if (!Array.isArray(requestIds) || ![1, 2].includes(requestIds.length) || new Set(requestIds).size !== requestIds.length || requestIds.some((id) => !UUID.test(id))) throw new Error(`${label} request lineage`);
+}
+
+function validatePreparedRequest(preparedRequest, state = null) {
+  assertClosed(preparedRequest, PREPARED_REQUEST_KEYS, 'prepared review request');
+  if (preparedRequest.schema !== 1 || preparedRequest.type !== 'ReviewPreparedRequestV1') throw new Error('prepared review request schema or type');
+  activePlanPath(preparedRequest.plan_path, 'prepared review request plan path');
+  oneOf(preparedRequest.phase, new Set(['draft', 'completion']), 'prepared review request phase');
+  oneOf(preparedRequest.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'prepared review request lifecycle intent');
+  if (!UUID.test(preparedRequest.orchestration_series_id)) throw new Error('prepared review request orchestration series');
+  digest(preparedRequest.orchestration_state_sha256, 'prepared review request orchestration state');
+  validateRequestIds(preparedRequest.request_ids, 'prepared review request');
+  validateRequest(preparedRequest.request);
+  if (preparedRequest.request.schema !== 6) throw new Error('prepared review request requires schema-6 request');
+  digest(preparedRequest.request_sha256, 'prepared review request digest');
+  if (preparedRequest.request_sha256 !== sha256(jcs(preparedRequest.request))) throw new Error('prepared review request digest mismatch');
+  iso(preparedRequest.prepared_at, 'prepared review request time');
+  const request = preparedRequest.request;
+  if (
+    request.phase !== preparedRequest.phase
+    || request.lifecycle_intent !== preparedRequest.lifecycle_intent
+    || request.orchestration_series_id !== preparedRequest.orchestration_series_id
+    || request.orchestration_state_sha256 !== preparedRequest.orchestration_state_sha256
+    || request.request_id !== preparedRequest.request_ids.at(-1)
+    || request.round_index !== preparedRequest.request_ids.length
+  ) throw new Error('prepared review request identity mismatch');
+  if (state !== null) {
+    validateReviewOrchestrationState(state);
+    if (
+      state.status !== 'active'
+      || state.plan_path !== preparedRequest.plan_path
+      || state.phase !== preparedRequest.phase
+      || state.lifecycle_intent !== preparedRequest.lifecycle_intent
+      || state.series_id !== preparedRequest.orchestration_series_id
+      || state.state_sha256 !== preparedRequest.orchestration_state_sha256
+      || jcs(state.request_ids) !== jcs(preparedRequest.request_ids)
+      || state.round_index !== request.round_index
+      || state.current_input_sha256 !== request.input_sha256
+      || (state.round_index === 2 && request.previous_input_sha256 !== state.initial_input_sha256)
+    ) throw new Error('prepared review request does not match active orchestration state');
+  }
+  return preparedRequest;
+}
+
+export function prepareReviewRequest(input) {
+  assertClosed(input, ['state', 'request', 'preparedAt'], 'prepare review request');
+  const { state, request, preparedAt } = input;
+  validateReviewOrchestrationState(state);
+  if (state.status !== 'active') throw new Error('prepared review request requires active orchestration state');
+  validateRequest(request);
+  if (request.schema !== 6) throw new Error('prepared review request requires schema-6 request');
+  iso(preparedAt, 'prepared review request time');
+  const preparedRequest = {
+    schema: 1,
+    type: 'ReviewPreparedRequestV1',
+    plan_path: state.plan_path,
+    phase: state.phase,
+    lifecycle_intent: state.lifecycle_intent,
+    orchestration_series_id: state.series_id,
+    orchestration_state_sha256: state.state_sha256,
+    request_ids: structuredClone(state.request_ids),
+    request: structuredClone(request),
+    request_sha256: sha256(jcs(request)),
+    prepared_at: preparedAt,
+  };
+  return validatePreparedRequest(preparedRequest, state);
+}
+
+function validateArgv(argv, label) {
+  if (!Array.isArray(argv) || argv.length === 0 || argv.some((value) => typeof value !== 'string' || value.length === 0)) throw new Error(`${label} must be a nonempty string array`);
+}
+
+function validateCommittedBundlePath(bundlePath) {
+  string(bundlePath, 'review dispatch commitment bundle path');
+  if (!path.isAbsolute(bundlePath) || path.resolve(bundlePath) !== bundlePath || bundlePath.includes('\0')) throw new Error('review dispatch commitment bundle path must be absolute and normalized');
+  return bundlePath;
+}
+
+function committedLaunchContext(argv, candidate, request) {
+  validateArgv(argv, 'committed reviewer argv');
+  if (candidate.tool === 'codex') {
+    const workdirIndex = argv.indexOf('-C');
+    const bundleIndex = argv.indexOf('--add-dir');
+    if (workdirIndex < 0 || bundleIndex < 0 || workdirIndex + 1 >= argv.length || bundleIndex + 1 >= argv.length || argv.indexOf('-C', workdirIndex + 1) >= 0 || argv.indexOf('--add-dir', bundleIndex + 1) >= 0) throw new Error('committed Codex argv lacks one workspace and bundle');
+    const workspacePath = argv[workdirIndex + 1];
+    if (workspacePath !== reviewerWorkspacePath(request.request_id, 'primary')) throw new Error('committed Codex argv reviewer workspace mismatch');
+    return { bundle: argv[bundleIndex + 1], workspacePath };
+  }
+  const prompt = argv.at(-1);
+  const prefix = 'Sealed bundle: ';
+  const suffix = '. Copy the request object exactly into ReviewerOutput.request.';
+  const start = prompt.indexOf(prefix);
+  const end = prompt.indexOf(suffix, start + prefix.length);
+  if (start < 0 || end < 0) throw new Error('committed Claude argv lacks sealed bundle binding');
+  return { bundle: prompt.slice(start + prefix.length, end), workspacePath: null };
+}
+
+function validateCommittedPriorAttempts(priorAttempts, request, candidateIndex) {
+  if (!Array.isArray(priorAttempts) || priorAttempts.length !== candidateIndex) throw new Error('dispatch commitment candidate index must equal prior attempts length');
+  if (candidateIndex === 0) return priorAttempts;
+  validateCurrentAttemptSequence(priorAttempts, request.policy);
+  if (priorAttempts.some((attempt) => !CURRENT_FALLBACK_RESULTS.has(attempt.result) || attempt.output_started)) throw new Error('dispatch commitment prior attempts must be availability-only evidence');
+  return priorAttempts;
+}
+
+function renderCommittedReviewerArgv(preparedRequest, candidateIndex, bundlePath, workspacePath, priorAttempts = null) {
+  const request = preparedRequest.request;
+  if (priorAttempts !== null) validateCommittedPriorAttempts(priorAttempts, request, candidateIndex);
+  const candidate = request.policy.candidates[candidateIndex];
+  if (!candidate) throw new Error('dispatch commitment candidate position');
+  const prompt = reviewerPrompt('primary', request, bundlePath);
+  if (candidate.tool === 'codex') {
+    if (workspacePath === null) throw new Error('Codex dispatch commitment requires reviewer workspace');
+    const tier = candidate.service_tier ?? 'default';
+    const config = [
+      '-c', `model_reasoning_effort=${candidate.effort}`,
+      ...(tier === 'fast'
+        ? ['-c', 'features.fast_mode=true', '-c', 'service_tier="fast"']
+        : ['-c', 'service_tier="default"']),
+    ];
+    return [
+      'exec', '-C', workspacePath, '--skip-git-repo-check', '--ephemeral',
+      '--ignore-user-config', '--add-dir', bundlePath, '-s', 'read-only', '-m',
+      candidate.model, ...config, '--output-schema',
+      path.join(bundlePath, 'reviewer-output.primary.v6.schema.json'), '--', prompt,
+    ];
+  }
+  if (workspacePath !== null) throw new Error('Claude dispatch commitment requires null reviewer workspace');
+  return [
+    '-p', '--permission-mode', 'plan', '--model', candidate.model, '--effort',
+    candidate.effort, '--json-schema', jcs(currentReviewerSchema(6)),
+    '--output-format', 'json', '--', prompt,
+  ];
+}
+
+function deriveProposedReviewerArgv(preparedRequest, candidateIndex, recordedArgv) {
+  const request = preparedRequest.request;
+  const candidate = request.policy.candidates[candidateIndex];
+  if (!candidate) throw new Error('proposed controller config candidate position');
+  const { bundle, workspacePath } = committedLaunchContext(recordedArgv, candidate, request);
+  return renderCommittedReviewerArgv(preparedRequest, candidateIndex, bundle, workspacePath);
+}
+
+function validateDispatchCommitment(commitment, preparedRequest, { rederive = true } = {}) {
+  assertClosed(commitment, DISPATCH_COMMITMENT_KEYS, 'review dispatch commitment');
+  if (commitment.schema !== 1 || commitment.type !== 'ReviewDispatchCommitmentV1') throw new Error('review dispatch commitment schema or type');
+  string(commitment.plan_path, 'review dispatch commitment plan path');
+  digest(commitment.orchestration_state_sha256, 'review dispatch commitment orchestration state');
+  digest(commitment.prepared_request_sha256, 'review dispatch commitment prepared request');
+  if (!Number.isInteger(commitment.candidate_index) || commitment.candidate_index < 0) throw new Error('review dispatch commitment candidate index');
+  validateCurrentCandidate(commitment.candidate, 'review dispatch commitment candidate');
+  validateCommittedPriorAttempts(commitment.prior_attempts, preparedRequest.request, commitment.candidate_index);
+  digest(commitment.prior_attempts_sha256, 'review dispatch commitment prior attempts');
+  if (commitment.prior_attempts_sha256 !== sha256(jcs(commitment.prior_attempts))) throw new Error('review dispatch commitment prior attempts hash mismatch');
+  validateCommittedBundlePath(commitment.bundle_path);
+  digest(commitment.bundle_sha256, 'review dispatch commitment bundle');
+  if (commitment.bundle_sha256 !== preparedRequest.request.bundle_sha256) throw new Error('review dispatch commitment bundle digest does not match prepared request');
+  const candidateTool = preparedRequest.request.policy.candidates[commitment.candidate_index]?.tool;
+  if (candidateTool === 'codex') validateReviewerWorkspaceRecord(commitment.reviewer_workspace, preparedRequest.request.request_id, 'primary');
+  else if (candidateTool === 'claude' && commitment.reviewer_workspace !== null) throw new Error('Claude dispatch commitment requires null reviewer workspace');
+  digest(commitment.reviewer_workspace_sha256, 'review dispatch commitment reviewer workspace');
+  if (commitment.reviewer_workspace_sha256 !== sha256(jcs(commitment.reviewer_workspace))) throw new Error('review dispatch commitment reviewer workspace hash mismatch');
+  validateArgv(commitment.argv, 'review dispatch commitment argv');
+  digest(commitment.argv_sha256, 'review dispatch commitment argv');
+  if (commitment.argv_sha256 !== sha256(jcs(commitment.argv))) throw new Error('review dispatch commitment argv hash mismatch');
+  assertClosed(commitment.controller_config, ['timeout_mode', 'timeout_seconds'], 'review dispatch commitment controller config');
+  if (commitment.controller_config.timeout_mode !== 'orchestrator_tool' || commitment.controller_config.timeout_seconds !== 600) throw new Error('review dispatch commitment requires orchestrator_tool and exactly 600 seconds');
+  iso(commitment.committed_at, 'review dispatch commitment time');
+  validatePreparedRequest(preparedRequest);
+  const expectedCandidate = preparedRequest.request.policy.candidates[commitment.candidate_index];
+  if (
+    commitment.plan_path !== preparedRequest.plan_path
+    || commitment.orchestration_state_sha256 !== preparedRequest.orchestration_state_sha256
+    || commitment.prepared_request_sha256 !== sha256(jcs(preparedRequest))
+    || expectedCandidate === undefined
+    || jcs(commitment.candidate) !== jcs(expectedCandidate)
+  ) throw new Error('review dispatch commitment prepared request or candidate position mismatch');
+  if (rederive) {
+    const derived = renderCommittedReviewerArgv(
+      preparedRequest,
+      commitment.candidate_index,
+      commitment.bundle_path,
+      commitment.reviewer_workspace?.workspace ?? null,
+      commitment.prior_attempts,
+    );
+    if (jcs(derived) !== jcs(commitment.argv)) throw new Error('review dispatch commitment argv does not match derived argv');
+  }
+  return commitment;
+}
+
+export function buildReviewDispatchCommitment(input) {
+  assertClosed(input, ['preparedRequest', 'candidateIndex', 'bundle', 'reviewerWorkspace', 'leg', 'priorAttempts', 'committedAt'], 'build review dispatch commitment');
+  const {
+    preparedRequest, candidateIndex, bundle, reviewerWorkspace, leg,
+    priorAttempts, committedAt,
+  } = input;
+  validatePreparedRequest(preparedRequest);
+  string(bundle, 'review dispatch commitment bundle path');
+  if (!Number.isInteger(candidateIndex) || candidateIndex < 0 || candidateIndex >= preparedRequest.request.policy.candidates.length) throw new Error('review dispatch commitment candidate index');
+  if (!Array.isArray(priorAttempts) || priorAttempts.length !== candidateIndex) throw new Error('review dispatch commitment candidate position requires exact prior attempts');
+  iso(committedAt, 'review dispatch commitment time');
+  const candidate = preparedRequest.request.policy.candidates[candidateIndex];
+  const bundlePath = path.resolve(bundle);
+  const verifiedBundle = verifyBundle({ bundle: bundlePath, expectedSha256: preparedRequest.request.bundle_sha256 });
+  validateRequestBundle(preparedRequest.request, verifiedBundle);
+  if (candidate.tool === 'codex') validateReviewerWorkspaceRecord(reviewerWorkspace, preparedRequest.request.request_id, leg, { live: true });
+  else if (reviewerWorkspace !== null) throw new Error('Claude dispatch commitment requires null reviewer workspace');
+  const argv = buildReviewerArgv({
+    tool: candidate.tool,
+    bundle: bundlePath,
+    reviewerWorkspace,
+    model: candidate.model,
+    effort: candidate.effort,
+    serviceTier: candidate.service_tier ?? null,
+    leg,
+    request: preparedRequest.request,
+    priorAttempts,
+  });
+  const commitment = {
+    schema: 1,
+    type: 'ReviewDispatchCommitmentV1',
+    plan_path: preparedRequest.plan_path,
+    orchestration_state_sha256: preparedRequest.orchestration_state_sha256,
+    prepared_request_sha256: sha256(jcs(preparedRequest)),
+    candidate_index: candidateIndex,
+    candidate: structuredClone(candidate),
+    prior_attempts: structuredClone(priorAttempts),
+    prior_attempts_sha256: sha256(jcs(priorAttempts)),
+    bundle_path: bundlePath,
+    bundle_sha256: verifiedBundle.bundle_sha256,
+    reviewer_workspace: reviewerWorkspace === null ? null : structuredClone(reviewerWorkspace),
+    reviewer_workspace_sha256: sha256(jcs(reviewerWorkspace)),
+    argv: structuredClone(argv),
+    argv_sha256: sha256(jcs(argv)),
+    controller_config: {
+      timeout_mode: 'orchestrator_tool',
+      timeout_seconds: 600,
+    },
+    committed_at: committedAt,
+  };
+  return validateDispatchCommitment(commitment, preparedRequest);
+}
+
+function validateProposedControllerConfigShape(config) {
+  assertClosed(config, PROPOSED_CONTROLLER_CONFIG_KEYS, 'proposed controller config');
+  if (!Number.isInteger(config.candidate_index) || config.candidate_index < 0) throw new Error('proposed controller config candidate index');
+  string(config.timeout_mode, 'proposed controller config timeout mode');
+  if (!Number.isInteger(config.timeout_seconds)) throw new Error('proposed controller config timeout seconds');
+  validateArgv(config.argv, 'proposed controller config argv');
+  digest(config.argv_sha256, 'proposed controller config argv');
+  if (config.argv_sha256 !== sha256(jcs(config.argv))) throw new Error('proposed controller config argv hash mismatch');
+  return config;
+}
+
+function bindProposedControllerConfig(config, preparedRequest) {
+  validateProposedControllerConfigShape(config);
+  const candidate = preparedRequest.request.policy.candidates[config.candidate_index];
+  if (candidate === undefined) throw new Error('proposed controller config candidate position');
+  const derived = deriveProposedReviewerArgv(preparedRequest, config.candidate_index, config.argv);
+  if (jcs(derived) !== jcs(config.argv)) throw new Error('proposed controller config argv does not match derived argv');
+  return config;
+}
+
+function controllerContractValidationError(config) {
+  if (config.timeout_mode !== 'orchestrator_tool') return 'controller timeout_mode must equal orchestrator_tool';
+  if (config.timeout_seconds !== 600) return 'controller timeout_seconds must equal exactly 600';
+  return null;
+}
+
+function validateControllerAbortRecord(abort, state, preparedRequest) {
+  assertClosed(abort, CONTROLLER_ABORT_KEYS, 'review controller config abort');
+  if (abort.schema !== 1 || abort.type !== 'ReviewControllerConfigAbortV1') throw new Error('review controller config abort schema or type');
+  string(abort.plan_path, 'review controller config abort plan path');
+  oneOf(abort.phase, new Set(['draft', 'completion']), 'review controller config abort phase');
+  oneOf(abort.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'review controller config abort lifecycle intent');
+  if (!UUID.test(abort.orchestration_series_id)) throw new Error('review controller config abort series');
+  digest(abort.source_state_sha256, 'review controller config abort source state');
+  digest(abort.source_plan_blob_sha256, 'review controller config abort source plan');
+  validateRequestIds(abort.request_ids, 'review controller config abort');
+  digest(abort.prepared_request_sha256, 'review controller config abort prepared request');
+  bindProposedControllerConfig(abort.proposed_controller_config, preparedRequest);
+  if (abort.dispatch_status !== 'not_dispatched' || abort.reason !== 'controller_contract_failure') throw new Error('review controller config abort outcome');
+  string(abort.validation_error, 'review controller config abort validation error');
+  iso(abort.recorded_at, 'review controller config abort time');
+  const expectedError = controllerContractValidationError(abort.proposed_controller_config);
+  if (expectedError === null) throw new Error('valid exact-600 controller config cannot abort');
+  if (abort.validation_error !== expectedError) throw new Error('review controller config abort validation error mismatch');
+  if (
+    abort.plan_path !== state.plan_path
+    || abort.phase !== state.phase
+    || abort.lifecycle_intent !== state.lifecycle_intent
+    || abort.orchestration_series_id !== state.series_id
+    || abort.source_state_sha256 !== state.state_sha256
+    || jcs(abort.request_ids) !== jcs(state.request_ids)
+    || abort.prepared_request_sha256 !== sha256(jcs(preparedRequest))
+  ) throw new Error('review controller config abort source identity mismatch');
+  return abort;
+}
+
+function exactAuthorizationSourceBytes(authorization) {
+  string(authorization.source_text_utf8_base64, 'review abandonment authorization source base64');
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(authorization.source_text_utf8_base64)) throw new Error('review abandonment authorization source base64 is invalid');
+  const bytes = Buffer.from(authorization.source_text_utf8_base64, 'base64');
+  if (bytes.toString('base64') !== authorization.source_text_utf8_base64) throw new Error('review abandonment authorization source base64 is noncanonical');
+  try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw new Error('review abandonment authorization source is invalid UTF-8'); }
+  if (sha256(bytes) !== authorization.source_text_sha256) throw new Error('review abandonment authorization source digest mismatch');
+  return bytes;
+}
+
+function validateAbandonmentAuthorization(authorization, state = null, sourceTextBytes = null) {
+  assertClosed(authorization, ABANDONMENT_AUTHORIZATION_KEYS, 'review abandonment authorization');
+  if (authorization.schema !== 1 || !UUID.test(authorization.authorization_id) || authorization.actor !== 'user' || authorization.decision !== 'abandon_review_orchestration') throw new Error('review abandonment authorization identity, actor, or decision');
+  iso(authorization.authorized_at, 'review abandonment authorization time');
+  string(authorization.plan_path, 'review abandonment authorization plan path');
+  oneOf(authorization.phase, new Set(['draft', 'completion']), 'review abandonment authorization phase');
+  oneOf(authorization.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'review abandonment authorization lifecycle intent');
+  digest(authorization.input_sha256, 'review abandonment authorization input');
+  if (!UUID.test(authorization.orchestration_series_id)) throw new Error('review abandonment authorization series');
+  digest(authorization.source_state_sha256, 'review abandonment authorization source state');
+  validateRequestIds(authorization.request_ids, 'review abandonment authorization');
+  digest(authorization.source_text_sha256, 'review abandonment authorization source text');
+  const persistedBytes = exactAuthorizationSourceBytes(authorization);
+  if (sourceTextBytes !== null) {
+    if (!(sourceTextBytes instanceof Uint8Array)) throw new Error('review abandonment requires exact current-user UTF-8 bytes');
+    const supplied = Buffer.from(sourceTextBytes);
+    try { new TextDecoder('utf-8', { fatal: true }).decode(supplied); } catch { throw new Error('review abandonment source is invalid UTF-8'); }
+    if (!supplied.equals(persistedBytes)) throw new Error('review abandonment authorization source bytes mismatch');
+  }
+  if (state !== null && (
+    authorization.plan_path !== state.plan_path
+    || authorization.phase !== state.phase
+    || authorization.lifecycle_intent !== state.lifecycle_intent
+    || authorization.input_sha256 !== state.current_input_sha256
+    || authorization.orchestration_series_id !== state.series_id
+    || authorization.source_state_sha256 !== state.state_sha256
+    || jcs(authorization.request_ids) !== jcs(state.request_ids)
+  )) throw new Error('review abandonment authorization does not match source state identity');
+  return authorization;
+}
+
+function validateAbandonmentRecord(abandonment, state) {
+  assertClosed(abandonment, ABANDONMENT_KEYS, 'review orchestration abandonment');
+  if (abandonment.schema !== 1 || abandonment.type !== 'ReviewOrchestrationAbandonmentV1') throw new Error('review orchestration abandonment schema or type');
+  activePlanPath(abandonment.plan_path, 'review orchestration abandonment plan path');
+  oneOf(abandonment.phase, new Set(['draft', 'completion']), 'review orchestration abandonment phase');
+  oneOf(abandonment.lifecycle_intent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'review orchestration abandonment lifecycle intent');
+  if (!UUID.test(abandonment.orchestration_series_id)) throw new Error('review orchestration abandonment series');
+  digest(abandonment.source_state_sha256, 'review orchestration abandonment source state');
+  digest(abandonment.source_plan_blob_sha256, 'review orchestration abandonment source plan');
+  validateRequestIds(abandonment.request_ids, 'review orchestration abandonment');
+  digest(abandonment.current_input_sha256, 'review orchestration abandonment current input');
+  if (![1, 2].includes(abandonment.round_index) || abandonment.outcome !== 'abandoned' || abandonment.reason !== 'dispatch_provenance_unavailable') throw new Error('review orchestration abandonment outcome or round');
+  validateAbandonmentAuthorization(abandonment.authorization, state);
+  iso(abandonment.recorded_at, 'review orchestration abandonment time');
+  if (
+    abandonment.plan_path !== state.plan_path
+    || abandonment.phase !== state.phase
+    || abandonment.lifecycle_intent !== state.lifecycle_intent
+    || abandonment.orchestration_series_id !== state.series_id
+    || abandonment.source_state_sha256 !== state.state_sha256
+    || jcs(abandonment.request_ids) !== jcs(state.request_ids)
+    || abandonment.current_input_sha256 !== state.current_input_sha256
+    || abandonment.round_index !== state.round_index
+  ) throw new Error('review orchestration abandonment source identity mismatch');
+  return abandonment;
+}
+
+function terminalStateFromRecord(sourceState, stopReason, record) {
+  return validateReviewOrchestrationState(normalOrchestrationStateV2(sourceState, {
+    status: 'stuck',
+    stop_reason: stopReason,
+    series_sha256: null,
+    apply_state: 'none',
+    terminal_evidence_sha256: sha256(jcs(record)),
+    terminated_from_state_sha256: sourceState.state_sha256,
+    terminated_from_state: structuredClone(sourceState),
+  }));
+}
+
+function validateCanonicalOrchestrationFamily(records) {
+  const state = records.get(ORCHESTRATION_STATE_KIND) ?? null;
+  const preparedRequest = records.get(PREPARED_REQUEST_KIND) ?? null;
+  const commitment = records.get(DISPATCH_COMMITMENT_KIND) ?? null;
+  const abort = records.get(CONTROLLER_ABORT_KIND) ?? null;
+  const abandonment = records.get(ABANDONMENT_KIND) ?? null;
+  const hasReceipt = [...REVIEW_RECEIPT_KINDS].some((kind) => records.has(kind));
+  const hasRecoveryRecord = preparedRequest !== null || commitment !== null || abort !== null || abandonment !== null;
+  if (state === null) {
+    if (hasRecoveryRecord) throw new Error('review orchestration recovery record family is missing state');
+    return null;
+  }
+  validateReviewOrchestrationState(state);
+  if (preparedRequest !== null) validatePreparedRequest(preparedRequest, state.terminated_from_state ?? state);
+  if (commitment !== null) {
+    if (preparedRequest === null) throw new Error('review dispatch commitment is orphaned from prepared request');
+    if (state.status !== 'active') throw new Error('review dispatch commitment requires active family');
+    validateDispatchCommitment(commitment, preparedRequest);
+  }
+  if (abort !== null && abandonment !== null) throw new Error('crossed review terminal families are forbidden');
+  if (abort !== null || abandonment !== null) {
+    if (hasReceipt) throw new Error('review terminal family cannot coexist with a receipt');
+    if (commitment !== null) throw new Error('review terminal family cannot coexist with a dispatch commitment');
+    if (state.schema !== 2 || state.status !== 'stuck' || state.series_sha256 !== null) throw new Error('review terminal family requires seriesless stuck StateV2');
+    const source = state.terminated_from_state;
+    if (abort !== null) {
+      if (preparedRequest === null || state.stop_reason !== 'controller_contract_failure') throw new Error('controller abort terminal family requires prepared request and matching reason');
+      validateControllerAbortRecord(abort, source, preparedRequest);
+      if (state.terminal_evidence_sha256 !== sha256(jcs(abort))) throw new Error('controller abort terminal evidence hash mismatch');
+    } else {
+      if (preparedRequest !== null || state.stop_reason !== 'authorized_abandonment') throw new Error('abandonment terminal family cannot carry prepared request');
+      validateAbandonmentRecord(abandonment, source);
+      if (state.terminal_evidence_sha256 !== sha256(jcs(abandonment))) throw new Error('abandonment terminal evidence hash mismatch');
+    }
+  } else if (state.schema === 2 && state.terminal_evidence_sha256 !== null) {
+    throw new Error('review orchestration terminal state is orphaned from terminal record');
+  } else if (hasRecoveryRecord && state.status !== 'active') {
+    throw new Error('prepared review records require active state unless paired with controller abort');
+  }
+  return { state, preparedRequest, commitment, abort, abandonment, hasReceipt };
+}
+
+function rewriteOrchestrationRecords(bytes, replacements, appended = []) {
+  const { text } = orchestrationPlanRecords(bytes);
+  const rows = text.split('\n');
+  const seen = new Set();
+  let fence = null;
+  const output = [];
+  for (const line of rows) {
+    const fenceMatch = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence === null && fenceMatch) {
+      fence = { marker: fenceMatch[2][0], length: fenceMatch[2].length };
+      output.push(line);
+      continue;
+    }
+    if (fence !== null && fenceMatch && fenceMatch[2][0] === fence.marker && fenceMatch[2].length >= fence.length && /^\s*$/.test(fenceMatch[3])) {
+      fence = null;
+      output.push(line);
+      continue;
+    }
+    const match = fence === null ? MACHINE_RECORD.exec(line) : null;
+    if (!match || !replacements.has(match[1])) {
+      output.push(line);
+      continue;
+    }
+    const kind = match[1];
+    seen.add(kind);
+    const replacement = replacements.get(kind);
+    if (replacement !== null) output.push(`${kind}: ${jcs(replacement)}`);
+  }
+  for (const kind of replacements.keys()) if (!seen.has(kind)) throw new Error(`cannot replace missing ${kind}`);
+  let rewritten = output.join('\n');
+  if (appended.length > 0) {
+    if (!rewritten.endsWith('\n')) rewritten += '\n';
+    rewritten += `${appended.map(([kind, value]) => `${kind}: ${jcs(value)}`).join('\n')}\n`;
+  }
+  return Buffer.from(rewritten);
+}
+
+function exactActiveFamily(bytes, { prepared = false, commitment = false, stateOnly = false } = {}) {
+  const family = orchestrationPlanRecords(bytes);
+  const validated = validateCanonicalOrchestrationFamily(family.records);
+  if (validated === null || validated.state.status !== 'active') throw new Error('review orchestration family requires one active state');
+  if (validated.hasReceipt || validated.abort !== null || validated.abandonment !== null) throw new Error('active review orchestration family contains terminal, series, or receipt evidence');
+  if (prepared !== (validated.preparedRequest !== null)) throw new Error(prepared ? 'prepared review request record is missing' : 'unexpected prepared review request record');
+  if (commitment !== (validated.commitment !== null)) throw new Error(commitment ? 'review dispatch commitment record is missing' : 'unexpected review dispatch commitment record');
+  if (stateOnly && (validated.preparedRequest !== null || validated.commitment !== null)) throw new Error('review abandonment requires a state-only source family');
+  const canonical = canonicalPlanView(bytes);
+  return { ...family, ...validated, canonical };
+}
+
+export function advanceReviewOrchestrationRepairFamily(input) {
+  assertClosed(input, ['sourcePlanBytes', 'expectedStateSha256', 'expectedPreparedRequestSha256', 'expectedDispatchCommitmentSha256', 'requestId', 'currentInputSha256'], 'advance review orchestration repair family');
+  const {
+    sourcePlanBytes, expectedStateSha256, expectedPreparedRequestSha256,
+    expectedDispatchCommitmentSha256, requestId, currentInputSha256,
+  } = input;
+  digest(expectedStateSha256, 'expected orchestration state');
+  digest(expectedPreparedRequestSha256, 'expected prepared request');
+  digest(expectedDispatchCommitmentSha256, 'expected dispatch commitment');
+  const family = exactActiveFamily(sourcePlanBytes, { prepared: true, commitment: true });
+  activePlanPath(family.state.plan_path, 'repair orchestration plan path');
+  if (family.state.round_index !== 1) throw new Error('repair family requires committed round-one state');
+  if (family.state.state_sha256 !== expectedStateSha256) throw new Error('expected orchestration state hash mismatch');
+  if (sha256(jcs(family.preparedRequest)) !== expectedPreparedRequestSha256) throw new Error('expected prepared request hash mismatch');
+  if (sha256(jcs(family.commitment)) !== expectedDispatchCommitmentSha256) throw new Error('expected dispatch commitment hash mismatch');
+  const state = advanceReviewOrchestrationRepair({
+    state: family.state,
+    requestId,
+    currentInputSha256,
+  });
+  if (state.status !== 'active' || state.round_index !== 2) throw new Error('repair family advancement requires materially changed input');
+  const planBytes = rewriteOrchestrationRecords(sourcePlanBytes, new Map([
+    [ORCHESTRATION_STATE_KIND, state],
+    [PREPARED_REQUEST_KIND, null],
+    [DISPATCH_COMMITMENT_KIND, null],
+  ]));
+  const readBack = orchestrationPlanRecords(planBytes).records;
+  if (readBack.has(PREPARED_REQUEST_KIND) || readBack.has(DISPATCH_COMMITMENT_KIND)) throw new Error('repair family cleanup left stale prepared or dispatch evidence');
+  return { planBytes, state };
+}
+
+export function abortReviewControllerConfig(input) {
+  assertClosed(input, ['sourcePlanBytes', 'expectedStateSha256', 'expectedPreparedRequestSha256', 'proposedConfig', 'recordedAt'], 'abort review controller config');
+  const {
+    sourcePlanBytes, expectedStateSha256, expectedPreparedRequestSha256,
+    proposedConfig, recordedAt,
+  } = input;
+  digest(expectedStateSha256, 'expected orchestration state');
+  digest(expectedPreparedRequestSha256, 'expected prepared request');
+  iso(recordedAt, 'review controller config abort time');
+  const family = exactActiveFamily(sourcePlanBytes, { prepared: true, commitment: false });
+  activePlanPath(family.state.plan_path, 'review controller abort plan path');
+  if (family.state.state_sha256 !== expectedStateSha256) throw new Error('expected orchestration state hash mismatch');
+  if (sha256(jcs(family.preparedRequest)) !== expectedPreparedRequestSha256) throw new Error('expected prepared request hash mismatch');
+  bindProposedControllerConfig(proposedConfig, family.preparedRequest);
+  const validationError = controllerContractValidationError(proposedConfig);
+  if (validationError === null) throw new Error('valid exact-600 controller config cannot abort');
+  const abort = {
+    schema: 1,
+    type: 'ReviewControllerConfigAbortV1',
+    plan_path: family.state.plan_path,
+    phase: family.state.phase,
+    lifecycle_intent: family.state.lifecycle_intent,
+    orchestration_series_id: family.state.series_id,
+    source_state_sha256: family.state.state_sha256,
+    source_plan_blob_sha256: sha256(Buffer.from(sourcePlanBytes)),
+    request_ids: structuredClone(family.state.request_ids),
+    prepared_request_sha256: sha256(jcs(family.preparedRequest)),
+    proposed_controller_config: structuredClone(proposedConfig),
+    dispatch_status: 'not_dispatched',
+    reason: 'controller_contract_failure',
+    validation_error: validationError,
+    recorded_at: recordedAt,
+  };
+  validateControllerAbortRecord(abort, family.state, family.preparedRequest);
+  const state = terminalStateFromRecord(family.state, 'controller_contract_failure', abort);
+  const planBytes = rewriteOrchestrationRecords(
+    sourcePlanBytes,
+    new Map([[ORCHESTRATION_STATE_KIND, state]]),
+    [[CONTROLLER_ABORT_KIND, abort]],
+  );
+  validateCanonicalOrchestrationFamily(orchestrationPlanRecords(planBytes).records);
+  return { planBytes, abort, state };
+}
+
+export function abandonReviewOrchestration(input) {
+  assertClosed(input, ['sourcePlanBytes', 'expectedStateSha256', 'authorization', 'sourceTextBytes', 'recordedAt'], 'abandon review orchestration');
+  const {
+    sourcePlanBytes, expectedStateSha256, authorization, sourceTextBytes, recordedAt,
+  } = input;
+  digest(expectedStateSha256, 'expected orchestration state');
+  iso(recordedAt, 'review orchestration abandonment time');
+  const family = exactActiveFamily(sourcePlanBytes, { stateOnly: true });
+  activePlanPath(family.state.plan_path, 'review abandonment plan path');
+  if (family.state.state_sha256 !== expectedStateSha256) throw new Error('expected orchestration state hash mismatch');
+  validateAbandonmentAuthorization(authorization, family.state, sourceTextBytes);
+  const abandonment = {
+    schema: 1,
+    type: 'ReviewOrchestrationAbandonmentV1',
+    plan_path: family.state.plan_path,
+    phase: family.state.phase,
+    lifecycle_intent: family.state.lifecycle_intent,
+    orchestration_series_id: family.state.series_id,
+    source_state_sha256: family.state.state_sha256,
+    source_plan_blob_sha256: sha256(Buffer.from(sourcePlanBytes)),
+    request_ids: structuredClone(family.state.request_ids),
+    current_input_sha256: family.state.current_input_sha256,
+    round_index: family.state.round_index,
+    outcome: 'abandoned',
+    reason: 'dispatch_provenance_unavailable',
+    authorization: structuredClone(authorization),
+    recorded_at: recordedAt,
+  };
+  validateAbandonmentRecord(abandonment, family.state);
+  const state = terminalStateFromRecord(family.state, 'authorized_abandonment', abandonment);
+  const planBytes = rewriteOrchestrationRecords(
+    sourcePlanBytes,
+    new Map([[ORCHESTRATION_STATE_KIND, state]]),
+    [[ABANDONMENT_KIND, abandonment]],
+  );
+  validateCanonicalOrchestrationFamily(orchestrationPlanRecords(planBytes).records);
+  return { planBytes, abandonment, state };
+}
+
+export function validateReviewTerminalFamily(input) {
+  assertClosed(input, ['currentPlanBytes', 'parentPlanBytes'], 'validate review terminal family');
+  const { currentPlanBytes, parentPlanBytes } = input;
+  const currentRecords = orchestrationPlanRecords(currentPlanBytes).records;
+  const current = validateCanonicalOrchestrationFamily(currentRecords);
+  if (current === null || (current.abort === null && current.abandonment === null)) throw new Error('current plan does not contain one review terminal family');
+  const terminalRecord = current.abort ?? current.abandonment;
+  if (terminalRecord.source_plan_blob_sha256 !== sha256(Buffer.from(parentPlanBytes))) throw new Error('terminal source plan blob hash does not match exact parent bytes');
+  const parent = exactActiveFamily(parentPlanBytes, current.abort !== null
+    ? { prepared: true, commitment: false }
+    : { stateOnly: true });
+  if (current.state.terminated_from_state_sha256 !== parent.state.state_sha256 || jcs(current.state.terminated_from_state) !== jcs(parent.state)) throw new Error('terminal embedded source state does not match exact parent state');
+  if (current.abort !== null && jcs(current.preparedRequest) !== jcs(parent.preparedRequest)) throw new Error('controller abort prepared request does not match exact parent family');
+  if (canonicalPlanView(currentPlanBytes) !== canonicalPlanView(parentPlanBytes)) throw new Error('terminal child and parent canonical plan bytes differ');
+  return { state: current.state, terminal: terminalRecord };
+}
+
+function identicalRecoveryRecords(left, right) {
+  for (const kind of [
+    ORCHESTRATION_STATE_KIND, PREPARED_REQUEST_KIND, DISPATCH_COMMITMENT_KIND,
+    CONTROLLER_ABORT_KIND, ABANDONMENT_KIND, ...REVIEW_RECEIPT_KINDS,
+  ]) {
+    const a = left.get(kind);
+    const b = right.get(kind);
+    if ((a === undefined) !== (b === undefined) || (a !== undefined && jcs(a) !== jcs(b))) return false;
+  }
+  return true;
+}
+
+export function replaceReviewTerminalFamily(input) {
+  assertClosed(input, ['sourcePlanBytes', 'currentPlanBytes', 'seriesId', 'requestId'], 'replace review terminal family');
+  const { sourcePlanBytes, currentPlanBytes, seriesId, requestId } = input;
+  if (!UUID.test(seriesId) || !UUID.test(requestId) || seriesId === requestId) throw new Error('replacement requires fresh series and request identities');
+  const sourceParsed = orchestrationPlanRecords(sourcePlanBytes);
+  const source = validateCanonicalOrchestrationFamily(sourceParsed.records);
+  if (source === null || (source.abort === null && source.abandonment === null)) throw new Error('replacement source must be an exact terminal family');
+  activePlanPath(source.state.plan_path, 'terminal replacement plan path');
+  const usedIdentities = new Set([source.state.series_id, ...source.state.request_ids]);
+  if (usedIdentities.has(seriesId) || usedIdentities.has(requestId)) throw new Error('replacement identities must not be reused');
+  const currentParsed = orchestrationPlanRecords(currentPlanBytes);
+  validateCanonicalOrchestrationFamily(currentParsed.records);
+  if (!identicalRecoveryRecords(sourceParsed.records, currentParsed.records)) throw new Error('terminal replacement CAS must retain the exact source family');
+  const sourceCanonical = canonicalPlanView(sourcePlanBytes);
+  const currentCanonical = canonicalPlanView(currentPlanBytes);
+  if (sourceCanonical === currentCanonical) throw new Error('terminal replacement requires materially changed canonical input; same-input or metadata-only replacement is forbidden');
+  const currentInputSha256 = sha256(currentCanonical);
+  const state = validateReviewOrchestrationState(normalOrchestrationStateV2(source.state, {
+    initial_input_sha256: currentInputSha256,
+    current_input_sha256: currentInputSha256,
+    orchestration_attempt: 1,
+    series_id: seriesId,
+    request_ids: [requestId],
+    round_index: 1,
+    status: 'active',
+    stop_reason: null,
+    series_sha256: null,
+    apply_state: 'none',
+    transitioned_from_state_sha256: null,
+    retry_authorization: null,
+  }));
+  const replacements = new Map([[ORCHESTRATION_STATE_KIND, state]]);
+  for (const kind of [PREPARED_REQUEST_KIND, DISPATCH_COMMITMENT_KIND, CONTROLLER_ABORT_KIND, ABANDONMENT_KIND]) {
+    if (currentParsed.records.has(kind)) replacements.set(kind, null);
+  }
+  const planBytes = rewriteOrchestrationRecords(currentPlanBytes, replacements);
+  const readBack = exactActiveFamily(planBytes, { stateOnly: true });
+  if (readBack.state.state_sha256 !== state.state_sha256) throw new Error('terminal replacement read-back state mismatch');
+  return { planBytes, state };
+}
+
+function validateCandidateZeroPreparedParent(repo, planPath, parentCommit, family, label) {
+  let preparedParent;
+  try {
+    preparedParent = exactActiveFamily(planBlob(repo, parentCommit, planPath), {
+      prepared: true,
+      commitment: false,
+    });
+  } catch (error) {
+    throw new Error(`${label} requires exact prepared-only parent family: ${error.message}`);
+  }
+  if (
+    jcs(preparedParent.state) !== jcs(family.state)
+    || jcs(preparedParent.preparedRequest) !== jcs(family.preparedRequest)
+    || preparedParent.canonical !== family.canonical
+    || preparedParent.state.current_input_sha256 !== sha256(preparedParent.canonical)
+  ) throw new Error(`${label} prepared parent family mismatch`);
+}
+
+function validatePriorCommitmentHistory(repo, planPath, currentCommit, family) {
+  let expectedIndex = family.commitment.candidate_index - 1;
+  if (expectedIndex < 0) return;
+  const ancestors = git(repo, ['rev-list', '--first-parent', `${currentCommit}^`]).trim().split('\n').filter(Boolean);
+  for (const commit of ancestors) {
+    let historical;
+    try {
+      const bytes = planBlob(repo, commit, planPath);
+      historical = exactActiveFamily(bytes, { prepared: true, commitment: true });
+    } catch {
+      continue;
+    }
+    if (historical.commitment.candidate_index !== expectedIndex) continue;
+    if (
+      historical.state.state_sha256 !== family.state.state_sha256
+      || jcs(historical.preparedRequest) !== jcs(family.preparedRequest)
+      || historical.commitment.prepared_request_sha256 !== family.commitment.prepared_request_sha256
+      || jcs(historical.commitment.prior_attempts) !== jcs(family.commitment.prior_attempts.slice(0, expectedIndex))
+    ) continue;
+    const parent = commitParent(repo, commit, `prior candidate ${expectedIndex} commitment`);
+    requirePlanOnlyChild(repo, commit, parent, planPath, `prior candidate ${expectedIndex} commitment`);
+    if (expectedIndex === 0) {
+      validateCandidateZeroPreparedParent(
+        repo,
+        planPath,
+        parent,
+        historical,
+        'prior candidate-zero commitment',
+      );
+    }
+    expectedIndex -= 1;
+    if (expectedIndex < 0) return;
+  }
+  throw new Error('dispatch commitment fallback lacks matching earlier candidate commitment history');
+}
+
+export function dispatchCommittedReviewer(input) {
+  assertClosed(input, [
+    'repo', 'planPath', 'committedPlanCommit', 'expectedPreparedRequestSha256',
+    'expectedDispatchCommitmentSha256', 'proposedControllerConfig',
+    'controllerAdapter',
+  ], 'dispatch committed reviewer');
+  const {
+    repo, planPath, committedPlanCommit, expectedPreparedRequestSha256,
+    expectedDispatchCommitmentSha256, proposedControllerConfig,
+    controllerAdapter,
+  } = input;
+  string(repo, 'dispatch repository');
+  const logical = safeLogical(planPath);
+  activePlanPath(logical, 'committed reviewer plan path');
+  exactCommit(repo, committedPlanCommit, 'committed plan commitment');
+  digest(expectedPreparedRequestSha256, 'expected prepared request');
+  digest(expectedDispatchCommitmentSha256, 'expected dispatch commitment');
+  assertClosed(controllerAdapter, ['dispatch'], 'controller adapter');
+  if (typeof controllerAdapter.dispatch !== 'function') throw new Error('controller adapter dispatch must be a function');
+  const head = git(repo, ['rev-parse', '--verify', 'HEAD']).trim();
+  if (head !== committedPlanCommit) throw new Error('committed plan commitment must equal exact current HEAD');
+  const parent = commitParent(repo, committedPlanCommit, 'committed plan commitment');
+  requirePlanOnlyChild(repo, committedPlanCommit, parent, logical, 'committed plan commitment');
+  const committedBytes = planBlob(repo, committedPlanCommit, logical);
+  const worktreePath = path.join(repo, logical);
+  let worktreeBytes;
+  try { worktreeBytes = fs.readFileSync(worktreePath); } catch { throw new Error('committed plan worktree bytes are unavailable'); }
+  if (!Buffer.from(committedBytes).equals(worktreeBytes)) throw new Error('worktree plan bytes drift from committed plan commitment');
+  const family = exactActiveFamily(committedBytes, { prepared: true, commitment: true });
+  if (family.state.plan_path !== logical) throw new Error('committed orchestration state plan path mismatch');
+  if (family.state.current_input_sha256 !== sha256(family.canonical)) throw new Error('committed orchestration state input hash does not match plan blob');
+  if (sha256(jcs(family.preparedRequest)) !== expectedPreparedRequestSha256) throw new Error('expected prepared request hash mismatch');
+  if (sha256(jcs(family.commitment)) !== expectedDispatchCommitmentSha256) throw new Error('expected dispatch commitment hash mismatch');
+  validateDispatchCommitment(family.commitment, family.preparedRequest);
+  if (family.commitment.candidate_index === 0) {
+    validateCandidateZeroPreparedParent(
+      repo,
+      logical,
+      parent,
+      family,
+      'committed candidate-zero commitment',
+    );
+  }
+  validatePriorCommitmentHistory(repo, logical, committedPlanCommit, family);
+  const verifiedBundle = verifyBundle({
+    bundle: family.commitment.bundle_path,
+    expectedSha256: family.commitment.bundle_sha256,
+  });
+  validateRequestBundle(family.preparedRequest.request, verifiedBundle);
+  if (family.commitment.candidate.tool === 'codex') {
+    validateReviewerWorkspaceRecord(
+      family.commitment.reviewer_workspace,
+      family.preparedRequest.request.request_id,
+      'primary',
+      { live: true },
+    );
+  } else if (family.commitment.reviewer_workspace !== null) {
+    throw new Error('Claude dispatch commitment requires null reviewer workspace');
+  }
+  const derivedArgv = renderCommittedReviewerArgv(
+    family.preparedRequest,
+    family.commitment.candidate_index,
+    family.commitment.bundle_path,
+    family.commitment.reviewer_workspace?.workspace ?? null,
+    family.commitment.prior_attempts,
+  );
+  if (jcs(derivedArgv) !== jcs(family.commitment.argv) || sha256(jcs(derivedArgv)) !== family.commitment.argv_sha256) throw new Error('committed reviewer argv rederivation mismatch');
+  validateProposedControllerConfigShape(proposedControllerConfig);
+  const expectedProposedConfig = {
+    candidate_index: family.commitment.candidate_index,
+    timeout_mode: family.commitment.controller_config.timeout_mode,
+    timeout_seconds: family.commitment.controller_config.timeout_seconds,
+    argv: family.commitment.argv,
+    argv_sha256: family.commitment.argv_sha256,
+  };
+  if (jcs(proposedControllerConfig) !== jcs(expectedProposedConfig)) throw new Error('proposed controller config does not exactly match committed values');
+  if (controllerContractValidationError(proposedControllerConfig) !== null) throw new Error('committed controller config violates exact-600 contract');
+  const dispatchInput = {
+    tool: family.commitment.candidate.tool,
+    argv: structuredClone(family.commitment.argv),
+    timeout_mode: family.commitment.controller_config.timeout_mode,
+    timeout_seconds: family.commitment.controller_config.timeout_seconds,
+  };
+  return controllerAdapter.dispatch(dispatchInput);
 }
 
 function inside(root, candidate) { const rel = path.relative(root, candidate); return rel && !rel.startsWith('..') && !path.isAbsolute(rel); }
@@ -1986,8 +2907,10 @@ function completionDiff(repo, executionBaseCommit, reviewedHead) {
 }
 
 function safeLogical(logical) {
-  if (typeof logical !== 'string' || !logical || path.isAbsolute(logical) || logical.split('/').includes('..') || logical === '.git' || logical.startsWith('.git/')) throw new Error(`path escapes repo: ${logical}`);
-  return logical.split(path.sep).join('/');
+  if (typeof logical !== 'string' || !logical || logical.includes('\\') || logical.includes('\0') || path.isAbsolute(logical)) throw new Error(`path escapes repo: ${logical}`);
+  const segments = logical.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..') || segments[0] === '.git') throw new Error(`path escapes repo: ${logical}`);
+  return logical;
 }
 
 function exactUtf8(bytes, label) {
@@ -3679,6 +4602,27 @@ function reviewerWorkspacePath(requestId, leg) {
   oneOf(leg, new Set(['X', 'S', 'primary']), 'reviewer workspace role');
   return path.join(REVIEW_WORK_ROOT, `${requestId}-${leg}`);
 }
+function validateReviewerWorkspaceRecord(prepared, requestId, leg, { live = false } = {}) {
+  assertClosed(prepared, ['schema', 'request_id', 'leg', 'workspace', 'cleanup_token'], 'prepared reviewer workspace');
+  const workspace = reviewerWorkspacePath(requestId, leg);
+  if (prepared.schema !== 1 || prepared.request_id !== requestId || prepared.leg !== leg || prepared.workspace !== workspace || !path.isAbsolute(prepared.workspace)) throw new Error('reviewer workspace identity mismatch');
+  digest(prepared.cleanup_token, 'reviewer workspace cleanup token');
+  if (!live) return prepared;
+  const root = fs.lstatSync(REVIEW_WORK_ROOT);
+  if (!root.isDirectory() || root.isSymbolicLink() || fs.realpathSync(REVIEW_WORK_ROOT) !== REVIEW_WORK_ROOT || (root.mode & 0o777) !== 0o700 || (typeof process.getuid === 'function' && root.uid !== process.getuid())) throw new Error('reviewer workspace root is unsafe');
+  const stat = fs.lstatSync(workspace);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(workspace) !== workspace || (stat.mode & 0o777) !== 0o700 || (typeof process.getuid === 'function' && stat.uid !== process.getuid())) throw new Error('reviewer workspace is unsafe');
+  const sentinelPath = path.join(workspace, '.docks-reviewer-workspace');
+  const sentinelStat = fs.lstatSync(sentinelPath);
+  if (!sentinelStat.isFile() || sentinelStat.isSymbolicLink() || (sentinelStat.mode & 0o777) !== 0o600 || (typeof process.getuid === 'function' && sentinelStat.uid !== process.getuid())) throw new Error('reviewer workspace sentinel is unsafe');
+  const sentinelText = fs.readFileSync(sentinelPath, 'utf8');
+  let sentinel;
+  try { sentinel = JSON.parse(sentinelText); } catch { throw new Error('reviewer workspace sentinel is invalid'); }
+  const expected = { schema: 1, request_id: requestId, leg, cleanup_token: prepared.cleanup_token };
+  if (sentinelText !== `${jcs(sentinel)}\n` || jcs(sentinel) !== jcs(expected)) throw new Error('reviewer workspace sentinel mismatch');
+  return prepared;
+}
+
 
 export function prepareReviewerWorkspace({ requestId, leg, reviewSchema = 5 }) {
   const workspace = reviewerWorkspacePath(requestId, leg);

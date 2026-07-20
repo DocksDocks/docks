@@ -33,7 +33,40 @@ The `context-tree` skill maintains these nodes; `scripts/tree/guard.mjs` enforce
 
 ## Codex plan agents
 
-The plan contract has five exact owners: `plan-workspace` bootstraps, migrates, audits, or explicitly refreshes the workspace; public `plan-creator` drafts, self-reviews, and commits one previously nonexistent plan; public `plan-manager` owns every existing-plan operation—including guarded `publish <slug> as an issue` / `--issues` GitHub issue publication—review orchestration, receipt, and lifecycle write; internal `plan-reviewer` returns sealed-bundle evidence; and internal `plan-repairer` returns one exact accepted-blocker patch or `cannot_repair`. Only `.codex/agents/plan-manager.toml` and `.codex/agents/plan-reviewer.toml` exist as repo-local wrappers; the other three skills run without wrappers. For creation, manager proves the canonical path is missing and routes to creator, creator returns the closed `PlanCreatedV1` handoff, and main context may separately invoke manager review with lifecycle intent `none`. Current schema 6 uses one `gpt-5.6-sol`/high/Standard primary reviewer, with Claude Fable/high then Opus/xhigh as availability-only fallbacks. Main-context manager alone dispatches review, reconciles findings, writes persisted orchestration and receipts, applies lifecycle, and may call repairer once for the complete accepted independently reproduced blocking set. Review has one full round plus at most one changed-input repair round; Session Relay is invalid evidence. Historical schemas 1–5 are validation-only and retain their exact persisted meanings.
+The plan contract has five exact owners: `plan-workspace` bootstraps, migrates, audits, or explicitly refreshes the workspace; public `plan-creator` drafts, self-reviews, and commits one previously nonexistent plan; public `plan-manager` owns every existing-plan operation—including guarded `publish <slug> as an issue` / `--issues` GitHub issue publication—review orchestration, prepared-request and candidate-commitment commits, terminal-family validation, receipt, and lifecycle write; internal `plan-reviewer` returns sealed-bundle evidence; and internal `plan-repairer` returns one exact accepted-blocker patch or `cannot_repair`. Only `.codex/agents/plan-manager.toml` and `.codex/agents/plan-reviewer.toml` exist as repo-local wrappers; the other three skills run without wrappers. For creation, manager proves the canonical path is missing and routes to creator, creator returns the closed `PlanCreatedV1` handoff, and main context may separately invoke manager review with lifecycle intent `none`. Current schema 6 commits and reads back the exact prepared request before controller construction, then commits and reads back each candidate's exact-600 dispatch commitment before spawn. Repair advancement atomically removes the round-one request/commitment before a separate round-two prepared-request commit. Only the current user authorizes abandonment; main-context manager alone may persist that exact-byte authorization or a source-plan-bound config abort. It validates reducer output with `validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})` before commit and again on the committed child plus its exact single parent. StateV2 embeds the exact active source state, and both terminal families are disjoint, receiptless, seriesless, nonretryable, and apply-ineligible. Current schema 6 uses one `gpt-5.6-sol`/high/Standard primary reviewer, with Claude Fable/high then Opus/xhigh as availability-only fallbacks. Main-context manager alone dispatches review, reconciles findings, writes persisted orchestration and receipts, applies lifecycle, and may call repairer once for the complete accepted independently reproduced blocking set. Reviewer remains evidence-only; repairer remains patch-only and neither can commit or abandon. Review has one full round plus at most one changed-input repair round; Session Relay is invalid evidence. Historical schemas 1–5 are validation-only and retain their exact persisted meanings.
+
+Every prepared request and exact-600 dispatch commitment is written/read back
+in a separate plan-only commit before launch. `buildReviewerArgv` is
+derivation-only. `dispatchCommittedReviewer` is the sole consuming process
+boundary: it reads exact current-HEAD, single-parent plan-only Git bytes,
+matches expected request/commitment hashes and actual proposed
+`orchestrator_tool/600` config/committed argv, then calls trusted
+`controllerAdapter.dispatch` once with committed values. Invalid or substituted
+paths call it zero times,
+and no argv/commitment result is reusable launch authorization.
+
+Each commitment hash-binds exact validated `prior_attempts`; candidate index
+equals their length, index 0 uses `[]`, and later entries are ordered
+availability-only evidence. The gate rederives argv with that array and requires
+matching earlier-candidate commitments in parent Git history. Missing or
+substituted prior evidence or a missing parent commitment calls the adapter zero
+times.
+
+Before commitment, manager verifies the sealed bundle path/digest and prepares
+a safe schema-6 Codex workspace. Commitment deep-copies its record/hash; Claude
+uses null. The gate independently rechecks bundle plus workspace root/path,
+owner/mode, non-symlink, and sentinel, then rederives argv. Proposed config
+comparison covers only candidate index, argv/hash, and timeout fields.
+
+The gate also compares current worktree plan bytes byte-for-byte to
+`git show <committedPlanCommit>:<planPath>` (or enforces equivalent path
+cleanliness); uncommitted post-commit drift calls the adapter zero times.
+
+Terminal reducer output is checked with
+`validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})` before
+commit and again from the committed child and exact single-parent plan blobs.
+Administrative abandonment is source-plan/state-bound and persists canonical
+base64 plus SHA-256 of the current user's exact UTF-8 authorization bytes.
 
 ## Tool-agnostic rules
 

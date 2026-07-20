@@ -4,8 +4,8 @@ description: Use when plan-manager dispatches an internal read-only reviewer for
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-18"
-  content_hash: "f9f9e4a2289b6936697685bb5345a2eeef9c09ad9f6a43df2241a2f3a2c16b2e"
+  updated: "2026-07-19"
+  content_hash: "fed2fe90627bece3d8b787e438a1fead3591c21e623314e650cee7468f554bf8"
 ---
 
 # Plan Reviewer
@@ -17,12 +17,13 @@ sealed bundles, schemas, compact-JCS hashing, collectors, persisted
 orchestration validation, and historical validation.
 
 <constraint>
-**Evidence only.** Accept one typed request from `plan-manager` and return
-schema-valid reviewer evidence. Never edit the source plan, write a receipt or
-`## Review`, reconcile findings, accept repair targets, authorize a retry,
+**Evidence only.** Accept one typed request from main-context `plan-manager`
+and return schema-valid reviewer evidence. Never edit the source plan, prepare
+or commit a request/dispatch commitment, write a receipt or `## Review`,
+reconcile findings, accept repair targets, authorize retry or abandonment,
 apply an intent, create a follow-up plan, or change lifecycle state.
-`plan-manager` is the sole dispatcher, reconciler, receipt writer, orchestration
-writer, and lifecycle writer.
+Main-context `plan-manager` is the sole dispatcher, reconciler, orchestration-
+family/receipt writer, terminal-transition validator, and lifecycle writer.
 </constraint>
 
 <constraint>
@@ -35,23 +36,26 @@ applicable, schema, request, and bundle.
 
 <constraint>
 **Persisted orchestration is authoritative.** A current request must bind the
-latest committed, read-back `Review-orchestration-state` by series id and state
-hash. The reviewer validates and echoes that binding but never creates,
-advances, settles, retries, or consumes it. Any missing, stale, substituted, or
-mismatched binding is invalid evidence.
+latest committed/read-back active `Review-orchestration-state` and exact
+`Review-orchestration-prepared-request`; the candidate process may start only
+from a separately committed/read-back exact-600 dispatch commitment. The
+reviewer echoes the request binding but never creates, advances, commits,
+settles, retries, aborts, abandons, replaces, or consumes any family. Missing,
+stale, substituted, or mismatched binding is invalid evidence.
 </constraint>
 
 ## Ownership boundary
 
 | Operation | Owner |
 |---|---|
-| Persist orchestration before sealing | `plan-manager` |
+| Persist state, prepared request, candidate commitment, or terminal family | `plan-manager` |
 | Prepare and destroy the sealed bundle | `plan-manager` |
-| Dispatch the selected reviewer candidate | main context |
+| Dispatch the committed candidate | main-context `plan-manager` |
 | Inspect one sealed bundle and return typed evidence | `plan-reviewer` |
 | Reproduce and accept/reject findings | `plan-manager` |
 | Produce the one accepted-blocker patch | `plan-repairer` |
 | Apply a patch, receipt, status, or lifecycle intent | `plan-manager` |
+| Persist abandonment authorized by exact current-user bytes | main-context `plan-manager` |
 
 The reviewer has no writable fallback. A read-only failure is evidence for the
 manager's total result reducer, not permission to switch transports, mutate the
@@ -111,20 +115,21 @@ cross-company leg.
 
 ## Persisted orchestration binding
 
-Before the manager seals a current bundle, it persists exactly one unfenced
-`Review-orchestration-state: <compact JCS>` line, commits it, reads it back, and
-binds the request to:
+Before dispatch, the manager commits and reads back the active
+`Review-orchestration-state`, seals the immutable bundle and constructs the
+recursively closed request, then commits and reads back the exact
+`Review-orchestration-prepared-request`. The request binds:
 
 - the state's `series_id`;
 - the state's latest `request_ids.at(-1)`;
 - its `round_index`, phase, lifecycle intent, and current input hash;
 - its computed `state_sha256`.
 
-The active state uses orchestration schema 1 and records attempt `1|2`, one
-series id, one or two request ids, round `1|2`, status
-`active|passed|stopped|stuck`, stop reason, series digest, apply state, prior
-transition digest, and retry authorization. `active` has no series digest.
-Settled state binds `series_sha256 = sha256(JCS(ReviewSeriesV6))`.
+The active state is an eligible StateV1 or nonterminal StateV2 and records
+attempt `1|2`, one series id, one or two request ids, round `1|2`, status,
+stop reason, series digest, apply state, prior transition digest, and retry
+authorization. `active` has no series digest. Settled state binds
+`series_sha256 = sha256(JCS(ReviewSeriesV6))`.
 
 Round 2 stays in the same orchestration series and advances the state hash.
 `RepairTransitionV6` binds the series id plus the previous and current
@@ -173,6 +178,52 @@ node <plan-reviewer-skill-dir>/scripts/review-policy.mjs
 The reviewer never changes permissions or performs cleanup.
 
 ## Launch contract
+
+The reviewer cannot establish launch provenance. `buildReviewerArgv` is
+derivation-only and never authorizes process creation. Before dispatch, the
+manager has written/read back the exact prepared request and candidate-sensitive
+`ReviewDispatchCommitmentV1` in separate plan-only commits.
+Before a Codex commitment, the manager verifies the sealed bundle path/digest
+and prepares a safe schema-6 workspace through `prepareReviewerWorkspace`. The
+commitment deep-copies its complete non-secret record and JCS hash; Claude
+requires `reviewer_workspace:null`.
+The commitment persists exact recursively validated `prior_attempts` and
+`prior_attempts_sha256 = sha256(JCS(prior_attempts))`. Its `candidate_index`
+equals `prior_attempts.length`; candidate 0 uses
+`[]`, and later entries are the ordered availability-only results for every
+earlier policy candidate.
+
+Main context may create the reviewer process only through
+`dispatchCommittedReviewer({repo,planPath,committedPlanCommit,
+expectedPreparedRequestSha256,expectedDispatchCommitmentSha256,
+proposedControllerConfig,controllerAdapter})`. The gate requires the supplied
+commit to be exact current `HEAD`, single-parent, and plan-only; reads its plan
+blob from Git; and validates expected request/commitment hashes, state/policy/
+candidate, exact prior-attempt sequence/hash, sealed bundle path/content digest,
+and committed workspace record/hash. For Codex it independently validates
+workspace managed root/path, owner/mode, non-symlink status, and request/leg
+sentinel before rederiving argv with committed workspace and prior attempts.
+Claude requires null workspace. It verifies argv/hash separately.
+
+It also compares current worktree bytes at `planPath` byte-for-byte with
+`git show <committedPlanCommit>:<planPath>` (or enforces equivalent plan-path
+cleanliness) before dispatch. Uncommitted post-commit plan drift calls the
+adapter zero times. For every prior attempt it requires the matching
+earlier-candidate commitment in parent Git history. Missing/substituted prior
+evidence, an invalid availability sequence, or a missing parent commitment
+calls the adapter zero times.
+
+Bundle/workspace identity is independently verified and never part of caller-
+supplied controller config. Exact JCS comparison of
+`ProposedControllerConfigV1` covers only candidate index, argv/hash, and fixed
+`orchestrator_tool/600` timeout fields.
+
+Only then does the gate call trusted
+`controllerAdapter.dispatch({tool,argv,timeout_mode,timeout_seconds})` exactly
+once using committed values. A stale/substituted commit or record, non-plan-only
+or multi-parent history, hash/argv/config mismatch, or proposed 650 calls the
+adapter zero times. No result is reusable launch authorization; availability
+fallback requires a new commitment commit/read-back and a fresh gate call.
 
 Append the exact compact request to the findings-only prompt:
 
@@ -301,6 +352,18 @@ GOOD: validate it historically and require a new schema-6 orchestration.
 - Never claim acceptance, CI, clone, cleanup, write, reconciliation, retry,
   receipt, or lifecycle work.
 - Return typed failure evidence when review cannot run; never mutate state here.
+- Never infer that stdout proves dispatch provenance, create terminal state, or
+  authorize controller abort/abandonment; those are manager-only plan-family
+  operations bound to committed source bytes.
+- Require candidate index to equal the exact hashed prior-attempt count,
+  candidate 0 to use `[]`, and every later availability attempt to have its
+  matching earlier commitment in parent Git history.
+- Require the commitment and gate to bind and independently verify exact sealed
+  bundle path/digest plus workspace record/hash; Codex validates root/path,
+  owner/mode, non-symlink, and sentinel, while Claude requires null.
+- Treat `dispatchCommittedReviewer` as the sole consuming process boundary;
+  never launch from derived argv or a commitment, and never accept caller
+  replacement values after its Git/blob/config checks.
 
 ## Success criteria
 

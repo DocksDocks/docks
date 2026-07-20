@@ -191,6 +191,61 @@ function assertCatalogMetadata() {
   }
 }
 
+function assertControllerRecoveryOwnership() {
+  const text = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
+  const managerFiles = [
+    'docs/plans/AGENTS.md',
+    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+    'plugins/docks/agents/plan-manager.md',
+    '.codex/agents/plan-manager.toml',
+    'docs/scaffold/templates/root-AGENTS.md.template',
+    'docs/scaffold/templates/codex-plan-manager.toml.template',
+    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
+  ];
+  for (const relative of managerFiles) {
+    const body = text(relative);
+    assert.match(body, /prepared request/i, `${relative} must name the prepared-request boundary`);
+    assert.match(body, /commitment/i, `${relative} must name the dispatch-commitment boundary`);
+    assert.match(
+      body,
+      /(?:commit|persist)[\s\S]{0,800}read[\s-]?back|read[\s-]?back[\s\S]{0,800}(?:commit|persist)/i,
+      `${relative} must require commit/read-back of launch evidence`,
+    );
+    assert.match(body, /dispatchCommittedReviewer/, `${relative} must name the sole dispatch gate`);
+    assert.match(
+      body,
+      /(?:sole|only)[\s\S]{0,160}(?:spawn|process|dispatch)[\s\S]{0,160}(?:boundary|gate)|dispatchCommittedReviewer[\s\S]{0,240}(?:sole|only)/i,
+      `${relative} must reserve the sole process boundary to the committed dispatch gate`,
+    );
+    assert.match(body, /current[\s-]+[`"]?HEAD/i, `${relative} must require the exact current HEAD`);
+    assert.match(body, /single-parent/i, `${relative} must reject multi-parent dispatch commits`);
+    assert.match(body, /plan-only/i, `${relative} must require a plan-only dispatch commit`);
+    assert.match(body, /controllerAdapter\.dispatch|trusted adapter/i, `${relative} must name the trusted host adapter`);
+    assert.match(body, /zero times|zero-call|must not call/i, `${relative} must make rejected dispatches zero-call`);
+    assert.match(body, /worktree[\s\S]{0,240}(?:byte|drift|git show)/i, `${relative} must reject post-commit worktree drift`);
+    assert.match(body, /(?:sealed )?bundle[\s\S]{0,240}(?:path|digest|hash)|(?:path|digest|hash)[\s\S]{0,240}(?:sealed )?bundle/i, `${relative} must bind the committed sealed bundle`);
+    assert.match(body, /(?:reviewer|committed|Codex)?[\s-]*workspace[\s\S]{0,320}(?:sentinel|owner|mode|symlink)|(?:sentinel|owner|mode|symlink)[\s\S]{0,320}(?:reviewer|committed|Codex)?[\s-]*workspace/i, `${relative} must validate the committed reviewer workspace`);
+    assert.match(body, /validateReviewTerminalFamily/, `${relative} must require the terminal-family validator`);
+    assert.match(
+      body,
+      /currentPlanBytes[\s\S]{0,160}parentPlanBytes|parentPlanBytes[\s\S]{0,160}currentPlanBytes/,
+      `${relative} must bind terminal validation to child and parent bytes`,
+    );
+  }
+
+  const managerSkill = text('plugins/docks/skills/productivity/plan-manager/SKILL.md');
+  assert.match(managerSkill, /exact(?:ly)?[- ]?600|600[- ]second/i, 'plan-manager must retain the exact-600 launch gate');
+  assert.match(managerSkill, /current-user[\s\S]{0,240}(?:bytes|authorization)|(?:bytes|authorization)[\s\S]{0,240}current-user/i, 'plan-manager must bind abandonment to current-user bytes');
+  assert.match(managerSkill, /main-context plan-manager[\s\S]{0,240}abandon|abandon[\s\S]{0,240}main-context plan-manager/i, 'only main-context plan-manager may abandon');
+
+  const reviewer = text('plugins/docks/skills/productivity/plan-reviewer/SKILL.md');
+  assert.match(reviewer, /read-only|evidence-only/i, 'plan-reviewer must stay read-only');
+  assert.match(reviewer, /(?:must not|cannot|never)[\s\S]{0,160}abandon|abandon[\s\S]{0,160}(?:must not|cannot|never)/i, 'plan-reviewer must not abandon');
+  const repairer = text('plugins/docks/skills/productivity/plan-repairer/SKILL.md');
+  assert.match(repairer, /patch-only|one patch/i, 'plan-repairer must stay patch-only');
+}
+
 function runCodexFacts(scriptRoot) {
   return spawnSync(process.execPath, [path.join(scriptRoot, 'scripts/skills/codex-facts.mjs')], {
     cwd: scriptRoot,
@@ -310,6 +365,7 @@ if (invocation.caseName === 'installed-catalogs') {
   assertScaffoldContract();
   assertAuthorCheckKey();
   assertCatalogMetadata();
+  assertControllerRecoveryOwnership();
   assertRetainedCodexFactMutation();
   assertHistoricalNamesRemainHistorical();
   console.log('plan skill phase, wrapper, scaffold, guard, and history contracts passed');

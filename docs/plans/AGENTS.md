@@ -205,6 +205,8 @@ Only `plan-manager` may:
 - independently reproduce and partition findings;
 - invoke one exact accepted-blocker repair;
 - persist orchestration state and canonical receipts;
+- persist and read back prepared requests and per-candidate dispatch commitments;
+- validate and commit controller-abort or authorized-abandonment terminal families;
 - apply an eligible intent once;
 - write status, schedule, block, review, completion, or archive changes;
 - commit a plan-only lifecycle change.
@@ -238,23 +240,110 @@ view, not a lifecycle or review record.
 ## Current schema-6 review orchestration
 
 A current review series is one full round plus at most one changed-input repair
-round. A persisted orchestration attempt is `1|2`; attempt 2 requires explicit
-current-user retry after attempt 1 ended with an allowed retryable stop. Model
-fallback is availability-only within one attempt and never increments that
-counter. No automatic reprepare, attempt 3, round 3, continuation batch, or
-metadata-only progress is valid.
+round. A retryable availability, timeout, or unparseable result settles attempt
+1 as `stopped`; exactly one explicit current-user same-input authorization may
+start attempt 2, where the same failure settles as `stuck` and permits no
+further retry. Nonretryable results are `stuck` at either attempt. Model
+fallback is availability-only within one attempt and never increments the
+counter.
 
-The exact one-line record is:
+The no-progress key is
+`(plan_path,phase,intent_group,current_input_sha256)`. Timestamps,
+lifecycle-only frontmatter, review records/receipts, and the orchestration
+record are excluded, so metadata-only edits cannot reset the counter; only
+genuinely changed canonical input starts a new series at attempt 1. No
+automatic reprepare, attempt 3, round 3, or continuation batch is valid.
+
+Current schema-6 orchestration may persist these exact unfenced records:
 
 ```text
-Review-orchestration-state: <compact JCS object>
+Review-orchestration-state: <compact JCS ReviewOrchestrationStateV1|V2>
+Review-orchestration-prepared-request: <compact JCS ReviewPreparedRequestV1>
+Review-orchestration-dispatch-commitment: <compact JCS ReviewDispatchCommitmentV1>
+Review-orchestration-controller-abort: <compact JCS ReviewControllerConfigAbortV1>
+Review-orchestration-abandonment: <compact JCS ReviewOrchestrationAbandonmentV1>
 ```
 
-It binds schema 6, phase, lifecycle intent, canonical input, attempt, status,
-stop reason, state hash, prior state when applicable, and apply state. Only a
-validated `passed` or `pending` state may be consumed. Intent `none` never
-changes lifecycle. A rejected lifecycle precondition persists a terminal
-`apply_rejected` result without retrying.
+Main-context `plan-manager` writes the active state and exact deep-copied
+prepared request in a plan-only commit and reads the committed plan blob back
+before constructing controller configuration. Before a Codex commitment, it
+verifies the sealed bundle's absolute safe path and request-bound digest, then
+calls `prepareReviewerWorkspace` for a safe schema-6 workspace. It validates
+managed root/path containment, owner/mode, non-symlink status, and request/leg
+sentinel identity. Claude requires `reviewer_workspace:null`.
+
+`buildReviewerArgv` derives argv only; it never authorizes a process. Each
+candidate commitment binds the sealed bundle path/digest, derived argv and
+`orchestrator_tool/600`, plus a deep copy of the complete non-secret workspace
+record and its JCS hash. The manager writes it in a separate plan-only commit
+and reads it back.
+Every commitment also persists the exact recursively validated `prior_attempts`
+and `prior_attempts_sha256 = sha256(JCS(prior_attempts))`. `candidate_index`
+must equal
+`prior_attempts.length`; candidate 0 requires `prior_attempts:[]`, and later
+entries must be the ordered availability-only results for all earlier policy
+candidates.
+
+`dispatchCommittedReviewer({repo,planPath,committedPlanCommit,
+expectedPreparedRequestSha256,expectedDispatchCommitmentSha256,
+proposedControllerConfig,controllerAdapter})` is the sole consuming process
+boundary. It requires the commitment commit to equal current `HEAD`, be
+single-parent and plan-only, reads that exact Git plan blob, and revalidates the
+expected request/commitment hashes, candidate position, exact prior-attempt
+sequence/hash, sealed bundle path/content digest, and committed workspace
+record/hash. For Codex it independently revalidates workspace root/path,
+owner/mode, non-symlink status, and sentinel before rederiving argv with the
+committed workspace and prior attempts; Claude requires a null workspace. It
+verifies argv/hash separately.
+
+Bundle/workspace identity is independently verified and never caller-supplied
+controller configuration. Exact JCS comparison of `ProposedControllerConfigV1`
+covers only candidate index, argv/hash, and fixed `orchestrator_tool/600`
+timeout fields. Only then may the gate call trusted
+`controllerAdapter.dispatch` exactly once with committed values. Any stale,
+substituted, non-plan-only, multi-parent, or hash/argv/config mismatch calls the
+adapter zero times; neither derived argv nor a commitment is reusable launch
+authorization.
+
+Before dispatch it also requires current worktree bytes at `planPath` to equal
+`git show <committedPlanCommit>:<planPath>` byte-for-byte (or enforces
+equivalent plan-path cleanliness); uncommitted post-commit plan drift calls the
+adapter zero times. For every prior attempt, the gate requires the matching
+earlier-candidate commitment in parent Git history. Missing/substituted prior
+evidence, a non-availability prior result, or a missing parent commitment calls
+the adapter zero times. Availability-only fallback requires validated prior
+evidence, a new plan-only commitment commit/read-back, and a fresh gate call.
+
+Repair advancement is one source-plan-bound compare-and-swap: it atomically
+removes the round-one prepared request and commitment while writing only the
+active round-two state. The manager commits and reads back that record-free
+transition before a separate commit/read-back of the distinct round-two
+prepared request; only the consuming dispatch gate may use a later exact-600 commitment.
+
+A controller configuration abort is allowed only from the exact committed
+active source family with its prepared request and with no commitment or
+process evidence. Authorized abandonment is a separate request-free
+administrative transition available only to main-context `plan-manager` from
+explicit current-user authorization for that exact plan/state. It persists
+canonical base64 of the exact current-user UTF-8 bytes plus their digest and
+never fabricates a request, run, series, receipt, verdict, retry, repair, or
+apply authority.
+
+`canonicalPlanView(bytes)` remains structural. Before committing any reducer
+terminal output, the manager calls
+`validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})` against the
+exact source-plan bytes. After the plan-only commit, it reads the committed
+child plan blob and its single parent plan blob from Git and reruns the same
+validator. Parent-hash drift, a missing or extra parent, or any child/parent
+mismatch rejects the transition.
+
+Terminal `ReviewOrchestrationStateV2` embeds a deep copy of the exact active
+source StateV1/V2 and binds its self-hash. Controller-abort and abandonment
+families are disjoint from each other and from series/receipts, use distinct
+StateV2-only stuck reasons, and are nonretryable and apply-ineligible. Only
+materially changed canonical input may replace a complete terminal family
+through `replaceReviewTerminalFamily`; same-input reset or partial removal is
+invalid.
 
 Terminal non-executing work returns:
 
@@ -288,6 +377,9 @@ blocking set and its bound prior/current input identities. It applies one
 minimal section-level patch or returns `cannot_repair`. It never expands scope,
 repairs advisory findings, reviews its own patch, dispatches, writes receipts,
 or changes lifecycle.
+Neither role may create, commit, abort, abandon, replace, or validate an
+orchestration family. `plan-reviewer` remains evidence-only and
+`plan-repairer` remains patch-only.
 
 Main-context `plan-manager` is the sole dispatcher and reconciler. Session
 transport is never canonical review evidence.

@@ -1842,22 +1842,18 @@ function testLifecycle() {
     series_sha256: H0,
     apply_state: lifecycleIntent === 'none' ? 'none' : 'pending',
   });
-  const transitioned = (orchestration, overrides) => {
-    const { state_sha256: priorStateSha256, ...unhashed } = orchestration;
-    return stateWithHash({
-      ...unhashed,
-      ...overrides,
-      transitioned_from_state_sha256: priorStateSha256,
-    });
-  };
+  const transitioned = (orchestration, overrides) => normalStateV2From(orchestration, {
+    ...overrides,
+    transitioned_from_state_sha256: orchestration.state_sha256,
+  });
   const none = settledPassed('none');
   assert.deepEqual(
     applyLifecycleState({ state: 'planned', intent: 'none', eligible: true, orchestration: none }),
-    { kind: 'applied', state: 'planned', orchestration: none },
+    { kind: 'applied', state: 'planned', orchestration: normalStateV2From(none) },
   );
   assert.deepEqual(
     applyLifecycleState({ state: 'scheduled', intent: 'none', eligible: false, orchestration: none }),
-    { kind: 'applied', state: 'scheduled', orchestration: none },
+    { kind: 'applied', state: 'scheduled', orchestration: normalStateV2From(none) },
   );
 
   const start = settledPassed('start');
@@ -1995,7 +1991,7 @@ function testContractSurfaces() {
     /schema 6/i,
     /historical schemas 1–5/i,
     /one full round plus at most one changed-input repair/i,
-    /attempt 2 requires explicit\s+current-user retry/i,
+    /attempt 2[\s\S]{0,120}(?:explicit|exact)\s+current-user|(?:explicit|exact)\s+current-user[\s\S]{0,120}attempt 2/i,
     /standalone_executability/,
     /actionability/,
     /dependency_order/,
@@ -2084,7 +2080,8 @@ function testManagerSurfaces() {
     'Sole-writer orchestration', 'No renewable review loop', 'Review-orchestration-state:',
     'NeedsUserAction', 'NeedsMainReviewDispatch', 'beginReviewOrchestration',
     'advanceReviewOrchestrationRepair', 'settleReviewOrchestration', 'consumeReviewIntent',
-    'review_schema:6', 'plan-repairer', 'cannot_repair', 'No round 3',
+    'ReviewPreparedRequestV1', 'ReviewDispatchCommitmentV1', 'dispatchCommittedReviewer',
+    'validateReviewTerminalFamily', 'plan-repairer', 'cannot_repair', 'No round 3',
     'execution-base..head binary diff', 'acceptance inventory', 'schemas 1–5 are validation-only',
   ]) assert.match(skill, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `plan-manager missing schema-6 marker ${marker}`);
 
@@ -2373,11 +2370,16 @@ function currentReceipt(req, run = currentRun(req), overrides = {}) {
   };
 }
 
-const ORCHESTRATION_STATE_KEYS = [
+const ORCHESTRATION_STATE_V1_KEYS = [
   'schema', 'plan_path', 'phase', 'lifecycle_intent', 'initial_input_sha256',
   'current_input_sha256', 'orchestration_attempt', 'series_id', 'request_ids',
   'round_index', 'status', 'stop_reason', 'series_sha256', 'apply_state',
   'transitioned_from_state_sha256', 'retry_authorization', 'state_sha256',
+];
+const ORCHESTRATION_STATE_V2_KEYS = [
+  ...ORCHESTRATION_STATE_V1_KEYS.filter((key) => !['schema', 'state_sha256'].includes(key)),
+  'schema', 'terminal_evidence_sha256', 'terminated_from_state_sha256',
+  'terminated_from_state', 'state_sha256',
 ];
 const RETRY_AUTHORIZATION_KEYS = [
   'schema', 'authorization_id', 'actor', 'authorized_at', 'plan_path', 'phase',
@@ -2408,6 +2410,32 @@ function orchestrationStateV1(overrides = {}) {
     retry_authorization: null,
     ...overrides,
   });
+}
+
+function normalStateV2From(state, overrides = {}) {
+  const fields = Object.fromEntries(Object.entries(state).filter(([key]) => ![
+    'schema', 'state_sha256', 'terminal_evidence_sha256', 'terminated_from_state_sha256', 'terminated_from_state',
+  ].includes(key)));
+  return stateWithHash({
+    ...fields,
+    schema: 2,
+    terminal_evidence_sha256: null,
+    terminated_from_state_sha256: null,
+    terminated_from_state: null,
+    ...overrides,
+  });
+}
+
+function assertNormalStateV2(state, expected, label) {
+  assert.deepEqual([...Object.keys(state)].sort(), [...ORCHESTRATION_STATE_V2_KEYS].sort(), `${label} is closed StateV2`);
+  assert.deepEqual(state, normalStateV2From(expected), `${label} normalizes the eligible source`);
+}
+
+function stateV1From(state, overrides = {}) {
+  const fields = Object.fromEntries(Object.entries(state).filter(([key]) => ![
+    'schema', 'state_sha256', 'terminal_evidence_sha256', 'terminated_from_state_sha256', 'terminated_from_state',
+  ].includes(key)));
+  return orchestrationStateV1({ ...fields, ...overrides });
 }
 
 const RETRY_SOURCE_TEXT = 'schema-6 retry authorization source';
@@ -2609,10 +2637,18 @@ async function testSchema6PolicySurfaces() {
     for (const exportName of [
       'beginReviewOrchestration',
       'advanceReviewOrchestrationRepair',
+      'advanceReviewOrchestrationRepairFamily',
       'settleReviewOrchestration',
       'consumeReviewIntent',
+      'prepareReviewRequest',
+      'buildReviewDispatchCommitment',
+      'dispatchCommittedReviewer',
+      'abortReviewControllerConfig',
+      'abandonReviewOrchestration',
+      'validateReviewTerminalFamily',
+      'replaceReviewTerminalFamily',
     ]) {
-      assert.equal(typeof reviewPolicy[exportName], 'function', `missing schema-6 export ${exportName}`);
+      assert.equal(typeof reviewPolicy[exportName], 'function', `missing controller-recovery export ${exportName}`);
     }
 
     const fixedState = orchestrationStateV1();
@@ -2633,8 +2669,7 @@ async function testSchema6PolicySurfaces() {
       previousState: null,
       sourceText: null,
     });
-    assert.deepEqual([...Object.keys(active)].sort(), [...ORCHESTRATION_STATE_KEYS].sort(), 'ReviewOrchestrationStateV1 is closed');
-    assert.deepEqual(active, fixedState);
+    assertNormalStateV2(active, fixedState, 'beginReviewOrchestration');
 
     const retryPreviousState = orchestrationStateV1({
       status: 'stopped',
@@ -2656,6 +2691,11 @@ async function testSchema6PolicySurfaces() {
       previousState: retryPreviousState,
       sourceText: RETRY_SOURCE_TEXT,
     });
+    assert.deepEqual([...Object.keys(retryState)].sort(), [...ORCHESTRATION_STATE_V2_KEYS].sort(), 'attempt-two begin emits closed StateV2');
+    assert.equal(retryState.schema, 2);
+    assert.equal(retryState.terminal_evidence_sha256, null);
+    assert.equal(retryState.terminated_from_state_sha256, null);
+    assert.equal(retryState.terminated_from_state, null);
     assert.deepEqual([...Object.keys(retryState.retry_authorization)].sort(), [...RETRY_AUTHORIZATION_KEYS].sort(), 'embedded retry authorization is closed');
     expectThrow('retry authorization unknown key', () => reviewPolicy.beginReviewOrchestration({
       planPath: retryAuthorization.plan_path,
@@ -2682,23 +2722,27 @@ async function testSchema6PolicySurfaces() {
       previousState: null,
       sourceText: null,
     });
-    const previousState = reviewPolicy.beginReviewOrchestration({
-      planPath: fixture.planPath,
-      phase: 'draft',
-      lifecycleIntent: 'none',
-      inputSha256: sha256(fixture.previousPlan),
-      seriesId: 'a23e4567-e89b-42d3-a456-426614174000',
-      requestId: 'b23e4567-e89b-42d3-a456-426614174000',
-      orchestrationAttempt: 1,
-      retryAuthorization: null,
-      previousState: null,
-      sourceText: null,
+    const previousState = orchestrationStateV1({
+      plan_path: fixture.planPath,
+      initial_input_sha256: sha256(fixture.previousPlan),
+      current_input_sha256: sha256(fixture.previousPlan),
+      series_id: 'a23e4567-e89b-42d3-a456-426614174000',
+      request_ids: ['b23e4567-e89b-42d3-a456-426614174000'],
     });
     const repairState = reviewPolicy.advanceReviewOrchestrationRepair({
       state: previousState,
       requestId: 'c23e4567-e89b-42d3-a456-426614174000',
       currentInputSha256: sha256(fixture.currentPlan),
     });
+    assert.deepEqual(
+      repairState,
+      normalStateV2From(previousState, {
+        current_input_sha256: sha256(fixture.currentPlan),
+        request_ids: [...previousState.request_ids, 'c23e4567-e89b-42d3-a456-426614174000'],
+        round_index: 2,
+      }),
+      'eligible direct StateV1 repair emits the equivalent active StateV2',
+    );
     const v6Transition = reviewPolicy.buildCurrentRepairTransition({
       schema: 6,
       fromRoundIndex: 1,
@@ -2820,22 +2864,43 @@ async function testSchema6PolicySurfaces() {
       validateReviewerOutput(output, req, 'primary');
       reviewPolicy.validateCurrentReviewerOutput(output, req);
 
-      const prepared = reviewPolicy.prepareReviewerWorkspace({
+      const preparedRequest = reviewPolicy.prepareReviewRequest({
+        state: row.state,
+        request: req,
+        preparedAt: '2026-07-19T12:00:00-03:00',
+      });
+      const preparedWorkspace = reviewPolicy.prepareReviewerWorkspace({
         requestId: req.request_id,
         leg: 'primary',
         reviewSchema: 6,
       });
-      preparedWorkspaces.push({ requestId: req.request_id, prepared });
+      preparedWorkspaces.push({ requestId: req.request_id, prepared: preparedWorkspace });
+      const codexCommitment = reviewPolicy.buildReviewDispatchCommitment({
+        preparedRequest,
+        candidateIndex: 0,
+        bundle: row.bundle,
+        reviewerWorkspace: preparedWorkspace,
+        leg: 'primary',
+        priorAttempts: [],
+        committedAt: '2026-07-19T12:01:00-03:00',
+      });
+      assert.deepEqual(codexCommitment.controller_config, { timeout_mode: 'orchestrator_tool', timeout_seconds: 600 });
+      assert.equal(codexCommitment.bundle_path, row.bundle);
+      assert.equal(codexCommitment.bundle_sha256, row.sealed.bundle_sha256);
+      assert.deepEqual(codexCommitment.reviewer_workspace, preparedWorkspace);
+      assert.notEqual(codexCommitment.reviewer_workspace, preparedWorkspace);
+      assert.equal(codexCommitment.reviewer_workspace_sha256, sha256(jcs(preparedWorkspace)));
       const codexArgv = buildReviewerArgv({
         tool: 'codex',
         bundle: row.bundle,
-        reviewerWorkspace: prepared,
+        reviewerWorkspace: preparedWorkspace,
         model: 'gpt-5.6-sol',
         effort: 'high',
         serviceTier: 'default',
         leg: 'primary',
         request: req,
       });
+      assert.deepEqual(codexArgv, codexCommitment.argv, `schema-6 ${row.label} commitment stores derived argv`);
       assert.equal(codexArgv[codexArgv.indexOf('--output-schema') + 1], path.join(row.bundle, 'reviewer-output.primary.v6.schema.json'), `schema-6 ${row.label} Codex schema path`);
       assert.deepEqual(extractReviewerOutput('codex', `${JSON.stringify(output)}\n`, req, 'primary', row.bundle), output);
 
@@ -2852,6 +2917,19 @@ async function testSchema6PolicySurfaces() {
         stdout_sha256: null,
         stderr_sha256: null,
       });
+      const claudeCommitment = reviewPolicy.buildReviewDispatchCommitment({
+        preparedRequest,
+        candidateIndex: 1,
+        bundle: row.bundle,
+        reviewerWorkspace: null,
+        leg: 'primary',
+        priorAttempts: [unavailableCodex],
+        committedAt: '2026-07-19T12:02:00-03:00',
+      });
+      assert.equal(claudeCommitment.bundle_path, row.bundle);
+      assert.equal(claudeCommitment.bundle_sha256, row.sealed.bundle_sha256);
+      assert.equal(claudeCommitment.reviewer_workspace, null);
+      assert.equal(claudeCommitment.reviewer_workspace_sha256, sha256(jcs(null)));
       const claudeArgv = buildReviewerArgv({
         tool: 'claude',
         bundle: row.bundle,
@@ -2861,6 +2939,7 @@ async function testSchema6PolicySurfaces() {
         request: req,
         priorAttempts: [unavailableCodex],
       });
+      assert.deepEqual(claudeArgv, claudeCommitment.argv, `schema-6 ${row.label} fallback commitment stores derived argv`);
       const claudeSchema = JSON.parse(claudeArgv[claudeArgv.indexOf('--json-schema') + 1]);
       assert.equal(claudeSchema.properties.schema.const, 6, `schema-6 ${row.label} Claude schema envelope`);
       assert.deepEqual(extractReviewerOutput('claude', JSON.stringify({ structured_output: output }), req, 'primary', row.bundle), output);
@@ -2878,6 +2957,77 @@ async function testSchema6PolicySurfaces() {
     reviewPolicy.validateReviewSeries(series);
     const settled = reviewPolicy.settleReviewOrchestration({ state: fullState, series });
     assert.equal(settled.series_sha256, sha256(jcs(series)));
+    const fullStateV1 = stateV1From(fullState);
+    const reqV1 = schema6Request(v6Full, fullStateV1);
+    const rawV1 = currentRaw(reqV1, currentOutput(reqV1, { schema: 6 }), {
+      schema: 6,
+      attempts: [currentAttempt(reqV1.policy.candidates[0], { schema: 6 })],
+    });
+    const runV1 = currentRun(reqV1, rawV1, { schema: 6 });
+    const seriesV1 = schema6Series(reqV1, runV1);
+    const settledV1Output = reviewPolicy.settleReviewOrchestration({ state: fullStateV1, series: seriesV1 });
+    assert.deepEqual(
+      settledV1Output,
+      normalStateV2From(fullStateV1, {
+        status: 'passed',
+        series_sha256: sha256(jcs(seriesV1)),
+      }),
+      'eligible direct StateV1 settlement emits equivalent StateV2',
+    );
+    const noIntentV1 = reviewPolicy.consumeReviewIntent({
+      state: 'planned',
+      intent: 'none',
+      eligible: true,
+      orchestration: fullStateV1,
+    });
+    assertNormalStateV2(noIntentV1.orchestration, fullStateV1, 'direct StateV1 no-intent consumption');
+    const pendingV1 = stateV1From(settledV1Output, {
+      lifecycle_intent: 'start',
+      apply_state: 'pending',
+    });
+    const consumedV1 = reviewPolicy.consumeReviewIntent({
+      state: 'planned',
+      intent: 'start',
+      eligible: true,
+      orchestration: pendingV1,
+    });
+    assert.equal(consumedV1.kind, 'applied');
+    assert.deepEqual(
+      consumedV1.orchestration,
+      normalStateV2From(pendingV1, {
+        apply_state: 'consumed',
+        transitioned_from_state_sha256: pendingV1.state_sha256,
+      }),
+      'eligible direct StateV1 intent consumption preserves the exact source hash',
+    );
+    const rejectedV1 = reviewPolicy.consumeReviewIntent({
+      state: 'scheduled',
+      intent: 'start',
+      eligible: true,
+      orchestration: pendingV1,
+    });
+    assert.equal(rejectedV1.kind, 'rejected');
+    assert.deepEqual(
+      rejectedV1.orchestration,
+      normalStateV2From(pendingV1, {
+        status: 'stuck',
+        stop_reason: 'apply_rejected',
+        apply_state: 'none',
+        transitioned_from_state_sha256: pendingV1.state_sha256,
+      }),
+      'direct StateV1 apply rejection preserves the exact source hash',
+    );
+    const staleReqV1 = schema6Request(v6Full, fullStateV1, { input_sha256: H0 });
+    const staleRawV1 = currentRaw(staleReqV1, currentOutput(staleReqV1, { schema: 6 }), {
+      schema: 6,
+      attempts: [currentAttempt(staleReqV1.policy.candidates[0], { schema: 6 })],
+    });
+    const staleRunV1 = currentRun(staleReqV1, staleRawV1, { schema: 6 });
+    const staleSeriesV1 = schema6Series(staleReqV1, staleRunV1);
+    const staleSettledV1 = reviewPolicy.settleReviewOrchestration({ state: fullStateV1, series: staleSeriesV1 });
+    assert.equal(staleSettledV1.schema, 2);
+    assert.equal(staleSettledV1.status, 'stuck');
+    assert.equal(staleSettledV1.stop_reason, 'stale_input', 'StateV1 normalization preserves stale settlement behavior');
     const receipt = schema6Receipt(req, run, series, settled);
     reviewPolicy.validateCurrentReviewReceipt(receipt, req.input_sha256, { orchestration: settled });
     validateDraftReceipt(receipt, req.input_sha256, { expectedPolicy: req.policy, orchestration: settled });

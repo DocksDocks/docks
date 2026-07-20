@@ -844,6 +844,9 @@ function assertOrchestrationStateHash(state) {
     'stop_reason',
     'series_sha256',
     'apply_state',
+    'terminated_from_state',
+    'terminated_from_state_sha256',
+    'terminal_evidence_sha256',
     'transitioned_from_state_sha256',
     'retry_authorization',
     'state_sha256',
@@ -984,6 +987,8 @@ function testSchema6RepairSeries() {
     'advanceReviewOrchestrationRepair',
     'settleReviewOrchestration',
     'consumeReviewIntent',
+    'prepareReviewRequest',
+    'buildReviewDispatchCommitment',
   ]) assert.equal(typeof policy[name], 'function', `${name} must be exported`);
 
   const firstState = beginSchema6State({ inputSha256: H1 });
@@ -1164,8 +1169,8 @@ function testSchema6RepairArtifacts() {
     const firstRun = schema6Run(firstRequest, 'blocking_gap');
 
     for (const scenario of [
-      { mode: 'full', bundle: fullBundlePath, request: fullRequest, firstRun: null, transition: null },
-      { mode: 'repair', bundle: repairBundlePath, request: repairRequest, firstRun, transition },
+      { mode: 'full', bundle: fullBundlePath, sealed: fullBundle, state: fullState, request: fullRequest, firstRun: null, transition: null },
+      { mode: 'repair', bundle: repairBundlePath, sealed: repairBundle, state: repairState, request: repairRequest, firstRun, transition },
     ]) {
       const workspace = policy.prepareReviewerWorkspace({ requestId: scenario.request.request_id, leg: 'primary' });
       prepared.push(workspace);
@@ -1188,6 +1193,28 @@ function testSchema6RepairArtifacts() {
           request: scenario.request,
           priorAttempts,
         });
+        const preparedRequest = policy.prepareReviewRequest({
+          state: scenario.state,
+          request: scenario.request,
+          preparedAt: '2026-07-19T12:00:00-03:00',
+        });
+        const commitment = policy.buildReviewDispatchCommitment({
+          preparedRequest,
+          candidateIndex: tool === 'codex' ? 0 : 1,
+          bundle: scenario.bundle,
+          reviewerWorkspace: tool === 'codex' ? workspace : null,
+          leg: 'primary',
+          priorAttempts,
+          committedAt: '2026-07-19T12:01:00-03:00',
+        });
+        assert.equal(commitment.bundle_path, scenario.bundle);
+        assert.equal(commitment.bundle_sha256, scenario.sealed.bundle_sha256);
+        assert.deepEqual(commitment.reviewer_workspace, tool === 'codex' ? workspace : null);
+        assert.equal(
+          commitment.reviewer_workspace_sha256,
+          policy.sha256(policy.jcs(tool === 'codex' ? workspace : null)),
+        );
+        assert.deepEqual(commitment.argv, argv);
         if (tool === 'codex') {
           assert.equal(argv[argv.indexOf('--output-schema') + 1], path.join(scenario.bundle, 'reviewer-output.primary.v6.schema.json'));
         } else {

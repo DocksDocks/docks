@@ -13,18 +13,22 @@ guarded issue publication but cannot dispatch `plan-reviewer`,
 `plan-repairer`, or `plan-creator`; those handoffs return to main context.
 
 <constraint>
-For a review-triggering operation, persist and read back the valid schema-6
-orchestration state, run only `prepare(intent)`, and return the exact
-`NeedsMainReviewDispatch` envelope. Never launch the reviewer, collect or
-synthesize evidence, call the repairer, or advance lifecycle state before main
-supplies matching typed data.
+For a review-triggering operation, persist and read back the valid active
+schema-6 state and exact prepared request in a plan-only commit. For each
+candidate, persist and read back its exact-600 commitment in a separate
+plan-only commit before returning the exact `NeedsMainReviewDispatch` gate
+input. `buildReviewerArgv` is derivation-only; neither argv nor commitment is
+reusable launch authorization. Never launch the reviewer here.
 </constraint>
 
 <constraint>
 On apply, revalidate exact request/input/bundle/policy/waiver/orchestration
-bytes. Settle or consume through the shipped helper exactly once, write only the
-target plan, read it back, and commit only that plan. Never implement plan
-steps, create a plan, or create a follow-up.
+bytes. For terminal reducer output, call
+`validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})` before
+commit; after commit, read the child and its single parent plan blobs from Git
+and rerun it. Settle or consume through the helper exactly once. Never
+implement plan steps, create a plan, create a follow-up, or accept parent-hash
+drift.
 </constraint>
 
 Current schema 6 dispatches one internal `plan-reviewer`: GPT-5.6-sol/high at
@@ -33,6 +37,14 @@ availability fallbacks. Main context alone reconciles findings and may call
 internal `plan-repairer` once for the complete accepted, independently
 reproduced blocking set. Public `plan-creator` alone drafts and commits a
 previously nonexistent plan.
+Only the current user authorizes abandonment; main-context `plan-manager`
+alone may call and persist it from those exact UTF-8 bytes. This wrapper never
+invents or broadens that authorization.
+The reviewer remains evidence-only and the repairer remains patch-only.
+Config abort and user-authorized abandonment produce disjoint, nonretryable,
+receiptless/seriesless StateV2 families that embed the exact active source state.
+Persist canonical base64 plus SHA-256 of the current user's exact UTF-8
+authorization bytes, bound to the exact source plan/state.
 
 Historical schemas 1–5 retain their exact persisted validation semantics and
 are never emitted by a current operation.
@@ -64,17 +76,40 @@ are never emitted by a current operation.
    after the Notes commit succeeds.
 6. For list/show/block/unblock/schedule, follow the manager's status-as-field,
    plan-only commit, and read-back rules.
-7. For review/start/fire/auto/completion, enforce persisted no-progress state,
-   prepare the immutable schema-6 request, and return
-   `NeedsMainReviewDispatch`; do not dispatch.
-8. Only main context may dispatch `plan-reviewer`, reproduce and reconcile its
-   findings, or call `plan-repairer`.
-9. Permit one full round plus at most one changed-input repair round. Permit a
-   same-input attempt 2 only with exact current-user authorization after a
-   retryable attempt-1 stop; never reset a stuck or attempt-2 state.
-10. When called again with exact typed evidence, settle the series and receipt.
-    Consume an eligible executing intent once or return `NeedsUserAction`.
-11. Re-read every changed orchestration/frontmatter/receipt/Notes line, commit
+7. For review/start/fire/auto/completion, enforce persisted no-progress state.
+   Commit/read back the active state and exact prepared request before any
+   controller configuration or launch construction. If the unchanged validator
+   rejects the proposed config, use the exact source-plan-bound abort path with
+   no commitment or process evidence; a valid exact-600 config cannot abort.
+8. Verify the sealed bundle path/digest. For Codex, prepare a safe schema-6
+   workspace before commitment and validate root/path, owner/mode, non-symlink,
+   and request/leg sentinel; Claude uses null. Bind bundle and a deep-copied
+   workspace record/hash with `prior_attempts`, argv, and
+   `orchestrator_tool/600` in the separate plan-only commitment, read it back,
+   and return `NeedsMainReviewDispatch`; do not dispatch.
+9. Main context dispatches only through `dispatchCommittedReviewer`, passing
+   exact current-HEAD commit, expected request/commitment hashes, actual
+   proposed config, and trusted adapter. The gate independently validates bundle
+   path/digest and committed workspace record/hash; Codex rechecks root/path,
+   owner/mode, non-symlink, and sentinel, while Claude requires null. It
+   rederives argv with committed workspace/prior attempts, compares proposed
+   config only for candidate index, argv/hash, and timeout fields, then calls
+   `controllerAdapter.dispatch` once with committed values. Missing/substituted
+   bundle/workspace or every other invalid path calls it zero times.
+   Before dispatch it must also match current worktree `planPath` bytes to
+   `git show <committedPlanCommit>:<planPath>`; uncommitted drift calls the
+   adapter zero times.
+10. For repair, atomically remove the round-one request and commitment while
+    committing/read-back only round-two state. Prepare/commit/read-back the
+    distinct round-two request separately before any new commitment.
+11. Permit one full round plus at most one changed-input repair round. Permit a
+    same-input attempt 2 only with exact current-user authorization after a
+    retryable attempt-1 stop; terminal families and stuck/attempt-2 state never
+    retry.
+12. When called with exact typed reducer output, validate a terminal family
+    before commit and again on committed child/single-parent plan blobs; settle
+    a normal series and receipt once, then consume an eligible intent once.
+13. Re-read every changed orchestration/frontmatter/receipt/Notes line, commit
     only the plan, and render the required preview.
 
 ## Output Format
@@ -98,6 +133,22 @@ changed lifecycle status.
   renewed.
 - Confirm repair targets equal the complete accepted/reproduced blocker set and
   exclude nonblocking or rejected findings.
+- Confirm prepared request and exact-600 candidate commitment were separately
+  committed/read back before any spawn.
+- Confirm `dispatchCommittedReviewer` alone consumed exact current-HEAD,
+  single-parent plan-only Git bytes and actual proposed config, invoked its
+  trusted adapter once only after validation, and returned no reusable launch
+  authorization.
+- Confirm candidate index equaled hashed prior-attempt count, index 0 used `[]`,
+  later results were ordered availability-only evidence, argv was rederived
+  with them, and parent Git history contained each earlier commitment.
+- Confirm commitment/gate bound the exact bundle path/digest and workspace
+  record/hash; Codex independently passed root/path, owner/mode, non-symlink,
+  and sentinel checks, while Claude workspace was null.
+- Confirm terminal-family validation ran before commit and again against the
+  committed child and exact single-parent plan blobs with no parent-hash drift.
+- Confirm controller abort/abandonment fabricated no run, series, receipt,
+  retry, repair, or apply authority.
 - Confirm terminal, blocking, stale, unavailable, and apply-rejected evidence
   preserves the required nonexecuting lifecycle state.
 - Before issue creation, confirm auth, the GitHub remote, repository visibility,
