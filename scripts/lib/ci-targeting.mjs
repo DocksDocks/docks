@@ -1,4 +1,4 @@
-import { PLUGINS, byName } from './plugins.mjs';
+import { byName, PLUGINS } from './plugins.mjs';
 
 const SEMVER = '(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)';
 const RELEASE_TAG = new RegExp(`^([a-z0-9]+(?:-[a-z0-9]+)*)--v${SEMVER}$`);

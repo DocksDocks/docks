@@ -10,7 +10,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const NAME_RE = /^[a-z0-9-]+$/;
 const HASH_RE = /^[0-9a-f]{64}$/;
 
-const usage = 'usage: validate-skills.mjs --runtime codex|claude <skills-root>';
+const usage = 'usage: validate-skills.mjs --runtime codex|claude|all <skills-root>';
 
 function parseArgs(argv) {
   let runtime = null;
@@ -18,13 +18,20 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--runtime') {
+      if (runtime !== null || i + 1 >= argv.length) {
+        console.error(usage);
+        process.exit(2);
+      }
       runtime = argv[i + 1];
       i += 1;
+    } else if (arg.startsWith('-')) {
+      console.error(usage);
+      process.exit(2);
     } else {
       roots.push(arg);
     }
   }
-  if (!runtime || !['codex', 'claude'].includes(runtime) || roots.length !== 1) {
+  if (!runtime || !['codex', 'claude', 'all'].includes(runtime) || roots.length !== 1) {
     console.error(usage);
     process.exit(2);
   }
@@ -104,9 +111,7 @@ function validateCommon(file, frontmatterText, fm, errors) {
     errors.push('frontmatter `description` must be a non-empty string');
   } else {
     if (description.length > MAX_DESCRIPTION_LENGTH) {
-      errors.push(
-        `description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters (${description.length})`,
-      );
+      errors.push(`description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters (${description.length})`);
     }
     if (description.includes('<') || description.includes('>')) {
       errors.push('description cannot contain angle brackets (`<` or `>`) for Codex compatibility');
@@ -164,12 +169,17 @@ function validateClaude(fm, errors) {
 
 function main() {
   const { runtime, root } = parseArgs(process.argv.slice(2));
-  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
-    console.error(`FAIL: skills root not found: ${root}`);
+  let files;
+  try {
+    files = findSkillFiles(root);
+  } catch (error) {
+    console.error(`FAIL: ${error.message}`);
     process.exit(2);
   }
-
-  const files = findSkillFiles(root);
+  if (files.length === 0) {
+    console.error(`Guard FAILED: no SKILL.md files found under ${root}`);
+    process.exit(1);
+  }
   const failures = [];
 
   for (const file of files) {
@@ -185,7 +195,7 @@ function main() {
       } else {
         validateCommon(file, extracted.text, parsed.value, errors);
         validateStructure(file, extracted.body, errors);
-        if (runtime === 'claude') validateClaude(parsed.value, errors);
+        if (runtime === 'claude' || runtime === 'all') validateClaude(parsed.value, errors);
       }
     }
     if (errors.length > 0) {
@@ -199,11 +209,13 @@ function main() {
         console.error(`FAIL: ${formatPath(failure.file)}: ${error}`);
       }
     }
-    console.error(`Guard FAILED: ${failures.length} skill file(s) failed ${runtime} compatibility`);
+    const compatibility = runtime === 'all' ? 'Codex and Claude' : runtime;
+    console.error(`Guard FAILED: ${failures.length} skill file(s) failed ${compatibility} compatibility`);
     process.exit(1);
   }
 
-  console.log(`Guard PASSED: ${files.length} skill(s) match ${runtime} skill frontmatter expectations`);
+  const compatibility = runtime === 'all' ? 'Codex and Claude' : runtime;
+  console.log(`Guard PASSED: ${files.length} skill(s) match ${compatibility} skill frontmatter expectations`);
 }
 
 main();

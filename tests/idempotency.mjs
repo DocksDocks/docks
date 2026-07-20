@@ -13,22 +13,30 @@ let fail = 0;
 
 // 1. determinism — same input twice yields the same hash
 const skillsRoot = path.join(ROOT, 'plugins/docks/skills');
-const cat0 = fs.readdirSync(skillsRoot).sort().find((c) => fs.statSync(path.join(skillsRoot, c)).isDirectory());
+const cat0 = fs
+  .readdirSync(skillsRoot)
+  .sort()
+  .find((c) => fs.statSync(path.join(skillsRoot, c)).isDirectory());
 const skill0 = fs.readdirSync(path.join(skillsRoot, cat0)).sort()[0];
 const sample = path.join(skillsRoot, cat0, skill0);
 const h1 = hash(sample).stdout.trim();
 const h2 = hash(sample).stdout.trim();
-if (!h1 || h1 !== h2) { console.log(`FAIL: non-deterministic hash for ${sample} ('${h1}' != '${h2}')`); fail = 1; }
-else console.log(`ok: deterministic hash (${sample})`);
+if (!h1 || h1 !== h2) {
+  console.log(`FAIL: non-deterministic hash for ${sample} ('${h1}' != '${h2}')`);
+  fail = 1;
+} else console.log(`ok: deterministic hash (${sample})`);
 
 // 2. idempotency — the maintainer would bump nothing
 const check = spawnSync('node', [HASH, '--check-only'], { encoding: 'utf8' });
 if ((check.status ?? 1) === 0) {
   const unchanged = (check.stdout.match(/^unchanged /gm) || []).length;
-  const upstream = fs.readdirSync(skillsRoot).flatMap((c) => {
-    const cp = path.join(skillsRoot, c);
-    return fs.statSync(cp).isDirectory() ? fs.readdirSync(cp).map((s) => path.join(cp, s, 'SKILL.md')) : [];
-  }).filter((f) => fs.existsSync(f) && /^upstream:/m.test(fs.readFileSync(f, 'utf8'))).length;
+  const upstream = fs
+    .readdirSync(skillsRoot)
+    .flatMap((c) => {
+      const cp = path.join(skillsRoot, c);
+      return fs.statSync(cp).isDirectory() ? fs.readdirSync(cp).map((s) => path.join(cp, s, 'SKILL.md')) : [];
+    })
+    .filter((f) => fs.existsSync(f) && /^upstream:/m.test(fs.readFileSync(f, 'utf8'))).length;
   console.log(`ok: all kit skills in sync (${unchanged} unchanged, ${upstream} upstream skipped)`);
 } else {
   console.log('FAIL: skills out of sync — maintainer would bump:');
@@ -37,5 +45,8 @@ if ((check.status ?? 1) === 0) {
   fail = 1;
 }
 
-if (fail === 0) { console.log('PASS: skill-maintainer idempotency'); process.exit(0); }
+if (fail === 0) {
+  console.log('PASS: skill-maintainer idempotency');
+  process.exit(0);
+}
 process.exit(1);

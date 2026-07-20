@@ -202,7 +202,7 @@ export function parsePlan(bytes) {
       continue;
     }
     const values = [];
-    while (i + 1 < end && /^  - /.test(lines[i + 1])) {
+    while (i + 1 < end && /^ {2}- /.test(lines[i + 1])) {
       i += 1;
       values.push(parseScalar(lines[i].slice(4)));
     }
@@ -378,7 +378,7 @@ export function validatePolicy(policy) {
       assertClosed(tier, tierFields, 'tier'); string(tier.model, 'model'); string(tier.effort, 'effort');
       if (policy.schema >= 3 && company === 'openai') oneOf(tier.service_tier, new Set(['default', 'fast']), 'service_tier');
       if (!Array.isArray(tier.transports) || tier.transports.length === 0 || new Set(tier.transports).size !== tier.transports.length) throw new Error('tier transports');
-      tier.transports.forEach((v) => oneOf(v, new Set(['in_session', 'cli']), 'transport'));
+      tier.transports.forEach((v) => { oneOf(v, new Set(['in_session', 'cli']), 'transport'); });
       if (policy.schema >= 3 && company === 'openai' && tier.transports.some((transport) => transport !== 'cli')) throw new Error('tier-controlled OpenAI service tiers require cli transport');
       const candidate = `${tier.model}\0${tier.effort}\0${tier.service_tier ?? ''}`;
       if (policy.schema >= 2 && candidates.has(candidate)) throw new Error(`duplicate ${company}_tiers candidate`);
@@ -387,7 +387,7 @@ export function validatePolicy(policy) {
   }
   const provenanceKeys = [...baseKeys.slice(1), ...(policy.schema >= 2 ? ['minimum_score', 'max_rounds'] : []), ...tierKeys];
   assertClosed(policy.provenance, provenanceKeys, 'provenance');
-  Object.values(policy.provenance).forEach((value) => oneOf(value, SOURCES, 'provenance source'));
+  Object.values(policy.provenance).forEach((value) => { oneOf(value, SOURCES, 'provenance source'); });
   return policy;
 }
 
@@ -604,7 +604,7 @@ function validateWaiverObject(waiver, phase, inputSha) {
   assertClosed(waiver, ['phase', 'input_sha256', 'legs', 'actor', 'reason', 'at'], 'waiver');
   if (waiver.phase !== phase || waiver.input_sha256 !== inputSha) throw new Error('stale waiver');
   if (!Array.isArray(waiver.legs) || waiver.legs.length === 0 || new Set(waiver.legs).size !== waiver.legs.length) throw new Error('waiver legs');
-  const normalized = [...waiver.legs].sort((a, b) => ['X', 'S'].indexOf(a) - ['X', 'S'].indexOf(b)); normalized.forEach((leg) => oneOf(leg, new Set(['X', 'S']), 'waiver leg'));
+  const normalized = [...waiver.legs].sort((a, b) => ['X', 'S'].indexOf(a) - ['X', 'S'].indexOf(b)); normalized.forEach((leg) => { oneOf(leg, new Set(['X', 'S']), 'waiver leg'); });
   if (jcs(waiver.legs) !== jcs(normalized)) throw new Error('waiver legs must be normalized');
   string(waiver.actor, 'waiver actor'); string(waiver.reason, 'waiver reason'); iso(waiver.at, 'waiver at'); return waiver;
 }
@@ -617,14 +617,14 @@ export function validateRawLeg(raw, request, leg, { expectedWaiver = null } = {}
   const company = companyForLeg(request.author.company, leg); const eligibleTierCount = validateAttemptSequence(raw.attempts, request.policy, company);
   const selectedKeys = recordSchema >= 2 && company === 'openai' ? ['model', 'effort', 'service_tier', 'transport'] : ['model', 'effort', 'transport'];
   if (raw.selected !== null) { assertClosed(raw.selected, selectedKeys, 'selected'); string(raw.selected.model, 'selected model'); string(raw.selected.effort, 'selected effort'); if (selectedKeys.includes('service_tier')) oneOf(raw.selected.service_tier, new Set(['default', 'fast']), 'selected service_tier'); oneOf(raw.selected.transport, new Set(['in_session', 'cli']), 'selected transport'); }
-  if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => validateFinding(finding, leg, ids, recordSchema));
+  if (!Array.isArray(raw.findings)) throw new Error('raw findings'); const ids = new Set(); raw.findings.forEach((finding) => { validateFinding(finding, leg, ids, recordSchema); });
   if (raw.reviewer_output !== null) {
     const reviewerOutputKeys = ['verdict', 'score', ...(recordSchema === 3 ? ['rubric'] : []), 'confirmations', 'structured_output_sha256'];
     assertClosed(raw.reviewer_output, reviewerOutputKeys, 'raw reviewer output');
     oneOf(raw.reviewer_output.verdict, new Set(['ready', 'not_ready']), 'raw reviewer verdict');
     if (!Number.isInteger(raw.reviewer_output.score) || raw.reviewer_output.score < 0 || raw.reviewer_output.score > 100) throw new Error('raw reviewer score');
     if (!Array.isArray(raw.reviewer_output.confirmations)) throw new Error('raw reviewer confirmations');
-    raw.reviewer_output.confirmations.forEach((value) => string(value, 'raw reviewer confirmation'));
+    raw.reviewer_output.confirmations.forEach((value) => { string(value, 'raw reviewer confirmation'); });
     digest(raw.reviewer_output.structured_output_sha256, 'structured output hash');
     const structured = { schema: recordSchema, leg, request, verdict: raw.reviewer_output.verdict, score: raw.reviewer_output.score, ...(recordSchema === 3 ? { rubric: raw.reviewer_output.rubric } : {}), findings: raw.findings, confirmations: raw.reviewer_output.confirmations };
     validateReviewerOutput(structured, request, leg);
@@ -748,7 +748,7 @@ function validatePrimary(value, inventory) {
   assertClosed(value, ['goal_met', 'findings', 'acceptance', 'ci', 'regressions', 'followups'], 'primary completion evidence'); oneOf(value.goal_met, new Set(['yes', 'partial', 'no']), 'goal_met');
   if (!Array.isArray(value.findings) || !Array.isArray(value.acceptance) || !Array.isArray(value.regressions) || !Array.isArray(value.followups)) throw new Error('primary arrays');
   const empty = { findings: [] }; const ids = new Set(); for (const finding of value.findings) { validateFindingEvidence(finding, { X: empty, S: empty }, true); if (finding.source !== 'primary' || ids.has(finding.id)) throw new Error('primary finding id/source'); ids.add(finding.id); }
-  validateAcceptanceEvidence(value.acceptance, inventory); validateCi(value.ci); value.regressions.forEach((item) => string(item, 'regression')); value.followups.forEach((item) => string(item, 'followup')); return value;
+  validateAcceptanceEvidence(value.acceptance, inventory); validateCi(value.ci); value.regressions.forEach((item) => { string(item, 'regression'); }); value.followups.forEach((item) => { string(item, 'followup'); }); return value;
 }
 
 function validatePersistedLeg(value, request, leg, context) {
@@ -1004,7 +1004,7 @@ export function validateReviewerOutput(output, request, leg) {
   validateRequest(output.request); oneOf(output.verdict, new Set(['ready', 'not_ready']), 'verdict');
   if (!Number.isInteger(output.score) || output.score < 0 || output.score > 100) throw new Error('score');
   if (!Array.isArray(output.findings) || !Array.isArray(output.confirmations)) throw new Error('reviewer arrays');
-  const ids = new Set(); output.findings.forEach((finding) => validateFinding(finding, leg, ids, recordSchema)); output.confirmations.forEach((v) => string(v, 'confirmation'));
+  const ids = new Set(); output.findings.forEach((finding) => { validateFinding(finding, leg, ids, recordSchema); }); output.confirmations.forEach((v) => { string(v, 'confirmation'); });
   if (recordSchema === 3) {
     const rubricMaximums = {
       standalone_executability: 22,
@@ -1116,7 +1116,7 @@ export function validateCurrentPolicy(policy) {
   if (policy.candidates.length === 3 && jcs(policy.candidates) !== jcs(CURRENT_CANDIDATES)) throw new Error('current policy candidate order mismatch');
   if (policy.candidates.length === 1 && policy.provenance?.candidates !== 'current_user') throw new Error('a pinned current candidate requires current_user provenance');
   assertClosed(policy.provenance, ['role', 'fallback', 'max_rounds', 'candidates'], 'current policy provenance');
-  Object.values(policy.provenance).forEach((value) => oneOf(value, SOURCES, 'current policy provenance source'));
+  Object.values(policy.provenance).forEach((value) => { oneOf(value, SOURCES, 'current policy provenance source'); });
   return policy;
 }
 
@@ -1220,7 +1220,7 @@ export function validateCurrentReviewerOutput(output, request) {
   if (output.verdict !== strongest) throw new Error('current reviewer verdict must equal strongest checklist status');
   if (!Array.isArray(output.findings)) throw new Error('current reviewer findings must be an array');
   const ids = new Set();
-  output.findings.forEach((finding) => validateCurrentFinding(finding, ids));
+  output.findings.forEach((finding) => { validateCurrentFinding(finding, ids); });
   for (const criterion of CURRENT_CRITERIA) {
     const status = output.checklist[criterion].status;
     const matching = output.findings.filter((finding) => finding.criterion === criterion);
@@ -2974,7 +2974,7 @@ function partitionBody(body) {
     names.add(heading.name);
   }
   const partitions = [{ ordinal: 0, name: '__preamble__', bytes: body.slice(0, headings[0].start) }];
-  headings.forEach((heading, index) => partitions.push({ ordinal: index + 1, name: heading.name, bytes: body.slice(heading.start, headings[index + 1]?.start ?? body.length), start: heading.start, end: headings[index + 1]?.start ?? body.length, line_end: heading.line_end }));
+  headings.forEach((heading, index) => { partitions.push({ ordinal: index + 1, name: heading.name, bytes: body.slice(heading.start, headings[index + 1]?.start ?? body.length), start: heading.start, end: headings[index + 1]?.start ?? body.length, line_end: heading.line_end }); });
   return partitions;
 }
 
@@ -3044,15 +3044,6 @@ function requirePlanDelta(beforeBytes, afterBytes, expectedBytes, label, allowed
     normalizeAllowedFrontmatter(afterBytes, allowed, insertionAllowed)
     !== normalizeAllowedFrontmatter(expectedBytes, allowed, insertionAllowed)
   ) throw new Error(`${label} delta mismatch`);
-}
-
-function gitResult(repo, args, encoding = 'buffer', extra = {}) {
-  const result = spawnSync('git', args, { cwd: repo, encoding, ...extra });
-  if (result.error || result.signal !== null || result.status !== 0) {
-    const stderr = Buffer.isBuffer(result.stderr) ? result.stderr.toString() : String(result.stderr ?? '');
-    throw new Error(`git ${args.join(' ')} failed: ${stderr.trim()}`);
-  }
-  return result.stdout;
 }
 
 function gitObject(repo, spec, label) {
@@ -3991,7 +3982,7 @@ function validateReleaseCommit(repository, input, releaseCommit) {
   if (jcs(normalizedMarket(beforeMarket)) !== jcs(normalizedMarket(afterMarket))) throw new Error('Docks marketplace changed beyond version');
   if (beforeClaude.version !== beforeCodex.version || beforeClaude.version !== beforeRows[0].version || afterClaude.version !== afterCodex.version || afterClaude.version !== afterRows[0].version || afterClaude.version !== input.releaseVersion) throw new Error('Docks release versions disagree');
   const before = beforeClaude.version?.split('.').map(Number); const after = input.releaseVersion.split('.').map(Number);
-  if (!before || before.length !== 3 || before.some((value) => !Number.isSafeInteger(value)) || after[0] !== before[0] || after[1] !== before[1] || after[2] !== before[2] + 1) throw new Error('Docks release is not a patch successor');
+  if (before?.length !== 3 || before.some((value) => !Number.isSafeInteger(value)) || after[0] !== before[0] || after[1] !== before[1] || after[2] !== before[2] + 1) throw new Error('Docks release is not a patch successor');
   for (const plugin of ['effect-kit', 'session-relay']) for (const runtime of ['.claude-plugin', '.codex-plugin']) {
     const logical = `plugins/${plugin}/${runtime}/plugin.json`;
     if (!repository.blob(input.finishedPlanCommit, logical, `${plugin} parent manifest`).equals(repository.blob(releaseCommit, logical, `${plugin} release manifest`))) throw new Error(`${plugin} manifest changed in Docks release`);
@@ -4511,18 +4502,18 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
   };
   visit(root); if (actualFiles.size !== expectedFiles.size || [...actualFiles].some((file) => !expectedFiles.has(file))) throw new Error('bundle contains missing or extra files');
   const planView = fileRows.get('plan.review.md');
-  if (!planView || planView.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');
+  if (planView?.mode !== '100444' || sha256(planView.bytes) !== manifest.input_sha256) throw new Error('bundle plan view input hash mismatch');
   let reserved;
   if (currentBundle) {
     const schemaPath = manifest.reviewer_schemas.primary;
     const schema = fileRows.get(schemaPath);
-    if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== `${jcs(currentReviewerSchema(manifest.review_schema))}\n`) throw new Error(`bundle reviewer schema mismatch: primary v${manifest.review_schema}`);
+    if (schema?.mode !== '100444' || schema.bytes.toString() !== `${jcs(currentReviewerSchema(manifest.review_schema))}\n`) throw new Error(`bundle reviewer schema mismatch: primary v${manifest.review_schema}`);
     reserved = new Set(['plan.review.md', schemaPath]);
   } else {
     for (const leg of ['X', 'S']) {
       for (const version of [1, 2, 3]) {
         const suffix = version === 1 ? '' : `.v${version}`; const schemaPath = `reviewer-output.${leg}${suffix}.schema.json`; const schema = fileRows.get(schemaPath); const expected = `${jcs(reviewerSchema(leg, version))}\n`;
-        if (!schema || schema.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);
+        if (schema?.mode !== '100444' || schema.bytes.toString() !== expected) throw new Error(`bundle reviewer schema mismatch: ${leg} v${version}`);
       }
     }
     reserved = new Set(['plan.review.md', 'reviewer-output.X.schema.json', 'reviewer-output.S.schema.json', 'reviewer-output.X.v2.schema.json', 'reviewer-output.S.v2.schema.json', 'reviewer-output.X.v3.schema.json', 'reviewer-output.S.v3.schema.json']);
@@ -4554,7 +4545,7 @@ export function verifyBundle({ bundle, expectedSha256 = null }) {
     digest(manifest.completion.diff_sha256, 'bundle completion diff'); digest(manifest.completion.acceptance_inventory_sha256, 'bundle completion inventory');
     if (manifest.completion.diff_path !== 'completion.diff' || manifest.completion.acceptance_inventory_path !== 'acceptance-inventory.json') throw new Error('bundle completion paths');
     const diffRow = fileRows.get('completion.diff'); const inventoryRow = fileRows.get('acceptance-inventory.json');
-    if (!diffRow || diffRow.mode !== '100444' || !inventoryRow || inventoryRow.mode !== '100444') throw new Error('bundle completion files');
+    if (diffRow?.mode !== '100444' || inventoryRow?.mode !== '100444') throw new Error('bundle completion files');
     reserved.add('completion.diff'); reserved.add('acceptance-inventory.json');
     const diff = diffRow.bytes; if (sha256(diff) !== manifest.completion.diff_sha256) throw new Error('bundle completion diff mismatch');
     const inventoryBytes = inventoryRow.bytes; let inventory;

@@ -50,9 +50,7 @@ export function rustReleaseAssetNames(prefixOrDescriptor, targets, checksumAsset
 
 // Parse the standard "<sha256><two spaces><name>" manifest format.
 export function parseSha256Sums(contents) {
-  const text = typeof contents === 'string'
-    ? contents
-    : new TextDecoder('utf-8', { fatal: true }).decode(contents);
+  const text = typeof contents === 'string' ? contents : new TextDecoder('utf-8', { fatal: true }).decode(contents);
   const entries = new Map();
   const lines = text.split('\n');
   if (lines.at(-1) === '') lines.pop();
@@ -70,9 +68,10 @@ export function parseSha256Sums(contents) {
 }
 
 export function formatSha256Sums(entries) {
-  const pairs = entries instanceof Map
-    ? [...entries]
-    : entries.map((entry) => Array.isArray(entry) ? entry : [entry.name, entry.sha256]);
+  const pairs =
+    entries instanceof Map
+      ? [...entries]
+      : entries.map((entry) => (Array.isArray(entry) ? entry : [entry.name, entry.sha256]));
   const seen = new Set();
   for (const [name, digest] of pairs) {
     if (typeof name !== 'string' || name.length === 0 || name.includes('/') || name.includes('\\')) {
@@ -83,7 +82,7 @@ export function formatSha256Sums(entries) {
     seen.add(name);
   }
   return pairs
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([name, digest]) => `${digest}  ${name}\n`)
     .join('');
 }
@@ -95,9 +94,15 @@ export function expectedRustFileIdentity(target) {
 
 export function detectRustFileIdentity(bytes) {
   const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-  if (buffer.length >= 20
-    && buffer[0] === 0x7f && buffer[1] === 0x45 && buffer[2] === 0x4c && buffer[3] === 0x46
-    && buffer[4] === 2 && buffer[6] === 1) {
+  if (
+    buffer.length >= 20 &&
+    buffer[0] === 0x7f &&
+    buffer[1] === 0x45 &&
+    buffer[2] === 0x4c &&
+    buffer[3] === 0x46 &&
+    buffer[4] === 2 &&
+    buffer[6] === 1
+  ) {
     const littleEndian = buffer[5] === 1;
     const bigEndian = buffer[5] === 2;
     if (!littleEndian && !bigEndian) return null;
@@ -114,8 +119,8 @@ export function detectRustFileIdentity(bytes) {
     else if (bigMagic === 0xfeedfacf) cpuType = buffer.readUInt32BE(4);
     if (cpuType !== undefined) {
       const architecture = {
-        0x01000007: 'x86_64',
-        0x0100000c: 'aarch64',
+        16777223: 'x86_64',
+        16777228: 'aarch64',
       }[cpuType];
       return architecture ? { format: 'mach-o', architecture } : null;
     }

@@ -1,6 +1,6 @@
 # CI workflows (.github/)
 
-`workflows/ci.yml` runs `node scripts/ci.mjs` in one validate job. Pull requests and manual dispatches run the full gate; a release-tag push first resolves the tag to one known plugin and then runs `ci.mjs --plugin <name>`. All validators are Node `.mjs`; the job needs Node + pnpm (`corepack enable`, then `pnpm install --frozen-lockfile`) for the `yaml` package and the lockfile-pinned `claude-code` binary, and adds `node_modules/.bin` to PATH so `ci.mjs` finds `claude`. Rust is provisioned only for a full run or when the resolved plugin declares the session-relay Rust leg.
+`workflows/ci.yml` runs `node scripts/ci.mjs` in one validate job. Pull requests and manual dispatches run the full gate; a release-tag push first resolves the tag to one known plugin and then runs only that plugin's owned gate via `ci.mjs --plugin <name>`. All validators are Node `.mjs`; the job needs Node + pnpm (`corepack enable`, then `pnpm install --frozen-lockfile`) for the `yaml` package and the lockfile-pinned `claude-code` binary, and adds `node_modules/.bin` to PATH so `ci.mjs` finds `claude`. Rust is provisioned only for a full run or when the resolved plugin declares the session-relay Rust leg.
 
 ## build-binaries.yml — the session-relay binary producer
 
@@ -19,7 +19,7 @@ Only three events trigger CI:
 
 ## No drift — ci.yml runs ci.mjs
 
-`ci.yml` always invokes `scripts/ci.mjs`; targeting changes its supported `--plugin` argument, not the validator implementation. Pull requests and manual runs execute the full repo + all-plugin gate. Release-tag runs use `scripts/ci-target.mjs` to reject malformed or unknown tags before Cargo caching or Rust provisioning, then execute the repo-wide checks plus the resolved plugin gate. Local validation is LAYER 1 (fast feedback); tag CI is LAYER 2 (authoritative, catches contributor-machine drift). See `scripts/AGENTS.md` for the validator list and release flow.
+`ci.yml` always invokes `scripts/ci.mjs`; targeting changes its supported `--plugin` argument, not the validator implementation. Pull requests and manual runs execute the full repo + all-plugin gate. Release-tag runs use `scripts/ci-target.mjs` to reject malformed or unknown tags before Cargo caching or Rust provisioning, then execute only the resolved plugin's owned author checks, target-derived shell lint, and plugin gate, including its marketplace/version coherence. Local validation is LAYER 1 (fast feedback); tag CI is LAYER 2 (the authoritative selected-plugin release gate, catching contributor-machine drift). See `scripts/AGENTS.md` for the validator list and release flow.
 
 The validate job materializes the lockfile-pinned `@anthropic-ai/claude-code` binary before invoking either gate form — the same `claude` the developer would run locally.
 

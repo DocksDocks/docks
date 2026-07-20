@@ -110,7 +110,7 @@ function validate(dirs, strict) {
     if (/anthropic|claude/.test(name)) fail('name must not contain reserved words anthropic/claude');
 
     const descRaw = (lines.find((l) => /^description:/.test(l)) || '').replace(/^description:\s*/, '');
-    let desc = descRaw.replace(/^"/, '').replace(/"$/, '').replace(/^'/, '').replace(/'$/, '');
+    const desc = descRaw.replace(/^"/, '').replace(/"$/, '').replace(/^'/, '').replace(/'$/, '');
     const hasUpstream = countLines(lines, /^upstream:/);
     if (!desc) fail('description must be a non-empty single line');
     else {

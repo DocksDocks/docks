@@ -24,11 +24,17 @@ const port = skill('effect-ts-port');
 const contracts = [
   {
     name: 'Effect 3.x implementation selects the existing specialist',
-    checks: [[v3.description, /Effect 3\.x/], [v4.description, /Not for Effect 3\.x; use effect-ts-specialist/]],
+    checks: [
+      [v3.description, /Effect 3\.x/],
+      [v4.description, /Not for Effect 3\.x; use effect-ts-specialist/],
+    ],
   },
   {
     name: 'explicit Effect v4 selects the v4 specialist',
-    checks: [[v4.description, /explicitly requests Effect v4/], [v3.description, /Not for Effect v4 \(use effect-v4\)/]],
+    checks: [
+      [v4.description, /explicitly requests Effect v4/],
+      [v3.description, /Not for Effect v4 \(use effect-v4\)/],
+    ],
   },
   {
     name: 'an Effect 4 dependency selects the v4 specialist',
@@ -36,11 +42,17 @@ const contracts = [
   },
   {
     name: 'Effect setup remains on the v3 setup skill',
-    checks: [[setup.description, /bootstrapping Effect 3\.x/], [v4.source, /Explicit Effect 3\.x setup request \| Use `effect-ts-setup`/]],
+    checks: [
+      [setup.description, /bootstrapping Effect 3\.x/],
+      [v4.source, /Explicit Effect 3\.x setup request \| Use `effect-ts-setup`/],
+    ],
   },
   {
     name: 'Effect porting remains on the v3 port skill',
-    checks: [[port.description, /porting existing Fastify.*to Effect 3\.x/], [v4.source, /Explicit Effect 3\.x Fastify.*port request \| Use `effect-ts-port`/]],
+    checks: [
+      [port.description, /porting existing Fastify.*to Effect 3\.x/],
+      [v4.source, /Explicit Effect 3\.x Fastify.*port request \| Use `effect-ts-port`/],
+    ],
   },
   {
     name: 'generic TypeScript selects no Effect skill',
@@ -67,10 +79,7 @@ for (const contract of contracts) {
   for (const [artifact, pattern] of contract.checks) assert.match(artifact, pattern, contract.name);
 }
 
-for (const relative of [
-  '.claude-plugin/plugin.json',
-  '.codex-plugin/plugin.json',
-]) {
+for (const relative of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginRoot, relative), 'utf8'));
   assert.match(manifest.description, /Effect 3\.x/);
   assert.match(manifest.description, /Effect v4 beta/);

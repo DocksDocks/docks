@@ -8,14 +8,19 @@ import {
   VERSION,
 } from './session-relay-release-core.mjs';
 
+export { dispatchSessionRelayRelease } from './session-relay-release-cli.mjs';
 export {
-  SessionRelayReleaseError,
   canonicalize,
+  SessionRelayReleaseError,
   writeCanonicalExclusive,
 } from './session-relay-release-core.mjs';
-export { dispatchSessionRelayRelease } from './session-relay-release-cli.mjs';
 
 export const SESSION_RELAY_RELEASE = Object.freeze({
-  plugin: PLUGIN, version: VERSION, tag: TAG, transactionRef: TRANSACTION_REF,
-  assets: Object.freeze([...ASSETS]), prereleaseBody: PRERELEASE_BODY, stableBody: STABLE_BODY,
+  plugin: PLUGIN,
+  version: VERSION,
+  tag: TAG,
+  transactionRef: TRANSACTION_REF,
+  assets: Object.freeze([...ASSETS]),
+  prereleaseBody: PRERELEASE_BODY,
+  stableBody: STABLE_BODY,
 });

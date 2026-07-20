@@ -5,7 +5,7 @@ Skills are the cross-tool payload — each surfaces in Claude Code, Codex, and a
 - Description starts "Use when …" (CSO); ≤500 chars for full scorer credit.
 - `name` matches the parent directory; kebab-case.
 - Body ≤500 lines (sweet spot 80–310) — every line loads on activation.
-- Run `node scripts/ci.mjs --plugin effect-kit` before commit (repo-wide checks still run).
+- During skill iteration, run the narrow validators and checks relevant to the change; after a meaningful batch, optionally run `node scripts/ci.mjs --plugin effect-kit`. Reserve full `node scripts/ci.mjs` for the final relevant implementation tree before commit, push, or release.
 - After changing a skill's meaning, bump `metadata.updated` and re-sync the hash: `node scripts/skills/content-hash.mjs --backfill plugins/effect-kit/skills`.
 
 The existing skills (`engineering/effect-ts-setup`, `engineering/effect-ts-port`, `engineering/effect-ts-specialist`) target **Effect 3.x stable**. The separate `engineering/effect-v4` skill provides version-gated **Effect v4 beta/prerelease** guidance: it must inspect `package.json` and the lockfile before version-specific code and must never emit v4 APIs into an Effect 3.x project. Keep every version-specific API claim grounded in the installed package and current official sources.

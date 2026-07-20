@@ -254,6 +254,45 @@ record are excluded, so metadata-only edits cannot reset the counter; only
 genuinely changed canonical input starts a new series at attempt 1. No
 automatic reprepare, attempt 3, round 3, or continuation batch is valid.
 
+Full project CI and acceptance evidence run once at the implementation boundary
+and bind to the implementation tree plus `affected_paths`. Later plan-only
+state, request, commitment, or lifecycle commits may reuse that green evidence
+only while the bound implementation tree and affected paths are unchanged.
+Machine-family validation against the committed bytes and exact parent plus
+plan read-back still run after every plan-only commit. Any implementation-tree or
+affected-path change invalidates reuse and requires fresh full project CI and
+acceptance evidence; release-tag and final implementation CI remain
+authoritative.
+
+The bound implementation identity is SHA-256 of compact JCS over sorted
+`affected_paths` entries. Each entry binds the exact repo-relative path, Git
+kind/mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the
+plan/orchestration path unless it is itself an affected implementation path.
+Before reuse, recompute and require exact digest equality. A plan-only metadata
+or orchestration commit preserves the digest; any affected-path byte, mode,
+kind, or presence change invalidates it and requires fresh full project CI and
+acceptance evidence. This contract does not change closed review-policy schemas.
+
+Completion consumes and validates the bound green project-CI evidence when the
+affected-path digest is unchanged. The disposable helper runs project CI only
+when no eligible bound result exists or the digest changed; it must not rerun
+merely because completion review began. Acceptance rows still run once as
+required.
+
+CI evidence reuse is the churn/performance fix; it never collapses authorization
+commits. Active-state, prepared-request, and dispatch-commitment commits MUST
+remain separate because each later artifact is derived only after committed
+read-back of its predecessor. Combining them atomically is forbidden.
+
+If an active plan changes the canonical review controller, `plan-manager`, or
+`plan-reviewer` mechanism it would use for its own completion, same-checkout
+self-dispatch is forbidden. Return `NeedsUserAction` and require an independent
+trusted released or pinned bootstrap reviewer path, or a later fresh session
+using a trustworthy controller. Never repair, reseal, or replace the
+orchestration in place to bypass this boundary. Any `stopped` or `stuck`
+result, including an attempt-2 failure, returns `NeedsUserAction` without
+automatic reprepare or retry.
+
 Current schema-6 orchestration may persist these exact unfenced records:
 
 ```text

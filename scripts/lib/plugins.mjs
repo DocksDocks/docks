@@ -74,10 +74,7 @@ export const PLUGINS = [
       prebuilt: SESSION_RELAY_PREBUILT,
     },
     distributionContract: 'plugins/session-relay/test/distribution-contract.mjs',
-    extraJson: [
-      'plugins/session-relay/hooks/codex-hooks.json',
-      'plugins/session-relay/.codex-plugin/bus.mcp.json',
-    ],
+    extraJson: ['plugins/session-relay/hooks/codex-hooks.json', 'plugins/session-relay/.codex-plugin/bus.mcp.json'],
     authorChecks: [],
     releaseContracts: [
       'plugins/session-relay/test/release-evidence-contract.mjs',
@@ -87,7 +84,8 @@ export const PLUGINS = [
     transformGuard: false,
     release: {
       assets: rustReleaseAssetNames(SESSION_RELAY_PREBUILT),
-      prereleaseBody: 'This prerelease stages Session Relay binaries for downstream checksum pinning. It is not ready for installation.',
+      prereleaseBody:
+        'This prerelease stages Session Relay binaries for downstream checksum pinning. It is not ready for installation.',
       install: 'docks-kit sync',
     },
   },
@@ -128,7 +126,14 @@ export const marketEntryVersion = (market, name) => market?.plugins?.find((x) =>
 export function manifestCategories(manifest) {
   const skills = manifest?.skills;
   if (!Array.isArray(skills)) return [];
-  return skills.map((s) => s.replace(/^\.\//, '').replace(/^skills\//, '').replace(/\/$/, '')).filter(Boolean);
+  return skills
+    .map((s) =>
+      s
+        .replace(/^\.\//, '')
+        .replace(/^skills\//, '')
+        .replace(/\/$/, ''),
+    )
+    .filter(Boolean);
 }
 
 // Shell files to lint: hook scripts (*.sh) under a plugin's hooks/ dir, plus
@@ -136,7 +141,10 @@ export function manifestCategories(manifest) {
 export function shellHooks(p) {
   const dir = path.join(p.root, 'hooks');
   const out = fs.existsSync(dir)
-    ? fs.readdirSync(dir).filter((f) => f.endsWith('.sh')).map((f) => path.join(dir, f))
+    ? fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith('.sh'))
+        .map((f) => path.join(dir, f))
     : [];
   if (p.rust) {
     const launcher = path.join(p.root, 'bin', p.rust.binName);

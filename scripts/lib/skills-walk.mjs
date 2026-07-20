@@ -10,12 +10,17 @@ export function findSkillFiles(root) {
   const out = [];
   (function walk(dir) {
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const e of entries) {
-      if (e.name === 'node_modules' || e.name === '.git') continue;
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (e.name === 'SKILL.md') out.push(full);
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+      const absoluteDir = path.resolve(dir);
+      throw new Error(`cannot read skills directory ${absoluteDir}: ${error.message}`, { cause: error });
+    }
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.isSymbolicLink()) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === 'SKILL.md') out.push(full);
     }
   })(root);
   return out.sort();

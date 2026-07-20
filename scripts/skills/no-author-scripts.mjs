@@ -14,15 +14,22 @@ const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 const argSkills = process.argv[2];
 const SKILLS_DIR = path.resolve(argSkills || path.join(REPO_DIR, 'plugins/docks/skills'));
 const AGENTS_DIR = argSkills
-  ? (process.argv[3] ? path.resolve(process.argv[3]) : null)
+  ? process.argv[3]
+    ? path.resolve(process.argv[3])
+    : null
   : path.join(REPO_DIR, 'plugins/docks/agents');
 const ALLOWLIST = ['scaffold', 'write-skill'];
 
-const PATTERN = /scripts\/(ci|release)\.(sh|mjs)|scripts\/(skills|agents|tree|scaffold|config|lib)\/|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
+const PATTERN =
+  /scripts\/(ci|release)\.(sh|mjs)|scripts\/(skills|agents|tree|scaffold|config|lib)\/|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
 
 function walk(dir, filter, out = []) {
   let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
   for (const e of entries) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) walk(full, filter, out);
@@ -49,8 +56,14 @@ for (const f of files) {
 
 if (report.length > 0) {
   for (const r of report) console.error(`FAIL: ${r}`);
-  console.error(`no-author-scripts FAILED: ${report.length} reference(s) to docks author scripts in shipped skills/agents.`);
-  console.error(`Use a self-contained inline check or 'the project's CI/validators, if present' — not a docks script path. Tooling-authoring allowlist: ${ALLOWLIST.join(' ')}`);
+  console.error(
+    `no-author-scripts FAILED: ${report.length} reference(s) to docks author scripts in shipped skills/agents.`,
+  );
+  console.error(
+    `Use a self-contained inline check or 'the project's CI/validators, if present' — not a docks script path. Tooling-authoring allowlist: ${ALLOWLIST.join(' ')}`,
+  );
   process.exit(1);
 }
-console.log(`no-author-scripts PASSED: no shipped skill/agent names docks author tooling (allowlist: ${ALLOWLIST.join(' ')})`);
+console.log(
+  `no-author-scripts PASSED: no shipped skill/agent names docks author tooling (allowlist: ${ALLOWLIST.join(' ')})`,
+);

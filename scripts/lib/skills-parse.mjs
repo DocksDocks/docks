@@ -18,7 +18,10 @@ export function bodyAfterFrontmatter(lines) {
   let c = 0;
   const out = [];
   for (const l of lines) {
-    if (l === '---' && c < 2) { c += 1; continue; }
+    if (l === '---' && c < 2) {
+      c += 1;
+      continue;
+    }
     if (c === 2) out.push(l);
   }
   return out;
@@ -31,7 +34,10 @@ export function slopCount(lines) {
   let inFence = false;
   const prose = [];
   for (const l of lines) {
-    if (/^```/.test(l)) { inFence = !inFence; continue; }
+    if (/^```/.test(l)) {
+      inFence = !inFence;
+      continue;
+    }
     if (!inFence) prose.push(l.replace(/`[^`]*`/g, ''));
   }
   return countLines(prose, SLOP_RE);
@@ -41,9 +47,15 @@ export function slopCount(lines) {
 export function metaUpdated(lines) {
   let inMeta = false;
   for (const l of lines) {
-    if (/^metadata:/.test(l)) { inMeta = true; continue; }
+    if (/^metadata:/.test(l)) {
+      inMeta = true;
+      continue;
+    }
     if (inMeta && /^[a-z]/.test(l)) inMeta = false;
-    if (inMeta && /updated:/.test(l)) { const m = l.match(/updated:\s*"?([0-9-]*)"?/); return m ? m[1] : ''; }
+    if (inMeta && /updated:/.test(l)) {
+      const m = l.match(/updated:\s*"?([0-9-]*)"?/);
+      return m ? m[1] : '';
+    }
   }
   return '';
 }

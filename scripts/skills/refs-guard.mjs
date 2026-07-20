@@ -58,8 +58,11 @@ function analyzeReference(content) {
 function localLinkTargets(content) {
   const out = [];
   const re = /\]\(\s*(?:\.\/)?((?:references|assets)\/[^)\s#]+)(?:#[^)]*)?\s*\)/g;
-  let m;
-  while ((m = re.exec(content)) !== null) out.push(m[1]);
+  for (;;) {
+    const m = re.exec(content);
+    if (m === null) break;
+    out.push(m[1]);
+  }
   return out;
 }
 
@@ -74,43 +77,47 @@ const failures = [];
 let skillCount = 0;
 let refCount = 0;
 
-for (const root of roots) {
-  if (!fs.existsSync(root)) continue;
-  for (const file of findSkillFiles(root)) {
-    skillCount += 1;
-    const dir = path.dirname(file);
-    const rel = path.relative(process.cwd(), file);
-    const content = fs.readFileSync(file, 'utf8');
+try {
+  for (const root of roots) {
+    for (const file of findSkillFiles(root)) {
+      skillCount += 1;
+      const dir = path.dirname(file);
+      const rel = path.relative(process.cwd(), file);
+      const content = fs.readFileSync(file, 'utf8');
 
-    // 1. broken local links
-    for (const tgt of new Set(localLinkTargets(content))) {
-      if (!fs.existsSync(path.join(dir, tgt))) {
-        failures.push(`${rel}: broken local link -> ${tgt}`);
-      }
-    }
-
-    // 2 & 3. orphan + TOC, over references/
-    const refDir = path.join(dir, 'references');
-    if (fs.existsSync(refDir) && fs.statSync(refDir).isDirectory()) {
-      for (const entry of fs.readdirSync(refDir)) {
-        const refPath = path.join(refDir, entry);
-        if (!fs.statSync(refPath).isFile()) continue;
-        refCount += 1;
-        if (!content.includes(entry)) {
-          failures.push(`${rel}: orphan reference references/${entry} (never mentioned in SKILL.md)`);
+      // 1. broken local links
+      for (const tgt of new Set(localLinkTargets(content))) {
+        if (!fs.existsSync(path.join(dir, tgt))) {
+          failures.push(`${rel}: broken local link -> ${tgt}`);
         }
-        if (entry.endsWith('.md')) {
-          const a = analyzeReference(fs.readFileSync(refPath, 'utf8'));
-          if (a.lineCount > TOC_LINE_THRESHOLD && a.headings >= TOC_HEADING_MIN && !a.hasToc) {
-            failures.push(
-              `references/${entry} (${path.relative(process.cwd(), refPath)}): ${a.lineCount} lines, ` +
-                `${a.headings} headings, no "## Contents" TOC (Anthropic BP: TOC for reference files > 100 lines)`,
-            );
+      }
+
+      // 2 & 3. orphan + TOC, over references/
+      const refDir = path.join(dir, 'references');
+      if (fs.existsSync(refDir) && fs.statSync(refDir).isDirectory()) {
+        for (const entry of fs.readdirSync(refDir)) {
+          const refPath = path.join(refDir, entry);
+          if (!fs.statSync(refPath).isFile()) continue;
+          refCount += 1;
+          if (!content.includes(entry)) {
+            failures.push(`${rel}: orphan reference references/${entry} (never mentioned in SKILL.md)`);
+          }
+          if (entry.endsWith('.md')) {
+            const a = analyzeReference(fs.readFileSync(refPath, 'utf8'));
+            if (a.lineCount > TOC_LINE_THRESHOLD && a.headings >= TOC_HEADING_MIN && !a.hasToc) {
+              failures.push(
+                `references/${entry} (${path.relative(process.cwd(), refPath)}): ${a.lineCount} lines, ` +
+                  `${a.headings} headings, no "## Contents" TOC (Anthropic BP: TOC for reference files > 100 lines)`,
+              );
+            }
           }
         }
       }
     }
   }
+} catch (error) {
+  console.error(`FAIL: ${error.message}`);
+  process.exit(2);
 }
 
 if (failures.length > 0) {
@@ -118,4 +125,6 @@ if (failures.length > 0) {
   console.error(`\nrefs-guard FAILED: ${failures.length} issue(s) across ${skillCount} skills.`);
   process.exit(1);
 }
-console.log(`refs-guard PASSED: ${skillCount} skills, ${refCount} reference files — links resolve, no orphans, long refs have a TOC.`);
+console.log(
+  `refs-guard PASSED: ${skillCount} skills, ${refCount} reference files — links resolve, no orphans, long refs have a TOC.`,
+);

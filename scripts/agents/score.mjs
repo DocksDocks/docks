@@ -4,7 +4,7 @@
 // Parse helpers shared via scripts/lib/skills-parse.mjs.
 import fs from 'node:fs';
 import path from 'node:path';
-import { splitLines, countLines, anyLine, bodyAfterFrontmatter, slopCount } from '../lib/skills-parse.mjs';
+import { anyLine, bodyAfterFrontmatter, countLines, slopCount, splitLines } from '../lib/skills-parse.mjs';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
@@ -18,14 +18,21 @@ const DIR = dirArg || path.join(REPO_DIR, 'plugins/docks/agents');
 function hasFmField(lines, key) {
   let c = 0;
   for (const l of lines) {
-    if (l === '---') { c += 1; if (c >= 2) break; continue; }
+    if (l === '---') {
+      c += 1;
+      if (c >= 2) break;
+      continue;
+    }
     if (c === 1 && new RegExp(`^${key}:`).test(l)) return true;
   }
   return false;
 }
 
 const mdFiles = fs.existsSync(DIR)
-  ? fs.readdirSync(DIR).filter((f) => f.endsWith('.md')).sort()
+  ? fs
+      .readdirSync(DIR)
+      .filter((f) => f.endsWith('.md'))
+      .sort()
   : [];
 if (mdFiles.length === 0) {
   if (mode === 'total') console.log('0');

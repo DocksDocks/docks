@@ -26,16 +26,108 @@ const OVERLAP_FAIL = 5; // shared significant tokens at/above which an UNROUTED 
 // jargon every other skill also uses ("code", "project", "file"…). Removing
 // these keeps the overlap score about DOMAIN surface, not boilerplate.
 const STOP = new Set([
-  'use', 'when', 'not', 'for', 'the', 'a', 'an', 'or', 'and', 'of', 'to', 'in', 'on',
-  'with', 'into', 'from', 'via', 'per', 'its', 'it', 'this', 'that', 'these', 'those',
-  'is', 'are', 'be', 'as', 'at', 'by', 'if', 'then', 'than', 'also', 'each', 'any',
-  'you', 'your', 'they', 'them', 'their', 'one', 'two', 'three', 'new', 'existing',
-  'skill', 'skills', 'agent', 'agents', 'project', 'projects', 'code', 'codebase',
-  'file', 'files', 'user', 'users', 'docks', 'claude', 'codex', 'runtime', 'tool',
-  'tools', 'work', 'working', 'run', 'runs', 'running', 'using', 'used', 'uses',
-  'over', 'after', 'before', 'every', 'all', 'between', 'across', 'about', 'against',
-  'set', 'up', 'out', 'no', 'do', 'does', 'doing', 'done', 'e', 'g', 'eg', 'ie',
-  'page', 'pages', 'gaps', 'gap', 'incl', 'etc', 'multiple', 'single', 'list',
+  'use',
+  'when',
+  'not',
+  'for',
+  'the',
+  'a',
+  'an',
+  'or',
+  'and',
+  'of',
+  'to',
+  'in',
+  'on',
+  'with',
+  'into',
+  'from',
+  'via',
+  'per',
+  'its',
+  'it',
+  'this',
+  'that',
+  'these',
+  'those',
+  'is',
+  'are',
+  'be',
+  'as',
+  'at',
+  'by',
+  'if',
+  'then',
+  'than',
+  'also',
+  'each',
+  'any',
+  'you',
+  'your',
+  'they',
+  'them',
+  'their',
+  'one',
+  'two',
+  'three',
+  'new',
+  'existing',
+  'skill',
+  'skills',
+  'agent',
+  'agents',
+  'project',
+  'projects',
+  'code',
+  'codebase',
+  'file',
+  'files',
+  'user',
+  'users',
+  'docks',
+  'claude',
+  'codex',
+  'runtime',
+  'tool',
+  'tools',
+  'work',
+  'working',
+  'run',
+  'runs',
+  'running',
+  'using',
+  'used',
+  'uses',
+  'over',
+  'after',
+  'before',
+  'every',
+  'all',
+  'between',
+  'across',
+  'about',
+  'against',
+  'set',
+  'up',
+  'out',
+  'no',
+  'do',
+  'does',
+  'doing',
+  'done',
+  'e',
+  'g',
+  'eg',
+  'ie',
+  'page',
+  'pages',
+  'gaps',
+  'gap',
+  'incl',
+  'etc',
+  'multiple',
+  'single',
+  'list',
 ]);
 
 function tokens(desc) {
@@ -75,7 +167,10 @@ function readDescription(file) {
     if (/^[a-zA-Z_-]+:/.test(fm[i])) break;
     raw += ` ${fm[i].trim()}`;
   }
-  return raw.replace(/^["'|>]\s*/, '').replace(/["']\s*$/, '').trim();
+  return raw
+    .replace(/^["'|>]\s*/, '')
+    .replace(/["']\s*$/, '')
+    .trim();
 }
 
 const args = process.argv.slice(2);
@@ -88,13 +183,17 @@ if (roots.length === 0) {
 }
 
 const skills = [];
-for (const root of roots) {
-  if (!fs.existsSync(root)) continue;
-  for (const file of findSkillFiles(root)) {
-    const name = path.basename(path.dirname(file));
-    const desc = readDescription(file);
-    if (desc) skills.push({ name, desc, toks: tokens(positiveSurface(desc)) });
+try {
+  for (const root of roots) {
+    for (const file of findSkillFiles(root)) {
+      const name = path.basename(path.dirname(file));
+      const desc = readDescription(file);
+      if (desc) skills.push({ name, desc, toks: tokens(positiveSurface(desc)) });
+    }
   }
+} catch (error) {
+  console.error(`FAIL: ${error.message}`);
+  process.exit(2);
 }
 
 // routing = description A names skill B (or vice-versa). The kit writes

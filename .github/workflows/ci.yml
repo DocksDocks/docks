@@ -53,7 +53,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             plugins/session-relay/rust/target
-          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-${{ hashFiles('plugins/session-relay/rust/src/**/*.rs') }}
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-${{ hashFiles('plugins/session-relay/rust/src/**/*.rs', 'plugins/session-relay/rust/build.rs', 'plugins/session-relay/rust/tests/**/*.rs', 'plugins/session-relay/rust/.cargo/config', 'plugins/session-relay/rust/.cargo/config.toml') }}
           restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-
       - name: "install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
         run: pnpm install --frozen-lockfile

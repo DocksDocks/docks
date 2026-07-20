@@ -21,8 +21,10 @@ export const ASSETS = [
   'session-relay-x86_64-unknown-linux-musl',
   'SHA256SUMS',
 ];
-export const PRERELEASE_BODY = 'Session Relay 0.12.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
-export const STABLE_BODY = 'Session Relay 0.12.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
+export const PRERELEASE_BODY =
+  'Session Relay 0.12.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
+export const STABLE_BODY =
+  'Session Relay 0.12.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
 
 export class SessionRelayReleaseError extends Error {
   constructor(message, outcome = 'conflict') {
@@ -32,7 +34,9 @@ export class SessionRelayReleaseError extends Error {
   }
 }
 
-export const fail = (message, outcome = 'conflict') => { throw new SessionRelayReleaseError(message, outcome); };
+export const fail = (message, outcome = 'conflict') => {
+  throw new SessionRelayReleaseError(message, outcome);
+};
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 export function canonicalize(value) {
@@ -43,7 +47,10 @@ export function canonicalize(value) {
   }
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
   if (typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(',')}}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`)
+      .join(',')}}`;
   }
   fail('canonical receipt contains an unsupported value');
 }
@@ -63,11 +70,19 @@ export function canonicalPath(input, label, { mustExist = true, absolute = false
   const resolved = path.resolve(REPO, input);
   const parent = path.dirname(resolved);
   let realParent;
-  try { realParent = fs.realpathSync.native(parent); } catch { fail(`${label} parent does not exist`); }
+  try {
+    realParent = fs.realpathSync.native(parent);
+  } catch {
+    fail(`${label} parent does not exist`);
+  }
   if (realParent !== parent) fail(`${label} parent must be canonical`);
   if (mustExist) {
     let real;
-    try { real = fs.realpathSync.native(resolved); } catch { fail(`${label} does not exist`); }
+    try {
+      real = fs.realpathSync.native(resolved);
+    } catch {
+      fail(`${label} does not exist`);
+    }
     if (real !== resolved || !fs.statSync(resolved).isFile()) fail(`${label} must be a canonical regular file`);
   } else if (path.join(realParent, path.basename(resolved)) !== resolved) {
     fail(`${label} must be canonical`);
@@ -77,12 +92,18 @@ export function canonicalPath(input, label, { mustExist = true, absolute = false
 
 export function writeCanonicalExclusive(output, value) {
   const target = canonicalPath(output, '--receipt-out', { mustExist: false });
-  try { fs.lstatSync(target); fail(`output already exists: ${target}`); } catch (error) {
+  try {
+    fs.lstatSync(target);
+    fail(`output already exists: ${target}`);
+  } catch (error) {
     if (error instanceof SessionRelayReleaseError) throw error;
     if (error?.code !== 'ENOENT') throw error;
   }
   const bytes = Buffer.from(canonicalize(value), 'utf8');
-  const temporary = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`);
+  const temporary = path.join(
+    path.dirname(target),
+    `.${path.basename(target)}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`,
+  );
   let descriptor;
   try {
     descriptor = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
@@ -95,10 +116,16 @@ export function writeCanonicalExclusive(output, value) {
     fs.linkSync(temporary, target);
     fs.unlinkSync(temporary);
     const directory = fs.openSync(path.dirname(target), fs.constants.O_RDONLY);
-    try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    try {
+      fs.fsyncSync(directory);
+    } finally {
+      fs.closeSync(directory);
+    }
   } catch (error) {
     if (descriptor !== undefined) fs.closeSync(descriptor);
-    try { fs.unlinkSync(temporary); } catch {}
+    try {
+      fs.unlinkSync(temporary);
+    } catch {}
     if (error?.code === 'EEXIST') fail(`output already exists: ${target}`);
     throw error;
   }
@@ -111,7 +138,11 @@ export function readCanonical(input, digest, type, label) {
   const bytes = fs.readFileSync(file);
   if (sha256(bytes) !== digest) fail(`${label} digest mismatch`);
   let value;
-  try { value = JSON.parse(bytes.toString('utf8')); } catch { fail(`${label} is not JSON`); }
+  try {
+    value = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    fail(`${label} is not JSON`);
+  }
   if (Buffer.compare(bytes, Buffer.from(canonicalize(value), 'utf8')) !== 0) fail(`${label} is not canonical JCS`);
   if (value.schema !== 1 || value.type !== type) fail(`${label} has the wrong schema or type`);
   return { value, bytes, digest, path: file };
@@ -143,7 +174,8 @@ export function commandRaw(commandName, args) {
     maxBuffer: Infinity,
   });
   if (result.error || result.signal || result.status !== 0) {
-    const detail = result.stderr?.toString('utf8').trim() || result.error?.message || result.signal || `exit ${result.status}`;
+    const detail =
+      result.stderr?.toString('utf8').trim() || result.error?.message || result.signal || `exit ${result.status}`;
     fail(`${commandName} ${args[0] ?? ''} failed: ${detail}`, 'failure');
   }
   return result.stdout ?? Buffer.alloc(0);
@@ -156,7 +188,10 @@ export const ghJson = (endpoint) => JSON.parse(command('gh', ['api', endpoint]))
 export function assertReceiptOutputFree(options) {
   if (!options.has('receipt-out')) return;
   const target = canonicalPath(options.get('receipt-out'), '--receipt-out', { mustExist: false });
-  try { fs.lstatSync(target); fail(`output already exists: ${target}`); } catch (error) {
+  try {
+    fs.lstatSync(target);
+    fail(`output already exists: ${target}`);
+  } catch (error) {
     if (error instanceof SessionRelayReleaseError) throw error;
     if (error?.code !== 'ENOENT') throw error;
   }
@@ -175,13 +210,19 @@ export function embeddedReceipt(plan, label, type) {
   const bytes = Buffer.from(bytesText, 'utf8');
   if (sha256(bytes) !== expectedDigest) fail(`${label} embedded digest mismatch`);
   let value;
-  try { value = JSON.parse(bytesText); } catch { fail(`${label} embedded bytes are not JSON`); }
-  if (canonicalize(value) !== bytesText || value.schema !== 1 || value.type !== type) fail(`${label} is not canonical ${type}`);
+  try {
+    value = JSON.parse(bytesText);
+  } catch {
+    fail(`${label} embedded bytes are not JSON`);
+  }
+  if (canonicalize(value) !== bytesText || value.schema !== 1 || value.type !== type)
+    fail(`${label} is not canonical ${type}`);
   return { bytes, value, digest: expectedDigest };
 }
 
 export function ensureCleanTree() {
-  if (git(['status', '--porcelain=v1', '--untracked-files=all']) !== '') fail('working tree dirty — commit or stash first');
+  if (git(['status', '--porcelain=v1', '--untracked-files=all']) !== '')
+    fail('working tree dirty — commit or stash first');
 }
 
 export function replaceJsonVersion(file, mutate) {

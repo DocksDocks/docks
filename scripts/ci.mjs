@@ -9,13 +9,20 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
+import { startTask } from './lib/ci-background-task.mjs';
+import { resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 import {
-  PLUGINS, presentPlugins, claudeManifest, codexManifest,
-  CLAUDE_MARKETPLACE, CODEX_MARKETPLACE, marketEntryVersion, manifestCategories, shellHooks,
+  CLAUDE_MARKETPLACE,
+  CODEX_MARKETPLACE,
+  claudeManifest,
+  codexManifest,
+  manifestCategories,
+  marketEntryVersion,
+  PLUGINS,
+  presentPlugins,
+  shellHooks,
 } from './lib/plugins.mjs';
 import { findCargo } from './lib/rust-bin.mjs';
-import { resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
-import { startNodeTask } from './lib/ci-background-task.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 process.chdir(REPO);
@@ -37,7 +44,8 @@ function parseArgs(args) {
       if (seen.has(arg)) throw new Error(`duplicate argument: ${arg}`);
       const value = args[index + 1];
       if (!value || value.startsWith('-')) throw new Error(`${arg} requires one value`);
-      seen.add(arg); index += 1;
+      seen.add(arg);
+      index += 1;
       if (arg === '--plugin') options.plugin = value;
       else options.timingsJson = value;
       continue;
@@ -51,8 +59,12 @@ function parseArgs(args) {
 }
 
 let options;
-try { options = parseArgs(rawArgv); }
-catch (error) { console.error(`error: ${error.message}`); process.exit(2); }
+try {
+  options = parseArgs(rawArgv);
+} catch (error) {
+  console.error(`error: ${error.message}`);
+  process.exit(2);
+}
 const QUIET = options.quiet;
 const onlyPlugin = options.plugin;
 const startedAt = performance.now();
@@ -60,9 +72,16 @@ const phases = [];
 const tasks = [];
 let activePhase = null;
 const failures = [];
-const ok = (m) => { if (!QUIET) console.log(`\x1b[1;32m  ✔\x1b[0m ${m}`); };
-const fail = (m) => { console.log(`\x1b[1;31m  ✘\x1b[0m ${m}`); failures.push(m); };
-const warn = (m) => { if (!QUIET) console.log(`\x1b[1;33m  ⚠\x1b[0m ${m}`); };
+const ok = (m) => {
+  if (!QUIET) console.log(`\x1b[1;32m  ✔\x1b[0m ${m}`);
+};
+const fail = (m) => {
+  console.log(`\x1b[1;31m  ✘\x1b[0m ${m}`);
+  failures.push(m);
+};
+const warn = (m) => {
+  if (!QUIET) console.log(`\x1b[1;33m  ⚠\x1b[0m ${m}`);
+};
 const closePhase = () => {
   if (activePhase === null) return;
   phases.push({
@@ -79,9 +98,24 @@ const section = (m) => {
 };
 const node = (args, options = {}) => spawnSync('node', args, { encoding: 'utf8', ...options });
 const nodeOk = (args, options) => (node(args, options).status ?? 1) === 0;
-const readJSON = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+const readJSON = (f) => {
+  try {
+    return JSON.parse(fs.readFileSync(f, 'utf8'));
+  } catch {
+    return null;
+  }
+};
 const BUNDLE = 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs';
-const floorOf = (kind, cat) => { const r = node(['scripts/config/read-floor.mjs', kind, ...(cat ? [cat] : [])]); return r.status === 0 ? parseInt(r.stdout.trim(), 10) : null; };
+const floorCache = new Map();
+const floorOf = (kind, cat) => {
+  const key = `${kind}/${cat ?? ''}`;
+  if (floorCache.has(key)) return floorCache.get(key);
+  const result = node(['scripts/config/read-floor.mjs', kind, ...(cat ? [cat] : [])]);
+  const parsed = result.status === 0 ? parseInt(result.stdout.trim(), 10) : null;
+  const floor = Number.isInteger(parsed) ? parsed : null;
+  floorCache.set(key, floor);
+  return floor;
+};
 
 // --list: print the registry and exit.
 if (options.list) {
@@ -91,41 +125,75 @@ if (options.list) {
 
 // Which plugins to gate (default: every present plugin; --plugin narrows it).
 let targets;
-try { targets = resolveCiTargets(presentPlugins(), onlyPlugin); }
-catch (error) { console.error(error.message); process.exit(2); }
+try {
+  targets = resolveCiTargets(presentPlugins(), onlyPlugin);
+} catch (error) {
+  console.error(error.message);
+  process.exit(2);
+}
 const authorChecks = selectedAuthorChecks(targets);
 const planPolicyRegressionTask = authorChecks.has('plan-reviewer')
-  ? startNodeTask('plan-review-policy regressions', ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'], { cwd: REPO, tasks })
+  ? startTask(
+      'plan-review-policy regressions',
+      process.execPath,
+      ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'],
+      { cwd: REPO, tasks },
+    )
   : null;
+const javascriptQualityTask =
+  onlyPlugin === null ? startTask('javascript quality', 'pnpm', ['run', 'check:js'], { cwd: REPO, tasks }) : null;
 
 // Catalogs are shared; read once (used by the per-plugin version checks too).
 const claudeMarket = readJSON(CLAUDE_MARKETPLACE);
 const codexMarket = readJSON(CODEX_MARKETPLACE);
 
-// ============================ repo-wide checks ============================
-section('workflow YAML');
-try {
-  const doc = parseDocument(fs.readFileSync('.github/workflows/ci.yml', 'utf8'), { prettyErrors: true, strict: true, uniqueKeys: true });
-  doc.errors.length ? fail('.github/workflows/ci.yml YAML invalid') : ok('.github/workflows/ci.yml parses (node yaml)');
-} catch { fail('.github/workflows/ci.yml YAML invalid'); }
+if (onlyPlugin === null) {
+  // ========================== repo-wide checks ==========================
+  section('workflow YAML');
+  for (const workflowPath of [
+    '.github/workflows/ci.yml',
+    '.github/workflows/build-binaries.yml',
+    '.github/workflows/dependency-integrity.yml',
+  ]) {
+    try {
+      const doc = parseDocument(fs.readFileSync(workflowPath, 'utf8'), {
+        prettyErrors: true,
+        strict: true,
+        uniqueKeys: true,
+      });
+      doc.errors.length ? fail(`${workflowPath} YAML invalid`) : ok(`${workflowPath} parses (node yaml)`);
+    } catch {
+      fail(`${workflowPath} YAML invalid`);
+    }
+  }
 
-section('marketplace catalogs');
-claudeMarket ? ok(`${CLAUDE_MARKETPLACE} JSON valid`) : fail(`${CLAUDE_MARKETPLACE} JSON invalid`);
-if (fs.existsSync(CODEX_MARKETPLACE)) (codexMarket ? ok(`${CODEX_MARKETPLACE} JSON valid`) : fail(`${CODEX_MARKETPLACE} JSON invalid`));
-else warn(`${CODEX_MARKETPLACE} missing — Codex distribution not configured (optional)`);
+  section('marketplace catalogs');
+  claudeMarket ? ok(`${CLAUDE_MARKETPLACE} JSON valid`) : fail(`${CLAUDE_MARKETPLACE} JSON invalid`);
+  if (fs.existsSync(CODEX_MARKETPLACE))
+    codexMarket ? ok(`${CODEX_MARKETPLACE} JSON valid`) : fail(`${CODEX_MARKETPLACE} JSON invalid`);
+  else warn(`${CODEX_MARKETPLACE} missing — Codex distribution not configured (optional)`);
 
-section('repo-wide guards');
-nodeOk(['scripts/tree/guard.mjs']) ? ok('tree/guard passed (context-tree node pairs)') : fail("tree/guard failed (run 'node scripts/tree/guard.mjs')");
-nodeOk(['scripts/skills/durable-anchors.mjs']) ? ok('durable-anchors passed (no live file:line anchors in long-lived docs)')
-  : fail("durable-anchors failed (run 'node scripts/skills/durable-anchors.mjs')");
+  section('repo-wide guards');
+  nodeOk(['scripts/tree/guard.mjs'])
+    ? ok('tree/guard passed (context-tree node pairs)')
+    : fail("tree/guard failed (run 'node scripts/tree/guard.mjs')");
+  nodeOk(['scripts/skills/durable-anchors.mjs'])
+    ? ok('durable-anchors passed (no live file:line anchors in long-lived docs)')
+    : fail("durable-anchors failed (run 'node scripts/skills/durable-anchors.mjs')");
+  nodeOk(['scripts/tests/author-tooling.mjs'])
+    ? ok('author tooling contracts passed')
+    : fail('author tooling contracts failed (run: node scripts/tests/author-tooling.mjs)');
 
-section('CI targeting contract');
-nodeOk(['scripts/tests/ci-plugin-targeting.mjs', '--unit']) ? ok('CI targeting, tag resolution, and cache contract passed')
-  : fail('CI targeting contract failed (run: node scripts/tests/ci-plugin-targeting.mjs --unit)');
+  section('CI targeting contract');
+  nodeOk(['scripts/tests/ci-plugin-targeting.mjs', '--unit'])
+    ? ok('CI targeting, tag resolution, and cache contract passed')
+    : fail('CI targeting contract failed (run: node scripts/tests/ci-plugin-targeting.mjs --unit)');
+}
 
 if (authorChecks.has('idempotency')) {
   section('skill-maintainer idempotency');
-  nodeOk(['tests/idempotency.mjs']) ? ok('skill content_hash determinism; maintainer re-run is a no-op')
+  nodeOk(['tests/idempotency.mjs'])
+    ? ok('skill content_hash determinism; maintainer re-run is a no-op')
     : fail('skill-maintainer idempotency failed (run: node tests/idempotency.mjs)');
 }
 
@@ -143,12 +211,13 @@ else {
 
 if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
   section('scaffold');
-  nodeOk(['scripts/scaffold/guard-spec.mjs']) ? ok('scaffold/guard-spec passed (spec coherent; referenced paths resolve)')
+  nodeOk(['scripts/scaffold/guard-spec.mjs'])
+    ? ok('scaffold/guard-spec passed (spec coherent; referenced paths resolve)')
     : fail('scaffold/guard-spec failed (run: node scripts/scaffold/guard-spec.mjs)');
-  nodeOk(['scripts/scaffold/test.mjs']) ? ok('scaffold/test passed (templates render to a valid skeleton)')
+  nodeOk(['scripts/scaffold/test.mjs'])
+    ? ok('scaffold/test passed (templates render to a valid skeleton)')
     : fail('scaffold/test failed (run: node scripts/scaffold/test.mjs)');
 }
-
 
 // ============================ per-plugin gate ============================
 for (const p of targets) gatePlugin(p);
@@ -156,18 +225,33 @@ for (const p of targets) gatePlugin(p);
 if (authorChecks.has('plan-reviewer')) {
   section('plan review policy');
   const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
-  const planConvergenceRepairPassed = [
-    'repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport',
-  ].every((testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]));
+  const planConvergenceRepairPassed = ['repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport'].every(
+    (testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]),
+  );
   const planPolicyRegressionsPassed = await planPolicyRegressionTask;
-  planPolicySurfacesPassed ? ok('plan-review-policy fast surfaces passed')
+  planPolicySurfacesPassed
+    ? ok('plan-review-policy fast surfaces passed')
     : fail('plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)');
   if (planPolicyRegressionsPassed) {
     ok('plan-review-policy contract passed');
     ok('plan-review-policy regressions passed');
-  } else fail('plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)');
-  planConvergenceRepairPassed ? ok('plan-review convergence repair contract passed')
-    : fail('plan-review convergence repair contract failed (run: node scripts/tests/plan-review-convergence-repair.mjs --case <case>)');
+  } else
+    fail(
+      'plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)',
+    );
+  planConvergenceRepairPassed
+    ? ok('plan-review convergence repair contract passed')
+    : fail(
+        'plan-review convergence repair contract failed (run: node scripts/tests/plan-review-convergence-repair.mjs --case <case>)',
+      );
+}
+
+if (javascriptQualityTask !== null) {
+  section('javascript quality');
+  const javascriptQualityPassed = await javascriptQualityTask;
+  javascriptQualityPassed
+    ? ok('JavaScript format and lint checks passed')
+    : fail('JavaScript format and lint checks failed (run: pnpm run check:js)');
 }
 
 function gatePlugin(p) {
@@ -186,30 +270,45 @@ function gatePlugin(p) {
   if (p.codex) {
     const cp = readJSON(codexManifest(p));
     cp ? ok(`${p.name} codex plugin.json JSON valid`) : fail(`${p.name} codex plugin.json JSON invalid`);
-    cp?.skills === './skills/' ? ok(`${p.name} codex skills uses string path "./skills/"`)
+    cp?.skills === './skills/'
+      ? ok(`${p.name} codex skills uses string path "./skills/"`)
       : fail(`${p.name} codex plugin.json skills must be string "./skills/" (arrays are rejected by Codex)`);
-    cp?.version === manifest?.version ? ok(`${p.name} codex manifest version matches claude (${cp?.version})`)
+    cp?.version === manifest?.version
+      ? ok(`${p.name} codex manifest version matches claude (${cp?.version})`)
       : fail(`${p.name} codex version drift: codex=${cp?.version} claude=${manifest?.version}`);
-    (codexMarket?.plugins || []).some((x) => x.name === p.name) ? ok(`${p.name} listed in Codex marketplace (${CODEX_MARKETPLACE})`)
+    (codexMarket?.plugins || []).some((x) => x.name === p.name)
+      ? ok(`${p.name} listed in Codex marketplace (${CODEX_MARKETPLACE})`)
       : fail(`${p.name} missing from ${CODEX_MARKETPLACE}`);
   }
 
-  for (const f of p.extraJson) (readJSON(f) ? ok(`${p.name} ${path.basename(f)} JSON valid`) : fail(`${p.name} ${f} JSON invalid`));
+  for (const f of p.extraJson)
+    readJSON(f) ? ok(`${p.name} ${path.basename(f)} JSON valid`) : fail(`${p.name} ${f} JSON invalid`);
 
   if (p.skills && fs.existsSync(p.skills)) gateSkills(p, manifest);
 
   if (p.agents && fs.existsSync(p.agents)) {
-    nodeOk(['scripts/agents/guard.mjs', p.agents]) ? ok(`${p.name} agents/guard passed`)
+    nodeOk(['scripts/agents/guard.mjs', p.agents])
+      ? ok(`${p.name} agents/guard passed`)
       : fail(`${p.name} agents/guard failed (run: node scripts/agents/guard.mjs ${p.agents})`);
     const floor = floorOf('agents');
-    const count = fs.readdirSync(p.agents).filter((f) => f.endsWith('.md') && f !== 'AGENTS.md' && f !== 'CLAUDE.md').length;
-    const total = parseInt(node(['scripts/agents/score.mjs', p.agents]).stdout.trim(), 10);
-    total >= count * floor ? ok(`${p.name} agents score: ${total} (floor ${count * floor} = ${count} × ${floor})`)
+    const count = fs
+      .readdirSync(p.agents)
+      .filter((f) => f.endsWith('.md') && f !== 'AGENTS.md' && f !== 'CLAUDE.md').length;
+    const agentScoreRows = node(['scripts/agents/score.mjs', '--per-file', p.agents])
+      .stdout.trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => ({ line, score: parseInt(line.split(' ').pop(), 10) }));
+    const total = agentScoreRows.reduce((sum, row) => sum + row.score, 0);
+    total >= count * floor
+      ? ok(`${p.name} agents score: ${total} (floor ${count * floor} = ${count} × ${floor})`)
       : fail(`${p.name} agents score: ${total} below floor ${count * floor} (${count} × ${floor})`);
     let aunder = 0;
-    for (const l of node(['scripts/agents/score.mjs', '--per-file', p.agents]).stdout.trim().split('\n').filter(Boolean)) {
-      const s = parseInt(l.split(' ').pop(), 10);
-      if (s < floor) { fail(`  ${p.name} agents:${l} below per-file floor ${floor}`); aunder = 1; }
+    for (const row of agentScoreRows) {
+      if (row.score < floor) {
+        fail(`  ${p.name} agents:${row.line} below per-file floor ${floor}`);
+        aunder = 1;
+      }
     }
     if (!aunder) ok(`${p.name} agents per-file all ≥ ${floor}`);
   }
@@ -238,8 +337,11 @@ function gatePlugin(p) {
     const testOptions = p.rust
       ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }
       : undefined;
-    nodeOk([p.selftest], testOptions) ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
-      : fail(`${p.name} self-test failed (run: ${p.rust ? `${p.rust.source.testBinaryEnv}=${rustBinary ?? '<fresh-release-binary>'} ` : ''}node ${p.selftest})`);
+    nodeOk([p.selftest], testOptions)
+      ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
+      : fail(
+          `${p.name} self-test failed (run: ${p.rust ? `${p.rust.source.testBinaryEnv}=${rustBinary ?? '<fresh-release-binary>'} ` : ''}node ${p.selftest})`,
+        );
   }
 }
 
@@ -255,11 +357,14 @@ function gateRust(p) {
   }
 
   const cargoRun = (args) => spawnSync(cargo, args, { encoding: 'utf8', cwd: dir });
-  (cargoRun(['fmt', '--check']).status ?? 1) === 0 ? ok(`${p.name} cargo fmt --check clean`)
+  (cargoRun(['fmt', '--check']).status ?? 1) === 0
+    ? ok(`${p.name} cargo fmt --check clean`)
     : fail(`${p.name} cargo fmt --check failed (run: cargo fmt, in ${dir})`);
-  (cargoRun(['clippy', '--all-targets', '--', '-D', 'warnings']).status ?? 1) === 0
-    ? ok(`${p.name} cargo clippy -D warnings clean`)
-    : fail(`${p.name} cargo clippy failed (run: cargo clippy --all-targets -- -D warnings, in ${dir})`);
+  (cargoRun(['clippy', '--release', '--all-targets', '--locked', '--', '-D', 'warnings']).status ?? 1) === 0
+    ? ok(`${p.name} cargo clippy --release --locked -D warnings clean`)
+    : fail(
+        `${p.name} cargo clippy failed (run: cargo clippy --release --all-targets --locked -- -D warnings, in ${dir})`,
+      );
 
   if ((cargoRun(['build', '--release', '--locked']).status ?? 1) !== 0) {
     fail(`${p.name} host build failed (run: cargo build --release --locked, in ${dir})`);
@@ -282,40 +387,69 @@ function gateSkills(p, manifest) {
   // category layout — declared categories exist; no skills directly under skills/<name>.
   let layoutOk = true;
   for (const c of manifestCategories(manifest)) {
-    if (!fs.existsSync(path.join(p.root, 'skills', c))) { fail(`${p.name}: plugin.json references missing category dir skills/${c}`); layoutOk = false; }
+    if (!fs.existsSync(path.join(p.root, 'skills', c))) {
+      fail(`${p.name}: plugin.json references missing category dir skills/${c}`);
+      layoutOk = false;
+    }
   }
   const strays = fs.readdirSync(p.skills).filter((d) => fs.existsSync(`${p.skills}/${d}/SKILL.md`)).length;
-  if (strays > 0) { fail(`${p.name}: ${strays} skill(s) at skills/<name>/SKILL.md (need skills/<category>/<name>/SKILL.md)`); layoutOk = false; }
+  if (strays > 0) {
+    fail(`${p.name}: ${strays} skill(s) at skills/<name>/SKILL.md (need skills/<category>/<name>/SKILL.md)`);
+    layoutOk = false;
+  }
   if (layoutOk) ok(`${p.name} skill categories declared in plugin.json all exist; no stray skills`);
 
-  nodeOk(['scripts/skills/guard.mjs', p.skills]) ? ok(`${p.name} skill frontmatter valid`)
+  nodeOk(['scripts/skills/guard.mjs', p.skills])
+    ? ok(`${p.name} skill frontmatter valid`)
     : fail(`${p.name} skill frontmatter invalid (node scripts/skills/guard.mjs ${p.skills})`);
   const naArgs = ['scripts/skills/no-author-scripts.mjs', p.skills, ...(p.agents ? [p.agents] : [])];
-  nodeOk(naArgs) ? ok(`${p.name} no shipped skill/agent names docks author scripts`)
+  nodeOk(naArgs)
+    ? ok(`${p.name} no shipped skill/agent names docks author scripts`)
     : fail(`${p.name} names docks author scripts (node ${naArgs.join(' ')})`);
-  nodeOk(['scripts/skills/content-hash.mjs', '--check-only', p.skills]) ? ok(`${p.name} skill content_hash in sync`)
+  nodeOk(['scripts/skills/content-hash.mjs', '--check-only', p.skills])
+    ? ok(`${p.name} skill content_hash in sync`)
     : fail(`${p.name} skill content_hash drift (node scripts/skills/content-hash.mjs --backfill ${p.skills})`);
-  nodeOk(['tests/skill-trigger-collision.mjs', p.skills]) ? ok(`${p.name} no unrouted high-overlap skill pair`)
+  nodeOk(['tests/skill-trigger-collision.mjs', p.skills])
+    ? ok(`${p.name} no unrouted high-overlap skill pair`)
     : fail(`${p.name} trigger-collision (node tests/skill-trigger-collision.mjs ${p.skills})`);
-  if (p.transformGuard) (nodeOk(['scripts/skills/transform-guard.mjs', p.skills]) ? ok(`${p.name} transform-guard passed`)
-    : fail(`${p.name} transform-guard failed (node scripts/skills/transform-guard.mjs ${p.skills})`));
+  if (p.transformGuard)
+    nodeOk(['scripts/skills/transform-guard.mjs', p.skills])
+      ? ok(`${p.name} transform-guard passed`)
+      : fail(`${p.name} transform-guard failed (node scripts/skills/transform-guard.mjs ${p.skills})`);
 
-  const scores = node([BUNDLE, 'score', '--per-file', p.skills]).stdout.trim().split('\n').filter(Boolean)
-    .map((l) => { const [n, s] = l.split(' '); return { name: n, cat: n.split('/')[0], score: parseInt(s, 10) }; });
+  const scores = node([BUNDLE, 'score', '--per-file', p.skills])
+    .stdout.trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      const [n, s] = l.split(' ');
+      return { name: n, cat: n.split('/')[0], score: parseInt(s, 10) };
+    });
   for (const c of [...new Set(scores.map((r) => r.cat))]) {
     const floor = floorOf('skills', c);
-    if (floor == null) { fail(`${p.name}: scripts/config/scoring.json missing skills.${c}`); continue; }
+    if (floor == null) {
+      fail(`${p.name}: scripts/config/scoring.json missing skills.${c}`);
+      continue;
+    }
     const rows = scores.filter((r) => r.cat === c);
     const sum = rows.reduce((a, r) => a + r.score, 0);
     const catFloor = rows.length * floor;
-    sum >= catFloor ? ok(`${p.name} skills/${c}: ${sum} (floor ${catFloor} = ${rows.length} × ${floor})`)
+    sum >= catFloor
+      ? ok(`${p.name} skills/${c}: ${sum} (floor ${catFloor} = ${rows.length} × ${floor})`)
       : fail(`${p.name} skills/${c}: ${sum} below floor ${catFloor} (${rows.length} × ${floor})`);
   }
-  let under = 0; let exempt = 0;
+  let under = 0;
+  let exempt = 0;
   for (const r of scores) {
-    if (/^upstream:/m.test(fs.readFileSync(`${p.skills}/${r.name}/SKILL.md`, 'utf8'))) { exempt += 1; continue; }
+    if (/^upstream:/m.test(fs.readFileSync(`${p.skills}/${r.name}/SKILL.md`, 'utf8'))) {
+      exempt += 1;
+      continue;
+    }
     const floor = floorOf('skills', r.cat);
-    if (floor != null && r.score < floor) { fail(`  ${p.name} skills:${r.name} score ${r.score} below per-file floor ${floor}`); under = 1; }
+    if (floor != null && r.score < floor) {
+      fail(`  ${p.name} skills:${r.name} score ${r.score} below per-file floor ${floor}`);
+      under = 1;
+    }
   }
   if (!under) ok(`${p.name} skills per-file all clear per-category floors (${exempt} upstream skipped)`);
 }
@@ -332,9 +466,12 @@ const timingReport = (status) => ({
 });
 const writeTimings = (status) => {
   if (options.timingsJson === null) return;
-  try { fs.writeFileSync(options.timingsJson, `${JSON.stringify(timingReport(status))}\n`, { encoding: 'utf8' }); }
-  catch (error) {
-    try { fs.rmSync(options.timingsJson, { force: true }); } catch {}
+  try {
+    fs.writeFileSync(options.timingsJson, `${JSON.stringify(timingReport(status))}\n`, { encoding: 'utf8' });
+  } catch (error) {
+    try {
+      fs.rmSync(options.timingsJson, { force: true });
+    } catch {}
     console.error(`[WARN] cannot write timing report ${options.timingsJson}: ${error.message}`);
   }
 };
@@ -342,7 +479,9 @@ const writeTimings = (status) => {
 console.log('');
 if (failures.length === 0) {
   writeTimings('passed');
-  console.log(`\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${onlyPlugin ? `plugin '${onlyPlugin}' + repo-wide` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`);
+  console.log(
+    `\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${onlyPlugin ? `plugin '${onlyPlugin}'` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`,
+  );
   process.exit(0);
 }
 writeTimings('failed');

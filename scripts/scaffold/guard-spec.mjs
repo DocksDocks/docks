@@ -24,22 +24,28 @@ if (doc.errors.length > 0) {
 const spec = doc.toJS() || {};
 let err = 0;
 const tdir = path.join(ROOT, 'docs/scaffold/templates');
-const fail = (m) => { console.error(`FAIL: ${m}`); err = 1; };
+const fail = (m) => {
+  console.error(`FAIL: ${m}`);
+  err = 1;
+};
 
 if (spec.version !== 1) fail(`unsupported spec version ${JSON.stringify(spec.version)} (expected 1)`);
 
 for (const tf of spec.templated_files || []) {
-  if (!fs.existsSync(path.join(tdir, tf.template || ''))) fail(`templated_files template missing: ${tf.template || ''}`);
+  if (!fs.existsSync(path.join(tdir, tf.template || '')))
+    fail(`templated_files template missing: ${tf.template || ''}`);
   if (!tf.dest) fail(`templated_files entry has no dest: ${JSON.stringify(tf)}`);
 }
 for (const node of spec.tree_nodes || []) {
   if (!node.path) fail(`tree_node has no path: ${JSON.stringify(node)}`);
   const sources = ['seed_from_skill', 'template', 'seed'].filter((k) => k in node);
   if (sources.length !== 1) fail(`tree_node ${node.path} needs exactly one of seed_from_skill/template/seed`);
-  if (node.template && !fs.existsSync(path.join(tdir, node.template))) fail(`tree_node template missing: ${node.template}`);
+  if (node.template && !fs.existsSync(path.join(tdir, node.template)))
+    fail(`tree_node template missing: ${node.template}`);
 }
 for (const bundled of spec.bundled_skills || []) {
-  if (!fs.existsSync(path.join(ROOT, bundled.source || ''))) fail(`bundled_skills source missing: ${bundled.source || ''}`);
+  if (!fs.existsSync(path.join(ROOT, bundled.source || '')))
+    fail(`bundled_skills source missing: ${bundled.source || ''}`);
 }
 for (const script of spec.scripts || []) {
   if (!fs.existsSync(path.join(ROOT, script.source || ''))) fail(`scripts source missing: ${script.source || ''}`);
@@ -47,8 +53,12 @@ for (const script of spec.scripts || []) {
 const variables = spec.variables || {};
 if (Object.keys(variables).length === 0) fail('spec has no variables');
 for (const [name, value] of Object.entries(variables)) {
-  if (!value || typeof value !== 'object' || !('prompt' in value)) fail(`variable ${JSON.stringify(name)} has no prompt`);
+  if (!value || typeof value !== 'object' || !('prompt' in value))
+    fail(`variable ${JSON.stringify(name)} has no prompt`);
 }
 
-if (err) { console.error('scaffold/guard-spec FAILED'); process.exit(1); }
+if (err) {
+  console.error('scaffold/guard-spec FAILED');
+  process.exit(1);
+}
 console.log('scaffold/guard-spec PASSED: spec.yaml coherent; all referenced paths resolve');

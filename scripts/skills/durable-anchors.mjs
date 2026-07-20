@@ -19,7 +19,11 @@ const SKIP_PATHS = [path.join('docs', 'plans')];
 
 function walk(dir, filter, out = []) {
   let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
   for (const e of entries) {
     if (e.isSymbolicLink()) continue;
     const full = path.join(dir, e.name);
@@ -34,10 +38,11 @@ function walk(dir, filter, out = []) {
 // Scope: every shipped skill body/reference under plugins/*/skills/, plus every
 // AGENTS.md node outside docs/plans/.
 const skillDocs = walk(path.join(REPO_DIR, 'plugins'), (f) =>
-  /\/skills\/.*(SKILL\.md|\/references\/[^/]+\.md)$/.test(f));
+  /\/skills\/.*(SKILL\.md|\/references\/[^/]+\.md)$/.test(f),
+);
 const nodeDocs = walk(REPO_DIR, (f) => f.endsWith('/AGENTS.md') || f === path.join(REPO_DIR, 'AGENTS.md'));
 
-const ANCHOR = /[A-Za-z0-9_.\/-]+\.[a-z]{1,5}:\d+/g;
+const ANCHOR = /[A-Za-z0-9_./-]+\.[a-z]{1,5}:\d+/g;
 const report = [];
 for (const f of [...new Set([...skillDocs, ...nodeDocs])]) {
   const lines = fs.readFileSync(f, 'utf8').split('\n');
@@ -54,7 +59,11 @@ for (const f of [...new Set([...skillDocs, ...nodeDocs])]) {
 if (report.length > 0) {
   for (const r of report) console.error(`FAIL: ${r}`);
   console.error(`durable-anchors FAILED: ${report.length} live file:line anchor(s) in long-lived artifacts.`);
-  console.error('Convert to the durable grammar: `path` — `symbol` — purpose (verify: `command`). See write-skill references/durable-anchors.md.');
+  console.error(
+    'Convert to the durable grammar: `path` — `symbol` — purpose (verify: `command`). See write-skill references/durable-anchors.md.',
+  );
   process.exit(1);
 }
-console.log(`durable-anchors PASSED: ${skillDocs.length + nodeDocs.length} long-lived docs, no live file:line anchors (fictional example paths exempt by non-resolution)`);
+console.log(
+  `durable-anchors PASSED: ${skillDocs.length + nodeDocs.length} long-lived docs, no live file:line anchors (fictional example paths exempt by non-resolution)`,
+);

@@ -19,9 +19,13 @@ else if (args.length !== 2) fail('usage: ci-target.mjs release-tag <tag> [--gith
 try {
   const resolved = parseReleaseTag(args[1]);
   if (outputPath === null) {
-    process.stdout.write(`${JSON.stringify({ mode: 'targeted', plugin: resolved.plugin, needs_rust: resolved.needsRust })}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ mode: 'targeted', plugin: resolved.plugin, needs_rust: resolved.needsRust })}\n`,
+    );
   } else {
-    fs.appendFileSync(outputPath, `mode=targeted\nplugin=${resolved.plugin}\nneeds_rust=${resolved.needsRust}\n`, { encoding: 'utf8' });
+    fs.appendFileSync(outputPath, `mode=targeted\nplugin=${resolved.plugin}\nneeds_rust=${resolved.needsRust}\n`, {
+      encoding: 'utf8',
+    });
   }
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));

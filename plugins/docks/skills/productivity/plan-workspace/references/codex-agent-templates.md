@@ -56,6 +56,41 @@ receiptless/seriesless StateV2 families that embed the exact active source state
 Persist canonical base64 plus SHA-256 of the current user's exact UTF-8
 authorization bytes, bound to the exact source plan/state.
 
+Full project CI and acceptance evidence run once at the implementation boundary
+and bind to the implementation tree plus affected_paths. Plan-only state,
+request, commitment, and lifecycle commits may reuse green evidence only while
+that tree and those paths are unchanged, but machine-family validation and plan
+read-back still run after every plan-only commit. Any implementation-tree or
+affected-path change invalidates reuse and requires fresh full project CI and
+acceptance evidence; release-tag and final implementation CI remain authoritative.
+
+The bound implementation identity is SHA-256 of compact JCS over sorted
+affected_paths entries. Each entry binds the exact repo-relative path, Git
+kind/mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the
+plan/orchestration path unless it is itself an affected implementation path.
+Before reuse, recompute and require exact digest equality. A plan-only metadata
+or orchestration commit preserves the digest; any affected-path byte, mode,
+kind, or presence change invalidates it and requires fresh full project CI and
+acceptance evidence. This contract does not change closed review-policy schemas.
+
+Completion consumes and validates the bound green project-CI evidence when the
+affected-path digest is unchanged. The disposable helper runs project CI only
+when no eligible bound result exists or the digest changed; it must not rerun
+merely because completion review began. Acceptance rows still run once as
+required.
+
+CI evidence reuse is the churn/performance fix; it never collapses authorization
+commits. Active-state, prepared-request, and dispatch-commitment commits MUST
+remain separate because each later artifact is derived only after committed
+read-back of its predecessor. Combining them atomically is forbidden.
+
+If the active plan changes the canonical review controller, manager, or reviewer
+mechanism used for its own completion, same-checkout self-dispatch is forbidden.
+Return NeedsUserAction; require an independent trusted released or pinned
+bootstrap reviewer path, or a later fresh session. Never repair, reseal, or
+replace orchestration in place to bypass this boundary. stopped, stuck, and
+attempt-2 failure return NeedsUserAction without automatic reprepare or retry.
+
 ## Workflow
 
 1. Read the target, project contract, and canonical manager skill.
@@ -191,6 +226,43 @@ Return typed evidence only. Never edit the source plan, write a receipt or Revie
 <constraint>
 Read only the sealed immutable bundle named by the validated request. Never read the moving source worktree, resume another reviewer, inherit an ambient candidate tuple, use Session Relay as review evidence, retry an authoritative platform denial elsewhere, or turn a historical schema into a current request.
 </constraint>
+
+Full project CI and acceptance evidence run once at the implementation boundary
+and bind to the implementation tree plus affected_paths. Plan-only state,
+request, commitment, and lifecycle commits may reuse green evidence only while
+both remain unchanged; machine-family validation and plan read-back still run
+after every plan-only commit. Any
+implementation-tree or affected-path change invalidates reuse and requires
+fresh full project CI and acceptance evidence; release-tag and final
+implementation CI remain authoritative.
+
+The bound implementation identity is SHA-256 of compact JCS over sorted
+affected_paths entries. Each entry binds the exact repo-relative path, Git
+kind/mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the
+plan/orchestration path unless it is itself an affected implementation path.
+Before reuse, recompute and require exact digest equality. A plan-only metadata
+or orchestration commit preserves the digest; any affected-path byte, mode,
+kind, or presence change invalidates it and requires fresh full project CI and
+acceptance evidence. This contract does not change closed review-policy schemas.
+
+Completion consumes and validates the bound green project-CI evidence when the
+affected-path digest is unchanged. The disposable helper runs project CI only
+when no eligible bound result exists or the digest changed; it must not rerun
+merely because completion review began. Acceptance rows still run once as
+required.
+
+CI evidence reuse is the churn/performance fix; it never collapses authorization
+commits. Active-state, prepared-request, and dispatch-commitment commits MUST
+remain separate because each later artifact is derived only after committed
+read-back of its predecessor. Combining them atomically is forbidden.
+
+An active plan changing the canonical review controller, manager, or reviewer
+mechanism used for its own completion must not be same-checkout self-dispatched.
+The manager returns NeedsUserAction and requires an independent trusted released
+or pinned bootstrap reviewer path, or a later fresh session. Never repair,
+reseal, or replace orchestration in place to bypass this boundary. stopped,
+stuck, and attempt-2 failure return NeedsUserAction without automatic reprepare
+or retry.
 
 ## Workflow
 

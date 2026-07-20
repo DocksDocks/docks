@@ -17,9 +17,9 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { byName, PLUGINS, claudeManifest, codexManifest, CLAUDE_MARKETPLACE } from './lib/plugins.mjs';
-import { verifySha256Sums } from './lib/rust-bin.mjs';
 import { releaseCiArgs } from './lib/ci-targeting.mjs';
+import { byName, CLAUDE_MARKETPLACE, claudeManifest, codexManifest, PLUGINS } from './lib/plugins.mjs';
+import { verifySha256Sums } from './lib/rust-bin.mjs';
 import { dispatchSessionRelayRelease } from './lib/session-relay-release.mjs';
 
 try {
@@ -31,15 +31,24 @@ try {
 }
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const err = (m) => { console.error(`error: ${m}`); process.exit(1); };
+const err = (m) => {
+  console.error(`error: ${m}`);
+  process.exit(1);
+};
 const has = (cmd) => !spawnSync(cmd, ['--version'], { stdio: 'ignore' }).error;
 const cap = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', cwd: REPO });
-const run = (cmd, args) => { const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: REPO }); if ((r.status ?? 1) !== 0) err(`${cmd} ${args.join(' ')} failed`); };
+const run = (cmd, args) => {
+  const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: REPO });
+  if ((r.status ?? 1) !== 0) err(`${cmd} ${args.join(' ')} failed`);
+};
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes('--dry-run');
 const DRY = dryRun ? '[dry-run] ' : '';
-const pluginName = (() => { const i = argv.indexOf('--plugin'); return i >= 0 ? argv[i + 1] : 'docks'; })();
+const pluginName = (() => {
+  const i = argv.indexOf('--plugin');
+  return i >= 0 ? argv[i + 1] : 'docks';
+})();
 const positional = argv.filter((a, i) => a !== '--dry-run' && a !== '--plugin' && argv[i - 1] !== '--plugin');
 const ARG = positional[0];
 
@@ -56,7 +65,8 @@ if (!dryRun && !has('gh')) err('gh is required');
 if (!dryRun && !has('claude')) err('claude is required');
 if (!fs.existsSync(PLUGIN_JSON)) err(`plugin.json not found at ${PLUGIN_JSON}`);
 if (!fs.existsSync(MARKETPLACE_JSON)) err(`marketplace.json not found at ${MARKETPLACE_JSON}`);
-if (!dryRun && cap('git', ['status', '--porcelain']).stdout.trim() !== '') err('working tree dirty — commit/stash first');
+if (!dryRun && cap('git', ['status', '--porcelain']).stdout.trim() !== '')
+  err('working tree dirty — commit/stash first');
 
 // --- rust binaries precondition (capability-driven) ---
 // Plugins reach consumers via git clone, never via Release assets, so every
@@ -68,19 +78,27 @@ if (plugin.rust) {
   const binDir = path.join(REPO, bin);
   const want = [binName, ...targets.map((t) => `${binName}-${t}`)];
   const missing = want.filter((f) => !fs.existsSync(path.join(binDir, f)));
-  if (missing.length) err(`missing committed binaries in ${bin}/: ${missing.join(', ')} — dispatch the build-binaries workflow and commit its output first`);
+  if (missing.length)
+    err(
+      `missing committed binaries in ${bin}/: ${missing.join(', ')} — dispatch the build-binaries workflow and commit its output first`,
+    );
   const noExec = want.filter((f) => !(fs.statSync(path.join(binDir, f)).mode & 0o111));
   if (noExec.length) err(`not executable: ${noExec.map((f) => `${bin}/${f}`).join(', ')} — chmod +x and re-commit`);
-  if (!fs.existsSync(path.join(binDir, 'SHA256SUMS'))) err(`${bin}/SHA256SUMS missing — commit it alongside the binaries`);
+  if (!fs.existsSync(path.join(binDir, 'SHA256SUMS')))
+    err(`${bin}/SHA256SUMS missing — commit it alongside the binaries`);
   const { listed, bad } = verifySha256Sums(binDir);
-  if (listed < targets.length) err(`${bin}/SHA256SUMS lists ${listed} file(s), expected ≥ ${targets.length} target binaries`);
+  if (listed < targets.length)
+    err(`${bin}/SHA256SUMS lists ${listed} file(s), expected ≥ ${targets.length} target binaries`);
   if (bad.length) err(`bin checksum failures: ${bad.join(', ')}`);
   console.log(`Rust binaries OK: ${targets.length} targets + launcher present in ${bin}/, checksums verify.`);
 }
 
 // --- local CI gate (shared guards + selected plugin) ---
 console.log(`Running local ci.mjs for ${plugin.name}...`);
-if ((spawnSync('node', [path.join(REPO, 'scripts/ci.mjs'), ...releaseCiArgs(plugin.name)], { stdio: 'inherit' }).status ?? 1) !== 0) {
+if (
+  (spawnSync('node', [path.join(REPO, 'scripts/ci.mjs'), ...releaseCiArgs(plugin.name)], { stdio: 'inherit' }).status ??
+    1) !== 0
+) {
   err(`scripts/ci.mjs --plugin ${plugin.name} failed — fix issues before releasing (see ci.mjs output)`);
 }
 console.log('');
@@ -110,16 +128,31 @@ function bump(file, mutate) {
   const out = `${JSON.stringify(data, null, 2)}\n`;
   if (dryRun) {
     const orig = original.split('\n');
-    const changed = out.split('\n').filter((l, i) => l !== orig[i]).map((l) => l.trim());
-    console.log(`  ${DRY}would write ${path.relative(REPO, file)} (changed: ${changed.join(' | ') || 'none — formatting drift!'})`);
+    const changed = out
+      .split('\n')
+      .filter((l, i) => l !== orig[i])
+      .map((l) => l.trim());
+    console.log(
+      `  ${DRY}would write ${path.relative(REPO, file)} (changed: ${changed.join(' | ') || 'none — formatting drift!'})`,
+    );
   } else {
     fs.writeFileSync(file, out);
   }
 }
-bump(PLUGIN_JSON, (d) => { d.version = NEW_VERSION; });
-bump(MARKETPLACE_JSON, (d) => { const p = d.plugins.find((x) => x.name === plugin.name); if (p) p.version = NEW_VERSION; });
+bump(PLUGIN_JSON, (d) => {
+  d.version = NEW_VERSION;
+});
+bump(MARKETPLACE_JSON, (d) => {
+  const p = d.plugins.find((x) => x.name === plugin.name);
+  if (p) p.version = NEW_VERSION;
+});
 const codexAdd = [];
-if (plugin.codex && fs.existsSync(CODEX_PLUGIN_JSON)) { bump(CODEX_PLUGIN_JSON, (d) => { d.version = NEW_VERSION; }); codexAdd.push(CODEX_PLUGIN_JSON); }
+if (plugin.codex && fs.existsSync(CODEX_PLUGIN_JSON)) {
+  bump(CODEX_PLUGIN_JSON, (d) => {
+    d.version = NEW_VERSION;
+  });
+  codexAdd.push(CODEX_PLUGIN_JSON);
+}
 
 // --- commit + push the bump ---
 const addFiles = [claudeManifest(plugin), CLAUDE_MARKETPLACE, ...codexAdd.map((f) => path.relative(REPO, f))];
@@ -145,8 +178,18 @@ const TAG_SHA = cap('git', ['rev-parse', `${TAG_NAME}^{commit}`]).stdout.trim();
 console.log(`\nWaiting for CI on tag ${TAG_NAME} (commit ${TAG_SHA})...`);
 let RUN_ID = '';
 for (let i = 0; i < 30; i += 1) {
-  RUN_ID = cap('gh', ['run', 'list', '--workflow=ci.yml', '--json', 'databaseId,headSha,event',
-    '--jq', `.[] | select(.headSha == "${TAG_SHA}" and .event == "push") | .databaseId`]).stdout.trim().split('\n')[0] || '';
+  RUN_ID =
+    cap('gh', [
+      'run',
+      'list',
+      '--workflow=ci.yml',
+      '--json',
+      'databaseId,headSha,event',
+      '--jq',
+      `.[] | select(.headSha == "${TAG_SHA}" and .event == "push") | .databaseId`,
+    ])
+      .stdout.trim()
+      .split('\n')[0] || '';
   if (RUN_ID) break;
   spawnSync('sleep', ['2']);
 }
@@ -160,16 +203,32 @@ if ((spawnSync('gh', ['run', 'watch', RUN_ID, '--exit-status'], { stdio: 'inheri
   console.log('  2. Fix on a follow-up commit, then either:');
   console.log(`       a) bump version again: node scripts/release.mjs --plugin ${plugin.name} patch`);
   console.log('       b) or move the tag (loses immutability):');
-  console.log(`            git tag -d ${TAG_NAME} && git push origin :refs/tags/${TAG_NAME} && node scripts/release.mjs --plugin ${plugin.name} ${NEW_VERSION}`);
+  console.log(
+    `            git tag -d ${TAG_NAME} && git push origin :refs/tags/${TAG_NAME} && node scripts/release.mjs --plugin ${plugin.name} ${NEW_VERSION}`,
+  );
   process.exit(1);
 }
 
 // --- release notes from commits since previous tag for THIS plugin ---
-const PREV_TAG = cap('git', ['tag', '--list', `${plugin.name}--v*`, '--sort=-version:refname']).stdout.trim().split('\n')[1] || '';
-const NOTES = PREV_TAG ? cap('git', ['log', `${PREV_TAG}..HEAD`, '--pretty=format:- %s', '--no-merges']).stdout : 'Initial release.';
+const PREV_TAG =
+  cap('git', ['tag', '--list', `${plugin.name}--v*`, '--sort=-version:refname'])
+    .stdout.trim()
+    .split('\n')[1] || '';
+const NOTES = PREV_TAG
+  ? cap('git', ['log', `${PREV_TAG}..HEAD`, '--pretty=format:- %s', '--no-merges']).stdout
+  : 'Initial release.';
 const HEADER = PREV_TAG ? `Changes since \`${PREV_TAG}\`:` : '';
 
-run('gh', ['release', 'create', TAG_NAME, '--title', `${plugin.name} v${NEW_VERSION}`,
-  '--notes', `${HEADER}\n\n${NOTES}\n\n## Install\n\n\`\`\`\n${plugin.install}\n\`\`\``]);
+run('gh', [
+  'release',
+  'create',
+  TAG_NAME,
+  '--title',
+  `${plugin.name} v${NEW_VERSION}`,
+  '--notes',
+  `${HEADER}\n\n${NOTES}\n\n## Install\n\n\`\`\`\n${plugin.install}\n\`\`\``,
+]);
 
-console.log(`\n✔ Released ${plugin.name} v${NEW_VERSION} (CI green)\n  Tag:    ${TAG_NAME}\n  Github: https://github.com/DocksDocks/docks/releases/tag/${TAG_NAME}`);
+console.log(
+  `\n✔ Released ${plugin.name} v${NEW_VERSION} (CI green)\n  Tag:    ${TAG_NAME}\n  Github: https://github.com/DocksDocks/docks/releases/tag/${TAG_NAME}`,
+);

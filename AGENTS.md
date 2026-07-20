@@ -8,7 +8,7 @@ This root file stays **repo-wide**. Per-area authoring details — skill/agent f
 
 ```bash
 corepack enable && pnpm install --frozen-lockfile   # one-time setup (Node 24, matching CI's node-version; pnpm via corepack)
-node scripts/ci.mjs                                  # guards + scorers — must be green before any commit
+node scripts/ci.mjs                                  # authoritative full gate for the final relevant implementation tree
 ```
 
 ## Repository scope
@@ -89,13 +89,14 @@ Claude Code sees these via the symlinks under `.claude/skills/`. Codex sees them
 
 ## CI targeting
 
-Pull requests and manual workflow dispatches run the full `node scripts/ci.mjs` gate. A release-tag push strictly resolves `<plugin>--v<version>` to a known registry plugin before Rust-specific work, then runs `node scripts/ci.mjs --plugin <name>`; this still includes repo-wide checks. The release command's local preflight targets that same selected plugin before creating and waiting on the tag.
+Pull requests and manual workflow dispatches run the full `node scripts/ci.mjs` gate. A release-tag push strictly resolves `<plugin>--v<version>` to a known registry plugin before Rust-specific work, then runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate. That targeted invocation skips repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting checks; it runs only the named plugin's owned author checks, shell-hook lint, and plugin gate, including that plugin's marketplace/version coherence. The release command's local preflight targets that same selected plugin before creating and waiting on the tag.
 
 CI caches pnpm data by `pnpm-lock.yaml` and restores Cargo dependencies/build outputs only for full runs or a resolved Rust-capable release target. Caches improve speed but carry no authority: frozen dependency resolution, pinned toolchains, and the gate result define correctness.
 
 ## Tool-agnostic rules
 
-- Run `node scripts/ci.mjs` before any commit — guards + scorers must be green
+- Run focused checks for the changed area while implementing. Before committing, pushing, or releasing the final relevant implementation tree, run `node scripts/ci.mjs` once as the authoritative all-plugin gate.
+- Plan-only orchestration or lifecycle commits may reuse that green gate only while the relevant implementation bytes, and thus the validated implementation-tree identity, are unchanged. Any relevant source or implementation change invalidates reuse and requires a new full gate.
 - Don't loosen validator floors to pass; fix the file instead
 - Manifest version numbers stay in lockstep across `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and the versioned Claude marketplace catalog — `ci.mjs`'s per-plugin gate and `release.mjs` both enforce this (verify: bump one manifest's version alone → `node scripts/ci.mjs --plugin <name>` must fail on the disagreement; revert)
 - Skill bodies stay ≤500 lines per agentskills.io spec; sweet spot 80–310

@@ -11,8 +11,14 @@ const CONFIG = path.join(SCRIPT_DIR, 'scoring.json');
 const kind = process.argv[2];
 const category = process.argv[3] || '';
 
-if (!kind) { console.error(`usage: ${process.argv[1]} <kind> [<category>]`); process.exit(1); }
-if (!fs.existsSync(CONFIG)) { console.error(`FAIL: ${CONFIG} not found`); process.exit(1); }
+if (!kind) {
+  console.error(`usage: ${process.argv[1]} <kind> [<category>]`);
+  process.exit(1);
+}
+if (!fs.existsSync(CONFIG)) {
+  console.error(`FAIL: ${CONFIG} not found`);
+  process.exit(1);
+}
 
 const cfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
 let node = cfg[kind];
@@ -21,7 +27,7 @@ if (!missing && category) {
   if (node[category] === undefined) missing = category;
   else node = node[category];
 }
-if (!missing && (node.per_file_floor === undefined)) missing = 'per_file_floor';
+if (!missing && node.per_file_floor === undefined) missing = 'per_file_floor';
 if (missing !== null) {
   const p = kind + (category ? `.${category}` : '');
   console.error(`FAIL: unknown ${p} in ${CONFIG} (missing key: '${missing}')`);

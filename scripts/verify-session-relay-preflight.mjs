@@ -87,7 +87,10 @@ function assertUnicode(value, label) {
 
 function assertJsonUnicode(value, label = 'JSON') {
   if (typeof value === 'string') assertUnicode(value, label);
-  else if (Array.isArray(value)) value.forEach((item) => assertJsonUnicode(item, label));
+  else if (Array.isArray(value))
+    value.forEach((item) => {
+      assertJsonUnicode(item, label);
+    });
   else if (isRecord(value)) {
     for (const [key, item] of Object.entries(value)) {
       assertUnicode(key, label);
@@ -103,7 +106,11 @@ function jcs(value) {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map(jcs).join(',')}]`;
-  if (isRecord(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${jcs(value[key])}`).join(',')}}`;
+  if (isRecord(value))
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${jcs(value[key])}`)
+      .join(',')}}`;
   fail('receipt contains an unsupported value');
 }
 
@@ -157,7 +164,8 @@ function canonicalExistingDirectory(input, label) {
   } catch {
     fail(`${label} does not exist`);
   }
-  if (resolved !== input || !stat.isDirectory() || stat.isSymbolicLink()) fail(`${label} must be a canonical non-symlink directory`);
+  if (resolved !== input || !stat.isDirectory() || stat.isSymbolicLink())
+    fail(`${label} must be a canonical non-symlink directory`);
   return resolved;
 }
 
@@ -172,7 +180,12 @@ function canonicalNewFile(input, label) {
   } catch {
     fail(`${label} parent directory does not exist`);
   }
-  if (parent !== parentInput || !parentStat.isDirectory() || parentStat.isSymbolicLink() || path.join(parent, path.basename(input)) !== input) {
+  if (
+    parent !== parentInput ||
+    !parentStat.isDirectory() ||
+    parentStat.isSymbolicLink() ||
+    path.join(parent, path.basename(input)) !== input
+  ) {
     fail(`${label} must be a canonical path in a non-symlink directory`);
   }
   try {
@@ -186,9 +199,25 @@ function canonicalNewFile(input, label) {
 }
 
 function ghApiJson(endpoint) {
-  const result = spawnSync('gh', ['api', '--method', 'GET', '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28', endpoint], {
-    encoding: 'utf8', shell: false, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
-  });
+  const result = spawnSync(
+    'gh',
+    [
+      'api',
+      '--method',
+      'GET',
+      '-H',
+      'Accept: application/vnd.github+json',
+      '-H',
+      'X-GitHub-Api-Version: 2022-11-28',
+      endpoint,
+    ],
+    {
+      encoding: 'utf8',
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
   if (result.error) fail(`GitHub query could not execute gh: ${result.error.message}`);
   if (result.signal !== null) fail(`GitHub query terminated by signal ${result.signal}`);
   if (result.status !== 0) fail(`GitHub query failed${result.stderr ? `: ${result.stderr.trim()}` : ''}`);
@@ -203,28 +232,44 @@ function ghApiJson(endpoint) {
 }
 
 function ghDownloadArtifact({ artifactId, destination }) {
-  const result = spawnSync('gh', [
-    'api', '--method', 'GET',
-    '-H', 'Accept: application/vnd.github+json',
-    '-H', 'X-GitHub-Api-Version: 2022-11-28',
-    `repos/${REPOSITORY_ID}/actions/artifacts/${artifactId}/zip`,
-  ], { encoding: null, shell: false, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 });
+  const result = spawnSync(
+    'gh',
+    [
+      'api',
+      '--method',
+      'GET',
+      '-H',
+      'Accept: application/vnd.github+json',
+      '-H',
+      'X-GitHub-Api-Version: 2022-11-28',
+      `repos/${REPOSITORY_ID}/actions/artifacts/${artifactId}/zip`,
+    ],
+    { encoding: null, shell: false, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 },
+  );
   if (result.error || result.signal !== null || result.status !== 0) {
-    const detail = result.stderr?.toString('utf8').trim() || result.error?.message || result.signal || `exit ${result.status}`;
+    const detail =
+      result.stderr?.toString('utf8').trim() || result.error?.message || result.signal || `exit ${result.status}`;
     fail(`artifact ${artifactId} download failed: ${detail}`);
   }
   try {
     fs.writeFileSync(destination, result.stdout, { flag: 'wx', mode: 0o600 });
   } catch {
-    try { fs.unlinkSync(destination); } catch {}
+    try {
+      fs.unlinkSync(destination);
+    } catch {}
     fail(`artifact ${artifactId} download could not be written`);
   }
 }
 
 function dependencies(injected) {
-  const value = injected ?? { apiJson: ghApiJson, downloadArtifact: ghDownloadArtifact, now: () => new Date().toISOString() };
+  const value = injected ?? {
+    apiJson: ghApiJson,
+    downloadArtifact: ghDownloadArtifact,
+    now: () => new Date().toISOString(),
+  };
   exactKeys(value, ['apiJson', 'downloadArtifact', 'now'], 'preflight dependency adapter');
-  for (const name of ['apiJson', 'downloadArtifact', 'now']) if (typeof value[name] !== 'function') fail(`preflight dependency ${name} must be a function`);
+  for (const name of ['apiJson', 'downloadArtifact', 'now'])
+    if (typeof value[name] !== 'function') fail(`preflight dependency ${name} must be a function`);
   return value;
 }
 
@@ -245,11 +290,23 @@ function validateRun(run, parsed) {
   const attempt = requirePositiveInteger(run.run_attempt, 'workflow run attempt');
   const workflowId = requirePositiveInteger(run.workflow_id, 'workflow id');
   const repository = requireRecord(run.repository, 'workflow run repository');
-  requireEqual(requireString(repository.full_name, 'workflow run repository full_name'), REPOSITORY_ID, 'workflow run repository');
+  requireEqual(
+    requireString(repository.full_name, 'workflow run repository full_name'),
+    REPOSITORY_ID,
+    'workflow run repository',
+  );
   const repositoryDatabaseId = requirePositiveInteger(repository.id, 'workflow run repository id');
   const headRepository = requireRecord(run.head_repository, 'workflow run head_repository');
-  requireEqual(requireString(headRepository.full_name, 'workflow run head_repository full_name'), REPOSITORY_ID, 'workflow run head_repository');
-  requireEqual(requirePositiveInteger(headRepository.id, 'workflow run head_repository id'), repositoryDatabaseId, 'workflow run repository id');
+  requireEqual(
+    requireString(headRepository.full_name, 'workflow run head_repository full_name'),
+    REPOSITORY_ID,
+    'workflow run head_repository',
+  );
+  requireEqual(
+    requirePositiveInteger(headRepository.id, 'workflow run head_repository id'),
+    repositoryDatabaseId,
+    'workflow run repository id',
+  );
   return { branch, validationRef: `refs/heads/${branch}`, attempt, workflowId, repositoryDatabaseId };
 }
 
@@ -271,8 +328,13 @@ function validateWorkflowFile(file) {
 
 function validateArtifactApi(response, run, runIdentity, expectedNames) {
   requireRecord(response, 'artifact response');
-  requireEqual(requirePositiveInteger(response.total_count, 'artifact total_count'), expectedNames.length, 'artifact count');
-  if (!Array.isArray(response.artifacts) || response.artifacts.length !== expectedNames.length) fail('artifact response must contain exactly the expected artifacts');
+  requireEqual(
+    requirePositiveInteger(response.total_count, 'artifact total_count'),
+    expectedNames.length,
+    'artifact count',
+  );
+  if (!Array.isArray(response.artifacts) || response.artifacts.length !== expectedNames.length)
+    fail('artifact response must contain exactly the expected artifacts');
   const expected = new Set(expectedNames);
   const byName = new Map();
   const databaseIds = new Set();
@@ -290,10 +352,26 @@ function validateArtifactApi(response, run, runIdentity, expectedNames) {
     if (!SHA256_DIGEST.test(archiveDigest)) fail(`artifact ${name} digest must use sha256:<64 lowercase hex>`);
     const workflowRun = requireRecord(artifact.workflow_run, `artifact ${name} workflow_run`);
     requireEqual(requirePositiveInteger(workflowRun.id, `artifact ${name} run id`), run.id, `artifact ${name} run id`);
-    requireEqual(requirePositiveInteger(workflowRun.repository_id, `artifact ${name} repository id`), runIdentity.repositoryDatabaseId, `artifact ${name} repository id`);
-    requireEqual(requirePositiveInteger(workflowRun.head_repository_id, `artifact ${name} head repository id`), runIdentity.repositoryDatabaseId, `artifact ${name} head repository id`);
-    requireEqual(requireString(workflowRun.head_branch, `artifact ${name} head branch`), runIdentity.branch, `artifact ${name} head branch`);
-    requireEqual(requireString(workflowRun.head_sha, `artifact ${name} head SHA`), run.head_sha, `artifact ${name} head SHA`);
+    requireEqual(
+      requirePositiveInteger(workflowRun.repository_id, `artifact ${name} repository id`),
+      runIdentity.repositoryDatabaseId,
+      `artifact ${name} repository id`,
+    );
+    requireEqual(
+      requirePositiveInteger(workflowRun.head_repository_id, `artifact ${name} head repository id`),
+      runIdentity.repositoryDatabaseId,
+      `artifact ${name} head repository id`,
+    );
+    requireEqual(
+      requireString(workflowRun.head_branch, `artifact ${name} head branch`),
+      runIdentity.branch,
+      `artifact ${name} head branch`,
+    );
+    requireEqual(
+      requireString(workflowRun.head_sha, `artifact ${name} head SHA`),
+      run.head_sha,
+      `artifact ${name} head SHA`,
+    );
     byName.set(name, { databaseId, archiveSize, archiveDigest });
   }
   return byName;
@@ -303,13 +381,18 @@ function exactDirectoryEntries(directory, expectedNames, label) {
   const expected = [...expectedNames].sort();
   const entries = fs.readdirSync(directory, { withFileTypes: true });
   const actual = entries.map((entry) => entry.name).sort();
-  if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index])) fail(`${label} has unknown or missing entries`);
+  if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index]))
+    fail(`${label} has unknown or missing entries`);
   for (const entry of entries) if (!entry.isFile()) fail(`${label} contains a non-regular entry: ${entry.name}`);
 }
 
 function requireRegularFile(file, label) {
   let stat;
-  try { stat = fs.lstatSync(file); } catch { fail(`${label} does not exist`); }
+  try {
+    stat = fs.lstatSync(file);
+  } catch {
+    fail(`${label} does not exist`);
+  }
   if (!stat.isFile() || stat.isSymbolicLink()) fail(`${label} must be a non-symlink regular file`);
   if (stat.size <= 0) fail(`${label} must not be empty`);
   return stat;
@@ -325,7 +408,15 @@ function crc32(bytes) {
 }
 
 function safeArchiveName(name) {
-  if (name.length === 0 || name === '.' || name === '..' || name.includes('/') || name.includes('\\') || name.includes('\0') || path.isAbsolute(name)) {
+  if (
+    name.length === 0 ||
+    name === '.' ||
+    name === '..' ||
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('\0') ||
+    path.isAbsolute(name)
+  ) {
     fail(`archive member path is unsafe: ${JSON.stringify(name)}`);
   }
 }
@@ -335,7 +426,10 @@ function extractZipSafely(archiveFile, destination) {
   const searchStart = Math.max(0, archive.length - 65_557);
   let eocd = -1;
   for (let offset = archive.length - 22; offset >= searchStart; offset -= 1) {
-    if (archive.readUInt32LE(offset) === 0x06054b50) { eocd = offset; break; }
+    if (archive.readUInt32LE(offset) === 0x06054b50) {
+      eocd = offset;
+      break;
+    }
   }
   if (eocd < 0 || eocd + 22 > archive.length) fail('artifact archive has no valid end record');
   const disk = archive.readUInt16LE(eocd + 4);
@@ -345,7 +439,14 @@ function extractZipSafely(archiveFile, destination) {
   const centralSize = archive.readUInt32LE(eocd + 12);
   const centralOffset = archive.readUInt32LE(eocd + 16);
   const commentLength = archive.readUInt16LE(eocd + 20);
-  if (disk !== 0 || centralDisk !== 0 || diskEntries !== entryCount || entryCount === 0 || centralOffset + centralSize !== eocd || eocd + 22 + commentLength !== archive.length) {
+  if (
+    disk !== 0 ||
+    centralDisk !== 0 ||
+    diskEntries !== entryCount ||
+    entryCount === 0 ||
+    centralOffset + centralSize !== eocd ||
+    eocd + 22 + commentLength !== archive.length
+  ) {
     fail('artifact archive has unsupported or inconsistent structure');
   }
   const names = new Set();
@@ -354,7 +455,8 @@ function extractZipSafely(archiveFile, destination) {
   let totalUncompressed = 0;
   let cursor = centralOffset;
   for (let index = 0; index < entryCount; index += 1) {
-    if (cursor + 46 > eocd || archive.readUInt32LE(cursor) !== 0x02014b50) fail('artifact archive central directory is malformed');
+    if (cursor + 46 > eocd || archive.readUInt32LE(cursor) !== 0x02014b50)
+      fail('artifact archive central directory is malformed');
     const flags = archive.readUInt16LE(cursor + 8);
     const method = archive.readUInt16LE(cursor + 10);
     const expectedCrc = archive.readUInt32LE(cursor + 16);
@@ -368,8 +470,11 @@ function extractZipSafely(archiveFile, destination) {
     const next = cursor + 46 + nameLength + extraLength + entryCommentLength;
     if (next > eocd || nameLength === 0) fail('artifact archive central entry is truncated');
     let name;
-    try { name = new TextDecoder('utf-8', { fatal: true }).decode(archive.subarray(cursor + 46, cursor + 46 + nameLength)); }
-    catch { fail('artifact archive member name is not UTF-8'); }
+    try {
+      name = new TextDecoder('utf-8', { fatal: true }).decode(archive.subarray(cursor + 46, cursor + 46 + nameLength));
+    } catch {
+      fail('artifact archive member name is not UTF-8');
+    }
     safeArchiveName(name);
     if (names.has(name)) fail(`artifact archive contains duplicate member: ${name}`);
     names.add(name);
@@ -377,9 +482,12 @@ function extractZipSafely(archiveFile, destination) {
     localOffsets.add(localOffset);
     const unixMode = externalAttributes >>> 16;
     if ((unixMode & 0xf000) === 0xa000) fail(`artifact archive contains symlink member: ${name}`);
-    if ((unixMode & 0xf000) !== 0 && (unixMode & 0xf000) !== 0x8000) fail(`artifact archive member is not a regular file: ${name}`);
-    if ((flags & ~0x0808) !== 0 || ![0, 8].includes(method)) fail(`artifact archive member uses unsupported ZIP features: ${name}`);
-    if (localOffset + 30 > centralOffset || archive.readUInt32LE(localOffset) !== 0x04034b50) fail(`artifact archive local entry is malformed: ${name}`);
+    if ((unixMode & 0xf000) !== 0 && (unixMode & 0xf000) !== 0x8000)
+      fail(`artifact archive member is not a regular file: ${name}`);
+    if ((flags & ~0x0808) !== 0 || ![0, 8].includes(method))
+      fail(`artifact archive member uses unsupported ZIP features: ${name}`);
+    if (localOffset + 30 > centralOffset || archive.readUInt32LE(localOffset) !== 0x04034b50)
+      fail(`artifact archive local entry is malformed: ${name}`);
     const localFlags = archive.readUInt16LE(localOffset + 6);
     const localMethod = archive.readUInt16LE(localOffset + 8);
     const localCrc = archive.readUInt32LE(localOffset + 14);
@@ -389,33 +497,55 @@ function extractZipSafely(archiveFile, destination) {
     const localExtraLength = archive.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
     const dataEnd = dataStart + compressedSize;
-    if (uncompressedSize > 256 * 1024 * 1024 || totalUncompressed + uncompressedSize > 512 * 1024 * 1024) fail(`artifact archive expands beyond the verifier limit: ${name}`);
+    if (uncompressedSize > 256 * 1024 * 1024 || totalUncompressed + uncompressedSize > 512 * 1024 * 1024)
+      fail(`artifact archive expands beyond the verifier limit: ${name}`);
     totalUncompressed += uncompressedSize;
-    if (dataEnd > centralOffset || dataStart > centralOffset || localFlags !== flags || localMethod !== method || localNameLength !== nameLength
-      || !archive.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(Buffer.from(name))) {
+    if (
+      dataEnd > centralOffset ||
+      dataStart > centralOffset ||
+      localFlags !== flags ||
+      localMethod !== method ||
+      localNameLength !== nameLength ||
+      !archive.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(Buffer.from(name))
+    ) {
       fail(`artifact archive local entry conflicts with central entry: ${name}`);
     }
     let entryEnd = dataEnd;
     if ((flags & 0x0008) !== 0) {
-      if (localCrc !== 0 || localCompressedSize !== 0 || localUncompressedSize !== 0 || dataEnd + 16 > centralOffset
-        || archive.readUInt32LE(dataEnd) !== 0x08074b50 || archive.readUInt32LE(dataEnd + 4) !== expectedCrc
-        || archive.readUInt32LE(dataEnd + 8) !== compressedSize || archive.readUInt32LE(dataEnd + 12) !== uncompressedSize) {
+      if (
+        localCrc !== 0 ||
+        localCompressedSize !== 0 ||
+        localUncompressedSize !== 0 ||
+        dataEnd + 16 > centralOffset ||
+        archive.readUInt32LE(dataEnd) !== 0x08074b50 ||
+        archive.readUInt32LE(dataEnd + 4) !== expectedCrc ||
+        archive.readUInt32LE(dataEnd + 8) !== compressedSize ||
+        archive.readUInt32LE(dataEnd + 12) !== uncompressedSize
+      ) {
         fail(`artifact archive data descriptor conflicts with central entry: ${name}`);
       }
       entryEnd += 16;
-    } else if (localCrc !== expectedCrc || localCompressedSize !== compressedSize || localUncompressedSize !== uncompressedSize) {
+    } else if (
+      localCrc !== expectedCrc ||
+      localCompressedSize !== compressedSize ||
+      localUncompressedSize !== uncompressedSize
+    ) {
       fail(`artifact archive local entry conflicts with central entry: ${name}`);
     }
-    if (dataRanges.some(([start, end]) => localOffset < end && entryEnd > start)) fail(`artifact archive members overlap: ${name}`);
+    if (dataRanges.some(([start, end]) => localOffset < end && entryEnd > start))
+      fail(`artifact archive members overlap: ${name}`);
     dataRanges.push([localOffset, entryEnd]);
     let bytes;
     try {
-      bytes = method === 0
-        ? archive.subarray(dataStart, dataEnd)
-        : inflateRawSync(archive.subarray(dataStart, dataEnd), { maxOutputLength: Math.max(uncompressedSize, 1) });
+      bytes =
+        method === 0
+          ? archive.subarray(dataStart, dataEnd)
+          : inflateRawSync(archive.subarray(dataStart, dataEnd), { maxOutputLength: Math.max(uncompressedSize, 1) });
+    } catch {
+      fail(`artifact archive member could not be inflated: ${name}`);
     }
-    catch { fail(`artifact archive member could not be inflated: ${name}`); }
-    if (bytes.length !== uncompressedSize || crc32(bytes) !== expectedCrc) fail(`artifact archive member checksum mismatch: ${name}`);
+    if (bytes.length !== uncompressedSize || crc32(bytes) !== expectedCrc)
+      fail(`artifact archive member checksum mismatch: ${name}`);
     fs.writeFileSync(path.join(destination, name), bytes, { flag: 'wx', mode: 0o600 });
     cursor = next;
   }
@@ -423,7 +553,8 @@ function extractZipSafely(archiveFile, destination) {
 }
 
 function downloadAndExtract(parsed, artifactApi, deps) {
-  if (fs.readdirSync(parsed.artifacts).length !== 0) fail('--artifacts workspace must be empty so all inspected bytes are verifier-owned');
+  if (fs.readdirSync(parsed.artifacts).length !== 0)
+    fail('--artifacts workspace must be empty so all inspected bytes are verifier-owned');
   const owned = fs.mkdtempSync(path.join(parsed.artifacts, '.session-relay-preflight-owned-'));
   fs.chmodSync(owned, 0o700);
   const extracted = new Map();
@@ -454,7 +585,9 @@ function parseCanonicalAttestation(file, label) {
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     value = JSON.parse(text);
-  } catch { fail(`${label} must be UTF-8 JSON`); }
+  } catch {
+    fail(`${label} must be UTF-8 JSON`);
+  }
   assertJsonUnicode(value, label);
   if (text !== jcs(value)) fail(`${label} must be canonical JCS with no trailing bytes`);
   return requireRecord(value, label);
@@ -464,20 +597,43 @@ function stageAndInspect(source, destination, target) {
   try {
     fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL);
     fs.chmodSync(destination, 0o755);
-  } catch (error) { fail(`could not stage ${path.basename(source)}: ${error.message}`); }
+  } catch (error) {
+    fail(`could not stage ${path.basename(source)}: ${error.message}`);
+  }
   const stat = requireRegularFile(destination, `staged ${path.basename(source)}`);
   if ((stat.mode & 0o777) !== 0o755) fail(`staged ${path.basename(source)} mode is not 0755`);
   const bytes = fs.readFileSync(destination);
   const detected = detectRustFileIdentity(bytes);
   const expected = expectedRustFileIdentity(target);
-  if (expected === null || detected === null || detected.format !== expected.format || detected.architecture !== expected.architecture) {
+  if (
+    expected === null ||
+    detected === null ||
+    detected.format !== expected.format ||
+    detected.architecture !== expected.architecture
+  ) {
     fail(`${path.basename(source)} file format or architecture mismatch for ${target}`);
   }
   return { bytes, stat, identity: detected };
 }
 
 function validateAttestation(attestation, expected, runIdentity, parsed, digest) {
-  exactKeys(attestation, ['schema', 'asset_name', 'inputs', 'runner_arch', 'runner_os', 'sha256', 'source_commit', 'target', 'version_stdout', 'workflow_run_attempt', 'workflow_run_id'], `attestation ${expected.target}`);
+  exactKeys(
+    attestation,
+    [
+      'schema',
+      'asset_name',
+      'inputs',
+      'runner_arch',
+      'runner_os',
+      'sha256',
+      'source_commit',
+      'target',
+      'version_stdout',
+      'workflow_run_attempt',
+      'workflow_run_id',
+    ],
+    `attestation ${expected.target}`,
+  );
   requireEqual(attestation.schema, 'SessionRelayBinaryAttestationV1', `attestation ${expected.target} schema`);
   requireEqual(attestation.target, expected.target, `attestation ${expected.target} target`);
   requireEqual(attestation.asset_name, expected.assetName, `attestation ${expected.target} asset_name`);
@@ -485,13 +641,21 @@ function validateAttestation(attestation, expected, runIdentity, parsed, digest)
   requireEqual(attestation.source_commit, parsed.expectedCommit, `attestation ${expected.target} source_commit`);
   exactKeys(attestation.inputs, ['mode', 'expected_commit', 'expected_tag'], `attestation ${expected.target} inputs`);
   requireEqual(attestation.inputs.mode, 'validate-only', `attestation ${expected.target} input mode`);
-  requireEqual(attestation.inputs.expected_commit, parsed.expectedCommit, `attestation ${expected.target} input expected_commit`);
+  requireEqual(
+    attestation.inputs.expected_commit,
+    parsed.expectedCommit,
+    `attestation ${expected.target} input expected_commit`,
+  );
   requireEqual(attestation.inputs.expected_tag, '', `attestation ${expected.target} input expected_tag`);
   requireEqual(attestation.runner_os, expected.runner_os, `attestation ${expected.target} runner_os`);
   requireEqual(attestation.runner_arch, expected.runner_arch, `attestation ${expected.target} runner_arch`);
   requireEqual(attestation.version_stdout, EXPECTED_VERSION_STDOUT, `attestation ${expected.target} version_stdout`);
   requireEqual(attestation.workflow_run_id, parsed.runId, `attestation ${expected.target} workflow_run_id`);
-  requireEqual(attestation.workflow_run_attempt, runIdentity.attempt, `attestation ${expected.target} workflow_run_attempt`);
+  requireEqual(
+    attestation.workflow_run_attempt,
+    runIdentity.attempt,
+    `attestation ${expected.target} workflow_run_attempt`,
+  );
 }
 
 function validateExtractedArtifacts(parsed, runIdentity, artifactApi, extracted) {
@@ -501,9 +665,17 @@ function validateExtractedArtifacts(parsed, runIdentity, artifactApi, extracted)
     artifactName: `session-relay-binary-${entry.target}`,
     attestationName: `attestation-${entry.target}.json`,
   }));
-  const releaseNames = rustReleaseAssetNames('session-relay', targetDescriptors.map(({ target }) => target), CHECKSUM_FILE);
+  const releaseNames = rustReleaseAssetNames(
+    'session-relay',
+    targetDescriptors.map(({ target }) => target),
+    CHECKSUM_FILE,
+  );
   const expectedReleaseNames = [...targetDescriptors.map(({ assetName }) => assetName), CHECKSUM_FILE];
-  if (releaseNames.length !== expectedReleaseNames.length || releaseNames.some((name, index) => name !== expectedReleaseNames[index])) fail('Rust release asset helper returned a noncanonical asset set');
+  if (
+    releaseNames.length !== expectedReleaseNames.length ||
+    releaseNames.some((name, index) => name !== expectedReleaseNames[index])
+  )
+    fail('Rust release asset helper returned a noncanonical asset set');
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'session-relay-preflight-stage-'));
   fs.chmodSync(stage, 0o700);
   try {
@@ -513,7 +685,11 @@ function validateExtractedArtifacts(parsed, runIdentity, artifactApi, extracted)
     for (const descriptor of targetDescriptors) {
       const directory = extracted.get(descriptor.artifactName);
       if (!directory) fail(`artifact archive missing for ${descriptor.artifactName}`);
-      exactDirectoryEntries(directory, [descriptor.assetName, descriptor.attestationName], `artifact ${descriptor.artifactName}`);
+      exactDirectoryEntries(
+        directory,
+        [descriptor.assetName, descriptor.attestationName],
+        `artifact ${descriptor.artifactName}`,
+      );
       const source = path.join(directory, descriptor.assetName);
       const attestationFile = path.join(directory, descriptor.attestationName);
       requireRegularFile(source, descriptor.assetName);
@@ -525,15 +701,27 @@ function validateExtractedArtifacts(parsed, runIdentity, artifactApi, extracted)
       digests.set(descriptor.assetName, digest);
       const apiIdentity = artifactApi.get(descriptor.artifactName);
       artifacts.push({
-        target: descriptor.target, artifact_name: descriptor.artifactName, database_id: apiIdentity.databaseId,
-        archive_size: apiIdentity.archiveSize, archive_digest: apiIdentity.archiveDigest,
-        asset_name: descriptor.assetName, sha256: digest, size: staged.stat.size, mode: '0755', file_identity: staged.identity,
+        target: descriptor.target,
+        artifact_name: descriptor.artifactName,
+        database_id: apiIdentity.databaseId,
+        archive_size: apiIdentity.archiveSize,
+        archive_digest: apiIdentity.archiveDigest,
+        asset_name: descriptor.assetName,
+        sha256: digest,
+        size: staged.stat.size,
+        mode: '0755',
+        file_identity: staged.identity,
       });
       attestations.push({
-        target: descriptor.target, artifact_name: descriptor.artifactName, database_id: apiIdentity.databaseId,
-        archive_digest: apiIdentity.archiveDigest, file_name: descriptor.attestationName,
-        sha256: sha256(fs.readFileSync(attestationFile)), runner_os: descriptor.runner_os,
-        runner_arch: descriptor.runner_arch, version_stdout: EXPECTED_VERSION_STDOUT,
+        target: descriptor.target,
+        artifact_name: descriptor.artifactName,
+        database_id: apiIdentity.databaseId,
+        archive_digest: apiIdentity.archiveDigest,
+        file_name: descriptor.attestationName,
+        sha256: sha256(fs.readFileSync(attestationFile)),
+        runner_os: descriptor.runner_os,
+        runner_arch: descriptor.runner_arch,
+        version_stdout: EXPECTED_VERSION_STDOUT,
       });
     }
     const checksumDirectory = extracted.get(CHECKSUM_ARTIFACT);
@@ -543,28 +731,44 @@ function validateExtractedArtifacts(parsed, runIdentity, artifactApi, extracted)
     const checksumStat = requireRegularFile(checksumFile, CHECKSUM_FILE);
     const checksumBytes = fs.readFileSync(checksumFile);
     let manifest;
-    try { manifest = parseSha256Sums(checksumBytes); } catch (error) { fail(`invalid ${CHECKSUM_FILE}: ${error.message}`); }
+    try {
+      manifest = parseSha256Sums(checksumBytes);
+    } catch (error) {
+      fail(`invalid ${CHECKSUM_FILE}: ${error.message}`);
+    }
     if (manifest.size !== digests.size) fail(`${CHECKSUM_FILE} must contain exactly four entries`);
-    for (const [assetName, digest] of digests) requireEqual(manifest.get(assetName), digest, `${CHECKSUM_FILE} digest for ${assetName}`);
-    for (const name of manifest.keys()) if (!digests.has(name)) fail(`${CHECKSUM_FILE} contains unexpected asset ${name}`);
-    if (new TextDecoder('utf-8', { fatal: true }).decode(checksumBytes) !== formatSha256Sums(manifest)) fail(`${CHECKSUM_FILE} is not in canonical sorted format`);
+    for (const [assetName, digest] of digests)
+      requireEqual(manifest.get(assetName), digest, `${CHECKSUM_FILE} digest for ${assetName}`);
+    for (const name of manifest.keys())
+      if (!digests.has(name)) fail(`${CHECKSUM_FILE} contains unexpected asset ${name}`);
+    if (new TextDecoder('utf-8', { fatal: true }).decode(checksumBytes) !== formatSha256Sums(manifest))
+      fail(`${CHECKSUM_FILE} is not in canonical sorted format`);
     const checksumApi = artifactApi.get(CHECKSUM_ARTIFACT);
     return {
       artifacts,
       attestations,
       checksum: {
-        artifact_name: CHECKSUM_ARTIFACT, database_id: checksumApi.databaseId,
-        archive_size: checksumApi.archiveSize, archive_digest: checksumApi.archiveDigest,
-        file_name: CHECKSUM_FILE, sha256: sha256(checksumBytes), size: checksumStat.size,
+        artifact_name: CHECKSUM_ARTIFACT,
+        database_id: checksumApi.databaseId,
+        archive_size: checksumApi.archiveSize,
+        archive_digest: checksumApi.archiveDigest,
+        file_name: CHECKSUM_FILE,
+        sha256: sha256(checksumBytes),
+        size: checksumStat.size,
         entries: [...manifest].map(([name, digest]) => ({ name, sha256: digest })),
       },
     };
-  } finally { fs.rmSync(stage, { recursive: true, force: true }); }
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
+  }
 }
 
 function writeReceipt(receiptOut, bytes) {
   const parent = path.dirname(receiptOut);
-  const temporary = path.join(parent, `.${path.basename(receiptOut)}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`);
+  const temporary = path.join(
+    parent,
+    `.${path.basename(receiptOut)}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`,
+  );
   let descriptor;
   try {
     descriptor = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
@@ -577,10 +781,16 @@ function writeReceipt(receiptOut, bytes) {
     fs.linkSync(temporary, receiptOut);
     fs.unlinkSync(temporary);
     const directory = fs.openSync(parent, fs.constants.O_RDONLY);
-    try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    try {
+      fs.fsyncSync(directory);
+    } finally {
+      fs.closeSync(directory);
+    }
   } catch (error) {
     if (descriptor !== undefined) fs.closeSync(descriptor);
-    try { fs.unlinkSync(temporary); } catch {}
+    try {
+      fs.unlinkSync(temporary);
+    } catch {}
     if (error?.code === 'EEXIST') fail('receipt output already exists');
     throw error;
   }
@@ -593,26 +803,42 @@ export function verifyPreflight(options, injected) {
   const runIdentity = validateRun(run, parsed);
   const workflow = deps.apiJson(`repos/${REPOSITORY_ID}/actions/workflows/${runIdentity.workflowId}`);
   validateWorkflow(workflow, runIdentity.workflowId);
-  const workflowFile = deps.apiJson(`repos/${REPOSITORY_ID}/contents/${WORKFLOW_FILE}?ref=${encodeURIComponent(parsed.expectedCommit)}`);
+  const workflowFile = deps.apiJson(
+    `repos/${REPOSITORY_ID}/contents/${WORKFLOW_FILE}?ref=${encodeURIComponent(parsed.expectedCommit)}`,
+  );
   const workflowBlobId = validateWorkflowFile(workflowFile);
   const expectedArtifactNames = [...TARGETS.map(({ target }) => `session-relay-binary-${target}`), CHECKSUM_ARTIFACT];
   const artifactResponse = deps.apiJson(`repos/${REPOSITORY_ID}/actions/runs/${parsed.runId}/artifacts?per_page=100`);
   const artifactApi = validateArtifactApi(artifactResponse, run, runIdentity, expectedArtifactNames);
   const owned = downloadAndExtract(parsed, artifactApi, deps);
   let verified;
-  try { verified = validateExtractedArtifacts(parsed, runIdentity, artifactApi, owned.extracted); }
-  finally { fs.rmSync(owned.owned, { recursive: true, force: true }); }
+  try {
+    verified = validateExtractedArtifacts(parsed, runIdentity, artifactApi, owned.extracted);
+  } finally {
+    fs.rmSync(owned.owned, { recursive: true, force: true });
+  }
   const receipt = {
-    schema: 1, type: 'ProducerPreflightReceiptV1', repository_id: REPOSITORY_ID,
-    source_commit: parsed.expectedCommit, validation_ref: runIdentity.validationRef,
+    schema: 1,
+    type: 'ProducerPreflightReceiptV1',
+    repository_id: REPOSITORY_ID,
+    source_commit: parsed.expectedCommit,
+    validation_ref: runIdentity.validationRef,
     workflow: {
-      file: WORKFLOW_FILE, file_blob_id: workflowBlobId, run_database_id: parsed.runId,
-      run_attempt: runIdentity.attempt, event: 'workflow_dispatch', head_branch: runIdentity.branch,
-      head_sha: parsed.expectedCommit, inputs: { mode: 'validate-only', expected_commit: parsed.expectedCommit, expected_tag: '' },
+      file: WORKFLOW_FILE,
+      file_blob_id: workflowBlobId,
+      run_database_id: parsed.runId,
+      run_attempt: runIdentity.attempt,
+      event: 'workflow_dispatch',
+      head_branch: runIdentity.branch,
+      head_sha: parsed.expectedCommit,
+      inputs: { mode: 'validate-only', expected_commit: parsed.expectedCommit, expected_tag: '' },
       conclusion: 'success',
     },
-    artifacts: verified.artifacts, attestations: verified.attestations, checksum: verified.checksum,
-    producer: { path: PRODUCER_PATH, version: PRODUCER_VERSION }, created_at: deps.now(),
+    artifacts: verified.artifacts,
+    attestations: verified.attestations,
+    checksum: verified.checksum,
+    producer: { path: PRODUCER_PATH, version: PRODUCER_VERSION },
+    created_at: deps.now(),
   };
   assertJsonUnicode(receipt, 'receipt');
   const bytes = Buffer.from(jcs(receipt), 'utf8');
@@ -628,8 +854,9 @@ function main() {
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
-  try { main(); }
-  catch (error) {
+  try {
+    main();
+  } catch (error) {
     const message = error instanceof VerificationError ? error.message : `unexpected error: ${error.message}`;
     process.stderr.write(`verify-session-relay-preflight: ${message}\n`);
     process.exitCode = 2;
