@@ -700,102 +700,6 @@ function copiedResealedBundle(source, target, applyChange) {
   return { manifest, bundle_sha256: testBundleHash(target, manifestBytes, manifest) };
 }
 
-function testBundleDestruction({ repo, reviewedCommit, outsideBundle, outsideBundleSha256 }) {
-  const reviewRoot = '/tmp/docks-plan-review';
-  const ownedPaths = new Set();
-  if (!fs.existsSync(reviewRoot)) fs.mkdirSync(reviewRoot, { mode: 0o700 });
-  const rootStat = fs.lstatSync(reviewRoot);
-  assert.equal(
-    rootStat.isDirectory() && !rootStat.isSymbolicLink() && fs.realpathSync(reviewRoot) === reviewRoot,
-    true,
-    'review root is a real directory',
-  );
-  assert.equal(rootStat.mode & 0o777, 0o700, 'review root is owner-only');
-  if (typeof process.getuid === 'function') assert.equal(rootStat.uid, process.getuid(), 'review root is user-owned');
-  const seal = () => {
-    const bundle = path.join(reviewRoot, randomUUID());
-    ownedPaths.add(bundle);
-    return {
-      bundle,
-      sealed: sealBundle({
-        repo,
-        reviewedCommit,
-        planPath: 'docs/plans/active/sample.md',
-        requestedPaths: ['src'],
-        outDir: bundle,
-      }),
-    };
-  };
-  const reject = (label, args, pattern) => {
-    const result = helper(ROOT, ['destroy-bundle', ...args]);
-    assert.notEqual(result.status, 0, `${label} must fail`);
-    assert.match(result.stderr, pattern, label);
-  };
-
-  try {
-    const witness = path.join(reviewRoot, `${randomUUID()}.adjacent`);
-    ownedPaths.add(witness);
-    fs.writeFileSync(witness, 'keep\n', { mode: 0o600 });
-    const valid = seal();
-    const removed = helper(ROOT, ['destroy-bundle', valid.bundle, valid.sealed.bundle_sha256]);
-    assert.equal(removed.status, 0, removed.stderr);
-    assert.deepEqual(JSON.parse(removed.stdout), {
-      schema: 1,
-      bundle_sha256: valid.sealed.bundle_sha256,
-      removed: true,
-    });
-    assert.equal(fs.existsSync(valid.bundle), false, 'verified bundle removed');
-    assert.equal(fs.readFileSync(witness, 'utf8'), 'keep\n', 'adjacent file preserved');
-
-    const wrongHash = seal();
-    reject('expected hash mismatch', [wrongHash.bundle, 'f'.repeat(64)], /bundle hash mismatch/);
-    assert.equal(fs.existsSync(wrongHash.bundle), true, 'hash mismatch preserves bundle');
-    fs.chmodSync(path.join(wrongHash.bundle, 'plan.review.md'), 0o644);
-    fs.appendFileSync(path.join(wrongHash.bundle, 'plan.review.md'), 'tamper\n');
-    fs.chmodSync(path.join(wrongHash.bundle, 'plan.review.md'), 0o444);
-    reject(
-      'mutated bundle',
-      [wrongHash.bundle, wrongHash.sealed.bundle_sha256],
-      /file hash mismatch|bundle hash mismatch/,
-    );
-    assert.equal(fs.existsSync(wrongHash.bundle), true, 'mutation preserves bundle');
-
-    const symlinkTarget = seal();
-    const symlink = path.join(reviewRoot, randomUUID());
-    ownedPaths.add(symlink);
-    fs.symlinkSync(symlinkTarget.bundle, symlink);
-    reject('symlink bundle', [symlink, symlinkTarget.sealed.bundle_sha256], /symlink|canonical|review bundle path/);
-    assert.equal(fs.existsSync(symlinkTarget.bundle), true, 'symlink rejection preserves target');
-    reject('outside review root', [outsideBundle, outsideBundleSha256], /supported temporary review root/);
-    assert.equal(fs.existsSync(outsideBundle), true, 'outside bundle preserved');
-
-    const nonBundle = path.join(reviewRoot, randomUUID());
-    ownedPaths.add(nonBundle);
-    fs.mkdirSync(nonBundle, { mode: 0o700 });
-    fs.chmodSync(nonBundle, 0o555);
-    reject('non-bundle', [nonBundle, '0'.repeat(64)], /manifest|bundle/);
-    assert.equal(fs.existsSync(nonBundle), true, 'non-bundle preserved');
-    reject('review root target', [reviewRoot, '0'.repeat(64)], /root|review bundle path/);
-    reject('filesystem root target', ['/', '0'.repeat(64)], /root|supported temporary review root/);
-    reject('home target', [os.homedir(), '0'.repeat(64)], /home|supported temporary review root/);
-
-    if (typeof process.getuid === 'function') {
-      const ownership = seal();
-      const probe = `process.getuid=()=>${process.getuid() + 1};const m=await import(${JSON.stringify(pathToFileURL(HELPER).href)});m.destroyBundle({bundle:process.argv[1],expectedSha256:process.argv[2]});`;
-      const result = spawnSync(
-        process.execPath,
-        ['--input-type=module', '--eval', probe, ownership.bundle, ownership.sealed.bundle_sha256],
-        { encoding: 'utf8' },
-      );
-      assert.notEqual(result.status, 0, 'ownership mismatch must fail');
-      assert.match(result.stderr, /ownership mismatch/, 'ownership mismatch is explicit');
-      assert.equal(fs.existsSync(ownership.bundle), true, 'ownership mismatch preserves bundle');
-    }
-  } finally {
-    removeBundleDestructionTargets(ownedPaths);
-  }
-}
-
 function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
   assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
@@ -1250,38 +1154,6 @@ function legacyShapeCandidate(options = {}) {
   return { temp, repo, plannedAt, executionBaseCommit, head, compatibilityHelper };
 }
 
-function testLegacyShapeNegatives() {
-  for (const [label, options, pattern] of [
-    ['planned path already existed', { pathExisted: true }, /path existed|creation/],
-    ['creation parent drift', { creationParentDrift: true }, /creation parent/],
-    ['creation extra path', { creationExtra: true }, /creation must be plan-only/],
-    ['start extra path', { startExtra: true }, /start must change only the plan/],
-    ['legacy abbreviation too short', { shortLength: 6 }, /abbreviation/],
-    ['legacy full identity', { fullLegacy: true }, /abbreviation/],
-    ['legacy identities unequal', { unequalLegacy: true }, /identity/],
-    ['protected section changed', { protectedChange: true }, /protected section/],
-    ['heading vector changed', { headingAdded: true }, /heading vector/],
-    ['duplicate headings', { duplicateHeadings: true }, /duplicate body heading/],
-    ['preamble changed', { preambleChange: true }, /preamble/],
-    ['changed section set empty', { noBodyChange: true }, /changed sections missing/],
-  ]) {
-    const fixture = legacyShapeCandidate(options);
-    expectThrow(
-      label,
-      () =>
-        compatibilityEvidence(fixture.compatibilityHelper, {
-          repo: fixture.repo,
-          reviewedHead: fixture.head,
-          planPath: TARGET_PLAN,
-          plannedAtCommit: fixture.plannedAt,
-          executionBaseCommit: fixture.executionBaseCommit,
-        }),
-      pattern,
-    );
-    fs.rmSync(fixture.temp, { recursive: true, force: true });
-  }
-}
-
 function applyPrerequisiteForTest(bytes, application) {
   let text = Buffer.from(bytes).toString();
   text = replaceOnce(text, PREREQUISITE_MARKER, application.markdown, 'prerequisite marker');
@@ -1355,211 +1227,13 @@ function commitQFVariant(
   return { q, f, qBytes, finalBytes, finalReceipt };
 }
 
-function testCompatibilityChainNegatives(fixture, prerequisiteApplication) {
-  const evidenceBytes = gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]);
-  const reviewBytes = gitBytes(fixture.repo, ['show', `${fixture.compatibilityReviewCommit}:${TARGET_PLAN}`]);
-
-  const materialMatch = fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m);
-  const receiptMatch = fixture.evidenceApplication.markdown.match(/^Execution-base-compatibility-receipt: (\{.*\})$/m);
-  const diffMatch = fixture.evidenceApplication.markdown.match(/^(`{3,})diff\n([\s\S]*?)^\1$/m);
-  assert.ok(materialMatch && receiptMatch && diffMatch);
-  const alteredMaterial = JSON.parse(materialMatch[1]);
-  const alteredReceipt = JSON.parse(receiptMatch[1]);
-  alteredMaterial.plan_creation_commit = fixture.identityCommit;
-  alteredReceipt.plan_creation_commit = fixture.identityCommit;
-  delete alteredMaterial.review_material_sha256;
-  alteredMaterial.review_material_sha256 = sha256(
-    jcs({ schema: 1, material: alteredMaterial, transition_diff: diffMatch[2] }),
-  );
-  alteredReceipt.review_material_sha256 = alteredMaterial.review_material_sha256;
-  delete alteredReceipt.receipt_sha256;
-  alteredReceipt.receipt_sha256 = sha256(jcs(alteredReceipt));
-  const alteredApplicationMarkdown = `Compatibility-review-material: ${jcs(alteredMaterial)}\n${diffMatch[1]}diff\n${diffMatch[2]}${diffMatch[1]}\nExecution-base-compatibility-receipt: ${jcs(alteredReceipt)}\n`;
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
-  const alteredEvidenceBytes = insertBeforeReviewForTest(
-    gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]),
-    alteredApplicationMarkdown,
-  );
-  writeLogical(fixture.repo, TARGET_PLAN, alteredEvidenceBytes);
-  const alteredE = commitAll(fixture.repo, 'historically false E');
-  const alteredEReceipt = findingsFreeDraftReceipt(alteredE, alteredEvidenceBytes, 'single');
-  writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(alteredEvidenceBytes, alteredEReceipt));
-  const alteredEReview = commitAll(fixture.repo, 'review historically false E');
-  let alteredBindingApplication = null;
-  let alteredBindingError = null;
-  try {
-    alteredBindingApplication = compatibilityBinding(fixture.compatibilityHelper, {
-      repo: fixture.repo,
-      planPath: TARGET_PLAN,
-      evidenceCommit: alteredE,
-      reviewCommit: alteredEReview,
-    });
-  } catch (error) {
-    alteredBindingError = error;
-  }
-  if (alteredBindingError !== null)
-    assert.match(
-      alteredBindingError.message,
-      /application mismatch/,
-      'real binding builder rejects self-consistent false E before B',
-    );
-  else {
-    const alteredReviewBytes = gitBytes(fixture.repo, ['show', `${alteredEReview}:${TARGET_PLAN}`]);
-    const alteredBindingBytes = insertBeforeReviewForTest(alteredReviewBytes, alteredBindingApplication.markdown);
-    writeLogical(fixture.repo, TARGET_PLAN, alteredBindingBytes);
-    const alteredB = commitAll(fixture.repo, 'bind historically false E');
-    const falseFixture = {
-      ...fixture,
-      evidenceCommit: alteredE,
-      compatibilityReviewCommit: alteredEReview,
-      bindingCommit: alteredB,
-    };
-    const fake = prerequisiteDependencies(falseFixture);
-    let prerequisiteError = null;
-    try {
-      falseFixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        prerequisiteInput(falseFixture),
-        fake.dependencies,
-      );
-    } catch (error) {
-      prerequisiteError = error;
-    }
-    if (prerequisiteError !== null) {
-      assert.match(prerequisiteError.message, /historical application mismatch/);
-      assert.deepEqual(fake.observationOrder, [], 'false E rejects before remote observations');
-    } else
-      assert.fail(
-        `E historical reconstruction must reject before observations; observed ${fake.observationOrder.join(',')}`,
-      );
-  }
-
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
-  git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before E']);
-  writeLogical(fixture.repo, TARGET_PLAN, evidenceBytes);
-  const nonAdjacentE = commitAll(fixture.repo, 'non-adjacent E');
-  const nonAdjacentEReceipt = findingsFreeDraftReceipt(nonAdjacentE, evidenceBytes, 'single');
-  writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(evidenceBytes, nonAdjacentEReceipt));
-  const nonAdjacentR = commitAll(fixture.repo, 'review non-adjacent E');
-  expectThrow(
-    'E adjacency',
-    () =>
-      compatibilityBinding(fixture.compatibilityHelper, {
-        repo: fixture.repo,
-        planPath: TARGET_PLAN,
-        evidenceCommit: nonAdjacentE,
-        reviewCommit: nonAdjacentR,
-      }),
-    /evidence commit parent mismatch/,
-  );
-
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]);
-  git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before R']);
-  writeLogical(fixture.repo, TARGET_PLAN, reviewBytes);
-  const nonAdjacentRCommit = commitAll(fixture.repo, 'non-adjacent R');
-  expectThrow(
-    'R adjacency',
-    () =>
-      compatibilityBinding(fixture.compatibilityHelper, {
-        repo: fixture.repo,
-        planPath: TARGET_PLAN,
-        evidenceCommit: fixture.evidenceCommit,
-        reviewCommit: nonAdjacentRCommit,
-      }),
-    /review commit parent mismatch/,
-  );
-
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]);
-  const alteredAttribution = Buffer.from(
-    replaceOnce(reviewBytes.toString(), 'independently verified none', 'independently verified altered'),
-  );
-  writeLogical(fixture.repo, TARGET_PLAN, alteredAttribution);
-  const alteredR = commitAll(fixture.repo, 'alter R attribution');
-  expectThrow(
-    'R attribution bytes',
-    () =>
-      compatibilityBinding(fixture.compatibilityHelper, {
-        repo: fixture.repo,
-        planPath: TARGET_PLAN,
-        evidenceCommit: fixture.evidenceCommit,
-        reviewCommit: alteredR,
-      }),
-    /compatibility review delta mismatch/,
-  );
-
-  const finding = {
-    id: 'X1',
-    severity: 'low',
-    section: 'Threat model',
-    path: null,
-    locator: null,
-    defect: 'finding retained',
-    fix: 'resolve it',
-    evidence: 'fixture',
-  };
-  expectThrow(
-    'R not_ready',
-    () =>
-      renderCompatibilityReviewAttribution(
-        draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { verdict: 'not_ready' }),
-      ),
-    /outcome is ineligible|findings-free ready/,
-  );
-  expectThrow(
-    'R finding',
-    () =>
-      renderCompatibilityReviewAttribution(
-        draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { findings: [finding] }),
-      ),
-    /findings-free ready|waiver\/finding/,
-  );
-
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]);
-  writeLogical(fixture.repo, TARGET_PLAN, fixture.bindingBytes);
-  writeLogical(fixture.repo, 'unexpected-b.txt', 'outside B\n');
-  const extraB = commitAll(fixture.repo, 'B extra path');
-  expectThrow(
-    'B extra path',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        { ...prerequisiteInput(fixture), bindingCommit: extraB },
-        prerequisiteDependencies(fixture).dependencies,
-      ),
-    /binding commit must change only the plan/,
-  );
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]);
-  const bindingMatch = fixture.bindingBytes.toString().match(/^Execution-base-compatibility-binding: (\{.*\})$/m);
-  assert.ok(bindingMatch);
-  const alteredBindingRecord = JSON.parse(bindingMatch[1]);
-  alteredBindingRecord.binding_sha256 = 'f'.repeat(64);
-  const alteredBinding = Buffer.from(
-    replaceOnce(
-      fixture.bindingBytes.toString(),
-      bindingMatch[0],
-      `Execution-base-compatibility-binding: ${jcs(alteredBindingRecord)}`,
-    ),
-  );
-  writeLogical(fixture.repo, TARGET_PLAN, alteredBinding);
-  const alteredB = commitAll(fixture.repo, 'B altered binding');
-  expectThrow(
-    'B binding record',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        { ...prerequisiteInput(fixture), bindingCommit: alteredB },
-        prerequisiteDependencies(fixture).dependencies,
-      ),
-    /binding application mismatch|binding hash|binding mismatch/,
-  );
-
-  for (const [label, qVariant, options, pattern] of [
+function testCompatibilityChainNegatives(getFixture, getPrerequisiteApplication, focus) {
+  const qfCases = [
     [
       'Q pending marker retained',
-      (bytes) =>
+      (bytes, application) =>
         Buffer.from(
-          replaceOnce(
-            bytes.toString(),
-            prerequisiteApplication.markdown,
-            `${PREREQUISITE_MARKER}${prerequisiteApplication.markdown}`,
-          ),
+          replaceOnce(bytes.toString(), application.markdown, `${PREREQUISITE_MARKER}${application.markdown}`),
         ),
       {},
       /closure delta mismatch/,
@@ -1572,12 +1246,12 @@ function testCompatibilityChainNegatives(fixture, prerequisiteApplication) {
     ],
     [
       'Q non-JCS receipt',
-      (bytes) =>
+      (bytes, application) =>
         Buffer.from(
           replaceOnce(
             bytes.toString(),
-            prerequisiteApplication.markdown,
-            prerequisiteApplication.markdown.replace('```json\n{', '```json\n{ '),
+            application.markdown,
+            application.markdown.replace('```json\n{', '```json\n{ '),
           ),
         ),
       {},
@@ -1585,12 +1259,12 @@ function testCompatibilityChainNegatives(fixture, prerequisiteApplication) {
     ],
     [
       'Q wrong fence',
-      (bytes) =>
+      (bytes, application) =>
         Buffer.from(
           replaceOnce(
             bytes.toString(),
-            prerequisiteApplication.markdown,
-            prerequisiteApplication.markdown.replace('```json\n', '````json\n').replace('\n```\n', '\n````\n'),
+            application.markdown,
+            application.markdown.replace('```json\n', '````json\n').replace('\n```\n', '\n````\n'),
           ),
         ),
       {},
@@ -1629,21 +1303,293 @@ function testCompatibilityChainNegatives(fixture, prerequisiteApplication) {
       },
       /final review delta mismatch/,
     ],
-  ]) {
-    const chain = commitQFVariant(fixture, prerequisiteApplication, label, qVariant, options);
-    expectThrow(
-      label,
-      () =>
-        compatibilityRange(fixture.compatibilityHelper, {
-          repo: fixture.repo,
-          planPath: TARGET_PLAN,
-          plannedAtCommit: fixture.plannedAt,
-          executionBaseCommit: fixture.executionBaseCommit,
-          reviewedHead: chain.f,
-        }),
-      pattern,
-    );
-  }
+  ];
+  return [
+    {
+      label: 'compatibility E reconstruction regression',
+      run: async () => {
+        const fixture = await getFixture();
+        const materialMatch = fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m);
+        const receiptMatch = fixture.evidenceApplication.markdown.match(
+          /^Execution-base-compatibility-receipt: (\{.*\})$/m,
+        );
+        const diffMatch = fixture.evidenceApplication.markdown.match(/^(`{3,})diff\n([\s\S]*?)^\1$/m);
+        assert.ok(materialMatch && receiptMatch && diffMatch);
+        const alteredMaterial = JSON.parse(materialMatch[1]);
+        const alteredReceipt = JSON.parse(receiptMatch[1]);
+        alteredMaterial.plan_creation_commit = fixture.identityCommit;
+        alteredReceipt.plan_creation_commit = fixture.identityCommit;
+        delete alteredMaterial.review_material_sha256;
+        alteredMaterial.review_material_sha256 = sha256(
+          jcs({ schema: 1, material: alteredMaterial, transition_diff: diffMatch[2] }),
+        );
+        alteredReceipt.review_material_sha256 = alteredMaterial.review_material_sha256;
+        delete alteredReceipt.receipt_sha256;
+        alteredReceipt.receipt_sha256 = sha256(jcs(alteredReceipt));
+        const alteredApplicationMarkdown = `Compatibility-review-material: ${jcs(alteredMaterial)}\n${diffMatch[1]}diff\n${diffMatch[2]}${diffMatch[1]}\nExecution-base-compatibility-receipt: ${jcs(alteredReceipt)}\n`;
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
+        const alteredEvidenceBytes = insertBeforeReviewForTest(
+          gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]),
+          alteredApplicationMarkdown,
+        );
+        writeLogical(fixture.repo, TARGET_PLAN, alteredEvidenceBytes);
+        const alteredE = commitAll(fixture.repo, 'historically false E');
+        const alteredEReceipt = findingsFreeDraftReceipt(alteredE, alteredEvidenceBytes, 'single');
+        writeLogical(
+          fixture.repo,
+          TARGET_PLAN,
+          insertOrReplaceDraftReceiptForTest(alteredEvidenceBytes, alteredEReceipt),
+        );
+        const alteredEReview = commitAll(fixture.repo, 'review historically false E');
+        if (focus !== null) {
+          expectThrow(
+            'E historical reconstruction',
+            () =>
+              compatibilityBinding(fixture.compatibilityHelper, {
+                repo: fixture.repo,
+                planPath: TARGET_PLAN,
+                evidenceCommit: alteredE,
+                reviewCommit: alteredEReview,
+              }),
+            /application mismatch/,
+          );
+          return;
+        }
+        let alteredBindingApplication = null;
+        let alteredBindingError = null;
+        try {
+          alteredBindingApplication = compatibilityBinding(fixture.compatibilityHelper, {
+            repo: fixture.repo,
+            planPath: TARGET_PLAN,
+            evidenceCommit: alteredE,
+            reviewCommit: alteredEReview,
+          });
+        } catch (error) {
+          alteredBindingError = error;
+        }
+        if (alteredBindingError !== null)
+          assert.match(
+            alteredBindingError.message,
+            /application mismatch/,
+            'real binding builder rejects self-consistent false E before B',
+          );
+        else {
+          const alteredReviewBytes = gitBytes(fixture.repo, ['show', `${alteredEReview}:${TARGET_PLAN}`]);
+          const alteredBindingBytes = insertBeforeReviewForTest(alteredReviewBytes, alteredBindingApplication.markdown);
+          writeLogical(fixture.repo, TARGET_PLAN, alteredBindingBytes);
+          const alteredB = commitAll(fixture.repo, 'bind historically false E');
+          const falseFixture = {
+            ...fixture,
+            evidenceCommit: alteredE,
+            compatibilityReviewCommit: alteredEReview,
+            bindingCommit: alteredB,
+          };
+          const fake = prerequisiteDependencies(falseFixture);
+          let prerequisiteError = null;
+          try {
+            falseFixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              prerequisiteInput(falseFixture),
+              fake.dependencies,
+            );
+          } catch (error) {
+            prerequisiteError = error;
+          }
+          if (prerequisiteError !== null) {
+            assert.match(prerequisiteError.message, /historical application mismatch/);
+            assert.deepEqual(fake.observationOrder, [], 'false E rejects before remote observations');
+          } else
+            assert.fail(
+              `E historical reconstruction must reject before observations; observed ${fake.observationOrder.join(',')}`,
+            );
+        }
+      },
+    },
+    {
+      label: 'compatibility adjacency and plan-only regression',
+      run: async () => {
+        const fixture = await getFixture();
+        const evidenceBytes = gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]);
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
+        git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before E']);
+        writeLogical(fixture.repo, TARGET_PLAN, evidenceBytes);
+        const nonAdjacentE = commitAll(fixture.repo, 'non-adjacent E');
+        const nonAdjacentEReceipt = findingsFreeDraftReceipt(nonAdjacentE, evidenceBytes, 'single');
+        writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(evidenceBytes, nonAdjacentEReceipt));
+        const nonAdjacentR = commitAll(fixture.repo, 'review non-adjacent E');
+        expectThrow(
+          'E adjacency',
+          () =>
+            compatibilityBinding(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              evidenceCommit: nonAdjacentE,
+              reviewCommit: nonAdjacentR,
+            }),
+          /evidence commit parent mismatch/,
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const reviewBytes = gitBytes(fixture.repo, ['show', `${fixture.compatibilityReviewCommit}:${TARGET_PLAN}`]);
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]);
+        git(fixture.repo, ['commit', '--allow-empty', '-qm', 'intervening before R']);
+        writeLogical(fixture.repo, TARGET_PLAN, reviewBytes);
+        const nonAdjacentRCommit = commitAll(fixture.repo, 'non-adjacent R');
+        expectThrow(
+          'R adjacency',
+          () =>
+            compatibilityBinding(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              evidenceCommit: fixture.evidenceCommit,
+              reviewCommit: nonAdjacentRCommit,
+            }),
+          /review commit parent mismatch/,
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const reviewBytes = gitBytes(fixture.repo, ['show', `${fixture.compatibilityReviewCommit}:${TARGET_PLAN}`]);
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.evidenceCommit]);
+        const alteredAttribution = Buffer.from(
+          replaceOnce(reviewBytes.toString(), 'independently verified none', 'independently verified altered'),
+        );
+        writeLogical(fixture.repo, TARGET_PLAN, alteredAttribution);
+        const alteredR = commitAll(fixture.repo, 'alter R attribution');
+        expectThrow(
+          'R attribution bytes',
+          () =>
+            compatibilityBinding(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              evidenceCommit: fixture.evidenceCommit,
+              reviewCommit: alteredR,
+            }),
+          /compatibility review delta mismatch/,
+        );
+      },
+    },
+    {
+      label: 'compatibility findings-free regression',
+      run: async () => {
+        const fixture = await getFixture();
+        const evidenceBytes = gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]);
+        expectThrow(
+          'R not_ready',
+          () =>
+            renderCompatibilityReviewAttribution(
+              draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { verdict: 'not_ready' }),
+            ),
+          /outcome is ineligible|findings-free ready/,
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const evidenceBytes = gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]);
+        const finding = {
+          id: 'X1',
+          severity: 'low',
+          section: 'Threat model',
+          path: null,
+          locator: null,
+          defect: 'finding retained',
+          fix: 'resolve it',
+          evidence: 'fixture',
+        };
+        expectThrow(
+          'R finding',
+          () =>
+            renderCompatibilityReviewAttribution(
+              draftReceiptVariant(fixture.evidenceCommit, evidenceBytes, { findings: [finding] }),
+            ),
+          /findings-free ready|waiver\/finding/,
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]);
+        writeLogical(fixture.repo, TARGET_PLAN, fixture.bindingBytes);
+        writeLogical(fixture.repo, 'unexpected-b.txt', 'outside B\n');
+        const extraB = commitAll(fixture.repo, 'B extra path');
+        expectThrow(
+          'B extra path',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              { ...prerequisiteInput(fixture), bindingCommit: extraB },
+              prerequisiteDependencies(fixture).dependencies,
+            ),
+          /binding commit must change only the plan/,
+        );
+      },
+    },
+    {
+      label: 'compatibility binding record regression',
+      run: async () => {
+        const fixture = await getFixture();
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.compatibilityReviewCommit]);
+        const bindingMatch = fixture.bindingBytes.toString().match(/^Execution-base-compatibility-binding: (\{.*\})$/m);
+        assert.ok(bindingMatch);
+        const alteredBindingRecord = JSON.parse(bindingMatch[1]);
+        alteredBindingRecord.binding_sha256 = 'f'.repeat(64);
+        const alteredBinding = Buffer.from(
+          replaceOnce(
+            fixture.bindingBytes.toString(),
+            bindingMatch[0],
+            `Execution-base-compatibility-binding: ${jcs(alteredBindingRecord)}`,
+          ),
+        );
+        writeLogical(fixture.repo, TARGET_PLAN, alteredBinding);
+        const alteredB = commitAll(fixture.repo, 'B altered binding');
+        expectThrow(
+          'B binding record',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              { ...prerequisiteInput(fixture), bindingCommit: alteredB },
+              prerequisiteDependencies(fixture).dependencies,
+            ),
+          /binding application mismatch|binding hash|binding mismatch/,
+        );
+      },
+    },
+    ...qfCases.map(([caseLabel, qVariant, options, pattern]) => ({
+      ...(caseLabel === 'Q pending marker retained'
+        ? { label: 'prerequisite Q marker and delta regression' }
+        : caseLabel === 'F extra prose'
+          ? { label: 'final F receipt and delta regression' }
+          : {}),
+      run: async () => {
+        const fixture = await getFixture();
+        const prerequisiteApplication = await getPrerequisiteApplication();
+        const chain = commitQFVariant(
+          fixture,
+          prerequisiteApplication,
+          caseLabel,
+          (bytes) => qVariant(bytes, prerequisiteApplication),
+          options,
+        );
+        expectThrow(
+          caseLabel,
+          () =>
+            compatibilityRange(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              plannedAtCommit: fixture.plannedAt,
+              executionBaseCommit: fixture.executionBaseCommit,
+              reviewedHead: chain.f,
+            }),
+          pattern,
+        );
+      },
+    })),
+  ];
 }
 
 function draftBundle() {
@@ -1666,1656 +1612,6 @@ function draftBundle() {
     outDir: bundle,
   });
   return { temp, repo, bundle, head, sealed };
-}
-
-function testCanonical() {
-  const raw = fs.readFileSync(FIXTURE);
-  const parsed = parsePlan(raw);
-  assert.equal(parsed.frontmatter.status, 'planned');
-  const view = canonicalPlanView(raw);
-  assert.equal(jcs({ emoji: '\ud83d\ude80' }), '{"emoji":"🚀"}', 'valid surrogate pair has stable JCS');
-  expectThrow('JCS lone-surrogate value', () => jcs({ invalid: '\ud800' }), /lone surrogate/);
-  expectThrow('JCS lone-surrogate property key', () => jcs({ '\udc00': 'invalid' }), /lone surrogate/);
-  assert.match(view, /Ordinary self-review prose remains canonical/);
-  assert.doesNotMatch(view, /Review-receipt:/);
-  assert.doesNotMatch(view, /"status"/);
-  const lifecycle = Buffer.from(
-    raw
-      .toString()
-      .replace('status: planned', 'status: ongoing')
-      .replace('updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-12T01:00:00-03:00"'),
-  );
-  assert.equal(canonicalPlanView(lifecycle), view, 'lifecycle-only change is excluded');
-  assert.notEqual(
-    canonicalPlanView(
-      Buffer.from(
-        raw
-          .toString()
-          .replace(
-            'Prove canonical policy behavior.\n\n## Interfaces',
-            'Prove changed policy behavior.\n\n## Interfaces',
-          ),
-      ),
-    ),
-    view,
-    'ordinary prose change invalidates',
-  );
-  expectThrow('BOM', () => canonicalPlanView(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), raw])), /BOM/);
-  expectThrow(
-    'duplicate key',
-    () =>
-      canonicalPlanView(
-        Buffer.from(raw.toString().replace('title: Sample review plan', 'title: Sample review plan\ntitle: duplicate')),
-      ),
-    /duplicate/,
-  );
-  expectThrow(
-    'nested YAML',
-    () => canonicalPlanView(Buffer.from(raw.toString().replace('tags: [review-policy]', 'tags:\n  nested: nope'))),
-    /unsupported/,
-  );
-  const fenced = Buffer.from(
-    raw
-      .toString()
-      .replace(
-        'Ordinary self-review prose remains canonical.',
-        '```text\nReview-receipt: {not-json}\n```\nOrdinary self-review prose remains canonical.',
-      ),
-  );
-  assert.match(canonicalPlanView(fenced), /Review-receipt: \{not-json\}/, 'fenced machine-looking record retained');
-  const fencedInfoLine = Buffer.from(
-    raw
-      .toString()
-      .replace(
-        'Ordinary self-review prose remains canonical.',
-        '````text\n```not-a-close\nReview-receipt: {still-not-json}\n````\nOrdinary self-review prose remains canonical.',
-      ),
-  );
-  assert.match(
-    canonicalPlanView(fencedInfoLine),
-    /Review-receipt: \{still-not-json\}/,
-    'same-marker info line inside longer fence does not close it',
-  );
-  expectThrow(
-    'duplicate record kind',
-    () =>
-      canonicalPlanView(
-        Buffer.from(
-          raw
-            .toString()
-            .replace('Review-receipt: {"schema":1}', 'Review-receipt: {"schema":1}\nReview-receipt: {"schema":2}'),
-        ),
-      ),
-    /duplicate Review-receipt/,
-  );
-  expectThrow(
-    'non-JCS record',
-    () =>
-      canonicalPlanView(
-        Buffer.from(raw.toString().replace('Review-receipt: {"schema":1}', 'Review-receipt: { "schema": 1 }')),
-      ),
-    /compact JCS/,
-  );
-  console.log('canonical view goldens passed');
-}
-
-function testSchemas() {
-  validatePolicy(POLICY);
-  validatePolicy(POLICY_V2);
-  validatePolicy(POLICY_V4);
-  validatePolicy({ ...POLICY_V2, minimum_score: 0, max_rounds: 1 });
-  validatePolicy({ ...POLICY_V2, minimum_score: 100, max_rounds: 10 });
-  expectThrow(
-    'policy v2 minimum score below range',
-    () => validatePolicy({ ...POLICY_V2, minimum_score: -1 }),
-    /minimum_score/,
-  );
-  expectThrow(
-    'policy v2 minimum score above range',
-    () => validatePolicy({ ...POLICY_V2, minimum_score: 101 }),
-    /minimum_score/,
-  );
-  expectThrow(
-    'policy v2 minimum score integer',
-    () => validatePolicy({ ...POLICY_V2, minimum_score: 89.5 }),
-    /minimum_score/,
-  );
-  expectThrow('policy v2 max rounds below range', () => validatePolicy({ ...POLICY_V2, max_rounds: 0 }), /max_rounds/);
-  expectThrow('policy v2 max rounds above range', () => validatePolicy({ ...POLICY_V2, max_rounds: 11 }), /max_rounds/);
-  expectThrow('policy v2 max rounds integer', () => validatePolicy({ ...POLICY_V2, max_rounds: 2.5 }), /max_rounds/);
-  expectThrow(
-    'policy v2 caps ordered candidates',
-    () =>
-      validatePolicy({
-        ...POLICY_V2,
-        anthropic_tiers: [
-          ...POLICY_V2.anthropic_tiers,
-          { model: 'sonnet', effort: 'high', transports: ['cli'] },
-          { model: 'haiku', effort: 'medium', transports: ['cli'] },
-        ],
-      }),
-    /anthropic_tiers/,
-  );
-  expectThrow(
-    'policy v2 rejects duplicate candidates',
-    () =>
-      validatePolicy({
-        ...POLICY_V2,
-        anthropic_tiers: [POLICY_V2.anthropic_tiers[0], { ...POLICY_V2.anthropic_tiers[0], transports: ['cli'] }],
-      }),
-    /duplicate.*candidate|anthropic_tiers/,
-  );
-  expectThrow('policy v1 remains closed', () => validatePolicy({ ...POLICY, minimum_score: 90 }), /unknown key/);
-  expectThrow('policy v2 remains closed', () => validatePolicy({ ...POLICY_V2, unexpected: true }), /unknown key/);
-  expectThrow(
-    'policy v4 remains closed',
-    () => validatePolicy({ ...POLICY_V4, continuation_batches: true }),
-    /unknown key/,
-  );
-  const missingV2Provenance = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance } };
-  delete missingV2Provenance.provenance.minimum_score;
-  expectThrow(
-    'policy v2 requires score provenance',
-    () => validatePolicy(missingV2Provenance),
-    /missing minimum_score/,
-  );
-  const req = request();
-  validateRequest(req);
-  const output = {
-    schema: 1,
-    leg: 'X',
-    request: req,
-    verdict: 'ready',
-    score: 98,
-    findings: [
-      {
-        id: 'X1',
-        severity: 'low',
-        section: 'Goal',
-        path: null,
-        locator: null,
-        defect: 'Minor ambiguity',
-        fix: 'State it',
-        evidence: 'Plan text',
-      },
-    ],
-    confirmations: ['Bundle was read'],
-  };
-  validateReviewerOutput(output, req, 'X');
-  expectThrow(
-    'echo mismatch',
-    () =>
-      validateReviewerOutput(
-        { ...output, request: { ...req, request_id: '223e4567-e89b-42d3-a456-426614174000' } },
-        req,
-        'X',
-      ),
-    /mismatch/,
-  );
-  expectThrow('unknown reviewer key', () => validateReviewerOutput({ ...output, extra: true }, req, 'X'), /unknown/);
-  expectThrow(
-    'cross-leg id',
-    () => validateReviewerOutput({ ...output, findings: [{ ...output.findings[0], id: 'S1' }] }, req, 'X'),
-    /finding id/,
-  );
-  assert.equal(reviewerSchema('X').additionalProperties, false);
-  assert.equal(reviewerSchema('X').properties.request.additionalProperties, false);
-  const policySchemas = reviewerSchema('X').properties.request.properties.policy.oneOf;
-  assert.equal(policySchemas.length, 2);
-  assert.ok(policySchemas.every((schema) => schema.additionalProperties === false));
-  assert.equal(
-    policySchemas.find((schema) => schema.properties.schema.const === 2).properties.minimum_score.maximum,
-    100,
-  );
-  assert.equal(policySchemas.find((schema) => schema.properties.schema.const === 2).properties.max_rounds.maximum, 10);
-  assert.equal(reviewerSchema('X').properties.request.properties.author.additionalProperties, false);
-  for (const version of [1, 2, 3])
-    assertConstrainedScalarsTyped(reviewerSchema('X', version), `reviewer schema v${version}`);
-
-  const reqV3 = requestV3();
-  validateRequest(reqV3);
-  const rubric = {
-    standalone_executability: 22,
-    actionability: 16,
-    dependency_order: 12,
-    evidence_reverify: 10,
-    goal_coverage: 12,
-    executable_acceptance: 12,
-    failure_mode: 10,
-    assumption_to_question: 6,
-  };
-  const followup = {
-    id: 'S1',
-    severity: 'low',
-    section: 'Notes',
-    path: null,
-    locator: null,
-    defect: 'Optional wording can be clearer',
-    fix: 'Clarify the sentence',
-    evidence: 'Current plan text',
-    priority: 3,
-    confidence: 1,
-    blocking: false,
-    requirement: 'Non-blocking documentation quality',
-  };
-  const blocking = {
-    ...followup,
-    id: 'S2',
-    severity: 'high',
-    section: 'Acceptance criteria',
-    defect: 'Required behavior has no executable proof',
-    fix: 'Add an exact command and expected result',
-    priority: 0,
-    blocking: true,
-    requirement: 'User-required executable acceptance',
-  };
-  const readyV3 = {
-    schema: 3,
-    leg: 'S',
-    request: reqV3,
-    verdict: 'ready',
-    score: 100,
-    rubric,
-    findings: [followup],
-    confirmations: ['full review completed'],
-  };
-  validateReviewerOutput(readyV3, reqV3, 'S');
-  validateReviewerOutput({ ...readyV3, verdict: 'not_ready', findings: [blocking] }, reqV3, 'S');
-  expectThrow(
-    'schema-3 score must equal rubric sum',
-    () => validateReviewerOutput({ ...readyV3, score: 99 }, reqV3, 'S'),
-    /rubric|score|sum/,
-  );
-  expectThrow(
-    'schema-3 ready cannot carry blocking finding',
-    () => validateReviewerOutput({ ...readyV3, findings: [blocking] }, reqV3, 'S'),
-    /blocking|verdict/,
-  );
-  expectThrow(
-    'schema-3 not_ready requires blocking finding',
-    () => validateReviewerOutput({ ...readyV3, verdict: 'not_ready' }, reqV3, 'S'),
-    /blocking|verdict/,
-  );
-  expectThrow(
-    'schema-3 finding priority is closed',
-    () => validateReviewerOutput({ ...readyV3, findings: [{ ...followup, priority: 4 }] }, reqV3, 'S'),
-    /priority/,
-  );
-  expectThrow(
-    'schema-3 finding confidence is bounded',
-    () => validateReviewerOutput({ ...readyV3, findings: [{ ...followup, confidence: 2 }] }, reqV3, 'S'),
-    /confidence/,
-  );
-  expectThrow(
-    'schema-3 finding requires attribution',
-    () => validateReviewerOutput({ ...readyV3, findings: [{ ...followup, requirement: '' }] }, reqV3, 'S'),
-    /requirement/,
-  );
-  expectThrow(
-    'schema-3 full review rejects previous identity',
-    () => validateRequest({ ...reqV3, previous_input_sha256: H0 }),
-    /full|previous|repair/,
-  );
-  expectThrow(
-    'schema-3 first round must be full',
-    () => validateRequest({ ...reqV3, review_mode: 'repair' }),
-    /round|full|repair/,
-  );
-  const reproducedBlocking = {
-    id: blocking.id,
-    source: 'S',
-    severity: blocking.severity,
-    path: blocking.path,
-    locator: blocking.locator,
-    defect: blocking.defect,
-    fix: blocking.fix,
-    reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
-  };
-  const transition = reviewPolicy.buildRepairTransition({
-    fromRoundIndex: 1,
-    previousInputSha256: reqV3.input_sha256,
-    currentInputSha256: '2'.repeat(64),
-    reconciliation: {
-      X: { accepted: [], rejected: [] },
-      S: { accepted: ['S2'], rejected: [] },
-    },
-    targets: [reproducedBlocking],
-  });
-  assert.deepEqual(transition.reconciliation, {
-    X: { accepted: [], rejected: [] },
-    S: { accepted: ['S2'], rejected: [] },
-  });
-  const repairRequest = requestV3({
-    request_id: '223e4567-e89b-42d3-a456-426614174000',
-    review_mode: 'repair',
-    round_index: 2,
-    input_sha256: '2'.repeat(64),
-    bundle_sha256: '3'.repeat(64),
-    previous_input_sha256: reqV3.input_sha256,
-    repair_targets_sha256: transition.repair_targets_sha256,
-  });
-  validateRequest(repairRequest);
-  expectThrow(
-    'schema-3 repair requires changed input',
-    () => validateRequest({ ...repairRequest, input_sha256: repairRequest.previous_input_sha256 }),
-    /changed|input/,
-  );
-  expectThrow(
-    'schema-3 repair requires targets',
-    () => validateRequest({ ...repairRequest, repair_targets_sha256: null }),
-    /repair.*target|target.*repair/,
-  );
-
-  const roundOne = {
-    ...draftRunV3(reqV3),
-    S: passedV3(reqV3, 'S', [blocking]),
-    reproduced: [reproducedBlocking],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: false,
-  };
-  const roundTwo = draftRunV3(repairRequest);
-  const series = {
-    schema: 3,
-    policy_sha256: reqV3.policy_sha256,
-    initial_input_sha256: reqV3.input_sha256,
-    current_input_sha256: repairRequest.input_sha256,
-    rounds: [roundOne, roundTwo],
-    repairs: [transition],
-  };
-  validateReviewSeries(series);
-  const completionSeriesRequest = requestV3({
-    request_id: '323e4567-e89b-42d3-a456-426614174000',
-    phase: 'completion',
-    lifecycle_intent: 'none',
-    planned_at_commit: '3'.repeat(40),
-    execution_base_commit: '4'.repeat(40),
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
-  });
-  const completionSeriesRound = {
-    schema: 3,
-    kind: 'completion',
-    request: completionSeriesRequest,
-    plan_input_sha256: completionSeriesRequest.input_sha256,
-    diff_sha256: H0,
-    acceptance_inventory: INVENTORY,
-    acceptance_inventory_sha256: completionSeriesRequest.acceptance_inventory_sha256,
-    X: unavailableV3(completionSeriesRequest, 'X'),
-    S: unavailableV3(completionSeriesRequest, 'S'),
-    reproduced: [],
-    decision_evidence: zeroDecision(completionSeriesRequest, 'proceed'),
-    outcome: 'zero_degraded',
-    primary: primaryEvidence(),
-    completion_verdict: 'passed',
-  };
-  validateCompletionRunResult(completionSeriesRound);
-  validateReviewSeries({
-    schema: 3,
-    policy_sha256: completionSeriesRequest.policy_sha256,
-    initial_input_sha256: completionSeriesRequest.input_sha256,
-    current_input_sha256: completionSeriesRequest.input_sha256,
-    rounds: [completionSeriesRound],
-    repairs: [],
-  });
-  expectThrow(
-    'schema-3 review series rejects an invalid initial run kind',
-    () =>
-      validateReviewSeries({
-        ...series,
-        current_input_sha256: reqV3.input_sha256,
-        rounds: [{ ...roundOne, kind: 'invalid' }],
-        repairs: [],
-      }),
-    /review series run kind/,
-  );
-  expectThrow(
-    'schema-3 review series rejects run kind drift',
-    () =>
-      validateReviewSeries({
-        ...series,
-        rounds: [roundOne, { ...roundTwo, kind: 'completion' }],
-      }),
-    /review series run kind drift/,
-  );
-  expectThrow(
-    'schema-3 review series requires repair after round one',
-    () =>
-      validateReviewSeries({
-        ...series,
-        rounds: [
-          roundOne,
-          {
-            ...roundTwo,
-            request: {
-              ...repairRequest,
-              review_mode: 'full',
-              previous_input_sha256: null,
-              repair_targets_sha256: null,
-            },
-          },
-        ],
-      }),
-    /repair|round/,
-  );
-  expectThrow(
-    'schema-3 review series requires contiguous rounds',
-    () =>
-      validateReviewSeries({
-        ...series,
-        rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, round_index: 3 } }],
-      }),
-    /contiguous|round/,
-  );
-  const sixRounds = Array.from({ length: 6 }, (_, index) => {
-    const round = index + 1;
-    const input = String(round).repeat(64);
-    const previous = round === 1 ? null : String(round - 1).repeat(64);
-    return draftRunV3(
-      requestV3({
-        request_id: `00000000-0000-4000-8000-00000000000${round}`,
-        review_mode: round === 1 ? 'full' : 'repair',
-        round_index: round,
-        input_sha256: input,
-        bundle_sha256: String(9 - index).repeat(64),
-        previous_input_sha256: previous,
-        repair_targets_sha256: round === 1 ? null : 'a'.repeat(64),
-      }),
-    );
-  });
-  expectThrow(
-    'schema-3 review series lifetime cap is not renewable',
-    () =>
-      validateReviewSeries({
-        schema: 3,
-        policy_sha256: reqV3.policy_sha256,
-        initial_input_sha256: '1'.repeat(64),
-        current_input_sha256: '6'.repeat(64),
-        rounds: sixRounds,
-        repairs: [],
-      }),
-    /max_rounds|lifetime|round/,
-  );
-
-  validateWaivers(
-    [
-      {
-        phase: 'draft',
-        input_sha256: req.input_sha256,
-        legs: ['S', 'X'],
-        actor: 'user',
-        reason: 'explicit waiver',
-        at: '2026-07-12T00:00:00-03:00',
-      },
-    ],
-    'draft',
-    req.input_sha256,
-  );
-  expectThrow(
-    'duplicate waiver',
-    () =>
-      validateWaivers(
-        [
-          {
-            phase: 'draft',
-            input_sha256: req.input_sha256,
-            legs: ['X'],
-            actor: 'user',
-            reason: 'one',
-            at: '2026-07-12T00:00:00-03:00',
-          },
-          {
-            phase: 'draft',
-            input_sha256: req.input_sha256,
-            legs: ['X'],
-            actor: 'user',
-            reason: 'two',
-            at: '2026-07-12T00:00:00-03:00',
-          },
-        ],
-        'draft',
-        req.input_sha256,
-      ),
-    /duplicate/,
-  );
-  const raw = (leg) => ({
-    schema: 1,
-    leg,
-    request: req,
-    result: 'unavailable_auth',
-    attempts: [],
-    selected: null,
-    reviewer_output: null,
-    findings: [],
-    findings_sha256: null,
-    severity_totals: { high: 0, medium: 0, low: 0 },
-    waiver: null,
-    waiver_sha256: null,
-    decision_evidence: null,
-    reason: 'authentication unavailable',
-  });
-  const persisted = (leg) => ({ request: req, raw: raw(leg), reconciliation: { accepted: [], rejected: [] } });
-  const receipt = {
-    schema: 1,
-    phase: 'draft',
-    request: req,
-    input_sha256: req.input_sha256,
-    reviewed_commit: req.reviewed_commit_or_head,
-    author: req.author,
-    policy: req.policy,
-    policy_sha256: req.policy_sha256,
-    X: persisted('X'),
-    S: persisted('S'),
-    reproduced: [],
-    decision_evidence: zeroDecision(req),
-    outcome: 'blocked',
-    pre_execution_eligible: false,
-    reviewed_at: '2026-07-12T00:00:00-03:00',
-  };
-  validateDraftReceipt(receipt, req.input_sha256);
-  validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256, expectedPolicy: POLICY });
-  expectThrow(
-    'policy v1 receipt is not reusable under policy v2',
-    () => validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256, expectedPolicy: POLICY_V2 }),
-    /resolved policy|policy.*mismatch|stale/,
-  );
-  expectThrow(
-    'current draft reuse requires resolved policy',
-    () => validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256 }),
-    /expectedPolicy|policy/,
-  );
-  expectThrow(
-    'malformed receipt extra key',
-    () => validateDraftReceipt({ ...receipt, unauthorized_extra: true }, req.input_sha256),
-    /unknown key/,
-  );
-  expectThrow('stale receipt input', () => validateDraftReceipt(receipt, 'f'.repeat(64)), /stale/);
-  console.log(
-    'schema closure, typed structured output, rubric, repair identity, and lifetime convergence goldens passed',
-  );
-}
-
-function testValidationMatrix() {
-  const req = request();
-  const X = rawPassed(req, 'X');
-  const S = rawPassed(req, 'S');
-  validateRawLeg(X, req, 'X');
-  validateRawLeg(S, req, 'S');
-  assert.equal(X.findings_sha256, sha256(jcs([])), 'passed empty findings hash is SHA(JCS([]))');
-
-  const fallback = rawPassed(req, 'X', [
-    attempt({
-      model: 'fable',
-      effort: 'high',
-      output_started: false,
-      result: 'model_unavailable',
-      exit_code: 1,
-      reason: 'not entitled',
-    }),
-    attempt({ model: 'opus', effort: 'max', child_id: 'child-2' }),
-  ]);
-  validateRawLeg(fallback, req, 'X');
-  const retry = rawPassed(req, 'S', [
-    attempt({
-      output_started: false,
-      result: 'transient_transport',
-      exit_code: null,
-      retry_cause: 'transport_ECONNRESET',
-      reason: 'connection reset',
-    }),
-    attempt({ child_id: 'child-2' }),
-  ]);
-  validateRawLeg(retry, req, 'S');
-  const transportPolicy = {
-    ...POLICY,
-    anthropic_tiers: [
-      { model: 'fable', effort: 'high', transports: ['cli'] },
-      { model: 'opus', effort: 'max', transports: ['in_session'] },
-    ],
-  };
-  const transportReq = request({ policy: transportPolicy });
-  const transportExhausted = {
-    ...rawAuth(transportReq, 'X'),
-    result: 'unavailable_model',
-    attempts: [
-      attempt({
-        model: 'fable',
-        effort: 'high',
-        output_started: false,
-        result: 'model_unavailable',
-        exit_code: 1,
-        reason: 'not entitled',
-      }),
-    ],
-    reason: 'all CLI tiers exhausted',
-  };
-  validateRawLeg(transportExhausted, transportReq, 'X');
-  const platform = {
-    ...rawAuth(req, 'X'),
-    result: 'platform_denied',
-    attempts: [
-      attempt({
-        model: 'fable',
-        effort: 'high',
-        started: false,
-        output_started: false,
-        result: 'platform_denied',
-        exit_code: null,
-        child_id: null,
-        denial_source: 'sandbox',
-        timeout_mode: null,
-        reason: 'host denied export',
-        stdout_sha256: null,
-        stderr_sha256: null,
-      }),
-    ],
-    reason: 'host denied export',
-  };
-  validateRawLeg(platform, req, 'X');
-
-  const dual = {
-    schema: 1,
-    kind: 'draft',
-    request: req,
-    X,
-    S,
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'dual',
-    pre_execution_eligible: true,
-  };
-  validateDraftRunResult(dual);
-  const single = { ...dual, S: rawAuth(req, 'S'), outcome: 'single' };
-  validateDraftRunResult(single);
-  const v2Req = request({ policy: POLICY_V2 });
-  const v2AtThresholdX = rawPassed(v2Req, 'X', null, [], { score: 90 });
-  const v2ReadyS = rawPassed(v2Req, 'S', null, [], { score: 100 });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: v2Req,
-    X: v2AtThresholdX,
-    S: v2ReadyS,
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'dual',
-    pre_execution_eligible: true,
-  });
-  const v2BelowThresholdX = rawPassed(v2Req, 'X', null, [], { score: 89 });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: v2Req,
-    X: v2BelowThresholdX,
-    S: v2ReadyS,
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'dual',
-    pre_execution_eligible: false,
-  });
-  expectThrow(
-    'policy v2 score 89 cannot authorize execution',
-    () =>
-      validateDraftRunResult({
-        schema: 1,
-        kind: 'draft',
-        request: v2Req,
-        X: v2BelowThresholdX,
-        S: v2ReadyS,
-        reproduced: [],
-        decision_evidence: null,
-        outcome: 'dual',
-        pre_execution_eligible: true,
-      }),
-    /pre_execution_eligible/,
-  );
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: v2Req,
-    X: v2AtThresholdX,
-    S: rawAuth(v2Req, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: true,
-  });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: v2Req,
-    X: v2BelowThresholdX,
-    S: rawAuth(v2Req, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: false,
-  });
-  const v1LowReady = rawPassed(req, 'X', null, [], { score: 1 });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: req,
-    X: v1LowReady,
-    S: rawAuth(req, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: true,
-  });
-  const v2ZeroPolicy = {
-    ...POLICY_V2,
-    minimum_score: 0,
-    provenance: { ...POLICY_V2.provenance, minimum_score: 'current_user' },
-  };
-  const v2ZeroReq = request({ policy: v2ZeroPolicy });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: v2ZeroReq,
-    X: rawPassed(v2ZeroReq, 'X', null, [], { score: 0 }),
-    S: rawAuth(v2ZeroReq, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: true,
-  });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: v2ZeroReq,
-    X: rawPassed(v2ZeroReq, 'X', null, [], { verdict: 'not_ready', score: 100 }),
-    S: rawAuth(v2ZeroReq, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: false,
-  });
-
-  const v2Fallback = rawPassed(v2Req, 'X', [
-    attempt({
-      model: 'fable',
-      effort: 'high',
-      output_started: false,
-      result: 'model_unavailable',
-      exit_code: 1,
-      reason: 'candidate not entitled',
-    }),
-    attempt({ model: 'opus', effort: 'xhigh', child_id: 'child-2' }),
-  ]);
-  validateRawLeg(v2Fallback, v2Req, 'X');
-  const v2TransientRetry = rawPassed(v2Req, 'X', [
-    attempt({
-      model: 'fable',
-      effort: 'high',
-      output_started: false,
-      result: 'transient_transport',
-      exit_code: null,
-      retry_cause: 'transport_ECONNRESET',
-      reason: 'connection reset',
-    }),
-    attempt({ model: 'fable', effort: 'high', child_id: 'child-2' }),
-  ]);
-  expectThrow(
-    'policy v2 attempts each candidate at most once',
-    () => validateRawLeg(v2TransientRetry, v2Req, 'X'),
-    /attempt|retry|order/,
-  );
-  const providerWideStop = {
-    ...rawAuth(v2Req, 'X'),
-    result: 'unavailable_unknown',
-    attempts: [
-      attempt({
-        model: 'fable',
-        effort: 'high',
-        output_started: false,
-        result: 'nonzero_exit',
-        exit_code: 1,
-        reason: 'shared weekly limit',
-      }),
-    ],
-    reason: 'provider-wide failure stops candidate rotation',
-  };
-  validateRawLeg(providerWideStop, v2Req, 'X');
-  expectThrow(
-    'provider-wide failure cannot rotate to next candidate',
-    () =>
-      validateRawLeg(
-        {
-          ...providerWideStop,
-          attempts: [...providerWideStop.attempts, attempt({ model: 'opus', effort: 'xhigh', child_id: 'child-2' })],
-        },
-        v2Req,
-        'X',
-      ),
-    /attempt after terminal result/,
-  );
-  const v2TransientStop = {
-    ...rawAuth(v2Req, 'S'),
-    result: 'unavailable_unknown',
-    attempts: [
-      attempt({
-        output_started: false,
-        result: 'transient_transport',
-        exit_code: null,
-        retry_cause: 'transport_ECONNRESET',
-        reason: 'connection reset',
-      }),
-    ],
-    reason: 'transport failure stops candidate rotation',
-  };
-  validateRawLeg(v2TransientStop, v2Req, 'S');
-  const allCandidatesUnavailable = {
-    ...rawAuth(v2Req, 'X'),
-    result: 'unavailable_model',
-    attempts: [
-      attempt({
-        model: 'fable',
-        effort: 'high',
-        output_started: false,
-        result: 'model_unavailable',
-        exit_code: 1,
-        reason: 'candidate unavailable',
-      }),
-      attempt({
-        model: 'opus',
-        effort: 'xhigh',
-        output_started: false,
-        result: 'model_unavailable',
-        exit_code: 1,
-        reason: 'candidate unavailable',
-      }),
-    ],
-    reason: 'all candidates unavailable',
-  };
-  validateRawLeg(allCandidatesUnavailable, v2Req, 'X');
-  const proceedPolicy = { ...POLICY, zero_reviewer_policy: 'proceed' };
-  const proceedReq = request({ policy: proceedPolicy });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: proceedReq,
-    X: rawAuth(proceedReq, 'X'),
-    S: rawAuth(proceedReq, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'zero_degraded',
-    pre_execution_eligible: true,
-  });
-  const blockPolicy = { ...POLICY, zero_reviewer_policy: 'block' };
-  const blockReq = request({ policy: blockPolicy });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: blockReq,
-    X: rawAuth(blockReq, 'X'),
-    S: rawAuth(blockReq, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'blocked',
-    pre_execution_eligible: false,
-  });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: req,
-    X: rawAuth(req, 'X'),
-    S: rawAuth(req, 'S'),
-    reproduced: [],
-    decision_evidence: zeroDecision(req, 'proceed'),
-    outcome: 'zero_degraded',
-    pre_execution_eligible: true,
-  });
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: req,
-    X: rawAuth(req, 'X'),
-    S: rawAuth(req, 'S'),
-    reproduced: [],
-    decision_evidence: zeroDecision(req, 'block'),
-    outcome: 'blocked',
-    pre_execution_eligible: false,
-  });
-
-  const neverPolicy = { ...POLICY, cross_company_consent: 'never' };
-  const neverReq = request({ policy: neverPolicy });
-  const notAuthorized = { ...rawAuth(neverReq, 'X'), result: 'not_authorized', reason: null };
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: neverReq,
-    X: notAuthorized,
-    S: rawPassed(neverReq, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: true,
-  });
-  const askPolicy = { ...POLICY, cross_company_consent: 'ask' };
-  const askReq = request({ policy: askPolicy });
-  const denied = {
-    ...rawAuth(askReq, 'X'),
-    result: 'not_authorized',
-    decision_evidence: consentDecision(askReq, 'deny'),
-    reason: null,
-  };
-  validateDraftRunResult({
-    schema: 1,
-    kind: 'draft',
-    request: askReq,
-    X: denied,
-    S: rawPassed(askReq, 'S'),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'single',
-    pre_execution_eligible: true,
-  });
-
-  const waiver = {
-    phase: 'draft',
-    input_sha256: req.input_sha256,
-    legs: ['X', 'S'],
-    actor: 'test user',
-    reason: 'explicit scoped waiver',
-    at: '2026-07-12T00:00:00-03:00',
-  };
-  const waived = (leg) => ({
-    schema: 1,
-    leg,
-    request: req,
-    result: 'waived',
-    attempts: [],
-    selected: null,
-    reviewer_output: null,
-    findings: [],
-    findings_sha256: null,
-    severity_totals: { high: 0, medium: 0, low: 0 },
-    waiver,
-    waiver_sha256: sha256(jcs(waiver)),
-    decision_evidence: null,
-    reason: null,
-  });
-  validateDraftRunResult(
-    {
-      schema: 1,
-      kind: 'draft',
-      request: req,
-      X: waived('X'),
-      S: waived('S'),
-      reproduced: [],
-      decision_evidence: zeroDecision(req),
-      outcome: 'blocked',
-      pre_execution_eligible: false,
-    },
-    { waivers: [waiver] },
-  );
-
-  const completionReq = request({
-    phase: 'completion',
-    lifecycle_intent: 'none',
-    planned_at_commit: '3'.repeat(40),
-    execution_base_commit: '4'.repeat(40),
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
-  });
-  const completionX = rawPassed(completionReq, 'X');
-  const completionS = rawPassed(completionReq, 'S');
-  const completion = {
-    schema: 1,
-    kind: 'completion',
-    request: completionReq,
-    plan_input_sha256: completionReq.input_sha256,
-    diff_sha256: H0,
-    acceptance_inventory: INVENTORY,
-    acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256,
-    X: completionX,
-    S: completionS,
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'dual',
-    primary: primaryEvidence(),
-    completion_verdict: 'passed',
-  };
-  validateCompletionRunResult(completion);
-  const receipt = {
-    schema: 1,
-    phase: 'completion',
-    request: completionReq,
-    planned_at_commit: completionReq.planned_at_commit,
-    execution_base_commit: completionReq.execution_base_commit,
-    reviewed_head: completionReq.reviewed_commit_or_head,
-    diff_sha256: H0,
-    plan_input_sha256: completionReq.input_sha256,
-    acceptance_inventory: INVENTORY,
-    acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256,
-    author: completionReq.author,
-    policy: completionReq.policy,
-    policy_sha256: completionReq.policy_sha256,
-    X: persisted(completionX),
-    S: persisted(completionS),
-    reproduced: [],
-    decision_evidence: null,
-    primary: completion.primary,
-    completion_verdict: 'passed',
-    outcome: 'dual',
-    reviewed_at: '2026-07-12T00:00:00-03:00',
-  };
-  validateCompletionReceipt(receipt, {
-    reviewed_head: completionReq.reviewed_commit_or_head,
-    diff_sha256: H0,
-    plan_input_sha256: completionReq.input_sha256,
-    review_status: 'passed',
-  });
-  const completionV2Req = request({
-    policy: POLICY_V2,
-    phase: 'completion',
-    lifecycle_intent: 'none',
-    planned_at_commit: '3'.repeat(40),
-    execution_base_commit: '4'.repeat(40),
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
-  });
-  const completionV2LowX = rawPassed(completionV2Req, 'X', null, [], { score: 89 });
-  const completionV2S = rawPassed(completionV2Req, 'S', null, [], { score: 100 });
-  const completionV2 = {
-    schema: 1,
-    kind: 'completion',
-    request: completionV2Req,
-    plan_input_sha256: completionV2Req.input_sha256,
-    diff_sha256: H0,
-    acceptance_inventory: INVENTORY,
-    acceptance_inventory_sha256: completionV2Req.acceptance_inventory_sha256,
-    X: completionV2LowX,
-    S: completionV2S,
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'dual',
-    primary: primaryEvidence(),
-    completion_verdict: 'regressed',
-  };
-  assert.equal(deriveCompletionVerdict(completionV2.primary, INVENTORY, completionV2LowX, completionV2S), 'regressed');
-  assert.equal(
-    deriveCompletionVerdict(
-      completionV2.primary,
-      INVENTORY,
-      { ...completionV2LowX, reviewer_output: null },
-      completionV2S,
-    ),
-    'regressed',
-    'missing reviewer output fails closed',
-  );
-  validateCompletionRunResult(completionV2);
-  expectThrow(
-    'policy v2 low score cannot pass completion',
-    () => validateCompletionRunResult({ ...completionV2, completion_verdict: 'passed' }),
-    /completion verdict mismatch/,
-  );
-
-  expectThrow(
-    'unstarted passed attempt',
-    () =>
-      validateRawLeg(
-        {
-          ...X,
-          attempts: [{ ...X.attempts[0], started: false, child_id: null, stdout_sha256: null, stderr_sha256: null }],
-        },
-        req,
-        'X',
-      ),
-    /unstarted|passed attempt/,
-  );
-  expectThrow(
-    'started missing timeout',
-    () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], timeout_mode: null }] }, req, 'X'),
-    /timeout mode/,
-  );
-  expectThrow(
-    'passed exit and signal contradiction',
-    () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], exit_code: 9, signal: 'SIGKILL' }] }, req, 'X'),
-    /passed attempt/,
-  );
-  expectThrow(
-    'transient after output',
-    () =>
-      validateRawLeg(
-        { ...retry, attempts: [{ ...retry.attempts[0], output_started: true }, retry.attempts[1]] },
-        req,
-        'S',
-      ),
-    /transient attempt/,
-  );
-  expectThrow(
-    'platform without denial source',
-    () => validateRawLeg({ ...platform, attempts: [{ ...platform.attempts[0], denial_source: null }] }, req, 'X'),
-    /platform denial/,
-  );
-  expectThrow(
-    'wrong company tier',
-    () =>
-      validateRawLeg(
-        {
-          ...S,
-          attempts: [{ ...S.attempts[0], model: 'fable', effort: 'high' }],
-          selected: { model: 'fable', effort: 'high', transport: 'cli' },
-        },
-        req,
-        'S',
-      ),
-    /tier order/,
-  );
-  expectThrow(
-    'transport switch',
-    () =>
-      validateRawLeg(
-        {
-          ...fallback,
-          attempts: [fallback.attempts[0], { ...fallback.attempts[1], transport: 'in_session' }],
-          selected: { ...fallback.selected, transport: 'in_session' },
-        },
-        req,
-        'X',
-      ),
-    /transport changed/,
-  );
-  expectThrow(
-    'tier skip',
-    () =>
-      validateRawLeg(
-        { ...fallback, attempts: [{ ...fallback.attempts[0], model: 'opus', effort: 'max' }, fallback.attempts[1]] },
-        req,
-        'X',
-      ),
-    /tier order/,
-  );
-  expectThrow(
-    'retry changed tuple',
-    () =>
-      validateRawLeg(
-        {
-          ...retry,
-          attempts: [retry.attempts[0], { ...retry.attempts[1], model: 'fable', effort: 'high' }],
-          selected: { ...retry.selected, model: 'fable', effort: 'high' },
-        },
-        req,
-        'S',
-      ),
-    /tier order/,
-  );
-  expectThrow(
-    'second transient retry',
-    () =>
-      validateRawLeg(
-        { ...retry, attempts: [retry.attempts[0], { ...retry.attempts[0], child_id: 'child-2' }, retry.attempts[1]] },
-        req,
-        'S',
-      ),
-    /attempt bound|invalid transient retry/,
-  );
-  expectThrow(
-    'attempt after terminal',
-    () => validateRawLeg({ ...X, attempts: [...X.attempts, X.attempts[0]] }, req, 'X'),
-    /attempt bound|terminal/,
-  );
-  expectThrow(
-    'selected mismatch',
-    () => validateRawLeg({ ...X, selected: { ...X.selected, model: 'wrong' } }, req, 'X'),
-    /invalid passed leg/,
-  );
-  expectThrow(
-    'raw result mismatch',
-    () =>
-      validateRawLeg(
-        { ...X, result: 'timed_out', selected: null, findings_sha256: null, reason: 'claimed timeout' },
-        req,
-        'X',
-      ),
-    /non-passed leg carries findings|non-passed leg cannot select reviewer output|leg result mismatch/,
-  );
-  expectThrow(
-    'S not authorized',
-    () => validateRawLeg({ ...rawAuth(req, 'S'), result: 'not_authorized', reason: null }, req, 'S'),
-    /invalid not_authorized/,
-  );
-  expectThrow(
-    'always not authorized',
-    () => validateRawLeg({ ...rawAuth(req, 'X'), result: 'not_authorized', reason: null }, req, 'X'),
-    /standing consent/,
-  );
-  expectThrow(
-    'ask X attempt without allow',
-    () => validateRawLeg({ ...rawPassed(askReq, 'X'), decision_evidence: null }, askReq, 'X'),
-    /decision must|Cannot read|requires allow|must be an object/,
-  );
-  expectThrow('never X attempt', () => validateRawLeg(rawPassed(neverReq, 'X'), neverReq, 'X'), /cannot run/);
-  const earlyUnavailable = {
-    ...rawAuth(req, 'X'),
-    result: 'unavailable_model',
-    attempts: [
-      attempt({
-        model: 'fable',
-        effort: 'high',
-        output_started: false,
-        result: 'model_unavailable',
-        exit_code: 1,
-        reason: 'not entitled',
-      }),
-    ],
-    reason: 'claimed exhausted',
-  };
-  expectThrow(
-    'unavailable model before tier exhaustion',
-    () => validateRawLeg(earlyUnavailable, req, 'X'),
-    /leg result mismatch/,
-  );
-  expectThrow(
-    'stale waiver snapshot',
-    () =>
-      validateDraftRunResult(
-        {
-          schema: 1,
-          kind: 'draft',
-          request: req,
-          X: waived('X'),
-          S: waived('S'),
-          reproduced: [],
-          decision_evidence: zeroDecision(req),
-          outcome: 'blocked',
-          pre_execution_eligible: false,
-        },
-        { waivers: [] },
-      ),
-    /exact current snapshot/,
-  );
-  expectThrow(
-    'waiver hash mismatch',
-    () =>
-      validateDraftRunResult(
-        {
-          schema: 1,
-          kind: 'draft',
-          request: req,
-          X: { ...waived('X'), waiver_sha256: H0 },
-          S: waived('S'),
-          reproduced: [],
-          decision_evidence: zeroDecision(req),
-          outcome: 'blocked',
-          pre_execution_eligible: false,
-        },
-        { waivers: [waiver] },
-      ),
-    /waiver hash/,
-  );
-  expectThrow(
-    'dual with one pass',
-    () => validateDraftRunResult({ ...dual, S: rawAuth(req, 'S') }),
-    /outcome mismatch/,
-  );
-  expectThrow(
-    'zero decision on dual',
-    () => validateDraftRunResult({ ...dual, decision_evidence: zeroDecision(req) }),
-    /cannot carry/,
-  );
-  expectThrow(
-    'opposite eligibility',
-    () => validateDraftRunResult({ ...dual, pre_execution_eligible: false }),
-    /eligible mismatch/,
-  );
-  const notReadyX = rawPassed(req, 'X', null, [], {
-    verdict: 'not_ready',
-    score: 0,
-    confirmations: ['blocking verdict'],
-  });
-  expectThrow(
-    'not-ready reviewer cannot authorize execution',
-    () => validateDraftRunResult({ ...dual, X: notReadyX }),
-    /eligible mismatch/,
-  );
-  expectThrow(
-    'structured reviewer output hash mismatch',
-    () => validateRawLeg({ ...X, reviewer_output: { ...X.reviewer_output, structured_output_sha256: H0 } }, req, 'X'),
-    /structured output hash/,
-  );
-  expectThrow('draft kind mismatch', () => validateDraftRunResult({ ...dual, kind: 'completion' }), /draft run kind/);
-  expectThrow('X and S swapped', () => validateDraftRunResult({ ...dual, X: S, S: X }), /raw leg request mismatch/);
-  const invented = {
-    id: 'X99',
-    source: 'X',
-    severity: 'high',
-    path: null,
-    locator: null,
-    defect: 'invented',
-    fix: 'none',
-    reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
-  };
-  expectThrow(
-    'invented reproduced id',
-    () => validateDraftRunResult({ ...dual, reproduced: [invented] }),
-    /not present/,
-  );
-  expectThrow(
-    'completion plan hash mismatch',
-    () => validateCompletionRunResult({ ...completion, plan_input_sha256: H0 }),
-    /plan or diff input mismatch/,
-  );
-  expectThrow(
-    'passing CI failure line',
-    () =>
-      validateCompletionRunResult({
-        ...completion,
-        primary: { ...completion.primary, ci: { ...completion.primary.ci, first_failure: 'should be null' } },
-      }),
-    /passing CI/,
-  );
-  const failingPrimary = {
-    ...primaryEvidence(),
-    goal_met: 'no',
-    acceptance: primaryEvidence().acceptance.map((row, index) =>
-      index === 0 ? { ...row, exit_code: 1, met: false } : row,
-    ),
-    ci: { ...primaryEvidence().ci, exit_code: 1, first_failure: 'test failed' },
-    regressions: ['blocking regression'],
-  };
-  assert.equal(deriveCompletionVerdict(failingPrimary, INVENTORY, completionX, completionS), 'regressed');
-  expectThrow(
-    'failing primary cannot claim passed completion verdict',
-    () => validateCompletionReceipt({ ...receipt, primary: failingPrimary }, { review_status: 'passed' }),
-    /completion verdict mismatch/,
-  );
-  const regressedReceipt = { ...receipt, primary: failingPrimary, completion_verdict: 'regressed' };
-  expectThrow(
-    'regressed receipt cannot match passed review_status',
-    () => validateCompletionReceipt(regressedReceipt, { review_status: 'passed' }),
-    /review_status mismatch/,
-  );
-  expectThrow(
-    'stale completion receipt',
-    () => validateCompletionReceipt(receipt, { diff_sha256: H1 }),
-    /stale completion/,
-  );
-  expectThrow(
-    'completion author mismatch',
-    () => validateCompletionReceipt({ ...receipt, author: { ...receipt.author, company: 'anthropic' } }),
-    /author mismatch/,
-  );
-  expectThrow(
-    'completion receipt extra key',
-    () => validateCompletionReceipt({ ...receipt, extra: true }),
-    /unknown key/,
-  );
-  for (const [label, acceptance] of [
-    ['empty acceptance ledger', []],
-    ['missing acceptance row', completion.primary.acceptance.slice(0, -1)],
-    [
-      'extra acceptance row',
-      [...completion.primary.acceptance, { ...completion.primary.acceptance[0], criterion_id: 'A9' }],
-    ],
-    ['reordered acceptance rows', [...completion.primary.acceptance].reverse()],
-    [
-      'altered acceptance command',
-      completion.primary.acceptance.map((row, index) => (index === 0 ? { ...row, command: 'true' } : row)),
-    ],
-  ])
-    expectThrow(
-      label,
-      () => validateCompletionRunResult({ ...completion, primary: { ...completion.primary, acceptance } }),
-      /acceptance evidence/,
-    );
-  const emptyInventory = { schema: 1, criteria: [] };
-  const emptyReq = { ...completionReq, acceptance_inventory_sha256: sha256(jcs(emptyInventory)) };
-  const emptyX = rawPassed(emptyReq, 'X');
-  const emptyS = rawPassed(emptyReq, 'S');
-  expectThrow(
-    'empty canonical acceptance inventory',
-    () =>
-      validateCompletionRunResult({
-        ...completion,
-        request: emptyReq,
-        acceptance_inventory: emptyInventory,
-        acceptance_inventory_sha256: emptyReq.acceptance_inventory_sha256,
-        X: emptyX,
-        S: emptyS,
-        primary: { ...completion.primary, acceptance: [] },
-      }),
-    /acceptance inventory must be nonempty/,
-  );
-  const completionNotReadyX = rawPassed(completionReq, 'X', null, [], { verdict: 'not_ready', score: 40 });
-  const notReadyCompletion = { ...completion, X: completionNotReadyX, completion_verdict: 'regressed' };
-  validateCompletionRunResult(notReadyCompletion);
-  expectThrow(
-    'not_ready reviewer cannot claim passed completion',
-    () => validateCompletionRunResult({ ...notReadyCompletion, completion_verdict: 'passed' }),
-    /completion verdict mismatch/,
-  );
-  const notReadyReceipt = { ...receipt, X: persisted(completionNotReadyX), completion_verdict: 'regressed' };
-  validateCompletionReceipt(notReadyReceipt, { review_status: 'regressed' });
-
-  const finding = {
-    id: 'X1',
-    severity: 'high',
-    section: 'Goal',
-    path: 'src/a.js',
-    locator: 'symbol',
-    defect: 'broken',
-    fix: 'repair',
-    evidence: 'source',
-  };
-  const XFinding = rawPassed(req, 'X', null, [finding]);
-  const accepted = persisted(XFinding, ['X1']);
-  const acceptedReceipt = {
-    schema: 1,
-    phase: 'draft',
-    request: req,
-    input_sha256: req.input_sha256,
-    reviewed_commit: req.reviewed_commit_or_head,
-    author: req.author,
-    policy: req.policy,
-    policy_sha256: req.policy_sha256,
-    X: accepted,
-    S: persisted(S),
-    reproduced: [],
-    decision_evidence: null,
-    outcome: 'dual',
-    pre_execution_eligible: true,
-    reviewed_at: '2026-07-12T00:00:00-03:00',
-  };
-  expectThrow(
-    'accepted unreproduced finding',
-    () => validateDraftReceipt(acceptedReceipt, req.input_sha256),
-    /not reproduced/,
-  );
-  console.log('semantic: not_ready verdict and structured-output hash cannot authorize execution');
-  console.log('semantic: derived completion verdict rejects failing primary evidence and mismatched review_status');
-  console.log('semantic validation matrix passed');
-}
-
-function testBundle() {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-bundle-'));
-  const repo = path.join(temp, 'repo');
-  const out = path.join(temp, 'bundle');
-  fs.mkdirSync(path.join(repo, 'docs/plans/active'), { recursive: true });
-  fs.mkdirSync(path.join(repo, 'src'));
-  fs.mkdirSync(path.join(repo, 'evidence/level-one/level-two'), { recursive: true });
-  fs.copyFileSync(FIXTURE, path.join(repo, 'docs/plans/active/sample.md'));
-  fs.writeFileSync(path.join(repo, 'src/example.js'), 'export const example = true;\n');
-  fs.symlinkSync('example.js', path.join(repo, 'src/example-link.js'));
-  fs.writeFileSync(path.join(repo, 'evidence/level-one/level-two/nested.txt'), 'nested evidence\n');
-  git(repo, ['init', '-q']);
-  git(repo, ['config', 'user.email', 'policy@example.test']);
-  git(repo, ['config', 'user.name', 'Policy Test']);
-  git(repo, ['add', '.']);
-  git(repo, ['commit', '-qm', 'fixture']);
-  const head = git(repo, ['rev-parse', 'HEAD']);
-  fs.writeFileSync(path.join(repo, 'src/example.js'), 'uncommitted moving bytes\n');
-  const sealed = sealBundle({
-    repo,
-    reviewedCommit: head,
-    planPath: 'docs/plans/active/sample.md',
-    requestedPaths: ['src', 'evidence/level-one/level-two/nested.txt', 'missing.txt'],
-    outDir: out,
-  });
-  assert.match(sealed.bundle_sha256, /^[0-9a-f]{64}$/);
-  assert.equal(sealed.manifest.requested.find((row) => row.path === 'missing.txt').state, 'absent');
-  assert.equal(sealed.manifest.files.find((row) => row.path === 'src/example-link.js').mode, '120000');
-  assert.equal(
-    fs.readFileSync(path.join(out, 'src/example.js'), 'utf8'),
-    'export const example = true;\n',
-    'bundle reads reviewed commit, not moving worktree',
-  );
-  assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.schema.json')));
-  assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.schema.json')));
-  assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.v3.schema.json')));
-  assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.v3.schema.json')));
-  assert.match(fs.readFileSync(path.join(out, 'reviewer-output.S.schema.json'), 'utf8'), /\^S/);
-  assertConstrainedScalarsTyped(
-    JSON.parse(fs.readFileSync(path.join(out, 'reviewer-output.S.v3.schema.json'), 'utf8')),
-    'sealed reviewer schema v3',
-  );
-  assert.equal(verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }).bundle_sha256, sealed.bundle_sha256);
-  testBundleDestruction({ repo, reviewedCommit: head, outsideBundle: out, outsideBundleSha256: sealed.bundle_sha256 });
-  for (const directory of ['evidence', 'evidence/level-one', 'evidence/level-one/level-two'])
-    assert.equal(
-      fs.statSync(path.join(out, directory)).mode & 0o777,
-      0o555,
-      `${directory} ancestor is sealed read-only`,
-    );
-  expectThrow(
-    'raw plan requested path',
-    () =>
-      sealBundle({
-        repo,
-        reviewedCommit: head,
-        planPath: 'docs/plans/active/sample.md',
-        requestedPaths: ['docs/plans/active/sample.md'],
-        outDir: path.join(temp, 'raw-plan'),
-      }),
-    /raw plan path/,
-  );
-  expectThrow(
-    'raw plan requested ancestor',
-    () =>
-      sealBundle({
-        repo,
-        reviewedCommit: head,
-        planPath: 'docs/plans/active/sample.md',
-        requestedPaths: ['docs/plans/active'],
-        outDir: path.join(temp, 'raw-plan-ancestor'),
-      }),
-    /raw plan path or ancestor|emitted/,
-  );
-
-  const substitutedPath = path.join(temp, 'substituted-bundle');
-  const substituted = copiedResealedBundle(out, substitutedPath, (manifest, root) => {
-    const bytes = Buffer.from('unrelated plan B\n');
-    fs.writeFileSync(path.join(root, 'plan.review.md'), bytes);
-    manifest.files.find((row) => row.path === 'plan.review.md').sha256 = sha256(bytes);
-  });
-  const substitutedRequest = request({
-    reviewed_commit_or_head: head,
-    input_sha256: sealed.input_sha256,
-    bundle_sha256: substituted.bundle_sha256,
-  });
-  expectThrow(
-    'self-consistently resealed plan-B substitution',
-    () =>
-      buildReviewerArgv({
-        tool: 'codex',
-        bundle: substitutedPath,
-        model: 'gpt-5.6-sol',
-        effort: 'xhigh',
-        leg: 'X',
-        request: substitutedRequest,
-      }),
-    /plan view input hash mismatch/,
-  );
-
-  const schemaPath = path.join(temp, 'schema-substitution');
-  const schemaSubstitution = copiedResealedBundle(out, schemaPath, (manifest, root) => {
-    const bytes = Buffer.from(`${jcs(reviewerSchema('X'))}\n`);
-    fs.writeFileSync(path.join(root, 'reviewer-output.S.schema.json'), bytes);
-    manifest.files.find((row) => row.path === 'reviewer-output.S.schema.json').sha256 = sha256(bytes);
-  });
-  expectThrow(
-    'self-consistently resealed reviewer schema substitution',
-    () => verifyBundle({ bundle: schemaPath, expectedSha256: schemaSubstitution.bundle_sha256 }),
-    /reviewer schema mismatch/,
-  );
-
-  const requestedPath = path.join(temp, 'requested-state-substitution');
-  const requestedSubstitution = copiedResealedBundle(out, requestedPath, (manifest) => {
-    manifest.requested.find((row) => row.path === 'src').state = 'file';
-  });
-  expectThrow(
-    'self-consistently resealed requested-state substitution',
-    () => verifyBundle({ bundle: requestedPath, expectedSha256: requestedSubstitution.bundle_sha256 }),
-    /requested path coverage/,
-  );
-
-  const leakedPath = path.join(temp, 'raw-plan-leak');
-  const leaked = copiedResealedBundle(out, leakedPath, (manifest, root) => {
-    const logical = 'docs/plans/active/sample.md';
-    const bytes = fs.readFileSync(FIXTURE);
-    const absolute = path.join(root, logical);
-    fs.mkdirSync(path.dirname(absolute), { recursive: true });
-    fs.writeFileSync(absolute, bytes);
-    manifest.requested.push({ path: 'docs/plans/active', state: 'directory' });
-    manifest.requested.sort((a, b) => a.path.localeCompare(b.path));
-    manifest.files.push({ path: logical, mode: '100644', sha256: sha256(bytes) });
-    manifest.files.sort((a, b) => a.path.localeCompare(b.path));
-  });
-  expectThrow(
-    'self-consistently resealed raw-plan leak',
-    () => verifyBundle({ bundle: leakedPath, expectedSha256: leaked.bundle_sha256 }),
-    /exposes raw plan|raw plan leak/,
-  );
-  fs.chmodSync(path.join(out, 'plan.review.md'), 0o644);
-  expectThrow(
-    'post-seal writable mode',
-    () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }),
-    /not sealed read-only/,
-  );
-  fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
-  fs.chmodSync(path.join(out, 'plan.review.md'), 0o644);
-  fs.appendFileSync(path.join(out, 'plan.review.md'), 'tamper\n');
-  fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
-  expectThrow('post-seal file change without caller hash', () => verifyBundle({ bundle: out }), /file hash mismatch/);
-  expectThrow(
-    'post-seal bundle change',
-    () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }),
-    /hash mismatch/,
-  );
-  expectThrow(
-    'nonexistent reviewed commit',
-    () =>
-      sealBundle({
-        repo,
-        reviewedCommit: 'f'.repeat(40),
-        planPath: 'docs/plans/active/sample.md',
-        requestedPaths: [],
-        outDir: path.join(temp, 'bad'),
-      }),
-    /git rev-parse/,
-  );
-  git(repo, ['update-index', '--add', '--cacheinfo', `160000,${head},vendor/sub`]);
-  git(repo, ['commit', '-qm', 'submodule fixture']);
-  const submoduleHead = git(repo, ['rev-parse', 'HEAD']);
-  expectThrow(
-    'submodule tree entry',
-    () =>
-      sealBundle({
-        repo,
-        reviewedCommit: submoduleHead,
-        planPath: 'docs/plans/active/sample.md',
-        requestedPaths: ['vendor'],
-        outDir: path.join(temp, 'submodule-bundle'),
-      }),
-    /submodule is unsupported/,
-  );
-  assert.equal(fs.existsSync(path.join(temp, 'submodule-bundle')), false, 'failed seal leaves no partial bundle');
-  assert.equal(fs.statSync(out).mode & 0o222, 0, 'bundle root read-only');
-  makeWritable(temp);
-  fs.rmSync(temp, { recursive: true, force: true });
-  console.log('bundle manifest/hash goldens passed');
 }
 
 function testLegs() {
@@ -3846,813 +2142,642 @@ function testServiceTiers() {
   );
 }
 
-function productionPrerequisiteProbe(fixture) {
-  const root = path.join(fixture.temp, 'production-probe');
-  const bin = path.join(root, 'bin');
-  const home = path.join(root, 'home');
-  fs.mkdirSync(bin, { recursive: true });
-  const log = path.join(root, 'remote-git.jsonl');
-  const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
-  assert.ok(path.isAbsolute(realGit), 'real git path');
-  const gitShim = `#!/usr/bin/env node
+function compatibilityPrerequisiteApplication(fixture) {
+  return fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+    prerequisiteInput(fixture),
+    prerequisiteDependencies(fixture).dependencies,
+  );
+}
+
+function assertTransitionIsolation(fixture, label) {
+  const captureBin = path.join(fixture.temp, 'focused-capture-bin');
+  const captureLog = path.join(fixture.temp, 'focused-captured-git.jsonl');
+  fs.mkdirSync(captureBin);
+  fs.writeFileSync(
+    path.join(captureBin, 'git'),
+    `#!/usr/bin/env node
 import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
-const args=process.argv.slice(2); const remote=args[0]==='ls-remote';
-if(remote){fs.appendFileSync(process.env.PROBE_LOG,JSON.stringify({args,env:process.env})+'\\n'); const ref=process.env.RELEASE_TAG; if(args.includes('--branches')) process.stdout.write(process.env.RELEASE_COMMIT+'\\trefs/heads/main\\n'); else process.stdout.write(process.env.TAG_OBJECT+'\\trefs/tags/'+ref+'\\n'+process.env.RELEASE_COMMIT+'\\trefs/tags/'+ref+'^{}\\n'); process.exit(0);}
-const env={...process.env}; for(const key of Object.keys(env)) if(['GIT_CONFIG','GIT_CONFIG_PARAMETERS','GIT_COMMON_DIR','GIT_WORK_TREE','GIT_DIR'].includes(key)||/^GIT_CONFIG_(KEY|VALUE)_[0-9]+$/.test(key)) delete env[key]; env.GIT_CONFIG_COUNT='0'; delete env.GIT_CONFIG_GLOBAL; delete env.GIT_CONFIG_SYSTEM; delete env.GIT_CONFIG_NOSYSTEM;
-const result=spawnSync(process.env.REAL_GIT,args,{encoding:'buffer',env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
-`;
-  const commandShim = `#!/usr/bin/env node
-import path from 'node:path'; const name=path.basename(process.argv[1]); const tag=process.env.RELEASE_TAG; const version=process.env.RELEASE_VERSION; const home=process.env.HOME;
-if(name==='gh') process.stdout.write(JSON.stringify({isDraft:false,isPrerelease:false,tagName:tag,url:'https://github.com/DocksDocks/docks/releases/tag/'+tag})+'\\n');
-else if(name==='codex') process.stdout.write(JSON.stringify({installed:[{pluginId:'docks@docks',name:'docks',marketplaceName:'docks',version,installed:true,enabled:true,source:{source:'git-subdir',url:'https://github.com/DocksDocks/docks.git',path:'plugins/docks',ref:'main'}}]})+'\\n');
-else process.stdout.write(JSON.stringify([{id:'docks@docks',version,scope:'user',enabled:true,installPath:path.join(home,'.claude/plugins/cache/docks/docks',version)}])+'\\n');
-`;
-  fs.writeFileSync(path.join(bin, 'git'), gitShim, { mode: 0o755 });
-  for (const name of ['gh', 'codex', 'claude']) fs.writeFileSync(path.join(bin, name), commandShim, { mode: 0o755 });
-  const source = gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${POLICY_PATH}`]);
-  for (const runtime of ['.codex', '.claude'])
-    writeLogical(
-      home,
-      `${runtime}/plugins/cache/docks/docks/${RELEASE_VERSION}/skills/productivity/plan-review/scripts/review-policy.mjs`,
-      source,
-    );
-  const globalConfig = path.join(root, 'global.gitconfig');
-  const systemConfig = path.join(root, 'system.gitconfig');
-  const explicitConfig = path.join(root, 'explicit.gitconfig');
-  for (const file of [globalConfig, systemConfig, explicitConfig])
-    fs.writeFileSync(file, '[url "file:///ambient-redirect"]\n\tinsteadOf = https://github.com/DocksDocks/docks.git\n');
-  git(fixture.repo, ['config', 'url.file:///repository-redirect.insteadOf', 'https://github.com/DocksDocks/docks.git']);
-  const env = {
-    ...process.env,
-    PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-    HOME: home,
-    REAL_GIT: realGit,
-    PROBE_LOG: log,
-    RELEASE_COMMIT: fixture.releaseCommit,
-    RELEASE_TAG,
-    RELEASE_VERSION,
-    TAG_OBJECT: 'b'.repeat(40),
-    GIT_CONFIG: explicitConfig,
-    GIT_CONFIG_PARAMETERS: "'url.file:///parameter-redirect.insteadOf'='https://github.com/DocksDocks/docks.git'",
-    GIT_COMMON_DIR: path.join(root, 'wrong-common'),
-    GIT_WORK_TREE: path.join(root, 'wrong-worktree'),
-    GIT_DIR: path.join(root, 'wrong-gitdir'),
-    GIT_CONFIG_GLOBAL: globalConfig,
-    GIT_CONFIG_SYSTEM: systemConfig,
-    GIT_CONFIG_NOSYSTEM: '0',
-    GIT_CONFIG_COUNT: '1',
-    GIT_CONFIG_KEY_0: 'url.file:///count-redirect.insteadOf',
-    GIT_CONFIG_VALUE_0: 'https://github.com/DocksDocks/docks.git',
+const args=process.argv.slice(2); const noIndex=args.includes('--no-index'); const artifacts=noIndex?args.slice(-2):[];
+fs.appendFileSync(process.env.TRANSITION_GIT_LOG,JSON.stringify({args,cwd:process.cwd(),artifact_modes:artifacts.map((file)=>fs.statSync(file).mode&0o777),attr:process.env.GIT_ATTR_NOSYSTEM})+'\\n');
+if(noIndex&&process.env.TRANSITION_REQUIRE_ATTR==='1'&&process.env.GIT_ATTR_NOSYSTEM!=='1'){fs.writeSync(2,Buffer.from('ambient attribute source was not isolated\\n'));process.exit(97);}
+const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',env:process.env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
+`,
+    { mode: 0o755 },
+  );
+  const prior = {
+    PATH: process.env.PATH,
+    TRANSITION_REAL_GIT: process.env.TRANSITION_REAL_GIT,
+    TRANSITION_GIT_LOG: process.env.TRANSITION_GIT_LOG,
+    GIT_ATTR_NOSYSTEM: process.env.GIT_ATTR_NOSYSTEM,
+    TRANSITION_REQUIRE_ATTR: process.env.TRANSITION_REQUIRE_ATTR,
   };
-  const input = prerequisiteInput(fixture);
-  const args = [
-    'compatibility-prerequisite',
-    input.repo,
-    input.planPath,
-    input.finishedPlanPath,
-    input.finishedPlanCommit,
-    input.releaseVersion,
-    input.evidenceCommit,
-    input.compatibilityReviewCommit,
-    input.bindingCommit,
-    input.authorizationId,
-    input.authorizationSha256,
-  ];
-  const result = spawnSync(process.execPath, [fixture.compatibilityHelper, ...args], {
-    cwd: fixture.repo,
-    env,
+  process.env.TRANSITION_REAL_GIT = spawnSync('which', ['git'], {
+    env: { ...process.env, PATH: prior.PATH },
     encoding: 'utf8',
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stderr, '');
-  const application = JSON.parse(result.stdout);
-  assert.match(application.application_sha256, /^[0-9a-f]{64}$/);
-  const rows = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
-  assert.equal(rows.length, 2, 'exactly two canonical remote children');
-  assert.deepEqual(rows[0].args, [
-    'ls-remote',
-    '--exit-code',
-    '--branches',
-    'https://github.com/DocksDocks/docks.git',
-    'refs/heads/main',
-  ]);
-  assert.deepEqual(rows[1].args, [
-    'ls-remote',
-    '--exit-code',
-    '--tags',
-    'https://github.com/DocksDocks/docks.git',
-    `refs/tags/${RELEASE_TAG}`,
-    `refs/tags/${RELEASE_TAG}^{}`,
-  ]);
-  for (const row of rows) {
-    assert.equal(row.env.GIT_DIR, os.devNull);
-    assert.equal(row.env.GIT_CONFIG_GLOBAL, os.devNull);
-    assert.equal(row.env.GIT_CONFIG_SYSTEM, os.devNull);
-    assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1');
-    assert.equal(row.env.GIT_CONFIG_COUNT, '0');
-    for (const key of [
-      'GIT_CONFIG',
-      'GIT_CONFIG_PARAMETERS',
-      'GIT_COMMON_DIR',
-      'GIT_WORK_TREE',
-      'GIT_CONFIG_KEY_0',
-      'GIT_CONFIG_VALUE_0',
-    ])
-      assert.equal(row.env[key], undefined, `${key} removed from canonical remote child`);
+  }).stdout.trim();
+  process.env.TRANSITION_GIT_LOG = captureLog;
+  process.env.PATH = `${captureBin}${path.delimiter}${prior.PATH}`;
+  process.env.GIT_ATTR_NOSYSTEM = '0';
+  process.env.TRANSITION_REQUIRE_ATTR =
+    label === 'compatibility GIT_ATTR_NOSYSTEM child-isolation regression' ? '1' : '0';
+  try {
+    assert.deepEqual(
+      compatibilityEvidence(fixture.compatibilityHelper, {
+        repo: fixture.repo,
+        reviewedHead: fixture.releaseCommit,
+        planPath: TARGET_PLAN,
+        plannedAtCommit: fixture.plannedAt,
+        executionBaseCommit: fixture.executionBaseCommit,
+      }),
+      fixture.evidenceApplication,
+      'captured transition command preserves byte-identical material',
+    );
+  } finally {
+    for (const [key, value] of Object.entries(prior)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
-  return application;
+  const calls = fs
+    .readFileSync(captureLog, 'utf8')
+    .trim()
+    .split('\n')
+    .map(JSON.parse)
+    .filter((row) => path.basename(row.cwd).startsWith('docks-transition-diff-'));
+  assert.equal(calls.length, 2, 'transition producer initializes once and runs one copied-artifact diff');
+  assert.ok(calls[1].args.includes('--no-index'), 'transition diff must use copied private artifacts');
+  if (label === 'compatibility copied-artifact isolation regression')
+    assert.deepEqual(calls[1].artifact_modes, [0o600, 0o600], 'copied transition artifacts are owner-only');
+  else if (label === 'compatibility GIT_ATTR_NOSYSTEM child-isolation regression')
+    assert.equal(calls[1].attr, '1', 'transition child behavior requires GIT_ATTR_NOSYSTEM isolation');
+  else throw focusSelectorError(label, 'is not a transition-isolation mutation');
 }
 
-function testStrictCompletionReuse() {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-strict-reuse-'));
-  const repo = path.join(temp, 'repo');
-  initializeRepository(repo);
-  writeLogical(repo, 'seed.txt', 'seed\n');
-  const plannedAt = commitAll(repo, 'seed');
-  const planPath = 'docs/plans/active/strict.md';
-  let plan = fixturePlan({ plannedAt, cleanReceipt: true });
-  writeLogical(repo, planPath, plan);
-  commitAll(repo, 'add strict plan');
-  plan = replaceOnce(plan, 'status: planned', 'status: ongoing');
-  plan = replaceOnce(plan, 'started_at: null', 'started_at: "2026-07-13T12:00:00.000Z"');
-  writeLogical(repo, planPath, plan);
-  const executionBase = commitAll(repo, 'start strict plan');
-  plan = replaceOnce(plan, 'execution_base_commit: null', `execution_base_commit: "${executionBase}"`);
-  writeLogical(repo, planPath, plan);
-  const head = commitAll(repo, 'record strict identity');
-  assert.deepEqual(
-    validateExecutionRange({
-      repo,
-      planPath,
-      plannedAtCommit: plannedAt,
-      executionBaseCommit: executionBase,
-      reviewedHead: head,
-    }),
-    {
-      schema: 1,
-      planned_at_commit: plannedAt,
-      execution_base_commit: executionBase,
-      reviewed_head: head,
-      execution_parent: git(repo, ['rev-parse', `${executionBase}^`]),
-    },
-  );
-  const receipt = completionReceiptFor(head, Buffer.from(plan));
-  let completed = applyCompletionReviewBlock(Buffer.from(plan), receipt).toString();
-  completed = replaceOnce(completed, 'review_status: null', 'review_status: passed');
-  writeLogical(repo, planPath, completed);
-  const completionCommit = commitAll(repo, 'complete strict plan');
-  validateCompletionReviewReuse({
-    repo,
-    planPath,
-    reviewedHead: head,
-    completionCommit,
-    receipt,
-    expectedPolicy: receipt.policy,
-  });
-  expectThrow(
-    'completion reuse requires current policy',
-    () => validateCompletionReviewReuse({ repo, planPath, reviewedHead: head, completionCommit, receipt }),
-    /policy schema/,
-  );
-  expectThrow(
-    'policy v1 completion is not reusable under policy v2',
-    () =>
-      validateCompletionReviewReuse({
-        repo,
-        planPath,
-        reviewedHead: head,
-        completionCommit,
-        receipt,
-        expectedPolicy: POLICY_V2,
-      }),
-    /resolved policy mismatch/,
-  );
-  for (const [label, applyChange] of [
-    ['Review heading', (value) => replaceOnce(value, '## Review\n', '## Reviews\n')],
-    ['Review label', (value) => replaceOnce(value, '**Goal met:**', '**Goal status:**')],
-    ['Review punctuation', (value) => replaceOnce(value, '**CI:**', '**CI**:')],
-    ['Review extra prose', (value) => replaceOnce(value, '## Review\n', '## Review\nUnexpected prose.\n')],
-    [
-      'Review receipt byte',
-      (value) => replaceOnce(value, 'Completion-review-receipt: {', 'Completion-review-receipt: {"extra":true,'),
-    ],
-    ['Review CRLF', (value) => value.replaceAll('\n', '\r\n')],
-    ['Review separator', (value) => replaceOnce(value, '\n## Review\n', '## Review\n')],
-    ['Review final LF', (value) => value.slice(0, -1)],
-  ]) {
-    git(repo, ['checkout', '-q', '--detach', head]);
-    writeLogical(repo, planPath, applyChange(completed));
-    const candidate = commitAll(repo, `mutated completion ${label}`);
-    expectThrow(
-      `completion reuse ${label}`,
-      () =>
-        validateCompletionReviewReuse({
-          repo,
-          planPath,
-          reviewedHead: head,
-          completionCommit: candidate,
-          receipt,
-          expectedPolicy: receipt.policy,
-        }),
-      /completion|Review|delta|LF|receipt|plan/i,
-    );
-  }
-  git(repo, ['checkout', '-q', '--detach', head]);
-  const v2Receipt = completionReceiptFor(head, Buffer.from(plan), { policy: POLICY_V2 });
-  let v2Completed = applyCompletionReviewBlock(Buffer.from(plan), v2Receipt).toString();
-  v2Completed = replaceOnce(v2Completed, 'review_status: null', 'review_status: passed');
-  writeLogical(repo, planPath, v2Completed);
-  const v2CompletionCommit = commitAll(repo, 'complete strict plan with policy v2');
-  validateCompletionReviewReuse({
-    repo,
-    planPath,
-    reviewedHead: head,
-    completionCommit: v2CompletionCommit,
-    receipt: v2Receipt,
-    expectedPolicy: POLICY_V2,
-  });
-  const lowerThreshold = {
-    ...POLICY_V2,
-    minimum_score: 80,
-    provenance: { ...POLICY_V2.provenance, minimum_score: 'current_user' },
+function createCachedRootTextReader() {
+  const cache = new Map();
+  return (file) => {
+    if (!cache.has(file)) cache.set(file, fs.readFileSync(path.join(ROOT, file), 'utf8'));
+    return cache.get(file);
   };
-  expectThrow(
-    'policy v2 threshold change invalidates completion reuse',
-    () =>
-      validateCompletionReviewReuse({
-        repo,
-        planPath,
-        reviewedHead: head,
-        completionCommit: v2CompletionCommit,
-        receipt: v2Receipt,
-        expectedPolicy: lowerThreshold,
-      }),
-    /resolved policy mismatch/,
-  );
-  const provenanceChange = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance, max_rounds: 'current_user' } };
-  expectThrow(
-    'policy v2 provenance change invalidates completion reuse',
-    () =>
-      validateCompletionReviewReuse({
-        repo,
-        planPath,
-        reviewedHead: head,
-        completionCommit: v2CompletionCommit,
-        receipt: v2Receipt,
-        expectedPolicy: provenanceChange,
-      }),
-    /resolved policy mismatch/,
-  );
-  git(repo, ['checkout', '-q', '--detach', head]);
-  const currentInventory = acceptanceInventory(Buffer.from(plan));
-  const currentReq = currentRequest({
-    phase: 'completion',
-    reviewed_commit_or_head: head,
-    planned_at_commit: plannedAt,
-    execution_base_commit: executionBase,
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(currentInventory)),
-    input_sha256: sha256(canonicalPlanView(Buffer.from(plan))),
-  });
-  const currentRunResult = currentRun(currentReq, currentRaw(currentReq), {
-    primary: primaryEvidence(currentInventory),
-  });
-  const currentReceiptValue = currentReceipt(currentReq, currentRunResult);
-  let currentCompleted = applyCompletionReviewBlock(Buffer.from(plan), currentReceiptValue).toString();
-  currentCompleted = replaceOnce(currentCompleted, 'review_status: null', 'review_status: passed');
-  writeLogical(repo, planPath, currentCompleted);
-  const currentCompletionCommit = commitAll(repo, 'complete strict plan with schema-5 primary review');
-  validateCompletionReviewReuse({
-    repo,
-    planPath,
-    reviewedHead: head,
-    completionCommit: currentCompletionCommit,
-    receipt: currentReceiptValue,
-    expectedPolicy: CURRENT_POLICY,
-  });
-
-  const schema6Plan = plan;
-  const schema6Head = head;
-  const schema6Inventory = acceptanceInventory(Buffer.from(schema6Plan));
-  const schema6State = reviewPolicy.beginReviewOrchestration({
-    planPath,
-    phase: 'completion',
-    lifecycleIntent: 'none',
-    inputSha256: sha256(canonicalPlanView(Buffer.from(schema6Plan))),
-    seriesId: 'd23e4567-e89b-42d3-a456-426614174000',
-    requestId: 'e23e4567-e89b-42d3-a456-426614174000',
-    orchestrationAttempt: 1,
-    retryAuthorization: null,
-    previousState: null,
-    sourceText: null,
-  });
-  const schema6Req = schema6Request({ manifest: { reviewed_commit: schema6Head }, bundle_sha256: H0 }, schema6State, {
-    phase: 'completion',
-    planned_at_commit: plannedAt,
-    execution_base_commit: executionBase,
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(schema6Inventory)),
-    input_sha256: schema6State.current_input_sha256,
-  });
-  const schema6Raw = currentRaw(schema6Req, currentOutput(schema6Req, { schema: 6 }), {
-    schema: 6,
-    attempts: [currentAttempt(schema6Req.policy.candidates[0], { schema: 6 })],
-  });
-  const schema6Run = currentRun(schema6Req, schema6Raw, {
-    schema: 6,
-    primary: primaryEvidence(schema6Inventory),
-  });
-  const schema6SeriesValue = schema6Series(schema6Req, schema6Run);
-  const schema6Settled = reviewPolicy.settleReviewOrchestration({
-    state: schema6State,
-    series: schema6SeriesValue,
-  });
-  const schema6ReceiptValue = schema6Receipt(schema6Req, schema6Run, schema6SeriesValue, schema6Settled);
-  let preparedPlan = replaceOnce(
-    schema6Plan,
-    '## Review\n',
-    `## Review\n\nReview-orchestration-state: ${jcs(schema6State)}\n`,
-  );
-  preparedPlan = replaceOnce(preparedPlan, 'status: ongoing', 'status: in_review');
-  preparedPlan = replaceOnce(
-    preparedPlan,
-    'started_at: "2026-07-13T12:00:00.000Z"',
-    'started_at: "2026-07-13T12:00:00.000Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
-  );
-  writeLogical(repo, planPath, preparedPlan);
-  commitAll(repo, 'persist schema-6 completion state');
-  preparedPlan = replaceOnce(
-    preparedPlan,
-    'Review-orchestration-state: ',
-    'Review-orchestration-prepared-request: {}\nReview-orchestration-state: ',
-  );
-  writeLogical(repo, planPath, preparedPlan);
-  commitAll(repo, 'persist schema-6 completion request');
-  let schema6Completed = applyCompletionReviewBlock(Buffer.from(preparedPlan), schema6ReceiptValue, {
-    orchestration: schema6Settled,
-  }).toString();
-  schema6Completed = replaceOnce(schema6Completed, 'review_status: null', 'review_status: passed');
-  writeLogical(repo, planPath, schema6Completed);
-  const schema6CompletionCommit = commitAll(repo, 'complete strict plan with schema-6 primary review');
-  validateCompletionReviewReuse({
-    repo,
-    planPath,
-    reviewedHead: schema6Head,
-    completionCommit: schema6CompletionCommit,
-    receipt: schema6ReceiptValue,
-    expectedPolicy: schema6Req.policy,
-    orchestration: schema6Settled,
-  });
-
-  git(repo, ['checkout', '-q', '--detach', schema6Head]);
-  let lifecyclePreparedPlan = replaceOnce(schema6Plan, 'status: ongoing', 'status: in_review');
-  lifecyclePreparedPlan = replaceOnce(
-    lifecyclePreparedPlan,
-    'started_at: "2026-07-13T12:00:00.000Z"',
-    'started_at: "2026-07-13T12:00:00.000Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
-  );
-  lifecyclePreparedPlan = replaceOnce(
-    lifecyclePreparedPlan,
-    '## Review\n',
-    `## Review\n\nReview-orchestration-state: ${jcs(schema6State)}\n`,
-  );
-  writeLogical(repo, planPath, lifecyclePreparedPlan);
-  commitAll(repo, 'enter schema-6 completion review');
-  let lifecycleCompleted = applyCompletionReviewBlock(Buffer.from(lifecyclePreparedPlan), schema6ReceiptValue, {
-    orchestration: schema6Settled,
-  }).toString();
-  lifecycleCompleted = replaceOnce(lifecycleCompleted, 'review_status: null', 'review_status: passed');
-  writeLogical(repo, planPath, lifecycleCompleted);
-  const lifecycleCompletionCommit = commitAll(repo, 'complete schema-6 lifecycle review');
-  validateCompletionReviewReuse({
-    repo,
-    planPath,
-    reviewedHead: schema6Head,
-    completionCommit: lifecycleCompletionCommit,
-    receipt: schema6ReceiptValue,
-    expectedPolicy: schema6Req.policy,
-    orchestration: schema6Settled,
-  });
-
-  for (const [label, mutate] of [
-    ['blocked status', (value) => replaceOnce(value, 'status: in_review', 'status: blocked')],
-    ['missing in-review timestamp', (value) => replaceOnce(value, 'in_review_since: "2026-07-20T02:20:03.254Z"\n', '')],
-    ['missing updated field', (value) => replaceOnce(value, 'updated: "2026-07-12T00:00:00-03:00"\n', '')],
-    [
-      'duplicate in-review timestamp',
-      (value) =>
-        replaceOnce(
-          value,
-          'in_review_since: "2026-07-20T02:20:03.254Z"',
-          'in_review_since: "2026-07-20T02:20:03.254Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
-        ),
-    ],
-  ]) {
-    git(repo, ['checkout', '-q', '--detach', schema6Head]);
-    writeLogical(repo, planPath, mutate(lifecycleCompleted));
-    const invalidLifecycleCommit = commitAll(repo, `invalid schema-6 lifecycle ${label}`);
-    expectThrow(
-      `schema-6 completion reuse rejects ${label}`,
-      () =>
-        validateCompletionReviewReuse({
-          repo,
-          planPath,
-          reviewedHead: schema6Head,
-          completionCommit: invalidLifecycleCommit,
-          receipt: schema6ReceiptValue,
-          expectedPolicy: schema6Req.policy,
-          orchestration: schema6Settled,
-        }),
-      /status|in.review|timestamp|duplicate|frontmatter|lifecycle|updated|delta/i,
-    );
-  }
-
-  git(repo, ['checkout', '-q', '--detach', schema6Head]);
-  writeLogical(repo, 'unexpected.txt', 'not plan-only\n');
-  commitAll(repo, 'unexpected schema-6 completion mutation');
-  writeLogical(repo, planPath, preparedPlan);
-  commitAll(repo, 'persist schema-6 request after mutation');
-  writeLogical(repo, planPath, schema6Completed);
-  const invalidSchema6CompletionCommit = commitAll(repo, 'complete schema-6 plan after mutation');
-  expectThrow(
-    'schema-6 completion reuse rejects an intermediate non-plan mutation',
-    () =>
-      validateCompletionReviewReuse({
-        repo,
-        planPath,
-        reviewedHead: schema6Head,
-        completionCommit: invalidSchema6CompletionCommit,
-        receipt: schema6ReceiptValue,
-        expectedPolicy: schema6Req.policy,
-        orchestration: schema6Settled,
-      }),
-    /plan|path|mutation|scope/i,
-  );
-  for (const [label, sourcePlan] of [
-    ['plain', plan],
-    [
-      'compatibility records',
-      replaceOnce(
-        plan,
-        '## Review\n',
-        'Compatibility-review-material: {}\n```diff\nunchanged\n```\nExecution-base-compatibility-receipt: {}\nExecution-base-compatibility-binding: {}\n\n## Review\n',
-      ),
-    ],
-  ]) {
-    git(repo, ['checkout', '-q', '--detach', head]);
-    const withoutFinalLf = sourcePlan.slice(0, -1);
-    writeLogical(repo, planPath, withoutFinalLf);
-    const reviewedWithoutFinalLf = commitAll(repo, `review ${label} without final LF`);
-    const inventoryWithoutFinalLf = acceptanceInventory(Buffer.from(withoutFinalLf));
-    const requestWithoutFinalLf = currentRequest({
-      phase: 'completion',
-      reviewed_commit_or_head: reviewedWithoutFinalLf,
-      planned_at_commit: plannedAt,
-      execution_base_commit: executionBase,
-      diff_sha256: H0,
-      acceptance_inventory_sha256: sha256(jcs(inventoryWithoutFinalLf)),
-      input_sha256: sha256(canonicalPlanView(Buffer.from(withoutFinalLf))),
-    });
-    const runWithoutFinalLf = currentRun(requestWithoutFinalLf, currentRaw(requestWithoutFinalLf), {
-      primary: primaryEvidence(inventoryWithoutFinalLf),
-    });
-    const receiptWithoutFinalLf = currentReceipt(requestWithoutFinalLf, runWithoutFinalLf);
-    let completedWithoutFinalLf = applyCompletionReviewBlock(
-      Buffer.from(`${withoutFinalLf}\n`),
-      receiptWithoutFinalLf,
-    ).toString();
-    completedWithoutFinalLf = replaceOnce(completedWithoutFinalLf, 'review_status: null', 'review_status: passed');
-    writeLogical(repo, planPath, completedWithoutFinalLf);
-    const completionWithoutFinalLf = commitAll(repo, `complete ${label} without final LF`);
-    validateCompletionReviewReuse({
-      repo,
-      planPath,
-      reviewedHead: reviewedWithoutFinalLf,
-      completionCommit: completionWithoutFinalLf,
-      receipt: receiptWithoutFinalLf,
-      expectedPolicy: CURRENT_POLICY,
-    });
-  }
-  git(repo, ['checkout', '-q', '--detach', head]);
-  const currentWaiver = {
-    phase: 'completion',
-    input_sha256: currentReq.input_sha256,
-    roles: ['primary'],
-    actor: 'test user',
-    reason: 'explicit completion waiver',
-    at: '2026-07-17T00:00:00-03:00',
-  };
-  const waivedRaw = currentRaw(currentReq, null, {
-    result: 'waived',
-    attempts: [],
-    selected: null,
-    reviewer_output: null,
-    findings_sha256: null,
-    waiver: currentWaiver,
-    waiver_sha256: sha256(jcs(currentWaiver)),
-    reason: null,
-  });
-  const waivedRun = currentRun(currentReq, waivedRaw, { primary: primaryEvidence(currentInventory) });
-  const waivedReceipt = currentReceipt(currentReq, waivedRun);
-  let waivedCompleted = applyCompletionReviewBlock(Buffer.from(plan), waivedReceipt, {
-    waivers: [currentWaiver],
-  }).toString();
-  waivedCompleted = replaceOnce(waivedCompleted, 'review_status: null', 'review_status: passed');
-  writeLogical(repo, planPath, waivedCompleted);
-  const waivedCompletionCommit = commitAll(repo, 'complete strict plan with schema-5 waiver');
-  expectThrow(
-    'completion waiver reuse requires the exact waiver',
-    () =>
-      validateCompletionReviewReuse({
-        repo,
-        planPath,
-        reviewedHead: head,
-        completionCommit: waivedCompletionCommit,
-        receipt: waivedReceipt,
-        expectedPolicy: CURRENT_POLICY,
-      }),
-    /waiver.*snapshot/i,
-  );
-  validateCompletionReviewReuse({
-    repo,
-    planPath,
-    reviewedHead: head,
-    completionCommit: waivedCompletionCommit,
-    receipt: waivedReceipt,
-    expectedPolicy: CURRENT_POLICY,
-    waivers: [currentWaiver],
-  });
-  fs.rmSync(temp, { recursive: true, force: true });
 }
 
-function testCompletionReviewRenderer() {
-  const plan = Buffer.from(fixturePlan({ cleanReceipt: true }));
-  const head = 'c'.repeat(40);
-  const receipt = completionReceiptFor(head, plan);
-  const receiptKeys = Object.keys(receipt);
-  const block = completionReviewBlockV1(receipt);
-  assert.deepEqual(Object.keys(block), [
-    'schema',
-    'goal_met',
-    'regressions',
-    'ci',
-    'followups',
-    'filed_by',
-    'cross_check',
-  ]);
-  assert.deepEqual(Object.keys(block.cross_check), ['date', 'X', 'S', 'reproduced_ids', 'orchestrator']);
-  assert.deepEqual(Object.keys(block.cross_check.X), [
-    'company',
-    'model',
-    'effort',
-    'result',
-    'finding_count',
-    'accepted',
-    'rejected',
-  ]);
-  const rendered = renderCompletionReviewBlock(receipt);
-  assert.ok(rendered.endsWith(`Completion-review-receipt: ${jcs(receipt)}\n`));
-  assert.deepEqual(Object.keys(receipt), receiptKeys, 'renderer leaves receipt keys unchanged');
-  const applied = applyCompletionReviewBlock(plan, receipt);
-  assert.equal(
-    applyCompletionReviewBlock(applied, receipt).toString(),
-    applied.toString(),
-    'same receipt apply is idempotent',
-  );
-  assert.equal(completionStablePlanViewV1(plan), completionStablePlanViewV1(applied));
-  const following = Buffer.from(
-    replaceOnce(
-      plan.toString(),
-      '## Review\n\n*(filled by plan-review on completion)*\n',
-      '## Review\n\n*(filled by plan-review on completion)*\n\n## Following section\n\nFollowing bytes.\n',
+function contractSurfaceEntries() {
+  const contractPath = 'docs/plans/AGENTS.md';
+  const templatePath = 'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md';
+  const managerPath = 'plugins/docks/skills/productivity/plan-manager/SKILL.md';
+  const reviewPath = 'plugins/docks/skills/productivity/plan-reviewer/SKILL.md';
+  const repairerPath = 'plugins/docks/skills/productivity/plan-repairer/SKILL.md';
+  const workspacePath = 'plugins/docks/skills/productivity/plan-workspace/SKILL.md';
+  const readText = createCachedRootTextReader();
+  const literalPattern = (marker, flags = '') => new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+  const pairedMarkers = [
+    'review_author_company:',
+    'review_waivers:',
+    'execution_base_commit:',
+    '## Current schema-6 review orchestration',
+    'Review-orchestration-state:',
+    'plan-reviewer',
+    'plan-repairer',
+  ];
+  const contractMarkers = [
+    /schema 6/i,
+    /historical schemas 1–5/i,
+    /one full round plus at most one changed-input repair/i,
+    /attempt 2[\s\S]{0,120}(?:explicit|exact)\s+current-user|(?:explicit|exact)\s+current-user[\s\S]{0,120}attempt 2/i,
+    /standalone_executability/,
+    /actionability/,
+    /dependency_order/,
+    /evidence_reverification/,
+    /goal_coverage/,
+    /executable_acceptance/,
+    /failure_modes/,
+    /open_questions/,
+    /cannot_repair/,
+  ];
+  const policyMarkers = [
+    /schema[- ]6/i,
+    /role:?\s*[`"']?primary|role `primary`/i,
+    /fallback:?\s*[`"']?availability_only|availability-only fallback/i,
+    /max_rounds:?\s*[`"']?2/,
+    /service_tier:?\s*[`"']?default/,
+  ];
+  const repairerMarkers = [
+    'user-invocable: false',
+    'blocking_gap',
+    'independently reproduced',
+    'cannot_repair',
+    'validates and applies any returned patch',
+  ];
+  const workspaceMarkers = [
+    'STALE',
+    'explicitly refresh',
+    'explicit current-turn refresh',
+    '.codex/agents/plan-reviewer.toml',
+    'current schema 6',
+    'historical schemas 1–5',
+  ];
+  const publicFiles = ['AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md'];
+  const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
+
+  return [
+    ...pairedMarkers.flatMap((marker) => [
+      {
+        run: () => assert.match(readText(contractPath), literalPattern(marker), `contract missing ${marker}`),
+      },
+      {
+        run: () => assert.match(readText(templatePath), literalPattern(marker), `template missing ${marker}`),
+      },
+    ]),
+    ...[contractPath, templatePath].flatMap((file) =>
+      contractMarkers.map((marker) => ({
+        run: () => assert.match(readText(file), marker, `${file} missing current workflow marker ${marker}`),
+      })),
     ),
-  );
-  const followingApplied = applyCompletionReviewBlock(following, receipt).toString();
-  assert.match(followingApplied, /Completion-review-receipt: .*\n\n## Following section\n/);
-  expectThrow(
-    'duplicate Review heading',
-    () => applyCompletionReviewBlock(Buffer.from(`${plan}\n## Review\n`), receipt),
-    /duplicate body heading|one unfenced ## Review/,
-  );
-  expectThrow(
-    'CRLF Review input',
-    () => applyCompletionReviewBlock(Buffer.from(plan.toString().replaceAll('\n', '\r\n')), receipt),
-    /LF UTF-8/,
-  );
-
-  const specialCharacterPrimary = {
-    ...receipt.primary,
-    goal_met: 'no',
-    ci: {
-      ...receipt.primary.ci,
-      command: 'node\n## injected\n```',
-      exit_code: 1,
-      first_failure: 'fail\r\n</review>\u202e🚀',
+    ...[managerPath, reviewPath].flatMap((file) => [
+      ...policyMarkers.map((marker, markerIndex) => ({
+        ...(markerIndex === 3 && file === managerPath ? { label: 'two-round current default regression' } : {}),
+        run: () => assert.match(readText(file), marker, `${file} missing current workflow marker ${marker}`),
+      })),
+      {
+        run: () =>
+          assert.match(
+            readText(file),
+            /historical schemas 1–5|historical validation|persisted historical evidence/i,
+            `${file} must preserve historical review semantics explicitly`,
+          ),
+      },
+      {
+        run: () =>
+          assert.match(
+            readText(file),
+            /no round\s+3|round\s+3[^.\n]*reject|reject[^.\n]*round\s+3|one changed-input repair round is the maximum/i,
+            `${file} must close the current series after one repair`,
+          ),
+      },
+    ]),
+    { run: () => assert.match(readText(reviewPath), /non_blocking_gap/) },
+    { run: () => assert.match(readText(reviewPath), /blocking_gap/) },
+    ...repairerMarkers.map((marker) => ({
+      run: () => assert.match(readText(repairerPath), new RegExp(marker, 'i'), `plan-repairer missing ${marker}`),
+    })),
+    {
+      run: () =>
+        assert.match(
+          readText(repairerPath),
+          /Never write the plan[\s\S]*write a receipt[\s\S]*change status/i,
+          'plan-repairer must explicitly reject review and lifecycle ownership',
+        ),
     },
-    regressions: ['line\n## Review\n```\u2028'],
-    followups: ['<script>\u2029🚀'],
-  };
-  const specialCharacters = { ...receipt, primary: specialCharacterPrimary, completion_verdict: 'regressed' };
-  const specialCharacterRendering = renderCompletionReviewBlock(specialCharacters);
-  assert.doesNotMatch(specialCharacterRendering, /\n## injected\n|\n<script>/);
-  assert.match(specialCharacterRendering, /\\u000a|\\u2028|\\ud83d\\ude80/);
+    ...workspaceMarkers.map((marker) => ({
+      run: () =>
+        assert.match(
+          readText(workspacePath),
+          literalPattern(marker, 'i'),
+          `plan-workspace missing refresh marker ${marker}`,
+        ),
+    })),
+    {
+      label: 'CI focused surfaces call removed',
+      run: () =>
+        assert.equal(
+          (
+            readText('scripts/ci.mjs').match(
+              /nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*,\s*['"]--case['"]\s*,\s*['"]surfaces['"]\s*\]\)/g,
+            ) || []
+          ).length,
+          1,
+          'CI must contain exactly one focused --case surfaces call',
+        ),
+    },
+    {
+      label: 'CI regression-driver call removed',
+      run: () => {
+        const ciSource = readText('scripts/ci.mjs');
+        const regressionTaskPattern =
+          /const\s+planPolicyRegressionTask\s*=\s*planPolicy\s*\|\|\s*regressionPartition\s*!==\s*null\s*\?\s*startTask\(\s*['"]plan-review-policy regressions['"]\s*,\s*['"]node['"]\s*,\s*\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*,\s*\.\.\.\(\s*regressionJobs\s*===\s*null\s*\?\s*\[\s*\]\s*:\s*\[\s*['"]--jobs['"]\s*,\s*String\(regressionJobs\)\s*\]\s*\)\s*,\s*\.\.\.\(\s*regressionPartition\s*===\s*null\s*\?\s*\[\s*\]\s*:\s*\[\s*['"]--partition['"]\s*,\s*regressionPartition\s*\]\s*\)\s*,?\s*\]\s*,\s*\{\s*cwd:\s*REPO\s*,\s*tasks\s*\}\s*,?\s*\)\s*:\s*null\s*;/g;
+        const regressionJobsPattern =
+          /\.\.\.\(\s*regressionJobs\s*===\s*null\s*\?\s*\[\s*\]\s*:\s*\[\s*['"]--jobs['"]\s*,\s*String\(regressionJobs\)\s*\]\s*\)/g;
+        const regressionPartitionPattern =
+          /\.\.\.\(\s*regressionPartition\s*===\s*null\s*\?\s*\[\s*\]\s*:\s*\[\s*['"]--partition['"]\s*,\s*regressionPartition\s*\]\s*\)/g;
 
-  const inventory = acceptanceInventory(plan);
-  const req = request({
-    phase: 'completion',
-    reviewed_commit_or_head: head,
-    planned_at_commit: head,
-    execution_base_commit: head,
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(inventory)),
-    input_sha256: sha256(canonicalPlanView(plan)),
-  });
-  const finding = (id, severity = 'low') => ({
-    id,
-    severity,
-    section: 'Review',
-    path: null,
-    locator: null,
-    defect: `defect ${id}`,
-    fix: `fix ${id}`,
-    evidence: `evidence ${id}`,
-  });
-  const Xraw = rawPassed(req, 'X', null, [finding('X2'), finding('X1')]);
-  const Sraw = rawPassed(req, 'S', null, [finding('S2'), finding('S1')]);
-  const reproduced = ['X2', 'X1'].map((id) => {
-    const source = Xraw.findings.find((row) => row.id === id);
-    return {
-      id,
-      source: 'X',
-      severity: source.severity,
-      path: source.path,
-      locator: source.locator,
-      defect: source.defect,
-      fix: source.fix,
-      reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
-    };
-  });
-  const orderedReceipt = {
-    schema: 1,
-    phase: 'completion',
-    request: req,
-    planned_at_commit: head,
-    execution_base_commit: head,
-    reviewed_head: head,
-    diff_sha256: H0,
-    plan_input_sha256: req.input_sha256,
-    acceptance_inventory: inventory,
-    acceptance_inventory_sha256: req.acceptance_inventory_sha256,
-    author: req.author,
-    policy: req.policy,
-    policy_sha256: req.policy_sha256,
-    X: { request: req, raw: Xraw, reconciliation: { accepted: ['X2', 'X1'], rejected: [] } },
-    S: {
-      request: req,
-      raw: Sraw,
-      reconciliation: {
-        accepted: [],
-        rejected: [
-          { id: 'S2', reason: 'two' },
-          { id: 'S1', reason: 'one' },
-        ],
+        const regressionTaskMatches = ciSource.match(regressionTaskPattern) || [];
+        assert.equal(
+          regressionTaskMatches.length,
+          1,
+          'CI must contain exactly one planPolicy-or-partition background regression-driver --self-test task path-resolved through node with explicit spool ownership',
+        );
+        assert.equal(
+          (ciSource.match(regressionJobsPattern) || []).length,
+          1,
+          'CI regression-driver task must contain exactly one conditional --jobs lane argument',
+        );
+        assert.equal(
+          (ciSource.match(regressionPartitionPattern) || []).length,
+          1,
+          'CI regression-driver task must contain exactly one conditional --partition lane argument',
+        );
+        const regressionSource = readText('scripts/tests/plan-review-policy-regressions.mjs');
+        const resolverSource = regressionSource.slice(
+          regressionSource.indexOf('export function resolveRegressionSelection('),
+          regressionSource.indexOf('function selectedRegressionRows('),
+        );
+        const suiteSource = regressionSource.slice(
+          regressionSource.indexOf('async function runRegressionSuite('),
+          regressionSource.indexOf('const signalHandlers ='),
+        );
+        const resolverContracts = [
+          {
+            label: 'default unqualified selection',
+            pattern:
+              /export function resolveRegressionSelection\(\{\s*partition = null\s*\} = \{\}\) \{\s*if \(partition !== null && !REGRESSION_PARTITIONS\.includes\(partition\)\)\s*throw new TypeError\(`unknown regression partition: \$\{partition\}`\);\s*const includeBaselines = partition !== ['"]mutations['"];\s*const ownsGlobalPreflights = partition !== ['"]baselines['"];\s*const selectedCatalog = partition === ['"]baselines['"] \? EMPTY_REGRESSION_CATALOG : REGRESSION_CATALOG;/g,
+          },
+          {
+            label: 'baselines partition selection',
+            pattern:
+              /const ownsGlobalPreflights = partition !== ['"]baselines['"];\s*const selectedCatalog = partition === ['"]baselines['"] \? EMPTY_REGRESSION_CATALOG : REGRESSION_CATALOG;/g,
+          },
+          {
+            label: 'mutations partition selection',
+            pattern:
+              /const includeBaselines = partition !== ['"]mutations['"];\s*const ownsGlobalPreflights = partition !== ['"]baselines['"];\s*const selectedCatalog = partition === ['"]baselines['"] \? EMPTY_REGRESSION_CATALOG : REGRESSION_CATALOG;/g,
+          },
+          {
+            label: 'resolver ownership result',
+            pattern: /return Object\.freeze\(\{\s*ownsGlobalPreflights,\s*includeBaselines,\s*selectedCatalog\s*\}\);/g,
+          },
+        ];
+        for (const { label, pattern } of resolverContracts)
+          assert.equal(
+            (resolverSource.match(pattern) || []).length,
+            1,
+            `regression selection resolver must retain the exact ${label} contract`,
+          );
+
+        const suiteSelectionPattern =
+          /async function runRegressionSuite\(jobs,\s*timings = null,\s*partition = null\) \{\s*const \{\s*ownsGlobalPreflights,\s*includeBaselines,\s*selectedCatalog\s*\} = resolveRegressionSelection\(\{\s*partition\s*\}\);/g;
+        assert.equal(
+          (suiteSource.match(suiteSelectionPattern) || []).length,
+          1,
+          'runRegressionSuite must destructure its ownership and catalog selection from the partition-only resolver',
+        );
+
+        const globalPreflightGuardPattern =
+          /if \(ownsGlobalPreflights\) \{\s*await validateFocusedLabelCatalog\(snapshot\);\s*await assertMalformedFocusParity\(snapshot\);\s*\}/g;
+        assert.equal(
+          (suiteSource.match(globalPreflightGuardPattern) || []).length,
+          1,
+          'regression driver must guard only the focused-catalog and malformed-focus preflights together',
+        );
+        assert.equal(
+          (suiteSource.match(/if \(ownsGlobalPreflights\)/g) || []).length,
+          1,
+          'regression driver must contain exactly one global-preflight ownership guard',
+        );
+        for (const invocation of [
+          'await validateFocusedLabelCatalog(snapshot);',
+          'await assertMalformedFocusParity(snapshot);',
+        ])
+          assert.equal(
+            suiteSource.split(invocation).length - 1,
+            1,
+            `regression driver global preflight must have exactly one guarded invocation: ${invocation}`,
+          );
       },
     },
-    reproduced,
-    decision_evidence: null,
-    primary: primaryEvidence(inventory),
-    completion_verdict: 'passed',
-    outcome: 'dual',
-    reviewed_at: '2026-07-13T13:00:00.000Z',
-  };
-  const ordered = renderCompletionReviewBlock(orderedReceipt);
-  assert.match(ordered, /accepted X1,X2/);
-  assert.match(ordered, /rejected S1="one",S2="two"/);
-  assert.match(ordered, /verified X1,X2/);
-  const singleReq = request({ ...req });
-  const Xauth = rawAuth(singleReq, 'X');
-  const Spass = rawPassed(singleReq, 'S');
-  const noX = {
-    ...orderedReceipt,
-    request: singleReq,
-    X: persisted(Xauth),
-    S: persisted(Spass),
-    reproduced: [],
-    outcome: 'single',
-  };
-  assert.equal(completionReviewBlockV1(noX).cross_check, null, 'unavailable X omits cross-check');
+    {
+      run: () =>
+        assert.equal(
+          (
+            readText('scripts/ci.mjs').match(
+              /import\s*\{\s*startTask\s*\}\s*from\s*['"]\.\/lib\/ci-background-task\.mjs['"]/g,
+            ) || []
+          ).length,
+          1,
+          'CI must import the complete-output background task helper exactly once',
+        ),
+    },
+    {
+      run: () =>
+        assert.doesNotMatch(
+          readText('scripts/ci.mjs'),
+          /\bstartNodeTask\b/,
+          'CI must not retain the obsolete Node-only task helper token',
+        ),
+    },
+    {
+      run: () =>
+        assert.equal(
+          (
+            readText('scripts/ci.mjs').match(
+              /nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\)/g,
+            ) || []
+          ).length,
+          0,
+          'CI must not synchronously rerun the regression driver',
+        ),
+    },
+    {
+      label: 'CI no-argument full policy-harness duplicate restored',
+      run: () =>
+        assert.equal(
+          (
+            readText('scripts/ci.mjs').match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*\]\)/g) ||
+            []
+          ).length,
+          0,
+          'CI must contain zero no-argument full policy-harness calls',
+        ),
+    },
+    {
+      run: () =>
+        assert.ok(
+          readText('scripts/ci.mjs').indexOf('startTask(') <
+            readText('scripts/ci.mjs').indexOf("section('workflow YAML')"),
+          'CI must start the regression driver before independent shared checks',
+        ),
+    },
+    {
+      run: () =>
+        assert.ok(
+          readText('scripts/ci.mjs').indexOf(focusedCall) <
+            readText('scripts/ci.mjs').indexOf('await planPolicyRegressionTask'),
+          'CI must join the regression driver after focused Docks checks',
+        ),
+    },
+    ...publicFiles.flatMap((file) => [
+      { run: () => assert.match(readText(file), /plan-reviewer/, `${file} missing reviewer route`) },
+      { run: () => assert.match(readText(file), /schema[- ]6/i, `${file} missing current schema`) },
+      {
+        run: () => assert.match(readText(file), /historical/i, `${file} missing historical validation boundary`),
+      },
+      {
+        run: () =>
+          assert.doesNotMatch(
+            readText(file),
+            /Every plan receives independent X\/S review/,
+            `${file} must not advertise historical X/S as current`,
+          ),
+      },
+    ]),
+    {
+      run: () => assert.match(readText(workspacePath), /schema 6[\s\S]*historical schemas 1–5/i),
+    },
+    { run: () => console.log('CI composition and task-specific acceptance/repair parity passed') },
+    { run: () => console.log('contract/template/public single-primary schema-6 parity passed') },
+  ];
 }
 
-function testExecutionScopeLedger() {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-scope-ledger-'));
-  const repo = path.join(temp, 'repo');
-  initializeRepository(repo);
-  const planPath = 'docs/plans/active/scope.md';
-  let plan = fixturePlan({ cleanReceipt: true });
-  writeLogical(repo, planPath, plan);
-  writeLogical(repo, 'src/example.js', 'one\n');
-  const base = commitAll(repo, 'scope base');
-  writeLogical(repo, 'src/example.js', 'two\n');
-  const sourceCommit = commitAll(repo, 'allowed source change');
-  git(repo, ['commit', '--allow-empty', '-qm', 'intentional empty scope event']);
-  const emptyCommit = git(repo, ['rev-parse', 'HEAD']);
-  plan = replaceOnce(plan, 'updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-13T16:00:00.000Z"');
-  writeLogical(repo, planPath, plan);
-  const head = commitAll(repo, 'allowed plan change');
-  const allowedPreimage = { schema: 1, paths: [planPath, 'src/example.js'] };
-  const expectedAllowedPathsSha256 = sha256(jcs(allowedPreimage));
-  const result = validateExecutionScope({ repo, base, head, planPath, expectedAllowedPathsSha256 });
-  assert.equal(result.commit_count, 3);
-  const ledgerPreimage = {
-    schema: 1,
-    base,
-    head,
-    commits: [
-      { ordinal: 1, commit: sourceCommit, parent: base, paths: ['src/example.js'] },
-      { ordinal: 2, commit: emptyCommit, parent: sourceCommit, paths: [] },
-      { ordinal: 3, commit: head, parent: emptyCommit, paths: [planPath] },
-    ],
+function reviewRunnerSurfaceEntries() {
+  const skillPath = 'plugins/docks/skills/productivity/plan-reviewer/SKILL.md';
+  const claudeWrapperPath = 'plugins/docks/agents/plan-reviewer.md';
+  const codexWrapperPath = '.codex/agents/plan-reviewer.toml';
+  const readText = createCachedRootTextReader();
+  const literalPattern = (marker) => new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  const workflowMarkers = [
+    'Evidence only',
+    'One sealed input',
+    'schema 6',
+    'role `primary`',
+    'availability-only fallback',
+    'max_rounds:2',
+    '--review-schema=6',
+    'reviewer-output.primary.v6.schema.json',
+    'REQUEST_JCS_BEGIN',
+    'GPT-5.6-sol/high',
+    'Fable/high',
+    'Opus/xhigh',
+    'output_started:false',
+    'blocking_gap',
+    'repair_targets_sha256',
+  ];
+  const cleanupMarkers = [
+    'destroy-bundle <bundle-path> <expected-bundle-sha256>',
+    'reviewer never changes permissions or performs cleanup',
+  ];
+  const wrapperFiles = [
+    claudeWrapperPath,
+    codexWrapperPath,
+    'docs/scaffold/templates/codex-plan-reviewer.toml.template',
+    'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
+  ];
+  const generatedWrapperFiles = [
+    codexWrapperPath,
+    'docs/scaffold/templates/codex-plan-reviewer.toml.template',
+    'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
+  ];
+
+  return [
+    { run: () => assert.match(readText(skillPath), /user-invocable: false/) },
+    ...workflowMarkers.map((marker) => ({
+      run: () =>
+        assert.match(readText(skillPath), literalPattern(marker), `plan-reviewer missing workflow marker ${marker}`),
+    })),
+    { run: () => assert.match(readText(skillPath), /Session Relay as review\s+evidence/i) },
+    {
+      run: () =>
+        assert.match(
+          readText('docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md'),
+          /confidence: integer 0 \| 1/,
+        ),
+    },
+    ...cleanupMarkers.map((marker) => ({
+      run: () =>
+        assert.match(
+          readText(skillPath),
+          literalPattern(marker),
+          `plan-reviewer missing safe cleanup marker ${marker}`,
+        ),
+    })),
+    ...wrapperFiles.flatMap((file) => [
+      { run: () => assert.match(readText(file), /evidence/i, `${file} lacks evidence-only route`) },
+      { run: () => assert.match(readText(file), /primary/i, `${file} lacks current primary role`) },
+      {
+        run: () =>
+          assert.doesNotMatch(
+            readText(file),
+            /write the idempotent|and write the .*Review|tools:.*(?:Bash|Edit|Write)/i,
+            `${file} retains write-capable reviewer tools or writer instructions`,
+          ),
+      },
+      {
+        ...(file === codexWrapperPath ? { label: 'read-only wrapper claims primary writes' } : {}),
+        run: () =>
+          assert.match(
+            readText(file),
+            /Never run or claim CI, acceptance, clone, cleanup,[^\n]*(?:lifecycle|receipt)/i,
+            `${file} lacks explicit read-only work boundary`,
+          ),
+      },
+    ]),
+    {
+      label: 'Claude evidence wrapper regains Bash',
+      run: () => assert.match(readText(claudeWrapperPath), /^tools: Read, Glob, Grep$/m),
+    },
+    { run: () => assert.match(readText(claudeWrapperPath), /Return typed evidence only/) },
+    ...generatedWrapperFiles.map((file) => ({
+      run: () => assert.match(readText(file), /Return typed evidence only/),
+    })),
+    { run: () => assert.match(readText(codexWrapperPath), /sandbox_mode = "read-only"/) },
+    { run: () => console.log('plan-reviewer evidence-only live/generated wrapper parity passed') },
+  ];
+}
+
+function productionPrerequisiteProbe(getFixture, focus) {
+  let probe = null;
+  const ensureProbe = async () => {
+    if (probe !== null) return probe;
+    const fixture = await getFixture();
+    const root = path.join(fixture.temp, 'production-probe');
+    const bin = path.join(root, 'bin');
+    const home = path.join(root, 'home');
+    fs.mkdirSync(bin, { recursive: true });
+    const log = path.join(root, 'remote-git.jsonl');
+    const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+    assert.ok(path.isAbsolute(realGit), 'real git path');
+    const gitShim = `#!/usr/bin/env node
+    import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
+    const args=process.argv.slice(2); const remote=args[0]==='ls-remote';
+    if(remote){fs.appendFileSync(process.env.PROBE_LOG,JSON.stringify({args,env:process.env})+'\\n'); const ref=process.env.RELEASE_TAG; if(args.includes('--branches')) process.stdout.write(process.env.RELEASE_COMMIT+'\\trefs/heads/main\\n'); else process.stdout.write(process.env.TAG_OBJECT+'\\trefs/tags/'+ref+'\\n'+process.env.RELEASE_COMMIT+'\\trefs/tags/'+ref+'^{}\\n'); process.exit(0);}
+    const env={...process.env}; for(const key of Object.keys(env)) if(['GIT_CONFIG','GIT_CONFIG_PARAMETERS','GIT_COMMON_DIR','GIT_WORK_TREE','GIT_DIR'].includes(key)||/^GIT_CONFIG_(KEY|VALUE)_[0-9]+$/.test(key)) delete env[key]; env.GIT_CONFIG_COUNT='0'; delete env.GIT_CONFIG_GLOBAL; delete env.GIT_CONFIG_SYSTEM; delete env.GIT_CONFIG_NOSYSTEM;
+    const result=spawnSync(process.env.REAL_GIT,args,{encoding:'buffer',env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
+    `;
+    const commandShim = `#!/usr/bin/env node
+    import path from 'node:path'; const name=path.basename(process.argv[1]); const tag=process.env.RELEASE_TAG; const version=process.env.RELEASE_VERSION; const home=process.env.HOME;
+    if(name==='gh') process.stdout.write(JSON.stringify({isDraft:false,isPrerelease:false,tagName:tag,url:'https://github.com/DocksDocks/docks/releases/tag/'+tag})+'\\n');
+    else if(name==='codex') process.stdout.write(JSON.stringify({installed:[{pluginId:'docks@docks',name:'docks',marketplaceName:'docks',version,installed:true,enabled:true,source:{source:'git-subdir',url:'https://github.com/DocksDocks/docks.git',path:'plugins/docks',ref:'main'}}]})+'\\n');
+    else process.stdout.write(JSON.stringify([{id:'docks@docks',version,scope:'user',enabled:true,installPath:path.join(home,'.claude/plugins/cache/docks/docks',version)}])+'\\n');
+    `;
+    fs.writeFileSync(path.join(bin, 'git'), gitShim, { mode: 0o755 });
+    for (const name of ['gh', 'codex', 'claude']) fs.writeFileSync(path.join(bin, name), commandShim, { mode: 0o755 });
+    const source = gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${POLICY_PATH}`]);
+    for (const runtime of ['.codex', '.claude'])
+      writeLogical(
+        home,
+        `${runtime}/plugins/cache/docks/docks/${RELEASE_VERSION}/skills/productivity/plan-review/scripts/review-policy.mjs`,
+        source,
+      );
+    const globalConfig = path.join(root, 'global.gitconfig');
+    const systemConfig = path.join(root, 'system.gitconfig');
+    const explicitConfig = path.join(root, 'explicit.gitconfig');
+    for (const file of [globalConfig, systemConfig, explicitConfig])
+      fs.writeFileSync(
+        file,
+        '[url "file:///ambient-redirect"]\n\tinsteadOf = https://github.com/DocksDocks/docks.git\n',
+      );
+    git(fixture.repo, [
+      'config',
+      'url.file:///repository-redirect.insteadOf',
+      'https://github.com/DocksDocks/docks.git',
+    ]);
+    const env = {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      HOME: home,
+      REAL_GIT: realGit,
+      PROBE_LOG: log,
+      RELEASE_COMMIT: fixture.releaseCommit,
+      RELEASE_TAG,
+      RELEASE_VERSION,
+      TAG_OBJECT: 'b'.repeat(40),
+      GIT_CONFIG: explicitConfig,
+      GIT_CONFIG_PARAMETERS: "'url.file:///parameter-redirect.insteadOf'='https://github.com/DocksDocks/docks.git'",
+      GIT_COMMON_DIR: path.join(root, 'wrong-common'),
+      GIT_WORK_TREE: path.join(root, 'wrong-worktree'),
+      GIT_DIR: path.join(root, 'wrong-gitdir'),
+      GIT_CONFIG_GLOBAL: globalConfig,
+      GIT_CONFIG_SYSTEM: systemConfig,
+      GIT_CONFIG_NOSYSTEM: '0',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'url.file:///count-redirect.insteadOf',
+      GIT_CONFIG_VALUE_0: 'https://github.com/DocksDocks/docks.git',
+    };
+    const input = prerequisiteInput(fixture);
+    const args = [
+      'compatibility-prerequisite',
+      input.repo,
+      input.planPath,
+      input.finishedPlanPath,
+      input.finishedPlanCommit,
+      input.releaseVersion,
+      input.evidenceCommit,
+      input.compatibilityReviewCommit,
+      input.bindingCommit,
+      input.authorizationId,
+      input.authorizationSha256,
+    ];
+    const result = spawnSync(process.execPath, [fixture.compatibilityHelper, ...args], {
+      cwd: fixture.repo,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+    const application = JSON.parse(result.stdout);
+    const rows = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
+    probe = { application, rows };
+    return probe;
   };
-  assert.equal(
-    result.allowed_paths_sha256,
-    expectedAllowedPathsSha256,
-    'scope allowed paths are exact UTF-16 sorted JCS',
-  );
-  assert.equal(
-    result.changed_paths_sha256,
-    sha256(jcs(ledgerPreimage)),
-    'scope ledger retains chronological order and empty commits',
-  );
-  const resultPreimage = {
-    schema: 1,
-    base,
-    head,
-    commit_count: 3,
-    allowed_paths_sha256: result.allowed_paths_sha256,
-    changed_paths_sha256: result.changed_paths_sha256,
-  };
-  assert.equal(result.result_sha256, sha256(jcs(resultPreimage)), 'scope result self-hash');
-  const cli = helper(repo, ['execution-scope', repo, base, head, planPath, expectedAllowedPathsSha256]);
-  assert.equal(cli.status, 0, cli.stderr);
-  assert.deepEqual(
-    JSON.parse(cli.stdout),
-    result,
-    'execution-scope CLI requires and preserves the reviewer-sealed allowed-path hash',
-  );
-  for (const args of [
-    ['execution-scope', repo, base, head, planPath],
-    ['execution-scope', repo, base, head, planPath, expectedAllowedPathsSha256, 'extra'],
-  ]) {
-    const closed = helper(repo, args);
-    assert.notEqual(closed.status, 0);
-    assert.match(closed.stderr, /accepts .* only/);
-  }
-  writeLogical(repo, 'outside.txt', 'outside\n');
-  const outside = commitAll(repo, 'outside scope');
-  expectThrow(
-    'per-commit outside scope',
-    () => validateExecutionScope({ repo, base, head: outside, planPath, expectedAllowedPathsSha256 }),
-    /execution scope path is not allowed/,
-  );
-  git(repo, ['checkout', '-q', '--detach', head]);
-  const broadened = replaceOnce(plan, '  - src/example.js\n', '  - src/example.js\n  - outside.txt\n');
-  writeLogical(repo, planPath, broadened);
-  commitAll(repo, 'self-broaden scope manifest');
-  writeLogical(repo, 'outside.txt', 'newly admitted\n');
-  const selfBroadenedHead = commitAll(repo, 'change self-admitted path');
-  expectThrow(
-    'self-broadened scope manifest',
-    () => validateExecutionScope({ repo, base, head: selfBroadenedHead, planPath, expectedAllowedPathsSha256 }),
-    /sealed allowed paths hash mismatch/,
-  );
-  git(repo, ['checkout', '-q', '--detach', head]);
-  const duplicate = replaceOnce(plan, '  - src/example.js\n', '  - src/example.js\n  - src/example.js\n');
-  writeLogical(repo, planPath, duplicate);
-  const duplicateHead = commitAll(repo, 'duplicate scope entry');
-  expectThrow(
-    'duplicate scope manifest',
-    () => validateExecutionScope({ repo, base, head: duplicateHead, planPath, expectedAllowedPathsSha256 }),
-    /duplicates/,
-  );
-  git(repo, ['checkout', '-q', '--detach', head]);
-  git(repo, ['checkout', '-qb', 'scope-side']);
-  writeLogical(repo, 'src/example.js', 'side\n');
-  commitAll(repo, 'scope side');
-  git(repo, ['checkout', '-q', '--detach', head]);
-  writeLogical(
-    repo,
-    planPath,
-    replaceOnce(plan, 'updated: "2026-07-13T16:00:00.000Z"', 'updated: "2026-07-13T16:01:00.000Z"'),
-  );
-  commitAll(repo, 'scope first parent');
-  git(repo, ['merge', '--no-ff', '-qm', 'scope merge', 'scope-side']);
-  const merge = git(repo, ['rev-parse', 'HEAD']);
-  expectThrow(
-    'scope merge',
-    () => validateExecutionScope({ repo, base, head: merge, planPath, expectedAllowedPathsSha256 }),
-    /single-parent/,
-  );
-  fs.rmSync(temp, { recursive: true, force: true });
+  return [
+    {
+      run: async () => {
+        const { application, rows } = await ensureProbe();
+        assert.match(application.application_sha256, /^[0-9a-f]{64}$/);
+        assert.equal(rows.length, 2, 'exactly two canonical remote children');
+        assert.deepEqual(rows[0].args, [
+          'ls-remote',
+          '--exit-code',
+          '--branches',
+          'https://github.com/DocksDocks/docks.git',
+          'refs/heads/main',
+        ]);
+      },
+    },
+    {
+      label: 'canonical remote tag loses peeled pattern',
+      run: async () => {
+        const { rows } = await ensureProbe();
+        if (focus !== null) assert.equal(rows.length, 2, 'exactly two canonical remote children');
+        assert.deepEqual(rows[1].args, [
+          'ls-remote',
+          '--exit-code',
+          '--tags',
+          'https://github.com/DocksDocks/docks.git',
+          `refs/tags/${RELEASE_TAG}`,
+          `refs/tags/${RELEASE_TAG}^{}`,
+        ]);
+      },
+    },
+    {
+      label: 'canonical remote config count regression',
+      run: async () => {
+        const { rows } = await ensureProbe();
+        for (const row of rows) {
+          assert.equal(row.env.GIT_CONFIG_COUNT, '0');
+          if (focus !== null) continue;
+          assert.equal(row.env.GIT_DIR, os.devNull);
+          assert.equal(row.env.GIT_CONFIG_GLOBAL, os.devNull);
+          assert.equal(row.env.GIT_CONFIG_SYSTEM, os.devNull);
+          assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1');
+          for (const key of [
+            'GIT_CONFIG',
+            'GIT_CONFIG_PARAMETERS',
+            'GIT_COMMON_DIR',
+            'GIT_WORK_TREE',
+            'GIT_CONFIG_KEY_0',
+            'GIT_CONFIG_VALUE_0',
+          ])
+            assert.equal(row.env[key], undefined, `${key} removed from canonical remote child`);
+        }
+      },
+    },
+    {
+      run: async () => {
+        const { application } = await ensureProbe();
+        const fixture = await getFixture();
+        assert.equal(prerequisiteReceiptFromApplication(application).release_commit, fixture.releaseCommit);
+      },
+    },
+  ];
 }
 
 function testClosedSelectors() {
@@ -4669,959 +2794,6 @@ function testClosedSelectors() {
     assert.equal(result.stdout, '');
     assert.match(result.stderr, /unknown or malformed/);
   }
-}
-
-function testStrictCorpusContract() {
-  assert.equal(STRICT_CASES.length, 23, 'strict corpus case count');
-  assert.equal(new Set(STRICT_CASES).size, STRICT_CASES.length, 'strict corpus cases are unique');
-  assert.equal(sha256(jcs({ schema: 1, cases: STRICT_CASES })), STRICT_CORPUS_SHA256, 'strict corpus identity');
-  const source = fs.readFileSync(HARNESS, 'utf8');
-  for (const comparison of [
-    'assert.equal(newResult.status, oldResult.status',
-    'assert.deepEqual(newResult.stdout, oldResult.stdout',
-    'assert.deepEqual(newResult.stderr, oldResult.stderr',
-  ])
-    assert.equal(source.split(comparison).length - 1, 2, `strict differential retains raw comparison: ${comparison}`);
-}
-
-async function testExecutionCompatibility() {
-  assert.equal(
-    sha256(jcs(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY)),
-    LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256,
-  );
-  testLegacyShapeNegatives();
-  const fixture = await buildCompatibilityRepository();
-  const input = prerequisiteInput(fixture);
-  expectThrow(
-    'legacy shape without evidence',
-    () =>
-      compatibilityRange(fixture.compatibilityHelper, {
-        repo: fixture.repo,
-        planPath: TARGET_PLAN,
-        plannedAtCommit: fixture.plannedAt,
-        executionBaseCommit: fixture.executionBaseCommit,
-        reviewedHead: fixture.releaseCommit,
-      }),
-    /execution compatibility evidence missing/,
-  );
-  const authorizedEvidenceInput = {
-    repo: fixture.repo,
-    reviewedHead: fixture.releaseCommit,
-    planPath: TARGET_PLAN,
-    plannedAtCommit: fixture.plannedAt,
-    executionBaseCommit: fixture.executionBaseCommit,
-  };
-  for (const [label, override, pattern] of [
-    ['authorization id', { authorizationId: 'wrong' }, /owner confirmation source mismatch/],
-    [
-      'authorization plan path',
-      { planPath: 'docs/plans/active/relay-worker-lifecycle-primitives-replay.md' },
-      /owner confirmation plan target mismatch/,
-    ],
-    ['authorization planned commit', { plannedAtCommit: 'f'.repeat(40) }, /owner confirmation planned target mismatch/],
-    [
-      'authorization execution-base commit',
-      { executionBaseCommit: 'e'.repeat(40) },
-      /owner confirmation execution target mismatch/,
-    ],
-  ])
-    expectThrow(
-      label,
-      () => compatibilityEvidence(fixture.compatibilityHelper, { ...authorizedEvidenceInput, ...override }),
-      pattern,
-    );
-  const replayPlanPath = 'docs/plans/active/relay-worker-lifecycle-primitives-replay.md';
-  const replayBytes = gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]);
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
-  writeLogical(fixture.repo, replayPlanPath, replayBytes);
-  const replayHead = commitAll(fixture.repo, 'add exact-shape replay target');
-  assert.deepEqual(
-    gitBytes(fixture.repo, ['show', `${replayHead}:${replayPlanPath}`]),
-    replayBytes,
-    'authorization replay target has the exact authorized plan shape',
-  );
-  expectThrow(
-    'alternate exact-shape plan authorization replay',
-    () =>
-      buildExecutionBaseCompatibilityApplication({
-        repo: fixture.repo,
-        reviewedHead: replayHead,
-        planPath: replayPlanPath,
-        plannedAtCommit: PRODUCTION_COMPATIBILITY_PLANNED_AT,
-        executionBaseCommit: PRODUCTION_COMPATIBILITY_EXECUTION_BASE,
-        authorizationId: COMPATIBILITY_AUTHORIZATION_ID,
-        ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256,
-      }),
-    /owner confirmation plan target mismatch/,
-  );
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
-  const evidenceReceipt = JSON.parse(
-    fixture.evidenceApplication.markdown.match(/Execution-base-compatibility-receipt: (\{.*\})\n/)[1],
-  );
-  const storedDigestReceipt = structuredClone(evidenceReceipt);
-  storedDigestReceipt.owner_confirmation.authorization_scope_sha256 = 'f'.repeat(64);
-  delete storedDigestReceipt.receipt_sha256;
-  storedDigestReceipt.receipt_sha256 = sha256(jcs(storedDigestReceipt));
-  const storedDigestMarkdown = replaceOnce(
-    fixture.evidenceApplication.markdown,
-    `Execution-base-compatibility-receipt: ${jcs(evidenceReceipt)}\n`,
-    `Execution-base-compatibility-receipt: ${jcs(storedDigestReceipt)}\n`,
-    'stored authorization scope digest record',
-  );
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
-  const storedDigestBytes = insertBeforeReviewForTest(
-    gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]),
-    storedDigestMarkdown,
-  );
-  writeLogical(fixture.repo, TARGET_PLAN, storedDigestBytes);
-  const storedDigestE = commitAll(fixture.repo, 'alter stored authorization scope digest');
-  const storedDigestReview = findingsFreeDraftReceipt(storedDigestE, storedDigestBytes, 'single');
-  writeLogical(fixture.repo, TARGET_PLAN, insertOrReplaceDraftReceiptForTest(storedDigestBytes, storedDigestReview));
-  const storedDigestR = commitAll(fixture.repo, 'review altered authorization scope digest');
-  expectThrow(
-    'stored authorization scope digest',
-    () =>
-      compatibilityBinding(fixture.compatibilityHelper, {
-        repo: fixture.repo,
-        planPath: TARGET_PLAN,
-        evidenceCommit: storedDigestE,
-        reviewCommit: storedDigestR,
-      }),
-    /stored authorization scope digest mismatch/,
-  );
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
-  assert.deepEqual(
-    evidenceReceipt.changed_sections.map((row) => row.name),
-    ['Environment & how-to-run', 'Open questions', 'Threat model'],
-  );
-  assert.equal(evidenceReceipt.plan_creation_commit, fixture.creationCommit);
-  assert.equal(evidenceReceipt.evidence_input_commit, fixture.releaseCommit);
-  const material = JSON.parse(
-    fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m)[1],
-  );
-  const opening = fixture.evidenceApplication.markdown.match(/^(`{3,})diff$/m)[1];
-  const diffStart = fixture.evidenceApplication.markdown.indexOf(`${opening}diff\n`) + opening.length + 5;
-  const diffEnd = fixture.evidenceApplication.markdown.indexOf(
-    `${opening}\nExecution-base-compatibility-receipt:`,
-    diffStart,
-  );
-  const recordedDiff = fixture.evidenceApplication.markdown.slice(diffStart, diffEnd);
-  const diffEnv = { ...process.env };
-  delete diffEnv.GIT_DIFF_OPTS;
-  const expectedLegacyDiffArgs = [
-    '--no-pager',
-    '-c',
-    'diff.algorithm=myers',
-    '-c',
-    'diff.context=3',
-    '-c',
-    'diff.interHunkContext=0',
-    '-c',
-    'diff.suppressBlankEmpty=false',
-    '-c',
-    'diff.indentHeuristic=false',
-    '-c',
-    'diff.renames=false',
-    'diff',
-    '--text',
-    '--binary',
-    '--full-index',
-    '--no-renames',
-    '--diff-algorithm=myers',
-    '--unified=3',
-    '--inter-hunk-context=0',
-    '--no-indent-heuristic',
-    '--no-ext-diff',
-    '--no-textconv',
-    '--no-color',
-    '--src-prefix=a/',
-    '--dst-prefix=b/',
-    evidenceReceipt.execution_parent,
-    evidenceReceipt.execution_base_commit,
-    '--',
-    TARGET_PLAN,
-  ];
-  const expectedTransitionDiffArgs = [
-    '--no-pager',
-    '-c',
-    'diff.algorithm=myers',
-    '-c',
-    'diff.context=3',
-    '-c',
-    'diff.interHunkContext=0',
-    '-c',
-    'diff.suppressBlankEmpty=false',
-    '-c',
-    'diff.indentHeuristic=false',
-    '-c',
-    'diff.renames=false',
-    'diff',
-    '--no-index',
-    '--text',
-    '--binary',
-    '--full-index',
-    '--no-renames',
-    '--diff-algorithm=myers',
-    '--unified=3',
-    '--inter-hunk-context=0',
-    '--no-indent-heuristic',
-    '--no-ext-diff',
-    '--no-textconv',
-    '--no-color',
-    '--no-prefix',
-    '--',
-    `a/${TARGET_PLAN}`,
-    `b/${TARGET_PLAN}`,
-  ];
-  const directDiff = spawnSync('git', expectedLegacyDiffArgs, { cwd: fixture.repo, encoding: 'utf8', env: diffEnv });
-  assert.equal(directDiff.status, 0, directDiff.stderr);
-  assert.equal(recordedDiff, directDiff.stdout, 'transition diff is byte-exact canonical Git output');
-  assert.match(recordedDiff, /^diff --git /);
-  assert.doesNotMatch(recordedDiff, /^GIT binary patch$/m, 'transition material remains textual');
-  const rebuildEvidence = () =>
-    compatibilityEvidence(fixture.compatibilityHelper, {
-      repo: fixture.repo,
-      reviewedHead: fixture.releaseCommit,
-      planPath: TARGET_PLAN,
-      plannedAtCommit: fixture.plannedAt,
-      executionBaseCommit: fixture.executionBaseCommit,
-    });
-  const rebuildBinding = () =>
-    compatibilityBinding(fixture.compatibilityHelper, {
-      repo: fixture.repo,
-      planPath: TARGET_PLAN,
-      evidenceCommit: fixture.evidenceCommit,
-      reviewCommit: fixture.compatibilityReviewCommit,
-    });
-  const captureBin = path.join(fixture.temp, 'capture-bin');
-  const captureLog = path.join(fixture.temp, 'captured-git.jsonl');
-  fs.mkdirSync(captureBin);
-  const captureGit = `#!/usr/bin/env node
-import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
-const args=process.argv.slice(2); const cwd=process.cwd(); const noIndex=args.includes('--no-index'); const artifacts=noIndex?args.slice(-2):[];
-const row={args,cwd,artifact_modes:artifacts.map((file)=>fs.statSync(file).mode&0o777),attributes:fs.existsSync('.git/info/attributes')?fs.readFileSync('.git/info/attributes','utf8'):null,env:{GIT_CONFIG_GLOBAL:process.env.GIT_CONFIG_GLOBAL,GIT_CONFIG_SYSTEM:process.env.GIT_CONFIG_SYSTEM,GIT_CONFIG_NOSYSTEM:process.env.GIT_CONFIG_NOSYSTEM,GIT_CONFIG_COUNT:process.env.GIT_CONFIG_COUNT,GIT_ATTR_NOSYSTEM:process.env.GIT_ATTR_NOSYSTEM,GIT_ATTR_SOURCE:process.env.GIT_ATTR_SOURCE,GIT_CONFIG:process.env.GIT_CONFIG,GIT_CONFIG_PARAMETERS:process.env.GIT_CONFIG_PARAMETERS,GIT_DIFF_OPTS:process.env.GIT_DIFF_OPTS,GIT_DIR:process.env.GIT_DIR,GIT_EXTERNAL_DIFF:process.env.GIT_EXTERNAL_DIFF}};
-fs.appendFileSync(process.env.TRANSITION_GIT_LOG,JSON.stringify(row)+'\\n');
-if(noIndex&&process.env.GIT_ATTR_NOSYSTEM!=='1'){fs.writeSync(2,Buffer.from('ambient attribute source was not isolated\\n'));process.exit(97);}
-const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',env:process.env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
-`;
-  fs.writeFileSync(path.join(captureBin, 'git'), captureGit, { mode: 0o755 });
-  const priorPath = process.env.PATH;
-  const priorRealGit = process.env.TRANSITION_REAL_GIT;
-  const priorGitLog = process.env.TRANSITION_GIT_LOG;
-  const priorAttrNoSystem = process.env.GIT_ATTR_NOSYSTEM;
-  process.env.PATH = `${captureBin}${path.delimiter}${priorPath}`;
-  process.env.TRANSITION_REAL_GIT = spawnSync('which', ['git'], {
-    env: { ...process.env, PATH: priorPath },
-    encoding: 'utf8',
-  }).stdout.trim();
-  process.env.TRANSITION_GIT_LOG = captureLog;
-  process.env.GIT_ATTR_NOSYSTEM = '0';
-  try {
-    assert.deepEqual(
-      rebuildEvidence(),
-      fixture.evidenceApplication,
-      'captured transition command preserves byte-identical material',
-    );
-  } finally {
-    process.env.PATH = priorPath;
-    if (priorRealGit === undefined) delete process.env.TRANSITION_REAL_GIT;
-    else process.env.TRANSITION_REAL_GIT = priorRealGit;
-    if (priorGitLog === undefined) delete process.env.TRANSITION_GIT_LOG;
-    else process.env.TRANSITION_GIT_LOG = priorGitLog;
-    if (priorAttrNoSystem === undefined) delete process.env.GIT_ATTR_NOSYSTEM;
-    else process.env.GIT_ATTR_NOSYSTEM = priorAttrNoSystem;
-  }
-  const transitionCalls = fs
-    .readFileSync(captureLog, 'utf8')
-    .trim()
-    .split('\n')
-    .map(JSON.parse)
-    .filter((row) => path.basename(row.cwd).startsWith('docks-transition-diff-'));
-  assert.deepEqual(
-    transitionCalls.map((row) => row.args),
-    [['init', '-q', '--template='], expectedTransitionDiffArgs],
-    'transition producer initializes once and uses the exact deterministic argv once',
-  );
-  assert.equal(transitionCalls[0].cwd, transitionCalls[1].cwd, 'transition children share one private repository');
-  assert.equal(fs.existsSync(transitionCalls[0].cwd), false, 'private transition repository is removed after success');
-  assert.deepEqual(transitionCalls[1].artifact_modes, [0o600, 0o600], 'copied transition artifacts are owner-only');
-  assert.equal(
-    transitionCalls[1].attributes,
-    `a/${TARGET_PLAN} !diff\nb/${TARGET_PLAN} !diff\n`,
-    'private highest-precedence attributes neutralize named diff drivers',
-  );
-  for (const row of transitionCalls) {
-    assert.equal(row.env.GIT_CONFIG_GLOBAL, os.devNull);
-    assert.equal(row.env.GIT_CONFIG_SYSTEM, os.devNull);
-    assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1');
-    assert.equal(row.env.GIT_CONFIG_COUNT, '0');
-    assert.equal(
-      row.env.GIT_ATTR_NOSYSTEM,
-      '1',
-      'transition child behavior requires the GIT_ATTR_NOSYSTEM isolation invariant',
-    );
-    for (const key of [
-      'GIT_ATTR_SOURCE',
-      'GIT_CONFIG',
-      'GIT_CONFIG_PARAMETERS',
-      'GIT_DIFF_OPTS',
-      'GIT_DIR',
-      'GIT_EXTERNAL_DIFF',
-    ])
-      assert.equal(row.env[key], undefined, `${key} removed from canonical transition child`);
-  }
-  writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} binary\n`);
-  assert.deepEqual(
-    rebuildEvidence(),
-    fixture.evidenceApplication,
-    'repository-local binary attributes preserve byte-identical textual transition material',
-  );
-  assert.deepEqual(
-    rebuildBinding(),
-    fixture.bindingApplication,
-    'repository-local binary attributes preserve byte-identical historical reconstruction',
-  );
-  fs.rmSync(path.join(fixture.repo, '.git/info/attributes'));
-  git(fixture.repo, ['config', 'diff.custom.xfuncname', '^## .*']);
-  writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} diff=custom\n`);
-  const localNamedDiff = spawnSync('git', expectedLegacyDiffArgs, {
-    cwd: fixture.repo,
-    encoding: 'utf8',
-    env: diffEnv,
-  });
-  assert.equal(localNamedDiff.status, 0, localNamedDiff.stderr);
-  assert.notEqual(
-    localNamedDiff.stdout,
-    recordedDiff,
-    'repository-local named diff driver fixture changes the legacy producer',
-  );
-  assert.deepEqual(
-    rebuildEvidence(),
-    fixture.evidenceApplication,
-    'repository-local named diff driver preserves byte-identical textual transition material',
-  );
-  assert.deepEqual(
-    rebuildBinding(),
-    fixture.bindingApplication,
-    'repository-local named diff driver preserves byte-identical historical reconstruction',
-  );
-  fs.rmSync(path.join(fixture.repo, '.git/info/attributes'));
-  writeLogical(fixture.repo, '.gitattributes', `${TARGET_PLAN} diff=custom\n`);
-  const committedAttributes = commitAll(fixture.repo, 'commit custom transition attributes');
-  assert.equal(
-    git(fixture.repo, ['show', `${committedAttributes}:.gitattributes`]),
-    `${TARGET_PLAN} diff=custom`,
-    'committed named diff driver fixture is stored in the repository',
-  );
-  const committedNamedDiff = spawnSync('git', expectedLegacyDiffArgs, {
-    cwd: fixture.repo,
-    encoding: 'utf8',
-    env: diffEnv,
-  });
-  assert.equal(committedNamedDiff.status, 0, committedNamedDiff.stderr);
-  assert.notEqual(
-    committedNamedDiff.stdout,
-    recordedDiff,
-    'committed named diff driver fixture changes the legacy producer',
-  );
-  assert.deepEqual(
-    rebuildEvidence(),
-    fixture.evidenceApplication,
-    'committed named diff driver preserves byte-identical textual transition material',
-  );
-  assert.deepEqual(
-    rebuildBinding(),
-    fixture.bindingApplication,
-    'committed named diff driver preserves byte-identical historical reconstruction',
-  );
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
-  git(fixture.repo, ['config', '--unset', 'diff.custom.xfuncname']);
-  const globalAttributes = path.join(fixture.temp, 'global.attributes');
-  const globalConfig = path.join(fixture.temp, 'global.gitconfig');
-  fs.writeFileSync(globalAttributes, `${TARGET_PLAN} -diff\n`);
-  git(fixture.repo, ['config', '--file', globalConfig, 'core.attributesFile', globalAttributes]);
-  const priorGlobalConfig = process.env.GIT_CONFIG_GLOBAL;
-  process.env.GIT_CONFIG_GLOBAL = globalConfig;
-  try {
-    assert.deepEqual(
-      rebuildEvidence(),
-      fixture.evidenceApplication,
-      'global core.attributesFile -diff rule preserves byte-identical textual transition material',
-    );
-    assert.deepEqual(
-      rebuildBinding(),
-      fixture.bindingApplication,
-      'global core.attributesFile -diff rule preserves byte-identical historical reconstruction',
-    );
-  } finally {
-    if (priorGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-    else process.env.GIT_CONFIG_GLOBAL = priorGlobalConfig;
-  }
-  fs.writeFileSync(globalAttributes, `${TARGET_PLAN} diff=custom\n`);
-  git(fixture.repo, ['config', '--file', globalConfig, 'diff.custom.xfuncname', '^## .*']);
-  process.env.GIT_CONFIG_GLOBAL = globalConfig;
-  try {
-    const globalNamedDiff = spawnSync('git', expectedLegacyDiffArgs, {
-      cwd: fixture.repo,
-      encoding: 'utf8',
-      env: { ...diffEnv, GIT_CONFIG_GLOBAL: globalConfig },
-    });
-    assert.equal(globalNamedDiff.status, 0, globalNamedDiff.stderr);
-    assert.notEqual(
-      globalNamedDiff.stdout,
-      recordedDiff,
-      'global named diff driver fixture changes the legacy producer',
-    );
-    assert.deepEqual(
-      rebuildEvidence(),
-      fixture.evidenceApplication,
-      'global named diff driver preserves byte-identical textual transition material',
-    );
-    assert.deepEqual(
-      rebuildBinding(),
-      fixture.bindingApplication,
-      'global named diff driver preserves byte-identical historical reconstruction',
-    );
-  } finally {
-    if (priorGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-    else process.env.GIT_CONFIG_GLOBAL = priorGlobalConfig;
-  }
-  const { review_material_sha256: recordedMaterialSha, ...materialPreimage } = material;
-  assert.equal(material.transition_diff_sha256, sha256(recordedDiff));
-  assert.equal(material.policy_sha256, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256);
-  assert.equal(
-    recordedMaterialSha,
-    sha256(jcs({ schema: 1, material: materialPreimage, transition_diff: recordedDiff })),
-  );
-  validateDraftReceipt(
-    findingsFreeDraftReceipt(
-      fixture.evidenceCommit,
-      gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]),
-      'single',
-    ),
-  );
-
-  const recorded = ['remote_main', 'remote_tag', 'github_release', 'codex_plugin', 'claude_plugin'];
-  let prerequisiteApplication = null;
-  for (const stderrAt of recorded) {
-    const fake = prerequisiteDependencies(fixture, { stderrAt });
-    const application = fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-      input,
-      fake.dependencies,
-    );
-    const receipt = prerequisiteReceiptFromApplication(application);
-    assert.deepEqual(fake.observationOrder, recorded, 'fixed observation order');
-    for (const label of recorded)
-      assert.equal(
-        receipt.observations[label].stderr_sha256,
-        sha256(label === stderrAt ? `stderr:${label}\n` : Buffer.alloc(0)),
-        `${label} stderr hash`,
-      );
-    prerequisiteApplication ??= application;
-  }
-  const light = prerequisiteDependencies(fixture, { tagMode: 'lightweight' });
-  const lightApplication = fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-    input,
-    light.dependencies,
-  );
-  assert.equal(
-    prerequisiteReceiptFromApplication(lightApplication).observations.remote_tag.projection.annotated,
-    false,
-  );
-  assert.equal(
-    prerequisiteReceiptFromApplication(prerequisiteApplication).observations.remote_tag.projection.annotated,
-    true,
-  );
-  const reorderedInput = Object.fromEntries(Object.entries(input).reverse());
-  const reorderedDependencies = Object.fromEntries(
-    Object.entries(prerequisiteDependencies(fixture).dependencies).reverse(),
-  );
-  assert.equal(
-    jcs(
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(reorderedInput, reorderedDependencies),
-    ),
-    jcs(
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        input,
-        prerequisiteDependencies(fixture).dependencies,
-      ),
-    ),
-    'closed object key order canonicalizes identically',
-  );
-  expectThrow(
-    'missing prerequisite input key',
-    () => {
-      const value = { ...input };
-      delete value.releaseVersion;
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        value,
-        prerequisiteDependencies(fixture).dependencies,
-      );
-    },
-    /unknown key|must contain|releaseVersion/,
-  );
-  expectThrow(
-    'extra prerequisite input key',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        { ...input, observations: {} },
-        prerequisiteDependencies(fixture).dependencies,
-      ),
-    /unknown key/,
-  );
-  expectThrow(
-    'swapped prerequisite input values',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        { ...input, evidenceCommit: input.bindingCommit, bindingCommit: input.evidenceCommit },
-        prerequisiteDependencies(fixture).dependencies,
-      ),
-    /contiguous|parent|commit/,
-  );
-  expectThrow(
-    'missing prerequisite dependency',
-    () => {
-      const value = { ...prerequisiteDependencies(fixture).dependencies };
-      delete value.now;
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, value);
-    },
-    /missing now/,
-  );
-  expectThrow(
-    'extra prerequisite dependency',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, {
-        ...prerequisiteDependencies(fixture).dependencies,
-        observations: () => ({}),
-      }),
-    /unknown key/,
-  );
-  expectThrow(
-    'wrong child cwd',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        input,
-        prerequisiteDependencies(fixture, { wrongCwd: true }).dependencies,
-      ),
-    /wrong child cwd/,
-  );
-  expectThrow(
-    'invalid observed time',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        input,
-        prerequisiteDependencies(fixture, { now: '2026-07-13 14:00:00' }).dependencies,
-      ),
-    /ISO/,
-  );
-  expectThrow(
-    'relative homedir',
-    () =>
-      fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-        input,
-        prerequisiteDependencies(fixture, { home: 'relative-home' }).dependencies,
-      ),
-    /homedir/,
-  );
-  for (const [label, resultVariant, pattern] of [
-    [
-      'missing child result field',
-      ({ result, label: row }) =>
-        row === 'remote_main'
-          ? (() => {
-              const copy = { ...result };
-              delete copy.stderr;
-              return copy;
-            })()
-          : result,
-      /child result.*missing stderr/,
-    ],
-    [
-      'extra child result field',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, extra: true } : result),
-      /child result.*unknown key/,
-    ],
-    [
-      'noninteger child status',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, status: '0' } : result),
-      /child status/,
-    ],
-    [
-      'nonzero child status',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, status: 1 } : result),
-      /child failed/,
-    ],
-    [
-      'signaled child',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, signal: 'SIGTERM' } : result),
-      /child failed/,
-    ],
-    [
-      'nonstring child signal',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, signal: 9 } : result),
-      /child signal/,
-    ],
-    [
-      'missing child error field',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, error: { code: 'EIO' } } : result),
-      /child error.*missing message/,
-    ],
-    [
-      'extra child error field',
-      ({ result, label: row }) =>
-        row === 'remote_main' ? { ...result, error: { code: 'EIO', message: 'failed', extra: true } } : result,
-      /child error.*unknown key/,
-    ],
-    [
-      'nonstring child error code',
-      ({ result, label: row }) =>
-        row === 'remote_main' ? { ...result, error: { code: 5, message: 'failed' } } : result,
-      /child error code/,
-    ],
-    [
-      'valid child error',
-      ({ result, label: row }) =>
-        row === 'remote_main' ? { ...result, error: { code: 'EIO', message: 'failed' } } : result,
-      /child failed/,
-    ],
-    [
-      'nonbuffer child stdout',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, stdout: result.stdout.toString() } : result),
-      /Buffer/,
-    ],
-    [
-      'nonbuffer child stderr',
-      ({ result, label: row }) => (row === 'remote_main' ? { ...result, stderr: result.stderr.toString() } : result),
-      /Buffer/,
-    ],
-    [
-      'unrecorded child stderr',
-      ({ result, label: row, argv }) =>
-        row === null && argv[1] === 'rev-parse' ? { ...result, stderr: Buffer.from('unexpected\n') } : result,
-      /stderr must be empty/,
-    ],
-  ])
-    expectThrow(
-      label,
-      () =>
-        fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-          input,
-          prerequisiteDependencies(fixture, { resultVariant }).dependencies,
-        ),
-      pattern,
-    );
-  for (const [label, fileVariant, pattern] of [
-    ['cache symlink', { lstat: () => ({ kind: 'file', symbolicLink: true }) }, /non-symlink file/],
-    ['cache directory', { lstat: () => ({ kind: 'directory', symbolicLink: false }) }, /non-symlink file/],
-    [
-      'cache realpath',
-      { realpath: (value) => (value === path.resolve(fixture.repo) ? value : `${value}.other`) },
-      /non-symlink file/,
-    ],
-    ['cache nonbuffer read', { readFile: () => 'not-buffer' }, /Buffer/],
-    ['cache wrong hash', { readFile: () => Buffer.from('different policy') }, /policies differ/],
-  ])
-    expectThrow(
-      label,
-      () =>
-        fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-          input,
-          prerequisiteDependencies(fixture, { fileVariant }).dependencies,
-        ),
-      pattern,
-    );
-  for (const [label, resultVariant, pattern] of [
-    [
-      'remote main extra row',
-      ({ result, label: row }) =>
-        row === 'remote_main' ? { ...result, stdout: Buffer.concat([result.stdout, result.stdout]) } : result,
-      /remote main stdout mismatch/,
-    ],
-    [
-      'remote tag row order',
-      ({ result, label: row }) =>
-        row === 'remote_tag'
-          ? { ...result, stdout: Buffer.from(`${result.stdout.toString().trim().split('\n').reverse().join('\n')}\n`) }
-          : result,
-      /remote tag stdout mismatch/,
-    ],
-    [
-      'remote tag unpeeled',
-      ({ result, label: row }) =>
-        row === 'remote_tag'
-          ? { ...result, stdout: Buffer.from(`${'a'.repeat(40)}\trefs/tags/${RELEASE_TAG}\n`) }
-          : result,
-      /remote tag stdout mismatch/,
-    ],
-    [
-      'release draft',
-      ({ result, label: row }) =>
-        row === 'github_release'
-          ? {
-              ...result,
-              stdout: Buffer.from(
-                JSON.stringify({
-                  isDraft: true,
-                  isPrerelease: false,
-                  tagName: RELEASE_TAG,
-                  url: `https://github.com/DocksDocks/docks/releases/tag/${RELEASE_TAG}`,
-                }),
-              ),
-            }
-          : result,
-      /Release projection mismatch/,
-    ],
-    [
-      'duplicate Codex plugin',
-      ({ result, label: row, outputs }) =>
-        row === 'codex_plugin'
-          ? {
-              ...result,
-              stdout: Buffer.from(
-                JSON.stringify({
-                  installed: [
-                    JSON.parse(outputs.codex_plugin).installed[1],
-                    JSON.parse(outputs.codex_plugin).installed[1],
-                  ],
-                }),
-              ),
-            }
-          : result,
-      /selection must be unique/,
-    ],
-    [
-      'missing Claude plugin',
-      ({ result, label: row }) => (row === 'claude_plugin' ? { ...result, stdout: Buffer.from('[]') } : result),
-      /selection must be unique/,
-    ],
-  ])
-    expectThrow(
-      label,
-      () =>
-        fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
-          input,
-          prerequisiteDependencies(fixture, { resultVariant }).dependencies,
-        ),
-      pattern,
-    );
-
-  for (const extra of ['dependencies', 'time', 'home', 'raw-observations', 'parsed-observations', 'cache-path']) {
-    const args = [
-      'compatibility-prerequisite',
-      input.repo,
-      input.planPath,
-      input.finishedPlanPath,
-      input.finishedPlanCommit,
-      input.releaseVersion,
-      input.evidenceCommit,
-      input.compatibilityReviewCommit,
-      input.bindingCommit,
-      input.authorizationId,
-      input.authorizationSha256,
-      extra,
-    ];
-    const result = helper(fixture.repo, args);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /accepts .* only/);
-  }
-  const productionApplication = productionPrerequisiteProbe(fixture);
-  assert.equal(prerequisiteReceiptFromApplication(productionApplication).release_commit, fixture.releaseCommit);
-  testCompatibilityChainNegatives(fixture, prerequisiteApplication);
-
-  const changeStoredStderr = (receipt) => {
-    receipt.observations.remote_main.stderr_sha256 = 'f'.repeat(64);
-  };
-  const staleStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr);
-  const staleChain = commitPrerequisiteVariant(fixture, staleStderr, 'stale stored stderr hash');
-  expectThrow(
-    'stale stored stderr substitution',
-    () =>
-      compatibilityRange(fixture.compatibilityHelper, {
-        repo: fixture.repo,
-        planPath: TARGET_PLAN,
-        plannedAtCommit: fixture.plannedAt,
-        executionBaseCommit: fixture.executionBaseCommit,
-        reviewedHead: staleChain.f,
-      }),
-    /observations hash mismatch/,
-  );
-  const partialStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr, {
-    observations: true,
-  });
-  const partialChain = commitPrerequisiteVariant(fixture, partialStderr, 'partially rehashed stored stderr hash');
-  expectThrow(
-    'partially rehashed stored stderr substitution',
-    () =>
-      compatibilityRange(fixture.compatibilityHelper, {
-        repo: fixture.repo,
-        planPath: TARGET_PLAN,
-        plannedAtCommit: fixture.plannedAt,
-        executionBaseCommit: fixture.executionBaseCommit,
-        reviewedHead: partialChain.f,
-      }),
-    /receipt hash mismatch/,
-  );
-  const rehashedStderr = rehashedPrerequisiteApplication(prerequisiteApplication, changeStoredStderr);
-  const rehashedChain = commitPrerequisiteVariant(fixture, rehashedStderr, 'fully rehashed opaque stderr provenance');
-  assert.equal(
-    compatibilityRange(fixture.compatibilityHelper, {
-      repo: fixture.repo,
-      planPath: TARGET_PLAN,
-      plannedAtCommit: fixture.plannedAt,
-      executionBaseCommit: fixture.executionBaseCommit,
-      reviewedHead: rehashedChain.f,
-    }).mode,
-    'legacy_compatibility',
-    'fully rehashed opaque digest documents trusted constructor/Q/F provenance boundary',
-  );
-  const reorderedReceipt = rehashedPrerequisiteApplication(prerequisiteApplication, (receipt) => {
-    receipt.observations = Object.fromEntries(Object.entries(receipt.observations).reverse());
-    receipt.observations.remote_main = Object.fromEntries(Object.entries(receipt.observations.remote_main).reverse());
-  });
-  assert.equal(
-    jcs(reorderedReceipt),
-    jcs(prerequisiteApplication),
-    'reordered closed stored objects are canonical-identical',
-  );
-  for (const [label, applyChange, pattern] of [
-    [
-      'stored observation missing field',
-      (receipt) => {
-        delete receipt.observations.remote_main.exit_code;
-      },
-      /missing exit_code/,
-    ],
-    [
-      'stored observation extra field',
-      (receipt) => {
-        receipt.observations.remote_main.extra = true;
-      },
-      /unknown key/,
-    ],
-    [
-      'stored main projection',
-      (receipt) => {
-        receipt.observations.remote_main.projection.commit = 'f'.repeat(40);
-      },
-      /stored remote main projection/,
-    ],
-    [
-      'stored tag projection',
-      (receipt) => {
-        receipt.observations.remote_tag.projection.peeled_commit = 'f'.repeat(40);
-      },
-      /stored remote tag projection/,
-    ],
-    [
-      'stored argv order',
-      (receipt) => {
-        receipt.observations.remote_main.argv.reverse();
-      },
-      /observation identity/,
-    ],
-    [
-      'stored exit code',
-      (receipt) => {
-        receipt.observations.remote_main.exit_code = 1;
-      },
-      /observation identity/,
-    ],
-    [
-      'stored observed time',
-      (receipt) => {
-        receipt.observations.observed_at = '2026-07-13 14:00:00';
-      },
-      /ISO/,
-    ],
-    [
-      'stored source identity',
-      (receipt) => {
-        receipt.observations.source_policy.git_spec = 'HEAD:wrong';
-      },
-      /source policy observation identity/,
-    ],
-    [
-      'stored cache relative path',
-      (receipt) => {
-        receipt.observations.codex_cache.home_relative_path = '.codex/wrong';
-      },
-      /cache relative path/,
-    ],
-  ]) {
-    const application = rehashedPrerequisiteApplication(prerequisiteApplication, applyChange);
-    const chain = commitPrerequisiteVariant(fixture, application, label);
-    expectThrow(
-      label,
-      () =>
-        compatibilityRange(fixture.compatibilityHelper, {
-          repo: fixture.repo,
-          planPath: TARGET_PLAN,
-          plannedAtCommit: fixture.plannedAt,
-          executionBaseCommit: fixture.executionBaseCommit,
-          reviewedHead: chain.f,
-        }),
-      pattern,
-    );
-  }
-  git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
-
-  const prerequisiteBytes = applyPrerequisiteForTest(fixture.bindingBytes, prerequisiteApplication);
-  writeLogical(fixture.repo, TARGET_PLAN, prerequisiteBytes);
-  const prerequisiteCommit = commitAll(fixture.repo, 'close Docks prerequisite');
-  const finalReceipt = findingsFreeDraftReceipt(
-    prerequisiteCommit,
-    prerequisiteBytes,
-    'single',
-    '2026-07-13T15:00:00.000Z',
-  );
-  const finalBytes = insertOrReplaceDraftReceiptForTest(prerequisiteBytes, finalReceipt, true);
-  writeLogical(fixture.repo, TARGET_PLAN, finalBytes);
-  const finalReviewCommit = commitAll(fixture.repo, 'record final execution review');
-  const validation = compatibilityRange(fixture.compatibilityHelper, {
-    repo: fixture.repo,
-    planPath: TARGET_PLAN,
-    plannedAtCommit: fixture.plannedAt,
-    executionBaseCommit: fixture.executionBaseCommit,
-    reviewedHead: finalReviewCommit,
-  });
-  assert.equal(validation.mode, 'legacy_compatibility');
-  assert.equal(validation.prerequisite_commit, prerequisiteCommit);
-  assert.equal(validation.execution_review_commit, finalReviewCommit);
-  assert.equal(
-    validation.prerequisite_receipt_sha256,
-    prerequisiteReceiptFromApplication(prerequisiteApplication).receipt_sha256,
-  );
-  const completionReceipt = completionReceiptFor(finalReviewCommit, finalBytes);
-  let completionBytes = applyCompletionReviewBlock(finalBytes, completionReceipt).toString();
-  completionBytes = replaceOnce(completionBytes, 'review_status: null', 'review_status: passed');
-  writeLogical(fixture.repo, TARGET_PLAN, completionBytes);
-  const completionCommit = commitAll(fixture.repo, 'complete compatibility consumer plan');
-  validateCompletionReviewReuse({
-    repo: fixture.repo,
-    planPath: TARGET_PLAN,
-    reviewedHead: finalReviewCommit,
-    completionCommit,
-    receipt: completionReceipt,
-    expectedPolicy: completionReceipt.policy,
-  });
-  assert.equal(
-    compatibilityRange(fixture.compatibilityHelper, {
-      repo: fixture.repo,
-      planPath: TARGET_PLAN,
-      plannedAtCommit: fixture.plannedAt,
-      executionBaseCommit: fixture.executionBaseCommit,
-      reviewedHead: completionCommit,
-    }).execution_review_commit,
-    finalReviewCommit,
-  );
-  testStrictCompletionReuse();
-  testCompletionReviewRenderer();
-  testExecutionScopeLedger();
-  makeWritable(fixture.temp);
-  fs.rmSync(fixture.temp, { recursive: true, force: true });
-  console.log(
-    'execution compatibility: strict-first evidence/review/binding/prerequisite/final-review and reuse passed',
-  );
 }
 
 function strictDifferentialFixture(caseName) {
@@ -5716,9 +2888,9 @@ function strictDifferentialFixture(caseName) {
   return { temp, repo, args: ['execution-range', repo, selectedHead, selectedPath, selectedPlan, selectedBase] };
 }
 
-function testStrictDifferential(baseline) {
+async function testStrictDifferential(baseline) {
   assert.match(baseline, /^[0-9a-f]{40}$/);
-  testStrictCorpusContract();
+  await testStrictCorpusContract();
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-baseline-helper-'));
   const baselineHelper = path.join(temp, 'review-policy-baseline.mjs');
   const runner = path.join(temp, 'runner.mjs');
@@ -5744,285 +2916,6 @@ try { process.stdout.write(policy.jcs(policy.validateExecutionRange({repo,review
   console.log(`execution compatibility: strict differential passed cases=${STRICT_CASES.length}`);
 }
 
-function testLifecycle() {
-  const settledPassed = (lifecycleIntent) =>
-    orchestrationStateV1({
-      lifecycle_intent: lifecycleIntent,
-      status: 'passed',
-      series_sha256: H0,
-      apply_state: lifecycleIntent === 'none' ? 'none' : 'pending',
-    });
-  const transitioned = (orchestration, overrides) =>
-    normalStateV2From(orchestration, {
-      ...overrides,
-      transitioned_from_state_sha256: orchestration.state_sha256,
-    });
-  const none = settledPassed('none');
-  assert.deepEqual(applyLifecycleState({ state: 'planned', intent: 'none', eligible: true, orchestration: none }), {
-    kind: 'applied',
-    state: 'planned',
-    orchestration: normalStateV2From(none),
-  });
-  assert.deepEqual(applyLifecycleState({ state: 'scheduled', intent: 'none', eligible: false, orchestration: none }), {
-    kind: 'applied',
-    state: 'scheduled',
-    orchestration: normalStateV2From(none),
-  });
-
-  const start = settledPassed('start');
-  assert.deepEqual(applyLifecycleState({ state: 'planned', intent: 'start', eligible: true, orchestration: start }), {
-    kind: 'applied',
-    state: 'ongoing',
-    orchestration: transitioned(start, { apply_state: 'consumed' }),
-  });
-  const scheduleFire = settledPassed('schedule_fire');
-  assert.deepEqual(
-    applyLifecycleState({ state: 'scheduled', intent: 'schedule_fire', eligible: true, orchestration: scheduleFire }),
-    { kind: 'applied', state: 'ongoing', orchestration: transitioned(scheduleFire, { apply_state: 'consumed' }) },
-  );
-  const autoExecute = settledPassed('auto_execute');
-  assert.deepEqual(
-    applyLifecycleState({ state: 'scheduled', intent: 'auto_execute', eligible: false, orchestration: autoExecute }),
-    {
-      kind: 'rejected',
-      state: 'scheduled',
-      orchestration: transitioned(autoExecute, { status: 'stuck', stop_reason: 'apply_rejected', apply_state: 'none' }),
-    },
-  );
-  assert.deepEqual(applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true, orchestration: start }), {
-    kind: 'rejected',
-    state: 'scheduled',
-    orchestration: transitioned(start, { status: 'stuck', stop_reason: 'apply_rejected', apply_state: 'none' }),
-  });
-  assert.deepEqual(
-    applyLifecycleState({ state: 'planned', intent: 'schedule_fire', eligible: true, orchestration: scheduleFire }),
-    {
-      kind: 'rejected',
-      state: 'planned',
-      orchestration: transitioned(scheduleFire, {
-        status: 'stuck',
-        stop_reason: 'apply_rejected',
-        apply_state: 'none',
-      }),
-    },
-  );
-  expectThrow(
-    'legacy intentUsed lifecycle input',
-    () =>
-      applyLifecycleState({
-        state: 'planned',
-        intent: 'start',
-        eligible: true,
-        orchestration: start,
-        intentUsed: false,
-      }),
-    /unknown key|intentUsed/i,
-  );
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-lifecycle-'));
-  const original = path.join(temp, 'original');
-  const verifyRoot = '/tmp/docks-plan-verify';
-  const requestId = randomUUID();
-  const planPath = 'docs/plans/active/sample.md';
-  fs.mkdirSync(path.join(original, 'docs/plans/active'), { recursive: true });
-  git(original, ['init', '-q']);
-  git(original, ['config', 'user.email', 'policy@example.test']);
-  git(original, ['config', 'user.name', 'Policy Test']);
-  fs.writeFileSync(path.join(original, '.gitignore'), 'ignored-cache\n');
-  fs.writeFileSync(path.join(original, 'result.txt'), 'original\n');
-  fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
-  git(original, ['add', '.gitignore', 'result.txt']);
-  git(original, ['commit', '-qm', 'fixture']);
-  const plannedAt = git(original, ['rev-parse', 'HEAD']);
-  const plannedPlan = fs
-    .readFileSync(FIXTURE, 'utf8')
-    .replace('"0000000000000000000000000000000000000000"', `"${plannedAt}"`)
-    .replace('started_at: null\n', '');
-  fs.writeFileSync(path.join(original, planPath), plannedPlan);
-  fs.writeFileSync(path.join(original, 'result.txt'), 'pre-start concurrent work\n');
-  git(original, ['add', planPath, 'result.txt']);
-  git(original, ['commit', '-qm', 'plan fixture']);
-  const largeBinary = Buffer.alloc(2 * 1024 * 1024);
-  for (let offset = 0, block = 0; offset < largeBinary.length; block += 1) {
-    const bytes = createHash('sha256').update(`completion-diff-${block}`).digest();
-    offset += bytes.copy(largeBinary, offset);
-  }
-  fs.writeFileSync(path.join(original, 'retired-binary'), largeBinary);
-  git(original, ['add', 'retired-binary']);
-  git(original, ['commit', '-qm', 'pre-start binary fixture']);
-  fs.writeFileSync(
-    path.join(original, planPath),
-    plannedPlan.replace('status: planned', 'status: ongoing\nstarted_at: "2026-07-12T00:30:00-03:00"'),
-  );
-  git(original, ['add', planPath]);
-  git(original, ['commit', '-qm', 'start plan']);
-  const executionBase = git(original, ['rev-parse', 'HEAD']);
-  fs.rmSync(path.join(original, 'retired-binary'));
-  fs.writeFileSync(
-    path.join(original, planPath),
-    fs
-      .readFileSync(path.join(original, planPath), 'utf8')
-      .replace('execution_base_commit: null', `execution_base_commit: "${executionBase}"`),
-  );
-  git(original, ['add', '-A']);
-  git(original, ['commit', '-qm', 'record execution base']);
-  const head = git(original, ['rev-parse', 'HEAD']);
-  const completionBundle = path.join(temp, 'completion-bundle');
-  const sealedCompletion = sealBundle({
-    repo: original,
-    reviewedCommit: head,
-    planPath,
-    requestedPaths: ['result.txt'],
-    outDir: completionBundle,
-    plannedAtCommit: plannedAt,
-    executionBaseCommit: executionBase,
-  });
-  assert.ok(
-    fs.statSync(path.join(completionBundle, 'completion.diff')).size > 1024 * 1024,
-    'completion bundle preserves diffs larger than spawnSync default maxBuffer',
-  );
-  assert.equal(sealedCompletion.completion.execution_base_commit, executionBase);
-  assert.equal(sealedCompletion.completion.acceptance_inventory_sha256, sha256(jcs(INVENTORY)));
-  assert.doesNotMatch(
-    fs.readFileSync(path.join(completionBundle, 'completion.diff'), 'utf8'),
-    /pre-start concurrent work/,
-    'execution diff excludes concurrent pre-start changes',
-  );
-  assert.match(
-    fs.readFileSync(path.join(completionBundle, 'completion.diff'), 'utf8'),
-    /execution_base_commit/,
-    'execution diff includes post-start identity commit',
-  );
-  verifyBundle({ bundle: completionBundle, expectedSha256: sealedCompletion.bundle_sha256 });
-  expectThrow(
-    'non-start execution base',
-    () =>
-      sealBundle({
-        repo: original,
-        reviewedCommit: head,
-        planPath,
-        requestedPaths: [],
-        outDir: path.join(temp, 'bad-execution'),
-        plannedAtCommit: plannedAt,
-        executionBaseCommit: head,
-      }),
-    /execution base|ancestry/,
-  );
-  const arbitraryPrepare = helper(temp, ['completion-prepare', original, head, requestId, planPath, plannedAt]);
-  assert.notEqual(arbitraryPrepare.status, 0);
-  assert.match(
-    arbitraryPrepare.stderr,
-    /accepts repo reviewedHead requestId planPath plannedAtCommit executionBaseCommit only/,
-  );
-  const prepareResult = helper(temp, [
-    'completion-prepare',
-    original,
-    head,
-    requestId,
-    planPath,
-    plannedAt,
-    executionBase,
-  ]);
-  assert.equal(prepareResult.status, 0, prepareResult.stderr);
-  const prepared = JSON.parse(prepareResult.stdout);
-  assert.equal(prepared.checkout, path.join(verifyRoot, requestId));
-  assert.equal(git(prepared.checkout, ['rev-parse', 'HEAD']), head);
-  assert.equal(
-    git(prepared.checkout, ['status', '--porcelain=v1', '--untracked-files=all']),
-    '',
-    'prepared checkout must be clean',
-  );
-  const checkoutStat = fs.lstatSync(prepared.checkout);
-  assert.equal(checkoutStat.isDirectory(), true);
-  assert.equal(checkoutStat.isSymbolicLink(), false);
-  assert.equal(fs.realpathSync(prepared.checkout), prepared.checkout);
-  if (typeof process.getuid === 'function') assert.equal(checkoutStat.uid, process.getuid());
-  const rootSentinel = path.join(prepared.checkout, '.docks-plan-verify-sentinel');
-  assert.equal(fs.existsSync(rootSentinel), false, 'sentinel must be absent from worktree root');
-  const privateGitDir = path.join(prepared.checkout, '.git');
-  const gitDirStat = fs.lstatSync(privateGitDir);
-  assert.equal(gitDirStat.isDirectory(), true);
-  assert.equal(gitDirStat.isSymbolicLink(), false);
-  assert.equal(fs.realpathSync(privateGitDir), privateGitDir);
-  if (typeof process.getuid === 'function') assert.equal(gitDirStat.uid, process.getuid());
-  const sentinel = path.join(privateGitDir, '.docks-plan-verify-sentinel');
-  const sentinelStat = fs.lstatSync(sentinel);
-  assert.equal(sentinelStat.isFile(), true);
-  assert.equal(sentinelStat.isSymbolicLink(), false);
-  assert.equal(sentinelStat.mode & 0o777, 0o600);
-  if (typeof process.getuid === 'function') assert.equal(sentinelStat.uid, process.getuid());
-  const sentinelBytes = fs.readFileSync(sentinel);
-  const parsedSentinel = JSON.parse(sentinelBytes.toString('utf8'));
-  assert.equal(
-    sentinelBytes.toString('utf8'),
-    `${jcs(parsedSentinel)}\n`,
-    'private sentinel must be compact JCS plus LF',
-  );
-  assert.equal(parsedSentinel.request_id, requestId);
-  assert.equal(parsedSentinel.cleanup_token, prepared.cleanup_token);
-  const restoreSentinel = () => {
-    try {
-      fs.rmSync(sentinel, { force: false });
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    fs.writeFileSync(sentinel, sentinelBytes, { flag: 'wx', mode: 0o600 });
-  };
-  fs.writeFileSync(path.join(prepared.checkout, 'ci-artifact.txt'), 'disposable only\n');
-  const preparedPath = path.join(temp, 'prepared.json');
-  fs.writeFileSync(preparedPath, JSON.stringify(prepared));
-  fs.rmSync(sentinel);
-  fs.writeFileSync(rootSentinel, sentinelBytes, { flag: 'wx', mode: 0o600 });
-  const misplacedSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]);
-  assert.notEqual(misplacedSentinel.status, 0);
-  assert.match(misplacedSentinel.stderr, /sentinel missing/);
-  fs.rmSync(rootSentinel);
-  restoreSentinel();
-  fs.chmodSync(sentinel, 0o644);
-  const wrongMode = helper(temp, ['completion-cleanup', original, requestId, preparedPath]);
-  assert.notEqual(wrongMode.status, 0);
-  assert.match(wrongMode.stderr, /ownership or mode is unsafe/);
-  fs.chmodSync(sentinel, 0o600);
-  const sentinelTarget = path.join(privateGitDir, '.docks-plan-verify-sentinel-target');
-  fs.writeFileSync(sentinelTarget, sentinelBytes, { flag: 'wx', mode: 0o600 });
-  fs.rmSync(sentinel);
-  fs.symlinkSync(path.basename(sentinelTarget), sentinel);
-  const symlinkSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]);
-  assert.notEqual(symlinkSentinel.status, 0);
-  assert.match(symlinkSentinel.stderr, /not a regular file/);
-  fs.rmSync(sentinel);
-  fs.rmSync(sentinelTarget);
-  restoreSentinel();
-  fs.rmSync(sentinel);
-  const missingSentinel = helper(temp, ['completion-cleanup', original, requestId, preparedPath]);
-  assert.notEqual(missingSentinel.status, 0);
-  assert.match(missingSentinel.stderr, /sentinel missing/);
-  restoreSentinel();
-  fs.writeFileSync(path.join(original, 'ignored-cache'), 'mutated ignored content\n');
-  const ignoredChange = helper(temp, ['completion-cleanup', original, requestId, preparedPath]);
-  assert.notEqual(ignoredChange.status, 0);
-  assert.match(ignoredChange.stderr, /original repository changed/);
-  fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
-  const forged = { ...prepared, cleanup_token: H0 };
-  const forgedPath = path.join(temp, 'forged.json');
-  fs.writeFileSync(forgedPath, JSON.stringify(forged));
-  const forgedCleanup = helper(temp, ['completion-cleanup', original, requestId, forgedPath]);
-  assert.notEqual(forgedCleanup.status, 0);
-  assert.match(forgedCleanup.stderr, /sentinel mismatch/);
-  const cleanupResult = helper(temp, ['completion-cleanup', original, requestId, preparedPath]);
-  assert.equal(cleanupResult.status, 0, cleanupResult.stderr);
-  const cleaned = JSON.parse(cleanupResult.stdout);
-  assert.equal(cleaned.removed, true);
-  assert.equal(fs.existsSync(prepared.checkout), false);
-  const escaped = helper(temp, ['completion-cleanup', original, '../escape', preparedPath]);
-  assert.notEqual(escaped.status, 0);
-  assert.match(escaped.stderr, /prepared completion identity mismatch|request id/);
-  makeWritable(completionBundle);
-  fs.rmSync(temp, { recursive: true, force: true });
-  console.log('lifecycle: planned/scheduled preservation, start/fire/auto gating and one-intent consumption passed');
-  console.log('lifecycle: git clone --no-local disposable CI and complete original repo+.git digest passed');
-  console.log('cleanup: canonical root and prepare identity reject arbitrary roots and forged tokens');
-}
-
 function testConsumer() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-consumer-'));
   const copy = path.join(temp, 'review-policy.mjs');
@@ -6037,240 +2930,11 @@ function testConsumer() {
 }
 
 function testContractSurfaces() {
-  const contractPath = 'docs/plans/AGENTS.md';
-  const templatePath = 'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md';
-  const managerPath = 'plugins/docks/skills/productivity/plan-manager/SKILL.md';
-  const reviewPath = 'plugins/docks/skills/productivity/plan-reviewer/SKILL.md';
-  const repairerPath = 'plugins/docks/skills/productivity/plan-repairer/SKILL.md';
-  const contract = fs.readFileSync(path.join(ROOT, contractPath), 'utf8');
-  const template = fs.readFileSync(path.join(ROOT, templatePath), 'utf8');
-  for (const marker of [
-    'review_author_company:',
-    'review_waivers:',
-    'execution_base_commit:',
-    '## Current schema-6 review orchestration',
-    'Review-orchestration-state:',
-    'plan-reviewer',
-    'plan-repairer',
-  ]) {
-    assert.match(contract, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `contract missing ${marker}`);
-    assert.match(template, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `template missing ${marker}`);
-  }
-  const contractMarkers = [
-    /schema 6/i,
-    /historical schemas 1–5/i,
-    /one full round plus at most one changed-input repair/i,
-    /attempt 2[\s\S]{0,120}(?:explicit|exact)\s+current-user|(?:explicit|exact)\s+current-user[\s\S]{0,120}attempt 2/i,
-    /standalone_executability/,
-    /actionability/,
-    /dependency_order/,
-    /evidence_reverification/,
-    /goal_coverage/,
-    /executable_acceptance/,
-    /failure_modes/,
-    /open_questions/,
-    /cannot_repair/,
-  ];
-  for (const file of [contractPath, templatePath]) {
-    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    for (const marker of contractMarkers)
-      assert.match(text, marker, `${file} missing current workflow marker ${marker}`);
-  }
-  const policyMarkers = [
-    /schema[- ]6/i,
-    /role:?\s*[`"']?primary|role `primary`/i,
-    /fallback:?\s*[`"']?availability_only|availability-only fallback/i,
-    /max_rounds:?\s*[`"']?2/,
-    /service_tier:?\s*[`"']?default/,
-  ];
-  for (const file of [managerPath, reviewPath]) {
-    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    for (const marker of policyMarkers) assert.match(text, marker, `${file} missing current workflow marker ${marker}`);
-    assert.match(
-      text,
-      /historical schemas 1–5|historical validation|persisted historical evidence/i,
-      `${file} must preserve historical review semantics explicitly`,
-    );
-    assert.match(
-      text,
-      /no round\s+3|round\s+3[^.\n]*reject|reject[^.\n]*round\s+3|one changed-input repair round is the maximum/i,
-      `${file} must close the current series after one repair`,
-    );
-  }
-  const reviewer = fs.readFileSync(path.join(ROOT, reviewPath), 'utf8');
-  assert.match(reviewer, /non_blocking_gap/);
-  assert.match(reviewer, /blocking_gap/);
-  const repairer = fs.readFileSync(path.join(ROOT, repairerPath), 'utf8');
-  for (const marker of [
-    'user-invocable: false',
-    'blocking_gap',
-    'independently reproduced',
-    'cannot_repair',
-    'validates and applies any returned patch',
-  ])
-    assert.match(repairer, new RegExp(marker, 'i'), `plan-repairer missing ${marker}`);
-  assert.match(
-    repairer,
-    /Never write the plan[\s\S]*write a receipt[\s\S]*change status/i,
-    'plan-repairer must explicitly reject review and lifecycle ownership',
-  );
-  const workspace = fs.readFileSync(
-    path.join(ROOT, 'plugins/docks/skills/productivity/plan-workspace/SKILL.md'),
-    'utf8',
-  );
-  for (const marker of [
-    'STALE',
-    'explicitly refresh',
-    'explicit current-turn refresh',
-    '.codex/agents/plan-reviewer.toml',
-    'current schema 6',
-    'historical schemas 1–5',
-  ])
-    assert.match(
-      workspace,
-      new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
-      `plan-workspace missing refresh marker ${marker}`,
-    );
-  const ci = fs.readFileSync(path.join(ROOT, 'scripts/ci.mjs'), 'utf8');
-  const focusedCall = "nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces'])";
-  assert.equal(
-    (
-      ci.match(
-        /nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*,\s*['"]--case['"]\s*,\s*['"]surfaces['"]\s*\]\)/g,
-      ) || []
-    ).length,
-    1,
-    'CI must contain exactly one focused --case surfaces call',
-  );
-  assert.equal(
-    (
-      ci.match(
-        /startTask\(\s*['"]plan-review-policy regressions['"]\s*,\s*process\.execPath\s*,\s*\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\s*,\s*\{\s*cwd:\s*REPO,\s*tasks\s*\}\s*,?\s*\)/g,
-      ) || []
-    ).length,
-    1,
-    'CI must contain exactly one background regression-driver --self-test task with explicit spool ownership',
-  );
-  assert.equal(
-    (ci.match(/import\s*\{\s*startTask\s*\}\s*from\s*['"]\.\/lib\/ci-background-task\.mjs['"]/g) || []).length,
-    1,
-    'CI must import the complete-output background task helper exactly once',
-  );
-  assert.doesNotMatch(ci, /\bstartNodeTask\b/, 'CI must not retain the obsolete Node-only task helper token');
-  assert.equal(
-    (
-      ci.match(
-        /nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy-regressions\.mjs['"]\s*,\s*['"]--self-test['"]\s*\]\)/g,
-      ) || []
-    ).length,
-    0,
-    'CI must not synchronously rerun the regression driver',
-  );
-  assert.equal(
-    (ci.match(/nodeOk\(\[\s*['"]scripts\/tests\/plan-review-policy\.mjs['"]\s*\]\)/g) || []).length,
-    0,
-    'CI must contain zero no-argument full policy-harness calls',
-  );
-  assert.ok(
-    ci.indexOf('startTask(') < ci.indexOf("section('workflow YAML')"),
-    'CI must start the regression driver before independent shared checks',
-  );
-  assert.ok(
-    ci.indexOf(focusedCall) < ci.indexOf('await planPolicyRegressionTask'),
-    'CI must join the regression driver after focused Docks checks',
-  );
-  for (const file of ['AGENTS.md', 'README.md', 'plugins/docks/README.md', 'plugins/docks/skills/AGENTS.md']) {
-    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    assert.match(text, /plan-reviewer/, `${file} missing reviewer route`);
-    assert.match(text, /schema[- ]6/i, `${file} missing current schema`);
-    assert.match(text, /historical/i, `${file} missing historical validation boundary`);
-    assert.doesNotMatch(
-      text,
-      /Every plan receives independent X\/S review/,
-      `${file} must not advertise historical X/S as current`,
-    );
-  }
-  assert.match(
-    fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-workspace/SKILL.md'), 'utf8'),
-    /schema 6[\s\S]*historical schemas 1–5/i,
-  );
-  console.log('CI composition and task-specific acceptance/repair parity passed');
-  console.log('contract/template/public single-primary schema-6 parity passed');
+  for (const entry of contractSurfaceEntries()) entry.run();
 }
 
 function testReviewRunnerSurfaces() {
-  const skill = fs.readFileSync(path.join(ROOT, 'plugins/docks/skills/productivity/plan-reviewer/SKILL.md'), 'utf8');
-  assert.match(skill, /user-invocable: false/);
-  for (const marker of [
-    'Evidence only',
-    'One sealed input',
-    'schema 6',
-    'role `primary`',
-    'availability-only fallback',
-    'max_rounds:2',
-    '--review-schema=6',
-    'reviewer-output.primary.v6.schema.json',
-    'REQUEST_JCS_BEGIN',
-    'GPT-5.6-sol/high',
-    'Fable/high',
-    'Opus/xhigh',
-    'output_started:false',
-    'blocking_gap',
-    'repair_targets_sha256',
-  ])
-    assert.match(
-      skill,
-      new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
-      `plan-reviewer missing workflow marker ${marker}`,
-    );
-  assert.match(skill, /Session Relay as review\s+evidence/i);
-  assert.match(
-    fs.readFileSync(path.join(ROOT, 'docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md'), 'utf8'),
-    /confidence: integer 0 \| 1/,
-  );
-  for (const marker of [
-    'destroy-bundle <bundle-path> <expected-bundle-sha256>',
-    'reviewer never changes permissions or performs cleanup',
-  ])
-    assert.match(
-      skill,
-      new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
-      `plan-reviewer missing safe cleanup marker ${marker}`,
-    );
-  for (const file of [
-    'plugins/docks/agents/plan-reviewer.md',
-    '.codex/agents/plan-reviewer.toml',
-    'docs/scaffold/templates/codex-plan-reviewer.toml.template',
-    'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
-  ]) {
-    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    assert.match(text, /evidence/i, `${file} lacks evidence-only route`);
-    assert.match(text, /primary/i, `${file} lacks current primary role`);
-    assert.doesNotMatch(
-      text,
-      /write the idempotent|and write the .*Review|tools:.*(?:Bash|Edit|Write)/i,
-      `${file} retains write-capable reviewer tools or writer instructions`,
-    );
-    assert.match(
-      text,
-      /Never run or claim CI, acceptance, clone, cleanup,[^\n]*(?:lifecycle|receipt)/i,
-      `${file} lacks explicit read-only work boundary`,
-    );
-  }
-  const claudeWrapper = fs.readFileSync(path.join(ROOT, 'plugins/docks/agents/plan-reviewer.md'), 'utf8');
-  assert.match(claudeWrapper, /^tools: Read, Glob, Grep$/m);
-  assert.match(claudeWrapper, /Return typed evidence only/);
-  for (const file of [
-    '.codex/agents/plan-reviewer.toml',
-    'docs/scaffold/templates/codex-plan-reviewer.toml.template',
-    'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
-  ])
-    assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /Return typed evidence only/);
-  assert.match(
-    fs.readFileSync(path.join(ROOT, '.codex/agents/plan-reviewer.toml'), 'utf8'),
-    /sandbox_mode = "read-only"/,
-  );
-  console.log('plan-reviewer evidence-only live/generated wrapper parity passed');
+  for (const entry of reviewRunnerSurfaceEntries()) entry.run();
 }
 
 function testManagerSurfaces() {
@@ -7553,486 +4217,6 @@ async function testSchema6PolicySurfaces() {
   }
 }
 
-function testCurrentSingleLane() {
-  validatePolicy(CURRENT_POLICY);
-  const req = currentRequest();
-  validateRequest(req);
-  const schema = reviewPolicy.currentReviewerSchema();
-  assert.equal(schema.additionalProperties, false);
-  assert.equal(schema.properties.schema.const, 5);
-  assert.equal(schema.properties.role.const, 'primary');
-  assert.equal(Object.hasOwn(schema.properties, 'score'), false);
-  assert.equal(Object.hasOwn(schema.properties, 'rubric'), false);
-  assert.deepEqual(Object.keys(schema.properties.checklist.properties), CURRENT_CRITERIA);
-
-  const [gpt, fable, opus] = CURRENT_POLICY.candidates;
-  const fallback = [
-    currentAttempt(gpt, {
-      started: false,
-      output_started: false,
-      result: 'tool_unavailable',
-      child_id: null,
-      timeout_mode: null,
-      timeout_seconds: null,
-      exit_code: null,
-      reason: 'Codex is not installed',
-      stdout_sha256: null,
-      stderr_sha256: null,
-    }),
-    currentAttempt(fable, {
-      output_started: false,
-      result: 'auth_failed',
-      exit_code: 1,
-      reason: 'Claude auth is unavailable',
-    }),
-    currentAttempt(opus),
-  ];
-  assert.equal(reviewPolicy.validateCurrentAttemptSequence(fallback, CURRENT_POLICY).selected_index, 2);
-  for (const [label, attempts, pattern] of [
-    ['candidate reorder', [fallback[1], fallback[2]], /candidate order/],
-    [
-      'fallback after platform denial',
-      [
-        currentAttempt(gpt, {
-          output_started: false,
-          result: 'platform_denied',
-          exit_code: null,
-          denial_source: 'managed_policy',
-        }),
-        currentAttempt(fable),
-      ],
-      /terminal|platform/,
-    ],
-    [
-      'fallback after output',
-      [currentAttempt(gpt, { result: 'model_unavailable', exit_code: 1 }), currentAttempt(fable)],
-      /output|terminal/,
-    ],
-    [
-      'fallback after timeout',
-      [
-        currentAttempt(gpt, { output_started: false, result: 'deadline_exceeded', exit_code: null, signal: 'SIGKILL' }),
-        currentAttempt(fable),
-      ],
-      /terminal|deadline/,
-    ],
-    [
-      'fallback after transport failure',
-      [
-        currentAttempt(gpt, { output_started: false, result: 'transient_transport', exit_code: null }),
-        currentAttempt(fable),
-      ],
-      /terminal|transport/,
-    ],
-    ['fallback after substantive result', [currentAttempt(gpt), currentAttempt(fable)], /terminal|passed/],
-  ])
-    expectThrow(label, () => reviewPolicy.validateCurrentAttemptSequence(attempts, CURRENT_POLICY), pattern);
-  for (const [label, attempt, pattern] of [
-    ['started attempt requires child id', currentAttempt(gpt, { child_id: null }), /child/i],
-    ['started attempt requires timeout mode', currentAttempt(gpt, { timeout_mode: null }), /timeout/i],
-    ['started attempt requires 600-second timeout', currentAttempt(gpt, { timeout_seconds: 599 }), /600|timeout/i],
-    [
-      'unstarted attempt rejects launch evidence',
-      currentAttempt(gpt, {
-        started: false,
-        output_started: false,
-        result: 'tool_unavailable',
-        exit_code: null,
-        child_id: 'not-launched',
-        timeout_mode: null,
-        timeout_seconds: null,
-        stdout_sha256: null,
-        stderr_sha256: null,
-      }),
-      /unstarted|child|launch/i,
-    ],
-    [
-      'deadline requires exactly one exit or signal',
-      currentAttempt(gpt, { output_started: false, result: 'deadline_exceeded', exit_code: 124, signal: 'SIGTERM' }),
-      /deadline|exit|signal/i,
-    ],
-  ])
-    expectThrow(label, () => reviewPolicy.validateCurrentAttemptSequence([attempt], CURRENT_POLICY), pattern);
-  expectThrow(
-    'unstarted model_unavailable is not a real launch',
-    () =>
-      reviewPolicy.validateCurrentAttemptSequence(
-        [
-          currentAttempt(gpt, {
-            started: false,
-            output_started: false,
-            result: 'model_unavailable',
-            exit_code: null,
-            reason: 'model probe was never launched',
-            child_id: null,
-            timeout_mode: null,
-            timeout_seconds: null,
-            stdout_sha256: null,
-            stderr_sha256: null,
-          }),
-        ],
-        CURRENT_POLICY,
-      ),
-    /model_unavailable.*started|started.*model_unavailable/i,
-  );
-
-  for (const [label, invalid, pattern] of [
-    ['current role', { ...CURRENT_POLICY, role: 'X' }, /role/],
-    ['current fallback', { ...CURRENT_POLICY, fallback: 'any_failure' }, /fallback/],
-    ['current rounds', { ...CURRENT_POLICY, max_rounds: 3 }, /max_rounds/],
-    ['candidate order', { ...CURRENT_POLICY, candidates: [fable, gpt, opus] }, /candidate/],
-    ['relay candidate', { ...CURRENT_POLICY, candidates: [{ ...gpt, tool: 'relay' }] }, /candidate|tool/],
-    ['numeric gate', { ...CURRENT_POLICY, minimum_score: 90 }, /unknown key/],
-    ['cross-company consent', { ...CURRENT_POLICY, cross_company_consent: 'always' }, /unknown key/],
-  ])
-    expectThrow(label, () => validatePolicy(invalid), pattern);
-  console.log('current single-lane policy, schema, and availability-only fallback passed');
-}
-
-function testCurrentReceipts() {
-  const req = currentRequest();
-  const pass = currentOutput(req);
-  reviewPolicy.validateCurrentReviewerOutput(pass, req);
-  const gapFinding = currentFinding({ status: 'non_blocking_gap' });
-  const advisory = currentOutput(req, {
-    verdict: 'non_blocking_gap',
-    checklist: currentChecklist({
-      executable_acceptance: { status: 'non_blocking_gap', evidence: 'The command is useful but not required.' },
-    }),
-    findings: [gapFinding],
-  });
-  reviewPolicy.validateCurrentReviewerOutput(advisory, req);
-  const blocking = currentOutput(req, {
-    verdict: 'blocking_gap',
-    checklist: currentChecklist({
-      executable_acceptance: { status: 'blocking_gap', evidence: 'A required command is absent.' },
-    }),
-    findings: [currentFinding()],
-  });
-  reviewPolicy.validateCurrentReviewerOutput(blocking, req);
-
-  for (const [label, output, pattern] of [
-    ['current score rejected', { ...pass, score: 100 }, /unknown key|score/],
-    ['current numeric rubric rejected', { ...pass, rubric: { standalone_executability: 22 } }, /unknown key|rubric/],
-    ['current X leg rejected', { ...pass, X: {} }, /unknown key|X/],
-    [
-      'checklist evidence required',
-      { ...pass, checklist: currentChecklist({ actionability: { status: 'pass', evidence: '' } }) },
-      /evidence/,
-    ],
-    ['verdict strongest status', { ...blocking, verdict: 'pass' }, /verdict|strongest/],
-    ['gap finding required', { ...blocking, findings: [] }, /finding|gap/],
-    [
-      'finding criterion status',
-      { ...blocking, findings: [currentFinding({ status: 'non_blocking_gap' })] },
-      /finding.*status|status.*finding/,
-    ],
-    ['pass has no findings', { ...pass, findings: [currentFinding({ status: 'non_blocking_gap' })] }, /pass|finding/],
-  ])
-    expectThrow(label, () => reviewPolicy.validateCurrentReviewerOutput(output, req), pattern);
-
-  const raw = currentRaw(req, advisory);
-  reviewPolicy.validateCurrentRawReview(raw, req);
-  const run = currentRun(req, raw);
-  reviewPolicy.validateCurrentReviewRunResult(run);
-  reviewPolicy.validateCurrentReviewReceipt(currentReceipt(req, run), req.input_sha256);
-  expectThrow(
-    'every current finding must be reproduced',
-    () => reviewPolicy.validateCurrentReviewRunResult({ ...run, reproduced: [] }),
-    /reproduced|finding/,
-  );
-  expectThrow(
-    'current run rejects X/S',
-    () => reviewPolicy.validateCurrentReviewRunResult({ ...run, X: null }),
-    /unknown key|X/,
-  );
-  expectThrow(
-    'current receipt rejects author duplication',
-    () => reviewPolicy.validateCurrentReviewReceipt({ ...currentReceipt(req, run), author: req.author }),
-    /unknown key|author/,
-  );
-  expectThrow(
-    'current draft receipt requires the complete review series',
-    () =>
-      reviewPolicy.validateCurrentReviewReceipt(
-        {
-          ...currentReceipt(req, run),
-          series: undefined,
-        },
-        req.input_sha256,
-      ),
-    /series/i,
-  );
-
-  const blockedRaw = currentRaw(req, blocking);
-  const blockedRun = currentRun(req, blockedRaw, {
-    reviewer: { raw: blockedRaw, accepted_finding_ids: ['P1'], rejected: [] },
-    reproduced: [currentReproduction()],
-  });
-  assert.equal(blockedRun.outcome, 'not_ready');
-  assert.equal(blockedRun.pre_execution_eligible, false);
-  reviewPolicy.validateCurrentReviewRunResult(blockedRun);
-
-  const rejectedBlockingRun = currentRun(req, blockedRaw);
-  assert.deepEqual(rejectedBlockingRun.reviewer.accepted_finding_ids, []);
-  assert.deepEqual(
-    rejectedBlockingRun.reviewer.rejected.map(({ id }) => id),
-    ['P1'],
-  );
-  assert.equal(rejectedBlockingRun.outcome, 'not_ready', 'a blocking_gap is terminal even when rejected');
-  assert.equal(
-    rejectedBlockingRun.pre_execution_eligible,
-    false,
-    'a rejected blocking_gap cannot become execution-eligible',
-  );
-  reviewPolicy.validateCurrentReviewRunResult(rejectedBlockingRun);
-
-  const contradictoryFailedRaw = currentRaw(req, null, {
-    result: 'failed',
-    selected: null,
-    reviewer_output: null,
-    findings_sha256: null,
-    reason: 'discarded successful reviewer output',
-  });
-  expectThrow(
-    'current failed review cannot discard a passed attempt',
-    () => reviewPolicy.validateCurrentReviewRunResult(currentRun(req, contradictoryFailedRaw)),
-    /passed attempt|selected.*passed|failed.*passed/i,
-  );
-
-  const waiver = {
-    phase: 'draft',
-    input_sha256: req.input_sha256,
-    roles: ['primary'],
-    actor: 'test user',
-    reason: 'explicit current waiver',
-    at: '2026-07-17T00:00:00-03:00',
-  };
-  reviewPolicy.validateCurrentWaivers([waiver], 'draft', req.input_sha256);
-  expectThrow(
-    'current waiver rejects historical legs',
-    () =>
-      reviewPolicy.validateCurrentWaivers(
-        [{ ...waiver, roles: undefined, legs: ['X', 'S'] }],
-        'draft',
-        req.input_sha256,
-      ),
-    /unknown key|roles/,
-  );
-  const waivedRaw = currentRaw(req, null, {
-    result: 'waived',
-    attempts: [],
-    selected: null,
-    reviewer_output: null,
-    findings_sha256: null,
-    waiver,
-    waiver_sha256: sha256(jcs(waiver)),
-    reason: null,
-  });
-  const waivedRun = currentRun(req, waivedRaw, {
-    reviewer: { raw: waivedRaw, accepted_finding_ids: [], rejected: [] },
-    reproduced: [],
-  });
-  assert.equal(waivedRun.pre_execution_eligible, true);
-  reviewPolicy.validateCurrentReviewRunResult(waivedRun, { waivers: [waiver] });
-  reviewPolicy.validateCurrentReviewReceipt(currentReceipt(req, waivedRun), req.input_sha256, { waivers: [waiver] });
-  const waivedReceipt = currentReceipt(req, waivedRun);
-  expectThrow(
-    'generic current series requires the exact waiver',
-    () => reviewPolicy.validateReviewSeries(waivedReceipt.series),
-    /waiver.*snapshot/i,
-  );
-  reviewPolicy.validateReviewSeries(waivedReceipt.series, { waivers: [waiver] });
-  expectThrow(
-    'current draft receipt reuse requires the exact waiver',
-    () => validateDraftReceipt(waivedReceipt, req.input_sha256, { expectedPolicy: CURRENT_POLICY }),
-    /waiver.*snapshot/i,
-  );
-  expectThrow(
-    'current draft reuse requires the exact waiver',
-    () =>
-      validateDraftReviewReuse({
-        receipt: waivedReceipt,
-        expectedInput: req.input_sha256,
-        expectedPolicy: CURRENT_POLICY,
-      }),
-    /waiver.*snapshot/i,
-  );
-  validateDraftReviewReuse({
-    receipt: waivedReceipt,
-    expectedInput: req.input_sha256,
-    expectedPolicy: CURRENT_POLICY,
-    waivers: [waiver],
-  });
-
-  const completionReq = currentRequest({
-    phase: 'completion',
-    planned_at_commit: '3'.repeat(40),
-    execution_base_commit: '4'.repeat(40),
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
-  });
-  const completionRaw = currentRaw(completionReq, currentOutput(completionReq));
-  const completionRun = currentRun(completionReq, completionRaw);
-  reviewPolicy.validateCurrentReviewRunResult(completionRun);
-  validateCompletionRunResult(completionRun);
-  const completionReceipt = currentReceipt(completionReq, completionRun);
-  reviewPolicy.validateCurrentReviewReceipt(completionReceipt, completionReq.input_sha256);
-  validateCompletionReceipt(completionReceipt, {
-    reviewed_head: completionReq.reviewed_commit_or_head,
-    diff_sha256: H0,
-    plan_input_sha256: completionReq.input_sha256,
-    review_status: 'passed',
-  });
-  expectThrow(
-    'current completion requires inventory evidence',
-    () => validateCompletionRunResult({ ...completionRun, acceptance_inventory: undefined }),
-    /unknown key|inventory/,
-  );
-  expectThrow(
-    'current completion receipt rejects draft eligibility',
-    () => reviewPolicy.validateCurrentReviewReceipt({ ...completionReceipt, pre_execution_eligible: true }),
-    /unknown key|pre_execution/,
-  );
-  const receiptOnlyPrimary = { ...completionReceipt.primary, followups: ['receipt-only follow-up'] };
-  expectThrow(
-    'current completion receipt final run must equal its validated series final round',
-    () =>
-      reviewPolicy.validateCurrentReviewReceipt(
-        {
-          ...completionReceipt,
-          primary: receiptOnlyPrimary,
-        },
-        completionReq.input_sha256,
-      ),
-    /series.*final|final.*series|receipt.*series/i,
-  );
-  expectThrow(
-    'current completion receipt requires the complete review series',
-    () =>
-      reviewPolicy.validateCurrentReviewReceipt(
-        {
-          ...completionReceipt,
-          series: undefined,
-        },
-        completionReq.input_sha256,
-      ),
-    /series/i,
-  );
-
-  const highPrimary = {
-    ...primaryEvidence(INVENTORY),
-    findings: [
-      {
-        id: 'C1',
-        source: 'primary',
-        severity: 'high',
-        path: null,
-        locator: null,
-        defect: 'Regression',
-        fix: 'Repair it',
-        reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
-      },
-    ],
-  };
-  const highRun = currentRun(completionReq, completionRaw, { primary: highPrimary });
-  assert.equal(highRun.completion_verdict, 'regressed');
-  validateCompletionRunResult(highRun);
-  expectThrow(
-    'current high completion finding cannot pass',
-    () => validateCompletionRunResult({ ...highRun, completion_verdict: 'passed' }),
-    /completion verdict/,
-  );
-
-  const completionBlockedRaw = currentRaw(
-    completionReq,
-    currentOutput(completionReq, {
-      verdict: 'blocking_gap',
-      checklist: currentChecklist({
-        executable_acceptance: { status: 'blocking_gap', evidence: 'A required command is absent.' },
-      }),
-      findings: [currentFinding()],
-    }),
-  );
-  const completionBlocked = currentRun(completionReq, completionBlockedRaw, {
-    reviewer: { raw: completionBlockedRaw, accepted_finding_ids: ['P1'], rejected: [] },
-    reproduced: [currentReproduction()],
-  });
-  assert.equal(completionBlocked.completion_verdict, 'regressed');
-  validateCompletionRunResult(completionBlocked);
-
-  const completionRejectedBlocking = currentRun(completionReq, completionBlockedRaw);
-  assert.deepEqual(completionRejectedBlocking.reviewer.accepted_finding_ids, []);
-  assert.equal(completionRejectedBlocking.outcome, 'not_ready', 'rejected completion blocking_gap remains not_ready');
-  assert.equal(
-    completionRejectedBlocking.completion_verdict,
-    'regressed',
-    'rejected completion blocking_gap remains regressed',
-  );
-  validateCompletionRunResult(completionRejectedBlocking);
-  console.log('current checklist, draft/completion receipts, waivers, and verdict closure passed');
-}
-
-function testCurrentCompletionRenderer() {
-  const plan = Buffer.from(fixturePlan({ cleanReceipt: true }));
-  const reviewedHead = 'c'.repeat(40);
-  const inventory = acceptanceInventory(plan);
-  const req = currentRequest({
-    phase: 'completion',
-    reviewed_commit_or_head: reviewedHead,
-    planned_at_commit: 'a'.repeat(40),
-    execution_base_commit: 'b'.repeat(40),
-    diff_sha256: H0,
-    acceptance_inventory_sha256: sha256(jcs(inventory)),
-    input_sha256: sha256(canonicalPlanView(plan)),
-  });
-  const run = currentRun(req);
-  const receipt = currentReceipt(req, run);
-  const receiptKeys = Object.keys(receipt);
-  assert.equal(Object.hasOwn(receipt, 'X'), false);
-  assert.equal(Object.hasOwn(receipt, 'S'), false);
-
-  const rendered = renderCompletionReviewBlock(receipt);
-  assert.ok(rendered.endsWith(`Completion-review-receipt: ${jcs(receipt)}\n`));
-  assert.doesNotMatch(rendered, /Cross-check:|\[X:|\[S:|"X":|"S":/, 'schema-5 completion rendering is primary-only');
-  assert.deepEqual(Object.keys(receipt), receiptKeys, 'schema-5 renderer leaves receipt keys unchanged');
-
-  const applied = applyCompletionReviewBlock(plan, receipt);
-  assert.equal(
-    applyCompletionReviewBlock(applied, receipt).toString(),
-    applied.toString(),
-    'schema-5 completion apply is idempotent',
-  );
-  assert.equal(completionStablePlanViewV1(plan), completionStablePlanViewV1(applied));
-
-  const waiver = {
-    phase: 'completion',
-    input_sha256: req.input_sha256,
-    roles: ['primary'],
-    actor: 'test user',
-    reason: 'explicit completion waiver',
-    at: '2026-07-17T00:00:00-03:00',
-  };
-  const waivedRaw = currentRaw(req, null, {
-    result: 'waived',
-    attempts: [],
-    selected: null,
-    reviewer_output: null,
-    findings_sha256: null,
-    waiver,
-    waiver_sha256: sha256(jcs(waiver)),
-    reason: null,
-  });
-  const waivedRun = currentRun(req, waivedRaw, {
-    reviewer: { raw: waivedRaw, accepted_finding_ids: [], rejected: [] },
-    reproduced: [],
-  });
-  const waivedReceipt = currentReceipt(req, waivedRun);
-  assert.match(renderCompletionReviewBlock(waivedReceipt, { waivers: [waiver] }), /Primary review:/);
-  applyCompletionReviewBlock(plan, waivedReceipt, { waivers: [waiver] });
-  console.log('schema-5 primary-only completion render and idempotent apply passed');
-}
-
 function testHistoricalSchemas() {
   for (const historical of [POLICY, POLICY_V2, POLICY_V3, POLICY_V4]) validatePolicy(historical);
   validateRequest(request());
@@ -8096,35 +4280,5884 @@ function testHistoricalSchemas() {
   console.log('historical policy v1-v4 and record schema 1-3 validation results preserved');
 }
 
+function testLegacyShapeNegatives(focus = null) {
+  const runCase = (label, options, pattern) => {
+    const fixture = legacyShapeCandidate(options);
+    try {
+      expectThrow(
+        label,
+        () =>
+          compatibilityEvidence(fixture.compatibilityHelper, {
+            repo: fixture.repo,
+            reviewedHead: fixture.head,
+            planPath: TARGET_PLAN,
+            plannedAtCommit: fixture.plannedAt,
+            executionBaseCommit: fixture.executionBaseCommit,
+          }),
+        pattern,
+      );
+    } finally {
+      fs.rmSync(fixture.temp, { recursive: true, force: true });
+    }
+  };
+  const runCases = (cases) => {
+    for (const testCase of cases) runCase(...testCase);
+  };
+  const entries = [
+    {
+      label: 'legacy creation and start shape regression',
+      run: () =>
+        runCases([
+          ['planned path already existed', { pathExisted: true }, /path existed|creation/],
+          ['creation parent drift', { creationParentDrift: true }, /creation parent/],
+          ['creation extra path', { creationExtra: true }, /creation must be plan-only/],
+          ['start extra path', { startExtra: true }, /start must change only the plan/],
+        ]),
+    },
+    {
+      run: () => runCase('legacy abbreviation too short', { shortLength: 6 }, /abbreviation/),
+    },
+    {
+      run: () => runCase('legacy full identity', { fullLegacy: true }, /abbreviation/),
+    },
+    {
+      run: () => runCase('legacy identities unequal', { unequalLegacy: true }, /identity/),
+    },
+    {
+      label: 'legacy section-vector and transition-diff regression',
+      run: () =>
+        runCases([
+          ['protected section changed', { protectedChange: true }, /protected section/],
+          ['heading vector changed', { headingAdded: true }, /heading vector/],
+        ]),
+    },
+    {
+      run: () => runCase('duplicate headings', { duplicateHeadings: true }, /duplicate body heading/),
+    },
+    {
+      run: () => runCase('preamble changed', { preambleChange: true }, /preamble/),
+    },
+    {
+      run: () => runCase('changed section set empty', { noBodyChange: true }, /changed sections missing/),
+    },
+  ];
+  return runFocusedEntries('legacy-shape-negatives', focus, entries);
+}
+
+function testCanonical(focus = null) {
+  let raw;
+  let view;
+  const entries = [
+    {
+      run: () => {
+        raw = fs.readFileSync(FIXTURE);
+        const parsed = parsePlan(raw);
+        assert.equal(parsed.frontmatter.status, 'planned');
+        view = canonicalPlanView(raw);
+      },
+    },
+    {
+      run: () => assert.equal(jcs({ emoji: '\ud83d\ude80' }), '{"emoji":"🚀"}', 'valid surrogate pair has stable JCS'),
+    },
+    {
+      label: 'JCS lone-surrogate value regression',
+      run: () => expectThrow('JCS lone-surrogate value', () => jcs({ invalid: '\ud800' }), /lone surrogate/),
+    },
+    {
+      label: 'JCS lone-surrogate key regression',
+      run: () => expectThrow('JCS lone-surrogate property key', () => jcs({ '\udc00': 'invalid' }), /lone surrogate/),
+    },
+    {
+      run: () => {
+        assert.match(view, /Ordinary self-review prose remains canonical/);
+        assert.doesNotMatch(view, /Review-receipt:/);
+        assert.doesNotMatch(view, /"status"/);
+        const lifecycle = Buffer.from(
+          raw
+            .toString()
+            .replace('status: planned', 'status: ongoing')
+            .replace('updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-12T01:00:00-03:00"'),
+        );
+        assert.equal(canonicalPlanView(lifecycle), view, 'lifecycle-only change is excluded');
+        assert.notEqual(
+          canonicalPlanView(
+            Buffer.from(
+              raw
+                .toString()
+                .replace(
+                  'Prove canonical policy behavior.\n\n## Interfaces',
+                  'Prove changed policy behavior.\n\n## Interfaces',
+                ),
+            ),
+          ),
+          view,
+          'ordinary prose change invalidates',
+        );
+        expectThrow('BOM', () => canonicalPlanView(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), raw])), /BOM/);
+        expectThrow(
+          'duplicate key',
+          () =>
+            canonicalPlanView(
+              Buffer.from(
+                raw.toString().replace('title: Sample review plan', 'title: Sample review plan\ntitle: duplicate'),
+              ),
+            ),
+          /duplicate/,
+        );
+        expectThrow(
+          'nested YAML',
+          () =>
+            canonicalPlanView(Buffer.from(raw.toString().replace('tags: [review-policy]', 'tags:\n  nested: nope'))),
+          /unsupported/,
+        );
+        const fenced = Buffer.from(
+          raw
+            .toString()
+            .replace(
+              'Ordinary self-review prose remains canonical.',
+              '```text\nReview-receipt: {not-json}\n```\nOrdinary self-review prose remains canonical.',
+            ),
+        );
+        assert.match(
+          canonicalPlanView(fenced),
+          /Review-receipt: \{not-json\}/,
+          'fenced machine-looking record retained',
+        );
+        const fencedInfoLine = Buffer.from(
+          raw
+            .toString()
+            .replace(
+              'Ordinary self-review prose remains canonical.',
+              '````text\n```not-a-close\nReview-receipt: {still-not-json}\n````\nOrdinary self-review prose remains canonical.',
+            ),
+        );
+        assert.match(
+          canonicalPlanView(fencedInfoLine),
+          /Review-receipt: \{still-not-json\}/,
+          'same-marker info line inside longer fence does not close it',
+        );
+        expectThrow(
+          'duplicate record kind',
+          () =>
+            canonicalPlanView(
+              Buffer.from(
+                raw
+                  .toString()
+                  .replace(
+                    'Review-receipt: {"schema":1}',
+                    'Review-receipt: {"schema":1}\nReview-receipt: {"schema":2}',
+                  ),
+              ),
+            ),
+          /duplicate Review-receipt/,
+        );
+        expectThrow(
+          'non-JCS record',
+          () =>
+            canonicalPlanView(
+              Buffer.from(raw.toString().replace('Review-receipt: {"schema":1}', 'Review-receipt: { "schema": 1 }')),
+            ),
+          /compact JCS/,
+        );
+        console.log('canonical view goldens passed');
+      },
+    },
+  ];
+  return runFocusedEntries('canonical', focus, entries);
+}
+
+async function testSchemas(focus = null) {
+  let legacyRequest;
+  function getLegacyRequest() {
+    if (legacyRequest === undefined) legacyRequest = request();
+    return legacyRequest;
+  }
+
+  let schema3Request;
+  function getSchema3Request() {
+    if (schema3Request === undefined) schema3Request = requestV3();
+    return schema3Request;
+  }
+
+  let schema3Reviewer;
+  function getSchema3Reviewer() {
+    if (schema3Reviewer !== undefined) return schema3Reviewer;
+    const req = getSchema3Request();
+    const rubric = {
+      standalone_executability: 22,
+      actionability: 16,
+      dependency_order: 12,
+      evidence_reverify: 10,
+      goal_coverage: 12,
+      executable_acceptance: 12,
+      failure_mode: 10,
+      assumption_to_question: 6,
+    };
+    const followup = {
+      id: 'S1',
+      severity: 'low',
+      section: 'Notes',
+      path: null,
+      locator: null,
+      defect: 'Optional wording can be clearer',
+      fix: 'Clarify the sentence',
+      evidence: 'Current plan text',
+      priority: 3,
+      confidence: 1,
+      blocking: false,
+      requirement: 'Non-blocking documentation quality',
+    };
+    const blocking = {
+      ...followup,
+      id: 'S2',
+      severity: 'high',
+      section: 'Acceptance criteria',
+      defect: 'Required behavior has no executable proof',
+      fix: 'Add an exact command and expected result',
+      priority: 0,
+      blocking: true,
+      requirement: 'User-required executable acceptance',
+    };
+    schema3Reviewer = {
+      req,
+      blocking,
+      ready: {
+        schema: 3,
+        leg: 'S',
+        request: req,
+        verdict: 'ready',
+        score: 100,
+        rubric,
+        findings: [followup],
+        confirmations: ['full review completed'],
+      },
+    };
+    return schema3Reviewer;
+  }
+
+  let schema3Transition;
+  function getSchema3Transition() {
+    if (schema3Transition !== undefined) return schema3Transition;
+    const { req, blocking } = getSchema3Reviewer();
+    const reproduced = {
+      id: blocking.id,
+      source: 'S',
+      severity: blocking.severity,
+      path: blocking.path,
+      locator: blocking.locator,
+      defect: blocking.defect,
+      fix: blocking.fix,
+      reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+    };
+    const transition = reviewPolicy.buildRepairTransition({
+      fromRoundIndex: 1,
+      previousInputSha256: req.input_sha256,
+      currentInputSha256: '2'.repeat(64),
+      reconciliation: {
+        X: { accepted: [], rejected: [] },
+        S: { accepted: ['S2'], rejected: [] },
+      },
+      targets: [reproduced],
+    });
+    schema3Transition = { req, blocking, reproduced, transition };
+    return schema3Transition;
+  }
+
+  let schema3Repair;
+  function getSchema3Repair() {
+    if (schema3Repair !== undefined) return schema3Repair;
+    const fixture = getSchema3Transition();
+    const repairRequest = requestV3({
+      request_id: '223e4567-e89b-42d3-a456-426614174000',
+      review_mode: 'repair',
+      round_index: 2,
+      input_sha256: '2'.repeat(64),
+      bundle_sha256: '3'.repeat(64),
+      previous_input_sha256: fixture.req.input_sha256,
+      repair_targets_sha256: fixture.transition.repair_targets_sha256,
+    });
+    schema3Repair = { ...fixture, repairRequest };
+    return schema3Repair;
+  }
+
+  let schema3Series;
+  function getSchema3Series() {
+    if (schema3Series !== undefined) return schema3Series;
+    const fixture = getSchema3Repair();
+    const roundOne = {
+      ...draftRunV3(fixture.req),
+      S: passedV3(fixture.req, 'S', [fixture.blocking]),
+      reproduced: [fixture.reproduced],
+      decision_evidence: null,
+      outcome: 'single',
+      pre_execution_eligible: false,
+    };
+    const roundTwo = draftRunV3(fixture.repairRequest);
+    schema3Series = {
+      ...fixture,
+      roundOne,
+      roundTwo,
+      series: {
+        schema: 3,
+        policy_sha256: fixture.req.policy_sha256,
+        initial_input_sha256: fixture.req.input_sha256,
+        current_input_sha256: fixture.repairRequest.input_sha256,
+        rounds: [roundOne, roundTwo],
+        repairs: [fixture.transition],
+      },
+    };
+    return schema3Series;
+  }
+
+  let legacyReceipt;
+  function getLegacyReceipt() {
+    if (legacyReceipt !== undefined) return legacyReceipt;
+    const req = getLegacyRequest();
+    const raw = (leg) => ({
+      schema: 1,
+      leg,
+      request: req,
+      result: 'unavailable_auth',
+      attempts: [],
+      selected: null,
+      reviewer_output: null,
+      findings: [],
+      findings_sha256: null,
+      severity_totals: { high: 0, medium: 0, low: 0 },
+      waiver: null,
+      waiver_sha256: null,
+      decision_evidence: null,
+      reason: 'authentication unavailable',
+    });
+    const persisted = (leg) => ({ request: req, raw: raw(leg), reconciliation: { accepted: [], rejected: [] } });
+    const receipt = {
+      schema: 1,
+      phase: 'draft',
+      request: req,
+      input_sha256: req.input_sha256,
+      reviewed_commit: req.reviewed_commit_or_head,
+      author: req.author,
+      policy: req.policy,
+      policy_sha256: req.policy_sha256,
+      X: persisted('X'),
+      S: persisted('S'),
+      reproduced: [],
+      decision_evidence: zeroDecision(req),
+      outcome: 'blocked',
+      pre_execution_eligible: false,
+      reviewed_at: '2026-07-12T00:00:00-03:00',
+    };
+    legacyReceipt = { req, receipt };
+    return legacyReceipt;
+  }
+
+  const entries = [
+    {
+      run: () => {
+        validatePolicy(POLICY);
+        validatePolicy(POLICY_V2);
+        validatePolicy(POLICY_V4);
+        validatePolicy({ ...POLICY_V2, minimum_score: 0, max_rounds: 1 });
+        validatePolicy({ ...POLICY_V2, minimum_score: 100, max_rounds: 10 });
+        expectThrow(
+          'policy v2 minimum score below range',
+          () => validatePolicy({ ...POLICY_V2, minimum_score: -1 }),
+          /minimum_score/,
+        );
+        expectThrow(
+          'policy v2 minimum score above range',
+          () => validatePolicy({ ...POLICY_V2, minimum_score: 101 }),
+          /minimum_score/,
+        );
+        expectThrow(
+          'policy v2 minimum score integer',
+          () => validatePolicy({ ...POLICY_V2, minimum_score: 89.5 }),
+          /minimum_score/,
+        );
+      },
+    },
+    {
+      label: 'policy-v2 max-round lower-bound regression',
+      run: () =>
+        expectThrow(
+          'policy v2 max rounds below range',
+          () => validatePolicy({ ...POLICY_V2, max_rounds: 0 }),
+          /max_rounds/,
+        ),
+    },
+    {
+      run: () => {
+        expectThrow(
+          'policy v2 max rounds above range',
+          () => validatePolicy({ ...POLICY_V2, max_rounds: 11 }),
+          /max_rounds/,
+        );
+        expectThrow(
+          'policy v2 max rounds integer',
+          () => validatePolicy({ ...POLICY_V2, max_rounds: 2.5 }),
+          /max_rounds/,
+        );
+        expectThrow(
+          'policy v2 caps ordered candidates',
+          () =>
+            validatePolicy({
+              ...POLICY_V2,
+              anthropic_tiers: [
+                ...POLICY_V2.anthropic_tiers,
+                { model: 'sonnet', effort: 'high', transports: ['cli'] },
+                { model: 'haiku', effort: 'medium', transports: ['cli'] },
+              ],
+            }),
+          /anthropic_tiers/,
+        );
+        expectThrow(
+          'policy v2 rejects duplicate candidates',
+          () =>
+            validatePolicy({
+              ...POLICY_V2,
+              anthropic_tiers: [POLICY_V2.anthropic_tiers[0], { ...POLICY_V2.anthropic_tiers[0], transports: ['cli'] }],
+            }),
+          /duplicate.*candidate|anthropic_tiers/,
+        );
+        expectThrow('policy v1 remains closed', () => validatePolicy({ ...POLICY, minimum_score: 90 }), /unknown key/);
+        expectThrow(
+          'policy v2 remains closed',
+          () => validatePolicy({ ...POLICY_V2, unexpected: true }),
+          /unknown key/,
+        );
+        expectThrow(
+          'policy v4 remains closed',
+          () => validatePolicy({ ...POLICY_V4, continuation_batches: true }),
+          /unknown key/,
+        );
+        const missingV2Provenance = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance } };
+        delete missingV2Provenance.provenance.minimum_score;
+        expectThrow(
+          'policy v2 requires score provenance',
+          () => validatePolicy(missingV2Provenance),
+          /missing minimum_score/,
+        );
+        const req = getLegacyRequest();
+        validateRequest(req);
+        const output = {
+          schema: 1,
+          leg: 'X',
+          request: req,
+          verdict: 'ready',
+          score: 98,
+          findings: [
+            {
+              id: 'X1',
+              severity: 'low',
+              section: 'Goal',
+              path: null,
+              locator: null,
+              defect: 'Minor ambiguity',
+              fix: 'State it',
+              evidence: 'Plan text',
+            },
+          ],
+          confirmations: ['Bundle was read'],
+        };
+        validateReviewerOutput(output, req, 'X');
+        expectThrow(
+          'echo mismatch',
+          () =>
+            validateReviewerOutput(
+              { ...output, request: { ...req, request_id: '223e4567-e89b-42d3-a456-426614174000' } },
+              req,
+              'X',
+            ),
+          /mismatch/,
+        );
+        expectThrow(
+          'unknown reviewer key',
+          () => validateReviewerOutput({ ...output, extra: true }, req, 'X'),
+          /unknown/,
+        );
+        expectThrow(
+          'cross-leg id',
+          () => validateReviewerOutput({ ...output, findings: [{ ...output.findings[0], id: 'S1' }] }, req, 'X'),
+          /finding id/,
+        );
+        assert.equal(reviewerSchema('X').additionalProperties, false);
+        assert.equal(reviewerSchema('X').properties.request.additionalProperties, false);
+        const policySchemas = reviewerSchema('X').properties.request.properties.policy.oneOf;
+        assert.equal(policySchemas.length, 2);
+        assert.ok(policySchemas.every((schema) => schema.additionalProperties === false));
+        assert.equal(
+          policySchemas.find((schema) => schema.properties.schema.const === 2).properties.minimum_score.maximum,
+          100,
+        );
+        assert.equal(
+          policySchemas.find((schema) => schema.properties.schema.const === 2).properties.max_rounds.maximum,
+          10,
+        );
+        assert.equal(reviewerSchema('X').properties.request.properties.author.additionalProperties, false);
+      },
+    },
+    {
+      label: 'structured-output constrained type regression',
+      run: () => {
+        for (const version of [1, 2, 3])
+          assertConstrainedScalarsTyped(reviewerSchema('X', version), `reviewer schema v${version}`);
+      },
+    },
+    {
+      run: () => {
+        const req = getSchema3Request();
+        validateRequest(req);
+        const { ready, blocking } = getSchema3Reviewer();
+        validateReviewerOutput(ready, req, 'S');
+        validateReviewerOutput({ ...ready, verdict: 'not_ready', findings: [blocking] }, req, 'S');
+      },
+    },
+    {
+      label: 'schema-3 rubric sum regression',
+      run: () => {
+        const { req, ready } = getSchema3Reviewer();
+        expectThrow(
+          'schema-3 score must equal rubric sum',
+          () => validateReviewerOutput({ ...ready, score: 99 }, req, 'S'),
+          /rubric|score|sum/,
+        );
+      },
+    },
+    {
+      label: 'schema-3 blocking verdict regression',
+      run: () => {
+        const { req, ready, blocking } = getSchema3Reviewer();
+        expectThrow(
+          'schema-3 ready cannot carry blocking finding',
+          () => validateReviewerOutput({ ...ready, findings: [blocking] }, req, 'S'),
+          /blocking|verdict/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const { req, ready } = getSchema3Reviewer();
+        const followup = ready.findings[0];
+        expectThrow(
+          'schema-3 not_ready requires blocking finding',
+          () => validateReviewerOutput({ ...ready, verdict: 'not_ready' }, req, 'S'),
+          /blocking|verdict/,
+        );
+        expectThrow(
+          'schema-3 finding priority is closed',
+          () => validateReviewerOutput({ ...ready, findings: [{ ...followup, priority: 4 }] }, req, 'S'),
+          /priority/,
+        );
+        expectThrow(
+          'schema-3 finding confidence is bounded',
+          () => validateReviewerOutput({ ...ready, findings: [{ ...followup, confidence: 2 }] }, req, 'S'),
+          /confidence/,
+        );
+        expectThrow(
+          'schema-3 finding requires attribution',
+          () => validateReviewerOutput({ ...ready, findings: [{ ...followup, requirement: '' }] }, req, 'S'),
+          /requirement/,
+        );
+        expectThrow(
+          'schema-3 full review rejects previous identity',
+          () => validateRequest({ ...req, previous_input_sha256: H0 }),
+          /full|previous|repair/,
+        );
+        expectThrow(
+          'schema-3 first round must be full',
+          () => validateRequest({ ...req, review_mode: 'repair' }),
+          /round|full|repair/,
+        );
+        const { transition } = getSchema3Transition();
+        assert.deepEqual(transition.reconciliation, {
+          X: { accepted: [], rejected: [] },
+          S: { accepted: ['S2'], rejected: [] },
+        });
+        const { repairRequest } = getSchema3Repair();
+        validateRequest(repairRequest);
+      },
+    },
+    {
+      label: 'schema-3 repair changed-input regression',
+      run: () => {
+        const { repairRequest } = getSchema3Repair();
+        expectThrow(
+          'schema-3 repair requires changed input',
+          () => validateRequest({ ...repairRequest, input_sha256: repairRequest.previous_input_sha256 }),
+          /changed|input/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const { repairRequest } = getSchema3Repair();
+        expectThrow(
+          'schema-3 repair requires targets',
+          () => validateRequest({ ...repairRequest, repair_targets_sha256: null }),
+          /repair.*target|target.*repair/,
+        );
+        const { series } = getSchema3Series();
+        validateReviewSeries(series);
+        const completionSeriesRequest = requestV3({
+          request_id: '323e4567-e89b-42d3-a456-426614174000',
+          phase: 'completion',
+          lifecycle_intent: 'none',
+          planned_at_commit: '3'.repeat(40),
+          execution_base_commit: '4'.repeat(40),
+          diff_sha256: H0,
+          acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
+        });
+        const completionSeriesRound = {
+          schema: 3,
+          kind: 'completion',
+          request: completionSeriesRequest,
+          plan_input_sha256: completionSeriesRequest.input_sha256,
+          diff_sha256: H0,
+          acceptance_inventory: INVENTORY,
+          acceptance_inventory_sha256: completionSeriesRequest.acceptance_inventory_sha256,
+          X: unavailableV3(completionSeriesRequest, 'X'),
+          S: unavailableV3(completionSeriesRequest, 'S'),
+          reproduced: [],
+          decision_evidence: zeroDecision(completionSeriesRequest, 'proceed'),
+          outcome: 'zero_degraded',
+          primary: primaryEvidence(),
+          completion_verdict: 'passed',
+        };
+        validateCompletionRunResult(completionSeriesRound);
+        validateReviewSeries({
+          schema: 3,
+          policy_sha256: completionSeriesRequest.policy_sha256,
+          initial_input_sha256: completionSeriesRequest.input_sha256,
+          current_input_sha256: completionSeriesRequest.input_sha256,
+          rounds: [completionSeriesRound],
+          repairs: [],
+        });
+      },
+    },
+    {
+      label: 'schema-3 initial run-kind regression',
+      run: () => {
+        const { series, roundOne, req } = getSchema3Series();
+        expectThrow(
+          'schema-3 review series rejects an invalid initial run kind',
+          () =>
+            validateReviewSeries({
+              ...series,
+              current_input_sha256: req.input_sha256,
+              rounds: [{ ...roundOne, kind: 'invalid' }],
+              repairs: [],
+            }),
+          /review series run kind/,
+        );
+      },
+    },
+    {
+      label: 'schema-3 run-kind drift regression',
+      run: () => {
+        const { series, roundOne, roundTwo } = getSchema3Series();
+        expectThrow(
+          'schema-3 review series rejects run kind drift',
+          () => validateReviewSeries({ ...series, rounds: [roundOne, { ...roundTwo, kind: 'completion' }] }),
+          /review series run kind drift/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const { series, roundOne, roundTwo, repairRequest } = getSchema3Series();
+        expectThrow(
+          'schema-3 review series requires repair after round one',
+          () =>
+            validateReviewSeries({
+              ...series,
+              rounds: [
+                roundOne,
+                {
+                  ...roundTwo,
+                  request: {
+                    ...repairRequest,
+                    review_mode: 'full',
+                    previous_input_sha256: null,
+                    repair_targets_sha256: null,
+                  },
+                },
+              ],
+            }),
+          /repair|round/,
+        );
+        expectThrow(
+          'schema-3 review series requires contiguous rounds',
+          () =>
+            validateReviewSeries({
+              ...series,
+              rounds: [roundOne, { ...roundTwo, request: { ...repairRequest, round_index: 3 } }],
+            }),
+          /contiguous|round/,
+        );
+      },
+    },
+    {
+      label: 'schema-3 lifetime cap regression',
+      run: () => {
+        const req = getSchema3Request();
+        const sixRounds = Array.from({ length: 6 }, (_, index) => {
+          const round = index + 1;
+          const input = String(round).repeat(64);
+          const previous = round === 1 ? null : String(round - 1).repeat(64);
+          return draftRunV3(
+            requestV3({
+              request_id: `00000000-0000-4000-8000-00000000000${round}`,
+              review_mode: round === 1 ? 'full' : 'repair',
+              round_index: round,
+              input_sha256: input,
+              bundle_sha256: String(9 - index).repeat(64),
+              previous_input_sha256: previous,
+              repair_targets_sha256: round === 1 ? null : 'a'.repeat(64),
+            }),
+          );
+        });
+        expectThrow(
+          'schema-3 review series lifetime cap is not renewable',
+          () =>
+            validateReviewSeries({
+              schema: 3,
+              policy_sha256: req.policy_sha256,
+              initial_input_sha256: '1'.repeat(64),
+              current_input_sha256: '6'.repeat(64),
+              rounds: sixRounds,
+              repairs: [],
+            }),
+          /max_rounds|lifetime|round/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const req = getLegacyRequest();
+        validateWaivers(
+          [
+            {
+              phase: 'draft',
+              input_sha256: req.input_sha256,
+              legs: ['S', 'X'],
+              actor: 'user',
+              reason: 'explicit waiver',
+              at: '2026-07-12T00:00:00-03:00',
+            },
+          ],
+          'draft',
+          req.input_sha256,
+        );
+        expectThrow(
+          'duplicate waiver',
+          () =>
+            validateWaivers(
+              [
+                {
+                  phase: 'draft',
+                  input_sha256: req.input_sha256,
+                  legs: ['X'],
+                  actor: 'user',
+                  reason: 'one',
+                  at: '2026-07-12T00:00:00-03:00',
+                },
+                {
+                  phase: 'draft',
+                  input_sha256: req.input_sha256,
+                  legs: ['X'],
+                  actor: 'user',
+                  reason: 'two',
+                  at: '2026-07-12T00:00:00-03:00',
+                },
+              ],
+              'draft',
+              req.input_sha256,
+            ),
+          /duplicate/,
+        );
+        const { receipt } = getLegacyReceipt();
+        validateDraftReceipt(receipt, req.input_sha256);
+        validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256, expectedPolicy: POLICY });
+      },
+    },
+    {
+      label: 'stale policy draft reuse regression',
+      run: () => {
+        const { req, receipt } = getLegacyReceipt();
+        expectThrow(
+          'policy v1 receipt is not reusable under policy v2',
+          () => validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256, expectedPolicy: POLICY_V2 }),
+          /resolved policy|policy.*mismatch|stale/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const { req, receipt } = getLegacyReceipt();
+        expectThrow(
+          'current draft reuse requires resolved policy',
+          () => validateDraftReviewReuse({ receipt, expectedInput: req.input_sha256 }),
+          /expectedPolicy|policy/,
+        );
+        expectThrow(
+          'malformed receipt extra key',
+          () => validateDraftReceipt({ ...receipt, unauthorized_extra: true }, req.input_sha256),
+          /unknown key/,
+        );
+        expectThrow('stale receipt input', () => validateDraftReceipt(receipt, 'f'.repeat(64)), /stale/);
+        console.log(
+          'schema closure, typed structured output, rubric, repair identity, and lifetime convergence goldens passed',
+        );
+      },
+    },
+  ];
+  return runFocusedEntries('schemas', focus, entries);
+}
+
+async function testValidationMatrix(focus = null) {
+  let req;
+  let X;
+  let S;
+  let fallback;
+  let retry;
+  let transportPolicy;
+  let transportReq;
+  let transportExhausted;
+  let platform;
+  let dual;
+  let single;
+  let v2Req;
+  let v2AtThresholdX;
+  let v2ReadyS;
+  let v2BelowThresholdX;
+  let v1LowReady;
+  let v2ZeroPolicy;
+  let v2ZeroReq;
+  let v2Fallback;
+  let v2TransientRetry;
+  let providerWideStop;
+  let v2TransientStop;
+  let allCandidatesUnavailable;
+  let proceedPolicy;
+  let proceedReq;
+  let blockPolicy;
+  let blockReq;
+  let neverPolicy;
+  let neverReq;
+  let notAuthorized;
+  let askPolicy;
+  let askReq;
+  let denied;
+  let waiver;
+  let waived;
+  let completionReq;
+  let completionX;
+  let completionS;
+  let completion;
+  let receipt;
+  let completionV2Req;
+  let completionV2LowX;
+  let completionV2S;
+  let completionV2;
+  let earlyUnavailable;
+  let notReadyX;
+  let invented;
+  let failingPrimary;
+  let regressedReceipt;
+  let emptyInventory;
+  let emptyReq;
+  let emptyX;
+  let emptyS;
+  let completionNotReadyX;
+  let notReadyCompletion;
+  let notReadyReceipt;
+  let finding;
+  let XFinding;
+  let accepted;
+  let acceptedReceipt;
+
+  const baseDraftRequest = () => (req ??= request());
+  const policyV2Request = () => (v2Req ??= request({ policy: POLICY_V2 }));
+  const scoreGateFixture = () => {
+    const fixtureReq = policyV2Request();
+    v2BelowThresholdX ??= rawPassed(fixtureReq, 'X', null, [], { score: 89 });
+    v2ReadyS ??= rawPassed(fixtureReq, 'S', null, [], { score: 100 });
+  };
+  const repeatedCandidateFixture = () => {
+    const fixtureReq = policyV2Request();
+    v2TransientRetry ??= rawPassed(fixtureReq, 'X', [
+      attempt({
+        model: 'fable',
+        effort: 'high',
+        output_started: false,
+        result: 'transient_transport',
+        exit_code: null,
+        retry_cause: 'transport_ECONNRESET',
+        reason: 'connection reset',
+      }),
+      attempt({ model: 'fable', effort: 'high', child_id: 'child-2' }),
+    ]);
+  };
+  const providerWideRotationFixture = () => {
+    const fixtureReq = policyV2Request();
+    providerWideStop ??= {
+      ...rawAuth(fixtureReq, 'X'),
+      result: 'unavailable_unknown',
+      attempts: [
+        attempt({
+          model: 'fable',
+          effort: 'high',
+          output_started: false,
+          result: 'nonzero_exit',
+          exit_code: 1,
+          reason: 'shared weekly limit',
+        }),
+      ],
+      reason: 'provider-wide failure stops candidate rotation',
+    };
+  };
+  const passedNotReadyFixture = () => {
+    const fixtureReq = baseDraftRequest();
+    X ??= rawPassed(fixtureReq, 'X');
+    S ??= rawPassed(fixtureReq, 'S');
+    dual ??= {
+      schema: 1,
+      kind: 'draft',
+      request: fixtureReq,
+      X,
+      S,
+      reproduced: [],
+      decision_evidence: null,
+      outcome: 'dual',
+      pre_execution_eligible: true,
+    };
+    notReadyX ??= rawPassed(fixtureReq, 'X', null, [], {
+      verdict: 'not_ready',
+      score: 0,
+      confirmations: ['blocking verdict'],
+    });
+  };
+  const completionFixture = () => {
+    completionReq ??= request({
+      phase: 'completion',
+      lifecycle_intent: 'none',
+      planned_at_commit: '3'.repeat(40),
+      execution_base_commit: '4'.repeat(40),
+      diff_sha256: H0,
+      acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
+    });
+    completionX ??= rawPassed(completionReq, 'X');
+    completionS ??= rawPassed(completionReq, 'S');
+    completion ??= {
+      schema: 1,
+      kind: 'completion',
+      request: completionReq,
+      plan_input_sha256: completionReq.input_sha256,
+      diff_sha256: H0,
+      acceptance_inventory: INVENTORY,
+      acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256,
+      X: completionX,
+      S: completionS,
+      reproduced: [],
+      decision_evidence: null,
+      outcome: 'dual',
+      primary: primaryEvidence(),
+      completion_verdict: 'passed',
+    };
+  };
+  const emptyAcceptanceFixture = () => {
+    completionFixture();
+    emptyInventory ??= { schema: 1, criteria: [] };
+    emptyReq ??= { ...completionReq, acceptance_inventory_sha256: sha256(jcs(emptyInventory)) };
+    emptyX ??= rawPassed(emptyReq, 'X');
+    emptyS ??= rawPassed(emptyReq, 'S');
+  };
+
+  const entries = [
+    {
+      run: () => {
+        req = request();
+        X = rawPassed(req, 'X');
+        S = rawPassed(req, 'S');
+        validateRawLeg(X, req, 'X');
+        validateRawLeg(S, req, 'S');
+        assert.equal(X.findings_sha256, sha256(jcs([])), 'passed empty findings hash is SHA(JCS([]))');
+
+        fallback = rawPassed(req, 'X', [
+          attempt({
+            model: 'fable',
+            effort: 'high',
+            output_started: false,
+            result: 'model_unavailable',
+            exit_code: 1,
+            reason: 'not entitled',
+          }),
+          attempt({ model: 'opus', effort: 'max', child_id: 'child-2' }),
+        ]);
+        validateRawLeg(fallback, req, 'X');
+        retry = rawPassed(req, 'S', [
+          attempt({
+            output_started: false,
+            result: 'transient_transport',
+            exit_code: null,
+            retry_cause: 'transport_ECONNRESET',
+            reason: 'connection reset',
+          }),
+          attempt({ child_id: 'child-2' }),
+        ]);
+        validateRawLeg(retry, req, 'S');
+        transportPolicy = {
+          ...POLICY,
+          anthropic_tiers: [
+            { model: 'fable', effort: 'high', transports: ['cli'] },
+            { model: 'opus', effort: 'max', transports: ['in_session'] },
+          ],
+        };
+        transportReq = request({ policy: transportPolicy });
+        transportExhausted = {
+          ...rawAuth(transportReq, 'X'),
+          result: 'unavailable_model',
+          attempts: [
+            attempt({
+              model: 'fable',
+              effort: 'high',
+              output_started: false,
+              result: 'model_unavailable',
+              exit_code: 1,
+              reason: 'not entitled',
+            }),
+          ],
+          reason: 'all CLI tiers exhausted',
+        };
+        validateRawLeg(transportExhausted, transportReq, 'X');
+        platform = {
+          ...rawAuth(req, 'X'),
+          result: 'platform_denied',
+          attempts: [
+            attempt({
+              model: 'fable',
+              effort: 'high',
+              started: false,
+              output_started: false,
+              result: 'platform_denied',
+              exit_code: null,
+              child_id: null,
+              denial_source: 'sandbox',
+              timeout_mode: null,
+              reason: 'host denied export',
+              stdout_sha256: null,
+              stderr_sha256: null,
+            }),
+          ],
+          reason: 'host denied export',
+        };
+        validateRawLeg(platform, req, 'X');
+
+        dual = {
+          schema: 1,
+          kind: 'draft',
+          request: req,
+          X,
+          S,
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'dual',
+          pre_execution_eligible: true,
+        };
+        validateDraftRunResult(dual);
+        single = { ...dual, S: rawAuth(req, 'S'), outcome: 'single' };
+        validateDraftRunResult(single);
+        v2Req = request({ policy: POLICY_V2 });
+        v2AtThresholdX = rawPassed(v2Req, 'X', null, [], { score: 90 });
+        v2ReadyS = rawPassed(v2Req, 'S', null, [], { score: 100 });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: v2Req,
+          X: v2AtThresholdX,
+          S: v2ReadyS,
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'dual',
+          pre_execution_eligible: true,
+        });
+        v2BelowThresholdX = rawPassed(v2Req, 'X', null, [], { score: 89 });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: v2Req,
+          X: v2BelowThresholdX,
+          S: v2ReadyS,
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'dual',
+          pre_execution_eligible: false,
+        });
+      },
+    },
+    {
+      label: 'policy-v2 score gate regression',
+      run: () => {
+        scoreGateFixture();
+        expectThrow(
+          'policy v2 score 89 cannot authorize execution',
+          () =>
+            validateDraftRunResult({
+              schema: 1,
+              kind: 'draft',
+              request: v2Req,
+              X: v2BelowThresholdX,
+              S: v2ReadyS,
+              reproduced: [],
+              decision_evidence: null,
+              outcome: 'dual',
+              pre_execution_eligible: true,
+            }),
+          /pre_execution_eligible/,
+        );
+      },
+    },
+    {
+      run: () => {
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: v2Req,
+          X: v2AtThresholdX,
+          S: rawAuth(v2Req, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'single',
+          pre_execution_eligible: true,
+        });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: v2Req,
+          X: v2BelowThresholdX,
+          S: rawAuth(v2Req, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'single',
+          pre_execution_eligible: false,
+        });
+        v1LowReady = rawPassed(req, 'X', null, [], { score: 1 });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: req,
+          X: v1LowReady,
+          S: rawAuth(req, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'single',
+          pre_execution_eligible: true,
+        });
+        v2ZeroPolicy = {
+          ...POLICY_V2,
+          minimum_score: 0,
+          provenance: { ...POLICY_V2.provenance, minimum_score: 'current_user' },
+        };
+        v2ZeroReq = request({ policy: v2ZeroPolicy });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: v2ZeroReq,
+          X: rawPassed(v2ZeroReq, 'X', null, [], { score: 0 }),
+          S: rawAuth(v2ZeroReq, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'single',
+          pre_execution_eligible: true,
+        });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: v2ZeroReq,
+          X: rawPassed(v2ZeroReq, 'X', null, [], { verdict: 'not_ready', score: 100 }),
+          S: rawAuth(v2ZeroReq, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'single',
+          pre_execution_eligible: false,
+        });
+
+        v2Fallback = rawPassed(v2Req, 'X', [
+          attempt({
+            model: 'fable',
+            effort: 'high',
+            output_started: false,
+            result: 'model_unavailable',
+            exit_code: 1,
+            reason: 'candidate not entitled',
+          }),
+          attempt({ model: 'opus', effort: 'xhigh', child_id: 'child-2' }),
+        ]);
+        validateRawLeg(v2Fallback, v2Req, 'X');
+        v2TransientRetry = rawPassed(v2Req, 'X', [
+          attempt({
+            model: 'fable',
+            effort: 'high',
+            output_started: false,
+            result: 'transient_transport',
+            exit_code: null,
+            retry_cause: 'transport_ECONNRESET',
+            reason: 'connection reset',
+          }),
+          attempt({ model: 'fable', effort: 'high', child_id: 'child-2' }),
+        ]);
+      },
+    },
+    {
+      label: 'policy-v2 repeated-candidate regression',
+      run: () => {
+        repeatedCandidateFixture();
+        expectThrow(
+          'policy v2 attempts each candidate at most once',
+          () => validateRawLeg(v2TransientRetry, v2Req, 'X'),
+          /attempt|retry|order/,
+        );
+      },
+    },
+    {
+      run: () => {
+        providerWideStop = {
+          ...rawAuth(v2Req, 'X'),
+          result: 'unavailable_unknown',
+          attempts: [
+            attempt({
+              model: 'fable',
+              effort: 'high',
+              output_started: false,
+              result: 'nonzero_exit',
+              exit_code: 1,
+              reason: 'shared weekly limit',
+            }),
+          ],
+          reason: 'provider-wide failure stops candidate rotation',
+        };
+        validateRawLeg(providerWideStop, v2Req, 'X');
+      },
+    },
+    {
+      label: 'policy-v2 provider-wide rotation regression',
+      run: () => {
+        providerWideRotationFixture();
+        expectThrow(
+          'provider-wide failure cannot rotate to next candidate',
+          () =>
+            validateRawLeg(
+              {
+                ...providerWideStop,
+                attempts: [
+                  ...providerWideStop.attempts,
+                  attempt({ model: 'opus', effort: 'xhigh', child_id: 'child-2' }),
+                ],
+              },
+              v2Req,
+              'X',
+            ),
+          /attempt after terminal result/,
+        );
+      },
+    },
+    {
+      run: () => {
+        v2TransientStop = {
+          ...rawAuth(v2Req, 'S'),
+          result: 'unavailable_unknown',
+          attempts: [
+            attempt({
+              output_started: false,
+              result: 'transient_transport',
+              exit_code: null,
+              retry_cause: 'transport_ECONNRESET',
+              reason: 'connection reset',
+            }),
+          ],
+          reason: 'transport failure stops candidate rotation',
+        };
+        validateRawLeg(v2TransientStop, v2Req, 'S');
+        allCandidatesUnavailable = {
+          ...rawAuth(v2Req, 'X'),
+          result: 'unavailable_model',
+          attempts: [
+            attempt({
+              model: 'fable',
+              effort: 'high',
+              output_started: false,
+              result: 'model_unavailable',
+              exit_code: 1,
+              reason: 'candidate unavailable',
+            }),
+            attempt({
+              model: 'opus',
+              effort: 'xhigh',
+              output_started: false,
+              result: 'model_unavailable',
+              exit_code: 1,
+              reason: 'candidate unavailable',
+            }),
+          ],
+          reason: 'all candidates unavailable',
+        };
+        validateRawLeg(allCandidatesUnavailable, v2Req, 'X');
+        proceedPolicy = { ...POLICY, zero_reviewer_policy: 'proceed' };
+        proceedReq = request({ policy: proceedPolicy });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: proceedReq,
+          X: rawAuth(proceedReq, 'X'),
+          S: rawAuth(proceedReq, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'zero_degraded',
+          pre_execution_eligible: true,
+        });
+        blockPolicy = { ...POLICY, zero_reviewer_policy: 'block' };
+        blockReq = request({ policy: blockPolicy });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: blockReq,
+          X: rawAuth(blockReq, 'X'),
+          S: rawAuth(blockReq, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'blocked',
+          pre_execution_eligible: false,
+        });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: req,
+          X: rawAuth(req, 'X'),
+          S: rawAuth(req, 'S'),
+          reproduced: [],
+          decision_evidence: zeroDecision(req, 'proceed'),
+          outcome: 'zero_degraded',
+          pre_execution_eligible: true,
+        });
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: req,
+          X: rawAuth(req, 'X'),
+          S: rawAuth(req, 'S'),
+          reproduced: [],
+          decision_evidence: zeroDecision(req, 'block'),
+          outcome: 'blocked',
+          pre_execution_eligible: false,
+        });
+
+        neverPolicy = { ...POLICY, cross_company_consent: 'never' };
+        neverReq = request({ policy: neverPolicy });
+        notAuthorized = { ...rawAuth(neverReq, 'X'), result: 'not_authorized', reason: null };
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: neverReq,
+          X: notAuthorized,
+          S: rawPassed(neverReq, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'single',
+          pre_execution_eligible: true,
+        });
+        askPolicy = { ...POLICY, cross_company_consent: 'ask' };
+        askReq = request({ policy: askPolicy });
+        denied = {
+          ...rawAuth(askReq, 'X'),
+          result: 'not_authorized',
+          decision_evidence: consentDecision(askReq, 'deny'),
+          reason: null,
+        };
+        validateDraftRunResult({
+          schema: 1,
+          kind: 'draft',
+          request: askReq,
+          X: denied,
+          S: rawPassed(askReq, 'S'),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'single',
+          pre_execution_eligible: true,
+        });
+
+        waiver = {
+          phase: 'draft',
+          input_sha256: req.input_sha256,
+          legs: ['X', 'S'],
+          actor: 'test user',
+          reason: 'explicit scoped waiver',
+          at: '2026-07-12T00:00:00-03:00',
+        };
+        waived = (leg) => ({
+          schema: 1,
+          leg,
+          request: req,
+          result: 'waived',
+          attempts: [],
+          selected: null,
+          reviewer_output: null,
+          findings: [],
+          findings_sha256: null,
+          severity_totals: { high: 0, medium: 0, low: 0 },
+          waiver,
+          waiver_sha256: sha256(jcs(waiver)),
+          decision_evidence: null,
+          reason: null,
+        });
+        validateDraftRunResult(
+          {
+            schema: 1,
+            kind: 'draft',
+            request: req,
+            X: waived('X'),
+            S: waived('S'),
+            reproduced: [],
+            decision_evidence: zeroDecision(req),
+            outcome: 'blocked',
+            pre_execution_eligible: false,
+          },
+          { waivers: [waiver] },
+        );
+
+        completionReq = request({
+          phase: 'completion',
+          lifecycle_intent: 'none',
+          planned_at_commit: '3'.repeat(40),
+          execution_base_commit: '4'.repeat(40),
+          diff_sha256: H0,
+          acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
+        });
+        completionX = rawPassed(completionReq, 'X');
+        completionS = rawPassed(completionReq, 'S');
+        completion = {
+          schema: 1,
+          kind: 'completion',
+          request: completionReq,
+          plan_input_sha256: completionReq.input_sha256,
+          diff_sha256: H0,
+          acceptance_inventory: INVENTORY,
+          acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256,
+          X: completionX,
+          S: completionS,
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'dual',
+          primary: primaryEvidence(),
+          completion_verdict: 'passed',
+        };
+        validateCompletionRunResult(completion);
+        receipt = {
+          schema: 1,
+          phase: 'completion',
+          request: completionReq,
+          planned_at_commit: completionReq.planned_at_commit,
+          execution_base_commit: completionReq.execution_base_commit,
+          reviewed_head: completionReq.reviewed_commit_or_head,
+          diff_sha256: H0,
+          plan_input_sha256: completionReq.input_sha256,
+          acceptance_inventory: INVENTORY,
+          acceptance_inventory_sha256: completionReq.acceptance_inventory_sha256,
+          author: completionReq.author,
+          policy: completionReq.policy,
+          policy_sha256: completionReq.policy_sha256,
+          X: persisted(completionX),
+          S: persisted(completionS),
+          reproduced: [],
+          decision_evidence: null,
+          primary: completion.primary,
+          completion_verdict: 'passed',
+          outcome: 'dual',
+          reviewed_at: '2026-07-12T00:00:00-03:00',
+        };
+        validateCompletionReceipt(receipt, {
+          reviewed_head: completionReq.reviewed_commit_or_head,
+          diff_sha256: H0,
+          plan_input_sha256: completionReq.input_sha256,
+          review_status: 'passed',
+        });
+        completionV2Req = request({
+          policy: POLICY_V2,
+          phase: 'completion',
+          lifecycle_intent: 'none',
+          planned_at_commit: '3'.repeat(40),
+          execution_base_commit: '4'.repeat(40),
+          diff_sha256: H0,
+          acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
+        });
+        completionV2LowX = rawPassed(completionV2Req, 'X', null, [], { score: 89 });
+        completionV2S = rawPassed(completionV2Req, 'S', null, [], { score: 100 });
+        completionV2 = {
+          schema: 1,
+          kind: 'completion',
+          request: completionV2Req,
+          plan_input_sha256: completionV2Req.input_sha256,
+          diff_sha256: H0,
+          acceptance_inventory: INVENTORY,
+          acceptance_inventory_sha256: completionV2Req.acceptance_inventory_sha256,
+          X: completionV2LowX,
+          S: completionV2S,
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'dual',
+          primary: primaryEvidence(),
+          completion_verdict: 'regressed',
+        };
+        assert.equal(
+          deriveCompletionVerdict(completionV2.primary, INVENTORY, completionV2LowX, completionV2S),
+          'regressed',
+        );
+        assert.equal(
+          deriveCompletionVerdict(
+            completionV2.primary,
+            INVENTORY,
+            { ...completionV2LowX, reviewer_output: null },
+            completionV2S,
+          ),
+          'regressed',
+          'missing reviewer output fails closed',
+        );
+        validateCompletionRunResult(completionV2);
+        expectThrow(
+          'policy v2 low score cannot pass completion',
+          () => validateCompletionRunResult({ ...completionV2, completion_verdict: 'passed' }),
+          /completion verdict mismatch/,
+        );
+
+        expectThrow(
+          'unstarted passed attempt',
+          () =>
+            validateRawLeg(
+              {
+                ...X,
+                attempts: [
+                  { ...X.attempts[0], started: false, child_id: null, stdout_sha256: null, stderr_sha256: null },
+                ],
+              },
+              req,
+              'X',
+            ),
+          /unstarted|passed attempt/,
+        );
+        expectThrow(
+          'started missing timeout',
+          () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], timeout_mode: null }] }, req, 'X'),
+          /timeout mode/,
+        );
+        expectThrow(
+          'passed exit and signal contradiction',
+          () => validateRawLeg({ ...X, attempts: [{ ...X.attempts[0], exit_code: 9, signal: 'SIGKILL' }] }, req, 'X'),
+          /passed attempt/,
+        );
+        expectThrow(
+          'transient after output',
+          () =>
+            validateRawLeg(
+              { ...retry, attempts: [{ ...retry.attempts[0], output_started: true }, retry.attempts[1]] },
+              req,
+              'S',
+            ),
+          /transient attempt/,
+        );
+        expectThrow(
+          'platform without denial source',
+          () => validateRawLeg({ ...platform, attempts: [{ ...platform.attempts[0], denial_source: null }] }, req, 'X'),
+          /platform denial/,
+        );
+        expectThrow(
+          'wrong company tier',
+          () =>
+            validateRawLeg(
+              {
+                ...S,
+                attempts: [{ ...S.attempts[0], model: 'fable', effort: 'high' }],
+                selected: { model: 'fable', effort: 'high', transport: 'cli' },
+              },
+              req,
+              'S',
+            ),
+          /tier order/,
+        );
+        expectThrow(
+          'transport switch',
+          () =>
+            validateRawLeg(
+              {
+                ...fallback,
+                attempts: [fallback.attempts[0], { ...fallback.attempts[1], transport: 'in_session' }],
+                selected: { ...fallback.selected, transport: 'in_session' },
+              },
+              req,
+              'X',
+            ),
+          /transport changed/,
+        );
+        expectThrow(
+          'tier skip',
+          () =>
+            validateRawLeg(
+              {
+                ...fallback,
+                attempts: [{ ...fallback.attempts[0], model: 'opus', effort: 'max' }, fallback.attempts[1]],
+              },
+              req,
+              'X',
+            ),
+          /tier order/,
+        );
+        expectThrow(
+          'retry changed tuple',
+          () =>
+            validateRawLeg(
+              {
+                ...retry,
+                attempts: [retry.attempts[0], { ...retry.attempts[1], model: 'fable', effort: 'high' }],
+                selected: { ...retry.selected, model: 'fable', effort: 'high' },
+              },
+              req,
+              'S',
+            ),
+          /tier order/,
+        );
+        expectThrow(
+          'second transient retry',
+          () =>
+            validateRawLeg(
+              {
+                ...retry,
+                attempts: [retry.attempts[0], { ...retry.attempts[0], child_id: 'child-2' }, retry.attempts[1]],
+              },
+              req,
+              'S',
+            ),
+          /attempt bound|invalid transient retry/,
+        );
+        expectThrow(
+          'attempt after terminal',
+          () => validateRawLeg({ ...X, attempts: [...X.attempts, X.attempts[0]] }, req, 'X'),
+          /attempt bound|terminal/,
+        );
+        expectThrow(
+          'selected mismatch',
+          () => validateRawLeg({ ...X, selected: { ...X.selected, model: 'wrong' } }, req, 'X'),
+          /invalid passed leg/,
+        );
+        expectThrow(
+          'raw result mismatch',
+          () =>
+            validateRawLeg(
+              { ...X, result: 'timed_out', selected: null, findings_sha256: null, reason: 'claimed timeout' },
+              req,
+              'X',
+            ),
+          /non-passed leg carries findings|non-passed leg cannot select reviewer output|leg result mismatch/,
+        );
+        expectThrow(
+          'S not authorized',
+          () => validateRawLeg({ ...rawAuth(req, 'S'), result: 'not_authorized', reason: null }, req, 'S'),
+          /invalid not_authorized/,
+        );
+        expectThrow(
+          'always not authorized',
+          () => validateRawLeg({ ...rawAuth(req, 'X'), result: 'not_authorized', reason: null }, req, 'X'),
+          /standing consent/,
+        );
+        expectThrow(
+          'ask X attempt without allow',
+          () => validateRawLeg({ ...rawPassed(askReq, 'X'), decision_evidence: null }, askReq, 'X'),
+          /decision must|Cannot read|requires allow|must be an object/,
+        );
+        expectThrow('never X attempt', () => validateRawLeg(rawPassed(neverReq, 'X'), neverReq, 'X'), /cannot run/);
+        earlyUnavailable = {
+          ...rawAuth(req, 'X'),
+          result: 'unavailable_model',
+          attempts: [
+            attempt({
+              model: 'fable',
+              effort: 'high',
+              output_started: false,
+              result: 'model_unavailable',
+              exit_code: 1,
+              reason: 'not entitled',
+            }),
+          ],
+          reason: 'claimed exhausted',
+        };
+        expectThrow(
+          'unavailable model before tier exhaustion',
+          () => validateRawLeg(earlyUnavailable, req, 'X'),
+          /leg result mismatch/,
+        );
+        expectThrow(
+          'stale waiver snapshot',
+          () =>
+            validateDraftRunResult(
+              {
+                schema: 1,
+                kind: 'draft',
+                request: req,
+                X: waived('X'),
+                S: waived('S'),
+                reproduced: [],
+                decision_evidence: zeroDecision(req),
+                outcome: 'blocked',
+                pre_execution_eligible: false,
+              },
+              { waivers: [] },
+            ),
+          /exact current snapshot/,
+        );
+        expectThrow(
+          'waiver hash mismatch',
+          () =>
+            validateDraftRunResult(
+              {
+                schema: 1,
+                kind: 'draft',
+                request: req,
+                X: { ...waived('X'), waiver_sha256: H0 },
+                S: waived('S'),
+                reproduced: [],
+                decision_evidence: zeroDecision(req),
+                outcome: 'blocked',
+                pre_execution_eligible: false,
+              },
+              { waivers: [waiver] },
+            ),
+          /waiver hash/,
+        );
+        expectThrow(
+          'dual with one pass',
+          () => validateDraftRunResult({ ...dual, S: rawAuth(req, 'S') }),
+          /outcome mismatch/,
+        );
+        expectThrow(
+          'zero decision on dual',
+          () => validateDraftRunResult({ ...dual, decision_evidence: zeroDecision(req) }),
+          /cannot carry/,
+        );
+        expectThrow(
+          'opposite eligibility',
+          () => validateDraftRunResult({ ...dual, pre_execution_eligible: false }),
+          /eligible mismatch/,
+        );
+        notReadyX = rawPassed(req, 'X', null, [], {
+          verdict: 'not_ready',
+          score: 0,
+          confirmations: ['blocking verdict'],
+        });
+      },
+    },
+    {
+      label: 'passed not_ready regression',
+      run: () => {
+        passedNotReadyFixture();
+        expectThrow(
+          'not-ready reviewer cannot authorize execution',
+          () => validateDraftRunResult({ ...dual, X: notReadyX }),
+          /eligible mismatch/,
+        );
+      },
+    },
+    {
+      run: () => {
+        expectThrow(
+          'structured reviewer output hash mismatch',
+          () =>
+            validateRawLeg({ ...X, reviewer_output: { ...X.reviewer_output, structured_output_sha256: H0 } }, req, 'X'),
+          /structured output hash/,
+        );
+        expectThrow(
+          'draft kind mismatch',
+          () => validateDraftRunResult({ ...dual, kind: 'completion' }),
+          /draft run kind/,
+        );
+        expectThrow(
+          'X and S swapped',
+          () => validateDraftRunResult({ ...dual, X: S, S: X }),
+          /raw leg request mismatch/,
+        );
+        invented = {
+          id: 'X99',
+          source: 'X',
+          severity: 'high',
+          path: null,
+          locator: null,
+          defect: 'invented',
+          fix: 'none',
+          reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+        };
+        expectThrow(
+          'invented reproduced id',
+          () => validateDraftRunResult({ ...dual, reproduced: [invented] }),
+          /not present/,
+        );
+        expectThrow(
+          'completion plan hash mismatch',
+          () => validateCompletionRunResult({ ...completion, plan_input_sha256: H0 }),
+          /plan or diff input mismatch/,
+        );
+        expectThrow(
+          'passing CI failure line',
+          () =>
+            validateCompletionRunResult({
+              ...completion,
+              primary: { ...completion.primary, ci: { ...completion.primary.ci, first_failure: 'should be null' } },
+            }),
+          /passing CI/,
+        );
+        failingPrimary = {
+          ...primaryEvidence(),
+          goal_met: 'no',
+          acceptance: primaryEvidence().acceptance.map((row, index) =>
+            index === 0 ? { ...row, exit_code: 1, met: false } : row,
+          ),
+          ci: { ...primaryEvidence().ci, exit_code: 1, first_failure: 'test failed' },
+          regressions: ['blocking regression'],
+        };
+        assert.equal(deriveCompletionVerdict(failingPrimary, INVENTORY, completionX, completionS), 'regressed');
+        expectThrow(
+          'failing primary cannot claim passed completion verdict',
+          () => validateCompletionReceipt({ ...receipt, primary: failingPrimary }, { review_status: 'passed' }),
+          /completion verdict mismatch/,
+        );
+        regressedReceipt = { ...receipt, primary: failingPrimary, completion_verdict: 'regressed' };
+        expectThrow(
+          'regressed receipt cannot match passed review_status',
+          () => validateCompletionReceipt(regressedReceipt, { review_status: 'passed' }),
+          /review_status mismatch/,
+        );
+        expectThrow(
+          'stale completion receipt',
+          () => validateCompletionReceipt(receipt, { diff_sha256: H1 }),
+          /stale completion/,
+        );
+        expectThrow(
+          'completion author mismatch',
+          () => validateCompletionReceipt({ ...receipt, author: { ...receipt.author, company: 'anthropic' } }),
+          /author mismatch/,
+        );
+        expectThrow(
+          'completion receipt extra key',
+          () => validateCompletionReceipt({ ...receipt, extra: true }),
+          /unknown key/,
+        );
+      },
+    },
+    {
+      run: () => {
+        for (const [label, acceptance] of [
+          ['empty acceptance ledger', []],
+          ['missing acceptance row', completion.primary.acceptance.slice(0, -1)],
+          [
+            'extra acceptance row',
+            [...completion.primary.acceptance, { ...completion.primary.acceptance[0], criterion_id: 'A9' }],
+          ],
+          ['reordered acceptance rows', [...completion.primary.acceptance].reverse()],
+        ])
+          expectThrow(
+            label,
+            () => validateCompletionRunResult({ ...completion, primary: { ...completion.primary, acceptance } }),
+            /acceptance evidence/,
+          );
+      },
+    },
+    {
+      label: 'acceptance command substitution',
+      run: () => {
+        completionFixture();
+        expectThrow(
+          'altered acceptance command',
+          () =>
+            validateCompletionRunResult({
+              ...completion,
+              primary: {
+                ...completion.primary,
+                acceptance: completion.primary.acceptance.map((row, index) =>
+                  index === 0 ? { ...row, command: 'true' } : row,
+                ),
+              },
+            }),
+          /acceptance evidence/,
+        );
+      },
+    },
+    {
+      label: 'vacuous acceptance inventory',
+      run: () => {
+        emptyAcceptanceFixture();
+        expectThrow(
+          'empty canonical acceptance inventory',
+          () =>
+            validateCompletionRunResult({
+              ...completion,
+              request: emptyReq,
+              acceptance_inventory: emptyInventory,
+              acceptance_inventory_sha256: emptyReq.acceptance_inventory_sha256,
+              X: emptyX,
+              S: emptyS,
+              primary: { ...completion.primary, acceptance: [] },
+            }),
+          /acceptance inventory must be nonempty/,
+        );
+      },
+    },
+    {
+      run: () => {
+        completionNotReadyX = rawPassed(completionReq, 'X', null, [], { verdict: 'not_ready', score: 40 });
+        notReadyCompletion = { ...completion, X: completionNotReadyX, completion_verdict: 'regressed' };
+        validateCompletionRunResult(notReadyCompletion);
+        expectThrow(
+          'not_ready reviewer cannot claim passed completion',
+          () => validateCompletionRunResult({ ...notReadyCompletion, completion_verdict: 'passed' }),
+          /completion verdict mismatch/,
+        );
+        notReadyReceipt = { ...receipt, X: persisted(completionNotReadyX), completion_verdict: 'regressed' };
+        validateCompletionReceipt(notReadyReceipt, { review_status: 'regressed' });
+
+        finding = {
+          id: 'X1',
+          severity: 'high',
+          section: 'Goal',
+          path: 'src/a.js',
+          locator: 'symbol',
+          defect: 'broken',
+          fix: 'repair',
+          evidence: 'source',
+        };
+        XFinding = rawPassed(req, 'X', null, [finding]);
+        accepted = persisted(XFinding, ['X1']);
+        acceptedReceipt = {
+          schema: 1,
+          phase: 'draft',
+          request: req,
+          input_sha256: req.input_sha256,
+          reviewed_commit: req.reviewed_commit_or_head,
+          author: req.author,
+          policy: req.policy,
+          policy_sha256: req.policy_sha256,
+          X: accepted,
+          S: persisted(S),
+          reproduced: [],
+          decision_evidence: null,
+          outcome: 'dual',
+          pre_execution_eligible: true,
+          reviewed_at: '2026-07-12T00:00:00-03:00',
+        };
+        expectThrow(
+          'accepted unreproduced finding',
+          () => validateDraftReceipt(acceptedReceipt, req.input_sha256),
+          /not reproduced/,
+        );
+      },
+    },
+    {
+      label: 'malformed acceptance source table',
+      run: () => {
+        assert.deepEqual(
+          INVENTORY.criteria.map(({ id }) => id),
+          ['A1', 'A2'],
+          'acceptance inventory criterion ids',
+        );
+      },
+    },
+    {
+      run: () => {
+        console.log('semantic: not_ready verdict and structured-output hash cannot authorize execution');
+        console.log(
+          'semantic: derived completion verdict rejects failing primary evidence and mismatched review_status',
+        );
+        console.log('semantic validation matrix passed');
+      },
+    },
+  ];
+  return runFocusedEntries('validation-matrix', focus, entries);
+}
+
+async function testBundle(focus = null) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-bundle-'));
+  const repo = path.join(temp, 'repo');
+  const out = path.join(temp, 'bundle');
+  const reviewRoot = '/tmp/docks-plan-review';
+  const ownedPaths = new Set();
+  fs.mkdirSync(path.join(repo, 'docs/plans/active'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'src'));
+  fs.mkdirSync(path.join(repo, 'evidence/level-one/level-two'), { recursive: true });
+  fs.copyFileSync(FIXTURE, path.join(repo, 'docs/plans/active/sample.md'));
+  fs.writeFileSync(path.join(repo, 'src/example.js'), 'export const example = true;\n');
+  fs.symlinkSync('example.js', path.join(repo, 'src/example-link.js'));
+  fs.writeFileSync(path.join(repo, 'evidence/level-one/level-two/nested.txt'), 'nested evidence\n');
+  git(repo, ['init', '-q']);
+  git(repo, ['config', 'user.email', 'policy@example.test']);
+  git(repo, ['config', 'user.name', 'Policy Test']);
+  git(repo, ['add', '.']);
+  git(repo, ['commit', '-qm', 'fixture']);
+  const head = git(repo, ['rev-parse', 'HEAD']);
+  fs.writeFileSync(path.join(repo, 'src/example.js'), 'uncommitted moving bytes\n');
+  const sealed = sealBundle({
+    repo,
+    reviewedCommit: head,
+    planPath: 'docs/plans/active/sample.md',
+    requestedPaths: ['src', 'evidence/level-one/level-two/nested.txt', 'missing.txt'],
+    outDir: out,
+  });
+  if (!fs.existsSync(reviewRoot)) fs.mkdirSync(reviewRoot, { mode: 0o700 });
+  const sealOwned = () => {
+    const bundle = path.join(reviewRoot, randomUUID());
+    ownedPaths.add(bundle);
+    return {
+      bundle,
+      sealed: sealBundle({
+        repo,
+        reviewedCommit: head,
+        planPath: 'docs/plans/active/sample.md',
+        requestedPaths: ['src'],
+        outDir: bundle,
+      }),
+    };
+  };
+  const rejectDestroy = (label, args, pattern) => {
+    const result = helper(ROOT, ['destroy-bundle', ...args]);
+    assert.notEqual(result.status, 0, `${label} must fail`);
+    assert.match(result.stderr, pattern, label);
+  };
+  let wrongHash;
+  let ownership;
+  const entries = [
+    {
+      run: () => {
+        assert.match(sealed.bundle_sha256, /^[0-9a-f]{64}$/);
+        assert.equal(sealed.manifest.requested.find((row) => row.path === 'missing.txt').state, 'absent');
+        assert.equal(sealed.manifest.files.find((row) => row.path === 'src/example-link.js').mode, '120000');
+        assert.equal(
+          fs.readFileSync(path.join(out, 'src/example.js'), 'utf8'),
+          'export const example = true;\n',
+          'bundle reads reviewed commit, not moving worktree',
+        );
+        assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.schema.json')));
+        assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.schema.json')));
+        assert.ok(fs.existsSync(path.join(out, 'reviewer-output.X.v3.schema.json')));
+        assert.ok(fs.existsSync(path.join(out, 'reviewer-output.S.v3.schema.json')));
+        assert.match(fs.readFileSync(path.join(out, 'reviewer-output.S.schema.json'), 'utf8'), /\^S/);
+        assertConstrainedScalarsTyped(
+          JSON.parse(fs.readFileSync(path.join(out, 'reviewer-output.S.v3.schema.json'), 'utf8')),
+          'sealed reviewer schema v3',
+        );
+        assert.equal(
+          verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }).bundle_sha256,
+          sealed.bundle_sha256,
+        );
+      },
+    },
+    {
+      run: () => {
+        const rootStat = fs.lstatSync(reviewRoot);
+        assert.equal(
+          rootStat.isDirectory() && !rootStat.isSymbolicLink() && fs.realpathSync(reviewRoot) === reviewRoot,
+          true,
+          'review root is a real directory',
+        );
+        assert.equal(rootStat.mode & 0o777, 0o700, 'review root is owner-only');
+        if (typeof process.getuid === 'function')
+          assert.equal(rootStat.uid, process.getuid(), 'review root is user-owned');
+      },
+    },
+    {
+      run: () => {
+        const witness = path.join(reviewRoot, `${randomUUID()}.adjacent`);
+        ownedPaths.add(witness);
+        fs.writeFileSync(witness, 'keep\n', { mode: 0o600 });
+        const valid = sealOwned();
+        const removed = helper(ROOT, ['destroy-bundle', valid.bundle, valid.sealed.bundle_sha256]);
+        assert.equal(removed.status, 0, removed.stderr);
+        assert.deepEqual(JSON.parse(removed.stdout), {
+          schema: 1,
+          bundle_sha256: valid.sealed.bundle_sha256,
+          removed: true,
+        });
+        assert.equal(fs.existsSync(valid.bundle), false, 'verified bundle removed');
+        assert.equal(fs.readFileSync(witness, 'utf8'), 'keep\n', 'adjacent file preserved');
+      },
+    },
+    {
+      label: 'destroy-bundle expected hash regression',
+      run: () => {
+        wrongHash = sealOwned();
+        rejectDestroy('expected hash mismatch', [wrongHash.bundle, 'f'.repeat(64)], /bundle hash mismatch/);
+      },
+    },
+    {
+      run: () => {
+        assert.equal(fs.existsSync(wrongHash.bundle), true, 'hash mismatch preserves bundle');
+        fs.chmodSync(path.join(wrongHash.bundle, 'plan.review.md'), 0o644);
+        fs.appendFileSync(path.join(wrongHash.bundle, 'plan.review.md'), 'tamper\n');
+        fs.chmodSync(path.join(wrongHash.bundle, 'plan.review.md'), 0o444);
+        rejectDestroy(
+          'mutated bundle',
+          [wrongHash.bundle, wrongHash.sealed.bundle_sha256],
+          /file hash mismatch|bundle hash mismatch/,
+        );
+        assert.equal(fs.existsSync(wrongHash.bundle), true, 'mutation preserves bundle');
+      },
+    },
+    {
+      run: () => {
+        const symlinkTarget = sealOwned();
+        const symlink = path.join(reviewRoot, randomUUID());
+        ownedPaths.add(symlink);
+        fs.symlinkSync(symlinkTarget.bundle, symlink);
+        rejectDestroy(
+          'symlink bundle',
+          [symlink, symlinkTarget.sealed.bundle_sha256],
+          /symlink|canonical|review bundle path/,
+        );
+        assert.equal(fs.existsSync(symlinkTarget.bundle), true, 'symlink rejection preserves target');
+      },
+    },
+    {
+      label: 'destroy-bundle root boundary regression',
+      run: () => rejectDestroy('outside review root', [out, sealed.bundle_sha256], /supported temporary review root/),
+    },
+    {
+      run: () => assert.equal(fs.existsSync(out), true, 'outside bundle preserved'),
+    },
+    {
+      run: () => {
+        const nonBundle = path.join(reviewRoot, randomUUID());
+        ownedPaths.add(nonBundle);
+        fs.mkdirSync(nonBundle, { mode: 0o700 });
+        fs.chmodSync(nonBundle, 0o555);
+        rejectDestroy('non-bundle', [nonBundle, '0'.repeat(64)], /manifest|bundle/);
+        assert.equal(fs.existsSync(nonBundle), true, 'non-bundle preserved');
+        rejectDestroy('review root target', [reviewRoot, '0'.repeat(64)], /root|review bundle path/);
+        rejectDestroy('filesystem root target', ['/', '0'.repeat(64)], /root|supported temporary review root/);
+        rejectDestroy('home target', [os.homedir(), '0'.repeat(64)], /home|supported temporary review root/);
+      },
+    },
+    {
+      label: 'destroy-bundle ownership regression',
+      run: () => {
+        if (typeof process.getuid !== 'function') return;
+        ownership = sealOwned();
+        const probe = `process.getuid=()=>${process.getuid() + 1};const m=await import(${JSON.stringify(pathToFileURL(HELPER).href)});m.destroyBundle({bundle:process.argv[1],expectedSha256:process.argv[2]});`;
+        const result = spawnSync(
+          process.execPath,
+          ['--input-type=module', '--eval', probe, ownership.bundle, ownership.sealed.bundle_sha256],
+          { encoding: 'utf8' },
+        );
+        assert.notEqual(result.status, 0, 'ownership mismatch must fail');
+        assert.match(result.stderr, /ownership mismatch/, 'ownership mismatch is explicit');
+      },
+    },
+    {
+      run: () => {
+        if (ownership !== undefined)
+          assert.equal(fs.existsSync(ownership.bundle), true, 'ownership mismatch preserves bundle');
+      },
+    },
+    {
+      run: () => {
+        removeBundleDestructionTargets(ownedPaths);
+        ownedPaths.clear();
+        for (const directory of ['evidence', 'evidence/level-one', 'evidence/level-one/level-two'])
+          assert.equal(
+            fs.statSync(path.join(out, directory)).mode & 0o777,
+            0o555,
+            `${directory} ancestor is sealed read-only`,
+          );
+        expectThrow(
+          'raw plan requested path',
+          () =>
+            sealBundle({
+              repo,
+              reviewedCommit: head,
+              planPath: 'docs/plans/active/sample.md',
+              requestedPaths: ['docs/plans/active/sample.md'],
+              outDir: path.join(temp, 'raw-plan'),
+            }),
+          /raw plan path/,
+        );
+      },
+    },
+    {
+      label: 'raw source plan ancestor defenses',
+      run: () =>
+        expectThrow(
+          'raw plan requested ancestor',
+          () =>
+            sealBundle({
+              repo,
+              reviewedCommit: head,
+              planPath: 'docs/plans/active/sample.md',
+              requestedPaths: ['docs/plans/active'],
+              outDir: path.join(temp, 'raw-plan-ancestor'),
+            }),
+          /raw plan path or ancestor|emitted/,
+        ),
+    },
+    {
+      label: 'sealed plan-view semantic binding',
+      run: () => {
+        const substitutedPath = path.join(temp, 'substituted-bundle');
+        const substituted = copiedResealedBundle(out, substitutedPath, (manifest, root) => {
+          const bytes = Buffer.from('unrelated plan B\n');
+          fs.writeFileSync(path.join(root, 'plan.review.md'), bytes);
+          manifest.files.find((row) => row.path === 'plan.review.md').sha256 = sha256(bytes);
+        });
+        const substitutedRequest = request({
+          reviewed_commit_or_head: head,
+          input_sha256: sealed.input_sha256,
+          bundle_sha256: substituted.bundle_sha256,
+        });
+        expectThrow(
+          'self-consistently resealed plan-B substitution',
+          () =>
+            buildReviewerArgv({
+              tool: 'codex',
+              bundle: substitutedPath,
+              model: 'gpt-5.6-sol',
+              effort: 'xhigh',
+              leg: 'X',
+              request: substitutedRequest,
+            }),
+          /plan view input hash mismatch/,
+        );
+      },
+    },
+    {
+      label: 'sealed reviewer-schema semantic binding',
+      run: () => {
+        const schemaPath = path.join(temp, 'schema-substitution');
+        const schemaSubstitution = copiedResealedBundle(out, schemaPath, (manifest, root) => {
+          const bytes = Buffer.from(`${jcs(reviewerSchema('X'))}\n`);
+          fs.writeFileSync(path.join(root, 'reviewer-output.S.schema.json'), bytes);
+          manifest.files.find((row) => row.path === 'reviewer-output.S.schema.json').sha256 = sha256(bytes);
+        });
+        expectThrow(
+          'self-consistently resealed reviewer schema substitution',
+          () => verifyBundle({ bundle: schemaPath, expectedSha256: schemaSubstitution.bundle_sha256 }),
+          /reviewer schema mismatch/,
+        );
+      },
+    },
+    {
+      label: 'requested-row coverage binding',
+      run: () => {
+        const requestedPath = path.join(temp, 'requested-state-substitution');
+        const requestedSubstitution = copiedResealedBundle(out, requestedPath, (manifest) => {
+          manifest.requested.find((row) => row.path === 'src').state = 'file';
+        });
+        expectThrow(
+          'self-consistently resealed requested-state substitution',
+          () => verifyBundle({ bundle: requestedPath, expectedSha256: requestedSubstitution.bundle_sha256 }),
+          /requested path coverage/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const leakedPath = path.join(temp, 'raw-plan-leak');
+        const leaked = copiedResealedBundle(out, leakedPath, (manifest, root) => {
+          const logical = 'docs/plans/active/sample.md';
+          const bytes = fs.readFileSync(FIXTURE);
+          const absolute = path.join(root, logical);
+          fs.mkdirSync(path.dirname(absolute), { recursive: true });
+          fs.writeFileSync(absolute, bytes);
+          manifest.requested.push({ path: 'docs/plans/active', state: 'directory' });
+          manifest.requested.sort((a, b) => a.path.localeCompare(b.path));
+          manifest.files.push({ path: logical, mode: '100644', sha256: sha256(bytes) });
+          manifest.files.sort((a, b) => a.path.localeCompare(b.path));
+        });
+        expectThrow(
+          'self-consistently resealed raw-plan leak',
+          () => verifyBundle({ bundle: leakedPath, expectedSha256: leaked.bundle_sha256 }),
+          /exposes raw plan|raw plan leak/,
+        );
+        fs.chmodSync(path.join(out, 'plan.review.md'), 0o644);
+        expectThrow(
+          'post-seal writable mode',
+          () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }),
+          /not sealed read-only/,
+        );
+        fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
+      },
+    },
+    {
+      label: 'sealed file hash regression',
+      run: () => {
+        fs.chmodSync(path.join(out, 'plan.review.md'), 0o644);
+        fs.appendFileSync(path.join(out, 'plan.review.md'), 'tamper\n');
+        fs.chmodSync(path.join(out, 'plan.review.md'), 0o444);
+        expectThrow(
+          'post-seal file change without caller hash',
+          () => verifyBundle({ bundle: out }),
+          /file hash mismatch/,
+        );
+      },
+    },
+    {
+      run: () => {
+        expectThrow(
+          'post-seal bundle change',
+          () => verifyBundle({ bundle: out, expectedSha256: sealed.bundle_sha256 }),
+          /hash mismatch/,
+        );
+        expectThrow(
+          'nonexistent reviewed commit',
+          () =>
+            sealBundle({
+              repo,
+              reviewedCommit: 'f'.repeat(40),
+              planPath: 'docs/plans/active/sample.md',
+              requestedPaths: [],
+              outDir: path.join(temp, 'bad'),
+            }),
+          /git rev-parse/,
+        );
+        git(repo, ['update-index', '--add', '--cacheinfo', `160000,${head},vendor/sub`]);
+        git(repo, ['commit', '-qm', 'submodule fixture']);
+        const submoduleHead = git(repo, ['rev-parse', 'HEAD']);
+        expectThrow(
+          'submodule tree entry',
+          () =>
+            sealBundle({
+              repo,
+              reviewedCommit: submoduleHead,
+              planPath: 'docs/plans/active/sample.md',
+              requestedPaths: ['vendor'],
+              outDir: path.join(temp, 'submodule-bundle'),
+            }),
+          /submodule is unsupported/,
+        );
+        assert.equal(fs.existsSync(path.join(temp, 'submodule-bundle')), false, 'failed seal leaves no partial bundle');
+        assert.equal(fs.statSync(out).mode & 0o222, 0, 'bundle root read-only');
+        console.log('bundle manifest/hash goldens passed');
+      },
+    },
+  ];
+  try {
+    await runFocusedEntries('bundle', focus, entries);
+  } finally {
+    removeBundleDestructionTargets(ownedPaths);
+    makeWritable(temp);
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+async function testStrictCompletionReuse(focus = null) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-strict-reuse-'));
+  const repo = path.join(temp, 'repo');
+  initializeRepository(repo);
+  writeLogical(repo, 'seed.txt', 'seed\n');
+  const plannedAt = commitAll(repo, 'seed');
+  const planPath = 'docs/plans/active/strict.md';
+  let plan = fixturePlan({ plannedAt, cleanReceipt: true });
+  writeLogical(repo, planPath, plan);
+  commitAll(repo, 'add strict plan');
+  plan = replaceOnce(plan, 'status: planned', 'status: ongoing');
+  plan = replaceOnce(plan, 'started_at: null', 'started_at: "2026-07-13T12:00:00.000Z"');
+  writeLogical(repo, planPath, plan);
+  const executionBase = commitAll(repo, 'start strict plan');
+  plan = replaceOnce(plan, 'execution_base_commit: null', `execution_base_commit: "${executionBase}"`);
+  writeLogical(repo, planPath, plan);
+  const head = commitAll(repo, 'record strict identity');
+  let legacyCompletion = null;
+  const getLegacyCompletion = () => {
+    if (legacyCompletion !== null) return legacyCompletion;
+    git(repo, ['checkout', '-q', '--detach', head]);
+    const receipt = completionReceiptFor(head, Buffer.from(plan));
+    let completed = applyCompletionReviewBlock(Buffer.from(plan), receipt).toString();
+    completed = replaceOnce(completed, 'review_status: null', 'review_status: passed');
+    writeLogical(repo, planPath, completed);
+    const completionCommit = commitAll(repo, 'complete strict plan');
+    legacyCompletion = { receipt, completed, completionCommit };
+    return legacyCompletion;
+  };
+  let currentReview = null;
+  const getCurrentReview = () => {
+    if (currentReview !== null) return currentReview;
+    const inventory = acceptanceInventory(Buffer.from(plan));
+    const req = currentRequest({
+      phase: 'completion',
+      reviewed_commit_or_head: head,
+      planned_at_commit: plannedAt,
+      execution_base_commit: executionBase,
+      diff_sha256: H0,
+      acceptance_inventory_sha256: sha256(jcs(inventory)),
+      input_sha256: sha256(canonicalPlanView(Buffer.from(plan))),
+    });
+    currentReview = { inventory, req };
+    return currentReview;
+  };
+  const completeWithoutFinalLf = (sourceLabel, sourcePlan) => {
+    git(repo, ['checkout', '-q', '--detach', head]);
+    const withoutFinalLf = sourcePlan.slice(0, -1);
+    writeLogical(repo, planPath, withoutFinalLf);
+    const reviewedWithoutFinalLf = commitAll(repo, `review ${sourceLabel} without final LF`);
+    const inventoryWithoutFinalLf = acceptanceInventory(Buffer.from(withoutFinalLf));
+    const requestWithoutFinalLf = currentRequest({
+      phase: 'completion',
+      reviewed_commit_or_head: reviewedWithoutFinalLf,
+      planned_at_commit: plannedAt,
+      execution_base_commit: executionBase,
+      diff_sha256: H0,
+      acceptance_inventory_sha256: sha256(jcs(inventoryWithoutFinalLf)),
+      input_sha256: sha256(canonicalPlanView(Buffer.from(withoutFinalLf))),
+    });
+    const runWithoutFinalLf = currentRun(requestWithoutFinalLf, currentRaw(requestWithoutFinalLf), {
+      primary: primaryEvidence(inventoryWithoutFinalLf),
+    });
+    const receiptWithoutFinalLf = currentReceipt(requestWithoutFinalLf, runWithoutFinalLf);
+    let completedWithoutFinalLf = applyCompletionReviewBlock(
+      Buffer.from(`${withoutFinalLf}\n`),
+      receiptWithoutFinalLf,
+    ).toString();
+    completedWithoutFinalLf = replaceOnce(completedWithoutFinalLf, 'review_status: null', 'review_status: passed');
+    writeLogical(repo, planPath, completedWithoutFinalLf);
+    const completionWithoutFinalLf = commitAll(repo, `complete ${sourceLabel} without final LF`);
+    validateCompletionReviewReuse({
+      repo,
+      planPath,
+      reviewedHead: reviewedWithoutFinalLf,
+      completionCommit: completionWithoutFinalLf,
+      receipt: receiptWithoutFinalLf,
+      expectedPolicy: CURRENT_POLICY,
+    });
+  };
+  let currentWaiver;
+  let waivedReceipt;
+  let waivedCompletionCommit;
+  const entries = [
+    {
+      run: () => {
+        assert.deepEqual(
+          validateExecutionRange({
+            repo,
+            planPath,
+            plannedAtCommit: plannedAt,
+            executionBaseCommit: executionBase,
+            reviewedHead: head,
+          }),
+          {
+            schema: 1,
+            planned_at_commit: plannedAt,
+            execution_base_commit: executionBase,
+            reviewed_head: head,
+            execution_parent: git(repo, ['rev-parse', `${executionBase}^`]),
+          },
+        );
+        const completion = getLegacyCompletion();
+        validateCompletionReviewReuse({
+          repo,
+          planPath,
+          reviewedHead: head,
+          completionCommit: completion.completionCommit,
+          receipt: completion.receipt,
+          expectedPolicy: completion.receipt.policy,
+        });
+        expectThrow(
+          'completion reuse requires current policy',
+          () =>
+            validateCompletionReviewReuse({
+              repo,
+              planPath,
+              reviewedHead: head,
+              completionCommit: completion.completionCommit,
+              receipt: completion.receipt,
+            }),
+          /policy schema/,
+        );
+      },
+    },
+    {
+      label: 'stale policy completion reuse regression',
+      run: () => {
+        const completion = getLegacyCompletion();
+        expectThrow(
+          'policy v1 completion is not reusable under policy v2',
+          () =>
+            validateCompletionReviewReuse({
+              repo,
+              planPath,
+              reviewedHead: head,
+              completionCommit: completion.completionCommit,
+              receipt: completion.receipt,
+              expectedPolicy: POLICY_V2,
+            }),
+          /resolved policy mismatch/,
+        );
+      },
+    },
+    {
+      label: 'completion-stable Review removal regression',
+      run: () => {
+        const receipt = completionReceiptFor(head, Buffer.from(plan));
+        const applied = applyCompletionReviewBlock(Buffer.from(plan), receipt);
+        assert.equal(
+          completionStablePlanViewV1(Buffer.from(plan)),
+          completionStablePlanViewV1(applied),
+          'completion stable plan view',
+        );
+      },
+    },
+    {
+      label: 'completion Review reuse byte checks regression',
+      run: () => {
+        const completion = getLegacyCompletion();
+        git(repo, ['checkout', '-q', '--detach', head]);
+        writeLogical(repo, planPath, replaceOnce(completion.completed, '## Review\n', '## Reviews\n'));
+        const candidate = commitAll(repo, 'mutated completion Review heading');
+        expectThrow(
+          'completion reuse Review heading',
+          () =>
+            validateCompletionReviewReuse({
+              repo,
+              planPath,
+              reviewedHead: head,
+              completionCommit: candidate,
+              receipt: completion.receipt,
+              expectedPolicy: completion.receipt.policy,
+            }),
+          /completion|Review|delta|LF|receipt|plan/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const completion = getLegacyCompletion();
+        for (const [label, applyChange] of [
+          ['Review label', (value) => replaceOnce(value, '**Goal met:**', '**Goal status:**')],
+          ['Review punctuation', (value) => replaceOnce(value, '**CI:**', '**CI**:')],
+          ['Review extra prose', (value) => replaceOnce(value, '## Review\n', '## Review\nUnexpected prose.\n')],
+          [
+            'Review receipt byte',
+            (value) => replaceOnce(value, 'Completion-review-receipt: {', 'Completion-review-receipt: {"extra":true,'),
+          ],
+          ['Review CRLF', (value) => value.replaceAll('\n', '\r\n')],
+          ['Review separator', (value) => replaceOnce(value, '\n## Review\n', '## Review\n')],
+          ['Review final LF', (value) => value.slice(0, -1)],
+        ]) {
+          git(repo, ['checkout', '-q', '--detach', head]);
+          writeLogical(repo, planPath, applyChange(completion.completed));
+          const candidate = commitAll(repo, `mutated completion ${label}`);
+          expectThrow(
+            `completion reuse ${label}`,
+            () =>
+              validateCompletionReviewReuse({
+                repo,
+                planPath,
+                reviewedHead: head,
+                completionCommit: candidate,
+                receipt: completion.receipt,
+                expectedPolicy: completion.receipt.policy,
+              }),
+            /completion|Review|delta|LF|receipt|plan/i,
+          );
+        }
+      },
+    },
+    {
+      run: () => {
+        git(repo, ['checkout', '-q', '--detach', head]);
+        const v2Receipt = completionReceiptFor(head, Buffer.from(plan), { policy: POLICY_V2 });
+        let v2Completed = applyCompletionReviewBlock(Buffer.from(plan), v2Receipt).toString();
+        v2Completed = replaceOnce(v2Completed, 'review_status: null', 'review_status: passed');
+        writeLogical(repo, planPath, v2Completed);
+        const v2CompletionCommit = commitAll(repo, 'complete strict plan with policy v2');
+        validateCompletionReviewReuse({
+          repo,
+          planPath,
+          reviewedHead: head,
+          completionCommit: v2CompletionCommit,
+          receipt: v2Receipt,
+          expectedPolicy: POLICY_V2,
+        });
+        const lowerThreshold = {
+          ...POLICY_V2,
+          minimum_score: 80,
+          provenance: { ...POLICY_V2.provenance, minimum_score: 'current_user' },
+        };
+        expectThrow(
+          'policy v2 threshold change invalidates completion reuse',
+          () =>
+            validateCompletionReviewReuse({
+              repo,
+              planPath,
+              reviewedHead: head,
+              completionCommit: v2CompletionCommit,
+              receipt: v2Receipt,
+              expectedPolicy: lowerThreshold,
+            }),
+          /resolved policy mismatch/,
+        );
+        const provenanceChange = { ...POLICY_V2, provenance: { ...POLICY_V2.provenance, max_rounds: 'current_user' } };
+        expectThrow(
+          'policy v2 provenance change invalidates completion reuse',
+          () =>
+            validateCompletionReviewReuse({
+              repo,
+              planPath,
+              reviewedHead: head,
+              completionCommit: v2CompletionCommit,
+              receipt: v2Receipt,
+              expectedPolicy: provenanceChange,
+            }),
+          /resolved policy mismatch/,
+        );
+      },
+    },
+    {
+      run: () => {
+        git(repo, ['checkout', '-q', '--detach', head]);
+        const { inventory, req } = getCurrentReview();
+        const currentRunResult = currentRun(req, currentRaw(req), { primary: primaryEvidence(inventory) });
+        const currentReceiptValue = currentReceipt(req, currentRunResult);
+        let currentCompleted = applyCompletionReviewBlock(Buffer.from(plan), currentReceiptValue).toString();
+        currentCompleted = replaceOnce(currentCompleted, 'review_status: null', 'review_status: passed');
+        writeLogical(repo, planPath, currentCompleted);
+        const currentCompletionCommit = commitAll(repo, 'complete strict plan with schema-5 primary review');
+        validateCompletionReviewReuse({
+          repo,
+          planPath,
+          reviewedHead: head,
+          completionCommit: currentCompletionCommit,
+          receipt: currentReceiptValue,
+          expectedPolicy: CURRENT_POLICY,
+        });
+      },
+    },
+    {
+      run: () => {
+        const schema6Plan = plan;
+        const schema6Head = head;
+        const schema6Inventory = acceptanceInventory(Buffer.from(schema6Plan));
+        const schema6State = reviewPolicy.beginReviewOrchestration({
+          planPath,
+          phase: 'completion',
+          lifecycleIntent: 'none',
+          inputSha256: sha256(canonicalPlanView(Buffer.from(schema6Plan))),
+          seriesId: 'd23e4567-e89b-42d3-a456-426614174000',
+          requestId: 'e23e4567-e89b-42d3-a456-426614174000',
+          orchestrationAttempt: 1,
+          retryAuthorization: null,
+          previousState: null,
+          sourceText: null,
+        });
+        const schema6Req = schema6Request(
+          { manifest: { reviewed_commit: schema6Head }, bundle_sha256: H0 },
+          schema6State,
+          {
+            phase: 'completion',
+            planned_at_commit: plannedAt,
+            execution_base_commit: executionBase,
+            diff_sha256: H0,
+            acceptance_inventory_sha256: sha256(jcs(schema6Inventory)),
+            input_sha256: schema6State.current_input_sha256,
+          },
+        );
+        const schema6Raw = currentRaw(schema6Req, currentOutput(schema6Req, { schema: 6 }), {
+          schema: 6,
+          attempts: [currentAttempt(schema6Req.policy.candidates[0], { schema: 6 })],
+        });
+        const schema6Run = currentRun(schema6Req, schema6Raw, {
+          schema: 6,
+          primary: primaryEvidence(schema6Inventory),
+        });
+        const schema6SeriesValue = schema6Series(schema6Req, schema6Run);
+        const schema6Settled = reviewPolicy.settleReviewOrchestration({
+          state: schema6State,
+          series: schema6SeriesValue,
+        });
+        const schema6ReceiptValue = schema6Receipt(schema6Req, schema6Run, schema6SeriesValue, schema6Settled);
+        let preparedPlan = replaceOnce(
+          schema6Plan,
+          '## Review\n',
+          `## Review\n\nReview-orchestration-state: ${jcs(schema6State)}\n`,
+        );
+        preparedPlan = replaceOnce(preparedPlan, 'status: ongoing', 'status: in_review');
+        preparedPlan = replaceOnce(
+          preparedPlan,
+          'started_at: "2026-07-13T12:00:00.000Z"',
+          'started_at: "2026-07-13T12:00:00.000Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
+        );
+        git(repo, ['checkout', '-q', '--detach', schema6Head]);
+        writeLogical(repo, planPath, preparedPlan);
+        commitAll(repo, 'persist schema-6 completion state');
+        preparedPlan = replaceOnce(
+          preparedPlan,
+          'Review-orchestration-state: ',
+          'Review-orchestration-prepared-request: {}\nReview-orchestration-state: ',
+        );
+        writeLogical(repo, planPath, preparedPlan);
+        commitAll(repo, 'persist schema-6 completion request');
+        let schema6Completed = applyCompletionReviewBlock(Buffer.from(preparedPlan), schema6ReceiptValue, {
+          orchestration: schema6Settled,
+        }).toString();
+        schema6Completed = replaceOnce(schema6Completed, 'review_status: null', 'review_status: passed');
+        writeLogical(repo, planPath, schema6Completed);
+        const schema6CompletionCommit = commitAll(repo, 'complete strict plan with schema-6 primary review');
+        validateCompletionReviewReuse({
+          repo,
+          planPath,
+          reviewedHead: schema6Head,
+          completionCommit: schema6CompletionCommit,
+          receipt: schema6ReceiptValue,
+          expectedPolicy: schema6Req.policy,
+          orchestration: schema6Settled,
+        });
+        git(repo, ['checkout', '-q', '--detach', schema6Head]);
+        let lifecyclePreparedPlan = replaceOnce(schema6Plan, 'status: ongoing', 'status: in_review');
+        lifecyclePreparedPlan = replaceOnce(
+          lifecyclePreparedPlan,
+          'started_at: "2026-07-13T12:00:00.000Z"',
+          'started_at: "2026-07-13T12:00:00.000Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
+        );
+        lifecyclePreparedPlan = replaceOnce(
+          lifecyclePreparedPlan,
+          '## Review\n',
+          `## Review\n\nReview-orchestration-state: ${jcs(schema6State)}\n`,
+        );
+        writeLogical(repo, planPath, lifecyclePreparedPlan);
+        commitAll(repo, 'enter schema-6 completion review');
+        let lifecycleCompleted = applyCompletionReviewBlock(Buffer.from(lifecyclePreparedPlan), schema6ReceiptValue, {
+          orchestration: schema6Settled,
+        }).toString();
+        lifecycleCompleted = replaceOnce(lifecycleCompleted, 'review_status: null', 'review_status: passed');
+        writeLogical(repo, planPath, lifecycleCompleted);
+        const lifecycleCompletionCommit = commitAll(repo, 'complete schema-6 lifecycle review');
+        validateCompletionReviewReuse({
+          repo,
+          planPath,
+          reviewedHead: schema6Head,
+          completionCommit: lifecycleCompletionCommit,
+          receipt: schema6ReceiptValue,
+          expectedPolicy: schema6Req.policy,
+          orchestration: schema6Settled,
+        });
+        for (const [label, mutate] of [
+          ['blocked status', (value) => replaceOnce(value, 'status: in_review', 'status: blocked')],
+          [
+            'missing in-review timestamp',
+            (value) => replaceOnce(value, 'in_review_since: "2026-07-20T02:20:03.254Z"\n', ''),
+          ],
+          ['missing updated field', (value) => replaceOnce(value, 'updated: "2026-07-12T00:00:00-03:00"\n', '')],
+          [
+            'duplicate in-review timestamp',
+            (value) =>
+              replaceOnce(
+                value,
+                'in_review_since: "2026-07-20T02:20:03.254Z"',
+                'in_review_since: "2026-07-20T02:20:03.254Z"\nin_review_since: "2026-07-20T02:20:03.254Z"',
+              ),
+          ],
+        ]) {
+          git(repo, ['checkout', '-q', '--detach', schema6Head]);
+          writeLogical(repo, planPath, mutate(lifecycleCompleted));
+          const invalidLifecycleCommit = commitAll(repo, `invalid schema-6 lifecycle ${label}`);
+          expectThrow(
+            `schema-6 completion reuse rejects ${label}`,
+            () =>
+              validateCompletionReviewReuse({
+                repo,
+                planPath,
+                reviewedHead: schema6Head,
+                completionCommit: invalidLifecycleCommit,
+                receipt: schema6ReceiptValue,
+                expectedPolicy: schema6Req.policy,
+                orchestration: schema6Settled,
+              }),
+            /status|in.review|timestamp|duplicate|frontmatter|lifecycle|updated|delta/i,
+          );
+        }
+        git(repo, ['checkout', '-q', '--detach', schema6Head]);
+        writeLogical(repo, 'unexpected.txt', 'not plan-only\n');
+        commitAll(repo, 'unexpected schema-6 completion mutation');
+        writeLogical(repo, planPath, preparedPlan);
+        commitAll(repo, 'persist schema-6 request after mutation');
+        writeLogical(repo, planPath, schema6Completed);
+        const invalidSchema6CompletionCommit = commitAll(repo, 'complete schema-6 plan after mutation');
+        expectThrow(
+          'schema-6 completion reuse rejects an intermediate non-plan mutation',
+          () =>
+            validateCompletionReviewReuse({
+              repo,
+              planPath,
+              reviewedHead: schema6Head,
+              completionCommit: invalidSchema6CompletionCommit,
+              receipt: schema6ReceiptValue,
+              expectedPolicy: schema6Req.policy,
+              orchestration: schema6Settled,
+            }),
+          /plan|path|mutation|scope/i,
+        );
+      },
+    },
+    {
+      label: 'current completion missing-LF normalization regression',
+      run: () => completeWithoutFinalLf('plain', plan),
+    },
+    {
+      run: () =>
+        completeWithoutFinalLf(
+          'compatibility records',
+          replaceOnce(
+            plan,
+            '## Review\n',
+            'Compatibility-review-material: {}\n```diff\nunchanged\n```\nExecution-base-compatibility-receipt: {}\nExecution-base-compatibility-binding: {}\n\n## Review\n',
+          ),
+        ),
+    },
+    {
+      label: 'current completion reuse waiver regression',
+      run: () => {
+        git(repo, ['checkout', '-q', '--detach', head]);
+        const { inventory, req } = getCurrentReview();
+        currentWaiver = {
+          phase: 'completion',
+          input_sha256: req.input_sha256,
+          roles: ['primary'],
+          actor: 'test user',
+          reason: 'explicit completion waiver',
+          at: '2026-07-17T00:00:00-03:00',
+        };
+        const waivedRaw = currentRaw(req, null, {
+          result: 'waived',
+          attempts: [],
+          selected: null,
+          reviewer_output: null,
+          findings_sha256: null,
+          waiver: currentWaiver,
+          waiver_sha256: sha256(jcs(currentWaiver)),
+          reason: null,
+        });
+        const waivedRun = currentRun(req, waivedRaw, { primary: primaryEvidence(inventory) });
+        waivedReceipt = currentReceipt(req, waivedRun);
+        let waivedCompleted = applyCompletionReviewBlock(Buffer.from(plan), waivedReceipt, {
+          waivers: [currentWaiver],
+        }).toString();
+        waivedCompleted = replaceOnce(waivedCompleted, 'review_status: null', 'review_status: passed');
+        writeLogical(repo, planPath, waivedCompleted);
+        waivedCompletionCommit = commitAll(repo, 'complete strict plan with schema-5 waiver');
+        expectThrow(
+          'completion waiver reuse requires the exact waiver',
+          () =>
+            validateCompletionReviewReuse({
+              repo,
+              planPath,
+              reviewedHead: head,
+              completionCommit: waivedCompletionCommit,
+              receipt: waivedReceipt,
+              expectedPolicy: CURRENT_POLICY,
+            }),
+          /waiver.*snapshot/i,
+        );
+        validateCompletionReviewReuse({
+          repo,
+          planPath,
+          reviewedHead: head,
+          completionCommit: waivedCompletionCommit,
+          receipt: waivedReceipt,
+          expectedPolicy: CURRENT_POLICY,
+          waivers: [currentWaiver],
+        });
+      },
+    },
+  ];
+  try {
+    await runFocusedEntries('completion-reuse', focus, entries);
+  } finally {
+    makeWritable(temp);
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+async function testCompletionReviewRenderer(focus = null) {
+  const plan = Buffer.from(fixturePlan({ cleanReceipt: true }));
+  const head = 'c'.repeat(40);
+  const receipt = completionReceiptFor(head, plan);
+  const receiptKeys = Object.keys(receipt);
+  let orderedReceipt = null;
+  const getOrderedReceipt = () => {
+    if (orderedReceipt !== null) return orderedReceipt;
+    const inventory = acceptanceInventory(plan);
+    const req = request({
+      phase: 'completion',
+      reviewed_commit_or_head: head,
+      planned_at_commit: head,
+      execution_base_commit: head,
+      diff_sha256: H0,
+      acceptance_inventory_sha256: sha256(jcs(inventory)),
+      input_sha256: sha256(canonicalPlanView(plan)),
+    });
+    const finding = (id, severity = 'low') => ({
+      id,
+      severity,
+      section: 'Review',
+      path: null,
+      locator: null,
+      defect: `defect ${id}`,
+      fix: `fix ${id}`,
+      evidence: `evidence ${id}`,
+    });
+    const Xraw = rawPassed(req, 'X', null, [finding('X2'), finding('X1')]);
+    const Sraw = rawPassed(req, 'S', null, [finding('S2'), finding('S1')]);
+    const reproduced = ['X2', 'X1'].map((id) => {
+      const source = Xraw.findings.find((row) => row.id === id);
+      return {
+        id,
+        source: 'X',
+        severity: source.severity,
+        path: source.path,
+        locator: source.locator,
+        defect: source.defect,
+        fix: source.fix,
+        reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+      };
+    });
+    orderedReceipt = {
+      schema: 1,
+      phase: 'completion',
+      request: req,
+      planned_at_commit: head,
+      execution_base_commit: head,
+      reviewed_head: head,
+      diff_sha256: H0,
+      plan_input_sha256: req.input_sha256,
+      acceptance_inventory: inventory,
+      acceptance_inventory_sha256: req.acceptance_inventory_sha256,
+      author: req.author,
+      policy: req.policy,
+      policy_sha256: req.policy_sha256,
+      X: { request: req, raw: Xraw, reconciliation: { accepted: ['X2', 'X1'], rejected: [] } },
+      S: {
+        request: req,
+        raw: Sraw,
+        reconciliation: {
+          accepted: [],
+          rejected: [
+            { id: 'S2', reason: 'two' },
+            { id: 'S1', reason: 'one' },
+          ],
+        },
+      },
+      reproduced,
+      decision_evidence: null,
+      primary: primaryEvidence(inventory),
+      completion_verdict: 'passed',
+      outcome: 'dual',
+      reviewed_at: '2026-07-13T13:00:00.000Z',
+    };
+    return orderedReceipt;
+  };
+  const entries = [
+    {
+      run: () => {
+        const block = completionReviewBlockV1(receipt);
+        assert.deepEqual(Object.keys(block), [
+          'schema',
+          'goal_met',
+          'regressions',
+          'ci',
+          'followups',
+          'filed_by',
+          'cross_check',
+        ]);
+        assert.deepEqual(Object.keys(block.cross_check), ['date', 'X', 'S', 'reproduced_ids', 'orchestrator']);
+        assert.deepEqual(Object.keys(block.cross_check.X), [
+          'company',
+          'model',
+          'effort',
+          'result',
+          'finding_count',
+          'accepted',
+          'rejected',
+        ]);
+        const rendered = renderCompletionReviewBlock(receipt);
+        assert.ok(rendered.endsWith(`Completion-review-receipt: ${jcs(receipt)}\n`));
+        assert.deepEqual(Object.keys(receipt), receiptKeys, 'renderer leaves receipt keys unchanged');
+        const applied = applyCompletionReviewBlock(plan, receipt);
+        assert.equal(
+          applyCompletionReviewBlock(applied, receipt).toString(),
+          applied.toString(),
+          'same receipt apply is idempotent',
+        );
+        assert.equal(completionStablePlanViewV1(plan), completionStablePlanViewV1(applied));
+        const following = Buffer.from(
+          replaceOnce(
+            plan.toString(),
+            '## Review\n\n*(filled by plan-review on completion)*\n',
+            '## Review\n\n*(filled by plan-review on completion)*\n\n## Following section\n\nFollowing bytes.\n',
+          ),
+        );
+        const followingApplied = applyCompletionReviewBlock(following, receipt).toString();
+        assert.match(followingApplied, /Completion-review-receipt: .*\n\n## Following section\n/);
+        expectThrow(
+          'duplicate Review heading',
+          () => applyCompletionReviewBlock(Buffer.from(`${plan}\n## Review\n`), receipt),
+          /duplicate body heading|one unfenced ## Review/,
+        );
+        expectThrow(
+          'CRLF Review input',
+          () => applyCompletionReviewBlock(Buffer.from(plan.toString().replaceAll('\n', '\r\n')), receipt),
+          /LF UTF-8/,
+        );
+      },
+    },
+    {
+      label: 'Completion Review special-character quoting regression',
+      run: () => {
+        const specialCharacterPrimary = {
+          ...receipt.primary,
+          goal_met: 'no',
+          ci: {
+            ...receipt.primary.ci,
+            command: 'node\n## injected\n```',
+            exit_code: 1,
+            first_failure: 'fail\r\n</review>\u202e🚀',
+          },
+          regressions: ['line\n## Review\n```\u2028'],
+          followups: ['<script>\u2029🚀'],
+        };
+        const specialCharacters = { ...receipt, primary: specialCharacterPrimary, completion_verdict: 'regressed' };
+        const specialCharacterRendering = renderCompletionReviewBlock(specialCharacters);
+        assert.doesNotMatch(specialCharacterRendering, /\n## injected\n|\n<script>/);
+        assert.match(specialCharacterRendering, /\\u000a|\\u2028|\\ud83d\\ude80/);
+      },
+    },
+    {
+      label: 'Completion Review accepted-order regression',
+      run: () => assert.match(renderCompletionReviewBlock(getOrderedReceipt()), /accepted X1,X2/),
+    },
+    {
+      label: 'Completion Review rejected-order regression',
+      run: () => assert.match(renderCompletionReviewBlock(getOrderedReceipt()), /rejected S1="one",S2="two"/),
+    },
+    {
+      label: 'Completion Review reproduced-order regression',
+      run: () => assert.match(renderCompletionReviewBlock(getOrderedReceipt()), /verified X1,X2/),
+    },
+    {
+      run: () => {
+        const singleReq = request({ ...getOrderedReceipt().request });
+        const Xauth = rawAuth(singleReq, 'X');
+        const Spass = rawPassed(singleReq, 'S');
+        const noX = {
+          ...getOrderedReceipt(),
+          request: singleReq,
+          X: persisted(Xauth),
+          S: persisted(Spass),
+          reproduced: [],
+          outcome: 'single',
+        };
+        assert.equal(completionReviewBlockV1(noX).cross_check, null, 'unavailable X omits cross-check');
+      },
+    },
+  ];
+  await runFocusedEntries('completion-review-renderer', focus, entries);
+}
+
+async function testExecutionScopeLedger(focus = null) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-scope-ledger-'));
+  const repo = path.join(temp, 'repo');
+  initializeRepository(repo);
+  const planPath = 'docs/plans/active/scope.md';
+  let plan = fixturePlan({ cleanReceipt: true });
+  writeLogical(repo, planPath, plan);
+  writeLogical(repo, 'src/example.js', 'one\n');
+  const base = commitAll(repo, 'scope base');
+  writeLogical(repo, 'src/example.js', 'two\n');
+  const sourceCommit = commitAll(repo, 'allowed source change');
+  git(repo, ['commit', '--allow-empty', '-qm', 'intentional empty scope event']);
+  const emptyCommit = git(repo, ['rev-parse', 'HEAD']);
+  plan = replaceOnce(plan, 'updated: "2026-07-12T00:00:00-03:00"', 'updated: "2026-07-13T16:00:00.000Z"');
+  writeLogical(repo, planPath, plan);
+  const head = commitAll(repo, 'allowed plan change');
+  const allowedPreimage = { schema: 1, paths: [planPath, 'src/example.js'] };
+  const expectedAllowedPathsSha256 = sha256(jcs(allowedPreimage));
+  let result;
+  const getResult = () => {
+    result ??= validateExecutionScope({ repo, base, head, planPath, expectedAllowedPathsSha256 });
+    return result;
+  };
+  const entries = [
+    {
+      run: () => {
+        const current = getResult();
+        assert.equal(current.commit_count, 3);
+        assert.equal(
+          current.allowed_paths_sha256,
+          expectedAllowedPathsSha256,
+          'scope allowed paths are exact UTF-16 sorted JCS',
+        );
+      },
+    },
+    {
+      label: 'execution scope chronological empty-ledger regression',
+      run: () => {
+        const current = getResult();
+        const ledgerPreimage = {
+          schema: 1,
+          base,
+          head,
+          commits: [
+            { ordinal: 1, commit: sourceCommit, parent: base, paths: ['src/example.js'] },
+            { ordinal: 2, commit: emptyCommit, parent: sourceCommit, paths: [] },
+            { ordinal: 3, commit: head, parent: emptyCommit, paths: [planPath] },
+          ],
+        };
+        assert.equal(
+          current.changed_paths_sha256,
+          sha256(jcs(ledgerPreimage)),
+          'scope ledger retains chronological order and empty commits',
+        );
+      },
+    },
+    {
+      run: () => {
+        const current = getResult();
+        const resultPreimage = {
+          schema: 1,
+          base,
+          head,
+          commit_count: 3,
+          allowed_paths_sha256: current.allowed_paths_sha256,
+          changed_paths_sha256: current.changed_paths_sha256,
+        };
+        assert.equal(current.result_sha256, sha256(jcs(resultPreimage)), 'scope result self-hash');
+        const cli = helper(repo, ['execution-scope', repo, base, head, planPath, expectedAllowedPathsSha256]);
+        assert.equal(cli.status, 0, cli.stderr);
+        assert.deepEqual(
+          JSON.parse(cli.stdout),
+          current,
+          'execution-scope CLI requires and preserves the reviewer-sealed allowed-path hash',
+        );
+        for (const args of [
+          ['execution-scope', repo, base, head, planPath],
+          ['execution-scope', repo, base, head, planPath, expectedAllowedPathsSha256, 'extra'],
+        ]) {
+          const closed = helper(repo, args);
+          assert.notEqual(closed.status, 0);
+          assert.match(closed.stderr, /accepts .* only/);
+        }
+      },
+    },
+    {
+      label: 'execution scope transient-path regression',
+      run: () => {
+        git(repo, ['checkout', '-q', '--detach', head]);
+        writeLogical(repo, 'outside.txt', 'outside\n');
+        const outside = commitAll(repo, 'outside scope');
+        expectThrow(
+          'per-commit outside scope',
+          () => validateExecutionScope({ repo, base, head: outside, planPath, expectedAllowedPathsSha256 }),
+          /execution scope path is not allowed/,
+        );
+      },
+    },
+    {
+      label: 'execution scope sealed-manifest regression',
+      run: () => {
+        git(repo, ['checkout', '-q', '--detach', head]);
+        const broadened = replaceOnce(plan, '  - src/example.js\n', '  - src/example.js\n  - outside.txt\n');
+        writeLogical(repo, planPath, broadened);
+        commitAll(repo, 'self-broaden scope manifest');
+        writeLogical(repo, 'outside.txt', 'newly admitted\n');
+        const selfBroadenedHead = commitAll(repo, 'change self-admitted path');
+        expectThrow(
+          'self-broadened scope manifest',
+          () => validateExecutionScope({ repo, base, head: selfBroadenedHead, planPath, expectedAllowedPathsSha256 }),
+          /sealed allowed paths hash mismatch/,
+        );
+      },
+    },
+    {
+      run: () => {
+        git(repo, ['checkout', '-q', '--detach', head]);
+        const duplicate = replaceOnce(plan, '  - src/example.js\n', '  - src/example.js\n  - src/example.js\n');
+        writeLogical(repo, planPath, duplicate);
+        const duplicateHead = commitAll(repo, 'duplicate scope entry');
+        expectThrow(
+          'duplicate scope manifest',
+          () => validateExecutionScope({ repo, base, head: duplicateHead, planPath, expectedAllowedPathsSha256 }),
+          /duplicates/,
+        );
+        git(repo, ['checkout', '-q', '--detach', head]);
+        git(repo, ['checkout', '-qb', 'scope-side']);
+        writeLogical(repo, 'src/example.js', 'side\n');
+        commitAll(repo, 'scope side');
+        git(repo, ['checkout', '-q', '--detach', head]);
+        writeLogical(
+          repo,
+          planPath,
+          replaceOnce(plan, 'updated: "2026-07-13T16:00:00.000Z"', 'updated: "2026-07-13T16:01:00.000Z"'),
+        );
+        commitAll(repo, 'scope first parent');
+        git(repo, ['merge', '--no-ff', '-qm', 'scope merge', 'scope-side']);
+        const merge = git(repo, ['rev-parse', 'HEAD']);
+        expectThrow(
+          'scope merge',
+          () => validateExecutionScope({ repo, base, head: merge, planPath, expectedAllowedPathsSha256 }),
+          /single-parent/,
+        );
+      },
+    },
+  ];
+  try {
+    await runFocusedEntries('execution-scope-ledger', focus, entries);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+function testStrictCorpusContract(focus = null) {
+  const entries = [
+    {
+      run: () => assert.equal(STRICT_CASES.length, 23, 'strict corpus case count'),
+    },
+    {
+      run: () => assert.equal(new Set(STRICT_CASES).size, STRICT_CASES.length, 'strict corpus cases are unique'),
+    },
+    {
+      label: 'strict corpus identity regression',
+      run: () =>
+        assert.equal(sha256(jcs({ schema: 1, cases: STRICT_CASES })), STRICT_CORPUS_SHA256, 'strict corpus identity'),
+    },
+    {
+      label: 'strict raw result comparison regression',
+      run: () => {
+        const source = fs.readFileSync(HARNESS, 'utf8');
+        for (const comparison of [
+          'assert.equal(newResult.status, oldResult.status',
+          'assert.deepEqual(newResult.stdout, oldResult.stdout',
+          'assert.deepEqual(newResult.stderr, oldResult.stderr',
+        ])
+          assert.equal(
+            source.split(comparison).length - 1,
+            2,
+            `strict differential retains raw comparison: ${comparison}`,
+          );
+      },
+    },
+  ];
+  return runFocusedEntries('strict-contract', focus, entries);
+}
+
+async function testExecutionCompatibility(focus = null) {
+  let fixturePromise = null;
+  let fixture = null;
+  let input = null;
+  let prerequisiteApplication = null;
+  let transitionCalls = null;
+  let materialState = null;
+  const getFixture = async () => {
+    fixturePromise ??= buildCompatibilityRepository();
+    fixture ??= await fixturePromise;
+    return fixture;
+  };
+  const getInput = async () => {
+    const current = await getFixture();
+    input ??= prerequisiteInput(current);
+    return input;
+  };
+  const getPrerequisiteApplication = async () => {
+    const current = await getFixture();
+    prerequisiteApplication ??= compatibilityPrerequisiteApplication(current);
+    return prerequisiteApplication;
+  };
+  const withFixture = (label, run) => ({
+    ...(label === null ? {} : { label }),
+    run: async () => run(await getFixture()),
+  });
+  const authorized = (current) => ({
+    repo: current.repo,
+    reviewedHead: current.releaseCommit,
+    planPath: TARGET_PLAN,
+    plannedAtCommit: current.plannedAt,
+    executionBaseCommit: current.executionBaseCommit,
+  });
+  const changeStoredStderr = (receipt) => {
+    receipt.observations.remote_main.stderr_sha256 = 'f'.repeat(64);
+  };
+  const entries = [
+    {
+      run: async () => {
+        assert.equal(
+          sha256(jcs(LEGACY_START_TRANSITION_COMPATIBILITY_POLICY)),
+          LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256,
+        );
+        await testLegacyShapeNegatives();
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        input = prerequisiteInput(fixture);
+        expectThrow(
+          'legacy shape without evidence',
+          () =>
+            compatibilityRange(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              plannedAtCommit: fixture.plannedAt,
+              executionBaseCommit: fixture.executionBaseCommit,
+              reviewedHead: fixture.releaseCommit,
+            }),
+          /execution compatibility evidence missing/,
+        );
+      },
+    },
+    {
+      label: 'compatibility authorization-id regression',
+      run: async () => {
+        const fixture = await getFixture();
+        expectThrow(
+          'authorization id',
+          () =>
+            compatibilityEvidence(fixture.compatibilityHelper, {
+              ...authorized(fixture),
+              ...{ authorizationId: 'wrong' },
+            }),
+          /owner confirmation source mismatch/,
+        );
+      },
+    },
+    {
+      label: 'compatibility authorization-plan regression',
+      run: async () => {
+        const fixture = await getFixture();
+        expectThrow(
+          'authorization plan path',
+          () =>
+            compatibilityEvidence(fixture.compatibilityHelper, {
+              ...authorized(fixture),
+              ...{ planPath: 'docs/plans/active/relay-worker-lifecycle-primitives-replay.md' },
+            }),
+          /owner confirmation plan target mismatch/,
+        );
+      },
+    },
+    {
+      label: 'compatibility authorization-planned regression',
+      run: async () => {
+        const fixture = await getFixture();
+        expectThrow(
+          'authorization planned commit',
+          () =>
+            compatibilityEvidence(fixture.compatibilityHelper, {
+              ...authorized(fixture),
+              ...{ plannedAtCommit: 'f'.repeat(40) },
+            }),
+          /owner confirmation planned target mismatch/,
+        );
+      },
+    },
+    {
+      label: 'compatibility authorization-execution regression',
+      run: async () => {
+        const fixture = await getFixture();
+        expectThrow(
+          'authorization execution-base commit',
+          () =>
+            compatibilityEvidence(fixture.compatibilityHelper, {
+              ...authorized(fixture),
+              ...{ executionBaseCommit: 'e'.repeat(40) },
+            }),
+          /owner confirmation execution target mismatch/,
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const replayPlanPath = 'docs/plans/active/relay-worker-lifecycle-primitives-replay.md';
+        const replayBytes = gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]);
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
+        writeLogical(fixture.repo, replayPlanPath, replayBytes);
+        const replayHead = commitAll(fixture.repo, 'add exact-shape replay target');
+        assert.deepEqual(
+          gitBytes(fixture.repo, ['show', `${replayHead}:${replayPlanPath}`]),
+          replayBytes,
+          'authorization replay target has the exact authorized plan shape',
+        );
+        expectThrow(
+          'alternate exact-shape plan authorization replay',
+          () =>
+            buildExecutionBaseCompatibilityApplication({
+              repo: fixture.repo,
+              reviewedHead: replayHead,
+              planPath: replayPlanPath,
+              plannedAtCommit: PRODUCTION_COMPATIBILITY_PLANNED_AT,
+              executionBaseCommit: PRODUCTION_COMPATIBILITY_EXECUTION_BASE,
+              authorizationId: COMPATIBILITY_AUTHORIZATION_ID,
+              ownerMessageSha256: COMPATIBILITY_AUTHORIZATION_SHA256,
+            }),
+          /owner confirmation plan target mismatch/,
+        );
+      },
+    },
+    {
+      label: 'compatibility stored authorization-digest regression',
+      run: async () => {
+        const fixture = await getFixture();
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
+        const evidenceReceipt = JSON.parse(
+          fixture.evidenceApplication.markdown.match(/Execution-base-compatibility-receipt: (\{.*\})\n/)[1],
+        );
+        const storedDigestReceipt = structuredClone(evidenceReceipt);
+        storedDigestReceipt.owner_confirmation.authorization_scope_sha256 = 'f'.repeat(64);
+        delete storedDigestReceipt.receipt_sha256;
+        storedDigestReceipt.receipt_sha256 = sha256(jcs(storedDigestReceipt));
+        const storedDigestMarkdown = replaceOnce(
+          fixture.evidenceApplication.markdown,
+          `Execution-base-compatibility-receipt: ${jcs(evidenceReceipt)}\n`,
+          `Execution-base-compatibility-receipt: ${jcs(storedDigestReceipt)}\n`,
+          'stored authorization scope digest record',
+        );
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.releaseCommit]);
+        const storedDigestBytes = insertBeforeReviewForTest(
+          gitBytes(fixture.repo, ['show', `${fixture.releaseCommit}:${TARGET_PLAN}`]),
+          storedDigestMarkdown,
+        );
+        writeLogical(fixture.repo, TARGET_PLAN, storedDigestBytes);
+        const storedDigestE = commitAll(fixture.repo, 'alter stored authorization scope digest');
+        const storedDigestReview = findingsFreeDraftReceipt(storedDigestE, storedDigestBytes, 'single');
+        writeLogical(
+          fixture.repo,
+          TARGET_PLAN,
+          insertOrReplaceDraftReceiptForTest(storedDigestBytes, storedDigestReview),
+        );
+        const storedDigestR = commitAll(fixture.repo, 'review altered authorization scope digest');
+        expectThrow(
+          'stored authorization scope digest',
+          () =>
+            compatibilityBinding(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              evidenceCommit: storedDigestE,
+              reviewCommit: storedDigestR,
+            }),
+          /stored authorization scope digest mismatch/,
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const evidenceReceipt = JSON.parse(
+          fixture.evidenceApplication.markdown.match(/Execution-base-compatibility-receipt: (\{.*\})\n/)[1],
+        );
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
+        assert.deepEqual(
+          evidenceReceipt.changed_sections.map((row) => row.name),
+          ['Environment & how-to-run', 'Open questions', 'Threat model'],
+        );
+        assert.equal(evidenceReceipt.plan_creation_commit, fixture.creationCommit);
+        assert.equal(evidenceReceipt.evidence_input_commit, fixture.releaseCommit);
+        const material = JSON.parse(
+          fixture.evidenceApplication.markdown.match(/^Compatibility-review-material: (\{.*\})$/m)[1],
+        );
+        const opening = fixture.evidenceApplication.markdown.match(/^(`{3,})diff$/m)[1];
+        const diffStart = fixture.evidenceApplication.markdown.indexOf(`${opening}diff\n`) + opening.length + 5;
+        const diffEnd = fixture.evidenceApplication.markdown.indexOf(
+          `${opening}\nExecution-base-compatibility-receipt:`,
+          diffStart,
+        );
+        const recordedDiff = fixture.evidenceApplication.markdown.slice(diffStart, diffEnd);
+        const diffEnv = { ...process.env };
+        delete diffEnv.GIT_DIFF_OPTS;
+        const expectedLegacyDiffArgs = [
+          '--no-pager',
+          '-c',
+          'diff.algorithm=myers',
+          '-c',
+          'diff.context=3',
+          '-c',
+          'diff.interHunkContext=0',
+          '-c',
+          'diff.suppressBlankEmpty=false',
+          '-c',
+          'diff.indentHeuristic=false',
+          '-c',
+          'diff.renames=false',
+          'diff',
+          '--text',
+          '--binary',
+          '--full-index',
+          '--no-renames',
+          '--diff-algorithm=myers',
+          '--unified=3',
+          '--inter-hunk-context=0',
+          '--no-indent-heuristic',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--no-color',
+          '--src-prefix=a/',
+          '--dst-prefix=b/',
+          evidenceReceipt.execution_parent,
+          evidenceReceipt.execution_base_commit,
+          '--',
+          TARGET_PLAN,
+        ];
+        const expectedTransitionDiffArgs = [
+          '--no-pager',
+          '-c',
+          'diff.algorithm=myers',
+          '-c',
+          'diff.context=3',
+          '-c',
+          'diff.interHunkContext=0',
+          '-c',
+          'diff.suppressBlankEmpty=false',
+          '-c',
+          'diff.indentHeuristic=false',
+          '-c',
+          'diff.renames=false',
+          'diff',
+          '--no-index',
+          '--text',
+          '--binary',
+          '--full-index',
+          '--no-renames',
+          '--diff-algorithm=myers',
+          '--unified=3',
+          '--inter-hunk-context=0',
+          '--no-indent-heuristic',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--no-color',
+          '--no-prefix',
+          '--',
+          `a/${TARGET_PLAN}`,
+          `b/${TARGET_PLAN}`,
+        ];
+        const directDiff = spawnSync('git', expectedLegacyDiffArgs, {
+          cwd: fixture.repo,
+          encoding: 'utf8',
+          env: diffEnv,
+        });
+        assert.equal(directDiff.status, 0, directDiff.stderr);
+        assert.equal(recordedDiff, directDiff.stdout, 'transition diff is byte-exact canonical Git output');
+        assert.match(recordedDiff, /^diff --git /);
+        assert.doesNotMatch(recordedDiff, /^GIT binary patch$/m, 'transition material remains textual');
+        const rebuildEvidence = () =>
+          compatibilityEvidence(fixture.compatibilityHelper, {
+            repo: fixture.repo,
+            reviewedHead: fixture.releaseCommit,
+            planPath: TARGET_PLAN,
+            plannedAtCommit: fixture.plannedAt,
+            executionBaseCommit: fixture.executionBaseCommit,
+          });
+        const rebuildBinding = () =>
+          compatibilityBinding(fixture.compatibilityHelper, {
+            repo: fixture.repo,
+            planPath: TARGET_PLAN,
+            evidenceCommit: fixture.evidenceCommit,
+            reviewCommit: fixture.compatibilityReviewCommit,
+          });
+        const captureBin = path.join(fixture.temp, 'capture-bin');
+        const captureLog = path.join(fixture.temp, 'captured-git.jsonl');
+        fs.mkdirSync(captureBin);
+        const captureGit = `#!/usr/bin/env node
+        import { spawnSync } from 'node:child_process'; import fs from 'node:fs';
+        const args=process.argv.slice(2); const cwd=process.cwd(); const noIndex=args.includes('--no-index'); const artifacts=noIndex?args.slice(-2):[];
+        const row={args,cwd,artifact_modes:artifacts.map((file)=>fs.statSync(file).mode&0o777),attributes:fs.existsSync('.git/info/attributes')?fs.readFileSync('.git/info/attributes','utf8'):null,env:{GIT_CONFIG_GLOBAL:process.env.GIT_CONFIG_GLOBAL,GIT_CONFIG_SYSTEM:process.env.GIT_CONFIG_SYSTEM,GIT_CONFIG_NOSYSTEM:process.env.GIT_CONFIG_NOSYSTEM,GIT_CONFIG_COUNT:process.env.GIT_CONFIG_COUNT,GIT_ATTR_NOSYSTEM:process.env.GIT_ATTR_NOSYSTEM,GIT_ATTR_SOURCE:process.env.GIT_ATTR_SOURCE,GIT_CONFIG:process.env.GIT_CONFIG,GIT_CONFIG_PARAMETERS:process.env.GIT_CONFIG_PARAMETERS,GIT_DIFF_OPTS:process.env.GIT_DIFF_OPTS,GIT_DIR:process.env.GIT_DIR,GIT_EXTERNAL_DIFF:process.env.GIT_EXTERNAL_DIFF}};
+        fs.appendFileSync(process.env.TRANSITION_GIT_LOG,JSON.stringify(row)+'\\n');
+        if(noIndex&&process.env.GIT_ATTR_NOSYSTEM!=='1'){fs.writeSync(2,Buffer.from('ambient attribute source was not isolated\\n'));process.exit(97);}
+        const result=spawnSync(process.env.TRANSITION_REAL_GIT,args,{encoding:'buffer',env:process.env}); if(result.stdout) fs.writeSync(1,result.stdout); if(result.stderr) fs.writeSync(2,result.stderr); process.exit(result.status??1);
+        `;
+        fs.writeFileSync(path.join(captureBin, 'git'), captureGit, { mode: 0o755 });
+        const priorPath = process.env.PATH;
+        const priorRealGit = process.env.TRANSITION_REAL_GIT;
+        const priorGitLog = process.env.TRANSITION_GIT_LOG;
+        const priorAttrNoSystem = process.env.GIT_ATTR_NOSYSTEM;
+        process.env.PATH = `${captureBin}${path.delimiter}${priorPath}`;
+        process.env.TRANSITION_REAL_GIT = spawnSync('which', ['git'], {
+          env: { ...process.env, PATH: priorPath },
+          encoding: 'utf8',
+        }).stdout.trim();
+        process.env.TRANSITION_GIT_LOG = captureLog;
+        process.env.GIT_ATTR_NOSYSTEM = '0';
+        try {
+          assert.deepEqual(
+            rebuildEvidence(),
+            fixture.evidenceApplication,
+            'captured transition command preserves byte-identical material',
+          );
+        } finally {
+          process.env.PATH = priorPath;
+          if (priorRealGit === undefined) delete process.env.TRANSITION_REAL_GIT;
+          else process.env.TRANSITION_REAL_GIT = priorRealGit;
+          if (priorGitLog === undefined) delete process.env.TRANSITION_GIT_LOG;
+          else process.env.TRANSITION_GIT_LOG = priorGitLog;
+          if (priorAttrNoSystem === undefined) delete process.env.GIT_ATTR_NOSYSTEM;
+          else process.env.GIT_ATTR_NOSYSTEM = priorAttrNoSystem;
+        }
+        const capturedTransitionCalls = fs
+          .readFileSync(captureLog, 'utf8')
+          .trim()
+          .split('\n')
+          .map(JSON.parse)
+          .filter((row) => path.basename(row.cwd).startsWith('docks-transition-diff-'));
+        assert.deepEqual(
+          capturedTransitionCalls.map((row) => row.args),
+          [['init', '-q', '--template='], expectedTransitionDiffArgs],
+          'transition producer initializes once and uses the exact deterministic argv once',
+        );
+        assert.equal(
+          capturedTransitionCalls[0].cwd,
+          capturedTransitionCalls[1].cwd,
+          'transition children share one private repository',
+        );
+        assert.equal(
+          fs.existsSync(capturedTransitionCalls[0].cwd),
+          false,
+          'private transition repository is removed after success',
+        );
+        transitionCalls = capturedTransitionCalls;
+        materialState = {
+          evidenceReceipt,
+          material,
+          recordedDiff,
+          diffEnv,
+          expectedLegacyDiffArgs,
+          expectedTransitionDiffArgs,
+          rebuildEvidence,
+          rebuildBinding,
+        };
+      },
+    },
+    {
+      label: 'compatibility copied-artifact isolation regression',
+      run: async () => {
+        if (transitionCalls !== null)
+          assert.deepEqual(
+            transitionCalls[1].artifact_modes,
+            [0o600, 0o600],
+            'copied transition artifacts are owner-only',
+          );
+        else await assertTransitionIsolation(await getFixture(), 'compatibility copied-artifact isolation regression');
+      },
+    },
+    {
+      run: async () => {
+        assert.equal(
+          transitionCalls[1].attributes,
+          `a/${TARGET_PLAN} !diff
+b/${TARGET_PLAN} !diff
+`,
+          'private highest-precedence attributes neutralize named diff drivers',
+        );
+      },
+    },
+    {
+      label: 'compatibility GIT_ATTR_NOSYSTEM child-isolation regression',
+      run: async () => {
+        if (transitionCalls === null) {
+          await assertTransitionIsolation(
+            await getFixture(),
+            'compatibility GIT_ATTR_NOSYSTEM child-isolation regression',
+          );
+          return;
+        }
+        for (const row of transitionCalls) {
+          assert.equal(row.env.GIT_CONFIG_GLOBAL, os.devNull);
+          assert.equal(row.env.GIT_CONFIG_SYSTEM, os.devNull);
+          assert.equal(row.env.GIT_CONFIG_NOSYSTEM, '1');
+          assert.equal(row.env.GIT_CONFIG_COUNT, '0');
+          assert.equal(
+            row.env.GIT_ATTR_NOSYSTEM,
+            '1',
+            'transition child behavior requires the GIT_ATTR_NOSYSTEM isolation invariant',
+          );
+          for (const key of [
+            'GIT_ATTR_SOURCE',
+            'GIT_CONFIG',
+            'GIT_CONFIG_PARAMETERS',
+            'GIT_DIFF_OPTS',
+            'GIT_DIR',
+            'GIT_EXTERNAL_DIFF',
+          ])
+            assert.equal(row.env[key], undefined, `${key} removed from canonical transition child`);
+        }
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const { material, recordedDiff, diffEnv, expectedLegacyDiffArgs, rebuildEvidence, rebuildBinding } =
+          materialState;
+        writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} binary\n`);
+        assert.deepEqual(
+          rebuildEvidence(),
+          fixture.evidenceApplication,
+          'repository-local binary attributes preserve byte-identical textual transition material',
+        );
+        assert.deepEqual(
+          rebuildBinding(),
+          fixture.bindingApplication,
+          'repository-local binary attributes preserve byte-identical historical reconstruction',
+        );
+        fs.rmSync(path.join(fixture.repo, '.git/info/attributes'));
+        git(fixture.repo, ['config', 'diff.custom.xfuncname', '^## .*']);
+        writeLogical(fixture.repo, '.git/info/attributes', `${TARGET_PLAN} diff=custom\n`);
+        const localNamedDiff = spawnSync('git', expectedLegacyDiffArgs, {
+          cwd: fixture.repo,
+          encoding: 'utf8',
+          env: diffEnv,
+        });
+        assert.equal(localNamedDiff.status, 0, localNamedDiff.stderr);
+        assert.notEqual(
+          localNamedDiff.stdout,
+          recordedDiff,
+          'repository-local named diff driver fixture changes the legacy producer',
+        );
+        assert.deepEqual(
+          rebuildEvidence(),
+          fixture.evidenceApplication,
+          'repository-local named diff driver preserves byte-identical textual transition material',
+        );
+        assert.deepEqual(
+          rebuildBinding(),
+          fixture.bindingApplication,
+          'repository-local named diff driver preserves byte-identical historical reconstruction',
+        );
+        fs.rmSync(path.join(fixture.repo, '.git/info/attributes'));
+        writeLogical(fixture.repo, '.gitattributes', `${TARGET_PLAN} diff=custom\n`);
+        const committedAttributes = commitAll(fixture.repo, 'commit custom transition attributes');
+        assert.equal(
+          git(fixture.repo, ['show', `${committedAttributes}:.gitattributes`]),
+          `${TARGET_PLAN} diff=custom`,
+          'committed named diff driver fixture is stored in the repository',
+        );
+        const committedNamedDiff = spawnSync('git', expectedLegacyDiffArgs, {
+          cwd: fixture.repo,
+          encoding: 'utf8',
+          env: diffEnv,
+        });
+        assert.equal(committedNamedDiff.status, 0, committedNamedDiff.stderr);
+        assert.notEqual(
+          committedNamedDiff.stdout,
+          recordedDiff,
+          'committed named diff driver fixture changes the legacy producer',
+        );
+        assert.deepEqual(
+          rebuildEvidence(),
+          fixture.evidenceApplication,
+          'committed named diff driver preserves byte-identical textual transition material',
+        );
+        assert.deepEqual(
+          rebuildBinding(),
+          fixture.bindingApplication,
+          'committed named diff driver preserves byte-identical historical reconstruction',
+        );
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
+        git(fixture.repo, ['config', '--unset', 'diff.custom.xfuncname']);
+        const globalAttributes = path.join(fixture.temp, 'global.attributes');
+        const globalConfig = path.join(fixture.temp, 'global.gitconfig');
+        fs.writeFileSync(globalAttributes, `${TARGET_PLAN} -diff\n`);
+        git(fixture.repo, ['config', '--file', globalConfig, 'core.attributesFile', globalAttributes]);
+        const priorGlobalConfig = process.env.GIT_CONFIG_GLOBAL;
+        process.env.GIT_CONFIG_GLOBAL = globalConfig;
+        try {
+          assert.deepEqual(
+            rebuildEvidence(),
+            fixture.evidenceApplication,
+            'global core.attributesFile -diff rule preserves byte-identical textual transition material',
+          );
+          assert.deepEqual(
+            rebuildBinding(),
+            fixture.bindingApplication,
+            'global core.attributesFile -diff rule preserves byte-identical historical reconstruction',
+          );
+        } finally {
+          if (priorGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+          else process.env.GIT_CONFIG_GLOBAL = priorGlobalConfig;
+        }
+        fs.writeFileSync(globalAttributes, `${TARGET_PLAN} diff=custom\n`);
+        git(fixture.repo, ['config', '--file', globalConfig, 'diff.custom.xfuncname', '^## .*']);
+        process.env.GIT_CONFIG_GLOBAL = globalConfig;
+        try {
+          const globalNamedDiff = spawnSync('git', expectedLegacyDiffArgs, {
+            cwd: fixture.repo,
+            encoding: 'utf8',
+            env: { ...diffEnv, GIT_CONFIG_GLOBAL: globalConfig },
+          });
+          assert.equal(globalNamedDiff.status, 0, globalNamedDiff.stderr);
+          assert.notEqual(
+            globalNamedDiff.stdout,
+            recordedDiff,
+            'global named diff driver fixture changes the legacy producer',
+          );
+          assert.deepEqual(
+            rebuildEvidence(),
+            fixture.evidenceApplication,
+            'global named diff driver preserves byte-identical textual transition material',
+          );
+          assert.deepEqual(
+            rebuildBinding(),
+            fixture.bindingApplication,
+            'global named diff driver preserves byte-identical historical reconstruction',
+          );
+        } finally {
+          if (priorGlobalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+          else process.env.GIT_CONFIG_GLOBAL = priorGlobalConfig;
+        }
+        const { review_material_sha256: recordedMaterialSha, ...materialPreimage } = material;
+        assert.equal(material.transition_diff_sha256, sha256(recordedDiff));
+        assert.equal(material.policy_sha256, LEGACY_START_TRANSITION_COMPATIBILITY_POLICY_SHA256);
+        assert.equal(
+          recordedMaterialSha,
+          sha256(jcs({ schema: 1, material: materialPreimage, transition_diff: recordedDiff })),
+        );
+        validateDraftReceipt(
+          findingsFreeDraftReceipt(
+            fixture.evidenceCommit,
+            gitBytes(fixture.repo, ['show', `${fixture.evidenceCommit}:${TARGET_PLAN}`]),
+            'single',
+          ),
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const input = await getInput();
+        const recorded = ['remote_main', 'remote_tag', 'github_release', 'codex_plugin', 'claude_plugin'];
+        let observedApplication = null;
+        for (const stderrAt of recorded) {
+          const fake = prerequisiteDependencies(fixture, { stderrAt });
+          const application = fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+            input,
+            fake.dependencies,
+          );
+          const receipt = prerequisiteReceiptFromApplication(application);
+          assert.deepEqual(fake.observationOrder, recorded, 'fixed observation order');
+          for (const label of recorded)
+            assert.equal(
+              receipt.observations[label].stderr_sha256,
+              sha256(label === stderrAt ? `stderr:${label}\n` : Buffer.alloc(0)),
+              `${label} stderr hash`,
+            );
+          observedApplication ??= application;
+        }
+        const light = prerequisiteDependencies(fixture, { tagMode: 'lightweight' });
+        const lightApplication = fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+          input,
+          light.dependencies,
+        );
+        assert.equal(
+          prerequisiteReceiptFromApplication(lightApplication).observations.remote_tag.projection.annotated,
+          false,
+        );
+        assert.equal(
+          prerequisiteReceiptFromApplication(observedApplication).observations.remote_tag.projection.annotated,
+          true,
+        );
+        const reorderedInput = Object.fromEntries(Object.entries(input).reverse());
+        const reorderedDependencies = Object.fromEntries(
+          Object.entries(prerequisiteDependencies(fixture).dependencies).reverse(),
+        );
+        assert.equal(
+          jcs(
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              reorderedInput,
+              reorderedDependencies,
+            ),
+          ),
+          jcs(
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              input,
+              prerequisiteDependencies(fixture).dependencies,
+            ),
+          ),
+          'closed object key order canonicalizes identically',
+        );
+        expectThrow(
+          'missing prerequisite input key',
+          () => {
+            const value = { ...input };
+            delete value.releaseVersion;
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              value,
+              prerequisiteDependencies(fixture).dependencies,
+            );
+          },
+          /unknown key|must contain|releaseVersion/,
+        );
+        expectThrow(
+          'extra prerequisite input key',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              { ...input, observations: {} },
+              prerequisiteDependencies(fixture).dependencies,
+            ),
+          /unknown key/,
+        );
+        expectThrow(
+          'swapped prerequisite input values',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              { ...input, evidenceCommit: input.bindingCommit, bindingCommit: input.evidenceCommit },
+              prerequisiteDependencies(fixture).dependencies,
+            ),
+          /contiguous|parent|commit/,
+        );
+        expectThrow(
+          'missing prerequisite dependency',
+          () => {
+            const value = { ...prerequisiteDependencies(fixture).dependencies };
+            delete value.now;
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, value);
+          },
+          /missing now/,
+        );
+        expectThrow(
+          'extra prerequisite dependency',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(input, {
+              ...prerequisiteDependencies(fixture).dependencies,
+              observations: () => ({}),
+            }),
+          /unknown key/,
+        );
+        expectThrow(
+          'wrong child cwd',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              input,
+              prerequisiteDependencies(fixture, { wrongCwd: true }).dependencies,
+            ),
+          /wrong child cwd/,
+        );
+        expectThrow(
+          'invalid observed time',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              input,
+              prerequisiteDependencies(fixture, { now: '2026-07-13 14:00:00' }).dependencies,
+            ),
+          /ISO/,
+        );
+        expectThrow(
+          'relative homedir',
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              input,
+              prerequisiteDependencies(fixture, { home: 'relative-home' }).dependencies,
+            ),
+          /homedir/,
+        );
+        prerequisiteApplication = observedApplication;
+      },
+    },
+    ...[
+      [
+        'missing child result field',
+        ({ result, label: row }) =>
+          row === 'remote_main'
+            ? (() => {
+                const copy = { ...result };
+                delete copy.stderr;
+                return copy;
+              })()
+            : result,
+        /child result.*missing stderr/,
+      ],
+      [
+        'extra child result field',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, extra: true } : result),
+        /child result.*unknown key/,
+      ],
+      [
+        'noninteger child status',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, status: '0' } : result),
+        /child status/,
+      ],
+      [
+        'nonzero child status',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, status: 1 } : result),
+        /child failed/,
+      ],
+      [
+        'signaled child',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, signal: 'SIGTERM' } : result),
+        /child failed/,
+      ],
+      [
+        'nonstring child signal',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, signal: 9 } : result),
+        /child signal/,
+      ],
+      [
+        'missing child error field',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, error: { code: 'EIO' } } : result),
+        /child error.*missing message/,
+      ],
+      [
+        'extra child error field',
+        ({ result, label: row }) =>
+          row === 'remote_main' ? { ...result, error: { code: 'EIO', message: 'failed', extra: true } } : result,
+        /child error.*unknown key/,
+      ],
+      [
+        'nonstring child error code',
+        ({ result, label: row }) =>
+          row === 'remote_main' ? { ...result, error: { code: 5, message: 'failed' } } : result,
+        /child error code/,
+      ],
+      [
+        'valid child error',
+        ({ result, label: row }) =>
+          row === 'remote_main' ? { ...result, error: { code: 'EIO', message: 'failed' } } : result,
+        /child failed/,
+      ],
+      [
+        'nonbuffer child stdout',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, stdout: result.stdout.toString() } : result),
+        /Buffer/,
+      ],
+      [
+        'nonbuffer child stderr',
+        ({ result, label: row }) => (row === 'remote_main' ? { ...result, stderr: result.stderr.toString() } : result),
+        /Buffer/,
+      ],
+      [
+        'unrecorded child stderr',
+        ({ result, label: row, argv }) =>
+          row === null && argv[1] === 'rev-parse' ? { ...result, stderr: Buffer.from('unexpected\n') } : result,
+        /stderr must be empty/,
+      ],
+    ].map(([caseLabel, resultVariant, pattern]) =>
+      withFixture(
+        caseLabel === 'nonzero child status' ? 'prerequisite failed-child regression' : null,
+        async (fixture) => {
+          const input = await getInput();
+          expectThrow(
+            caseLabel,
+            () =>
+              fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+                input,
+                prerequisiteDependencies(fixture, { resultVariant }).dependencies,
+              ),
+            pattern,
+          );
+        },
+      ),
+    ),
+    ...[
+      ['cache symlink', { lstat: () => ({ kind: 'file', symbolicLink: true }) }, /non-symlink file/],
+      ['cache directory', { lstat: () => ({ kind: 'directory', symbolicLink: false }) }, /non-symlink file/],
+      [
+        'cache realpath',
+        (fixture) => ({ realpath: (value) => (value === path.resolve(fixture.repo) ? value : `${value}.other`) }),
+        /non-symlink file/,
+      ],
+      ['cache nonbuffer read', { readFile: () => 'not-buffer' }, /Buffer/],
+      ['cache wrong hash', { readFile: () => Buffer.from('different policy') }, /policies differ/],
+    ].map(([caseLabel, fileVariant, pattern]) =>
+      withFixture(caseLabel === 'cache symlink' ? 'canonical cache file regression' : null, async (fixture) => {
+        const input = await getInput();
+        const resolvedFileVariant = typeof fileVariant === 'function' ? fileVariant(fixture) : fileVariant;
+        expectThrow(
+          caseLabel,
+          () =>
+            fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+              input,
+              prerequisiteDependencies(fixture, { fileVariant: resolvedFileVariant }).dependencies,
+            ),
+          pattern,
+        );
+      }),
+    ),
+    ...[
+      [
+        'remote main extra row',
+        ({ result, label: row }) =>
+          row === 'remote_main' ? { ...result, stdout: Buffer.concat([result.stdout, result.stdout]) } : result,
+        /remote main stdout mismatch/,
+      ],
+      [
+        'remote tag row order',
+        ({ result, label: row }) =>
+          row === 'remote_tag'
+            ? {
+                ...result,
+                stdout: Buffer.from(`${result.stdout.toString().trim().split('\n').reverse().join('\n')}\n`),
+              }
+            : result,
+        /remote tag stdout mismatch/,
+      ],
+      [
+        'remote tag unpeeled',
+        ({ result, label: row }) =>
+          row === 'remote_tag'
+            ? { ...result, stdout: Buffer.from(`${'a'.repeat(40)}\trefs/tags/${RELEASE_TAG}\n`) }
+            : result,
+        /remote tag stdout mismatch/,
+      ],
+      [
+        'release draft',
+        ({ result, label: row }) =>
+          row === 'github_release'
+            ? {
+                ...result,
+                stdout: Buffer.from(
+                  JSON.stringify({
+                    isDraft: true,
+                    isPrerelease: false,
+                    tagName: RELEASE_TAG,
+                    url: `https://github.com/DocksDocks/docks/releases/tag/${RELEASE_TAG}`,
+                  }),
+                ),
+              }
+            : result,
+        /Release projection mismatch/,
+      ],
+      [
+        'duplicate Codex plugin',
+        ({ result, label: row, outputs }) =>
+          row === 'codex_plugin'
+            ? {
+                ...result,
+                stdout: Buffer.from(
+                  JSON.stringify({
+                    installed: [
+                      JSON.parse(outputs.codex_plugin).installed[1],
+                      JSON.parse(outputs.codex_plugin).installed[1],
+                    ],
+                  }),
+                ),
+              }
+            : result,
+        /selection must be unique/,
+      ],
+      [
+        'missing Claude plugin',
+        ({ result, label: row }) => (row === 'claude_plugin' ? { ...result, stdout: Buffer.from('[]') } : result),
+        /selection must be unique/,
+      ],
+    ].map(([caseLabel, resultVariant, pattern]) =>
+      withFixture(
+        caseLabel === 'remote main extra row'
+          ? 'remote main exact-row regression'
+          : caseLabel === 'remote tag row order'
+            ? 'remote tag exact-row regression'
+            : caseLabel === 'release draft'
+              ? 'release projection regression'
+              : caseLabel === 'duplicate Codex plugin'
+                ? 'Codex plugin uniqueness regression'
+                : null,
+        async (fixture) => {
+          const input = await getInput();
+          expectThrow(
+            caseLabel,
+            () =>
+              fixture.compatibilityPolicy.buildDocksCompatibilityPrerequisiteApplication(
+                input,
+                prerequisiteDependencies(fixture, { resultVariant }).dependencies,
+              ),
+            pattern,
+          );
+        },
+      ),
+    ),
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const input = await getInput();
+        for (const extra of ['dependencies', 'time', 'home', 'raw-observations', 'parsed-observations', 'cache-path']) {
+          const args = [
+            'compatibility-prerequisite',
+            input.repo,
+            input.planPath,
+            input.finishedPlanPath,
+            input.finishedPlanCommit,
+            input.releaseVersion,
+            input.evidenceCommit,
+            input.compatibilityReviewCommit,
+            input.bindingCommit,
+            input.authorizationId,
+            input.authorizationSha256,
+            extra,
+          ];
+          const result = helper(fixture.repo, args);
+          assert.notEqual(result.status, 0);
+          assert.match(result.stderr, /accepts .* only/);
+        }
+      },
+    },
+    ...productionPrerequisiteProbe(getFixture, focus),
+    ...testCompatibilityChainNegatives(getFixture, getPrerequisiteApplication, focus),
+    {
+      label: 'observation self-hash regression',
+      run: async () => {
+        const fixture = await getFixture();
+        const prerequisiteApplication = await getPrerequisiteApplication();
+        const staleStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr);
+        const staleChain = commitPrerequisiteVariant(fixture, staleStderr, 'stale stored stderr hash');
+        expectThrow(
+          'stale stored stderr substitution',
+          () =>
+            compatibilityRange(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              plannedAtCommit: fixture.plannedAt,
+              executionBaseCommit: fixture.executionBaseCommit,
+              reviewedHead: staleChain.f,
+            }),
+          /observations hash mismatch/,
+        );
+      },
+    },
+    {
+      label: 'prerequisite receipt self-hash regression',
+      run: async () => {
+        const fixture = await getFixture();
+        const prerequisiteApplication = await getPrerequisiteApplication();
+        const partialStderr = variantPrerequisiteApplication(prerequisiteApplication, changeStoredStderr, {
+          observations: true,
+        });
+        const partialChain = commitPrerequisiteVariant(fixture, partialStderr, 'partially rehashed stored stderr hash');
+        expectThrow(
+          'partially rehashed stored stderr substitution',
+          () =>
+            compatibilityRange(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              plannedAtCommit: fixture.plannedAt,
+              executionBaseCommit: fixture.executionBaseCommit,
+              reviewedHead: partialChain.f,
+            }),
+          /receipt hash mismatch/,
+        );
+      },
+    },
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const prerequisiteApplication = await getPrerequisiteApplication();
+        const rehashedStderr = rehashedPrerequisiteApplication(prerequisiteApplication, changeStoredStderr);
+        const rehashedChain = commitPrerequisiteVariant(
+          fixture,
+          rehashedStderr,
+          'fully rehashed opaque stderr provenance',
+        );
+        assert.equal(
+          compatibilityRange(fixture.compatibilityHelper, {
+            repo: fixture.repo,
+            planPath: TARGET_PLAN,
+            plannedAtCommit: fixture.plannedAt,
+            executionBaseCommit: fixture.executionBaseCommit,
+            reviewedHead: rehashedChain.f,
+          }).mode,
+          'legacy_compatibility',
+          'fully rehashed opaque digest documents trusted constructor/Q/F provenance boundary',
+        );
+        const reorderedReceipt = rehashedPrerequisiteApplication(prerequisiteApplication, (receipt) => {
+          receipt.observations = Object.fromEntries(Object.entries(receipt.observations).reverse());
+          receipt.observations.remote_main = Object.fromEntries(
+            Object.entries(receipt.observations.remote_main).reverse(),
+          );
+        });
+        assert.equal(
+          jcs(reorderedReceipt),
+          jcs(prerequisiteApplication),
+          'reordered closed stored objects are canonical-identical',
+        );
+      },
+    },
+    ...[
+      [
+        'stored observation missing field',
+        (receipt) => {
+          delete receipt.observations.remote_main.exit_code;
+        },
+        /missing exit_code/,
+      ],
+      [
+        'stored observation extra field',
+        (receipt) => {
+          receipt.observations.remote_main.extra = true;
+        },
+        /unknown key/,
+      ],
+      [
+        'stored main projection',
+        (receipt) => {
+          receipt.observations.remote_main.projection.commit = 'f'.repeat(40);
+        },
+        /stored remote main projection/,
+      ],
+      [
+        'stored tag projection',
+        (receipt) => {
+          receipt.observations.remote_tag.projection.peeled_commit = 'f'.repeat(40);
+        },
+        /stored remote tag projection/,
+      ],
+      [
+        'stored argv order',
+        (receipt) => {
+          receipt.observations.remote_main.argv.reverse();
+        },
+        /observation identity/,
+      ],
+      [
+        'stored exit code',
+        (receipt) => {
+          receipt.observations.remote_main.exit_code = 1;
+        },
+        /observation identity/,
+      ],
+      [
+        'stored observed time',
+        (receipt) => {
+          receipt.observations.observed_at = '2026-07-13 14:00:00';
+        },
+        /ISO/,
+      ],
+      [
+        'stored source identity',
+        (receipt) => {
+          receipt.observations.source_policy.git_spec = 'HEAD:wrong';
+        },
+        /source policy observation identity/,
+      ],
+      [
+        'stored cache relative path',
+        (receipt) => {
+          receipt.observations.codex_cache.home_relative_path = '.codex/wrong';
+        },
+        /cache relative path/,
+      ],
+    ].map(([caseLabel, applyChange, pattern]) => ({
+      ...(caseLabel === 'stored observation missing field' ? { label: 'stored prerequisite closure regression' } : {}),
+      run: async () => {
+        const fixture = await getFixture();
+        const application = rehashedPrerequisiteApplication(await getPrerequisiteApplication(), applyChange);
+        const chain = commitPrerequisiteVariant(fixture, application, caseLabel);
+        expectThrow(
+          caseLabel,
+          () =>
+            compatibilityRange(fixture.compatibilityHelper, {
+              repo: fixture.repo,
+              planPath: TARGET_PLAN,
+              plannedAtCommit: fixture.plannedAt,
+              executionBaseCommit: fixture.executionBaseCommit,
+              reviewedHead: chain.f,
+            }),
+          pattern,
+        );
+      },
+    })),
+    {
+      run: async () => {
+        const fixture = await getFixture();
+        const prerequisiteApplication = await getPrerequisiteApplication();
+        git(fixture.repo, ['checkout', '-q', '--detach', fixture.bindingCommit]);
+
+        const prerequisiteBytes = applyPrerequisiteForTest(fixture.bindingBytes, prerequisiteApplication);
+        writeLogical(fixture.repo, TARGET_PLAN, prerequisiteBytes);
+        const prerequisiteCommit = commitAll(fixture.repo, 'close Docks prerequisite');
+        const finalReceipt = findingsFreeDraftReceipt(
+          prerequisiteCommit,
+          prerequisiteBytes,
+          'single',
+          '2026-07-13T15:00:00.000Z',
+        );
+        const finalBytes = insertOrReplaceDraftReceiptForTest(prerequisiteBytes, finalReceipt, true);
+        writeLogical(fixture.repo, TARGET_PLAN, finalBytes);
+        const finalReviewCommit = commitAll(fixture.repo, 'record final execution review');
+        const validation = compatibilityRange(fixture.compatibilityHelper, {
+          repo: fixture.repo,
+          planPath: TARGET_PLAN,
+          plannedAtCommit: fixture.plannedAt,
+          executionBaseCommit: fixture.executionBaseCommit,
+          reviewedHead: finalReviewCommit,
+        });
+        assert.equal(validation.mode, 'legacy_compatibility');
+        assert.equal(validation.prerequisite_commit, prerequisiteCommit);
+        assert.equal(validation.execution_review_commit, finalReviewCommit);
+        assert.equal(
+          validation.prerequisite_receipt_sha256,
+          prerequisiteReceiptFromApplication(prerequisiteApplication).receipt_sha256,
+        );
+        const completionReceipt = completionReceiptFor(finalReviewCommit, finalBytes);
+        let completionBytes = applyCompletionReviewBlock(finalBytes, completionReceipt).toString();
+        completionBytes = replaceOnce(completionBytes, 'review_status: null', 'review_status: passed');
+        writeLogical(fixture.repo, TARGET_PLAN, completionBytes);
+        const completionCommit = commitAll(fixture.repo, 'complete compatibility consumer plan');
+        validateCompletionReviewReuse({
+          repo: fixture.repo,
+          planPath: TARGET_PLAN,
+          reviewedHead: finalReviewCommit,
+          completionCommit,
+          receipt: completionReceipt,
+          expectedPolicy: completionReceipt.policy,
+        });
+        assert.equal(
+          compatibilityRange(fixture.compatibilityHelper, {
+            repo: fixture.repo,
+            planPath: TARGET_PLAN,
+            plannedAtCommit: fixture.plannedAt,
+            executionBaseCommit: fixture.executionBaseCommit,
+            reviewedHead: completionCommit,
+          }).execution_review_commit,
+          finalReviewCommit,
+        );
+        await testStrictCompletionReuse();
+        await testCompletionReviewRenderer();
+        await testExecutionScopeLedger();
+        console.log(
+          'execution compatibility: strict-first evidence/review/binding/prerequisite/final-review and reuse passed',
+        );
+      },
+    },
+  ];
+  try {
+    await runFocusedEntries('execution-compatibility', focus, entries);
+  } finally {
+    if (fixture !== null) {
+      makeWritable(fixture.temp);
+      fs.rmSync(fixture.temp, { recursive: true, force: true });
+    }
+  }
+}
+
+async function testLifecycle(focus = null) {
+  const settledPassed = (lifecycleIntent) =>
+    orchestrationStateV1({
+      lifecycle_intent: lifecycleIntent,
+      status: 'passed',
+      series_sha256: H0,
+      apply_state: lifecycleIntent === 'none' ? 'none' : 'pending',
+    });
+  const transitioned = (orchestration, overrides) =>
+    normalStateV2From(orchestration, {
+      ...overrides,
+      transitioned_from_state_sha256: orchestration.state_sha256,
+    });
+  let fixture = null;
+  const getFixture = () => {
+    if (fixture !== null) return fixture;
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-policy-lifecycle-'));
+    const original = path.join(temp, 'original');
+    const verifyRoot = '/tmp/docks-plan-verify';
+    const requestId = randomUUID();
+    const planPath = 'docs/plans/active/sample.md';
+    fs.mkdirSync(path.join(original, 'docs/plans/active'), { recursive: true });
+    git(original, ['init', '-q']);
+    git(original, ['config', 'user.email', 'policy@example.test']);
+    git(original, ['config', 'user.name', 'Policy Test']);
+    fs.writeFileSync(path.join(original, '.gitignore'), 'ignored-cache\n');
+    fs.writeFileSync(path.join(original, 'result.txt'), 'original\n');
+    fs.writeFileSync(path.join(original, 'ignored-cache'), 'ignored original\n');
+    git(original, ['add', '.gitignore', 'result.txt']);
+    git(original, ['commit', '-qm', 'fixture']);
+    const plannedAt = git(original, ['rev-parse', 'HEAD']);
+    const plannedPlan = fs
+      .readFileSync(FIXTURE, 'utf8')
+      .replace('"0000000000000000000000000000000000000000"', `"${plannedAt}"`)
+      .replace('started_at: null\n', '');
+    fs.writeFileSync(path.join(original, planPath), plannedPlan);
+    fs.writeFileSync(path.join(original, 'result.txt'), 'pre-start concurrent work\n');
+    git(original, ['add', planPath, 'result.txt']);
+    git(original, ['commit', '-qm', 'plan fixture']);
+    const largeBinary = Buffer.alloc(2 * 1024 * 1024);
+    for (let offset = 0, block = 0; offset < largeBinary.length; block += 1) {
+      const bytes = createHash('sha256').update(`completion-diff-${block}`).digest();
+      offset += bytes.copy(largeBinary, offset);
+    }
+    fs.writeFileSync(path.join(original, 'retired-binary'), largeBinary);
+    git(original, ['add', 'retired-binary']);
+    git(original, ['commit', '-qm', 'pre-start binary fixture']);
+    fs.writeFileSync(
+      path.join(original, planPath),
+      plannedPlan.replace('status: planned', 'status: ongoing\nstarted_at: "2026-07-12T00:30:00-03:00"'),
+    );
+    git(original, ['add', planPath]);
+    git(original, ['commit', '-qm', 'start plan']);
+    const executionBase = git(original, ['rev-parse', 'HEAD']);
+    fs.rmSync(path.join(original, 'retired-binary'));
+    fs.writeFileSync(
+      path.join(original, planPath),
+      fs
+        .readFileSync(path.join(original, planPath), 'utf8')
+        .replace('execution_base_commit: null', `execution_base_commit: "${executionBase}"`),
+    );
+    git(original, ['add', '-A']);
+    git(original, ['commit', '-qm', 'record execution base']);
+    const head = git(original, ['rev-parse', 'HEAD']);
+    const completionBundle = path.join(temp, 'completion-bundle');
+    const sealedCompletion = sealBundle({
+      repo: original,
+      reviewedCommit: head,
+      planPath,
+      requestedPaths: ['result.txt'],
+      outDir: completionBundle,
+      plannedAtCommit: plannedAt,
+      executionBaseCommit: executionBase,
+    });
+    fixture = {
+      temp,
+      original,
+      verifyRoot,
+      requestId,
+      planPath,
+      plannedAt,
+      executionBase,
+      head,
+      completionBundle,
+      sealedCompletion,
+    };
+    return fixture;
+  };
+  const entries = [
+    {
+      run: () => {
+        const none = settledPassed('none');
+        assert.deepEqual(
+          applyLifecycleState({ state: 'planned', intent: 'none', eligible: true, orchestration: none }),
+          {
+            kind: 'applied',
+            state: 'planned',
+            orchestration: normalStateV2From(none),
+          },
+        );
+        assert.deepEqual(
+          applyLifecycleState({ state: 'scheduled', intent: 'none', eligible: false, orchestration: none }),
+          {
+            kind: 'applied',
+            state: 'scheduled',
+            orchestration: normalStateV2From(none),
+          },
+        );
+        const start = settledPassed('start');
+        assert.deepEqual(
+          applyLifecycleState({ state: 'planned', intent: 'start', eligible: true, orchestration: start }),
+          {
+            kind: 'applied',
+            state: 'ongoing',
+            orchestration: transitioned(start, { apply_state: 'consumed' }),
+          },
+        );
+        const scheduleFire = settledPassed('schedule_fire');
+        assert.deepEqual(
+          applyLifecycleState({
+            state: 'scheduled',
+            intent: 'schedule_fire',
+            eligible: true,
+            orchestration: scheduleFire,
+          }),
+          { kind: 'applied', state: 'ongoing', orchestration: transitioned(scheduleFire, { apply_state: 'consumed' }) },
+        );
+        const autoExecute = settledPassed('auto_execute');
+        assert.deepEqual(
+          applyLifecycleState({
+            state: 'scheduled',
+            intent: 'auto_execute',
+            eligible: false,
+            orchestration: autoExecute,
+          }),
+          {
+            kind: 'rejected',
+            state: 'scheduled',
+            orchestration: transitioned(autoExecute, {
+              status: 'stuck',
+              stop_reason: 'apply_rejected',
+              apply_state: 'none',
+            }),
+          },
+        );
+        assert.deepEqual(
+          applyLifecycleState({ state: 'scheduled', intent: 'start', eligible: true, orchestration: start }),
+          {
+            kind: 'rejected',
+            state: 'scheduled',
+            orchestration: transitioned(start, { status: 'stuck', stop_reason: 'apply_rejected', apply_state: 'none' }),
+          },
+        );
+        assert.deepEqual(
+          applyLifecycleState({
+            state: 'planned',
+            intent: 'schedule_fire',
+            eligible: true,
+            orchestration: scheduleFire,
+          }),
+          {
+            kind: 'rejected',
+            state: 'planned',
+            orchestration: transitioned(scheduleFire, {
+              status: 'stuck',
+              stop_reason: 'apply_rejected',
+              apply_state: 'none',
+            }),
+          },
+        );
+        expectThrow(
+          'legacy intentUsed lifecycle input',
+          () =>
+            applyLifecycleState({
+              state: 'planned',
+              intent: 'start',
+              eligible: true,
+              orchestration: start,
+              intentUsed: false,
+            }),
+          /unknown key|intentUsed/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const current = getFixture();
+        assert.ok(
+          fs.statSync(path.join(current.completionBundle, 'completion.diff')).size > 1024 * 1024,
+          'completion bundle preserves diffs larger than spawnSync default maxBuffer',
+        );
+        assert.equal(current.sealedCompletion.completion.execution_base_commit, current.executionBase);
+        assert.equal(current.sealedCompletion.completion.acceptance_inventory_sha256, sha256(jcs(INVENTORY)));
+      },
+    },
+    {
+      label: 'planned-base completion diff regression',
+      run: () => {
+        const current = getFixture();
+        assert.doesNotMatch(
+          fs.readFileSync(path.join(current.completionBundle, 'completion.diff'), 'utf8'),
+          /pre-start concurrent work/,
+          'execution diff excludes concurrent pre-start changes',
+        );
+      },
+    },
+    {
+      run: () => {
+        const current = getFixture();
+        assert.match(
+          fs.readFileSync(path.join(current.completionBundle, 'completion.diff'), 'utf8'),
+          /execution_base_commit/,
+          'execution diff includes post-start identity commit',
+        );
+        verifyBundle({ bundle: current.completionBundle, expectedSha256: current.sealedCompletion.bundle_sha256 });
+      },
+    },
+    {
+      label: 'execution range validator regression',
+      run: () => {
+        const current = getFixture();
+        expectThrow(
+          'non-start execution base',
+          () =>
+            sealBundle({
+              repo: current.original,
+              reviewedCommit: current.head,
+              planPath: current.planPath,
+              requestedPaths: [],
+              outDir: path.join(current.temp, 'bad-execution'),
+              plannedAtCommit: current.plannedAt,
+              executionBaseCommit: current.head,
+            }),
+          /execution base|ancestry/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const current = getFixture();
+        const arbitraryPrepare = helper(current.temp, [
+          'completion-prepare',
+          current.original,
+          current.head,
+          current.requestId,
+          current.planPath,
+          current.plannedAt,
+        ]);
+        assert.notEqual(arbitraryPrepare.status, 0);
+        assert.match(
+          arbitraryPrepare.stderr,
+          /accepts repo reviewedHead requestId planPath plannedAtCommit executionBaseCommit only/,
+        );
+        const prepareResult = helper(current.temp, [
+          'completion-prepare',
+          current.original,
+          current.head,
+          current.requestId,
+          current.planPath,
+          current.plannedAt,
+          current.executionBase,
+        ]);
+        assert.equal(prepareResult.status, 0, prepareResult.stderr);
+        const prepared = JSON.parse(prepareResult.stdout);
+        assert.equal(prepared.checkout, path.join(current.verifyRoot, current.requestId));
+        assert.equal(git(prepared.checkout, ['rev-parse', 'HEAD']), current.head);
+        assert.equal(
+          git(prepared.checkout, ['status', '--porcelain=v1', '--untracked-files=all']),
+          '',
+          'prepared checkout must be clean',
+        );
+        const checkoutStat = fs.lstatSync(prepared.checkout);
+        assert.equal(checkoutStat.isDirectory(), true);
+        assert.equal(checkoutStat.isSymbolicLink(), false);
+        assert.equal(fs.realpathSync(prepared.checkout), prepared.checkout);
+        if (typeof process.getuid === 'function') assert.equal(checkoutStat.uid, process.getuid());
+        const rootSentinel = path.join(prepared.checkout, '.docks-plan-verify-sentinel');
+        assert.equal(fs.existsSync(rootSentinel), false, 'sentinel must be absent from worktree root');
+        const privateGitDir = path.join(prepared.checkout, '.git');
+        const gitDirStat = fs.lstatSync(privateGitDir);
+        assert.equal(gitDirStat.isDirectory(), true);
+        assert.equal(gitDirStat.isSymbolicLink(), false);
+        assert.equal(fs.realpathSync(privateGitDir), privateGitDir);
+        if (typeof process.getuid === 'function') assert.equal(gitDirStat.uid, process.getuid());
+        const sentinel = path.join(privateGitDir, '.docks-plan-verify-sentinel');
+        const sentinelStat = fs.lstatSync(sentinel);
+        assert.equal(sentinelStat.isFile(), true);
+        assert.equal(sentinelStat.isSymbolicLink(), false);
+        assert.equal(sentinelStat.mode & 0o777, 0o600);
+        if (typeof process.getuid === 'function') assert.equal(sentinelStat.uid, process.getuid());
+        const sentinelBytes = fs.readFileSync(sentinel);
+        const parsedSentinel = JSON.parse(sentinelBytes.toString('utf8'));
+        assert.equal(
+          sentinelBytes.toString('utf8'),
+          `${jcs(parsedSentinel)}\n`,
+          'private sentinel must be compact JCS plus LF',
+        );
+        assert.equal(parsedSentinel.request_id, current.requestId);
+        assert.equal(parsedSentinel.cleanup_token, prepared.cleanup_token);
+        const restoreSentinel = () => {
+          try {
+            fs.rmSync(sentinel, { force: false });
+          } catch (error) {
+            if (error?.code !== 'ENOENT') throw error;
+          }
+          fs.writeFileSync(sentinel, sentinelBytes, { flag: 'wx', mode: 0o600 });
+        };
+        fs.writeFileSync(path.join(prepared.checkout, 'ci-artifact.txt'), 'disposable only\n');
+        const preparedPath = path.join(current.temp, 'prepared.json');
+        fs.writeFileSync(preparedPath, JSON.stringify(prepared));
+        fs.rmSync(sentinel);
+        fs.writeFileSync(rootSentinel, sentinelBytes, { flag: 'wx', mode: 0o600 });
+        const misplacedSentinel = helper(current.temp, [
+          'completion-cleanup',
+          current.original,
+          current.requestId,
+          preparedPath,
+        ]);
+        assert.notEqual(misplacedSentinel.status, 0);
+        assert.match(misplacedSentinel.stderr, /sentinel missing/);
+        fs.rmSync(rootSentinel);
+        restoreSentinel();
+        fs.chmodSync(sentinel, 0o644);
+        const wrongMode = helper(current.temp, [
+          'completion-cleanup',
+          current.original,
+          current.requestId,
+          preparedPath,
+        ]);
+        assert.notEqual(wrongMode.status, 0);
+        assert.match(wrongMode.stderr, /ownership or mode is unsafe/);
+        fs.chmodSync(sentinel, 0o600);
+        const sentinelTarget = path.join(privateGitDir, '.docks-plan-verify-sentinel-target');
+        fs.writeFileSync(sentinelTarget, sentinelBytes, { flag: 'wx', mode: 0o600 });
+        fs.rmSync(sentinel);
+        fs.symlinkSync(path.basename(sentinelTarget), sentinel);
+        const symlinkSentinel = helper(current.temp, [
+          'completion-cleanup',
+          current.original,
+          current.requestId,
+          preparedPath,
+        ]);
+        assert.notEqual(symlinkSentinel.status, 0);
+        assert.match(symlinkSentinel.stderr, /not a regular file/);
+        fs.rmSync(sentinel);
+        fs.rmSync(sentinelTarget);
+        restoreSentinel();
+        fs.rmSync(sentinel);
+        const missingSentinel = helper(current.temp, [
+          'completion-cleanup',
+          current.original,
+          current.requestId,
+          preparedPath,
+        ]);
+        assert.notEqual(missingSentinel.status, 0);
+        assert.match(missingSentinel.stderr, /sentinel missing/);
+        restoreSentinel();
+        fs.writeFileSync(path.join(current.original, 'ignored-cache'), 'mutated ignored content\n');
+        const ignoredChange = helper(current.temp, [
+          'completion-cleanup',
+          current.original,
+          current.requestId,
+          preparedPath,
+        ]);
+        assert.notEqual(ignoredChange.status, 0);
+        assert.match(ignoredChange.stderr, /original repository changed/);
+        fs.writeFileSync(path.join(current.original, 'ignored-cache'), 'ignored original\n');
+        const forged = { ...prepared, cleanup_token: H0 };
+        const forgedPath = path.join(current.temp, 'forged.json');
+        fs.writeFileSync(forgedPath, JSON.stringify(forged));
+        const forgedCleanup = helper(current.temp, [
+          'completion-cleanup',
+          current.original,
+          current.requestId,
+          forgedPath,
+        ]);
+        assert.notEqual(forgedCleanup.status, 0);
+        assert.match(forgedCleanup.stderr, /sentinel mismatch/);
+        const cleanupResult = helper(current.temp, [
+          'completion-cleanup',
+          current.original,
+          current.requestId,
+          preparedPath,
+        ]);
+        assert.equal(cleanupResult.status, 0, cleanupResult.stderr);
+        const cleaned = JSON.parse(cleanupResult.stdout);
+        assert.equal(cleaned.removed, true);
+        assert.equal(fs.existsSync(prepared.checkout), false);
+        const escaped = helper(current.temp, ['completion-cleanup', current.original, '../escape', preparedPath]);
+        assert.notEqual(escaped.status, 0);
+        assert.match(escaped.stderr, /prepared completion identity mismatch|request id/);
+        console.log(
+          'lifecycle: planned/scheduled preservation, start/fire/auto gating and one-intent consumption passed',
+        );
+        console.log('lifecycle: git clone --no-local disposable CI and complete original repo+.git digest passed');
+        console.log('cleanup: canonical root and prepare identity reject arbitrary roots and forged tokens');
+      },
+    },
+  ];
+  try {
+    await runFocusedEntries('lifecycle', focus, entries);
+  } finally {
+    if (fixture !== null) {
+      makeWritable(fixture.temp);
+      fs.rmSync(fixture.temp, { recursive: true, force: true });
+    }
+  }
+}
+
+function testCurrentSingleLane(focus = null) {
+  let fallback;
+  const fallbackAttempts = () => {
+    if (fallback !== undefined) return fallback;
+    const [gpt, fable, opus] = CURRENT_POLICY.candidates;
+    fallback = [
+      currentAttempt(gpt, {
+        started: false,
+        output_started: false,
+        result: 'tool_unavailable',
+        child_id: null,
+        timeout_mode: null,
+        timeout_seconds: null,
+        exit_code: null,
+        reason: 'Codex is not installed',
+        stdout_sha256: null,
+        stderr_sha256: null,
+      }),
+      currentAttempt(fable, {
+        output_started: false,
+        result: 'auth_failed',
+        exit_code: 1,
+        reason: 'Claude auth is unavailable',
+      }),
+      currentAttempt(opus),
+    ];
+    return fallback;
+  };
+  const entries = [
+    {
+      label: 'current schema closure regression',
+      run: () => validatePolicy(CURRENT_POLICY),
+    },
+    {
+      run: () => {
+        const req = currentRequest();
+        validateRequest(req);
+      },
+    },
+    {
+      run: () => {
+        const schema = reviewPolicy.currentReviewerSchema();
+        assert.equal(schema.additionalProperties, false);
+        assert.equal(schema.properties.schema.const, 5);
+        assert.equal(schema.properties.role.const, 'primary');
+        assert.equal(Object.hasOwn(schema.properties, 'score'), false);
+        assert.equal(Object.hasOwn(schema.properties, 'rubric'), false);
+        assert.deepEqual(Object.keys(schema.properties.checklist.properties), CURRENT_CRITERIA);
+      },
+    },
+    {
+      run: () =>
+        assert.equal(reviewPolicy.validateCurrentAttemptSequence(fallbackAttempts(), CURRENT_POLICY).selected_index, 2),
+    },
+    {
+      run: () => {
+        const attempts = fallbackAttempts();
+        expectThrow(
+          'candidate reorder',
+          () => reviewPolicy.validateCurrentAttemptSequence([attempts[1], attempts[2]], CURRENT_POLICY),
+          /candidate order/,
+        );
+      },
+    },
+    {
+      label: 'current platform fallback regression',
+      run: () => {
+        const [gpt, fable] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'fallback after platform denial',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [
+                currentAttempt(gpt, {
+                  output_started: false,
+                  result: 'platform_denied',
+                  exit_code: null,
+                  denial_source: 'managed_policy',
+                }),
+                currentAttempt(fable),
+              ],
+              CURRENT_POLICY,
+            ),
+          /terminal|platform/,
+        );
+      },
+    },
+    {
+      label: 'current output fallback regression',
+      run: () => {
+        const [gpt, fable] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'fallback after output',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [currentAttempt(gpt, { result: 'model_unavailable', exit_code: 1 }), currentAttempt(fable)],
+              CURRENT_POLICY,
+            ),
+          /output|terminal/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const [gpt, fable] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'fallback after timeout',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [
+                currentAttempt(gpt, {
+                  output_started: false,
+                  result: 'deadline_exceeded',
+                  exit_code: null,
+                  signal: 'SIGKILL',
+                }),
+                currentAttempt(fable),
+              ],
+              CURRENT_POLICY,
+            ),
+          /terminal|deadline/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const [gpt, fable] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'fallback after transport failure',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [
+                currentAttempt(gpt, { output_started: false, result: 'transient_transport', exit_code: null }),
+                currentAttempt(fable),
+              ],
+              CURRENT_POLICY,
+            ),
+          /terminal|transport/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const [gpt, fable] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'fallback after substantive result',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence([currentAttempt(gpt), currentAttempt(fable)], CURRENT_POLICY),
+          /terminal|passed/,
+        );
+      },
+    },
+    {
+      label: 'current attempt launch-evidence regression',
+      run: () => {
+        const [gpt] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'started attempt requires child id',
+          () => reviewPolicy.validateCurrentAttemptSequence([currentAttempt(gpt, { child_id: null })], CURRENT_POLICY),
+          /child/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const [gpt] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'started attempt requires timeout mode',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence([currentAttempt(gpt, { timeout_mode: null })], CURRENT_POLICY),
+          /timeout/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const [gpt] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'started attempt requires 600-second timeout',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [currentAttempt(gpt, { timeout_seconds: 599 })],
+              CURRENT_POLICY,
+            ),
+          /600|timeout/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const [gpt] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'unstarted attempt rejects launch evidence',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [
+                currentAttempt(gpt, {
+                  started: false,
+                  output_started: false,
+                  result: 'tool_unavailable',
+                  exit_code: null,
+                  child_id: 'not-launched',
+                  timeout_mode: null,
+                  timeout_seconds: null,
+                  stdout_sha256: null,
+                  stderr_sha256: null,
+                }),
+              ],
+              CURRENT_POLICY,
+            ),
+          /unstarted|child|launch/i,
+        );
+      },
+    },
+    {
+      label: 'current deadline contradiction regression',
+      run: () => {
+        const [gpt] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'deadline requires exactly one exit or signal',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [
+                currentAttempt(gpt, {
+                  output_started: false,
+                  result: 'deadline_exceeded',
+                  exit_code: 124,
+                  signal: 'SIGTERM',
+                }),
+              ],
+              CURRENT_POLICY,
+            ),
+          /deadline|exit|signal/i,
+        );
+      },
+    },
+    {
+      label: 'current unstarted model-unavailable regression',
+      run: () => {
+        const [gpt] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'unstarted model_unavailable is not a real launch',
+          () =>
+            reviewPolicy.validateCurrentAttemptSequence(
+              [
+                currentAttempt(gpt, {
+                  started: false,
+                  output_started: false,
+                  result: 'model_unavailable',
+                  exit_code: null,
+                  reason: 'model probe was never launched',
+                  child_id: null,
+                  timeout_mode: null,
+                  timeout_seconds: null,
+                  stdout_sha256: null,
+                  stderr_sha256: null,
+                }),
+              ],
+              CURRENT_POLICY,
+            ),
+          /model_unavailable.*started|started.*model_unavailable/i,
+        );
+      },
+    },
+    {
+      run: () => expectThrow('current role', () => validatePolicy({ ...CURRENT_POLICY, role: 'X' }), /role/),
+    },
+    {
+      run: () =>
+        expectThrow(
+          'current fallback',
+          () => validatePolicy({ ...CURRENT_POLICY, fallback: 'any_failure' }),
+          /fallback/,
+        ),
+    },
+    {
+      label: 'current two-round cap regression',
+      run: () =>
+        expectThrow('current rounds', () => validatePolicy({ ...CURRENT_POLICY, max_rounds: 3 }), /max_rounds/),
+    },
+    {
+      run: () => {
+        const [gpt, fable, opus] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'candidate order',
+          () => validatePolicy({ ...CURRENT_POLICY, candidates: [fable, gpt, opus] }),
+          /candidate/,
+        );
+      },
+    },
+    {
+      run: () => {
+        const [gpt] = CURRENT_POLICY.candidates;
+        expectThrow(
+          'relay candidate',
+          () => validatePolicy({ ...CURRENT_POLICY, candidates: [{ ...gpt, tool: 'relay' }] }),
+          /candidate|tool/,
+        );
+      },
+    },
+    {
+      run: () =>
+        expectThrow(
+          'current policy closure',
+          () => validatePolicy({ ...CURRENT_POLICY, unexpected: true }),
+          /unknown key/,
+        ),
+    },
+    {
+      run: () =>
+        expectThrow(
+          'cross-company consent',
+          () => validatePolicy({ ...CURRENT_POLICY, cross_company_consent: 'always' }),
+          /unknown key/,
+        ),
+    },
+    {
+      run: () => console.log('current single-lane policy, schema, and availability-only fallback passed'),
+    },
+  ];
+  return runFocusedEntries('current-single-lane', focus, entries);
+}
+
+async function testCurrentReceipts(focus = null) {
+  let req;
+  let pass;
+  let advisory;
+  let blocking;
+  let blockedRaw;
+  let rejectedBlockingRun;
+  let waiver;
+  let waivedRaw;
+  let waivedRun;
+  let waivedReceipt;
+  let completionReq;
+  let completionRaw;
+  let completionRun;
+  let completionReceipt;
+  let receiptOnlyPrimary;
+
+  const getRequest = () => {
+    req ??= currentRequest();
+    return req;
+  };
+  const getPass = () => {
+    pass ??= currentOutput(getRequest());
+    return pass;
+  };
+  const getAdvisory = () => {
+    advisory ??= currentOutput(getRequest(), {
+      verdict: 'non_blocking_gap',
+      checklist: currentChecklist({
+        executable_acceptance: { status: 'non_blocking_gap', evidence: 'The command is useful but not required.' },
+      }),
+      findings: [currentFinding({ status: 'non_blocking_gap' })],
+    });
+    return advisory;
+  };
+  const getBlocking = () => {
+    blocking ??= currentOutput(getRequest(), {
+      verdict: 'blocking_gap',
+      checklist: currentChecklist({
+        executable_acceptance: { status: 'blocking_gap', evidence: 'A required command is absent.' },
+      }),
+      findings: [currentFinding()],
+    });
+    return blocking;
+  };
+  const getBlockedRaw = () => {
+    blockedRaw ??= currentRaw(getRequest(), getBlocking());
+    return blockedRaw;
+  };
+  const getRejectedBlockingRun = () => {
+    rejectedBlockingRun ??= currentRun(getRequest(), getBlockedRaw());
+    return rejectedBlockingRun;
+  };
+  const getWaiver = () => {
+    const request = getRequest();
+    waiver ??= {
+      phase: 'draft',
+      input_sha256: request.input_sha256,
+      roles: ['primary'],
+      actor: 'test user',
+      reason: 'explicit current waiver',
+      at: '2026-07-17T00:00:00-03:00',
+    };
+    return waiver;
+  };
+  const getWaivedRaw = () => {
+    const request = getRequest();
+    const currentWaiver = getWaiver();
+    waivedRaw ??= currentRaw(request, null, {
+      result: 'waived',
+      attempts: [],
+      selected: null,
+      reviewer_output: null,
+      findings_sha256: null,
+      waiver: currentWaiver,
+      waiver_sha256: sha256(jcs(currentWaiver)),
+      reason: null,
+    });
+    return waivedRaw;
+  };
+  const getWaivedRun = () => {
+    const request = getRequest();
+    const raw = getWaivedRaw();
+    waivedRun ??= currentRun(request, raw, {
+      reviewer: { raw, accepted_finding_ids: [], rejected: [] },
+      reproduced: [],
+    });
+    return waivedRun;
+  };
+  const getWaivedReceipt = () => {
+    waivedReceipt ??= currentReceipt(getRequest(), getWaivedRun());
+    return waivedReceipt;
+  };
+  const getCompletionRequest = () => {
+    completionReq ??= currentRequest({
+      phase: 'completion',
+      planned_at_commit: '3'.repeat(40),
+      execution_base_commit: '4'.repeat(40),
+      diff_sha256: H0,
+      acceptance_inventory_sha256: sha256(jcs(INVENTORY)),
+    });
+    return completionReq;
+  };
+  const getCompletionRaw = () => {
+    const request = getCompletionRequest();
+    completionRaw ??= currentRaw(request, currentOutput(request));
+    return completionRaw;
+  };
+  const getCompletionRun = () => {
+    completionRun ??= currentRun(getCompletionRequest(), getCompletionRaw());
+    return completionRun;
+  };
+  const getCompletionReceipt = () => {
+    completionReceipt ??= currentReceipt(getCompletionRequest(), getCompletionRun());
+    return completionReceipt;
+  };
+  const getReceiptOnlyPrimary = () => {
+    const receipt = getCompletionReceipt();
+    receiptOnlyPrimary ??= { ...receipt.primary, followups: ['receipt-only follow-up'] };
+    return receiptOnlyPrimary;
+  };
+
+  const entries = [
+    {
+      run: () => {
+        const request = getRequest();
+        const passingOutput = getPass();
+        reviewPolicy.validateCurrentReviewerOutput(passingOutput, request);
+        reviewPolicy.validateCurrentReviewerOutput(getAdvisory(), request);
+        reviewPolicy.validateCurrentReviewerOutput(getBlocking(), request);
+
+        for (const [label, output, pattern] of [
+          ['current score rejected', { ...passingOutput, score: 100 }, /unknown key|score/],
+          [
+            'current numeric rubric rejected',
+            { ...passingOutput, rubric: { standalone_executability: 22 } },
+            /unknown key|rubric/,
+          ],
+          ['current X leg rejected', { ...passingOutput, X: {} }, /unknown key|X/],
+          [
+            'checklist evidence required',
+            { ...passingOutput, checklist: currentChecklist({ actionability: { status: 'pass', evidence: '' } }) },
+            /evidence/,
+          ],
+        ])
+          expectThrow(label, () => reviewPolicy.validateCurrentReviewerOutput(output, request), pattern);
+      },
+    },
+    {
+      label: 'current checklist verdict regression',
+      run: () =>
+        expectThrow(
+          'verdict strongest status',
+          () => reviewPolicy.validateCurrentReviewerOutput({ ...getBlocking(), verdict: 'pass' }, getRequest()),
+          /verdict|strongest/,
+        ),
+    },
+    {
+      run: () => {
+        const request = getRequest();
+        const passingOutput = getPass();
+        const blockingOutput = getBlocking();
+        for (const [label, output, pattern] of [
+          ['gap finding required', { ...blockingOutput, findings: [] }, /finding|gap/],
+          [
+            'finding criterion status',
+            { ...blockingOutput, findings: [currentFinding({ status: 'non_blocking_gap' })] },
+            /finding.*status|status.*finding/,
+          ],
+          [
+            'pass has no findings',
+            { ...passingOutput, findings: [currentFinding({ status: 'non_blocking_gap' })] },
+            /pass|finding/,
+          ],
+        ])
+          expectThrow(label, () => reviewPolicy.validateCurrentReviewerOutput(output, request), pattern);
+
+        const raw = currentRaw(request, getAdvisory());
+        reviewPolicy.validateCurrentRawReview(raw, request);
+        const run = currentRun(request, raw);
+        reviewPolicy.validateCurrentReviewRunResult(run);
+        reviewPolicy.validateCurrentReviewReceipt(currentReceipt(request, run), request.input_sha256);
+        expectThrow(
+          'every current finding must be reproduced',
+          () => reviewPolicy.validateCurrentReviewRunResult({ ...run, reproduced: [] }),
+          /reproduced|finding/,
+        );
+        expectThrow(
+          'current run rejects X/S',
+          () => reviewPolicy.validateCurrentReviewRunResult({ ...run, X: null }),
+          /unknown key|X/,
+        );
+        expectThrow(
+          'current receipt rejects author duplication',
+          () => reviewPolicy.validateCurrentReviewReceipt({ ...currentReceipt(request, run), author: request.author }),
+          /unknown key|author/,
+        );
+        expectThrow(
+          'current draft receipt requires the complete review series',
+          () =>
+            reviewPolicy.validateCurrentReviewReceipt(
+              {
+                ...currentReceipt(request, run),
+                series: undefined,
+              },
+              request.input_sha256,
+            ),
+          /series/i,
+        );
+
+        const rawBlocking = getBlockedRaw();
+        const blockedRun = currentRun(request, rawBlocking, {
+          reviewer: { raw: rawBlocking, accepted_finding_ids: ['P1'], rejected: [] },
+          reproduced: [currentReproduction()],
+        });
+        assert.equal(blockedRun.outcome, 'not_ready');
+        assert.equal(blockedRun.pre_execution_eligible, false);
+        reviewPolicy.validateCurrentReviewRunResult(blockedRun);
+
+        const rejected = getRejectedBlockingRun();
+        assert.deepEqual(rejected.reviewer.accepted_finding_ids, []);
+        assert.deepEqual(
+          rejected.reviewer.rejected.map(({ id }) => id),
+          ['P1'],
+        );
+      },
+    },
+    {
+      label: 'current rejected blocking-gap regression',
+      run: () => {
+        const rejected = getRejectedBlockingRun();
+        assert.equal(rejected.outcome, 'not_ready', 'a blocking_gap is terminal even when rejected');
+        assert.equal(
+          rejected.pre_execution_eligible,
+          false,
+          'a rejected blocking_gap cannot become execution-eligible',
+        );
+        reviewPolicy.validateCurrentReviewRunResult(rejected);
+      },
+    },
+    {
+      label: 'current failed-after-passed-attempt regression',
+      run: () => {
+        const request = getRequest();
+        const contradictoryFailedRaw = currentRaw(request, null, {
+          result: 'failed',
+          selected: null,
+          reviewer_output: null,
+          findings_sha256: null,
+          reason: 'discarded successful reviewer output',
+        });
+        expectThrow(
+          'current failed review cannot discard a passed attempt',
+          () => reviewPolicy.validateCurrentReviewRunResult(currentRun(request, contradictoryFailedRaw)),
+          /passed attempt|selected.*passed|failed.*passed/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const request = getRequest();
+        const currentWaiver = getWaiver();
+        reviewPolicy.validateCurrentWaivers([currentWaiver], 'draft', request.input_sha256);
+        expectThrow(
+          'current waiver rejects historical legs',
+          () =>
+            reviewPolicy.validateCurrentWaivers(
+              [{ ...currentWaiver, roles: undefined, legs: ['X', 'S'] }],
+              'draft',
+              request.input_sha256,
+            ),
+          /unknown key|roles/,
+        );
+        const run = getWaivedRun();
+        assert.equal(run.pre_execution_eligible, true);
+        reviewPolicy.validateCurrentReviewRunResult(run, { waivers: [currentWaiver] });
+        reviewPolicy.validateCurrentReviewReceipt(currentReceipt(request, run), request.input_sha256, {
+          waivers: [currentWaiver],
+        });
+        getWaivedReceipt();
+      },
+    },
+    {
+      label: 'current generic-series waiver regression',
+      run: () => {
+        const receipt = getWaivedReceipt();
+        reviewPolicy.validateReviewSeries(receipt.series, { waivers: [getWaiver()] });
+        expectThrow(
+          'generic current series requires the exact waiver',
+          () => reviewPolicy.validateReviewSeries(receipt.series),
+          /waiver.*snapshot/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const request = getRequest();
+        const receipt = getWaivedReceipt();
+        expectThrow(
+          'current draft receipt reuse requires the exact waiver',
+          () => validateDraftReceipt(receipt, request.input_sha256, { expectedPolicy: CURRENT_POLICY }),
+          /waiver.*snapshot/i,
+        );
+      },
+    },
+    {
+      label: 'current draft-reuse waiver regression',
+      run: () => {
+        const request = getRequest();
+        const receipt = getWaivedReceipt();
+        validateDraftReviewReuse({
+          receipt,
+          expectedInput: request.input_sha256,
+          expectedPolicy: CURRENT_POLICY,
+          waivers: [getWaiver()],
+        });
+        expectThrow(
+          'current draft reuse requires the exact waiver',
+          () =>
+            validateDraftReviewReuse({
+              receipt,
+              expectedInput: request.input_sha256,
+              expectedPolicy: CURRENT_POLICY,
+            }),
+          /waiver.*snapshot/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const completionRequest = getCompletionRequest();
+        const run = getCompletionRun();
+        reviewPolicy.validateCurrentReviewRunResult(run);
+        validateCompletionRunResult(run);
+        const receipt = getCompletionReceipt();
+        reviewPolicy.validateCurrentReviewReceipt(receipt, completionRequest.input_sha256);
+        validateCompletionReceipt(receipt, {
+          reviewed_head: completionRequest.reviewed_commit_or_head,
+          diff_sha256: H0,
+          plan_input_sha256: completionRequest.input_sha256,
+          review_status: 'passed',
+        });
+        expectThrow(
+          'current completion requires inventory evidence',
+          () => validateCompletionRunResult({ ...run, acceptance_inventory: undefined }),
+          /unknown key|inventory/,
+        );
+        expectThrow(
+          'current completion receipt rejects draft eligibility',
+          () => reviewPolicy.validateCurrentReviewReceipt({ ...receipt, pre_execution_eligible: true }),
+          /unknown key|pre_execution/,
+        );
+        getReceiptOnlyPrimary();
+      },
+    },
+    {
+      label: 'current completion series-final binding regression',
+      run: () => {
+        const receipt = getCompletionReceipt();
+        expectThrow(
+          'current completion receipt final run must equal its validated series final round',
+          () =>
+            reviewPolicy.validateCurrentReviewReceipt(
+              {
+                ...receipt,
+                primary: getReceiptOnlyPrimary(),
+              },
+              getCompletionRequest().input_sha256,
+            ),
+          /series.*final|final.*series|receipt.*series/i,
+        );
+      },
+    },
+    {
+      run: () => {
+        const completionRequest = getCompletionRequest();
+        const receipt = getCompletionReceipt();
+        expectThrow(
+          'current completion receipt requires the complete review series',
+          () =>
+            reviewPolicy.validateCurrentReviewReceipt(
+              {
+                ...receipt,
+                series: undefined,
+              },
+              completionRequest.input_sha256,
+            ),
+          /series/i,
+        );
+
+        const highPrimary = {
+          ...primaryEvidence(INVENTORY),
+          findings: [
+            {
+              id: 'C1',
+              source: 'primary',
+              severity: 'high',
+              path: null,
+              locator: null,
+              defect: 'Regression',
+              fix: 'Repair it',
+              reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+            },
+          ],
+        };
+        const highRun = currentRun(completionRequest, getCompletionRaw(), { primary: highPrimary });
+        assert.equal(highRun.completion_verdict, 'regressed');
+        validateCompletionRunResult(highRun);
+        expectThrow(
+          'current high completion finding cannot pass',
+          () => validateCompletionRunResult({ ...highRun, completion_verdict: 'passed' }),
+          /completion verdict/,
+        );
+
+        const completionBlockedRaw = currentRaw(
+          completionRequest,
+          currentOutput(completionRequest, {
+            verdict: 'blocking_gap',
+            checklist: currentChecklist({
+              executable_acceptance: { status: 'blocking_gap', evidence: 'A required command is absent.' },
+            }),
+            findings: [currentFinding()],
+          }),
+        );
+        const completionBlocked = currentRun(completionRequest, completionBlockedRaw, {
+          reviewer: { raw: completionBlockedRaw, accepted_finding_ids: ['P1'], rejected: [] },
+          reproduced: [currentReproduction()],
+        });
+        assert.equal(completionBlocked.completion_verdict, 'regressed');
+        validateCompletionRunResult(completionBlocked);
+
+        const completionRejectedBlocking = currentRun(completionRequest, completionBlockedRaw);
+        assert.deepEqual(completionRejectedBlocking.reviewer.accepted_finding_ids, []);
+        assert.equal(
+          completionRejectedBlocking.outcome,
+          'not_ready',
+          'rejected completion blocking_gap remains not_ready',
+        );
+        assert.equal(
+          completionRejectedBlocking.completion_verdict,
+          'regressed',
+          'rejected completion blocking_gap remains regressed',
+        );
+        validateCompletionRunResult(completionRejectedBlocking);
+        console.log('current checklist, draft/completion receipts, waivers, and verdict closure passed');
+      },
+    },
+  ];
+  return runFocusedEntries('current-receipts', focus, entries);
+}
+
+async function testCurrentCompletionRenderer(focus = null) {
+  const plan = Buffer.from(fixturePlan({ cleanReceipt: true }));
+  const reviewedHead = 'c'.repeat(40);
+  const inventory = acceptanceInventory(plan);
+  const req = currentRequest({
+    phase: 'completion',
+    reviewed_commit_or_head: reviewedHead,
+    planned_at_commit: 'a'.repeat(40),
+    execution_base_commit: 'b'.repeat(40),
+    diff_sha256: H0,
+    acceptance_inventory_sha256: sha256(jcs(inventory)),
+    input_sha256: sha256(canonicalPlanView(plan)),
+  });
+  const run = currentRun(req);
+  const receipt = currentReceipt(req, run);
+  const receiptKeys = Object.keys(receipt);
+  let waiver;
+  let waivedReceipt;
+  const entries = [
+    {
+      run: () => {
+        assert.equal(Object.hasOwn(receipt, 'X'), false);
+        assert.equal(Object.hasOwn(receipt, 'S'), false);
+        const rendered = renderCompletionReviewBlock(receipt);
+        assert.ok(rendered.endsWith(`Completion-review-receipt: ${jcs(receipt)}\n`));
+      },
+    },
+    {
+      label: 'current completion primary-render regression',
+      run: () => {
+        const rendered = renderCompletionReviewBlock(receipt);
+        assert.doesNotMatch(
+          rendered,
+          /Cross-check:|\[X:|\[S:|"X":|"S":/,
+          'schema-5 completion rendering is primary-only',
+        );
+      },
+    },
+    {
+      run: () => {
+        assert.deepEqual(Object.keys(receipt), receiptKeys, 'schema-5 renderer leaves receipt keys unchanged');
+        const applied = applyCompletionReviewBlock(plan, receipt);
+        assert.equal(
+          applyCompletionReviewBlock(applied, receipt).toString(),
+          applied.toString(),
+          'schema-5 completion apply is idempotent',
+        );
+        assert.equal(completionStablePlanViewV1(plan), completionStablePlanViewV1(applied));
+      },
+    },
+    {
+      label: 'current completion waiver-render regression',
+      run: () => {
+        waiver = {
+          phase: 'completion',
+          input_sha256: req.input_sha256,
+          roles: ['primary'],
+          actor: 'test user',
+          reason: 'explicit completion waiver',
+          at: '2026-07-17T00:00:00-03:00',
+        };
+        const waivedRaw = currentRaw(req, null, {
+          result: 'waived',
+          attempts: [],
+          selected: null,
+          reviewer_output: null,
+          findings_sha256: null,
+          waiver,
+          waiver_sha256: sha256(jcs(waiver)),
+          reason: null,
+        });
+        const waivedRun = currentRun(req, waivedRaw, {
+          reviewer: { raw: waivedRaw, accepted_finding_ids: [], rejected: [] },
+          reproduced: [],
+        });
+        waivedReceipt = currentReceipt(req, waivedRun);
+        assert.match(renderCompletionReviewBlock(waivedReceipt, { waivers: [waiver] }), /Primary review:/);
+      },
+    },
+    {
+      run: () => {
+        applyCompletionReviewBlock(plan, waivedReceipt, { waivers: [waiver] });
+        console.log('schema-5 primary-only completion render and idempotent apply passed');
+      },
+    },
+  ];
+  await runFocusedEntries('current-completion-renderer', focus, entries);
+}
+
+async function testSurfaces(focus = null) {
+  const entries = [
+    { run: () => testSchemas() },
+    { run: () => testHistoricalSchemas() },
+    { run: () => testCurrentSingleLane() },
+    { run: () => testCurrentReceipts() },
+    ...contractSurfaceEntries(),
+    ...reviewRunnerSurfaceEntries(),
+    { run: () => testManagerSurfaces() },
+    { run: () => testRelayBoundary() },
+    { run: () => testSchema6PolicySurfaces() },
+  ];
+  await runFocusedEntries('surfaces', focus, entries);
+}
+
+const FOCUSED_POLICY_CASES = {
+  'validation-matrix': [
+    'policy-v2 score gate regression',
+    'policy-v2 repeated-candidate regression',
+    'policy-v2 provider-wide rotation regression',
+    'passed not_ready regression',
+    'vacuous acceptance inventory',
+    'acceptance command substitution',
+    'malformed acceptance source table',
+  ],
+  schemas: [
+    'policy-v2 max-round lower-bound regression',
+    'structured-output constrained type regression',
+    'schema-3 rubric sum regression',
+    'schema-3 blocking verdict regression',
+    'schema-3 repair changed-input regression',
+    'schema-3 lifetime cap regression',
+    'schema-3 initial run-kind regression',
+    'schema-3 run-kind drift regression',
+    'stale policy draft reuse regression',
+  ],
+  surfaces: [
+    'two-round current default regression',
+    'read-only wrapper claims primary writes',
+    'Claude evidence wrapper regains Bash',
+    'CI focused surfaces call removed',
+    'CI regression-driver call removed',
+    'CI no-argument full policy-harness duplicate restored',
+  ],
+  'completion-reuse': [
+    'stale policy completion reuse regression',
+    'completion-stable Review removal regression',
+    'completion Review reuse byte checks regression',
+    'current completion missing-LF normalization regression',
+    'current completion reuse waiver regression',
+  ],
+  bundle: [
+    'raw source plan ancestor defenses',
+    'sealed plan-view semantic binding',
+    'sealed reviewer-schema semantic binding',
+    'requested-row coverage binding',
+    'sealed file hash regression',
+    'destroy-bundle expected hash regression',
+    'destroy-bundle root boundary regression',
+    'destroy-bundle ownership regression',
+  ],
+  lifecycle: ['execution range validator regression', 'planned-base completion diff regression'],
+  canonical: ['JCS lone-surrogate value regression', 'JCS lone-surrogate key regression'],
+  'execution-compatibility': [
+    'compatibility authorization-id regression',
+    'compatibility authorization-plan regression',
+    'compatibility authorization-planned regression',
+    'compatibility authorization-execution regression',
+    'compatibility stored authorization-digest regression',
+    'prerequisite failed-child regression',
+    'canonical cache file regression',
+    'remote main exact-row regression',
+    'remote tag exact-row regression',
+    'release projection regression',
+    'Codex plugin uniqueness regression',
+    'observation self-hash regression',
+    'prerequisite receipt self-hash regression',
+    'canonical remote config count regression',
+    'canonical remote tag loses peeled pattern',
+    'compatibility copied-artifact isolation regression',
+    'compatibility GIT_ATTR_NOSYSTEM child-isolation regression',
+    'compatibility E reconstruction regression',
+    'compatibility findings-free regression',
+    'compatibility adjacency and plan-only regression',
+    'compatibility binding record regression',
+    'prerequisite Q marker and delta regression',
+    'final F receipt and delta regression',
+    'stored prerequisite closure regression',
+  ],
+  'completion-review-renderer': [
+    'Completion Review accepted-order regression',
+    'Completion Review rejected-order regression',
+    'Completion Review reproduced-order regression',
+    'Completion Review special-character quoting regression',
+  ],
+  'execution-scope-ledger': [
+    'execution scope transient-path regression',
+    'execution scope sealed-manifest regression',
+    'execution scope chronological empty-ledger regression',
+  ],
+  'legacy-shape-negatives': [
+    'legacy creation and start shape regression',
+    'legacy section-vector and transition-diff regression',
+  ],
+  'strict-contract': ['strict corpus identity regression', 'strict raw result comparison regression'],
+  'current-single-lane': [
+    'current schema closure regression',
+    'current two-round cap regression',
+    'current platform fallback regression',
+    'current output fallback regression',
+    'current unstarted model-unavailable regression',
+    'current attempt launch-evidence regression',
+    'current deadline contradiction regression',
+  ],
+  'current-receipts': [
+    'current checklist verdict regression',
+    'current rejected blocking-gap regression',
+    'current failed-after-passed-attempt regression',
+    'current generic-series waiver regression',
+    'current draft-reuse waiver regression',
+    'current completion series-final binding regression',
+  ],
+  'current-completion-renderer': [
+    'current completion primary-render regression',
+    'current completion waiver-render regression',
+  ],
+};
+
+async function runFocusedEntries(selector, focus, entries) {
+  const selected = focus === null ? entries : entries.filter((entry) => entry.label === focus);
+  if (selected.length !== (focus === null ? entries.length : 1))
+    throw focusSelectorError(focus, `is not registered for --case ${selector}`);
+  for (const entry of selected) await entry.run();
+}
+
+class FocusSelectorError extends Error {}
+
+function focusSelectorError(label, reason) {
+  return new FocusSelectorError(`invalid --focus label ${JSON.stringify(label ?? '<missing>')}: ${reason}`);
+}
+
 async function testDefaultSuite() {
   testClosedSelectors();
-  testStrictCorpusContract();
-  testCanonical();
-  testSchemas();
-  testValidationMatrix();
-  testBundle();
+  await testStrictCorpusContract();
+  await testCanonical();
+  await testSchemas();
+  await testValidationMatrix();
+  await testBundle();
   testLegs();
   testServiceTiers();
   await testExecutionCompatibility();
-  testLifecycle();
+  await testLifecycle();
   testConsumer();
   testContractSurfaces();
   testReviewRunnerSurfaces();
   testManagerSurfaces();
   testRelayBoundary();
   console.log('plan-review-policy contract passed');
-}
-
-async function testSurfaces() {
-  testSchemas();
-  testHistoricalSchemas();
-  testCurrentSingleLane();
-  testCurrentReceipts();
-  testContractSurfaces();
-  testReviewRunnerSurfaces();
-  testManagerSurfaces();
-  testRelayBoundary();
-  await testSchema6PolicySurfaces();
 }
 
 const policyCases = new Map([
@@ -8158,9 +10191,61 @@ const policyCases = new Map([
   ],
 ]);
 
+function listFocusedPolicyLabels() {
+  process.stdout.write(
+    `${JSON.stringify({
+      schema: 1,
+      harness: 'scripts/tests/plan-review-policy.mjs',
+      cases: FOCUSED_POLICY_CASES,
+    })}\n`,
+  );
+}
+
 async function runPolicySelector(args) {
   if (args.length === 0) {
     await testDefaultSuite();
+    return;
+  }
+  const equalsFocus = args.find((arg) => arg.startsWith('--focus='));
+  if (equalsFocus !== undefined)
+    throw focusSelectorError(
+      equalsFocus.slice('--focus='.length) || undefined,
+      'requires exactly --case <name> --focus <label>',
+    );
+  if (args[0] === '--list-focused-labels') {
+    if (args.length !== 1) {
+      const focusAt = args.indexOf('--focus');
+      throw focusSelectorError(
+        focusAt < 0 ? args[1] : args[focusAt + 1],
+        'cannot be combined with --list-focused-labels',
+      );
+    }
+    listFocusedPolicyLabels();
+    return;
+  }
+  const focusAt = args.indexOf('--focus');
+  if (focusAt >= 0) {
+    const focus = args[focusAt + 1];
+    const duplicateFocusAt = args.indexOf('--focus', focusAt + 1);
+    if (
+      args.length !== 4 ||
+      args[0] !== '--case' ||
+      focusAt !== 2 ||
+      focus === undefined ||
+      focus === '--case' ||
+      duplicateFocusAt >= 0
+    )
+      throw focusSelectorError(
+        duplicateFocusAt < 0 ? focus : args[duplicateFocusAt + 1],
+        'requires exactly --case <name> --focus <label>',
+      );
+    const selector = args[1];
+    const selected = policyCases.get(selector);
+    if (selected === undefined) throw focusSelectorError(focus, `unknown --case ${selector}`);
+    if (selected.argumentCount !== 0) throw focusSelectorError(focus, `--case ${selector} does not accept focus`);
+    if (!FOCUSED_POLICY_CASES[selector]?.includes(focus))
+      throw focusSelectorError(focus, `is not registered for --case ${selector}`);
+    await selected.run(focus);
     return;
   }
   if (args.length < 2 || args[0] !== '--case') throw new Error('unknown or malformed plan-review-policy test selector');
@@ -8172,12 +10257,12 @@ async function runPolicySelector(args) {
     (selected.accepts && !selected.accepts(caseArgs))
   )
     throw new Error('unknown or malformed plan-review-policy test selector');
-  await selected.run(caseArgs);
+  await (selected.argumentCount === 0 ? selected.run() : selected.run(caseArgs));
 }
 
 try {
   await runPolicySelector(process.argv.slice(2));
 } catch (error) {
   console.error(error.stack || error.message);
-  process.exitCode = 1;
+  process.exitCode = error instanceof FocusSelectorError ? 2 : 1;
 }

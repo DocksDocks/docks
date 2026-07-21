@@ -9,8 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { startTask } from '../lib/ci-background-task.mjs';
 import {
+  CI_LANES,
   parseReleaseTag,
   releaseCiArgs,
+  resolveCiLane,
   resolveCiTargets,
   selectedAuthorChecks,
   workflowCiSelection,
@@ -310,32 +312,105 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(targeted.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.doesNotMatch(targeted.result.stdout, /javascript quality/);
 
-    const full = run([]);
-    assert.equal(full.result.error, undefined);
-    for (const script of repoWideCommands) {
-      assert.equal(invokesNode(full.calls, script), true, `full CI must invoke repo-wide command ${script}`);
+    const regressionScript = 'scripts/tests/plan-review-policy-regressions.mjs';
+    const regressionJobs = String(Math.min(4, os.availableParallelism()));
+    const unqualifiedRegressionArgv = [regressionScript, '--self-test'];
+    const coreRegressionArgv = [regressionScript, '--self-test', '--jobs', regressionJobs, '--partition', 'baselines'];
+    const relayRegressionArgv = [regressionScript, '--self-test', '--jobs', regressionJobs, '--partition', 'mutations'];
+
+    for (const ciArgs of [[], ['--plugin', 'docks']]) {
+      const unqualified = run(ciArgs);
+      assert.equal(unqualified.result.status, 0, `${unqualified.result.stdout}\n${unqualified.result.stderr}`);
+      assert.equal(
+        countToolInvocation(unqualified.calls, 'node', unqualifiedRegressionArgv),
+        1,
+        `${ciArgs.length === 0 ? 'full' : 'plugin'} CI must keep the regression driver unqualified`,
+      );
+      assert.equal(
+        unqualified.calls.filter(({ tool, args: callArgs }) => tool === 'node' && callArgs[0] === regressionScript)
+          .length,
+        1,
+        `${ciArgs.length === 0 ? 'full' : 'plugin'} CI must launch exactly one regression driver invocation`,
+      );
     }
-    assert.match(full.result.stdout, /workflow YAML/);
-    assert.match(full.result.stdout, /marketplace catalogs/);
-    assert.match(full.result.stdout, /repo-wide guards/);
-    assert.match(full.result.stdout, /CI targeting contract/);
+
+    const core = run(['--lane', 'core']);
+    assert.equal(core.result.status, 0, `${core.result.stdout}\n${core.result.stderr}`);
+    for (const script of repoWideCommands) {
+      assert.equal(invokesNode(core.calls, script), true, `core CI must invoke repo-wide command ${script}`);
+    }
+    assert.match(core.result.stdout, /workflow YAML/);
+    assert.match(core.result.stdout, /marketplace catalogs/);
+    assert.match(core.result.stdout, /repo-wide guards/);
+    assert.match(core.result.stdout, /CI targeting contract/);
+    assert.match(core.result.stdout, /plugin: docks/);
+    assert.match(core.result.stdout, /plugin: effect-kit/);
+    assert.doesNotMatch(core.result.stdout, /plugin: session-relay/);
+    assert.match(core.result.stdout, /plan-review-policy baselines partition passed/);
     assert.equal(
-      countToolInvocation(full.calls, 'pnpm', ['run', 'check:js']),
+      countToolInvocation(core.calls, 'pnpm', ['run', 'check:js']),
       1,
-      'full no-argument CI must launch JavaScript quality exactly once',
+      'core CI must launch JavaScript quality exactly once',
     );
-    assert.match(full.result.stdout, /javascript quality/);
-    const timingPath = path.join(fixtureRoot, 'timings.json');
-    const timed = run(['--timings-json', timingPath]);
-    assert.equal(timed.result.error, undefined);
+    assert.match(core.result.stdout, /javascript quality/);
     assert.equal(
-      countToolInvocation(timed.calls, 'pnpm', ['run', 'check:js']),
+      countToolInvocation(core.calls, 'node', coreRegressionArgv),
       1,
-      '--timings-json must not change JavaScript quality gate selection',
+      'core CI must launch the baselines regression partition through the PATH node shim exactly once',
+    );
+    assert.equal(
+      core.calls.filter(({ tool, args: callArgs }) => tool === 'node' && callArgs[0] === regressionScript).length,
+      1,
+      'core CI must launch exactly one regression driver invocation',
+    );
+    const timingPath = path.join(fixtureRoot, 'timings.json');
+    const timedCore = run(['--lane', 'core', '--timings-json', timingPath]);
+    assert.equal(timedCore.result.status, 0, `${timedCore.result.stdout}\n${timedCore.result.stderr}`);
+    assert.equal(
+      countToolInvocation(timedCore.calls, 'pnpm', ['run', 'check:js']),
+      1,
+      '--lane core --timings-json must not change JavaScript quality gate selection',
+    );
+    assert.equal(
+      countToolInvocation(timedCore.calls, 'node', coreRegressionArgv),
+      1,
+      '--lane core --timings-json must launch the baselines regression partition through the PATH node shim exactly once',
     );
     const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
-    assert.equal(timing.tasks.filter(({ name }) => name === 'javascript quality').length, 1);
-    const observedFloorCalls = full.calls.filter(
+    assert.equal(timing.schema, 2);
+    assert.deepEqual(timing.mode, { plugin: null, lane: 'core' });
+    assert.equal(timing.status, 'passed', JSON.stringify(timing));
+    assert.ok(
+      timing.phases.every(({ status }) => status === 'passed'),
+      `timing report contains a failed phase: ${JSON.stringify(timing.phases)}`,
+    );
+    assert.ok(
+      timing.tasks.every(({ status }) => status === 'passed'),
+      `timing report contains a failed task: ${JSON.stringify(timing.tasks)}`,
+    );
+    assert.deepEqual(
+      timing.tasks.map(({ name }) => name),
+      ['plan-review-policy regressions', 'javascript quality'],
+      'core CI must publish exactly the regression and JavaScript quality tasks',
+    );
+    assert.deepEqual(
+      timing.phases.map(({ name }) => name),
+      [
+        'workflow YAML',
+        'marketplace catalogs',
+        'repo-wide guards',
+        'CI targeting contract',
+        'skill-maintainer idempotency',
+        'shell lint',
+        'scaffold',
+        'plugin: docks',
+        'plugin: effect-kit',
+        'plan review policy',
+        'javascript quality',
+      ],
+      'core CI timing phases must retain the exact repo-wide, plugin, policy, and quality inventory',
+    );
+    const observedFloorCalls = core.calls.filter(
       ({ args: callArgs }) => callArgs[0] === 'scripts/config/read-floor.mjs',
     );
     for (const floorArgs of [
@@ -344,20 +419,68 @@ function testFocusedCiCommandSelection() {
       ['scripts/config/read-floor.mjs', 'agents'],
     ]) {
       assert.equal(
-        countToolInvocation(full.calls, 'node', floorArgs),
+        countToolInvocation(core.calls, 'node', floorArgs),
         1,
-        `full CI must read floor ${floorArgs.slice(1).join('/')} exactly once; observed ${JSON.stringify(observedFloorCalls)}`,
+        `core CI must read floor ${floorArgs.slice(1).join('/')} exactly once; observed ${JSON.stringify(observedFloorCalls)}`,
       );
     }
     assert.equal(
-      countToolInvocation(full.calls, 'node', ['scripts/agents/score.mjs', '--per-file', 'plugins/docks/agents']),
+      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', '--per-file', 'plugins/docks/agents']),
       1,
-      'full CI must launch one per-file agent score command',
+      'core CI must launch one per-file agent score command',
     );
     assert.equal(
-      countToolInvocation(full.calls, 'node', ['scripts/agents/score.mjs', 'plugins/docks/agents']),
+      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', 'plugins/docks/agents']),
       0,
-      'full CI must derive the agent total without a second score command',
+      'core CI must derive the agent total without a second score command',
+    );
+
+    const relayTimingPath = path.join(fixtureRoot, 'relay-timings.json');
+    const relay = run(['--lane', 'relay', '--timings-json', relayTimingPath]);
+    assert.equal(relay.result.status, 0, `${relay.result.stdout}\n${relay.result.stderr}`);
+    assert.match(relay.result.stdout, /plugin: session-relay/);
+    assert.doesNotMatch(relay.result.stdout, /plugin: docks/);
+    assert.doesNotMatch(relay.result.stdout, /plugin: effect-kit/);
+    assert.match(relay.result.stdout, /plan-review-policy mutations partition passed/);
+    for (const script of repoWideCommands) {
+      assert.equal(invokesNode(relay.calls, script), false, `Relay CI must not invoke repo-wide command ${script}`);
+    }
+    assert.equal(
+      countToolInvocation(relay.calls, 'node', relayRegressionArgv),
+      1,
+      'Relay CI must launch the mutations regression partition through the PATH node shim exactly once',
+    );
+    assert.equal(
+      relay.calls.filter(({ tool, args: callArgs }) => tool === 'node' && callArgs[0] === regressionScript).length,
+      1,
+      'Relay CI must launch exactly one regression driver invocation',
+    );
+    assert.equal(
+      countToolInvocation(relay.calls, 'pnpm', ['run', 'check:js']),
+      0,
+      'Relay CI must not launch JavaScript quality',
+    );
+    const relayTiming = JSON.parse(fs.readFileSync(relayTimingPath, 'utf8'));
+    assert.equal(relayTiming.schema, 2);
+    assert.deepEqual(relayTiming.mode, { plugin: null, lane: 'relay' });
+    assert.equal(relayTiming.status, 'passed', JSON.stringify(relayTiming));
+    assert.deepEqual(
+      relayTiming.tasks.map(({ name }) => name),
+      ['plan-review-policy regressions'],
+      'Relay CI must publish exactly one mutations regression task',
+    );
+    assert.deepEqual(
+      relayTiming.phases.map(({ name }) => name),
+      ['shell lint', 'plugin: session-relay', 'plan review policy'],
+      'Relay CI timing phases must retain exactly its shell, plugin, and mutation-partition inventory',
+    );
+    assert.ok(
+      relayTiming.phases.every(({ status }) => status === 'passed'),
+      `Relay timing report contains a failed phase: ${JSON.stringify(relayTiming.phases)}`,
+    );
+    assert.ok(
+      relayTiming.tasks.every(({ status }) => status === 'passed'),
+      `Relay timing report contains a failed task: ${JSON.stringify(relayTiming.tasks)}`,
     );
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
@@ -499,6 +622,98 @@ const byName = (name) => PLUGINS.find((plugin) => plugin.name === name);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'session-relay', 'effect-kit']);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, 'docks')), ['docks']);
 assert.throws(() => resolveCiTargets(PLUGINS, 'unknown-plugin'), /unknown plugin.*docks, session-relay, effect-kit/);
+const laneShape = ({ name, targets, repoWide, planPolicy, regressionPartition, regressionJobsCap }) => ({
+  name,
+  targets: names(targets),
+  repoWide,
+  planPolicy,
+  regressionPartition,
+  regressionJobsCap,
+});
+assert.deepEqual(CI_LANES, ['core', 'relay']);
+assert.ok(Object.isFrozen(CI_LANES));
+assert.deepEqual(
+  PLUGINS.map(({ name, ciLane }) => ({ name, ciLane })),
+  [
+    { name: 'docks', ciLane: 'core' },
+    { name: 'session-relay', ciLane: 'relay' },
+    { name: 'effect-kit', ciLane: 'core' },
+  ],
+);
+assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'core')), {
+  name: 'core',
+  targets: ['docks', 'effect-kit'],
+  repoWide: true,
+  planPolicy: true,
+  regressionPartition: 'baselines',
+  regressionJobsCap: 4,
+});
+assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'relay')), {
+  name: 'relay',
+  targets: ['session-relay'],
+  repoWide: false,
+  planPolicy: false,
+  regressionPartition: 'mutations',
+  regressionJobsCap: 4,
+});
+const syntheticCorePlugin = {
+  ...byName('effect-kit'),
+  name: 'synthetic-core-plugin',
+  root: 'plugins/synthetic-core-plugin',
+  ciLane: 'core',
+};
+PLUGINS.push(syntheticCorePlugin);
+try {
+  assert.deepEqual(names(resolveCiLane(PLUGINS, 'core').targets), ['docks', 'effect-kit', 'synthetic-core-plugin']);
+} finally {
+  assert.equal(PLUGINS.pop(), syntheticCorePlugin);
+}
+const missingLanePlugin = { ...syntheticCorePlugin, name: 'missing-lane-plugin' };
+delete missingLanePlugin.ciLane;
+PLUGINS.push(missingLanePlugin);
+try {
+  assert.throws(() => resolveCiLane(PLUGINS, 'core'), /plugin missing-lane-plugin is missing required ciLane/);
+} finally {
+  assert.equal(PLUGINS.pop(), missingLanePlugin);
+}
+const unknownLanePlugin = { ...syntheticCorePlugin, name: 'unknown-lane-plugin', ciLane: 'mutations' };
+PLUGINS.push(unknownLanePlugin);
+try {
+  assert.throws(
+    () => resolveCiLane(PLUGINS, 'core'),
+    /plugin unknown-lane-plugin has unknown ciLane: mutations.*core, relay/,
+  );
+} finally {
+  assert.equal(PLUGINS.pop(), unknownLanePlugin);
+}
+assert.throws(() => resolveCiLane(PLUGINS, 'unknown'), /unknown CI lane.*core, relay/);
+assert.throws(() => resolveCiLane(PLUGINS, 'toString'), /unknown CI lane.*core, relay/);
+assert.throws(() => resolveCiLane(PLUGINS, 'constructor'), /unknown CI lane.*core, relay/);
+assert.throws(
+  () =>
+    resolveCiLane(
+      PLUGINS.filter(({ name }) => name !== 'effect-kit'),
+      'core',
+    ),
+  /unknown plugin: effect-kit/,
+);
+for (const [invalidArgs, diagnostic] of [
+  [['--lane'], /--lane requires one value/],
+  [['--lane', 'core', '--lane', 'relay'], /duplicate argument: --lane/],
+  [['--lane', 'core', '--plugin', 'docks'], /--plugin cannot be combined with --lane/],
+  [['--list', '--lane', 'core'], /--list cannot be combined with.*--lane/],
+  [['--lane', 'unknown'], /unknown CI lane.*core, relay/],
+  [['--lane', 'toString'], /unknown CI lane.*core, relay/],
+  [['--lane', 'constructor'], /unknown CI lane.*core, relay/],
+]) {
+  const rejected = spawnSync(process.execPath, ['scripts/ci.mjs', ...invalidArgs], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  assert.equal(rejected.status, 2, `${invalidArgs.join(' ')}\n${rejected.stdout}\n${rejected.stderr}`);
+  assert.match(rejected.stderr, diagnostic);
+}
+console.log('closed CI lane resolver and argument parser passed');
 assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'scaffold', 'plan-reviewer']);
 assert.deepEqual([...selectedAuthorChecks([byName('effect-kit')])], []);
 assert.deepEqual(releaseCiArgs('docks'), ['-q', '--plugin', 'docks']);
@@ -601,14 +816,193 @@ for (const [relativePath, parsed] of [
   assertPinnedActions(parsed.value, relativePath);
 }
 
+const validation = validateWorkflow.value;
+assert.deepEqual(Object.keys(validation.jobs), ['validation-shards', 'validate']);
+assert.deepEqual(validation.permissions, { contents: 'read' });
+assert.deepEqual(validation.on.pull_request, { branches: ['main'] });
+assert.deepEqual(validation.on.push, { tags: ['*--v*'] });
+assert.ok(validation.on.workflow_dispatch !== undefined);
+assert.doesNotMatch(validateWorkflow.text, /(?:contents:\s*write|actions\/upload-artifact@)/);
+
+const shardJob = validation.jobs['validation-shards'];
+assert.deepEqual(Object.keys(shardJob), ['name', 'if', 'permissions', 'runs-on', 'strategy', 'steps']);
+assert.equal(shardJob.name, `validation shard (\${{ matrix.lane }})`);
+assert.equal(shardJob.if, "github.event_name == 'pull_request'");
+assert.deepEqual(shardJob.permissions, { contents: 'read' });
+assert.equal(shardJob['runs-on'], 'ubuntu-latest');
+assert.deepEqual(shardJob.strategy, {
+  'fail-fast': false,
+  matrix: { lane: ['core', 'relay'] },
+});
+const shardSteps = shardJob.steps;
+const shardStep = (name) => shardSteps.find((row) => row.name?.startsWith(name));
+assert.deepEqual(
+  shardSteps.map((row) => row.name ?? row.uses),
+  [
+    'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+    'setup Node 24',
+    'enable corepack',
+    'configure deterministic pnpm store',
+    'cache pnpm store',
+    'cache Cargo dependencies and target outputs',
+    'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+    'verify registry signatures (non-blocking)',
+    'materialize claude-code binary (allowBuilds denies it by default)',
+    'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+    'provision Rust 1.85.0 with musl for the session-relay host leg',
+    'run validation lane',
+  ],
+);
+for (const name of [
+  'enable corepack',
+  'configure deterministic pnpm store',
+  'cache pnpm store',
+  'install pnpm dependencies',
+  'verify registry signatures',
+  'materialize claude-code binary',
+  'add node_modules/.bin to PATH',
+])
+  assert.equal(shardStep(name).if, undefined, `${name} must run on both candidate lanes`);
+for (const name of ['cache Cargo dependencies', 'provision Rust 1.85.0 with musl'])
+  assert.equal(shardStep(name).if, "matrix.lane == 'relay'");
+const shardStepsForLane = (lane) =>
+  shardSteps
+    .filter((row) => row.if === undefined || (row.if === "matrix.lane == 'relay'" && lane === 'relay'))
+    .map((row) => row.name ?? 'checkout');
+assert.deepEqual(shardStepsForLane('core'), [
+  'checkout',
+  'setup Node 24',
+  'enable corepack',
+  'configure deterministic pnpm store',
+  'cache pnpm store',
+  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+  'verify registry signatures (non-blocking)',
+  'materialize claude-code binary (allowBuilds denies it by default)',
+  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+  'run validation lane',
+]);
+assert.deepEqual(shardStepsForLane('relay'), [
+  'checkout',
+  'setup Node 24',
+  'enable corepack',
+  'configure deterministic pnpm store',
+  'cache pnpm store',
+  'cache Cargo dependencies and target outputs',
+  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+  'verify registry signatures (non-blocking)',
+  'materialize claude-code binary (allowBuilds denies it by default)',
+  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+  'provision Rust 1.85.0 with musl for the session-relay host leg',
+  'run validation lane',
+]);
+assert.equal(shardSteps[0].with['persist-credentials'], false);
+assert.equal(shardStep('setup Node 24').with['node-version'], '24');
+assert.equal(shardStep('run validation lane').run, `node scripts/ci.mjs --lane "\${{ matrix.lane }}"`);
+
+const validateJob = validation.jobs.validate;
+assert.deepEqual(Object.keys(validateJob), ['name', 'runs-on', 'needs', 'if', 'steps']);
+assert.equal(validateJob.name, 'validate (scripts/ci.mjs)');
+assert.equal(validateJob.needs, 'validation-shards');
+assert.equal(validateJob.if, 'always()');
 const steps = validateWorkflow.value.jobs.validate.steps;
 const step = (name) => steps.find((row) => row.name?.startsWith(name));
+assert.deepEqual(
+  steps.map((row) => row.name ?? row.uses),
+  [
+    'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+    'setup Node 24',
+    'resolve CI target',
+    'enable corepack',
+    'configure deterministic pnpm store',
+    'cache pnpm store',
+    'cache Cargo dependencies and target outputs',
+    'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+    'verify registry signatures (non-blocking)',
+    'materialize claude-code binary (allowBuilds denies it by default)',
+    'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+    'provision Rust 1.85.0 with musl for the session-relay host leg',
+    'run the authoritative gate (scripts/ci.mjs)',
+    'assert successful validation shards',
+  ],
+);
+const nonPullRequestCondition = "github.event_name != 'pull_request'";
+const pushCondition = "github.event_name == 'push'";
+const pullRequestCondition = "github.event_name == 'pull_request'";
+const nonPullRequestRustCondition =
+  "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
+const validateStepLabel = (row) => row.name ?? 'checkout';
+assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), row.if])), {
+  checkout: nonPullRequestCondition,
+  'setup Node 24': nonPullRequestCondition,
+  'resolve CI target': pushCondition,
+  'enable corepack': nonPullRequestCondition,
+  'configure deterministic pnpm store': nonPullRequestCondition,
+  'cache pnpm store': nonPullRequestCondition,
+  'cache Cargo dependencies and target outputs': nonPullRequestRustCondition,
+  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)': nonPullRequestCondition,
+  'verify registry signatures (non-blocking)': nonPullRequestCondition,
+  'materialize claude-code binary (allowBuilds denies it by default)': nonPullRequestCondition,
+  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)': nonPullRequestCondition,
+  'provision Rust 1.85.0 with musl for the session-relay host leg': nonPullRequestRustCondition,
+  'run the authoritative gate (scripts/ci.mjs)': nonPullRequestCondition,
+  'assert successful validation shards': pullRequestCondition,
+});
+function effectiveValidateInventory(eventName, needsRust = false) {
+  return steps
+    .filter((row) => {
+      switch (row.if) {
+        case nonPullRequestCondition:
+          return eventName !== 'pull_request';
+        case pushCondition:
+          return eventName === 'push';
+        case pullRequestCondition:
+          return eventName === 'pull_request';
+        case nonPullRequestRustCondition:
+          return eventName !== 'pull_request' && (eventName !== 'push' || needsRust);
+        default:
+          throw new Error(`unexpected validate condition for ${validateStepLabel(row)}: ${row.if}`);
+      }
+    })
+    .map(validateStepLabel);
+}
+const fullValidateInventory = [
+  'checkout',
+  'setup Node 24',
+  'enable corepack',
+  'configure deterministic pnpm store',
+  'cache pnpm store',
+  'cache Cargo dependencies and target outputs',
+  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+  'verify registry signatures (non-blocking)',
+  'materialize claude-code binary (allowBuilds denies it by default)',
+  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+  'provision Rust 1.85.0 with musl for the session-relay host leg',
+  'run the authoritative gate (scripts/ci.mjs)',
+];
+assert.deepEqual(effectiveValidateInventory('pull_request'), ['assert successful validation shards']);
+assert.deepEqual(effectiveValidateInventory('workflow_dispatch'), fullValidateInventory);
+assert.deepEqual(effectiveValidateInventory('push', true), [
+  'checkout',
+  'setup Node 24',
+  'resolve CI target',
+  ...fullValidateInventory.slice(2),
+]);
+assert.deepEqual(effectiveValidateInventory('push', false), [
+  'checkout',
+  'setup Node 24',
+  'resolve CI target',
+  'enable corepack',
+  'configure deterministic pnpm store',
+  'cache pnpm store',
+  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+  'verify registry signatures (non-blocking)',
+  'materialize claude-code binary (allowBuilds denies it by default)',
+  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+  'run the authoritative gate (scripts/ci.mjs)',
+]);
 assert.equal(step('resolve CI target').if, "github.event_name == 'push'");
 assert.match(step('resolve CI target').run, /scripts\/ci-target\.mjs release-tag/);
-assert.equal(
-  step('provision Rust 1.85.0 with musl for the session-relay host leg').if,
-  "github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'",
-);
+assert.equal(step('provision Rust 1.85.0 with musl for the session-relay host leg').if, nonPullRequestRustCondition);
 assert.match(step('run the authoritative gate').run, /if \[ "\$\{\{ github\.event_name \}\}" = "push" \]/);
 assert.match(
   step('run the authoritative gate').run,
@@ -627,12 +1021,48 @@ assert.equal(pnpmCache.with.path, '~/.pnpm-store');
 assert.match(pnpmCache.with.key, /runner\.os.*runner\.arch.*hashFiles\('pnpm-lock\.yaml', 'package\.json'\)/);
 assert.match(pnpmCache.with['restore-keys'], /pnpm-v11-.*runner\.os.*runner\.arch/);
 const cargoCache = step('cache Cargo dependencies and target outputs');
-assert.equal(cargoCache.if, "github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'");
+assert.equal(cargoCache.if, nonPullRequestRustCondition);
 assert.match(
   cargoCache.with.key,
   /runner\.os.*runner\.arch.*Cargo\.lock.*Cargo\.toml.*rust-toolchain\.toml.*src\/\*\*\/\*\.rs.*build\.rs.*tests\/\*\*\/\*\.rs.*\.cargo\/config/,
 );
 assert.match(cargoCache.with['restore-keys'], /runner\.os.*runner\.arch.*Cargo\.lock.*rust-toolchain\.toml/);
+const withoutIf = (row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'if'));
+assert.deepEqual(withoutIf(shardSteps[0]), withoutIf(steps[0]));
+assert.deepEqual(withoutIf(shardStep('setup Node 24')), withoutIf(setupNode));
+for (const name of [
+  'enable corepack',
+  'configure deterministic pnpm store',
+  'cache pnpm store',
+  'cache Cargo dependencies and target outputs',
+  'install pnpm dependencies',
+  'verify registry signatures',
+  'materialize claude-code binary',
+  'add node_modules/.bin to PATH',
+  'provision Rust 1.85.0 with musl',
+]) {
+  assert.deepEqual(
+    withoutIf(shardStep(name)),
+    withoutIf(step(name)),
+    `${name}: shard setup drifted from authoritative setup`,
+  );
+}
+const authoritativeGate = step('run the authoritative gate');
+const shardAssertion = step('assert successful validation shards');
+assert.equal(steps.at(-2), authoritativeGate);
+assert.equal(steps.at(-1), shardAssertion);
+assert.deepEqual(Object.keys(shardAssertion), ['name', 'if', 'env', 'run']);
+assert.equal(shardAssertion.if, "github.event_name == 'pull_request'");
+assert.deepEqual(shardAssertion.env, {
+  VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}`,
+});
+assert.equal(
+  shardAssertion.run,
+  'if [ "$VALIDATION_SHARDS_RESULT" != "success" ]; then\n' +
+    '  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n' +
+    '  exit 1\n' +
+    'fi\n',
+);
 
 const integrity = integrityWorkflow.value;
 assert.ok(integrity.on.workflow_dispatch !== undefined);

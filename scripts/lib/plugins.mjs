@@ -11,6 +11,7 @@
 // Fields:
 //   name          marketplace + tag identity (claude plugin tag → <name>--v<ver>)
 //   root          plugin dir under the repo
+//   ciLane       required plugin validation lane (`core` or `relay`)
 //   skills        skills root, or null
 //   agents        agents root, or null
 //   codex         true when a .codex-plugin/ mirror + Codex marketplace entry ship
@@ -44,6 +45,7 @@ export const PLUGINS = [
   {
     name: 'docks',
     root: 'plugins/docks',
+    ciLane: 'core',
     skills: 'plugins/docks/skills',
     agents: 'plugins/docks/agents',
     codex: true,
@@ -58,6 +60,7 @@ export const PLUGINS = [
   {
     name: 'session-relay',
     root: 'plugins/session-relay',
+    ciLane: 'relay',
     skills: 'plugins/session-relay/skills',
     agents: null,
     codex: true,
@@ -92,6 +95,7 @@ export const PLUGINS = [
   {
     name: 'effect-kit',
     root: 'plugins/effect-kit',
+    ciLane: 'core',
     skills: 'plugins/effect-kit/skills',
     agents: null,
     codex: true,

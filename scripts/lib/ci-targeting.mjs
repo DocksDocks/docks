@@ -3,8 +3,42 @@ import { byName, PLUGINS } from './plugins.mjs';
 const SEMVER = '(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)';
 const RELEASE_TAG = new RegExp(`^([a-z0-9]+(?:-[a-z0-9]+)*)--v${SEMVER}$`);
 
+export const CI_LANES = Object.freeze(['core', 'relay']);
+const PLUGIN_CI_LANES = new Set(['core', 'relay']);
+
+const CI_LANE_DESCRIPTORS = Object.freeze({
+  core: Object.freeze({
+    repoWide: true,
+    planPolicy: true,
+    regressionPartition: 'baselines',
+    regressionJobsCap: 4,
+  }),
+  relay: Object.freeze({
+    repoWide: false,
+    planPolicy: false,
+    regressionPartition: 'mutations',
+    regressionJobsCap: 4,
+  }),
+});
+
 function knownNames(plugins) {
   return plugins.map((plugin) => plugin.name).join(', ');
+}
+
+function pluginNamesForCiLane(lane) {
+  const names = [];
+  for (const plugin of PLUGINS) {
+    if (!Object.hasOwn(plugin, 'ciLane')) {
+      throw new Error(`plugin ${plugin.name} is missing required ciLane`);
+    }
+    if (!PLUGIN_CI_LANES.has(plugin.ciLane)) {
+      throw new Error(
+        `plugin ${plugin.name} has unknown ciLane: ${String(plugin.ciLane)} (known: ${[...PLUGIN_CI_LANES].join(', ')})`,
+      );
+    }
+    if (plugin.ciLane === lane) names.push(plugin.name);
+  }
+  return names;
 }
 
 export function resolveCiTargets(plugins, onlyPlugin) {
@@ -13,6 +47,22 @@ export function resolveCiTargets(plugins, onlyPlugin) {
   const selected = plugins.find((plugin) => plugin.name === onlyPlugin);
   if (!selected) throw new Error(`unknown plugin: ${onlyPlugin} (known: ${knownNames(plugins)})`);
   return [selected];
+}
+
+export function resolveCiLane(presentPlugins, lane) {
+  if (!Object.hasOwn(CI_LANE_DESCRIPTORS, lane)) {
+    throw new Error(`unknown CI lane: ${lane} (known: ${CI_LANES.join(', ')})`);
+  }
+  const descriptor = CI_LANE_DESCRIPTORS[lane];
+  const targets = pluginNamesForCiLane(lane).map((name) => resolveCiTargets(presentPlugins, name)[0]);
+  return {
+    name: lane,
+    targets,
+    repoWide: descriptor.repoWide,
+    planPolicy: descriptor.planPolicy,
+    regressionPartition: descriptor.regressionPartition,
+    regressionJobsCap: descriptor.regressionJobsCap,
+  };
 }
 
 export function selectedAuthorChecks(targets) {

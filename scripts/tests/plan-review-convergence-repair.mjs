@@ -1456,7 +1456,7 @@ function testSchema6RepairArtifacts() {
   }
 }
 
-function testSingleRepair() {
+function makeSingleRepairState() {
   const first = currentRequest();
   const roundOne = currentRun(first, 'blocking_gap');
   const transition = policy.buildCurrentRepairTransition({
@@ -1484,399 +1484,326 @@ function testSingleRepair() {
     rounds: [roundOne, roundTwo],
     repairs: [transition],
   };
-  policy.validateCurrentReviewSeries(series);
-  const completeTarget = currentRepairTarget();
-  for (const key of ['source', 'section', 'path', 'locator', 'evidence']) {
-    const missing = structuredClone(completeTarget);
-    delete missing[key];
-    assert.throws(
-      () =>
-        policy.buildCurrentRepairTransition({
+  return { first, roundOne, transition, second, roundTwo, series, completeTarget: currentRepairTarget() };
+}
+
+function testSingleRepair(focus = null) {
+  const sourceBindingEntry = {
+    label: 'current repair source-binding regression',
+    run() {
+      const { first, completeTarget } = makeSingleRepairState();
+      assert.throws(
+        () =>
+          policy.buildCurrentRepairTransition({
+            fromRoundIndex: 1,
+            previousInputSha256: first.input_sha256,
+            currentInputSha256: H2,
+            acceptedFindingIds: ['P1'],
+            targets: [{ ...completeTarget, source: 'secondary' }],
+          }),
+        /source|primary/i,
+      );
+    },
+  };
+  const findingIdentityEntry = {
+    label: 'current repair finding-identity regression',
+    run() {
+      const { first, roundOne, second, series, completeTarget } = makeSingleRepairState();
+      policy.validateCurrentReviewSeries(series);
+      for (const key of ['source', 'section', 'path', 'locator', 'evidence']) {
+        const missing = structuredClone(completeTarget);
+        delete missing[key];
+        assert.throws(
+          () =>
+            policy.buildCurrentRepairTransition({
+              fromRoundIndex: 1,
+              previousInputSha256: first.input_sha256,
+              currentInputSha256: H2,
+              acceptedFindingIds: ['P1'],
+              targets: [missing],
+            }),
+          new RegExp(`${key}|missing|repair target`, 'i'),
+        );
+      }
+      for (const [key, value] of [
+        ['section', 'Different section'],
+        ['path', 'src/other.txt'],
+        ['locator', 'A9'],
+        ['evidence', 'Different evidence'],
+      ]) {
+        const changedTarget = { ...completeTarget, [key]: value };
+        const changedTransition = policy.buildCurrentRepairTransition({
           fromRoundIndex: 1,
           previousInputSha256: first.input_sha256,
           currentInputSha256: H2,
           acceptedFindingIds: ['P1'],
-          targets: [missing],
-        }),
-      new RegExp(`${key}|missing|repair target`, 'i'),
-    );
-  }
-  for (const [key, value] of [
-    ['section', 'Different section'],
-    ['path', 'src/other.txt'],
-    ['locator', 'A9'],
-    ['evidence', 'Different evidence'],
-  ]) {
-    const changedTarget = { ...completeTarget, [key]: value };
-    const changedTransition = policy.buildCurrentRepairTransition({
-      fromRoundIndex: 1,
-      previousInputSha256: first.input_sha256,
-      currentInputSha256: H2,
-      acceptedFindingIds: ['P1'],
-      targets: [changedTarget],
-    });
-    assert.throws(
-      () =>
-        policy.validateCurrentReviewSeries({
-          ...series,
-          repairs: [changedTransition],
-          rounds: [
-            roundOne,
-            currentRun({
-              ...second,
-              repair_targets_sha256: changedTransition.repair_targets_sha256,
+          targets: [changedTarget],
+        });
+        assert.throws(
+          () =>
+            policy.validateCurrentReviewSeries({
+              ...series,
+              repairs: [changedTransition],
+              rounds: [
+                roundOne,
+                currentRun({
+                  ...second,
+                  repair_targets_sha256: changedTransition.repair_targets_sha256,
+                }),
+              ],
             }),
-          ],
-        }),
-      new RegExp(`${key}|exact|reproduced`, 'i'),
-    );
-  }
-  assert.throws(
-    () =>
-      policy.buildCurrentRepairTransition({
-        fromRoundIndex: 1,
-        previousInputSha256: first.input_sha256,
-        currentInputSha256: H2,
-        acceptedFindingIds: ['P1'],
-        targets: [{ ...completeTarget, source: 'secondary' }],
-      }),
-    /source|primary/i,
-  );
-
-  assert.throws(
-    () =>
-      policy.buildCurrentRepairTransition({
-        fromRoundIndex: 1,
-        previousInputSha256: first.input_sha256,
-        currentInputSha256: H2,
-        acceptedFindingIds: ['P1'],
-        targets: [currentRepairTarget('non_blocking_gap')],
-      }),
-    /blocking|repair target/i,
-  );
-  assert.throws(
-    () =>
-      policy.buildCurrentRepairTransition({
-        fromRoundIndex: 1,
-        previousInputSha256: first.input_sha256,
-        currentInputSha256: first.input_sha256,
-        acceptedFindingIds: ['P1'],
-        targets: [currentRepairTarget()],
-      }),
-    /changed input/i,
-  );
-  assert.throws(
-    () =>
-      policy.buildCurrentRepairTransition({
-        fromRoundIndex: 2,
-        previousInputSha256: first.input_sha256,
-        currentInputSha256: H2,
-        acceptedFindingIds: ['P1'],
-        targets: [currentRepairTarget()],
-      }),
-    /round one|one repair/i,
-  );
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [
-          roundOne,
-          {
-            ...roundTwo,
-            request: { ...second, review_mode: 'full', previous_input_sha256: null, repair_targets_sha256: null },
-          },
-        ],
-      }),
-    /repair|reset|round two/i,
-  );
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [roundOne, roundTwo, { ...roundTwo, request: { ...second, round_index: 3 } }],
-        repairs: [transition, transition],
-      }),
-    /round|two|repair/i,
-  );
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [{ ...roundOne, reproduced: [] }, roundTwo],
-      }),
-    /reproduced|target/i,
-  );
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [
-          {
-            ...roundOne,
-            reviewer: { ...roundOne.reviewer, accepted_finding_ids: [] },
-          },
-          roundTwo,
-        ],
-      }),
-    /accepted|target/i,
-  );
-
-  const secondBlockingFinding = { ...currentFinding(), id: 'P2', locator: 'A2' };
-  const rejectedBlockingOutput = {
-    ...roundOne.reviewer.raw.reviewer_output,
-    findings: [currentFinding(), secondBlockingFinding],
-  };
-  const rejectedBlockingRaw = {
-    ...roundOne.reviewer.raw,
-    reviewer_output: rejectedBlockingOutput,
-    findings_sha256: policy.sha256(policy.jcs(rejectedBlockingOutput.findings)),
-  };
-  const rejectedBlockingRoundOne = {
-    ...roundOne,
-    reviewer: {
-      raw: rejectedBlockingRaw,
-      accepted_finding_ids: ['P1'],
-      rejected: [{ id: 'P2', reason: 'plan-manager rejected the blocker' }],
+          new RegExp(`${key}|exact|reproduced`, 'i'),
+        );
+      }
     },
-    reproduced: [
-      ...roundOne.reproduced,
-      { id: 'P2', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H1 } },
-    ],
   };
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [rejectedBlockingRoundOne, roundTwo],
-      }),
-    /rejected.*blocking|blocking.*rejected/i,
-  );
+  const seriesDriftEntry = {
+    label: 'current series drift regression',
+    run() {
+      const { roundOne, second, series } = makeSingleRepairState();
+      const lifecycleDrift = currentRequest({
+        ...second,
+        lifecycle_intent: 'start',
+      });
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [roundOne, currentRun(lifecycleDrift)],
+          }),
+        /lifecycle.*drift/i,
+      );
 
-  const lifecycleDrift = currentRequest({
-    ...second,
-    lifecycle_intent: 'start',
-  });
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [roundOne, currentRun(lifecycleDrift)],
-      }),
-    /lifecycle.*drift/i,
-  );
-
-  const inventory = policy.acceptanceInventory(Buffer.from(plan(2)));
-  const phaseDrift = currentRequest({
-    ...second,
-    phase: 'completion',
-    lifecycle_intent: 'none',
-    planned_at_commit: '3'.repeat(40),
-    execution_base_commit: '4'.repeat(40),
-    diff_sha256: H0,
-    acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
-  });
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [roundOne, currentCompletionRun(phaseDrift, inventory)],
-      }),
-    /phase.*drift|kind.*drift/i,
-  );
-
-  const completionFirst = currentRequest({
-    ...first,
-    phase: 'completion',
-    lifecycle_intent: 'none',
-    planned_at_commit: '3'.repeat(40),
-    execution_base_commit: '4'.repeat(40),
-    diff_sha256: H0,
-    acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
-  });
-  const completionBlockingRaw = currentRaw(completionFirst, 'blocking_gap');
-  const completionRoundOne = {
-    ...currentCompletionRun(completionFirst, inventory),
-    reviewer: { raw: completionBlockingRaw, accepted_finding_ids: ['P1'], rejected: [] },
-    reproduced: [{ id: 'P1', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } }],
-    outcome: 'not_ready',
-    completion_verdict: 'regressed',
+      const inventory = policy.acceptanceInventory(Buffer.from(plan(2)));
+      const phaseDrift = currentRequest({
+        ...second,
+        phase: 'completion',
+        lifecycle_intent: 'none',
+        planned_at_commit: '3'.repeat(40),
+        execution_base_commit: '4'.repeat(40),
+        diff_sha256: H0,
+        acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
+      });
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [roundOne, currentCompletionRun(phaseDrift, inventory)],
+          }),
+        /phase.*drift|kind.*drift/i,
+      );
+    },
   };
-  const completionSecond = currentRequest({
-    ...second,
-    phase: 'completion',
-    lifecycle_intent: 'none',
-    planned_at_commit: completionFirst.planned_at_commit,
-    execution_base_commit: '5'.repeat(40),
-    diff_sha256: H1,
-    acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
-  });
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [completionRoundOne, currentCompletionRun(completionSecond, inventory)],
-      }),
-    /execution.*drift|execution_base_commit|completion.*identity/i,
-  );
-
-  assert.throws(
-    () =>
-      policy.validateCurrentReviewSeries({
-        ...series,
-        rounds: [roundOne, { ...roundTwo, kind: 'completion' }],
-      }),
-    /kind.*drift|run kind/i,
-  );
+  const completionIdentityEntry = {
+    label: 'current completion execution-identity drift regression',
+    run() {
+      const { first, second, series } = makeSingleRepairState();
+      const inventory = policy.acceptanceInventory(Buffer.from(plan(2)));
+      const completionFirst = currentRequest({
+        ...first,
+        phase: 'completion',
+        lifecycle_intent: 'none',
+        planned_at_commit: '3'.repeat(40),
+        execution_base_commit: '4'.repeat(40),
+        diff_sha256: H0,
+        acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
+      });
+      const completionBlockingRaw = currentRaw(completionFirst, 'blocking_gap');
+      const completionRoundOne = {
+        ...currentCompletionRun(completionFirst, inventory),
+        reviewer: { raw: completionBlockingRaw, accepted_finding_ids: ['P1'], rejected: [] },
+        reproduced: [
+          { id: 'P1', reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 } },
+        ],
+        outcome: 'not_ready',
+        completion_verdict: 'regressed',
+      };
+      const completionSecond = currentRequest({
+        ...second,
+        phase: 'completion',
+        lifecycle_intent: 'none',
+        planned_at_commit: completionFirst.planned_at_commit,
+        execution_base_commit: '5'.repeat(40),
+        diff_sha256: H1,
+        acceptance_inventory_sha256: policy.sha256(policy.jcs(inventory)),
+      });
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [completionRoundOne, currentCompletionRun(completionSecond, inventory)],
+          }),
+        /execution.*drift|execution_base_commit|completion.*identity/i,
+      );
+    },
+  };
+  const rejectedBlockerEntry = {
+    label: 'current rejected-blocker repair regression',
+    run() {
+      const { roundOne, roundTwo, series } = makeSingleRepairState();
+      const secondBlockingFinding = { ...currentFinding(), id: 'P2', locator: 'A2' };
+      const rejectedBlockingOutput = {
+        ...roundOne.reviewer.raw.reviewer_output,
+        findings: [currentFinding(), secondBlockingFinding],
+      };
+      const rejectedBlockingRaw = {
+        ...roundOne.reviewer.raw,
+        reviewer_output: rejectedBlockingOutput,
+        findings_sha256: policy.sha256(policy.jcs(rejectedBlockingOutput.findings)),
+      };
+      const rejectedBlockingRoundOne = {
+        ...roundOne,
+        reviewer: {
+          raw: rejectedBlockingRaw,
+          accepted_finding_ids: ['P1'],
+          rejected: [{ id: 'P2', reason: 'plan-manager rejected the blocker' }],
+        },
+        reproduced: [
+          ...roundOne.reproduced,
+          {
+            id: 'P2',
+            reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H1 },
+          },
+        ],
+      };
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [rejectedBlockingRoundOne, roundTwo],
+          }),
+        /rejected.*blocking|blocking.*rejected/i,
+      );
+    },
+  };
+  const transitionRulesEntry = {
+    run() {
+      const { first, roundOne, transition, second, roundTwo, series } = makeSingleRepairState();
+      assert.throws(
+        () =>
+          policy.buildCurrentRepairTransition({
+            fromRoundIndex: 1,
+            previousInputSha256: first.input_sha256,
+            currentInputSha256: H2,
+            acceptedFindingIds: ['P1'],
+            targets: [currentRepairTarget('non_blocking_gap')],
+          }),
+        /blocking|repair target/i,
+      );
+      assert.throws(
+        () =>
+          policy.buildCurrentRepairTransition({
+            fromRoundIndex: 1,
+            previousInputSha256: first.input_sha256,
+            currentInputSha256: first.input_sha256,
+            acceptedFindingIds: ['P1'],
+            targets: [currentRepairTarget()],
+          }),
+        /changed input/i,
+      );
+      assert.throws(
+        () =>
+          policy.buildCurrentRepairTransition({
+            fromRoundIndex: 2,
+            previousInputSha256: first.input_sha256,
+            currentInputSha256: H2,
+            acceptedFindingIds: ['P1'],
+            targets: [currentRepairTarget()],
+          }),
+        /round one|one repair/i,
+      );
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [
+              roundOne,
+              {
+                ...roundTwo,
+                request: {
+                  ...second,
+                  review_mode: 'full',
+                  previous_input_sha256: null,
+                  repair_targets_sha256: null,
+                },
+              },
+            ],
+          }),
+        /repair|reset|round two/i,
+      );
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [roundOne, roundTwo, { ...roundTwo, request: { ...second, round_index: 3 } }],
+            repairs: [transition, transition],
+          }),
+        /round|two|repair/i,
+      );
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [{ ...roundOne, reproduced: [] }, roundTwo],
+          }),
+        /reproduced|target/i,
+      );
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [
+              {
+                ...roundOne,
+                reviewer: { ...roundOne.reviewer, accepted_finding_ids: [] },
+              },
+              roundTwo,
+            ],
+          }),
+        /accepted|target/i,
+      );
+    },
+  };
+  const runKindEntry = {
+    run() {
+      const { roundOne, roundTwo, series } = makeSingleRepairState();
+      assert.throws(
+        () =>
+          policy.validateCurrentReviewSeries({
+            ...series,
+            rounds: [roundOne, { ...roundTwo, kind: 'completion' }],
+          }),
+        /kind.*drift|run kind/i,
+      );
+    },
+  };
+  const entries = [
+    sourceBindingEntry,
+    findingIdentityEntry,
+    seriesDriftEntry,
+    completionIdentityEntry,
+    rejectedBlockerEntry,
+  ];
+  const broadEntries = [
+    findingIdentityEntry,
+    sourceBindingEntry,
+    transitionRulesEntry,
+    rejectedBlockerEntry,
+    seriesDriftEntry,
+    completionIdentityEntry,
+    runKindEntry,
+  ];
+  runFocusedEntries('single-repair', focus, entries, broadEntries);
   console.log(
     'single repair requires every raw blocker accepted and reproduced, changed input, and exactly two rounds',
   );
 }
 
-function testCurrentBundles() {
+function withCurrentBundleFixture(run) {
   const fixture = initializeFixture();
   const directBundles = [];
   try {
-    const historicalDefault = policy.sealBundle({
-      repo: fixture.repo,
-      reviewedCommit: fixture.currentCommit,
-      planPath: 'docs/plans/active/repair.md',
-      requestedPaths: ['src/example.txt'],
-      outDir: path.join(fixture.root, 'historical-default'),
-    });
-    const historicalExplicit = policy.sealBundle({
-      repo: fixture.repo,
-      reviewedCommit: fixture.currentCommit,
-      planPath: 'docs/plans/active/repair.md',
-      requestedPaths: ['src/example.txt'],
-      outDir: path.join(fixture.root, 'historical-explicit'),
-      reviewSchema: 3,
-    });
-    assert.equal(
-      historicalExplicit.bundle_sha256,
-      historicalDefault.bundle_sha256,
-      'explicit historical review schema remains byte-compatible',
-    );
-    assert.equal(historicalDefault.manifest.schema, 1);
-    assert.equal(Object.hasOwn(historicalDefault.manifest, 'review_schema'), false);
-    assert.deepEqual(historicalDefault.manifest.reviewer_schemas, {
-      X: 'reviewer-output.X.schema.json',
-      S: 'reviewer-output.S.schema.json',
-    });
-    assert.equal(
-      historicalDefault.manifest.files.some(({ path: entry }) => entry === 'reviewer-output.primary.v5.schema.json'),
-      false,
-    );
-    assert.deepEqual(
-      historicalExplicit.manifest,
-      historicalDefault.manifest,
-      'historical/default manifest remains unchanged',
-    );
-    assert.equal(
-      historicalDefault.bundle_sha256,
-      HISTORICAL_BUNDLE_SHA256,
-      'historical bundle bytes match the fixed pre-schema-5 golden',
-    );
-    assert.equal(
-      policy.sha256(policy.jcs(historicalDefault.manifest)),
-      HISTORICAL_MANIFEST_SHA256,
-      'historical manifest bytes match the fixed pre-schema-5 golden',
-    );
-
-    const currentBundle = policy.sealBundle({
-      repo: fixture.repo,
-      reviewedCommit: fixture.currentCommit,
-      planPath: 'docs/plans/active/repair.md',
-      requestedPaths: ['src/example.txt'],
-      outDir: path.join(fixture.root, 'current-bundle'),
-      reviewSchema: 5,
-    });
-    assert.equal(currentBundle.manifest.schema, 3);
-    assert.equal(currentBundle.manifest.review_schema, 5);
-    assert.deepEqual(currentBundle.manifest.reviewer_schemas, {
-      primary: 'reviewer-output.primary.v5.schema.json',
-    });
-    assert.equal(fs.existsSync(path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json')), true);
-    const currentSchemaText = fs.readFileSync(
-      path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json'),
-      'utf8',
-    );
-    assert.equal(currentSchemaText.includes('"oneOf":'), false, 'Codex Structured Outputs rejects oneOf');
-    assert.equal(currentSchemaText.includes('"anyOf":'), true, 'current candidate union uses supported anyOf');
-    assert.equal(
-      currentBundle.manifest.files.some(({ path: entry }) =>
-        /^reviewer-output\.[XS](?:\.v[23])?\.schema\.json$/.test(entry),
-      ),
-      false,
-    );
-    policy.verifyBundle({
-      bundle: path.join(fixture.root, 'current-bundle'),
-      expectedSha256: currentBundle.bundle_sha256,
-    });
-    fs.mkdirSync('/tmp/docks-plan-review', { recursive: true, mode: 0o700 });
-    const directFullPath = path.join('/tmp/docks-plan-review', randomUUID());
-    directBundles.push(directFullPath);
-    const directFull = policy.sealBundle({
-      repo: fixture.repo,
-      reviewedCommit: fixture.currentCommit,
-      planPath: 'docs/plans/active/repair.md',
-      requestedPaths: ['src/example.txt'],
-      outDir: directFullPath,
-      reviewSchema: 5,
-    });
-    assert.deepEqual(policy.destroyBundle({ bundle: directFullPath, expectedSha256: directFull.bundle_sha256 }), {
-      schema: 1,
-      bundle_sha256: directFull.bundle_sha256,
-      removed: true,
-    });
-
-    const transition = policy.buildCurrentRepairTransition({
-      fromRoundIndex: 1,
-      previousInputSha256: policy.sha256(fixture.previousPlan),
-      currentInputSha256: policy.sha256(fixture.currentPlan),
-      acceptedFindingIds: ['P1'],
-      targets: [currentRepairTarget()],
-    });
-    const repaired = policy.sealBundle({
-      repo: fixture.repo,
-      reviewedCommit: fixture.currentCommit,
-      planPath: 'docs/plans/active/repair.md',
-      requestedPaths: ['src/example.txt'],
-      outDir: path.join(fixture.root, 'current-repair-bundle'),
-      reviewSchema: 5,
-      repair: { previousPlan: fixture.previousPlan, transition },
-    });
-    assert.equal(repaired.manifest.schema, 4);
-    const directRepairPath = path.join('/tmp/docks-plan-review', randomUUID());
-    directBundles.push(directRepairPath);
-    const directRepair = policy.sealBundle({
-      repo: fixture.repo,
-      reviewedCommit: fixture.currentCommit,
-      planPath: 'docs/plans/active/repair.md',
-      requestedPaths: ['src/example.txt'],
-      outDir: directRepairPath,
-      reviewSchema: 5,
-      repair: { previousPlan: fixture.previousPlan, transition },
-    });
-    assert.deepEqual(policy.destroyBundle({ bundle: directRepairPath, expectedSha256: directRepair.bundle_sha256 }), {
-      schema: 1,
-      bundle_sha256: directRepair.bundle_sha256,
-      removed: true,
-    });
-
-    assert.throws(
-      () =>
-        policy.sealBundle({
-          repo: fixture.repo,
-          reviewedCommit: fixture.currentCommit,
-          planPath: 'docs/plans/active/repair.md',
-          requestedPaths: [],
-          outDir: path.join(fixture.root, 'untyped-current-repair'),
-          repair: { previousPlan: fixture.previousPlan, transition },
-        }),
-      /reviewSchema|review schema|schema-5 repair/i,
-    );
-    console.log('current bundle carries primary v5 identity while historical bundles remain byte-compatible');
+    run(fixture, directBundles);
   } finally {
     for (const directBundle of directBundles) {
       if (!fs.existsSync(directBundle)) continue;
@@ -1886,6 +1813,173 @@ function testCurrentBundles() {
     makeWritable(fixture.root);
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
+}
+
+function testCurrentBundles(focus = null) {
+  const currentBundleEntry = {
+    label: 'current bundle primary-schema identity regression',
+    run() {
+      withCurrentBundleFixture((fixture, directBundles) => {
+        const currentBundle = policy.sealBundle({
+          repo: fixture.repo,
+          reviewedCommit: fixture.currentCommit,
+          planPath: 'docs/plans/active/repair.md',
+          requestedPaths: ['src/example.txt'],
+          outDir: path.join(fixture.root, 'current-bundle'),
+          reviewSchema: 5,
+        });
+        assert.equal(currentBundle.manifest.schema, 3);
+        assert.equal(currentBundle.manifest.review_schema, 5);
+        assert.deepEqual(currentBundle.manifest.reviewer_schemas, {
+          primary: 'reviewer-output.primary.v5.schema.json',
+        });
+        assert.equal(
+          fs.existsSync(path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json')),
+          true,
+        );
+        const currentSchemaText = fs.readFileSync(
+          path.join(fixture.root, 'current-bundle/reviewer-output.primary.v5.schema.json'),
+          'utf8',
+        );
+        assert.equal(currentSchemaText.includes('"oneOf":'), false, 'Codex Structured Outputs rejects oneOf');
+        assert.equal(currentSchemaText.includes('"anyOf":'), true, 'current candidate union uses supported anyOf');
+        assert.equal(
+          currentBundle.manifest.files.some(({ path: entry }) =>
+            /^reviewer-output\.[XS](?:\.v[23])?\.schema\.json$/.test(entry),
+          ),
+          false,
+        );
+        policy.verifyBundle({
+          bundle: path.join(fixture.root, 'current-bundle'),
+          expectedSha256: currentBundle.bundle_sha256,
+        });
+        fs.mkdirSync('/tmp/docks-plan-review', { recursive: true, mode: 0o700 });
+        const directFullPath = path.join('/tmp/docks-plan-review', randomUUID());
+        directBundles.push(directFullPath);
+        const directFull = policy.sealBundle({
+          repo: fixture.repo,
+          reviewedCommit: fixture.currentCommit,
+          planPath: 'docs/plans/active/repair.md',
+          requestedPaths: ['src/example.txt'],
+          outDir: directFullPath,
+          reviewSchema: 5,
+        });
+        assert.deepEqual(policy.destroyBundle({ bundle: directFullPath, expectedSha256: directFull.bundle_sha256 }), {
+          schema: 1,
+          bundle_sha256: directFull.bundle_sha256,
+          removed: true,
+        });
+
+        const transition = policy.buildCurrentRepairTransition({
+          fromRoundIndex: 1,
+          previousInputSha256: policy.sha256(fixture.previousPlan),
+          currentInputSha256: policy.sha256(fixture.currentPlan),
+          acceptedFindingIds: ['P1'],
+          targets: [currentRepairTarget()],
+        });
+        const repaired = policy.sealBundle({
+          repo: fixture.repo,
+          reviewedCommit: fixture.currentCommit,
+          planPath: 'docs/plans/active/repair.md',
+          requestedPaths: ['src/example.txt'],
+          outDir: path.join(fixture.root, 'current-repair-bundle'),
+          reviewSchema: 5,
+          repair: { previousPlan: fixture.previousPlan, transition },
+        });
+        assert.equal(repaired.manifest.schema, 4);
+        const directRepairPath = path.join('/tmp/docks-plan-review', randomUUID());
+        directBundles.push(directRepairPath);
+        const directRepair = policy.sealBundle({
+          repo: fixture.repo,
+          reviewedCommit: fixture.currentCommit,
+          planPath: 'docs/plans/active/repair.md',
+          requestedPaths: ['src/example.txt'],
+          outDir: directRepairPath,
+          reviewSchema: 5,
+          repair: { previousPlan: fixture.previousPlan, transition },
+        });
+        assert.deepEqual(
+          policy.destroyBundle({ bundle: directRepairPath, expectedSha256: directRepair.bundle_sha256 }),
+          {
+            schema: 1,
+            bundle_sha256: directRepair.bundle_sha256,
+            removed: true,
+          },
+        );
+
+        assert.throws(
+          () =>
+            policy.sealBundle({
+              repo: fixture.repo,
+              reviewedCommit: fixture.currentCommit,
+              planPath: 'docs/plans/active/repair.md',
+              requestedPaths: [],
+              outDir: path.join(fixture.root, 'untyped-current-repair'),
+              repair: { previousPlan: fixture.previousPlan, transition },
+            }),
+          /reviewSchema|review schema|schema-5 repair/i,
+        );
+      });
+    },
+  };
+  const historicalBundleEntry = {
+    label: 'historical bundle fixed-golden regression',
+    run() {
+      withCurrentBundleFixture((fixture) => {
+        const historicalDefault = policy.sealBundle({
+          repo: fixture.repo,
+          reviewedCommit: fixture.currentCommit,
+          planPath: 'docs/plans/active/repair.md',
+          requestedPaths: ['src/example.txt'],
+          outDir: path.join(fixture.root, 'historical-default'),
+        });
+        const historicalExplicit = policy.sealBundle({
+          repo: fixture.repo,
+          reviewedCommit: fixture.currentCommit,
+          planPath: 'docs/plans/active/repair.md',
+          requestedPaths: ['src/example.txt'],
+          outDir: path.join(fixture.root, 'historical-explicit'),
+          reviewSchema: 3,
+        });
+        assert.equal(
+          historicalExplicit.bundle_sha256,
+          historicalDefault.bundle_sha256,
+          'explicit historical review schema remains byte-compatible',
+        );
+        assert.equal(historicalDefault.manifest.schema, 1);
+        assert.equal(Object.hasOwn(historicalDefault.manifest, 'review_schema'), false);
+        assert.deepEqual(historicalDefault.manifest.reviewer_schemas, {
+          X: 'reviewer-output.X.schema.json',
+          S: 'reviewer-output.S.schema.json',
+        });
+        assert.equal(
+          historicalDefault.manifest.files.some(
+            ({ path: entry }) => entry === 'reviewer-output.primary.v5.schema.json',
+          ),
+          false,
+        );
+        assert.deepEqual(
+          historicalExplicit.manifest,
+          historicalDefault.manifest,
+          'historical/default manifest remains unchanged',
+        );
+        assert.equal(
+          historicalDefault.bundle_sha256,
+          HISTORICAL_BUNDLE_SHA256,
+          'historical bundle bytes match the fixed pre-schema-5 golden',
+        );
+        assert.equal(
+          policy.sha256(policy.jcs(historicalDefault.manifest)),
+          HISTORICAL_MANIFEST_SHA256,
+          'historical manifest bytes match the fixed pre-schema-5 golden',
+        );
+      });
+    },
+  };
+  const entries = [currentBundleEntry, historicalBundleEntry];
+  const broadEntries = [historicalBundleEntry, currentBundleEntry];
+  runFocusedEntries('current-bundle', focus, entries, broadEntries);
+  console.log('current bundle carries primary v5 identity while historical bundles remain byte-compatible');
 }
 
 function testCurrentReviewerArgv() {
@@ -2009,6 +2103,41 @@ function testCurrentReviewerArgv() {
   }
 }
 
+const focusedCases = new Map([
+  [
+    'single-repair',
+    [
+      'current repair source-binding regression',
+      'current repair finding-identity regression',
+      'current series drift regression',
+      'current completion execution-identity drift regression',
+      'current rejected-blocker repair regression',
+    ],
+  ],
+  [
+    'current-bundle',
+    ['current bundle primary-schema identity regression', 'historical bundle fixed-golden regression'],
+  ],
+]);
+
+function runFocusedEntries(selector, focus, entries, broadEntries = entries) {
+  if (focus === null) {
+    for (const entry of broadEntries) entry.run();
+    return;
+  }
+  const entry = entries.find((candidate) => candidate.label === focus);
+  if (!entry) throw new Error(`invalid focus label for ${selector}: ${focus}`);
+  entry.run();
+}
+
+function focusedLabelCatalog() {
+  return {
+    schema: 1,
+    harness: 'scripts/tests/plan-review-convergence-repair.mjs',
+    cases: Object.fromEntries(focusedCases),
+  };
+}
+
 const cases = new Map([
   ['repair-artifacts', testRepairArtifacts],
   ['repair-series', testRepairSeries],
@@ -2022,30 +2151,87 @@ const cases = new Map([
 
 function selectorUsage() {
   const names = [...cases.keys()].join('|');
-  return `usage: ${path.basename(process.argv[1])} --case ${names} [--case <name> ...]`;
+  return `usage: ${path.basename(process.argv[1])} --case ${names} [--case <name> ...] [--focus <label>]`;
+}
+
+function suppliedFocusLabel(args) {
+  for (let index = args.length - 1; index >= 0; index -= 1) {
+    const option = args[index];
+    if (option === '--focus') {
+      const supplied = args[index + 1];
+      return supplied === undefined || supplied.startsWith('--') ? '<missing>' : supplied;
+    }
+    if (option.startsWith('--focus=')) return option.slice('--focus='.length) || '<missing>';
+  }
+  return null;
 }
 
 function parseSelectedCases(args, registry) {
-  if (args.length === 0 || args.length % 2 !== 0) throw new Error('malformed selector');
-  const requested = new Set();
-  for (let index = 0; index < args.length; index += 2) {
-    const name = args[index + 1];
-    if (args[index] !== '--case' || !registry.has(name) || requested.has(name)) throw new Error('invalid selector');
-    requested.add(name);
+  if (args.length === 0) throw new Error('malformed selector');
+  const compactFocus = args.find((arg) => arg.startsWith('--focus='));
+  if (compactFocus !== undefined) {
+    throw new Error(`invalid focus label: ${compactFocus.slice('--focus='.length) || '<missing>'}`);
   }
-  return [...registry.keys()].filter((name) => requested.has(name));
+  if (args[0] !== '--case') {
+    if (args[0] === '--focus') {
+      const duplicateFocusAt = args.indexOf('--focus', 2);
+      const supplied = args[duplicateFocusAt < 0 ? 1 : duplicateFocusAt + 1];
+      const label = supplied === undefined || supplied.startsWith('--') ? '<missing>' : supplied;
+      throw new Error(`invalid focus label: ${label}`);
+    }
+    throw new Error('invalid selector');
+  }
+  const requested = new Set();
+  let focus = null;
+  for (let index = 0; index < args.length; ) {
+    const option = args[index];
+    if (option === '--case') {
+      const name = args[index + 1];
+      if (name === undefined || name.startsWith('--') || !registry.has(name) || requested.has(name)) {
+        throw new Error('invalid selector');
+      }
+      requested.add(name);
+      index += 2;
+      continue;
+    }
+    if (option === '--focus') {
+      const supplied = args[index + 1];
+      const label = supplied === undefined || supplied.startsWith('--') ? '<missing>' : supplied;
+      const duplicateFocusAt = args.indexOf('--focus', index + 2);
+      if (duplicateFocusAt >= 0) {
+        const duplicate = args[duplicateFocusAt + 1];
+        const duplicateLabel = duplicate === undefined || duplicate.startsWith('--') ? '<missing>' : duplicate;
+        throw new Error(`invalid focus label: ${duplicateLabel}`);
+      }
+      if (focus !== null || label === '<missing>' || index + 2 !== args.length) {
+        throw new Error(`invalid focus label: ${label}`);
+      }
+      focus = label;
+      index += 2;
+      continue;
+    }
+    throw new Error('invalid selector');
+  }
+  const selected = [...registry.keys()].filter((name) => requested.has(name));
+  if (focus !== null) {
+    if (selected.length !== 1 || !focusedCases.get(selected[0])?.includes(focus)) {
+      throw new Error(`invalid focus label: ${focus}`);
+    }
+  }
+  return { selected, focus };
 }
 
 async function executeSelectedCases(
   selected,
   registry,
-  invoke = (_name, run) => run(),
+  focus = null,
+  invoke = (_name, run, selectedFocus) => run(selectedFocus),
   reportFailure = reportCaseFailure,
 ) {
   let passed = true;
   for (const name of selected) {
     try {
-      await invoke(name, registry.get(name));
+      await invoke(name, registry.get(name), focus);
     } catch (error) {
       passed = false;
       reportFailure(name, error);
@@ -2061,23 +2247,27 @@ function reportCaseFailure(name, error) {
 
 async function testSelectorContracts() {
   const exactArgs = ['--case', 'current-argv', '--case', 'current-bundle', '--case', 'single-repair'];
-  const selected = parseSelectedCases(exactArgs, cases);
-  assert.deepEqual(selected, ['single-repair', 'current-bundle', 'current-argv']);
+  const parsed = parseSelectedCases(exactArgs, cases);
+  assert.deepEqual(parsed, {
+    selected: ['single-repair', 'current-bundle', 'current-argv'],
+    focus: null,
+  });
 
   const executed = [];
   assert.equal(
-    await executeSelectedCases(selected, cases, (name) => {
+    await executeSelectedCases(parsed.selected, cases, null, (name) => {
       executed.push(name);
     }),
     true,
   );
-  assert.deepEqual(executed, selected);
+  assert.deepEqual(executed, parsed.selected);
 
   const failures = [];
   assert.equal(
     await executeSelectedCases(
-      selected,
+      parsed.selected,
       cases,
+      null,
       (name) => {
         throw new Error(`selected failure ${name}`);
       },
@@ -2087,18 +2277,108 @@ async function testSelectorContracts() {
   );
   assert.deepEqual(
     failures,
-    selected.map((name) => `${name}: selected failure ${name}`),
+    parsed.selected.map((name) => `${name}: selected failure ${name}`),
   );
 
-  for (const malformed of [
-    [],
-    ['--case'],
-    ['current-argv'],
-    ['--case', 'unknown'],
-    ['--case', 'current-argv', '--case', 'current-argv'],
-    ['--case', 'current-argv', '--unknown', 'current-bundle'],
-  ])
-    assert.throws(() => parseSelectedCases(malformed, cases));
+  assert.deepEqual(
+    parseSelectedCases(['--case', 'single-repair', '--focus', 'current repair source-binding regression'], cases),
+    {
+      selected: ['single-repair'],
+      focus: 'current repair source-binding regression',
+    },
+  );
+  for (const [malformed, label] of [
+    [[], null],
+    [['--case'], null],
+    [['current-argv'], null],
+    [
+      ['--focus', 'current repair source-binding regression', '--case', 'single-repair'],
+      'current repair source-binding regression',
+    ],
+    [
+      ['--case', 'single-repair', '--focus=current repair source-binding regression'],
+      'current repair source-binding regression',
+    ],
+    [['--case', 'single-repair', '--focus='], '<missing>'],
+    [
+      ['--case', 'single-repair', '--focus', 'current repair source-binding regression', '--case', 'current-bundle'],
+      'current repair source-binding regression',
+    ],
+    [
+      ['--case', 'single-repair', '--focus', 'current repair source-binding regression', 'trailing'],
+      'current repair source-binding regression',
+    ],
+    [['--case', 'unknown'], null],
+    [['--case', 'current-argv', '--case', 'current-argv'], null],
+    [['--case', 'current-argv', '--unknown', 'current-bundle'], null],
+    [['--case', 'single-repair', '--focus'], '<missing>'],
+    [['--case', 'single-repair', '--focus', 'unknown focus'], 'unknown focus'],
+    [
+      ['--case', 'current-argv', '--focus', 'current argv candidate-binding regression'],
+      'current argv candidate-binding regression',
+    ],
+    [
+      ['--case', 'current-bundle', '--focus', 'current repair source-binding regression'],
+      'current repair source-binding regression',
+    ],
+    [
+      ['--case', 'single-repair', '--case', 'current-bundle', '--focus', 'current repair source-binding regression'],
+      'current repair source-binding regression',
+    ],
+    [
+      [
+        '--case',
+        'single-repair',
+        '--focus',
+        'current repair source-binding regression',
+        '--focus',
+        'current repair finding-identity regression',
+      ],
+      'current repair finding-identity regression',
+    ],
+  ]) {
+    assert.throws(
+      () => parseSelectedCases(malformed, cases),
+      label === null ? undefined : (error) => error.message === `invalid focus label: ${label}`,
+    );
+  }
+  const compactFocusLabel = 'current repair source-binding regression';
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, [process.argv[1], `--focus=${compactFocusLabel}`], {
+        encoding: 'utf8',
+        stdio: 'pipe',
+      }),
+    (error) =>
+      error.status === 2 &&
+      error.stdout === '' &&
+      error.stderr === `invalid focus label: ${compactFocusLabel}\n${selectorUsage()}\n`,
+  );
+  assert.deepEqual(focusedLabelCatalog(), {
+    schema: 1,
+    harness: 'scripts/tests/plan-review-convergence-repair.mjs',
+    cases: Object.fromEntries(focusedCases),
+  });
+  assert.equal(suppliedFocusLabel(['--list-focused-labels', '--focus', 'list conflict']), 'list conflict');
+  assert.equal(suppliedFocusLabel(['--list-focused-labels', '--focus']), '<missing>');
+  assert.equal(suppliedFocusLabel(['--list-focused-labels', '--focus=compact list conflict']), 'compact list conflict');
+  assert.equal(suppliedFocusLabel(['--list-focused-labels', '--focus=']), '<missing>');
+  for (const [compactFocus, label] of [
+    ['--focus=compact list conflict', 'compact list conflict'],
+    ['--focus=', '<missing>'],
+  ]) {
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [process.argv[1], '--list-focused-labels', compactFocus], {
+          encoding: 'utf8',
+          stdio: 'pipe',
+        }),
+      (error) =>
+        error.status === 2 &&
+        error.stdout === '' &&
+        error.stderr === `invalid focus label: ${label}\n${selectorUsage()}\n`,
+    );
+  }
   console.log('convergence selector parser contracts passed');
 }
 
@@ -2110,13 +2390,21 @@ if (args.length === 1 && args[0] === '--selector-self-test') {
     reportCaseFailure('selector-self-test', error);
     process.exitCode = 1;
   }
+} else if (args.length === 1 && args[0] === '--list-focused-labels') {
+  console.log(JSON.stringify(focusedLabelCatalog()));
+} else if (args.includes('--list-focused-labels')) {
+  const label = suppliedFocusLabel(args);
+  if (label !== null) console.error(`invalid focus label: ${label}`);
+  console.error(selectorUsage());
+  process.exitCode = 2;
 } else {
-  let selected;
+  let parsed;
   try {
-    selected = parseSelectedCases(args, cases);
-  } catch {
+    parsed = parseSelectedCases(args, cases);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('invalid focus label:')) console.error(error.message);
     console.error(selectorUsage());
     process.exitCode = 2;
   }
-  if (selected && !(await executeSelectedCases(selected, cases))) process.exitCode = 1;
+  if (parsed && !(await executeSelectedCases(parsed.selected, cases, parsed.focus))) process.exitCode = 1;
 }

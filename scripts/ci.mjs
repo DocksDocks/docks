@@ -4,13 +4,13 @@
 // scripts/lib/plugins.mjs is gated through the same capability-driven
 // gatePlugin() (a check runs only when the descriptor declares that capability).
 // Adding a plugin = one registry entry; no edits here.
-// Usage: node scripts/ci.mjs [-q] [--plugin <name>] [--timings-json <path>] [--list]
+// Usage: node scripts/ci.mjs [-q] [--plugin <name> | --lane <name>] [--timings-json <path>] [--list]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { parseDocument } from 'yaml';
 import { startTask } from './lib/ci-background-task.mjs';
-import { resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
+import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 import {
   CLAUDE_MARKETPLACE,
   CODEX_MARKETPLACE,
@@ -29,7 +29,7 @@ process.chdir(REPO);
 const rawArgv = process.argv.slice(2);
 
 function parseArgs(args) {
-  const options = { quiet: false, list: false, plugin: null, timingsJson: null };
+  const options = { quiet: false, list: false, plugin: null, lane: null, timingsJson: null };
   const seen = new Set();
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -40,20 +40,24 @@ function parseArgs(args) {
       else options.list = true;
       continue;
     }
-    if (arg === '--plugin' || arg === '--timings-json') {
+    if (arg === '--plugin' || arg === '--lane' || arg === '--timings-json') {
       if (seen.has(arg)) throw new Error(`duplicate argument: ${arg}`);
       const value = args[index + 1];
       if (!value || value.startsWith('-')) throw new Error(`${arg} requires one value`);
       seen.add(arg);
       index += 1;
       if (arg === '--plugin') options.plugin = value;
+      else if (arg === '--lane') options.lane = value;
       else options.timingsJson = value;
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
   }
-  if (options.list && (options.plugin !== null || options.timingsJson !== null)) {
-    throw new Error('--list cannot be combined with --plugin or --timings-json');
+  if (options.list && (options.plugin !== null || options.lane !== null || options.timingsJson !== null)) {
+    throw new Error('--list cannot be combined with --plugin, --lane, or --timings-json');
+  }
+  if (options.plugin !== null && options.lane !== null) {
+    throw new Error('--plugin cannot be combined with --lane');
   }
   return options;
 }
@@ -67,6 +71,7 @@ try {
 }
 const QUIET = options.quiet;
 const onlyPlugin = options.plugin;
+const onlyLane = options.lane;
 const startedAt = performance.now();
 const phases = [];
 const tasks = [];
@@ -123,31 +128,49 @@ if (options.list) {
   process.exit(0);
 }
 
-// Which plugins to gate (default: every present plugin; --plugin narrows it).
+// Which plugins to gate (default: every present plugin; --plugin and --lane narrow it).
+let ciLane = null;
 let targets;
 try {
-  targets = resolveCiTargets(presentPlugins(), onlyPlugin);
+  const plugins = presentPlugins();
+  if (onlyLane === null) targets = resolveCiTargets(plugins, onlyPlugin);
+  else {
+    ciLane = resolveCiLane(plugins, onlyLane);
+    targets = ciLane.targets;
+  }
 } catch (error) {
   console.error(error.message);
   process.exit(2);
 }
+const repoWide = ciLane?.repoWide ?? onlyPlugin === null;
 const authorChecks = selectedAuthorChecks(targets);
-const planPolicyRegressionTask = authorChecks.has('plan-reviewer')
-  ? startTask(
-      'plan-review-policy regressions',
-      process.execPath,
-      ['scripts/tests/plan-review-policy-regressions.mjs', '--self-test'],
-      { cwd: REPO, tasks },
-    )
+const planPolicy = ciLane?.planPolicy ?? authorChecks.has('plan-reviewer');
+const regressionPartition = ciLane?.regressionPartition ?? null;
+const regressionJobs = ciLane === null ? null : Math.min(ciLane.regressionJobsCap, os.availableParallelism());
+const planPolicyRegressionTask =
+  planPolicy || regressionPartition !== null
+    ? startTask(
+        'plan-review-policy regressions',
+        'node',
+        [
+          'scripts/tests/plan-review-policy-regressions.mjs',
+          '--self-test',
+          ...(regressionJobs === null ? [] : ['--jobs', String(regressionJobs)]),
+          ...(regressionPartition === null ? [] : ['--partition', regressionPartition]),
+        ],
+        { cwd: REPO, tasks },
+      )
+    : null;
+const javascriptQualityTask = repoWide
+  ? startTask('javascript quality', 'pnpm', ['run', 'check:js'], { cwd: REPO, tasks })
   : null;
-const javascriptQualityTask =
-  onlyPlugin === null ? startTask('javascript quality', 'pnpm', ['run', 'check:js'], { cwd: REPO, tasks }) : null;
 
 // Catalogs are shared; read once (used by the per-plugin version checks too).
-const claudeMarket = readJSON(CLAUDE_MARKETPLACE);
-const codexMarket = readJSON(CODEX_MARKETPLACE);
+const claudeMarket = targets.length === 0 ? null : readJSON(CLAUDE_MARKETPLACE);
+const codexMarket = targets.length === 0 ? null : readJSON(CODEX_MARKETPLACE);
 
-if (onlyPlugin === null) {
+if (repoWide) {
+  const { parseDocument } = await import('yaml');
   // ========================== repo-wide checks ==========================
   section('workflow YAML');
   for (const workflowPath of [
@@ -183,6 +206,9 @@ if (onlyPlugin === null) {
   nodeOk(['scripts/tests/author-tooling.mjs'])
     ? ok('author tooling contracts passed')
     : fail('author tooling contracts failed (run: node scripts/tests/author-tooling.mjs)');
+  (spawnSync('pnpm', ['run', 'test:unit'], { encoding: 'utf8' }).status ?? 1) === 0
+    ? ok('unit tests passed')
+    : fail('unit tests failed (run: pnpm run test:unit)');
 
   section('CI targeting contract');
   nodeOk(['scripts/tests/ci-plugin-targeting.mjs', '--unit'])
@@ -199,14 +225,16 @@ if (authorChecks.has('idempotency')) {
 
 // shell lint — shellHooks(p) collects each plugin's hooks/*.sh plus a rust
 // capability's sh launcher (today: session-relay's bin/relay). Self-skips without shellcheck.
-section('shell lint');
-const bashFiles = targets.flatMap(shellHooks);
-if (bashFiles.length === 0) ok('no bash to lint (all tooling is Node .mjs)');
-else {
-  const shellcheck = spawnSync('shellcheck', ['-S', 'warning', ...bashFiles], { encoding: 'utf8' });
-  if (shellcheck.error) warn('shellcheck not installed — skipped locally (CI enforces)');
-  else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean (${bashFiles.length} hook(s))`);
-  else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
+if (targets.length > 0) {
+  section('shell lint');
+  const bashFiles = targets.flatMap(shellHooks);
+  if (bashFiles.length === 0) ok('no bash to lint (all tooling is Node .mjs)');
+  else {
+    const shellcheck = spawnSync('shellcheck', ['-S', 'warning', ...bashFiles], { encoding: 'utf8' });
+    if (shellcheck.error) warn('shellcheck not installed — skipped locally (CI enforces)');
+    else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean (${bashFiles.length} hook(s))`);
+    else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
+  }
 }
 
 if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
@@ -222,28 +250,49 @@ if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
 // ============================ per-plugin gate ============================
 for (const p of targets) gatePlugin(p);
 
-if (authorChecks.has('plan-reviewer')) {
+if (planPolicyRegressionTask !== null) {
   section('plan review policy');
-  const planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
-  const planConvergenceRepairPassed = ['repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport'].every(
-    (testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]),
-  );
-  const planPolicyRegressionsPassed = await planPolicyRegressionTask;
-  planPolicySurfacesPassed
-    ? ok('plan-review-policy fast surfaces passed')
-    : fail('plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)');
-  if (planPolicyRegressionsPassed) {
-    ok('plan-review-policy contract passed');
-    ok('plan-review-policy regressions passed');
-  } else
-    fail(
-      'plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)',
+  let planPolicySurfacesPassed = null;
+  let planConvergenceRepairPassed = null;
+  if (planPolicy) {
+    planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
+    planConvergenceRepairPassed = ['repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport'].every(
+      (testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]),
     );
-  planConvergenceRepairPassed
-    ? ok('plan-review convergence repair contract passed')
-    : fail(
-        'plan-review convergence repair contract failed (run: node scripts/tests/plan-review-convergence-repair.mjs --case <case>)',
+  }
+  const planPolicyRegressionsPassed = await planPolicyRegressionTask;
+  if (planPolicy) {
+    planPolicySurfacesPassed
+      ? ok('plan-review-policy fast surfaces passed')
+      : fail(
+          'plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)',
+        );
+    if (planPolicyRegressionsPassed) {
+      ok('plan-review-policy contract passed');
+      ok(
+        regressionPartition === null
+          ? 'plan-review-policy regressions passed'
+          : `plan-review-policy ${regressionPartition} partition passed`,
       );
+    } else {
+      fail(
+        regressionPartition === null
+          ? 'plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)'
+          : `plan-review-policy contract/${regressionPartition} partition failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test --jobs ${regressionJobs} --partition ${regressionPartition})`,
+      );
+    }
+    planConvergenceRepairPassed
+      ? ok('plan-review convergence repair contract passed')
+      : fail(
+          'plan-review convergence repair contract failed (run: node scripts/tests/plan-review-convergence-repair.mjs --case <case>)',
+        );
+  } else {
+    planPolicyRegressionsPassed
+      ? ok(`plan-review-policy ${regressionPartition} partition passed`)
+      : fail(
+          `plan-review-policy ${regressionPartition} partition failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test --jobs ${regressionJobs} --partition ${regressionPartition})`,
+        );
+  }
 }
 
 if (javascriptQualityTask !== null) {
@@ -457,8 +506,8 @@ function gateSkills(p, manifest) {
 // ============================ summary ============================
 closePhase();
 const timingReport = (status) => ({
-  schema: 1,
-  mode: { plugin: onlyPlugin },
+  schema: ciLane === null ? 1 : 2,
+  mode: ciLane === null ? { plugin: onlyPlugin } : { plugin: null, lane: ciLane.name },
   status,
   total_ms: Math.max(0, Math.round(performance.now() - startedAt)),
   phases,
@@ -480,7 +529,7 @@ console.log('');
 if (failures.length === 0) {
   writeTimings('passed');
   console.log(
-    `\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${onlyPlugin ? `plugin '${onlyPlugin}'` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`,
+    `\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${ciLane ? `lane '${ciLane.name}'` : onlyPlugin ? `plugin '${onlyPlugin}'` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`,
   );
   process.exit(0);
 }

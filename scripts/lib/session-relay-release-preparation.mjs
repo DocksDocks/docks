@@ -48,6 +48,10 @@ const TARGETS = [
   'x86_64-apple-darwin',
   'aarch64-apple-darwin',
 ];
+const NON_PULL_REQUEST_CONDITION = "github.event_name != 'pull_request'";
+const NON_PULL_REQUEST_RUST_CONDITION =
+  "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
+
 const REQUIRED_CI_STEPS = [
   'setup Node 24',
   'enable corepack',
@@ -61,29 +65,34 @@ const REQUIRED_CI_STEP_NUMBERS = [3, 5, 9, 11, 12, 13, 14];
 const EXPECTED_CI_STEP_DEFINITIONS = [
   {
     name: 'setup Node 24',
+    if: NON_PULL_REQUEST_CONDITION,
     uses: 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e',
     with: { 'node-version': '24' },
   },
-  { name: 'enable corepack', run: 'corepack enable' },
+  { name: 'enable corepack', if: NON_PULL_REQUEST_CONDITION, run: 'corepack enable' },
   {
     name: 'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+    if: NON_PULL_REQUEST_CONDITION,
     run: 'pnpm install --frozen-lockfile',
   },
   {
     name: 'materialize claude-code binary (allowBuilds denies it by default)',
+    if: NON_PULL_REQUEST_CONDITION,
     run: 'node node_modules/@anthropic-ai/claude-code/install.cjs',
   },
   {
     name: 'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+    if: NON_PULL_REQUEST_CONDITION,
     run: 'echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"',
   },
   {
     name: 'provision Rust 1.85.0 with musl for the session-relay host leg',
-    if: "github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'",
+    if: NON_PULL_REQUEST_RUST_CONDITION,
     run: 'if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then\n  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools\n  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)\nfi\n',
   },
   {
     name: 'run the authoritative gate (scripts/ci.mjs)',
+    if: NON_PULL_REQUEST_CONDITION,
     run: `if [ "\${{ github.event_name }}" = "push" ]; then
   node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
 else
@@ -96,6 +105,7 @@ function expectedCiJobSteps() {
   return [
     {
       uses: 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+      if: NON_PULL_REQUEST_CONDITION,
       with: { ref: `\${{ github.sha }}`, 'persist-credentials': false },
     },
     EXPECTED_CI_STEP_DEFINITIONS[0],
@@ -106,6 +116,54 @@ function expectedCiJobSteps() {
       run: 'node scripts/ci-target.mjs release-tag "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"',
     },
     EXPECTED_CI_STEP_DEFINITIONS[1],
+    {
+      name: 'configure deterministic pnpm store',
+      if: NON_PULL_REQUEST_CONDITION,
+      run: 'pnpm config set store-dir "$HOME/.pnpm-store"',
+    },
+    {
+      name: 'cache pnpm store',
+      if: NON_PULL_REQUEST_CONDITION,
+      uses: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
+      with: {
+        path: '~/.pnpm-store',
+        key: `pnpm-v11-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('pnpm-lock.yaml', 'package.json') }}`,
+        'restore-keys': `pnpm-v11-\${{ runner.os }}-\${{ runner.arch }}-`,
+      },
+    },
+    {
+      name: 'cache Cargo dependencies and target outputs',
+      if: NON_PULL_REQUEST_RUST_CONDITION,
+      uses: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
+      with: {
+        path: '~/.cargo/registry\n~/.cargo/git\nplugins/session-relay/rust/target\n',
+        key: `cargo-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-\${{ hashFiles('plugins/session-relay/rust/src/**/*.rs', 'plugins/session-relay/rust/build.rs', 'plugins/session-relay/rust/tests/**/*.rs', 'plugins/session-relay/rust/.cargo/config', 'plugins/session-relay/rust/.cargo/config.toml') }}`,
+        'restore-keys': `cargo-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-`,
+      },
+    },
+    EXPECTED_CI_STEP_DEFINITIONS[2],
+    {
+      name: 'verify registry signatures (non-blocking)',
+      if: NON_PULL_REQUEST_CONDITION,
+      'continue-on-error': true,
+      run: 'npm audit signatures',
+    },
+    ...EXPECTED_CI_STEP_DEFINITIONS.slice(3),
+  ];
+}
+
+function expectedValidationShardSteps() {
+  return [
+    {
+      uses: 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+      with: { ref: `\${{ github.sha }}`, 'persist-credentials': false },
+    },
+    {
+      name: 'setup Node 24',
+      uses: 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e',
+      with: { 'node-version': '24' },
+    },
+    { name: 'enable corepack', run: 'corepack enable' },
     {
       name: 'configure deterministic pnpm store',
       run: 'pnpm config set store-dir "$HOME/.pnpm-store"',
@@ -121,7 +179,7 @@ function expectedCiJobSteps() {
     },
     {
       name: 'cache Cargo dependencies and target outputs',
-      if: "github.event_name != 'push' || steps.target.outputs.needs_rust == 'true'",
+      if: "matrix.lane == 'relay'",
       uses: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
       with: {
         path: '~/.cargo/registry\n~/.cargo/git\nplugins/session-relay/rust/target\n',
@@ -129,14 +187,39 @@ function expectedCiJobSteps() {
         'restore-keys': `cargo-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-`,
       },
     },
-    EXPECTED_CI_STEP_DEFINITIONS[2],
+    {
+      name: 'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+      run: 'pnpm install --frozen-lockfile',
+    },
     {
       name: 'verify registry signatures (non-blocking)',
       'continue-on-error': true,
       run: 'npm audit signatures',
     },
-    ...EXPECTED_CI_STEP_DEFINITIONS.slice(3),
+    {
+      name: 'materialize claude-code binary (allowBuilds denies it by default)',
+      run: 'node node_modules/@anthropic-ai/claude-code/install.cjs',
+    },
+    {
+      name: 'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+      run: 'echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"',
+    },
+    {
+      name: 'provision Rust 1.85.0 with musl for the session-relay host leg',
+      if: "matrix.lane == 'relay'",
+      run: 'if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then\n  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools\n  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)\nfi\n',
+    },
+    { name: 'run validation lane', run: `node scripts/ci.mjs --lane "\${{ matrix.lane }}"` },
   ];
+}
+
+function expectedShardAssertionStep() {
+  return {
+    name: 'assert successful validation shards',
+    if: "github.event_name == 'pull_request'",
+    env: { VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}` },
+    run: 'if [ "$VALIDATION_SHARDS_RESULT" != "success" ]; then\n  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n  exit 1\nfi\n',
+  };
 }
 
 function record(value) {
@@ -936,14 +1019,29 @@ function decodeWorkflowFile(file, expectedPath) {
   ) {
     fail('source CI workflow triggers or permissions mismatch');
   }
-  exactKeys(workflow.jobs, ['validate'], 'source CI jobs');
-  const job = workflow?.jobs?.validate;
-  exactKeys(job, ['name', 'runs-on', 'steps'], 'source CI validate job');
+  exactKeys(workflow.jobs, ['validation-shards', 'validate'], 'source CI jobs');
+  const shardJob = workflow.jobs['validation-shards'];
+  exactKeys(shardJob, ['name', 'if', 'permissions', 'runs-on', 'strategy', 'steps'], 'source CI validation-shards job');
+  const expectedShardJob = {
+    name: `validation shard (\${{ matrix.lane }})`,
+    if: "github.event_name == 'pull_request'",
+    permissions: { contents: 'read' },
+    'runs-on': 'ubuntu-latest',
+    strategy: { 'fail-fast': false, matrix: { lane: ['core', 'relay'] } },
+    steps: expectedValidationShardSteps(),
+  };
+  if (canonicalize(shardJob) !== canonicalize(expectedShardJob))
+    fail('source CI validation-shards job definition mismatch');
+  const job = workflow.jobs.validate;
+  exactKeys(job, ['name', 'runs-on', 'needs', 'if', 'steps'], 'source CI validate job');
   const expectedSteps = expectedCiJobSteps();
+  const authoritativeSteps = [...expectedSteps, expectedShardAssertionStep()];
   if (
     job.name !== 'validate (scripts/ci.mjs)' ||
     job['runs-on'] !== 'ubuntu-latest' ||
-    canonicalize(job.steps) !== canonicalize(expectedSteps)
+    job.needs !== 'validation-shards' ||
+    job.if !== 'always()' ||
+    canonicalize(job.steps) !== canonicalize(authoritativeSteps)
   )
     fail('source CI validate job definition mismatch');
   const requiredDefinitions = EXPECTED_CI_STEP_DEFINITIONS.map((expected) => {
@@ -989,19 +1087,15 @@ export function verifySourceCi(options, injected) {
   const jobsResponse = deps.apiJson(`repos/${REPOSITORY_ID}/actions/runs/${runId}/jobs?per_page=100`);
   if (
     !record(jobsResponse) ||
-    jobsResponse.total_count !== 1 ||
     !Array.isArray(jobsResponse.jobs) ||
-    jobsResponse.jobs.length !== 1
+    jobsResponse.total_count !== jobsResponse.jobs.length ||
+    jobsResponse.jobs.length < 2
   )
-    fail('source CI must contain exactly one authoritative job');
-  const job = jobsResponse.jobs[0];
-  if (
-    !record(job) ||
-    job.name !== 'validate (scripts/ci.mjs)' ||
-    job.status !== 'completed' ||
-    job.conclusion !== 'success' ||
-    !Array.isArray(job.steps)
-  )
+    fail('source CI must contain one authoritative job and at least one skipped validation-shards job');
+  const authoritativeJobs = jobsResponse.jobs.filter((candidate) => candidate?.name === 'validate (scripts/ci.mjs)');
+  if (authoritativeJobs.length !== 1) fail('source CI must contain exactly one authoritative job');
+  const job = authoritativeJobs[0];
+  if (!record(job) || job.status !== 'completed' || job.conclusion !== 'success' || !Array.isArray(job.steps))
     fail('source CI authoritative job mismatch');
   positiveInteger(job.id, 'source CI job id');
   if (
@@ -1010,6 +1104,25 @@ export function verifySourceCi(options, injected) {
     (job.head_sha !== undefined && job.head_sha !== expectedCommit)
   )
     fail('source CI job run identity or attempt mismatch');
+  const shardJobs = jobsResponse.jobs.filter((candidate) => candidate !== job);
+  for (const shardJob of shardJobs) {
+    if (
+      !record(shardJob) ||
+      shardJob.name !== 'validation-shards' ||
+      shardJob.status !== 'completed' ||
+      shardJob.conclusion !== 'skipped' ||
+      !Array.isArray(shardJob.steps) ||
+      shardJob.steps.some((step) => !record(step) || step.status === 'completed')
+    )
+      fail('source CI non-authoritative jobs must be skipped validation-shards jobs with no completed steps');
+    positiveInteger(shardJob.id, 'source CI validation-shards job id');
+    if (
+      shardJob.run_attempt !== run.run_attempt ||
+      (shardJob.run_id !== undefined && shardJob.run_id !== run.id) ||
+      (shardJob.head_sha !== undefined && shardJob.head_sha !== expectedCommit)
+    )
+      fail('source CI validation-shards job run identity or attempt mismatch');
+  }
   const requiredSteps = [];
   for (const definition of workflow.requiredDefinitions) {
     const matches = job.steps.filter((step) => step?.name === definition.name);
