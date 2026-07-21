@@ -89,7 +89,7 @@ Ordinary plugin behavior stays registry-driven: extend descriptor capabilities r
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
 
-**Shared author-side libs (`scripts/lib/`):** `rust-bin.mjs` (the `rust` capability's helpers — `rustHostTarget()` maps `process.platform/arch` to the launcher's target triple with Linux always on the static musl leg, `findCargo()` falls back to `~/.cargo/bin` for non-login shells, `verifySha256Sums()` checks a `shasum -a 256`-format file with Node crypto). `skills-walk.mjs` (SKILL.md traversal — `findSkillFiles`/`eachSkillDir`/`findSkillByName`) and `skills-parse.mjs` (frontmatter/body line helpers — `bodyAfterFrontmatter`/`slopCount`/`metaUpdated`/…) are imported by the author-side validators so the walk + body-line method live once. The bundled `write-skill/scripts/skill-guard.mjs` keeps its OWN copies on purpose — it ships standalone into consumer repos where `scripts/lib/` doesn't exist; its body-line method must stay byte-identical to `skills-parse.mjs`'s or scores shift. `skills-walk.mjs` is seeded (the seeded validators import it); `skills-parse.mjs` is not (no seeded script imports it).
+**Shared author-side libs (`scripts/lib/`):** `rust-bin.mjs` (the `rust` capability's helpers — `rustHostTarget()` maps the host to a supported target, `rustReleaseAssetNames()` defines the release asset set, `parseSha256Sums()` / `formatSha256Sums()` handle checksum manifests, `expectedRustFileIdentity()` / `detectRustFileIdentity()` validate target files, and `findCargo()` locates Cargo for source builds). `skills-walk.mjs` (SKILL.md traversal — `findSkillFiles`/`eachSkillDir`/`findSkillByName`) and `skills-parse.mjs` (frontmatter/body line helpers — `bodyAfterFrontmatter`/`slopCount`/`metaUpdated`/…) are imported by the author-side validators so the walk + body-line method live once. The bundled `write-skill/scripts/skill-guard.mjs` keeps its OWN copies on purpose — it ships standalone into consumer repos …
 
 `ci-background-task.mjs` owns asynchronous Node-task capture for `ci.mjs`.
 Successful tasks remove their private spool. Failed tasks retain complete stdout
@@ -109,13 +109,13 @@ paths and their result is joined before `ci.mjs` can pass.
 2. Run focused checks while iterating (`--plugin <name>` skips repo-wide sections and selects only that plugin's owned work). Once the relevant implementation tree is final, run full `node scripts/ci.mjs` once before commit, push, or release. Plan-only orchestration or lifecycle commits may reuse that green result only while the validated implementation-tree identity is unchanged; any relevant source change invalidates it.
 3. Local Claude Code test (no push): `claude --plugin-dir ./plugins/<name>` (then `/reload-plugins`).
 4. PR to main → PR-CI gates the merge.
-5. After merge, release **one plugin**. Docks/effect-kit retain `node scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews). Session Relay positional bumps are invalid; begin its reviewed flow with `node scripts/release.mjs --prepare --plugin session-relay <reviewed-version> [--dry-run]`.
+5. After merge, release **one plugin**. Generic positional releases are Docks/Effect Kit only: `node scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews). Session Relay positional bumps are invalid; begin its reviewed flow with `node scripts/release.mjs --prepare --plugin session-relay <reviewed-version> [--dry-run]`. That entry point continues through Relay's reviewed multi-stage protocol, not the generic bump/tag path.
 
-## Release flow (double-layered gating)
+## Generic Docks / Effect Kit release flow (double-layered gating)
 
 ```text
 final implementation tree → node scripts/ci.mjs      (LAYER 1 — local, ALL plugins)
-     → node scripts/release.mjs [--plugin <name>] <bump>   (one plugin)
+     → node scripts/release.mjs [--plugin <docks|effect-kit>] <bump>   (one plugin)
         ├── runs ci.mjs -q --plugin <name> as the selected-plugin preflight
         ├── bumps THIS plugin's plugin.json (+ codex mirror) + its marketplace entry
         ├── commits + pushes  (chore(release): <name> v<version>)

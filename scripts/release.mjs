@@ -1,25 +1,26 @@
 #!/usr/bin/env node
-// release.mjs — bump ONE plugin's version, tag, push, and create a GitHub Release.
-// REGISTRY-DRIVEN: --plugin picks an entry from scripts/lib/plugins.mjs. Versions
-// are per-plugin and independent, so a release targets exactly one plugin.
+// release.mjs — dispatch one of two plugin release lanes.
 //
-// Usage:
-//   node scripts/release.mjs [--dry-run] [--plugin <name>] <new-version>   # e.g. 0.2.0
-//   node scripts/release.mjs [--dry-run] [--plugin <name>] patch|minor|major
-//   (--plugin defaults to "docks"; use --plugin session-relay for the other)
+// Generic positional lane (Docks and Effect Kit only):
+//   node scripts/release.mjs [--dry-run] [--plugin <name>] patch|minor|major|<X.Y.Z>
+//   (--plugin defaults to "docks")
 //
 // Runs end-to-end: targeted ci.mjs gate → bump the plugin's manifests (Claude
 // pair + Codex if present) + its marketplace entry → commit+push → claude
 // plugin tag --push (<name>--v<ver>) → wait for tag-CI → gh release create.
 // --dry-run does everything read-only and PRINTS the destructive steps instead.
+// Preconditions for a real generic release: clean working tree, gh + claude on PATH.
 //
-// Preconditions: clean working tree, gh + claude on PATH.
+// Session Relay reviewed lane:
+//   node scripts/release.mjs --prepare --plugin session-relay <reviewed-version> [--dry-run]
+//
+// This starts Relay's separate reviewed preparation/publication/promotion/
+// finalization protocol. dispatchSessionRelayRelease() rejects positional Relay bumps.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { releaseCiArgs } from './lib/ci-targeting.mjs';
 import { byName, CLAUDE_MARKETPLACE, claudeManifest, codexManifest, PLUGINS } from './lib/plugins.mjs';
-import { verifySha256Sums } from './lib/rust-bin.mjs';
 import { dispatchSessionRelayRelease } from './lib/session-relay-release.mjs';
 
 try {
@@ -67,31 +68,6 @@ if (!fs.existsSync(PLUGIN_JSON)) err(`plugin.json not found at ${PLUGIN_JSON}`);
 if (!fs.existsSync(MARKETPLACE_JSON)) err(`marketplace.json not found at ${MARKETPLACE_JSON}`);
 if (!dryRun && cap('git', ['status', '--porcelain']).stdout.trim() !== '')
   err('working tree dirty — commit/stash first');
-
-// --- rust binaries precondition (capability-driven) ---
-// Plugins reach consumers via git clone, never via Release assets, so every
-// target binary must already be committed in-tree. The darwin legs cannot be
-// built here — the build-binaries workflow produces all four; commit its
-// output before releasing.
-if (plugin.rust) {
-  const { bin, binName, targets } = plugin.rust;
-  const binDir = path.join(REPO, bin);
-  const want = [binName, ...targets.map((t) => `${binName}-${t}`)];
-  const missing = want.filter((f) => !fs.existsSync(path.join(binDir, f)));
-  if (missing.length)
-    err(
-      `missing committed binaries in ${bin}/: ${missing.join(', ')} — dispatch the build-binaries workflow and commit its output first`,
-    );
-  const noExec = want.filter((f) => !(fs.statSync(path.join(binDir, f)).mode & 0o111));
-  if (noExec.length) err(`not executable: ${noExec.map((f) => `${bin}/${f}`).join(', ')} — chmod +x and re-commit`);
-  if (!fs.existsSync(path.join(binDir, 'SHA256SUMS')))
-    err(`${bin}/SHA256SUMS missing — commit it alongside the binaries`);
-  const { listed, bad } = verifySha256Sums(binDir);
-  if (listed < targets.length)
-    err(`${bin}/SHA256SUMS lists ${listed} file(s), expected ≥ ${targets.length} target binaries`);
-  if (bad.length) err(`bin checksum failures: ${bad.join(', ')}`);
-  console.log(`Rust binaries OK: ${targets.length} targets + launcher present in ${bin}/, checksums verify.`);
-}
 
 // --- local CI gate (shared guards + selected plugin) ---
 console.log(`Running local ci.mjs for ${plugin.name}...`);

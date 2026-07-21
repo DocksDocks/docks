@@ -1,7 +1,6 @@
 // rust-bin.mjs — pure Rust release-identity helpers plus the small filesystem
 // adapters shared by author-side CI and release tooling.
 import { spawnSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,26 +132,4 @@ export function findCargo() {
   if (!spawnSync('cargo', ['--version'], { stdio: 'ignore' }).error) return 'cargo';
   const home = path.join(os.homedir(), '.cargo', 'bin', 'cargo');
   return fs.existsSync(home) ? home : null;
-}
-
-export const sha256File = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-
-// Compatibility filesystem adapter for legacy release paths.
-export function verifySha256Sums(binDir) {
-  const bad = [];
-  let entries;
-  try {
-    entries = parseSha256Sums(fs.readFileSync(path.join(binDir, 'SHA256SUMS'), 'utf8'));
-  } catch (error) {
-    return { listed: 0, bad: [error.message] };
-  }
-  for (const [name, expected] of entries) {
-    const file = path.join(binDir, name);
-    if (!fs.existsSync(file)) {
-      bad.push(`${name} (missing)`);
-    } else if (sha256File(file) !== expected) {
-      bad.push(`${name} (checksum mismatch)`);
-    }
-  }
-  return { listed: entries.size, bad };
 }
