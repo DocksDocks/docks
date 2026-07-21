@@ -119,10 +119,10 @@ test('selection resolver pins unqualified and disjoint partition ownership', asy
   assert.deepEqual(Object.keys(all), ['ownsGlobalPreflights', 'includeBaselines', 'selectedCatalog']);
   assert.equal(all.ownsGlobalPreflights, true);
   assert.equal(all.includeBaselines, true);
-  assert.equal(all.selectedCatalog.length, 140);
+  assert.equal(all.selectedCatalog.length, 143);
   assert.deepEqual(
     all.selectedCatalog.map(({ index }) => index),
-    Array.from({ length: 140 }, (_, index) => index),
+    Array.from({ length: 143 }, (_, index) => index),
   );
 
   const baselines = resolveRegressionSelection({ partition: 'baselines' });
@@ -136,7 +136,7 @@ test('selection resolver pins unqualified and disjoint partition ownership', asy
   assert.deepEqual(
     mutations.selectedCatalog,
     all.selectedCatalog,
-    'mutation timing reports have all 140 ordered cases',
+    'mutation timing reports have all 143 ordered cases',
   );
 
   assert.throws(() => resolveRegressionSelection({ partition: 'unknown' }), /unknown regression partition/);
@@ -172,10 +172,10 @@ test('schema-1 timing reports preserve both legal empty partition arrays', async
   assert.equal(mutationReport.schema, 1);
   assert.equal(mutationReport.status, 'passed');
   assert.deepEqual(mutationReport.baselines, []);
-  assert.equal(mutationReport.cases.length, 140);
+  assert.equal(mutationReport.cases.length, 143);
   assert.deepEqual(
     mutationReport.cases.map(({ index }) => index),
-    Array.from({ length: 140 }, (_, index) => index),
+    Array.from({ length: 143 }, (_, index) => index),
   );
 });
 

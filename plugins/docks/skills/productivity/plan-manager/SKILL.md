@@ -4,8 +4,8 @@ description: Use when an existing-plan needs list/show/lifecycle handling, revie
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-20"
-  content_hash: "b94c72239a3b725088f4308e296e78ba67bf4aa4093d069dfbdfa5653bd0ac3a"
+  updated: "2026-07-21"
+  content_hash: "8a2a09d80fcca60b629a1edbb5bce1e7ba84ebe805e8b82ddfe3388b892b1668"
 ---
 
 # Plan Manager
@@ -15,15 +15,18 @@ Own the public lifecycle of existing plans in `docs/plans/active/` and
 dispatcher, finding reconciler, orchestration-family/receipt writer, lifecycle
 writer, intent applier, and sole persister of current-user-authorized
 administrative abandonment. Internal `plan-reviewer` returns typed read-only
-evidence; internal `plan-repairer`
-returns one exact repair or `cannot_repair`.
+evidence.
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
+
+Use direct implementation for a clear low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review.
 
 <constraint>
 **Creation has a separate owner.** For a creation request, determine the
 canonical active path and prove it does not exist, then route to public
 `plan-creator`. Never draft, self-review, write, or commit the new plan.
-`plan-creator` returns `PlanCreatedV1`; main context may separately invoke
-manager review with intent `none`.
+`plan-creator` returns `PlanCreatedV1`. Main must treat it as turn-terminal
+unless the same current-user request explicitly asked to create and review.
 </constraint>
 
 <constraint>
@@ -66,16 +69,37 @@ another live plan block a valid operation.
 | publish/--issues | Publish the existing canonical plan as a GitHub issue; no review or status change |
 | ship | Require reusable schema-6 passed completion evidence; move once |
 
-`plan-workspace` alone bootstraps, migrates, audits, or explicitly refreshes the
-workspace. `plan-creator` alone creates a previously nonexistent plan.
-`plan-reviewer` and `plan-repairer` are internal with no lifecycle authority.
+## Pre-review routing and caller terminals
 
-For creation-shaped input, normalize `docs/plans/active/<slug>.md` and check
-active/finished identities. Existing identity is an existing-plan request or
-STOP, never overwrite permission. When absent, return a `plan-creator` route
-without pre-creating a file. Accept only its closed
-`PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}`;
-never reconstruct it. Main context may then request review intent `none`.
+|Observed condition|Owner and next action|Forbidden action|
+|---|---|---|
+|No plan identity; clear low-risk direct task|main implements and runs targeted verification|create/review/repair a canonical plan|
+|New canonical plan requested/required|creator drafts, self-reviews once, returns `PlanCreatedV1`|automatic manager review|
+|Planned/scheduled explicit review or lifecycle start/fire|manager runs the existing bounded schema-6 operation|more than one full + one repair round|
+|`ongoing`; only catalog/generated-manifest/external snapshot/pin/hash/count changed; nine authority boundaries unchanged|implementation rebinds observed execution inputs and reruns the failed gate once|begin/prepare/dispatch/repair plan review|
+|Goal, scope, affected paths, safety authority, budget/resources, architecture/interfaces, acceptance contract, lifecycle intent, or settled user decision changed|plain turn-terminal response to block and explicitly amend; later review the amended blocked plan|infer amendment, create orchestration evidence, or review stale plan|
+|Ambiguous pre-review drift|plain turn-terminal response naming the unresolved boundary and allowed amendment action|emit orchestration `NeedsUserAction` or default to review|
+|Exact caller-held schema-6 result|manager settles immediately through the atomic family reducer; pass may consume one eligible intent, non-pass stops|fresh bundle/reviewer/repairer|
+|Attempt-1 retryable `stopped` plus exact current-user authorization|begin same-key attempt 2 once|automatic retry, attempt 3, or retry from `stuck`/nonretryable state|
+|Other terminal result for the same `(phase,intent_group,input_sha256)`|render/stop or consume the one eligible intent|reprepare, redispatch, or metadata reset|
+|Completion requested after implementation|completion review only|another draft review|
+
+Execution rebind is operation-local: one rebind plus one rerun of the failed command. If observations do not change or the same mismatch remains, return one plain turn-terminal user action; never repeat rebind or open review.
+
+`turn-terminal` is the final user response for this turn: no later tool, subagent, review, repair, retry, reprepare, plan, or lifecycle action. `invocation-terminal` is the final result of the current child skill or wrapper; main may consume it in the same turn. `candidate-terminal` means only `tool_unavailable|auth_failed|model_unavailable` with `output_started:false` may advance availability fallback; every other typed result, any output start, or any parsed result ends fallback and the reviewer invocation returns once.
+
+Every completed main manager operation—successful settlement, intent application, no-op result, or user action—is turn-terminal. Reviewer outputs, repairer results, `PlanCreatedV1`, and delegated wrapper handoffs are invocation-terminal. Direct helper returns inside main are intermediate.
+
+An exact caller-held schema-6 result settles immediately through the atomic family reducer: pass may consume one eligible intent, while non-pass stops. It never creates a fresh bundle or dispatches a reviewer or repairer. Any other terminal result for the same `(phase,intent_group,input_sha256)` stops or consumes the one eligible intent without reprepare, redispatch, or metadata reset. Attempt 2 begins only from an attempt-1 retryable `stopped` result plus exact current-user authorization; it is never automatic, never attempt 3, and never available from `stuck` or nonretryable state. Completion requested after implementation routes only to completion review, never another draft review.
+
+Emit concise progress text only, not `PlanProgressV1`: `Plan review: attempt A/2, round R/2, stage <full|repair|settling>`. Update only on stage changes; candidate fallback stays inside the same stage.
+
+`plan-workspace` alone maintains the workspace; `plan-creator` alone creates a
+missing plan. Normalize `docs/plans/active/<slug>.md` and check active/finished
+identities: an existing identity is an existing-plan request or STOP, never
+overwrite permission. Accept only the creator's closed
+`PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}`.
+Review intent `none` is valid only when the same current-user request asked for it.
 
 ```text
 BAD: manager drafts or commits the missing plan, then asks creator to continue.
@@ -91,16 +115,12 @@ Conflicting valid runtime records STOP; ignore one internally invalid record as
 a whole and warn once.
 
 ```text
-CurrentReviewPolicyV6 = {
-  schema:6, role:"primary", fallback:"availability_only", max_rounds:2,
-  candidates:[
-    {company:"openai",tool:"codex",model:"gpt-5.6-sol",
-     effort:"high",service_tier:"default"},
-    {company:"anthropic",tool:"claude",model:"fable",effort:"high"},
-    {company:"anthropic",tool:"claude",model:"opus",effort:"xhigh"}
-  ],
-  provenance:{role,fallback,max_rounds,candidates}
-}
+CurrentReviewPolicyV6 = {schema:6,role:"primary",fallback:"availability_only",
+ max_rounds:2,candidates:[
+  {company:"openai",tool:"codex",model:"gpt-5.6-sol",effort:"high",service_tier:"default"},
+  {company:"anthropic",tool:"claude",model:"fable",effort:"high"},
+  {company:"anthropic",tool:"claude",model:"opus",effort:"xhigh"}],
+ provenance:{role,fallback,max_rounds,candidates}}
 ```
 
 Candidate order/objects are exact. A current-turn user may narrow one review to
@@ -149,21 +169,15 @@ Use only `<plan-reviewer-skill-dir>/scripts/review-policy.mjs` for
 canonicalization, hashing, schemas, sealing, and:
 
 ```text
-beginReviewOrchestration(...)
-advanceReviewOrchestrationRepair(...)
-settleReviewOrchestration(...)
-consumeReviewIntent(...)
-prepareReviewRequest(...)
-buildReviewDispatchCommitment(...)
-prepareReviewerWorkspace(...)
+beginReviewOrchestration; advanceReviewOrchestrationRepair
+settleReviewOrchestration; settleReviewOrchestrationFamily; consumeReviewIntent
+prepareReviewRequest; buildReviewDispatchCommitment; prepareReviewerWorkspace
 dispatchCommittedReviewer({repo,planPath,committedPlanCommit,
-  expectedPreparedRequestSha256,expectedDispatchCommitmentSha256,
-  proposedControllerConfig,controllerAdapter})
-advanceReviewOrchestrationRepairFamily(...)
-abortReviewControllerConfig(...)
-abandonReviewOrchestration(...)
-validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})
-replaceReviewTerminalFamily(...)
+ expectedPreparedRequestSha256,expectedDispatchCommitmentSha256,
+ proposedControllerConfig,controllerAdapter})
+advanceReviewOrchestrationRepairFamily; abortReviewControllerConfig
+abandonReviewOrchestration; validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})
+replaceReviewTerminalFamily
 ```
 
 Attempt 1 begins only with no same-key state or changed substantive input.
@@ -187,35 +201,26 @@ immediately stuck; every attempt-2 failure is stuck.
 nonretryable, seriesless, receiptless, and apply-ineligible. They never offer
 attempt 2, repair, settlement, or intent consumption.
 
-Full project CI and acceptance evidence run once at the implementation boundary
-and bind to the implementation tree plus `affected_paths`. Reuse that green
-evidence across later plan-only state, request, commitment, and lifecycle
-commits only while the bound implementation tree and affected paths are
-unchanged. Every plan-only commit still requires machine-family validation
-against committed bytes and the exact parent plus plan read-back. Any
-implementation-tree or affected-path change invalidates reuse and requires
-fresh full project CI and acceptance evidence; release-tag and final
-implementation CI remain authoritative.
+`plan-structure` verification consists of frontmatter, parser, hash, plan-only commit, and read-back checks for authoring, review, repair, receipt, and lifecycle-only edits. It runs no implementation acceptance command, build, lint, typecheck, test suite, or CI.
+
+`targeted implementation` verification applies only after code changes: run the
+smallest acceptance reproduction or smoke path plus directly affected tests.
+Expand only for shared/generated/public/security/release surfaces or a concrete
+targeted failure. Run a `final repository gate` once only when project policy
+requires it for the final implementation tree. Plan-only commits reuse green
+evidence while implementation bytes are unchanged. Completion review consumes
+the sealed plan, committed diff, and acceptance inventory; manager-owned
+observations supply only missing implementation/CI contract proof.
 
 The bound implementation identity is SHA-256 of compact JCS over sorted
 `affected_paths` entries. Each entry binds the exact repo-relative path, Git
 kind/mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the
 plan/orchestration path unless it is itself an affected implementation path.
 Before reuse, recompute and require exact digest equality. A plan-only metadata
-or orchestration commit preserves the digest; any affected-path byte, mode,
-kind, or presence change invalidates it and requires fresh full project CI and
-acceptance evidence. This contract does not change closed review-policy schemas.
-
-Completion consumes and validates the bound green project-CI evidence when the
-affected-path digest is unchanged. The disposable helper runs project CI only
-when no eligible bound result exists or the digest changed; it must not rerun
-merely because completion review began. Acceptance rows still run once as
-required.
-
-CI evidence reuse is the churn/performance fix; it never collapses authorization
-commits. Active-state, prepared-request, and dispatch-commitment commits MUST
-remain separate because each later artifact is derived only after committed
-read-back of its predecessor. Combining them atomically is forbidden.
+or orchestration commit preserves the digest. Any affected-path byte, mode,
+kind, or presence change invalidates reuse and requires verification selected
+from the changed implementation surface. This contract does not change closed
+review-policy schemas.
 
 When the active plan changes the canonical review controller, `plan-manager`,
 or `plan-reviewer` mechanism it would use for its own completion, same-checkout
@@ -225,6 +230,18 @@ using a trustworthy controller. Never repair, reseal, or replace orchestration
 in place to evade this boundary. A `stopped` or `stuck` result, including any
 attempt-2 failure, returns `NeedsUserAction` without automatic reprepare or
 retry.
+
+## Current-plan evidence provenance
+
+Reviewer evidence is limited to the exact committed plan blob/path/`HEAD`,
+committed sealed-bundle blobs, and bound managed-workspace identity. Uncommitted,
+ignored, or generated out-of-bundle bytes cannot become findings or repair targets.
+Before begin, prepare, dispatch, or repair, require those exact bindings; mismatch
+is pre-review provenance drift and returns one plain turn-terminal corrective
+action with no review operation.
+Never attribute drift to another session without a proving lease/session identity.
+Mandatory leases, session branches, integration checkout, cleanup tooling, and a
+race suite require a separate ownership audit; no `docks session` CLI is promised.
 
 ## Prepare and dispatch
 
@@ -303,29 +320,43 @@ review evidence. Exhausted availability uses precedence
 `auth_failed > model_unavailable > tool_unavailable`; validated evidence, never
 caller labels, determines the stop reason.
 
+For `request.phase === "draft"`, `blocking_gap` is eligible only when implementation cannot safely and correctly start because of an unresolved required user decision, contradictory goal/scope/interface, unsafe or unauthorized action, impossible dependency order, missing first executable step, or absent/non-executable acceptance contract. Code style, optional refactors/docs, speculative performance, exhaustive implementation edge cases, exact internal symbol choices, and defects best established by running the implementation are `non_blocking_gap` with rejection/defer reason `defer_to_implementation_verification`. A complete simple plan may return `pass`; there is no finding quota and no instruction to improve until perfect.
+
+For `request.phase === "completion"`, the read-only reviewer classifies only
+defects observable in the sealed plan, committed diff, and acceptance inventory:
+goal, scope, public-contract, or safety contradictions; unreviewable diff
+coverage; or an acceptance criterion missing from the inventory. It does not
+receive or infer command results. Missing or failed required acceptance evidence
+and observed runtime regressions remain manager-owned through the existing
+hash-bound primary completion evidence and verdict derivation. Speculative
+concerns remain nonblocking; the reviewer never runs tests or CI.
+
 ## Reconciliation and repair
 
-Reproduce every finding against sealed input/source. Accepted and rejected IDs
-exactly partition findings, each rejection has a reason, and nonblocking gaps
-never enter repair.
+For schema 6, main-context `plan-manager` accepts only blockers it independently
+reproduced against the sealed input and source. Accepted and rejected IDs exactly
+partition the raw findings; accepted IDs name reproduced `blocking_gap`
+findings. Every rejected finding uses exactly one schema-6 reason:
+`not_plan_blocking`, `not_reproduced`, or
+`defer_to_implementation_verification`. A rejected finding never opens repair.
 
-Only when every raw blocker is reproduced and accepted may main call
-`plan-repairer` once with that complete exact set. It returns one minimal patch
-or `cannot_repair`, never review/lifecycle writes. After the changed-input patch
-commit, call `advanceReviewOrchestrationRepairFamily` against the exact
-committed round-one source family. Its single plan-byte compare-and-swap
-atomically removes both the prepared request and dispatch commitment while
-writing only the active round-two state. Commit/read back that state-only
-family; then prepare and commit/read back the distinct round-two request in a
-separate plan-only commit. Only a later exact-600 commitment consumed by
-`dispatchCommittedReviewer` may produce round-two process creation.
+Only when the accepted blocking set is nonempty may main call `plan-repairer`,
+and it calls the repairer once with exactly that set. The repairer returns one
+minimal patch or `cannot_repair`, never review or lifecycle writes. After a
+changed-input patch commit, call
+`advanceReviewOrchestrationRepairFamily` against the exact committed round-one
+source family. Its single plan-byte compare-and-swap atomically removes both the
+prepared request and dispatch commitment while writing only the active
+round-two state. Commit and read back that state-only family; then prepare and
+commit/read back the distinct round-two request separately. Only a later
+exact-600 commitment consumed by `dispatchCommittedReviewer` may create the
+round-two process.
 
 Round 2 sees only accepted targets and repair-introduced blocking regressions.
 No round 3, unchanged-input repair, expansion, reset, continuation, or candidate
-rotation after output. Rejected blocker, `cannot_repair`, unchanged input,
-invalid transition, or any round-2 blocker terminates.
-Any `blocking_gap` makes the repair run `not_ready`; the patch is rejected
-during reconciliation and the same-input series settles stuck.
+rotation after output is allowed. `cannot_repair`, unchanged input, invalid
+transition, or an accepted round-two blocker terminates the series. Rejected
+findings remain result-neutral and never become repair targets.
 
 ## Controller terminal recovery
 
@@ -336,13 +367,19 @@ proposed candidate/argv to the request and may terminalize only when the
 unchanged controller validator rejects the proposal. A valid exact-600 proposal
 cannot abort, and no process/attempt/output evidence may be fabricated.
 
+On cold re-entry, a state-only active family may continue normal preparation.
+Prepared-only and prepared-plus-commitment families have lost disposable
+bundle/workspace or process evidence and never dispatch automatically; do not
+invent cold reconstruction.
+
 Only main-context `plan-manager`, acting on explicit current-user bytes, may
-call `abandonReviewOrchestration`. It accepts only a request-free,
-commitment-free, state-only active source family; binds the exact source plan
-and state; validates UTF-8; and persists canonical base64 of the exact
-current-user text bytes plus their SHA-256. Authorization proves only the
-administrative abandonment, never dispatch provenance, a review verdict,
-ReviewSeries, receipt, retry, repair, or lifecycle apply authority.
+call `abandonReviewOrchestration`. First settle any exact caller-held series.
+With no series, the helper accepts an exact state-only, prepared-only, or
+prepared-plus-commitment active source, removes whichever preparation records
+exist, and writes the unchanged `ReviewOrchestrationAbandonmentV1` plus StateV2
+`authorized_abandonment` in one CAS. Authorization proves only administrative
+abandonment, never absence of uncommitted output, dispatch provenance, a review
+verdict, series, receipt, retry, repair, or lifecycle apply authority.
 
 `canonicalPlanView(bytes)` is structural and never proves transition
 provenance. Before committing reducer output from either terminal path, call
@@ -352,24 +389,29 @@ the committed child plan blob and its single parent plan blob from Git and
 rerun the validator. Parent-hash drift, missing/extra parents, source-state
 substitution, or any family mismatch rejects the transition.
 
-Only materially changed canonical input may replace the complete terminal
-family through
-`replaceReviewTerminalFamily({sourcePlanBytes,currentPlanBytes,seriesId,requestId})`.
-Same-input or metadata-only reset, retry, repair, partial removal, receipt
-fabrication, and lifecycle apply are invalid.
+`replaceReviewTerminalFamily` receives the target `phase` and
+`lifecycleIntent`. An `authorized_abandonment` source may be replaced only when
+canonical input materially changed or target `(phase,intent_group)` differs;
+the abandoned same key remains forbidden even after metadata-only edits. A
+`controller_contract_failure` source still requires materially changed
+canonical input; a different intent does not prove the controller fixed. Every
+replacement uses fresh series/request ids, attempt 1, exact-parent CAS, and the
+current canonical input hash.
 
 ## Settle and apply
 
-`settleReviewOrchestration` accepts active state once and requires exact
-`sha256(JCS(ReviewSeriesV6))`. Schema-6 draft/completion receipts bind
-`settled_orchestration_state_sha256` to persisted state and embedded series;
-reuse revalidates state, series, request, policy, bundle, author, waiver, input,
-and phase.
+`settleReviewOrchestrationFamily` is the source-plan-bound atomic boundary for
+caller-held evidence. Against the exact prepared-plus-commitment parent it
+validates expected state/request/commitment hashes, exact `ReviewSeriesV6`, and
+the matching draft/completion receipt; calls `settleReviewOrchestration`;
+removes both preparation records; writes settled StateV2 plus receipt; and
+validates the child against the exact parent. Replay accepts only that exact
+settled child with the same series/receipt identities and returns
+`replayed:true`; same key with different bytes fails.
 
-Atomically persist terminal state plus receipt in one plan-only commit and read
-back. Intent `none` keeps apply state `none`. Eligible executing intent settles
-`passed/pending`; consume it only through `consumeReviewIntent`. Persist its one
-applied `ongoing/consumed` or expected rejected
+Pass may then consume one eligible intent through `consumeReviewIntent`;
+non-pass is turn-terminal. With no caller-held series there is zero settlement
+and zero redispatch. Persist one applied `ongoing/consumed` or expected rejected
 `stuck/apply_rejected/none` result atomically. Malformed, stale, hash-mismatched,
 or duplicate consumption throws without mutation.
 
@@ -384,17 +426,21 @@ When all initial/reopened steps are done:
 1. Set `in_review`/`in_review_since` once and commit only the plan.
 2. Validate plan/start/head ancestry, clean scope, and exact original snapshot.
 3. Prepare completion over canonical execution-base..head binary diff and a
-   nonempty ordered acceptance inventory; dispatch/reconcile as above.
-4. In a helper-owned disposable clone, run documented setup, each inventory
-   row once in order, and project CI once. Never mutate the original repo.
+   nonempty ordered acceptance inventory; dispatch the reviewer, which sees only
+   the sealed plan, committed diff, and inventory, then reconcile as above.
+4. Outside the reviewer, collect manager-owned observed acceptance and runtime
+   evidence using the verification scope selected from the changed surface.
+   Never duplicate a full repository gate already required and observed for the
+   unchanged final implementation tree.
 5. Settle; write one Review block and schema-6 completion receipt; derive
    `passed|partial|regressed`; commit only the plan.
 
-Passed requires eligible evidence, goal and acceptance met, CI 0, no
-regression, no high finding, and no unresolved accepted blocker.
-Unavailable/not-ready evidence, CI failure, regression, or a high finding is
-regressed; other complete results are partial. Repair stays `in_review`,
-preserves its timestamp, reopens affected steps, and uses the same bounds.
+Passed requires eligible observed evidence, goal and acceptance met, no
+regression, no high finding, and no unresolved accepted blocker. Missing or
+failed required acceptance evidence, an observed runtime regression, or a high
+finding is regressed; other complete results are partial. Repair stays
+`in_review`, preserves its timestamp, reopens affected steps, and uses the same
+bounds.
 
 Lifecycle writes: first ongoing sets `started_at`; block sets actor/input reason
 and `blocked_since`; unblock clears block fields but retains start; schedule

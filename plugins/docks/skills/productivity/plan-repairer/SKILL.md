@@ -4,8 +4,8 @@ description: "Use when plan-manager needs one patch for the exact accepted block
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-18"
-  content_hash: "f1b6fc381277a05906412bb64fa75979ffec83985934a56165116e347230cc86"
+  updated: "2026-07-21"
+  content_hash: "9f5bc6dab2569b904707707b54e3d131025e5750cafa0e93e66347f0c188bad4"
 ---
 
 # Plan Repairer
@@ -13,7 +13,7 @@ metadata:
 Return one minimal patch for the exact accepted blocker set supplied by
 main-context `plan-manager`, or return `cannot_repair`. This is the only
 optional transformation between current full round 1 and repair round 2.
-`plan-manager` validates and applies any returned patch.
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 <constraint>
 **The accepted blocker set is the complete scope.** Accept only schema-6
@@ -148,6 +148,19 @@ lifecycle action.
 5. Re-read each changed section in context and remove incidental cleanup,
    reformatting, nonblocking suggestions, or policy not required by a target.
 6. Return `patched`; otherwise return `cannot_repair` with exact evidence.
+
+## Verification boundary
+
+The plan acceptance table selects future implementation checks. The plan author,
+reviewer, and repairer validate that selection but do not execute it. The
+repairer never runs an implementation acceptance command, build, lint,
+typecheck, test suite, CI, or any other implementation command.
+
+After applying a returned patch, `plan-manager` performs only `plan-structure`
+verification: frontmatter, parser, hash, plan-only commit, and read-back checks.
+Targeted or expanded implementation verification applies only after code
+changes, and a final repository gate runs once only when repository policy
+explicitly requires it for the final implementation tree.
 
 ## Repair decision table
 

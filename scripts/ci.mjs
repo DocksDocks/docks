@@ -254,8 +254,10 @@ if (planPolicyRegressionTask !== null) {
   section('plan review policy');
   let planPolicySurfacesPassed = null;
   let planConvergenceRepairPassed = null;
+  let boundedPlanWorkflowsPassed = null;
   if (planPolicy) {
     planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
+    boundedPlanWorkflowsPassed = nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows']);
     planConvergenceRepairPassed = ['repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport'].every(
       (testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]),
     );
@@ -266,6 +268,11 @@ if (planPolicyRegressionTask !== null) {
       ? ok('plan-review-policy fast surfaces passed')
       : fail(
           'plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)',
+        );
+    boundedPlanWorkflowsPassed
+      ? ok('bounded plan workflow contract passed')
+      : fail(
+          'bounded plan workflow contract failed (run: node scripts/tests/plan-skill-phases.mjs --case bounded-workflows)',
         );
     if (planPolicyRegressionsPassed) {
       ok('plan-review-policy contract passed');

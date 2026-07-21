@@ -35,6 +35,37 @@ The `context-tree` skill maintains these nodes; `scripts/tree/guard.mjs` enforce
 
 The plan contract has five exact owners: `plan-workspace` bootstraps, migrates, audits, or explicitly refreshes the workspace; public `plan-creator` drafts, self-reviews, and commits one previously nonexistent plan; public `plan-manager` owns every existing-plan operation—including guarded `publish <slug> as an issue` / `--issues` GitHub issue publication—review orchestration, prepared-request and candidate-commitment commits, terminal-family validation, receipt, and lifecycle write; internal `plan-reviewer` returns sealed-bundle evidence; and internal `plan-repairer` returns one exact accepted-blocker patch or `cannot_repair`. Only `.codex/agents/plan-manager.toml` and `.codex/agents/plan-reviewer.toml` exist as repo-local wrappers; the other three skills run without wrappers. For creation, manager proves the canonical path is missing and routes to creator, creator returns the closed `PlanCreatedV1` handoff, and main context may separately invoke manager review with lifecycle intent `none`. Current schema 6 commits and reads back the exact prepared request before controller construction, then commits and reads back each candidate's exact-600 dispatch commitment before spawn. Repair advancement atomically removes the round-one request/commitment before a separate round-two prepared-request commit. Only the current user authorizes abandonment; main-context manager alone may persist that exact-byte authorization or a source-plan-bound config abort. It validates reducer output with `validateReviewTerminalFamily({currentPlanBytes,parentPlanBytes})` before commit and again on the committed child plus its exact single parent. StateV2 embeds the exact active source state, and both terminal families are disjoint, receiptless, seriesless, nonretryable, and apply-ineligible. Current schema 6 uses one `gpt-5.6-sol`/high/Standard primary reviewer, with Claude Fable/high then Opus/xhigh as availability-only fallbacks. Main-context manager alone dispatches review, reconciles findings, writes persisted orchestration and receipts, applies lifecycle, and may call repairer once for the complete accepted independently reproduced blocking set. Reviewer remains evidence-only; repairer remains patch-only and neither can commit or abandon. Review has one full round plus at most one changed-input repair round; Session Relay is invalid evidence. Historical schemas 1–5 are validation-only and retain their exact persisted meanings.
 
+Planning and review are proportional. A clear, low-risk change describable as one concrete diff with one bounded acceptance path is implemented directly; simple one-commit work bypasses the plan skills. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Canonical multi-commit plans retain one independent lifecycle review. Never create a placeholder plan merely to unlock review, and never automatically create or review a plan after scaffold generation; review runs only when explicitly requested or required by an existing plan's lifecycle gate.
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
+
+Plan authoring, review, repair, receipt, and lifecycle-only work runs plan-structure checks only: frontmatter, parser, hash, plan-only commit, and read-back checks. It never runs an implementation acceptance command, build, lint, typecheck, test suite, or CI. After code changes, run the smallest acceptance reproduction or smoke check plus directly affected tests. Expand to dependent or representative consumers only for shared harness, configuration, generated, public-contract, security, or release surfaces, or after a concrete targeted failure. Run the final repository gate once only when project policy requires it for the final implementation tree.
+
+Use this manager routing table without introducing another machine schema:
+
+|Observed condition|Owner and next action|Forbidden action|
+|---|---|---|
+|No plan identity; clear low-risk direct task|main implements and runs targeted verification|create/review/repair a canonical plan|
+|New canonical plan requested/required|creator drafts, self-reviews once, returns `PlanCreatedV1`|automatic manager review|
+|Planned/scheduled explicit review or lifecycle start/fire|manager runs the existing bounded schema-6 operation|more than one full + one repair round|
+|`ongoing`; only catalog/generated-manifest/external snapshot/pin/hash/count changed; nine authority boundaries unchanged|implementation rebinds observed execution inputs and reruns the failed gate once|begin/prepare/dispatch/repair plan review|
+|Goal, scope, affected paths, safety authority, budget/resources, architecture/interfaces, acceptance contract, lifecycle intent, or settled user decision changed|plain turn-terminal response to block and explicitly amend; later review the amended blocked plan|infer amendment, create orchestration evidence, or review stale plan|
+|Ambiguous pre-review drift|plain turn-terminal response naming the unresolved boundary and allowed amendment action|emit orchestration `NeedsUserAction` or default to review|
+|Exact caller-held schema-6 result|manager settles immediately through the atomic family reducer; pass may consume one eligible intent, non-pass stops|fresh bundle/reviewer/repairer|
+|Attempt-1 retryable `stopped` plus exact current-user authorization|begin same-key attempt 2 once|automatic retry, attempt 3, or retry from `stuck`/nonretryable state|
+|Other terminal result for the same `(phase,intent_group,input_sha256)`|render/stop or consume the one eligible intent|reprepare, redispatch, or metadata reset|
+|Completion requested after implementation|completion review only|another draft review|
+
+Execution rebind is operation-local: one rebind plus one rerun of the failed command. If observations do not change or the same mismatch remains, return one plain turn-terminal user action; never repeat rebind or open review.
+
+`turn-terminal` is the final user response for this turn: no later tool, subagent, review, repair, retry, reprepare, plan, or lifecycle action. `invocation-terminal` is the final result of the current child skill or wrapper; main may consume it in the same turn. `candidate-terminal` means only `tool_unavailable|auth_failed|model_unavailable` with `output_started:false` may advance availability fallback; every other typed result, any output start, or any parsed result ends fallback and the reviewer invocation returns once.
+
+Every completed main manager operation—successful settlement, intent application, no-op result, or user action—is turn-terminal. Reviewer outputs, repairer results, `PlanCreatedV1`, and delegated wrapper handoffs are invocation-terminal. Direct helper returns inside main are intermediate.
+
+An exact caller-held schema-6 result settles immediately through the atomic family reducer: pass may consume one eligible intent, while non-pass stops. It never creates a fresh bundle or dispatches a reviewer or repairer. Any other terminal result for the same `(phase,intent_group,input_sha256)` stops or consumes the one eligible intent without reprepare, redispatch, or metadata reset. Attempt 2 begins only from an attempt-1 retryable `stopped` result plus exact current-user authorization; it is never automatic, never attempt 3, and never available from `stuck` or nonretryable state. Completion requested after implementation routes only to completion review, never another draft review.
+
+Emit concise progress text only, not `PlanProgressV1`: `Plan review: attempt A/2, round R/2, stage <full|repair|settling>`. Update only on stage changes; candidate fallback stays inside the same stage.
+
 Every prepared request and exact-600 dispatch commitment is written/read back
 in a separate plan-only commit before launch. `buildReviewerArgv` is
 derivation-only. `dispatchCommittedReviewer` is the sole consuming process
@@ -68,28 +99,19 @@ commit and again from the committed child and exact single-parent plan blobs.
 Administrative abandonment is source-plan/state-bound and persists canonical
 base64 plus SHA-256 of the current user's exact UTF-8 authorization bytes.
 
-Full project CI and acceptance evidence run once at the implementation boundary
-and bind to the implementation tree plus `affected_paths`. Plan-only state,
-request, commitment, and lifecycle commits may reuse green evidence only while
-that tree and those paths are unchanged; machine-family validation and plan
-read-back still run after every plan-only commit. Any implementation-tree or
-affected-path change invalidates reuse and requires fresh full project CI and
-acceptance evidence, while release-tag and final implementation CI remain authoritative.
-
+Implementation evidence binds to the implementation tree plus `affected_paths`.
 The bound implementation identity is SHA-256 of compact JCS over sorted
 `affected_paths` entries. Each entry binds the exact repo-relative path, Git
 kind/mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the
 plan/orchestration path unless it is itself an affected implementation path.
-Before reuse, recompute and require exact digest equality. A plan-only metadata
-or orchestration commit preserves the digest; any affected-path byte, mode,
-kind, or presence change invalidates it and requires fresh full project CI and
-acceptance evidence. This contract does not change closed review-policy schemas.
-
-Completion consumes and validates the bound green project-CI evidence when the
-affected-path digest is unchanged. The disposable helper runs project CI only
-when no eligible bound result exists or the digest changed; it must not rerun
-merely because completion review began. Acceptance rows still run once as
-required.
+Plan-only state, request, commitment, and lifecycle commits reuse prior green
+implementation evidence while implementation bytes are unchanged; they still
+run machine-family validation and plan read-back, never implementation commands.
+Any affected-path byte, mode, kind, or presence change invalidates reuse and
+requires fresh targeted implementation evidence. Completion consumes the bound
+evidence when the affected-path digest is unchanged and requests only missing
+contract proof; it does not duplicate a final repository gate. Release and
+final implementation gates remain authoritative when project policy requires them.
 
 CI evidence reuse is the churn/performance fix; it never collapses authorization
 commits. Active-state, prepared-request, and dispatch-commitment commits MUST

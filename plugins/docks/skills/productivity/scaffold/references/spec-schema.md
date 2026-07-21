@@ -87,7 +87,7 @@ bundled_skills:
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-The five exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, missing-path creation, existing-plan management, read-only review, and bounded repair. `plan-creator` returns `PlanCreatedV1`; main context may then ask `plan-manager` for a schema-6 review with lifecycle intent `none`. Only manager and reviewer receive Codex wrappers. Schemas 1–5 remain validation-only.
+The five exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, missing-path creation, existing-plan management, read-only review, and bounded repair. `plan-creator` returns invocation-terminal `PlanCreatedV1`; scaffold generation does not automatically create or review a plan, and main invokes review only when the same current-user request explicitly asks for it. Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result. Only manager and reviewer receive Codex wrappers. Schemas 1–5 remain validation-only.
 
 - `source` — path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` — optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.

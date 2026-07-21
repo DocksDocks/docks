@@ -1348,16 +1348,24 @@ function validateCurrentReviewerRecord(reviewer, request, reproduced, context) {
   validateCurrentRawReview(reviewer.raw, request, context);
   if (!Array.isArray(reviewer.accepted_finding_ids) || !Array.isArray(reviewer.rejected)) throw new Error('current reviewer reconciliation arrays');
   const findings = reviewer.raw.reviewer_output?.findings || [];
-  const known = new Set(findings.map((finding) => finding.id));
+  const findingsById = new Map(findings.map((finding) => [finding.id, finding]));
+  const known = new Set(findingsById.keys());
   const used = new Set();
   for (const id of reviewer.accepted_finding_ids) {
     if (!known.has(id) || used.has(id)) throw new Error('current accepted finding id');
+    if (request.schema === 6 && findingsById.get(id).status !== 'blocking_gap') throw new Error('schema-6 accepted finding must be blocking_gap');
     used.add(id);
   }
+  const schema6RejectionReasons = new Set([
+    'not_plan_blocking',
+    'not_reproduced',
+    'defer_to_implementation_verification',
+  ]);
   for (const row of reviewer.rejected) {
     assertClosed(row, ['id', 'reason'], 'current rejected finding');
     if (!known.has(row.id) || used.has(row.id)) throw new Error('current rejected finding id');
     string(row.reason, 'current rejection reason');
+    if (request.schema === 6 && !schema6RejectionReasons.has(row.reason)) throw new Error('schema-6 rejection reason must be not_plan_blocking, not_reproduced, or defer_to_implementation_verification');
     used.add(row.id);
   }
   if (used.size !== known.size) throw new Error('current reviewer accepted/rejected reconciliation is not an exact partition');
@@ -1369,7 +1377,13 @@ function validateCurrentReviewerRecord(reviewer, request, reproduced, context) {
     reproducedIds.add(value.id);
   }
   for (const id of reviewer.accepted_finding_ids) if (!reproducedIds.has(id)) throw new Error('current accepted finding was not reproduced');
-  if (reproducedIds.size !== known.size) throw new Error('every current finding must have independent reproduction evidence');
+  if (request.schema === 6) {
+    for (const row of reviewer.rejected) {
+      if (row.reason === 'not_reproduced' && reproducedIds.has(row.id)) throw new Error('schema-6 not_reproduced finding cannot carry reproduced evidence');
+    }
+  } else if (reproducedIds.size !== known.size) {
+    throw new Error('every current finding must have independent reproduction evidence');
+  }
 }
 
 function currentBlockingFindings(reviewer) {
@@ -1381,18 +1395,21 @@ function currentAcceptedBlockingFindings(reviewer) {
   return reviewer.accepted_finding_ids.filter((id) => findings.get(id)?.status === 'blocking_gap');
 }
 
-function currentOutcome(reviewer) {
+function currentOutcome(reviewer, request) {
   const raw = reviewer.raw;
   if (raw.result === 'waived') return { outcome: 'waived', eligible: true };
   if (raw.result === 'unavailable') return { outcome: 'unavailable', eligible: false };
   if (raw.result === 'failed') return { outcome: 'not_ready', eligible: false };
-  if (currentBlockingFindings(reviewer).length > 0) return { outcome: 'not_ready', eligible: false };
+  const blocking = request.schema === 6
+    ? currentAcceptedBlockingFindings(reviewer)
+    : currentBlockingFindings(reviewer);
+  if (blocking.length > 0) return { outcome: 'not_ready', eligible: false };
   return { outcome: 'passed', eligible: true };
 }
 
-function deriveCurrentCompletionVerdict(primary, inventory, reviewer) {
+function deriveCurrentCompletionVerdict(primary, inventory, reviewer, request) {
   validatePrimary(primary, inventory);
-  const reviewOutcome = currentOutcome(reviewer);
+  const reviewOutcome = currentOutcome(reviewer, request);
   if (
     reviewOutcome.outcome === 'unavailable'
     || reviewOutcome.outcome === 'not_ready'
@@ -1416,7 +1433,7 @@ export function validateCurrentReviewRunResult(result, { waivers = [] } = {}) {
   const normalized = validateCurrentWaivers(waivers, result.request.phase, result.request.input_sha256);
   const expectedWaiver = normalized.find((waiver) => waiver.roles.includes('primary')) || null;
   validateCurrentReviewerRecord(result.reviewer, result.request, result.reproduced, { expectedWaiver });
-  const expected = currentOutcome(result.reviewer);
+  const expected = currentOutcome(result.reviewer, result.request);
   if (result.outcome !== expected.outcome) throw new Error(`current outcome mismatch: expected ${expected.outcome}`);
   if (!completion) {
     if (result.pre_execution_eligible !== expected.eligible) throw new Error('current pre_execution_eligible mismatch');
@@ -1435,7 +1452,7 @@ export function validateCurrentReviewRunResult(result, { waivers = [] } = {}) {
     result.acceptance_inventory_sha256 !== sha256(jcs(result.acceptance_inventory))
     || result.acceptance_inventory_sha256 !== result.request.acceptance_inventory_sha256
   ) throw new Error('current completion acceptance inventory mismatch');
-  const verdict = deriveCurrentCompletionVerdict(result.primary, result.acceptance_inventory, result.reviewer);
+  const verdict = deriveCurrentCompletionVerdict(result.primary, result.acceptance_inventory, result.reviewer, result.request);
   if (result.completion_verdict !== verdict) throw new Error('current completion verdict mismatch');
   return result;
 }
@@ -1650,7 +1667,7 @@ export function validateCurrentReviewSeries(series, { waivers = [] } = {}) {
     const reproduced = new Map(first.reproduced.map((value) => [value.id, value.reproduction]));
     const acceptedBlocking = first.reviewer.accepted_finding_ids.filter((id) => findings.get(id)?.status === 'blocking_gap').sort(compareUtf16);
     const rejectedBlocking = currentBlockingFindings(first.reviewer).filter((finding) => !first.reviewer.accepted_finding_ids.includes(finding.id));
-    if (rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');
+    if (schema === 5 && rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');
     if (jcs(transition.accepted_finding_ids) !== jcs(acceptedBlocking)) throw new Error('current repair targets must equal accepted blocking findings');
     for (const target of transition.targets) {
       const finding = findings.get(target.id);
@@ -2533,6 +2550,14 @@ function exactActiveFamily(bytes, { prepared = false, commitment = false, stateO
   return { ...family, ...validated, canonical };
 }
 
+function exactActiveFamilyAnyShape(bytes) {
+  const family = orchestrationPlanRecords(bytes);
+  const validated = validateCanonicalOrchestrationFamily(family.records);
+  if (validated === null || validated.state.status !== 'active') throw new Error('review orchestration family requires one active state');
+  if (validated.hasReceipt || validated.abort !== null || validated.abandonment !== null) throw new Error('active review orchestration family contains terminal, series, or receipt evidence');
+  return { ...family, ...validated, canonical: canonicalPlanView(bytes) };
+}
+
 export function advanceReviewOrchestrationRepairFamily(input) {
   assertClosed(input, ['sourcePlanBytes', 'expectedStateSha256', 'expectedPreparedRequestSha256', 'expectedDispatchCommitmentSha256', 'requestId', 'currentInputSha256'], 'advance review orchestration repair family');
   const {
@@ -2562,6 +2587,84 @@ export function advanceReviewOrchestrationRepairFamily(input) {
   const readBack = orchestrationPlanRecords(planBytes).records;
   if (readBack.has(PREPARED_REQUEST_KIND) || readBack.has(DISPATCH_COMMITMENT_KIND)) throw new Error('repair family cleanup left stale prepared or dispatch evidence');
   return { planBytes, state };
+}
+
+export function settleReviewOrchestrationFamily(input) {
+  assertClosed(input, [
+    'sourcePlanBytes', 'currentPlanBytes', 'expectedStateSha256',
+    'expectedPreparedRequestSha256', 'expectedDispatchCommitmentSha256',
+    'series', 'receipt',
+  ], 'settle review orchestration family');
+  const {
+    sourcePlanBytes, currentPlanBytes, expectedStateSha256,
+    expectedPreparedRequestSha256, expectedDispatchCommitmentSha256,
+    series, receipt,
+  } = input;
+  digest(expectedStateSha256, 'expected orchestration state');
+  digest(expectedPreparedRequestSha256, 'expected prepared request');
+  digest(expectedDispatchCommitmentSha256, 'expected dispatch commitment');
+  const family = exactActiveFamily(sourcePlanBytes, { prepared: true, commitment: true });
+  if (family.state.state_sha256 !== expectedStateSha256) throw new Error('expected orchestration state hash mismatch');
+  if (sha256(jcs(family.preparedRequest)) !== expectedPreparedRequestSha256) throw new Error('expected prepared request hash mismatch');
+  if (sha256(jcs(family.commitment)) !== expectedDispatchCommitmentSha256) throw new Error('expected dispatch commitment hash mismatch');
+  if (family.state.current_input_sha256 !== sha256(family.canonical)) {
+    throw new Error('settlement canonical input does not match the active orchestration state');
+  }
+  const state = settleReviewOrchestration({ state: family.state, series });
+  const finalRound = series.rounds.at(-1);
+  if (jcs(finalRound.request) !== jcs(family.preparedRequest.request)) {
+    throw new Error('settlement series request does not match the exact prepared request');
+  }
+  const attempts = finalRound.reviewer.raw.attempts;
+  const finalAttempt = attempts.at(-1);
+  if (
+    attempts.length !== family.commitment.candidate_index + 1
+    || jcs(attempts.slice(0, -1)) !== jcs(family.commitment.prior_attempts)
+    || jcs(finalAttempt?.candidate) !== jcs(family.commitment.candidate)
+  ) throw new Error('settlement attempts do not match the exact dispatch commitment');
+  if (receipt?.schema !== 6 || receipt.phase !== family.state.phase || jcs(receipt.series) !== jcs(series)) {
+    throw new Error('settlement receipt must match the exact ReviewSeriesV6 and phase');
+  }
+  const waiver = receipt.reviewer?.raw?.waiver ?? null;
+  validateCurrentReviewReceipt(receipt, null, {
+    waivers: waiver === null ? [] : [waiver],
+    expectedPolicy: receipt.policy,
+    orchestration: state,
+  });
+  const receiptKind = family.state.phase === 'draft' ? 'Review-receipt' : 'Completion-review-receipt';
+  const expectedPlanBytes = rewriteOrchestrationRecords(
+    sourcePlanBytes,
+    new Map([
+      [ORCHESTRATION_STATE_KIND, state],
+      [PREPARED_REQUEST_KIND, null],
+      [DISPATCH_COMMITMENT_KIND, null],
+    ]),
+    [[receiptKind, receipt]],
+  );
+  const readBackRecords = orchestrationPlanRecords(expectedPlanBytes).records;
+  const readBack = validateCanonicalOrchestrationFamily(readBackRecords);
+  if (
+    readBack === null
+    || readBack.preparedRequest !== null
+    || readBack.commitment !== null
+    || jcs(readBack.state) !== jcs(state)
+    || jcs(readBackRecords.get(receiptKind)) !== jcs(receipt)
+    || canonicalPlanView(expectedPlanBytes) !== family.canonical
+  ) throw new Error('settled review family does not match the exact prepared parent');
+  const sourceBytes = Buffer.from(sourcePlanBytes);
+  const currentBytes = Buffer.from(currentPlanBytes);
+  const settledBytes = Buffer.from(expectedPlanBytes);
+  if (!currentBytes.equals(sourceBytes) && !currentBytes.equals(settledBytes)) {
+    throw new Error('settlement replay differs from the exact source-bound child');
+  }
+  const replayed = currentBytes.equals(settledBytes);
+  return {
+    planBytes: replayed ? currentBytes : settledBytes,
+    state,
+    receipt: structuredClone(receipt),
+    reviewedAt: receipt.reviewed_at,
+    replayed,
+  };
 }
 
 export function abortReviewControllerConfig(input) {
@@ -2615,7 +2718,7 @@ export function abandonReviewOrchestration(input) {
   } = input;
   digest(expectedStateSha256, 'expected orchestration state');
   iso(recordedAt, 'review orchestration abandonment time');
-  const family = exactActiveFamily(sourcePlanBytes, { stateOnly: true });
+  const family = exactActiveFamilyAnyShape(sourcePlanBytes);
   activePlanPath(family.state.plan_path, 'review abandonment plan path');
   if (family.state.state_sha256 !== expectedStateSha256) throw new Error('expected orchestration state hash mismatch');
   validateAbandonmentAuthorization(authorization, family.state, sourceTextBytes);
@@ -2638,9 +2741,12 @@ export function abandonReviewOrchestration(input) {
   };
   validateAbandonmentRecord(abandonment, family.state);
   const state = terminalStateFromRecord(family.state, 'authorized_abandonment', abandonment);
+  const replacements = new Map([[ORCHESTRATION_STATE_KIND, state]]);
+  if (family.preparedRequest !== null) replacements.set(PREPARED_REQUEST_KIND, null);
+  if (family.commitment !== null) replacements.set(DISPATCH_COMMITMENT_KIND, null);
   const planBytes = rewriteOrchestrationRecords(
     sourcePlanBytes,
-    new Map([[ORCHESTRATION_STATE_KIND, state]]),
+    replacements,
     [[ABANDONMENT_KIND, abandonment]],
   );
   validateCanonicalOrchestrationFamily(orchestrationPlanRecords(planBytes).records);
@@ -2655,9 +2761,9 @@ export function validateReviewTerminalFamily(input) {
   if (current === null || (current.abort === null && current.abandonment === null)) throw new Error('current plan does not contain one review terminal family');
   const terminalRecord = current.abort ?? current.abandonment;
   if (terminalRecord.source_plan_blob_sha256 !== sha256(Buffer.from(parentPlanBytes))) throw new Error('terminal source plan blob hash does not match exact parent bytes');
-  const parent = exactActiveFamily(parentPlanBytes, current.abort !== null
-    ? { prepared: true, commitment: false }
-    : { stateOnly: true });
+  const parent = current.abort !== null
+    ? exactActiveFamily(parentPlanBytes, { prepared: true, commitment: false })
+    : exactActiveFamilyAnyShape(parentPlanBytes);
   if (current.state.terminated_from_state_sha256 !== parent.state.state_sha256 || jcs(current.state.terminated_from_state) !== jcs(parent.state)) throw new Error('terminal embedded source state does not match exact parent state');
   if (current.abort !== null && jcs(current.preparedRequest) !== jcs(parent.preparedRequest)) throw new Error('controller abort prepared request does not match exact parent family');
   if (canonicalPlanView(currentPlanBytes) !== canonicalPlanView(parentPlanBytes)) throw new Error('terminal child and parent canonical plan bytes differ');
@@ -2677,9 +2783,12 @@ function identicalRecoveryRecords(left, right) {
 }
 
 export function replaceReviewTerminalFamily(input) {
-  assertClosed(input, ['sourcePlanBytes', 'currentPlanBytes', 'seriesId', 'requestId'], 'replace review terminal family');
-  const { sourcePlanBytes, currentPlanBytes, seriesId, requestId } = input;
+  assertClosed(input, ['sourcePlanBytes', 'currentPlanBytes', 'phase', 'lifecycleIntent', 'seriesId', 'requestId'], 'replace review terminal family');
+  const { sourcePlanBytes, currentPlanBytes, phase, lifecycleIntent, seriesId, requestId } = input;
   if (!UUID.test(seriesId) || !UUID.test(requestId) || seriesId === requestId) throw new Error('replacement requires fresh series and request identities');
+  oneOf(phase, new Set(['draft', 'completion']), 'terminal replacement phase');
+  oneOf(lifecycleIntent, new Set(['none', 'start', 'schedule_fire', 'auto_execute']), 'terminal replacement lifecycle intent');
+  if (phase === 'completion' && lifecycleIntent !== 'none') throw new Error('completion terminal replacement requires lifecycle intent none');
   const sourceParsed = orchestrationPlanRecords(sourcePlanBytes);
   const source = validateCanonicalOrchestrationFamily(sourceParsed.records);
   if (source === null || (source.abort === null && source.abandonment === null)) throw new Error('replacement source must be an exact terminal family');
@@ -2691,9 +2800,21 @@ export function replaceReviewTerminalFamily(input) {
   if (!identicalRecoveryRecords(sourceParsed.records, currentParsed.records)) throw new Error('terminal replacement CAS must retain the exact source family');
   const sourceCanonical = canonicalPlanView(sourcePlanBytes);
   const currentCanonical = canonicalPlanView(currentPlanBytes);
-  if (sourceCanonical === currentCanonical) throw new Error('terminal replacement requires materially changed canonical input; same-input or metadata-only replacement is forbidden');
+  const canonicalChanged = sourceCanonical !== currentCanonical;
+  const operationChanged = (
+    phase !== source.state.phase
+    || orchestrationIntentGroup(phase, lifecycleIntent)
+      !== orchestrationIntentGroup(source.state.phase, source.state.lifecycle_intent)
+  );
+  if (source.abandonment !== null) {
+    if (!canonicalChanged && !operationChanged) throw new Error('authorized abandonment replacement rejects the same operation and input');
+  } else if (!canonicalChanged) {
+    throw new Error('controller terminal replacement requires materially changed canonical input');
+  }
   const currentInputSha256 = sha256(currentCanonical);
   const state = validateReviewOrchestrationState(normalOrchestrationStateV2(source.state, {
+    phase,
+    lifecycle_intent: lifecycleIntent,
     initial_input_sha256: currentInputSha256,
     current_input_sha256: currentInputSha256,
     orchestration_attempt: 1,
@@ -4706,9 +4827,19 @@ function reviewerPrompt(leg, request, bundle) {
     const modeRules = request.review_mode === 'full'
       ? 'This is the full round-one review.'
       : 'This is the only repair review. Inspect only accepted repair targets and blocking regressions introduced by their repair; do not reopen unrelated decisions.';
+    const phaseRules = request.schema === 6
+      ? request.phase === 'draft'
+        ? `For request.phase === "draft", blocking_gap is eligible only when implementation cannot safely and correctly start because of an unresolved required user decision, contradictory goal/scope/interface, unsafe or unauthorized action, impossible dependency order, missing first executable step, or absent/non-executable acceptance contract.
+Code style, optional refactors/docs, speculative performance, exhaustive implementation edge cases, exact internal symbol choices, and defects best established by running the implementation are non_blocking_gap with rejection/defer reason defer_to_implementation_verification.
+A complete simple plan may return pass; there is no finding quota and no instruction to improve until perfect.`
+        : `For request.phase === "completion", classify only defects observable in the sealed plan, committed diff, and acceptance inventory: goal/scope/public-contract/safety contradictions, unreviewable diff coverage, or an acceptance criterion missing from the inventory.
+The completion reviewer does not receive or infer command results.
+Missing or failed required acceptance evidence and observed runtime regressions are manager-owned through the hash-bound primary completion evidence. Speculative concerns remain nonblocking. Never run tests or CI.`
+      : '';
     return `You are the single primary plan reviewer. Read only the sealed bundle and return typed evidence. Sealed bundle: ${path.resolve(bundle)}. Copy the request object exactly into ReviewerOutput.request.
 Evaluate exactly these criteria: ${CURRENT_CRITERIA.join(', ')}. Each criterion needs pass, non_blocking_gap, or blocking_gap plus nonempty evidence. The verdict equals the strongest status. Every gap needs a matching finding; pass has no findings.
 A blocking finding must name the exact user requirement, safety property, or execution step that would fail. Do not emit a numeric score or rubric.
+${phaseRules}
 ${modeRules}
 ${requestBlock}`;
   }

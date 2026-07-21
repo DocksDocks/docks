@@ -535,7 +535,10 @@ function testRepairSeries() {
   );
   const manager = fs.readFileSync('plugins/docks/skills/productivity/plan-manager/SKILL.md', 'utf8');
   assert.doesNotMatch(manager, /fresh request over the unchanged input/i);
-  assert.match(manager, /blocking_gap.*run `not_ready`.*rejected.*reconciliation/is);
+  assert.match(
+    manager,
+    /accepted IDs name reproduced `blocking_gap`[\s\S]*rejected finding uses exactly one schema-6 reason[\s\S]*never opens repair/i,
+  );
   testSchema6RepairSeries();
   console.log('repair series recomputes targets and no-change review terminates');
 }
@@ -1162,6 +1165,22 @@ function testSchema6RepairSeries() {
   const series = schema6Series([schema6Run(firstRequest, 'blocking_gap'), schema6Run(repairRequest)], [transition]);
   policy.validateReviewSeries(series);
 
+  const rejectedBlockingRun = {
+    schema: 6,
+    kind: 'draft',
+    request: firstRequest,
+    reviewer: {
+      raw: schema6Raw(firstRequest, 'blocking_gap'),
+      accepted_finding_ids: [],
+      rejected: [{ id: 'P1', reason: 'not_plan_blocking' }],
+    },
+    reproduced: [],
+    outcome: 'passed',
+    pre_execution_eligible: true,
+  };
+  policy.validateDraftRunResult(rejectedBlockingRun);
+  policy.validateReviewSeries(schema6Series([rejectedBlockingRun]));
+
   for (const field of ['previous_orchestration_state_sha256', 'current_orchestration_state_sha256']) {
     const changed = structuredClone(series);
     changed.repairs[0][field] = H0;
@@ -1676,6 +1695,153 @@ function testSingleRepair(focus = null) {
       );
     },
   };
+  const schema6RejectedBlockerEntry = {
+    label: 'schema6 rejected blocker reconciliation regression',
+    run() {
+      const state = beginSchema6State({ inputSha256: H1 });
+      const req = schema6Request(state);
+      const reconciledRun = (status, reason, accepted = false, reproduced = []) => ({
+        schema: 6,
+        kind: 'draft',
+        request: req,
+        reviewer: {
+          raw: schema6Raw(req, status),
+          accepted_finding_ids: accepted ? ['P1'] : [],
+          rejected: accepted ? [] : [{ id: 'P1', reason }],
+        },
+        reproduced,
+        outcome: accepted && status === 'blocking_gap' ? 'not_ready' : 'passed',
+        pre_execution_eligible: !(accepted && status === 'blocking_gap'),
+      });
+
+      const rejectedBlocking = reconciledRun('blocking_gap', 'not_plan_blocking');
+      assert.doesNotThrow(
+        () => policy.validateDraftRunResult(rejectedBlocking),
+        'schema 6 derives pass from accepted independently reproduced blockers, not raw blocking findings',
+      );
+      assert.doesNotThrow(
+        () => policy.validateReviewSeries(schema6Series([rejectedBlocking])),
+        'a rejected schema-6 blocker settles after the full round without repair',
+      );
+
+      const nonblocking = reconciledRun('non_blocking_gap', 'defer_to_implementation_verification');
+      assert.doesNotThrow(
+        () => policy.validateDraftRunResult(nonblocking),
+        'a rejected nonblocking schema-6 finding does not require reproduction',
+      );
+
+      const reproduction = {
+        id: 'P1',
+        reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H0 },
+      };
+      assert.throws(
+        () => policy.validateDraftRunResult(reconciledRun('blocking_gap', null, true)),
+        /accepted.*reproduced|reproduced.*accepted/i,
+        'an accepted schema-6 blocker still requires independent reproduction',
+      );
+      assert.doesNotThrow(
+        () => policy.validateDraftRunResult(reconciledRun('blocking_gap', null, true, [reproduction])),
+        'an accepted independently reproduced schema-6 blocker remains non-passing',
+      );
+
+      const acceptedFirst = reconciledRun('blocking_gap', null, true, [reproduction]);
+      const repairState = policy.advanceReviewOrchestrationRepair({
+        state,
+        requestId: randomUUID(),
+        currentInputSha256: H2,
+      });
+      const transition = buildSchema6RepairTransition(state, repairState);
+      const repairReq = schema6Request(repairState, {
+        bundleSha256: H0,
+        previousInputSha256: req.input_sha256,
+        repairTargetsSha256: transition.repair_targets_sha256,
+      });
+      const roundTwoRun = ({ id, accepted, reason = null }) => {
+        const finding = { ...currentFinding(), id, locator: id === 'P1' ? 'A1' : 'A2' };
+        const output = {
+          ...schema6Output(repairReq, 'blocking_gap'),
+          findings: [finding],
+        };
+        const raw = schema6Raw(repairReq, 'blocking_gap', output);
+        const roundTwoReproduction = {
+          id,
+          reproduction: { method: 'read', command: null, exit_code: null, evidence_sha256: H1 },
+        };
+        return {
+          schema: 6,
+          kind: 'draft',
+          request: repairReq,
+          reviewer: {
+            raw,
+            accepted_finding_ids: accepted ? [id] : [],
+            rejected: accepted ? [] : [{ id, reason }],
+          },
+          reproduced: accepted ? [roundTwoReproduction] : [],
+          outcome: accepted ? 'not_ready' : 'passed',
+          pre_execution_eligible: !accepted,
+        };
+      };
+      for (const [label, roundTwo] of [
+        ['accepted persisted repair target', roundTwoRun({ id: 'P1', accepted: true })],
+        ['accepted repair-introduced regression', roundTwoRun({ id: 'P2', accepted: true })],
+        [
+          'rejected unrelated round-two blocker',
+          roundTwoRun({ id: 'P2', accepted: false, reason: 'not_plan_blocking' }),
+        ],
+      ]) {
+        assert.doesNotThrow(
+          () => policy.validateReviewSeries(schema6Series([acceptedFirst, roundTwo], [transition])),
+          `${label} is a valid terminal two-round schema-6 series`,
+        );
+      }
+
+      for (const reason of ['not_plan_blocking', 'not_reproduced', 'defer_to_implementation_verification']) {
+        assert.doesNotThrow(
+          () => policy.validateDraftRunResult(reconciledRun('blocking_gap', reason)),
+          `schema 6 accepts exact rejection reason ${reason}`,
+        );
+      }
+      assert.throws(
+        () => policy.validateDraftRunResult(reconciledRun('blocking_gap', 'not_reproduced', false, [reproduction])),
+        /not_reproduced.*reproduced|reproduced.*not_reproduced/i,
+        'schema-6 not_reproduced is valid only when that finding lacks reproduction evidence',
+      );
+      assert.throws(
+        () => policy.validateDraftRunResult(reconciledRun('blocking_gap', 'manager_disagreed')),
+        /rejection.*reason|reason.*schema.?6|not_plan_blocking|not_reproduced|defer_to_implementation_verification/i,
+        'schema 6 rejects reasons outside the exact closed vocabulary',
+      );
+
+      const schema5Request = currentRequest();
+      const schema5RejectedBlocker = {
+        schema: 5,
+        kind: 'draft',
+        request: schema5Request,
+        reviewer: {
+          raw: currentRaw(schema5Request, 'blocking_gap'),
+          accepted_finding_ids: [],
+          rejected: [{ id: 'P1', reason: 'schema 5 keeps arbitrary nonempty manager reasons' }],
+        },
+        reproduced: [reproduction],
+        outcome: 'not_ready',
+        pre_execution_eligible: false,
+      };
+      assert.doesNotThrow(
+        () => policy.validateDraftRunResult(schema5RejectedBlocker),
+        'schema 5 keeps arbitrary nonempty rejection reasons and raw-blocker outcome derivation',
+      );
+      assert.throws(
+        () =>
+          policy.validateDraftRunResult({
+            ...schema5RejectedBlocker,
+            outcome: 'passed',
+            pre_execution_eligible: true,
+          }),
+        /outcome mismatch/i,
+        'schema 5 continues to derive its outcome from raw blocking findings',
+      );
+    },
+  };
   const transitionRulesEntry = {
     run() {
       const { first, roundOne, transition, second, roundTwo, series } = makeSingleRepairState();
@@ -1783,19 +1949,21 @@ function testSingleRepair(focus = null) {
     seriesDriftEntry,
     completionIdentityEntry,
     rejectedBlockerEntry,
+    schema6RejectedBlockerEntry,
   ];
   const broadEntries = [
     findingIdentityEntry,
     sourceBindingEntry,
     transitionRulesEntry,
     rejectedBlockerEntry,
+    schema6RejectedBlockerEntry,
     seriesDriftEntry,
     completionIdentityEntry,
     runKindEntry,
   ];
   runFocusedEntries('single-repair', focus, entries, broadEntries);
   console.log(
-    'single repair requires every raw blocker accepted and reproduced, changed input, and exactly two rounds',
+    'single repair preserves schema-5 raw-blocker behavior while schema 6 repairs only accepted independently reproduced blockers',
   );
 }
 
@@ -1984,7 +2152,7 @@ function testCurrentBundles(focus = null) {
 
 function testCurrentReviewerArgv() {
   const fixture = initializeFixture();
-  let prepared = null;
+  const prepared = [];
   try {
     const bundle = path.join(fixture.root, 'current-argv-bundle');
     const sealed = policy.sealBundle({
@@ -2001,12 +2169,12 @@ function testCurrentReviewerArgv() {
       input_sha256: sealed.input_sha256,
       bundle_sha256: sealed.bundle_sha256,
     });
-    prepared = policy.prepareReviewerWorkspace({ requestId: req.request_id, leg: 'primary' });
+    prepared.push(policy.prepareReviewerWorkspace({ requestId: req.request_id, leg: 'primary' }));
     const gpt = CURRENT_POLICY.candidates[0];
     const correct = {
       tool: gpt.tool,
       bundle,
-      reviewerWorkspace: prepared,
+      reviewerWorkspace: prepared[0],
       model: gpt.model,
       effort: gpt.effort,
       serviceTier: gpt.service_tier,
@@ -2093,10 +2261,179 @@ function testCurrentReviewerArgv() {
         }),
       /candidate.*order|attempt.*order/i,
     );
+
+    const fullBundlePath = path.join(fixture.root, 'schema-6-current-argv-full');
+    const fullBundle = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: fullBundlePath,
+      reviewSchema: 6,
+    });
+    const fullState = beginSchema6State({
+      inputSha256: fullBundle.input_sha256,
+      requestId: randomUUID(),
+      seriesId: randomUUID(),
+    });
+    const fullRequest = schema6Request(fullState, {
+      bundleSha256: fullBundle.bundle_sha256,
+      reviewedCommitOrHead: fixture.currentCommit,
+    });
+
+    const repairFirstState = beginSchema6State({
+      inputSha256: policy.sha256(fixture.previousPlan),
+      requestId: randomUUID(),
+      seriesId: randomUUID(),
+    });
+    const repairState = policy.advanceReviewOrchestrationRepair({
+      state: repairFirstState,
+      requestId: randomUUID(),
+      currentInputSha256: policy.sha256(fixture.currentPlan),
+    });
+    const repairTransition = buildSchema6RepairTransition(repairFirstState, repairState);
+    const repairBundlePath = path.join(fixture.root, 'schema-6-current-argv-repair');
+    const repairBundle = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: fixture.currentCommit,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: repairBundlePath,
+      reviewSchema: 6,
+      repair: { previousPlan: fixture.previousPlan, transition: repairTransition },
+    });
+    const repairRequest = schema6Request(repairState, {
+      bundleSha256: repairBundle.bundle_sha256,
+      reviewedCommitOrHead: fixture.currentCommit,
+      previousInputSha256: repairFirstState.current_input_sha256,
+      repairTargetsSha256: repairTransition.repair_targets_sha256,
+    });
+
+    const plannedAtCommit = fixture.currentCommit;
+    const plannedExecutionText = plan(2).replace('planned_at_commit: null', `planned_at_commit: "${plannedAtCommit}"`);
+    fs.writeFileSync(path.join(fixture.repo, 'docs/plans/active/repair.md'), plannedExecutionText);
+    git(fixture.repo, ['add', 'docs/plans/active/repair.md']);
+    git(fixture.repo, ['commit', '-qm', 'bind planned execution identity']);
+
+    const startedText = plannedExecutionText
+      .replace('status: planned', 'status: ongoing')
+      .replace('updated: "2026-07-16T00:00:00-03:00"', 'updated: "2026-07-16T00:01:00-03:00"')
+      .replace('assignee: codex', 'started_at: "2026-07-16T00:01:00-03:00"\nassignee: codex');
+    fs.writeFileSync(path.join(fixture.repo, 'docs/plans/active/repair.md'), startedText);
+    git(fixture.repo, ['add', 'docs/plans/active/repair.md']);
+    git(fixture.repo, ['commit', '-qm', 'start execution']);
+    const executionBaseCommit = git(fixture.repo, ['rev-parse', 'HEAD']);
+
+    const completionHeadText = startedText.replace(
+      'execution_base_commit: null',
+      `execution_base_commit: "${executionBaseCommit}"`,
+    );
+    fs.writeFileSync(path.join(fixture.repo, 'docs/plans/active/repair.md'), completionHeadText);
+    git(fixture.repo, ['add', 'docs/plans/active/repair.md']);
+    git(fixture.repo, ['commit', '-qm', 'bind execution base']);
+    const completionHead = git(fixture.repo, ['rev-parse', 'HEAD']);
+
+    const completionBundlePath = path.join(fixture.root, 'schema-6-current-argv-completion');
+    const completionBundle = policy.sealBundle({
+      repo: fixture.repo,
+      reviewedCommit: completionHead,
+      planPath: 'docs/plans/active/repair.md',
+      requestedPaths: ['src/example.txt'],
+      outDir: completionBundlePath,
+      plannedAtCommit,
+      executionBaseCommit,
+      reviewSchema: 6,
+    });
+    const completionState = policy.beginReviewOrchestration({
+      planPath: 'docs/plans/active/repair.md',
+      phase: 'completion',
+      lifecycleIntent: 'none',
+      inputSha256: completionBundle.input_sha256,
+      seriesId: randomUUID(),
+      requestId: randomUUID(),
+      orchestrationAttempt: 1,
+      previousState: null,
+      retryAuthorization: null,
+      sourceText: null,
+    });
+    const completionRequest = {
+      ...schema6Request(completionState, {
+        bundleSha256: completionBundle.bundle_sha256,
+        reviewedCommitOrHead: completionHead,
+      }),
+      phase: 'completion',
+      planned_at_commit: plannedAtCommit,
+      execution_base_commit: executionBaseCommit,
+      diff_sha256: completionBundle.completion.diff_sha256,
+      acceptance_inventory_sha256: completionBundle.completion.acceptance_inventory_sha256,
+    };
+
+    const schema6Prompt = (bundlePath, request) => {
+      const workspace = policy.prepareReviewerWorkspace({ requestId: request.request_id, leg: 'primary' });
+      prepared.push(workspace);
+      return policy
+        .buildReviewerArgv({
+          tool: gpt.tool,
+          bundle: bundlePath,
+          reviewerWorkspace: workspace,
+          model: gpt.model,
+          effort: gpt.effort,
+          serviceTier: gpt.service_tier,
+          leg: 'primary',
+          request,
+          priorAttempts: [],
+        })
+        .at(-1);
+    };
+    const fullPrompt = schema6Prompt(fullBundlePath, fullRequest);
+    const repairPrompt = schema6Prompt(repairBundlePath, repairRequest);
+    const completionPrompt = schema6Prompt(completionBundlePath, completionRequest);
+
+    const draftBlockingRule =
+      'For request.phase === "draft", blocking_gap is eligible only when implementation cannot safely and correctly start because of an unresolved required user decision, contradictory goal/scope/interface, unsafe or unauthorized action, impossible dependency order, missing first executable step, or absent/non-executable acceptance contract.';
+    const draftDeferRule =
+      'Code style, optional refactors/docs, speculative performance, exhaustive implementation edge cases, exact internal symbol choices, and defects best established by running the implementation are non_blocking_gap with rejection/defer reason defer_to_implementation_verification.';
+    const draftQuotaRule =
+      'A complete simple plan may return pass; there is no finding quota and no instruction to improve until perfect.';
+    for (const [mode, prompt] of [
+      ['draft-full', fullPrompt],
+      ['draft-repair', repairPrompt],
+    ]) {
+      assert.equal(prompt.includes(draftBlockingRule), true, `${mode} prompt carries the exact plan-blocker rubric`);
+      assert.equal(
+        prompt.includes(draftDeferRule),
+        true,
+        `${mode} prompt carries the exact implementation-defer rubric`,
+      );
+      assert.equal(prompt.includes(draftQuotaRule), true, `${mode} prompt forbids a finding quota`);
+    }
+    const completionEvidenceRule =
+      'For request.phase === "completion", classify only defects observable in the sealed plan, committed diff, and acceptance inventory: goal/scope/public-contract/safety contradictions, unreviewable diff coverage, or an acceptance criterion missing from the inventory.';
+    const completionCommandRule = 'The completion reviewer does not receive or infer command results.';
+    assert.equal(
+      completionPrompt.includes(completionEvidenceRule),
+      true,
+      'completion prompt limits review to defects observable in sealed evidence',
+    );
+    assert.equal(
+      completionPrompt.includes(completionCommandRule),
+      true,
+      'completion prompt forbids command-result inference',
+    );
+    assert.equal(
+      completionPrompt.includes(draftBlockingRule),
+      false,
+      'completion prompt does not reuse the pre-implementation blocker rubric',
+    );
     console.log('schema-5 reviewer argv binds prior attempts and the exact next policy candidate');
   } finally {
-    if (prepared !== null && fs.existsSync(prepared.workspace)) {
-      policy.cleanupReviewerWorkspace({ requestId: prepared.request_id, leg: prepared.leg, prepared });
+    for (const workspace of prepared) {
+      if (!fs.existsSync(workspace.workspace)) continue;
+      policy.cleanupReviewerWorkspace({
+        requestId: workspace.request_id,
+        leg: workspace.leg,
+        prepared: workspace,
+      });
     }
     makeWritable(fixture.root);
     fs.rmSync(fixture.root, { recursive: true, force: true });
@@ -2112,6 +2449,7 @@ const focusedCases = new Map([
       'current series drift regression',
       'current completion execution-identity drift regression',
       'current rejected-blocker repair regression',
+      'schema6 rejected blocker reconciliation regression',
     ],
   ],
   [

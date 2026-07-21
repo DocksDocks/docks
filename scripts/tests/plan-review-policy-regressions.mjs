@@ -801,7 +801,12 @@ function orchestrationAttempt(candidate, result) {
   };
 }
 
-function orchestrationSeries(api, state, attemptResults, { staleInput = false, notReady = false } = {}) {
+function orchestrationSeries(
+  api,
+  state,
+  attemptResults,
+  { staleInput = false, notReady = false, request: exactRequest = null } = {},
+) {
   const reviewPolicy = {
     schema: 6,
     role: 'primary',
@@ -820,29 +825,34 @@ function orchestrationSeries(api, state, attemptResults, { staleInput = false, n
     },
   };
   const inputSha256 = staleInput ? '9'.repeat(64) : state.current_input_sha256;
-  const request = {
-    schema: 6,
-    request_id: state.request_ids.at(-1),
-    phase: state.phase,
-    lifecycle_intent: state.lifecycle_intent,
-    reviewed_commit_or_head: '5'.repeat(40),
-    planned_at_commit: null,
-    execution_base_commit: null,
-    diff_sha256: null,
-    acceptance_inventory_sha256: null,
-    input_sha256: inputSha256,
-    bundle_sha256: '8'.repeat(64),
-    author: { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
-    policy: reviewPolicy,
-    policy_sha256: api.sha256(api.jcs(reviewPolicy)),
-    review_mode: state.round_index === 1 ? 'full' : 'repair',
-    round_index: state.round_index,
-    previous_input_sha256: state.round_index === 1 ? null : state.initial_input_sha256,
-    repair_targets_sha256: state.round_index === 1 ? null : '7'.repeat(64),
-    orchestration_series_id: state.series_id,
-    orchestration_state_sha256: state.state_sha256,
-  };
-  const attempts = attemptResults.map((result, index) => orchestrationAttempt(reviewPolicy.candidates[index], result));
+  const request =
+    exactRequest === null
+      ? {
+          schema: 6,
+          request_id: state.request_ids.at(-1),
+          phase: state.phase,
+          lifecycle_intent: state.lifecycle_intent,
+          reviewed_commit_or_head: '5'.repeat(40),
+          planned_at_commit: null,
+          execution_base_commit: null,
+          diff_sha256: null,
+          acceptance_inventory_sha256: null,
+          input_sha256: inputSha256,
+          bundle_sha256: '8'.repeat(64),
+          author: { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
+          policy: reviewPolicy,
+          policy_sha256: api.sha256(api.jcs(reviewPolicy)),
+          review_mode: state.round_index === 1 ? 'full' : 'repair',
+          round_index: state.round_index,
+          previous_input_sha256: state.round_index === 1 ? null : state.initial_input_sha256,
+          repair_targets_sha256: state.round_index === 1 ? null : '7'.repeat(64),
+          orchestration_series_id: state.series_id,
+          orchestration_state_sha256: state.state_sha256,
+        }
+      : structuredClone(exactRequest);
+  const attempts = attemptResults.map((result, index) =>
+    orchestrationAttempt(request.policy.candidates[index], result),
+  );
   const passed = attempts.at(-1)?.result === 'passed';
   const checklist = Object.fromEntries(
     [
@@ -925,7 +935,7 @@ function orchestrationSeries(api, state, attemptResults, { staleInput = false, n
     orchestration_series_id: state.series_id,
     policy_sha256: request.policy_sha256,
     initial_input_sha256: state.initial_input_sha256,
-    current_input_sha256: inputSha256,
+    current_input_sha256: request.input_sha256,
     rounds: [run],
     repairs: [],
   };
@@ -2049,8 +2059,8 @@ const REGRESSIONS = [
     /blocking_gap.*terminal|outcome mismatch|Missing expected exception|Assertion/i,
     applyVariant(
       'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-      "if (currentBlockingFindings(reviewer).length > 0) return { outcome: 'not_ready', eligible: false };",
-      "if (currentAcceptedBlockingFindings(reviewer).length > 0) return { outcome: 'not_ready', eligible: false };",
+      '  const blocking = request.schema === 6\n    ? currentAcceptedBlockingFindings(reviewer)\n    : currentBlockingFindings(reviewer);',
+      '  const blocking = currentBlockingFindings(reviewer);',
     ),
   ],
   [
@@ -2175,8 +2185,19 @@ const REGRESSIONS = [
     /rejected.*blocking|blocking.*rejected|Missing expected exception|Assertion/i,
     applyVariant(
       'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-      "if (rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');",
-      "if (false && rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');",
+      "if (schema === 5 && rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');",
+      "if (false && schema === 5 && rejectedBlocking.length > 0) throw new Error('current repair series cannot leave a rejected blocking finding outside repair');",
+    ),
+    CONVERGENCE_HARNESS,
+  ],
+  [
+    'schema6 rejected blocker reconciliation regression',
+    ['--case', 'single-repair'],
+    /schema.?6|rejected|blocking|outcome|repair|Assertion/i,
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+      '  const blocking = request.schema === 6\n    ? currentAcceptedBlockingFindings(reviewer)\n    : currentBlockingFindings(reviewer);',
+      '  const blocking = currentBlockingFindings(reviewer);',
     ),
     CONVERGENCE_HARNESS,
   ],
@@ -2448,8 +2469,8 @@ const REGRESSIONS = [
     /repair|commitment|stale|Assertion/i,
     applyVariant(
       'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-      '    [DISPATCH_COMMITMENT_KIND, null],',
-      '    [DISPATCH_COMMITMENT_KIND, family.commitment],',
+      '    [PREPARED_REQUEST_KIND, null],\n    [DISPATCH_COMMITMENT_KIND, null],',
+      '    [PREPARED_REQUEST_KIND, null],\n    [DISPATCH_COMMITMENT_KIND, family.commitment],',
     ),
     ORCHESTRATION_HARNESS,
   ],
@@ -2648,6 +2669,28 @@ const REGRESSIONS = [
     ),
     ORCHESTRATION_HARNESS,
   ],
+  [
+    'different operation after abandonment regression',
+    ['--orchestration-oracle'],
+    /replace|abandon|operation|phase|intent|terminal|Assertion/i,
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+      "const ORCHESTRATION_TERMINAL_REASONS = new Set(['controller_contract_failure', 'authorized_abandonment']);",
+      "const ORCHESTRATION_TERMINAL_REASONS = new Set(['controller_contract_failure']);",
+    ),
+    ORCHESTRATION_HARNESS,
+  ],
+  [
+    'committed dispatch abandonment regression',
+    ['--orchestration-oracle'],
+    /settle|abandon|receipt|commitment|dispatch|Assertion|TypeError/i,
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+      "  const status = derived.eligible ? 'passed' : orchestrationTerminalStatus(state, derived.stopReason);",
+      "  const status = 'passed';",
+    ),
+    ORCHESTRATION_HARNESS,
+  ],
 ];
 
 const POLICY_SELECTORS = new Set([
@@ -2677,7 +2720,7 @@ const BASELINE_NAMES = [
 ];
 
 function validateRegressionCatalog(rows) {
-  assert.equal(rows.length, 140, 'regression catalog must contain exactly 140 rows');
+  assert.equal(rows.length, 143, 'regression catalog must contain exactly 143 rows');
   const labels = new Set();
   const catalog = rows.map((row, index) => {
     assert.ok(Array.isArray(row) && (row.length === 4 || row.length === 5), `regression ${index}: tuple shape`);
@@ -2716,13 +2759,13 @@ function validateRegressionCatalog(rows) {
   });
   assert.equal(
     catalog.filter(({ harness }) => harness === ORCHESTRATION_HARNESS).length,
-    41,
-    'regression catalog must contain exactly 41 orchestration rows',
+    43,
+    'regression catalog must contain exactly 43 orchestration rows',
   );
   assert.equal(
     catalog.filter(({ harness }) => harness !== ORCHESTRATION_HARNESS).length,
-    99,
-    'regression catalog must contain exactly 99 policy/convergence rows',
+    100,
+    'regression catalog must contain exactly 100 policy/convergence rows',
   );
   assert.ok(
     catalog.every(({ index }, implicitIndex) => index === implicitIndex),
@@ -2761,13 +2804,13 @@ const FOCUSABLE_REGRESSION_CATALOG = Object.freeze(
   REGRESSION_CATALOG.filter(({ harness, selector }) => REGRESSION_SELECTOR_COUNTS.get(`${harness}\0${selector}`) > 1),
 );
 const FOCUSABLE_REGRESSION_LABELS = new Set(FOCUSABLE_REGRESSION_CATALOG.map(({ label }) => label));
-assert.equal(FOCUSABLE_REGRESSION_CATALOG.length, 137, 'exactly 137 repeated-selector regressions must be focusable');
+assert.equal(FOCUSABLE_REGRESSION_CATALOG.length, 140, 'exactly 140 repeated-selector regressions must be focusable');
 assert.deepEqual(
   [HARNESS, CONVERGENCE_HARNESS, ORCHESTRATION_HARNESS].map(
     (harness) => FOCUSABLE_REGRESSION_CATALOG.filter((row) => row.harness === harness).length,
   ),
-  [89, 7, 41],
-  'focusable source parity must remain 89 policy + 7 convergence + 41 orchestration',
+  [89, 8, 43],
+  'focusable source parity must remain 89 policy + 8 convergence + 43 orchestration',
 );
 for (const selector of ['legs', 'selectors', 'current-argv'])
   assert.equal(
@@ -3430,6 +3473,84 @@ async function withFocusedAbortFixture(policy, operation) {
   });
 }
 
+function orchestrationReceipt(policy, state, series) {
+  const settled = policy.settleReviewOrchestration({ state, series });
+  const run = series.rounds.at(-1);
+  return {
+    schema: 6,
+    phase: 'draft',
+    request: run.request,
+    input_sha256: run.request.input_sha256,
+    reviewed_commit: run.request.reviewed_commit_or_head,
+    policy: run.request.policy,
+    policy_sha256: run.request.policy_sha256,
+    reviewer: run.reviewer,
+    reproduced: run.reproduced,
+    outcome: run.outcome,
+    pre_execution_eligible: run.pre_execution_eligible,
+    series,
+    settled_orchestration_state_sha256: settled.state_sha256,
+    reviewed_at: '2026-07-19T12:15:00-03:00',
+  };
+}
+
+function abandonmentAuthorization(policy, state, sourceTextBytes, authorizationId) {
+  return {
+    schema: 1,
+    authorization_id: authorizationId,
+    actor: 'user',
+    decision: 'abandon_review_orchestration',
+    authorized_at: '2026-07-19T12:13:00-03:00',
+    plan_path: state.plan_path,
+    phase: state.phase,
+    lifecycle_intent: state.lifecycle_intent,
+    input_sha256: state.current_input_sha256,
+    orchestration_series_id: state.series_id,
+    source_state_sha256: state.state_sha256,
+    request_ids: state.request_ids,
+    source_text_utf8_base64: sourceTextBytes.toString('base64'),
+    source_text_sha256: policy.sha256(sourceTextBytes),
+  };
+}
+
+async function withFocusedReplacementFixture(policy, operation) {
+  await withFocusedControllerFixture(policy, async ({ active, commitment, prepared }) => {
+    const sourceTextBytes = Buffer.from('authorize exact terminal replacement');
+    const authorization = abandonmentAuthorization(
+      policy,
+      active,
+      sourceTextBytes,
+      '123e4567-e89b-42d3-a456-426614174071',
+    );
+    const abandonmentParent = machinePlan(policy, [['Review-orchestration-state', active]]);
+    const abandoned = policy.abandonReviewOrchestration({
+      sourcePlanBytes: abandonmentParent,
+      expectedStateSha256: active.state_sha256,
+      authorization,
+      sourceTextBytes,
+      recordedAt: '2026-07-19T12:14:00-03:00',
+    });
+    const abortParent = machinePlan(policy, [
+      ['Review-orchestration-state', active],
+      ['Review-orchestration-prepared-request', prepared],
+    ]);
+    const aborted = policy.abortReviewControllerConfig({
+      sourcePlanBytes: abortParent,
+      expectedStateSha256: active.state_sha256,
+      expectedPreparedRequestSha256: policy.sha256(policy.jcs(prepared)),
+      proposedConfig: {
+        candidate_index: 0,
+        timeout_mode: 'orchestrator_tool',
+        timeout_seconds: 650,
+        argv: commitment.argv,
+        argv_sha256: commitment.argv_sha256,
+      },
+      recordedAt: '2026-07-19T12:14:30-03:00',
+    });
+    await operation({ abandoned, aborted });
+  });
+}
+
 function focusedTerminalAssertions(policy) {
   return new Map([
     [
@@ -3545,6 +3666,251 @@ function focusedTerminalAssertions(policy) {
               }),
             /authorization|actor|user/i,
           );
+        }),
+    ],
+    [
+      'different operation after abandonment regression',
+      () =>
+        withFocusedReplacementFixture(policy, ({ abandoned, aborted }) => {
+          const replace = (terminal, phase, lifecycleIntent, seriesId, requestId) =>
+            policy.replaceReviewTerminalFamily({
+              sourcePlanBytes: terminal.planBytes,
+              currentPlanBytes: terminal.planBytes,
+              phase,
+              lifecycleIntent,
+              seriesId,
+              requestId,
+            });
+          const start = replace(
+            abandoned,
+            'draft',
+            'start',
+            '223e4567-e89b-42d3-a456-426614174071',
+            '323e4567-e89b-42d3-a456-426614174071',
+          );
+          assert.equal(start.state.phase, 'draft');
+          assert.equal(start.state.lifecycle_intent, 'start');
+          assert.equal(start.state.status, 'active');
+          const completion = replace(
+            abandoned,
+            'completion',
+            'none',
+            '423e4567-e89b-42d3-a456-426614174071',
+            '523e4567-e89b-42d3-a456-426614174071',
+          );
+          assert.equal(completion.state.phase, 'completion');
+          assert.equal(completion.state.lifecycle_intent, 'none');
+          assert.equal(completion.state.status, 'active');
+          assert.throws(
+            () =>
+              replace(
+                abandoned,
+                'draft',
+                'none',
+                '623e4567-e89b-42d3-a456-426614174071',
+                '723e4567-e89b-42d3-a456-426614174071',
+              ),
+            /same|operation|terminal|abandon|input/i,
+          );
+          for (const [phase, lifecycleIntent, seriesId, requestId] of [
+            ['draft', 'none', '823e4567-e89b-42d3-a456-426614174071', '923e4567-e89b-42d3-a456-426614174071'],
+            ['draft', 'start', 'a23e4567-e89b-42d3-a456-426614174071', 'b23e4567-e89b-42d3-a456-426614174071'],
+          ])
+            assert.throws(
+              () => replace(aborted, phase, lifecycleIntent, seriesId, requestId),
+              /controller|changed|canonical|input|terminal/i,
+            );
+        }),
+    ],
+    [
+      'committed dispatch abandonment regression',
+      () =>
+        withFocusedDispatchFixture(policy, async ({ active, commitment, committedPlan, prepared, preparedPlan }) => {
+          const expectedPreparedRequestSha256 = policy.sha256(policy.jcs(prepared));
+          const expectedDispatchCommitmentSha256 = policy.sha256(policy.jcs(commitment));
+          const passSeries = orchestrationSeries(policy, active, ['passed'], { request: prepared.request });
+          const passReceipt = orchestrationReceipt(policy, active, passSeries);
+          const staleCanonicalPlan = committedPlan.replace('Ordinary self-review prose', 'Unreviewed settlement drift');
+          assert.throws(
+            () =>
+              policy.settleReviewOrchestrationFamily({
+                sourcePlanBytes: staleCanonicalPlan,
+                currentPlanBytes: staleCanonicalPlan,
+                expectedStateSha256: active.state_sha256,
+                expectedPreparedRequestSha256,
+                expectedDispatchCommitmentSha256,
+                series: passSeries,
+                receipt: passReceipt,
+              }),
+            /canonical input|active orchestration state/i,
+          );
+          const mismatchedRequestSeries = orchestrationSeries(policy, active, ['passed']);
+          assert.throws(
+            () =>
+              policy.settleReviewOrchestrationFamily({
+                sourcePlanBytes: committedPlan,
+                currentPlanBytes: committedPlan,
+                expectedStateSha256: active.state_sha256,
+                expectedPreparedRequestSha256,
+                expectedDispatchCommitmentSha256,
+                series: mismatchedRequestSeries,
+                receipt: orchestrationReceipt(policy, active, mismatchedRequestSeries),
+              }),
+            /series request|prepared request/i,
+          );
+          const uncommittedFallbackSeries = orchestrationSeries(policy, active, ['tool_unavailable', 'passed'], {
+            request: prepared.request,
+          });
+          assert.throws(
+            () =>
+              policy.settleReviewOrchestrationFamily({
+                sourcePlanBytes: committedPlan,
+                currentPlanBytes: committedPlan,
+                expectedStateSha256: active.state_sha256,
+                expectedPreparedRequestSha256,
+                expectedDispatchCommitmentSha256,
+                series: uncommittedFallbackSeries,
+                receipt: orchestrationReceipt(policy, active, uncommittedFallbackSeries),
+              }),
+            /attempts|dispatch commitment/i,
+          );
+          const settled = policy.settleReviewOrchestrationFamily({
+            sourcePlanBytes: committedPlan,
+            currentPlanBytes: committedPlan,
+            expectedStateSha256: active.state_sha256,
+            expectedPreparedRequestSha256,
+            expectedDispatchCommitmentSha256,
+            series: passSeries,
+            receipt: passReceipt,
+          });
+          assert.equal(settled.replayed, false);
+          assert.equal(settled.state.status, 'passed');
+          assert.equal(settled.state.apply_state, 'none');
+          const settledBytes = Buffer.from(settled.planBytes).toString('utf8');
+          assert.doesNotMatch(settledBytes, /^Review-orchestration-(?:prepared-request|dispatch-commitment):/m);
+          assert.match(settledBytes, /^Review-orchestration-state:/m);
+          assert.ok(
+            settledBytes.includes(`Review-receipt: ${policy.jcs(passReceipt)}`),
+            'atomic pass settlement persists the exact matching receipt',
+          );
+          policy.validateDraftReceipt(passReceipt, active.current_input_sha256, {
+            waivers: [],
+            expectedPolicy: passReceipt.policy,
+            orchestration: settled.state,
+          });
+          const replay = policy.settleReviewOrchestrationFamily({
+            sourcePlanBytes: committedPlan,
+            currentPlanBytes: settled.planBytes,
+            expectedStateSha256: active.state_sha256,
+            expectedPreparedRequestSha256,
+            expectedDispatchCommitmentSha256,
+            series: passSeries,
+            receipt: passReceipt,
+          });
+          assert.equal(replay.replayed, true);
+          assert.deepEqual(Buffer.from(replay.planBytes), Buffer.from(settled.planBytes));
+
+          const startState = policy.beginReviewOrchestration({
+            planPath: active.plan_path,
+            phase: 'draft',
+            lifecycleIntent: 'start',
+            inputSha256: active.current_input_sha256,
+            seriesId: 'c23e4567-e89b-42d3-a456-426614174071',
+            requestId: 'd23e4567-e89b-42d3-a456-426614174071',
+            orchestrationAttempt: 1,
+            previousState: null,
+            retryAuthorization: null,
+            sourceText: null,
+          });
+          const startSeries = orchestrationSeries(policy, startState, ['passed']);
+          const startSettled = policy.settleReviewOrchestration({
+            state: startState,
+            series: startSeries,
+          });
+          const consumed = policy.consumeReviewIntent({
+            state: 'planned',
+            intent: 'start',
+            eligible: true,
+            orchestration: startSettled,
+          });
+          assert.equal(consumed.state, 'ongoing');
+          assert.throws(
+            () =>
+              policy.consumeReviewIntent({
+                state: consumed.state,
+                intent: 'start',
+                eligible: true,
+                orchestration: consumed.orchestration,
+              }),
+            /consum|pending|once|duplicate/i,
+          );
+
+          const nonPassSeries = orchestrationSeries(policy, active, ['passed'], {
+            notReady: true,
+            request: prepared.request,
+          });
+          const nonPassReceipt = orchestrationReceipt(policy, active, nonPassSeries);
+          const nonPass = policy.settleReviewOrchestrationFamily({
+            sourcePlanBytes: committedPlan,
+            currentPlanBytes: committedPlan,
+            expectedStateSha256: active.state_sha256,
+            expectedPreparedRequestSha256,
+            expectedDispatchCommitmentSha256,
+            series: nonPassSeries,
+            receipt: nonPassReceipt,
+          });
+          assert.notEqual(nonPass.state.status, 'passed');
+          assert.equal(nonPass.state.apply_state, 'none');
+          const nonPassBytes = Buffer.from(nonPass.planBytes).toString('utf8');
+          assert.doesNotMatch(nonPassBytes, /^Review-orchestration-(?:prepared-request|dispatch-commitment):/m);
+          assert.ok(
+            nonPassBytes.includes(`Review-receipt: ${policy.jcs(nonPassReceipt)}`),
+            'atomic non-pass settlement persists the exact matching receipt',
+          );
+          assert.throws(
+            () =>
+              policy.consumeReviewIntent({
+                state: 'planned',
+                intent: 'start',
+                eligible: true,
+                orchestration: nonPass.state,
+              }),
+            /passed|matching|intent/i,
+          );
+
+          const sourceTextBytes = Buffer.from('authorize no-series abandonment');
+          const parentFamilies = [
+            ['state-only', machinePlan(policy, [['Review-orchestration-state', active]])],
+            ['prepared-only', preparedPlan],
+            ['prepared-and-commitment', committedPlan],
+          ];
+          for (const [label, parent] of parentFamilies) {
+            let authorizationActions = 0;
+            const authorization = abandonmentAuthorization(
+              policy,
+              active,
+              sourceTextBytes,
+              `${label === 'state-only' ? 'e' : label === 'prepared-only' ? 'f' : '0'}23e4567-e89b-42d3-a456-426614174071`,
+            );
+            authorizationActions += 1;
+            const dispatchCalls = [];
+            const abandoned = policy.abandonReviewOrchestration({
+              sourcePlanBytes: parent,
+              expectedStateSha256: active.state_sha256,
+              authorization,
+              sourceTextBytes,
+              recordedAt: '2026-07-19T12:16:00-03:00',
+            });
+            assert.equal(authorizationActions, 1, `${label} requires one authorization action`);
+            assert.deepEqual(dispatchCalls, [], `${label} must not redispatch without a caller-held series`);
+            const abandonedBytes = Buffer.from(abandoned.planBytes).toString('utf8');
+            assert.doesNotMatch(abandonedBytes, /^Review-orchestration-(?:prepared-request|dispatch-commitment):/m);
+            assert.match(abandonedBytes, /^Review-orchestration-abandonment:/m);
+            policy.validateReviewTerminalFamily({
+              currentPlanBytes: abandoned.planBytes,
+              parentPlanBytes: parent,
+            });
+          }
         }),
     ],
   ]);
@@ -4278,6 +4644,8 @@ async function runBroadAbandonmentAncillary(policy) {
     const replaced = policy.replaceReviewTerminalFamily({
       sourcePlanBytes: result.planBytes,
       currentPlanBytes: changed,
+      phase: 'draft',
+      lifecycleIntent: 'none',
       seriesId: '123e4567-e89b-42d3-a456-426614174099',
       requestId: '223e4567-e89b-42d3-a456-426614174099',
     });
@@ -4292,6 +4660,8 @@ async function runBroadAbandonmentAncillary(policy) {
         policy.replaceReviewTerminalFamily({
           sourcePlanBytes: result.planBytes,
           currentPlanBytes: result.planBytes,
+          phase: 'draft',
+          lifecycleIntent: 'none',
           seriesId: '323e4567-e89b-42d3-a456-426614174099',
           requestId: '423e4567-e89b-42d3-a456-426614174099',
         }),
@@ -4302,6 +4672,8 @@ async function runBroadAbandonmentAncillary(policy) {
         policy.replaceReviewTerminalFamily({
           sourcePlanBytes: result.planBytes,
           currentPlanBytes: changed.replace(/^Review-orchestration-abandonment:.*\n/m, ''),
+          phase: 'draft',
+          lifecycleIntent: 'none',
           seriesId: '923e4567-e89b-42d3-a456-426614174099',
           requestId: 'a23e4567-e89b-42d3-a456-426614174099',
         }),
@@ -4400,6 +4772,8 @@ async function runFocusedOrchestrationOracle(focus) {
     entry('terminal embedded source reconstruction regression'),
     { label: null, run: async () => runBroadTerminalAncillary(await getPolicy()) },
     entry('abandonment current-user authorization regression'),
+    entry('different operation after abandonment regression'),
+    entry('committed dispatch abandonment regression'),
     { label: null, run: async () => runBroadAbandonmentAncillary(await getPolicy()) },
     {
       label: null,
@@ -4586,10 +4960,10 @@ async function validateFocusedLabelCatalog(snapshot) {
   assert.deepEqual(
     FOCUSABLE_REGRESSION_CATALOG.map(({ label }) => listedByLabel.get(label)),
     FOCUSABLE_REGRESSION_CATALOG.map(({ harness, selector, label }) => ({ harness, selector, label })),
-    'three focused-label lists must be the unique declaration-ordered 137-row source catalog',
+    'three focused-label lists must be the unique declaration-ordered 140-row source catalog',
   );
-  assert.equal(listedRows.length, 137, 'focused-label union must contain exactly 137 rows');
-  console.log('focused-label source parity passed: 89 policy + 7 convergence + 41 orchestration');
+  assert.equal(listedRows.length, 140, 'focused-label union must contain exactly 140 rows');
+  console.log('focused-label source parity passed: 89 policy + 8 convergence + 43 orchestration');
 }
 
 async function assertMalformedFocusParity(snapshot) {
@@ -4854,7 +5228,7 @@ async function runRegressionSuite(jobs, timings = null, partition = null) {
           const convergenceProofs = [
             [
               'single-repair',
-              /single repair requires every raw blocker accepted and reproduced, changed input, and exactly two rounds/g,
+              /single repair preserves schema-5 raw-blocker behavior while schema 6 repairs only accepted independently reproduced blockers/g,
             ],
             [
               'current-bundle',

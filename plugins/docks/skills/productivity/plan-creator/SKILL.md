@@ -1,19 +1,24 @@
 ---
 name: plan-creator
-description: "Use when drafting, self-reviewing, and committing one previously nonexistent canonical active plan as `planned` or `scheduled`. Not for workspace setup (use plan-workspace), existing-plan edits or review dispatch (use plan-manager), sealed-bundle evidence (use plan-reviewer), or accepted-blocker repair (use plan-repairer)."
+description: "Use when drafting, self-reviewing, and committing one previously nonexistent canonical active plan as `planned` or `scheduled`. Not for workspace setup (use plan-workspace), existing-plan edits or review dispatch (use plan-manager), sealed-bundle evidence (use plan-reviewer), or accepted-blocker patch production (use plan-repairer)."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-18"
-  content_hash: "f723cb483fa378073e4dfa600c66823f6b94bf16cf1ff82f6cc999be826d65fc"
+  updated: "2026-07-21"
+  content_hash: "910ebaf2d568df24d464df5ed1f6beea8b622b6a65dd726b55d83d392fd6becd"
 ---
 
 # Create One Plan
 
 Create one cold-handoff plan at a missing canonical path under
 `docs/plans/active/`. The result is a plan-only creation commit and a closed
-`PlanCreatedV1` handoff. Creation ends there; main context may subsequently ask
-`plan-manager` to review the returned plan with lifecycle intent `none`.
+`PlanCreatedV1` handoff. Creation ends there.
+
+## Planning entry rule
+
+Use direct implementation for a clear low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review.
+
+Creation performs exactly one local self-review. `PlanCreatedV1` is invocation-terminal for `plan-creator` and turn-terminal at main unless the same current-user request explicitly asked to create and review. Main must not infer or automatically append an intent-`none` review.
 
 <constraint>
 Creation is an add-only boundary. Resolve exactly one canonical `docs/plans/active/<slug>.md` path and prove it does not exist immediately before the write and immediately before the commit. Create only `status: planned` or `status: scheduled`. If the path exists, the workspace contract is absent or stale, the slug is ambiguous, or the request targets an existing plan, return the conflict and STOP; never inspect the file as an invitation to edit, merge, replace, resume, or repair it.
@@ -31,7 +36,9 @@ The creation commit contains exactly the new plan path and has `planned_at_commi
 | One missing canonical plan creation | `plan-creator` |
 | Existing plan, review orchestration, receipts, lifecycle | `plan-manager` |
 | Read-only sealed-bundle evidence | `plan-reviewer` |
-| Exact accepted-blocker repair | `plan-repairer` |
+| Return one exact patch for the accepted blocking set, or `cannot_repair` | `plan-repairer` |
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 Only the manager and reviewer have dispatch wrappers. Run this skill inline.
 
@@ -157,6 +164,8 @@ picker exists, ask one concise numbered question and end the turn without
 writing; resume only after the reply. Never hide unresolved questions in prose.
 
 ## Commit and verify
+
+`plan-structure` verification consists of frontmatter, parser, hash, plan-only commit, and read-back checks for authoring, review, repair, receipt, and lifecycle-only edits. It runs no implementation acceptance command, build, lint, typecheck, test suite, or CI. The acceptance table selects future implementation checks; do not execute them during authoring.
 
 1. Recheck that the canonical path is absent and `HEAD` still equals
    `planned_at_commit`; otherwise STOP and redraft against the new base.

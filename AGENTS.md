@@ -69,9 +69,13 @@ The `agents/` folder deliberately carries **no context-tree node** (hence its ab
 
 ## Plans
 
+Use direct implementation for a clear, low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review. Canonical multi-commit plans keep one independent lifecycle review; plan authoring and review run plan-structure/evidence checks only, while implementation commands, tests, and any policy-required project gate run after code changes.
+
 <constraint>
-Multi-commit plans live in `docs/plans/active/`; lifecycle is a frontmatter field. `docs/plans/finished/` is the terminal archive, and `active/` is multi-occupancy. Every plan is a complete cold handoff. The five ownership phases are exact and disjoint: `plan-workspace` bootstraps, migrates, audits, or explicitly refreshes the workspace; `plan-creator` drafts, self-reviews, and commits one previously nonexistent plan; `plan-manager` owns every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write; internal `plan-reviewer` returns typed read-only evidence over one sealed bundle; internal `plan-repairer` applies one patch for the exact accepted blocking set or returns `cannot_repair`.
+Multi-commit plans live in `docs/plans/active/`; lifecycle is a frontmatter field. `docs/plans/finished/` is the terminal archive, and `active/` is multi-occupancy. Every plan is a complete cold handoff. The five ownership phases are exact and disjoint: `plan-workspace` bootstraps, migrates, audits, or explicitly refreshes the workspace; `plan-creator` drafts, self-reviews, and commits one previously nonexistent plan; `plan-manager` owns every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write; internal `plan-reviewer` returns typed read-only evidence over one sealed bundle; internal `plan-repairer` returns one exact patch for the accepted blocking set or `cannot_repair`.
 </constraint>
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 Creation ends with the committed, read-back `PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}` handoff. The creator never reviews or edits that path again; a later review is a manager-owned existing-plan operation.
 

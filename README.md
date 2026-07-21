@@ -57,13 +57,17 @@ Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills brid
 
 ### Plan lifecycle
 
+Use direct implementation for a clear, low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review. Canonical multi-commit plans keep one independent lifecycle review; plan authoring and review run plan-structure/evidence checks only, while implementation commands, tests, and any policy-required project gate run after code changes.
+
 | Phase | Skill | Invocation | Ownership |
 |---|---|---|---|
 | Workspace | `plan-workspace` | Public | Bootstrap, migrate, audit, or explicitly refresh `docs/plans/`; never draft a plan |
 | Create | `plan-creator` | Public | Draft, self-review, and commit one previously nonexistent `planned` or `scheduled` plan |
 | Manage | `plan-manager` | Public | Every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write |
 | Review | `plan-reviewer` | Internal | Return typed read-only evidence over one sealed bundle |
-| Repair | `plan-repairer` | Internal | Apply one patch for the exact accepted blocking set or return `cannot_repair` |
+| Repair | `plan-repairer` | Internal | Return one exact patch for the accepted blocking set or `cannot_repair` |
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 Creation returns the committed, read-back `PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}` handoff; the creator never reviews or edits that path again. Current review records use schema 6. The manager persists the exact `Review-orchestration-state: <compact JCS object>` record, permits one full round plus at most one repair round per attempt, and returns retryable attempt-1 failures as `stopped`. Only explicit current-user authorization can start same-input attempt 2; another failure is `stuck`, with no automatic reprepare or third attempt. A substantive canonical-input change starts a new attempt 1; metadata-only changes do not count as progress.
 

@@ -11,8 +11,10 @@ Multi-commit work lives here as complete cold-handoff plan files. A fresh agent
 must be able to execute a plan without conversation context. The Markdown plan
 is the only tracked artifact; rendered views are disposable.
 
+Use direct implementation for a clear low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review.
+
 <constraint>
-The five ownership boundaries are disjoint. `plan-workspace` maintains this workspace; `plan-creator` may add one missing canonical active plan; `plan-manager` is the sole public owner of every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write; `plan-reviewer` returns read-only typed evidence over one sealed bundle; `plan-repairer` may apply one patch for the exact accepted blocking set or return `cannot_repair`. Never transfer authority between phases because one phase is unavailable.
+The five ownership boundaries are disjoint. `plan-workspace` maintains this workspace; `plan-creator` may add one missing canonical active plan; `plan-manager` is the sole public owner of every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write; `plan-reviewer` returns read-only typed evidence over one sealed bundle. Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result. Never transfer authority between phases because one phase is unavailable.
 </constraint>
 
 <constraint>
@@ -28,7 +30,7 @@ Current records use schema 6. Schemas 1–5 are historical validation-only: pres
 | List/show/review or change the lifecycle of an existing plan | `plan-manager` |
 | Publish an existing canonical plan as a GitHub issue (`--issues` or `publish <slug> as an issue`) | `plan-manager` |
 | Produce internal read-only evidence from a sealed review bundle | `plan-reviewer` |
-| Apply the one accepted-blocker repair requested by the manager | `plan-repairer` |
+| Return one exact accepted-blocker patch or `cannot_repair` to the manager | `plan-repairer` |
 
 The first three are public skills. The reviewer and repairer are internal.
 
@@ -113,9 +115,9 @@ PlanCreatedV1 {
 }
 ```
 
-It never reviews, dispatches, edits the committed plan, implements a step, or
-changes lifecycle beyond the initial status. Main context may later ask
-`plan-manager` to review that existing plan with intent `none`.
+Creation performs exactly one local self-review. `PlanCreatedV1` is invocation-terminal for `plan-creator` and turn-terminal at main unless the same current-user request explicitly asked to create and review. Main must not infer or automatically append an intent-`none` review.
+
+The creator never performs canonical review, dispatches, edits the committed plan, implements a step, or changes lifecycle beyond the initial status.
 
 ## Body spine
 
@@ -246,6 +248,57 @@ view, not a lifecycle or review record.
 
 ## Current schema-6 review orchestration
 
+|Observed condition|Owner and next action|Forbidden action|
+|---|---|---|
+|No plan identity; clear low-risk direct task|main implements and runs targeted verification|create/review/repair a canonical plan|
+|New canonical plan requested/required|creator drafts, self-reviews once, returns `PlanCreatedV1`|automatic manager review|
+|Planned/scheduled explicit review or lifecycle start/fire|manager runs the existing bounded schema-6 operation|more than one full + one repair round|
+|`ongoing`; only catalog/generated-manifest/external snapshot/pin/hash/count changed; nine authority boundaries unchanged|implementation rebinds observed execution inputs and reruns the failed gate once|begin/prepare/dispatch/repair plan review|
+|Goal, scope, affected paths, safety authority, budget/resources, architecture/interfaces, acceptance contract, lifecycle intent, or settled user decision changed|plain turn-terminal response to block and explicitly amend; later review the amended blocked plan|infer amendment, create orchestration evidence, or review stale plan|
+|Ambiguous pre-review drift|plain turn-terminal response naming the unresolved boundary and allowed amendment action|emit orchestration `NeedsUserAction` or default to review|
+|Exact caller-held schema-6 result|manager settles immediately through the atomic family reducer; pass may consume one eligible intent, non-pass stops|fresh bundle/reviewer/repairer|
+|Attempt-1 retryable `stopped` plus exact current-user authorization|begin same-key attempt 2 once|automatic retry, attempt 3, or retry from `stuck`/nonretryable state|
+|Other terminal result for the same `(phase,intent_group,input_sha256)`|render/stop or consume the one eligible intent|reprepare, redispatch, or metadata reset|
+|Completion requested after implementation|completion review only|another draft review|
+
+Execution rebind is operation-local: one rebind plus one rerun of the failed command. If observations do not change or the same mismatch remains, return one plain turn-terminal user action; never repeat rebind or open review.
+
+`turn-terminal` is the final user response for this turn: no later tool, subagent, review, repair, retry, reprepare, plan, or lifecycle action. `invocation-terminal` is the final result of the current child skill or wrapper; main may consume it in the same turn. `candidate-terminal` means only `tool_unavailable|auth_failed|model_unavailable` with `output_started:false` may advance availability fallback; every other typed result, any output start, or any parsed result ends fallback and the reviewer invocation returns once.
+
+Every completed main manager operation—successful settlement, intent application, no-op result, or user action—is turn-terminal. Reviewer outputs, repairer results, `PlanCreatedV1`, and delegated wrapper handoffs are invocation-terminal. Direct helper returns inside main are intermediate.
+
+An exact caller-held schema-6 result settles immediately through the atomic family reducer: pass may consume one eligible intent, while non-pass stops. It never creates a fresh bundle or dispatches a reviewer or repairer. Any other terminal result for the same `(phase,intent_group,input_sha256)` stops or consumes the one eligible intent without reprepare, redispatch, or metadata reset. Attempt 2 begins only from an attempt-1 retryable `stopped` result plus exact current-user authorization; it is never automatic, never attempt 3, and never available from `stuck` or nonretryable state. Completion requested after implementation routes only to completion review, never another draft review.
+
+Emit concise progress text only, not `PlanProgressV1`: `Plan review: attempt A/2, round R/2, stage <full|repair|settling>`. Update only on stage changes; candidate fallback stays inside the same stage.
+
+### Draft review
+
+For `request.phase === "draft"`, `blocking_gap` is eligible only when implementation cannot safely and correctly start because of an unresolved required user decision, contradictory goal/scope/interface, unsafe or unauthorized action, impossible dependency order, missing first executable step, or absent/non-executable acceptance contract. Code style, optional refactors/docs, speculative performance, exhaustive implementation edge cases, exact internal symbol choices, and defects best established by running the implementation are `non_blocking_gap` with rejection/defer reason `defer_to_implementation_verification`. A complete simple plan may return `pass`; there is no finding quota and no instruction to improve until perfect.
+
+### Completion review
+
+For `request.phase === "completion"`, the read-only reviewer classifies only defects observable in the sealed plan, committed diff, and acceptance inventory: goal/scope/public-contract/safety contradictions, unreviewable diff coverage, or an acceptance criterion missing from the inventory. It does not receive or infer command results. Missing or failed required acceptance evidence and observed runtime regressions remain manager-owned through the existing hash-bound `primary` completion evidence and verdict derivation. Speculative concerns remain `non_blocking_gap`; the reviewer never runs tests or CI.
+
+### Current-plan evidence provenance
+
+Reviewer evidence is limited to the exact committed plan blob at the exact plan
+path and `HEAD`, the committed blobs sealed into the immutable bundle, and the
+managed reviewer-workspace identity already bound by schema 6. Uncommitted,
+ignored, or generated bytes outside that sealed input are not reviewer evidence
+and cannot become findings or repair targets.
+
+An exact plan-path/`HEAD` or managed-workspace mismatch is pre-review provenance
+drift. Return one plain turn-terminal response naming the mismatch and permitted
+corrective action; never begin, prepare, dispatch, or repair. Do not attribute
+drift to another session without a lease or session identity that proves that
+attribution.
+
+Mandatory leases, session-owned branches, an integration checkout, external
+resource allocation, cleanup tooling, and a process-level race suite belong to
+a separate architecture plan. Its first step must audit Docks, OMP, and
+session-relay ownership to determine which layer can acquire a process-lifetime
+lease. No `docks session` CLI is promised before that audit.
+
 A current review series is one full round plus at most one changed-input repair
 round. A retryable availability, timeout, or unparseable result settles attempt
 1 as `stopped`; exactly one explicit current-user same-input authorization may
@@ -261,35 +314,21 @@ record are excluded, so metadata-only edits cannot reset the counter; only
 genuinely changed canonical input starts a new series at attempt 1. No
 automatic reprepare, attempt 3, round 3, or continuation batch is valid.
 
-Full project CI and acceptance evidence run once at the implementation boundary
-and bind to the implementation tree plus `affected_paths`. Later plan-only
-state, request, commitment, or lifecycle commits may reuse that green evidence
-only while the bound implementation tree and affected paths are unchanged.
-Machine-family validation against the committed bytes and exact parent plus
-plan read-back still run after every plan-only commit. Any implementation-tree or
-affected-path change invalidates reuse and requires fresh full project CI and
-acceptance evidence; release-tag and final implementation CI remain
-authoritative.
+### Verification scopes
 
-The bound implementation identity is SHA-256 of compact JCS over sorted
-`affected_paths` entries. Each entry binds the exact repo-relative path, Git
-kind/mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the
-plan/orchestration path unless it is itself an affected implementation path.
-Before reuse, recompute and require exact digest equality. A plan-only metadata
-or orchestration commit preserves the digest; any affected-path byte, mode,
-kind, or presence change invalidates it and requires fresh full project CI and
-acceptance evidence. This contract does not change closed review-policy schemas.
+`plan-structure` verification consists of frontmatter, parser, hash, plan-only commit, and read-back checks for authoring, review, repair, receipt, and lifecycle-only edits. It runs no implementation acceptance command, build, lint, typecheck, test suite, or CI.
 
-Completion consumes and validates the bound green project-CI evidence when the
-affected-path digest is unchanged. The disposable helper runs project CI only
-when no eligible bound result exists or the digest changed; it must not rerun
-merely because completion review began. Acceptance rows still run once as
-required.
+`targeted implementation` verification applies only after code changes. Run the smallest acceptance reproduction or smoke check plus directly affected tests.
 
-CI evidence reuse is the churn/performance fix; it never collapses authorization
-commits. Active-state, prepared-request, and dispatch-commitment commits MUST
-remain separate because each later artifact is derived only after committed
-read-back of its predecessor. Combining them atomically is forbidden.
+`expanded implementation` verification also applies only after code changes. Add dependent or representative consumer checks only for shared harness, configuration, generated, public-contract, security, or release surfaces, or when a concrete targeted failure requires them.
+
+`final repository gate` verification runs once only when repository policy explicitly requires it for the final implementation tree. Plan-only and lifecycle commits reuse prior green implementation evidence while implementation bytes are unchanged.
+
+The plan acceptance table selects future implementation checks. Plan authors, reviewers, and repairers validate that selection but do not execute it. Completion review consumes only the sealed plan, committed diff, and acceptance inventory; the manager consumes observed implementation and CI evidence once and requests only missing contract proof, never duplicate full CI.
+
+Implementation evidence remains bound to the implementation tree and `affected_paths`. The bound identity is SHA-256 of compact JCS over sorted entries, each recording the exact repo-relative path, Git kind and mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the plan or orchestration path unless it is itself an affected implementation path. Recompute before reuse and require exact digest equality; any affected-path byte, mode, kind, or presence change invalidates reuse and requires fresh verification at the applicable implementation scope. This contract does not change closed review-policy schemas.
+
+Evidence reuse never collapses authorization commits. Active-state, prepared-request, and dispatch-commitment commits remain separate because each later artifact is derived only after committed read-back of its predecessor.
 
 If an active plan changes the canonical review controller, `plan-manager`, or
 `plan-reviewer` mechanism it would use for its own completion, same-checkout

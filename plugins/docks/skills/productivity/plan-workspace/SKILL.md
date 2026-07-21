@@ -1,11 +1,11 @@
 ---
 name: plan-workspace
-description: "Use when bootstrapping, migrating, auditing, or explicitly refreshing a docs/plans workspace and its contract, root routing, discovery shim, or missing manager/reviewer Codex wrappers. Not for drafting individual plans (use plan-creator), existing-plan lifecycle or review work (use plan-manager), sealed-bundle evidence (use plan-reviewer), or accepted-blocker repair (use plan-repairer)."
+description: "Use when bootstrapping, migrating, auditing, or explicitly refreshing a docs/plans workspace and its contract, root routing, discovery shim, or missing manager/reviewer Codex wrappers. Not for drafting individual plans (use plan-creator), existing-plan lifecycle or review work (use plan-manager), sealed-bundle evidence (use plan-reviewer), or accepted-blocker patch production (use plan-repairer)."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-20"
-  content_hash: "c2650665dafde56150344be979cd88ddb591ae9d4fdfc11df65c3bfb0b121ef1"
+  updated: "2026-07-21"
+  content_hash: "39cbf8a23051d23d0c12a4df0a9f8bc780548a3c40f5f5dedba55a1373d4cd70"
 ---
 
 # Plans Workspace
@@ -15,6 +15,10 @@ Maintain the project-level `docs/plans/` convention: `active/` plus
 shim, root routing, and optional project-local Codex wrappers for the manager
 and reviewer. This skill owns the workspace only. It never drafts, reviews,
 repairs, transitions, or archives an individual plan.
+
+## Planning entry rule
+
+Use direct implementation for a clear low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review.
 
 <constraint>
 Resolve the project root first, then classify the requested operation and every target before writing. Audit is always read-only. Bootstrap applies only to a missing workspace; migration only to a recognizable legacy workspace; refresh only when the current user explicitly requests it for a recognizable stale generated contract. A current workspace is a no-op, and an ambiguous or customized workspace is a STOP. Never overwrite project-owned agent files or silently turn an audit into a refresh.
@@ -32,7 +36,9 @@ Migration must not lose or rewrite a plan. Inventory every source plan and its d
 | Draft and commit one previously nonexistent plan | `plan-creator` |
 | Existing-plan operations, review orchestration, receipts, and lifecycle | `plan-manager` |
 | Read-only typed evidence over one sealed bundle | `plan-reviewer` |
-| One bounded patch for the accepted blocking set | `plan-repairer` |
+| Return one exact patch for the accepted blocking set, or `cannot_repair` | `plan-repairer` |
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 Only `plan-manager` and `plan-reviewer` have Claude/Codex dispatch wrappers.
 Do not seed wrappers for the other three skills.
@@ -137,12 +143,14 @@ manager/reviewer wrappers. Do not move, edit, normalize, or reformat a plan.
 ```markdown
 ## Plans
 
-Multi-commit plans live in `docs/plans/active/`; lifecycle is a frontmatter field. `docs/plans/finished/` is the terminal archive. Every plan is a complete cold handoff. `plan-workspace` owns bootstrap/migrate/audit/explicit refresh, `plan-creator` owns creation of one nonexistent plan, `plan-manager` owns every existing-plan and lifecycle operation, `plan-reviewer` returns sealed-bundle evidence only, and `plan-repairer` may apply one accepted-blocker repair. `active/` is multi-occupancy.
+Multi-commit plans live in `docs/plans/active/`; lifecycle is a frontmatter field. `docs/plans/finished/` is the terminal archive. Every plan is a complete cold handoff. `plan-workspace` owns bootstrap/migrate/audit/explicit refresh, `plan-creator` owns creation of one nonexistent plan, `plan-manager` owns every existing-plan and lifecycle operation, `plan-reviewer` returns sealed-bundle evidence only, and `plan-repairer` returns one exact accepted-blocker patch or `cannot_repair`. Historical `plan-improver` is not a live skill; `plan-manager` alone validates, applies, and persists the repairer result. `active/` is multi-occupancy.
 
 The complete schema-6 contract lives in `docs/plans/AGENTS.md`; schemas 1–5 are historical validation-only. `docs/plans/CLAUDE.md` contains only `@AGENTS.md`. Optional project-local dispatch wrappers exist only for `plan-manager` and `plan-reviewer`; the five skills remain canonical.
 ```
 
 ## Verification
+
+`plan-structure` verification consists of frontmatter, parser, hash, plan-only commit, and read-back checks for authoring, review, repair, receipt, and lifecycle-only edits. It runs no implementation acceptance command, build, lint, typecheck, test suite, or CI.
 
 After migration moves and before deleting any legacy path:
 

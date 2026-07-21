@@ -33,22 +33,37 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 
 The two closed PR lanes partition the regression contract without an artifact handoff:
 - **Core** owns broad baselines, foreground plan-policy fast-surfaces and convergence-repair checks, repo-wide checks, Docks/effect-kit, and JavaScript quality. Its regression selection is `baselines` (`3+0`).
-- **Relay** owns the Session Relay gate, every one of the 140 mutation rows, and the focused/malformed global preflights. Its regression selection is `mutations` (`0+140`).
+- **Relay** owns the Session Relay gate, every one of the 143 mutation rows, and the focused/malformed global preflights. Its regression selection is `mutations` (`0+143`).
 
 Both lanes perform the frozen pnpm install and materialize the pinned `claude-code` binary. Only Relay provisions Rust and restores Cargo state. Their results feed the single unchanged authoritative `validate (scripts/ci.mjs)` join; manual dispatch remains one untargeted full gate, and a release tag remains one strictly resolved `--plugin <name>` gate.
 
 This topology was selected from measured alternatives: Core was 46,113 ms and Relay 49,622 ms (7.07% spread, 95,735 ms total compute), with the Relay plugin phase at 49,567 ms. The rejected empty Relay regression task duplicated useless preflight work and task output. The regenerated three-lane fallback passed correctness but missed the 15% balance requirement at Core 46,840 ms, Relay 49,140 ms, and mutations 14,586 ms (70.3% spread, 110,566 ms compute). An unpartitioned Core measured 68–96 seconds and misses the 60-second cap. No shard artifacts remain.
 
-Future broad baselines belong to Core; future mutation oracles belong to Relay. Preserve the unqualified `3+140` inventory and the disjoint `3+0`/`0+140` partition inventories. Do not add a lane, restore a shard, introduce a validation artifact, or move the focused/malformed preflights without fresh three-run qualification and updates to the targeting, workflow, release-evidence, CLI, and source-contract tests. Evidence must show stable passing inventories, lane medians at or below 60,000 ms, Relay phase at or below 52,815 ms, spread at or below 15%, compute no worse than the fallback, and unchanged authoritative join/manual/tag behavior.
+Future broad baselines belong to Core; future mutation oracles belong to Relay. Preserve the unqualified `3+143` inventory and the disjoint `3+0`/`0+143` partition inventories. Do not add a lane, restore a shard, introduce a validation artifact, or move the focused/malformed preflights without fresh three-run qualification and updates to the targeting, workflow, release-evidence, CLI, and source-contract tests. Evidence must show stable passing inventories, lane medians at or below 60,000 ms, Relay phase at or below 52,815 ms, spread at or below 15%, compute no worse than the fallback, and unchanged authoritative join/manual/tag behavior.
+
+Clear, low-risk work describable as one concrete diff with one bounded acceptance
+path goes straight to implementation. Canonical plans are reserved for
+multi-commit work, scheduling, cold handoff, unresolved approaches,
+cross-subsystem or public-contract changes, destructive or security-sensitive
+work, or an explicit user request; never create a placeholder plan merely to
+unlock review. Canonical multi-commit plans keep one independent lifecycle
+review. Plan authoring and review run plan-structure/evidence checks only;
+implementation commands, tests, and any policy-required project gate run after
+code changes.
 
 The Docks plan-workflow author suite follows the live five-phase contract:
 `plan-workspace` owns `docs/plans` bootstrap, migration, audit, and explicit
 refresh; `plan-creator` owns creation of one missing canonical plan and
 `PlanCreatedV1`; `plan-manager` owns existing-plan operations, review
 orchestration, receipts, and lifecycle; `plan-reviewer` provides internal
-read-only typed evidence over one sealed bundle; and `plan-repairer` provides
-one bounded internal patch for the accepted blocking set. Only manager and
-reviewer have dispatch wrappers. Schema 6 is the current review/orchestration
+read-only typed evidence over one sealed bundle; and `plan-repairer` returns
+one exact patch for the accepted blocking set or `cannot_repair`.
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one
+exact patch or `cannot_repair`, and `plan-manager` alone validates, applies,
+and persists the result.
+
+Only manager and reviewer have dispatch wrappers. Schema 6 is the current review/orchestration
 contract; schemas 1–5 remain validation-only historical
 compatibility. The `plan-reviewer` author check runs the focused policy surface,
 bounded repair/convergence cases, and the single background mutation-regression

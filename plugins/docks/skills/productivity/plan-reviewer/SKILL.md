@@ -4,8 +4,8 @@ description: Use when plan-manager dispatches an internal read-only reviewer for
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-20"
-  content_hash: "af9a9213ba872c0e45928a60bfee3074d664bbea0c7dd82fd540d79203f9a5af"
+  updated: "2026-07-21"
+  content_hash: "5efc8f964c35d3246f82674a8029201a44ee4376d361ac84b019536f4de73d23"
 ---
 
 # Plan Reviewer
@@ -56,6 +56,8 @@ stale, substituted, or mismatched binding is invalid evidence.
 | Produce the one accepted-blocker patch | `plan-repairer` |
 | Apply a patch, receipt, status, or lifecycle intent | `plan-manager` |
 | Persist abandonment authorized by exact current-user bytes | main-context `plan-manager` |
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 The reviewer has no writable fallback. A read-only failure is evidence for the
 manager's total result reducer, not permission to switch transports, mutate the
@@ -143,37 +145,35 @@ attempt-1 stopped state and unchanged substantive input. Attempt 3, automatic
 renewal, metadata-only progress, and retry after a nonretryable result are
 forbidden.
 
-Full project CI and acceptance evidence run once at the implementation boundary
-and bind to the implementation tree plus `affected_paths`. Later plan-only
-state, request, commitment, and lifecycle commits may reuse that green evidence
-only while that
-implementation tree and those affected paths are unchanged; machine-family
-validation against committed bytes and the exact parent plus plan read-back
-still runs after every plan-only commit. Any implementation-tree or
-affected-path change invalidates reuse and requires fresh full project CI and
-acceptance evidence; release-tag and final implementation CI remain
-authoritative. The reviewer verifies only sealed, bound evidence and never
-reruns or claims these host checks.
+`plan-structure` verification consists of frontmatter, parser, hash, plan-only
+commit, and read-back checks for authoring, review, repair, receipt, and
+lifecycle-only edits. It runs no implementation acceptance command, build,
+lint, typecheck, test suite, or CI.
 
-The bound implementation identity is SHA-256 of compact JCS over sorted
+`targeted implementation` verification applies only after code changes and
+uses the smallest acceptance reproduction or smoke path plus directly affected
+tests. `expanded implementation` verification adds dependent or representative
+consumer checks only for shared harness, configuration, generated,
+public-contract, security, or release surfaces, or after a concrete targeted
+failure. A `final repository gate` runs once only when repository policy
+explicitly requires it for the final implementation tree. Plan-only and
+lifecycle commits reuse prior green evidence while implementation bytes are
+unchanged.
+
+The plan acceptance table selects future implementation checks. The plan author,
+reviewer, and repairer validate that selection but do not execute it. The
+reviewer never runs an implementation acceptance command, build, lint,
+typecheck, test suite, or CI, and never claims host command results.
+
+The bound implementation identity remains SHA-256 of compact JCS over sorted
 `affected_paths` entries. Each entry binds the exact repo-relative path, Git
 kind/mode, and blob SHA-256, or an explicit tombstone for absence. Exclude the
 plan/orchestration path unless it is itself an affected implementation path.
 Before reuse, recompute and require exact digest equality. A plan-only metadata
 or orchestration commit preserves the digest; any affected-path byte, mode,
-kind, or presence change invalidates it and requires fresh full project CI and
-acceptance evidence. This contract does not change closed review-policy schemas.
-
-Completion consumes and validates the bound green project-CI evidence when the
-affected-path digest is unchanged. The disposable helper runs project CI only
-when no eligible bound result exists or the digest changed; it must not rerun
-merely because completion review began. Acceptance rows still run once as
-required.
-
-CI evidence reuse is the churn/performance fix; it never collapses authorization
-commits. Active-state, prepared-request, and dispatch-commitment commits MUST
-remain separate because each later artifact is derived only after committed
-read-back of its predecessor. Combining them atomically is forbidden.
+kind, or presence change invalidates reuse and requires manager-owned
+verification selected from the changed implementation surface. This contract
+does not change closed review-policy schemas.
 
 An active plan that changes the canonical review controller, `plan-manager`, or
 `plan-reviewer` mechanism it would use for its own completion cannot be
@@ -293,6 +293,37 @@ deadline mode/seconds, exit or signal, raw stdout/stderr hashes, parsed result
 or null, and typed result. A failed raw result cannot discard a prior valid
 passed attempt; that contradiction is invalid evidence.
 
+For `request.phase === "draft"`, `blocking_gap` is eligible only when implementation cannot safely and correctly start because of an unresolved required user decision, contradictory goal/scope/interface, unsafe or unauthorized action, impossible dependency order, missing first executable step, or absent/non-executable acceptance contract. Code style, optional refactors/docs, speculative performance, exhaustive implementation edge cases, exact internal symbol choices, and defects best established by running the implementation are `non_blocking_gap` with rejection/defer reason `defer_to_implementation_verification`. A complete simple plan may return `pass`; there is no finding quota and no instruction to improve until perfect.
+
+For `request.phase === "completion"`, classify only defects observable in the
+sealed plan, committed diff, and acceptance inventory: goal, scope,
+public-contract, or safety contradictions; unreviewable diff coverage; or an
+acceptance criterion missing from the inventory. Do not receive or infer
+command results. Missing or failed required acceptance evidence and observed
+runtime regressions remain manager-owned through the existing hash-bound
+primary completion evidence and verdict derivation. Speculative concerns remain
+nonblocking; never run tests or CI.
+
+## Current-plan evidence provenance
+
+The reviewer evidence boundary is the exact committed plan blob at the exact
+plan path and `HEAD`, the committed blobs sealed into the immutable bundle, and
+the managed reviewer-workspace identity already bound by schema 6. Uncommitted,
+ignored, or generated bytes outside that sealed input are not reviewer evidence
+and cannot become findings or repair targets.
+
+An exact plan-path/`HEAD` or managed-workspace mismatch is pre-review provenance
+drift. Main-context `plan-manager` returns one plain turn-terminal response;
+never begin, prepare, dispatch, or repair, and do not invoke the reviewer. Do
+not attribute drift to another session without a lease or session identity that
+proves that attribution.
+
+Mandatory leases, session-owned branches, an integration checkout, external
+resource allocation, cleanup tooling, and a process-level race suite belong to
+a separate architecture plan. Its first step must audit Docks, OMP, and
+session-relay ownership to determine which layer can acquire a process-lifetime
+lease. No `docks session` CLI is promised before that audit.
+
 ## Reviewer evidence
 
 `ReviewerOutputV6` is recursively closed:
@@ -324,16 +355,21 @@ matches its criterion and status. `pass` has no findings. Unknown keys,
 duplicate finding ids, request mismatch, bad hashes, or output outside the
 structured object are invalid evidence.
 
-For draft review, assess cold-handoff executability, requirement coverage,
-dependency order, acceptance commands, failure modes, and unresolved
-decisions. For completion review, inspect the exact sealed diff, ordered
-acceptance inventory, implementation evidence, and goal/regression evidence.
-The reviewer never clones a checkout or runs acceptance/CI.
+For draft review, apply the exact phase-specific blocker rubric above while
+assessing cold-handoff executability, requirement coverage, dependency order,
+the executability of selected future acceptance checks, failure modes, and
+unresolved decisions.
 
-Round 2 inspects only the changed plan input, the exact accepted reproduced
-blocking targets, and regressions introduced by their repair. Any remaining or
-new blocker is terminal evidence. A nonblocking finding is advisory and never a
-repair target. The reviewer never decides whether a finding is accepted.
+For completion review, inspect only the exact sealed plan, committed diff, and
+ordered acceptance inventory. Do not inspect implementation command output or
+infer whether a command passed. Report only sealed-evidence defects within the
+completion rubric above.
+
+Round 2 inspects only the changed plan input, the exact accepted independently
+reproduced blocking targets, and regressions introduced by their repair. Any
+accepted remaining target or accepted repair-introduced blocker is terminal
+evidence. A rejected or nonblocking finding is advisory and never a repair
+target. The reviewer never decides whether a finding is accepted.
 
 `RawReviewV6`, `DraftRunResultV6` or `CompletionRunResultV6`, and
 `ReviewSeriesV6` preserve the exact request and reviewer output. The manager
@@ -344,11 +380,11 @@ state and its embedded final series.
 
 ## Completion evidence boundary
 
-The writable manager prepares a disposable detached checkout, runs each
-acceptance row once in order plus project CI once, records exact results, and
-supplies closed evidence in the bundle. The reviewer judges only those bytes
-and never claims setup, execution, cleanup, reproduction, patch, or lifecycle
-work. The manager derives `completion_verdict=passed|partial|regressed`.
+The reviewer receives only sealed plan, committed diff, and acceptance
+inventory evidence. It receives no command results and never claims setup,
+execution, cleanup, reproduction, patch, or lifecycle work. The writable
+manager owns missing or failed acceptance evidence, observed runtime
+regressions, and `completion_verdict=passed|partial|regressed`.
 
 ## Historical schemas 1–5
 

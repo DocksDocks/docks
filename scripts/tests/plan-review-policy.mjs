@@ -2266,7 +2266,7 @@ function contractSurfaceEntries() {
     'blocking_gap',
     'independently reproduced',
     'cannot_repair',
-    'validates and applies any returned patch',
+    'plan-manager` alone validates, applies, and persists',
   ];
   const workspaceMarkers = [
     'STALE',
@@ -9690,13 +9690,39 @@ async function testCurrentReceipts(focus = null) {
     {
       label: 'current rejected blocking-gap regression',
       run: () => {
-        const rejected = getRejectedBlockingRun();
-        assert.equal(rejected.outcome, 'not_ready', 'a blocking_gap is terminal even when rejected');
-        assert.equal(
-          rejected.pre_execution_eligible,
-          false,
-          'a rejected blocking_gap cannot become execution-eligible',
-        );
+        const policyV6 = { ...CURRENT_POLICY, schema: 6 };
+        const request = currentRequest({
+          schema: 6,
+          policy: policyV6,
+          policy_sha256: sha256(jcs(policyV6)),
+          orchestration_series_id: '123e4567-e89b-42d3-a456-426614174000',
+          orchestration_state_sha256: H0,
+        });
+        const output = currentOutput(request, {
+          schema: 6,
+          verdict: 'blocking_gap',
+          checklist: currentChecklist({
+            executable_acceptance: { status: 'blocking_gap', evidence: 'A required command is absent.' },
+          }),
+          findings: [currentFinding()],
+        });
+        const raw = currentRaw(request, output, {
+          schema: 6,
+          attempts: [currentAttempt(request.policy.candidates[0], { schema: 6 })],
+        });
+        const rejected = currentRun(request, raw, {
+          schema: 6,
+          reviewer: {
+            raw,
+            accepted_finding_ids: [],
+            rejected: [{ id: 'P1', reason: 'not_plan_blocking' }],
+          },
+          reproduced: [currentReproduction()],
+          outcome: 'passed',
+          pre_execution_eligible: true,
+        });
+        assert.equal(rejected.outcome, 'passed', 'schema-6 rejected blockers are result-neutral');
+        assert.equal(rejected.pre_execution_eligible, true);
         reviewPolicy.validateCurrentReviewRunResult(rejected);
       },
     },

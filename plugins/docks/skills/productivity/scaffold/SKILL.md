@@ -4,13 +4,15 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-07-18"
-  content_hash: "4f7be001194f061f50ef3a61616a0814efa8eb6204833e43304957966b1521ed"
+  updated: "2026-07-21"
+  content_hash: "0d40faf199d34d360f902183d9d82f42bb30e0652643730ee47291766047c47d"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
 
 `scaffold` turns a project's structure into a reusable, versioned spec (`docs/scaffold/spec.yaml` + `templates/`) and seeds brand-new projects from it. One skill, two modes selected by the argument. The pattern is a generic skill consuming per-repo config captured once (mattpocock/skills). The output is a context-tree-shaped plugin — AGENTS.md/CLAUDE.md node pairs, plugin manifests, exactly the repo-local `plan-manager`/`plan-reviewer` Codex wrappers, bundled skills, and validator scripts — so a new project starts green from the same baseline.
+
+Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 <constraint>
 **Seed writes only into an empty target, never `docks`.** Before writing in seed mode, verify the target path is empty or non-existent (greenfield); refuse if it contains files. Refuse the plugin name `docks` (marketplace-collision guard). Run `git init` in the target only if it isn't already a repo.
@@ -18,6 +20,10 @@ metadata:
 
 <constraint>
 **Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then print it as your final message and END THE TURN. Do not call Write/Edit until the user replies. Do NOT call `ExitPlanMode` (Claude-only); the turn-ending gate works identically on Codex.
+</constraint>
+
+<constraint>
+**Scaffolding does not imply plan review.** Setup or seed completion MUST NOT automatically create or review a plan. Invoke the plan workflow only when the current user's explicit request requires it; direct implementation and simple one-commit work stay outside the plan skills.
 </constraint>
 
 <constraint>
