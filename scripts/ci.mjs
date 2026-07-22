@@ -122,6 +122,60 @@ const floorOf = (kind, cat) => {
   return floor;
 };
 
+function prepareRelayLinuxDelegation(selected) {
+  if (process.platform !== 'linux' || !selected.some((plugin) => (plugin.sourceChecks ?? []).length > 0)) return null;
+  const configured = process.env.SESSION_RELAY_TEST_CGROUP_ROOT;
+  if (configured) {
+    let canonical;
+    try {
+      canonical = fs.realpathSync(configured);
+      const stat = fs.statSync(canonical);
+      if (!stat.isDirectory() || stat.uid !== process.getuid()) throw new Error('not an owned directory');
+    } catch (error) {
+      fail(`Session Relay cgroup delegation is invalid: ${error.message}`);
+      return null;
+    }
+    if (canonical !== path.resolve(configured)) {
+      fail('Session Relay cgroup delegation must be a canonical path');
+      return null;
+    }
+    process.env.SESSION_RELAY_TEST_CGROUP_ROOT = canonical;
+    return null;
+  }
+  if (process.env.GITHUB_ACTIONS !== 'true') return null;
+  const uid = process.getuid();
+  const gid = process.getgid();
+  const root =
+    `/sys/fs/cgroup/session-relay-test-${uid}-` +
+    `${process.env.GITHUB_RUN_ID ?? 'run'}-${process.env.GITHUB_RUN_ATTEMPT ?? 'attempt'}-${process.pid}`;
+  const runSudo = (args) =>
+    spawnSync('sudo', ['-n', ...args], {
+      encoding: 'utf8',
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  const failureDetail = (result) =>
+    result.stderr?.trim() || result.error?.message || result.signal || `exit ${result.status}`;
+  const created = runSudo(['mkdir', root]);
+  if (created.error || created.signal !== null || created.status !== 0) {
+    fail(`Session Relay cgroup delegation could not be created: ${failureDetail(created)}`);
+    return null;
+  }
+  const owned = runSudo(['chown', `${uid}:${gid}`, root]);
+  if (owned.error || owned.signal !== null || owned.status !== 0) {
+    runSudo(['rmdir', root]);
+    fail(`Session Relay cgroup delegation could not be delegated: ${failureDetail(owned)}`);
+    return null;
+  }
+  process.env.SESSION_RELAY_TEST_CGROUP_ROOT = root;
+  return () => {
+    delete process.env.SESSION_RELAY_TEST_CGROUP_ROOT;
+    const removed = runSudo(['rmdir', root]);
+    if (removed.error || removed.signal !== null || removed.status !== 0)
+      fail(`Session Relay cgroup delegation did not cleanly close: ${failureDetail(removed)}`);
+  };
+}
+
 // --list: print the registry and exit.
 if (options.list) {
   for (const p of PLUGINS) console.log(`${p.name}\t${p.root}\t${fs.existsSync(p.root) ? 'present' : 'MISSING'}`);
@@ -247,8 +301,13 @@ if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
     : fail('scaffold/test failed (run: node scripts/scaffold/test.mjs)');
 }
 
-// ============================ per-plugin gate ============================
-for (const p of targets) gatePlugin(p);
+const sessionRelayTarget = targets.find((plugin) => plugin.name === 'session-relay');
+const deferSessionRelay = sessionRelayTarget !== undefined && planPolicyRegressionTask !== null;
+
+// Keep lightweight plugin gates concurrent with the policy regression driver.
+for (const p of targets) {
+  if (p !== sessionRelayTarget || !deferSessionRelay) gatePlugin(p);
+}
 
 if (planPolicyRegressionTask !== null) {
   section('plan review policy');
@@ -262,6 +321,8 @@ if (planPolicyRegressionTask !== null) {
       (testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]),
     );
   }
+  // This process-heavy suite must settle before Session Relay's native
+  // fail-closed liveness tests begin.
   const planPolicyRegressionsPassed = await planPolicyRegressionTask;
   if (planPolicy) {
     planPolicySurfacesPassed
@@ -301,6 +362,10 @@ if (planPolicyRegressionTask !== null) {
         );
   }
 }
+
+// Session Relay's native fail-closed liveness tests run after the policy
+// regression partition has settled.
+if (deferSessionRelay) gatePlugin(sessionRelayTarget);
 
 if (javascriptQualityTask !== null) {
   section('javascript quality');
@@ -383,6 +448,30 @@ function gatePlugin(p) {
       : fail(`${p.name} distribution contract failed (run: node ${p.distributionContract})`);
   }
 
+  const delegationCleanup = rustBinary === null ? null : prepareRelayLinuxDelegation([p]);
+
+  for (const check of p.sourceChecks ?? []) {
+    const args = [check.path, ...(check.args ?? [])];
+    if (check.binaryArg) {
+      if (rustBinary === null) {
+        fail(`${p.name} source check requires a fresh Rust binary (${check.path})`);
+        continue;
+      }
+      args.push(check.binaryArg, rustBinary);
+    }
+    const checkOptions = p.rust
+      ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }
+      : undefined;
+    const checkResult = node(args, checkOptions);
+    if ((checkResult.status ?? 1) === 0) {
+      ok(`${p.name} source check passed (${(check.binaryArg ? args.slice(0, -2) : args).join(' ')})`);
+    } else {
+      const detail = `${checkResult.stdout ?? ''}${checkResult.stderr ?? ''}`.trim();
+      if (detail) console.error(detail);
+      fail(`${p.name} source check failed (run: node ${args.join(' ')})`);
+    }
+  }
+
   for (const contract of p.releaseContracts ?? []) {
     nodeOk([contract])
       ? ok(`${p.name} release contract passed (${path.basename(contract)})`)
@@ -390,15 +479,30 @@ function gatePlugin(p) {
   }
 
   if (p.selftest) {
-    const testOptions = p.rust
-      ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }
-      : undefined;
-    nodeOk([p.selftest], testOptions)
-      ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
-      : fail(
-          `${p.name} self-test failed (run: ${p.rust ? `${p.rust.source.testBinaryEnv}=${rustBinary ?? '<fresh-release-binary>'} ` : ''}node ${p.selftest})`,
+    if (p.rust) {
+      const baseEnv = { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' };
+      const jobsOne = node([p.selftest], {
+        env: { ...baseEnv, SESSION_RELAY_TEST_JOBS: '1' },
+      });
+      const jobsFour = node([p.selftest], {
+        env: { ...baseEnv, SESSION_RELAY_TEST_JOBS: '4' },
+      });
+      if ((jobsOne.status ?? 1) === 0 && (jobsFour.status ?? 1) === 0 && jobsOne.stdout === jobsFour.stdout) {
+        ok(`${p.name} self-test passed with byte-identical jobs-1/jobs-4 output (${path.basename(p.selftest)})`);
+      } else {
+        const binary = rustBinary ?? '<fresh-release-binary>';
+        fail(
+          `${p.name} self-test failed or jobs-1/jobs-4 output drifted ` +
+            `(run twice with ${p.rust.source.testBinaryEnv}=${binary} and SESSION_RELAY_TEST_JOBS=1|4)`,
         );
+      }
+    } else {
+      nodeOk([p.selftest])
+        ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
+        : fail(`${p.name} self-test failed (run: node ${p.selftest})`);
+    }
   }
+  if (delegationCleanup !== null) delegationCleanup();
 }
 
 // Rust capability: format, lint, and build the host executable directly from

@@ -471,8 +471,8 @@ function testFocusedCiCommandSelection() {
     );
     assert.deepEqual(
       relayTiming.phases.map(({ name }) => name),
-      ['shell lint', 'plugin: session-relay', 'plan review policy'],
-      'Relay CI timing phases must retain exactly its shell, plugin, and mutation-partition inventory',
+      ['shell lint', 'plan review policy', 'plugin: session-relay'],
+      'Relay CI timing phases must serialize its mutation partition before the native plugin gate',
     );
     assert.ok(
       relayTiming.phases.every(({ status }) => status === 'passed'),

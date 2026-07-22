@@ -23,6 +23,8 @@
 //   extraJson     additional JSON configs to validate (hooks/mcp/etc.)
 //   authorChecks  repository author suites owned by this plugin
 //   releaseContracts additional release-state/evidence contract tests
+//   sourceChecks  ordered source/process/smoke checks; `binaryArg` appends the
+//                 one fresh source-built executable as an explicit CLI argument
 //   transformGuard run scripts/skills/transform-guard.mjs (curated transformers)
 //   install/release consumer installation text; Session Relay additionally owns
 //                 prerelease staging and its closed prebuilt asset set
@@ -77,6 +79,35 @@ export const PLUGINS = [
       prebuilt: SESSION_RELAY_PREBUILT,
     },
     distributionContract: 'plugins/session-relay/test/distribution-contract.mjs',
+    sourceChecks: [
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'workspace_identity'],
+      },
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'workspace_lease_process'],
+      },
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'workspace_coordination_process'],
+      },
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'workspace_resources'],
+      },
+      { path: 'plugins/session-relay/test/reentry-inventory.mjs', args: [] },
+      {
+        path: 'plugins/session-relay/test/workspace-smoke.mjs',
+        args: ['--case', 'single-session-compat'],
+        binaryArg: '--bin',
+      },
+      {
+        path: 'plugins/session-relay/test/workspace-smoke.mjs',
+        args: ['--case', 'docs-contract'],
+        binaryArg: '--bin',
+      },
+    ],
     extraJson: ['plugins/session-relay/hooks/codex-hooks.json', 'plugins/session-relay/.codex-plugin/bus.mcp.json'],
     authorChecks: [],
     releaseContracts: [

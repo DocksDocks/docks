@@ -349,8 +349,7 @@ function validateWorkflowFile(file) {
 function validateNativeJobs(response, run, runIdentity) {
   requireRecord(response, 'workflow jobs response');
   const total = requirePositiveInteger(response.total_count, 'workflow jobs total_count');
-  if (!Array.isArray(response.jobs) || response.jobs.length !== total)
-    fail('workflow jobs response count mismatch');
+  if (!Array.isArray(response.jobs) || response.jobs.length !== total) fail('workflow jobs response count mismatch');
 
   const requiredSteps = [
     'build locked native release',
@@ -400,19 +399,14 @@ function validateNativeJobs(response, run, runIdentity) {
       'GitHub Actions',
       `native job ${expected.target} runner_group_name`,
     );
-    if (
-      !Array.isArray(job.labels) ||
-      job.labels.length !== 1 ||
-      job.labels[0] !== expected.runner
-    )
+    if (!Array.isArray(job.labels) || job.labels.length !== 1 || job.labels[0] !== expected.runner)
       fail(`native job ${expected.target} did not run only on ${expected.runner}`);
     if (!Array.isArray(job.steps)) fail(`native job ${expected.target} steps must be an array`);
 
     const positions = [];
     for (const stepName of requiredSteps) {
       const stepMatches = job.steps.filter((step) => step?.name === stepName);
-      if (stepMatches.length !== 1)
-        fail(`native job ${expected.target} step ${stepName} must appear exactly once`);
+      if (stepMatches.length !== 1) fail(`native job ${expected.target} step ${stepName} must appear exactly once`);
       const step = requireRecord(stepMatches[0], `native job ${expected.target} step ${stepName}`);
       requireEqual(
         requireString(step.status, `native job ${expected.target} step ${stepName} status`),

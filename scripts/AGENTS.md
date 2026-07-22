@@ -23,11 +23,14 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
 | `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `scaffold`, `plan-reviewer` for Docks; `[]` otherwise) |
 | `releaseContracts` | ordered production release-state/evidence contract tests owned by the plugin (`[]` when absent) |
+| `sourceChecks` | ordered source/process/smoke invocations; each `{ path, args, binaryArg? }`. `ci.mjs` appends the single fresh source-built Rust executable only through `binaryArg`, while also exporting the descriptor's test-binary env for nested process tests. |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `install` | the consumer install snippet for the GitHub Release notes |
 | `release` | Release artifact names, the non-install prerelease staging body, and the stable install command. Session Relay's state machine and workflow consume these identities without inventing alternate asset names or install text. |
 
 `ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable-anchors, and the CI-targeting contract), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips those repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and `gatePlugin` validation; the plugin gate still reads the catalogs to enforce that plugin's marketplace/version coherence. The plan-review regression driver starts before independent checks and is joined exactly once before success: full and Docks-targeted invocations run the unqualified three-baseline plus 140-mutation contract, while PR lanes run their closed partition. `--lane <core|relay>` is mutually exclusive with `--plugin` and `--list`. Other flags: `-q` (quiet), `--list` (registry + presence), `--timings-json <path>` (closed phase/task wall-time report). Versions remain per-plugin and independent.
+
+Session Relay declares four exact Rust inventory invocations, the recursive reentry guard, and both workspace smoke cases in `sourceChecks`. The focused gate builds once, passes that absolute executable explicitly to smoke, then runs the immutable self-test at jobs 1 and jobs 4 and requires byte-identical stdout. Inventory tests execute their full nonempty target sets with zero ignored/filtered cases; reentry recursively classifies new process birth, FD transfer, signal, broker, Git, filesystem-probe, and platform sites. Linux GitHub CI owns one real delegated cgroup root for the gate; a direct local `workspace_lease_process` inventory self-provisions a unique noninteractive-sudo root when the caller did not supply one. Creator-owned roots are removed afterward, while absent or leaked delegation fails rather than skipping.
 
 ## Pull-request topology and decision record
 
@@ -117,6 +120,12 @@ and print both exact paths before the gate reports failure.
 background-task durations without changing gate selection or status. Background
 tasks remain mandatory; their failure output is retained behind reported spool
 paths and their result is joined before `ci.mjs` can pass.
+
+## Native workspace evidence boundary
+
+The four `build-binaries.yml` matrix legs are native, not cross-build evidence. Before unchanged attestation/upload, Linux legs must complete the exact cgroup/pidfd/Landlock custody test and both smokes against that leg's explicit fresh binary; macOS legs must complete the frozen negative-admission test. `verify-session-relay-preflight.mjs` verifies all four successful job identities, exact runner labels, native target mapping, and ordered build → platform evidence → Linux smoke/skip → attestation → upload steps through the GitHub jobs API. Missing, reordered, skipped, failed, duplicated, or cross-run/cross-target evidence refuses.
+
+This verifier-side check does not add receipt fields. `SourceCiReceiptV1`, `ProducerPreflightReceiptV1`, and `SessionRelayBinaryAttestationV1` retain their exact keys; verifier producer identity remains version 2. The producer still yields four binary+attestation artifacts and one checksum artifact, and publication still consumes exactly five release assets. macOS success means the refusal was proven, never that managed writing is supported. No generated binary or `SHA256SUMS` belongs in the source commit.
 
 ## Edit → release workflow
 

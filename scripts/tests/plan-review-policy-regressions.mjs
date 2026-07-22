@@ -67,9 +67,14 @@ let controllerFixtureOrdinal = 0;
 
 function controllerFixtureRequestId(prefix) {
   const configuredNamespace = process.env[ORCHESTRATION_FIXTURE_NAMESPACE_ENV];
-  const namespace = configuredNamespace ?? createHash('sha256').update(`direct:${RUN_NAMESPACE}`).digest('hex');
+  const namespace =
+    configuredNamespace === undefined
+      ? createHash('sha256').update(`direct:${RUN_NAMESPACE}`).digest('hex')
+      : RUN_NAMESPACE_PATTERN.test(configuredNamespace)
+        ? createHash('sha256').update(`configured:${configuredNamespace}`).digest('hex')
+        : configuredNamespace;
   if (!/^[0-9a-f]$/.test(prefix) || !/^[0-9a-f]{64}$/.test(namespace))
-    throw new Error('controller fixture namespace must be a SHA-256 digest');
+    throw new Error('controller fixture namespace must be a SHA-256 digest or canonical UUID');
   controllerFixtureOrdinal += 1;
   const scoped = createHash('sha256').update(`${namespace}:${prefix}:${controllerFixtureOrdinal}`).digest('hex');
   return `${prefix}${scoped.slice(1, 8)}-${scoped.slice(8, 12)}-4${scoped.slice(13, 16)}-8${scoped.slice(17, 20)}-${scoped.slice(20, 32)}`;
