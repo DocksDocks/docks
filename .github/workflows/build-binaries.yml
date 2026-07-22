@@ -229,12 +229,16 @@ jobs:
           sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
           sudo -n chown "$(id -u):$(id -g)" \
             "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
-          SESSION_RELAY_TEST_BIN="$RUNNER_TEMP/session-relay/$TARGET/$ASSET_NAME" \
-            SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" cargo test \
-            --manifest-path plugins/session-relay/rust/Cargo.toml \
-            --locked --test workspace_lease_process \
-            linux_cgroup_pidfd_guardian_kills_hostile_descendants \
-            -- --exact --nocapture
+          (
+            test_pid=$BASHPID &&
+              sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid" &&
+              SESSION_RELAY_TEST_BIN="$RUNNER_TEMP/session-relay/$TARGET/$ASSET_NAME" \
+                SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" cargo test \
+                --manifest-path plugins/session-relay/rust/Cargo.toml \
+                --locked --test workspace_lease_process \
+                linux_cgroup_pidfd_guardian_kills_hostile_descendants \
+                -- --exact --nocapture
+          )
           sudo -n rmdir "$CGROUP"
           trap - EXIT
       - name: prove macOS managed-workspace admission STOP
