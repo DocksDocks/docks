@@ -83,6 +83,8 @@ Current review/orchestration records use schema 6 and persist exactly one `Revie
 
 The complete contract lives in `docs/plans/AGENTS.md`. Schemas 1–5 and their fixed names are historical validation/audit-only and retain byte-compatible behavior. Skills are canonical; optional thin Claude/Codex dispatch wrappers exist only for `plan-manager` and `plan-reviewer`. Session transport is never canonical review evidence.
 
+Managed writing workspaces are a Session Relay runtime boundary, not a Docks plan-review or policy outcome. Relay owns the exact nine workspace commands, worktree/Git/resource coordination, Linux custody, recovery, and integration; launched Claude, Codex, and OMP workers are untrusted. Docks gains no workspace command or skill until macOS durable custody exists, an independently reviewed stable Relay release is available, and a separate canonical Docks policy plan authorizes that surface. Do not infer control over arbitrary unmanaged same-UID processes.
+
 ## Project-local skills
 
 The repo's own `.agents/skills/` hosts skills useful only when working ON this plugin repo — they don't ship to consumers:
