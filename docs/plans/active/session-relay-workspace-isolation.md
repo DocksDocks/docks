@@ -635,3 +635,5 @@ None. This plan freezes owner, CLI, schemas, state, module ownership, test owner
 ## Review
 
 (filled by main-context plan-manager after completion evidence)
+
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"a559bc6baaa13a5dd62128f5c45880756780015ca96c1bb322120d650db4d0b4","initial_input_sha256":"a559bc6baaa13a5dd62128f5c45880756780015ca96c1bb322120d650db4d0b4","lifecycle_intent":"start","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-workspace-isolation.md","request_ids":["2005a530-0b1a-4a3d-9e17-49b4a42e32fd"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"60700869-5322-414c-aedb-c1b1a44046de","series_sha256":null,"state_sha256":"04c189cfa915da00874ccafb5c57f45444da277bdd801637c2eb87c2637abf03","status":"active","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
