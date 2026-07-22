@@ -1,9 +1,9 @@
 ---
 title: Isolate managed writing sessions with Relay worktrees
 goal: Prevent concurrent Docks writing sessions from sharing a checkout, Git index, refs, or mutable external resources while preserving bounded review behavior.
-status: in_review
+status: finished
 created: "2026-07-21T20:58:22-03:00"
-updated: "2026-07-22T23:16:28.934Z"
+updated: "2026-07-22T23:17:35.423Z"
 started_at: "2026-07-22T03:16:32.285Z"
 in_review_since: "2026-07-22T22:39:44.181Z"
 assignee: null
@@ -33,6 +33,7 @@ related_plans:
 review_status: passed
 planned_at_commit: fc466f5a5784bb434108928d69aadef4877a6f5a
 execution_base_commit: 21eda3c9137b1b44b652738f6f53a0237b403fb5
+ship_commit: ab60f520604e4757417b4f68bf6c5f4184240212
 ---
 
 ## Goal
