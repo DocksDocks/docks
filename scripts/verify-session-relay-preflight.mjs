@@ -20,7 +20,7 @@ import {
 
 const REPOSITORY_ID = 'DocksDocks/docks';
 const WORKFLOW_FILE = '.github/workflows/build-binaries.yml';
-const EXPECTED_VERSION_STDOUT = 'session-relay 0.13.0';
+const EXPECTED_VERSION_STDOUT = 'session-relay 0.12.0';
 const PRODUCER_PATH = 'scripts/verify-session-relay-preflight.mjs';
 const PRODUCER_VERSION = '2';
 const CHECKSUM_ARTIFACT = 'session-relay-checksums';
@@ -304,7 +304,7 @@ function validateRun(run, parsed) {
   requireEqual(requireString(run.status, 'workflow run status'), 'completed', 'workflow run status');
   requireEqual(requireString(run.conclusion, 'workflow run conclusion'), 'success', 'workflow run conclusion');
   requireEqual(requireString(run.head_sha, 'workflow run head_sha'), parsed.expectedCommit, 'workflow run head_sha');
-  const branch = `preflight/session-relay-0.13.0-${parsed.expectedCommit.slice(0, 12)}`;
+  const branch = `preflight/session-relay-0.12.0-${parsed.expectedCommit.slice(0, 12)}`;
   requireEqual(requireString(run.head_branch, 'workflow run head_branch'), branch, 'workflow run head_branch');
   requireEqual(requireString(run.path, 'workflow run path'), WORKFLOW_FILE, 'workflow run path');
   const attempt = requirePositiveInteger(run.run_attempt, 'workflow run attempt');

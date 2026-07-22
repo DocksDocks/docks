@@ -717,7 +717,7 @@ export function validateSourcePreparationCandidate(value, context = {}) {
   if (
     value.companion.status !== 'blocked' ||
     value.companion.blocked_reason !==
-      'Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests.'
+      'Awaiting the four independently hashed `session-relay--v0.12.0` production asset digests.'
   )
     fail('candidate companion status mismatch');
   for (const [name, workflow] of [
