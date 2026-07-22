@@ -227,12 +227,30 @@ jobs:
           trap cleanup EXIT
           sudo -n mkdir "$CGROUP"
           sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
+          set +e
           SESSION_RELAY_TEST_BIN="$RUNNER_TEMP/session-relay/$TARGET/$ASSET_NAME" \
             SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" cargo test \
             --manifest-path plugins/session-relay/rust/Cargo.toml \
             --locked --test workspace_lease_process \
             linux_cgroup_pidfd_guardian_kills_hostile_descendants \
             -- --exact --nocapture
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            ps -e -o pid,ppid,stat,wchan:40,cmd
+            for process in /proc/[0-9]*; do
+              cmdline="$(tr '\0' ' ' < "$process/cmdline" 2>/dev/null || true)"
+              case "$cmdline" in
+                *internal-custody-supervisor*|*worker-fixture*)
+                  echo "=== $process: $cmdline"
+                  cat "$process/status" 2>/dev/null || true
+                  cat "$process/wchan" 2>/dev/null || true
+                  sudo -n cat "$process/stack" 2>/dev/null || true
+                  ;;
+              esac
+            done
+            exit "$status"
+          fi
           sudo -n rmdir "$CGROUP"
           trap - EXIT
       - name: prove macOS managed-workspace admission STOP
