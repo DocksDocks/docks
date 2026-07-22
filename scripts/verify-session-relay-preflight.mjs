@@ -28,10 +28,30 @@ const CHECKSUM_FILE = 'SHA256SUMS';
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 const TARGETS = [
-  { target: rustHostTarget('linux', 'x64'), runner_os: 'Linux', runner_arch: 'X64' },
-  { target: rustHostTarget('linux', 'arm64'), runner_os: 'Linux', runner_arch: 'ARM64' },
-  { target: rustHostTarget('darwin', 'x64'), runner_os: 'macOS', runner_arch: 'X64' },
-  { target: rustHostTarget('darwin', 'arm64'), runner_os: 'macOS', runner_arch: 'ARM64' },
+  {
+    target: rustHostTarget('linux', 'x64'),
+    runner_os: 'Linux',
+    runner_arch: 'X64',
+    runner: 'ubuntu-24.04',
+  },
+  {
+    target: rustHostTarget('linux', 'arm64'),
+    runner_os: 'Linux',
+    runner_arch: 'ARM64',
+    runner: 'ubuntu-24.04-arm',
+  },
+  {
+    target: rustHostTarget('darwin', 'x64'),
+    runner_os: 'macOS',
+    runner_arch: 'X64',
+    runner: 'macos-15-intel',
+  },
+  {
+    target: rustHostTarget('darwin', 'arm64'),
+    runner_os: 'macOS',
+    runner_arch: 'ARM64',
+    runner: 'macos-15',
+  },
 ];
 
 export class VerificationError extends Error {}
@@ -324,6 +344,112 @@ function validateWorkflowFile(file) {
   const blobId = requireString(file.sha, 'workflow file blob id');
   if (!/^[0-9a-f]{40}$/.test(blobId)) fail('workflow file blob id must be 40 lowercase hex');
   return blobId;
+}
+
+function validateNativeJobs(response, run, runIdentity) {
+  requireRecord(response, 'workflow jobs response');
+  const total = requirePositiveInteger(response.total_count, 'workflow jobs total_count');
+  if (!Array.isArray(response.jobs) || response.jobs.length !== total)
+    fail('workflow jobs response count mismatch');
+
+  const requiredSteps = [
+    'build locked native release',
+    'prove Linux managed-workspace custody',
+    'prove macOS managed-workspace admission STOP',
+    'smoke explicit fresh Linux workspace binary',
+    'attest native release binary',
+    'upload stable executable and canonical attestation',
+  ];
+
+  for (const expected of TARGETS) {
+    const expectedName = `build ${expected.target} on ${expected.runner}`;
+    const matches = response.jobs.filter((job) => job?.name === expectedName);
+    if (matches.length !== 1) fail(`native job ${expectedName} must appear exactly once`);
+    const job = requireRecord(matches[0], `native job ${expected.target}`);
+    requirePositiveInteger(job.id, `native job ${expected.target} id`);
+    requireEqual(
+      requirePositiveInteger(job.run_id, `native job ${expected.target} run_id`),
+      run.id,
+      `native job ${expected.target} run_id`,
+    );
+    requireEqual(
+      requirePositiveInteger(job.run_attempt, `native job ${expected.target} run_attempt`),
+      runIdentity.attempt,
+      `native job ${expected.target} run_attempt`,
+    );
+    requireEqual(
+      requireString(job.head_sha, `native job ${expected.target} head_sha`),
+      run.head_sha,
+      `native job ${expected.target} head_sha`,
+    );
+    requireEqual(
+      requireString(job.status, `native job ${expected.target} status`),
+      'completed',
+      `native job ${expected.target} status`,
+    );
+    requireEqual(
+      requireString(job.conclusion, `native job ${expected.target} conclusion`),
+      'success',
+      `native job ${expected.target} conclusion`,
+    );
+    requirePositiveInteger(job.runner_id, `native job ${expected.target} runner_id`);
+    requireString(job.runner_name, `native job ${expected.target} runner_name`);
+    requireEqual(job.runner_group_id, 0, `native job ${expected.target} runner_group_id`);
+    requireEqual(
+      requireString(job.runner_group_name, `native job ${expected.target} runner_group_name`),
+      'GitHub Actions',
+      `native job ${expected.target} runner_group_name`,
+    );
+    if (
+      !Array.isArray(job.labels) ||
+      job.labels.length !== 1 ||
+      job.labels[0] !== expected.runner
+    )
+      fail(`native job ${expected.target} did not run only on ${expected.runner}`);
+    if (!Array.isArray(job.steps)) fail(`native job ${expected.target} steps must be an array`);
+
+    const positions = [];
+    for (const stepName of requiredSteps) {
+      const stepMatches = job.steps.filter((step) => step?.name === stepName);
+      if (stepMatches.length !== 1)
+        fail(`native job ${expected.target} step ${stepName} must appear exactly once`);
+      const step = requireRecord(stepMatches[0], `native job ${expected.target} step ${stepName}`);
+      requireEqual(
+        requireString(step.status, `native job ${expected.target} step ${stepName} status`),
+        'completed',
+        `native job ${expected.target} step ${stepName} status`,
+      );
+      const expectedConclusion =
+        stepName === 'prove Linux managed-workspace custody'
+          ? expected.runner_os === 'Linux'
+            ? 'success'
+            : 'skipped'
+          : stepName === 'prove macOS managed-workspace admission STOP'
+            ? expected.runner_os === 'macOS'
+              ? 'success'
+              : 'skipped'
+            : stepName === 'smoke explicit fresh Linux workspace binary'
+              ? expected.runner_os === 'Linux'
+                ? 'success'
+                : 'skipped'
+              : 'success';
+      requireEqual(
+        requireString(step.conclusion, `native job ${expected.target} step ${stepName} conclusion`),
+        expectedConclusion,
+        `native job ${expected.target} step ${stepName} conclusion`,
+      );
+      positions.push({
+        arrayIndex: job.steps.indexOf(step),
+        number: requirePositiveInteger(step.number, `native job ${expected.target} step ${stepName} number`),
+      });
+    }
+    for (let index = 1; index < positions.length; index += 1)
+      if (
+        positions[index - 1].arrayIndex >= positions[index].arrayIndex ||
+        positions[index - 1].number >= positions[index].number
+      )
+        fail(`native job ${expected.target} evidence steps are reordered`);
+  }
 }
 
 function validateArtifactApi(response, run, runIdentity, expectedNames) {
@@ -807,6 +933,10 @@ export function verifyPreflight(options, injected) {
     `repos/${REPOSITORY_ID}/contents/${WORKFLOW_FILE}?ref=${encodeURIComponent(parsed.expectedCommit)}`,
   );
   const workflowBlobId = validateWorkflowFile(workflowFile);
+  const jobsResponse = deps.apiJson(
+    `repos/${REPOSITORY_ID}/actions/runs/${parsed.runId}/jobs?filter=latest&per_page=100`,
+  );
+  validateNativeJobs(jobsResponse, run, runIdentity);
   const expectedArtifactNames = [...TARGETS.map(({ target }) => `session-relay-binary-${target}`), CHECKSUM_ARTIFACT];
   const artifactResponse = deps.apiJson(`repos/${REPOSITORY_ID}/actions/runs/${parsed.runId}/artifacts?per_page=100`);
   const artifactApi = validateArtifactApi(artifactResponse, run, runIdentity, expectedArtifactNames);
