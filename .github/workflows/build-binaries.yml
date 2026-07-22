@@ -214,7 +214,15 @@ jobs:
             *) echo "target is not native to this Linux runner" >&2; exit 1 ;;
           esac
           test -x "$RUNNER_TEMP/session-relay/$TARGET/$ASSET_NAME"
-          CGROUP="/sys/fs/cgroup/session-relay-producer-$(id -u)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RUNNER_ARCH}"
+          CURRENT_CGROUP=
+          while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
+            if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
+              CURRENT_CGROUP="$CGROUP_PATH"
+              break
+            fi
+          done < /proc/self/cgroup
+          test -n "$CURRENT_CGROUP"
+          CGROUP="/sys/fs/cgroup${CURRENT_CGROUP%/}/session-relay-producer-$(id -u)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RUNNER_ARCH}"
           cleanup() { sudo -n rmdir "$CGROUP" 2>/dev/null || true; }
           trap cleanup EXIT
           sudo -n mkdir "$CGROUP"
@@ -236,7 +244,7 @@ jobs:
           test "$(uname -s)" = Darwin
           product_version="$(sw_vers -productVersion)"
           test "${product_version%%.*}" -ge 15
-          test "$(stat -f %T .)" = apfs
+          test "$(diskutil info -plist "$PWD" | plutil -extract FilesystemType raw -o - -)" = apfs
           case "$(uname -m):$TARGET" in
             x86_64:x86_64-apple-darwin|arm64:aarch64-apple-darwin) ;;
             *) echo "target is not native to this macOS runner" >&2; exit 1 ;;
