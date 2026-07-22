@@ -1,10 +1,11 @@
 ---
 title: Isolate managed writing sessions with Relay worktrees
 goal: Prevent concurrent Docks writing sessions from sharing a checkout, Git index, refs, or mutable external resources while preserving bounded review behavior.
-status: ongoing
+status: in_review
 created: "2026-07-21T20:58:22-03:00"
-updated: "2026-07-22T03:16:32.285Z"
+updated: "2026-07-22T22:39:44.181Z"
 started_at: "2026-07-22T03:16:32.285Z"
+in_review_since: "2026-07-22T22:39:44.181Z"
 assignee: null
 review_author_company: openai
 review_author_tool: omp
