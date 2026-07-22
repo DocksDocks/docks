@@ -241,14 +241,17 @@ jobs:
             for process in /proc/[0-9]*; do
               cmdline="$(tr '\0' ' ' < "$process/cmdline" 2>/dev/null || true)"
               case "$cmdline" in
-                *internal-custody-supervisor*|*worker-fixture*)
+                *__custody-supervisor*|*__broker*|*worker-fixture*)
                   echo "=== $process: $cmdline"
                   cat "$process/status" 2>/dev/null || true
                   cat "$process/wchan" 2>/dev/null || true
+                  cat "$process/syscall" 2>/dev/null || true
+                  cat "$process/task/"*/children 2>/dev/null || true
                   sudo -n cat "$process/stack" 2>/dev/null || true
                   ;;
               esac
             done
+            sudo -n coredumpctl --no-pager info 2>/dev/null || true
             exit "$status"
           fi
           sudo -n rmdir "$CGROUP"
