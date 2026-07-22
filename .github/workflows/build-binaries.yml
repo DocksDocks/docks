@@ -227,7 +227,8 @@ jobs:
           trap cleanup EXIT
           sudo -n mkdir "$CGROUP"
           sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
-          SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" cargo test \
+          SESSION_RELAY_TEST_BIN="$RUNNER_TEMP/session-relay/$TARGET/$ASSET_NAME" \
+            SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" cargo test \
             --manifest-path plugins/session-relay/rust/Cargo.toml \
             --locked --test workspace_lease_process \
             linux_cgroup_pidfd_guardian_kills_hostile_descendants \
@@ -244,7 +245,14 @@ jobs:
           test "$(uname -s)" = Darwin
           product_version="$(sw_vers -productVersion)"
           test "${product_version%%.*}" -ge 15
-          test "$(diskutil info -plist "$PWD" | plutil -extract FilesystemType raw -o - -)" = apfs
+          filesystem_device="$(df -P . | awk 'END { print $1 }')"
+          test -n "$filesystem_device"
+          filesystem_info="$RUNNER_TEMP/session-relay-filesystem-$TARGET.plist"
+          diskutil info -plist "$filesystem_device" > "$filesystem_info"
+          filesystem_type="$(/usr/libexec/PlistBuddy -c 'Print :FilesystemType' "$filesystem_info")"
+          rm -f "$filesystem_info"
+          echo "workspace filesystem: $filesystem_device ($filesystem_type)"
+          test "$filesystem_type" = apfs
           case "$(uname -m):$TARGET" in
             x86_64:x86_64-apple-darwin|arm64:aarch64-apple-darwin) ;;
             *) echo "target is not native to this macOS runner" >&2; exit 1 ;;
