@@ -31,7 +31,7 @@ related_plans:
   - docs/plans/active/plan-review-controller-failure-recovery.md
 review_status: null
 planned_at_commit: fc466f5a5784bb434108928d69aadef4877a6f5a
-execution_base_commit: null
+execution_base_commit: 21eda3c9137b1b44b652738f6f53a0237b403fb5
 ---
 
 ## Goal
