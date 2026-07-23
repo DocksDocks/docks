@@ -1,11 +1,11 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: blocked
+status: ongoing
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T19:42:12-03:00"
-blocked_reason: "The schema-6 repair review proved A1 can bind committed red-test blobs while executing dirty worktree bytes; the current user authorized a substantive A1 cleanliness amendment and fresh changed-input review before implementation or publication resumes."
-blocked_since: "2026-07-23T18:20:19-03:00"
+updated: "2026-07-23T19:53:47-03:00"
+blocked_reason: null
+blocked_since: null
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
@@ -200,7 +200,7 @@ git merge-base --is-ancestor 25592c6550069e300a7a0148d3cd3c21880da8e7 "$PUBLICAT
 
 | # | Task | Files | Depends | Status | Done when / failure action |
 |---|---|---|---|---|---|
-| 1 | Obtain one fresh independent current-policy schema-6 draft review of this amended plan, retain its existing start/execution-base identity, and re-fetch all immutable Docks/public identities without mutation. | `docs/plans/active/session-relay-linux-workspace-publication.md` only for manager-owned review and block/unblock commits | — | in-flight | Draft review passes with the sole runtime-current reviewer and no fallback or unauthorized waiver; the plan returns to `ongoing` while retaining `started_at` and `execution_base_commit`; recertification completion receipt/candidate, companion tuple/ancestry, authorized Docks base `25592c6...`, absence of fresh `session-relay--v0.13.0` and `cli-v0.10.2` tags/Releases, npm `docks-kit@0.10.2` absence, current versions, and corrected public constants reverify. Any non-pass or identity drift is STOP. |
+| 1 | Obtain one fresh independent current-policy schema-6 draft review of this amended plan, retain its existing start/execution-base identity, and re-fetch all immutable Docks/public identities without mutation. | `docs/plans/active/session-relay-linux-workspace-publication.md` only for manager-owned review and block/unblock commits | — | done | Draft review passes with the sole runtime-current reviewer and no fallback or unauthorized waiver; the plan returns to `ongoing` while retaining `started_at` and `execution_base_commit`; recertification completion receipt/candidate, companion tuple/ancestry, authorized Docks base `25592c6...`, absence of fresh `session-relay--v0.13.0` and `cli-v0.10.2` tags/Releases, npm `docks-kit@0.10.2` absence, current versions, and corrected public constants reverify. Any non-pass or identity drift is STOP. |
 | 2 | Commit test-only contract changes that fail because the binder cannot yet accept the exact reviewed current-main tail under the two-fence contract; capture the intended red before production edits. | `plugins/session-relay/test/release-evidence-contract.mjs` | 1 | planned | A1 fails only because the binder lacks the authorized-base ancestry and exact three-path base-to-promoted fence. Tests freeze acceptance of the exact 34-path shipped-to-promoted set and rejection of a changed base, non-ancestor base, missing/extra base-tail path, implementation drift, arbitrary path drift, or dirty tree. Setup, parse, timeout, or unrelated failures STOP. |
 | 3 | Implement the closed two-fence current-main correction and make focused contracts green without changing receipt schemas or public-release semantics. | `scripts/lib/session-relay-release-preparation.mjs` | 2 | planned | The binder pins authorized base `25592c6...`, requires it as an ancestor of current `HEAD`, requires the exact 34-path shipped-to-promoted set and exact three-path base-to-promoted set, and continues to derive `promoted_commit` from clean current `HEAD`; A2-A5 pass. |
 | 4 | Run companion/hash checks and one final Docks full gate, seal the exact amended implementation commit, independently review it through the normal branch/PR path, and push without force so Docks `origin/main` equals it. | The three amendment paths above; the other 31 promoted-path entries are immutable inputs | 3 | planned | A6-A9 pass; implementation/test blobs do not change after A8; `PUBLICATION_IMPLEMENTATION_COMMIT` is clean, descends from both `cdca867...` and `25592c6...`, has exactly the three-path diff from the authorized base and exact 34-path diff from the shipped archive, and local/remote `origin/main` both equal it. Any review rejection, extra path, force requirement, or main drift is STOP. |
