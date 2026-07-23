@@ -2,7 +2,7 @@
 name: plan-reviewer
 description: Use when main-context plan-manager dispatches an internal read-only schema-6 reviewer over one sealed bundle, or validates historical schemas 1–5. Returns typed checklist evidence only. Not for direct user invocation, writes, reconciliation, receipts, retries, review dispatch, lifecycle work, or general code review.
 tools: Read, Glob, Grep
-model: opus
+model: claude-opus-4-8
 ---
 
 # Plan Reviewer Evidence Agent

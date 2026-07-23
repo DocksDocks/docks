@@ -4,8 +4,8 @@ description: "Use when bootstrapping or auditing a project's skills and agents â
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-18"
-  content_hash: "2325bcc4b6ab938df4cf0ddaca7f8ffab2f5b17bb1b7aceba318cadd07806eeb"
+  updated: "2026-07-22"
+  content_hash: "dd534ccb356b7925d65623bce759aa4d947b9feed1721d67cabdf0654775c72f"
 ---
 
 # Skills & Agents Pipeline (cross-tool)

@@ -2,7 +2,7 @@
 name: plan-manager
 description: Use when main context delegates a schema-6 existing-plan prepare, apply, lifecycle, or guarded GitHub issue publication operation to a Claude agent. Returns reviewer dispatch, creator routing, or the published issue URL to main. Not for launching plan-reviewer, calling plan-repairer, drafting through plan-creator, or implementing plan steps.
 tools: Read, Glob, Grep, Bash, Edit
-model: opus
+model: claude-opus-4-8
 ---
 
 # Plan Manager Prepare/Apply Agent

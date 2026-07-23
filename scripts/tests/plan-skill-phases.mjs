@@ -220,6 +220,9 @@ function assertWrappers() {
     }),
   );
   assert.deepEqual([...claude.keys()].sort(), expected, 'Claude wrapper identities');
+  for (const name of expected) {
+    assert.equal(claude.get(name).metadata.model, 'claude-opus-4-8', `${name} Claude wrapper model`);
+  }
   assert.match(
     String(claude.get('plan-manager').metadata.tools),
     /Edit/,
