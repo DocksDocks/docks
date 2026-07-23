@@ -363,7 +363,7 @@ function assertRunAssetSet(assets) {
       !SHA256.test(asset.digest ?? '') ||
       typeof asset.path !== 'string'
     ) {
-      fail('bound workflow run asset identity is invalid');
+      fail('bound workflow run asset set conflict: identity is invalid');
     }
   }
   return sorted;

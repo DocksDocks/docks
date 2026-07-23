@@ -1634,7 +1634,7 @@ function verifyPublicBinding(deps, docksPlan, publicReceipt) {
     )
       fail('companion test blob mismatch');
   }
-  return notes;
+  return { ...notes, plan_path: planPath };
 }
 
 export function checkPrepared(options, injected) {
