@@ -196,6 +196,17 @@ None.
 
 ## Notes
 
+- Companion repository ID: DocksDocks/public
+- Companion plan: `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-0.13.0-release-preparation.md`
+- Companion validation ref: refs/heads/preflight/session-relay-cli-0.13.0-6c07f9bc02ef
+- Companion implementation commit: 6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172
+- Companion plan input SHA-256: 818766be3668ad02bfce234cdb25e5d65bf0760bd7c7b2aea05fb8f075a99ed3
+- Companion execution base commit: c0dfa7aeb6ea3bc7de5a78bd4896b1993746b117
+- Companion review receipt SHA-256: 097206c0611c3357e10c0bf69a70819ea67901ef1ae8c3ef1d9e8207520f7c52
+- Companion TDD-red receipt JCS bytes: {"captured_at":"2026-07-23T02:39:03.836Z","command":{"argv":["bun","run","test:unit","--","cli/test/unit/sessionRelayCli.test.ts","cli/test/unit/pluginRefresh.test.ts"],"cwd":"/home/vagrant/projects/public"},"exit_code":1,"pre_production_commit":"f67ae74df6391d9d649f2a7479f2c996a284e175","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/public","schema":1,"stderr_sha256":"9c7be66ed65b54c0f5b294f4a0b8c5b5615c6a4d12d632e2bd5a0864f5622697","stdout_sha256":"a32a6b083f7169296a1b19f024c3514f7d0ab58d5bf123e7370d58aac39a8c00","test_paths":[{"blob_id":"7f8dd6507c8ed6ee5ac2549894aaa349cf0ef650","path":"cli/test/unit/pluginRefresh.test.ts"},{"blob_id":"265e3a99a6c0e713a72c9d6b1f3d5d2638010613","path":"cli/test/unit/sessionRelayCli.test.ts"}],"type":"TddRedReceiptV1"}
+- Companion TDD-red receipt SHA-256: 833e777a509b44584f873628a65212fd92bd8a9305cd2f5f6699fc172738402c
+- Companion status: blocked
+- Companion blocked reason: Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests.
 - Docks TDD-red receipt JCS bytes: {"captured_at":"2026-07-23T13:54:25.050Z","command":{"argv":["node","plugins/session-relay/test/release-evidence-contract.mjs"],"cwd":"/home/vagrant/projects/docks-session-relay-0.13.0-release"},"exit_code":1,"pre_production_commit":"c929c0c61860f0a9bf5c0b9311d184d063b767eb","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/docks","schema":1,"stderr_sha256":"71b4afbfc07cbf599ffc3d9c799005c633082fe89c625ed870cb2d618e4de455","stdout_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","test_paths":[{"blob_id":"48573c70e7a663092b4f70949b81317e300faa02","path":"plugins/session-relay/test/companion-distribution-contract.mjs"},{"blob_id":"7f05b18894e6119f1eaff6f064c57784619f7b39","path":"plugins/session-relay/test/distribution-contract.mjs"},{"blob_id":"459439c8c5a9315e6467619977f4827a3dd0a29c","path":"plugins/session-relay/test/release-evidence-contract.mjs"},{"blob_id":"a87b6c611804ac0f4ac15b5d44ec43b4c1de7b1f","path":"plugins/session-relay/test/release-promotion-contract.mjs"},{"blob_id":"76a8110e18f59cf7c726c90a3f6c63e930a3ecc4","path":"plugins/session-relay/test/release-publication-contract.mjs"}],"type":"TddRedReceiptV1"}
 - Docks TDD-red receipt SHA-256: ef7f653e6c1f9e2975e6f62f4d557053dbc15b7b1034b3e817b18693ff1ab2b2
 
