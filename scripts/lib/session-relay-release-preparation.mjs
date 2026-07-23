@@ -39,13 +39,47 @@ import {
 
 const PLAN_PATH = 'docs/plans/active/session-relay-linux-workspace-recertification.md';
 const FINISHED_PLAN = /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-linux-workspace-recertification\.md$/;
+const AUTHORIZED_CURRENT_MAIN_BASE = '25592c6550069e300a7a0148d3cd3c21880da8e7';
 const SHIPPED_TO_PROMOTED_PATHS = [
+  '.claude-plugin/marketplace.json',
+  '.codex/agents/plan-manager.toml',
+  '.codex/agents/plan-reviewer.toml',
+  'AGENTS.md',
+  'README.md',
+  'docs/plans/AGENTS.md',
   'docs/plans/active/session-relay-linux-workspace-publication.md',
+  'docs/scaffold/templates/codex-plan-manager.toml.template',
+  'docs/scaffold/templates/codex-plan-reviewer.toml.template',
+  'docs/scaffold/templates/root-AGENTS.md.template',
+  'plugins/docks/.claude-plugin/plugin.json',
+  'plugins/docks/.codex-plugin/plugin.json',
+  'plugins/docks/README.md',
+  'plugins/docks/agents/plan-manager.md',
+  'plugins/docks/agents/plan-reviewer.md',
+  'plugins/docks/skills/AGENTS.md',
+  'plugins/docks/skills/productivity/plan-creator/SKILL.md',
+  'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+  'plugins/docks/skills/productivity/plan-repairer/SKILL.md',
+  'plugins/docks/skills/productivity/plan-reviewer/SKILL.md',
+  'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+  'plugins/docks/skills/productivity/plan-workspace/SKILL.md',
+  'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
+  'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
   'plugins/session-relay/test/release-evidence-contract.mjs',
   'plugins/session-relay/test/release-promotion-contract.mjs',
   'plugins/session-relay/test/release-publication-contract.mjs',
+  'scripts/agents/score.mjs',
   'scripts/lib/session-relay-release-preparation.mjs',
   'scripts/lib/session-relay-release-promotion.mjs',
+  'scripts/tests/plan-review-convergence-repair.mjs',
+  'scripts/tests/plan-review-policy-regressions.mjs',
+  'scripts/tests/plan-review-policy.mjs',
+  'scripts/tests/plan-skill-phases.mjs',
+];
+const AUTHORIZED_BASE_TO_PROMOTED_PATHS = [
+  'docs/plans/active/session-relay-linux-workspace-publication.md',
+  'plugins/session-relay/test/release-evidence-contract.mjs',
+  'scripts/lib/session-relay-release-preparation.mjs',
 ];
 const RELEASE_VERSION = '0.13.0';
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
@@ -1981,9 +2015,15 @@ export function bindCompletion(options, injected) {
     SHIPPED_TO_PROMOTED_PATHS,
     'shipped-to-promoted diff',
   );
+  requireExactChangedPaths(
+    gitValue(deps, ['diff', '--name-only', AUTHORIZED_CURRENT_MAIN_BASE, currentHead, '--no-renames', '--', '.']),
+    AUTHORIZED_BASE_TO_PROMOTED_PATHS,
+    'authorized-base-to-promoted diff',
+  );
   ancestor(deps, sourceCommit, evidenceCommit, 'source-to-evidence');
   ancestor(deps, evidenceCommit, shippedCommit, 'evidence-to-shipped');
   ancestor(deps, shippedCommit, currentHead, 'shipped-to-current');
+  ancestor(deps, AUTHORIZED_CURRENT_MAIN_BASE, currentHead, 'authorized-base-to-promoted');
   const nonPlan = gitValue(deps, [
     'diff',
     '--name-only',
