@@ -3,7 +3,7 @@ title: Prepare Session Relay 0.13.0 for Linux managed workspaces
 goal: Make Linux managed workspaces releasable, preserve ordinary macOS Relay support and fail-closed workspace refusal, and seal reviewed 0.13.0 source evidence.
 status: ongoing
 created: "2026-07-22T21:28:09-03:00"
-updated: "2026-07-23T03:22:22.572Z"
+updated: "2026-07-23T03:50:32.288Z"
 started_at: "2026-07-23T01:47:17.696Z"
 assignee: null
 review_author_company: openai
@@ -288,8 +288,8 @@ None. The selected boundary is Linux-only managed workspace writing plus unchang
 - Companion TDD-red receipt SHA-256: 833e777a509b44584f873628a65212fd92bd8a9305cd2f5f6699fc172738402c
 - Companion status: blocked
 - Companion blocked reason: Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests.
-- Docks TDD-red receipt JCS bytes: {"captured_at":"2026-07-23T03:19:29.354Z","command":{"argv":["node","plugins/session-relay/test/release-evidence-contract.mjs"],"cwd":"/home/vagrant/projects/docks-71505692-0a6f-4bf1-83cc-61889aec3944-workspace-isolation"},"exit_code":1,"pre_production_commit":"1071f2e185049c72a797abad396e01f784a61ca1","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/docks","schema":1,"stderr_sha256":"b5233ce34167508e090355c61088f80344b6fb261fd4b59f45ae4133ca5c6ec6","stdout_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","test_paths":[{"blob_id":"fd98159c828f7ef110946e809df4c92f25135c56","path":"plugins/session-relay/test/companion-distribution-contract.mjs"},{"blob_id":"238762dc761ae4390f4581ea52226a0cd66313ff","path":"plugins/session-relay/test/distribution-contract.mjs"},{"blob_id":"f65479fc336accca23364c7241396fa1ae99e850","path":"plugins/session-relay/test/release-evidence-contract.mjs"},{"blob_id":"5dfdc45fdc830c5e5dddab53cadd79d024f18aff","path":"plugins/session-relay/test/release-promotion-contract.mjs"},{"blob_id":"19c3a8af1566951575685765758b1941a701fcf8","path":"plugins/session-relay/test/release-publication-contract.mjs"}],"type":"TddRedReceiptV1"}
-- Docks TDD-red receipt SHA-256: 8e9296a3b9c5b8fcb7e8912e130513d08dcd3c0619a6081a5a44acbdec58e156
+- Docks TDD-red receipt JCS bytes: {"captured_at":"2026-07-23T03:48:21.249Z","command":{"argv":["node","plugins/session-relay/test/release-evidence-contract.mjs"],"cwd":"/home/vagrant/projects/docks-71505692-0a6f-4bf1-83cc-61889aec3944-workspace-isolation"},"exit_code":1,"pre_production_commit":"8cdf5304182528c3f52408c63e728f3399652100","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/docks","schema":1,"stderr_sha256":"665e3b6b6a0f149d3ce872d2cb7540fb6aa72a689e4dcdc793a9d56aa97e66b6","stdout_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","test_paths":[{"blob_id":"fd98159c828f7ef110946e809df4c92f25135c56","path":"plugins/session-relay/test/companion-distribution-contract.mjs"},{"blob_id":"238762dc761ae4390f4581ea52226a0cd66313ff","path":"plugins/session-relay/test/distribution-contract.mjs"},{"blob_id":"6dc9e7607ee58fc2f59c051a8309eb3b976d5835","path":"plugins/session-relay/test/release-evidence-contract.mjs"},{"blob_id":"2d307dbf74eb26bbbd130f6b65caaffb040b99ed","path":"plugins/session-relay/test/release-promotion-contract.mjs"},{"blob_id":"cbf2a2ae5415e88657150433d7a9c646fc841d49","path":"plugins/session-relay/test/release-publication-contract.mjs"}],"type":"TddRedReceiptV1"}
+- Docks TDD-red receipt SHA-256: ff7327c73c06b3a859bb94c7f64b1f9d935687926cf0df7f2d6cf66ff6878a2b
 - TAG_COMMIT / SOURCE_COMMIT: pending
 - Producer preflight branch/ref commit: pending
 - Producer preflight workflow SHA/run ID/attempt: pending
