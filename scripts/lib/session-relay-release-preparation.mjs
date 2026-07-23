@@ -1644,6 +1644,17 @@ function companionReviewReceipt(plan, expectedInput, orchestration) {
   return review;
 }
 
+function publicTddRedReceipt(plan) {
+  const bytes = [...plan.matchAll(/^Public TDD-red receipt JCS bytes: (.*)$/gm)];
+  const digests = [...plan.matchAll(/^Public TDD-red receipt SHA-256: (.*)$/gm)];
+  if (bytes.length !== 1 || digests.length !== 1) fail('public plan TDD-red receipt fields are ambiguous');
+  return embeddedReceipt(
+    `- Public TDD-red receipt JCS bytes: ${bytes[0][1]}\n- Public TDD-red receipt SHA-256: ${digests[0][1]}\n`,
+    'Public TDD-red receipt',
+    'TddRedReceiptV1',
+  );
+}
+
 function verifyPublicBinding(deps, docksPlan, publicReceipt) {
   const notes = {
     repository_id: noteValue(docksPlan, 'Companion repository ID'),
@@ -1702,7 +1713,7 @@ function verifyPublicBinding(deps, docksPlan, publicReceipt) {
   commit(observed.source_commit, 'companion inspected source commit');
   if (observed.source_commit !== noteValue(publicPlan, 'Source commit'))
     fail('companion inspected source commit mismatch');
-  const embedded = embeddedReceipt(publicPlan, 'Companion TDD-red receipt', 'TddRedReceiptV1');
+  const embedded = publicTddRedReceipt(publicPlan);
   if (embedded.digest !== publicReceipt.digest || !embedded.bytes.equals(publicReceipt.bytes))
     fail('companion plan TDD-red receipt bytes mismatch');
   if (parseExecutionBase(publicPlan) !== notes.execution_base_commit) fail('companion execution base mismatch');
