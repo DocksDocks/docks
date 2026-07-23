@@ -3,7 +3,7 @@ title: Recertify Session Relay 0.13.0 on current main
 goal: Reapply and independently reseal the reviewed Session Relay 0.13.0 source on current origin/main so publication cannot discard newer Docks releases.
 status: ongoing
 created: "2026-07-23T10:29:08-03:00"
-updated: "2026-07-23T13:49:26.561Z"
+updated: "2026-07-23T14:55:45.424Z"
 started_at: "2026-07-23T13:49:26.561Z"
 assignee: null
 review_author_company: openai
@@ -97,8 +97,8 @@ and the matching dated finished-plan identity. Contract tests must reject the ol
 | 3 | Reapply the reviewed product/tooling delta and bind preparation to this plan. | All remaining affected paths | 2 | done | The prior 23-path non-plan delta applies on current main; only necessary conflict resolution preserves newer main behavior; fixed plan/finished paths name this plan; version remains `0.13.0`; focused contracts and source checks pass. |
 | 4 | Run focused and full local verification, then seal a clean source commit. | All affected implementation paths | 3 | done | A1-A9 pass; `RECERTIFIED_SOURCE_COMMIT` descends from `3368369...`, contains no plan lifecycle bytes beyond this plan, and the worktree is clean. |
 | 5 | Produce fresh native and source-CI evidence from one create-once ref. | External GitHub refs/runs; fresh receipt directory | 4 | done | One validate-only four-target producer run and one authoritative full-CI run bind the exact new commit; A10-A11 emit canonical no-clobber receipts. |
-| 6 | Seal and embed the new candidate without publication. | Fresh candidate receipt; this plan only for manager-owned Notes/evidence commit | 5 | in progress | A12 emits a candidate binding the new source, new plan blob, exact public tuple, fresh red/preflight/source-CI receipts, and A1-A6 results; manager embeds exact bytes/hashes in a plan-only evidence commit; A13 passes. |
-| 7 | Complete review and hand off to publication. | This plan only for lifecycle/archive writes | 6 | planned | Completion review passes, the plan archives under `docs/plans/finished/`, and a later publication plan binds this completion receipt. No tag, Release, promotion, or install occurs here. |
+| 6 | Seal and embed the new candidate without publication. | Fresh candidate receipt; this plan only for manager-owned Notes/evidence commit | 5 | done | A12 emits a candidate binding the new source, new plan blob, exact public tuple, fresh red/preflight/source-CI receipts, and A1-A6 results; manager embeds exact bytes/hashes in a plan-only evidence commit; A13 passes. |
+| 7 | Complete review and hand off to publication. | This plan only for lifecycle/archive writes | 6 | in progress | Completion review passes, the plan archives under `docs/plans/finished/`, and a later publication plan binds this completion receipt. No tag, Release, promotion, or install occurs here. |
 
 ## Acceptance criteria
 
