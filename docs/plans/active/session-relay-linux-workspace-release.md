@@ -224,3 +224,5 @@ None. The selected boundary is Linux-only managed workspace writing plus unchang
 ## Review
 
 (filled by main-context plan-manager after completion evidence)
+
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"709b683e726cf9c0f5210b21ce984cd039610880ffc1da9af825d6627065b8c4","initial_input_sha256":"709b683e726cf9c0f5210b21ce984cd039610880ffc1da9af825d6627065b8c4","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-release.md","request_ids":["7bbb67f8-2b1b-4dc8-899a-06c7098cc184"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"ed773e5b-f4cc-448d-b0de-4d7f7bee07fa","series_sha256":null,"state_sha256":"697e78e52756b578cd395e83876ee8d59f1abf67d9956b1b7ca13c6569f870de","status":"active","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
