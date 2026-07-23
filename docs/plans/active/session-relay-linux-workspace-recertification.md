@@ -42,7 +42,7 @@ related_plans:
   - /home/vagrant/projects/public/docs/plans/active/session-relay-cli-0.13.0-release-preparation.md
 review_status: null
 planned_at_commit: 3368369cade6d89fd6ebf477cd0576646e992711
-execution_base_commit: null
+execution_base_commit: eafa5cf50903c6bacc4aa675e16fdc35330bc3ca
 ---
 
 # Recertify Session Relay 0.13.0 on current main
