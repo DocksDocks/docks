@@ -1,12 +1,10 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: blocked
+status: ongoing
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T13:28:30-03:00"
+updated: "2026-07-23T13:59:24-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
-blocked_reason: "Blocked by main-context plan-manager pending fresh independent schema-6 draft review of the materially amended canonical input: this plan was amended on current-user authority to rebind the public production identity from the conflicting `0.10.1`/`cli-v0.10.1` to fresh `0.10.2`/`cli-v0.10.2` and to authorize only the exact `0.10.1` -> `0.10.2` version bump in `/home/vagrant/projects/public/package.json`. The conflict is historical fact, not a live target: remote `DocksDocks/public` tag `refs/tags/cli-v0.10.1` already exists at `6f9691cc19349ccd0ce81e8c8bf5cc573f76f3f1` and its stable GitHub Release (https://github.com/DocksDocks/public/releases/tag/cli-v0.10.1) was published 2026-07-23T02:07:17Z, a prior historical docks-kit release predating immutable companion `6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172` and still pinning Session Relay `0.12.0`; it can never satisfy this plan's absent/create-once contract, cannot be reused, and remains untouched. The prior passed draft review bound only superseded canonical input `44304c5945f1489fc0592eacfff59a79ffd803f55d1a1dfa21cbba20dca631cd` and is historical evidence, never approval of the amended input; unblocking requires a fresh schema-6 attempt-1 draft review of this amended plan through main-context plan-manager before any implementation or external mutation."
-blocked_since: "2026-07-23T13:23:33-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
