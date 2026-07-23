@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
@@ -117,6 +118,13 @@ function successfulOutcome(scenario) {
 
 function nextTurn() {
   return new Promise((resolve) => setImmediate(resolve));
+}
+function killProcessGroup(pid) {
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
 }
 
 function observeSettlement(promise) {
@@ -257,6 +265,48 @@ test('fixture cleanup removes its home and rejects when a tracked child cannot c
     await assert.rejects(fixture.cleanup(), /tracked child did not close after SIGKILL: <unknown>/);
     assert.equal(fs.existsSync(home), false, 'cleanup removes the owned home after reporting termination failure');
   } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+test('fixture cleanup reaps descendants after a tracked process-group leader closes', async () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-selftest-closed-group-'));
+  const home = path.join(fixtureRoot, 'home');
+  const descendantPidPath = path.join(fixtureRoot, 'descendant.pid');
+  const leaderScript = path.join(fixtureRoot, 'leader.mjs');
+  fs.writeFileSync(
+    leaderScript,
+    `import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+child.unref();
+fs.writeFileSync(process.env.DESCENDANT_PID_PATH, String(child.pid));
+setTimeout(() => process.exit(0), 50);
+`,
+    { mode: 0o700 },
+  );
+  const fixture = createFixture({ bin: process.execPath, home });
+  const leader = spawn(process.execPath, [leaderScript], {
+    detached: true,
+    env: { ...process.env, DESCENDANT_PID_PATH: descendantPidPath },
+    stdio: 'ignore',
+  });
+  fixture.trackChild(leader, { processGroup: true });
+  let descendantPid;
+  try {
+    await new Promise((resolve, reject) => {
+      leader.once('close', resolve);
+      leader.once('error', reject);
+    });
+    descendantPid = Number(fs.readFileSync(descendantPidPath, 'utf8'));
+    assert.ok(Number.isInteger(descendantPid));
+    assert.doesNotThrow(() => process.kill(descendantPid, 0));
+    await fixture.cleanup();
+    assert.throws(
+      () => process.kill(descendantPid, 0),
+      (error) => error?.code === 'ESRCH',
+    );
+  } finally {
+    if (Number.isInteger(leader.pid)) killProcessGroup(leader.pid);
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });

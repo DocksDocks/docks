@@ -251,6 +251,9 @@ function testFocusedCiCommandSelection() {
   fs.mkdirSync(shimDir, { mode: 0o700 });
   fs.writeFileSync(callLog, '', { mode: 0o600 });
 
+  const probeEnv = { ...process.env };
+  delete probeEnv.GITHUB_ACTIONS;
+  delete probeEnv.SESSION_RELAY_TEST_CGROUP_ROOT;
   const run = (ciArgs) => {
     fs.writeFileSync(callLog, '', { mode: 0o600 });
     const result = spawnSync(process.execPath, ['scripts/ci.mjs', ...ciArgs], {
@@ -258,7 +261,7 @@ function testFocusedCiCommandSelection() {
       encoding: 'utf8',
       timeout: 120_000,
       env: {
-        ...process.env,
+        ...probeEnv,
         PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
         DOCKS_CI_PROBE_LOG: callLog,
       },
@@ -849,7 +852,10 @@ function assertDelegatedCgroupRun(run) {
     run,
     /test_pid=\$BASHPID[\s\S]*tee "\$CGROUP\/cgroup\.procs"[\s\S]*SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"/,
   );
-  assert.match(run, /cleanup\(\)[\s\S]*sudo -n rmdir "\$CGROUP"[\s\S]*status=1/);
+  assert.match(
+    run,
+    /cleanup\(\)[\s\S]*for _ in \{1\.\.100\}[\s\S]*if ! grep -qx 'populated 0' "\$CGROUP\/cgroup\.events"[\s\S]*leaked live processes[\s\S]*status=1[\s\S]*cgroup\.kill[\s\S]*if ! grep -qx 'populated 0' "\$CGROUP\/cgroup\.events" \|\| ! sudo -n rmdir "\$CGROUP"[\s\S]*status=1/,
+  );
 }
 assert.deepEqual(
   shardSteps.map((row) => row.name ?? row.uses),

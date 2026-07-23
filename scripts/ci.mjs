@@ -265,9 +265,18 @@ if (repoWide) {
     : fail('unit tests failed (run: pnpm run test:unit)');
 
   section('CI targeting contract');
-  nodeOk(['scripts/tests/ci-plugin-targeting.mjs', '--unit'])
-    ? ok('CI targeting, tag resolution, and cache contract passed')
-    : fail('CI targeting contract failed (run: node scripts/tests/ci-plugin-targeting.mjs --unit)');
+  const ciTargeting = node(['scripts/tests/ci-plugin-targeting.mjs', '--unit']);
+  if ((ciTargeting.status ?? 1) === 0) {
+    ok('CI targeting, tag resolution, and cache contract passed');
+  } else {
+    const detail = [ciTargeting.stdout, ciTargeting.stderr]
+      .map((output) => output?.trim())
+      .filter(Boolean)
+      .join('\n');
+    fail(
+      `CI targeting contract failed (run: node scripts/tests/ci-plugin-targeting.mjs --unit)${detail ? `\n${detail}` : ''}`,
+    );
+  }
 }
 
 if (authorChecks.has('idempotency')) {
