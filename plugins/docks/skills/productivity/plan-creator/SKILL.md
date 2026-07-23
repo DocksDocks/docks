@@ -4,8 +4,8 @@ description: "Use when drafting, self-reviewing, and committing one previously n
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-21"
-  content_hash: "910ebaf2d568df24d464df5ed1f6beea8b622b6a65dd726b55d83d392fd6becd"
+  updated: "2026-07-22"
+  content_hash: "345f347c1ea4644152c1a4ff9c933facbb3f5bff1110759660f07952cd6ee5e5"
 ---
 
 # Create One Plan
@@ -18,7 +18,7 @@ Create one cold-handoff plan at a missing canonical path under
 
 Use direct implementation for a clear low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review.
 
-Creation performs exactly one local self-review. `PlanCreatedV1` is invocation-terminal for `plan-creator` and turn-terminal at main unless the same current-user request explicitly asked to create and review. Main must not infer or automatically append an intent-`none` review.
+Creation performs exactly one local self-review. `PlanCreatedV1` is invocation-terminal for `plan-creator` and turn-terminal at main unless the same current-user request explicitly asked to create and review. Main must not infer or automatically append an intent-`none` review. When review was explicitly requested, only main-context `plan-manager` may continue: it launches a newly created reviewer for the round using the invoking runtime's current model, with no reviewer resume, Session Relay review, provider/model switch, or candidate fallback.
 
 <constraint>
 Creation is an add-only boundary. Resolve exactly one canonical `docs/plans/active/<slug>.md` path and prove it does not exist immediately before the write and immediately before the commit. Create only `status: planned` or `status: scheduled`. If the path exists, the workspace contract is absent or stale, the slug is ambiguous, or the request targets an existing plan, return the conflict and STOP; never inspect the file as an invitation to edit, merge, replace, resume, or repair it.
@@ -41,6 +41,9 @@ The creation commit contains exactly the new plan path and has `planned_at_commi
 Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
 Only the manager and reviewer have dispatch wrappers. Run this skill inline.
+Creator never selects a review candidate. Current schema 6 binds the sole
+runtime-current candidate to the request author and uses `fallback:"none"`;
+that later manager operation remains outside this skill.
 
 ## Inputs
 

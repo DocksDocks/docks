@@ -4,8 +4,8 @@ description: Use when plan-manager dispatches an internal read-only reviewer for
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-21"
-  content_hash: "5efc8f964c35d3246f82674a8029201a44ee4376d361ac84b019536f4de73d23"
+  updated: "2026-07-22"
+  content_hash: "58d205cb1e2075eec7994426e991420c78849ac9ac89a7429db8714091ff8877"
 ---
 
 # Plan Reviewer
@@ -27,18 +27,20 @@ family/receipt writer, terminal-transition validator, and lifecycle writer.
 </constraint>
 
 <constraint>
-**One sealed input.** Read only the immutable non-git bundle named by the exact
-schema-6 request. Never read the moving source worktree, resume an old reviewer,
-inherit ambient model/effort/Fast state, or use Session Relay as review
-evidence. Every launch pins company, tool, model, effort, service tier when
-applicable, schema, request, and bundle.
+**One sealed input and one fresh reviewer.** Read only the immutable non-git
+bundle named by the exact schema-6 request. Each round launches a newly created
+reviewer using the invoking runtime's current model, exactly bound to
+`request.author`. Never read the moving source worktree, resume a reviewer
+handle/session, use Session Relay, or switch transport, provider, or model.
+Every launch pins company, tool, model, effort, service tier when applicable,
+schema, request, and bundle.
 </constraint>
 
 <constraint>
 **Persisted orchestration is authoritative.** A current request must bind the
 latest committed/read-back active `Review-orchestration-state` and exact
-`Review-orchestration-prepared-request`; the candidate process may start only
-from a separately committed/read-back exact-600 dispatch commitment. The
+`Review-orchestration-prepared-request`; the sole candidate process may start
+only from a separately committed/read-back exact-600 dispatch commitment. The
 reviewer echoes the request binding but never creates, advances, commits,
 settles, retries, aborts, abandons, replaces, or consumes any family. Missing,
 stale, substituted, or mismatched binding is invalid evidence.
@@ -48,9 +50,9 @@ stale, substituted, or mismatched binding is invalid evidence.
 
 | Operation | Owner |
 |---|---|
-| Persist state, prepared request, candidate commitment, or terminal family | `plan-manager` |
+| Persist state, prepared request, sole-candidate commitment, or terminal family | `plan-manager` |
 | Prepare and destroy the sealed bundle | `plan-manager` |
-| Dispatch the committed candidate | main-context `plan-manager` |
+| Dispatch one newly created runtime-current reviewer | main-context `plan-manager` |
 | Inspect one sealed bundle and return typed evidence | `plan-reviewer` |
 | Reproduce and accept/reject findings | `plan-manager` |
 | Produce the one accepted-blocker patch | `plan-repairer` |
@@ -59,9 +61,10 @@ stale, substituted, or mismatched binding is invalid evidence.
 
 Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
 
-The reviewer has no writable fallback. A read-only failure is evidence for the
-manager's total result reducer, not permission to switch transports, mutate the
-plan, or start another orchestration attempt.
+The reviewer has no writable or dispatch fallback. A typed output or failure
+returns once to the manager's total result reducer. It never permits a
+transport, provider, model, or candidate switch, a plan mutation, Session Relay
+review, or review by the same handle/session.
 
 ## Current schema-6 request
 
@@ -98,22 +101,21 @@ exact independently reproduced and explicitly accepted blocking targets.
 Nonblocking, rejected, unreproduced, empty, duplicate, or stale targets are
 invalid.
 
-The current policy is schema 6, role `primary`, availability-only fallback,
-`max_rounds:2`, and this closed ordered candidate list:
+The current policy is exactly:
 
 ```text
-[
-  {company:"openai",tool:"codex",model:"gpt-5.6-sol",effort:"high",
-   service_tier:"default"},
-  {company:"anthropic",tool:"claude",model:"fable",effort:"high"},
-  {company:"anthropic",tool:"claude",model:"opus",effort:"xhigh"}
-]
+{schema:6,role:"primary",fallback:"none",max_rounds:2,
+ candidates:[runtimeCurrent],
+ provenance:{role:"skill_default",fallback:"skill_default",
+             max_rounds:"skill_default",candidates:"runtime_global"}}
 ```
 
-A current-turn user may narrow this to one eligible candidate for one review.
-That never adds a second reviewer or changes the single primary role. Author
-identity is request-bound but does not select a same-company or
-cross-company leg.
+`runtimeCurrent` exactly matches `request.author` company, tool, model, and
+effort. A Codex candidate additionally has `service_tier:"default"`; a Claude
+candidate has no `service_tier`. The request candidate identity must equal
+`request.author`. The one candidate and primary role cannot be narrowed,
+reordered, extended, or replaced by a user, wrapper, record, availability
+failure, transport result, or reviewer result.
 
 ## Persisted orchestration binding
 
@@ -133,7 +135,9 @@ stop reason, series digest, apply state, prior transition digest, and retry
 authorization. `active` has no series digest. Settled state binds
 `series_sha256 = sha256(JCS(ReviewSeriesV6))`.
 
-Round 2 stays in the same orchestration series and advances the state hash.
+Round 2 stays in the same orchestration series, advances the state hash, and
+uses changed canonical input. It launches a newly created reviewer with the
+same invoking runtime's current model; it never resumes the round-1 reviewer.
 `RepairTransitionV6` binds the series id plus the previous and current
 orchestration-state hashes. `ReviewSeriesV6` binds the same series id and every
 round's request/state hash. A repeated state hash, changed series id, changed
@@ -179,10 +183,10 @@ An active plan that changes the canonical review controller, `plan-manager`, or
 `plan-reviewer` mechanism it would use for its own completion cannot be
 same-checkout self-dispatched. The manager returns `NeedsUserAction` and uses
 an independent trusted released or pinned bootstrap reviewer path, or waits for
-a later fresh session with a trustworthy controller. Never repair, reseal, or
-replace orchestration in place to evade this boundary. A `stopped` or `stuck`
-result, including attempt-2 failure, returns `NeedsUserAction` without automatic
-reprepare or retry; it is not a new reviewer request.
+a later fresh session using the invoking runtime's same current model with a
+trustworthy controller. Never repair, reseal, or replace orchestration in place
+to evade this boundary. A `stopped` or `stuck` result, including attempt-2
+failure, returns `NeedsUserAction` without automatic reprepare or retry.
 
 ## Sealed bundle
 
@@ -222,37 +226,35 @@ The reviewer never changes permissions or performs cleanup.
 
 The reviewer cannot establish launch provenance. `buildReviewerArgv` is
 derivation-only and never authorizes process creation. Before dispatch, the
-manager has written/read back the exact prepared request and candidate-sensitive
+manager has written/read back the exact prepared request and sole-candidate
 `ReviewDispatchCommitmentV1` in separate plan-only commits.
 Before a Codex commitment, the manager verifies the sealed bundle path/digest
 and prepares a safe schema-6 workspace through `prepareReviewerWorkspace`. The
 commitment deep-copies its complete non-secret record and JCS hash; Claude
 requires `reviewer_workspace:null`.
-The commitment persists exact recursively validated `prior_attempts` and
-`prior_attempts_sha256 = sha256(JCS(prior_attempts))`. Its `candidate_index`
-equals `prior_attempts.length`; candidate 0 uses
-`[]`, and later entries are the ordered availability-only results for every
-earlier policy candidate.
+The commitment persists recursively validated `prior_attempts:[]` and
+`prior_attempts_sha256 = sha256(JCS([]))`; its `candidate_index` is exactly
+`0`. Any nonempty prior attempts or other candidate index is invalid because
+schema 6 has no candidate fallback.
 
-Main context may create the reviewer process only through
+Main context may create the new reviewer only through
 `dispatchCommittedReviewer({repo,planPath,committedPlanCommit,
 expectedPreparedRequestSha256,expectedDispatchCommitmentSha256,
 proposedControllerConfig,controllerAdapter})`. The gate requires the supplied
 commit to be exact current `HEAD`, single-parent, and plan-only; reads its plan
 blob from Git; and validates expected request/commitment hashes, state/policy/
-candidate, exact prior-attempt sequence/hash, sealed bundle path/content digest,
-and committed workspace record/hash. For Codex it independently validates
-workspace managed root/path, owner/mode, non-symlink status, and request/leg
-sentinel before rederiving argv with committed workspace and prior attempts.
-Claude requires null workspace. It verifies argv/hash separately.
+sole candidate, candidate identity equal to `request.author`,
+`candidate_index:0`, `prior_attempts:[]` and its hash, sealed bundle
+path/content digest, and committed workspace record/hash. For Codex it
+independently validates workspace managed root/path, owner/mode, non-symlink
+status, and request/leg sentinel before rederiving argv with committed workspace
+and empty prior attempts. Claude requires null workspace. It verifies argv/hash
+separately.
 
 It also compares current worktree bytes at `planPath` byte-for-byte with
 `git show <committedPlanCommit>:<planPath>` (or enforces equivalent plan-path
-cleanliness) before dispatch. Uncommitted post-commit plan drift calls the
-adapter zero times. For every prior attempt it requires the matching
-earlier-candidate commitment in parent Git history. Missing/substituted prior
-evidence, an invalid availability sequence, or a missing parent commitment
-calls the adapter zero times.
+cleanliness) before dispatch. Uncommitted post-commit plan drift, nonempty prior
+attempts, or a candidate index other than zero calls the adapter zero times.
 
 Bundle/workspace identity is independently verified and never part of caller-
 supplied controller config. Exact JCS comparison of
@@ -261,10 +263,11 @@ supplied controller config. Exact JCS comparison of
 
 Only then does the gate call trusted
 `controllerAdapter.dispatch({tool,argv,timeout_mode,timeout_seconds})` exactly
-once using committed values. A stale/substituted commit or record, non-plan-only
-or multi-parent history, hash/argv/config mismatch, or proposed 650 calls the
-adapter zero times. No result is reusable launch authorization; availability
-fallback requires a new commitment commit/read-back and a fresh gate call.
+once using committed values to create the reviewer for this round. A
+stale/substituted commit or record, non-plan-only or multi-parent history,
+hash/argv/config mismatch, or proposed 650 calls the adapter zero times. No
+result, handle, session, derived argv, or commitment is reusable launch
+authorization.
 
 Append the exact compact request to the findings-only prompt:
 
@@ -274,24 +277,22 @@ REQUEST_JCS_BEGIN
 REQUEST_JCS_END
 ```
 
-The output must echo that object exactly. Current Codex receives
-`reviewer-output.primary.v6.schema.json`, an ephemeral read-only sandbox,
-GPT-5.6-sol/high, and `service_tier:"default"`. Current Claude receives the
-equivalent closed `ReviewerOutputV6` JSON schema, plan permission mode, and the
-explicit Fable/high or Opus/xhigh tuple. A 600-second monotonic deadline is a
-terminal result, not candidate availability.
+The output must echo that object exactly. The sole candidate receives the
+provider-appropriate closed `ReviewerOutputV6` schema, read-only permissions,
+and the invoking runtime's current model and effort bound by
+`request.author`; Codex additionally receives `service_tier:"default"`. A
+600-second monotonic deadline is terminal, not permission to launch another
+candidate.
 
-Candidate advancement is allowed only after typed `tool_unavailable`,
-`auth_failed`, or `model_unavailable`, with `output_started:false` and no parsed
-result. Stop after host denial, timeout, transport failure, signal, nonzero
-exit, parse/schema failure, substantive output, any parsed finding, or any
-parsed verdict. Ambiguous stderr is not denial or availability proof. Each
-candidate is attempted at most once and the first valid output wins.
+Any typed output or failure is terminal for this reviewer invocation and
+returns once. Never switch transport, provider, model, or candidate after tool,
+auth, or model unavailability, host denial, timeout, transport failure, signal,
+nonzero exit, parse/schema failure, substantive output, a parsed finding, or a
+parsed verdict. Ambiguous stderr is not denial or availability proof.
 
-Each attempt records its exact candidate, output-started state, child id,
+The sole run records its exact candidate, output-started state, child id,
 deadline mode/seconds, exit or signal, raw stdout/stderr hashes, parsed result
-or null, and typed result. A failed raw result cannot discard a prior valid
-passed attempt; that contradiction is invalid evidence.
+or null, and typed result.
 
 For `request.phase === "draft"`, `blocking_gap` is eligible only when implementation cannot safely and correctly start because of an unresolved required user decision, contradictory goal/scope/interface, unsafe or unauthorized action, impossible dependency order, missing first executable step, or absent/non-executable acceptance contract. Code style, optional refactors/docs, speculative performance, exhaustive implementation edge cases, exact internal symbol choices, and defects best established by running the implementation are `non_blocking_gap` with rejection/defer reason `defer_to_implementation_verification`. A complete simple plan may return `pass`; there is no finding quota and no instruction to improve until perfect.
 
@@ -366,10 +367,12 @@ infer whether a command passed. Report only sealed-evidence defects within the
 completion rubric above.
 
 Round 2 inspects only the changed plan input, the exact accepted independently
-reproduced blocking targets, and regressions introduced by their repair. Any
-accepted remaining target or accepted repair-introduced blocker is terminal
-evidence. A rejected or nonblocking finding is advisory and never a repair
-target. The reviewer never decides whether a finding is accepted.
+reproduced blocking targets, and regressions introduced by their repair. This
+changed-input round launches another newly created reviewer; it never reuses or
+resumes the round-1 reviewer handle or session. Any accepted remaining target
+or accepted repair-introduced blocker is terminal evidence. A rejected or
+nonblocking finding is advisory and never a repair target. The reviewer never
+decides whether a finding is accepted.
 
 `RawReviewV6`, `DraftRunResultV6` or `CompletionRunResultV6`, and
 `ReviewSeriesV6` preserve the exact request and reviewer output. The manager
@@ -399,6 +402,10 @@ cross-company consent, zero-review decisions, service-tier variants, rounds
 through ten, policy-v4 lifetime series, and schema-5 primary series retain only
 their persisted validation meanings. They do not authorize a current X/S run,
 schema-5 run, repair continuation, reset, retry, receipt, or lifecycle action.
+Schema 5 alone retains availability-only fallback and its exact ordered
+three-candidate policy: `openai/codex/gpt-5.6-sol/high` with
+`service_tier:"default"`, then `anthropic/claude/fable/high`, then
+`anthropic/claude/opus/xhigh`.
 
 Docks-only legacy execution-range evidence remains helper-gated and
 byte-authoritative for historical validation. A plan cannot opt in through
@@ -422,19 +429,18 @@ GOOD: validate it historically and require a new schema-6 orchestration.
 - Re-read every cited bundle locator before returning a finding.
 - Confirm the request id is the persisted state's latest request id.
 - Confirm repair mode has changed input and exact accepted reproduced blockers.
-- Confirm every started attempt has child/deadline/exit/raw-output evidence
-  consistent with its typed result.
+- Confirm the sole run has child/deadline/exit/raw-output evidence consistent
+  with its typed result.
 - Never classify ambiguous stderr as availability or host-denial evidence.
-- Never advance after output starts or any parsed result exists.
+- Never launch a fallback reviewer after any output or failure.
 - Never claim acceptance, CI, clone, cleanup, write, reconciliation, retry,
   receipt, or lifecycle work.
 - Return typed failure evidence when review cannot run; never mutate state here.
 - Never infer that stdout proves dispatch provenance, create terminal state, or
   authorize controller abort/abandonment; those are manager-only plan-family
   operations bound to committed source bytes.
-- Require candidate index to equal the exact hashed prior-attempt count,
-  candidate 0 to use `[]`, and every later availability attempt to have its
-  matching earlier commitment in parent Git history.
+- Require candidate index `0`, exact hashed `prior_attempts:[]`, and candidate
+  identity equal to `request.author`.
 - Require the commitment and gate to bind and independently verify exact sealed
   bundle path/digest plus workspace record/hash; Codex validates root/path,
   owner/mode, non-symlink, and sentinel, while Claude requires null.
@@ -445,10 +451,12 @@ GOOD: validate it historically and require a new schema-6 orchestration.
 ## Success criteria
 
 - The exact `plan-reviewer` skill and adjacent helper define the current path.
-- One fresh primary reviewer sees one sealed schema-6 input.
+- One newly created primary reviewer sees one sealed schema-6 input per round.
 - Request, output, run, series, and settled-state bindings validate end to end.
-- Fallback is limited to the three pre-output availability classes.
-- One changed-input repair round is the maximum within a series.
+- Schema-6 fallback is `none`; no reviewer handle/session, transport, provider,
+  or model is reused or substituted.
+- One newly created changed-input repair reviewer is the maximum within a
+  series.
 - Historical schemas 1–5 validate without becoming current creation paths.
 - The repository and source plan remain unchanged.
 - `plan-manager` receives typed evidence without writer, reconciliation,

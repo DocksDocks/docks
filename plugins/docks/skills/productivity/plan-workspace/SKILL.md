@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-21"
-  content_hash: "39cbf8a23051d23d0c12a4df0a9f8bc780548a3c40f5f5dedba55a1373d4cd70"
+  updated: "2026-07-22"
+  content_hash: "eb1647bcb734033d9e84654161be2fc7ec14dd3f47d8890d275c52fd13d5ff68"
 ---
 
 # Plans Workspace
@@ -42,6 +42,11 @@ Historical `plan-improver` is not a live skill; `plan-repairer` returns one exac
 
 Only `plan-manager` and `plan-reviewer` have Claude/Codex dispatch wrappers.
 Do not seed wrappers for the other three skills.
+The generated current schema-6 contract dispatches one newly created reviewer
+per round using the invoking runtime's current model, with `fallback:"none"`.
+It never resumes a reviewer handle/session, uses Session Relay for review, or
+switches provider or model. Workspace maintenance only preserves or refreshes
+that prose; it never performs review dispatch.
 
 ## Resolve the operation and root
 
@@ -71,9 +76,11 @@ Plans section, the Claude shim, and `.codex/agents/plan-*.toml`. Classify once:
 
 Legacy markers win over current markers so an interrupted migration resumes
 through the preservation checks instead of being mistaken for current. Current
-contract markers include all five exact skill names, current schema 6,
-historical schemas 1–5 marked validation-only, status-as-field, the cold-handoff
-spine, the local self-review checklist, and native open-question picker rules.
+contract markers include all five exact skill names, current schema 6 with one
+new runtime-current reviewer per round and `fallback:"none"`, no reviewer
+resume or Session Relay review, historical schemas 1–5 marked validation-only,
+status-as-field, the cold-handoff spine, the local self-review checklist, and
+native open-question picker rules.
 
 Wrappers are support files, not contract-version evidence. Missing
 `.codex/agents/plan-manager.toml` or `.codex/agents/plan-reviewer.toml` is

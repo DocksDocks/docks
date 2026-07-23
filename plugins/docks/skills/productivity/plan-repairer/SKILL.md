@@ -4,8 +4,8 @@ description: "Use when plan-manager needs one patch for the exact accepted block
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-21"
-  content_hash: "9f5bc6dab2569b904707707b54e3d131025e5750cafa0e93e66347f0c188bad4"
+  updated: "2026-07-22"
+  content_hash: "7b4401e4ef00e3bf5ab76ca144dbb780997ad487df8902709db5c2f19f4d5d9b"
 ---
 
 # Plan Repairer
@@ -46,12 +46,16 @@ return `cannot_repair` rather than guessing or broadening scope.
 | Produce one exact accepted-blocker patch | `plan-repairer` |
 | Validate and apply the patch | `plan-manager` |
 | Persist the advanced orchestration state | `plan-manager` |
-| Seal and dispatch repair round 2 | `plan-manager` / main context |
-| Re-review changed input | `plan-reviewer` |
+| Seal changed input and launch a newly created repair-round reviewer | `plan-manager` / main context |
+| Inspect changed input without resuming round 1 | newly created `plan-reviewer` |
 | Write receipts or lifecycle state | `plan-manager` |
 
 The repairer receives no lifecycle or review-dispatch capability. A patch is a
 candidate value, not a filesystem mutation or approval decision.
+After a manager-applied patch changes canonical input, main context launches a
+new reviewer for round 2 using the invoking runtime's same current model. It
+never resumes the round-1 reviewer handle/session, uses Session Relay, or
+switches provider or model. The repairer neither selects nor launches it.
 
 ## Current schema-6 input
 
@@ -224,5 +228,6 @@ work. Current repair is schema 6 only.
 - One patch minimally addresses the complete exact accepted blocking set, or
   one `cannot_repair` result explains why it cannot.
 - `plan-manager` can validate the value without granting repairer authority.
-- Only a manager-applied changed-input patch can lead to exact repair round 2.
+- Only a manager-applied changed-input patch can lead to a newly created
+  runtime-current reviewer for exact repair round 2.
 - Historical schemas 1–5 remain validation-only.

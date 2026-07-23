@@ -815,18 +815,14 @@ function orchestrationSeries(
   const reviewPolicy = {
     schema: 6,
     role: 'primary',
-    fallback: 'availability_only',
+    fallback: 'none',
     max_rounds: 2,
-    candidates: [
-      orchestrationCandidate('codex', 'gpt-5.6-sol', 'high', 'default'),
-      orchestrationCandidate('claude', 'fable', 'high'),
-      orchestrationCandidate('claude', 'opus', 'xhigh'),
-    ],
+    candidates: [orchestrationCandidate('codex', 'gpt-5.6-sol', 'high', 'default')],
     provenance: {
       role: 'skill_default',
       fallback: 'skill_default',
       max_rounds: 'skill_default',
-      candidates: 'skill_default',
+      candidates: 'runtime_global',
     },
   };
   const inputSha256 = staleInput ? '9'.repeat(64) : state.current_input_sha256;
@@ -1960,6 +1956,16 @@ const REGRESSIONS = [
     ),
   ],
   [
+    'schema6 runtime-current fallback regression',
+    ['--case', 'surfaces'],
+    /schema.?6.*fallback|fallback.*none|Assertion/i,
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+      "  if (policy.fallback !== 'none') throw new Error('schema-6 current policy fallback must be none');",
+      '  void policy.fallback;',
+    ),
+  ],
+  [
     'current two-round cap regression',
     ['--case', 'current-single-lane'],
     /current rounds|max_rounds|must reject|Assertion/,
@@ -2207,6 +2213,17 @@ const REGRESSIONS = [
     CONVERGENCE_HARNESS,
   ],
   [
+    'schema6 continuation runtime binding regression',
+    ['--case', 'repair-artifacts'],
+    /continuation|reviewer runtime|policy|Missing expected exception|Assertion/i,
+    applyVariant(
+      'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+      "  ) throw new Error('schema-6 continuation must retain the original reviewer runtime and policy');",
+      '  ) return;',
+    ),
+    CONVERGENCE_HARNESS,
+  ],
+  [
     'current completion reuse waiver regression',
     ['--case', 'completion-reuse'],
     /waiver.*snapshot|completion waiver reuse|Assertion/i,
@@ -2227,7 +2244,7 @@ const REGRESSIONS = [
     ),
   ],
   [
-    'orchestration auth fallback mapping regression',
+    'orchestration auth terminal mapping regression',
     ['--orchestration-oracle'],
     /Assertion|unavailable_auth|stop_reason/i,
     applyVariant(
@@ -2238,7 +2255,7 @@ const REGRESSIONS = [
     ORCHESTRATION_HARNESS,
   ],
   [
-    'orchestration model fallback mapping regression',
+    'orchestration model terminal mapping regression',
     ['--orchestration-oracle'],
     /Assertion|unavailable_model|stop_reason/i,
     applyVariant(
@@ -2249,7 +2266,7 @@ const REGRESSIONS = [
     ORCHESTRATION_HARNESS,
   ],
   [
-    'orchestration tool fallback mapping regression',
+    'orchestration tool terminal mapping regression',
     ['--orchestration-oracle'],
     /Assertion|unavailable_unknown|unavailable_model|stop_reason/i,
     applyVariant(
@@ -2322,17 +2339,6 @@ const REGRESSIONS = [
       'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
       "platform_denied: 'platform_denied',",
       "platform_denied: 'unavailable_unknown',",
-    ),
-    ORCHESTRATION_HARNESS,
-  ],
-  [
-    'orchestration fallback precedence regression',
-    ['--orchestration-oracle'],
-    /Assertion|unavailable_auth|precedence|stop_reason/i,
-    applyVariant(
-      'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-      "const ORCHESTRATION_FALLBACK_PRECEDENCE = ['auth_failed', 'model_unavailable', 'tool_unavailable'];",
-      "const ORCHESTRATION_FALLBACK_PRECEDENCE = ['tool_unavailable', 'model_unavailable', 'auth_failed'];",
     ),
     ORCHESTRATION_HARNESS,
   ],
@@ -2642,17 +2648,6 @@ const REGRESSIONS = [
     ORCHESTRATION_HARNESS,
   ],
   [
-    'fallback candidate-zero prepared-parent regression',
-    ['--orchestration-oracle'],
-    /candidate-zero|prepared-only|fallback|parent|Assertion/i,
-    applyVariant(
-      'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-      "    if (expectedIndex === 0) {\n      validateCandidateZeroPreparedParent(\n        repo,\n        planPath,\n        parent,\n        historical,\n        'prior candidate-zero commitment',\n      );\n    }",
-      '    void parent;',
-    ),
-    ORCHESTRATION_HARNESS,
-  ],
-  [
     'dispatch proposed-config exact-JCS regression',
     ['--orchestration-oracle'],
     /proposed|config|committed|Assertion/i,
@@ -2664,13 +2659,13 @@ const REGRESSIONS = [
     ORCHESTRATION_HARNESS,
   ],
   [
-    'commitment nested prior-attempt deep-copy regression',
+    'commitment nested candidate deep-copy regression',
     ['--orchestration-oracle'],
-    /deep-cop|prior|attempt|commitment|Assertion/i,
+    /deep-cop|candidate|commitment|Assertion/i,
     applyVariant(
       'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-      '    prior_attempts: structuredClone(priorAttempts),',
-      '    prior_attempts: priorAttempts,',
+      '    candidate: structuredClone(candidate),',
+      '    candidate,',
     ),
     ORCHESTRATION_HARNESS,
   ],
@@ -2717,7 +2712,7 @@ const POLICY_SELECTORS = new Set([
   'current-receipts',
   'current-completion-renderer',
 ]);
-const CONVERGENCE_SELECTORS = new Set(['current-argv', 'current-bundle', 'single-repair']);
+const CONVERGENCE_SELECTORS = new Set(['current-argv', 'current-bundle', 'repair-artifacts', 'single-repair']);
 const BASELINE_NAMES = [
   'total result reducer and bounded no-progress orchestration',
   'semantic attempt/ledger/raw/run/receipt validation matrix',
@@ -2764,13 +2759,13 @@ function validateRegressionCatalog(rows) {
   });
   assert.equal(
     catalog.filter(({ harness }) => harness === ORCHESTRATION_HARNESS).length,
-    43,
-    'regression catalog must contain exactly 43 orchestration rows',
+    41,
+    'regression catalog must contain exactly 41 orchestration rows',
   );
   assert.equal(
     catalog.filter(({ harness }) => harness !== ORCHESTRATION_HARNESS).length,
-    100,
-    'regression catalog must contain exactly 100 policy/convergence rows',
+    102,
+    'regression catalog must contain exactly 102 policy/convergence rows',
   );
   assert.ok(
     catalog.every(({ index }, implicitIndex) => index === implicitIndex),
@@ -2809,13 +2804,13 @@ const FOCUSABLE_REGRESSION_CATALOG = Object.freeze(
   REGRESSION_CATALOG.filter(({ harness, selector }) => REGRESSION_SELECTOR_COUNTS.get(`${harness}\0${selector}`) > 1),
 );
 const FOCUSABLE_REGRESSION_LABELS = new Set(FOCUSABLE_REGRESSION_CATALOG.map(({ label }) => label));
-assert.equal(FOCUSABLE_REGRESSION_CATALOG.length, 140, 'exactly 140 repeated-selector regressions must be focusable');
+assert.equal(FOCUSABLE_REGRESSION_CATALOG.length, 139, 'exactly 139 repeated-selector regressions must be focusable');
 assert.deepEqual(
   [HARNESS, CONVERGENCE_HARNESS, ORCHESTRATION_HARNESS].map(
     (harness) => FOCUSABLE_REGRESSION_CATALOG.filter((row) => row.harness === harness).length,
   ),
-  [89, 8, 43],
-  'focusable source parity must remain 89 policy + 8 convergence + 43 orchestration',
+  [90, 8, 41],
+  'focusable source parity must remain 90 policy + 8 convergence + 41 orchestration',
 );
 for (const selector of ['legs', 'selectors', 'current-argv'])
   assert.equal(
@@ -2874,7 +2869,9 @@ function focusedReducerContext(policy) {
 function retryFixture(policy) {
   const context = focusedReducerContext(policy);
   const sourceText = 'schema-6 exact retry user message';
-  const first = context.settle(context.begin(), ['auth_failed', 'model_unavailable', 'tool_unavailable']);
+  const initial = context.begin();
+  const firstSeries = orchestrationSeries(policy, initial, ['auth_failed']);
+  const first = policy.settleReviewOrchestration({ state: initial, series: firstSeries });
   const authorization = {
     schema: 1,
     authorization_id: context.nextUuid(),
@@ -2887,7 +2884,7 @@ function retryFixture(policy) {
     stopped_state_sha256: first.state_sha256,
     source_text_sha256: policy.sha256(sourceText),
   };
-  return { ...context, authorization, first, sourceText };
+  return { ...context, authorization, first, firstSeries, initial, sourceText };
 }
 
 function focusedReducerAssertions(policy) {
@@ -2898,17 +2895,14 @@ function focusedReducerAssertions(policy) {
     return result;
   };
   return new Map([
+    ['orchestration auth terminal mapping regression', () => mappedStopReason(['auth_failed'], 'unavailable_auth')],
     [
-      'orchestration auth fallback mapping regression',
-      () => mappedStopReason(['auth_failed', 'model_unavailable', 'tool_unavailable'], 'unavailable_auth'),
+      'orchestration model terminal mapping regression',
+      () => mappedStopReason(['model_unavailable'], 'unavailable_model'),
     ],
     [
-      'orchestration model fallback mapping regression',
-      () => mappedStopReason(['model_unavailable', 'tool_unavailable', 'model_unavailable'], 'unavailable_model'),
-    ],
-    [
-      'orchestration tool fallback mapping regression',
-      () => mappedStopReason(['tool_unavailable', 'tool_unavailable', 'tool_unavailable'], 'unavailable_unknown'),
+      'orchestration tool terminal mapping regression',
+      () => mappedStopReason(['tool_unavailable'], 'unavailable_unknown'),
     ],
     ['orchestration deadline mapping regression', () => mappedStopReason(['deadline_exceeded'], 'timed_out')],
     [
@@ -2929,10 +2923,6 @@ function focusedReducerAssertions(policy) {
       },
     ],
     [
-      'orchestration fallback precedence regression',
-      () => mappedStopReason(['auth_failed', 'model_unavailable', 'tool_unavailable'], 'unavailable_auth'),
-    ],
-    [
       'orchestration attempt status conversion regression',
       () => {
         const { authorization, begin, first, settle, sourceText } = retryFixture(policy);
@@ -2942,7 +2932,7 @@ function focusedReducerAssertions(policy) {
           retryAuthorization: authorization,
           sourceText,
         });
-        assert.equal(settle(active, ['tool_unavailable', 'model_unavailable', 'auth_failed']).status, 'stuck');
+        assert.equal(settle(active, ['tool_unavailable']).status, 'stuck');
       },
     ],
     [
@@ -3075,6 +3065,8 @@ async function withFocusedControllerFixture(policy, operation) {
       state: active,
       request,
       preparedAt: '2026-07-19T12:10:00-03:00',
+      previousState: null,
+      previousSeries: null,
     });
     workspace = policy.prepareReviewerWorkspace({
       requestId: request.request_id,
@@ -3197,22 +3189,11 @@ function focusedControllerAssertions(policy) {
         }),
     ],
     [
-      'commitment nested prior-attempt deep-copy regression',
+      'commitment nested candidate deep-copy regression',
       () =>
-        withFocusedControllerFixture(policy, ({ fixture, prepared, request }) => {
-          const priorAttempt = orchestrationAttempt(request.policy.candidates[0], 'tool_unavailable');
-          const commitment = policy.buildReviewDispatchCommitment({
-            preparedRequest: prepared,
-            candidateIndex: 1,
-            bundle: fixture.bundle,
-            reviewerWorkspace: null,
-            leg: 'primary',
-            priorAttempts: [priorAttempt],
-            committedAt: '2026-07-19T12:11:30-03:00',
-          });
+        withFocusedControllerFixture(policy, ({ commitment, prepared }) => {
           const committedBytes = policy.jcs(commitment);
-          priorAttempt.reason = 'mutated after commitment';
-          priorAttempt.candidate.model = 'mutated-after-commitment';
+          prepared.request.policy.candidates[0].model = 'mutated-after-commitment';
           assert.equal(policy.jcs(commitment), committedBytes);
         }),
     ],
@@ -3369,89 +3350,20 @@ function focusedDispatchAssertions(policy) {
         ),
     ],
     [
-      'fallback candidate-zero prepared-parent regression',
-      () =>
-        withFocusedDispatchFixture(
-          policy,
-          async ({ active, commitPlan, committedPlan, expectZeroDispatch, fixture, gateInput, prepared, request }) => {
-            const priorAttempt = orchestrationAttempt(request.policy.candidates[0], 'tool_unavailable');
-            const fallback = policy.buildReviewDispatchCommitment({
-              preparedRequest: prepared,
-              candidateIndex: 1,
-              bundle: fixture.bundle,
-              reviewerWorkspace: null,
-              leg: 'primary',
-              priorAttempts: [priorAttempt],
-              committedAt: '2026-07-19T12:11:30-03:00',
-            });
-            fixture.git(['update-ref', 'HEAD', fixture.reviewedCommit]);
-            commitPlan(machinePlan(policy, [['Review-orchestration-state', active]]), 'commit state only');
-            commitPlan(committedPlan, 'commit combined candidate zero');
-            const fallbackPlan = machinePlan(policy, [
-              ['Review-orchestration-state', active],
-              ['Review-orchestration-prepared-request', prepared],
-              ['Review-orchestration-dispatch-commitment', fallback],
-            ]);
-            const fallbackCommit = commitPlan(fallbackPlan, 'commit fallback after combined candidate zero');
-            await expectZeroDispatch(
-              {
-                ...gateInput,
-                committedPlanCommit: fallbackCommit,
-                expectedDispatchCommitmentSha256: policy.sha256(policy.jcs(fallback)),
-                proposedControllerConfig: {
-                  candidate_index: fallback.candidate_index,
-                  argv: fallback.argv,
-                  argv_sha256: fallback.argv_sha256,
-                  ...fallback.controller_config,
-                },
-              },
-              /candidate-zero|prepared-only parent|fallback|parent family/i,
-            );
-          },
-        ),
-    ],
-    [
       'dispatch proposed-config exact-JCS regression',
       () =>
-        withFocusedDispatchFixture(
-          policy,
-          async ({
-            active,
-            commitPlan,
-            expectZeroDispatch,
-            fixture,
-            gateInput,
-            prepared,
-            proposedControllerConfig,
-            request,
-          }) => {
-            const priorAttempt = orchestrationAttempt(request.policy.candidates[0], 'tool_unavailable');
-            const fallback = policy.buildReviewDispatchCommitment({
-              preparedRequest: prepared,
-              candidateIndex: 1,
-              bundle: fixture.bundle,
-              reviewerWorkspace: null,
-              leg: 'primary',
-              priorAttempts: [priorAttempt],
-              committedAt: '2026-07-19T12:11:30-03:00',
-            });
-            const fallbackPlan = machinePlan(policy, [
-              ['Review-orchestration-state', active],
-              ['Review-orchestration-prepared-request', prepared],
-              ['Review-orchestration-dispatch-commitment', fallback],
-            ]);
-            const fallbackCommit = commitPlan(fallbackPlan, 'commit candidate one fallback');
-            await expectZeroDispatch(
-              {
-                ...gateInput,
-                committedPlanCommit: fallbackCommit,
-                expectedDispatchCommitmentSha256: policy.sha256(policy.jcs(fallback)),
-                proposedControllerConfig,
+        withFocusedDispatchFixture(policy, async ({ expectZeroDispatch, gateInput, proposedControllerConfig }) => {
+          await expectZeroDispatch(
+            {
+              ...gateInput,
+              proposedControllerConfig: {
+                ...proposedControllerConfig,
+                timeout_seconds: 601,
               },
-              /proposed controller config does not exactly match committed values/i,
-            );
-          },
-        ),
+            },
+            /proposed controller config does not exactly match committed values/i,
+          );
+        }),
     ],
   ]);
 }
@@ -3763,21 +3675,19 @@ function focusedTerminalAssertions(policy) {
               }),
             /series request|prepared request/i,
           );
-          const uncommittedFallbackSeries = orchestrationSeries(policy, active, ['tool_unavailable', 'passed'], {
-            request: prepared.request,
-          });
+          const unavailableCurrent = orchestrationAttempt(prepared.request.policy.candidates[0], 'tool_unavailable');
+          const crossProviderAttempt = orchestrationAttempt(
+            orchestrationCandidate('claude', 'opus', 'xhigh'),
+            'passed',
+          );
           assert.throws(
             () =>
-              policy.settleReviewOrchestrationFamily({
-                sourcePlanBytes: committedPlan,
-                currentPlanBytes: committedPlan,
-                expectedStateSha256: active.state_sha256,
-                expectedPreparedRequestSha256,
-                expectedDispatchCommitmentSha256,
-                series: uncommittedFallbackSeries,
-                receipt: orchestrationReceipt(policy, active, uncommittedFallbackSeries),
-              }),
-            /attempts|dispatch commitment/i,
+              policy.validateCurrentAttemptSequence(
+                [unavailableCurrent, crossProviderAttempt],
+                prepared.request.policy,
+              ),
+            /attempt sequence bound/i,
+            'schema-6 dispatch cannot advance to a cross-provider candidate',
           );
           const settled = policy.settleReviewOrchestrationFamily({
             sourcePlanBytes: committedPlan,
@@ -3965,6 +3875,8 @@ async function runBroadPreparedAncillary(policy) {
             state: active,
             request: { ...request, ...mutation },
             preparedAt: '2026-07-19T12:10:00-03:00',
+            previousState: null,
+            previousSeries: null,
           }),
         new RegExp(`${label}|request|state|identity|phase|intent|input|round|series`, 'i'),
       );
@@ -3974,6 +3886,8 @@ async function runBroadPreparedAncillary(policy) {
           state: active,
           request: { ...request, unexpected: true },
           preparedAt: '2026-07-19T12:10:00-03:00',
+          previousState: null,
+          previousSeries: null,
         }),
       /unknown key|closed|request/i,
     );
@@ -4042,7 +3956,7 @@ async function runBroadPreparedAncillary(policy) {
 }
 
 function runBroadRetryAncillary(policy) {
-  const { authorization, begin, first, nextUuid, settle, sourceText } = retryFixture(policy);
+  const { authorization, begin, first, firstSeries, nextUuid, settle, sourceText } = retryFixture(policy);
   for (const forged of [
     { ...authorization, plan_path: 'docs/plans/active/other.md' },
     { ...authorization, input_sha256: 'd'.repeat(64) },
@@ -4068,7 +3982,47 @@ function runBroadRetryAncillary(policy) {
   });
   assert.equal(active.orchestration_attempt, 2);
   assert.deepEqual(active.retry_authorization, authorization);
-  const stuck = settle(active, ['tool_unavailable', 'model_unavailable', 'auth_failed']);
+  const retryRequest = orchestrationSeries(policy, active, ['passed']).rounds[0].request;
+  assert.throws(
+    () =>
+      policy.prepareReviewRequest({
+        state: active,
+        request: retryRequest,
+        preparedAt: '2026-07-19T12:01:00-03:00',
+        previousState: null,
+        previousSeries: null,
+      }),
+    /continuation|prior state|series/i,
+    'same-input attempt two requires prior review evidence',
+  );
+  policy.prepareReviewRequest({
+    state: active,
+    request: retryRequest,
+    preparedAt: '2026-07-19T12:01:00-03:00',
+    previousState: first,
+    previousSeries: firstSeries,
+  });
+  const switchedAuthor = orchestrationCandidate('claude', 'opus', 'xhigh');
+  const switchedPolicy = { ...retryRequest.policy, candidates: [switchedAuthor] };
+  const switchedRequest = {
+    ...retryRequest,
+    author: switchedAuthor,
+    policy: switchedPolicy,
+    policy_sha256: policy.sha256(policy.jcs(switchedPolicy)),
+  };
+  assert.throws(
+    () =>
+      policy.prepareReviewRequest({
+        state: active,
+        request: switchedRequest,
+        preparedAt: '2026-07-19T12:01:00-03:00',
+        previousState: first,
+        previousSeries: firstSeries,
+      }),
+    /continuation|reviewer runtime|policy/i,
+    'same-input attempt two rejects a provider/model switch',
+  );
+  const stuck = settle(active, ['tool_unavailable']);
   assert.equal(stuck.status, 'stuck');
   assert.throws(
     () =>
@@ -4362,93 +4316,8 @@ async function runBroadCommittedFamilyAncillary(policy) {
   );
 }
 
-async function runBroadFallbackAncillary(policy) {
-  await withFocusedDispatchFixture(
-    policy,
-    async ({ active, commitPlan, expectZeroDispatch, fixture, gateInput, prepared, request }) => {
-      const priorAttempt = orchestrationAttempt(request.policy.candidates[0], 'tool_unavailable');
-      const fallback = policy.buildReviewDispatchCommitment({
-        preparedRequest: prepared,
-        candidateIndex: 1,
-        bundle: fixture.bundle,
-        reviewerWorkspace: null,
-        leg: 'primary',
-        priorAttempts: [priorAttempt],
-        committedAt: '2026-07-19T12:11:30-03:00',
-      });
-      assert.equal(fallback.candidate_index, 1);
-      assert.deepEqual(fallback.candidate, request.policy.candidates[1]);
-      assert.equal(fallback.bundle_path, fixture.bundle);
-      assert.equal(fallback.bundle_sha256, fixture.sealed.bundle_sha256);
-      assert.equal(fallback.reviewer_workspace, null);
-      assert.equal(fallback.reviewer_workspace_sha256, policy.sha256(policy.jcs(null)));
-      assert.deepEqual(fallback.prior_attempts, [priorAttempt]);
-      assert.equal(fallback.prior_attempts_sha256, policy.sha256(policy.jcs([priorAttempt])));
-      const fallbackPlan = machinePlan(policy, [
-        ['Review-orchestration-state', active],
-        ['Review-orchestration-prepared-request', prepared],
-        ['Review-orchestration-dispatch-commitment', fallback],
-      ]);
-      const fallbackCommit = commitPlan(fallbackPlan, 'commit candidate one fallback');
-      const calls = [];
-      const child = { child_id: 'fallback-child-broad', pid: 4243 };
-      const dispatched = await policy.dispatchCommittedReviewer({
-        ...gateInput,
-        committedPlanCommit: fallbackCommit,
-        expectedDispatchCommitmentSha256: policy.sha256(policy.jcs(fallback)),
-        proposedControllerConfig: {
-          candidate_index: fallback.candidate_index,
-          argv: fallback.argv,
-          argv_sha256: fallback.argv_sha256,
-          ...fallback.controller_config,
-        },
-        controllerAdapter: {
-          dispatch(input) {
-            calls.push(structuredClone(input));
-            return child;
-          },
-        },
-      });
-      assert.equal(dispatched, child);
-      assert.deepEqual(calls, [
-        {
-          tool: 'claude',
-          argv: fallback.argv,
-          timeout_mode: 'orchestrator_tool',
-          timeout_seconds: 600,
-        },
-      ]);
-      for (const record of [
-        { ...fallback, prior_attempts: [], prior_attempts_sha256: policy.sha256(policy.jcs([])) },
-        { ...fallback, prior_attempts_sha256: 'f'.repeat(64) },
-      ]) {
-        const plan = machinePlan(policy, [
-          ['Review-orchestration-state', active],
-          ['Review-orchestration-prepared-request', prepared],
-          ['Review-orchestration-dispatch-commitment', record],
-        ]);
-        const commit = commitPlan(plan, 'invalid fallback evidence');
-        await expectZeroDispatch(
-          {
-            ...gateInput,
-            committedPlanCommit: commit,
-            expectedDispatchCommitmentSha256: policy.sha256(policy.jcs(record)),
-            proposedControllerConfig: {
-              candidate_index: record.candidate_index,
-              argv: record.argv,
-              argv_sha256: record.argv_sha256,
-              ...record.controller_config,
-            },
-          },
-          /prior|attempt|hash|candidate|fallback|commitment/i,
-        );
-      }
-    },
-  );
-}
-
 async function runBroadRepairAncillary(policy) {
-  await withFocusedDispatchFixture(policy, ({ active, commitment, committedPlan, prepared }) => {
+  await withFocusedDispatchFixture(policy, ({ active, commitment, committedPlan, prepared, request }) => {
     const repaired = policy.advanceReviewOrchestrationRepairFamily({
       sourcePlanBytes: committedPlan,
       expectedStateSha256: active.state_sha256,
@@ -4464,6 +4333,8 @@ async function runBroadRepairAncillary(policy) {
       state: repaired.state,
       request: repairRequest,
       preparedAt: '2026-07-19T12:11:30-03:00',
+      previousState: active,
+      previousSeries: orchestrationSeries(policy, active, ['passed'], { request }),
     });
     assert.notEqual(repairPrepared.request_sha256, prepared.request_sha256);
     assert.throws(
@@ -4766,10 +4637,8 @@ async function runFocusedOrchestrationOracle(focus) {
     entry('dispatch gate workspace revalidation regression'),
     { label: null, run: async () => runBroadCommittedFamilyAncillary(await getPolicy()) },
     entry('candidate-zero exact prepared-parent regression'),
-    entry('fallback candidate-zero prepared-parent regression'),
     entry('dispatch proposed-config exact-JCS regression'),
-    entry('commitment nested prior-attempt deep-copy regression'),
-    { label: null, run: async () => runBroadFallbackAncillary(await getPolicy()) },
+    entry('commitment nested candidate deep-copy regression'),
     entry('repair family atomic commitment removal regression'),
     { label: null, run: async () => runBroadRepairAncillary(await getPolicy()) },
     entry('terminal exact source-plan bytes regression'),
@@ -4794,16 +4663,15 @@ async function runFocusedOrchestrationOracle(focus) {
         );
       },
     },
-    entry('orchestration auth fallback mapping regression'),
-    entry('orchestration model fallback mapping regression'),
-    entry('orchestration tool fallback mapping regression'),
+    entry('orchestration auth terminal mapping regression'),
+    entry('orchestration model terminal mapping regression'),
+    entry('orchestration tool terminal mapping regression'),
     entry('orchestration deadline mapping regression'),
     entry('orchestration transient mapping regression'),
     entry('orchestration nonzero mapping regression'),
     entry('orchestration signal mapping regression'),
     entry('orchestration invalid-output mapping regression'),
     entry('orchestration platform denial mapping regression'),
-    entry('orchestration fallback precedence regression'),
     { label: null, run: async () => runBroadRetryAncillary(await getPolicy()) },
     entry('orchestration attempt status conversion regression'),
     entry('orchestration nonretryable status regression'),
@@ -4965,10 +4833,10 @@ async function validateFocusedLabelCatalog(snapshot) {
   assert.deepEqual(
     FOCUSABLE_REGRESSION_CATALOG.map(({ label }) => listedByLabel.get(label)),
     FOCUSABLE_REGRESSION_CATALOG.map(({ harness, selector, label }) => ({ harness, selector, label })),
-    'three focused-label lists must be the unique declaration-ordered 140-row source catalog',
+    'three focused-label lists must be the unique declaration-ordered 139-row source catalog',
   );
-  assert.equal(listedRows.length, 140, 'focused-label union must contain exactly 140 rows');
-  console.log('focused-label source parity passed: 89 policy + 8 convergence + 43 orchestration');
+  assert.equal(listedRows.length, 139, 'focused-label union must contain exactly 139 rows');
+  console.log('focused-label source parity passed: 90 policy + 8 convergence + 41 orchestration');
 }
 
 async function assertMalformedFocusParity(snapshot) {

@@ -2230,6 +2230,8 @@ function contractSurfaceEntries() {
   const workspacePath = 'plugins/docks/skills/productivity/plan-workspace/SKILL.md';
   const readText = createCachedRootTextReader();
   const literalPattern = (marker, flags = '') => new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+  const exactCurrentPolicy =
+    '{schema:6,role:"primary",fallback:"none",max_rounds:2,candidates:[runtimeCurrent],provenance:{role:"skill_default",fallback:"skill_default",max_rounds:"skill_default",candidates:"runtime_global"}}';
   const pairedMarkers = [
     'review_author_company:',
     'review_waivers:',
@@ -2257,9 +2259,13 @@ function contractSurfaceEntries() {
   const policyMarkers = [
     /schema[- ]6/i,
     /role:?\s*[`"']?primary|role `primary`/i,
-    /fallback:?\s*[`"']?availability_only|availability-only fallback/i,
+    /fallback:?\s*[`"']?none|fallback `none`/i,
     /max_rounds:?\s*[`"']?2/,
+    /candidates:\s*\[\s*runtimeCurrent\s*\]/,
+    /runtimeCurrent[\s\S]{0,320}request\.author/i,
     /service_tier:?\s*[`"']?default/,
+    /candidate_index[\s\S]{0,80}(?:exactly|===|:)\s*`?0/i,
+    /prior_attempts:?\s*`?\[\]/,
   ];
   const repairerMarkers = [
     'user-invocable: false',
@@ -2300,6 +2306,13 @@ function contractSurfaceEntries() {
       })),
       {
         run: () =>
+          assert.ok(
+            readText(file).replace(/\s+/g, '').includes(exactCurrentPolicy),
+            `${file} must contain the exact schema-6 single-current-model policy`,
+          ),
+      },
+      {
+        run: () =>
           assert.match(
             readText(file),
             /historical schemas 1–5|historical validation|persisted historical evidence/i,
@@ -2310,7 +2323,7 @@ function contractSurfaceEntries() {
         run: () =>
           assert.match(
             readText(file),
-            /no round\s+3|round\s+3[^.\n]*reject|reject[^.\n]*round\s+3|one changed-input repair round is the maximum/i,
+            /no round\s+3|round\s+3[^.\n]*reject|reject[^.\n]*round\s+3|one (?:changed-input repair round|newly created changed-input repair reviewer) is the maximum/i,
             `${file} must close the current series after one repair`,
           ),
       },
@@ -2537,16 +2550,17 @@ function reviewRunnerSurfaceEntries() {
     'Evidence only',
     'One sealed input',
     'schema 6',
-    'role `primary`',
-    'availability-only fallback',
+    'role:"primary"',
+    'fallback:"none"',
     'max_rounds:2',
+    'runtimeCurrent',
+    'request.author',
+    'candidate_index',
+    'prior_attempts:[]',
+    'newly created reviewer',
     '--review-schema=6',
     'reviewer-output.primary.v6.schema.json',
     'REQUEST_JCS_BEGIN',
-    'GPT-5.6-sol/high',
-    'Fable/high',
-    'Opus/xhigh',
-    'output_started:false',
     'blocking_gap',
     'repair_targets_sha256',
   ];
@@ -2572,7 +2586,14 @@ function reviewRunnerSurfaceEntries() {
       run: () =>
         assert.match(readText(skillPath), literalPattern(marker), `plan-reviewer missing workflow marker ${marker}`),
     })),
-    { run: () => assert.match(readText(skillPath), /Session Relay as review\s+evidence/i) },
+    {
+      run: () =>
+        assert.match(
+          readText(skillPath),
+          /(?:Never|no|cannot)[\s\S]{0,120}Session Relay|Session Relay[\s\S]{0,120}(?:never|forbid|not allowed)/i,
+          'plan-reviewer must forbid Session Relay review',
+        ),
+    },
     {
       run: () =>
         assert.match(
@@ -3478,18 +3499,41 @@ function retryAuthorizationV1(overrides = {}) {
   };
 }
 
-function schema6Policy() {
-  return { ...structuredClone(CURRENT_POLICY), schema: 6 };
+const SCHEMA6_CODEX_AUTHOR = Object.freeze({
+  company: 'openai',
+  tool: 'codex',
+  model: 'gpt-5.6-sol',
+  effort: 'high',
+});
+
+function schema6Policy(runtimeCurrent = SCHEMA6_CODEX_AUTHOR) {
+  const candidate =
+    runtimeCurrent.tool === 'codex' ? { ...runtimeCurrent, service_tier: 'default' } : { ...runtimeCurrent };
+  return {
+    schema: 6,
+    role: 'primary',
+    fallback: 'none',
+    max_rounds: 2,
+    candidates: [candidate],
+    provenance: {
+      role: 'skill_default',
+      fallback: 'skill_default',
+      max_rounds: 'skill_default',
+      candidates: 'runtime_global',
+    },
+  };
 }
 
 function schema6Request(sealed, state, overrides = {}) {
-  const policy = schema6Policy();
+  const author = overrides.author || SCHEMA6_CODEX_AUTHOR;
+  const policy = overrides.policy || schema6Policy(author);
   return currentRequest({
     schema: 6,
     request_id: state.request_ids.at(-1),
     reviewed_commit_or_head: sealed.manifest.reviewed_commit,
     input_sha256: state.current_input_sha256,
     bundle_sha256: sealed.bundle_sha256,
+    author,
     policy,
     policy_sha256: sha256(jcs(policy)),
     review_mode: state.round_index === 1 ? 'full' : 'repair',
@@ -3560,6 +3604,11 @@ function assertManifestRow(sealed, expected) {
 }
 
 async function testSchema6PolicySurfaces() {
+  expectThrow(
+    'schema-6 runtime-current policy rejects fallback',
+    () => validatePolicy({ ...schema6Policy(SCHEMA6_CODEX_AUTHOR), fallback: 'availability_only' }),
+    /fallback.*none/i,
+  );
   const fixture = reviewBundleRepository();
   const bundles = [];
   const preparedWorkspaces = [];
@@ -3966,10 +4015,18 @@ async function testSchema6PolicySurfaces() {
     assert.equal(extraWorkspaceArgument.stdout, '');
     assert.match(extraWorkspaceArgument.stderr, /accepts \[--review-schema=5\|6\] requestId leg only/);
 
+    const previousRequest = schema6Request(v6Full, previousState);
+    const previousOutput = currentOutput(previousRequest, { schema: 6 });
+    const previousAttempt = currentAttempt(previousRequest.policy.candidates[0], { schema: 6 });
+    const previousRaw = currentRaw(previousRequest, previousOutput, { schema: 6, attempts: [previousAttempt] });
+    const previousRun = currentRun(previousRequest, previousRaw, { schema: 6 });
+    const previousSeries = schema6Series(previousRequest, previousRun);
+
     const matrix = [
-      { label: 'full', sealed: v6Full, bundle: v6FullDir, state: fullState },
-      { label: 'repair', sealed: v6Repair, bundle: v6RepairDir, state: repairState },
+      { label: 'full', sealed: v6Full, bundle: v6FullDir, state: fullState, previousState: null, previousSeries: null },
+      { label: 'repair', sealed: v6Repair, bundle: v6RepairDir, state: repairState, previousState, previousSeries },
     ];
+    const schema6Dispatches = [];
     for (const row of matrix) {
       const req = schema6Request(
         row.sealed,
@@ -3990,6 +4047,8 @@ async function testSchema6PolicySurfaces() {
         state: row.state,
         request: req,
         preparedAt: '2026-07-19T12:00:00-03:00',
+        previousState: row.previousState,
+        previousSeries: row.previousSeries,
       });
       const preparedWorkspace = reviewPolicy.prepareReviewerWorkspace({
         requestId: req.request_id,
@@ -4032,8 +4091,15 @@ async function testSchema6PolicySurfaces() {
         extractReviewerOutput('codex', `${JSON.stringify(output)}\n`, req, 'primary', row.bundle),
         output,
       );
+      schema6Dispatches.push({
+        label: row.label,
+        state: row.state,
+        request: req,
+        workspace: preparedWorkspace,
+        commitment: codexCommitment,
+      });
 
-      const unavailableCodex = currentAttempt(req.policy.candidates[0], {
+      const unavailableCurrentReviewer = currentAttempt(req.policy.candidates[0], {
         schema: 6,
         started: false,
         output_started: false,
@@ -4042,43 +4108,144 @@ async function testSchema6PolicySurfaces() {
         child_id: null,
         timeout_mode: null,
         timeout_seconds: null,
-        reason: 'Codex unavailable for Claude path fixture',
+        reason: 'runtime-current reviewer is unavailable',
         stdout_sha256: null,
         stderr_sha256: null,
       });
+      expectThrow(
+        `schema-6 ${row.label} rejects candidate fallback commitment`,
+        () =>
+          reviewPolicy.buildReviewDispatchCommitment({
+            preparedRequest,
+            candidateIndex: 1,
+            bundle: row.bundle,
+            reviewerWorkspace: null,
+            leg: 'primary',
+            priorAttempts: [unavailableCurrentReviewer],
+            committedAt: '2026-07-19T12:02:00-03:00',
+          }),
+        /candidate index|candidate position|prior attempts/i,
+      );
+      expectThrow(
+        `schema-6 ${row.label} rejects reviewer fallback argv`,
+        () =>
+          buildReviewerArgv({
+            tool: 'claude',
+            bundle: row.bundle,
+            model: 'claude-runtime-current',
+            effort: 'high',
+            leg: 'primary',
+            request: req,
+            priorAttempts: [unavailableCurrentReviewer],
+          }),
+        /candidate order is exhausted|candidate|fallback/i,
+      );
+
+      const claudeAuthor = {
+        company: 'anthropic',
+        tool: 'claude',
+        model: 'claude-runtime-current',
+        effort: 'high',
+      };
+      const claudeReq = schema6Request(row.sealed, row.state, {
+        ...(row.label === 'repair' ? { repair_targets_sha256: v6Transition.repair_targets_sha256 } : {}),
+        author: claudeAuthor,
+      });
+      validatePolicy(claudeReq.policy);
+      validateRequest(claudeReq);
+      assert.deepEqual(claudeReq.policy.candidates, [claudeAuthor]);
+      assert.equal(claudeReq.policy.fallback, 'none');
+      const prepareClaudeRequest = () =>
+        reviewPolicy.prepareReviewRequest({
+          state: row.state,
+          request: claudeReq,
+          preparedAt: '2026-07-19T12:02:00-03:00',
+          previousState: row.previousState,
+          previousSeries: row.previousSeries,
+        });
+      if (row.label === 'repair') {
+        expectThrow(
+          'schema-6 repair rejects reviewer runtime drift before commitment',
+          prepareClaudeRequest,
+          /continuation|reviewer runtime|policy/i,
+        );
+        continue;
+      }
+      const claudePreparedRequest = prepareClaudeRequest();
       const claudeCommitment = reviewPolicy.buildReviewDispatchCommitment({
-        preparedRequest,
-        candidateIndex: 1,
+        preparedRequest: claudePreparedRequest,
+        candidateIndex: 0,
         bundle: row.bundle,
         reviewerWorkspace: null,
         leg: 'primary',
-        priorAttempts: [unavailableCodex],
-        committedAt: '2026-07-19T12:02:00-03:00',
+        priorAttempts: [],
+        committedAt: '2026-07-19T12:03:00-03:00',
       });
-      assert.equal(claudeCommitment.bundle_path, row.bundle);
-      assert.equal(claudeCommitment.bundle_sha256, row.sealed.bundle_sha256);
+      assert.equal(claudeCommitment.candidate_index, 0);
+      assert.deepEqual(claudeCommitment.prior_attempts, []);
+      assert.deepEqual(claudeCommitment.candidate, claudeAuthor);
       assert.equal(claudeCommitment.reviewer_workspace, null);
-      assert.equal(claudeCommitment.reviewer_workspace_sha256, sha256(jcs(null)));
+      const claudeOutput = currentOutput(claudeReq, { schema: 6 });
       const claudeArgv = buildReviewerArgv({
         tool: 'claude',
         bundle: row.bundle,
-        model: 'fable',
-        effort: 'high',
+        model: claudeAuthor.model,
+        effort: claudeAuthor.effort,
         leg: 'primary',
-        request: req,
-        priorAttempts: [unavailableCodex],
+        request: claudeReq,
       });
       assert.deepEqual(
         claudeArgv,
         claudeCommitment.argv,
-        `schema-6 ${row.label} fallback commitment stores derived argv`,
+        `schema-6 ${row.label} current-model Claude commitment stores derived argv`,
       );
       const claudeSchema = JSON.parse(claudeArgv[claudeArgv.indexOf('--json-schema') + 1]);
       assert.equal(claudeSchema.properties.schema.const, 6, `schema-6 ${row.label} Claude schema envelope`);
       assert.deepEqual(
-        extractReviewerOutput('claude', JSON.stringify({ structured_output: output }), req, 'primary', row.bundle),
-        output,
+        extractReviewerOutput(
+          'claude',
+          JSON.stringify({ structured_output: claudeOutput }),
+          claudeReq,
+          'primary',
+          row.bundle,
+        ),
+        claudeOutput,
       );
+    }
+
+    const fullDispatch = schema6Dispatches.find(({ label }) => label === 'full');
+    const repairDispatch = schema6Dispatches.find(({ label }) => label === 'repair');
+    assert.ok(fullDispatch && repairDispatch, 'schema-6 fixtures must include full and repair dispatches');
+    assert.notEqual(
+      fullDispatch.workspace.request_id,
+      repairDispatch.workspace.request_id,
+      'the changed-input repair round must create a separately identified reviewer workspace',
+    );
+    assert.notEqual(
+      fullDispatch.workspace.cleanup_token,
+      repairDispatch.workspace.cleanup_token,
+      'the changed-input repair round must receive fresh reviewer workspace custody',
+    );
+    assert.notEqual(
+      repairDispatch.state.current_input_sha256,
+      repairDispatch.state.initial_input_sha256,
+      'repair dispatch requires changed canonical input',
+    );
+    assert.equal(
+      repairDispatch.workspace.request_id,
+      repairDispatch.state.request_ids.at(-1),
+      'repair reviewer must bind the new round-two request identity',
+    );
+    assert.notEqual(
+      repairDispatch.workspace.request_id,
+      repairDispatch.state.request_ids[0],
+      'repair reviewer must not reuse the round-one request identity',
+    );
+    for (const { commitment } of schema6Dispatches) {
+      assert.equal(commitment.candidate_index, 0);
+      assert.deepEqual(commitment.prior_attempts, []);
+      assert.equal(Object.hasOwn(commitment, 'reviewer_handle'), false);
+      assert.equal(Object.hasOwn(commitment, 'reviewer_session'), false);
     }
 
     const req = schema6Request(v6Full, fullState);
@@ -9690,7 +9857,7 @@ async function testCurrentReceipts(focus = null) {
     {
       label: 'current rejected blocking-gap regression',
       run: () => {
-        const policyV6 = { ...CURRENT_POLICY, schema: 6 };
+        const policyV6 = schema6Policy();
         const request = currentRequest({
           schema: 6,
           policy: policyV6,
@@ -10036,7 +10203,7 @@ async function testSurfaces(focus = null) {
     ...reviewRunnerSurfaceEntries(),
     { run: () => testManagerSurfaces() },
     { run: () => testRelayBoundary() },
-    { run: () => testSchema6PolicySurfaces() },
+    { label: 'schema6 runtime-current fallback regression', run: () => testSchema6PolicySurfaces() },
   ];
   await runFocusedEntries('surfaces', focus, entries);
 }
@@ -10069,6 +10236,7 @@ const FOCUSED_POLICY_CASES = {
     'CI focused surfaces call removed',
     'CI regression-driver call removed',
     'CI no-argument full policy-harness duplicate restored',
+    'schema6 runtime-current fallback regression',
   ],
   'completion-reuse': [
     'stale policy completion reuse regression',

@@ -410,6 +410,16 @@ export function validateRequest(request) {
   assertClosed(request.author, ['company', 'tool', 'model', 'effort'], 'request author'); oneOf(request.author.company, new Set(['openai', 'anthropic']), 'request author company'); for (const key of ['tool', 'model', 'effort']) string(request.author[key], `request author ${key}`);
   validatePolicy(request.policy);
   if (sha256(jcs(request.policy)) !== request.policy_sha256) throw new Error('policy hash mismatch');
+  if (request.schema === 6) {
+    const candidate = request.policy.candidates[0];
+    const candidateIdentity = {
+      company: candidate.company,
+      tool: candidate.tool,
+      model: candidate.model,
+      effort: candidate.effort,
+    };
+    if (jcs(candidateIdentity) !== jcs(request.author)) throw new Error('schema-6 policy candidate must equal request author');
+  }
   if ([3, 5, 6].includes(request.schema)) {
     oneOf(request.review_mode, new Set(['full', 'repair']), 'review_mode');
     const maximumRound = [5, 6].includes(request.schema) ? 2 : 10;
@@ -1106,17 +1116,30 @@ export function validateCurrentPolicy(policy) {
   assertClosed(policy, ['schema', 'role', 'fallback', 'max_rounds', 'candidates', 'provenance'], 'current policy');
   if (![5, 6].includes(policy.schema)) throw new Error('current policy schema');
   if (policy.role !== 'primary') throw new Error('current policy role');
-  if (policy.fallback !== 'availability_only') throw new Error('current policy fallback');
   if (policy.max_rounds !== 2) throw new Error('current policy max_rounds must be exactly 2');
-  if (!Array.isArray(policy.candidates) || ![1, 3].includes(policy.candidates.length)) throw new Error('current policy candidates must be the default chain or one pinned candidate');
-  policy.candidates.forEach((candidate, index) => {
-    validateCurrentCandidate(candidate, `current candidate ${index + 1}`);
-    if (!CURRENT_CANDIDATES.some((allowed) => jcs(allowed) === jcs(candidate))) throw new Error('current policy candidate is not eligible');
-  });
-  if (policy.candidates.length === 3 && jcs(policy.candidates) !== jcs(CURRENT_CANDIDATES)) throw new Error('current policy candidate order mismatch');
-  if (policy.candidates.length === 1 && policy.provenance?.candidates !== 'current_user') throw new Error('a pinned current candidate requires current_user provenance');
   assertClosed(policy.provenance, ['role', 'fallback', 'max_rounds', 'candidates'], 'current policy provenance');
   Object.values(policy.provenance).forEach((value) => { oneOf(value, SOURCES, 'current policy provenance source'); });
+  if (policy.schema === 5) {
+    if (policy.fallback !== 'availability_only') throw new Error('current policy fallback');
+    if (!Array.isArray(policy.candidates) || ![1, 3].includes(policy.candidates.length)) throw new Error('current policy candidates must be the default chain or one pinned candidate');
+    policy.candidates.forEach((candidate, index) => {
+      validateCurrentCandidate(candidate, `current candidate ${index + 1}`);
+      if (!CURRENT_CANDIDATES.some((allowed) => jcs(allowed) === jcs(candidate))) throw new Error('current policy candidate is not eligible');
+    });
+    if (policy.candidates.length === 3 && jcs(policy.candidates) !== jcs(CURRENT_CANDIDATES)) throw new Error('current policy candidate order mismatch');
+    if (policy.candidates.length === 1 && policy.provenance.candidates !== 'current_user') throw new Error('a pinned current candidate requires current_user provenance');
+    return policy;
+  }
+  if (policy.fallback !== 'none') throw new Error('schema-6 current policy fallback must be none');
+  if (!Array.isArray(policy.candidates) || policy.candidates.length !== 1) throw new Error('schema-6 current policy requires exactly one runtime candidate');
+  validateCurrentCandidate(policy.candidates[0], 'schema-6 current candidate');
+  const expectedProvenance = {
+    role: 'skill_default',
+    fallback: 'skill_default',
+    max_rounds: 'skill_default',
+    candidates: 'runtime_global',
+  };
+  if (jcs(policy.provenance) !== jcs(expectedProvenance)) throw new Error('schema-6 current policy provenance');
   return policy;
 }
 
@@ -1131,18 +1154,48 @@ function currentSchemaHelpers() {
 export function currentReviewerSchema(schema = 5) {
   oneOf(schema, new Set([5, 6]), 'current reviewer schema');
   const { closed, str, typedConst, typedEnum } = currentSchemaHelpers();
-  const candidateSchemas = CURRENT_CANDIDATES.map((candidate) => closed(Object.fromEntries(
-    Object.entries(candidate).map(([key, value]) => [key, typedConst('string', value)]),
-  )));
+  const candidateSchemas = schema === 5
+    ? CURRENT_CANDIDATES.map((candidate) => closed(Object.fromEntries(
+      Object.entries(candidate).map(([key, value]) => [key, typedConst('string', value)]),
+    )))
+    : [
+      closed({
+        company: typedConst('string', 'openai'),
+        tool: typedConst('string', 'codex'),
+        model: str,
+        effort: str,
+        service_tier: typedConst('string', 'default'),
+      }),
+      closed({
+        company: typedConst('string', 'anthropic'),
+        tool: typedConst('string', 'claude'),
+        model: str,
+        effort: str,
+      }),
+    ];
   const source = typedEnum('string', [...SOURCES]);
-  const policy = closed({
-    schema: typedConst('integer', schema),
-    role: typedConst('string', 'primary'),
-    fallback: typedConst('string', 'availability_only'),
-    max_rounds: typedConst('integer', 2),
-    candidates: { type: 'array', minItems: 1, maxItems: 3, items: { anyOf: candidateSchemas } },
-    provenance: closed({ role: source, fallback: source, max_rounds: source, candidates: source }),
-  });
+  const policy = schema === 5
+    ? closed({
+      schema: typedConst('integer', schema),
+      role: typedConst('string', 'primary'),
+      fallback: typedConst('string', 'availability_only'),
+      max_rounds: typedConst('integer', 2),
+      candidates: { type: 'array', minItems: 1, maxItems: 3, items: { anyOf: candidateSchemas } },
+      provenance: closed({ role: source, fallback: source, max_rounds: source, candidates: source }),
+    })
+    : closed({
+      schema: typedConst('integer', schema),
+      role: typedConst('string', 'primary'),
+      fallback: typedConst('string', 'none'),
+      max_rounds: typedConst('integer', 2),
+      candidates: { type: 'array', minItems: 1, maxItems: 1, items: { anyOf: candidateSchemas } },
+      provenance: closed({
+        role: typedConst('string', 'skill_default'),
+        fallback: typedConst('string', 'skill_default'),
+        max_rounds: typedConst('string', 'skill_default'),
+        candidates: typedConst('string', 'runtime_global'),
+      }),
+    });
   const requestProperties = {
     schema: typedConst('integer', schema),
     request_id: { type: 'string', pattern: UUID.source },
@@ -2124,13 +2177,65 @@ function validatePreparedRequest(preparedRequest, state = null) {
   return preparedRequest;
 }
 
+function assertSameReviewRuntime(currentRequest, previousRequest) {
+  if (
+    jcs(currentRequest.author) !== jcs(previousRequest.author)
+    || currentRequest.policy_sha256 !== previousRequest.policy_sha256
+    || jcs(currentRequest.policy) !== jcs(previousRequest.policy)
+  ) throw new Error('schema-6 continuation must retain the original reviewer runtime and policy');
+}
+
+function validateReviewContinuation(state, request, previousState, previousSeries) {
+  const continuation = state.round_index === 2 || state.orchestration_attempt === 2;
+  if (!continuation) {
+    if (previousState !== null || previousSeries !== null) throw new Error('initial review cannot carry continuation evidence');
+    return;
+  }
+  if (previousState === null || previousSeries === null) throw new Error('schema-6 continuation requires prior state and series evidence');
+  validateReviewOrchestrationState(previousState);
+  validateCurrentReviewSeries(previousSeries);
+  const previousRequest = previousSeries.rounds.at(-1).request;
+  if (state.round_index === 2) {
+    if (
+      previousState.status !== 'active'
+      || previousState.round_index !== 1
+      || previousState.orchestration_attempt !== state.orchestration_attempt
+      || previousState.series_id !== state.series_id
+      || previousSeries.rounds.length !== 1
+      || previousSeries.orchestration_series_id !== state.series_id
+      || previousRequest.request_id !== state.request_ids[0]
+      || previousRequest.orchestration_state_sha256 !== previousState.state_sha256
+      || jcs(previousState.request_ids) !== jcs(state.request_ids.slice(0, 1))
+      || previousState.current_input_sha256 !== state.initial_input_sha256
+    ) throw new Error('schema-6 repair continuation evidence does not match round one');
+  } else if (
+    previousState.status !== 'stopped'
+    || previousState.orchestration_attempt !== 1
+    || previousState.round_index !== previousSeries.rounds.length
+    || previousState.series_id !== previousSeries.orchestration_series_id
+    || previousState.series_sha256 !== sha256(jcs(previousSeries))
+    || state.retry_authorization?.stopped_state_sha256 !== previousState.state_sha256
+    || previousState.current_input_sha256 !== state.current_input_sha256
+  ) {
+    throw new Error('schema-6 retry continuation evidence does not match attempt one');
+  }
+  assertSameReviewRuntime(request, previousRequest);
+}
+
 export function prepareReviewRequest(input) {
-  assertClosed(input, ['state', 'request', 'preparedAt'], 'prepare review request');
-  const { state, request, preparedAt } = input;
+  assertClosed(input, ['state', 'request', 'preparedAt', 'previousState', 'previousSeries'], 'prepare review request');
+  const {
+    state,
+    request,
+    preparedAt,
+    previousState,
+    previousSeries,
+  } = input;
   validateReviewOrchestrationState(state);
   if (state.status !== 'active') throw new Error('prepared review request requires active orchestration state');
   validateRequest(request);
   if (request.schema !== 6) throw new Error('prepared review request requires schema-6 request');
+  validateReviewContinuation(state, request, previousState, previousSeries);
   iso(preparedAt, 'prepared review request time');
   const preparedRequest = {
     schema: 1,
@@ -2892,6 +2997,49 @@ function validatePriorCommitmentHistory(repo, planPath, currentCommit, family) {
   throw new Error('dispatch commitment fallback lacks matching earlier candidate commitment history');
 }
 
+function validateReviewRuntimeHistory(repo, planPath, currentCommit, family) {
+  if (family.state.round_index === 1 && family.state.orchestration_attempt === 1) return;
+  const ancestors = git(repo, ['rev-list', '--first-parent', `${currentCommit}^`]).trim().split('\n').filter(Boolean);
+  for (const commit of ancestors) {
+    let historical;
+    try {
+      const records = orchestrationPlanRecords(planBlob(repo, commit, planPath)).records;
+      historical = { ...validateCanonicalOrchestrationFamily(records), records };
+    } catch {
+      continue;
+    }
+    if (historical.state === undefined) continue;
+    let previousRequest = null;
+    if (
+      family.state.round_index === 2
+      && historical.state.status === 'active'
+      && historical.state.round_index === 1
+      && historical.state.orchestration_attempt === family.state.orchestration_attempt
+      && historical.state.series_id === family.state.series_id
+      && historical.state.request_ids[0] === family.state.request_ids[0]
+      && historical.preparedRequest !== null
+      && historical.commitment !== null
+    ) {
+      previousRequest = historical.preparedRequest.request;
+    } else if (
+      family.state.round_index === 1
+      && family.state.orchestration_attempt === 2
+      && historical.state.state_sha256 === family.state.retry_authorization.stopped_state_sha256
+    ) {
+      const receiptKind = historical.state.phase === 'completion' ? 'Completion-review-receipt' : 'Review-receipt';
+      const receipt = historical.records.get(receiptKind);
+      if (receipt === undefined) throw new Error('retry dispatch history is missing the stopped attempt receipt');
+      validateCurrentReviewReceipt(receipt, null, { orchestration: historical.state });
+      previousRequest = receipt.series.rounds.at(-1).request;
+    }
+    if (previousRequest === null) continue;
+    assertSameReviewRuntime(family.preparedRequest.request, previousRequest);
+    return;
+  }
+  throw new Error('schema-6 continuation dispatch lacks matching reviewer runtime history');
+}
+
+
 export function dispatchCommittedReviewer(input) {
   assertClosed(input, [
     'repo', 'planPath', 'committedPlanCommit', 'expectedPreparedRequestSha256',
@@ -2936,6 +3084,7 @@ export function dispatchCommittedReviewer(input) {
     );
   }
   validatePriorCommitmentHistory(repo, logical, committedPlanCommit, family);
+  validateReviewRuntimeHistory(repo, logical, committedPlanCommit, family);
   const verifiedBundle = verifyBundle({
     bundle: family.commitment.bundle_path,
     expectedSha256: family.commitment.bundle_sha256,

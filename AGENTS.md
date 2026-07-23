@@ -19,7 +19,7 @@ node scripts/ci.mjs                                  # authoritative full gate f
 │   ├── .claude-plugin/plugin.json    Claude plugin manifest
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks — near-parity with Claude)
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
-│   ├── agents/   (Claude-only)       plan-manager + plan-reviewer thin opus plan-lifecycle wrappers
+│   ├── agents/   (Claude-only)       plan-manager + plan-reviewer thin plan-lifecycle wrappers
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
 ├── plugins/session-relay/            2nd plugin (cross-tool: Claude + Codex): cross-session/cross-project/cross-tool agent message bus — MCP bus server + shared SessionStart hook + relay CLI; self-versioned, gated by its own ci.mjs section
 ├── plugins/effect-kit/               3rd plugin (cross-tool): Effect-TS skill kit — effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
@@ -56,7 +56,7 @@ on this repository with Codex and are not part of the installable Docks plugin.
 Keep them thin: load the matching canonical skill, add only Codex-specific
 dispatch/sandbox guidance, and avoid duplicating full skill bodies.
 
-Plugin-shipped agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `plugins/docks/agents/` holds only two — `plan-manager` and `plan-reviewer`, thin opus-tier wrappers around their cross-tool skills for inter-agent `Agent(subagent_type=…)` dispatch. Each is a flat `agents/<name>.md`.
+Plugin-shipped agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `plugins/docks/agents/` holds only two — `plan-manager` and `plan-reviewer`, thin wrappers around their cross-tool skills for inter-agent `Agent(subagent_type=…)` dispatch. Each is a flat `agents/<name>.md`.
 
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): `claude plugin validate` lints every `*.md` under `agents/` as a subagent, so an `AGENTS.md`/`CLAUDE.md` pair there fails `validate --strict` with "No frontmatter". Neither relocating the files into a subdir nor declaring an `agents` array in the manifest avoids that scan (both tried and ruled out). These authoring rules therefore live in this root file instead of a nested node.
 
@@ -79,9 +79,9 @@ Historical `plan-improver` is not a live skill; `plan-repairer` returns one exac
 
 Creation ends with the committed, read-back `PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}` handoff. The creator never reviews or edits that path again; a later review is a manager-owned existing-plan operation.
 
-Current review/orchestration records use schema 6 and persist exactly one `Review-orchestration-state: <compact JCS object>` line. One attempt contains a full round plus at most one changed-input repair round. A retryable attempt-1 failure returns normally as `stopped`; only an explicit current-user same-input authorization may start attempt 2, whose failure is `stuck`. There is no automatic reprepare or third attempt. A genuinely changed canonical input starts a new attempt 1; metadata-only changes do not count as progress. The manager alone persists state, derives terminal results from validated evidence, consumes an eligible lifecycle intent once, writes receipts, and commits plan-only lifecycle changes.
+Current review/orchestration records use schema 6 and persist exactly one `Review-orchestration-state: <compact JCS object>` line. Each review round launches one fresh `plan-reviewer` using the invoking runtime's current model. It never resumes an earlier reviewer, changes provider/model, falls back to another candidate, or uses Session Relay. One attempt contains a full round plus at most one changed-input repair round, whose reviewer is also fresh. A retryable attempt-1 failure returns normally as `stopped`; only an explicit current-user same-input authorization may start attempt 2, whose failure is `stuck`. There is no automatic reprepare or third attempt. A genuinely changed canonical input starts a new attempt 1; metadata-only changes do not count as progress. The manager alone persists state, derives terminal results from validated evidence, consumes an eligible lifecycle intent once, writes receipts, and commits plan-only lifecycle changes.
 
-The complete contract lives in `docs/plans/AGENTS.md`. Schemas 1–5 and their fixed names are historical validation/audit-only and retain byte-compatible behavior. Skills are canonical; optional thin Claude/Codex dispatch wrappers exist only for `plan-manager` and `plan-reviewer`. Session transport is never canonical review evidence.
+The complete contract lives in `docs/plans/AGENTS.md`. Schemas 1–5 and their fixed names are historical validation/audit-only and retain byte-compatible behavior. Skills are canonical; optional thin Claude/Codex dispatch wrappers exist only for `plan-manager` and `plan-reviewer`. Session transport is never review evidence.
 
 Managed writing workspaces are a Session Relay runtime boundary, not a Docks plan-review or policy outcome. Relay owns the exact nine workspace commands, worktree/Git/resource coordination, Linux custody, recovery, and integration; launched Claude, Codex, and OMP workers are untrusted. Docks gains no workspace command or skill until macOS durable custody exists, an independently reviewed stable Relay release is available, and a separate canonical Docks policy plan authorizes that surface. Do not infer control over arbitrary unmanaged same-UID processes.
 

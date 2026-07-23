@@ -67,7 +67,7 @@ for (const fname of mdFiles) {
   // 7. anti-hallucination checklist (1)
   if (anyLine(lines, /anti-hallucination|file:line refs|verify import paths/i)) score += 1;
   // 8. explicit model (1)
-  if (anyLine(lines, /^model:\s*(sonnet|opus|haiku|claude-[a-z0-9-]+)/)) score += 1;
+  if (anyLine(lines, /^model:\s*(inherit|sonnet|opus|haiku|claude-[a-z0-9-]+)/)) score += 1;
   // 9. tools/disallowedTools declared (1)
   if (hasFmField(lines, 'tools') || hasFmField(lines, 'disallowedTools')) score += 1;
   // 10. slop (max −2)

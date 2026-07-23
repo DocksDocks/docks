@@ -753,7 +753,34 @@ const CURRENT_POLICY = {
     candidates: 'skill_default',
   },
 };
-const SCHEMA6_POLICY = { ...CURRENT_POLICY, schema: 6 };
+const CODEX_RUNTIME_AUTHOR = Object.freeze({
+  company: 'openai',
+  tool: 'codex',
+  model: 'gpt-5.6-sol',
+  effort: 'high',
+});
+const CLAUDE_RUNTIME_AUTHOR = Object.freeze({
+  company: 'anthropic',
+  tool: 'claude',
+  model: 'opus',
+  effort: 'xhigh',
+});
+
+function schema6Policy(author) {
+  return {
+    schema: 6,
+    role: 'primary',
+    fallback: 'none',
+    max_rounds: 2,
+    candidates: [{ ...author, ...(author.tool === 'codex' ? { service_tier: 'default' } : {}) }],
+    provenance: {
+      role: 'skill_default',
+      fallback: 'skill_default',
+      max_rounds: 'skill_default',
+      candidates: 'runtime_global',
+    },
+  };
+}
 
 function currentRequest(overrides = {}) {
   return {
@@ -1010,6 +1037,7 @@ function schema6Request(
     reviewMode = state.round_index === 1 ? 'full' : 'repair',
     previousInputSha256 = null,
     repairTargetsSha256 = null,
+    author = CODEX_RUNTIME_AUTHOR,
   } = {},
 ) {
   return currentRequest({
@@ -1018,8 +1046,9 @@ function schema6Request(
     reviewed_commit_or_head: reviewedCommitOrHead,
     input_sha256: state.current_input_sha256,
     bundle_sha256: bundleSha256,
-    policy: SCHEMA6_POLICY,
-    policy_sha256: policy.sha256(policy.jcs(SCHEMA6_POLICY)),
+    author,
+    policy: schema6Policy(author),
+    policy_sha256: policy.sha256(policy.jcs(schema6Policy(author))),
     review_mode: reviewMode,
     round_index: state.round_index,
     previous_input_sha256: previousInputSha256,
@@ -1046,7 +1075,7 @@ function schema6Attempt(candidate, overrides = {}) {
 
 function schema6Raw(req, status = 'pass', reviewerOutput = null, attempts = null) {
   const output = reviewerOutput ?? schema6Output(req, status);
-  const evidence = attempts ?? [schema6Attempt(CURRENT_POLICY.candidates[0])];
+  const evidence = attempts ?? [schema6Attempt(req.policy.candidates[0])];
   return {
     schema: 6,
     role: 'primary',
@@ -1060,6 +1089,71 @@ function schema6Raw(req, status = 'pass', reviewerOutput = null, attempts = null
     waiver_sha256: null,
     reason: null,
   };
+}
+
+function testSchema6RuntimePolicy() {
+  const state = beginSchema6State({ inputSha256: H1 });
+  const codexRequest = schema6Request(state);
+  const claudeRequest = schema6Request(state, { author: CLAUDE_RUNTIME_AUTHOR });
+  policy.validateRequest(codexRequest);
+  policy.validateRequest(claudeRequest);
+  assert.deepEqual(codexRequest.policy.candidates, [
+    {
+      ...CODEX_RUNTIME_AUTHOR,
+      service_tier: 'default',
+    },
+  ]);
+  assert.deepEqual(claudeRequest.policy.candidates, [{ ...CLAUDE_RUNTIME_AUTHOR }]);
+
+  const legacySchema6Policy = { ...structuredClone(CURRENT_POLICY), schema: 6 };
+  assert.throws(
+    () => policy.validateCurrentPolicy(legacySchema6Policy),
+    /fallback.*none|schema-6.*fallback/i,
+    'schema 6 rejects the legacy availability-only three-candidate policy',
+  );
+  const mismatchedAuthor = {
+    ...codexRequest,
+    author: CLAUDE_RUNTIME_AUTHOR,
+  };
+  assert.throws(
+    () => policy.validateRequest(mismatchedAuthor),
+    /candidate.*request author/i,
+    'schema 6 binds the sole candidate to the invoking request author',
+  );
+
+  const schema = policy.currentReviewerSchema(6);
+  assert.equal(schema.properties.request.properties.policy.properties.fallback.const, 'none');
+  assert.equal(schema.properties.request.properties.policy.properties.candidates.minItems, 1);
+  assert.equal(schema.properties.request.properties.policy.properties.candidates.maxItems, 1);
+  assert.equal(
+    schema.properties.request.properties.policy.properties.provenance.properties.candidates.const,
+    'runtime_global',
+  );
+
+  const unavailable = schema6Attempt(codexRequest.policy.candidates[0], {
+    output_started: false,
+    result: 'model_unavailable',
+    exit_code: 1,
+    reason: 'the runtime-current model is unavailable',
+  });
+  assert.throws(
+    () =>
+      policy.validateCurrentAttemptSequence(
+        [unavailable, schema6Attempt(claudeRequest.policy.candidates[0])],
+        codexRequest.policy,
+      ),
+    /attempt sequence bound/i,
+    'schema 6 cannot advance from its sole runtime-current candidate',
+  );
+
+  const schema5PolicyBytes = policy.jcs(CURRENT_POLICY);
+  policy.validateCurrentPolicy(CURRENT_POLICY);
+  assert.equal(policy.jcs(CURRENT_POLICY), schema5PolicyBytes, 'schema-5 policy remains byte-compatible');
+  assert.equal(
+    policy.currentReviewerSchema(5).properties.request.properties.policy.properties.fallback.const,
+    'availability_only',
+  );
+  console.log('schema-6 runtime-current policy rejects fallback while schema 5 remains unchanged');
 }
 
 function schema6Run(req, status = 'pass', reviewerOutput = null, attempts = null) {
@@ -1321,6 +1415,7 @@ function testSchema6RepairArtifacts() {
       repairTargetsSha256: transition.repair_targets_sha256,
     });
     const firstRun = schema6Run(firstRequest, 'blocking_gap');
+    const firstSeries = schema6Series([firstRun]);
 
     for (const scenario of [
       {
@@ -1330,6 +1425,8 @@ function testSchema6RepairArtifacts() {
         state: fullState,
         request: fullRequest,
         firstRun: null,
+        previousState: null,
+        previousSeries: null,
         transition: null,
       },
       {
@@ -1339,24 +1436,44 @@ function testSchema6RepairArtifacts() {
         state: repairState,
         request: repairRequest,
         firstRun,
+        previousState: firstState,
+        previousSeries: firstSeries,
         transition,
       },
     ]) {
       const workspace = policy.prepareReviewerWorkspace({ requestId: scenario.request.request_id, leg: 'primary' });
       prepared.push(workspace);
       for (const tool of ['codex', 'claude']) {
-        const candidate = tool === 'codex' ? CURRENT_POLICY.candidates[0] : CURRENT_POLICY.candidates[1];
-        const priorAttempts =
+        const author = tool === 'codex' ? CODEX_RUNTIME_AUTHOR : CLAUDE_RUNTIME_AUTHOR;
+        const request =
           tool === 'codex'
-            ? []
-            : [
-                schema6Attempt(CURRENT_POLICY.candidates[0], {
-                  output_started: false,
-                  result: 'model_unavailable',
-                  exit_code: 1,
-                  reason: 'the requested model is unavailable',
-                }),
-              ];
+            ? scenario.request
+            : {
+                ...scenario.request,
+                author,
+                policy: schema6Policy(author),
+                policy_sha256: policy.sha256(policy.jcs(schema6Policy(author))),
+              };
+        policy.validateRequest(request);
+        const candidate = request.policy.candidates[0];
+        const priorAttempts = [];
+        const prepare = () =>
+          policy.prepareReviewRequest({
+            state: scenario.state,
+            request,
+            preparedAt: '2026-07-19T12:00:00-03:00',
+            previousState: scenario.previousState,
+            previousSeries: scenario.previousSeries,
+          });
+        if (scenario.mode === 'repair' && tool === 'claude') {
+          assert.throws(
+            prepare,
+            /continuation|reviewer runtime|policy/i,
+            'repair round rejects a provider/model switch before commitment or launch',
+          );
+          continue;
+        }
+        const preparedRequest = prepare();
         const argv = policy.buildReviewerArgv({
           tool,
           bundle: scenario.bundle,
@@ -1365,17 +1482,12 @@ function testSchema6RepairArtifacts() {
           effort: candidate.effort,
           serviceTier: candidate.service_tier ?? null,
           leg: 'primary',
-          request: scenario.request,
+          request,
           priorAttempts,
-        });
-        const preparedRequest = policy.prepareReviewRequest({
-          state: scenario.state,
-          request: scenario.request,
-          preparedAt: '2026-07-19T12:00:00-03:00',
         });
         const commitment = policy.buildReviewDispatchCommitment({
           preparedRequest,
-          candidateIndex: tool === 'codex' ? 0 : 1,
+          candidateIndex: 0,
           bundle: scenario.bundle,
           reviewerWorkspace: tool === 'codex' ? workspace : null,
           leg: 'primary',
@@ -1391,33 +1503,53 @@ function testSchema6RepairArtifacts() {
         );
         assert.deepEqual(commitment.argv, argv);
         if (tool === 'codex') {
+          assert.ok(argv.includes('--ephemeral'), 'Codex review uses a fresh ephemeral one-shot process');
           assert.equal(
             argv[argv.indexOf('--output-schema') + 1],
             path.join(scenario.bundle, 'reviewer-output.primary.v6.schema.json'),
           );
         } else {
+          assert.equal(argv[0], '-p', 'Claude review uses a one-shot process');
           const claudeSchema = JSON.parse(argv[argv.indexOf('--json-schema') + 1]);
           assert.equal(claudeSchema.properties.schema.const, 6, 'Claude receives the ReviewerOutputV6 envelope');
           assert.deepEqual(claudeSchema, policy.currentReviewerSchema(6));
         }
+        assert.equal(argv.includes('relay'), false, 'review dispatch never uses Session Relay');
 
-        const output = schema6Output(scenario.request);
+        assert.throws(
+          () =>
+            policy.buildReviewDispatchCommitment({
+              preparedRequest,
+              candidateIndex: 1,
+              bundle: scenario.bundle,
+              reviewerWorkspace: null,
+              leg: 'primary',
+              priorAttempts: [schema6Attempt(candidate)],
+              committedAt: '2026-07-19T12:01:00-03:00',
+            }),
+          /candidate index|candidate position/i,
+          'schema 6 cannot commit a later candidate',
+        );
+
+        const output = schema6Output(request);
         const stdout =
           tool === 'codex'
             ? `${JSON.stringify({ transport: 'noise' })}\n${JSON.stringify(output)}\n`
             : JSON.stringify({ structured_output: output });
-        const collected = policy.extractReviewerOutput(tool, stdout, scenario.request, 'primary', scenario.bundle);
+        const collected = policy.extractReviewerOutput(tool, stdout, request, 'primary', scenario.bundle);
         assert.deepEqual(collected, output);
-        const collectorAttempts = [...priorAttempts, schema6Attempt(candidate)];
-        const raw = schema6Raw(scenario.request, 'pass', collected, collectorAttempts);
-        policy.validateCurrentRawReview(raw, scenario.request);
-        const run = schema6Run(scenario.request, 'pass', collected, collectorAttempts);
+        const collectorAttempts = [schema6Attempt(candidate)];
+        const raw = schema6Raw(request, 'pass', collected, collectorAttempts);
+        policy.validateCurrentRawReview(raw, request);
+        const run = schema6Run(request, 'pass', collected, collectorAttempts);
         policy.validateDraftRunResult(run);
-        const series =
-          scenario.mode === 'full'
-            ? schema6Series([run])
-            : schema6Series([scenario.firstRun, run], [scenario.transition]);
-        policy.validateReviewSeries(series);
+        if (tool === 'codex') {
+          const series =
+            scenario.mode === 'full'
+              ? schema6Series([run])
+              : schema6Series([scenario.firstRun, run], [scenario.transition]);
+          policy.validateReviewSeries(series);
+        }
       }
     }
 
@@ -2151,6 +2283,7 @@ function testCurrentBundles(focus = null) {
 }
 
 function testCurrentReviewerArgv() {
+  testSchema6RuntimePolicy();
   const fixture = initializeFixture();
   const prepared = [];
   try {
