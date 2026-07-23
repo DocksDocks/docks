@@ -65,6 +65,7 @@ const SHIPPED_TO_PROMOTED_PATHS = [
   'plugins/docks/skills/productivity/plan-workspace/SKILL.md',
   'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
   'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  'plugins/session-relay/test/companion-distribution-contract.mjs',
   'plugins/session-relay/test/release-evidence-contract.mjs',
   'plugins/session-relay/test/release-promotion-contract.mjs',
   'plugins/session-relay/test/release-publication-contract.mjs',
@@ -78,6 +79,7 @@ const SHIPPED_TO_PROMOTED_PATHS = [
 ];
 const AUTHORIZED_BASE_TO_PROMOTED_PATHS = [
   'docs/plans/active/session-relay-linux-workspace-publication.md',
+  'plugins/session-relay/test/companion-distribution-contract.mjs',
   'plugins/session-relay/test/release-evidence-contract.mjs',
   'scripts/lib/session-relay-release-preparation.mjs',
 ];
