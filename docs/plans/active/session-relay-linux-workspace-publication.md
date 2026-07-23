@@ -290,6 +290,7 @@ None.
 - `/home/vagrant/projects/public/docs/plans/finished/2026-07-18-session-relay-cli-production-release.md` — prior public production-release ordering, completion-reviewed tag commit, single-run/read-back, npm, asset, and archive protocol; identities are historical and must be rebound.
 - `docs/plans/finished/2026-07-19-session-relay-prebuilt-cli-release.md` — prior end-to-end publication/promotion/finalization and exact/live smoke recovery lessons; prior receipts and versions are not reusable.
 
+Review-orchestration-state: {"apply_state":"none","current_input_sha256":"44304c5945f1489fc0592eacfff59a79ffd803f55d1a1dfa21cbba20dca631cd","initial_input_sha256":"44304c5945f1489fc0592eacfff59a79ffd803f55d1a1dfa21cbba20dca631cd","lifecycle_intent":"start","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-publication.md","request_ids":["2abd4198-4787-4162-92c6-ce2f835c06ca"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"231c34c5-c3ec-4bfc-acb2-725dfd5665a0","series_sha256":null,"state_sha256":"cd2570cd6d11e398585465896f52599477de10b8ce6d4f112ccf3cdc01de1d0e","status":"active","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
 ## Review
 
 (filled by main-context plan-manager after completion evidence)
