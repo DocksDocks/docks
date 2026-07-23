@@ -416,7 +416,7 @@ function sourceCiFixture(
       run_id: 991,
       run_attempt: 1,
       head_sha: COMMIT,
-      name: 'validation-shards',
+      name: 'validation shard (${{ matrix.lane }})',
       status: 'completed',
       conclusion: 'skipped',
       started_at: '2026-07-17T18:00:00Z',
@@ -615,7 +615,7 @@ function testSourceCi(temp) {
   expectJobsReject(
     'renamed skipped validation shard row',
     (jobs) => {
-      jobs[0].name = 'validation shard (core)';
+      jobs[0].name = 'validation-shards';
     },
     /validation-shards|skipped|non-authoritative/i,
   );

@@ -1153,7 +1153,7 @@ function decodeWorkflowFile(file, expectedPath) {
     if (index < 0) fail(`source CI authoritative step is not in the closed job: ${expected.name}`);
     return { name: expected.name, number: index + 2 };
   });
-  return { bytes, blobId: file.sha, requiredDefinitions };
+  return { bytes, blobId: file.sha, requiredDefinitions, validationShardJobName: expectedShardJob.name };
 }
 
 function validateSourceCiRun(run, runId, expectedCommit) {
@@ -1212,7 +1212,7 @@ export function verifySourceCi(options, injected) {
   for (const shardJob of shardJobs) {
     if (
       !record(shardJob) ||
-      shardJob.name !== 'validation-shards' ||
+      shardJob.name !== workflow.validationShardJobName ||
       shardJob.status !== 'completed' ||
       shardJob.conclusion !== 'skipped' ||
       !Array.isArray(shardJob.steps) ||
