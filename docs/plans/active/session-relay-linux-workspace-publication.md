@@ -3,9 +3,9 @@ title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
 status: blocked
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T20:20:09-03:00"
-blocked_reason: "Amending A6 to read the archived recertification authority and expanding the exact path fences to 35 shipped paths/four authorized-base paths; awaiting one fresh changed-input schema-6 review."
-blocked_since: "2026-07-23T20:02:42-03:00"
+updated: "2026-07-23T20:26:51-03:00"
+blocked_reason: "Fresh changed-input schema-6 review cannot start because the plan retains an exact settled passed family and current policy has no exported source-plan-bound CAS reducer that renews such a family into an active attempt-1 state; manual record deletion or rewrite is forbidden."
+blocked_since: "2026-07-23T20:26:51-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
