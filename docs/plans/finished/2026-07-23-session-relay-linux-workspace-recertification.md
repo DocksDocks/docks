@@ -1,9 +1,9 @@
 ---
 title: Recertify Session Relay 0.13.0 on current main
 goal: Reapply and independently reseal the reviewed Session Relay 0.13.0 source on current origin/main so publication cannot discard newer Docks releases.
-status: in_review
+status: finished
 created: "2026-07-23T10:29:08-03:00"
-updated: "2026-07-23T15:13:36.281Z"
+updated: "2026-07-23T15:16:05.741Z"
 started_at: "2026-07-23T13:49:26.561Z"
 in_review_since: "2026-07-23T14:55:45.512Z"
 assignee: null
@@ -44,6 +44,7 @@ related_plans:
 review_status: passed
 planned_at_commit: 3368369cade6d89fd6ebf477cd0576646e992711
 execution_base_commit: eafa5cf50903c6bacc4aa675e16fdc35330bc3ca
+ship_commit: 04843cd12c84d8ef429ab99a3026201c9e66ecde
 ---
 
 # Recertify Session Relay 0.13.0 on current main
@@ -99,7 +100,7 @@ and the matching dated finished-plan identity. Contract tests must reject the ol
 | 4 | Run focused and full local verification, then seal a clean source commit. | All affected implementation paths | 3 | done | A1-A9 pass; `RECERTIFIED_SOURCE_COMMIT` descends from `3368369...`, contains no plan lifecycle bytes beyond this plan, and the worktree is clean. |
 | 5 | Produce fresh native and source-CI evidence from one create-once ref. | External GitHub refs/runs; fresh receipt directory | 4 | done | One validate-only four-target producer run and one authoritative full-CI run bind the exact new commit; A10-A11 emit canonical no-clobber receipts. |
 | 6 | Seal and embed the new candidate without publication. | Fresh candidate receipt; this plan only for manager-owned Notes/evidence commit | 5 | done | A12 emits a candidate binding the new source, new plan blob, exact public tuple, fresh red/preflight/source-CI receipts, and A1-A6 results; manager embeds exact bytes/hashes in a plan-only evidence commit; A13 passes. |
-| 7 | Complete review and hand off to publication. | This plan only for lifecycle/archive writes | 6 | in progress | Completion review passes, the plan archives under `docs/plans/finished/`, and a later publication plan binds this completion receipt. No tag, Release, promotion, or install occurs here. |
+| 7 | Complete review and hand off to publication. | This plan only for lifecycle/archive writes | 6 | done | Completion review passes, the plan archives under `docs/plans/finished/`, and a later publication plan binds this completion receipt. No tag, Release, promotion, or install occurs here. |
 
 ## Acceptance criteria
 
