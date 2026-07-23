@@ -1,10 +1,11 @@
 ---
 title: Recertify Session Relay 0.13.0 on current main
 goal: Reapply and independently reseal the reviewed Session Relay 0.13.0 source on current origin/main so publication cannot discard newer Docks releases.
-status: ongoing
+status: in_review
 created: "2026-07-23T10:29:08-03:00"
-updated: "2026-07-23T14:55:45.424Z"
+updated: "2026-07-23T14:55:45.512Z"
 started_at: "2026-07-23T13:49:26.561Z"
+in_review_since: "2026-07-23T14:55:45.512Z"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
