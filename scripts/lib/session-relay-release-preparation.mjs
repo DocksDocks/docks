@@ -8,8 +8,8 @@ import { parseDocument } from 'yaml';
 import {
   canonicalPlanView,
   parsePlan,
-  validateDraftReceipt as validatePlanDraftReceipt,
   validateCompletionReceipt as validatePlanCompletionReceipt,
+  validateDraftReceipt as validatePlanDraftReceipt,
 } from '../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
 import {
   COMMIT,
