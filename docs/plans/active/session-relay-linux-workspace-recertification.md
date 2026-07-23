@@ -1,10 +1,10 @@
 ---
 title: Recertify Session Relay 0.13.0 on current main
 goal: Reapply and independently reseal the reviewed Session Relay 0.13.0 source on current origin/main so publication cannot discard newer Docks releases.
-status: planned
+status: ongoing
 created: "2026-07-23T10:29:08-03:00"
-updated: "2026-07-23T10:29:08-03:00"
-started_at: null
+updated: "2026-07-23T13:49:26.561Z"
+started_at: "2026-07-23T13:49:26.561Z"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
@@ -194,7 +194,7 @@ None.
 - `scripts/lib/session-relay-release-promotion.mjs` — public request/receipt, promotion lock/journal/CAS, compatibility, and live smoke.
 - `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-0.13.0-release-preparation.md` — immutable blocked public companion contract.
 
-Review-orchestration-state: {"apply_state":"pending","current_input_sha256":"502479b7e21f3bc69a8e9e4db9caa7c34f33ffd39f552050f5a2747ab76e1ff8","initial_input_sha256":"502479b7e21f3bc69a8e9e4db9caa7c34f33ffd39f552050f5a2747ab76e1ff8","lifecycle_intent":"start","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-recertification.md","request_ids":["6cf3bd41-8dbc-4850-99b2-b844c61e97a3"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"a96502b0-5605-4361-ac9d-68818c838098","series_sha256":"c3bd58e932df64eb3794e47a13076887eaf5b12d1fd5523e9eb28af152216721","state_sha256":"700ff0e2e001039d331bcd9c2d78f7a1645227f27c3591f662798ad0b5979027","status":"passed","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
+Review-orchestration-state: {"apply_state":"consumed","current_input_sha256":"502479b7e21f3bc69a8e9e4db9caa7c34f33ffd39f552050f5a2747ab76e1ff8","initial_input_sha256":"502479b7e21f3bc69a8e9e4db9caa7c34f33ffd39f552050f5a2747ab76e1ff8","lifecycle_intent":"start","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-recertification.md","request_ids":["6cf3bd41-8dbc-4850-99b2-b844c61e97a3"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"a96502b0-5605-4361-ac9d-68818c838098","series_sha256":"c3bd58e932df64eb3794e47a13076887eaf5b12d1fd5523e9eb28af152216721","state_sha256":"c4e12fbac642b06dff1c55c1f90f1aa3daee52f94d79256f935c07eb2d4a5b29","status":"passed","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":"700ff0e2e001039d331bcd9c2d78f7a1645227f27c3591f662798ad0b5979027"}
 ## Review
 
 (filled by main-context plan-manager after completion evidence)
