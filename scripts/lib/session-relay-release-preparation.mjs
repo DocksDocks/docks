@@ -56,6 +56,77 @@ const TARGETS = [
 const NON_PULL_REQUEST_CONDITION = "github.event_name != 'pull_request'";
 const NON_PULL_REQUEST_RUST_CONDITION =
   "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
+const SHARD_GATE_RUN = `if [ "\${{ matrix.lane }}" != "relay" ]; then
+  node scripts/ci.mjs --lane "\${{ matrix.lane }}"
+  exit
+fi
+CURRENT_CGROUP=
+while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
+  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
+    CURRENT_CGROUP="$CGROUP_PATH"
+    break
+  fi
+done < /proc/self/cgroup
+test -n "$CURRENT_CGROUP"
+CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-\${{ matrix.lane }}"
+sudo -n mkdir "$CGROUP"
+cleanup() {
+  status=$?
+  trap - EXIT
+  if ! sudo -n rmdir "$CGROUP"; then
+    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
+sudo -n chown "$(id -u):$(id -g)" \\
+  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
+(
+  test_pid=$BASHPID
+  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
+  SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "\${{ matrix.lane }}"
+)
+`;
+const AUTHORITATIVE_GATE_RUN = `if [ "\${{ github.event_name }}" = "push" ] && [ "\${{ steps.target.outputs.needs_rust }}" != "true" ]; then
+  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
+  exit
+fi
+CURRENT_CGROUP=
+while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
+  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
+    CURRENT_CGROUP="$CGROUP_PATH"
+    break
+  fi
+done < /proc/self/cgroup
+test -n "$CURRENT_CGROUP"
+CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-validate"
+sudo -n mkdir "$CGROUP"
+cleanup() {
+  status=$?
+  trap - EXIT
+  if ! sudo -n rmdir "$CGROUP"; then
+    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
+sudo -n chown "$(id -u):$(id -g)" \\
+  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
+(
+  test_pid=$BASHPID
+  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
+  if [ "\${{ github.event_name }}" = "push" ]; then
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" \\
+      node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
+  else
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs
+  fi
+)
+`;
 
 const REQUIRED_CI_STEPS = [
   'setup Node 24',
@@ -98,12 +169,7 @@ const EXPECTED_CI_STEP_DEFINITIONS = [
   {
     name: 'run the authoritative gate (scripts/ci.mjs)',
     if: NON_PULL_REQUEST_CONDITION,
-    run: `if [ "\${{ github.event_name }}" = "push" ]; then
-  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
-else
-  node scripts/ci.mjs
-fi
-`,
+    run: AUTHORITATIVE_GATE_RUN,
   },
 ];
 function expectedCiJobSteps() {
@@ -214,7 +280,7 @@ function expectedValidationShardSteps() {
       if: "matrix.lane == 'relay'",
       run: 'if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then\n  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools\n  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)\nfi\n',
     },
-    { name: 'run validation lane', run: `node scripts/ci.mjs --lane "\${{ matrix.lane }}"` },
+    { name: 'run validation lane', run: SHARD_GATE_RUN },
   ];
 }
 

@@ -648,8 +648,8 @@ function testSourceCi(temp) {
     /validation-shards|skipped|non-authoritative/i,
   );
   const noOpWorkflow = authoritativeCiWorkflow().replace(
-    '            node scripts/ci.mjs\n',
-    "            printf 'node scripts/ci.mjs\\n'\n",
+    'SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs\n',
+    'SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" printf \'node scripts/ci.mjs\\n\'\n',
   );
   expectReject(
     'source-CI no-op command with matching marker text',
@@ -817,8 +817,8 @@ function testSourceCi(temp) {
     /workflow|validation-shards|definition|event/i,
   );
   const shardCommandOverride = authoritativeCiWorkflow().replace(
-    `run: node scripts/ci.mjs --lane "\${{ matrix.lane }}"`,
-    'run: node scripts/ci.mjs',
+    `SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "\${{ matrix.lane }}"`,
+    'SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs',
   );
   expectReject(
     'source-CI validation shard command override',
