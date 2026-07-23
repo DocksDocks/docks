@@ -1,11 +1,11 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: ongoing
+status: blocked
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T20:00:49-03:00"
-blocked_reason: null
-blocked_since: null
+updated: "2026-07-23T20:02:42-03:00"
+blocked_reason: "A6 failed because the companion distribution gate still reads the archived recertification plan from its removed active path; the reviewed 34-path/three-path fences prohibit correcting that test without an explicit plan amendment."
+blocked_since: "2026-07-23T20:02:42-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
