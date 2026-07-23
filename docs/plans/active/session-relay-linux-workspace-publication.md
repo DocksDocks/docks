@@ -1,9 +1,11 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: ongoing
+status: blocked
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T13:59:24-03:00"
+updated: "2026-07-23T18:20:19-03:00"
+blocked_reason: "Rebinding the reviewed publication protocol to Docks current-main base 25592c6550069e300a7a0148d3cd3c21880da8e7 requires a fresh current-policy schema-6 review before implementation or publication resumes."
+blocked_since: "2026-07-23T18:20:19-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
@@ -54,10 +56,10 @@ The protocol mismatch is mandatory pre-publication work, not a documentation dis
 
 ## Environment & how-to-run
 
-- Docks repository/worktree: `/home/vagrant/projects/docks-session-relay-0.13.0-release`, branch `release/session-relay-0.13.0-recertify`; creation base `cdca867e6a140311ea865a81229fb30de1df32c1`; creation-time `origin/main` observation `3368369cade6d89fd6ebf477cd0576646e992711`.
-- Public repository/worktree: `/home/vagrant/projects/public`, repository id `DocksDocks/public`; immutable child base `6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172`; observed public main `6f9691cc19349ccd0ce81e8c8bf5cc573f76f3f1`.
+- Docks repository/worktree: `/home/vagrant/projects/docks`, branch `main`; creation base `cdca867e6a140311ea865a81229fb30de1df32c1`; authorized reviewed current-main base `25592c6550069e300a7a0148d3cd3c21880da8e7`.
+- Public repository/worktree: `/home/vagrant/projects/public`, repository id `DocksDocks/public`; immutable child base `6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172`; observed public production main `6f9691cc19349ccd0ce81e8c8bf5cc573f76f3f1`; immutable preparation ref `refs/heads/preflight/session-relay-cli-0.13.0-6c07f9bc02ef` resolves to the child base.
 - Runtimes: Node `24`, pnpm with frozen lockfile, Rust `1.85.0`; public Bun `1.3.14`, Vitest `3.2.7`, TypeScript `7.0.2`; authenticated GitHub CLI with required repository write permissions only when a mutation step is reached.
-- Fixed release identities: Session Relay version/tag `0.13.0` / `session-relay--v0.13.0`; public package version/tag `0.10.2` / `cli-v0.10.2`, bumped from the observed prior `0.10.1` release, which remains untouched; Docks remains `0.13.3` and Session Relay remains `0.13.0`.
+- Fixed release identities: Session Relay version/tag `0.13.0` / `session-relay--v0.13.0`; public package version/tag `0.10.2` / `cli-v0.10.2`, bumped from the observed prior `0.10.1` release, which remains untouched; Docks is already independently released at `0.13.4` by commit `25592c6550069e300a7a0148d3cd3c21880da8e7`, and Session Relay remains `0.13.0`.
 - Before work, fetch read-only state and revalidate every fixed commit/ref/tag/Release/workflow observation. Never replace a fixed identity with ambient `HEAD`, a mutable branch, a copied digest, or “latest.”
 - Create one fresh receipt directory and direct-child outputs:
 
@@ -99,18 +101,54 @@ public_reviewed_commit = 6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172
 
 The binder verifies `source -> evidence -> shipped -> promoted == current HEAD` ancestry. `source_ancestry` and `non_plan_tree_equivalence` retain their closed shapes and existing source/evidence/shipped meanings. Offline proof validation permits `promoted_commit != shipped_commit` only when these producer-bound invariants hold; a hand-authored proof cannot opt into the relaxation.
 
-The shipped-to-promoted changed-path set is closed and exact:
+The shipped-to-promoted changed-path set is closed and exact. It contains the six release-owned paths plus the independently reviewed and released Docks schema/current-main tail already present at authorized base `25592c6550069e300a7a0148d3cd3c21880da8e7`:
+
+```text
+.claude-plugin/marketplace.json
+.codex/agents/plan-manager.toml
+.codex/agents/plan-reviewer.toml
+AGENTS.md
+README.md
+docs/plans/AGENTS.md
+docs/plans/active/session-relay-linux-workspace-publication.md
+docs/scaffold/templates/codex-plan-manager.toml.template
+docs/scaffold/templates/codex-plan-reviewer.toml.template
+docs/scaffold/templates/root-AGENTS.md.template
+plugins/docks/.claude-plugin/plugin.json
+plugins/docks/.codex-plugin/plugin.json
+plugins/docks/README.md
+plugins/docks/agents/plan-manager.md
+plugins/docks/agents/plan-reviewer.md
+plugins/docks/skills/AGENTS.md
+plugins/docks/skills/productivity/plan-creator/SKILL.md
+plugins/docks/skills/productivity/plan-manager/SKILL.md
+plugins/docks/skills/productivity/plan-repairer/SKILL.md
+plugins/docks/skills/productivity/plan-reviewer/SKILL.md
+plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs
+plugins/docks/skills/productivity/plan-workspace/SKILL.md
+plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md
+plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md
+plugins/session-relay/test/release-evidence-contract.mjs
+plugins/session-relay/test/release-promotion-contract.mjs
+plugins/session-relay/test/release-publication-contract.mjs
+scripts/agents/score.mjs
+scripts/lib/session-relay-release-preparation.mjs
+scripts/lib/session-relay-release-promotion.mjs
+scripts/tests/plan-review-convergence-repair.mjs
+scripts/tests/plan-review-policy-regressions.mjs
+scripts/tests/plan-review-policy.mjs
+scripts/tests/plan-skill-phases.mjs
+```
+
+The binder must additionally prove that the authorized current-main base is an ancestor of promoted `HEAD` and that the exact base-to-promoted changed-path set is only:
 
 ```text
 docs/plans/active/session-relay-linux-workspace-publication.md
 plugins/session-relay/test/release-evidence-contract.mjs
-plugins/session-relay/test/release-promotion-contract.mjs
-plugins/session-relay/test/release-publication-contract.mjs
 scripts/lib/session-relay-release-preparation.mjs
-scripts/lib/session-relay-release-promotion.mjs
 ```
 
-Reject a missing or extra path, rename, stale/non-ancestor current head, dirty tree, mismatched constant, changed finished-plan bytes, changed source/evidence/shipped relationship, or proof whose `promoted_commit` differs from current HEAD. Plan-only lifecycle commits after the one final full gate are allowed only while all five implementation/test blobs are byte-identical to the gated implementation tree and the active plan remains the sole additional changed path.
+This two-fence contract makes the already-reviewed schema/Docks-release tail immutable while permitting only this amendment's test-first binder correction and manager-owned plan records. Reject a missing or extra path, rename, stale/non-ancestor current head, dirty tree, mismatched constant, changed finished-plan bytes, changed source/evidence/shipped relationship, or proof whose `promoted_commit` differs from current HEAD. Plan-only lifecycle commits after the one final full gate are allowed only while both amended implementation/test blobs are byte-identical to the gated implementation tree.
 
 ### Public request and child-plan contract
 
@@ -143,16 +181,16 @@ PROMOTION_SHA256="$(node scripts/release.mjs --promote-reviewed --plugin session
 FINALIZATION_SHA256="$(node scripts/release.mjs --finalize-reviewed --plugin session-relay 0.13.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --publication "$PUBLICATION_RECEIPT" --publication-sha256 "$PUBLICATION_SHA256" --promotion "$PROMOTION_RECEIPT" --promotion-sha256 "$PROMOTION_SHA256" --receipt-out "$FINALIZATION_RECEIPT")"
 ```
 
-`EXPECTED_ORIGIN_MAIN` is captured once immediately before proof binding and must equal `PUBLICATION_IMPLEMENTATION_COMMIT`, the clean Docks commit containing the corrected protocol and this active plan. It must remain unchanged through promotion. A different current or remote main is drift, not permission to recalculate the expected value.
+`EXPECTED_ORIGIN_MAIN` is captured once immediately after the amended binder implementation and final full gate. It must descend from authorized current-main base `25592c6550069e300a7a0148d3cd3c21880da8e7`, equal `PUBLICATION_IMPLEMENTATION_COMMIT`, and remain unchanged through promotion. A different current or remote main is drift, not permission to recalculate the expected value.
 
 ## Steps
 
 | # | Task | Files | Depends | Status | Done when / failure action |
 |---|---|---|---|---|---|
-| 1 | Obtain one fresh independent schema-6 draft review of this amended plan and start it through `plan-manager`. Re-fetch and revalidate all immutable Docks/public identities without mutation. | `docs/plans/active/session-relay-linux-workspace-publication.md` only for manager-owned review/start identity commits | — | planned | Draft review passes with no unauthorized waiver; plan becomes `ongoing` with exact `execution_base_commit`; recertification completion receipt/candidate, companion tuple/ancestry, absence of the fresh `session-relay--v0.13.0` and `cli-v0.10.2` tags/Releases, npm `docks-kit@0.10.2` absence, versions, and legacy constants reverify, while the prior `cli-v0.10.1` Release at `6f9691...` reverifies only as untouched history. Any non-pass or drift is STOP. |
-| 2 | Commit test-only contract changes that fail against the legacy public identity and `promoted_commit == shipped_commit` behavior; capture the intended red before production edits. | `plugins/session-relay/test/release-evidence-contract.mjs`; `plugins/session-relay/test/release-publication-contract.mjs`; `plugins/session-relay/test/release-promotion-contract.mjs` | 1 | planned | A1 fails only on assertions requiring `0.10.2`/`cli-v0.10.2`/`6c07f9...`/new child slug and producer-bound promoted-vs-shipped ancestry/path closure. Freeze the red test blobs; setup, parse, timeout, or unrelated failures STOP. |
-| 3 | Implement the closed protocol correction and make focused contracts green. | `scripts/lib/session-relay-release-preparation.mjs`; `scripts/lib/session-relay-release-promotion.mjs` | 2 | planned | Public constants bind `0.10.2`, `cli-v0.10.2`, `6c07f9...`, and the new finished-plan slug; `bindCompletion` derives evidence/shipped identity, binds promoted to clean current HEAD, verifies exact ancestry/path allowlist, and keeps schema shapes closed; A2-A5 pass. |
-| 4 | Run companion/hash checks and one final Docks full gate, seal the exact implementation commit, independently review it through the normal branch/PR path, and merge/push without force so Docks `origin/main` equals it. | The six-path shipped-to-promoted allowlist above | 3 | planned | A6-A9 pass; implementation/test blobs do not change after A8; `PUBLICATION_IMPLEMENTATION_COMMIT` is clean, descends from `cdca867...`, has exactly the allowlisted diff, and local/remote `origin/main` both equal it. Any review rejection, extra path, force requirement, or main drift is STOP. |
+| 1 | Obtain one fresh independent current-policy schema-6 draft review of this amended plan, retain its existing start/execution-base identity, and re-fetch all immutable Docks/public identities without mutation. | `docs/plans/active/session-relay-linux-workspace-publication.md` only for manager-owned review and block/unblock commits | — | in-flight | Draft review passes with the sole runtime-current reviewer and no fallback or unauthorized waiver; the plan returns to `ongoing` while retaining `started_at` and `execution_base_commit`; recertification completion receipt/candidate, companion tuple/ancestry, authorized Docks base `25592c6...`, absence of fresh `session-relay--v0.13.0` and `cli-v0.10.2` tags/Releases, npm `docks-kit@0.10.2` absence, current versions, and corrected public constants reverify. Any non-pass or identity drift is STOP. |
+| 2 | Commit test-only contract changes that fail because the binder cannot yet accept the exact reviewed current-main tail under the two-fence contract; capture the intended red before production edits. | `plugins/session-relay/test/release-evidence-contract.mjs` | 1 | planned | A1 fails only because the binder lacks the authorized-base ancestry and exact three-path base-to-promoted fence. Tests freeze acceptance of the exact 34-path shipped-to-promoted set and rejection of a changed base, non-ancestor base, missing/extra base-tail path, implementation drift, arbitrary path drift, or dirty tree. Setup, parse, timeout, or unrelated failures STOP. |
+| 3 | Implement the closed two-fence current-main correction and make focused contracts green without changing receipt schemas or public-release semantics. | `scripts/lib/session-relay-release-preparation.mjs` | 2 | planned | The binder pins authorized base `25592c6...`, requires it as an ancestor of current `HEAD`, requires the exact 34-path shipped-to-promoted set and exact three-path base-to-promoted set, and continues to derive `promoted_commit` from clean current `HEAD`; A2-A5 pass. |
+| 4 | Run companion/hash checks and one final Docks full gate, seal the exact amended implementation commit, independently review it through the normal branch/PR path, and push without force so Docks `origin/main` equals it. | The three amendment paths above; the other 31 promoted-path entries are immutable inputs | 3 | planned | A6-A9 pass; implementation/test blobs do not change after A8; `PUBLICATION_IMPLEMENTATION_COMMIT` is clean, descends from both `cdca867...` and `25592c6...`, has exactly the three-path diff from the authorized base and exact 34-path diff from the shipped archive, and local/remote `origin/main` both equal it. Any review rejection, extra path, force requirement, or main drift is STOP. |
 | 5 | Bind the completed recertification proof with corrected tooling and validate canonical bytes/hash/semantics offline. | `$SOURCE_PROOF` only; no tracked file | 4 | planned | A10-A11 pass; proof derives the passed completion evidence commit, retains source/tag `3fb9211...` and shipped archive, records `promoted_commit == PUBLICATION_IMPLEMENTATION_COMMIT == origin/main`, and binds the exact public companion. No remote mutation occurs. |
 | 6 | Publish the reviewed Session Relay prerelease once and reconcile exact remote evidence. | External tag `session-relay--v0.13.0`; GitHub build-binaries run and prerelease; `$PUBLICATION_RECEIPT` | 5 | planned | A12-A13 pass; tag points to `3fb9211...`; exactly one successful bound build-binaries run produced four ordinary native assets plus `SHA256SUMS`; downloaded bytes, sizes, checksums, attestations, and provenance match the proof; Release remains prerelease. Follow only named publication recovery branches. |
 | 7 | Emit the canonical public request, then create, independently review, and start the exact public child plan from the immutable companion commit. | `$PUBLIC_REQUEST`; `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-0.13.0-production-release.md` | 6 | planned | A14 passes; public `PlanCreatedV1.planned_at_commit == 6c07f9...`; its plan-only creation commit is based on that commit; public draft review passes and start identity is recorded before public implementation. Any companion/main ancestry or request drift is STOP. |
@@ -168,7 +206,7 @@ Run in order only after the owning step starts. A1 is the required red before pr
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `node scripts/capture-tdd-red.mjs --repo "$PWD" --repository-id DocksDocks/docks --pre-production-commit "$PROTOCOL_RED_COMMIT" --test plugins/session-relay/test/release-evidence-contract.mjs --test plugins/session-relay/test/release-publication-contract.mjs --test plugins/session-relay/test/release-promotion-contract.mjs --receipt-out "$PROTOCOL_RED_RECEIPT" -- node plugins/session-relay/test/release-evidence-contract.mjs` | Exit 0 from the capture helper over an intended nonzero contract run; frozen blobs are the committed test-only red blobs, and failure names the missing promoted-vs-shipped semantics and legacy public tuple rather than setup. The publication and promotion test files are also run directly and must fail on their new legacy-identity assertions before Step 3. |
+| A1 | `node scripts/capture-tdd-red.mjs --repo "$PWD" --repository-id DocksDocks/docks --pre-production-commit "$PROTOCOL_RED_COMMIT" --test plugins/session-relay/test/release-evidence-contract.mjs --receipt-out "$PROTOCOL_RED_RECEIPT" -- node plugins/session-relay/test/release-evidence-contract.mjs` | Exit 0 from the capture helper over an intended nonzero contract run; the frozen test blob requires authorized base `25592c6...` ancestry, exact 34-path shipped-to-promoted closure, and exact three-path base-to-promoted closure while rejecting missing/extra/drifted paths. |
 | A2 | `node plugins/session-relay/test/release-evidence-contract.mjs` | Exit 0; producer-bound proof accepts exact later promoted HEAD only under closed ancestry/path semantics and rejects extra paths, dirty/stale heads, mismatched constants, and hand-authored relaxation. |
 | A3 | `node plugins/session-relay/test/release-publication-contract.mjs` | Exit 0; bind/publish/request/finalization fixtures use the exact recertified source and current `0.10.2` public tuple while retaining five-asset publication closure and legal recovery rejection. |
 | A4 | `node plugins/session-relay/test/release-promotion-contract.mjs` | Exit 0; public verification and promotion require `cli-v0.10.2`, companion `6c07f9...`, new child-plan identity, exact expected main, closed six public assets, and terminal journal safety. |
@@ -176,7 +214,7 @@ Run in order only after the owning step starts. A1 is the required red before pr
 | A6 | `node plugins/session-relay/test/companion-distribution-contract.mjs --public-remote https://github.com/DocksDocks/public.git --public-ref refs/heads/preflight/session-relay-cli-0.13.0-6c07f9bc02ef --public-commit 6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172 --detached-clone` | Exit 0; immutable reviewed blocked companion tuple and frozen public contract revalidate detached. |
 | A7 | `node scripts/skills/content-hash.mjs --check-only plugins/session-relay/skills` | Exit 0; Session Relay skill hashes remain current without product changes. |
 | A8 | `node scripts/ci.mjs` | Exit 0 once on the final Docks implementation tree before `PUBLICATION_IMPLEMENTATION_COMMIT` is fixed; no implementation/test blob changes afterward. |
-| A9 | `test -z "$(git status --porcelain=v1 --untracked-files=all)" && test "$(git rev-parse HEAD)" = "$PUBLICATION_IMPLEMENTATION_COMMIT" && test "$(git rev-parse origin/main)" = "$PUBLICATION_IMPLEMENTATION_COMMIT" && git merge-base --is-ancestor cdca867e6a140311ea865a81229fb30de1df32c1 "$PUBLICATION_IMPLEMENTATION_COMMIT"` | Exit 0; clean exact implementation commit descends from the archive and equals remote main. Independently compare `cdca867...HEAD` changed paths to the closed six-path shipped-to-promoted list; no rename or extra path is present. |
+| A9 | `test -z "$(git status --porcelain=v1 --untracked-files=all)" && test "$(git rev-parse HEAD)" = "$PUBLICATION_IMPLEMENTATION_COMMIT" && test "$(git rev-parse origin/main)" = "$PUBLICATION_IMPLEMENTATION_COMMIT" && git merge-base --is-ancestor cdca867e6a140311ea865a81229fb30de1df32c1 "$PUBLICATION_IMPLEMENTATION_COMMIT" && git merge-base --is-ancestor 25592c6550069e300a7a0148d3cd3c21880da8e7 "$PUBLICATION_IMPLEMENTATION_COMMIT"` | Exit 0; clean exact implementation commit descends from the shipped archive and authorized current-main base and equals remote main. Independently compare `cdca867...HEAD` to the closed 34-path set and `25592c6...HEAD` to the closed three-path amendment set; no rename or extra path is present. |
 | A10 | `node scripts/release.mjs --bind-completion --plugin session-relay 0.13.0 --finished-plan docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md --embedded-candidate-sha256 75e5bf5386a203cd81e3930ca2309ceed4e1a665d995848a29eb73a0fa5cb395 --receipt-out "$SOURCE_PROOF"` | Exit 0 and prints the canonical source-proof digest; exact source/evidence/shipped/promoted ancestry, allowlisted diff, clean HEAD, completion receipt, candidate, public tuple, and `origin/main` identity bind. |
 | A11 | `SOURCE_PROOF_SHA256="$(sha256sum "$SOURCE_PROOF" | cut -d' ' -f1)" node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; import {validateSourcePreparationProof} from "./scripts/lib/session-relay-release-preparation.mjs"; const bytes=fs.readFileSync(process.env.SOURCE_PROOF); assert.equal(bytes.at(-1),125); const value=JSON.parse(bytes); validateSourcePreparationProof(value); assert.equal(value.source_commit,"3fb9211f3309977f24853a10714d4b7a82b38c8f"); assert.equal(value.tag_commit,value.source_commit); assert.equal(value.promoted_commit,process.env.PUBLICATION_IMPLEMENTATION_COMMIT); assert.equal(value.public_reviewed_commit,"6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172");'` | Exit 0; closed proof validates offline, has no trailing newline, and preserves distinct shipped/promoted semantics only for the producer-bound proof. |
 | A12 | `node scripts/release.mjs --publish-reviewed --plugin session-relay 0.13.0 --source-proof "$SOURCE_PROOF" --source-proof-sha256 "$SOURCE_PROOF_SHA256" --receipt-out "$PUBLICATION_RECEIPT"` | Exit 0 under the initial or one explicitly legal recovery mode and prints canonical digest; exact tag/source/ref/workflow/prerelease state is reconciled without duplicate dispatch. |
@@ -206,9 +244,8 @@ Recovery never changes receipt inputs, overwrites a receipt, deletes/rewrites a 
 
 ## Out of scope / do-NOT-touch
 
-- No closed receipt/schema field is added, removed, renamed, defaulted, or reserialized.
-- No Session Relay product behavior, platform matrix, asset inventory, installer algorithm, frozen public test, public workflow, Docks version, or Session Relay version changes; the only authorized public package-version change is the exact `0.10.1` -> `0.10.2` bump in `/home/vagrant/projects/public/package.json`.
-- No path outside the six Docks shipped-to-promoted allowlist, the three public production files (`package.json`, `SoT/toolchain.json`, `cli/src/generated/sotPayload.ts`), and the two plans' manager-owned lifecycle/archive paths may change; `bun.lock` and `.github/workflows/release-cli.yml` stay byte-identical.
+- No closed receipt/schema field, Session Relay product behavior, platform matrix, asset inventory, installer algorithm, frozen public test, public workflow, or Session Relay version changes. Docks `0.13.4` and the current schema-6 controller are immutable reviewed inputs; the only authorized public package-version change is the exact `0.10.1` -> `0.10.2` bump in `/home/vagrant/projects/public/package.json`.
+- Do not edit any Docks path outside the three amendment paths after authorized base `25592c6...`. The full shipped-to-promoted proof must still equal the exact 34-path set above. Public writes remain limited to the three production files (`package.json`, `SoT/toolchain.json`, `cli/src/generated/sotPayload.ts`) and the child plan's manager-owned lifecycle/archive paths; `bun.lock` and `.github/workflows/release-cli.yml` stay byte-identical.
 - Do not edit the existing blocked public preparation plan or rewrite its historical blocked state into success.
 - No additional platform or asset; Session Relay remains four binaries plus `SHA256SUMS`, while docks-kit remains five binaries plus `SHA256SUMS`.
 - No branch/ref force, tag rewrite, ref deletion, history discard, automatic retry, mutable-ref authority, guessed digest, superseded source receipt, or release reuse.
@@ -220,8 +257,8 @@ Recovery never changes receipt inputs, overwrites a receipt, deletes/rewrites a 
 - Current tooling's failure against `6c07f9...` is a safety success. Do not bypass it or substitute the old `cli-v0.9.0`; implement the test-first rebind.
 - `0.10.1`/`cli-v0.10.1` is an observed prior release at `6f9691cc19349ccd0ce81e8c8bf5cc573f76f3f1`, published `2026-07-23T02:07:17Z`, whose `SoT/toolchain.json` still pins Session Relay `0.12.0`; it predates immutable companion `6c07f9...` and is not evidence from this effort. It cannot be reused and remains untouched; the fresh public identity is exactly `0.10.2`/`cli-v0.10.2`.
 - `shipped_commit` and `promoted_commit` are intentionally different after correction. Equality is no longer the invariant; exact producer-derived ancestry, current clean HEAD, and the closed changed-path set are.
-- The active publication plan is part of the shipped-to-promoted allowlist. Manager-owned start/status/evidence commits may advance its blob without changing implementation bytes; rerun the final full gate if any implementation/test blob changes.
-- Session Relay tag points to product source `3fb9211...`, not the later Docks publication implementation or finished-plan archive.
+- The active publication plan is one amendment path and remains part of both exact path fences. Manager-owned review/status/evidence commits may advance its blob without changing implementation bytes; rerun the final full gate if either amended implementation/test blob changes.
+- Session Relay tag points to product source `3fb9211...`, not authorized Docks base `25592c6...`, the later Docks publication implementation, or the finished-plan archive.
 - Public tag points to the child completion receipt's reviewed implementation commit, not its later plan archive commit or ambient public HEAD.
 - Source Release has five assets; public docks-kit Release has six. Their `SHA256SUMS` row counts are four and five respectively.
 - Workflow success alone is not npm proof because the public workflow may downgrade the known trusted-publisher failure to a warning. Record only the two closed npm states with their required evidence.
@@ -237,15 +274,15 @@ Recovery never changes receipt inputs, overwrites a receipt, deletes/rewrites a 
 - Receipt output is canonical JCS, no trailing newline, mode `0600`, no-clobber, under one fresh mode-`0700` owner directory.
 - No secrets enter plans, receipts, refs, release bodies, logs, command output, or source.
 - Plan-manager owns every review, receipt, status, step-status, evidence, completion, and archive write. Plan-creator owns only each missing plan's add-only creation commit.
-- Any current-main drift after implementation merge and proof binding, immutable tuple change, preexisting identity conflict, wrong/nonunique workflow or asset set, noncanonical receipt, failed focused/full/live gate, or review non-pass is STOP.
+- Any implementation/test change after the final full gate, current-main base ancestry failure, exact 34-path or three-path fence mismatch, immutable tuple change, preexisting identity conflict, wrong/nonunique workflow or asset set, noncanonical receipt, failed focused/full/live gate, or review non-pass is STOP.
 
 ## STOP conditions
 
-- STOP before implementation if this plan's draft review does not pass, its execution base is stale, or any immutable recertification/public companion fact differs.
-- STOP before any tag/Release mutation unless the legacy constants and old promoted-equals-shipped behavior first fail the intended new tests and the final corrected contracts/full gate pass.
-- STOP if the red test blobs change after capture, or if an implementation path outside the exact allowlist becomes necessary; amend and independently review the plan rather than silently expanding scope.
-- STOP if Docks `origin/main` cannot become the exact reviewed publication implementation commit by non-force ancestry-preserving merge/push, or if it changes afterward.
-- STOP if proof binding cannot derive the completion-reviewed evidence commit, exact shipped archive, clean promoted HEAD, closed path set, or public companion from committed evidence.
+- STOP before implementation if this amended plan's current-policy schema-6 review does not pass, its retained execution base is stale, or any immutable recertification/public companion/current-main fact differs.
+- STOP before any tag/Release mutation unless the two-fence binder test first fails as intended and the final corrected contracts/full gate pass.
+- STOP if the red test blob changes after capture, if authorized base `25592c6...` is not an ancestor of the final implementation commit, or if the shipped-to-promoted and base-to-promoted changed-path sets differ from their exact 34-path and three-path contracts.
+- STOP if Docks `origin/main` cannot become the exact reviewed publication implementation commit by non-force ancestry-preserving push, or if it changes afterward.
+- STOP if proof binding cannot derive the completion-reviewed evidence commit, exact shipped archive, clean promoted HEAD, both closed path fences, or public companion from committed evidence.
 - STOP on any tag/Release preexistence conflict for the fresh `session-relay--v0.13.0` or `cli-v0.10.2` identities, nonunique workflow, receipt/hash/mode/canonicalization mismatch, asset/checksum/provenance disagreement, or changed fixed ref. The recorded prior `cli-v0.10.1` Release at `6f9691...` is expected history, never a new conflict, and must remain untouched.
 - STOP if the public child plan is not created from `6c07f9...`, is not independently reviewed, changes frozen tests, the release workflow, `bun.lock`, unrelated paths, or any `package.json` byte other than the exact `0.10.1` -> `0.10.2` version value, or cannot completion-review before tagging.
 - STOP if promotion's transaction identity, lock, expected main, restore proof, journal chain, exact/live smoke, or CAS result is not authoritative terminal success.
@@ -278,6 +315,8 @@ A cold read using only this plan and its cited sources leaves no user decision u
 
 This is the single mandated local author critique pass. It is not independent review evidence and carries no score or lifecycle effect.
 
+Amendment self-review (`2026-07-23T18:20:19-03:00`): the authorized base is a fixed ancestor rather than a mutable branch observation; the 34-path shipped fence admits no unlisted drift, the three-path base fence makes the already-reviewed Docks schema/release tail immutable, and every subsequent mutation remains behind fresh current-policy review and the existing release receipt chain.
+
 ## Open questions
 
 None.
@@ -295,6 +334,7 @@ None.
 - `/home/vagrant/projects/public/docs/plans/finished/2026-07-18-session-relay-cli-production-release.md` — prior public production-release ordering, completion-reviewed tag commit, single-run/read-back, npm, asset, and archive protocol; identities are historical and must be rebound.
 - `docs/plans/finished/2026-07-19-session-relay-prebuilt-cli-release.md` — prior end-to-end publication/promotion/finalization and exact/live smoke recovery lessons; prior receipts and versions are not reusable.
 - `https://github.com/DocksDocks/public/releases/tag/cli-v0.10.1` and `refs/tags/cli-v0.10.1` at `6f9691cc19349ccd0ce81e8c8bf5cc573f76f3f1` — the observed prior historical docks-kit release (published `2026-07-23T02:07:17Z`, pinning Session Relay `0.12.0`) that conflicts with reusing `0.10.1`/`cli-v0.10.1`; exact revalidation observed only the lightweight tag row (no peeled `^{}` object) via `git ls-remote --tags`, and the npm `docks-kit` version list ending at `0.10.1`, leaving `0.10.2` free; recorded as untouched history only, never as evidence for this effort.
+- `fb3f5b7` and `25592c6550069e300a7a0148d3cd3c21880da8e7` — independently reviewed/current-schema implementation and Docks `0.13.4` release tail that the amended two-fence binder treats as immutable current-main input.
 
 Review-orchestration-state: {"apply_state":"none","current_input_sha256":"d3d3d984815473e090bb512c71f52b1b63b4adb84259f02a40df93649ea08447","initial_input_sha256":"d3d3d984815473e090bb512c71f52b1b63b4adb84259f02a40df93649ea08447","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-publication.md","request_ids":["59a973e6-1a24-4ebf-9401-82226c16fafe"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"cd81906d-f997-4d7a-847c-46f87d610c2f","series_sha256":"67ef13906906a747660119ba53689203f1c00a792fd4a890dbd418461237b0a0","state_sha256":"78464df4f1fb6660829da8f4c56f2d0a1bf889af78be4ba913908501d320471e","status":"passed","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
 ## Review
