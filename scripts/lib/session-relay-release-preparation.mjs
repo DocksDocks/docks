@@ -9,6 +9,7 @@ import {
   canonicalPlanView,
   parsePlan,
   validateCompletionReceipt as validatePlanCompletionReceipt,
+  validateDraftReceipt as validatePlanDraftReceipt,
 } from '../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
 import {
   COMMIT,
@@ -36,10 +37,14 @@ import {
   writeCanonicalExclusive,
 } from './session-relay-release-core.mjs';
 
-const PLAN_PATH = 'docs/plans/active/session-relay-prebuilt-cli-distribution.md';
-const FINISHED_PLAN = /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-prebuilt-cli-distribution\.md$/;
+const PLAN_PATH = 'docs/plans/active/session-relay-linux-workspace-recertification.md';
+const FINISHED_PLAN = /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-linux-workspace-recertification\.md$/;
+const RELEASE_VERSION = '0.13.0';
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
 const PUBLIC_REMOTE = 'https://github.com/DocksDocks/public.git';
+const PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-cli-0.13.0-release-preparation.md';
+const PUBLIC_BLOCKED_REASON =
+  'Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests.';
 const SOURCE_CI_WORKFLOW = '.github/workflows/ci.yml';
 const BUILD_WORKFLOW = '.github/workflows/build-binaries.yml';
 const TARGETS = [
@@ -51,6 +56,107 @@ const TARGETS = [
 const NON_PULL_REQUEST_CONDITION = "github.event_name != 'pull_request'";
 const NON_PULL_REQUEST_RUST_CONDITION =
   "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
+const SHARD_GATE_RUN = `if [ "\${{ matrix.lane }}" != "relay" ]; then
+  node scripts/ci.mjs --lane "\${{ matrix.lane }}"
+  exit
+fi
+CURRENT_CGROUP=
+while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
+  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
+    CURRENT_CGROUP="$CGROUP_PATH"
+    break
+  fi
+done < /proc/self/cgroup
+test -n "$CURRENT_CGROUP"
+CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-\${{ matrix.lane }}"
+sudo -n mkdir "$CGROUP"
+cleanup() {
+  status=$?
+  trap - EXIT
+  for _ in {1..100}; do
+    grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+    sleep 0.05
+  done
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
+    echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
+    status=1
+    if [ -f "$CGROUP/cgroup.kill" ]; then
+      printf '1\\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
+      for _ in {1..100}; do
+        grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+        sleep 0.05
+      done
+    fi
+  fi
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
+    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
+sudo -n chown "$(id -u):$(id -g)" \\
+  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
+(
+  test_pid=$BASHPID
+  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
+  SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "\${{ matrix.lane }}"
+)
+`;
+const AUTHORITATIVE_GATE_RUN = `if [ "\${{ github.event_name }}" = "push" ] && [ "\${{ steps.target.outputs.needs_rust }}" != "true" ]; then
+  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
+  exit
+fi
+CURRENT_CGROUP=
+while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
+  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
+    CURRENT_CGROUP="$CGROUP_PATH"
+    break
+  fi
+done < /proc/self/cgroup
+test -n "$CURRENT_CGROUP"
+CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-validate"
+sudo -n mkdir "$CGROUP"
+cleanup() {
+  status=$?
+  trap - EXIT
+  for _ in {1..100}; do
+    grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+    sleep 0.05
+  done
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
+    echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
+    status=1
+    if [ -f "$CGROUP/cgroup.kill" ]; then
+      printf '1\\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
+      for _ in {1..100}; do
+        grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+        sleep 0.05
+      done
+    fi
+  fi
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
+    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
+sudo -n chown "$(id -u):$(id -g)" \\
+  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
+(
+  test_pid=$BASHPID
+  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
+  if [ "\${{ github.event_name }}" = "push" ]; then
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" \\
+      node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
+  else
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs
+  fi
+)
+`;
 
 const REQUIRED_CI_STEPS = [
   'setup Node 24',
@@ -93,12 +199,7 @@ const EXPECTED_CI_STEP_DEFINITIONS = [
   {
     name: 'run the authoritative gate (scripts/ci.mjs)',
     if: NON_PULL_REQUEST_CONDITION,
-    run: `if [ "\${{ github.event_name }}" = "push" ]; then
-  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
-else
-  node scripts/ci.mjs
-fi
-`,
+    run: AUTHORITATIVE_GATE_RUN,
   },
 ];
 function expectedCiJobSteps() {
@@ -209,7 +310,7 @@ function expectedValidationShardSteps() {
       if: "matrix.lane == 'relay'",
       run: 'if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then\n  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools\n  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)\nfi\n',
     },
-    { name: 'run validation lane', run: `node scripts/ci.mjs --lane "\${{ matrix.lane }}"` },
+    { name: 'run validation lane', run: SHARD_GATE_RUN },
   ];
 }
 
@@ -703,22 +804,19 @@ export function validateSourcePreparationCandidate(value, context = {}) {
     ],
     'candidate companion',
   );
+  commit(value.companion.commit, 'candidate companion commit');
   if (
     value.companion.repository_id !== PUBLIC_REPOSITORY_ID ||
-    !/^refs\/heads\/preflight\/[A-Za-z0-9._/-]+$/.test(value.companion.validation_ref)
+    value.companion.validation_ref !==
+      `refs/heads/preflight/session-relay-cli-${RELEASE_VERSION}-${value.companion.commit.slice(0, 12)}` ||
+    value.companion.plan_path !== PUBLIC_PLAN_PATH
   )
-    fail('candidate companion repository/ref mismatch');
-  commit(value.companion.commit, 'candidate companion commit');
-  text(value.companion.plan_path, 'candidate companion plan_path');
+    fail('candidate companion repository/ref/plan mismatch');
   digest(value.companion.input_sha256, 'candidate companion input_sha256');
   commit(value.companion.execution_base_commit, 'candidate companion execution_base_commit');
   digest(value.companion.review_receipt_sha256, 'candidate companion review_receipt_sha256');
   digest(value.companion.red_receipt_sha256, 'candidate companion red_receipt_sha256');
-  if (
-    value.companion.status !== 'blocked' ||
-    value.companion.blocked_reason !==
-      'Awaiting the four independently hashed `session-relay--v0.12.0` production asset digests.'
-  )
+  if (value.companion.status !== 'blocked' || value.companion.blocked_reason !== PUBLIC_BLOCKED_REASON)
     fail('candidate companion status mismatch');
   for (const [name, workflow] of [
     ['preflight', value.preflight],
@@ -741,6 +839,12 @@ export function validateSourcePreparationCandidate(value, context = {}) {
   value.checks.forEach((check, index) => {
     validateCheckEvidence(check, `A${index + 1}`);
   });
+  const expectedCommands = acceptanceSpecifications(value.companion.validation_ref, value.companion.commit).map(
+    (steps) => steps.map(({ executable, args }) => [executable, ...args]),
+  );
+  for (const [index, check] of value.checks.entries())
+    if (canonicalize(check.steps.map(({ argv }) => argv)) !== canonicalize(expectedCommands[index]))
+      fail(`candidate check A${index + 1} command identity mismatch`);
   iso(value.created_at, 'candidate created_at');
   return value;
 }
@@ -1049,7 +1153,7 @@ function decodeWorkflowFile(file, expectedPath) {
     if (index < 0) fail(`source CI authoritative step is not in the closed job: ${expected.name}`);
     return { name: expected.name, number: index + 2 };
   });
-  return { bytes, blobId: file.sha, requiredDefinitions };
+  return { bytes, blobId: file.sha, requiredDefinitions, validationShardJobName: expectedShardJob.name };
 }
 
 function validateSourceCiRun(run, runId, expectedCommit) {
@@ -1108,7 +1212,7 @@ export function verifySourceCi(options, injected) {
   for (const shardJob of shardJobs) {
     if (
       !record(shardJob) ||
-      shardJob.name !== 'validation-shards' ||
+      shardJob.name !== workflow.validationShardJobName ||
       shardJob.status !== 'completed' ||
       shardJob.conclusion !== 'skipped' ||
       !Array.isArray(shardJob.steps) ||
@@ -1207,11 +1311,14 @@ function runIsolatedGit(root, args, { allowAncestorMiss = false, bytes = false }
 
 function inspectPublicRepository(input) {
   exactKeys(input, ['remote', 'ref', 'commit', 'planPath', 'redCommit', 'testPaths'], 'companion inspection request');
-  if (input.remote !== PUBLIC_REMOTE || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(input.ref))
-    fail('companion inspection remote/ref mismatch');
   commit(input.commit, 'companion inspection commit');
+  if (
+    input.remote !== PUBLIC_REMOTE ||
+    input.ref !== `refs/heads/preflight/session-relay-cli-${RELEASE_VERSION}-${input.commit.slice(0, 12)}` ||
+    input.planPath !== PUBLIC_PLAN_PATH
+  )
+    fail('companion inspection remote/ref/plan mismatch');
   commit(input.redCommit, 'companion inspection red commit');
-  safeLogical(input.planPath, 'companion inspection plan path');
   exactArray(input.testPaths, 'companion inspection test paths');
   input.testPaths.forEach((item) => {
     safeLogical(item, 'companion inspection test path');
@@ -1224,10 +1331,36 @@ function inspectPublicRepository(input) {
     runIsolatedGit(root, ['fetch', '--quiet', '--no-tags', input.remote, input.ref]);
     const resolvedCommit = runIsolatedGit(root, ['rev-parse', 'FETCH_HEAD^{commit}']);
     const planBytes = runIsolatedGit(root, ['show', `${input.commit}:${input.planPath}`], { bytes: true });
+    const publicPlan = new TextDecoder('utf-8', { fatal: true }).decode(planBytes);
+    const sourceCommit = noteValue(publicPlan, 'Source commit');
+    commit(sourceCommit, 'companion source commit');
+    const review = companionMachineRecord(publicPlan, 'Review-receipt');
+    digest(review.value.settled_orchestration_state_sha256, 'companion settled orchestration state');
+    const planRevisions = runIsolatedGit(root, ['rev-list', input.commit, '--', input.planPath]).split('\n');
+    let reviewOrchestrationState = null;
+    for (const revision of planRevisions) {
+      const revisionPlan = runIsolatedGit(root, ['show', `${revision}:${input.planPath}`], { bytes: true });
+      const historical = companionMachineRecord(
+        new TextDecoder('utf-8', { fatal: true }).decode(revisionPlan),
+        'Review-orchestration-state',
+        false,
+      );
+      if (historical?.value.state_sha256 === review.value.settled_orchestration_state_sha256) {
+        reviewOrchestrationState = historical.value;
+        break;
+      }
+    }
+    if (reviewOrchestrationState === null) fail('companion settled review orchestration state is unavailable');
     const redIsAncestor =
       runIsolatedGit(root, ['merge-base', '--is-ancestor', input.redCommit, input.commit], {
         allowAncestorMiss: true,
       }) !== null;
+    const sourceIsAncestor =
+      sourceCommit !== input.commit &&
+      runIsolatedGit(root, ['merge-base', '--is-ancestor', sourceCommit, input.commit], {
+        allowAncestorMiss: true,
+      }) !== null;
+    const sourceToPublicPaths = runIsolatedGit(root, ['diff', '--name-only', `${sourceCommit}..${input.commit}`, '--']);
     const testBlobs = input.testPaths.map((testPath) => ({
       path: testPath,
       red_blob_id: runIsolatedGit(root, ['rev-parse', `${input.redCommit}:${testPath}`]),
@@ -1237,6 +1370,10 @@ function inspectPublicRepository(input) {
       resolved_commit: resolvedCommit,
       plan_bytes: planBytes,
       red_is_ancestor: redIsAncestor,
+      source_commit: sourceCommit,
+      source_is_ancestor: sourceIsAncestor,
+      source_to_public_paths: sourceToPublicPaths === '' ? [] : sourceToPublicPaths.split('\n'),
+      review_orchestration_state: reviewOrchestrationState,
       test_blobs: testBlobs,
     };
   } finally {
@@ -1368,11 +1505,13 @@ function runCheck(deps, id, specifications) {
   };
 }
 
-function runAcceptanceChecks(deps, plan, sourceCommit, executionBase) {
-  const publicRef = noteValue(plan, 'Companion validation ref');
-  const publicCommit = noteValue(plan, 'Companion implementation commit');
-  const checks = [
-    runCheck(deps, 'A1', [
+function acceptanceSpecifications(publicRef, publicCommit) {
+  return [
+    [{ executable: 'node', args: ['plugins/session-relay/test/release-evidence-contract.mjs'] }],
+    [{ executable: 'node', args: ['plugins/session-relay/test/release-publication-contract.mjs'] }],
+    [{ executable: 'node', args: ['plugins/session-relay/test/release-promotion-contract.mjs'] }],
+    [{ executable: 'node', args: ['plugins/session-relay/test/distribution-contract.mjs'] }],
+    [
       {
         executable: 'node',
         args: [
@@ -1386,34 +1525,30 @@ function runAcceptanceChecks(deps, plan, sourceCommit, executionBase) {
           '--detached-clone',
         ],
       },
-    ]),
-    runCheck(deps, 'A2', [
+    ],
+    [
       {
         executable: 'cargo',
         args: ['+1.85.0', 'build', '--manifest-path', 'plugins/session-relay/rust/Cargo.toml', '--release', '--locked'],
       },
       {
-        executable: 'node',
-        args: ['plugins/session-relay/test/selftest.mjs'],
-        options: {
-          env: { SESSION_RELAY_TEST_BIN: path.join(REPO, 'plugins/session-relay/rust/target/release/relay') },
-        },
+        executable: 'sh',
+        args: [
+          '-c',
+          `test "$(plugins/session-relay/rust/target/release/relay --version)" = "session-relay ${RELEASE_VERSION}"`,
+        ],
       },
-    ]),
-    runCheck(deps, 'A3', [{ executable: 'git', args: ['ls-files', 'plugins/session-relay/bin'] }]),
-    runCheck(deps, 'A4', [{ executable: 'node', args: ['scripts/ci.mjs', '--plugin', PLUGIN] }]),
-    runCheck(deps, 'A5', [
-      { executable: 'node', args: ['scripts/skills/content-hash.mjs', '--check-only', 'plugins/session-relay/skills'] },
-    ]),
-    runCheck(deps, 'A6', [{ executable: 'git', args: ['diff', '--check', `${executionBase}..HEAD`] }]),
+    ],
   ];
+}
+
+function runAcceptanceChecks(deps, plan, sourceCommit) {
+  const publicRef = noteValue(plan, 'Companion validation ref');
+  const publicCommit = noteValue(plan, 'Companion implementation commit');
+  const checks = acceptanceSpecifications(publicRef, publicCommit).map((steps, index) =>
+    runCheck(deps, `A${index + 1}`, steps),
+  );
   if (checks.some((check) => check.exit_code !== 0)) fail('one or more source preparation checks failed', 'failure');
-  const tracked = deps.run('git', ['ls-files', 'plugins/session-relay/bin']);
-  const trackedOutput = Buffer.isBuffer(tracked.stdout)
-    ? tracked.stdout.toString('utf8')
-    : String(tracked.stdout ?? '');
-  if (tracked.status !== 0 || trackedOutput !== 'plugins/session-relay/bin/relay\n')
-    fail('A3 did not prove the launcher-only tracked bin tree');
   if (sourceCommit.length !== 40) fail('source commit changed while running acceptance checks');
   return checks;
 }
@@ -1472,34 +1607,52 @@ function receiptSummary(preflight, sourceCi) {
   };
 }
 
-function companionPlanPath(value) {
-  const prefix = '/home/vagrant/projects/public/';
-  if (!value.startsWith(prefix)) fail('companion plan path is not in the fixed public repository');
-  return safeLogical(value.slice(prefix.length), 'companion plan path');
-}
-
-function companionReviewReceipt(plan) {
-  const matches = [...plan.matchAll(/^Review-receipt: (\{.*\})$/gm)];
-  if (matches.length !== 1) fail('companion plan must contain exactly one Review-receipt');
+function companionMachineRecord(plan, label, required = true) {
+  const matches = [...plan.matchAll(new RegExp(`^${label}: (\\{.*\\})$`, 'gm'))];
+  if (matches.length === 0 && !required) return null;
+  if (matches.length !== 1) fail(`companion plan must contain exactly one ${label}`);
   let value;
   try {
     value = JSON.parse(matches[0][1]);
   } catch {
-    fail('companion Review-receipt is not JSON');
+    fail(`companion ${label} is not JSON`);
   }
-  if (canonicalize(value) !== matches[0][1]) fail('companion Review-receipt is not canonical JCS');
-  exactKeys(
-    value,
-    ['input_sha256', 'outcome', 'phase', 'reviewed_commit', 'reviewer', 'schema'],
-    'companion Review-receipt',
-  );
-  digest(value.input_sha256, 'companion Review-receipt input_sha256');
-  commit(value.reviewed_commit, 'companion Review-receipt reviewed_commit');
-  if (value.schema !== 1 || value.phase !== 'draft' || !['single', 'dual'].includes(value.outcome))
-    fail('companion Review-receipt identity mismatch');
-  exactKeys(value.reviewer, ['company', 'mode', 'verdict'], 'companion Review-receipt reviewer');
-  if (value.reviewer.verdict !== 'ready') fail('companion Review-receipt is not ready');
+  if (canonicalize(value) !== matches[0][1]) fail(`companion ${label} is not canonical JCS`);
   return { bytes: Buffer.from(matches[0][1]), value };
+}
+
+function companionPlanPath(value) {
+  const expected = `/home/vagrant/projects/public/${PUBLIC_PLAN_PATH}`;
+  if (value !== expected) fail('companion plan path mismatch');
+  return PUBLIC_PLAN_PATH;
+}
+
+function companionReviewReceipt(plan, expectedInput, orchestration) {
+  const review = companionMachineRecord(plan, 'Review-receipt');
+  try {
+    validatePlanDraftReceipt(review.value, expectedInput, { orchestration });
+  } catch (error) {
+    fail(`companion Review-receipt is invalid: ${error.message}`);
+  }
+  if (
+    review.value.schema !== 6 ||
+    review.value.phase !== 'draft' ||
+    review.value.outcome !== 'passed' ||
+    review.value.pre_execution_eligible !== true
+  )
+    fail('companion Review-receipt did not pass schema-6 draft review');
+  return review;
+}
+
+function publicTddRedReceipt(plan) {
+  const bytes = [...plan.matchAll(/^Public TDD-red receipt JCS bytes: (.*)$/gm)];
+  const digests = [...plan.matchAll(/^Public TDD-red receipt SHA-256: (.*)$/gm)];
+  if (bytes.length !== 1 || digests.length !== 1) fail('public plan TDD-red receipt fields are ambiguous');
+  return embeddedReceipt(
+    `- Public TDD-red receipt JCS bytes: ${bytes[0][1]}\n- Public TDD-red receipt SHA-256: ${digests[0][1]}\n`,
+    'Public TDD-red receipt',
+    'TddRedReceiptV1',
+  );
 }
 
 function verifyPublicBinding(deps, docksPlan, publicReceipt) {
@@ -1536,27 +1689,41 @@ function verifyPublicBinding(deps, docksPlan, publicReceipt) {
   });
   exactKeys(
     observed,
-    ['resolved_commit', 'plan_bytes', 'red_is_ancestor', 'test_blobs'],
+    [
+      'resolved_commit',
+      'plan_bytes',
+      'red_is_ancestor',
+      'source_commit',
+      'source_is_ancestor',
+      'source_to_public_paths',
+      'review_orchestration_state',
+      'test_blobs',
+    ],
     'companion inspection result',
   );
   if (
     observed.resolved_commit !== notes.commit ||
     observed.red_is_ancestor !== true ||
+    observed.source_is_ancestor !== true ||
+    canonicalize(observed.source_to_public_paths) !== canonicalize([PUBLIC_PLAN_PATH]) ||
     !Buffer.isBuffer(observed.plan_bytes)
   )
-    fail('companion ref/commit/red ancestry mismatch');
+    fail('companion ref/commit/source/red ancestry mismatch');
   const publicPlan = new TextDecoder('utf-8', { fatal: true }).decode(observed.plan_bytes);
-  const embedded = embeddedReceipt(publicPlan, 'Companion TDD-red receipt', 'TddRedReceiptV1');
+  commit(observed.source_commit, 'companion inspected source commit');
+  if (observed.source_commit !== noteValue(publicPlan, 'Source commit'))
+    fail('companion inspected source commit mismatch');
+  const embedded = publicTddRedReceipt(publicPlan);
   if (embedded.digest !== publicReceipt.digest || !embedded.bytes.equals(publicReceipt.bytes))
     fail('companion plan TDD-red receipt bytes mismatch');
   if (parseExecutionBase(publicPlan) !== notes.execution_base_commit) fail('companion execution base mismatch');
-  const review = companionReviewReceipt(publicPlan);
-  if (sha256(review.bytes) !== notes.review_receipt_sha256 || review.value.input_sha256 !== notes.input_sha256)
-    fail('companion review receipt/input mismatch');
+  const review = companionReviewReceipt(publicPlan, notes.input_sha256, observed.review_orchestration_state);
+  if (sha256(review.bytes) !== notes.review_receipt_sha256) fail('companion review receipt/input mismatch');
   if (
     frontmatterValue(publicPlan, 'status') !== 'blocked' ||
-    frontmatterValue(publicPlan, 'review_status') !== 'ready' ||
-    frontmatterValue(publicPlan, 'blocked_reason') !== notes.blocked_reason ||
+    frontmatterValue(publicPlan, 'blocked_reason') !== PUBLIC_BLOCKED_REASON ||
+    notes.status !== 'blocked' ||
+    notes.blocked_reason !== PUBLIC_BLOCKED_REASON ||
     noteValue(publicPlan, 'Status') !== notes.status ||
     noteValue(publicPlan, 'Blocked reason') !== notes.blocked_reason
   )
@@ -1574,7 +1741,7 @@ function verifyPublicBinding(deps, docksPlan, publicReceipt) {
     )
       fail('companion test blob mismatch');
   }
-  return notes;
+  return { ...notes, plan_path: planPath };
 }
 
 export function checkPrepared(options, injected) {
@@ -1621,7 +1788,7 @@ export function checkPrepared(options, injected) {
   if (sourceCi.value.workflow.file_blob_id !== gitValue(deps, ['rev-parse', `${source}:${SOURCE_CI_WORKFLOW}`]))
     fail('source-CI workflow blob does not belong to SOURCE_COMMIT');
   const notes = verifyPublicBinding(deps, plan, publicReceipt);
-  const checks = runAcceptanceChecks(deps, plan, source, executionBase);
+  const checks = runAcceptanceChecks(deps, plan, source);
   const sourcePlanBytes = gitBytes(deps, ['show', `${source}:${PLAN_PATH}`]);
   const summaries = receiptSummary(preflight, sourceCi);
   const receipt = {
@@ -1711,7 +1878,7 @@ export function verifyEmbedded(options, injected) {
     evidence.sourceCi.value.workflow.file_blob_id !== gitValue(deps, ['rev-parse', `${source}:${SOURCE_CI_WORKFLOW}`])
   )
     fail('embedded producer workflow blob mismatch');
-  const checks = runAcceptanceChecks(deps, plan, source, executionBase);
+  const checks = runAcceptanceChecks(deps, plan, source);
   if (
     canonicalize(checkExecutionIdentity(checks)) !==
     canonicalize(checkExecutionIdentity(evidence.candidate.value.checks))
