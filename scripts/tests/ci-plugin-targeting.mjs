@@ -248,6 +248,10 @@ function testFocusedCiCommandSelection() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-command-selection-'));
   const shimDir = path.join(fixtureRoot, 'bin');
   const callLog = path.join(fixtureRoot, 'calls.jsonl');
+  const relayBinary = path.resolve(ROOT, PLUGINS.find(({ name }) => name === 'session-relay').rust.source.builtBinary);
+  const relayBinaryDirectory = path.dirname(relayBinary);
+  const relayBinaryExisted = fs.existsSync(relayBinary);
+  const relayBinaryDirectoryExisted = fs.existsSync(relayBinaryDirectory);
   fs.mkdirSync(shimDir, { mode: 0o700 });
   fs.writeFileSync(callLog, '', { mode: 0o600 });
 
@@ -292,6 +296,10 @@ function testFocusedCiCommandSelection() {
   ];
 
   try {
+    if (!relayBinaryExisted) {
+      fs.mkdirSync(relayBinaryDirectory, { recursive: true });
+      fs.writeFileSync(relayBinary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
     for (const name of ['node', 'pnpm', 'claude', 'shellcheck', 'cargo']) writeCiProbeShim(shimDir, name);
 
     const targeted = run(['--plugin', 'effect-kit']);
@@ -486,6 +494,8 @@ function testFocusedCiCommandSelection() {
       `Relay timing report contains a failed task: ${JSON.stringify(relayTiming.tasks)}`,
     );
   } finally {
+    if (!relayBinaryExisted) fs.rmSync(relayBinary, { force: true });
+    if (!relayBinaryDirectoryExisted) fs.rmSync(relayBinaryDirectory, { recursive: true, force: true });
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
