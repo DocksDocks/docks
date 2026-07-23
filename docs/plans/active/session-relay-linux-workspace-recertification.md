@@ -195,7 +195,6 @@ None.
 - `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-0.13.0-release-preparation.md` — immutable blocked public companion contract.
 
 Review-orchestration-state: {"apply_state":"none","current_input_sha256":"502479b7e21f3bc69a8e9e4db9caa7c34f33ffd39f552050f5a2747ab76e1ff8","initial_input_sha256":"502479b7e21f3bc69a8e9e4db9caa7c34f33ffd39f552050f5a2747ab76e1ff8","lifecycle_intent":"start","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-recertification.md","request_ids":["6cf3bd41-8dbc-4850-99b2-b844c61e97a3"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"a96502b0-5605-4361-ac9d-68818c838098","series_sha256":null,"state_sha256":"c6a6734b3b425d789015d0240b4e141022e51c8fe01c98ff3f173e0f647a7414","status":"active","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
-
 ## Review
 
 (filled by main-context plan-manager after completion evidence)
