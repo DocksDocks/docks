@@ -32,11 +32,12 @@ import { validateCompletionReceiptClosed, validateProof } from './session-relay-
 import { normalizedAssets, releaseState, validatePublicationReceipt } from './session-relay-release-publication.mjs';
 
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
-const PUBLIC_VERSION = '0.9.0';
+const PUBLIC_VERSION = '0.10.2';
 const PUBLIC_TAG = `cli-v${PUBLIC_VERSION}`;
 const PUBLIC_WORKFLOW = '.github/workflows/release-cli.yml';
-const PUBLIC_FINISHED_PLAN_PATH = /^docs\/plans\/finished\/2026-07-18-session-relay-cli-production-release\.md$/;
-const COMPANION_BASE_COMMIT = 'c3b542220d5a24a98ca05383bbe28afc2319b7e2';
+const PUBLIC_FINISHED_PLAN_PATH =
+  /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-cli-0\.13\.0-production-release\.md$/;
+const COMPANION_BASE_COMMIT = '6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172';
 const PUBLIC_ASSET_TARGETS = [
   'x86_64-unknown-linux-musl',
   'aarch64-unknown-linux-musl',
@@ -59,7 +60,7 @@ const PUBLICATION_TRANSITIONS = new Set([
   'tag_and_reconciled',
   'tag_and_release_created',
 ]);
-const DOCKS_KIT_RELEASE = 'cli-v0.9.0';
+const DOCKS_KIT_RELEASE = 'cli-v0.10.2';
 const EMPTY_SHA256 = sha256(Buffer.alloc(0));
 const PREPUSH_REPAIR_PATHS = [
   'plugins/session-relay/test/release-promotion-contract.mjs',
@@ -764,7 +765,7 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
   assertCommit(planCommit, '--public-plan-commit');
   const finishedPlanPath = options.get('public-finished-plan');
   if (!PUBLIC_FINISHED_PLAN_PATH.test(finishedPlanPath ?? '')) {
-    fail('--public-finished-plan must be the dated session-relay-cli-production-release finished-plan path');
+    fail('--public-finished-plan must be the dated session-relay-cli-0.13.0-production-release finished-plan path');
   }
   if (adapter.getTagCommit() !== releaseCommit) fail('public tag commit does not match --public-release-commit');
   if (!adapter.isAncestor(request.value.companion_base_commit, releaseCommit)) {
@@ -825,6 +826,7 @@ function validateProofBinding(proof) {
   if (!record(proof) || !record(proof.value)) fail('source proof is invalid');
   assertDigest(proof.digest, 'source proof digest');
   assertCommit(proof.value.tag_commit, 'TAG_COMMIT');
+  assertCommit(proof.value.shipped_commit, 'SHIPPED_COMMIT');
   assertCommit(proof.value.promoted_commit, 'PROMOTED_COMMIT');
   exactKeys(
     proof.value.source_ancestry,
@@ -833,7 +835,7 @@ function validateProofBinding(proof) {
   );
   if (
     proof.value.source_ancestry.source_commit !== proof.value.tag_commit ||
-    proof.value.source_ancestry.shipped_commit !== proof.value.promoted_commit ||
+    proof.value.source_ancestry.shipped_commit !== proof.value.shipped_commit ||
     proof.value.source_ancestry.verified !== true
   )
     fail('source ancestry proof is absent');
@@ -845,7 +847,7 @@ function validateProofBinding(proof) {
   const excludedPaths = proof.value.non_plan_tree_equivalence.excluded_paths;
   if (
     proof.value.non_plan_tree_equivalence.source_commit !== proof.value.tag_commit ||
-    proof.value.non_plan_tree_equivalence.shipped_commit !== proof.value.promoted_commit ||
+    proof.value.non_plan_tree_equivalence.shipped_commit !== proof.value.shipped_commit ||
     proof.value.non_plan_tree_equivalence.verified !== true ||
     !Array.isArray(excludedPaths) ||
     excludedPaths.some((item) => typeof item !== 'string' || item === '') ||
@@ -1131,11 +1133,7 @@ function validateProjection(value, label) {
   );
   for (const key of ['source_commit', 'evidence_commit', 'shipped_commit'])
     assertCommit(value.source_ancestry[key], `${label} source ancestry ${key}`);
-  if (
-    value.source_ancestry.source_commit !== value.tag_commit ||
-    value.source_ancestry.shipped_commit !== value.promoted_commit ||
-    value.source_ancestry.verified !== true
-  )
+  if (value.source_ancestry.source_commit !== value.tag_commit || value.source_ancestry.verified !== true)
     fail(`${label} source ancestry identity is invalid`);
   exactKeys(
     value.non_plan_tree_equivalence,
@@ -1145,7 +1143,7 @@ function validateProjection(value, label) {
   const excludedPaths = value.non_plan_tree_equivalence.excluded_paths;
   if (
     value.non_plan_tree_equivalence.source_commit !== value.tag_commit ||
-    value.non_plan_tree_equivalence.shipped_commit !== value.promoted_commit ||
+    value.non_plan_tree_equivalence.shipped_commit !== value.source_ancestry.shipped_commit ||
     value.non_plan_tree_equivalence.verified !== true ||
     !Array.isArray(excludedPaths) ||
     excludedPaths.some((item) => typeof item !== 'string' || item === '') ||
@@ -2727,7 +2725,7 @@ export function promoteReviewed(options, resume = false, injectedAdapter = undef
     }
 
     if (primaryAttempt && entry.phase === 'prepush_passed') {
-      if (main === immutable.expected_origin_main) {
+      if (main === immutable.expected_origin_main && main !== immutable.promoted_commit) {
         try {
           adapter.pushMain({ commit: immutable.promoted_commit, expected: immutable.expected_origin_main });
         } catch (error) {

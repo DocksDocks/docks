@@ -39,6 +39,14 @@ import {
 
 const PLAN_PATH = 'docs/plans/active/session-relay-linux-workspace-recertification.md';
 const FINISHED_PLAN = /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-linux-workspace-recertification\.md$/;
+const SHIPPED_TO_PROMOTED_PATHS = [
+  'docs/plans/active/session-relay-linux-workspace-publication.md',
+  'plugins/session-relay/test/release-evidence-contract.mjs',
+  'plugins/session-relay/test/release-promotion-contract.mjs',
+  'plugins/session-relay/test/release-publication-contract.mjs',
+  'scripts/lib/session-relay-release-preparation.mjs',
+  'scripts/lib/session-relay-release-promotion.mjs',
+];
 const RELEASE_VERSION = '0.13.0';
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
 const PUBLIC_REMOTE = 'https://github.com/DocksDocks/public.git';
@@ -905,12 +913,8 @@ export function validateSourcePreparationProof(value) {
     'public_reviewed_commit',
   ])
     commit(value[key], `source proof ${key}`);
-  if (
-    value.tag_commit !== value.source_commit ||
-    value.promoted_commit !== value.shipped_commit ||
-    value.public_repository_id !== PUBLIC_REPOSITORY_ID
-  )
-    fail('source proof shipped/promoted/public identity mismatch');
+  if (value.tag_commit !== value.source_commit || value.public_repository_id !== PUBLIC_REPOSITORY_ID)
+    fail('source proof tag/public identity mismatch');
   validateSourcePreparationCandidate(value.candidate, { sourceCommit: value.source_commit });
   if (
     value.candidate.repository_id !== value.repository_id ||
@@ -1972,6 +1976,11 @@ export function bindCompletion(options, injected) {
     [PLAN_PATH, finishedRelative],
     'evidence-to-shipped diff',
   );
+  requireExactChangedPaths(
+    gitValue(deps, ['diff', '--name-only', shippedCommit, currentHead, '--no-renames', '--', '.']),
+    SHIPPED_TO_PROMOTED_PATHS,
+    'shipped-to-promoted diff',
+  );
   ancestor(deps, sourceCommit, evidenceCommit, 'source-to-evidence');
   ancestor(deps, evidenceCommit, shippedCommit, 'evidence-to-shipped');
   ancestor(deps, shippedCommit, currentHead, 'shipped-to-current');
@@ -2006,7 +2015,7 @@ export function bindCompletion(options, injected) {
     tag_commit: sourceCommit,
     evidence_commit: evidenceCommit,
     shipped_commit: shippedCommit,
-    promoted_commit: shippedCommit,
+    promoted_commit: currentHead,
     candidate: candidate.value,
     candidate_sha256: candidate.digest,
     plans: {
