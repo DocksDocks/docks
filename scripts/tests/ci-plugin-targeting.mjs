@@ -248,9 +248,16 @@ function testFocusedCiCommandSelection() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-command-selection-'));
   const shimDir = path.join(fixtureRoot, 'bin');
   const callLog = path.join(fixtureRoot, 'calls.jsonl');
+  const relayBinary = path.resolve(ROOT, PLUGINS.find(({ name }) => name === 'session-relay').rust.source.builtBinary);
+  const relayBinaryDirectory = path.dirname(relayBinary);
+  const relayBinaryExisted = fs.existsSync(relayBinary);
+  const relayBinaryDirectoryExisted = fs.existsSync(relayBinaryDirectory);
   fs.mkdirSync(shimDir, { mode: 0o700 });
   fs.writeFileSync(callLog, '', { mode: 0o600 });
 
+  const probeEnv = { ...process.env };
+  delete probeEnv.GITHUB_ACTIONS;
+  delete probeEnv.SESSION_RELAY_TEST_CGROUP_ROOT;
   const run = (ciArgs) => {
     fs.writeFileSync(callLog, '', { mode: 0o600 });
     const result = spawnSync(process.execPath, ['scripts/ci.mjs', ...ciArgs], {
@@ -258,7 +265,7 @@ function testFocusedCiCommandSelection() {
       encoding: 'utf8',
       timeout: 120_000,
       env: {
-        ...process.env,
+        ...probeEnv,
         PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
         DOCKS_CI_PROBE_LOG: callLog,
       },
@@ -289,6 +296,10 @@ function testFocusedCiCommandSelection() {
   ];
 
   try {
+    if (!relayBinaryExisted) {
+      fs.mkdirSync(relayBinaryDirectory, { recursive: true });
+      fs.writeFileSync(relayBinary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
     for (const name of ['node', 'pnpm', 'claude', 'shellcheck', 'cargo']) writeCiProbeShim(shimDir, name);
 
     const targeted = run(['--plugin', 'effect-kit']);
@@ -483,6 +494,8 @@ function testFocusedCiCommandSelection() {
       `Relay timing report contains a failed task: ${JSON.stringify(relayTiming.tasks)}`,
     );
   } finally {
+    if (!relayBinaryExisted) fs.rmSync(relayBinary, { force: true });
+    if (!relayBinaryDirectoryExisted) fs.rmSync(relayBinaryDirectory, { recursive: true, force: true });
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
@@ -836,6 +849,24 @@ assert.deepEqual(shardJob.strategy, {
 });
 const shardSteps = shardJob.steps;
 const shardStep = (name) => shardSteps.find((row) => row.name?.startsWith(name));
+function assertDelegatedCgroupRun(run) {
+  assert.match(
+    run,
+    /CURRENT_CGROUP=[\s\S]*done < \/proc\/self\/cgroup[\s\S]*CGROUP="\/sys\/fs\/cgroup\$\{CURRENT_CGROUP%\/\}\/session-relay-test-/,
+  );
+  assert.match(
+    run,
+    /sudo -n mkdir "\$CGROUP"[\s\S]*trap cleanup EXIT[\s\S]*sudo -n chown "\$\(id -u\):\$\(id -g\)" "\$CGROUP"[\s\S]*cgroup\.procs" "\$CGROUP\/cgroup\.threads" "\$CGROUP\/cgroup\.subtree_control"/,
+  );
+  assert.match(
+    run,
+    /test_pid=\$BASHPID[\s\S]*tee "\$CGROUP\/cgroup\.procs"[\s\S]*SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"/,
+  );
+  assert.match(
+    run,
+    /cleanup\(\)[\s\S]*for _ in \{1\.\.100\}[\s\S]*if ! grep -qx 'populated 0' "\$CGROUP\/cgroup\.events"[\s\S]*leaked live processes[\s\S]*status=1[\s\S]*cgroup\.kill[\s\S]*if ! grep -qx 'populated 0' "\$CGROUP\/cgroup\.events" \|\| ! sudo -n rmdir "\$CGROUP"[\s\S]*status=1/,
+  );
+}
 assert.deepEqual(
   shardSteps.map((row) => row.name ?? row.uses),
   [
@@ -897,7 +928,16 @@ assert.deepEqual(shardStepsForLane('relay'), [
 ]);
 assert.equal(shardSteps[0].with['persist-credentials'], false);
 assert.equal(shardStep('setup Node 24').with['node-version'], '24');
-assert.equal(shardStep('run validation lane').run, `node scripts/ci.mjs --lane "\${{ matrix.lane }}"`);
+const shardGateRun = shardStep('run validation lane').run;
+assert.match(
+  shardGateRun,
+  /if \[ "\$\{\{ matrix\.lane \}\}" != "relay" \]; then[\s\S]*node scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}"[\s\S]*exit/,
+);
+assertDelegatedCgroupRun(shardGateRun);
+assert.match(
+  shardGateRun,
+  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP" node scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}"/,
+);
 
 const validateJob = validation.jobs.validate;
 assert.deepEqual(Object.keys(validateJob), ['name', 'runs-on', 'needs', 'if', 'steps']);
@@ -1003,12 +1043,17 @@ assert.deepEqual(effectiveValidateInventory('push', false), [
 assert.equal(step('resolve CI target').if, "github.event_name == 'push'");
 assert.match(step('resolve CI target').run, /scripts\/ci-target\.mjs release-tag/);
 assert.equal(step('provision Rust 1.85.0 with musl for the session-relay host leg').if, nonPullRequestRustCondition);
-assert.match(step('run the authoritative gate').run, /if \[ "\$\{\{ github\.event_name \}\}" = "push" \]/);
+const authoritativeGateRun = step('run the authoritative gate').run;
 assert.match(
-  step('run the authoritative gate').run,
-  /node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/,
+  authoritativeGateRun,
+  /if \[ "\$\{\{ github\.event_name \}\}" = "push" \] && \[ "\$\{\{ steps\.target\.outputs\.needs_rust \}\}" != "true" \]; then/,
 );
-assert.match(step('run the authoritative gate').run, /node scripts\/ci\.mjs$/m);
+assertDelegatedCgroupRun(authoritativeGateRun);
+assert.match(
+  authoritativeGateRun,
+  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/,
+);
+assert.match(authoritativeGateRun, /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP" node scripts\/ci\.mjs$/m);
 const signatureAudit = step('verify registry signatures (non-blocking)');
 assert.equal(signatureAudit.run, 'npm audit signatures');
 assert.equal(signatureAudit['continue-on-error'], true);
