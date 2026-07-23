@@ -3,8 +3,8 @@ title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
 status: blocked
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T18:20:19-03:00"
-blocked_reason: "Rebinding the reviewed publication protocol to Docks current-main base 25592c6550069e300a7a0148d3cd3c21880da8e7 requires a fresh current-policy schema-6 review before implementation or publication resumes."
+updated: "2026-07-23T18:42:01-03:00"
+blocked_reason: "The schema-6 repair review proved A1 can bind committed red-test blobs while executing dirty worktree bytes; a fresh changed-input review must pass after A1 requires exact worktree cleanliness."
 blocked_since: "2026-07-23T18:20:19-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
@@ -219,7 +219,7 @@ Run in order only after the owning step starts. A1 is the required red before pr
 
 | ID | Command | Expected |
 |---|---|---|
-| A1 | `PROTOCOL_RED_COMMIT="$(git rev-parse HEAD)" && git merge-base --is-ancestor 25592c6550069e300a7a0148d3cd3c21880da8e7 "$PROTOCOL_RED_COMMIT" && node scripts/capture-tdd-red.mjs --repo "$PWD" --repository-id DocksDocks/docks --pre-production-commit "$PROTOCOL_RED_COMMIT" --test plugins/session-relay/test/release-evidence-contract.mjs --receipt-out "$PROTOCOL_RED_RECEIPT" -- node plugins/session-relay/test/release-evidence-contract.mjs` | Exit 0 from the capture helper over an intended nonzero contract run; the frozen test blob requires authorized base `25592c6...` ancestry, exact 34-path shipped-to-promoted closure, and exact three-path base-to-promoted closure while rejecting missing/extra/drifted paths. |
+| A1 | `test -z "$(git status --porcelain=v1 --untracked-files=all)" && PROTOCOL_RED_COMMIT="$(git rev-parse HEAD)" && git merge-base --is-ancestor 25592c6550069e300a7a0148d3cd3c21880da8e7 "$PROTOCOL_RED_COMMIT" && node scripts/capture-tdd-red.mjs --repo "$PWD" --repository-id DocksDocks/docks --pre-production-commit "$PROTOCOL_RED_COMMIT" --test plugins/session-relay/test/release-evidence-contract.mjs --receipt-out "$PROTOCOL_RED_RECEIPT" -- node plugins/session-relay/test/release-evidence-contract.mjs` | Exit 0 only from an exact clean test-only commit over an intended nonzero contract run; the frozen test blob requires authorized base `25592c6...` ancestry, exact 34-path shipped-to-promoted closure, and exact three-path base-to-promoted closure while rejecting missing/extra/drifted paths. |
 | A2 | `node plugins/session-relay/test/release-evidence-contract.mjs` | Exit 0; producer-bound proof accepts exact later promoted HEAD only under closed ancestry/path semantics and rejects extra paths, dirty/stale heads, mismatched constants, and hand-authored relaxation. |
 | A3 | `node plugins/session-relay/test/release-publication-contract.mjs` | Exit 0; bind/publish/request/finalization fixtures use the exact recertified source and current `0.10.2` public tuple while retaining five-asset publication closure and legal recovery rejection. |
 | A4 | `node plugins/session-relay/test/release-promotion-contract.mjs` | Exit 0; public verification and promotion require `cli-v0.10.2`, companion `6c07f9...`, new child-plan identity, exact expected main, closed six public assets, and terminal journal safety. |
