@@ -28,7 +28,7 @@ related_plans:
   - /home/vagrant/projects/public/docs/plans/finished/2026-07-18-session-relay-cli-production-release.md
 review_status: null
 planned_at_commit: cdca867e6a140311ea865a81229fb30de1df32c1
-execution_base_commit: null
+execution_base_commit: f28ae1fdf6976ddfb063752bcc4f06b96714a13b
 ---
 
 # Publish Session Relay 0.13.0 and public companion
