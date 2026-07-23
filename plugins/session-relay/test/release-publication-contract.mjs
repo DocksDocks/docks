@@ -90,9 +90,45 @@ function proof(directory) {
       run_database_id: 102,
       run_attempt: 1,
     },
-    checks: Array.from({ length: 6 }, (_, index) => ({
-      id: `A${index + 1}`,
-      steps: [{ argv: ['node', `A${index + 1}`], exit_code: 0, stdout_sha256: hash, stderr_sha256: hash }],
+    checks: [
+      ['A1', [['node', 'plugins/session-relay/test/release-evidence-contract.mjs']]],
+      ['A2', [['node', 'plugins/session-relay/test/release-publication-contract.mjs']]],
+      ['A3', [['node', 'plugins/session-relay/test/release-promotion-contract.mjs']]],
+      ['A4', [['node', 'plugins/session-relay/test/distribution-contract.mjs']]],
+      [
+        'A5',
+        [
+          [
+            'node',
+            'plugins/session-relay/test/companion-distribution-contract.mjs',
+            '--public-remote',
+            'https://github.com/DocksDocks/public.git',
+            '--public-ref',
+            `refs/heads/preflight/session-relay-cli-0.13.0-${'a'.repeat(12)}`,
+            '--public-commit',
+            'a'.repeat(40),
+            '--detached-clone',
+          ],
+        ],
+      ],
+      [
+        'A6',
+        [
+          [
+            'cargo',
+            '+1.85.0',
+            'build',
+            '--manifest-path',
+            'plugins/session-relay/rust/Cargo.toml',
+            '--release',
+            '--locked',
+          ],
+          ['sh', '-c', 'test "$(plugins/session-relay/rust/target/release/relay --version)" = "session-relay 0.13.0"'],
+        ],
+      ],
+    ].map(([id, commands]) => ({
+      id,
+      steps: commands.map((argv) => ({ argv, exit_code: 0, stdout_sha256: hash, stderr_sha256: hash })),
       exit_code: 0,
       stdout_sha256: hash,
       stderr_sha256: hash,

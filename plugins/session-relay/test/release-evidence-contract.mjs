@@ -8,7 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 import { parse as parseYaml } from 'yaml';
-import { canonicalPlanView } from '../../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
+import {
+  canonicalPlanView,
+  validateDraftReceipt,
+} from '../../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
 import { gitRaw } from '../../../scripts/lib/session-relay-release-core.mjs';
 import { runFixture } from '../../../scripts/lib/session-relay-release-fixture.mjs';
 import {
@@ -33,6 +36,9 @@ const RUN_ID = 712345;
 const RUN_ATTEMPT = 2;
 const REPOSITORY_DATABASE_ID = 98765;
 const WORKFLOW_ID = 4567;
+const PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-cli-0.13.0-release-preparation.md';
+const PUBLIC_COMMIT = '34567890abcdef1234567890abcdef1234567890';
+const PUBLIC_SOURCE_COMMIT = '234567890abcdef1234567890abcdef123456789';
 const TARGETS = [
   ['x86_64-unknown-linux-musl', 'Linux', 'X64'],
   ['aarch64-unknown-linux-musl', 'Linux', 'ARM64'],
@@ -1216,6 +1222,29 @@ function capturePublicRed(temp) {
   return { value: JSON.parse(fs.readFileSync(receiptOut, 'utf8')), digest: result.stdout.trim(), path: receiptOut };
 }
 
+function publicDraftReviewFixture() {
+  const source = fs.readFileSync('docs/plans/active/session-relay-linux-workspace-release.md', 'utf8');
+  const extract = (label) => {
+    const match = source.match(new RegExp(`^${label}: (\\{.*\\})$`, 'm'));
+    assert.ok(match, `a real ${label} is available as the public review template`);
+    return JSON.parse(match[1]);
+  };
+  const templateReceipt = extract('Review-receipt');
+  const inputSha256 = '1'.repeat(64);
+  const replacements = new Map([
+    [templateReceipt.input_sha256, inputSha256],
+    [templateReceipt.reviewed_commit, PUBLIC_COMMIT],
+    ['docs/plans/active/session-relay-linux-workspace-release.md', PUBLIC_PLAN_PATH],
+  ]);
+  const receipt = replaceReceiptIdentity(templateReceipt, replacements);
+  const state = replaceReceiptIdentity(extract('Review-orchestration-state'), replacements);
+  state.series_sha256 = sha256(Buffer.from(jcs(receipt.series)));
+  delete state.state_sha256;
+  state.state_sha256 = sha256(Buffer.from(jcs(state)));
+  receipt.settled_orchestration_state_sha256 = state.state_sha256;
+  return { receipt, state };
+}
+
 function preparationAdapter({
   plan,
   sourcePlan,
@@ -1265,10 +1294,19 @@ function preparationAdapter({
     },
     inspectPublic(input) {
       assert.equal(input.remote, 'https://github.com/DocksDocks/public.git');
-      assert.equal(input.ref, 'refs/heads/preflight/session-relay-cli-0.13.0-34567890abcd');
-      assert.equal(input.commit, '34567890abcdef1234567890abcdef1234567890');
-      assert.equal(input.planPath, 'docs/plans/active/session-relay-cli-0.13.0-release-preparation.md');
+      assert.equal(input.ref, `refs/heads/preflight/session-relay-cli-0.13.0-${PUBLIC_COMMIT.slice(0, 12)}`);
+      assert.equal(input.commit, PUBLIC_COMMIT);
+      assert.equal(input.planPath, PUBLIC_PLAN_PATH);
       assert.equal(input.redCommit, publicRed.pre_production_commit);
+      assert.deepEqual(
+        input.testPaths,
+        publicRed.test_paths.map(({ path: testPath }) => testPath),
+      );
+      const sourceMatch = publicPlan.match(/^- Source commit: ([0-9a-f]{40})$/m);
+      const reviewStateMatch = publicPlan.match(/^Review-orchestration-state: (\{.*\})$/m);
+      assert.ok(sourceMatch, 'public fixture carries its source commit');
+      assert.ok(reviewStateMatch, 'public fixture carries its settled review orchestration state');
+      const reviewOrchestrationState = JSON.parse(reviewStateMatch[1]);
       const testBlobs = publicRed.test_paths.map((item, index) => ({
         path: item.path,
         red_blob_id: item.blob_id,
@@ -1278,6 +1316,13 @@ function preparationAdapter({
         resolved_commit: publicTamper === 'ref' ? '0'.repeat(40) : input.commit,
         plan_bytes: Buffer.from(publicPlan),
         red_is_ancestor: true,
+        source_commit: publicTamper === 'source-identity' ? '0'.repeat(40) : sourceMatch[1],
+        source_is_ancestor: publicTamper !== 'source-ancestry',
+        source_to_public_paths: publicTamper === 'source-delta' ? [PUBLIC_PLAN_PATH, 'README.md'] : [PUBLIC_PLAN_PATH],
+        review_orchestration_state:
+          publicTamper === 'review-state'
+            ? { ...reviewOrchestrationState, state_sha256: '0'.repeat(64) }
+            : reviewOrchestrationState,
         test_blobs: testBlobs,
       };
     },
@@ -1315,27 +1360,28 @@ function testPreparationHandlers(temp, preflight, sourceCi) {
   const docksRedPath = path.join(temp, 'docks-red.json');
   const docksRedDigest = writeReceipt(docksRedPath, docksRed);
   const publicRed = capturePublicRed(temp);
-  const companionReview = {
-    input_sha256: '1'.repeat(64),
-    outcome: 'single',
-    phase: 'draft',
-    reviewed_commit: '6'.repeat(40),
-    reviewer: { company: 'openai', mode: 'fresh_subagent', verdict: 'ready' },
-    schema: 1,
-  };
+  const publicReview = publicDraftReviewFixture();
+  const companionReview = publicReview.receipt;
+  validateDraftReceipt(companionReview, companionReview.input_sha256, { orchestration: publicReview.state });
+  assert.equal(companionReview.schema, 6);
+  assert.equal(companionReview.phase, 'draft');
+  assert.equal(companionReview.outcome, 'passed');
+  assert.equal(companionReview.pre_execution_eligible, true);
   const companionReviewDigest = sha256(Buffer.from(jcs(companionReview)));
   const publicPlan = [
     '---',
     'status: blocked',
-    'review_status: ready',
+    'review_status: passed',
     `execution_base_commit: ${'5'.repeat(40)}`,
     'blocked_reason: "Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests."',
     '---',
     '',
+    `Review-orchestration-state: ${jcs(publicReview.state)}`,
     `Review-receipt: ${jcs(companionReview)}`,
     '',
     '## Notes',
     '',
+    `- Source commit: ${PUBLIC_SOURCE_COMMIT}`,
     `- Companion TDD-red receipt JCS bytes: ${jcs(publicRed.value)}`,
     `- Companion TDD-red receipt SHA-256: ${publicRed.digest}`,
     '- Status: blocked',
@@ -1356,7 +1402,7 @@ function testPreparationHandlers(temp, preflight, sourceCi) {
     '- Companion plan: `/home/vagrant/projects/public/docs/plans/active/session-relay-cli-0.13.0-release-preparation.md`.',
     '- Companion validation ref: refs/heads/preflight/session-relay-cli-0.13.0-34567890abcd',
     '- Companion implementation commit: 34567890abcdef1234567890abcdef1234567890',
-    `- Companion plan input SHA-256: ${'1'.repeat(64)}`,
+    `- Companion plan input SHA-256: ${companionReview.input_sha256}`,
     `- Companion execution base commit: ${'5'.repeat(40)}`,
     `- Companion review receipt SHA-256: ${companionReviewDigest}`,
     `- Companion TDD-red receipt JCS bytes: ${jcs(publicRed.value)}`,
@@ -1395,19 +1441,40 @@ function testPreparationHandlers(temp, preflight, sourceCi) {
     candidate.receipt.checks.map(({ id }) => id),
     ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'],
   );
-  assert.equal(
-    candidate.receipt.checks[0].steps[0].argv[1],
-    'plugins/session-relay/test/companion-distribution-contract.mjs',
+  assert.deepEqual(
+    candidate.receipt.checks.map(({ steps }) => steps.map(({ argv }) => argv)),
+    [
+      [['node', 'plugins/session-relay/test/release-evidence-contract.mjs']],
+      [['node', 'plugins/session-relay/test/release-publication-contract.mjs']],
+      [['node', 'plugins/session-relay/test/release-promotion-contract.mjs']],
+      [['node', 'plugins/session-relay/test/distribution-contract.mjs']],
+      [
+        [
+          'node',
+          'plugins/session-relay/test/companion-distribution-contract.mjs',
+          '--public-remote',
+          'https://github.com/DocksDocks/public.git',
+          '--public-ref',
+          `refs/heads/preflight/session-relay-cli-0.13.0-${PUBLIC_COMMIT.slice(0, 12)}`,
+          '--public-commit',
+          PUBLIC_COMMIT,
+          '--detached-clone',
+        ],
+      ],
+      [
+        [
+          'cargo',
+          '+1.85.0',
+          'build',
+          '--manifest-path',
+          'plugins/session-relay/rust/Cargo.toml',
+          '--release',
+          '--locked',
+        ],
+        ['sh', '-c', 'test "$(plugins/session-relay/rust/target/release/relay --version)" = "session-relay 0.13.0"'],
+      ],
+    ],
   );
-  assert.deepEqual(candidate.receipt.checks[1].steps[0].argv, [
-    'cargo',
-    '+1.85.0',
-    'build',
-    '--manifest-path',
-    'plugins/session-relay/rust/Cargo.toml',
-    '--release',
-    '--locked',
-  ]);
   const dirtyPlanOptions = new Map(options);
   dirtyPlanOptions.set('receipt-out', path.join(temp, 'candidate-dirty-plan.json'));
   const dirtyPlan = checkPrepared(
@@ -1445,7 +1512,14 @@ function testPreparationHandlers(temp, preflight, sourceCi) {
     /working tree is not clean/i,
   );
 
-  for (const publicTamper of ['ref', 'blob']) {
+  for (const [publicTamper, pattern] of [
+    ['ref', /companion|public|ref/i],
+    ['blob', /companion|public|blob/i],
+    ['source-identity', /companion|source|commit/i],
+    ['source-ancestry', /companion|source|ancestor|ancestry/i],
+    ['source-delta', /companion|source|plan|path|delta/i],
+    ['review-state', /companion|review|orchestration|state/i],
+  ]) {
     const tamperedOptions = new Map(options);
     tamperedOptions.set('receipt-out', path.join(temp, `candidate-public-${publicTamper}.json`));
     expectReject(
@@ -1463,7 +1537,7 @@ function testPreparationHandlers(temp, preflight, sourceCi) {
             publicTamper,
           }),
         ),
-      /companion|public|ref|blob/i,
+      pattern,
     );
   }
 
