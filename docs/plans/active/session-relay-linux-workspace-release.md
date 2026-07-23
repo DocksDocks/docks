@@ -1,10 +1,10 @@
 ---
 title: Prepare Session Relay 0.13.0 for Linux managed workspaces
 goal: Make Linux managed workspaces releasable, preserve ordinary macOS Relay support and fail-closed workspace refusal, and seal reviewed 0.13.0 source evidence.
-status: planned
+status: ongoing
 created: "2026-07-22T21:28:09-03:00"
-updated: "2026-07-22T21:58:22-03:00"
-started_at: null
+updated: "2026-07-23T01:47:17.696Z"
+started_at: "2026-07-23T01:47:17.696Z"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
