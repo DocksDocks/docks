@@ -1,10 +1,10 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: planned
+status: ongoing
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T12:31:06-03:00"
-started_at: null
+updated: "2026-07-23T12:58:23-03:00"
+started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
 review_author_tool: codex
@@ -290,7 +290,7 @@ None.
 - `/home/vagrant/projects/public/docs/plans/finished/2026-07-18-session-relay-cli-production-release.md` — prior public production-release ordering, completion-reviewed tag commit, single-run/read-back, npm, asset, and archive protocol; identities are historical and must be rebound.
 - `docs/plans/finished/2026-07-19-session-relay-prebuilt-cli-release.md` — prior end-to-end publication/promotion/finalization and exact/live smoke recovery lessons; prior receipts and versions are not reusable.
 
-Review-orchestration-state: {"apply_state":"pending","current_input_sha256":"44304c5945f1489fc0592eacfff59a79ffd803f55d1a1dfa21cbba20dca631cd","initial_input_sha256":"44304c5945f1489fc0592eacfff59a79ffd803f55d1a1dfa21cbba20dca631cd","lifecycle_intent":"start","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-publication.md","request_ids":["2abd4198-4787-4162-92c6-ce2f835c06ca"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"231c34c5-c3ec-4bfc-acb2-725dfd5665a0","series_sha256":"ac59eb0ec7b20ecd4d5264305bec8292e557eda44a91ed82cce78b0c9fa01d0f","state_sha256":"f547d09184eaba1ac0027c81ac6090d15cda0aa0c2d98e7fc4760c5136a43447","status":"passed","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
+Review-orchestration-state: {"apply_state":"consumed","current_input_sha256":"44304c5945f1489fc0592eacfff59a79ffd803f55d1a1dfa21cbba20dca631cd","initial_input_sha256":"44304c5945f1489fc0592eacfff59a79ffd803f55d1a1dfa21cbba20dca631cd","lifecycle_intent":"start","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-publication.md","request_ids":["2abd4198-4787-4162-92c6-ce2f835c06ca"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"231c34c5-c3ec-4bfc-acb2-725dfd5665a0","series_sha256":"ac59eb0ec7b20ecd4d5264305bec8292e557eda44a91ed82cce78b0c9fa01d0f","state_sha256":"bfeb227d0e6be8d21bee0374b04cad5e1e8c1508d1111cecd726506a6d26de4d","status":"passed","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":"f547d09184eaba1ac0027c81ac6090d15cda0aa0c2d98e7fc4760c5136a43447"}
 ## Review
 
 (filled by main-context plan-manager after completion evidence)
