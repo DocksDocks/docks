@@ -1,11 +1,9 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: blocked
+status: ongoing
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T21:48:41-03:00"
-blocked_reason: "Exact-artifact legacy completion-receipt compatibility is awaiting a fresh changed-input schema-6 draft review; implementation and A10 remain blocked until that review passes."
-blocked_since: "2026-07-23T21:10:25-03:00"
+updated: "2026-07-23T22:07:32-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
