@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-18"
-  content_hash: "8a71e3c6002b1080e27e393aea9be19eb9ca2d05419ea4de6044f3bc41f6e2aa"
+  updated: "2026-07-24"
+  content_hash: "af786295c550317bbd9ffaa0c2c83c07bc7d6cd43a77dedefa5b588a88ce0c4c"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -21,32 +21,25 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 </constraint>
 
 <constraint>
-**Approval gate — turn-ending, cross-tool, NOT Plan Mode.** `init` and full `refresh` MUST render the proposal (the node list AND the per-section relocation table from constraint 4), then **end the turn** — print it as your final message and STOP. Do NOT call Write/Edit/git-mv until the user replies. Do NOT call `ExitPlanMode` (Claude-only). Silence is not consent; an ambiguous reply re-shows the table. ("STOP and await" alone gets bypassed by eager/literal models — the enforceable pause is ending the turn.)
+**Intent gate — cross-tool, NOT Plan Mode.** `audit`, `--dry-run`, and an explicit preview/proposal request are read-only and end after the report. An explicit `init`, `refresh`, or "fix the audit findings" request continues through proposal, review, writes, and verification in the same orchestration. Render the node list and per-section relocation table before writing; when a canonical plan is warranted, the unified `plan-manager` creates and freshly reviews it, then records the reviewed start checkpoint. No additional user lifecycle command is required. Ask only for a genuinely unresolved relocation or explicit `DROP` decision; absent such a decision, keep the section in root.
 </constraint>
 
 <constraint>
-**No content loss when relocating — per-section, NOT byte-percentage.** A split *adds* scaffolding (imports, CLAUDE.md files, node headings, breadcrumbs), so output is normally ≥100% of input — a byte-% floor is the wrong primary check (a lost section hides under added bytes). Instead: (1) inventory every source `^#{1,3}` section before writing; (2) the approval table accounts for EACH section → a destination or an explicit user `DROP` (unclassified → KEEP in root); (3) relocate verbatim (reformat OK, reword NOT); (4) two-phase write — nodes first + the pair check (every CLAUDE.md exactly `@AGENTS.md`, every AGENTS.md non-empty, ≤500 lines), prune root LAST after a second confirmation; (5) the `## Verification` block then confirms every source section survives downstream + flags any net shrink. On a miss: stop, restore, locate it — do NOT report success. Full algorithm: [`references/data-preservation.md`](references/data-preservation.md).
+**No content loss when relocating — per-section, NOT byte-percentage.** A split *adds* scaffolding (imports, CLAUDE.md files, node headings, breadcrumbs), so output is normally ≥100% of input — a byte-% floor is the wrong primary check (a lost section hides under added bytes). Instead: (1) inventory every source `^#{1,3}` section before writing; (2) the relocation table accounts for EACH section → a destination or an explicit user `DROP` (unclassified → KEEP in root); (3) relocate verbatim (reformat OK, reword NOT); (4) two-phase write — nodes first + the pair check (every CLAUDE.md exactly `@AGENTS.md`, every AGENTS.md non-empty, ≤500 lines), then re-read the source preimage and prune root LAST; (5) the `## Verification` block confirms every source section survives downstream + flags any net shrink. On a miss: stop, restore, locate it — do NOT report success. Full algorithm: [`references/data-preservation.md`](references/data-preservation.md).
 </constraint>
 
 ## Operations
 
 | Op | What it does | Writes? |
 |---|---|---|
-| `context-tree init` | First-time scaffold: detect major folders, propose the node list, await approval, write every pair, insert the "Context tree" section into root `AGENTS.md`. Idempotent — re-running detects existing nodes and leaves them. | yes (after approval) |
+| `context-tree init` | First-time scaffold: detect major folders, build the node and relocation tables, run manager review when canonical, write every pair, insert the "Context tree" section into root `AGENTS.md`. Idempotent — re-running detects existing nodes and leaves them. | yes |
 | `context-tree audit` | Read-only. Report drift: nodes missing a CLAUDE.md pair, CLAUDE.md that isn't `@AGENTS.md`-only, AGENTS.md claims that no longer match **current source** (every path/snippet/identifier/count verified by reading — not just file existence), folders that newly qualify as nodes — plus the graph **Lint**: contradictions between nodes, orphan nodes with no inbound link, concepts mentioned but lacking a node, missing cross-references, web-fillable data gaps. | no |
 | `context-tree refresh <folder>` | Regenerate one node from current disk state. First re-derive whether anything SEMANTIC changed in the folder (compare the node's claims against current source, the same check `audit` runs); if nothing did, it's a no-op (no write). | only if changed |
-| `context-tree refresh` | Regenerate every node (use when the convention itself changes). Same approval gate as `init`. | yes (after approval) |
+| `context-tree refresh` | Regenerate every node (use when the convention itself changes). Same intent-aware manager handoff as `init`; an implementation request continues after review. | yes |
 
 ## Plan lifecycle handoff
 
-`context-tree` is not a plan operator, but user-triggered fixes can be risky
-enough to need the plan lifecycle. Keep `audit` read-only. For `init`, full
-`refresh`, or "fix the audit findings", route a missing canonical plan to
-`plan-creator`, then route review, `start`, and later lifecycle work to
-`plan-manager` before writing when the change affects more than one node,
-moves/prunes root content, changes conventions, or needs multi-step
-verification. Trivial half-pair repairs (`AGENTS.md` exists but `CLAUDE.md` is
-missing, or vice versa) may be applied directly after the normal approval gate.
+`context-tree` is not a plan operator, but multi-node writing can warrant a canonical plan. Keep `audit`, dry runs, and preview-only requests read-only. For an explicit `init`, full `refresh`, or "fix the audit findings" request, route missing-workspace bootstrap to `plan-workspace`; the unified `plan-manager` owns any canonical-plan creation, fresh review, start checkpoint, lifecycle, and finish/archive. Continue writing after that reviewed checkpoint without a second user command. Trivial half-pair repairs (`AGENTS.md` exists but `CLAUDE.md` is missing, or vice versa) may be applied directly. Stop only for an actual unresolved section destination, explicit `DROP`, concurrent change, or verification failure.
 
 ## What counts as a node
 
@@ -107,16 +100,16 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 
 1. **Acknowledge state.** Note whether a root `AGENTS.md`/`CLAUDE.md` exists and whether any nested pairs already exist (e.g. `docs/plans/`). Never clobber an existing node — detect and preserve it.
 2. **Detect candidates.** Apply the heuristics (`references/major-folder-heuristics.md`) to enumerate major folders. Exclude already-existing nodes from the write set.
-3. **Inventory + propose (per-section).** Snapshot every source `^#{1,3}` section of the root context file (`cp` it aside — e.g. `/tmp/root.before` — for the Verification step). Render TWO tables: (a) node list — `folder | new? | sources | one-line summary`; (b) **relocation table — `Section | Destination | Reason`** covering EVERY root section; unclassified → `KEEP in root` (the user may mark any row `DROP`). Then **end the turn** (constraint 3). `--dry-run` / "preview only" stops here for good — also print the post-prune root preview + each node preview, and write nothing.
-4. **Phase A — write nodes (root untouched).** For each approved folder: write `<folder>/AGENTS.md` (self-sufficient, sections relocated **verbatim** per the table) + `<folder>/CLAUDE.md` (`@AGENTS.md` only). Confirm every pair is well-formed (each `CLAUDE.md` is exactly `@AGENTS.md`; each `AGENTS.md` is non-empty and ≤500 lines). Root is still fully intact — a halt here leaves duplication (recoverable), never loss.
-5. **Phase B — prune root (second confirmation).** Show the exact lines to be removed from root (the relocated sections) and confirm before deleting. Never delete a section whose content you cannot point to in an already-written node. Leave a one-line breadcrumb per node in the "Context tree" section.
+3. **Inventory + propose (per-section).** Snapshot every source `^#{1,3}` section of the root context file (`cp` it aside — e.g. `/tmp/root.before` — for the Verification step). Render TWO tables: (a) node list — `folder | new? | sources | one-line summary`; (b) **relocation table — `Section | Destination | Reason`** covering EVERY root section; unclassified → `KEEP in root` (only an explicit user instruction may mark a row `DROP`). A `--dry-run` or preview-only request stops here after also printing the post-prune root preview + each node preview. For an implementation request, resolve only genuine open decisions, route the complete proposal through `plan-manager` when canonical, and continue after its reviewed start checkpoint.
+4. **Phase A — write nodes (root untouched).** For each reviewed folder: write `<folder>/AGENTS.md` (self-sufficient, sections relocated **verbatim** per the table) + `<folder>/CLAUDE.md` (`@AGENTS.md` only). Confirm every pair is well-formed (each `CLAUDE.md` is exactly `@AGENTS.md`; each `AGENTS.md` is non-empty and ≤500 lines). Root is still fully intact — a halt here leaves duplication (recoverable), never loss.
+5. **Phase B — prune root after preimage verification.** Re-read the root and verify it still matches the snapshotted preimage, show the exact lines assigned to written nodes, and confirm those sections are present there before deleting them from root. Never delete a section whose content you cannot point to in an already-written node. Leave a one-line breadcrumb per node in the "Context tree" section.
 6. **Root section.** Insert/update the "Context tree" breadcrumb table in root `AGENTS.md` (see `references/node-template.md`).
-7. **Verify (fail loud).** Run the `## Verification` block below (per-section presence + net-shrink tripwire), then re-confirm each node pair is well-formed and run the project's own checks (lint / tests / CI), if it has any. Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from the snapshot, do NOT report success.
+7. **Verify (fail loud).** Run the `## Verification` block below (per-section presence + net-shrink tripwire), then re-confirm each node pair is well-formed and run the project's own checks (lint / tests / CI), if it has any. Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from the snapshot and do NOT report success.
 
 ## Workflow — `refresh` / `audit`
 
 - `audit` walks tracked nodes and verifies every source-anchored claim (path, symbol, snippet, identifier, count — and any live `path:NN` line anchor, which is itself a `line-anchor` finding: convert to the durable form, don't just re-point the number) against **current source** — content, not just existence — re-derived from disk and ignoring git history; it reports drift with the count of claims checked, and never writes. After the per-claim pass it runs the cross-node **graph Lint**: contradictions between nodes (two nodes asserting incompatible rules), orphan nodes with no inbound link (unreferenced by the root Context-tree table or any sibling), concepts mentioned but lacking a node, missing cross-references, and web-fillable data gaps. Full procedure: [`references/conflict-resolution.md`](references/conflict-resolution.md). Use it to decide whether a `refresh` is warranted.
-- `refresh <folder>` regenerates one node only if the maintainer's content predicate says something semantic changed (avoids hook write-loops). `refresh` (no arg) re-runs the full convention across every node behind the approval gate.
+- `refresh <folder>` regenerates one node only if the maintainer's content predicate says something semantic changed (avoids hook write-loops). `refresh` (no arg) re-runs the full convention across every node behind the intent-aware manager handoff.
 
 Drift handling, existing-file merges, and the already-a-node detection live in [`references/conflict-resolution.md`](references/conflict-resolution.md).
 
@@ -144,7 +137,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — anything else breaks the pair. |
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
 | `init` tried to clobber `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them; route plans-workspace setup or refresh to `plan-workspace`. |
-| Fixed a multi-node audit directly in chat | Risky fix path. Create the missing plan through `plan-creator`, then use `plan-manager` for review and `start`, unless it is a trivial half-pair repair. |
+| Fixed a multi-node audit directly without a reviewed handoff | Risks unbound relocation and root pruning | Route the implementation request through unified `plan-manager`; continue automatically after its reviewed checkpoint |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
 | Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + the pair check, prune root LAST (Phase B). |
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
@@ -166,4 +159,4 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 - [`references/node-template.md`](references/node-template.md) — the AGENTS.md skeleton, the CLAUDE.md one-liner, the root "Context tree" section, the self-sufficiency checklist.
 - [`references/conflict-resolution.md`](references/conflict-resolution.md) — existing-file detection, drift/audit logic, merge-vs-overwrite, no-op refresh.
 - [`references/data-preservation.md`](references/data-preservation.md) — the section-inventory algorithm, per-section relocation table, two-phase write, and the verbatim verification snippet (self-contained; the kit pattern is in `write-skill/references/data-preservation.md`).
-- Companion: `plan-creator` (create the missing durable plan) · `plan-manager` (review, start, and lifecycle for that plan) · `skill-maintenance` (the update-only-when-meaning-changed discipline the refresh op mirrors) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).
+- Companion: `plan-manager` (create, review, execute, and finish a durable plan) · `skill-maintenance` (the update-only-when-meaning-changed discipline the refresh op mirrors) · `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md classification, same split discipline).

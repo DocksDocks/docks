@@ -1,95 +1,99 @@
 ---
 name: plan-workspace
-description: "Use when bootstrapping, migrating, auditing, or explicitly refreshing a docs/plans workspace and its contract, root routing, discovery shim, or missing manager/reviewer Codex wrappers. Not for drafting individual plans (use plan-creator), existing-plan lifecycle or review work (use plan-manager), sealed-bundle evidence (use plan-reviewer), or accepted-blocker patch production (use plan-repairer)."
+description: "Use when bootstrapping, migrating, auditing, or explicitly refreshing a docs/plans workspace, its root routing, discovery shim, current PlanRunV1 contract, or missing reviewer-only Codex wrapper. Not for classifying/drafting/reviewing/implementing an individual goal (use plan-manager) or producing immutable-bundle evidence (use plan-reviewer internally)."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-22"
-  content_hash: "eb1647bcb734033d9e84654161be2fc7ec14dd3f47d8890d275c52fd13d5ff68"
+  updated: "2026-07-24"
+  content_hash: "a5bae2bd16a2c1a4bf9849b82e7caba846239505ec679a92d392d69f729ac17c"
 ---
 
 # Plans Workspace
 
-Maintain the project-level `docs/plans/` convention: `active/` plus
-`finished/`, a plans-local cross-tool contract, a one-line Claude discovery
-shim, root routing, and optional project-local Codex wrappers for the manager
-and reviewer. This skill owns the workspace only. It never drafts, reviews,
-repairs, transitions, or archives an individual plan.
-
-## Planning entry rule
-
-Use direct implementation for a clear low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review.
+Maintain the project-level `docs/plans/` convention: `active/`, `finished/`, the
+plans-local cross-tool contract, one-line Claude discovery shim, root routing,
+and the optional project-local Codex reviewer wrapper. This skill never owns an
+individual plan or implementation.
 
 <constraint>
-Resolve the project root first, then classify the requested operation and every target before writing. Audit is always read-only. Bootstrap applies only to a missing workspace; migration only to a recognizable legacy workspace; refresh only when the current user explicitly requests it for a recognizable stale generated contract. A current workspace is a no-op, and an ambiguous or customized workspace is a STOP. Never overwrite project-owned agent files or silently turn an audit into a refresh.
+Resolve the project root and classify the requested operation before writing.
+Audit is read-only. Bootstrap applies only to a missing workspace; migration only
+to a recognizable legacy workspace; refresh only when the current user explicitly
+requests it for a recognizable generated contract. A current workspace is a
+no-op, and an ambiguous/custom workspace is a STOP. Never overwrite a
+project-owned agent file or turn audit findings into an implicit refresh.
 </constraint>
 
 <constraint>
-Migration must not lose or rewrite a plan. Inventory every source plan and its digest before moving anything; reject destination collisions; preserve plan bytes and `finished/` exactly; verify every source-to-destination pair plus the net-count tripwire before removing legacy directories or derived views. Refresh likewise compares path-and-content digests for `active/` and `finished/` before and after. Any mismatch is a STOP because contract maintenance has crossed into plan ownership.
+Migration and refresh must preserve every plan byte. Inventory source paths and
+SHA-256 digests first; reject collisions; preserve `finished/` exactly; verify
+every source/destination pair plus an equal-count tripwire before removing an
+empty legacy directory or generated view. Any plan-byte delta is a STOP because
+workspace maintenance has crossed into plan ownership.
 </constraint>
 
-## Ownership boundary
+## Ownership and adaptive entry
 
 | Request | Owner |
 |---|---|
 | Bootstrap, migrate, audit, or explicit workspace refresh | `plan-workspace` |
-| Draft and commit one previously nonexistent plan | `plan-creator` |
-| Existing-plan operations, review orchestration, receipts, and lifecycle | `plan-manager` |
-| Read-only typed evidence over one sealed bundle | `plan-reviewer` |
-| Return one exact patch for the accepted blocking set, or `cannot_repair` | `plan-repairer` |
+| Decide direct work versus a canonical plan; draft/review/one repair; execute, verify, finish, archive, list/show, publish | main-context `plan-manager` |
+| Read one immutable bundle and return `PlanReviewV1` | internal `plan-reviewer` |
 
-Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
+These are the three live plan skills. Only `plan-reviewer` has Claude/Codex
+wrappers. Main context invokes `plan-manager` directly; never seed manager,
+workspace, creator, repairer, or improver wrappers.
 
-Only `plan-manager` and `plan-reviewer` have Claude/Codex dispatch wrappers.
-Do not seed wrappers for the other three skills.
-The generated current schema-6 contract dispatches one newly created reviewer
-per round using the invoking runtime's current model, with `fallback:"none"`.
-It never resumes a reviewer handle/session, uses Session Relay for review, or
-switches provider or model. Workspace maintenance only preserves or refreshes
-that prose; it never performs review dispatch.
+A clear, reversible, low-risk local diff with one bounded acceptance path stays
+direct: no tracked plan, reviewer, or automatic commit. Canonical planning is
+for explicit planning, multi-commit/cross-repository work, scheduling, cold
+handoff, unresolved decisions, cross-subsystem/public-contract changes,
+security/destructive risk, or external effects.
 
-## Resolve the operation and root
+## Resolve operation and root
 
-Take the operation from the current request; do not infer a mutating operation
-from workspace drift.
-
-```bash
-git rev-parse --show-toplevel 2>/dev/null || pwd
-```
-
-All paths below are relative to that result. A non-git directory may be
-bootstrapped or audited, but migration and refresh must still use byte-preserving
-filesystem operations and must report that no commit workflow is available.
+Take the operation from the current user request; drift never implies mutation.
+Resolve the repository root with the runtime's repository tools, falling back to
+the current directory for a non-Git workspace. A non-Git directory may be
+bootstrapped or audited, but migration/refresh still use byte-preserving
+filesystem operations and report that no commit workflow is available.
 
 ## Read-only classification
 
-Inspect directory names, tracked plan paths, the nested contract, the root
-Plans section, the Claude shim, and `.codex/agents/plan-*.toml`. Classify once:
+Inspect directory names, tracked plan paths, the nested contract, root Plans
+section, Claude shim, and `.codex/agents/plan-*.toml`. Scan plan frontmatter
+first. Do not validate every legacy record family as an audit/list prerequisite.
 
 | Class | Required evidence | Allowed result |
 |---|---|---|
-| `GREENFIELD` | `docs/plans/` is absent | bootstrap |
-| `LEGACY` | recognized status directories or tracked generated views exist | migrate |
-| `CURRENT` | two folders, current schema-6 contract, exact five-skill routing, exact shim | no-op or audit report |
-| `STALE` | recognizable generated two-folder contract lacks one or more current markers | audit report; explicit refresh only |
-| `AMBIGUOUS_CUSTOM` | any other existing shape or customized generated section | report and STOP |
+| `GREENFIELD` | `docs/plans/` absent | bootstrap |
+| `LEGACY` | recognized status directories or generated views | migrate |
+| `CURRENT` | two folders, three-skill PlanRunV1 contract, exact shim, reviewer-only wrapper topology | no-op or audit report |
+| `STALE` | recognizable generated two-folder contract lacks a current marker | audit report; explicit refresh only |
+| `AMBIGUOUS_CUSTOM` | any other shape or customized generated section | report and STOP |
 
-Legacy markers win over current markers so an interrupted migration resumes
-through the preservation checks instead of being mistaken for current. Current
-contract markers include all five exact skill names, current schema 6 with one
-new runtime-current reviewer per round and `fallback:"none"`, no reviewer
-resume or Session Relay review, historical schemas 1–5 marked validation-only,
-status-as-field, the cold-handoff spine, the local self-review checklist, and
-native open-question picker rules.
+Legacy markers win over current markers so an interrupted migration re-enters
+preservation checks. Current markers are:
 
-Wrappers are support files, not contract-version evidence. Missing
-`.codex/agents/plan-manager.toml` or `.codex/agents/plan-reviewer.toml` is
-reported separately; an existing file is always treated as project-owned.
-Unexpected plan-prefixed wrappers are drift to report, never files to delete.
+- exactly `plan-workspace`, public main-context `plan-manager`, and internal
+  read-only `plan-reviewer`;
+- one unfenced compact-JCS `Plan-run: PlanRunV1` record and schemas 1–6 marked
+  historical validation/quarantine only;
+- adaptive direct-work threshold and no manual follow-up `start` handoff;
+- draft/completion budgets of at most two reserved fresh invocations each;
+- exclusive preimage/CAS transactions and major checkpoint commits only;
+- step `Effect` values `local|probe|production_access|publish|push|release|deploy`;
+- literal live external authority and target-local legacy quarantine;
+- status as frontmatter plus complete cold-handoff/acceptance sections.
+
+Wrappers are support files, not version evidence. Missing
+`.codex/agents/plan-reviewer.toml` is reported separately; existing wrapper files
+are project-owned and never overwritten. Any manager or unexpected plan-prefixed
+wrapper is drift to report, not permission to delete it.
 
 ## Classification report
 
-Before any mutation, print a table such as:
+Before mutation, show a table such as:
 
 ```text
 | Target | Action | Reason |
@@ -101,96 +105,95 @@ Before any mutation, print a table such as:
 | .codex/agents/custom.toml | SKIP | project-owned file |
 ```
 
-For an audit, this report plus observed marker/digest evidence is the final
-result. Do not continue to an apply section.
+For audit, this report plus observed marker/digest evidence is final. Do not
+continue into an apply path.
 
 ## Bootstrap
 
-For `GREENFIELD` plus a bootstrap request:
+For `GREENFIELD` plus an explicit bootstrap request:
 
-1. Create `docs/plans/active/` and `docs/plans/finished/`, retaining each empty
-   folder with `.gitkeep` when the repository needs it.
+1. Create `docs/plans/active/` and `docs/plans/finished/`; retain empty folders
+   with `.gitkeep` only when the repository needs it.
 2. Copy the embedded contract from
    [`references/plans-agents-md-template.md`](references/plans-agents-md-template.md)
    verbatim to `docs/plans/AGENTS.md`.
-3. Write `docs/plans/CLAUDE.md` as exactly `@AGENTS.md` plus a trailing newline.
-4. Write `docs/plans/.gitignore` with `*.html` and `.rendered/`; rendered views
-   are disposable.
-5. Add the generated root Plans section below without altering unrelated root
-   rules.
-6. Seed only missing manager/reviewer Codex wrappers from
+3. Write `docs/plans/CLAUDE.md` as exactly `@AGENTS.md` plus trailing newline.
+4. Write `docs/plans/.gitignore` with `*.html` and `.rendered/`.
+5. Add the generated root Plans section below without altering unrelated rules.
+6. Seed only a missing `.codex/agents/plan-reviewer.toml` from
    [`references/codex-agent-templates.md`](references/codex-agent-templates.md).
 
 ## Migrate a recognized legacy workspace
 
-1. Capture the sorted source-path inventory and SHA-256 digest of every plan.
-2. Create `active/`. Map every non-finished plan to `active/<basename>` and STOP
-   on duplicate basenames or an existing nonidentical destination.
-3. Move each mapped plan without changing its bytes. Leave `finished/` in place.
-4. Run the migration checks in `## Verification`.
-5. Only after those checks pass, remove empty legacy status directories and
-   tracked generated views/assets. Never remove a plan-bearing directory.
-6. Replace the recognizable legacy nested contract and root generated section,
-   restore the shim and ignore file, and seed only missing manager/reviewer
-   wrappers.
+1. Capture the sorted source path/digest inventory for every plan.
+2. Create `active/`. Map each non-finished plan to `active/<basename>` and STOP
+   on duplicate basenames or a nonidentical destination.
+3. Move mapped files without changing bytes. Leave `finished/` in place.
+4. Prove the per-plan, net-count, and archive checks below.
+5. Only then remove empty legacy status directories and disposable generated
+   views/assets. Never remove a plan-bearing directory.
+6. Replace the recognizable generated nested/root contracts, restore shim and
+   ignore file, and seed only the missing reviewer wrapper.
 
-## Explicitly refresh a stale workspace
+Migration does not rewrite historical plan records. Current target-local
+migration of record-free or settled terminal schema-1–6 evidence belongs to
+`plan-manager`, not workspace migration. Active/prepared/commitment/cancelled/
+crossed/malformed families remain visible as `legacy-quarantined`.
+
+## Explicit refresh
 
 A refresh request must be explicit in the current turn. Reclassify immediately
-before writing. If the result is now `CURRENT`, report a no-op; if it is not
-`STALE`, STOP.
+before writing. `CURRENT` is a no-op; any class other than `STALE` is a STOP.
 
-Capture sorted path-and-content digests under `active/` and `finished/`. Replace
-only the recognizable generated `docs/plans/AGENTS.md`, exact Claude shim,
-recognizable generated root Plans section, missing support files, and missing
-manager/reviewer wrappers. Do not move, edit, normalize, or reformat a plan.
+Capture complete path/content inventories under `active/` and `finished/`.
+Replace only the recognizable generated `docs/plans/AGENTS.md`, exact Claude
+shim, recognizable root Plans section, missing support files, and missing
+reviewer wrapper. Do not move, edit, normalize, or reformat a plan. Never delete
+an obsolete project-owned wrapper automatically; report it for the user.
 
 ## Generated root Plans section
 
 ```markdown
 ## Plans
 
-Multi-commit plans live in `docs/plans/active/`; lifecycle is a frontmatter field. `docs/plans/finished/` is the terminal archive. Every plan is a complete cold handoff. `plan-workspace` owns bootstrap/migrate/audit/explicit refresh, `plan-creator` owns creation of one nonexistent plan, `plan-manager` owns every existing-plan and lifecycle operation, `plan-reviewer` returns sealed-bundle evidence only, and `plan-repairer` returns one exact accepted-blocker patch or `cannot_repair`. Historical `plan-improver` is not a live skill; `plan-manager` alone validates, applies, and persists the repairer result. `active/` is multi-occupancy.
+Use direct implementation for one clear reversible low-risk local diff with one bounded acceptance path; it creates no plan, reviewer, or automatic commit. Canonical plans live in `docs/plans/active/`; lifecycle is frontmatter, and `docs/plans/finished/` is terminal. Exactly three skills own the workflow: `plan-workspace` maintains the workspace, main-context `plan-manager` owns classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive, and internal `plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable bundle. Only the reviewer has wrappers.
 
-The complete schema-6 contract lives in `docs/plans/AGENTS.md`; schemas 1–5 are historical validation-only. `docs/plans/CLAUDE.md` contains only `@AGENTS.md`. Optional project-local dispatch wrappers exist only for `plan-manager` and `plan-reviewer`; the five skills remain canonical.
+The current record is one compact-JCS `Plan-run: PlanRunV1` line. Schemas 1–6 are historical validation/quarantine only. Every Steps row has `Effect: local|probe|production_access|publish|push|release|deploy`; a persisted requested effect is never live authority. The complete transaction, review-budget, checkpoint, legacy-quarantine, and external-authority contract lives in `docs/plans/AGENTS.md`; `docs/plans/CLAUDE.md` contains only `@AGENTS.md`.
 ```
 
 ## Verification
 
-`plan-structure` verification consists of frontmatter, parser, hash, plan-only commit, and read-back checks for authoring, review, repair, receipt, and lifecycle-only edits. It runs no implementation acceptance command, build, lint, typecheck, test suite, or CI.
-
 After migration moves and before deleting any legacy path:
 
-- **Per-plan presence:** every inventoried non-finished source has exactly one
-  mapped `active/` destination with the same SHA-256 digest.
-- **Net-count tripwire:** destination count equals the inventoried non-finished
-  source count. A lower or higher count is a STOP.
-- **Archive preservation:** the sorted path-and-digest inventory under
-  `finished/` is byte-identical.
-- **Removal safety:** no path selected for removal contains a plan.
+- **Per-plan presence:** each inventoried non-finished source has exactly one
+  mapped active destination with the same SHA-256 digest.
+- **Net-count tripwire:** destination count equals inventoried non-finished
+  source count; lower or higher is a STOP.
+- **Archive preservation:** sorted path/digest inventory under `finished/` is
+  byte-identical.
+- **Removal safety:** no selected removal path contains a plan.
 
-After bootstrap, migration, or refresh, verify the two folders, nested contract,
-exact shim, ignore rules, root routing, and only the two optional wrapper names.
-For refresh, compare the complete before/after active and finished inventories;
-any delta fails the operation. Report the observed paths and repository status,
-without claiming a wrapper ran merely because its file exists.
+After bootstrap/migration/refresh, verify both folders, nested contract, exact
+shim/ignore rules, root routing, and reviewer-only optional wrapper topology.
+For refresh, compare complete before/after active/finished inventories; any delta
+fails. Report observed paths and repository status without claiming a wrapper
+ran merely because its file exists.
 
-## BAD / GOOD boundaries
+## BAD / GOOD
 
 ```text
-BAD: Audit finds drift, so rewrite the contract immediately.
-GOOD: Audit reports drift; only an explicit current-turn refresh may rewrite a recognizable stale generated contract.
+BAD: Audit finds drift, so rewrite the generated contract immediately.
+GOOD: Audit reports drift; only an explicit refresh may rewrite recognizable generated files.
 
-BAD: Seed wrappers for every plan phase.
-GOOD: Seed only missing plan-manager and plan-reviewer wrappers; the other phases remain skills only.
+BAD: Seed manager plus reviewer wrappers because both names are plan skills.
+GOOD: Seed only a missing reviewer wrapper; main context owns plan-manager directly.
 
-BAD: Delete legacy directories after a total count looks plausible.
-GOOD: Prove every source-to-destination digest, equal net counts, and untouched finished bytes first.
+BAD: Validate every malformed legacy family and block unrelated plans.
+GOOD: Frontmatter-scan globally; quarantine legacy evidence only for the requested target.
 ```
 
 ## References
 
-- `references/plans-agents-md-template.md` — copy-only current workspace
-  contract for `docs/plans/AGENTS.md`.
-- `references/codex-agent-templates.md` — copy-only manager/reviewer wrapper
-  defaults; existing files remain project-owned.
+- `references/plans-agents-md-template.md` — copy-only current workspace contract.
+- `references/codex-agent-templates.md` — reviewer-only Codex wrapper default;
+  existing files remain project-owned.

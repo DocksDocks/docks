@@ -7,7 +7,6 @@
 // Usage: node scripts/ci.mjs [-q] [--plugin <name> | --lane <name>] [--timings-json <path>] [--list]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { startTask } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
@@ -198,23 +197,7 @@ try {
 }
 const repoWide = ciLane?.repoWide ?? onlyPlugin === null;
 const authorChecks = selectedAuthorChecks(targets);
-const planPolicy = ciLane?.planPolicy ?? authorChecks.has('plan-reviewer');
-const regressionPartition = ciLane?.regressionPartition ?? null;
-const regressionJobs = ciLane === null ? null : Math.min(ciLane.regressionJobsCap, os.availableParallelism());
-const planPolicyRegressionTask =
-  planPolicy || regressionPartition !== null
-    ? startTask(
-        'plan-review-policy regressions',
-        'node',
-        [
-          'scripts/tests/plan-review-policy-regressions.mjs',
-          '--self-test',
-          ...(regressionJobs === null ? [] : ['--jobs', String(regressionJobs)]),
-          ...(regressionPartition === null ? [] : ['--partition', regressionPartition]),
-        ],
-        { cwd: REPO, tasks },
-      )
-    : null;
+const planAuthorChecks = authorChecks.has('plan-reviewer');
 const javascriptQualityTask = repoWide
   ? startTask('javascript quality', 'pnpm', ['run', 'check:js'], { cwd: REPO, tasks })
   : null;
@@ -310,71 +293,44 @@ if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
     : fail('scaffold/test failed (run: node scripts/scaffold/test.mjs)');
 }
 
-const sessionRelayTarget = targets.find((plugin) => plugin.name === 'session-relay');
-const deferSessionRelay = sessionRelayTarget !== undefined && planPolicyRegressionTask !== null;
-
-// Keep lightweight plugin gates concurrent with the policy regression driver.
-for (const p of targets) {
-  if (p !== sessionRelayTarget || !deferSessionRelay) gatePlugin(p);
+const routingPluginNames = new Set(['docks', 'effect-kit']);
+const selectedRoutingPlugin = targets.some(({ name }) => routingPluginNames.has(name));
+const collisionGroups = [];
+if (selectedRoutingPlugin) {
+  collisionGroups.push({
+    label: 'docks/effect-kit',
+    roots: PLUGINS.filter(({ name }) => routingPluginNames.has(name)).map(({ skills }) => skills),
+  });
 }
-
-if (planPolicyRegressionTask !== null) {
-  section('plan review policy');
-  let planPolicySurfacesPassed = null;
-  let planConvergenceRepairPassed = null;
-  let boundedPlanWorkflowsPassed = null;
-  if (planPolicy) {
-    planPolicySurfacesPassed = nodeOk(['scripts/tests/plan-review-policy.mjs', '--case', 'surfaces']);
-    boundedPlanWorkflowsPassed = nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows']);
-    planConvergenceRepairPassed = ['repair-artifacts', 'repair-series', 'reviewer-workdir', 'cli-transport'].every(
-      (testCase) => nodeOk(['scripts/tests/plan-review-convergence-repair.mjs', '--case', testCase]),
-    );
-  }
-  // This process-heavy suite must settle before Session Relay's native
-  // fail-closed liveness tests begin.
-  const planPolicyRegressionsPassed = await planPolicyRegressionTask;
-  if (planPolicy) {
-    planPolicySurfacesPassed
-      ? ok('plan-review-policy fast surfaces passed')
-      : fail(
-          'plan-review-policy fast surfaces failed (run: node scripts/tests/plan-review-policy.mjs --case surfaces)',
-        );
-    boundedPlanWorkflowsPassed
-      ? ok('bounded plan workflow contract passed')
-      : fail(
-          'bounded plan workflow contract failed (run: node scripts/tests/plan-skill-phases.mjs --case bounded-workflows)',
-        );
-    if (planPolicyRegressionsPassed) {
-      ok('plan-review-policy contract passed');
-      ok(
-        regressionPartition === null
-          ? 'plan-review-policy regressions passed'
-          : `plan-review-policy ${regressionPartition} partition passed`,
-      );
-    } else {
-      fail(
-        regressionPartition === null
-          ? 'plan-review-policy contract/regressions failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test)'
-          : `plan-review-policy contract/${regressionPartition} partition failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test --jobs ${regressionJobs} --partition ${regressionPartition})`,
-      );
-    }
-    planConvergenceRepairPassed
-      ? ok('plan-review convergence repair contract passed')
-      : fail(
-          'plan-review convergence repair contract failed (run: node scripts/tests/plan-review-convergence-repair.mjs --case <case>)',
-        );
-  } else {
-    planPolicyRegressionsPassed
-      ? ok(`plan-review-policy ${regressionPartition} partition passed`)
-      : fail(
-          `plan-review-policy ${regressionPartition} partition failed (run: node scripts/tests/plan-review-policy-regressions.mjs --self-test --jobs ${regressionJobs} --partition ${regressionPartition})`,
-        );
+const remainingCollisionTargets = targets.filter(({ name }) => !routingPluginNames.has(name));
+if (remainingCollisionTargets.length > 0) {
+  collisionGroups.push({
+    label: remainingCollisionTargets.map(({ name }) => name).join('/'),
+    roots: remainingCollisionTargets.map(({ skills }) => skills),
+  });
+}
+if (collisionGroups.length > 0) {
+  section('skill trigger collisions');
+  for (const { label, roots } of collisionGroups) {
+    nodeOk(['tests/skill-trigger-collision.mjs', ...roots])
+      ? ok(`${label} no unrouted high-overlap skill pair`)
+      : fail(`${label} trigger-collision (node tests/skill-trigger-collision.mjs ${roots.join(' ')})`);
   }
 }
 
-// Session Relay's native fail-closed liveness tests run after the policy
-// regression partition has settled.
-if (deferSessionRelay) gatePlugin(sessionRelayTarget);
+if (planAuthorChecks) {
+  section('plan orchestration');
+  nodeOk(['scripts/tests/plan-orchestration.mjs'])
+    ? ok('focused PlanRunV1 orchestration contract passed')
+    : fail('focused orchestration contract failed (run: node scripts/tests/plan-orchestration.mjs)');
+  nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'])
+    ? ok('three-skill, one-wrapper bounded workflow contract passed')
+    : fail(
+        'bounded plan workflow contract failed (run: node scripts/tests/plan-skill-phases.mjs --case bounded-workflows)',
+      );
+}
+
+for (const plugin of targets) gatePlugin(plugin);
 
 if (javascriptQualityTask !== null) {
   section('javascript quality');
@@ -578,9 +534,6 @@ function gateSkills(p, manifest) {
   nodeOk(['scripts/skills/content-hash.mjs', '--check-only', p.skills])
     ? ok(`${p.name} skill content_hash in sync`)
     : fail(`${p.name} skill content_hash drift (node scripts/skills/content-hash.mjs --backfill ${p.skills})`);
-  nodeOk(['tests/skill-trigger-collision.mjs', p.skills])
-    ? ok(`${p.name} no unrouted high-overlap skill pair`)
-    : fail(`${p.name} trigger-collision (node tests/skill-trigger-collision.mjs ${p.skills})`);
   if (p.transformGuard)
     nodeOk(['scripts/skills/transform-guard.mjs', p.skills])
       ? ok(`${p.name} transform-guard passed`)

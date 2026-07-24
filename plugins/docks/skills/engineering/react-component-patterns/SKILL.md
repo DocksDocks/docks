@@ -1,6 +1,6 @@
 ---
 name: react-component-patterns
-description: "Use when designing or reviewing React components — writing `useEffect` (DOM subscribe, external sync, debounced async) and fixing `react-hooks/*` errors, designing composition APIs (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva), OR debugging Next.js RSC boundary errors (`Functions cannot be passed to Client Components`, `$$typeof+render` icon/closure across server-to-client). React 19 ref-as-prop replaces `forwardRef`."
+description: "Use when designing or reviewing React components — `useEffect`/`react-hooks` errors, composition APIs, Next.js RSC boundaries, or reusable shadcn/ui, Base UI, and Radix primitives. Inventory and reuse existing components first; React 19 uses ref-as-prop. Not for Tailwind/color/theme token work (use design-tokenization), visual polish (use make-interfaces-feel-better), or speculative one-caller abstractions."
 user-invocable: false
 paths:
   - "**/*.tsx"
@@ -9,8 +9,8 @@ paths:
   - "**/*.js"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "3d072bda6e6c785eaf4758a5c84348b25b1545ad3591221158a5dca7c9bbf5ee"
+  updated: "2026-07-24"
+  content_hash: "1dc27aeba859b5bf214e718094a51ac72ea3c8ed0ac775abe2604794f1bc5010"
 ---
 
 # React Component Patterns
@@ -27,6 +27,10 @@ Three related sub-domains:
 
 <constraint>
 Don't make a component reusable until a second caller genuinely needs it. The 1-callsite reuse trap costs more than the duplication it prevents — a compound or polymorphic API on a single use site is over-engineering. "We might need this elsewhere later" is not a second caller.
+</constraint>
+
+<constraint>
+Inventory before invention. Search the repository's components, exports, registries (`components.json` when present), dependencies, primitives, and semantic tokens before adding an equivalent; reuse or extend what exists. Preserve an established Radix, ARIA/headless, or non-shadcn convention unless migration was explicitly requested. Only when the task establishes a new compatible React/Tailwind component system and the repository has no convention, initialize shadcn/ui with a current `base-*` style backed by Base UI and semantic CSS variables. This default never overrides the real-second-caller rule for a reusable abstraction.
 </constraint>
 
 <constraint>
@@ -61,6 +65,8 @@ The full anti-pattern → replacement table for effects lives in [`references/ef
 | Adding `addEventListener` / `matchMedia` / `IntersectionObserver` / `ResizeObserver` | `references/effects.md` § Category 1 |
 | Adding `setTimeout` / `setInterval` for debouncing | `references/effects.md` § Category 3 |
 | Building a primitive callers will compose differently (Tabs, Dialog, Accordion) | `references/composition.md` § Compound |
+| Existing shadcn/ui, Base UI, Radix, or project-local primitive covers the need | Reuse or extend its exported component; do not create a parallel primitive |
+| Explicitly establishing a new React/Tailwind system with no repository convention | Current shadcn/ui `base-*` style backed by Base UI; route token naming/theme work to `design-tokenization` |
 | Choosing wrapping tag flexibility (button vs anchor vs Link) | `references/composition.md` § Slot/`asChild` or § Polymorphic |
 | Same logic, different markup (combobox, table, picker) | `references/composition.md` § Headless |
 | Context value consumed in 3+ places | `references/composition.md` § Provider + Hook |
@@ -84,6 +90,8 @@ The full anti-pattern → replacement table for effects lives in [`references/ef
 | Compound components with no shared state | Children-as-prop with discriminated `kind` | `composition.md` |
 | `cva` for 2 variants | `clsx` ternary — `cva` earns its keep at 5+ variants | `composition.md` |
 | Server Component forwards Client-Component data (icons, `onSelect`) as a prop | Client owns the import; Server forwards only plain data, JSX, or Server Functions | `rsc-boundary.md` |
+| Rebuilding a primitive already exported by the repository or registry | Inventory first; extend the existing shadcn/ui, Base UI, Radix, or project-local primitive | `composition.md` |
+| Migrating an established Radix/ARIA/non-shadcn system just to use the default | Preserve the repository convention; migrate only when explicitly requested | `composition.md` |
 | Add `"use client"` to the shared file and leave the Server-Component import | Remove the Server-side import; the Server Component has no business with that data | `rsc-boundary.md` |
 
 ## When to Load Each Reference

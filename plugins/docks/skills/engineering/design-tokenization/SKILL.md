@@ -1,17 +1,17 @@
 ---
 name: design-tokenization
-description: Use when working with colors, Tailwind classes, CSS custom properties, brand colors (WhatsApp / Stripe / Google / Spotify), dark mode setup, the bg-X / text-on-X paired-token contract, soft tints (X-tint family vs alpha-modifier), :root vs .dark token parity, or @source/@custom-variant in Tailwind v4. Also use when auditing for hex literals, migrating to tokens, or deciding if a new color is semantic, brand, or wrong. Not for spacing/motion/radius polish (use make-interfaces-feel-better).
+description: "Use when working with colors, Tailwind classes, CSS variables, dark mode, semantic/brand tokens, or theming shadcn/ui, Base UI, or Radix components. Also audits hex literals, soft tints, paired foreground tokens, and Tailwind v4 @source. Preserve the project's bg-X/text-on-X or bg-X/text-X-foreground convention. Not for React composition/effects/RSC (use react-component-patterns) or spacing/motion/radius polish (use make-interfaces-feel-better)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "cbc4d124f24a20cc277f52d3eee617dad1d66e83c88cb23dc5034e0786dd6e7a"
+  updated: "2026-07-24"
+  content_hash: "a1ee372206679472e3790b3af150bee2030a16e638f8659a006e5da38887c461"
 ---
 
 # Design Tokenization
 
 <constraint>
-No hex color literals in application code. Every visible color routes through a token — either `var(--token)` or a Tailwind utility that resolves to one (`bg-primary`, `text-on-primary`, `bg-whatsapp`). Hex literals belong in exactly one place: the token DEFINITIONS in the canonical stylesheet (`:root` and `.dark` blocks). Anywhere else, hex is a bug.
+No hex color literals in application code. Every visible color routes through a token — either `var(--token)` or a Tailwind utility that resolves to one (`bg-primary`, its project-convention foreground utility, `bg-whatsapp`). Hex literals belong in exactly one place: the token DEFINITIONS in the canonical stylesheet (`:root` and `.dark` blocks). Anywhere else, hex is a bug.
 </constraint>
 
 <constraint>
@@ -20,6 +20,10 @@ Every token defined in `:root` must also be defined in `.dark`. A token defined 
 
 <constraint>
 Brand tokens and semantic tokens never mix. A token named after a third-party company (`whatsapp`, `stripe`, `google`) must never be used for a non-brand surface. A semantic token (`primary`, `destructive`, `success`) must never carry a vendor's official hex value. Mixing the two layers makes future redesigns drag third-party brands along, or causes brand drift on a future success-state recolor.
+</constraint>
+
+<constraint>
+Inventory before adding tokens or tooling. Read the canonical stylesheet, Tailwind configuration, `components.json`/registry when present, installed primitive dependencies, and existing token usages; reuse what exists. Preserve the repository's `on-*` versus `*-foreground` naming and its established Radix, ARIA/headless, or non-shadcn component convention. Only when the task establishes a new compatible React/Tailwind system and no convention exists, use shadcn/ui with a current `base-*` style backed by Base UI and semantic CSS variables. Never imply a migration from an existing system.
 </constraint>
 
 ## When to Use
@@ -31,6 +35,7 @@ Brand tokens and semantic tokens never mix. A token named after a third-party co
 - Reviewing a PR that touches `index.css`, `globals.css`, `tailwind.config.*`, or any styled component
 - Migrating a project from hardcoded colors to a tokenized system
 - Tailwind v4 questions about `@source`, `@custom-variant`, `@theme inline`, or class-purge regressions
+- Theming shadcn/ui, Base UI, or Radix primitives without changing their React composition API
 
 ## The Two-Layer Token System
 
@@ -55,6 +60,7 @@ Rule: **never use a generic visual name** (`bg-blue`, `bg-red`, `bg-green`) for 
 ### Layer 2 — Brand tokens (third-party identity)
 
 When you display a third-party service's brand color, use a brand-named token. Brand tokens are still tokens — vendor-fixed values, defined in the canonical stylesheet, used through utilities.
+The table below illustrates the `on-*` form; in a `*-foreground` project, use the corresponding `<brand>-foreground` name instead.
 
 | Brand token | Hex (def-only) | Use case |
 |---|---|---|
@@ -72,7 +78,7 @@ Why brand tokens, not generic `bg-green` for WhatsApp:
 3. **Vendor compliance** — many brand guidelines require the exact official hex; the brand token freezes it.
 4. **Per-brand dark mode** — some brands publish dark-mode variants. The token gives you the slot.
 
-## The Paired-Token Contract (`bg-X` ↔ `text-on-X`)
+## The Paired-Token Contract (`bg-X` ↔ project foreground)
 
 Every background token has a paired foreground guaranteed legible against it. This prevents the classic dark-mode contrast bug where `bg-primary` flips dark but the text on top doesn't.
 
@@ -87,13 +93,13 @@ Every background token has a paired foreground guaranteed legible against it. Th
 }
 ```
 
-In components: **never write `bg-primary` without `text-on-primary` next to it**, unless the surface has no text on it (decorative bar, divider, progress fill).
+In components: **never write `bg-primary` without its paired foreground utility** (`text-on-primary` or `text-primary-foreground`, matching the project), unless the surface has no text on it (decorative bar, divider, progress fill).
 
-Two naming conventions exist — pick one per project, never mix:
-- `bg-X` / `text-on-X` (no-foreground convention)
-- `bg-X` / `text-X-foreground` (shadcn / Radix convention)
+Two naming conventions exist. Detect the repository's established form and preserve it project-wide:
+- `bg-X` / `text-on-X` (`on-*` convention)
+- `bg-X` / `text-X-foreground` (shadcn/ui convention, including current Base UI-backed `base-*` styles)
 
-Mixing produces silent token-resolution gaps.
+If neither exists and the task explicitly establishes a new compatible shadcn/ui system, use its `*-foreground` convention. Never mix forms or silently migrate an established `on-*` project.
 
 ## Soft Tints — X-Tint Triple, Not Alpha Modifiers
 
@@ -130,14 +136,14 @@ Symptom of missing `@source`: layout/button "collapses" because `w-12` / `left-1
 Need a new color in a component →
   ├─ Is it a third-party brand (Google, Stripe, WhatsApp, etc.)?
   │   └─ YES → brand token. Define in :root (and .dark if vendor has dark variant).
-  │           Use bg-{brand} / text-on-{brand}. Done.
+  │           Use bg-{brand} + the project's paired foreground. Done.
   │   └─ NO → continue
   ├─ Does an existing semantic token cover the intent?
   │   └─ YES → use the existing token. Don't create a new one.
   │   └─ NO → continue
   ├─ Is the color genuinely new app intent that isn't already named?
   │   └─ YES → propose a new semantic token. Add to :root AND .dark.
-  │           Add @theme inline entry. Pair with on-{token}.
+  │           Add @theme inline entry. Pair it using the project's established naming.
   │   └─ NO → reuse existing.
 ```
 
@@ -146,20 +152,20 @@ Need a new color in a component →
 Four-step procedure. Don't skip the audit — proposing token names without seeing actual usage produces wrong abstractions.
 
 1. **Audit (read-only)** — run the four greps in `references/audit-and-greps.md` against the project root. Categorize matches: hex-in-app, generic-palette-as-semantic, brand colors hidden as hex, alpha-modifier tints, unpaired backgrounds.
-2. **Propose** — list every distinct hex, group near-duplicates (within ~3% HSL), propose a token per group classified as semantic or brand. Show the user the table BEFORE writing CSS. Wait for confirmation. Naming is the high-impact decision; rolling back is expensive once tokens land in components.
-3. **Apply** — add tokens to BOTH `:root` and `.dark` in the canonical stylesheet (see `references/canonical-stylesheet.md` for the full shape). Update `@theme inline`. Replace hex in app code. Add paired foregrounds. Convert alpha tints to X-tint triples.
+2. **Propose** — list every distinct hex, group near-duplicates (within ~3% HSL), and produce a token table classified as semantic or brand. Preserve the existing foreground naming. An audit-only or proposal-only request stops after this table. For an implementation request, continue without a blanket confirmation pause; ask only if no project evidence resolves a materially different naming or brand-identity choice.
+3. **Apply** — add tokens to BOTH `:root` and `.dark` in the canonical stylesheet (see `references/canonical-stylesheet.md` for the full shape). Update `@theme inline`. Replace hex in app code. Add paired foregrounds. Convert alpha tints to X-tint triples. Reuse existing components and tokens rather than creating a parallel theme surface.
 4. **Lock** — drop the audit greps into pre-commit / CI as an enforcement gate. Script in `references/audit-and-greps.md`.
 
 ## Common Traps
 
 | Trap | Wrong fix | Right fix |
 |---|---|---|
-| "Save successful" toast | `bg-green-500` | `bg-success`, defined once with paired `text-on-success` |
+| "Save successful" toast | `bg-green-500` | `bg-success`, defined once with the project's paired foreground |
 | WhatsApp share button | `bg-green-500` (same color, but coincidence) | `bg-whatsapp` brand token — different identity |
 | Inline brand color | `style={{ color: '#25D366' }}` | `text-whatsapp`, brand token in stylesheet |
 | Token added to `:root` only | "I'll add the dark variant later" | Edit `:root` AND `.dark` in the same change |
 | Soft "danger zone" panel | `bg-destructive/15` | `bg-destructive-tint` triple |
-| Mixed `text-on-*` and `text-*-foreground` in one project | Add the missing one alongside | Pick one convention project-wide; grep + migrate the other |
+| Mixed `text-on-*` and `text-*-foreground` in one project | Add the missing form alongside | Preserve the established convention; migrate only when explicitly requested |
 | Class works in dev but disappears in prod | Re-add `bg-success` to a global stylesheet | Add `@source "../../shared";` for the missing directory |
 | "Just for now, will tokenize later" | One hex literal in a component | Tokenize on first use. Cost is identical; later it's harder. |
 

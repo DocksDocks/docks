@@ -1,18 +1,16 @@
 ---
 name: scaffold
-description: "Use when spinning up a new docks-style plugin project, or capturing the current repo's structure for reuse — generates a cross-tool plugin skeleton (context-tree AGENTS.md/CLAUDE.md nodes, plugin manifests, manager/reviewer Codex plan wrappers, bundled skills, validator scripts) from docs/scaffold/spec.yaml. Modes: `scaffold setup` writes the spec from this repo; `scaffold target-path` seeds a new greenfield project. Not for non-plugin repos, non-empty targets, or generic file templating."
+description: "Use when spinning up a new docks-style plugin project, or capturing the current repo's structure for reuse — generates a cross-tool plugin skeleton (context-tree AGENTS.md/CLAUDE.md nodes, plugin manifests, one reviewer-only Codex plan wrapper, bundled skills, validator scripts) from docs/scaffold/spec.yaml. Modes: `scaffold setup` writes the spec from this repo; `scaffold target-path` seeds a new greenfield project. Not for non-plugin repos, non-empty targets, or generic file templating."
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-07-21"
-  content_hash: "0d40faf199d34d360f902183d9d82f42bb30e0652643730ee47291766047c47d"
+  updated: "2026-07-24"
+  content_hash: "c494d7f3f123deff032752860660cee55248046a3aaa831bd3987bcc0fff459f"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
 
-`scaffold` turns a project's structure into a reusable, versioned spec (`docs/scaffold/spec.yaml` + `templates/`) and seeds brand-new projects from it. One skill, two modes selected by the argument. The pattern is a generic skill consuming per-repo config captured once (mattpocock/skills). The output is a context-tree-shaped plugin — AGENTS.md/CLAUDE.md node pairs, plugin manifests, exactly the repo-local `plan-manager`/`plan-reviewer` Codex wrappers, bundled skills, and validator scripts — so a new project starts green from the same baseline.
-
-Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
+`scaffold` turns a project's structure into a reusable, versioned spec (`docs/scaffold/spec.yaml` + `templates/`) and seeds brand-new projects from it. One skill, two modes selected by the argument. The pattern is a generic skill consuming per-repo config captured once (mattpocock/skills). The output is a context-tree-shaped plugin — AGENTS.md/CLAUDE.md node pairs, plugin manifests, exactly one repo-local `plan-reviewer` Codex wrapper, bundled skills, and validator scripts — so a new project starts green from the same baseline.
 
 <constraint>
 **Seed writes only into an empty target, never `docks`.** Before writing in seed mode, verify the target path is empty or non-existent (greenfield); refuse if it contains files. Refuse the plugin name `docks` (marketplace-collision guard). Run `git init` in the target only if it isn't already a repo.
@@ -48,7 +46,6 @@ plugin: { name_placeholder: "{{ plugin_name }}", license: MIT }
 templated_files:
   - { template: plugin.json.template, dest: "plugins/{{ plugin_name }}/.claude-plugin/plugin.json" }
   - { template: root-AGENTS.md.template, dest: "AGENTS.md" }
-  - { template: codex-plan-manager.toml.template, dest: ".codex/agents/plan-manager.toml" }
   - { template: codex-plan-reviewer.toml.template, dest: ".codex/agents/plan-reviewer.toml" }
 tree_nodes:
   - { path: docs/plans, seed_from_skill: plan-workspace }
@@ -56,10 +53,8 @@ tree_nodes:
 bundled_skills:
   - { source: plugins/docks/skills/productivity/context-tree }
   - { source: plugins/docks/skills/productivity/plan-workspace }
-  - { source: plugins/docks/skills/productivity/plan-creator }
   - { source: plugins/docks/skills/productivity/plan-manager }
   - { source: plugins/docks/skills/productivity/plan-reviewer }
-  - { source: plugins/docks/skills/productivity/plan-repairer }
 variables:
   plugin_name:        { prompt: "Plugin name (kebab-case)" }
   plugin_description: { prompt: "Short description" }
@@ -91,7 +86,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 2. **Load spec.** Read `docs/scaffold/spec.yaml`. If absent, stop and suggest `scaffold setup`.
 3. **Interview.** Prompt for each `variable`; pull `default_from` via `git config` where set. (Use `AskUserQuestion` on Claude; plain prompts elsewhere.)
 4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **STOP for confirmation** (constraint 2).
-5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; seed `docs/plans/` via the bundled `plan-workspace`; bundle all five exact plan skills (`plan-workspace`, `plan-creator`, `plan-manager`, `plan-reviewer`, `plan-repairer`); render only `.codex/agents/plan-manager.toml` and `.codex/agents/plan-reviewer.toml` as project-local Codex wrappers. Do not invent wrappers for workspace, creator, or repairer. The seeded entrypoints are `.mjs` (`scripts/ci.mjs`, `scripts/release.mjs`), run via `node` — no exec bit to set.
+5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; seed `docs/plans/` via the bundled `plan-workspace`; bundle the three exact plan skills (`plan-workspace`, `plan-manager`, `plan-reviewer`); render only `.codex/agents/plan-reviewer.toml` as a project-local Codex wrapper. Main context owns `plan-manager` directly; do not invent wrappers for manager, workspace, creator, repairer, or improver. The seeded entrypoints are `.mjs` (`scripts/ci.mjs`, `scripts/release.mjs`), run via `node` — no exec bit to set.
 6. **Init + verify.** `git init` if needed. Run `corepack enable && pnpm install --frozen-lockfile`, then the generated validators such as `node <target>/scripts/skills/guard.mjs <target>/plugins/<name>/skills` and `node <target>/scripts/tree/guard.mjs <target>`. Then grep for stray `{{` (constraint 3).
 
 ## Gotchas
@@ -102,7 +97,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 | Left a raw `{{ plugin_name }}` in an output file | Unmapped variable. Grep the target for `{{` after writing; every token must resolve. |
 | Bundled-skill path in spec is stale (`tree`, old `agents`) | Detect bundled skills from the LIVE repo during setup; don't copy a hand-written example. |
 | Wrote a node AGENTS.md without its CLAUDE.md | Tree nodes are pairs. Seed both; CLAUDE.md = `@AGENTS.md` (see `context-tree`). |
-| Put Codex plan wrappers in plugin manifests, or emitted wrappers beyond manager/reviewer | They are repo-local `.codex/agents/plan-manager.toml` and `plan-reviewer.toml`, not plugin payload; workspace/creator/repairer have no wrappers. |
+| Put a Codex plan wrapper in plugin manifests, or emitted anything except reviewer | The only plan wrapper is repo-local `.codex/agents/plan-reviewer.toml`; main context owns `plan-manager` directly. |
 | New project's validators fail on cold start | The spec/templates are wrong. Fix until the generated skill and tree guards are green — that's the acceptance bar. |
 | Used `ExitPlanMode` for the gate | Claude-only. Use a conversational confirm so Codex works too. |
 
@@ -115,4 +110,4 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 ## References
 
 - [`references/spec-schema.md`](references/spec-schema.md) — full `spec.yaml` schema: every field, `seed_from_skill` vs `template` vs `bundled_skills`, `default_from`, variable rules.
-- Companion skills: `context-tree` (the node pairs seed mode writes) · `plan-workspace` (seeds `docs/plans/`) · `plan-creator`, `plan-manager`, `plan-reviewer`, and `plan-repairer` (the other exact bundled plan phases) · `write-skill` (author new skills in the seeded project).
+- Companion skills: `context-tree` (the node pairs seed mode writes) · `plan-workspace`, `plan-manager`, and `plan-reviewer` (the exact bundled plan owners) · `write-skill` (author new skills in the seeded project).

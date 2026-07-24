@@ -10,7 +10,7 @@ import {
   parsePlan,
   validateCompletionReceipt as validatePlanCompletionReceipt,
   validateDraftReceipt as validatePlanDraftReceipt,
-} from '../../plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
+} from '../../plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs';
 import {
   COMMIT,
   canonicalize,
@@ -73,9 +73,9 @@ const SHIPPED_TO_PROMOTED_PATHS = [
   'scripts/lib/session-relay-release-preparation.mjs',
   'scripts/lib/session-relay-release-promotion.mjs',
   'scripts/lib/session-relay-release-publication.mjs',
-  'scripts/tests/plan-review-convergence-repair.mjs',
-  'scripts/tests/plan-review-policy-regressions.mjs',
-  'scripts/tests/plan-review-policy.mjs',
+  'scripts/tests/plan-orchestration.mjs',
+  'scripts/tests/plan-orchestration/historical-characterization.mjs',
+  'scripts/tests/plan-orchestration/historical-malformed-corpus.mjs',
   'scripts/tests/plan-skill-phases.mjs',
 ];
 const AUTHORIZED_BASE_TO_PROMOTED_PATHS = [

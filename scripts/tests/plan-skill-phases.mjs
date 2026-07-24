@@ -1,774 +1,161 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseDocument } from 'yaml';
-import { selectedAuthorChecks } from '../lib/ci-targeting.mjs';
-import { PLUGINS } from '../lib/plugins.mjs';
+import { parse as parseYaml } from 'yaml';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PRODUCTIVITY = path.join(ROOT, 'plugins/docks/skills/productivity');
-const EXPECTED_PHASES = ['plan-workspace', 'plan-creator', 'plan-manager', 'plan-reviewer', 'plan-repairer'];
-const EXPECTED_PUBLIC = new Map([
-  ['plan-workspace', true],
-  ['plan-creator', true],
-  ['plan-manager', true],
-  ['plan-reviewer', false],
-  ['plan-repairer', false],
-]);
-const OLD_LIVE_NAMES = ['plan-init', 'plan-review', 'plan-improver', 'capability-tuning'];
+const LIVE_PLAN_SKILLS = ['plan-manager', 'plan-reviewer', 'plan-workspace'];
+const REMOVED_PLAN_SKILLS = ['plan-creator', 'plan-repairer', 'plan-init', 'plan-review', 'plan-improver'];
 
-const ENTRY_POLICY =
-  'Use direct implementation for a clear low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review.';
-const CREATION_POLICY =
-  'Creation performs exactly one local self-review. `PlanCreatedV1` is invocation-terminal for `plan-creator` and turn-terminal at main unless the same current-user request explicitly asked to create and review. Main must not infer or automatically append an intent-`none` review.';
-const DRAFT_BLOCKER_POLICY =
-  'For `request.phase === "draft"`, `blocking_gap` is eligible only when implementation cannot safely and correctly start because of an unresolved required user decision, contradictory goal/scope/interface, unsafe or unauthorized action, impossible dependency order, missing first executable step, or absent/non-executable acceptance contract. Code style, optional refactors/docs, speculative performance, exhaustive implementation edge cases, exact internal symbol choices, and defects best established by running the implementation are `non_blocking_gap` with rejection/defer reason `defer_to_implementation_verification`. A complete simple plan may return `pass`; there is no finding quota and no instruction to improve until perfect.';
-const PLAN_STRUCTURE_POLICY =
-  '`plan-structure` verification consists of frontmatter, parser, hash, plan-only commit, and read-back checks for authoring, review, repair, receipt, and lifecycle-only edits. It runs no implementation acceptance command, build, lint, typecheck, test suite, or CI.';
-const TERMINAL_POLICY =
-  '`turn-terminal` is the final user response for this turn: no later tool, subagent, review, repair, retry, reprepare, plan, or lifecycle action. `invocation-terminal` is the final result of the current child skill or wrapper; main may consume it in the same turn. `candidate-terminal` is any typed output or failure from the sole runtime-current reviewer. It ends that reviewer invocation and returns once; no transport, provider, model, or candidate fallback follows.';
-const CURRENT_REVIEW_POLICY =
-  '{schema:6,role:"primary",fallback:"none",max_rounds:2,candidates:[runtimeCurrent],provenance:{role:"skill_default",fallback:"skill_default",max_rounds:"skill_default",candidates:"runtime_global"}}';
-const PATCH_AUTHORITY_POLICY =
-  'Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.';
-const WRAPPER_POLICY = {
-  'plan-manager': [
-    'Every completed manager operation—successful settlement, intent application, no-op result, or user action—is turn-terminal. An exact caller-held schema-6 result settles immediately through the atomic family reducer: pass may consume one eligible intent, while non-pass stops. It never creates a fresh bundle or dispatches a reviewer or repairer.',
-    'On cold re-entry, state-only active families may proceed to normal preparation. Prepared-only and prepared-plus-commitment families never dispatch automatically: settle any exact caller-held series first; otherwise require one explicit current-user-authorized abandonment action and perform zero redispatch.',
-  ],
-  'plan-reviewer': [],
-};
-
-function normalizePolicyText(text) {
-  return text.replace(/\s+/g, ' ').trim();
+function parseArgs(argv) {
+  if (argv.length === 0) return { caseName: 'default' };
+  if (argv.length === 2 && argv[0] === '--case' && argv[1] === 'bounded-workflows') {
+    return { caseName: argv[1] };
+  }
+  throw new Error('usage: plan-skill-phases.mjs [--case bounded-workflows]');
 }
 
-function assertPolicyParagraph(body, paragraph, label) {
-  assert.ok(
-    normalizePolicyText(body).includes(normalizePolicyText(paragraph)),
-    `${label} must contain the exact bounded-workflow policy paragraph`,
-  );
-}
-
-function assertCurrentReviewerSemantics(body, label) {
-  assert.ok(
-    body.replace(/\s+/g, '').includes(CURRENT_REVIEW_POLICY),
-    `${label} must define the exact single-current-model schema-6 policy`,
-  );
-  assert.match(
-    body,
-    /runtimeCurrent[\s\S]{0,320}request\.author[\s\S]{0,240}company[\s\S]{0,120}tool[\s\S]{0,120}model[\s\S]{0,120}effort/i,
-    `${label} must derive the sole candidate from the invoking runtime author identity`,
-  );
-  assert.match(
-    body,
-    /(?:output|result|failure)[\s\S]{0,240}returns? once[\s\S]{0,240}(?:without|no|never)[\s\S]{0,160}(?:switch|fallback)|(?:without|no|never)[\s\S]{0,160}(?:transport|provider|model|candidate)[\s\S]{0,160}(?:switch|fallback)/i,
-    `${label} must make every reviewer result terminal without fallback`,
-  );
-  assert.match(
-    body,
-    /(?:one\s+(?:new|fresh|newly created)\s+(?:`?plan-)?reviewer`?\s+per round|sole runtime-current reviewer is launched once|each round launches a newly created\s+reviewer)/i,
-    `${label} must require one newly created reviewer per round`,
-  );
-  assert.match(
-    body,
-    /(?:never|no)[\s\S]{0,100}resum(?:e|es|ed|ing)[\s\S]{0,120}(?:reviewer )?(?:handle|session)/i,
-    `${label} must forbid reviewer handle/session resumption`,
-  );
-  assert.match(
-    body,
-    /(?:never|no)[\s\S]{0,120}Session Relay[\s\S]{0,80}(?:review|evidence|transport)/i,
-    `${label} must forbid Session Relay review`,
-  );
-  assert.match(
-    body,
-    /(?:changed canonical (?:plan )?input|changed-input repair)[\s\S]{0,500}(?:new|fresh|newly created)[\s`-]*(?:plan-)?reviewer|(?:new|fresh|newly created)[\s`-]*(?:plan-)?reviewer[\s\S]{0,500}(?:changed canonical (?:plan )?input|changed-input repair)/i,
-    `${label} must bind the repair round to changed input and a separately fresh reviewer`,
-  );
-  assert.match(
-    body,
-    /candidate_index(?:`|\s)*(?:is|===)?\s*(?:exactly\s*)?(?:`|:)?0[\s\S]{0,240}prior_attempts(?:`|\s)*(?:is|was)?\s*(?:exactly\s*)?(?:`|:)?\[\]|prior_attempts(?:`|\s)*(?:is|was)?\s*(?:exactly\s*)?(?:`|:)?\[\][\s\S]{0,240}candidate_index(?:`|\s)*(?:is|===)?\s*(?:exactly\s*)?(?:`|:)?0/i,
-    `${label} must bind schema 6 to candidate index zero and no prior attempts`,
-  );
-}
-
-function assertReviewerWrapperSemantics(body, label) {
-  assert.match(
-    body,
-    /exactly one fresh (?:internal )?(?:`?plan-reviewer`?|reviewer)[\s\S]{0,120}(?:authorized )?(?:review )?invocation/i,
-    `${label} must launch exactly one fresh reviewer per authorized invocation`,
-  );
-  assert.match(
-    body,
-    /sole candidate[\s\S]{0,160}invoking runtime(?:'s)? current[\s\S]{0,120}(?:provider|company)[/\w-]*tool[/\w-]*model[/\w-]*effort[\s\S]{0,120}(?:exactly )?matches `?request\.author`?/i,
-    `${label} must bind the sole reviewer to the invoking runtime author identity`,
-  );
-  assert.match(
-    body,
-    /no provider\/model fallback or Session Relay review/i,
-    `${label} must forbid provider/model and Session Relay fallback`,
-  );
-  assert.match(
-    body,
-    /(?:reviewer )?output or failure[\s\S]{0,100}invocation-terminal and returns once/i,
-    `${label} must return exactly once after every reviewer result`,
-  );
-  assert.match(
-    body,
-    /Round 2[\s\S]{0,160}(?:another fresh|newly created) reviewer[\s\S]{0,160}changed input|Round 2[\s\S]{0,160}changed input[\s\S]{0,160}(?:another fresh|newly created) reviewer/i,
-    `${label} must use a separately fresh reviewer for changed-input repair`,
-  );
-  assert.match(
-    body,
-    /(?:never|do not)[\s\S]{0,80}resume[\s\S]{0,80}(?:reviewer|round-one reviewer)/i,
-    `${label} must forbid reviewer resumption`,
-  );
-}
-
-function readText(relative) {
+function read(relative) {
   return fs.readFileSync(path.join(ROOT, relative), 'utf8');
 }
 
-function embeddedPlansAgentsBody() {
-  const relative = 'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md';
-  const source = readText(relative);
-  const opening = '````markdown\n';
-  const start = source.indexOf(opening);
-  assert.notEqual(start, -1, `${relative} must contain the plans AGENTS fenced template`);
-  const bodyStart = start + opening.length;
-  const end = source.indexOf('\n````', bodyStart);
-  assert.notEqual(end, -1, `${relative} must close the plans AGENTS fenced template`);
-  return `${source.slice(bodyStart, end)}\n`;
+function frontmatter(relative) {
+  const text = read(relative);
+  const match = text.match(/^---\n([\s\S]*?)\n---\n/);
+  assert.ok(match, `${relative} must have YAML frontmatter`);
+  return { metadata: parseYaml(match[1]), body: text.slice(match[0].length) };
 }
 
-function readCodexWrapperInstructions(relative, role) {
-  let source = readText(relative);
-  if (relative.endsWith('.md')) {
-    const heading = `## \`.codex/agents/${role}.toml\``;
-    const start = source.indexOf(heading);
-    assert.notEqual(start, -1, `${relative} must contain ${role} wrapper template`);
-    const nextHeading = source.indexOf('\n## `.codex/agents/', start + heading.length);
-    source = source.slice(start, nextHeading === -1 ? undefined : nextHeading);
-  }
-  const match = source.match(/developer_instructions = """\n([\s\S]*?)\n"""/);
-  assert.ok(match, `${relative} must contain ${role} developer instructions`);
-  return match[1];
-}
-
-function parseArgs(argv) {
-  if (argv.length === 0) return { caseName: 'default', version: null };
-  if (argv.length === 2 && argv[0] === '--case' && ['bounded-workflows', 'resumed-release-plan'].includes(argv[1])) {
-    return { caseName: argv[1], version: null };
-  }
-  if (argv.length === 4 && argv[0] === '--case' && argv[1] === 'installed-catalogs' && argv[2] === '--version') {
-    assert.match(argv[3], /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, '--version must be canonical semver');
-    return { caseName: argv[1], version: argv[3] };
-  }
-  throw new Error(
-    'usage: plan-skill-phases.mjs [--case bounded-workflows|--case installed-catalogs --version <v>|--case resumed-release-plan]',
-  );
-}
-
-function parseYaml(text, label) {
-  const document = parseDocument(text, { prettyErrors: true, strict: true, uniqueKeys: true });
-  assert.equal(document.errors.length, 0, `${label}: ${document.errors.join('\n')}`);
-  return document.toJS();
-}
-
-function readFrontmatter(file) {
-  const text = fs.readFileSync(file, 'utf8');
-  assert.ok(text.startsWith('---\n'), `${path.relative(ROOT, file)} must start with frontmatter`);
-  const end = text.indexOf('\n---\n', 4);
-  assert.notEqual(end, -1, `${path.relative(ROOT, file)} must close frontmatter`);
-  return {
-    metadata: parseYaml(text.slice(4, end), path.relative(ROOT, file)),
-    body: text.slice(end + 5),
-  };
-}
-
-function immediateSkillMetadata(skillsRoot) {
+function planSkillNames() {
   return fs
-    .readdirSync(skillsRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(skillsRoot, entry.name, 'SKILL.md'))
-    .filter((file) => fs.existsSync(file))
-    .map((file) => ({ file, ...readFrontmatter(file) }));
+    .readdirSync(PRODUCTIVITY, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('plan-'))
+    .filter((entry) => fs.existsSync(path.join(PRODUCTIVITY, entry.name, 'SKILL.md')))
+    .map((entry) => entry.name)
+    .sort();
 }
 
-function phaseMetadata(skillsRoot) {
-  return immediateSkillMetadata(skillsRoot)
-    .filter(({ metadata }) => metadata.name.startsWith('plan-'))
-    .sort((left, right) => left.metadata.name.localeCompare(right.metadata.name));
-}
-
-function useWhenClaim(description) {
-  assert.match(description, /^Use when\b/, 'skill description must use the CSO trigger form');
-  return description.split(/\bNot for\b/i, 1)[0];
-}
-
-function assertPhaseMetadata(skillsRoot = PRODUCTIVITY) {
-  const phases = phaseMetadata(skillsRoot);
-  assert.deepEqual(
-    phases.map(({ metadata }) => metadata.name).sort(),
-    [...EXPECTED_PHASES].sort(),
-    'live plan skill names',
-  );
-
-  for (const { file, metadata } of phases) {
-    assert.equal(
-      metadata['user-invocable'],
-      EXPECTED_PUBLIC.get(metadata.name),
-      `${metadata.name} public/internal flag`,
-    );
-    assert.equal(
-      path.basename(path.dirname(file)),
-      metadata.name,
-      `${metadata.name} directory must match its public name`,
-    );
+function assertLiveTopology() {
+  assert.deepEqual(planSkillNames(), [...LIVE_PLAN_SKILLS].sort());
+  for (const name of REMOVED_PLAN_SKILLS) {
+    assert.equal(fs.existsSync(path.join(PRODUCTIVITY, name)), false, `${name} must not remain live`);
   }
 
-  const claims = new Map(phases.map(({ metadata }) => [metadata.name, useWhenClaim(metadata.description)]));
-  const expectedClaims = new Map([
-    ['plan-workspace', [/bootstrapp/i, /migrat/i, /audit/i, /refresh/i, /docs\/plans/i]],
-    ['plan-creator', [/draft/i, /self-review/i, /previously nonexistent/i, /`?planned`?\s+or\s+`?scheduled`?/i]],
-    ['plan-manager', [/existing-plan/i, /list\/show\/lifecycle/i, /review preparation/i, /dispatch/i]],
-    ['plan-reviewer', [/read-only/i, /typed evidence/i, /sealed bundle/i]],
-    ['plan-repairer', [/one patch/i, /exact accepted blocking set/i, /cannot_repair/i]],
+  const expectedInvocable = new Map([
+    ['plan-workspace', true],
+    ['plan-manager', true],
+    ['plan-reviewer', false],
   ]);
-  for (const [name, patterns] of expectedClaims) {
-    for (const pattern of patterns)
-      assert.match(claims.get(name), pattern, `${name} trigger claim must include ${pattern}`);
+  let combinedBodyLines = 0;
+  for (const name of LIVE_PLAN_SKILLS) {
+    const relative = `plugins/docks/skills/productivity/${name}/SKILL.md`;
+    const { metadata, body } = frontmatter(relative);
+    assert.equal(metadata.name, name);
+    assert.equal(metadata['user-invocable'], expectedInvocable.get(name));
+    assert.match(metadata.description, /^Use when /);
+    assert.match(metadata.description, /Not for /);
+    const bodyLines = body.split('\n').length;
+    assert.ok(bodyLines <= 310, `${name} body exceeds 310 lines: ${bodyLines}`);
+    combinedBodyLines += bodyLines;
   }
-  assert.equal(
-    new Set(claims.values()).size,
-    EXPECTED_PHASES.length,
-    'each phase must have a distinct positive trigger claim',
-  );
-
-  for (const oldName of OLD_LIVE_NAMES) {
-    assert.equal(fs.existsSync(path.join(skillsRoot, oldName)), false, `${oldName} must not resolve as a live skill`);
-  }
+  assert.ok(combinedBodyLines <= 700, `combined live plan skill bodies exceed 700 lines: ${combinedBodyLines}`);
 }
 
-function parseTomlIdentity(file) {
-  const text = fs.readFileSync(file, 'utf8');
-  const value = (key) => {
-    const match = text.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, 'm'));
-    assert.ok(match, `${path.relative(ROOT, file)} missing ${key}`);
-    return match[1];
-  };
-  return { name: value('name'), sandboxMode: value('sandbox_mode'), text };
-}
-
-function assertWrappers() {
-  const claudeRoot = path.join(ROOT, 'plugins/docks/agents');
-  const codexRoot = path.join(ROOT, '.codex/agents');
-  const expected = ['plan-manager', 'plan-reviewer'];
-  const claudeFiles = fs
-    .readdirSync(claudeRoot)
-    .filter((name) => /^plan-.*\.md$/.test(name))
+function assertReviewerWrappersOnly() {
+  const pluginAgents = fs
+    .readdirSync(path.join(ROOT, 'plugins/docks/agents'))
+    .filter((name) => name.startsWith('plan-') && name.endsWith('.md'))
     .sort();
-  const codexFiles = fs
-    .readdirSync(codexRoot)
-    .filter((name) => /^plan-.*\.toml$/.test(name))
+  const codexAgents = fs
+    .readdirSync(path.join(ROOT, '.codex/agents'))
+    .filter((name) => name.startsWith('plan-') && name.endsWith('.toml'))
     .sort();
-  assert.deepEqual(
-    claudeFiles,
-    expected.map((name) => `${name}.md`).sort(),
-    'Claude wrappers are manager/reviewer only',
-  );
-  assert.deepEqual(
-    codexFiles,
-    expected.map((name) => `${name}.toml`).sort(),
-    'Codex wrappers are manager/reviewer only',
-  );
+  const scaffoldWrappers = fs
+    .readdirSync(path.join(ROOT, 'docs/scaffold/templates'))
+    .filter((name) => name.startsWith('codex-plan-') && name.endsWith('.template'))
+    .sort();
 
-  const claude = new Map(
-    claudeFiles.map((name) => {
-      const parsed = readFrontmatter(path.join(claudeRoot, name));
-      return [parsed.metadata.name, parsed];
-    }),
-  );
-  assert.deepEqual([...claude.keys()].sort(), expected, 'Claude wrapper identities');
-  for (const name of expected) {
-    assert.equal(claude.get(name).metadata.model, 'inherit', `${name} Claude wrapper current-model inheritance`);
+  assert.deepEqual(pluginAgents, ['plan-reviewer.md']);
+  assert.deepEqual(codexAgents, ['plan-reviewer.toml']);
+  assert.deepEqual(scaffoldWrappers, ['codex-plan-reviewer.toml.template']);
+
+  const claude = frontmatter('plugins/docks/agents/plan-reviewer.md');
+  assert.equal(claude.metadata.name, 'plan-reviewer');
+  assert.equal(claude.metadata.tools, 'Read, Glob, Grep');
+  assert.doesNotMatch(String(claude.metadata.tools), /Edit|Write|Bash|Agent/);
+  assert.match(claude.body, /PlanReviewV1/);
+  assert.match(claude.body, /immutable bundle/i);
+
+  for (const relative of [
+    '.codex/agents/plan-reviewer.toml',
+    'docs/scaffold/templates/codex-plan-reviewer.toml.template',
+  ]) {
+    const wrapper = read(relative);
+    assert.match(wrapper, /name = "plan-reviewer"/);
+    assert.match(wrapper, /sandbox_mode = "read-only"/);
+    assert.match(wrapper, /PlanReviewV1/);
+    assert.doesNotMatch(wrapper, /plan-manager\/SKILL\.md|lifecycle authority|apply a patch/i);
   }
-  assert.match(
-    String(claude.get('plan-manager').metadata.tools),
-    /Edit/,
-    'manager wrapper may apply a prepared lifecycle write',
-  );
-  assert.doesNotMatch(
-    String(claude.get('plan-reviewer').metadata.tools),
-    /Edit|Write/,
-    'reviewer wrapper must remain read-only',
-  );
-  assert.match(
-    claude.get('plan-manager').body,
-    /skills\/productivity\/plan-manager\/SKILL\.md/,
-    'manager wrapper dispatch target',
-  );
-  assert.match(
-    claude.get('plan-reviewer').body,
-    /skills\/productivity\/plan-reviewer\/SKILL\.md/,
-    'reviewer wrapper dispatch target',
-  );
-
-  const codex = new Map(
-    codexFiles.map((name) => {
-      const parsed = parseTomlIdentity(path.join(codexRoot, name));
-      return [parsed.name, parsed];
-    }),
-  );
-  assert.deepEqual([...codex.keys()].sort(), expected, 'Codex wrapper identities');
-  assert.equal(codex.get('plan-manager').sandboxMode, 'workspace-write');
-  assert.equal(codex.get('plan-reviewer').sandboxMode, 'read-only');
-  assert.match(
-    codex.get('plan-manager').text,
-    /skills\/productivity\/plan-manager\/SKILL\.md/,
-    'Codex manager dispatch target',
-  );
-  assert.match(
-    codex.get('plan-reviewer').text,
-    /skills\/productivity\/plan-reviewer\/SKILL\.md/,
-    'Codex reviewer dispatch target',
-  );
 }
 
-function assertScaffoldContract() {
-  const spec = parseYaml(
-    fs.readFileSync(path.join(ROOT, 'docs/scaffold/spec.yaml'), 'utf8'),
-    'docs/scaffold/spec.yaml',
-  );
-  const planSeed = spec.tree_nodes.find((node) => node.path === 'docs/plans');
-  assert.deepEqual(planSeed, { path: 'docs/plans', seed_from_skill: 'plan-workspace' });
-
-  const bundledPlanSkills = spec.bundled_skills
+function assertScaffoldTopology() {
+  const spec = parseYaml(read('docs/scaffold/spec.yaml'));
+  const bundled = spec.bundled_skills
     .map(({ source }) => path.basename(source))
-    .filter((name) => name.startsWith('plan-'))
-    .sort();
-  assert.deepEqual(bundledPlanSkills, [...EXPECTED_PHASES].sort(), 'scaffold must bundle all five plan skills');
-
-  const wrapperDestinations = spec.templated_files
-    .map(({ dest }) => dest)
-    .filter((dest) => dest.startsWith('.codex/agents/plan-'))
-    .sort();
-  assert.deepEqual(wrapperDestinations, ['.codex/agents/plan-manager.toml', '.codex/agents/plan-reviewer.toml']);
-  for (const entry of spec.bundled_skills.filter(({ source }) => EXPECTED_PHASES.includes(path.basename(source)))) {
-    assert.ok(
-      fs.existsSync(path.join(ROOT, entry.source, 'SKILL.md')),
-      `scaffold source must resolve: ${entry.source}`,
-    );
-  }
-}
-
-function assertAuthorCheckKey() {
-  const docks = PLUGINS.find(({ name }) => name === 'docks');
-  assert.ok(docks, 'docks plugin descriptor');
-  const routed = [...selectedAuthorChecks([docks])];
-  assert.deepEqual(
-    routed.filter((name) => name.startsWith('plan-')),
-    ['plan-reviewer'],
-  );
-  assert.equal(routed.includes('plan-review'), false, 'old plan-review author-check key must not route');
-}
-
-function assertCatalogMetadata() {
-  const files = [
-    'plugins/docks/.claude-plugin/plugin.json',
-    'plugins/docks/.codex-plugin/plugin.json',
-    '.claude-plugin/marketplace.json',
-  ];
-  for (const relative of files) {
-    const parsed = JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8'));
-    const description = parsed.plugins
-      ? parsed.plugins.find(({ name }) => name === 'docks').description
-      : parsed.description;
-    assert.doesNotMatch(
-      description,
-      /capability[ -]tuning/i,
-      `${relative} must not advertise deleted capability tuning`,
-    );
-  }
-}
-
-function assertControllerRecoveryOwnership() {
-  const text = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
-  const managerFiles = [
-    'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-    'plugins/docks/agents/plan-manager.md',
-    '.codex/agents/plan-manager.toml',
-    'docs/scaffold/templates/root-AGENTS.md.template',
-    'docs/scaffold/templates/codex-plan-manager.toml.template',
-    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
-    'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
-  ];
-  for (const relative of managerFiles) {
-    const body = text(relative);
-    assert.match(body, /prepared request/i, `${relative} must name the prepared-request boundary`);
-    assert.match(body, /commitment/i, `${relative} must name the dispatch-commitment boundary`);
-    assert.match(
-      body,
-      /(?:commit|persist)[\s\S]{0,800}read[\s-]?back|read[\s-]?back[\s\S]{0,800}(?:commit|persist)/i,
-      `${relative} must require commit/read-back of launch evidence`,
-    );
-    assert.match(body, /dispatchCommittedReviewer/, `${relative} must name the sole dispatch gate`);
-    assert.match(
-      body,
-      /(?:sole|only)[\s\S]{0,160}(?:spawn|process|dispatch)[\s\S]{0,160}(?:boundary|gate)|dispatchCommittedReviewer[\s\S]{0,240}(?:sole|only)/i,
-      `${relative} must reserve the sole process boundary to the committed dispatch gate`,
-    );
-    assert.match(body, /current[\s-]+[`"]?HEAD/i, `${relative} must require the exact current HEAD`);
-    assert.match(body, /single-parent/i, `${relative} must reject multi-parent dispatch commits`);
-    assert.match(body, /plan-only/i, `${relative} must require a plan-only dispatch commit`);
-    assert.match(
-      body,
-      /controllerAdapter\.dispatch|trusted adapter/i,
-      `${relative} must name the trusted host adapter`,
-    );
-    assert.match(body, /zero times|zero-call|must not call/i, `${relative} must make rejected dispatches zero-call`);
-    assert.match(
-      body,
-      /worktree[\s\S]{0,240}(?:byte|drift|git show)/i,
-      `${relative} must reject post-commit worktree drift`,
-    );
-    assert.match(
-      body,
-      /(?:sealed )?bundle[\s\S]{0,240}(?:path|digest|hash)|(?:path|digest|hash)[\s\S]{0,240}(?:sealed )?bundle/i,
-      `${relative} must bind the committed sealed bundle`,
-    );
-    assert.match(
-      body,
-      /(?:reviewer|committed|Codex)?[\s-]*workspace[\s\S]{0,320}(?:sentinel|owner|mode|symlink)|(?:sentinel|owner|mode|symlink)[\s\S]{0,320}(?:reviewer|committed|Codex)?[\s-]*workspace/i,
-      `${relative} must validate the committed reviewer workspace`,
-    );
-    assert.match(body, /validateReviewTerminalFamily/, `${relative} must require the terminal-family validator`);
-    assert.match(
-      body,
-      /currentPlanBytes[\s\S]{0,160}parentPlanBytes|parentPlanBytes[\s\S]{0,160}currentPlanBytes/,
-      `${relative} must bind terminal validation to child and parent bytes`,
-    );
-  }
-
-  const managerSkill = text('plugins/docks/skills/productivity/plan-manager/SKILL.md');
-  assert.match(
-    managerSkill,
-    /exact(?:ly)?[- ]?600|600[- ]second/i,
-    'plan-manager must retain the exact-600 launch gate',
-  );
-  assert.match(
-    managerSkill,
-    /current-user[\s\S]{0,240}(?:bytes|authorization)|(?:bytes|authorization)[\s\S]{0,240}current-user/i,
-    'plan-manager must bind abandonment to current-user bytes',
-  );
-  assert.match(
-    managerSkill,
-    /main-context plan-manager[\s\S]{0,240}abandon|abandon[\s\S]{0,240}main-context plan-manager/i,
-    'only main-context plan-manager may abandon',
-  );
-
-  const reviewer = text('plugins/docks/skills/productivity/plan-reviewer/SKILL.md');
-  assert.match(reviewer, /read-only|evidence-only/i, 'plan-reviewer must stay read-only');
-  assert.match(
-    reviewer,
-    /(?:must not|cannot|never)[\s\S]{0,160}abandon|abandon[\s\S]{0,160}(?:must not|cannot|never)/i,
-    'plan-reviewer must not abandon',
-  );
-  const repairer = text('plugins/docks/skills/productivity/plan-repairer/SKILL.md');
-  assert.match(repairer, /patch-only|one patch/i, 'plan-repairer must stay patch-only');
-}
-
-function assertReviewSafetyBoundaries() {
-  const authoritative = [
-    'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-    'plugins/docks/skills/productivity/plan-reviewer/SKILL.md',
-  ];
-  for (const relative of authoritative) {
-    const body = readText(relative);
-    assert.match(
-      body,
-      /implementation (?:evidence|identity)[\s\S]{0,160}(?:implementation tree|affected_paths)/i,
-      `${relative} must bind reusable evidence to implementation identity`,
-    );
-    assert.match(
-      body,
-      /(?:before reuse,\s*)?recompute[\s\S]{0,80}exact digest equality/i,
-      `${relative} must recompute implementation identity before reuse`,
-    );
-    assert.match(
-      body,
-      /affected-path byte,\s*mode,\s*kind,\s*or\s*presence change[\s\S]{0,100}invalidates reuse/i,
-      `${relative} must invalidate reuse when affected implementation identity changes`,
-    );
-    assert.match(
-      body,
-      /same-checkout[\s\S]{0,40}self-dispatch(?:ed)?[\s\S]{0,120}(?:released or pinned bootstrap reviewer|NeedsUserAction)/i,
-      `${relative} must fail closed on same-checkout controller self-review`,
-    );
-    assert.match(
-      body,
-      /independent[\s\S]{0,40}trusted released or pinned bootstrap reviewer/i,
-      `${relative} must require an independent bootstrap reviewer`,
-    );
-    assert.match(
-      body,
-      /Never\s+repair,\s+reseal,\s+or\s+replace\s+(?:the\s+)?orchestration\s+in\s+place/i,
-      `${relative} must forbid in-place review-controller bypass`,
-    );
-  }
+    .filter((name) => name.startsWith('plan-'));
+  assert.deepEqual(bundled.sort(), [...LIVE_PLAN_SKILLS].sort());
+  const planWrappers = spec.templated_files
+    .map(({ template, dest }) => ({ template, dest }))
+    .filter(({ template, dest }) => template.includes('plan-') || dest.includes('plan-'));
+  assert.deepEqual(planWrappers, [
+    {
+      template: 'codex-plan-reviewer.toml.template',
+      dest: '.codex/agents/plan-reviewer.toml',
+    },
+  ]);
 }
 
 function assertBoundedWorkflows() {
-  assert.deepEqual(
-    phaseMetadata(PRODUCTIVITY).map(({ metadata }) => metadata.name),
-    [...EXPECTED_PHASES].sort(),
-    'bounded workflows expose exactly the five live plan skills',
-  );
-  assert.equal(
-    fs.existsSync(path.join(PRODUCTIVITY, 'plan-improver')),
-    false,
-    'plan-improver must remain historical-only',
-  );
+  const manager = frontmatter('plugins/docks/skills/productivity/plan-manager/SKILL.md').body;
+  const reviewer = frontmatter('plugins/docks/skills/productivity/plan-reviewer/SKILL.md').body;
 
-  for (const relative of [
-    'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-workspace/SKILL.md',
-    'plugins/docks/skills/productivity/plan-creator/SKILL.md',
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+  for (const contract of [
+    /main-context `plan-manager` classifies, drafts, reviews, repairs, implements/i,
+    /PlanRunV1/,
+    /ExternalAuthorityV1/,
+    /legacy-quarantined/,
+    /One clear, reversible, low-risk local diff[\s\S]*`0 \/ 0 \/ 0`/,
+    /Plan-only request[\s\S]*1–2 draft reviewers \/ 1 commit/,
+    /Ordinary canonical implementation[\s\S]*1–2 draft reviewers \/ 2 commits/,
+    /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤2 draft \+ ≤2 completion reviewers \/ 3 commits/,
+    /Before any fresh agent starts,[\s\S]*persist `reserved`/,
+    /no automatic push/i,
   ]) {
-    assertPolicyParagraph(readText(relative), ENTRY_POLICY, `${relative} direct-implementation entry`);
+    assert.match(manager, contract);
   }
+  assert.doesNotMatch(manager, /say [`“"]?start|turn-terminal|fallback model|third draft invocation/i);
 
-  for (const relative of ['docs/plans/AGENTS.md', 'plugins/docks/skills/productivity/plan-creator/SKILL.md']) {
-    assertPolicyParagraph(readText(relative), CREATION_POLICY, `${relative} creator terminal boundary`);
-  }
-
-  for (const relative of [
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-    'plugins/docks/skills/productivity/plan-reviewer/SKILL.md',
+  for (const contract of [
+    /read-only bundle boundary/i,
+    /One invocation, one result/i,
+    /PlanReviewV1/,
+    /missing_decision/,
+    /contradiction/,
+    /unsafe_scope/,
+    /missing_acceptance/,
+    /there is no score, quota/i,
   ]) {
-    assertPolicyParagraph(readText(relative), DRAFT_BLOCKER_POLICY, `${relative} draft blocker rubric`);
+    assert.match(reviewer, contract);
   }
-
-  for (const relative of ['docs/plans/AGENTS.md', 'plugins/docks/skills/productivity/plan-manager/SKILL.md']) {
-    assertPolicyParagraph(readText(relative), PLAN_STRUCTURE_POLICY, `${relative} plan-only verification scope`);
-    assertPolicyParagraph(readText(relative), TERMINAL_POLICY, `${relative} terminal meanings`);
-  }
-
-  for (const relative of [
-    'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-    'plugins/docks/skills/productivity/plan-reviewer/SKILL.md',
-  ]) {
-    assertCurrentReviewerSemantics(readText(relative), relative);
-  }
-  for (const relative of ['docs/plans/AGENTS.md', 'plugins/docks/skills/productivity/plan-manager/SKILL.md']) {
-    assert.match(
-      readText(relative),
-      /attempt 2[\s\S]{0,240}(?:explicit|exact) current-user|(?:explicit|exact) current-user[\s\S]{0,240}attempt 2/i,
-      `${relative} must retain explicit current-user authorization for same-input attempt 2`,
-    );
-    assert.match(
-      readText(relative),
-      /attempt 2[\s\S]{0,320}(?:new|fresh|newly created) reviewer|(?:new|fresh|newly created) reviewer[\s\S]{0,320}attempt 2/i,
-      `${relative} must create a new runtime-current reviewer for authorized attempt 2`,
-    );
-  }
-
-  for (const relative of [
-    'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-    'plugins/docks/skills/productivity/plan-repairer/SKILL.md',
-  ]) {
-    assertPolicyParagraph(readText(relative), PATCH_AUTHORITY_POLICY, `${relative} patch authority`);
-  }
-
-  assert.equal(
-    embeddedPlansAgentsBody(),
-    readText('docs/plans/AGENTS.md'),
-    'fenced plans AGENTS template body must be byte-equal to live docs/plans/AGENTS.md',
-  );
-
-  const wrapperSources = {
-    'plan-manager': [
-      '.codex/agents/plan-manager.toml',
-      'docs/scaffold/templates/codex-plan-manager.toml.template',
-      'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
-    ],
-    'plan-reviewer': [
-      '.codex/agents/plan-reviewer.toml',
-      'docs/scaffold/templates/codex-plan-reviewer.toml.template',
-      'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
-    ],
-  };
-  for (const [role, relatives] of Object.entries(wrapperSources)) {
-    for (const relative of relatives) {
-      const instructions = readCodexWrapperInstructions(relative, role);
-      for (const paragraph of WRAPPER_POLICY[role]) {
-        assertPolicyParagraph(instructions, paragraph, `${relative} ${role} shared wrapper policy`);
-      }
-      if (role === 'plan-reviewer') {
-        assertReviewerWrapperSemantics(instructions, relative);
-      }
-    }
-  }
+  assert.doesNotMatch(reviewer, /numeric score|provider\/model fallback|apply a patch|change lifecycle/i);
 }
 
-function runCodexFacts(scriptRoot) {
-  return spawnSync(process.execPath, [path.join(scriptRoot, 'scripts/skills/codex-facts.mjs')], {
-    cwd: scriptRoot,
-    encoding: 'utf8',
-  });
-}
-
-function assertRetainedCodexFactMutation() {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-plan-skill-phases-'));
-  try {
-    const guardDestination = path.join(temporaryRoot, 'scripts/skills/codex-facts.mjs');
-    const pipelineDestination = path.join(temporaryRoot, 'plugins/docks/skills/productivity/skill-agent-pipeline');
-    fs.mkdirSync(path.dirname(guardDestination), { recursive: true });
-    fs.mkdirSync(path.dirname(pipelineDestination), { recursive: true });
-    fs.copyFileSync(path.join(ROOT, 'scripts/skills/codex-facts.mjs'), guardDestination);
-    fs.cpSync(path.join(PRODUCTIVITY, 'skill-agent-pipeline'), pipelineDestination, { recursive: true });
-
-    const baseline = runCodexFacts(temporaryRoot);
-    assert.equal(baseline.status, 0, `${baseline.stdout}\n${baseline.stderr}`);
-    assert.match(baseline.stdout, /Guard PASSED/);
-
-    const factFile = path.join(pipelineDestination, 'references/codex-agents-builder.md');
-    const original = fs.readFileSync(factFile, 'utf8');
-    assert.match(original, /"minimal"/, 'retained effort token fixture');
-    fs.writeFileSync(factFile, original.replace('"minimal"', '"mutated-minimal"'));
-    const mutant = runCodexFacts(temporaryRoot);
-    assert.notEqual(mutant.status, 0, 'corrupting a retained effort token must make codex-facts fail');
-    assert.match(mutant.stderr, /missing model_reasoning_effort value "minimal"/);
-
-    fs.writeFileSync(factFile, original);
-    const restored = runCodexFacts(temporaryRoot);
-    assert.equal(restored.status, 0, `${restored.stdout}\n${restored.stderr}`);
-  } finally {
-    fs.rmSync(temporaryRoot, { recursive: true, force: true });
-  }
-
-  const realGuard = runCodexFacts(ROOT);
-  assert.equal(realGuard.status, 0, `${realGuard.stdout}\n${realGuard.stderr}`);
-  assert.match(realGuard.stdout, /Guard PASSED: skill-agent-pipeline Codex facts match canonical sets/);
-}
-
-function assertHistoricalNamesRemainHistorical() {
-  const oldWorkflow = readFrontmatter(path.join(ROOT, 'docs/plans/finished/2026-05-12-plan-review-smoke.md'));
-  assert.equal(oldWorkflow.metadata.status, 'finished');
-  assert.match(oldWorkflow.body, /\bplan-init\b/);
-  assert.match(oldWorkflow.body, /\bplan-review\b/);
-
-  const retiredCapability = readFrontmatter(
-    path.join(ROOT, 'docs/plans/finished/2026-06-10-capability-tuning-research-rollout.md'),
-  );
-  assert.equal(retiredCapability.metadata.status, 'finished');
-  assert.match(retiredCapability.body, /capability-tuning/i);
-}
-
-function resolveCatalogRoots() {
-  const claude = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin/marketplace.json'), 'utf8'));
-  const codex = JSON.parse(fs.readFileSync(path.join(ROOT, '.agents/plugins/marketplace.json'), 'utf8'));
-  const claudeEntry = claude.plugins.find(({ name }) => name === 'docks');
-  const codexEntry = codex.plugins.find(({ name }) => name === 'docks');
-  assert.ok(claudeEntry && codexEntry, 'both installed catalogs must expose docks');
-  assert.equal(codexEntry.source.source, 'local');
-  const claudeRoot = path.resolve(ROOT, claudeEntry.source);
-  const codexRoot = path.resolve(ROOT, codexEntry.source.path);
-  assert.equal(claudeRoot, codexRoot, 'Claude and Codex catalogs must resolve the same plugin payload');
-  return { claudeEntry, claudeRoot, codexRoot };
-}
-
-function assertInstalledCatalogs(version) {
-  const { claudeEntry, claudeRoot, codexRoot } = resolveCatalogRoots();
-  assert.equal(claudeEntry.version, version);
-  assert.equal(
-    JSON.parse(fs.readFileSync(path.join(claudeRoot, '.claude-plugin/plugin.json'), 'utf8')).version,
-    version,
-  );
-  assert.equal(JSON.parse(fs.readFileSync(path.join(codexRoot, '.codex-plugin/plugin.json'), 'utf8')).version, version);
-
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-installed-catalogs-'));
-  try {
-    for (const [catalog, source] of [
-      ['claude', claudeRoot],
-      ['codex', codexRoot],
-    ]) {
-      const installed = path.join(temporaryRoot, catalog, 'docks');
-      fs.mkdirSync(path.dirname(installed), { recursive: true });
-      fs.cpSync(source, installed, { recursive: true });
-      assertPhaseMetadata(path.join(installed, 'skills/productivity'));
-    }
-  } finally {
-    fs.rmSync(temporaryRoot, { recursive: true, force: true });
-  }
-}
-
-function assertResumedReleasePlan() {
-  const active = path.join(ROOT, 'docs/plans/active/session-relay-prebuilt-cli-release.md');
-  const finishedRoot = path.join(ROOT, 'docs/plans/finished');
-  const archived = fs
-    .readdirSync(finishedRoot)
-    .filter((name) => /^\d{4}-\d{2}-\d{2}-session-relay-prebuilt-cli-release\.md$/.test(name));
-  assert.equal(fs.existsSync(active), false, 'resumed release plan must no longer resolve in active/');
-  assert.equal(archived.length, 1, 'resumed release plan must have one unique ship-date archive');
-
-  const plan = readFrontmatter(path.join(finishedRoot, archived[0]));
-  assert.equal(plan.metadata.status, 'finished');
-  assert.equal(plan.metadata.review_status, 'passed');
-  const rows = [...plan.body.matchAll(/^\|\s*([1-7])\s*\|.*$/gm)].map((match) =>
-    match[0]
-      .split('|')
-      .slice(1, -1)
-      .map((cell) => cell.trim()),
-  );
-  assert.deepEqual(
-    rows.map((row) => [row[0], row[4]]),
-    [
-      ['1', 'done'],
-      ['2', 'done'],
-      ['3', 'done'],
-      ['4', 'done'],
-      ['5', 'done'],
-      ['6', 'done'],
-      ['7', 'done'],
-    ],
-    'all seven release steps must remain done',
-  );
-
-  const receipts = [...plan.body.matchAll(/^Review-receipt:\s*(\{.*\})$/gm)].map((match) => JSON.parse(match[1]));
-  const completion = receipts.find((receipt) => receipt.phase === 'completion' && receipt.policy?.schema === 6);
-  assert.ok(completion, 'archived release plan must retain one schema-6 completion receipt');
-  assert.equal(completion.outcome, 'passed');
-}
-
-const invocation = parseArgs(process.argv.slice(2));
-if (invocation.caseName === 'installed-catalogs') {
-  assertInstalledCatalogs(invocation.version);
-  console.log(`installed Claude/Codex catalogs expose the five plan phases at ${invocation.version}`);
-} else if (invocation.caseName === 'resumed-release-plan') {
-  assertResumedReleasePlan();
-  console.log('resumed Session Relay release plan archive passed');
-} else if (invocation.caseName === 'bounded-workflows') {
-  assertBoundedWorkflows();
-  console.log('bounded plan workflow contracts passed');
-} else {
-  assertPhaseMetadata();
-  assertWrappers();
-  assertScaffoldContract();
-  assertAuthorCheckKey();
-  assertCatalogMetadata();
-  assertControllerRecoveryOwnership();
-  assertReviewSafetyBoundaries();
-  assertRetainedCodexFactMutation();
-  assertHistoricalNamesRemainHistorical();
-  console.log('plan skill phase, wrapper, scaffold, guard, and history contracts passed');
-}
+parseArgs(process.argv.slice(2));
+assertLiveTopology();
+assertReviewerWrappersOnly();
+assertScaffoldTopology();
+assertBoundedWorkflows();
+console.log('three-skill, one-wrapper bounded plan workflows passed');

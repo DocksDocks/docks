@@ -4,13 +4,13 @@ description: "Use when bootstrapping or auditing a project's skills and agents �
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-22"
-  content_hash: "dd534ccb356b7925d65623bce759aa4d947b9feed1721d67cabdf0654775c72f"
+  updated: "2026-07-24"
+  content_hash: "ac194c81903ef660e8e385b0892f305e2240e71027bd69e16afe4ddbb9b63a5f"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
 
-Bootstrap and audit a project's `.claude/skills/` plus its agents — drafted in BOTH Claude (`.claude/agents/*.md`) and Codex (`.codex/agents/*.toml`) form — in one sequential pass: explore, propose the skill-set delta, extract codebase patterns, draft skills, verify, then implement after approval. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
+Bootstrap and audit a project's `.claude/skills/` plus its agents — drafted in BOTH Claude (`.claude/agents/*.md`) and Codex (`.codex/agents/*.toml`) form — in one sequential pass: explore, propose the skill-set delta, extract codebase patterns, draft skills, verify, then either report or implement according to the current request. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
 Single-agent sequential. Execute the phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Append each phase's output to the plan file under the exact heading shown, as you finish it, so a mid-run compaction can resume by re-reading the file.
@@ -21,7 +21,7 @@ Agents are emitted in BOTH formats, on every runtime. Phases 4a/4b/5 draft each 
 </constraint>
 
 <constraint>
-Approval via the plan lifecycle, not Plan Mode. Write the full skills/agents plan to a `docs/plans/` file and surface it — do NOT call `ExitPlanMode` (Claude-only). If the workspace is absent, route bootstrap to `plan-workspace`; route creation of the previously nonexistent canonical plan to `plan-creator`; route review, `start <slug>`, and all later lifecycle work to `plan-manager`. Tell the user: "review and say `start <slug>` to implement." Implementation (Phase 7) runs only after `plan-manager` applies the start.
+Intent controls the plan handoff, not Plan Mode. Write the full skills/agents plan to `docs/plans/` and do NOT call `ExitPlanMode` (Claude-only). Route missing-workspace bootstrap to `plan-workspace`; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, implementation/delegation, verification, and finish/archive. An audit-only or plan-only request stops after the reviewed report. A bootstrap, refresh, or implementation request continues directly into Phase 7 after the manager records the reviewed start checkpoint; no additional user lifecycle command is required.
 </constraint>
 
 ## When to use
@@ -60,7 +60,7 @@ Run in order. Each phase reads its reference, then writes output under the exact
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
 2. **Phase 0** (inline): count `.agents/skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, and `.codex/agents/*.toml`; note whether a local `skill-maintenance` exists and whether plugin `docks:skill-maintenance` is available (a stale local copy is flagged for REMOVAL in Phase 2a, not regenerated); write the counts + today under `## Phase 0: State`.
-3. Resolve the canonical plan path: route a missing workspace to `plan-workspace`, a missing path plus the complete draft to `plan-creator`, and any existing-plan write to `plan-manager`. Run Phases 1→2a→2c→2b→3. **Phase 2c is mandatory and always runs** — it audits every existing skill and agent claim against current source (ignoring git history and `metadata.updated`); write its table even when all-clean, never skip. After 2c, **reconcile**: amend the `## Phase 2a` block in place to escalate each non-CLEAN skill to REFRESH/REWRITE (`→ escalated by 2c: …`), and route each non-CLEAN agent to the Phase 5 regenerate list — so the gate reads one delta.
+3. Resolve the canonical plan path: route a missing workspace to `plan-workspace`, then route creation and every lifecycle write to the unified `plan-manager`. Run Phases 1→2a→2c→2b→3. **Phase 2c is mandatory and always runs** — it audits every existing skill and agent claim against current source (ignoring git history and `metadata.updated`); write its table even when all-clean, never skip. After 2c, **reconcile**: amend the `## Phase 2a` block in place to escalate each non-CLEAN skill to REFRESH/REWRITE (`→ escalated by 2c: …`), and route each non-CLEAN agent to the Phase 5 regenerate list — so the handoff reads one delta.
 4. **Agent track:** run Phases 4a→4b→5 on every runtime — they draft each agent in both `.claude/agents/*.md` and `.codex/agents/*.toml` form.
 5. Run Phase 6 (verifier). It validates skills and BOTH agent formats, plus cross-layer integrity.
 6. Before starting each phase, confirm the prior heading is present. If a phase found nothing, write "no changes" under its heading — never silently skip.
@@ -71,7 +71,7 @@ Run in order. Each phase reads its reference, then writes output under the exact
 One Markdown file holds the whole run — inter-phase memory and the implementation spec.
 
 ```text
-docs/plans/active/skills-audit.md   (created by plan-creator; then managed by plan-manager)
+docs/plans/active/skills-audit.md   (created, reviewed, and managed by plan-manager)
 ```
 
 Write as you go — never hold all phase output in context and dump at the end. Downstream phases locate prior output by grepping for the headings above.
@@ -85,13 +85,13 @@ Every proposed description starts `Use when…`, is valid YAML when parsed as fr
 | BAD | "Use when working with the API and database operations in the project." |
 | GOOD | "Use when editing `routes/checkout.ts`, touching the `STRIPE_WEBHOOK_SECRET` env var, handling the `CartExpiredError`, or running `pnpm seed:orders` — covers the order-state machine and idempotency keys." |
 
-## Gate + implementation
+## Review handoff + implementation
 
 Phases 1–6 are read-only. After Phase 6:
 
 1. Write the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete into the plan file.
-2. Surface it: report the counts and tell the user "review `docs/plans/active/<slug>.md` and say `start <slug>` to implement"; public review and start are `plan-manager` operations.
-3. On `start`, run **Phase 7 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents AND any SKILL.md being split into `references/`, back up the original first (`<name>.md.bak`, plus each new `references/*.md` for a split) and copy relocated prose **verbatim** (reformat OK, reword NOT); apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, `git rm` it after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, run that project's documented hash-sync command; otherwise leave hashes absent/untouched and do not report missing Docks tooling.
+2. For an audit-only or plan-only request, report the reviewed plan path and counts, then stop. For a bootstrap, refresh, or implementation request, give the complete artifact to the unified `plan-manager`; after its bounded review and reviewed start checkpoint, continue immediately into Phase 7 without a manual lifecycle prompt.
+3. Run **Phase 7 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents AND any SKILL.md being split into `references/`, back up the original first (`<name>.md.bak`, plus each new `references/*.md` for a split) and copy relocated prose **verbatim** (reformat OK, reword NOT); apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, remove it only after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, sync it after all content changes, not before.
 4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here — that is the `multi-tool-bridge` skill's job.
 
 ## References
@@ -133,7 +133,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from `/tmp/skill.before`, loc
 |---|---|---|
 | Calling an `Agent`-dispatching agent unportable to Codex | Codex allows one dispatch level by default (`agents.max_depth: 1`), so single-level dispatch ports | Emit BOTH files; route delegation to a Codex `worker`/`explorer` child; flag only deeper-than-1 nesting (raise `agents.max_depth`) |
 | A pre-existing skill's description exceeds 1024 chars | Codex silently skips the whole skill | Phase 2a flags it `rewrite-description`; Phase 6 hard-fails until fixed |
-| Implementing before the user starts the plan | Writes files the user never approved | Gate on `start <slug>`; Phases 1–6 are read-only |
+| Treating an implementation request as plan-only | Makes the user schedule an internal lifecycle transition | After manager review, continue into Phase 7 automatically; stop only for assessment-only intent or a real blocker |
 | Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change; sync hashes only when the current project documents that contract |
 | Declaring a skill accurate from a git-delta or a 5-ref spot-check | Pre-baseline drift and fictional APIs ship unseen | Phase 2c opens EVERY ref/snippet/identifier vs current source and states the count verified; `metadata.updated` is not accuracy evidence |
 | SKILL.md body crossing 310 lines | Overflow dropped after compaction; verifier hard-fails | Split detail into `references/<topic>.md` (30–150 lines) |

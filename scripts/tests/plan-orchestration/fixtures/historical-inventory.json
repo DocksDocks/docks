@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "helper": "plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs",
+  "categories": {
+    "parse_canonical": [
+      "jcs",
+      "sha256",
+      "parsePlan",
+      "canonicalPlanView",
+      "acceptanceInventory",
+      "validateAcceptanceInventory",
+      "completionStablePlanViewV1"
+    ],
+    "request_policy": ["validateWorkflowModelRecord", "validatePolicy", "validateCurrentPolicy", "validateRequest"],
+    "output_attempt": [
+      "validateReviewerOutput",
+      "validateCurrentReviewerOutput",
+      "validateRawLeg",
+      "validateCurrentAttemptSequence",
+      "validateCurrentRawReview"
+    ],
+    "series_waiver": [
+      "validateReconciliation",
+      "validateReviewSeries",
+      "validateCurrentReviewSeries",
+      "validateWaivers",
+      "validateCurrentWaivers"
+    ],
+    "orchestration_family": ["validateCanonicalOrchestrationFamily"],
+    "result_receipt": [
+      "validateDraftRunResult",
+      "validateCompletionRunResult",
+      "validateCurrentReviewRunResult",
+      "validateDraftReceipt",
+      "validateCompletionReceipt",
+      "validateCurrentReviewReceipt",
+      "validateDraftReviewReuse"
+    ],
+    "classifiers": ["deriveCompletionVerdict", "classifyLeg"]
+  },
+  "schema_matrix": {
+    "policy": [1, 2, 3, 4, 5, 6],
+    "request": [1, 2, 3, 5, 6],
+    "review_record": [1, 2, 3, 5, 6],
+    "workflow_model": [1, 2],
+    "acceptance_inventory": [1],
+    "review_series": [3, 5, 6]
+  },
+  "fixture_outcomes": {
+    "parse_canonical": "accepted",
+    "workflow_model": {
+      "1": "accepted",
+      "2": "accepted"
+    },
+    "policy": {
+      "1": "accepted",
+      "2": "accepted",
+      "3": "accepted",
+      "4": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "request": {
+      "1": "accepted",
+      "2": "accepted",
+      "3": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "review_record": {
+      "1": "accepted",
+      "2": "accepted",
+      "3": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "review_series": {
+      "3": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "draft_result": {
+      "1": "accepted",
+      "2": "accepted",
+      "3": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "completion_result": {
+      "1": "accepted",
+      "2": "accepted",
+      "3": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "draft_receipt": {
+      "1": "accepted",
+      "2": "accepted",
+      "3": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "completion_receipt": {
+      "1": "accepted",
+      "2": "accepted",
+      "3": "accepted",
+      "5": "accepted",
+      "6": "accepted"
+    },
+    "draft_reuse": "accepted",
+    "reconciliation": "accepted",
+    "orchestration_family": "accepted",
+    "waiver": {
+      "legacy": "accepted",
+      "current": "accepted"
+    },
+    "classifiers": {
+      "completion": "passed",
+      "leg": "passed"
+    },
+    "malformed": {
+      "workflow_model_unknown_key": "rejected",
+      "empty_acceptance_inventory": "rejected",
+      "current_output_verdict": "rejected",
+      "current_raw_selection": "rejected",
+      "legacy_series_repair": "rejected",
+      "stale_draft_receipt": "rejected"
+    }
+  },
+  "tracked_corpus": {
+    "roots": ["docs/plans/active", "docs/plans/finished"],
+    "machine_record_prefixes": [
+      "Bootstrap-review-record",
+      "Review-receipt",
+      "Completion-review-receipt",
+      "Review-orchestration-state",
+      "Review-orchestration-prepared-request",
+      "Review-orchestration-dispatch-commitment",
+      "Review-orchestration-controller-abort",
+      "Review-orchestration-abandonment"
+    ],
+    "known_quarantined": ["docs/plans/active/session-relay-linux-workspace-publication.md"],
+    "expected_outcomes": [
+      { "path": "docs/plans/active/plan-review-controller-failure-recovery.md", "outcome": "pass" },
+      { "path": "docs/plans/active/plan-workflow-phases-and-loop-escape.md", "outcome": "pass" },
+      { "path": "docs/plans/active/session-relay-correlated-messaging-and-worker-results.md", "outcome": "pass" },
+      {
+        "path": "docs/plans/active/session-relay-linux-workspace-publication.md",
+        "outcome": "pass",
+        "quarantine": "legacy-quarantined"
+      },
+      { "path": "docs/plans/active/session-relay-linux-workspace-release.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-12-cross-company-review-policy.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-14-legacy-start-transition-compatibility.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-14-relay-worker-lifecycle-primitives-legacy.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-15-refactor-session-relay-rust.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-15-relay-worker-fanout.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-15-workflow-model-roles-and-bounded-reviews.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-17-completion-reuse-terminal-lf.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-17-single-gpt-plan-review-default.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-18-target-plugin-ci-and-release-gates.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-19-session-relay-prebuilt-cli-release.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-22-session-relay-workspace-isolation.md", "outcome": "pass" },
+      { "path": "docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md", "outcome": "pass" }
+    ]
+  },
+  "existing_mutation_catalog": {
+    "module": "scripts/tests/plan-orchestration/historical-malformed-corpus.mjs",
+    "frozen_root": "scripts/tests/plan-orchestration/fixtures/legacy-regression-tree",
+    "expected_case_count": 143,
+    "expected_mutant_outcome": "detected"
+  }
+}

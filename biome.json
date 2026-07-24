@@ -1,5 +1,8 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": {
+    "includes": ["**", "!!scripts/tests/plan-orchestration/fixtures/legacy-regression-tree"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

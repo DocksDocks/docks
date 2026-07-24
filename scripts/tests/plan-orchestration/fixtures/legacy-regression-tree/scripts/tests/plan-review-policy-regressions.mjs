@@ -5031,6 +5031,7 @@ async function runRegressionSuite(jobs, timings = null, partition = null) {
 
   const snapshot = createOwnedRoot('snapshot');
   let suiteFailure = null;
+  const mutationOutcomes = [];
   try {
     cloneFixture({ sourceRoot: ROOT, destinationRoot: snapshot, relativePaths: CLONE_SURFACES });
     changeOwnedModes(snapshot, 0o500, 0o400);
@@ -5161,7 +5162,7 @@ async function runRegressionSuite(jobs, timings = null, partition = null) {
     if (runtime.signal === null) {
       if (timings !== null) validateMutationTimingRows(timings.cases, selectedCatalog, false);
       for (let selectedIndex = 0; selectedIndex < selectedRows.length; selectedIndex += 1) {
-        const { regression } = selectedRows[selectedIndex];
+        const { identity, regression } = selectedRows[selectedIndex];
         const [label, , pattern] = regression;
         const settled = results[selectedIndex];
         if (settled.status === 'rejected') throw new Error(`${label}: ${settled.reason?.stack || settled.reason}`);
@@ -5175,6 +5176,12 @@ async function runRegressionSuite(jobs, timings = null, partition = null) {
           `${label}: independent failure oracle did not fire`,
         );
         if (timings !== null) timings.cases[selectedIndex].status = 'passed';
+        mutationOutcomes.push(Object.freeze({
+          id: label,
+          harness: identity.harness,
+          selector: identity.selector,
+          outcome: 'detected',
+        }));
         console.log(`regression fixture detected: ${label}`);
       }
     }
@@ -5191,6 +5198,11 @@ async function runRegressionSuite(jobs, timings = null, partition = null) {
   if (cleanupFailure !== null) throw cleanupFailure;
   if (timings !== null) validateCompleteTimings(timings, selectedCatalog, includeBaselines);
   console.log('plan-review-policy regressions passed');
+  return Object.freeze(mutationOutcomes);
+}
+
+export function runHistoricalMalformedCorpus() {
+  return runRegressionSuite(DEFAULT_JOBS, null, 'mutations');
 }
 
 export async function main(argv = process.argv.slice(2)) {

@@ -1,6 +1,6 @@
 # CI workflows (.github/)
 
-`workflows/ci.yml` keeps one authoritative `validate (scripts/ci.mjs)` status. Pull requests run two `validation-shards` matrix lanes (`core`, `relay`), and the `validate` job joins them without rerunning the gate. Core owns the broad baselines, foreground plan-policy fast-surfaces and convergence-repair checks, repo-wide checks, Docks/effect-kit gates, and JavaScript quality; Relay owns the Session Relay gate, all 140 mutation rows, and the focused/malformed global preflights. Manual dispatches run one untargeted full gate; a release-tag push first resolves the tag to one known plugin and then runs only that plugin's owned gate via `ci.mjs --plugin <name>`. Both PR lanes install Node + pnpm dependencies and materialize the lockfile-pinned `claude-code`; Rust is provisioned only by the PR Relay lane, a manual full run, or a Rust-capable release target.
+`workflows/ci.yml` keeps one authoritative `validate (scripts/ci.mjs)` status. Pull requests run two `validation-shards` matrix lanes (`core`, `relay`), and the `validate` job joins them without rerunning the gate. Core owns repo-wide checks, the focused Docks `PlanRunV1` orchestration and bounded-workflow contracts, the joint Docks/Effect Kit trigger-collision audit, both plugin gates, and JavaScript quality. Relay owns the Session Relay shell, trigger, plugin, release-contract, and native Rust gates. Manual dispatches run one full gate; tag pushes run one registry-resolved plugin gate.
 
 ## build-binaries.yml — the session-relay binary producer
 
@@ -19,22 +19,37 @@ Only three events trigger CI:
 
 ## No drift — ci.yml runs ci.mjs
 
-`ci.yml` always invokes `scripts/ci.mjs`; targeting uses its supported `--lane` or `--plugin` arguments, not another validator implementation. Pull requests collectively execute the full contract through the two partitioned lane invocations: Core runs the `baselines` partition plus the foreground plan-policy fast-surfaces and convergence-repair checks, while Relay runs `mutations` and the focused/malformed global preflights. Manual runs execute the untargeted repo + all-plugin gate, preserving the unqualified three-baseline plus 140-mutation contract. Release-tag runs use `scripts/ci-target.mjs` to reject malformed or unknown tags before Cargo caching or Rust provisioning, then execute only the resolved plugin's owned author checks, target-derived shell lint, and plugin gate, including its marketplace/version coherence. Local validation is LAYER 1 (fast feedback); tag CI is LAYER 2 (the authoritative selected-plugin release gate, catching contributor-machine drift). See `scripts/AGENTS.md` for the validator list and release flow.
+`ci.yml` always invokes `scripts/ci.mjs`; targeting uses its supported `--lane`
+or `--plugin` arguments, not another validator implementation. The two PR lanes
+collectively cover the full contract through plugin ownership. They do not split
+a mutation catalog, pass validation artifacts, or carry regression partition or
+jobs-cap arguments.
 
-Both PR lanes perform the frozen pnpm install and materialize the lockfile-pinned `@anthropic-ai/claude-code` binary. Only Relay provisions Rust and restores the Cargo cache. Manual/tag runs materialize Node dependencies in the `validate` job and provision Rust only for a full run or Rust-capable target. The PR `validate` aggregator only checks the matrix result and performs no checkout, install, artifact handoff, or gate execution.
+Both PR lanes perform the frozen pnpm install and materialize the lockfile-pinned
+`@anthropic-ai/claude-code` binary. Only Relay provisions Rust and restores the
+Cargo cache. Manual/tag runs materialize Node dependencies in `validate` and
+provision Rust only for a full run or Rust-capable target. The PR `validate`
+aggregator only checks the matrix result and performs no checkout, install,
+artifact handoff, or gate execution.
 
-Relay/full Linux source gates also provision one owned cgroup-v2 delegation, export it as `SESSION_RELAY_TEST_CGROUP_ROOT`, and remove it after `ci.mjs`. The core lane and non-Rust tag gates do not provision one. Missing delegation, failed native prerequisites, or leaked nested cgroups fail the owning gate; they are never hidden skips. This preserves the core/relay matrix, one authoritative `validate` join, one untargeted manual gate, and one registry-resolved tag gate.
+Relay/full Linux source gates also provision one owned cgroup-v2 delegation,
+export it as `SESSION_RELAY_TEST_CGROUP_ROOT`, and remove it after `ci.mjs`. Core
+and non-Rust tag gates do not provision one. Missing delegation, failed native
+prerequisites, or leaked nested cgroups fail the owning gate; they are never
+hidden skips.
 
-## PR topology decision record
+## PR topology
 
-The selected core+relay topology measured median lane times of 46,113 ms for Core and 49,622 ms for Relay, a 7.07% spread and 95,735 ms total compute; the Relay plugin phase measured 49,567 ms. It retains one authoritative join and no shard artifacts.
+- `core`: repo-wide checks; focused plan orchestration; three-skill/one-wrapper
+  bounded workflows; Docks/effect-kit and their joint collision audit;
+  JavaScript quality.
+- `relay`: Session Relay's selected shell, collision, plugin, release-contract,
+  and Rust/source checks.
 
-Keep the rejected layouts rejected unless new evidence changes the result:
-- An empty Relay regression task duplicated useless preflight work and task output without owning useful cases.
-- The regenerated three-lane fallback passed correctness but failed the 15% balance requirement: Core 46,840 ms, Relay 49,140 ms, mutations 14,586 ms; 70.3% spread and 110,566 ms total compute.
-- An unpartitioned Core measured 68–96 seconds and misses the 60-second lane cap.
-
-Classify future regression tests by contract: broad baselines belong to Core; mutation oracles belong to Relay. Preserve the authoritative unqualified inventory of three baselines plus 140 mutation rows. Do not add a lane, restore sharding, introduce a validation-artifact handoff, or move global preflight ownership without fresh three-run qualification and corresponding workflow, targeting, release-evidence, and source-contract updates. Qualification must prove stable passing inventories, the unqualified `3+140` and disjoint partition `3+0`/`0+140` contracts, lane medians at or below 60,000 ms, Relay phase at or below 52,815 ms, spread at or below 15%, compute no worse than the fallback, and the unchanged authoritative join/manual/tag behavior.
+Keep the two-lane selector and authoritative join in sync with
+`scripts/lib/ci-targeting.mjs`, `scripts/ci.mjs`, and
+`scripts/tests/ci-plugin-targeting.mjs`. Adding a third lane or moving plugin
+ownership requires corresponding workflow and targeting-contract changes.
 
 ## Cache behavior
 

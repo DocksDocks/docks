@@ -13,7 +13,6 @@ templated_files:
   - { template: codex-plugin.json.template,      dest: "plugins/{{ plugin_name }}/.codex-plugin/plugin.json" }
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
-  - { template: codex-plan-manager.toml.template, dest: ".codex/agents/plan-manager.toml" }
   - { template: codex-plan-reviewer.toml.template, dest: ".codex/agents/plan-reviewer.toml" }
   - { template: package.json.template,          dest: "package.json" }
   - { template: pnpm-lock.yaml.template,        dest: "pnpm-lock.yaml" }
@@ -34,10 +33,8 @@ tree_nodes:
 bundled_skills:
   - { source: plugins/docks/skills/productivity/context-tree }
   - { source: plugins/docks/skills/productivity/plan-workspace }
-  - { source: plugins/docks/skills/productivity/plan-creator }
   - { source: plugins/docks/skills/productivity/plan-manager }
   - { source: plugins/docks/skills/productivity/plan-reviewer }
-  - { source: plugins/docks/skills/productivity/plan-repairer }
   - { source: plugins/docks/skills/productivity/write-skill }
 
 # Validator scripts copied verbatim. They accept a path arg, so the seeded project

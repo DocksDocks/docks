@@ -61,15 +61,36 @@ A skill that **moves, splits, migrates, or rewrites existing content** (root →
 
 `scripts/skills/transform-guard.mjs` enforces both across the curated transformer list (`scripts/AGENTS.md`).
 
-## Plan-skill contract sync (two homes)
+## Plan-skill contract sync (three homes)
 
-Use direct implementation for a clear, low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review. Canonical multi-commit plans keep one independent lifecycle review; plan authoring and review run plan-structure/evidence checks only, while implementation commands, tests, and any policy-required project gate run after code changes.
+Use direct implementation for one clear, reversible, low-risk local diff with
+one bounded acceptance path; it creates no tracked plan, reviewer, or automatic
+commit. Canonical planning is for explicit planning, multi-commit or
+cross-repository work, scheduling, cold handoff, unresolved decisions,
+cross-subsystem/public-contract changes, security-sensitive/destructive work, or
+external effects.
 
-The plan convention lives in the five exact `plan-*` skills and each consumer project's `docs/plans/AGENTS.md`, generated from `plan-workspace/references/plans-agents-md-template.md`. The ownership split is fixed: `plan-workspace` maintains the workspace, `plan-creator` creates one missing plan and returns `PlanCreatedV1`, `plan-manager` owns every existing-plan operation and lifecycle write, `plan-reviewer` returns sealed-bundle evidence only, and `plan-repairer` returns one exact patch for the accepted blocking set or `cannot_repair`. Only manager and reviewer wrappers exist. When frontmatter, body spine, status-as-field, self-review, open questions, views, or lifecycle routing changes, update the five skills, the workspace template, and this repository's live `docs/plans/AGENTS.md` in the same change. Explicit workspace refresh belongs to `plan-workspace`; the manager never rewrites a stale contract.
+The convention lives in exactly three `plan-*` skills, each consumer project's
+`docs/plans/AGENTS.md`, and the embedded
+`plan-workspace/references/plans-agents-md-template.md`. `plan-workspace`
+maintains the workspace; main-context `plan-manager` owns classify →
+draft/review/one repair → start → implement/delegate → observed acceptance →
+finish/archive; internal `plan-reviewer` returns read-only `PlanReviewV1`
+evidence over one immutable bundle. Only reviewer wrappers exist.
 
-Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
+The current contract moves as one PlanRunV1 surface: one unfenced compact-JCS
+record; repository/path/run and cross-repository goal identity; canonical
+plan/source/acceptance hashes; separate two-permit draft/completion phases;
+exclusive preimage/CAS transactions; major checkpoint commits; risk-based
+completion review; target-local legacy quarantine; literal live external
+authority; and Steps `Effect` values
+`local|probe|production_access|publish|push|release|deploy`. Schemas 1–6 are
+historical validation/quarantine only.
 
-The current review contract moves as one schema-6 surface: the exact persisted `Review-orchestration-state: <compact JCS object>` record, substantive-input/no-progress fingerprint, request/series/state hashes, one fresh current-model reviewer per round with no provider/model/candidate or Session Relay fallback, one full plus at most one changed-input repair round, attempt-1 `stopped` versus explicitly authorized attempt-2 `stuck`, `NeedsUserAction`, one-shot intent consumption, receipts, dispatch/reconciliation, and repair binding must agree across the live contract, all five skills, manager/reviewer wrappers, scaffold sources, public routing prose, and executable policy tooling. The dependency-free helper under `plan-reviewer/scripts/` is the schema/canonicalization source; author tests execute that shipped copy rather than reimplement it. Schemas 1–5 remain historical and retain their exact bytes and validation results. The author-check key is exactly `plan-reviewer`.
+When any part changes, synchronize the three skills, the workspace template,
+this repository's `docs/plans/AGENTS.md`, reviewer wrappers, scaffold
+spec/templates, and public routing prose. Main owns one content-hash backfill
+after a coordinated multi-file cutover.
 
 ## Cross-tool wording (Claude Code + Codex)
 

@@ -58,21 +58,36 @@ Plus `write-skill`, `multi-tool-bridge`, and `zoom-out` under `productivity/`.
 
 ### Plan lifecycle
 
-Use direct implementation for a clear, low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review. Canonical multi-commit plans keep one independent lifecycle review; plan authoring and review run plan-structure/evidence checks only, while implementation commands, tests, and any policy-required project gate run after code changes.
+Directly implement one clear, reversible, low-risk local diff with one bounded
+acceptance path; it creates no tracked plan, reviewer, or automatic commit. Use
+a canonical plan for explicit planning, multi-commit/cross-repository work,
+scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
+changes, security-sensitive/destructive work, or an external effect.
 
-| Phase | Skill | Invocation | Ownership |
+| Owner | Skill | Invocation | Responsibility |
 |---|---|---|---|
-| Workspace | `plan-workspace` | Public | Bootstrap, migrate, audit, or explicitly refresh `docs/plans/`; never draft a plan |
-| Create | `plan-creator` | Public | Draft, self-review, and commit one previously nonexistent `planned` or `scheduled` plan |
-| Manage | `plan-manager` | Public | Every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write |
-| Review | `plan-reviewer` | Internal | Return typed read-only evidence over one sealed bundle |
-| Repair | `plan-repairer` | Internal | Return one exact patch for the accepted blocking set or `cannot_repair` |
+| Workspace | `plan-workspace` | Public | Bootstrap, migrate, audit, or explicitly refresh `docs/plans/`; never mutate an individual plan |
+| Orchestration | `plan-manager` | Public, main context | Classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive; list/show/lifecycle and guarded issue publication |
+| Draft evidence | `plan-reviewer` | Internal, read-only | Return bound `PlanReviewV1` evidence over one immutable bundle |
 
-Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
+These are the only live plan skills. Only `plan-reviewer` ships/gets seeded as a
+thin Claude/Codex wrapper; main context invokes `plan-manager` directly.
 
-Creation returns the committed, read-back `PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}` handoff; the creator never reviews or edits that path again. Current review records use schema 6. The manager persists the exact `Review-orchestration-state: <compact JCS object>` record, permits one full round plus at most one repair round per attempt, and returns retryable attempt-1 failures as `stopped`. Only explicit current-user authorization can start same-input attempt 2; another failure is `stuck`, with no automatic reprepare or third attempt. A substantive canonical-input change starts a new attempt 1; metadata-only changes do not count as progress.
+Current plans contain one unfenced compact-JCS `Plan-run: PlanRunV1` line.
+PlanRunV1 binds repository/path/run identity, shared cross-repository `goal_id`,
+canonical requested effects/risk, plan/source hashes, separate two-permit
+draft/completion phases, execution/implementation identities, acceptance
+hashes, and at most one typed blocker. Reviews reserve before fresh launch;
+stale output is ignored and cold reserved state blocks. Ordinary local work has
+no completion reviewer; sensitive/external exact-diff review is bounded to one
+review plus one blocker-fix re-review.
 
-Skills are canonical. Only `plan-manager` and `plan-reviewer` ship as thin inherited-model Claude subagents; only those two may be seeded as project-local Codex wrappers by `plan-workspace` or `scaffold`, and those wrappers omit model pins so the invoking runtime remains authoritative. Schema 6 launches one fresh reviewer per authorized invocation using the sole runtime-current candidate that matches `request.author`; repair and the explicitly authorized same-input attempt 2 each launch another new reviewer. There is no provider/model fallback or Session Relay review, and every reviewer output or failure returns once. The manager is the sole dispatcher/reconciler and lifecycle writer; the reviewer is sealed-bundle evidence-only. Schemas 1–5 remain historical validation/audit-only. In Claude, force-invoke the public manager with `@agent-plan-manager`.
+Plan writes use exclusive preimage-checked transactions and major checkpoint
+commits only. Steps use `Effect` exactly
+`local|probe|production_access|publish|push|release|deploy`; persisted intent is
+never external authority. Each non-local action needs matching exact live
+current-user scope/mode/target authority. Schemas 1–6 are historical
+validation/quarantine-only and never block unrelated goals.
 
 ## Why sequential, single-context?
 

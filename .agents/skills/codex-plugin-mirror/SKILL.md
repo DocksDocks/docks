@@ -1,10 +1,10 @@
 ---
 name: codex-plugin-mirror
-description: Use when adding Codex distribution to an existing Claude Code plugin — reads .claude-plugin/plugin.json and marketplace.json, generates parallel .codex-plugin/plugin.json and .agents/plugins/marketplace.json with translated schema, drops fields Codex plugins don't support (commands, subagents references), keeps versions in sync. Idempotent. Not for project-level skills setup (use plan-init or multi-tool-bridge) or porting Claude subagent files to .codex/agents/ TOML (separate concern).
+description: Use when adding Codex distribution to an existing Claude Code plugin — reads .claude-plugin/plugin.json and marketplace.json, generates parallel .codex-plugin/plugin.json and .agents/plugins/marketplace.json with translated schema, drops fields Codex plugins don't support (commands, subagents references), keeps versions in sync. Idempotent. Not for project-level plan workspace setup (use plan-workspace), cross-tool AGENTS/skills setup (use multi-tool-bridge), or porting Claude subagent files to .codex/agents/ TOML (separate concern).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-06-14"
+  updated: "2026-07-24"
 ---
 
 # Codex Plugin Mirror

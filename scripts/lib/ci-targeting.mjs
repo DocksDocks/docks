@@ -7,18 +7,8 @@ export const CI_LANES = Object.freeze(['core', 'relay']);
 const PLUGIN_CI_LANES = new Set(['core', 'relay']);
 
 const CI_LANE_DESCRIPTORS = Object.freeze({
-  core: Object.freeze({
-    repoWide: true,
-    planPolicy: true,
-    regressionPartition: 'baselines',
-    regressionJobsCap: 4,
-  }),
-  relay: Object.freeze({
-    repoWide: false,
-    planPolicy: false,
-    regressionPartition: 'mutations',
-    regressionJobsCap: 4,
-  }),
+  core: Object.freeze({ repoWide: true }),
+  relay: Object.freeze({ repoWide: false }),
 });
 
 function knownNames(plugins) {
@@ -59,9 +49,6 @@ export function resolveCiLane(presentPlugins, lane) {
     name: lane,
     targets,
     repoWide: descriptor.repoWide,
-    planPolicy: descriptor.planPolicy,
-    regressionPartition: descriptor.regressionPartition,
-    regressionJobsCap: descriptor.regressionJobsCap,
   };
 }
 

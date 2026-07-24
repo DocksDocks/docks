@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-18"
-  content_hash: "02ce57d9b4bb89d9e4558258b0965a84d566665bdff034bfa57ed0e743931831"
+  updated: "2026-07-24"
+  content_hash: "e6c32d79794f2bd5612cebd8ee135791e7c03a408ec8b724c1c9e4744fa6514c"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -21,7 +21,7 @@ Read-only. This pipeline never modifies source. Its only deliverable is the audi
 </constraint>
 
 <constraint>
-Approval via the plan lifecycle, not Plan Mode. Write the report to a plan file under `docs/plans/` and surface it — do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns missing-workspace bootstrap, `plan-creator` owns creation of the previously nonexistent report plan, and `plan-manager` owns existing-plan writes, review, `start <slug>`, and lifecycle. Use `docs/security-audit-<date>.md` only as an untracked fallback when the user declines workspace bootstrap.
+Intent controls the handoff, not Plan Mode. Write the report to a plan file under `docs/plans/` and do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns missing-workspace bootstrap; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, and any requested implementation. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. Use `docs/security-audit-<date>.md` only as an untracked fallback when the user declines workspace bootstrap.
 </constraint>
 
 <constraint>
@@ -60,7 +60,7 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
-2. Resolve the audit artifact. For the tracked path, route an absent workspace to `plan-workspace`, a missing canonical plan to `plan-creator`, and subsequent writes to `plan-manager`. Write an `## Environment` block: date, branch, short git status.
+2. Resolve the audit artifact. Route an absent tracked workspace to `plan-workspace`; route canonical-plan creation and every later plan write to the unified `plan-manager`. Write an `## Environment` block: date, branch, short git status.
 3. For each pipeline row, in order:
    - Read `references/<phase>.md`.
    - Perform that analysis against the scope, using Phase 1's map as the starting point for phases 2–3.
@@ -73,7 +73,7 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 One Markdown file holds the whole run. It doubles as inter-phase memory and the final artifact.
 
 ```text
-docs/plans/active/security-audit.md   (preferred — created by plan-creator; then managed by plan-manager)
+docs/plans/active/security-audit.md   (preferred — created, reviewed, and managed by plan-manager)
 docs/security-audit-<YYYYMMDD>.md     (untracked fallback only when the user declines workspace bootstrap)
 ```
 
@@ -97,18 +97,18 @@ Synthesis (Phase 3) re-greps each pattern and traces taint to a real input sourc
 
 ## Handoff
 
-The report is terminal for this pipeline (read-only). After Phase 3:
+The audit pipeline itself is always read-only. After Phase 3:
 
 1. Tell the user where the report is and give the executive-summary counts (Critical/High/Medium/Low).
-2. If the report was written into `docs/plans/`, it is a tracked plan — route review and `start <slug>` through `plan-manager` to drive remediation.
-3. To remediate, hand confirmed findings to the `fix-workflow` skill:
+2. For an assessment-only request, stop after reporting; do not infer remediation.
+3. If the current request explicitly includes remediation, hand confirmed findings to `fix-workflow`. When the remediation warrants a canonical plan, the unified `plan-manager` creates, reviews, transitions, implements/delegates, verifies, and finishes it in the same orchestration without a manual lifecycle prompt.
 
 ```bash
-# example: feed a confirmed finding into the fix pipeline
+# example confirmed finding passed to the fix pipeline
 # "fix the SQL injection at src/api/users.ts:87 from the security audit"
 ```
 
-Never auto-remediate from this skill.
+Do not edit source from inside this audit pipeline; requested remediation begins only after its report is complete.
 
 ## References
 

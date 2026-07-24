@@ -35,7 +35,7 @@ plugin:
 
 ## `templated_files`
 
-Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted. The only Codex plan wrappers are manager and reviewer, rendered under `.codex/agents/`; they are project-local files, not plugin-shipped agents.
+Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted. The only Codex plan wrapper is the read-only reviewer under `.codex/agents/`; main context owns `plan-manager` directly.
 
 ```yaml
 templated_files:
@@ -43,7 +43,6 @@ templated_files:
   - { template: codex-plugin.json.template,      dest: "plugins/{{ plugin_name }}/.codex-plugin/plugin.json" }
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
-  - { template: codex-plan-manager.toml.template, dest: ".codex/agents/plan-manager.toml" }
   - { template: codex-plan-reviewer.toml.template, dest: ".codex/agents/plan-reviewer.toml" }
   - { template: package.json.template,           dest: "package.json" }
   - { template: pnpm-lock.yaml.template,         dest: "pnpm-lock.yaml" }
@@ -80,14 +79,12 @@ tree_nodes:
 bundled_skills:
   - { source: plugins/docks/skills/productivity/context-tree }
   - { source: plugins/docks/skills/productivity/plan-workspace }
-  - { source: plugins/docks/skills/productivity/plan-creator }
   - { source: plugins/docks/skills/productivity/plan-manager }
   - { source: plugins/docks/skills/productivity/plan-reviewer }
-  - { source: plugins/docks/skills/productivity/plan-repairer }
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-The five exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, missing-path creation, existing-plan management, read-only review, and bounded repair. `plan-creator` returns invocation-terminal `PlanCreatedV1`; scaffold generation does not automatically create or review a plan, and main invokes review only when the same current-user request explicitly asks for it. Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result. Only manager and reviewer receive Codex wrappers. Schemas 1–5 remain validation-only.
+The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and read-only immutable-bundle review. Scaffold generation does not automatically create or review a plan. Only `plan-reviewer` receives a Codex wrapper; main context invokes `plan-manager` directly. Current plans use one compact-JCS `Plan-run: PlanRunV1` record, while schemas 1–6 remain historical validation/quarantine only.
 
 - `source` — path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` — optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.

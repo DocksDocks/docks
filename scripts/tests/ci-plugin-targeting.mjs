@@ -323,25 +323,39 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(targeted.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.doesNotMatch(targeted.result.stdout, /javascript quality/);
 
-    const regressionScript = 'scripts/tests/plan-review-policy-regressions.mjs';
-    const regressionJobs = String(Math.min(4, os.availableParallelism()));
-    const unqualifiedRegressionArgv = [regressionScript, '--self-test'];
-    const coreRegressionArgv = [regressionScript, '--self-test', '--jobs', regressionJobs, '--partition', 'baselines'];
-    const relayRegressionArgv = [regressionScript, '--self-test', '--jobs', regressionJobs, '--partition', 'mutations'];
+    const orchestrationArgv = ['scripts/tests/plan-orchestration.mjs'];
+    const boundedWorkflowArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'];
+    const crossPluginCollisionArgv = [
+      'tests/skill-trigger-collision.mjs',
+      'plugins/docks/skills',
+      'plugins/effect-kit/skills',
+    ];
+    const sessionRelayCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/session-relay/skills'];
+
+    assert.equal(
+      countToolInvocation(targeted.calls, 'node', crossPluginCollisionArgv),
+      1,
+      'an Effect Kit target must retain the joint Docks/Effect trigger-collision contract',
+    );
+    assert.equal(countToolInvocation(targeted.calls, 'node', orchestrationArgv), 0);
 
     for (const ciArgs of [[], ['--plugin', 'docks']]) {
-      const unqualified = run(ciArgs);
-      assert.equal(unqualified.result.status, 0, `${unqualified.result.stdout}\n${unqualified.result.stderr}`);
+      const selected = run(ciArgs);
+      assert.equal(selected.result.status, 0, `${selected.result.stdout}\n${selected.result.stderr}`);
       assert.equal(
-        countToolInvocation(unqualified.calls, 'node', unqualifiedRegressionArgv),
+        countToolInvocation(selected.calls, 'node', orchestrationArgv),
         1,
-        `${ciArgs.length === 0 ? 'full' : 'plugin'} CI must keep the regression driver unqualified`,
+        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the focused orchestration driver once`,
       );
       assert.equal(
-        unqualified.calls.filter(({ tool, args: callArgs }) => tool === 'node' && callArgs[0] === regressionScript)
-          .length,
+        countToolInvocation(selected.calls, 'node', boundedWorkflowArgv),
         1,
-        `${ciArgs.length === 0 ? 'full' : 'plugin'} CI must launch exactly one regression driver invocation`,
+        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the bounded workflow contract once`,
+      );
+      assert.equal(
+        countToolInvocation(selected.calls, 'node', crossPluginCollisionArgv),
+        1,
+        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must audit Docks and Effect Kit together once`,
       );
     }
 
@@ -354,26 +368,19 @@ function testFocusedCiCommandSelection() {
     assert.match(core.result.stdout, /marketplace catalogs/);
     assert.match(core.result.stdout, /repo-wide guards/);
     assert.match(core.result.stdout, /CI targeting contract/);
+    assert.match(core.result.stdout, /plan orchestration/);
     assert.match(core.result.stdout, /plugin: docks/);
     assert.match(core.result.stdout, /plugin: effect-kit/);
-    assert.doesNotMatch(core.result.stdout, /plugin: session-relay/);
-    assert.match(core.result.stdout, /plan-review-policy baselines partition passed/);
+    assert.doesNotMatch(core.result.stdout, /plugin: session-relay|partition passed/);
     assert.equal(
       countToolInvocation(core.calls, 'pnpm', ['run', 'check:js']),
       1,
       'core CI must launch JavaScript quality exactly once',
     );
-    assert.match(core.result.stdout, /javascript quality/);
-    assert.equal(
-      countToolInvocation(core.calls, 'node', coreRegressionArgv),
-      1,
-      'core CI must launch the baselines regression partition through the PATH node shim exactly once',
-    );
-    assert.equal(
-      core.calls.filter(({ tool, args: callArgs }) => tool === 'node' && callArgs[0] === regressionScript).length,
-      1,
-      'core CI must launch exactly one regression driver invocation',
-    );
+    assert.equal(countToolInvocation(core.calls, 'node', orchestrationArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'node', boundedWorkflowArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'node', crossPluginCollisionArgv), 1);
+
     const timingPath = path.join(fixtureRoot, 'timings.json');
     const timedCore = run(['--lane', 'core', '--timings-json', timingPath]);
     assert.equal(timedCore.result.status, 0, `${timedCore.result.stdout}\n${timedCore.result.stderr}`);
@@ -382,11 +389,8 @@ function testFocusedCiCommandSelection() {
       1,
       '--lane core --timings-json must not change JavaScript quality gate selection',
     );
-    assert.equal(
-      countToolInvocation(timedCore.calls, 'node', coreRegressionArgv),
-      1,
-      '--lane core --timings-json must launch the baselines regression partition through the PATH node shim exactly once',
-    );
+    assert.equal(countToolInvocation(timedCore.calls, 'node', orchestrationArgv), 1);
+    assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
     const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
     assert.equal(timing.schema, 2);
     assert.deepEqual(timing.mode, { plugin: null, lane: 'core' });
@@ -401,8 +405,8 @@ function testFocusedCiCommandSelection() {
     );
     assert.deepEqual(
       timing.tasks.map(({ name }) => name),
-      ['plan-review-policy regressions', 'javascript quality'],
-      'core CI must publish exactly the regression and JavaScript quality tasks',
+      ['javascript quality'],
+      'core CI must publish only the concurrent JavaScript-quality task',
     );
     assert.deepEqual(
       timing.phases.map(({ name }) => name),
@@ -414,12 +418,13 @@ function testFocusedCiCommandSelection() {
         'skill-maintainer idempotency',
         'shell lint',
         'scaffold',
+        'skill trigger collisions',
+        'plan orchestration',
         'plugin: docks',
         'plugin: effect-kit',
-        'plan review policy',
         'javascript quality',
       ],
-      'core CI timing phases must retain the exact repo-wide, plugin, policy, and quality inventory',
+      'core CI timing phases must retain repo-wide, focused plan, plugin, and quality ownership',
     );
     const observedFloorCalls = core.calls.filter(
       ({ args: callArgs }) => callArgs[0] === 'scripts/config/read-floor.mjs',
@@ -450,22 +455,13 @@ function testFocusedCiCommandSelection() {
     const relay = run(['--lane', 'relay', '--timings-json', relayTimingPath]);
     assert.equal(relay.result.status, 0, `${relay.result.stdout}\n${relay.result.stderr}`);
     assert.match(relay.result.stdout, /plugin: session-relay/);
-    assert.doesNotMatch(relay.result.stdout, /plugin: docks/);
-    assert.doesNotMatch(relay.result.stdout, /plugin: effect-kit/);
-    assert.match(relay.result.stdout, /plan-review-policy mutations partition passed/);
+    assert.doesNotMatch(relay.result.stdout, /plugin: docks|plugin: effect-kit|plan orchestration|partition passed/);
     for (const script of repoWideCommands) {
       assert.equal(invokesNode(relay.calls, script), false, `Relay CI must not invoke repo-wide command ${script}`);
     }
-    assert.equal(
-      countToolInvocation(relay.calls, 'node', relayRegressionArgv),
-      1,
-      'Relay CI must launch the mutations regression partition through the PATH node shim exactly once',
-    );
-    assert.equal(
-      relay.calls.filter(({ tool, args: callArgs }) => tool === 'node' && callArgs[0] === regressionScript).length,
-      1,
-      'Relay CI must launch exactly one regression driver invocation',
-    );
+    assert.equal(countToolInvocation(relay.calls, 'node', sessionRelayCollisionArgv), 1);
+    assert.equal(countToolInvocation(relay.calls, 'node', orchestrationArgv), 0);
+    assert.equal(countToolInvocation(relay.calls, 'node', boundedWorkflowArgv), 0);
     assert.equal(
       countToolInvocation(relay.calls, 'pnpm', ['run', 'check:js']),
       0,
@@ -475,23 +471,15 @@ function testFocusedCiCommandSelection() {
     assert.equal(relayTiming.schema, 2);
     assert.deepEqual(relayTiming.mode, { plugin: null, lane: 'relay' });
     assert.equal(relayTiming.status, 'passed', JSON.stringify(relayTiming));
-    assert.deepEqual(
-      relayTiming.tasks.map(({ name }) => name),
-      ['plan-review-policy regressions'],
-      'Relay CI must publish exactly one mutations regression task',
-    );
+    assert.deepEqual(relayTiming.tasks, [], 'Relay CI has no process-heavy regression task');
     assert.deepEqual(
       relayTiming.phases.map(({ name }) => name),
-      ['shell lint', 'plan review policy', 'plugin: session-relay'],
-      'Relay CI timing phases must serialize its mutation partition before the native plugin gate',
+      ['shell lint', 'skill trigger collisions', 'plugin: session-relay'],
+      'Relay CI must own only its shell, trigger, and plugin gates',
     );
     assert.ok(
       relayTiming.phases.every(({ status }) => status === 'passed'),
       `Relay timing report contains a failed phase: ${JSON.stringify(relayTiming.phases)}`,
-    );
-    assert.ok(
-      relayTiming.tasks.every(({ status }) => status === 'passed'),
-      `Relay timing report contains a failed task: ${JSON.stringify(relayTiming.tasks)}`,
     );
   } finally {
     if (!relayBinaryExisted) fs.rmSync(relayBinary, { force: true });
@@ -609,8 +597,8 @@ function testTimingWriteFailure() {
 }
 
 if (mode === '--validate-docks-timings') {
-  validateTimingReport(path.resolve(args[1]), null, ['plan-review-policy regressions']);
-  console.log('full timing report and background regression join passed');
+  validateTimingReport(path.resolve(args[1]), null, ['javascript quality']);
+  console.log('full timing report and JavaScript-quality join passed');
   process.exit(0);
 }
 if (mode === '--background-output') {
@@ -635,13 +623,10 @@ const byName = (name) => PLUGINS.find((plugin) => plugin.name === name);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'session-relay', 'effect-kit']);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, 'docks')), ['docks']);
 assert.throws(() => resolveCiTargets(PLUGINS, 'unknown-plugin'), /unknown plugin.*docks, session-relay, effect-kit/);
-const laneShape = ({ name, targets, repoWide, planPolicy, regressionPartition, regressionJobsCap }) => ({
+const laneShape = ({ name, targets, repoWide }) => ({
   name,
   targets: names(targets),
   repoWide,
-  planPolicy,
-  regressionPartition,
-  regressionJobsCap,
 });
 assert.deepEqual(CI_LANES, ['core', 'relay']);
 assert.ok(Object.isFrozen(CI_LANES));
@@ -657,17 +642,11 @@ assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'core')), {
   name: 'core',
   targets: ['docks', 'effect-kit'],
   repoWide: true,
-  planPolicy: true,
-  regressionPartition: 'baselines',
-  regressionJobsCap: 4,
 });
 assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'relay')), {
   name: 'relay',
   targets: ['session-relay'],
   repoWide: false,
-  planPolicy: false,
-  regressionPartition: 'mutations',
-  regressionJobsCap: 4,
 });
 const syntheticCorePlugin = {
   ...byName('effect-kit'),

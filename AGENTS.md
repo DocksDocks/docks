@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for any agentskills.io-compliant runtime (Codex, Claude Code, OpenCode, VS Code Copilot), including three sequential **pipeline skills** — `security`, `refactor`, and `skill-agent-pipeline` — that fold what used to be Claude-only Builder-Verifier slash commands into a single-context, runtime-portable form. Each pipeline runs its phases in order, keeps per-phase expertise in `references/`, and gates approval through the `docs/plans/` lifecycle instead of Plan Mode. The installable plugin's Claude-specific extras are two thin plan-lifecycle subagents (`plan-manager`, `plan-reviewer`); this source repo also has matching project-local Codex wrappers under `.codex/agents/` for maintainers.
+docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for agentskills.io-compliant runtimes (Codex, Claude Code, OpenCode, VS Code Copilot), including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the `docs/plans/` lifecycle instead of runtime-specific Plan Mode. The installable plugin's sole Claude-specific plan subagent is the read-only `plan-reviewer`; this source repo has the matching reviewer-only Codex wrapper under `.codex/agents/`.
 
 This root file stays **repo-wide**. Per-area authoring details — skill/agent frontmatter, scoring, the release flow, CI triggers — live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -19,14 +19,14 @@ node scripts/ci.mjs                                  # authoritative full gate f
 │   ├── .claude-plugin/plugin.json    Claude plugin manifest
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks — near-parity with Claude)
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
-│   ├── agents/   (Claude-only)       plan-manager + plan-reviewer thin plan-lifecycle wrappers
+│   ├── agents/   (Claude-only)       one read-only plan-reviewer wrapper
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
 ├── plugins/session-relay/            2nd plugin (cross-tool: Claude + Codex): cross-session/cross-project/cross-tool agent message bus — MCP bus server + shared SessionStart hook + relay CLI; self-versioned, gated by its own ci.mjs section
 ├── plugins/effect-kit/               3rd plugin (cross-tool): Effect-TS skill kit — effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
-├── .codex/agents/                    repo-local Codex plan-manager + plan-reviewer wrappers (not plugin payload)
+├── .codex/agents/                    repo-local Codex plan-reviewer wrapper (not plugin payload)
 ├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
 ├── docs/plans/                       active/finished lifecycle planning (maintained by plan-workspace)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
@@ -39,7 +39,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 
 | Node | Covers |
 |---|---|
-| `docs/plans/AGENTS.md` | five-phase routing, plan frontmatter, schema-6 orchestration, lifecycle transitions |
+| `docs/plans/AGENTS.md` | three-skill routing, PlanRunV1, review budgets, transactions, effects, lifecycle |
 | `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `plugins/session-relay/AGENTS.md` | the relay plugin — layout, binary-release discipline, its CI gates |
@@ -56,7 +56,7 @@ on this repository with Codex and are not part of the installable Docks plugin.
 Keep them thin: load the matching canonical skill, add only Codex-specific
 dispatch/sandbox guidance, and avoid duplicating full skill bodies.
 
-Plugin-shipped agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `plugins/docks/agents/` holds only two — `plan-manager` and `plan-reviewer`, thin wrappers around their cross-tool skills for inter-agent `Agent(subagent_type=…)` dispatch. Each is a flat `agents/<name>.md`.
+Plugin-shipped agents are **Claude-only** (Codex does not consume plugin-shipped subagents). `plugins/docks/agents/` holds one thin read-only `plan-reviewer` wrapper for inter-agent `Agent(subagent_type=…)` dispatch. It is the flat file `agents/plan-reviewer.md`; main context invokes the canonical `plan-manager` skill directly.
 
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): `claude plugin validate` lints every `*.md` under `agents/` as a subagent, so an `AGENTS.md`/`CLAUDE.md` pair there fails `validate --strict` with "No frontmatter". Neither relocating the files into a subdir nor declaring an `agents` array in the manifest avoids that scan (both tried and ruled out). These authoring rules therefore live in this root file instead of a nested node.
 
@@ -69,21 +69,52 @@ The `agents/` folder deliberately carries **no context-tree node** (hence its ab
 
 ## Plans
 
-Use direct implementation for a clear, low-risk change describable as one concrete diff with one bounded acceptance path. Use a canonical plan for multi-commit work, scheduling, cold handoff, an unresolved approach, a cross-subsystem or public-contract change, destructive or security-sensitive work, or an explicit user request. Never create a placeholder plan merely to unlock review. Canonical multi-commit plans keep one independent lifecycle review; plan authoring and review run plan-structure/evidence checks only, while implementation commands, tests, and any policy-required project gate run after code changes.
+Use direct implementation for one clear, reversible, low-risk local diff with
+one bounded acceptance path; it creates no tracked plan, reviewer, or automatic
+commit. Use a canonical plan for explicit planning, multi-commit or
+cross-repository work, scheduling, cold handoff, unresolved decisions,
+cross-subsystem/public-contract changes, security-sensitive or destructive work,
+or an external effect.
 
 <constraint>
-Multi-commit plans live in `docs/plans/active/`; lifecycle is a frontmatter field. `docs/plans/finished/` is the terminal archive, and `active/` is multi-occupancy. Every plan is a complete cold handoff. The five ownership phases are exact and disjoint: `plan-workspace` bootstraps, migrates, audits, or explicitly refreshes the workspace; `plan-creator` drafts, self-reviews, and commits one previously nonexistent plan; `plan-manager` owns every existing-plan operation, review dispatch/reconciliation, receipt, and lifecycle write; internal `plan-reviewer` returns typed read-only evidence over one sealed bundle; internal `plan-repairer` returns one exact patch for the accepted blocking set or `cannot_repair`.
+Canonical plans live in `docs/plans/active/`; status is frontmatter and
+`docs/plans/finished/` is terminal. Exactly three skills own the workflow:
+`plan-workspace` maintains the workspace; main-context `plan-manager` owns
+classify → draft/review/one repair → start → implement/delegate → observed
+acceptance → finish/archive; internal `plan-reviewer` returns read-only
+`PlanReviewV1` evidence from one immutable bundle. Only the reviewer has
+Claude/Codex wrappers.
 </constraint>
 
-Historical `plan-improver` is not a live skill; `plan-repairer` returns one exact patch or `cannot_repair`, and `plan-manager` alone validates, applies, and persists the result.
+The current record is one unfenced compact-JCS `Plan-run: PlanRunV1` line.
+PlanRunV1 binds repository/path/run identity, a cross-repository `goal_id`,
+canonical requested effects and risk, plan/source hashes, separate draft and
+completion phase budgets, execution/implementation commits, acceptance hashes,
+and at most one typed blocker. Each phase reserves and persists before a fresh
+launch and has at most two invocations. Cold reserved state blocks without
+redispatch; ordinary local completion review is not required.
 
-Creation ends with the committed, read-back `PlanCreatedV1 {plan_path,creation_commit,planned_at_commit,plan_input_sha256,status}` handoff. The creator never reviews or edits that path again; a later review is a manager-owned existing-plan operation.
+Every mutation uses an exclusive preimage-checked per-plan transaction and
+read-back. Checkpoint commits additionally lock the repository and verify HEAD,
+index, and owned paths. Direct work has zero automatic commits; plan-only has
+one; ordinary canonical implementation has start/final checkpoints; sensitive
+or external implementation has start/implementation/archive checkpoints. There
+are no per-round commits or automatic pushes.
 
-Current review/orchestration records use schema 6 and persist exactly one `Review-orchestration-state: <compact JCS object>` line. Each review round launches one fresh `plan-reviewer` using the invoking runtime's current model. It never resumes an earlier reviewer, changes provider/model, falls back to another candidate, or uses Session Relay. One attempt contains a full round plus at most one changed-input repair round, whose reviewer is also fresh. A retryable attempt-1 failure returns normally as `stopped`; only an explicit current-user same-input authorization may start attempt 2, whose failure is `stuck`. There is no automatic reprepare or third attempt. A genuinely changed canonical input starts a new attempt 1; metadata-only changes do not count as progress. The manager alone persists state, derives terminal results from validated evidence, consumes an eligible lifecycle intent once, writes receipts, and commits plan-only lifecycle changes.
+Every Steps row has `Effect` exactly
+`local|probe|production_access|publish|push|release|deploy`. Persisted effects
+record intent only. Non-local actions require a live
+`ExternalAuthorityV1 {scopes,mode,targets,source_sha256}` derived from the exact
+current-user message and matching the exact boundary; probe is read-only and
+non-transitive.
 
-The complete contract lives in `docs/plans/AGENTS.md`. Schemas 1–5 and their fixed names are historical validation/audit-only and retain byte-compatible behavior. Skills are canonical; optional thin Claude/Codex dispatch wrappers exist only for `plan-manager` and `plan-reviewer`. Session transport is never review evidence.
-
-Managed writing workspaces are a Session Relay runtime boundary, not a Docks plan-review or policy outcome. Relay owns the exact nine workspace commands, worktree/Git/resource coordination, Linux custody, recovery, and integration; launched Claude, Codex, and OMP workers are untrusted. Docks gains no workspace command or skill until macOS durable custody exists, an independently reviewed stable Relay release is available, and a separate canonical Docks policy plan authorizes that surface. Do not infer control over arbitrary unmanaged same-UID processes.
+Schemas 1–6 are historical validation/quarantine only. List and audit scan
+frontmatter first; active, prepared, committed, cancelled, crossed, malformed,
+or otherwise unsettled legacy evidence is target-locally quarantined and never
+blocks unrelated goals or authorizes dispatch. The complete closed status
+matrix, review outputs, lock protocol, effects contract, GitHub issue preflights,
+and migration rules live in `docs/plans/AGENTS.md`. Session Relay remains
+optional transport/workspace custody, never plan-review evidence.
 
 ## Project-local skills
 

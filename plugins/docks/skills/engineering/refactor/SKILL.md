@@ -4,31 +4,35 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-18"
-  content_hash: "6e4453fc3b59998f195185d09864b28958942aba7e4f03d011a7f064523ce966"
+  updated: "2026-07-24"
+  content_hash: "5015812fbe4d0d58821ab6deb9b8ac7cf4a358f7b3fe2f73cbadf4a7511f990f"
 ---
 
 # Refactor (cross-tool pipeline)
 
-Detect and fix structural issues — dead code, duplication, SOLID violations, modernization — as one sequential pass with a tiered plan, an approval gate, and test-guarded implementation. Single-agent and cross-tool by default — no slash command, no Plan Mode; the only subagent dispatch is the optional Claude-only executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
+Detect and fix structural issues — dead code, duplication, evidenced SOLID violations, modernization — as one sequential pass with a tiered plan, an intent-aware review handoff, and test-guarded implementation. Single-agent and cross-tool by default — no slash command, no Plan Mode; the only subagent dispatch is the optional Claude-only executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
 Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context; the analysis phases (1–5) never fan out or dispatch subagents — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Append each phase's output to the plan file as you finish it, so a mid-run compaction can resume by re-reading it. Implementation has ONE optional, explicitly Claude-only exception — the dispatched-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and off-Claude you always fall back to the in-context path (Phases 7–8).
 </constraint>
 
 <constraint>
-Two-stage gate, not Plan Mode. Phases 1–5 are READ-ONLY analysis. After Phase 5, STOP: the plan file is the deliverable for approval. Do NOT call `ExitPlanMode` (Claude-only) and do NOT edit code yet. For the tracked path, `plan-workspace` owns missing-workspace bootstrap, `plan-creator` owns creation of the previously nonexistent plan, and `plan-manager` owns review, `start <slug>`, and all later lifecycle work. Implementation (Phases 7–8) runs only after `plan-manager` applies `start <slug>`.
+Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, the unified `plan-manager` owns canonical-plan creation, fresh review, the reviewed start checkpoint, implementation/delegation, verification, and finish/archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Do not call `ExitPlanMode` (Claude-only). Stop only for a real unresolved user decision or persisted blocker.
 </constraint>
 
 <constraint>
 Implementation discipline (Phases 7–8). ONE refactoring at a time — never batch before testing. Run tests after each change; on failure REVERT immediately (`git restore`, or `git restore --staged` + `git restore` for a re-staged `git rm`) and log `REVERTED: <reason>` — do not try to "fix" it. Delete files with `git rm` only (never raw `rm`). Do not touch code beyond the planned change.
 </constraint>
 
+<constraint>
+Reuse before abstraction. In Phase 1, inventory existing modules, exports, registries, dependencies, components, and design tokens before proposing an equivalent. Apply SOLID guidance only when a documented smell exists: a 300+ line mixed-concern unit, a growing switch/if chain, runtime `instanceof` branching, a fat interface, or a hard-coded concrete SDK dependency. Route React composition/effects/RSC work to `react-component-patterns`; Tailwind/color/theme work to `design-tokenization`; and Effect work only after resolving `package.json` plus the lockfile, choosing exactly one matching Effect setup/port/v3/v4 skill. Do not load these companions as an umbrella checklist.
+</constraint>
+
 ## When to use
 
 - A structural cleanup pass over a module, package, or whole repo.
 - After a feature leaves behind dead code, duplication, or a growing switch.
-- When you want a tiered, test-strategied plan you can approve before anything changes.
+- When you want a reviewed, tiered plan before implementation changes.
 
 ## When NOT to use
 
@@ -49,10 +53,10 @@ Run in order. Each phase reads its reference, then writes output to the plan fil
 | 1 | Exploration (stack, tools, abstractions, DI) | `references/explorer.md` | `## Phase 1: Exploration Results` |
 | 2a | Dead-code scan (safety-tiered) | `references/dead-code-scanner.md` | `## Phase 2a: Dead Code Findings` |
 | 2b | Duplication & modernization scan | `references/duplication-scanner.md` | `## Phase 2b: Duplication Findings` |
-| 3 | SOLID analysis (S/O/L/I/D + monorepo) | `references/solid-analyzer.md` | `## Phase 3: SOLID Analysis Results` |
+| 3 | SOLID analysis (only evidenced S/O/L/I/D smells + monorepo) | `references/solid-analyzer.md` | `## Phase 3: SOLID Analysis Results` |
 | 4 | Planning (3 tiers, 9 fields/change) | `references/planner.md` | `## Phase 4: Refactoring Plan` |
 | 5 | Pre-implementation verification | `references/pre-verifier.md` | `## Phase 5: Pre-Verifier Results` |
-| — | **GATE** — present plan, await approval | (this body) | `## Phase 6: Plan Presentation` |
+| — | **HANDOFF** — assessment stops; implementation enters manager review | (this body) | `## Phase 6: Plan Presentation` |
 | 7 | Implementation (one change at a time) | (this body) | `## Phase 7: Implementation Log` |
 | 8 | Post-implementation verification | `references/post-verifier.md` | `## Phase 8: Post-Verifier Results` |
 
@@ -61,20 +65,20 @@ Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 mer
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`), record scope (a path, or the whole project).
-2. Resolve the artifact path. If the tracked workspace is absent, route bootstrap to `plan-workspace`; if the canonical plan path is missing, route the complete draft to `plan-creator`; route any existing-plan write to `plan-manager`. Write an `## Environment` block (date, branch, short git status).
+2. Resolve the artifact path. Route an absent tracked workspace to `plan-workspace`; route canonical-plan creation and all lifecycle work to the unified `plan-manager`. Write an `## Environment` block (date, branch, short git status).
 3. For each read-only row (1 → 5), in order: read `references/<phase>.md`, perform it, write under the row's heading, confirm the heading landed before the next phase. If a phase finds nothing, write "no findings" — never silently skip.
-4. At the GATE, hand off (below). Resume at Phase 7 only after approval.
+4. At the HANDOFF, follow the request intent below. Resume at Phase 7 after the manager records the reviewed start checkpoint; no user lifecycle command is required.
 
 ## The plan file (IPC + deliverable)
 
 ```text
-docs/plans/active/refactor-<scope>.md   (preferred — created by plan-creator; then managed by plan-manager)
+docs/plans/active/refactor-<scope>.md   (preferred — created, reviewed, and managed by plan-manager)
 docs/refactor-plan-<YYYYMMDD>.md        (untracked fallback only when the user declines workspace bootstrap)
 ```
 
 Write as you go — do not hold all phase output in context and dump it at the end. Downstream phases and a resumed run locate prior output by grepping the headings.
 
-## The gate (replaces Plan Mode)
+## Review handoff (replaces Plan Mode)
 
 After Phase 5, write `## Phase 6: Plan Presentation` to the plan file:
 
@@ -83,11 +87,11 @@ After Phase 5, write `## Phase 6: Plan Presentation` to the plan file:
 3. Skipped findings (including over-engineering and unreproducible drops).
 4. Any MUST FIX from the pre-verifier requiring plan adjustment first.
 
-Then print "Refactoring plan written to `<path>`; review and say `start <slug>` to implement." as your final message and end the turn — do not call Edit/Write until the user replies. Public review and `start` flow through `plan-manager`; never call `ExitPlanMode`.
+For an assessment-only or plan-only request, report the reviewed plan path and summary, then stop. For an implementation request, hand the complete artifact to the unified `plan-manager`; it performs the bounded fresh review and records the reviewed start checkpoint, then this orchestration continues directly into Phases 7–8 without a manual lifecycle prompt. Ask only when the manager identifies a genuine unresolved decision.
 
-After approval, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same `docs/plans/` verdict; just who does the edits.
+After the reviewed start checkpoint, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same `docs/plans/` verdict; just who does the edits.
 
-## Implementation (Phases 7–8, after approval)
+## Implementation (Phases 7–8, after the reviewed start checkpoint)
 
 1. Run the full test suite first to establish a baseline. If tests already fail, note which and proceed carefully.
 2. For each refactoring in tier order (1 → 2 → 3):
@@ -138,7 +142,7 @@ No content loss outside the planned diff: every deletion must be a planned dead-
 
 | Gotcha | Consequence | Right move |
 |---|---|---|
-| Editing code during Phases 1–5 | Breaks the read-only-then-approve contract | Analysis only until `start <slug>` |
+| Editing code during Phases 1–5 | Invalidates the analysis input before review | Keep analysis read-only; implementation begins after the manager's reviewed start checkpoint |
 | Batching several changes before testing | Can't tell which change broke the suite | One refactoring → test → keep/revert |
 | Raw `rm` to delete dead code | Unstaged, harder to recover | `git rm` only; revert via `git restore` |
 | Flagging modernization from memory | Ships a backwards "fix" (e.g. Next.js `proxy.ts`) | Verify against current docs for the installed version |
