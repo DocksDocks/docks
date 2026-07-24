@@ -50,7 +50,6 @@ const PUBLIC_RELEASE_ASSET_NAMES = [
   'docks-kit-darwin-x64',
   'docks-kit-linux-arm64',
   'docks-kit-linux-x64',
-  'docks-kit-windows-x64.exe',
 ];
 const PUBLICATION_TRANSITIONS = new Set([
   'assets_reconciled',
@@ -574,7 +573,7 @@ function downloadedPublicRelease(adapter, release) {
   );
   const names = sorted.map(({ name }) => name);
   if (canonicalize(names) !== canonicalize(PUBLIC_RELEASE_ASSET_NAMES)) {
-    fail('public GitHub Release has the wrong closed six-asset set');
+    fail('public GitHub Release has the wrong closed five-asset set');
   }
   const downloaded = new Map();
   const receiptAssets = sorted.map((asset) => {
@@ -654,7 +653,7 @@ export function validatePublicReleaseReceipt(receipt, { publication = null, requ
     assertDigest(asset.digest, `public release receipt asset ${asset.name} digest`);
   }
   if (canonicalize(value.release.assets.map(({ name }) => name)) !== canonicalize(PUBLIC_RELEASE_ASSET_NAMES)) {
-    fail('public release receipt has the wrong closed six-asset set');
+    fail('public release receipt has the wrong closed five-asset set');
   }
   if (
     value.release.assets[0].name !== 'SHA256SUMS' ||

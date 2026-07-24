@@ -82,8 +82,10 @@ const AUTHORIZED_BASE_TO_PROMOTED_PATHS = [
   'docs/plans/active/session-relay-linux-workspace-publication.md',
   'plugins/session-relay/test/companion-distribution-contract.mjs',
   'plugins/session-relay/test/release-evidence-contract.mjs',
+  'plugins/session-relay/test/release-promotion-contract.mjs',
   'plugins/session-relay/test/release-publication-contract.mjs',
   'scripts/lib/session-relay-release-preparation.mjs',
+  'scripts/lib/session-relay-release-promotion.mjs',
   'scripts/lib/session-relay-release-publication.mjs',
 ];
 const RELEASE_VERSION = '0.13.0';
