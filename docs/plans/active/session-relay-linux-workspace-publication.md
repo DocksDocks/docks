@@ -1,9 +1,9 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: ongoing
+status: blocked
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-24T00:07:24-03:00"
+updated: "2026-07-24T01:32:48-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
@@ -32,6 +32,8 @@ related_plans:
 review_status: null
 planned_at_commit: cdca867e6a140311ea865a81229fb30de1df32c1
 execution_base_commit: f28ae1fdf6976ddfb063752bcc4f06b96714a13b
+blocked_reason: Focused public unit gate is blocked because cli/test/lib/harness.ts still materializes hardcoded session-relay 0.12.0 instead of the current verified SoT version.
+blocked_since: "2026-07-24T01:32:48-03:00"
 ---
 
 # Publish Session Relay 0.13.0 and public companion
