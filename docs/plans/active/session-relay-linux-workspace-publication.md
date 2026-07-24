@@ -1,9 +1,11 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol and deterministic public fixture artifacts, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: ongoing
+status: blocked
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-24T02:43:19-03:00"
+updated: "2026-07-24T03:26:31-03:00"
+blocked_reason: "Companion P1 passed for immutable public tag cli-v0.10.2 at ac5f17e949022b56bb97a81155662bda916820a3 and sole successful workflow run 30072118556, but P2 failed before download/checksum because the stable Release has five assets total (SHA256SUMS plus four Darwin/Linux binaries) and lacks the planned docks-kit-windows-x64.exe. Parent promotion and finalization are blocked pending the current user's choice to either accept the repository-documented four-target/five-asset stable contract and amend both plans/P2/A18 for fresh changed-input review without altering tag or Release bytes, or stop promotion/finalization as an incident."
+blocked_since: "2026-07-24T03:26:31-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
@@ -421,7 +423,7 @@ Recovery never changes receipt inputs, overwrites a receipt, deletes/rewrites a 
 - **Global constraints:** exact identities, no-clobber evidence, manager write ownership, create-once/CAS mutation, one post-fix receipt-only rebind, and secret hygiene are fixed.
 - **No undefined terms:** every environment variable is assigned by its producing command or exact child handoff before consumption; v1, red, v2, and publication outputs are distinct named paths.
 
-A cold read using only this plan and its cited sources leaves no user decision unresolved. Any observation outside the fixed contracts routes to a named STOP/amendment path rather than improvisation.
+A cold read using only this plan and its cited sources leaves one explicit current-user decision in Q1. Until it is settled through the named amendment or incident path, Steps 8-12 remain nonexecuting and no promotion or finalization may begin.
 
 ## Self-review
 
@@ -432,7 +434,7 @@ A cold read using only this plan and its cited sources leaves no user decision u
 - `goal_coverage` — caught/fixed: explicitly included the mandatory test-first legacy-identity correction, public child lifecycle, both asset inventories, no-rollback main binding, live self-test/workspace checks, and completion/archive of both new plans.
 - `executable_acceptance` — caught/fixed: added ordered A1-A24 covering intended red, focused/full gates, canonical receipt chain, exact remote identities, public production checks, authoritative promotion, final stable state, and fresh binary behavior.
 - `failure_modes` — caught/fixed: added closed recovery matrix and STOP branches for main drift, tag/Release conflicts, workflow uniqueness, remote-push ambiguity, receipt loss, transaction recovery, npm warning, extra paths, and failed review/live gates.
-- `open_questions` — pass: version/tag/commits/paths/assets/recovery rules are fixed by authoritative evidence; no destructive fallback or unresolved human choice is silently guessed.
+- `open_questions` — blocked: Q1 records the post-tag P2 asset-inventory mismatch and requires the current user to choose the reviewed amendment path or incident stop; no release-contract change is inferred.
 
 This is the single mandated local author critique pass. It is not independent review evidence and carries no score or lifecycle effect.
 
@@ -450,7 +452,7 @@ Deterministic public test-artifact amendment self-review (`2026-07-24T02:23:00-0
 
 ## Open questions
 
-None.
+- **Q1 — Companion P2 asset-inventory mismatch (blocks Steps 8-12):** Public P1 passed for immutable tag `cli-v0.10.2` at `ac5f17e949022b56bb97a81155662bda916820a3` and sole successful workflow run `30072118556`. P2 failed before download/checksum because the stable Release contains exactly five assets total—`SHA256SUMS` plus Darwin x64/arm64 and Linux x64/arm64—and no `docks-kit-windows-x64.exe`; frozen `.github/workflows/release-cli.yml:3,38-46` documents and builds only those four targets. Choose **(a, recommended)** accept that repository-documented four-target/five-asset stable contract, authorize amendment of both canonical plans plus P2/A18, and fresh-review the changed input without altering tag or Release bytes; or **(b)** stop promotion/finalization as an incident. Custom choice allowed only if it preserves the immutable tag, sole run, Release bytes, and no-mutation boundary.
 
 ## Sources
 
@@ -479,6 +481,8 @@ None.
 - Timestamp implementation evidence (`2026-07-24T00:07:24-03:00`): production commit `7193917e17aac0d64295a9b7ee89ac20e9b013be` edits only `scripts/lib/session-relay-release-publication.mjs` and `scripts/lib/session-relay-release-preparation.mjs`. It removes only Release `created_at` run-window membership while retaining finite/order and every published/asset/actor/digest/provenance check, and adds the exact 36-path shipped-to-promoted and six-path authorized-base-to-promoted fences. A9f passed publication (68), evidence, distribution (7), and skill-hash checks; A9g full `node scripts/ci.mjs` passed all repo/plugin/JS checks. Independent final code review returned `correct`, confidence `0.99`, with no findings. Independent audit confirmed the test commits precede production and that the sole pending condition is expected pre-push remote mismatch: clean local implementation `HEAD` was `7193917e17aac0d64295a9b7ee89ac20e9b013be`, while `origin/main` remains `31a994622b4b960e8fa88b433e717d27e6c82ad7`. No implementation/test bytes changed after the passing gate/review. This manager write preserves `ongoing`, `started_at`, `execution_base_commit`, and the honest zero-renewal record; it reruns no review, test, formatter, CI, receipt, source proof, workflow, release, rebind, push, or remote action. Its committed read-back becomes the candidate corrected `PUBLICATION_IMPLEMENTATION_COMMIT`; A9h non-force push/origin equality/source-proof-v2 and A12 receipt-only publication rebind remain next.
 - Dynamic public-fixture scope authorization (`2026-07-24T01:34:24-03:00`): the current user authorizes exactly one additional public non-plan path, `cli/test/lib/harness.ts`, solely to replace hardcoded fixture materialization of `session-relay 0.12.0` with the current verified version read from `SoT/toolchain.json`. The observed focused A6 failure is rationale, not a waiver. `cli/test/unit/sessionRelayCli.test.ts`, `cli/test/unit/pluginRefresh.test.ts`, `.github/workflows/release-cli.yml`, and `bun.lock` remain byte-immutable; no implementation, test, CI, tag, Release, npm, push, receipt, or other external mutation occurs in this Docks amendment.
 - Deterministic public test-artifact scope authorization (`2026-07-24T02:23:00-03:00`): the current user authorizes adding exactly `cli/test/unit/toolchain.test.ts`, `cli/test/unit/engine-di.test.ts`, `cli/test/goldens/dryrun.json`, and `cli/test/goldens/mutation.json` to the prior four public non-plan paths. Unit changes replace only expected version/tag `0.12.0` with `0.13.0`; golden changes come only from the existing `--update-goldens` recorders. The failed A8 at `f562ff...` remains superseded pre-expectation evidence. On a passed fresh review of this exact changed input, the current user explicitly authorizes plan-manager to clear the block and return the plan to `ongoing`; non-pass preserves the block. This Docks amendment performs no implementation, test, golden, CI, external, or remote mutation.
+
+- Companion public proof block (`2026-07-24T03:26:31-03:00`): immutable tag `cli-v0.10.2` resolves to `ac5f17e949022b56bb97a81155662bda916820a3`; sole workflow run `30072118556` succeeded, so P1 passed. P2 stopped before download/checksum: the stable Release inventory is exactly five assets total (`SHA256SUMS` plus Darwin x64/arm64 and Linux x64/arm64), while the reviewed contract expects the additional `docks-kit-windows-x64.exe`. Frozen `.github/workflows/release-cli.yml:3,38-46` explicitly declares/builds only the four observed targets and has no Windows job. No force/retag, second run, manual asset upload, workflow edit, branch push, promotion, finalization, or other external mutation occurred. Existing Docks release/protocol identities, completion receipt, `reviewed_head`, `started_at`, and `execution_base_commit` remain unchanged. Steps 8-12 cannot advance until the current user chooses Q1(a) or Q1(b).
 
 ### Timestamp recovery evidence
 
