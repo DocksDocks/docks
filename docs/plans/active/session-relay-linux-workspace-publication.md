@@ -1,11 +1,9 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct publication protocol, verify the four-target public release with Windows unsupported, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: blocked
+status: ongoing
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-24T09:53:52-03:00"
-blocked_reason: "The current user accepted the repository-documented public contract: immutable cli-v0.10.2 at ac5f17e949022b56bb97a81155662bda916820a3 and sole successful run 30072118556 publish exactly SHA256SUMS plus four Darwin/Linux binaries; Windows is unsupported. Parent promotion and finalization remain blocked until one fresh changed-input schema-6 review passes and the explicit post-pass unblock is consumed. Tag, run, Release bytes, completion evidence, and Docks protocol identities remain unchanged."
-blocked_since: "2026-07-24T03:26:31-03:00"
+updated: "2026-07-24T10:42:01-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
