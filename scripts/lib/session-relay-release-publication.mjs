@@ -780,7 +780,7 @@ function validateLiveReleaseProvenance(adapter, release, run, liveAssets, boundR
     if (!validActor(run.actor)) fail('bound workflow run actor identity is invalid');
     authoritativePublisher = run.actor;
   } else {
-    timestampInRunWindow(release.created_at, start, end, 'release created_at');
+    // GitHub Release created_at can mirror the tagged commit timestamp.
     timestampInRunWindow(release.published_at, start, end, 'release published_at');
     authoritativePublisher = adapter.getPublisherIdentity();
     if (

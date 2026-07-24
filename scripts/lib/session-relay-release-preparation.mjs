@@ -72,6 +72,7 @@ const SHIPPED_TO_PROMOTED_PATHS = [
   'scripts/agents/score.mjs',
   'scripts/lib/session-relay-release-preparation.mjs',
   'scripts/lib/session-relay-release-promotion.mjs',
+  'scripts/lib/session-relay-release-publication.mjs',
   'scripts/tests/plan-review-convergence-repair.mjs',
   'scripts/tests/plan-review-policy-regressions.mjs',
   'scripts/tests/plan-review-policy.mjs',
@@ -81,7 +82,9 @@ const AUTHORIZED_BASE_TO_PROMOTED_PATHS = [
   'docs/plans/active/session-relay-linux-workspace-publication.md',
   'plugins/session-relay/test/companion-distribution-contract.mjs',
   'plugins/session-relay/test/release-evidence-contract.mjs',
+  'plugins/session-relay/test/release-publication-contract.mjs',
   'scripts/lib/session-relay-release-preparation.mjs',
+  'scripts/lib/session-relay-release-publication.mjs',
 ];
 const RELEASE_VERSION = '0.13.0';
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
