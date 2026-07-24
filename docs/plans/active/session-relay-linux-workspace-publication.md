@@ -1,9 +1,11 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: ongoing
+status: blocked
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T21:08:17-03:00"
+updated: "2026-07-23T21:10:25-03:00"
+blocked_reason: "A10 rejects the immutable recertification completion receipt because it is schema 6 with the prior availability-only three-candidate policy, while the current validator accepts only fallback none; publication needs an explicitly reviewed compatibility amendment before proof binding can continue."
+blocked_since: "2026-07-23T21:10:25-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
