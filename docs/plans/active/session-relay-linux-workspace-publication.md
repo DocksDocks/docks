@@ -1,9 +1,9 @@
 ---
 title: Publish Session Relay 0.13.0 and public companion
 goal: Correct the legacy publication protocol, publish and verify both bound releases, promote Docks without rollback, finalize stable, and archive both reviewed plans.
-status: blocked
+status: ongoing
 created: "2026-07-23T12:31:06-03:00"
-updated: "2026-07-23T22:38:59-03:00"
+updated: "2026-07-23T22:58:51-03:00"
 started_at: "2026-07-23T12:58:23-03:00"
 assignee: null
 review_author_company: openai
@@ -31,8 +31,6 @@ related_plans:
 review_status: null
 planned_at_commit: cdca867e6a140311ea865a81229fb30de1df32c1
 execution_base_commit: f28ae1fdf6976ddfb063752bcc4f06b96714a13b
-blocked_reason: "Formatter-safe red receipt recovery amendment awaits fresh schema-6 review."
-blocked_since: "2026-07-23T22:38:59-03:00"
 ---
 
 # Publish Session Relay 0.13.0 and public companion
@@ -422,6 +420,11 @@ None.
 - `fb3f5b7` and `25592c6550069e300a7a0148d3cd3c21880da8e7` — independently reviewed/current-schema implementation and Docks `0.13.4` release tail that the amended two-fence binder treats as immutable current-main input.
 - The exact immutable `Completion-review-receipt` and settled `Review-orchestration-state` embedded in `docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md` — the sole A10 legacy-policy artifact/context tuple; raw receipt SHA `d929ab...` and settled state SHA `064e08...`.
 - `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs` — protected current fallback-none/one-runtime-candidate schema-6 behavior used as an unchanged control, not an amendment path.
+
+## Notes
+
+- Administrative execution evidence (`2026-07-23T22:58:51-03:00`): the attempted fresh changed-input review emitted zero reviewer launches. The correct `replaceReviewTerminalFamily` recovery failed with `replacement source must be an exact terminal family`; no controller bypass or machine-record rewrite occurred. This administrative unblock does not claim that a fresh review passed.
+- The mechanical recovery changes only formatting and evidence ordering, not policy, schema, or production semantics. The current user's exact proceed instruction (`why blocked i didnt block, i literally asked to proceed`) authorizes continuing only the mechanical formatter/red recovery; any semantic test or production change remains a STOP.
 
 Review-orchestration-state: {"apply_state":"none","current_input_sha256":"13c5b9658788f6693c43cf49bbe27df4adb1c9845d018f2979d228c267d67654","initial_input_sha256":"13c5b9658788f6693c43cf49bbe27df4adb1c9845d018f2979d228c267d67654","lifecycle_intent":"none","orchestration_attempt":1,"phase":"draft","plan_path":"docs/plans/active/session-relay-linux-workspace-publication.md","request_ids":["d90f982a-ab39-4cb8-a49a-a53287b9deab"],"retry_authorization":null,"round_index":1,"schema":2,"series_id":"2956fdd9-da0a-40cf-9fe1-528ea1efa7aa","series_sha256":"8015ab0039f66bf519cfc172a1c3eacae3c39de06932bc440ef16b3113d144dd","state_sha256":"7d2e3c4770d0cb0b0af5361cb0b428e7381b2c3c285f1c49ea606d407c61670a","status":"passed","stop_reason":null,"terminal_evidence_sha256":null,"terminated_from_state":null,"terminated_from_state_sha256":null,"transitioned_from_state_sha256":null}
 ## Review
