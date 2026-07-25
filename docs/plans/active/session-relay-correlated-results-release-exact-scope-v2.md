@@ -1,11 +1,13 @@
 ---
 title: Finalize reviewed Session Relay exact-scope candidate
 goal: Review, checkpoint, and release the verified Session Relay 0.14.0 exact-scope candidate, then complete the separately reviewed docks-kit 0.12.0 companion and byte-identical stable promotion.
-status: ongoing
+status: blocked
 created: "2026-07-25T22:52:00.000Z"
-updated: "2026-07-25T23:00:00.000Z"
+updated: "2026-07-25T23:20:00.000Z"
 started_at: "2026-07-25T23:00:00.000Z"
 finished_at: null
+blocked_reason: "Completion review input named a diff digest that disagreed with the sealed bundle; ReviewInvalidInputV1 is terminal."
+blocked_since: "2026-07-25T23:20:00.000Z"
 assignee: null
 tags: [session-relay, protocol, fanout, release, scope-repair]
 affected_paths:
@@ -66,7 +68,7 @@ related_plans:
 
 # Finalize reviewed Session Relay exact-scope candidate
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"30392307bc3dcab2cb7bd5b715204ba14c9f01301c3cbff50fb630d698b05cee","invocations":1,"result_sha256":"bede486a40a03d9f1e1cb3997d12fd6d13cacff19b4ebbc9fcc5f335c7d6fbc1","state":"passed"},"execution_parent":"7b733f15862d7f01cd7eb55a1ad045aedccb7eae","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-correlated-results-release-exact-scope-v2.md","plan_sha256":"39f6e4b15b4254a623c2f3964c485c45d20b2de856a2cef4f4969e7abb1f3152","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"20c1ee49-e26b-4d49-ae62-be6f1858a7fc","schema":1,"source_base":"7b733f15862d7f01cd7eb55a1ad045aedccb7eae","source_sha256":"37228f32b14be3efefabf90074bc38f86ea80cc3a603a64857eacc100f8dd176"}
+Plan-run: {"acceptance":{"source_sha256":"843016ce1f97b4c71bccb08b57f78ff659c98336a420f64cb823d6b520f852b1","verification_sha256":"2dfbea82f41dec78e07bbc1be77d828388a818c535f07afe0b5c3ab4423ccbd8"},"blocker":{"evidence_sha256":"6b67045f1417773a0031987aae354f3a45ffd73ab72e9684c70234a17f68e605","kind":"review_failed"},"completion_review":{"input_sha256":"7e699f5b36bc828df7c4f390688eb43aaaf4fd1cbbc3919571d1b65102dd69fb","invocations":1,"result_sha256":"6b67045f1417773a0031987aae354f3a45ffd73ab72e9684c70234a17f68e605","state":"blocked"},"draft_review":{"input_sha256":"30392307bc3dcab2cb7bd5b715204ba14c9f01301c3cbff50fb630d698b05cee","invocations":1,"result_sha256":"bede486a40a03d9f1e1cb3997d12fd6d13cacff19b4ebbc9fcc5f335c7d6fbc1","state":"passed"},"execution_parent":"7b733f15862d7f01cd7eb55a1ad045aedccb7eae","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":"32ae6b4cf72cce2fe58085a4e3e332752a100e4f","plan_path":"docs/plans/active/session-relay-correlated-results-release-exact-scope-v2.md","plan_sha256":"39f6e4b15b4254a623c2f3964c485c45d20b2de856a2cef4f4969e7abb1f3152","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"20c1ee49-e26b-4d49-ae62-be6f1858a7fc","schema":1,"source_base":"7b733f15862d7f01cd7eb55a1ad045aedccb7eae","source_sha256":"37228f32b14be3efefabf90074bc38f86ea80cc3a603a64857eacc100f8dd176"}
 
 ## Goal
 
@@ -113,6 +115,8 @@ N/A.
 ## Review
 
 Review-result: {"findings":[],"invocation":1,"plan_sha256":"39f6e4b15b4254a623c2f3964c485c45d20b2de856a2cef4f4969e7abb1f3152","run_id":"20c1ee49-e26b-4d49-ae62-be6f1858a7fc","schema":1,"source_sha256":"37228f32b14be3efefabf90074bc38f86ea80cc3a603a64857eacc100f8dd176","verdict":"pass"}
+
+Completion-review-invalid-input: {"error":"invalid_input","reason":"bundle_binding_mismatch","schema":1}
 
 ## Verification Results
 
