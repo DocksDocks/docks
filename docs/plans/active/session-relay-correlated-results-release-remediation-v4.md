@@ -109,4 +109,13 @@ Invocation 2 passed with no findings.
 
 ## Verification Results
 
-Not run. Manager will record exact red receipt/output, checks, hashes, commits, review evidence, external receipts, and archive identities here.
+TDD-red-evidence: {"captured_at":"2026-07-25T21:55:51.914Z","command":{"argv":["node","plugins/session-relay/test/remediation-contract.mjs"],"cwd":"/home/vagrant/projects/docks"},"exit_code":1,"pre_production_commit":"e98de806b3e4e07d25deb0ea49921f6752626cc9","producer":{"blob_id":"3fc09767ff84e9bffef0b0321d5ed0ef201901e8","path":"scripts/capture-tdd-red.mjs","version":"1"},"repository_id":"DocksDocks/docks","schema":1,"stderr_sha256":"840665c0c2533491cd9dd276f1a67ce1c378fc2de2c3d03e4b224ac94ae3ce86","stdout_sha256":"70a0f071ecf9056c4a31396e8477aec55ee01588894a2585a94e582a1468ec43","test_paths":[{"blob_id":"39896c44ad8b19b3e89af266175f6eefa68bf97d","path":"plugins/session-relay/rust/tests/protocol.rs"},{"blob_id":"c63f9a0c644e0176884dc65ea48a88003f36b366","path":"plugins/session-relay/test/fanout-smoke.mjs"},{"blob_id":"4d3fd90a4ecc4990839a36024d2184a6e8411247","path":"plugins/session-relay/test/remediation-contract.mjs"}],"type":"TddRedReceiptV1"}
+
+- Canonical TDD-red receipt SHA-256 `0ae5016080d3acc44fffb1a6d2f9377429962337eecdb7fc1debb52c2aa63161`; the committed aggregate exited 1 at `e98de806b3e4e07d25deb0ea49921f6752626cc9` with all three reviewed failures.
+- `node plugins/session-relay/test/remediation-contract.mjs`: pass, 5/5 focused checks; typed and renderable drains preflight every typed row before writes, noncanonical typed mail fails closed, task option tokens after `--` stay task data, and the real release binder accepts only the fresh evidence.
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`: pass.
+- `node plugins/session-relay/test/release-evidence-contract.mjs`, `release-promotion-contract.mjs`, and `release-publication-contract.mjs`: pass; publication covered 75 production-handler cases.
+- `node scripts/ci.mjs --plugin session-relay`: pass; release build, all seven exact Rust inventories, recursive reentry, explicit fresh-binary workspace smokes, all release contracts, and byte-identical selftest jobs 1/4 passed.
+- `node scripts/ci.mjs`: pass for all three plugins and repository-wide guards, including JavaScript quality.
+- `plugins/session-relay/rust/target/release/relay --version`: `session-relay 0.14.0`.
+- Diagnostic only: bare `cargo test --locked` is not the repository acceptance runner and failed eight `workspace_coordination_process` cases because the direct harness could not write the Linux custody FD; the authoritative release-mode selftest subsequently passed the same exact inventory in both jobs modes.
