@@ -144,7 +144,10 @@ export function readCanonical(input, digest, type, label) {
     fail(`${label} is not JSON`);
   }
   if (Buffer.compare(bytes, Buffer.from(canonicalize(value), 'utf8')) !== 0) fail(`${label} is not canonical JCS`);
-  const expected = Array.isArray(type) ? type : [{ schema: 1, type }];
+  const descriptors = Array.isArray(type) ? type : [type];
+  const expected = descriptors.map((identity) =>
+    identity !== null && typeof identity === 'object' ? identity : { schema: 1, type: identity },
+  );
   if (!expected.some((identity) => value.schema === identity.schema && value.type === identity.type)) {
     fail(`${label} has the wrong schema or type`);
   }

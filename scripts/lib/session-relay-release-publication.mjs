@@ -1279,27 +1279,38 @@ function assertLiveMatchesPublication(release, publication, expectedState) {
   return assets;
 }
 
-function finalizeCurrentReviewed(options, adapter, proof, publication, resumed) {
+function finalizeCurrentReviewed(options, adapter, proof, publication, promotion, resumed) {
   verifyPublicationAgainstRun(adapter, publication, proof);
   const state = releaseState(adapter);
   if (state.commit !== proof.value.tag_commit || !state.release) fail('release identity conflict');
+  if (state.release.prerelease) {
+    fail('current stable finalization requires the promoted stable release; run the reviewed stable promotion first');
+  }
+  const assets = assertLiveMatchesPublication(state.release, publication, 'stable');
+  if (state.release.body !== STABLE_BODY) fail('stable release body conflict');
+
+  const stable = promotion.value.stable_release;
+  const stableAssets = structuredClone(stable?.assets ?? []).sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+  );
+  if (
+    stable?.prerelease !== false ||
+    state.release.id !== stable.release_database_id ||
+    state.commit !== stable.tag_commit ||
+    publication.value.workflow.run_id !== stable.workflow_run_id ||
+    publication.value.workflow.attempt !== stable.workflow_run_attempt ||
+    canonicalize(assets) !== canonicalize(stableAssets)
+  ) {
+    fail('current stable finalization live release does not byte-match the bound stable promotion snapshot');
+  }
 
   if (resumed !== null) {
-    if (
-      resumed.value.transition !== 'finalized' ||
-      resumed.value.release_state !== 'stable' ||
-      state.release.prerelease
-    ) {
-      fail('current resume finalization is not the exact prior V2 stable finalization');
-    }
-    const assets = assertLiveMatchesPublication(state.release, resumed, 'stable');
-    if (state.release.body !== STABLE_BODY) fail('stable release body conflict');
     const expected = publicationReceipt(
       proof,
       state.release,
       assets,
       publication.value.workflow,
-      'finalized',
+      resumed.value.transition,
       'stable',
       resumed.value.created_at,
     );
@@ -1309,30 +1320,12 @@ function finalizeCurrentReviewed(options, adapter, proof, publication, resumed) 
     return emitReceipt(options, resumed.value);
   }
 
-  if (!state.release.prerelease) {
-    fail(
-      'current release is already stable without a bound V2 finalization receipt; the public child must finish first',
-    );
-  }
-  assertLiveMatchesPublication(state.release, publication, 'prerelease');
-  if (
-    state.release.body !== PRERELEASE_BODY ||
-    sha256(Buffer.from(state.release.body)) !== publication.value.body_sha256
-  ) {
-    fail('prerelease body conflict');
-  }
-
-  adapter.editStable();
-  const reconciled = releaseState(adapter);
-  if (reconciled.commit !== proof.value.tag_commit) fail('tag identity changed during finalization');
-  const assets = assertLiveMatchesPublication(reconciled.release, publication, 'stable');
-  if (reconciled.release.body !== STABLE_BODY) fail('stable finalization did not reconcile');
   const receipt = publicationReceipt(
     proof,
-    reconciled.release,
+    state.release,
     assets,
     publication.value.workflow,
-    'finalized',
+    'already_stable',
     'stable',
     adapter.now(),
   );
@@ -1432,7 +1425,7 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
     fail('promotion receipt is not a bound success');
   }
   if (current) {
-    return finalizeCurrentReviewed(options, adapter, proof, publication, resumed);
+    return finalizeCurrentReviewed(options, adapter, proof, publication, promotion, resumed);
   }
   const state = releaseState(adapter);
   if (state.commit !== proof.value.tag_commit || !state.release) fail('release identity conflict');

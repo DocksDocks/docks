@@ -104,8 +104,8 @@ const LEGACY_PUBLIC_BLOCKED_REASON =
 const CURRENT_RELEASE_VERSION = '0.14.0';
 const CURRENT_RELEASE_TAG = 'session-relay--v0.14.0';
 const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
-const CURRENT_DOCKS_RUN_ID = '9349cb79-232f-48fc-a7de-5da7eae64e84';
-const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-continuation.md';
+const CURRENT_DOCKS_RUN_ID = 'a69dcd97-d1bd-46fc-9b6b-70e349e353fc';
+const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-completion.md';
 const CURRENT_PUBLIC_VERSION = '0.12.0';
 const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
@@ -2441,13 +2441,24 @@ function currentPlanRun(planBytes, plan) {
   return { run, status };
 }
 
+function currentOptionalMachineRecords(plan, label) {
+  if (!plan.split('\n').some((line) => line.startsWith(`${label}:`))) return [];
+  return currentMachineRecords(plan, label);
+}
+
 function currentCompletionReview(plan, run) {
-  const candidates = currentMachineRecords(plan, 'Review-result').filter(
+  const candidates = [
+    ...currentOptionalMachineRecords(plan, 'Review-result'),
+    ...currentOptionalMachineRecords(plan, 'Completion-review-result'),
+  ].filter(
     ({ value }) =>
       record(value) && (Object.hasOwn(value, 'implementation_commit') || Object.hasOwn(value, 'diff_sha256')),
   );
-  if (candidates.length !== 1) fail('current plan must contain exactly one CompletionReviewV1 Review-result');
-  const review = candidates[0];
+  const bound = candidates.filter(({ digest }) => digest === run.completion_review.result_sha256);
+  if (bound.length !== 1) {
+    fail('current plan must contain exactly one CompletionReviewV1 record bound by PlanRunV1');
+  }
+  const review = bound[0];
   try {
     validateCurrentCompletionReview(review.value, {
       run_id: run.run_id,
@@ -2458,11 +2469,7 @@ function currentCompletionReview(plan, run) {
   } catch (error) {
     fail(`current CompletionReviewV1 is invalid: ${error.message}`);
   }
-  if (
-    run.completion_review.state !== 'passed' ||
-    run.completion_review.result_sha256 !== review.digest ||
-    review.value.verdict !== 'pass'
-  ) {
+  if (run.completion_review.state !== 'passed' || review.value.verdict !== 'pass') {
     fail('current CompletionReviewV1 did not pass or does not bind PlanRunV1');
   }
   return review;
@@ -2486,7 +2493,7 @@ function verifyCurrentRedBlobs(deps, red, implementationCommit) {
 
 function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan) {
   if (finishedRelative !== CURRENT_DOCKS_PLAN_PATH) {
-    fail('--finished-plan must be the exact active correlated-results continuation plan for Session Relay 0.14.0');
+    fail('--finished-plan must be the exact active correlated-results completion plan for Session Relay 0.14.0');
   }
   const requestedVersion = options.get('version');
   if (requestedVersion !== undefined && requestedVersion !== CURRENT_RELEASE_VERSION) {

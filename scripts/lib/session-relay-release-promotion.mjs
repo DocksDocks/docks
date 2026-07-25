@@ -79,8 +79,8 @@ const PUBLICATION_TRANSITIONS = new Set([
 ]);
 const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.12.0';
 const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
-const CURRENT_DOCKS_RUN_ID = '9349cb79-232f-48fc-a7de-5da7eae64e84';
-const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-continuation.md';
+const CURRENT_DOCKS_RUN_ID = 'a69dcd97-d1bd-46fc-9b6b-70e349e353fc';
+const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-completion.md';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
 const CURRENT_PUBLIC_PLAN_BASENAME = 'session-relay-0.14.0-docks-kit-0.12.0-release';
 const CURRENT_PUBLIC_FINISHED_PLAN_PATH =
@@ -3181,7 +3181,7 @@ const PRODUCTION_ADAPTER = Object.freeze({
   writeReceipt,
 });
 
-const CURRENT_PRODUCTION_ADAPTER = Object.freeze({
+export const CURRENT_PRODUCTION_ADAPTER = Object.freeze({
   now: () => new Date().toISOString(),
   loadProof: (options) => validateProof(options),
   loadPublication: (options) =>
