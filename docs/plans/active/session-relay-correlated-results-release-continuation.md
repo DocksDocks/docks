@@ -1,10 +1,12 @@
 ---
 title: Continue correlated Session Relay results release
 goal: Release Session Relay 0.14.0 with crash-safe correlated replies and immutable fanout results after the independently reviewed docks-kit 0.12.0 companion is published.
-status: ongoing
+status: blocked
 created: "2026-07-25T13:24:00.000Z"
-updated: "2026-07-25T13:38:39.988Z"
+updated: "2026-07-25T22:35:00.000Z"
 started_at: "2026-07-25T13:38:39.988Z"
+blocked_reason: "Reviewed affected_paths omitted required implementation and validator files; superseded by an exact-scope continuation."
+blocked_since: "2026-07-25T22:35:00.000Z"
 finished_at: null
 assignee: null
 tags: [session-relay, protocol, fanout, release]
@@ -70,7 +72,7 @@ related_plans:
 
 # Continue correlated Session Relay results release
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"68c9312dbcbbce69d32fe86f4d7c36dda95b91ecfe3bcc3e779ceb6394490a55","invocations":2,"result_sha256":"0a65944703ad10ea19342b88b10d169ea90d962a28721ae30dbe5018b65129b8","state":"passed"},"execution_parent":"141e2d84e30ee8d97934ecbe178c54d5d83c05a2","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-correlated-results-release-continuation.md","plan_sha256":"7e53668c7a54fe84d3659d0c18862d6dcfa1566b7208d6b3ecf2712299ce0fb5","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"9349cb79-232f-48fc-a7de-5da7eae64e84","schema":1,"source_base":"141e2d84e30ee8d97934ecbe178c54d5d83c05a2","source_sha256":"a6a01c679898f4e9a1c114a32f6df2280a776c97be63f3aac96ef5f50ec5c9c3"}
+Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"5284bd1c7dfc10f0fc0faeaeda4b77a397860510a99a64bc3b8629a6d8e84c19","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"68c9312dbcbbce69d32fe86f4d7c36dda95b91ecfe3bcc3e779ceb6394490a55","invocations":2,"result_sha256":"0a65944703ad10ea19342b88b10d169ea90d962a28721ae30dbe5018b65129b8","state":"passed"},"execution_parent":"141e2d84e30ee8d97934ecbe178c54d5d83c05a2","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-correlated-results-release-continuation.md","plan_sha256":"7e53668c7a54fe84d3659d0c18862d6dcfa1566b7208d6b3ecf2712299ce0fb5","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"9349cb79-232f-48fc-a7de-5da7eae64e84","schema":1,"source_base":"141e2d84e30ee8d97934ecbe178c54d5d83c05a2","source_sha256":"a6a01c679898f4e9a1c114a32f6df2280a776c97be63f3aac96ef5f50ec5c9c3"}
 
 ## Goal
 
