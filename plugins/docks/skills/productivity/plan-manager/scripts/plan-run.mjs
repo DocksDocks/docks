@@ -73,6 +73,7 @@ const LIFECYCLE_FRONTMATTER = new Set([
   'updated',
   'started_at',
   'finished_at',
+  'blocked_reason',
   'blocked_since',
   'in_review_since',
   'scheduled_for',

@@ -75,6 +75,13 @@ export function registerHashingAndManifest(suite, api) {
       .replace('status: drafting', 'status: planned')
       .replace('updated: "2026-07-24T00:00:00Z"', 'updated: "2026-07-24T01:00:00Z"')
       .replace('started_at: null', 'started_at: "2026-07-24T00:30:00Z"');
+    const blockedLifecycle = original
+      .replace('status: drafting', 'status: blocked')
+      .replace('updated: "2026-07-24T00:00:00Z"', 'updated: "2026-07-24T01:00:00Z"')
+      .replace(
+        'started_at: null',
+        'blocked_reason: "Review permits exhausted."\nblocked_since: "2026-07-24T01:00:00Z"\nstarted_at: null',
+      );
     const changedRecord = original.replace(fixture.run.run_id, '33333333-3333-4333-8333-333333333333');
     const changedVerification = replaceOnce(
       original,
@@ -86,7 +93,7 @@ export function registerHashingAndManifest(suite, api) {
       'Fresh reviewer output that is excluded from plan identity.',
       'Different fresh reviewer output.',
     );
-    for (const bytes of [lifecycleOnly, changedRecord, changedVerification, changedReview]) {
+    for (const bytes of [lifecycleOnly, blockedLifecycle, changedRecord, changedVerification, changedReview]) {
       assert.equal(api.canonicalPlanView(Buffer.from(bytes)), canonical);
     }
   });

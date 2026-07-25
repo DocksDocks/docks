@@ -4,7 +4,7 @@ description: "Use when a goal may require a canonical plan, plan review, impleme
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-24"
+  updated: "2026-07-25"
   content_hash: "79916641dad8618bf73bbcde3e903da85a5a2fdf5e7f686013e7f44a7b1555a8"
 ---
 
