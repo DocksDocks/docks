@@ -20,7 +20,7 @@ import {
 
 const REPOSITORY_ID = 'DocksDocks/docks';
 const WORKFLOW_FILE = '.github/workflows/build-binaries.yml';
-const EXPECTED_VERSION_STDOUT = 'session-relay 0.13.0';
+const EXPECTED_VERSION_STDOUT = 'session-relay 0.14.0';
 const PRODUCER_PATH = 'scripts/verify-session-relay-preflight.mjs';
 const PRODUCER_VERSION = '2';
 const CHECKSUM_ARTIFACT = 'session-relay-checksums';
@@ -304,8 +304,11 @@ function validateRun(run, parsed) {
   requireEqual(requireString(run.status, 'workflow run status'), 'completed', 'workflow run status');
   requireEqual(requireString(run.conclusion, 'workflow run conclusion'), 'success', 'workflow run conclusion');
   requireEqual(requireString(run.head_sha, 'workflow run head_sha'), parsed.expectedCommit, 'workflow run head_sha');
-  const branch = `preflight/session-relay-0.13.0-${parsed.expectedCommit.slice(0, 12)}`;
-  requireEqual(requireString(run.head_branch, 'workflow run head_branch'), branch, 'workflow run head_branch');
+  const branch = requireString(run.head_branch, 'workflow run head_branch');
+  const branchMatch = /^preflight\/session-relay-(0\.13\.0|0\.14\.0)-([0-9a-f]{12})$/.exec(branch);
+  if (!branchMatch || branchMatch[2] !== parsed.expectedCommit.slice(0, 12)) {
+    fail('workflow run head_branch mismatch');
+  }
   requireEqual(requireString(run.path, 'workflow run path'), WORKFLOW_FILE, 'workflow run path');
   const attempt = requirePositiveInteger(run.run_attempt, 'workflow run attempt');
   const workflowId = requirePositiveInteger(run.workflow_id, 'workflow id');
@@ -327,7 +330,14 @@ function validateRun(run, parsed) {
     repositoryDatabaseId,
     'workflow run repository id',
   );
-  return { branch, validationRef: `refs/heads/${branch}`, attempt, workflowId, repositoryDatabaseId };
+  return {
+    branch,
+    validationRef: `refs/heads/${branch}`,
+    releaseVersion: branchMatch[1],
+    attempt,
+    workflowId,
+    repositoryDatabaseId,
+  };
 }
 
 function validateWorkflow(workflow, workflowId) {
@@ -769,7 +779,11 @@ function validateAttestation(attestation, expected, runIdentity, parsed, digest)
   requireEqual(attestation.inputs.expected_tag, '', `attestation ${expected.target} input expected_tag`);
   requireEqual(attestation.runner_os, expected.runner_os, `attestation ${expected.target} runner_os`);
   requireEqual(attestation.runner_arch, expected.runner_arch, `attestation ${expected.target} runner_arch`);
-  requireEqual(attestation.version_stdout, EXPECTED_VERSION_STDOUT, `attestation ${expected.target} version_stdout`);
+  requireEqual(
+    attestation.version_stdout,
+    `session-relay ${runIdentity.releaseVersion}`,
+    `attestation ${expected.target} version_stdout`,
+  );
   requireEqual(attestation.workflow_run_id, parsed.runId, `attestation ${expected.target} workflow_run_id`);
   requireEqual(
     attestation.workflow_run_attempt,

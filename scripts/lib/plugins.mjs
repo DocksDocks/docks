@@ -82,6 +82,18 @@ export const PLUGINS = [
     sourceChecks: [
       {
         path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'protocol'],
+      },
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'fanout'],
+      },
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'lifecycle_supervisor'],
+      },
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
         args: ['--case', 'workspace_identity'],
       },
       {

@@ -8,7 +8,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '../..');
 export const REPOSITORY_ID = 'DocksDocks/docks';
 export const PLUGIN = 'session-relay';
-export const VERSION = '0.13.0';
+export const VERSION = '0.14.0';
 export const TAG = `${PLUGIN}--v${VERSION}`;
 export const TRANSACTION_REF = `refs/heads/transactions/${PLUGIN}-${VERSION}`;
 export const LOCK_REF = `refs/heads/locks/${PLUGIN}-${VERSION}`;
@@ -22,9 +22,9 @@ export const ASSETS = [
   'SHA256SUMS',
 ];
 export const PRERELEASE_BODY =
-  'Session Relay 0.13.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
+  'Session Relay 0.14.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
 export const STABLE_BODY =
-  'Session Relay 0.13.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
+  'Session Relay 0.14.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
 
 export class SessionRelayReleaseError extends Error {
   constructor(message, outcome = 'conflict') {
@@ -144,7 +144,10 @@ export function readCanonical(input, digest, type, label) {
     fail(`${label} is not JSON`);
   }
   if (Buffer.compare(bytes, Buffer.from(canonicalize(value), 'utf8')) !== 0) fail(`${label} is not canonical JCS`);
-  if (value.schema !== 1 || value.type !== type) fail(`${label} has the wrong schema or type`);
+  const expected = Array.isArray(type) ? type : [{ schema: 1, type }];
+  if (!expected.some((identity) => value.schema === identity.schema && value.type === identity.type)) {
+    fail(`${label} has the wrong schema or type`);
+  }
   return { value, bytes, digest, path: file };
 }
 

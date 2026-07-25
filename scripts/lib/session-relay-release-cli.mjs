@@ -16,6 +16,9 @@ import {
 } from './session-relay-release-promotion.mjs';
 import { finalizeReviewed, publishReviewed } from './session-relay-release-publication.mjs';
 
+const HISTORICAL_VERSION = '0.13.0';
+const SUPPORTED_VERSIONS = new Set([HISTORICAL_VERSION, VERSION]);
+
 const MODE_SPECS = {
   prepare: { required: ['plugin', 'version'], boolean: ['dry-run'] },
   'materialize-tdd-red': { required: ['plugin', 'version', 'plan', 'docks-red-out', 'public-red-out'] },
@@ -43,7 +46,10 @@ const MODE_SPECS = {
     boolean: ['rebind-complete-publication'],
     pairs: [['resume-publication', 'resume-publication-sha256']],
   },
-  'emit-public-request': { required: ['plugin', 'version', 'publication', 'publication-sha256', 'receipt-out'] },
+  'emit-public-request': {
+    required: ['plugin', 'version', 'publication', 'publication-sha256', 'receipt-out'],
+    optional: ['public-execution-parent'],
+  },
   'verify-public-release': {
     required: [
       'plugin',
@@ -105,7 +111,10 @@ const MODE_SPECS = {
       'promotion-sha256',
       'receipt-out',
     ],
-    pairs: [['resume-finalization', 'resume-finalization-sha256']],
+    pairs: [
+      ['public-release', 'public-release-sha256'],
+      ['resume-finalization', 'resume-finalization-sha256'],
+    ],
   },
 };
 const MODE_FLAGS = new Map(Object.keys(MODE_SPECS).map((mode) => [`--${mode}`, mode]));
@@ -158,8 +167,8 @@ function parseMode(argv) {
   if (mode === 'promote-reviewed' && options.has('repair-prepush') !== options.has('repair-implementation-commit')) {
     fail('--repair-prepush and --repair-implementation-commit must be provided together');
   }
-  if (options.get('plugin') !== PLUGIN || options.get('version') !== VERSION)
-    fail(`--${mode} is only valid for session-relay ${VERSION}`);
+  if (options.get('plugin') !== PLUGIN || !SUPPORTED_VERSIONS.has(options.get('version')))
+    fail(`--${mode} is only valid for session-relay ${HISTORICAL_VERSION} or ${VERSION}`);
   for (const [pathName, digestName] of [...(spec.pairs ?? []), ...receiptPairs(spec.required)]) {
     if (options.has(pathName)) {
       const pathIndex = argv.indexOf(`--${pathName}`);

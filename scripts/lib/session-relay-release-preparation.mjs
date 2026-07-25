@@ -12,6 +12,12 @@ import {
   validateDraftReceipt as validatePlanDraftReceipt,
 } from '../../plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs';
 import {
+  canonicalPlanView as canonicalCurrentPlanView,
+  parsePlan as parseCurrentPlan,
+  validateCompletionReview as validateCurrentCompletionReview,
+  validatePlanRunRecord,
+} from '../../plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs';
+import {
   COMMIT,
   canonicalize,
   canonicalPath,
@@ -88,12 +94,29 @@ const AUTHORIZED_BASE_TO_PROMOTED_PATHS = [
   'scripts/lib/session-relay-release-promotion.mjs',
   'scripts/lib/session-relay-release-publication.mjs',
 ];
-const RELEASE_VERSION = '0.13.0';
+const LEGACY_RELEASE_VERSION = '0.13.0';
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
 const PUBLIC_REMOTE = 'https://github.com/DocksDocks/public.git';
-const PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-cli-0.13.0-release-preparation.md';
-const PUBLIC_BLOCKED_REASON =
+const LEGACY_PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-cli-0.13.0-release-preparation.md';
+const LEGACY_PUBLIC_BLOCKED_REASON =
   'Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests.';
+
+const CURRENT_RELEASE_VERSION = '0.14.0';
+const CURRENT_RELEASE_TAG = 'session-relay--v0.14.0';
+const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
+const CURRENT_DOCKS_RUN_ID = '9349cb79-232f-48fc-a7de-5da7eae64e84';
+const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-continuation.md';
+const CURRENT_PUBLIC_VERSION = '0.12.0';
+const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
+const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
+const CURRENT_PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-0.14.0-docks-kit-0.12.0-release.md';
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const HISTORICAL_RECEIPTS_0_13 = Object.freeze({
+  source_proof_v1: '419b23ccdcf0ca21672e81c05ae9d22c55bc67781839ffb6a29e7eecc2b59396',
+  source_proof_v2: '87a6260ae20280712ebb2d76d39667b128c8f6cf687141ebd779d8eca16c2262',
+  publication: '31d096d31702b66d7e97085a82d8b7da1b75155f828b1d2382a0ac8427ba7ea2',
+  public_request: '7cf02781a2ed3c75423321492fb2cd4c4944f6da6d6d41290e26a5f3ca0cf902',
+});
 const SOURCE_CI_WORKFLOW = '.github/workflows/ci.yml';
 const BUILD_WORKFLOW = '.github/workflows/build-binaries.yml';
 const TARGETS = [
@@ -818,7 +841,7 @@ export function validateSourcePreparationCandidate(value, context = {}) {
     value.schema !== 1 ||
     value.type !== 'SourcePreparationCandidateV1' ||
     value.repository_id !== REPOSITORY_ID ||
-    value.version !== VERSION
+    ![LEGACY_RELEASE_VERSION, VERSION].includes(value.version)
   )
     fail('candidate immutable identity mismatch');
   commit(value.source_commit, 'candidate source_commit');
@@ -857,15 +880,15 @@ export function validateSourcePreparationCandidate(value, context = {}) {
   if (
     value.companion.repository_id !== PUBLIC_REPOSITORY_ID ||
     value.companion.validation_ref !==
-      `refs/heads/preflight/session-relay-cli-${RELEASE_VERSION}-${value.companion.commit.slice(0, 12)}` ||
-    value.companion.plan_path !== PUBLIC_PLAN_PATH
+      `refs/heads/preflight/session-relay-cli-${LEGACY_RELEASE_VERSION}-${value.companion.commit.slice(0, 12)}` ||
+    value.companion.plan_path !== LEGACY_PUBLIC_PLAN_PATH
   )
     fail('candidate companion repository/ref/plan mismatch');
   digest(value.companion.input_sha256, 'candidate companion input_sha256');
   commit(value.companion.execution_base_commit, 'candidate companion execution_base_commit');
   digest(value.companion.review_receipt_sha256, 'candidate companion review_receipt_sha256');
   digest(value.companion.red_receipt_sha256, 'candidate companion red_receipt_sha256');
-  if (value.companion.status !== 'blocked' || value.companion.blocked_reason !== PUBLIC_BLOCKED_REASON)
+  if (value.companion.status !== 'blocked' || value.companion.blocked_reason !== LEGACY_PUBLIC_BLOCKED_REASON)
     fail('candidate companion status mismatch');
   for (const [name, workflow] of [
     ['preflight', value.preflight],
@@ -1091,7 +1114,226 @@ export function validateCompletionReceiptClosed(value, expected = {}, waivers = 
   }
 }
 
+function uuidV4(value, label) {
+  if (!UUID_V4.test(value ?? '')) fail(`${label} must be a lowercase UUID v4`);
+  return value;
+}
+
+function validateCurrentRedReceipt(value) {
+  exactKeys(
+    value,
+    [
+      'schema',
+      'type',
+      'repository_id',
+      'pre_production_commit',
+      'receipt_sha256',
+      'test_blob_sha256',
+      'expected_failure_sha256',
+      'command',
+      'expected_exit_code',
+      'observed_exit_code',
+      'failure_signature',
+      'stdout_sha256',
+      'stderr_sha256',
+      'test_blobs',
+      'observed_before_implementation',
+    ],
+    'current TDD-red receipt',
+  );
+  if (value.schema !== 1 || value.type !== 'TddRedReceiptV1' || value.repository_id !== REPOSITORY_ID) {
+    fail('current TDD-red receipt identity mismatch');
+  }
+  commit(value.pre_production_commit, 'current TDD-red pre-production commit');
+  for (const key of [
+    'receipt_sha256',
+    'test_blob_sha256',
+    'expected_failure_sha256',
+    'stdout_sha256',
+    'stderr_sha256',
+  ]) {
+    digest(value[key], `current TDD-red ${key}`);
+  }
+  exactKeys(value.command, ['cwd', 'argv'], 'current TDD-red command');
+  if (!path.isAbsolute(text(value.command.cwd, 'current TDD-red command.cwd'))) {
+    fail('current TDD-red command.cwd must be absolute');
+  }
+  exactStringArray(value.command.argv, 'current TDD-red command.argv', { nonempty: true });
+  if (value.expected_exit_code !== 1 || value.observed_exit_code !== 1) {
+    fail('current TDD-red expected and observed exit codes must both be 1');
+  }
+  text(value.failure_signature, 'current TDD-red failure signature');
+  exactArray(value.test_blobs, 'current TDD-red test blobs');
+  if (value.test_blobs.length === 0) fail('current TDD-red test blobs must not be empty');
+  let priorPath = null;
+  for (const [index, blob] of value.test_blobs.entries()) {
+    exactKeys(blob, ['path', 'blob_id'], `current TDD-red test blob ${index}`);
+    safeLogical(blob.path, `current TDD-red test blob ${index} path`);
+    commit(blob.blob_id, `current TDD-red test blob ${index} blob_id`);
+    if (priorPath !== null && priorPath.localeCompare(blob.path) >= 0) {
+      fail('current TDD-red test blobs must be unique and sorted');
+    }
+    priorPath = blob.path;
+  }
+  if (value.observed_before_implementation !== true) {
+    fail('current TDD-red evidence must be observed before production implementation');
+  }
+}
+
+function validateCurrentSourcePreparationProof(value) {
+  exactKeys(
+    value,
+    [
+      'schema',
+      'type',
+      'repository_id',
+      'version',
+      'tag',
+      'goal_id',
+      'run_id',
+      'source_commit',
+      'implementation_commit',
+      'tag_commit',
+      'plan_run',
+      'tdd_red',
+      'completion_review',
+      'ancestry',
+      'companion',
+      'historical_receipts',
+      'created_at',
+    ],
+    'SourcePreparationProofV2',
+  );
+  if (
+    value.schema !== 2 ||
+    value.type !== 'SourcePreparationProofV2' ||
+    value.repository_id !== REPOSITORY_ID ||
+    value.version !== CURRENT_RELEASE_VERSION ||
+    value.tag !== CURRENT_RELEASE_TAG ||
+    value.goal_id !== CURRENT_GOAL_ID ||
+    value.run_id !== CURRENT_DOCKS_RUN_ID
+  ) {
+    fail('current source proof immutable release identity mismatch');
+  }
+  uuidV4(value.goal_id, 'current source proof goal_id');
+  uuidV4(value.run_id, 'current source proof run_id');
+  commit(value.source_commit, 'current source proof source_commit');
+  commit(value.implementation_commit, 'current source proof implementation_commit');
+  commit(value.tag_commit, 'current source proof tag_commit');
+  if (value.tag_commit !== value.implementation_commit) {
+    fail('current source proof tag commit is not the reviewed implementation commit');
+  }
+
+  exactKeys(
+    value.plan_run,
+    ['schema', 'repository_id', 'goal_id', 'run_id', 'plan_path', 'source_base', 'implementation_commit', 'status'],
+    'current source proof plan run',
+  );
+  if (
+    value.plan_run.schema !== 1 ||
+    value.plan_run.repository_id !== REPOSITORY_ID ||
+    value.plan_run.goal_id !== value.goal_id ||
+    value.plan_run.run_id !== value.run_id ||
+    value.plan_run.plan_path !== CURRENT_DOCKS_PLAN_PATH ||
+    value.plan_run.source_base !== value.source_commit ||
+    value.plan_run.implementation_commit !== value.implementation_commit ||
+    value.plan_run.status !== 'ongoing'
+  ) {
+    fail('current source proof PlanRunV1 identity mismatch');
+  }
+
+  validateCurrentRedReceipt(value.tdd_red);
+  if (value.tdd_red.pre_production_commit === value.implementation_commit) {
+    fail('current TDD-red commit must precede the production implementation');
+  }
+
+  exactKeys(
+    value.completion_review,
+    ['schema', 'type', 'reviewed_commit', 'result_sha256', 'verdict'],
+    'current source proof completion review',
+  );
+  if (
+    value.completion_review.schema !== 1 ||
+    value.completion_review.type !== 'CompletionReviewV1' ||
+    value.completion_review.verdict !== 'pass'
+  ) {
+    fail('current source proof completion review did not pass');
+  }
+  commit(value.completion_review.reviewed_commit, 'current source proof reviewed commit');
+  digest(value.completion_review.result_sha256, 'current source proof completion review result');
+  if (value.completion_review.reviewed_commit !== value.implementation_commit) {
+    fail('current source proof review commit identity mismatch');
+  }
+
+  exactKeys(
+    value.ancestry,
+    ['source_to_red', 'red_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag'],
+    'current source proof ancestry',
+  );
+  if (
+    value.ancestry.source_to_red !== true ||
+    value.ancestry.red_to_implementation !== true ||
+    value.ancestry.implementation_to_reviewed !== true ||
+    value.ancestry.reviewed_to_tag !== true
+  ) {
+    fail('current source proof ancestry from red evidence through reviewed implementation and tag is incomplete');
+  }
+
+  exactKeys(
+    value.companion,
+    [
+      'repository_id',
+      'goal_id',
+      'run_id',
+      'plan_path',
+      'version',
+      'tag',
+      'session_relay_version',
+      'session_relay_tag',
+      'package',
+      'npm_version',
+    ],
+    'current source proof companion',
+  );
+  if (
+    value.companion.repository_id !== PUBLIC_REPOSITORY_ID ||
+    value.companion.goal_id !== value.goal_id ||
+    value.companion.run_id !== CURRENT_PUBLIC_RUN_ID ||
+    value.companion.plan_path !== CURRENT_PUBLIC_PLAN_PATH ||
+    value.companion.version !== CURRENT_PUBLIC_VERSION ||
+    value.companion.tag !== CURRENT_PUBLIC_TAG ||
+    value.companion.session_relay_version !== CURRENT_RELEASE_VERSION ||
+    value.companion.session_relay_tag !== CURRENT_RELEASE_TAG ||
+    value.companion.package !== 'docks-kit' ||
+    value.companion.npm_version !== CURRENT_PUBLIC_VERSION
+  ) {
+    fail('current source proof companion goal, plan, package, or release identity mismatch');
+  }
+  uuidV4(value.companion.goal_id, 'current source proof companion goal_id');
+  uuidV4(value.companion.run_id, 'current source proof companion run_id');
+
+  exactKeys(
+    value.historical_receipts,
+    ['version', 'tag', ...Object.keys(HISTORICAL_RECEIPTS_0_13)],
+    'current source proof historical receipts',
+  );
+  if (value.historical_receipts.version !== '0.13.0' || value.historical_receipts.tag !== 'session-relay--v0.13.0') {
+    fail('historical Session Relay 0.13 receipt identity mismatch');
+  }
+  for (const [name, expected] of Object.entries(HISTORICAL_RECEIPTS_0_13)) {
+    digest(value.historical_receipts[name], `historical Session Relay 0.13 ${name} receipt`);
+    if (value.historical_receipts[name] !== expected) {
+      fail(`historical Session Relay 0.13 ${name} receipt identity changed`);
+    }
+  }
+  iso(value.created_at, 'current source proof created_at');
+  return value;
+}
+
 export function validateSourcePreparationProof(value) {
+  if (value?.schema === 2 || value?.type === 'SourcePreparationProofV2') {
+    return validateCurrentSourcePreparationProof(value);
+  }
   exactKeys(
     value,
     [
@@ -1121,7 +1363,7 @@ export function validateSourcePreparationProof(value) {
     value.schema !== 1 ||
     value.type !== 'SourcePreparationProofV1' ||
     value.repository_id !== REPOSITORY_ID ||
-    value.version !== VERSION
+    ![LEGACY_RELEASE_VERSION, VERSION].includes(value.version)
   )
     fail('source proof identity mismatch');
   for (const key of [
@@ -1221,7 +1463,7 @@ export function prepare(options, fixtureJournal) {
     let contents = original.toString('utf8');
     if (relative.endsWith('Cargo.toml'))
       contents = contents.replace(/(^\[package\][\s\S]*?^version = ")\d+\.\d+\.\d+("$)/m, `$1${VERSION}$2`);
-    else contents = contents.replace(/(^name = "relay"\nversion = ")\d+\.\d+\.\d+("$)/m, `$1${VERSION}$2`);
+    else contents = contents.replace(/(^name = "session-relay"\nversion = ")\d+\.\d+\.\d+("$)/m, `$1${VERSION}$2`);
     if (contents === original.toString('utf8') && !contents.includes(`version = "${VERSION}"`))
       fail(`could not locate version in ${relative}`);
     files.push({ file, original, changed: Buffer.from(contents) });
@@ -1538,8 +1780,8 @@ function inspectPublicRepository(input) {
   commit(input.commit, 'companion inspection commit');
   if (
     input.remote !== PUBLIC_REMOTE ||
-    input.ref !== `refs/heads/preflight/session-relay-cli-${RELEASE_VERSION}-${input.commit.slice(0, 12)}` ||
-    input.planPath !== PUBLIC_PLAN_PATH
+    input.ref !== `refs/heads/preflight/session-relay-cli-${LEGACY_RELEASE_VERSION}-${input.commit.slice(0, 12)}` ||
+    input.planPath !== LEGACY_PUBLIC_PLAN_PATH
   )
     fail('companion inspection remote/ref/plan mismatch');
   commit(input.redCommit, 'companion inspection red commit');
@@ -1759,7 +2001,7 @@ function acceptanceSpecifications(publicRef, publicCommit) {
         executable: 'sh',
         args: [
           '-c',
-          `test "$(plugins/session-relay/rust/target/release/relay --version)" = "session-relay ${RELEASE_VERSION}"`,
+          `test "$(plugins/session-relay/rust/target/release/relay --version)" = "session-relay ${LEGACY_RELEASE_VERSION}"`,
         ],
       },
     ],
@@ -1846,9 +2088,9 @@ function companionMachineRecord(plan, label, required = true) {
 }
 
 function companionPlanPath(value) {
-  const expected = `/home/vagrant/projects/public/${PUBLIC_PLAN_PATH}`;
+  const expected = `/home/vagrant/projects/public/${LEGACY_PUBLIC_PLAN_PATH}`;
   if (value !== expected) fail('companion plan path mismatch');
-  return PUBLIC_PLAN_PATH;
+  return LEGACY_PUBLIC_PLAN_PATH;
 }
 
 function companionReviewReceipt(plan, expectedInput, orchestration) {
@@ -1929,7 +2171,7 @@ function verifyPublicBinding(deps, docksPlan, publicReceipt) {
     observed.resolved_commit !== notes.commit ||
     observed.red_is_ancestor !== true ||
     observed.source_is_ancestor !== true ||
-    canonicalize(observed.source_to_public_paths) !== canonicalize([PUBLIC_PLAN_PATH]) ||
+    canonicalize(observed.source_to_public_paths) !== canonicalize([LEGACY_PUBLIC_PLAN_PATH]) ||
     !Buffer.isBuffer(observed.plan_bytes)
   )
     fail('companion ref/commit/source/red ancestry mismatch');
@@ -1945,9 +2187,9 @@ function verifyPublicBinding(deps, docksPlan, publicReceipt) {
   if (sha256(review.bytes) !== notes.review_receipt_sha256) fail('companion review receipt/input mismatch');
   if (
     frontmatterValue(publicPlan, 'status') !== 'blocked' ||
-    frontmatterValue(publicPlan, 'blocked_reason') !== PUBLIC_BLOCKED_REASON ||
+    frontmatterValue(publicPlan, 'blocked_reason') !== LEGACY_PUBLIC_BLOCKED_REASON ||
     notes.status !== 'blocked' ||
-    notes.blocked_reason !== PUBLIC_BLOCKED_REASON ||
+    notes.blocked_reason !== LEGACY_PUBLIC_BLOCKED_REASON ||
     noteValue(publicPlan, 'Status') !== notes.status ||
     noteValue(publicPlan, 'Blocked reason') !== notes.blocked_reason
   )
@@ -2147,12 +2389,201 @@ function frontmatterValue(plan, key) {
   return matches[0][1].replace(/^"|"$/g, '');
 }
 
+function currentMachineRecords(plan, label) {
+  const prefix = `${label}:`;
+  const canonicalPrefix = `${prefix} `;
+  const lines = plan.split('\n').filter((line) => line.startsWith(prefix));
+  if (lines.length === 0) fail(`current plan must contain ${label}`);
+  return lines.map((line, index) => {
+    if (!line.startsWith(canonicalPrefix)) fail(`${label} ${index + 1} must be one-line compact JCS`);
+    const payload = line.slice(canonicalPrefix.length);
+    let value;
+    try {
+      value = JSON.parse(payload);
+    } catch {
+      fail(`${label} ${index + 1} is not JSON`);
+    }
+    if (canonicalize(value) !== payload) fail(`${label} ${index + 1} is not canonical JCS`);
+    const bytes = Buffer.from(payload);
+    return { value, bytes, digest: sha256(bytes) };
+  });
+}
+
+function currentSingletonMachineRecord(plan, label) {
+  const records = currentMachineRecords(plan, label);
+  if (records.length !== 1) fail(`current plan must contain exactly one ${label}`);
+  return records[0];
+}
+
+function currentPlanRun(planBytes, plan) {
+  const machineRecord = currentSingletonMachineRecord(plan, 'Plan-run');
+  const status = parseCurrentPlan(planBytes).frontmatter.status;
+  try {
+    validatePlanRunRecord(machineRecord.value, { status });
+  } catch (error) {
+    fail(`current PlanRunV1 is invalid: ${error.message}`);
+  }
+  const run = machineRecord.value;
+  if (
+    status !== 'ongoing' ||
+    run.repository_id !== REPOSITORY_ID ||
+    run.goal_id !== CURRENT_GOAL_ID ||
+    run.run_id !== CURRENT_DOCKS_RUN_ID ||
+    run.plan_path !== CURRENT_DOCKS_PLAN_PATH ||
+    run.risk !== 'external' ||
+    canonicalize(run.requested_effects) !== canonicalize(['local', 'probe', 'push', 'release'])
+  ) {
+    fail('current PlanRunV1 release identity mismatch');
+  }
+  if (sha256(canonicalCurrentPlanView(planBytes)) !== run.plan_sha256) {
+    fail('current PlanRunV1 plan_sha256 does not match the canonical active plan');
+  }
+  return { run, status };
+}
+
+function currentCompletionReview(plan, run) {
+  const candidates = currentMachineRecords(plan, 'Review-result').filter(
+    ({ value }) =>
+      record(value) && (Object.hasOwn(value, 'implementation_commit') || Object.hasOwn(value, 'diff_sha256')),
+  );
+  if (candidates.length !== 1) fail('current plan must contain exactly one CompletionReviewV1 Review-result');
+  const review = candidates[0];
+  try {
+    validateCurrentCompletionReview(review.value, {
+      run_id: run.run_id,
+      invocation: run.completion_review.invocations,
+      implementation_commit: run.implementation_commit,
+      diff_sha256: run.completion_review.input_sha256,
+    });
+  } catch (error) {
+    fail(`current CompletionReviewV1 is invalid: ${error.message}`);
+  }
+  if (
+    run.completion_review.state !== 'passed' ||
+    run.completion_review.result_sha256 !== review.digest ||
+    review.value.verdict !== 'pass'
+  ) {
+    fail('current CompletionReviewV1 did not pass or does not bind PlanRunV1');
+  }
+  return review;
+}
+
+function resolveExactCurrentCommit(deps, revision, label) {
+  const resolved = commit(gitValue(deps, ['rev-parse', `${revision}^{commit}`]), label);
+  if (resolved !== revision) fail(`${label} does not resolve exactly`);
+  return resolved;
+}
+
+function verifyCurrentRedBlobs(deps, red, implementationCommit) {
+  for (const item of red.test_blobs) {
+    const atRed = gitValue(deps, ['rev-parse', `${red.pre_production_commit}:${item.path}`]);
+    const atImplementation = gitValue(deps, ['rev-parse', `${implementationCommit}:${item.path}`]);
+    if (atRed !== item.blob_id || atImplementation !== item.blob_id) {
+      fail(`current TDD-red test blob drifted after capture: ${item.path}`);
+    }
+  }
+}
+
+function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan) {
+  if (finishedRelative !== CURRENT_DOCKS_PLAN_PATH) {
+    fail('--finished-plan must be the exact active correlated-results continuation plan for Session Relay 0.14.0');
+  }
+  const requestedVersion = options.get('version');
+  if (requestedVersion !== undefined && requestedVersion !== CURRENT_RELEASE_VERSION) {
+    fail('current correlated-results completion binding requires Session Relay 0.14.0');
+  }
+  const { run, status } = currentPlanRun(planBytes, plan);
+  const redRecord = currentSingletonMachineRecord(plan, 'TDD-red-evidence');
+  validateCurrentRedReceipt(redRecord.value);
+  const reviewRecord = currentCompletionReview(plan, run);
+  const sourceCommit = resolveExactCurrentCommit(deps, run.source_base, 'current source commit');
+  const redCommit = resolveExactCurrentCommit(deps, redRecord.value.pre_production_commit, 'current TDD-red commit');
+  const implementationCommit = resolveExactCurrentCommit(
+    deps,
+    run.implementation_commit,
+    'current implementation commit',
+  );
+  const reviewedCommit = reviewRecord.value.implementation_commit;
+  const tagCommit = implementationCommit;
+  ancestor(deps, sourceCommit, redCommit, 'current source-to-red');
+  ancestor(deps, redCommit, implementationCommit, 'current red-to-implementation');
+  ancestor(deps, implementationCommit, reviewedCommit, 'current implementation-to-reviewed');
+  ancestor(deps, reviewedCommit, tagCommit, 'current reviewed-to-tag');
+  verifyCurrentRedBlobs(deps, redRecord.value, implementationCommit);
+
+  const receipt = {
+    schema: 2,
+    type: 'SourcePreparationProofV2',
+    repository_id: REPOSITORY_ID,
+    version: CURRENT_RELEASE_VERSION,
+    tag: CURRENT_RELEASE_TAG,
+    goal_id: run.goal_id,
+    run_id: run.run_id,
+    source_commit: sourceCommit,
+    implementation_commit: implementationCommit,
+    tag_commit: tagCommit,
+    plan_run: {
+      schema: run.schema,
+      repository_id: run.repository_id,
+      goal_id: run.goal_id,
+      run_id: run.run_id,
+      plan_path: run.plan_path,
+      source_base: run.source_base,
+      implementation_commit: run.implementation_commit,
+      status,
+    },
+    tdd_red: redRecord.value,
+    completion_review: {
+      schema: reviewRecord.value.schema,
+      type: 'CompletionReviewV1',
+      reviewed_commit: reviewedCommit,
+      result_sha256: reviewRecord.digest,
+      verdict: reviewRecord.value.verdict,
+    },
+    ancestry: {
+      source_to_red: true,
+      red_to_implementation: true,
+      implementation_to_reviewed: true,
+      reviewed_to_tag: true,
+    },
+    companion: {
+      repository_id: PUBLIC_REPOSITORY_ID,
+      goal_id: CURRENT_GOAL_ID,
+      run_id: CURRENT_PUBLIC_RUN_ID,
+      plan_path: CURRENT_PUBLIC_PLAN_PATH,
+      version: CURRENT_PUBLIC_VERSION,
+      tag: CURRENT_PUBLIC_TAG,
+      session_relay_version: CURRENT_RELEASE_VERSION,
+      session_relay_tag: CURRENT_RELEASE_TAG,
+      package: 'docks-kit',
+      npm_version: CURRENT_PUBLIC_VERSION,
+    },
+    historical_receipts: {
+      version: '0.13.0',
+      tag: 'session-relay--v0.13.0',
+      ...HISTORICAL_RECEIPTS_0_13,
+    },
+    created_at: deps.now(),
+  };
+  validateSourcePreparationProof(receipt);
+  return emitReceipt(options, receipt);
+}
+
 export function bindCompletion(options, injected) {
-  digest(options.get('embedded-candidate-sha256'), '--embedded-candidate-sha256');
   const deps = evidenceDependencies(injected);
   const finishedPlanPath = canonicalPath(options.get('finished-plan'), '--finished-plan');
   const finishedRelative = path.relative(deps.repoRoot, finishedPlanPath);
-  if (!FINISHED_PLAN.test(finishedRelative)) fail('--finished-plan must be the dated finished Session Relay plan');
+  if (finishedRelative === CURRENT_DOCKS_PLAN_PATH || options.get('version') === CURRENT_RELEASE_VERSION) {
+    if (options.has('embedded-candidate-sha256')) {
+      digest(options.get('embedded-candidate-sha256'), '--embedded-candidate-sha256');
+    }
+    const planBytes = deps.readFile(finishedPlanPath);
+    return bindCurrentCompletion(options, deps, finishedRelative, planBytes, planBytes.toString('utf8'));
+  }
+  digest(options.get('embedded-candidate-sha256'), '--embedded-candidate-sha256');
+  if (!FINISHED_PLAN.test(finishedRelative)) {
+    fail('--finished-plan must be the dated finished Session Relay plan');
+  }
   const planBytes = deps.readFile(finishedPlanPath);
   const plan = planBytes.toString('utf8');
   if (frontmatterValue(plan, 'status') !== 'finished' || frontmatterValue(plan, 'review_status') !== 'passed')
@@ -2238,7 +2669,7 @@ export function bindCompletion(options, injected) {
     schema: 1,
     type: 'SourcePreparationProofV1',
     repository_id: REPOSITORY_ID,
-    version: VERSION,
+    version: candidate.value.version,
     source_commit: sourceCommit,
     tag_commit: sourceCommit,
     evidence_commit: evidenceCommit,
@@ -2280,7 +2711,10 @@ export function validateProof(options) {
   const proof = readCanonical(
     options.get('source-proof'),
     options.get('source-proof-sha256'),
-    'SourcePreparationProofV1',
+    [
+      { schema: 1, type: 'SourcePreparationProofV1' },
+      { schema: 2, type: 'SourcePreparationProofV2' },
+    ],
     '--source-proof',
   );
   validateSourcePreparationProof(proof.value);

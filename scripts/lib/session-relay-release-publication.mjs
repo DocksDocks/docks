@@ -103,6 +103,37 @@ const TARGET_RUNNERS = {
   'x86_64-unknown-linux-musl': { runner_arch: 'X64', runner_os: 'Linux' },
 };
 
+const CURRENT_PUBLIC_VERSION = '0.12.0';
+const CURRENT_PUBLIC_TAG = `cli-v${CURRENT_PUBLIC_VERSION}`;
+const LEGACY_VERSION = '0.13.0';
+const LEGACY_TAG = 'session-relay--v0.13.0';
+const LEGACY_PRERELEASE_BODY =
+  'Session Relay 0.13.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
+const LEGACY_STABLE_BODY =
+  'Session Relay 0.13.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
+const HISTORICAL_PUBLICATION_SHA256 = '31d096d31702b66d7e97085a82d8b7da1b75155f828b1d2382a0ac8427ba7ea2';
+const ORDINARY_ASSETS = ASSETS.filter((name) => name !== 'SHA256SUMS');
+const PUBLICATION_V2_KEYS = [
+  'schema',
+  'type',
+  'repository_id',
+  'version',
+  'source_proof_sha256',
+  'source',
+  'tag',
+  'tag_commit',
+  'workflow',
+  'release_database_id',
+  'release_state',
+  'body_sha256',
+  'assets',
+  'digest_evidence',
+  'public_companion',
+  'historical_predecessor',
+  'transition',
+  'created_at',
+];
+
 function remoteTagCommit() {
   const result = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${TAG}`, `refs/tags/${TAG}^{}`], {
     cwd: REPO,
@@ -368,18 +399,18 @@ function assertRunAssetSet(assets) {
   }
   return sorted;
 }
-function expectedRunInputs(event, commit) {
+function expectedRunInputs(event, commit, tag = TAG) {
   return event === 'push'
     ? { expected_commit: '', expected_tag: '', mode: '' }
-    : { expected_commit: commit, expected_tag: TAG, mode: 'publish-existing-tag' };
+    : { expected_commit: commit, expected_tag: tag, mode: 'publish-existing-tag' };
 }
 
-function validateRunBundle(bundle, run, commit) {
+function validateRunBundle(bundle, run, commit, version = VERSION) {
   const assets = assertRunAssetSet(bundle.assets);
   if (!Array.isArray(bundle.attestations) || bundle.attestations.length !== Object.keys(TARGET_RUNNERS).length) {
     fail('bound workflow run attestation set is incomplete');
   }
-  const expectedInputs = expectedRunInputs(run.event, commit);
+  const expectedInputs = expectedRunInputs(run.event, commit, `session-relay--v${version}`);
   const assetsByName = new Map(assets.map((asset) => [asset.name, asset]));
   const seen = new Set();
   for (const attestation of bundle.attestations) {
@@ -398,7 +429,7 @@ function validateRunBundle(bundle, run, commit) {
       attestation.schema !== 'SessionRelayBinaryAttestationV1' ||
       attestation.sha256 !== asset.digest ||
       attestation.source_commit !== commit ||
-      attestation.version_stdout !== `session-relay ${VERSION}` ||
+      attestation.version_stdout !== `session-relay ${version}` ||
       attestation.workflow_run_attempt !== run.run_attempt ||
       attestation.workflow_run_id !== run.id
     )
@@ -484,7 +515,7 @@ function workflowIdentity(run) {
   };
 }
 
-function validateWorkflowIdentity(value, commit, label) {
+function validateWorkflowIdentity(value, commit, label, tag = TAG) {
   exactKeys(value, WORKFLOW_KEYS, label);
   exactKeys(value.inputs, INPUT_KEYS, `${label} inputs`);
   if (
@@ -497,23 +528,170 @@ function validateWorkflowIdentity(value, commit, label) {
     !Number.isInteger(value.attempt) ||
     value.attempt <= 0 ||
     !['push', 'workflow_dispatch'].includes(value.event) ||
-    canonicalize(value.inputs) !== canonicalize(expectedRunInputs(value.event, commit)) ||
+    canonicalize(value.inputs) !== canonicalize(expectedRunInputs(value.event, commit, tag)) ||
     value.conclusion !== 'success'
   )
     fail(`${label} identity conflict`);
 }
 
-export function validatePublicationReceipt(receipt, proof, label) {
-  exactKeys(receipt.value, PUBLICATION_KEYS, label);
+function exactTimestamp(value, label) {
   if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
+    new Date(value).toISOString() !== value
+  ) {
+    fail(`${label} must be an exact RFC3339 UTC timestamp`);
+  }
+}
+
+function validateCurrentDigestMap(value, label, assets) {
+  exactKeys(value, ORDINARY_ASSETS, label);
+  for (const name of ORDINARY_ASSETS) {
+    if (!SHA256.test(value[name] ?? '')) fail(`${label} ${name} digest is invalid`);
+    if (value[name] !== assets.get(name)?.digest) fail(`${label} ${name} digest disagrees with the release asset`);
+  }
+}
+
+function validateCurrentPublicationReceipt(receipt, proof, label) {
+  if (!receipt || typeof receipt !== 'object' || !receipt.value || typeof receipt.value !== 'object') {
+    fail(`${label} envelope is invalid`);
+  }
+  if (!SHA256.test(receipt.digest ?? '')) fail(`${label} digest is invalid`);
+  if (receipt.digest !== sha256(Buffer.from(canonicalize(receipt.value)))) fail(`${label} digest mismatch`);
+  exactKeys(receipt.value, PUBLICATION_V2_KEYS, label);
+  const value = receipt.value;
+  const expectedBody = value.release_state === 'stable' ? STABLE_BODY : PRERELEASE_BODY;
+  const validTransition =
+    (value.release_state === 'prerelease' && value.transition === 'tag_and_release_created') ||
+    (value.release_state === 'stable' && ['finalized', 'already_stable'].includes(value.transition));
+  if (
+    value.schema !== 2 ||
+    value.type !== 'SessionRelayPublicationReceiptV2' ||
+    value.repository_id !== REPOSITORY_ID ||
+    value.version !== VERSION ||
+    value.source_proof_sha256 !== proof.digest ||
+    value.tag !== TAG ||
+    value.tag_commit !== proof.value.tag_commit ||
+    value.body_sha256 !== sha256(Buffer.from(expectedBody)) ||
+    !Number.isSafeInteger(value.release_database_id) ||
+    value.release_database_id <= 0 ||
+    !validTransition
+  ) {
+    fail(`${label} release state, body, or transition identity conflict; the prerelease must precede the public child`);
+  }
+  if (!SHA256.test(value.source_proof_sha256 ?? '')) fail(`${label} source proof digest is invalid`);
+  if (!/^[0-9a-f]{40}$/.test(value.tag_commit ?? '')) fail(`${label} tag commit is invalid`);
+  exactTimestamp(value.created_at, `${label} created_at`);
+
+  exactKeys(
+    value.source,
+    ['reviewed_commit', 'implementation_commit', 'reviewed_ancestry_verified'],
+    `${label} source`,
+  );
+  if (
+    !/^[0-9a-f]{40}$/.test(value.source.reviewed_commit ?? '') ||
+    !/^[0-9a-f]{40}$/.test(value.source.implementation_commit ?? '') ||
+    value.source.reviewed_commit !== value.source.implementation_commit ||
+    value.source.reviewed_commit !== value.tag_commit ||
+    value.source.reviewed_ancestry_verified !== true
+  ) {
+    fail(`${label} reviewed source commit ancestry or tag identity conflict`);
+  }
+  validateWorkflowIdentity(value.workflow, value.tag_commit, `${label} workflow`);
+
+  if (!Array.isArray(value.assets)) fail(`${label} assets must be an array`);
+  const names = value.assets.map(({ name }) => name);
+  if (canonicalize(names) !== canonicalize([...ASSETS].sort())) {
+    fail(`${label} closed asset set must be exactly four native binaries plus SHA256SUMS and no Windows asset`);
+  }
+  const assetByName = new Map();
+  const databaseIds = new Set();
+  for (const [index, asset] of value.assets.entries()) {
+    assertAssetRecord(asset, `${label} asset ${index}`);
+    if (/windows|win32|\.exe$/i.test(asset.name)) fail(`${label} Windows assets are unsupported`);
+    if (assetByName.has(asset.name) || databaseIds.has(asset.database_id)) {
+      fail(`${label} asset identities are duplicated`);
+    }
+    assetByName.set(asset.name, asset);
+    databaseIds.add(asset.database_id);
+  }
+
+  exactKeys(
+    value.digest_evidence,
+    ['workflow_run_id', 'workflow_run_attempt', 'artifact_sha256', 'release_download_sha256', 'checksum_rows'],
+    `${label} digest evidence`,
+  );
+  if (
+    value.digest_evidence.workflow_run_id !== value.workflow.run_id ||
+    value.digest_evidence.workflow_run_attempt !== value.workflow.attempt
+  ) {
+    fail(`${label} digest evidence has a mixed workflow same-run identity`);
+  }
+  validateCurrentDigestMap(value.digest_evidence.artifact_sha256, `${label} artifact digests`, assetByName);
+  validateCurrentDigestMap(
+    value.digest_evidence.release_download_sha256,
+    `${label} independent release download digests`,
+    assetByName,
+  );
+  validateCurrentDigestMap(value.digest_evidence.checksum_rows, `${label} SHA256SUMS rows`, assetByName);
+  if (
+    canonicalize(value.digest_evidence.artifact_sha256) !==
+      canonicalize(value.digest_evidence.release_download_sha256) ||
+    canonicalize(value.digest_evidence.artifact_sha256) !== canonicalize(value.digest_evidence.checksum_rows)
+  ) {
+    fail(`${label} independent artifact, download, and checksum digest evidence disagrees`);
+  }
+
+  exactKeys(
+    value.public_companion,
+    ['repository_id', 'version', 'tag', 'package', 'npm_version'],
+    `${label} public companion`,
+  );
+  if (
+    value.public_companion.repository_id !== 'DocksDocks/public' ||
+    value.public_companion.version !== CURRENT_PUBLIC_VERSION ||
+    value.public_companion.tag !== CURRENT_PUBLIC_TAG ||
+    value.public_companion.package !== 'docks-kit' ||
+    value.public_companion.npm_version !== CURRENT_PUBLIC_VERSION
+  ) {
+    fail(`${label} public companion docks-kit release identity mismatch`);
+  }
+  exactKeys(
+    value.historical_predecessor,
+    ['version', 'tag', 'publication_receipt_sha256'],
+    `${label} historical predecessor`,
+  );
+  if (
+    value.historical_predecessor.version !== LEGACY_VERSION ||
+    value.historical_predecessor.tag !== LEGACY_TAG ||
+    value.historical_predecessor.publication_receipt_sha256 !== HISTORICAL_PUBLICATION_SHA256
+  ) {
+    fail(`${label} historical Session Relay 0.13 publication receipt identity changed`);
+  }
+  return receipt;
+}
+
+export function validatePublicationReceipt(receipt, proof, label) {
+  if (receipt?.value?.schema === 2 || receipt?.value?.type === 'SessionRelayPublicationReceiptV2') {
+    return validateCurrentPublicationReceipt(receipt, proof, label);
+  }
+  exactKeys(receipt.value, PUBLICATION_KEYS, label);
+  const legacy = receipt.value.version === LEGACY_VERSION;
+  const expectedVersion = legacy ? LEGACY_VERSION : VERSION;
+  const expectedTag = legacy ? LEGACY_TAG : TAG;
+  const prereleaseBody = legacy ? LEGACY_PRERELEASE_BODY : PRERELEASE_BODY;
+  const stableBody = legacy ? LEGACY_STABLE_BODY : STABLE_BODY;
+  if (
+    receipt.value.schema !== 1 ||
+    receipt.value.type !== 'SessionRelayPublicationReceiptV1' ||
     receipt.value.repository_id !== REPOSITORY_ID ||
-    receipt.value.version !== VERSION ||
+    receipt.value.version !== expectedVersion ||
     receipt.value.source_proof_sha256 !== proof.digest ||
-    receipt.value.tag !== TAG ||
+    receipt.value.tag !== expectedTag ||
     receipt.value.tag_commit !== proof.value.tag_commit ||
     !['prerelease', 'stable'].includes(receipt.value.release_state) ||
     receipt.value.body_sha256 !==
-      sha256(Buffer.from(receipt.value.release_state === 'prerelease' ? PRERELEASE_BODY : STABLE_BODY)) ||
+      sha256(Buffer.from(receipt.value.release_state === 'prerelease' ? prereleaseBody : stableBody)) ||
     !Number.isInteger(receipt.value.release_database_id) ||
     receipt.value.release_database_id <= 0 ||
     !TRANSITIONS.has(receipt.value.transition) ||
@@ -521,7 +699,7 @@ export function validatePublicationReceipt(receipt, proof, label) {
     Number.isNaN(Date.parse(receipt.value.created_at))
   )
     fail(`${label} immutable identity conflict`);
-  validateWorkflowIdentity(receipt.value.workflow, proof.value.tag_commit, `${label} workflow`);
+  validateWorkflowIdentity(receipt.value.workflow, proof.value.tag_commit, `${label} workflow`, expectedTag);
   if (!Array.isArray(receipt.value.assets)) fail(`${label} assets must be an array`);
   assertCompleteAssets(receipt.value.assets);
   return receipt;
@@ -588,6 +766,62 @@ function reconcilePrerelease(adapter, release, bundle) {
 }
 
 function publicationReceipt(proof, release, assets, workflow, transition, releaseStateName, now) {
+  if (proof.value.schema === 2) {
+    if (releaseStateName === 'prerelease' && transition !== 'tag_and_release_created') {
+      fail('current Session Relay 0.14.0 publication must atomically stage the reviewed tag and prerelease');
+    }
+    if (releaseStateName === 'stable' && !['finalized', 'already_stable'].includes(transition)) {
+      fail('current Session Relay 0.14.0 stable finalization transition is invalid');
+    }
+    const expectedBody = releaseStateName === 'stable' ? STABLE_BODY : PRERELEASE_BODY;
+    if (release.body !== expectedBody) fail(`current Session Relay ${releaseStateName} body identity conflict`);
+    const byName = new Map(assets.map((asset) => [asset.name, asset]));
+    const orderedAssets = [...ASSETS].sort().map((name) => byName.get(name));
+    if (orderedAssets.some((asset) => asset === undefined)) {
+      fail('current publication is missing one of the exact five staged assets');
+    }
+    const ordinaryDigests = Object.fromEntries(ORDINARY_ASSETS.map((name) => [name, byName.get(name).digest]));
+    return {
+      schema: 2,
+      type: 'SessionRelayPublicationReceiptV2',
+      repository_id: REPOSITORY_ID,
+      version: VERSION,
+      source_proof_sha256: proof.digest,
+      source: {
+        reviewed_commit: proof.value.completion_review.reviewed_commit,
+        implementation_commit: proof.value.implementation_commit,
+        reviewed_ancestry_verified: proof.value.ancestry.implementation_to_reviewed,
+      },
+      tag: TAG,
+      tag_commit: proof.value.tag_commit,
+      workflow,
+      release_database_id: release.id,
+      release_state: releaseStateName,
+      body_sha256: sha256(Buffer.from(release.body ?? '')),
+      assets: orderedAssets,
+      digest_evidence: {
+        workflow_run_id: workflow.run_id,
+        workflow_run_attempt: workflow.attempt,
+        artifact_sha256: ordinaryDigests,
+        release_download_sha256: structuredClone(ordinaryDigests),
+        checksum_rows: structuredClone(ordinaryDigests),
+      },
+      public_companion: {
+        repository_id: 'DocksDocks/public',
+        version: CURRENT_PUBLIC_VERSION,
+        tag: CURRENT_PUBLIC_TAG,
+        package: 'docks-kit',
+        npm_version: CURRENT_PUBLIC_VERSION,
+      },
+      historical_predecessor: {
+        version: LEGACY_VERSION,
+        tag: LEGACY_TAG,
+        publication_receipt_sha256: HISTORICAL_PUBLICATION_SHA256,
+      },
+      transition,
+      created_at: now,
+    };
+  }
   return {
     schema: 1,
     type: 'SessionRelayPublicationReceiptV1',
@@ -865,7 +1099,9 @@ function rebindCompletePublication(options, adapter, proof, state) {
   let bundle;
   try {
     bundle = requiresBoundArtifacts ? adapter.downloadRunAssets(settled.id) : null;
-    const boundRunAssets = bundle ? validateRunBundle(bundle, settled, proof.value.tag_commit) : null;
+    const boundRunAssets = bundle
+      ? validateRunBundle(bundle, settled, proof.value.tag_commit, proof.value.version)
+      : null;
     const verifiedLiveAssets = validateLiveReleaseProvenance(
       adapter,
       state.release,
@@ -899,7 +1135,10 @@ export function publishReviewed(options, injectedAdapter) {
         readCanonical(
           options.get('resume-publication'),
           options.get('resume-publication-sha256'),
-          'SessionRelayPublicationReceiptV1',
+          [
+            { schema: 1, type: 'SessionRelayPublicationReceiptV1' },
+            { schema: 2, type: 'SessionRelayPublicationReceiptV2' },
+          ],
           '--resume-publication',
         ),
         proof,
@@ -978,7 +1217,7 @@ export function publishReviewed(options, injectedAdapter) {
   let bundle;
   try {
     ({ run, bundle } = downloadBoundBundle(adapter, run));
-    const runAssets = validateRunBundle(bundle, run, proof.value.tag_commit);
+    const runAssets = validateRunBundle(bundle, run, proof.value.tag_commit, proof.value.version);
     state = pollReleaseState(adapter, proof.value.tag_commit);
     if (state.release && !state.release.prerelease) fail('premature stable release conflict');
     const reconciled = reconcilePrerelease(adapter, state.release, { ...bundle, assets: runAssets });
@@ -1030,8 +1269,79 @@ function assertLiveMatchesPublication(release, publication, expectedState) {
   if (release.id !== publication.value.release_database_id) fail('release database identity conflict');
   const assets = normalizedAssets(release);
   assertCompleteAssets(assets);
-  if (canonicalize(assets) !== canonicalize(publication.value.assets)) fail('release asset identities changed');
+  const expectedAssets =
+    publication.value.schema === 2
+      ? [...publication.value.assets].sort((left, right) =>
+          left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+        )
+      : publication.value.assets;
+  if (canonicalize(assets) !== canonicalize(expectedAssets)) fail('release asset identities changed');
   return assets;
+}
+
+function finalizeCurrentReviewed(options, adapter, proof, publication, resumed) {
+  verifyPublicationAgainstRun(adapter, publication, proof);
+  const state = releaseState(adapter);
+  if (state.commit !== proof.value.tag_commit || !state.release) fail('release identity conflict');
+
+  if (resumed !== null) {
+    if (
+      resumed.value.transition !== 'finalized' ||
+      resumed.value.release_state !== 'stable' ||
+      state.release.prerelease
+    ) {
+      fail('current resume finalization is not the exact prior V2 stable finalization');
+    }
+    const assets = assertLiveMatchesPublication(state.release, resumed, 'stable');
+    if (state.release.body !== STABLE_BODY) fail('stable release body conflict');
+    const expected = publicationReceipt(
+      proof,
+      state.release,
+      assets,
+      publication.value.workflow,
+      'finalized',
+      'stable',
+      resumed.value.created_at,
+    );
+    if (canonicalize(expected) !== canonicalize(resumed.value)) {
+      fail('current resume finalization identity conflict');
+    }
+    return emitReceipt(options, resumed.value);
+  }
+
+  if (!state.release.prerelease) {
+    fail(
+      'current release is already stable without a bound V2 finalization receipt; the public child must finish first',
+    );
+  }
+  assertLiveMatchesPublication(state.release, publication, 'prerelease');
+  if (
+    state.release.body !== PRERELEASE_BODY ||
+    sha256(Buffer.from(state.release.body)) !== publication.value.body_sha256
+  ) {
+    fail('prerelease body conflict');
+  }
+
+  adapter.editStable();
+  const reconciled = releaseState(adapter);
+  if (reconciled.commit !== proof.value.tag_commit) fail('tag identity changed during finalization');
+  const assets = assertLiveMatchesPublication(reconciled.release, publication, 'stable');
+  if (reconciled.release.body !== STABLE_BODY) fail('stable finalization did not reconcile');
+  const receipt = publicationReceipt(
+    proof,
+    reconciled.release,
+    assets,
+    publication.value.workflow,
+    'finalized',
+    'stable',
+    adapter.now(),
+  );
+  validatePublicationReceipt(
+    { value: receipt, digest: sha256(Buffer.from(canonicalize(receipt))) },
+    proof,
+    'current stable finalization receipt',
+  );
+  return emitReceipt(options, receipt);
 }
 
 export function finalizeReviewed(options, injectedAdapter, promotionValidator, injectedPromotionAdapter) {
@@ -1042,12 +1352,19 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
     readCanonical(
       options.get('publication'),
       options.get('publication-sha256'),
-      'SessionRelayPublicationReceiptV1',
+      [
+        { schema: 1, type: 'SessionRelayPublicationReceiptV1' },
+        { schema: 2, type: 'SessionRelayPublicationReceiptV2' },
+      ],
       '--publication',
     ),
     proof,
     '--publication',
   );
+  const current = proof.value.schema === 2 || proof.value.type === 'SourcePreparationProofV2';
+  if (current && (publication.value.schema !== 2 || publication.value.type !== 'SessionRelayPublicationReceiptV2')) {
+    fail('current stable finalization requires the exact V2 prerelease publication receipt');
+  }
   if (
     publication.value.release_state !== 'prerelease' ||
     publication.value.body_sha256 !== sha256(Buffer.from(PRERELEASE_BODY))
@@ -1057,16 +1374,41 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
   const promotion = readCanonical(
     options.get('promotion'),
     options.get('promotion-sha256'),
-    'PromotionReceiptV1',
+    [
+      { schema: 1, type: 'PromotionReceiptV1' },
+      { schema: 2, type: 'PromotionReceiptV2' },
+    ],
     '--promotion',
   );
-  promotionValidator(promotion.value, { proof, publication }, injectedPromotionAdapter);
+  if (current !== (promotion.value.schema === 2 && promotion.value.type === 'PromotionReceiptV2')) {
+    fail('promotion receipt schema does not match the source proof release generation');
+  }
+  let publicRelease = null;
+  if (promotion.value.schema === 2) {
+    if (!options.has('public-release')) {
+      fail('current stable finalization requires the exact public release receipt and SHA-256');
+    }
+    publicRelease = readCanonical(
+      options.get('public-release'),
+      options.get('public-release-sha256'),
+      [{ schema: 2, type: 'PublicReleaseReceiptV2' }],
+      '--public-release',
+    );
+  }
+  promotionValidator(
+    promotion.value,
+    publicRelease === null ? { proof, publication } : { proof, publication, publicRelease },
+    injectedPromotionAdapter,
+  );
   const resumed = options.has('resume-finalization')
     ? validatePublicationReceipt(
         readCanonical(
           options.get('resume-finalization'),
           options.get('resume-finalization-sha256'),
-          'SessionRelayPublicationReceiptV1',
+          [
+            { schema: 1, type: 'SessionRelayPublicationReceiptV1' },
+            { schema: 2, type: 'SessionRelayPublicationReceiptV2' },
+          ],
           '--resume-finalization',
         ),
         proof,
@@ -1074,11 +1416,23 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
       )
     : null;
   if (
+    current &&
+    resumed !== null &&
+    (resumed.value.schema !== 2 ||
+      resumed.value.type !== 'SessionRelayPublicationReceiptV2' ||
+      resumed.value.release_state !== 'stable')
+  ) {
+    fail('current resume finalization requires the exact V2 stable publication receipt');
+  }
+  if (
     promotion.value.outcome !== 'success' ||
     promotion.value.source_proof_sha256 !== proof.digest ||
     promotion.value.publication_receipt_sha256 !== publication.digest
   ) {
     fail('promotion receipt is not a bound success');
+  }
+  if (current) {
+    return finalizeCurrentReviewed(options, adapter, proof, publication, resumed);
   }
   const state = releaseState(adapter);
   if (state.commit !== proof.value.tag_commit || !state.release) fail('release identity conflict');
@@ -1114,13 +1468,32 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
     'stable',
     adapter.now(),
   );
-  if (
-    resumed &&
-    (resumed.value.release_database_id !== receipt.release_database_id ||
+  if (current) {
+    validatePublicationReceipt(
+      { value: receipt, digest: sha256(Buffer.from(canonicalize(receipt))) },
+      proof,
+      'current stable finalization receipt',
+    );
+  }
+  if (resumed) {
+    if (current) {
+      const resumedIdentity = structuredClone(resumed.value);
+      const receiptIdentity = structuredClone(receipt);
+      delete resumedIdentity.transition;
+      delete resumedIdentity.created_at;
+      delete receiptIdentity.transition;
+      delete receiptIdentity.created_at;
+      if (canonicalize(resumedIdentity) !== canonicalize(receiptIdentity)) {
+        fail('resume finalization identity conflict');
+      }
+    } else if (
+      resumed.value.release_database_id !== receipt.release_database_id ||
       resumed.value.body_sha256 !== receipt.body_sha256 ||
       canonicalize(resumed.value.workflow) !== canonicalize(receipt.workflow) ||
-      canonicalize(resumed.value.assets) !== canonicalize(receipt.assets))
-  )
-    fail('resume finalization identity conflict');
+      canonicalize(resumed.value.assets) !== canonicalize(receipt.assets)
+    ) {
+      fail('resume finalization identity conflict');
+    }
+  }
   return emitReceipt(options, receipt);
 }
