@@ -1,9 +1,11 @@
 ---
 title: Complete reviewed Session Relay remediation
-status: drafting
+status: blocked
 created: "2026-07-25T21:14:31.307Z"
-updated: "2026-07-25T21:14:31.307Z"
+updated: "2026-07-25T21:24:08.664Z"
 started_at: null
+blocked_reason: "Draft-review retry input was invalid: the immutable bundle binds invocation 1 while the reserved retry binds invocation 2."
+blocked_since: "2026-07-25T21:24:08.664Z"
 finished_at: null
 assignee: null
 tags: [session-relay, protocol, release, remediation]
@@ -33,7 +35,7 @@ related_plans:
 
 # Complete reviewed Session Relay remediation
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"ff8c3e94c09d08649089e18a1f9b15c04ef8cb24d298cf8e25fb0ee66a62fad0","invocations":1,"result_sha256":"d002e4605ecc492efd90090ba53caaf78a9283f5e51abb4eca2de61da3acb159","state":"retryable"},"execution_parent":null,"goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v3.md","plan_sha256":"3902194757835ed6e3b88e7ceec375e1e44517b0f0c083d67808ab89c88ea6ea","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"3abb237e-2238-48fd-afaf-702c431f6254","schema":1,"source_base":"fd97401dcc0afddff9a8a26b523d86e48d39e3ac","source_sha256":"2c258f5cbdd3a3c93e089025d759a2f33549cfd98432ad0bb1332ac5190395f1"}
+Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"6b67045f1417773a0031987aae354f3a45ffd73ab72e9684c70234a17f68e605","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"ff8c3e94c09d08649089e18a1f9b15c04ef8cb24d298cf8e25fb0ee66a62fad0","invocations":2,"result_sha256":"6b67045f1417773a0031987aae354f3a45ffd73ab72e9684c70234a17f68e605","state":"blocked"},"execution_parent":null,"goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v3.md","plan_sha256":"3902194757835ed6e3b88e7ceec375e1e44517b0f0c083d67808ab89c88ea6ea","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"3abb237e-2238-48fd-afaf-702c431f6254","schema":1,"source_base":"fd97401dcc0afddff9a8a26b523d86e48d39e3ac","source_sha256":"2c258f5cbdd3a3c93e089025d759a2f33549cfd98432ad0bb1332ac5190395f1"}
 
 ## Goal
 
@@ -98,7 +100,7 @@ N/A. The defects, fixed contracts, test-first ordering, evidence producer, fresh
 
 ## Review
 
-Draft-review invocation 1 failed before model execution with `No model selected`. The immutable input remains reserved for the one permitted transport retry after the durable project reviewer model pin is loaded by a fresh session.
+Invocation 1 failed transport. Invocation 2 correctly detected closed bundle binding mismatch and returned ReviewInvalidInputV1; this run is terminal.
 
 ## Verification Results
 
