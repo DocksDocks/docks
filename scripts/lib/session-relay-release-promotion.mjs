@@ -43,6 +43,8 @@ import {
 import {
   productionAdapter as currentPublicationAdapter,
   normalizedAssets,
+  normalizedTimestamp,
+  PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR,
   releaseState,
   validatePublicationReceipt,
 } from './session-relay-release-publication.mjs';
@@ -86,8 +88,9 @@ const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.12.0';
 const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
 const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
 const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
-const PLANRUN_DOCKS_RUN_ID = 'e61586f3-78ce-46c2-b324-fa6b753864da';
+const PLANRUN_DOCKS_RUN_ID = '5e00cc28-4e27-42cb-9cf9-c3630006d8c0';
 const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v9.md';
+const PLANRUN_DOCKS_SOURCE_BASE = 'de4f8305ac9351cbbea4549503f2684f67fbcde9';
 const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
 const CURRENT_PUBLIC_PLAN_BASENAME = 'session-relay-0.14.0-docks-kit-0.12.0-release';
@@ -102,6 +105,14 @@ const LEGACY_PROMOTION_TAG = HISTORICAL_RELAY_TAG;
 const LEGACY_PROMOTION_TRANSACTION_REF = LEGACY_TRANSACTION_REF;
 const LEGACY_PROMOTION_LOCK_REF = LEGACY_LOCK_REF;
 const LEGACY_PROMOTION_DOCKS_KIT_RELEASE = LEGACY_DOCKS_KIT_RELEASE;
+const RETAINED_PROMOTION_SHA256 = '7ffaa7967d9ca8cc7c53c3ca22efe932d3028ad3caf210cec8157aec7bbd1670';
+const RETAINED_PROMOTION_SOURCE_PROOF_SHA256 = 'c853e528411b881b2c551fb3b549146679eb76b10e8d8dde55627121a16c98cd';
+const RETAINED_PROMOTION_PUBLICATION_SHA256 = '784ff59a2705884aae1de7fab9f21551a6872a54cfd047df3ba57b0f41e81588';
+const RETAINED_PROMOTION_PUBLIC_RELEASE_SHA256 = '05b08d34e62b58dcbbda214bbcef4cb0658ef6781ca3e696abdfa1b3f43f5091';
+const RETAINED_PROMOTION_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
+const RETAINED_PROMOTION_DOCKS_PLAN_PATH =
+  'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
+const RETAINED_PROMOTION_COMPLETION_REVIEW_SHA256 = '491925513a94c7d2c1b86cfe0fcf71ad5b7f5d994724612295a2c2cfe465c7cc';
 const EMPTY_SHA256 = sha256(Buffer.alloc(0));
 const PREPUSH_REPAIR_PATHS = [
   'plugins/session-relay/test/release-promotion-contract.mjs',
@@ -409,6 +420,49 @@ const PROMOTION_V2_KEYS = [
   'outcome',
   'completed_at',
 ];
+const PROMOTION_EVIDENCE_REBIND_KEYS = [
+  'schema',
+  'type',
+  'repository_id',
+  'version',
+  'tag',
+  'retained_promotion_sha256',
+  'retained_promotion',
+  'source_proof_sha256',
+  'reviewed_source_commit',
+  'reviewed_source_ancestry',
+  'docks_plan',
+  'publication_receipt_sha256',
+  'public_release_receipt_sha256',
+  'public_child',
+  'staged_release',
+  'stable_release',
+  'live_stable_release',
+  'byte_identical_promotion',
+  'historical_receipts',
+  'chronology',
+  'outcome',
+  'reconciled_at',
+];
+const PROMOTION_EVIDENCE_REBIND_LIVE_STABLE_KEYS = [
+  'repository_id',
+  'tag',
+  'commit',
+  'release_database_id',
+  'draft',
+  'prerelease',
+  'body_sha256',
+  'created_at',
+  'published_at',
+  'assets',
+];
+const PROMOTION_EVIDENCE_REBIND_CHRONOLOGY_KEYS = [
+  'publication_workflow_completed_at',
+  'public_child_finished_at',
+  'original_promotion_completed_at',
+];
+
+export { PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR };
 export const PUBLIC_RELEASE_ADAPTER_KEYS = Object.freeze([
   'now',
   'getTagCommit',
@@ -458,6 +512,20 @@ export const CURRENT_PROMOTION_ADAPTER_KEYS = Object.freeze([
   'isPublicAncestor',
   'currentReleaseState',
   'promoteStable',
+  'assertReceiptOutputAvailable',
+  'writeReceipt',
+]);
+
+export const PROMOTION_EVIDENCE_REBIND_ADAPTER_KEYS = Object.freeze([
+  'now',
+  'loadProof',
+  'loadPublication',
+  'loadPublicRelease',
+  'loadRetainedPromotion',
+  'isAncestor',
+  'isPublicAncestor',
+  'currentReleaseState',
+  'getPublicationWorkflowRun',
   'assertReceiptOutputAvailable',
   'writeReceipt',
 ]);
@@ -525,6 +593,21 @@ function checkedOperations(adapter, keys, label) {
 
 function validateCurrentPromotionAdapter(adapter) {
   return checkedOperations(adapter, CURRENT_PROMOTION_ADAPTER_KEYS, 'current promotion dependency adapter');
+}
+
+function validatePromotionEvidenceRebindAdapter(adapter) {
+  return checkedOperations(
+    adapter,
+    PROMOTION_EVIDENCE_REBIND_ADAPTER_KEYS,
+    'promotion evidence rebind dependency adapter',
+  );
+}
+
+function validateCanonicalEnvelope(envelope, label) {
+  if (!record(envelope) || !record(envelope.value)) fail(`${label} is invalid`);
+  assertDigest(envelope.digest, `${label} digest`);
+  if (envelope.digest !== sha256(Buffer.from(canonicalize(envelope.value)))) fail(`${label} digest mismatch`);
+  return envelope;
 }
 
 function publicationAssetPins(publication) {
@@ -2561,12 +2644,11 @@ function validateCurrentReleaseState(value, label, expectedPrerelease) {
   }
 }
 
-function validateCurrentPromotionReceipt(receipt) {
+function validateCurrentPromotionReceiptCore(receipt, { label, expectedPlanRunId, expectedPlanPath, allowV2 }) {
   const planRunReceipt = receipt.schema === 3 && receipt.type === 'PromotionReceiptV3';
-  const planRunDocksReceipt = receipt.docks_plan?.run_id === PLANRUN_DOCKS_RUN_ID;
-  exactKeys(receipt, PROMOTION_V2_KEYS, 'current promotion receipt');
+  exactKeys(receipt, PROMOTION_V2_KEYS, label);
   if (
-    (!planRunReceipt && (receipt.schema !== 2 || receipt.type !== 'PromotionReceiptV2')) ||
+    (!planRunReceipt && (!allowV2 || receipt.schema !== 2 || receipt.type !== 'PromotionReceiptV2')) ||
     receipt.repository_id !== REPOSITORY_ID ||
     receipt.version !== CURRENT_VERSION ||
     receipt.tag !== CURRENT_TAG ||
@@ -2574,32 +2656,31 @@ function validateCurrentPromotionReceipt(receipt) {
     receipt.byte_identical_promotion !== true ||
     receipt.outcome !== 'success'
   ) {
-    fail('current promotion receipt reviewed source, byte identity, or outcome is invalid');
+    fail(`${label} reviewed source, byte identity, or outcome is invalid`);
   }
-  assertDigest(receipt.source_proof_sha256, 'current promotion source proof digest');
-  assertDigest(receipt.publication_receipt_sha256, 'current promotion publication receipt digest');
-  assertDigest(receipt.public_release_receipt_sha256, 'current promotion public release receipt digest');
-  assertCommit(receipt.reviewed_source_commit, 'current promotion reviewed source commit');
-  assertTimestamp(receipt.completed_at, 'current promotion completion time');
+  assertDigest(receipt.source_proof_sha256, `${label} source proof digest`);
+  assertDigest(receipt.publication_receipt_sha256, `${label} publication receipt digest`);
+  assertDigest(receipt.public_release_receipt_sha256, `${label} public release receipt digest`);
+  assertCommit(receipt.reviewed_source_commit, `${label} reviewed source commit`);
+  assertTimestamp(receipt.completed_at, `${label} completion time`);
 
   exactKeys(
     receipt.docks_plan,
     ['repository_id', 'goal_id', 'run_id', 'plan_path', 'implementation_commit', 'completion_review_sha256', 'status'],
-    'current promotion Docks plan',
+    `${label} Docks plan`,
   );
   if (
     receipt.docks_plan.repository_id !== REPOSITORY_ID ||
     receipt.docks_plan.goal_id !== CURRENT_GOAL_ID ||
-    (!planRunReceipt && planRunDocksReceipt) ||
-    receipt.docks_plan.run_id !== (planRunDocksReceipt ? PLANRUN_DOCKS_RUN_ID : CURRENT_DOCKS_RUN_ID) ||
-    receipt.docks_plan.plan_path !== (planRunDocksReceipt ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH) ||
+    receipt.docks_plan.run_id !== (planRunReceipt ? expectedPlanRunId : CURRENT_DOCKS_RUN_ID) ||
+    receipt.docks_plan.plan_path !== (planRunReceipt ? expectedPlanPath : CURRENT_DOCKS_PLAN_PATH) ||
     receipt.docks_plan.implementation_commit !== receipt.reviewed_source_commit ||
     receipt.docks_plan.status !== 'ongoing'
   ) {
-    fail('current promotion Docks PlanRunV1 identity mismatch');
+    fail(`${label} Docks PlanRunV1 identity mismatch`);
   }
-  assertCommit(receipt.docks_plan.implementation_commit, 'current promotion Docks implementation commit');
-  assertDigest(receipt.docks_plan.completion_review_sha256, 'current promotion completion review digest');
+  assertCommit(receipt.docks_plan.implementation_commit, `${label} Docks implementation commit`);
+  assertDigest(receipt.docks_plan.completion_review_sha256, `${label} completion review digest`);
 
   const publicChildKeys = [
     'repository_id',
@@ -2614,7 +2695,7 @@ function validateCurrentPromotionReceipt(receipt) {
     planRunReceipt ? 'planrun_verified' : 'red_first_verified',
     'finished_at',
   ];
-  exactKeys(receipt.public_child, publicChildKeys, 'current promotion public child');
+  exactKeys(receipt.public_child, publicChildKeys, `${label} public child`);
   if (
     receipt.public_child.repository_id !== PUBLIC_REPOSITORY_ID ||
     receipt.public_child.goal_id !== CURRENT_GOAL_ID ||
@@ -2627,15 +2708,15 @@ function validateCurrentPromotionReceipt(receipt) {
     receipt.public_child.status !== 'finished' ||
     (planRunReceipt ? receipt.public_child.planrun_verified !== true : receipt.public_child.red_first_verified !== true)
   ) {
-    fail(`current promotion requires the exact finished ${CURRENT_PUBLIC_PLAN_BASENAME} validated public child`);
+    fail(`${label} requires the exact finished ${CURRENT_PUBLIC_PLAN_BASENAME} validated public child`);
   }
-  assertTimestamp(receipt.public_child.finished_at, 'current promotion public child finished time');
+  assertTimestamp(receipt.public_child.finished_at, `${label} public child finished time`);
   if (Date.parse(receipt.public_child.finished_at) >= Date.parse(receipt.completed_at)) {
-    fail('current promotion public child must finish before stable promotion');
+    fail(`${label} public child must finish before stable promotion`);
   }
 
-  validateCurrentReleaseState(receipt.staged_release, 'current staged prerelease', true);
-  validateCurrentReleaseState(receipt.stable_release, 'current stable release', false);
+  validateCurrentReleaseState(receipt.staged_release, `${label} staged prerelease`, true);
+  validateCurrentReleaseState(receipt.stable_release, `${label} stable release`, false);
   if (
     receipt.staged_release.release_database_id !== receipt.stable_release.release_database_id ||
     receipt.staged_release.tag_commit !== receipt.stable_release.tag_commit ||
@@ -2643,18 +2724,17 @@ function validateCurrentPromotionReceipt(receipt) {
     receipt.staged_release.workflow_run_attempt !== receipt.stable_release.workflow_run_attempt ||
     canonicalize(receipt.staged_release.assets) !== canonicalize(receipt.stable_release.assets)
   ) {
-    fail('current stable promotion changed an asset digest or another byte-identical release identity');
+    fail(`${label} changed an asset digest or another byte-identical release identity`);
   }
-  const expectedTagCommit =
-    planRunReceipt && planRunDocksReceipt ? PLANRUN_RELEASE_TAG_COMMIT : receipt.reviewed_source_commit;
+  const expectedTagCommit = planRunReceipt ? PLANRUN_RELEASE_TAG_COMMIT : receipt.reviewed_source_commit;
   if (receipt.staged_release.tag_commit !== expectedTagCommit) {
-    fail('current promotion staged tag commit is not the bound immutable release commit');
+    fail(`${label} staged tag commit is not the bound immutable release commit`);
   }
 
   exactKeys(
     receipt.historical_receipts,
     ['version', 'tag', 'publication_sha256', 'public_request_sha256'],
-    'current promotion historical receipts',
+    `${label} historical receipts`,
   );
   if (
     receipt.historical_receipts.version !== HISTORICAL_RELAY_VERSION ||
@@ -2662,9 +2742,347 @@ function validateCurrentPromotionReceipt(receipt) {
     receipt.historical_receipts.publication_sha256 !== HISTORICAL_PUBLICATION_SHA256 ||
     receipt.historical_receipts.public_request_sha256 !== HISTORICAL_PUBLIC_REQUEST_SHA256
   ) {
-    fail('current promotion historical Session Relay 0.13 receipt identity changed');
+    fail(`${label} historical Session Relay 0.13 receipt identity changed`);
   }
   return receipt;
+}
+
+function validateCurrentPromotionReceipt(receipt) {
+  return validateCurrentPromotionReceiptCore(receipt, {
+    label: 'current promotion receipt',
+    expectedPlanRunId: PLANRUN_DOCKS_RUN_ID,
+    expectedPlanPath: PLANRUN_DOCKS_PLAN_PATH,
+    allowV2: true,
+  });
+}
+
+function validateRetainedPromotionReceipt(receipt) {
+  validateCurrentPromotionReceiptCore(receipt, {
+    label: 'retained promotion receipt',
+    expectedPlanRunId: RETAINED_PROMOTION_DOCKS_RUN_ID,
+    expectedPlanPath: RETAINED_PROMOTION_DOCKS_PLAN_PATH,
+    allowV2: false,
+  });
+  if (
+    receipt.source_proof_sha256 !== RETAINED_PROMOTION_SOURCE_PROOF_SHA256 ||
+    receipt.publication_receipt_sha256 !== RETAINED_PROMOTION_PUBLICATION_SHA256 ||
+    receipt.public_release_receipt_sha256 !== RETAINED_PROMOTION_PUBLIC_RELEASE_SHA256 ||
+    receipt.reviewed_source_commit !== PLANRUN_RELEASE_TAG_COMMIT ||
+    receipt.docks_plan.completion_review_sha256 !== RETAINED_PROMOTION_COMPLETION_REVIEW_SHA256
+  ) {
+    fail('retained promotion receipt does not match the exact immutable successful promotion identity');
+  }
+  return receipt;
+}
+
+function promotionEvidencePublicChild(publicRelease) {
+  const publicPlan = publicRelease.value.public_plan;
+  return {
+    repository_id: publicRelease.value.repository_id,
+    goal_id: publicPlan.plan_run.goal_id,
+    run_id: publicPlan.plan_run.run_id,
+    version: publicRelease.value.version,
+    tag: publicRelease.value.tag,
+    npm_package: publicRelease.value.npm.package,
+    npm_version: publicRelease.value.npm.version,
+    plan_path: publicPlan.finished_path,
+    status: 'finished',
+    planrun_verified: true,
+    finished_at: publicPlan.finished_at,
+  };
+}
+
+function observedPromotionLiveStable(state, publication) {
+  const stable = currentReleaseSnapshot(state, publication, false, 'promotion evidence live stable release');
+  const createdAt = normalizedTimestamp(state.release.created_at, 'promotion evidence live release created_at');
+  const publishedAt = normalizedTimestamp(state.release.published_at, 'promotion evidence live release published_at');
+  if (Date.parse(publishedAt) < Date.parse(createdAt)) fail('promotion evidence live release timestamps are inverted');
+  return {
+    repository_id: REPOSITORY_ID,
+    tag: CURRENT_TAG,
+    commit: state.commit,
+    release_database_id: stable.release_database_id,
+    draft: false,
+    prerelease: false,
+    body_sha256: sha256(Buffer.from(CURRENT_STABLE_BODY)),
+    created_at: createdAt,
+    published_at: publishedAt,
+    assets: stable.assets,
+  };
+}
+
+function validatePromotionEvidenceRebindStructure(receipt) {
+  exactKeys(receipt, PROMOTION_EVIDENCE_REBIND_KEYS, 'promotion evidence rebind receipt');
+  if (
+    receipt.schema !== PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.schema ||
+    receipt.type !== PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.type ||
+    receipt.repository_id !== REPOSITORY_ID ||
+    receipt.version !== CURRENT_VERSION ||
+    receipt.tag !== CURRENT_TAG ||
+    receipt.retained_promotion_sha256 !== RETAINED_PROMOTION_SHA256 ||
+    receipt.reviewed_source_ancestry !== true ||
+    receipt.byte_identical_promotion !== true ||
+    receipt.outcome !== 'success'
+  ) {
+    fail('promotion evidence rebind receipt identity, ancestry, byte identity, or outcome is invalid');
+  }
+  assertDigest(receipt.source_proof_sha256, 'promotion evidence rebind source proof digest');
+  assertDigest(receipt.publication_receipt_sha256, 'promotion evidence rebind publication receipt digest');
+  assertDigest(receipt.public_release_receipt_sha256, 'promotion evidence rebind public release receipt digest');
+  assertCommit(receipt.reviewed_source_commit, 'promotion evidence rebind reviewed source commit');
+  assertTimestamp(receipt.reconciled_at, 'promotion evidence reconciliation time');
+
+  if (sha256(Buffer.from(canonicalize(receipt.retained_promotion))) !== RETAINED_PROMOTION_SHA256) {
+    fail('promotion evidence retained promotion digest mismatch');
+  }
+  validateRetainedPromotionReceipt(receipt.retained_promotion);
+
+  exactKeys(
+    receipt.docks_plan,
+    ['repository_id', 'goal_id', 'run_id', 'plan_path', 'implementation_commit', 'completion_review_sha256', 'status'],
+    'promotion evidence Docks plan',
+  );
+  if (
+    receipt.docks_plan.repository_id !== REPOSITORY_ID ||
+    receipt.docks_plan.goal_id !== CURRENT_GOAL_ID ||
+    receipt.docks_plan.run_id !== PLANRUN_DOCKS_RUN_ID ||
+    receipt.docks_plan.plan_path !== PLANRUN_DOCKS_PLAN_PATH ||
+    receipt.docks_plan.implementation_commit !== receipt.reviewed_source_commit ||
+    receipt.docks_plan.status !== 'ongoing'
+  ) {
+    fail('promotion evidence fresh Docks PlanRunV1 identity mismatch');
+  }
+  assertDigest(receipt.docks_plan.completion_review_sha256, 'promotion evidence completion review digest');
+
+  exactKeys(
+    receipt.public_child,
+    [
+      'repository_id',
+      'goal_id',
+      'run_id',
+      'version',
+      'tag',
+      'npm_package',
+      'npm_version',
+      'plan_path',
+      'status',
+      'planrun_verified',
+      'finished_at',
+    ],
+    'promotion evidence public child',
+  );
+  if (
+    receipt.public_child.repository_id !== PUBLIC_REPOSITORY_ID ||
+    receipt.public_child.goal_id !== CURRENT_GOAL_ID ||
+    receipt.public_child.run_id !== CURRENT_PUBLIC_RUN_ID ||
+    receipt.public_child.version !== PUBLIC_VERSION ||
+    receipt.public_child.tag !== PUBLIC_TAG ||
+    receipt.public_child.npm_package !== 'docks-kit' ||
+    receipt.public_child.npm_version !== PUBLIC_VERSION ||
+    !CURRENT_PUBLIC_FINISHED_PLAN_PATH.test(receipt.public_child.plan_path) ||
+    receipt.public_child.status !== 'finished' ||
+    receipt.public_child.planrun_verified !== true
+  ) {
+    fail('promotion evidence does not bind the exact finished public child');
+  }
+  assertTimestamp(receipt.public_child.finished_at, 'promotion evidence public child finished time');
+
+  validateCurrentReleaseState(receipt.staged_release, 'promotion evidence retained staged release', true);
+  validateCurrentReleaseState(receipt.stable_release, 'promotion evidence retained stable release', false);
+  if (
+    canonicalize(receipt.staged_release) !== canonicalize(receipt.retained_promotion.staged_release) ||
+    canonicalize(receipt.stable_release) !== canonicalize(receipt.retained_promotion.stable_release) ||
+    canonicalize(receipt.public_child) !== canonicalize(receipt.retained_promotion.public_child) ||
+    canonicalize(receipt.historical_receipts) !== canonicalize(receipt.retained_promotion.historical_receipts)
+  ) {
+    fail('promotion evidence retained promotion projection changed');
+  }
+
+  exactKeys(
+    receipt.live_stable_release,
+    PROMOTION_EVIDENCE_REBIND_LIVE_STABLE_KEYS,
+    'promotion evidence live stable release',
+  );
+  if (
+    receipt.live_stable_release.repository_id !== REPOSITORY_ID ||
+    receipt.live_stable_release.tag !== CURRENT_TAG ||
+    receipt.live_stable_release.commit !== PLANRUN_RELEASE_TAG_COMMIT ||
+    receipt.live_stable_release.release_database_id !== receipt.stable_release.release_database_id ||
+    receipt.live_stable_release.draft !== false ||
+    receipt.live_stable_release.prerelease !== false ||
+    receipt.live_stable_release.body_sha256 !== sha256(Buffer.from(CURRENT_STABLE_BODY)) ||
+    canonicalize(receipt.live_stable_release.assets) !== canonicalize(receipt.stable_release.assets)
+  ) {
+    fail('promotion evidence live stable release identity, body, or assets changed');
+  }
+  assertTimestamp(receipt.live_stable_release.created_at, 'promotion evidence live release created_at');
+  assertTimestamp(receipt.live_stable_release.published_at, 'promotion evidence live release published_at');
+  if (
+    Date.parse(receipt.live_stable_release.published_at) < Date.parse(receipt.live_stable_release.created_at) ||
+    Date.parse(receipt.live_stable_release.published_at) > Date.parse(receipt.reconciled_at)
+  ) {
+    fail('promotion evidence live release timestamp ordering is invalid');
+  }
+  validateAssets(receipt.live_stable_release.assets, 'promotion evidence live stable assets', true);
+
+  exactKeys(receipt.chronology, PROMOTION_EVIDENCE_REBIND_CHRONOLOGY_KEYS, 'promotion evidence chronology');
+  for (const [key, value] of Object.entries(receipt.chronology)) {
+    assertTimestamp(value, `promotion evidence chronology ${key}`);
+  }
+  if (
+    receipt.chronology.public_child_finished_at !== receipt.public_child.finished_at ||
+    receipt.chronology.original_promotion_completed_at !== receipt.retained_promotion.completed_at ||
+    Date.parse(receipt.chronology.publication_workflow_completed_at) >=
+      Date.parse(receipt.chronology.public_child_finished_at) ||
+    Date.parse(receipt.chronology.public_child_finished_at) >=
+      Date.parse(receipt.chronology.original_promotion_completed_at) ||
+    Date.parse(receipt.chronology.original_promotion_completed_at) >= Date.parse(receipt.reconciled_at)
+  ) {
+    fail('promotion evidence chronology must be publication, public child, original promotion, then reconciliation');
+  }
+  return receipt;
+}
+
+function publicationWorkflowCompletedAt(adapter, publication, liveStableRelease) {
+  const expected = publication.value.workflow;
+  const run = adapter.getPublicationWorkflowRun(expected.run_id);
+  if (
+    !record(run) ||
+    run.id !== expected.run_id ||
+    run.run_attempt !== expected.attempt ||
+    run.head_sha !== expected.head_sha ||
+    run.path !== expected.path ||
+    run.event !== expected.event ||
+    run.status !== 'completed' ||
+    run.conclusion !== 'success'
+  ) {
+    fail('promotion evidence publication workflow run identity or terminal state changed');
+  }
+  const startedAt = Date.parse(run.run_started_at);
+  const completedAt = Date.parse(run.updated_at);
+  const publishedAt = Date.parse(liveStableRelease.published_at);
+  if (
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(completedAt) ||
+    !Number.isFinite(publishedAt) ||
+    completedAt < startedAt ||
+    publishedAt < startedAt ||
+    publishedAt > completedAt
+  ) {
+    fail('promotion evidence publication workflow run timestamps do not contain the live release publication event');
+  }
+  return new Date(completedAt).toISOString();
+}
+
+function validatePromotionEvidenceFreshContext(
+  receipt,
+  context,
+  adapter,
+  observedState = undefined,
+  observedWorkflowCompletedAt = undefined,
+) {
+  exactKeys(context, ['proof', 'publication', 'publicRelease'], 'promotion evidence rebind validation context');
+  const proof = validateCanonicalEnvelope(context.proof, 'promotion evidence source proof');
+  const publication = validateCanonicalEnvelope(context.publication, 'promotion evidence publication receipt');
+  const publicRelease = validateCanonicalEnvelope(context.publicRelease, 'promotion evidence public release receipt');
+
+  if (proof.value.schema !== 3 || proof.value.type !== 'SourcePreparationProofV3') {
+    fail('promotion evidence rebind requires the fresh SourcePreparationProofV3');
+  }
+  validateSourcePreparationProof(proof.value);
+  if (
+    proof.value.repository_id !== REPOSITORY_ID ||
+    proof.value.version !== CURRENT_VERSION ||
+    proof.value.tag !== CURRENT_TAG ||
+    proof.value.run_id !== PLANRUN_DOCKS_RUN_ID ||
+    proof.value.source_commit !== PLANRUN_DOCKS_SOURCE_BASE ||
+    proof.value.tag_commit !== PLANRUN_RELEASE_TAG_COMMIT ||
+    proof.value.plan_run.repository_id !== REPOSITORY_ID ||
+    proof.value.plan_run.goal_id !== CURRENT_GOAL_ID ||
+    proof.value.plan_run.run_id !== PLANRUN_DOCKS_RUN_ID ||
+    proof.value.plan_run.plan_path !== PLANRUN_DOCKS_PLAN_PATH ||
+    proof.value.plan_run.source_base !== PLANRUN_DOCKS_SOURCE_BASE ||
+    proof.value.plan_run.implementation_commit !== proof.value.implementation_commit ||
+    proof.value.completion_review.reviewed_commit !== proof.value.implementation_commit
+  ) {
+    fail('promotion evidence source proof does not bind the exact fresh successor PlanRunV1');
+  }
+
+  validatePublication(publication, proof);
+  if (
+    publication.value.schema !== 2 ||
+    publication.value.type !== 'SessionRelayPublicationReceiptV2' ||
+    publication.value.source.reviewed_commit !== proof.value.tag_commit ||
+    publication.value.source.implementation_commit !== proof.value.implementation_commit ||
+    publication.value.tag_commit !== proof.value.tag_commit
+  ) {
+    fail('promotion evidence publication does not bind the fresh immutable tag and implementation');
+  }
+
+  validatePromotionPublicRelease(publicRelease, proof, publication, adapter);
+  if (publicRelease.value.schema !== 3 || publicRelease.value.type !== 'PublicReleaseReceiptV3') {
+    fail('promotion evidence rebind requires the exact PlanRun-native public release receipt');
+  }
+
+  for (const [ancestor, descendant, label] of [
+    [proof.value.tag_commit, proof.value.source_commit, 'tag-to-source'],
+    [proof.value.source_commit, proof.value.implementation_commit, 'source-to-implementation'],
+  ]) {
+    if (adapter.isAncestor(ancestor, descendant) !== true) {
+      fail(`promotion evidence ${label} ancestry was not independently observed`);
+    }
+  }
+  const publicAncestry = publicRelease.value.ancestry;
+  for (const [ancestor, descendant, label] of [
+    [
+      publicAncestry.execution_parent,
+      publicAncestry.implementation_commit,
+      'public-execution-parent-to-implementation',
+    ],
+    [publicAncestry.implementation_commit, publicAncestry.release_commit, 'public-implementation-to-release'],
+    [publicAncestry.release_commit, publicAncestry.archive_commit, 'public-release-to-archive'],
+  ]) {
+    if (adapter.isPublicAncestor(ancestor, descendant) !== true) {
+      fail(`promotion evidence ${label} ancestry was not independently observed`);
+    }
+  }
+
+  const publicChild = promotionEvidencePublicChild(publicRelease);
+  const state = observedState ?? adapter.currentReleaseState();
+  const liveStableRelease = observedPromotionLiveStable(state, publication);
+  const workflowCompletedAt =
+    observedWorkflowCompletedAt ?? publicationWorkflowCompletedAt(adapter, publication, liveStableRelease);
+  const publicationAssets = sortedPromotionAssets(publication.value.assets);
+  if (
+    receipt.source_proof_sha256 !== proof.digest ||
+    receipt.reviewed_source_commit !== proof.value.implementation_commit ||
+    receipt.docks_plan.implementation_commit !== proof.value.implementation_commit ||
+    receipt.docks_plan.completion_review_sha256 !== proof.value.completion_review.result_sha256 ||
+    receipt.publication_receipt_sha256 !== publication.digest ||
+    receipt.public_release_receipt_sha256 !== publicRelease.digest ||
+    canonicalize(receipt.public_child) !== canonicalize(publicChild) ||
+    receipt.stable_release.release_database_id !== publication.value.release_database_id ||
+    receipt.stable_release.tag_commit !== publication.value.tag_commit ||
+    receipt.stable_release.workflow_run_id !== publication.value.workflow.run_id ||
+    receipt.stable_release.workflow_run_attempt !== publication.value.workflow.attempt ||
+    canonicalize(receipt.stable_release.assets) !== canonicalize(publicationAssets) ||
+    canonicalize(receipt.live_stable_release) !== canonicalize(liveStableRelease) ||
+    receipt.chronology.publication_workflow_completed_at !== workflowCompletedAt ||
+    publication.value.created_at !== liveStableRelease.created_at
+  ) {
+    fail(
+      'promotion evidence receipt does not match its fresh proof, publication, public child, or live stable release',
+    );
+  }
+  return receipt;
+}
+
+export function validatePromotionEvidenceRebindReceipt(receipt, context, injectedAdapter = undefined) {
+  const validated = validatePromotionEvidenceRebindStructure(receipt);
+  const adapter = validatePromotionEvidenceRebindAdapter(
+    injectedAdapter ?? PROMOTION_EVIDENCE_REBIND_PRODUCTION_ADAPTER,
+  );
+  return validatePromotionEvidenceFreshContext(validated, context, adapter);
 }
 
 export function validatePromotionReceipt(receipt) {
@@ -3470,7 +3888,141 @@ export const CURRENT_PRODUCTION_ADAPTER = Object.freeze({
   assertReceiptOutputAvailable,
   writeReceipt,
 });
-export function validatePromotionReceiptForFinalization(receipt, context, injectedAdapter = PRODUCTION_ADAPTER) {
+
+function loadPromotionEvidenceSourceProof(options) {
+  const proof = readCanonical(
+    options.get('source-proof'),
+    options.get('source-proof-sha256'),
+    { schema: 3, type: 'SourcePreparationProofV3' },
+    '--source-proof',
+  );
+  validateSourcePreparationProof(proof.value);
+  return proof;
+}
+
+export const PROMOTION_EVIDENCE_REBIND_PRODUCTION_ADAPTER = Object.freeze({
+  now: () => new Date().toISOString(),
+  loadProof: loadPromotionEvidenceSourceProof,
+  loadPublication: (options) =>
+    readCanonical(
+      options.get('publication'),
+      options.get('publication-sha256'),
+      { schema: 2, type: 'SessionRelayPublicationReceiptV2' },
+      '--publication',
+    ),
+  loadPublicRelease: (options) =>
+    readCanonical(
+      options.get('public-release'),
+      options.get('public-release-sha256'),
+      { schema: 3, type: 'PublicReleaseReceiptV3' },
+      '--public-release',
+    ),
+  loadRetainedPromotion: (options) =>
+    readCanonical(
+      options.get('promotion'),
+      options.get('promotion-sha256'),
+      { schema: 3, type: 'PromotionReceiptV3' },
+      '--promotion',
+    ),
+  isAncestor,
+  isPublicAncestor,
+  currentReleaseState: () => releaseState(currentPublicationAdapter),
+  getPublicationWorkflowRun: (runId) => currentPublicationAdapter.getRun(runId),
+  assertReceiptOutputAvailable,
+  writeReceipt,
+});
+
+export function rebindPromotionEvidence(options, injectedAdapter = undefined) {
+  const adapter = validatePromotionEvidenceRebindAdapter(
+    injectedAdapter ?? PROMOTION_EVIDENCE_REBIND_PRODUCTION_ADAPTER,
+  );
+  adapter.assertReceiptOutputAvailable({ path: options.get('receipt-out') });
+  const proof = validateCanonicalEnvelope(adapter.loadProof(options), 'promotion evidence source proof');
+  const publication = validateCanonicalEnvelope(
+    adapter.loadPublication(options),
+    'promotion evidence publication receipt',
+  );
+  const publicRelease = validateCanonicalEnvelope(
+    adapter.loadPublicRelease(options),
+    'promotion evidence public release receipt',
+  );
+  const retainedPromotion = validateCanonicalEnvelope(
+    adapter.loadRetainedPromotion(options),
+    'retained promotion receipt',
+  );
+  if (retainedPromotion.digest !== RETAINED_PROMOTION_SHA256) {
+    fail(`--promotion must have the exact retained SHA-256 ${RETAINED_PROMOTION_SHA256}`);
+  }
+  validateRetainedPromotionReceipt(retainedPromotion.value);
+  validateProofBinding(proof);
+  validatePublication(publication, proof);
+  if (publication.value.schema !== 2 || publication.value.type !== 'SessionRelayPublicationReceiptV2') {
+    fail('promotion evidence rebind requires the exact V2 staged publication receipt');
+  }
+  validatePromotionPublicRelease(publicRelease, proof, publication, adapter);
+  if (publicRelease.value.schema !== 3 || publicRelease.value.type !== 'PublicReleaseReceiptV3') {
+    fail('promotion evidence rebind requires the exact PlanRun-native public release receipt');
+  }
+
+  const observedState = adapter.currentReleaseState();
+  const liveStableRelease = observedPromotionLiveStable(observedState, publication);
+  const workflowCompletedAt = publicationWorkflowCompletedAt(adapter, publication, liveStableRelease);
+  const publicChild = promotionEvidencePublicChild(publicRelease);
+  const reconciledAt = adapter.now();
+  assertTimestamp(reconciledAt, 'promotion evidence reconciliation time');
+  const receipt = {
+    schema: PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.schema,
+    type: PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.type,
+    repository_id: REPOSITORY_ID,
+    version: CURRENT_VERSION,
+    tag: CURRENT_TAG,
+    retained_promotion_sha256: retainedPromotion.digest,
+    retained_promotion: clone(retainedPromotion.value),
+    source_proof_sha256: proof.digest,
+    reviewed_source_commit: proof.value.implementation_commit,
+    reviewed_source_ancestry: true,
+    docks_plan: {
+      repository_id: proof.value.plan_run.repository_id,
+      goal_id: proof.value.plan_run.goal_id,
+      run_id: proof.value.plan_run.run_id,
+      plan_path: proof.value.plan_run.plan_path,
+      implementation_commit: proof.value.plan_run.implementation_commit,
+      completion_review_sha256: proof.value.completion_review.result_sha256,
+      status: proof.value.plan_run.status,
+    },
+    publication_receipt_sha256: publication.digest,
+    public_release_receipt_sha256: publicRelease.digest,
+    public_child: publicChild,
+    staged_release: clone(retainedPromotion.value.staged_release),
+    stable_release: clone(retainedPromotion.value.stable_release),
+    live_stable_release: liveStableRelease,
+    byte_identical_promotion: true,
+    historical_receipts: clone(retainedPromotion.value.historical_receipts),
+    chronology: {
+      publication_workflow_completed_at: workflowCompletedAt,
+      public_child_finished_at: publicChild.finished_at,
+      original_promotion_completed_at: retainedPromotion.value.completed_at,
+    },
+    outcome: 'success',
+    reconciled_at: reconciledAt,
+  };
+  const validated = validatePromotionEvidenceRebindStructure(receipt);
+  validatePromotionEvidenceFreshContext(
+    validated,
+    { proof, publication, publicRelease },
+    adapter,
+    observedState,
+    workflowCompletedAt,
+  );
+  return invocationResult(adapter, options, receipt, false);
+}
+export function validatePromotionReceiptForFinalization(receipt, context, injectedAdapter = undefined) {
+  if (
+    receipt?.schema === PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.schema ||
+    receipt?.type === PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.type
+  ) {
+    return validatePromotionEvidenceRebindReceipt(receipt, context, injectedAdapter);
+  }
   validatePromotionReceipt(receipt);
   const current = [2, 3].includes(receipt.schema);
   exactKeys(
@@ -3548,7 +4100,7 @@ export function validatePromotionReceiptForFinalization(receipt, context, inject
   ) {
     fail('promotion receipt does not match its finalization proof/publication context');
   }
-  const adapter = validateAdapter(injectedAdapter);
+  const adapter = validateAdapter(injectedAdapter ?? PRODUCTION_ADAPTER);
   if (!adapter.isPublicAncestor(proof.value.public_reviewed_commit, receipt.public_release_commit)) {
     fail('promotion public release commit has no reviewed companion ancestor');
   }

@@ -109,11 +109,19 @@ const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
 const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
 const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
 const CURRENT_DOCKS_SOURCE_BASE = '494881a0d973863d1ac8e233734c827eb6913ce8';
-const PLANRUN_DOCKS_RUN_ID = 'e61586f3-78ce-46c2-b324-fa6b753864da';
+const PLANRUN_DOCKS_RUN_ID = '5e00cc28-4e27-42cb-9cf9-c3630006d8c0';
 const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v9.md';
-const PLANRUN_DOCKS_SOURCE_BASE = 'fc6d9c058379eaf4130f3a7dac7acf981306d10d';
-const PLANRUN_DOCKS_REVIEW_BASE = 'ecca5af3024aee3121a368dac68bf5002abb4244';
+const PLANRUN_DOCKS_SOURCE_BASE = 'de4f8305ac9351cbbea4549503f2684f67fbcde9';
 const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
+const PLANRUN_DOCKS_AFFECTED_PATHS = Object.freeze([
+  'plugins/session-relay/test/release-evidence-contract.mjs',
+  'plugins/session-relay/test/release-promotion-contract.mjs',
+  'plugins/session-relay/test/release-publication-contract.mjs',
+  'scripts/lib/session-relay-release-cli.mjs',
+  'scripts/lib/session-relay-release-preparation.mjs',
+  'scripts/lib/session-relay-release-promotion.mjs',
+  'scripts/lib/session-relay-release-publication.mjs',
+]);
 const CURRENT_PUBLIC_VERSION = '0.12.0';
 const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
@@ -132,6 +140,7 @@ const CURRENT_BINDER_CONTINUATION_PATHS = new Set([
   'scripts/lib/session-relay-release-publication.mjs',
   'scripts/tests/ci-plugin-targeting.mjs',
 ]);
+const PLANRUN_BINDER_CONTINUATION_PATHS = new Set([PLANRUN_DOCKS_PLAN_PATH]);
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const HISTORICAL_RECEIPTS_0_13 = Object.freeze({
   source_proof_v1: '419b23ccdcf0ca21672e81c05ae9d22c55bc67781839ffb6a29e7eecc2b59396',
@@ -1245,7 +1254,9 @@ function validateCurrentSourcePreparationProof(value) {
   exactKeys(value.acceptance, ['manifest', 'verification_sha256', 'changed_paths'], 'current source proof acceptance');
   let affectedPaths;
   try {
-    affectedPaths = value.acceptance.manifest.paths.map(({ path: logical }) => logical);
+    affectedPaths = planRunProof
+      ? [...PLANRUN_DOCKS_AFFECTED_PATHS]
+      : value.acceptance.manifest.paths.map(({ path: logical }) => logical);
     validateAffectedPathManifest(value.acceptance.manifest, {
       paths: affectedPaths,
       sourceBase: value.implementation_commit,
@@ -1272,11 +1283,7 @@ function validateCurrentSourcePreparationProof(value) {
       prior = logical;
     }
   }
-  const allowed = new Set([
-    ...affectedPaths,
-    planRunProof ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH,
-    ...(planRunProof ? CURRENT_BINDER_CONTINUATION_PATHS : []),
-  ]);
+  const allowed = new Set([...affectedPaths, planRunProof ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH]);
   if (changedPaths.some((logical) => !allowed.has(logical))) {
     fail('current source proof changed paths exceed the accepted affected-path and plan-lifecycle scope');
   }
@@ -2540,15 +2547,15 @@ function implementationManifestEntry(deps, implementationCommit, liveEntry) {
   return { ...liveEntry, sha256: sha256(bytes) };
 }
 
-function acceptedImplementationManifest(deps, affectedPaths, implementationCommit) {
+function acceptedImplementationManifest(deps, affectedPaths, implementationCommit, allowedContinuationPaths) {
   const currentHead = commit(gitValue(deps, ['rev-parse', 'HEAD^{commit}']), 'current release HEAD');
   if (currentHead !== implementationCommit) {
     ancestor(deps, implementationCommit, currentHead, 'current implementation-to-HEAD');
     const output = gitValue(deps, ['diff', '--name-only', '--no-renames', implementationCommit, currentHead, '--']);
-    const continuationPaths = output === '' ? [] : output.split('\n');
-    for (const [index, logical] of continuationPaths.entries()) {
+    const postImplementationPaths = output === '' ? [] : output.split('\n');
+    for (const [index, logical] of postImplementationPaths.entries()) {
       safeLogical(logical, `current post-review path ${index}`);
-      if (!CURRENT_BINDER_CONTINUATION_PATHS.has(logical)) {
+      if (!allowedContinuationPaths.has(logical)) {
         fail(`current post-review history contains an unauthorized path: ${logical}`);
       }
     }
@@ -2586,15 +2593,15 @@ function currentCompletionEvidence(
   planBytes,
   run,
   implementationCommit,
-  planPath = CURRENT_DOCKS_PLAN_PATH,
-  continuationPaths = [],
-  reviewBase = run.source_base,
+  planPath,
+  continuationPaths,
   affectedOnly = false,
 ) {
+  const reviewBase = run.source_base;
   const affectedPaths = parseCurrentPlan(planBytes).frontmatter.affected_paths;
   let acceptanceManifest;
   try {
-    acceptanceManifest = acceptedImplementationManifest(deps, affectedPaths, implementationCommit);
+    acceptanceManifest = acceptedImplementationManifest(deps, affectedPaths, implementationCommit, continuationPaths);
     if (acceptanceManifest.source_sha256 !== run.acceptance.source_sha256) {
       fail('acceptance source_sha256 does not bind the reconstructed implementation manifest');
     }
@@ -2622,7 +2629,7 @@ function currentCompletionEvidence(
   const names = gitValue(deps, ['diff', '--name-only', '--no-renames', reviewBase, implementationCommit, '--']);
   const changedPaths = names === '' ? [] : names.split('\n');
   if (changedPaths.length === 0) fail('current reviewed implementation diff must not be empty');
-  const allowedPaths = new Set([...affectedPaths, planPath, ...continuationPaths]);
+  const allowedPaths = new Set([...affectedPaths, planPath]);
   let prior = null;
   for (const [index, logical] of changedPaths.entries()) {
     safeLogical(logical, `current reviewed diff path ${index}`);
@@ -2663,7 +2670,14 @@ function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan)
   if (sourceCommit === redCommit || redCommit === implementationCommit) {
     fail('current source, TDD-red, and implementation commits must be distinct ordered identities');
   }
-  const completionEvidence = currentCompletionEvidence(deps, planBytes, run, implementationCommit);
+  const completionEvidence = currentCompletionEvidence(
+    deps,
+    planBytes,
+    run,
+    implementationCommit,
+    CURRENT_DOCKS_PLAN_PATH,
+    CURRENT_BINDER_CONTINUATION_PATHS,
+  );
   const reviewRecord = currentCompletionReview(plan, run, completionEvidence.diffSha256);
   const reviewedCommit = reviewRecord.value.implementation_commit;
   const tagCommit = implementationCommit;
@@ -2761,8 +2775,7 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     run,
     implementationCommit,
     PLANRUN_DOCKS_PLAN_PATH,
-    CURRENT_BINDER_CONTINUATION_PATHS,
-    PLANRUN_DOCKS_REVIEW_BASE,
+    PLANRUN_BINDER_CONTINUATION_PATHS,
     true,
   );
   const reviewRecord = currentCompletionReview(plan, run, completionEvidence.diffSha256);

@@ -11,6 +11,7 @@ import {
 import {
   emitPublicRequest,
   promoteReviewed,
+  rebindPromotionEvidence,
   validatePromotionReceiptForFinalization,
   verifyPublicRelease,
 } from './session-relay-release-promotion.mjs';
@@ -99,6 +100,20 @@ const MODE_SPECS = {
       'receipt-out',
     ],
   },
+  'rebind-promotion-evidence': {
+    required: [
+      'plugin',
+      'source-proof',
+      'source-proof-sha256',
+      'publication',
+      'publication-sha256',
+      'public-release',
+      'public-release-sha256',
+      'promotion',
+      'promotion-sha256',
+      'receipt-out',
+    ],
+  },
   'finalize-reviewed': {
     required: [
       'plugin',
@@ -169,6 +184,9 @@ function parseMode(argv) {
   }
   if (options.get('plugin') !== PLUGIN || !SUPPORTED_VERSIONS.has(options.get('version')))
     fail(`--${mode} is only valid for session-relay ${HISTORICAL_VERSION} or ${VERSION}`);
+  if (mode === 'rebind-promotion-evidence' && options.get('version') !== VERSION) {
+    fail(`--${mode} is only valid for session-relay ${VERSION}`);
+  }
   for (const [pathName, digestName] of [...(spec.pairs ?? []), ...receiptPairs(spec.required)]) {
     if (options.has(pathName)) {
       const pathIndex = argv.indexOf(`--${pathName}`);
@@ -189,6 +207,9 @@ export async function dispatchSessionRelayRelease(argv = process.argv.slice(2)) 
     parsed = parseMode(argv);
   } catch (error) {
     parseError = error;
+  }
+  if (fixture && parsed?.mode === 'rebind-promotion-evidence') {
+    fail('--rebind-promotion-evidence is unavailable in fixture mode; immutable evidence cannot be simulated');
   }
   if (fixture) return runFixture(argv, parsed, parseError);
   if (parseError) throw parseError;
@@ -231,6 +252,9 @@ export async function dispatchSessionRelayRelease(argv = process.argv.slice(2)) 
       break;
     case 'resume-promotion':
       result = promoteReviewed(parsed.options, true);
+      break;
+    case 'rebind-promotion-evidence':
+      result = rebindPromotionEvidence(parsed.options);
       break;
     case 'finalize-reviewed':
       result = finalizeReviewed(parsed.options, undefined, validatePromotionReceiptForFinalization);

@@ -133,6 +133,10 @@ const PUBLICATION_V2_KEYS = [
   'transition',
   'created_at',
 ];
+export const PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR = Object.freeze({
+  schema: 4,
+  type: 'PromotionEvidenceRebindReceiptV1',
+});
 
 function remoteTagCommit() {
   const result = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${TAG}`, `refs/tags/${TAG}^{}`], {
@@ -544,6 +548,16 @@ function exactTimestamp(value, label) {
   }
 }
 
+export function normalizedTimestamp(value, label) {
+  const instant = Date.parse(value);
+  if (!Number.isFinite(instant)) fail(`${label} timestamp is invalid`);
+  return new Date(instant).toISOString();
+}
+
+function observedReleaseCreatedAt(release) {
+  return normalizedTimestamp(release?.created_at, 'live release created_at');
+}
+
 function validateCurrentDigestMap(value, label, assets) {
   exactKeys(value, ORDINARY_ASSETS, label);
   for (const name of ORDINARY_ASSETS) {
@@ -560,6 +574,7 @@ function validateCurrentPublicationReceipt(receipt, proof, label) {
   if (receipt.digest !== sha256(Buffer.from(canonicalize(receipt.value)))) fail(`${label} digest mismatch`);
   exactKeys(receipt.value, PUBLICATION_V2_KEYS, label);
   const value = receipt.value;
+  const planRunProof = proof.value.schema === 3 && proof.value.type === 'SourcePreparationProofV3';
   const expectedBody = value.release_state === 'stable' ? STABLE_BODY : PRERELEASE_BODY;
   const validTransition =
     (value.release_state === 'prerelease' && value.transition === 'tag_and_release_created') ||
@@ -588,11 +603,15 @@ function validateCurrentPublicationReceipt(receipt, proof, label) {
     ['reviewed_commit', 'implementation_commit', 'reviewed_ancestry_verified'],
     `${label} source`,
   );
+  const sourceBindingMatches = planRunProof
+    ? value.source.reviewed_commit === value.tag_commit &&
+      value.source.implementation_commit === proof.value.implementation_commit
+    : value.source.reviewed_commit === value.source.implementation_commit &&
+      value.source.reviewed_commit === value.tag_commit;
   if (
     !/^[0-9a-f]{40}$/.test(value.source.reviewed_commit ?? '') ||
     !/^[0-9a-f]{40}$/.test(value.source.implementation_commit ?? '') ||
-    value.source.reviewed_commit !== value.source.implementation_commit ||
-    value.source.reviewed_commit !== value.tag_commit ||
+    !sourceBindingMatches ||
     value.source.reviewed_ancestry_verified !== true
   ) {
     fail(`${label} reviewed source commit ancestry or tag identity conflict`);
@@ -765,7 +784,8 @@ function reconcilePrerelease(adapter, release, bundle) {
   return { release: reconciled, assets, transition };
 }
 
-function publicationReceipt(proof, release, assets, workflow, transition, releaseStateName, now) {
+function publicationReceipt(proof, release, assets, workflow, transition, releaseStateName, createdAt) {
+  const planRunProof = proof.value.schema === 3 && proof.value.type === 'SourcePreparationProofV3';
   const recoverablePrerelease =
     [2, 3].includes(proof.value.schema) &&
     releaseStateName === 'prerelease' &&
@@ -793,7 +813,7 @@ function publicationReceipt(proof, release, assets, workflow, transition, releas
       version: VERSION,
       source_proof_sha256: proof.digest,
       source: {
-        reviewed_commit: proof.value.completion_review.reviewed_commit,
+        reviewed_commit: planRunProof ? proof.value.tag_commit : proof.value.completion_review.reviewed_commit,
         implementation_commit: proof.value.implementation_commit,
         reviewed_ancestry_verified: proof.value.ancestry.implementation_to_reviewed,
       },
@@ -824,7 +844,7 @@ function publicationReceipt(proof, release, assets, workflow, transition, releas
         publication_receipt_sha256: HISTORICAL_PUBLICATION_SHA256,
       },
       transition: receiptTransition,
-      created_at: now,
+      created_at: createdAt,
     };
   }
   return {
@@ -841,7 +861,7 @@ function publicationReceipt(proof, release, assets, workflow, transition, releas
     body_sha256: sha256(Buffer.from(release.body ?? '')),
     assets,
     transition,
-    created_at: now,
+    created_at: createdAt,
   };
 }
 function receiptBoundRun(runs, receipt, commit, label) {
@@ -1134,7 +1154,7 @@ function rebindCompletePublication(options, adapter, proof, state) {
         workflowIdentity(settled),
         'reconciled',
         'prerelease',
-        adapter.now(),
+        observedReleaseCreatedAt(state.release),
       ),
     );
   } finally {
@@ -1389,18 +1409,21 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
       { schema: 1, type: 'PromotionReceiptV1' },
       { schema: 2, type: 'PromotionReceiptV2' },
       { schema: 3, type: 'PromotionReceiptV3' },
+      PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR,
     ],
     '--promotion',
   );
   const promotionGenerationMatches = current
-    ? [2, 3].includes(promotion.value.schema) &&
-      ['PromotionReceiptV2', 'PromotionReceiptV3'].includes(promotion.value.type)
+    ? ([2, 3].includes(promotion.value.schema) &&
+        ['PromotionReceiptV2', 'PromotionReceiptV3'].includes(promotion.value.type)) ||
+      (promotion.value.schema === PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.schema &&
+        promotion.value.type === PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.type)
     : promotion.value.schema === 1 && promotion.value.type === 'PromotionReceiptV1';
   if (!promotionGenerationMatches) {
     fail('promotion receipt schema does not match the source proof release generation');
   }
   let publicRelease = null;
-  if ([2, 3].includes(promotion.value.schema)) {
+  if ([2, 3, PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.schema].includes(promotion.value.schema)) {
     if (!options.has('public-release')) {
       fail('current stable finalization requires the exact public release receipt and SHA-256');
     }
@@ -1408,9 +1431,9 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
       options.get('public-release'),
       options.get('public-release-sha256'),
       [
-        promotion.value.schema === 3
-          ? { schema: 3, type: 'PublicReleaseReceiptV3' }
-          : { schema: 2, type: 'PublicReleaseReceiptV2' },
+        promotion.value.schema === 2
+          ? { schema: 2, type: 'PublicReleaseReceiptV2' }
+          : { schema: 3, type: 'PublicReleaseReceiptV3' },
       ],
       '--public-release',
     );
