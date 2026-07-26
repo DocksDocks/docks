@@ -120,6 +120,7 @@ const CURRENT_BINDER_CONTINUATION_PATHS = new Set([
   'docs/plans/active/session-relay-release-binder-repository-proof-v2.md',
   'plugins/session-relay/test/release-evidence-contract.mjs',
   'scripts/lib/session-relay-release-preparation.mjs',
+  'scripts/lib/session-relay-release-publication.mjs',
 ]);
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const HISTORICAL_RECEIPTS_0_13 = Object.freeze({

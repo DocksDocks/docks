@@ -766,11 +766,16 @@ function reconcilePrerelease(adapter, release, bundle) {
 }
 
 function publicationReceipt(proof, release, assets, workflow, transition, releaseStateName, now) {
+  const recoverablePrerelease =
+    proof.value.schema === 2 &&
+    releaseStateName === 'prerelease' &&
+    ['tag_and_reconciled', 'reconciled'].includes(transition);
+  const receiptTransition = recoverablePrerelease ? 'tag_and_release_created' : transition;
   if (proof.value.schema === 2) {
-    if (releaseStateName === 'prerelease' && transition !== 'tag_and_release_created') {
+    if (releaseStateName === 'prerelease' && receiptTransition !== 'tag_and_release_created') {
       fail('current Session Relay 0.14.0 publication must atomically stage the reviewed tag and prerelease');
     }
-    if (releaseStateName === 'stable' && !['finalized', 'already_stable'].includes(transition)) {
+    if (releaseStateName === 'stable' && !['finalized', 'already_stable'].includes(receiptTransition)) {
       fail('current Session Relay 0.14.0 stable finalization transition is invalid');
     }
     const expectedBody = releaseStateName === 'stable' ? STABLE_BODY : PRERELEASE_BODY;
@@ -818,7 +823,7 @@ function publicationReceipt(proof, release, assets, workflow, transition, releas
         tag: LEGACY_TAG,
         publication_receipt_sha256: HISTORICAL_PUBLICATION_SHA256,
       },
-      transition,
+      transition: receiptTransition,
       created_at: now,
     };
   }
