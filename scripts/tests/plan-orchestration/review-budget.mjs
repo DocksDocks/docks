@@ -130,7 +130,11 @@ export function registerReviewBudget(suite, api, reviewer) {
     }
 
     const retryable = reduce(api, reserved1, result(reserved1, 'review_transport_failure', 'draft_review'));
-    const reserved2 = reduce(api, retryable, reserve('draft_review'));
+    expectThrow(
+      () => reduce(api, retryable, reserve('draft_review')),
+      /transport retry.*fresh invocation-bound input/i,
+    );
+    const reserved2 = reduce(api, retryable, reserve('draft_review', HASHES.input2));
     assert.equal(reserved2.run.draft_review.invocations, 2);
     assert.equal(
       reduce(api, reserved2, result(reserved2, 'review_transport_failure', 'draft_review')).run.draft_review.state,
@@ -186,7 +190,7 @@ export function registerReviewBudget(suite, api, reviewer) {
     () => {
       const first = reduce(api, localDraftState(), reserve('draft_review'));
       const retryable = reduce(api, first, result(first, 'review_transport_failure', 'draft_review', HASHES.failure));
-      const second = reduce(api, retryable, reserve('draft_review'));
+      const second = reduce(api, retryable, reserve('draft_review', HASHES.input2));
 
       for (const reason of REVIEW_INVALID_INPUT_REASONS) {
         for (const reserved of [first, second]) {
@@ -285,7 +289,7 @@ export function registerReviewBudget(suite, api, reviewer) {
   suite.test('review-budget', 'draft review never opens a third invocation', () => {
     const first = reduce(api, localDraftState(), reserve('draft_review'));
     const retryable = reduce(api, first, result(first, 'review_transport_failure', 'draft_review'));
-    const second = reduce(api, retryable, reserve('draft_review'));
+    const second = reduce(api, retryable, reserve('draft_review', HASHES.input2));
     for (const afterSecond of [
       reduce(api, second, result(second, 'review_passed', 'draft_review')),
       reduce(api, second, result(second, 'review_transport_failure', 'draft_review')),
@@ -306,7 +310,7 @@ export function registerReviewBudget(suite, api, reviewer) {
       initial.run.completion_review = reviewPhase('not_started');
       const first = reduce(api, initial, reserve('draft_review'));
       const retryable = reduce(api, first, result(first, 'review_transport_failure', 'draft_review'));
-      const second = reduce(api, retryable, reserve('draft_review'));
+      const second = reduce(api, retryable, reserve('draft_review', HASHES.input2));
       const terminal = reduce(api, second, result(second, 'review_transport_failure', 'draft_review'));
       assert.equal(terminal.status, 'blocked');
       assert.equal(terminal.run.draft_review.state, 'blocked');

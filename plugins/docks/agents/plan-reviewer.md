@@ -45,11 +45,16 @@ infer authority.
 
 ## Output Format
 
-Return JSON only, with no extra keys or surrounding prose. On invalid bundle
-input, return exactly one compact object and no `PlanReviewV1`:
+Return JSON only, pretty-printed with two-space indentation, with no extra keys
+or surrounding prose. On invalid bundle input, return exactly one object and no
+`PlanReviewV1`:
 
 ```json
-{"error":"invalid_input","reason":"bundle_unavailable","schema":1}
+{
+  "error": "invalid_input",
+  "reason": "bundle_unavailable",
+  "schema": 1
+}
 ```
 
 `reason` is exactly `bundle_unavailable`, `bundle_integrity_failed`, or

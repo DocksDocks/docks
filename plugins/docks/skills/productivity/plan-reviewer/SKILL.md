@@ -4,8 +4,8 @@ description: "Use when main-context plan-manager dispatches one fresh internal r
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-24"
-  content_hash: "c5b043c7c60d173e8cc2c3c07d216a944eb58dd4ed8f8f7e4f04174face09fc2"
+  updated: "2026-07-26"
+  content_hash: "f7df114d58bd01738393b5a4f897bf11a216c7b2b7261dcd241e32018bf89742"
 ---
 
 # Plan Reviewer
@@ -74,7 +74,7 @@ Classify bundle input before any plan verdict:
 | Bundle immutability, manifest, content, or digest verification fails | `bundle_integrity_failed` |
 | Closed binding object is missing/malformed or any prompt binding differs | `bundle_binding_mismatch` |
 
-Return one compact JSON object and no prose or `PlanReviewV1`:
+Return one JSON object, pretty-printed with two-space indentation, and no prose or `PlanReviewV1`:
 
 ```text
 ReviewInvalidInputV1 = {
@@ -84,11 +84,11 @@ ReviewInvalidInputV1 = {
 }
 ```
 
-This object is not a verdict. It ends the reviewer invocation. The manager may
-consume it only through `review_invalid_input` against the exact reserved
-`run_id`, invocation, and `input_sha256`, then immediately terminal-blocks
-`review_failed`. It never retries, degrades, repairs, changes any other lifecycle
-state, or infers authority from this result.
+This object is not a verdict. The manager consumes it only through
+`review_invalid_input` against the exact reserved bindings and terminal-blocks
+that run as `review_failed`; there is no retry or reset. Any later same-path
+replacement needs current-user authority and a fresh run/bundle. Reviewer output
+never grants replacement, lifecycle, or external authority.
 
 ## Review question
 
@@ -114,7 +114,7 @@ reproduces findings and decides the accepted set.
 
 ## Output contract
 
-For valid, fully bound input, return one JSON object and no surrounding prose:
+For valid, fully bound input, return one JSON object pretty-printed with two-space indentation and no surrounding prose:
 
 ```text
 PlanReviewV1 = {

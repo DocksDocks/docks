@@ -68,6 +68,24 @@ const PLAN_RUN_KEYS = Object.freeze([
   'acceptance',
   'blocker',
 ]);
+const PLAN_ATTEMPT_KEYS = Object.freeze([
+  'schema',
+  'authorization_source_sha256',
+  'plan_bytes_sha256',
+  'replacement_run_id',
+  'successor_run_sha256',
+  'run',
+  'status',
+]);
+const PLAN_REPLACEMENT_AUTHORITY_KEYS = Object.freeze([
+  'schema',
+  'goal_id',
+  'repository_id',
+  'plan_path',
+  'run_id',
+  'successor_run_sha256',
+  'source_sha256',
+]);
 const LIFECYCLE_FRONTMATTER = new Set([
   'status',
   'updated',
@@ -688,6 +706,95 @@ function planRunPayload(body) {
   return match[1];
 }
 
+function planAttemptPayloads(body) {
+  const payloads = [];
+  let fence = null;
+  let section = null;
+  for (const line of body.split('\n')) {
+    const marker = fenceAt(line);
+    if (fence === null && marker !== null) {
+      fence = marker;
+      continue;
+    }
+    if (
+      fence !== null &&
+      marker !== null &&
+      marker.marker === fence.marker &&
+      marker.length >= fence.length &&
+      /^\s*$/.test(marker.tail)
+    ) {
+      fence = null;
+      continue;
+    }
+    if (fence !== null) continue;
+    const heading = headingAt(line);
+    if (heading !== null && heading.level <= 2) section = heading.level === 2 ? heading.title : null;
+    if (!/^Plan-attempt-history:/.test(line)) continue;
+    if (section !== 'Review') fail('Plan-attempt-history records must be inside the Review section');
+    const match = /^Plan-attempt-history: (\{.*\})$/.exec(line);
+    if (!match) fail('Plan-attempt-history must be one-line compact JCS');
+    payloads.push(match[1]);
+  }
+  if (fence !== null) fail('Plan-attempt-history discovery rejects an unclosed Markdown fence');
+  return payloads;
+}
+
+function canReopenExistingRun(run) {
+  if (!['user_decision', 'missing_authority'].includes(run.blocker?.kind)) return false;
+  return ![run.draft_review.state, run.completion_review.state].some((state) =>
+    ['blocked', 'cancelled'].includes(state),
+  );
+}
+
+function validatePlanAttempt(value) {
+  assertClosed(value, PLAN_ATTEMPT_KEYS, 'PlanAttemptHistoryV1');
+  if (value.schema !== 1) fail('PlanAttemptHistoryV1 schema must be 1');
+  if (
+    !HASH.test(value.authorization_source_sha256) ||
+    !HASH.test(value.plan_bytes_sha256) ||
+    !HASH.test(value.successor_run_sha256)
+  ) {
+    fail('PlanAttemptHistoryV1 digests must be SHA-256 hashes');
+  }
+  if (typeof value.replacement_run_id !== 'string' || !UUID.test(value.replacement_run_id)) {
+    fail('PlanAttemptHistoryV1 replacement_run_id must be a UUID');
+  }
+  if (value.status !== 'blocked') fail('PlanAttemptHistoryV1 predecessor status must be blocked');
+  validatePlanRunRecord(value.run, { status: value.status });
+  if (canReopenExistingRun(value.run)) {
+    fail('resumable blockers must reopen their existing run instead of creating attempt history');
+  }
+  return value;
+}
+
+function validatePlanAttemptHistory(body, currentRun) {
+  const history = planAttemptPayloads(body).map((payload) => {
+    let value;
+    try {
+      value = JSON.parse(payload);
+    } catch {
+      fail('Plan-attempt-history must contain strict JSON');
+    }
+    validatePlanAttempt(value);
+    if (jcs(value) !== payload) fail('Plan-attempt-history must use compact JCS');
+    return value;
+  });
+  const runIds = new Set([currentRun.run_id]);
+  for (let index = 0; index < history.length; index += 1) {
+    const attempt = history[index];
+    for (const field of ['goal_id', 'repository_id', 'plan_path']) {
+      if (attempt.run[field] !== currentRun[field]) fail(`Plan-attempt-history ${field} identity mismatch`);
+    }
+    if (runIds.has(attempt.run.run_id)) fail('Plan-attempt-history run_id values must be unique');
+    runIds.add(attempt.run.run_id);
+    const successorRunId = history[index + 1]?.run.run_id ?? currentRun.run_id;
+    if (attempt.replacement_run_id !== successorRunId) {
+      fail('Plan-attempt-history replacement chain is broken');
+    }
+  }
+  return history;
+}
+
 function validateAcceptedPlanBindings(bytes, frontmatter, run, expected) {
   if (run.acceptance === null) return;
   const verificationSha256 = sha256(canonicalVerificationResults(bytes));
@@ -747,10 +854,11 @@ export function validatePlanRun(bytes, expected = {}) {
       fail(`PlanRun ${label} identity mismatch`);
     }
   }
+  const attemptHistory = validatePlanAttemptHistory(parsed.body, run);
   const digest = sha256(canonicalPlanView(bytes));
   if (digest !== run.plan_sha256) fail('plan_sha256 does not match canonical plan digest');
   validateAcceptedPlanBindings(bytes, parsed.frontmatter, run, expected);
-  return { frontmatter: parsed.frontmatter, run, status };
+  return { attempt_history: attemptHistory, frontmatter: parsed.frontmatter, run, status };
 }
 
 function clone(value) {
@@ -835,8 +943,8 @@ export function reducePlanRun({ current, event }) {
       fail(`review phase ${phase.state} is terminal, live, or has no remaining permit`);
     }
     if (phase.invocations >= 2) fail('review invocation permit ceiling is two');
-    if (phase.state === 'retryable' && event.input_sha256 !== phase.input_sha256) {
-      fail('transport retry must preserve the exact input binding');
+    if (phase.state === 'retryable' && event.input_sha256 === phase.input_sha256) {
+      fail('transport retry requires a fresh invocation-bound input');
     }
     if (phase.state === 'repairing' && event.input_sha256 === phase.input_sha256) {
       fail('repair review requires changed input bytes');
@@ -1388,8 +1496,8 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
     if (after.invocations !== before.invocations + 1 || after.result_sha256 !== null) {
       fail(`${phaseName} reservation must consume exactly one permit and clear its result`);
     }
-    if (before.state === 'retryable' && after.input_sha256 !== before.input_sha256) {
-      fail(`${phaseName} transport retry must preserve its input binding`);
+    if (before.state === 'retryable' && after.input_sha256 === before.input_sha256) {
+      fail(`${phaseName} transport retry requires a fresh invocation-bound input`);
     }
     if (before.state === 'repairing' && after.input_sha256 === before.input_sha256) {
       fail(`${phaseName} repair retry requires changed input bytes`);
@@ -1467,7 +1575,7 @@ function assertPersistedTransition(current, next) {
     const after = next.run[phaseName];
     if (phaseName === 'draft_review') {
       if (current.status !== 'drafting') fail('persisted draft review transition requires drafting status');
-      if (after.state === 'reserved') {
+      if (after.state === 'reserved' && before.state !== 'retryable') {
         allowed.add('plan_sha256');
         allowed.add('source_base');
         allowed.add('source_sha256');
@@ -1543,6 +1651,104 @@ function assertPersistedTransition(current, next) {
   assertOnlyChanged(changed, allowed, 'persisted lifecycle event');
 }
 
+function validatePlanReplacementAuthority(authority, current, next, liveSourceSha256) {
+  assertClosed(authority, PLAN_REPLACEMENT_AUTHORITY_KEYS, 'PlanRunReplacementAuthorityV1');
+  if (authority.schema !== 1) fail('PlanRunReplacementAuthorityV1 schema must be 1');
+  if (
+    !HASH.test(liveSourceSha256) ||
+    !HASH.test(authority.source_sha256) ||
+    !HASH.test(authority.successor_run_sha256)
+  ) {
+    fail('same-file replacement requires current-user and successor-run digests');
+  }
+  if (authority.source_sha256 !== liveSourceSha256) {
+    fail('PlanRunReplacementAuthorityV1 does not match the live current-user source');
+  }
+  if (authority.successor_run_sha256 !== sha256(jcs(next.run))) {
+    fail('PlanRunReplacementAuthorityV1 does not bind the exact successor run');
+  }
+  for (const field of ['goal_id', 'repository_id', 'plan_path', 'run_id']) {
+    if (authority[field] !== current.run[field]) {
+      fail(`PlanRunReplacementAuthorityV1 ${field} does not match the terminal run`);
+    }
+  }
+  return authority;
+}
+
+function assertPlanRunReplacement(current, next, currentBytes, authority) {
+  if (current.status !== 'blocked') fail('same-file replacement requires a terminal blocked run');
+  if (canReopenExistingRun(current.run)) fail('resumable blockers must reopen their existing run');
+  if (next.status !== 'drafting') fail('same-file replacement must restart at drafting');
+  for (const field of ['goal_id', 'repository_id', 'plan_path']) {
+    if (next.run[field] !== current.run[field]) fail(`same-file replacement cannot change ${field}`);
+  }
+  if (next.run.run_id === current.run.run_id) fail('same-file replacement requires a fresh run_id');
+  if (
+    next.run.draft_review.state !== 'not_started' ||
+    next.run.draft_review.invocations !== 0 ||
+    next.run.draft_review.input_sha256 !== null ||
+    next.run.draft_review.result_sha256 !== null
+  ) {
+    fail('same-file replacement must start with a fresh draft-review budget');
+  }
+  const expectedCompletionState = next.run.risk === 'local' ? 'not_required' : 'not_started';
+  if (
+    next.run.completion_review.state !== expectedCompletionState ||
+    next.run.completion_review.invocations !== 0 ||
+    next.run.completion_review.input_sha256 !== null ||
+    next.run.completion_review.result_sha256 !== null
+  ) {
+    fail('same-file replacement must start with a fresh completion-review baseline');
+  }
+  if (
+    next.run.execution_parent !== null ||
+    next.run.implementation_commit !== null ||
+    next.run.acceptance !== null ||
+    next.run.blocker !== null
+  ) {
+    fail('same-file replacement cannot retain predecessor execution or blocker state');
+  }
+  const expectedAttempt = {
+    schema: 1,
+    authorization_source_sha256: authority.source_sha256,
+    plan_bytes_sha256: sha256(currentBytes),
+    replacement_run_id: next.run.run_id,
+    successor_run_sha256: authority.successor_run_sha256,
+    run: current.run,
+    status: current.status,
+  };
+  if (next.attempt_history.length !== current.attempt_history.length + 1) {
+    fail('same-file replacement must append exactly one attempt-history record');
+  }
+  if (jcs(next.attempt_history.slice(0, -1)) !== jcs(current.attempt_history)) {
+    fail('same-file replacement attempt history must be append-only');
+  }
+  if (jcs(next.attempt_history.at(-1)) !== jcs(expectedAttempt)) {
+    fail('same-file replacement history does not bind the terminal predecessor');
+  }
+}
+
+function writePlanBytes(file, expectedBytesSha256, nextBuffer) {
+  const directory = path.dirname(file);
+  const temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    const descriptor = fs.openSync(temporary, 'wx', 0o600);
+    try {
+      fs.writeFileSync(descriptor, nextBuffer);
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    if (sha256(fs.readFileSync(file)) !== expectedBytesSha256) fail('plan CAS preimage changed before atomic rename');
+    fs.renameSync(temporary, file);
+    fsyncDirectory(directory);
+    const readback = fs.readFileSync(file);
+    if (!readback.equals(nextBuffer)) fail('plan transaction readback mismatch');
+    return readback;
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
 function fsyncDirectory(directory) {
   const descriptor = fs.openSync(directory, 'r');
   try {
@@ -1571,13 +1777,15 @@ export async function transactPlanRun({
     ...(lockRoot === undefined ? {} : { lockRoot }),
     lockTimeoutMs,
   });
-  let temporary = null;
   try {
     const currentBytes = fs.readFileSync(file);
     if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
     const current = validatePlanRun(currentBytes, identity);
     const nextBuffer = Buffer.from(nextBytes);
     const next = validatePlanRun(nextBuffer, identity);
+    if (jcs(current.attempt_history) !== jcs(next.attempt_history)) {
+      fail('ordinary PlanRun transitions cannot mutate attempt history');
+    }
     assertPersistedTransition({ status: current.status, run: current.run }, { status: next.status, run: next.run });
     if (
       (current.status === 'finished' || (current.status === 'blocked' && next.status === 'blocked')) &&
@@ -1591,24 +1799,59 @@ export async function transactPlanRun({
     ) {
       fail('persisted PlanRun bytes cannot change without a legal state event');
     }
-    const directory = path.dirname(file);
-    temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`);
-    const descriptor = fs.openSync(temporary, 'wx', 0o600);
-    try {
-      fs.writeFileSync(descriptor, nextBuffer);
-      fs.fsyncSync(descriptor);
-    } finally {
-      fs.closeSync(descriptor);
-    }
-    if (sha256(fs.readFileSync(file)) !== expectedBytesSha256) fail('plan CAS preimage changed before atomic rename');
-    fs.renameSync(temporary, file);
-    temporary = null;
-    fsyncDirectory(directory);
-    const readback = fs.readFileSync(file);
-    if (!readback.equals(nextBuffer)) fail('plan transaction readback mismatch');
-    return { bytes_sha256: sha256(readback), run: next.run, status: next.status };
+    const readback = writePlanBytes(file, expectedBytesSha256, nextBuffer);
+    return {
+      attempt_history: next.attempt_history,
+      bytes_sha256: sha256(readback),
+      run: next.run,
+      status: next.status,
+    };
   } finally {
-    if (temporary !== null) fs.rmSync(temporary, { force: true });
+    lock.release();
+  }
+}
+
+export async function replacePlanRunInPlace({
+  authority,
+  currentIdentity,
+  expectedBytesSha256,
+  file,
+  liveSourceSha256,
+  lockRoot,
+  lockTimeoutMs = 1_000,
+  nextBytes,
+}) {
+  assertPlainObject(currentIdentity, 'current plan transaction identity');
+  if (!HASH.test(expectedBytesSha256)) fail('plan transaction expected preimage must be a SHA-256 digest');
+  const lock = await acquirePlanLock({
+    file,
+    repositoryId: currentIdentity.repositoryId,
+    planPath: currentIdentity.planPath,
+    runId: currentIdentity.runId,
+    expectedBytesSha256,
+    ...(lockRoot === undefined ? {} : { lockRoot }),
+    lockTimeoutMs,
+  });
+  try {
+    const currentBytes = fs.readFileSync(file);
+    if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
+    const current = validatePlanRun(currentBytes, currentIdentity);
+    const nextBuffer = Buffer.from(nextBytes);
+    const next = validatePlanRun(nextBuffer, {
+      goalId: current.run.goal_id,
+      planPath: current.run.plan_path,
+      repositoryId: current.run.repository_id,
+    });
+    validatePlanReplacementAuthority(authority, current, next, liveSourceSha256);
+    assertPlanRunReplacement(current, next, currentBytes, authority);
+    const readback = writePlanBytes(file, expectedBytesSha256, nextBuffer);
+    return {
+      attempt_history: next.attempt_history,
+      bytes_sha256: sha256(readback),
+      run: next.run,
+      status: next.status,
+    };
+  } finally {
     lock.release();
   }
 }
@@ -1706,6 +1949,7 @@ function legacyRecords(bytes) {
   const records = [];
   const counts = new Map();
   let currentCount = 0;
+  let attemptCount = 0;
   let fence = null;
   const knownPrefix = new RegExp(`^(${LEGACY_RECORD_KINDS.join('|')})\\s*:`);
   for (const [lineIndex, line] of text.split('\n').entries()) {
@@ -1727,6 +1971,10 @@ function legacyRecords(bytes) {
     if (fence !== null) continue;
     if (/^Plan-run:/.test(line)) {
       currentCount += 1;
+      continue;
+    }
+    if (/^Plan-attempt-history:/.test(line)) {
+      attemptCount += 1;
       continue;
     }
     const prefix = knownPrefix.exec(line);
@@ -1753,7 +2001,7 @@ function legacyRecords(bytes) {
     records.push({ kind: match[1], line_index: lineIndex, payload });
   }
   if (fence !== null) fail('legacy classification rejects an unclosed Markdown fence');
-  return { currentCount, records };
+  return { attemptCount, currentCount, records };
 }
 
 function legacyResult(classification, reason, records = []) {
@@ -1865,13 +2113,16 @@ export function classifyLegacyPlan(bytes) {
       `malformed legacy plan: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const { currentCount, records } = inventory;
+  const { attemptCount, currentCount, records } = inventory;
   if (records.length === 0) {
-    return currentCount === 0
+    if (currentCount !== 0) return legacyResult('current', 'PlanRunV1 record present');
+    return attemptCount === 0
       ? legacyResult('record-free', 'no legacy machine records')
-      : legacyResult('current', 'PlanRunV1 record present');
+      : legacyResult('legacy-quarantined', 'orphan Plan-attempt-history without a current PlanRunV1');
   }
-  if (currentCount !== 0) return legacyResult('legacy-quarantined', 'crossed current and legacy family', records);
+  if (currentCount !== 0 || attemptCount !== 0) {
+    return legacyResult('legacy-quarantined', 'crossed current and legacy family', records);
+  }
 
   let family;
   try {
@@ -1994,7 +2245,11 @@ export function migrateLegacyPlan({
   };
   validatePlanRun(migrated, identity);
   const migratedInventory = legacyRecords(migrated);
-  if (migratedInventory.records.length !== 0 || migratedInventory.currentCount !== 1) {
+  if (
+    migratedInventory.records.length !== 0 ||
+    migratedInventory.currentCount !== 1 ||
+    migratedInventory.attemptCount !== 0
+  ) {
     fail('legacy migration must make a clean one-record current cutover');
   }
   return migrated;

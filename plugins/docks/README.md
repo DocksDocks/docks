@@ -73,14 +73,14 @@ changes, security-sensitive/destructive work, or an external effect.
 These are the only live plan skills. Only `plan-reviewer` ships/gets seeded as a
 thin Claude/Codex wrapper; main context invokes `plan-manager` directly.
 
-Current plans contain one unfenced compact-JCS `Plan-run: PlanRunV1` line.
-PlanRunV1 binds repository/path/run identity, shared cross-repository `goal_id`,
-canonical requested effects/risk, plan/source hashes, separate two-permit
-draft/completion phases, execution/implementation identities, acceptance
-hashes, and at most one typed blocker. Reviews reserve before fresh launch;
-stale output is ignored and cold reserved state blocks. Ordinary local work has
-no completion reviewer; sensitive/external exact-diff review is bounded to one
-review plus one blocker-fix re-review.
+Current plans contain one current compact-JCS `Plan-run: PlanRunV1` line.
+Exact current-user same-domain recovery keeps the stable plan path, appends the
+terminal predecessor as validated `Plan-attempt-history`, and installs a fresh
+`run_id`; it never creates `v2`/`vN` files or resets predecessor permits.
+PlanRunV1 binds repository/path/run identity, cross-repository `goal_id`,
+effects/risk, plan/source and acceptance hashes, commits, review budgets, and one blocker.
+Reviews reserve before fresh launch; cold reserved state blocks. Ordinary local
+work has no completion review; sensitive/external exact-diff review is bounded.
 
 Plan writes use exclusive preimage-checked transactions and major checkpoint
 commits only. Steps use `Effect` exactly

@@ -61,7 +61,7 @@ export function registerMutations(suite, api) {
     state = reduce(api, state, {
       type: 'reserve_review',
       phase: 'draft_review',
-      input_sha256: HASHES.input,
+      input_sha256: HASHES.input2,
     });
     state = reduce(api, state, reviewResultEvent(state, 'review_passed', 'draft_review'));
     expectThrow(
@@ -114,7 +114,7 @@ export function registerMutations(suite, api) {
         reviewResultEvent(current, 'review_transport_failure', 'draft_review', {
           result_sha256: HASHES.failure,
         }),
-      () => ({ type: 'reserve_review', phase: 'draft_review', input_sha256: HASHES.input }),
+      () => ({ type: 'reserve_review', phase: 'draft_review', input_sha256: HASHES.input2 }),
       (current) =>
         reviewResultEvent(current, 'review_transport_failure', 'draft_review', {
           result_sha256: HASHES.failure,

@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-24"
-  content_hash: "a5bae2bd16a2c1a4bf9849b82e7caba846239505ec679a92d392d69f729ac17c"
+  updated: "2026-07-26"
+  content_hash: "7f997f68a5ab748db7d81445d32646651b7f70d2bc211204d3cbefe0bec398c8"
 ---
 
 # Plans Workspace
@@ -77,8 +77,8 @@ preservation checks. Current markers are:
 
 - exactly `plan-workspace`, public main-context `plan-manager`, and internal
   read-only `plan-reviewer`;
-- one unfenced compact-JCS `Plan-run: PlanRunV1` record and schemas 1–6 marked
-  historical validation/quarantine only;
+- one current unfenced compact-JCS `Plan-run: PlanRunV1` record, validated
+  append-only `Plan-attempt-history` in Review, and schemas 1–6 historical only;
 - adaptive direct-work threshold and no manual follow-up `start` handoff;
 - draft/completion budgets of at most two reserved fresh invocations each;
 - exclusive preimage/CAS transactions and major checkpoint commits only;
@@ -158,7 +158,7 @@ an obsolete project-owned wrapper automatically; report it for the user.
 
 Use direct implementation for one clear reversible low-risk local diff with one bounded acceptance path; it creates no plan, reviewer, or automatic commit. Canonical plans live in `docs/plans/active/`; lifecycle is frontmatter, and `docs/plans/finished/` is terminal. Exactly three skills own the workflow: `plan-workspace` maintains the workspace, main-context `plan-manager` owns classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive, and internal `plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable bundle. Only the reviewer has wrappers.
 
-The current record is one compact-JCS `Plan-run: PlanRunV1` line. Schemas 1–6 are historical validation/quarantine only. Every Steps row has `Effect: local|probe|production_access|publish|push|release|deploy`; a persisted requested effect is never live authority. The complete transaction, review-budget, checkpoint, legacy-quarantine, and external-authority contract lives in `docs/plans/AGENTS.md`; `docs/plans/CLAUDE.md` contains only `@AGENTS.md`.
+The current record is one compact-JCS `Plan-run: PlanRunV1` line. Exact current-user authority may preserve a terminal predecessor as append-only `Plan-attempt-history` and install a fresh run at the same stable path; never create `v2`/`vN` plans to reset review. Schemas 1–6 are historical only. Every Steps row has `Effect: local|probe|production_access|publish|push|release|deploy`; persisted intent is never live authority. The complete contract lives in `docs/plans/AGENTS.md`; `docs/plans/CLAUDE.md` contains only `@AGENTS.md`.
 ```
 
 ## Verification

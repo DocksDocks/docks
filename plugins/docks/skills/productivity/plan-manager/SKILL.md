@@ -4,8 +4,8 @@ description: "Use when a goal may require a canonical plan, plan review, impleme
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-25"
-  content_hash: "79916641dad8618bf73bbcde3e903da85a5a2fdf5e7f686013e7f44a7b1555a8"
+  updated: "2026-07-26"
+  content_hash: "dfd9ec5d62417e8c431b50cef3129a67993699d1fc7b4157991f96c190291a78"
 ---
 
 # Plan Manager
@@ -26,11 +26,11 @@ as a separate `start` command after an implementation request.
 </constraint>
 
 <constraint>
-**One current record, closed transitions.** A current canonical plan contains
-one unfenced `Plan-run: <compact JCS PlanRunV1>` line. Every tuple, transition,
-review result, and write must pass the installed pure validator. Schemas 1–6 are
-historical validation/quarantine formats only; never emit or consume them as
-current authority.
+**One current record, closed transitions.** A canonical plan has one unfenced
+current `Plan-run: <compact JCS PlanRunV1>` line. Terminal predecessors appear
+only as validated append-only `Plan-attempt-history` records inside `## Review`.
+Every write passes the pure validator. Schemas 1–6 remain historical
+validation/quarantine formats, never current authority.
 </constraint>
 
 <constraint>
@@ -50,13 +50,10 @@ boundary. A persisted plan, schedule, review, test, or receipt grants nothing.
 | Ordinary canonical implementation | Review, start checkpoint, implement, verify, archive | 1–2 draft reviewers / 2 commits |
 | Sensitive, destructive, public-contract, security, or external implementation | Add exact-diff completion review and implementation checkpoint | ≤2 draft + ≤2 completion reviewers / 3 commits |
 
-Use a canonical plan for multi-commit or cross-repository work, scheduling, cold
-handoff, unresolved approach/decision, cross-subsystem/public-contract work,
-security-sensitive/destructive work, an external effect, or an explicit plan
-request. Never create a placeholder plan merely to unlock review. A plan-only or
-assessment-only request stops after its reviewed deliverable; an implementation
-or remediation request continues through observed acceptance without a second
-user command.
+Use a canonical plan for multi-commit/cross-repository work, scheduling, cold
+handoff, unresolved decisions, cross-subsystem/public-contract/security/
+destructive work, external effects, or explicit planning. Never create one merely
+to unlock review. Plan-only work stops there; implementation runs to acceptance.
 
 ## Canonical plan contract
 
@@ -78,30 +75,27 @@ protected scope, stop conditions, open decisions, `## Review`, and manager-owned
 ```text
 ReviewPhaseV1 = {
   state:"not_required"|"not_started"|"reserved"|"retryable"|"repairing"|"passed"|"degraded"|"blocked"|"cancelled",
-  invocations:0|1|2,
-  input_sha256:null|64hex,
-  result_sha256:null|64hex
+  invocations:0|1|2, input_sha256:null|64hex, result_sha256:null|64hex
 }
-
 PlanRunV1 = {
-  schema:1, goal_id:uuid, run_id:uuid,
-  repository_id:string, plan_path:normalized-relative-path,
-  requested_effects:["local", ...("probe"|"production_access"|"publish"|"push"|"release"|"deploy")],
+  schema:1, goal_id:uuid, run_id:uuid, repository_id:string,
+  plan_path:normalized-relative-path, requested_effects:["local", ...external],
   risk:"local"|"sensitive"|"external",
   plan_sha256:64hex, source_base:null|40hex, source_sha256:64hex,
-  draft_review:ReviewPhaseV1,
-  execution_parent:null|40hex,
-  implementation_commit:null|40hex,
-  completion_review:ReviewPhaseV1,
+  draft_review:ReviewPhaseV1, execution_parent:null|40hex,
+  implementation_commit:null|40hex, completion_review:ReviewPhaseV1,
   acceptance:null|{source_sha256:64hex,verification_sha256:64hex},
   blocker:null|{kind:"user_decision"|"missing_authority"|"concurrent_change"|"user_cancelled"|"verification_failed"|"review_failed"|"legacy_invalid",evidence_sha256:64hex}
 }
 ```
 
-`repository_id + plan_path + run_id` is the run identity. Cross-repository goals
-have one child run per repository joined by `goal_id`; never use an unqualified
-commit id across repositories. Effects are unique and canonical-ordered, always
-starting with `local`.
+`repository_id + plan_path + run_id` is the run identity. Exact current-user
+`PlanRunReplacementAuthorityV1` binds the terminal predecessor and exact
+successor-run digest for the same goal/repository/path. Append predecessor
+run/bytes/authority digests, then install fresh review baselines in that file.
+Replacement is never automatic and never reuses predecessor permits or evidence.
+Cross-repository goals join repository-qualified child runs by `goal_id`; effects
+are unique, canonical-ordered, and begin with `local`.
 
 `plan_sha256` excludes only lifecycle status/timestamps, `Plan-run`, `## Review`,
 and `## Verification Results`. Goal, scope, paths, steps, effects, safety,
@@ -138,6 +132,14 @@ Accept a result only while the same phase is still `reserved` with matching
 `reserved` becomes terminal `blocked` with dangling-launch evidence; never
 redispatch it.
 
+Preflight the reviewer route and a private full-output file before reserving.
+Seal an invocation-specific bundle; after reservation read-back, derive its
+prompt and capture complete stdout to the file. Clipped console/transcript text
+is not evidence; never reconstruct JSON or request compact/single-line output.
+Parse the file, validate the closed object, then hash canonical JCS.
+A transport retry preserves substantive bindings but seals an invocation-2
+bundle with a different input digest. A reused bundle/prompt is stale.
+
 ## Reviewer result routing
 
 Before generic classification, recognize and validate this closed result:
@@ -149,10 +151,10 @@ ReviewInvalidInputV1 = { schema:1, error:"invalid_input",
 ```
 
 Consume it only through `review_invalid_input` against the exact reserved
-`run_id`, invocation, and `input_sha256`; hash it, then terminal-block the
-phase and plan as `review_failed`. Never retry, degrade, repair, change another
-lifecycle state, or infer authority. Only a valid, fully bound bundle may
-produce `PlanReviewV1` or `CompletionReviewV1`.
+`run_id`, invocation, and `input_sha256`; hash it, then terminal-block that run
+as `review_failed`. Never retry or reset it. Later same-file replacement still
+requires exact current-user authority and fresh bindings. Only valid bound input
+may produce `PlanReviewV1` or `CompletionReviewV1`.
 
 ## Status invariants
 
@@ -166,10 +168,12 @@ produce `PlanReviewV1` or `CompletionReviewV1`.
 - Sensitive/external `ongoing` begins with draft passed and completion
   `not_started`. Once completion activates, implementation commit and acceptance
   are required; only matching completion `passed` may finish.
-- `blocked` requires a blocker and the exact status/phase tuple in the project
-  contract. A pre-dispatch baseline `user_decision|missing_authority` blocker may
-  resume after new current-user input without resetting permits. Every other
-  blocked/cancelled run is terminal; continuation creates a new `run_id`.
+- `blocked` requires the exact blocker/status/phase tuple. A
+  `user_decision|missing_authority` with no terminal review phase may reopen its
+  run without resetting permits. Every other blocked/cancelled run is immutable.
+  Exact current-user authority may append it to history and start fresh review
+  under a new `run_id` at the same path. Unrelated goals use new files; never
+  mint `v2`/`vN` paths to bypass a terminal run or spent permit.
 
 Lifecycle transitions are only absent → `drafting`; `drafting` → `planned |
 scheduled | ongoing | blocked`; `planned` ↔ `scheduled`; `planned | scheduled` →
@@ -179,27 +183,20 @@ write.
 
 ## Draft review
 
-1. Research repository facts and produce a complete draft. Bind immutable plan
-   bytes and the affected-path manifest in a private temporary bundle.
-2. Reserve invocation 1 before launch. Create one fresh `plan-reviewer`; its
-   prompt carries only bundle path, `run_id`, invocation, `plan_sha256`, and
-   `source_sha256`, never plan bytes or prior review JSON.
-3. Classify the closed invalid-input result first as above. For valid, fully
-   bound input, accept only a closed ≤32 KiB `PlanReviewV1` matching all four
-   bindings. `pass` has no findings. `repair` contains only defects resolvable
-   from already grounded facts. `blocked` contains only a required user decision
-   or missing safety authority.
-4. Reproduce findings. For one accepted repair set, patch only those defects,
-   change the bound input, reserve invocation 2, and launch a fresh reviewer.
-   Do not add advisory work or reopen review after implementation.
-5. A first genuine transport failure—never `ReviewInvalidInputV1`—may use
-   invocation 2 as one retry instead of a repair. A second transport failure may
-   degrade only reversible local work; sensitive, destructive, public-contract,
-   security, or external work blocks.
+1. Research the draft; preflight reviewer availability and private file capture.
+2. Seal invocation 1, reserve its digest, read back, derive the prompt, launch a
+   fresh reviewer, and capture complete stdout to the file—not console text.
+3. Route invalid input first. Otherwise accept only a closed ≤32 KiB bound
+   `PlanReviewV1`: `pass` has no findings; `repair` is repository-resolvable;
+   `blocked` identifies only a required decision or missing authority.
+4. For one accepted repair, patch only reproduced defects, then seal/reserve/
+   read-back/dispatch a changed invocation-2 bundle and fresh prompt.
+5. A first genuine transport failure may spend invocation 2. Preserve canonical
+   plan/source and completion bindings, but use a new invocation-2 bundle and
+   different digest—never the old bundle/prompt. A second failure degrades only
+   reversible local work; sensitive/public-contract/security/external work blocks.
 
-There is no score, finding quota, provider/model fallback, resumed reviewer,
-more than two draft-review invocations, or Session Relay review. Always verify and destroy only
-the exact temporary bundle after the result returns.
+No score, quota, fallback, resumed reviewer, third invocation, or Session Relay review exists. Destroy only the returned exact bundle.
 
 ## Start, implementation, and acceptance
 
@@ -209,12 +206,12 @@ delegate every authorized local row. Review changes from the user's perspective,
 run the requested smoke/acceptance paths, and write observed commands/results to
 `## Verification Results` before binding acceptance.
 
-Diagnose and fix ordinary verification failures inside the implementation loop.
-If the same failure signature repeats without relevant-byte progress, block with
-`verification_failed`; never restart draft review. Local work then atomically
-sets `finished`, moves to the unique archive path, and commits implementation
-plus finished plan as one final checkpoint. Local completion review is
-`not_required`.
+Diagnose ordinary verification failures in the implementation loop. Repeated
+same-signature failure without relevant-byte progress blocks this run and never
+reopens its review; authorized recovery uses a fresh run at this path. Successful
+local work sets `finished`, moves to the unique archive path, and commits
+implementation plus finished plan as one final checkpoint. Local completion
+review is `not_required`.
 
 Sensitive/external work commits the implementation checkpoint, binds its exact
 commit/diff, and reserves a separate completion phase for a fresh code-review
@@ -222,16 +219,16 @@ agent returning `CompletionReviewV1`. One accepted blocker fix replaces/amends
 the still-unpublished checkpoint, reruns invalidated checks, and consumes the
 second permit on the replacement SHA. The first result is invalid after any
 relevant byte changes. Only a matching pass may archive; repeated same-signature
-no-progress blocks and never reopens draft review.
+no-progress blocks this run and never reopens its completion review.
 
 ## Transactions and commits
 
-Every mutation uses one exclusive per-plan transaction: acquire an atomic lock
-keyed by repository and normalized path; verify exact bytes/run preimage; reduce
-one closed transition; write and fsync a sibling; atomic-rename; read back;
-release. A checkpoint additionally acquires the repository lock, verifies exact
-HEAD, index, and owned-path preimage, commits only owned paths, and reads back.
-Any mismatch fails before write, dispatch, or external action.
+Every ordinary mutation uses `transactPlanRun`: lock by repository/path, verify
+exact bytes/run, reduce one closed transition, fsync a sibling, atomic-rename,
+and read back. Terminal same-path rollover uses only `replacePlanRunInPlace`,
+locking and binding the predecessor before appending history. Checkpoints also
+lock the repository, verify HEAD/index/owned paths, commit only owned paths, and
+read back. Any mismatch fails before write, dispatch, or external action.
 
 Reclaim a same-host dead-owner lock only after verifying owner PID, `run_id`, and
 unchanged preimages. Live, foreign, ambiguous, or changed stale locks block.
@@ -301,14 +298,17 @@ source of truth.
 BAD: draft a plan, ask for a separate lifecycle command, then resume in another turn.
 GOOD: review once, checkpoint ongoing, implement, verify, and archive the same requested goal.
 
+BAD: spend a run's permits, then mint `plan-v2.md`.
+GOOD: keep one plan path; append terminal history, then explicitly authorize a fresh run.
+
 BAD: infer deploy permission from requested_effects or an old release receipt.
 GOOD: require a matching live ExternalAuthorityV1 at the deploy boundary.
 ```
 
 ## Final checks
 
-- Exact repository/path/run identity and one compact Plan-run line.
-- Closed phase/lifecycle/status tuple and ≤2 permits per phase.
+- Exact repository/path/current-run identity and append-only attempt history.
+- Closed phase/lifecycle/status tuple and ≤2 permits per run phase.
 - Exact plan/source/final-manifest/verification hashes.
 - Transaction and owned checkpoint read-backs; unrelated paths excluded.
 - Fresh reviewer bindings; stale or cold-reserved output ignored.

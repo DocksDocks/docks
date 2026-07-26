@@ -30,6 +30,13 @@ export function registerLegacyQuarantine(suite, api, { root }) {
     assert.ok(result.records.every(({ settled: value }) => value === true));
   });
 
+  suite.test('legacy-quarantine', 'orphan current-run attempt history quarantines instead of migrating', () => {
+    const orphan = Buffer.concat([legacyPlan(), Buffer.from('\n## Review\n\nPlan-attempt-history: {"schema":1}\n')]);
+    const result = api.classifyLegacyPlan(orphan);
+    assert.equal(result.classification, 'legacy-quarantined');
+    assert.match(result.reason, /orphan|attempt|current/i);
+  });
+
   suite.test(
     'legacy-quarantine',
     'active, prepared, commitment, cancelled, crossed, and malformed families quarantine',

@@ -144,6 +144,7 @@
       { "path": "docs/plans/active/plan-review-controller-failure-recovery.md", "outcome": "pass" },
       { "path": "docs/plans/active/plan-workflow-phases-and-loop-escape.md", "outcome": "pass" },
       { "path": "docs/plans/active/session-relay-correlated-messaging-and-worker-results.md", "outcome": "pass" },
+      { "path": "docs/plans/active/session-relay-correlated-results-release-remediation-v9.md", "outcome": "pass" },
       {
         "path": "docs/plans/active/session-relay-linux-workspace-publication.md",
         "outcome": "pass",

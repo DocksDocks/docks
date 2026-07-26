@@ -98,6 +98,23 @@ export function registerHashingAndManifest(suite, api) {
     }
   });
 
+  suite.test('hashing-manifests', 'attempt history is validated only as an unfenced Review record', () => {
+    const fixture = bindPlan(api, tuple('drafting'));
+    const original = fixture.bytes.toString();
+    const orphan = 'Plan-attempt-history: {"schema":1}';
+    const outsideReview = replaceOnce(original, '## Verification Results', `${orphan}\n\n## Verification Results`);
+    const malformedReview = replaceOnce(original, 'Fresh reviewer output that is excluded from plan identity.', orphan);
+    const fencedExample = replaceOnce(
+      original,
+      'Fresh reviewer output that is excluded from plan identity.',
+      `\`\`\`text\n${orphan}\n\`\`\``,
+    );
+
+    expectThrow(() => api.validatePlanRun(Buffer.from(outsideReview)), /Review section/i);
+    expectThrow(() => api.validatePlanRun(Buffer.from(malformedReview)), /PlanAttemptHistoryV1|keys|closed/i);
+    assert.equal(api.validatePlanRun(Buffer.from(fencedExample)).attempt_history.length, 0);
+  });
+
   suite.test(
     'hashing-manifests',
     'canonical plan identity binds substantive scope, steps, effects, and acceptance',

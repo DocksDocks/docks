@@ -88,12 +88,13 @@ Claude/Codex wrappers.
 </constraint>
 
 The current record is one unfenced compact-JCS `Plan-run: PlanRunV1` line.
-PlanRunV1 binds repository/path/run identity, a cross-repository `goal_id`,
-canonical requested effects and risk, plan/source hashes, separate draft and
-completion phase budgets, execution/implementation commits, acceptance hashes,
-and at most one typed blocker. Each phase reserves and persists before a fresh
-launch and has at most two invocations. Cold reserved state blocks without
-redispatch; ordinary local completion review is not required.
+Exact current-user replacement authority binds the terminal predecessor and
+exact successor PlanRun, keeps the stable `plan_path`, appends validated
+`Plan-attempt-history`, and installs a fresh `run_id`; it never creates
+`v2`/`vN` files or resets predecessor permits. PlanRunV1 binds
+repository/path/run identity, cross-repository goal, effects/risk, commits,
+hashes, and budgets.
+Cold reserved state blocks without redispatch; local completion is not required.
 
 Every mutation uses an exclusive preimage-checked per-plan transaction and
 read-back. Checkpoint commits additionally lock the repository and verify HEAD,

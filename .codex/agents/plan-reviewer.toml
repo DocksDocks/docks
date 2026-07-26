@@ -42,11 +42,16 @@ authority.
 
 ## Output Format
 
-Return JSON only, no extra keys or surrounding prose. On invalid bundle input,
-return exactly one compact object and no `PlanReviewV1`:
+Return JSON only, pretty-printed with two-space indentation, with no extra keys
+or surrounding prose. On invalid bundle input, return exactly one object and no
+`PlanReviewV1`:
 
 ```json
-{"error":"invalid_input","reason":"bundle_unavailable","schema":1}
+{
+  "error": "invalid_input",
+  "reason": "bundle_unavailable",
+  "schema": 1
+}
 ```
 
 `reason` is exactly `bundle_unavailable`, `bundle_integrity_failed`, or
@@ -67,7 +72,7 @@ For valid, fully bound input, return `PlanReviewV1`:
 ```
 
 For `repair` or `blocked`, each finding is exactly
-`{id,kind,locator,defect,fix}`. The object is compact-JCS compatible and at most
+`{id,kind,locator,defect,fix}`. The object is canonical-JCS serializable and at most
 32 KiB. `pass` has no findings; other verdicts have at least one. `repair` is
 limited to defects resolvable from sealed repository facts. `blocked` is limited
 to a required user decision or missing safety authority.

@@ -45,21 +45,25 @@ authority.
    are limited to `missing_decision`, `contradiction`, `unsafe_scope`, and
    `missing_acceptance` under the canonical skill.
 3. Re-read every sealed locator and coalesce duplicate symptoms.
-4. Return JSON only and once. Do not echo plan bytes, source manifests, or prose.
+4. Return one JSON object, pretty-printed with two-space indentation, and no prose.
 
 ## Output Format
 
-On invalid bundle input, return JSON only with no `PlanReviewV1`:
+On invalid bundle input, return one pretty-printed JSON object with no `PlanReviewV1`:
 
 ```json
-{"error":"invalid_input","reason":"bundle_unavailable","schema":1}
+{
+  "error": "invalid_input",
+  "reason": "bundle_unavailable",
+  "schema": 1
+}
 ```
 
 `reason` is exactly `bundle_unavailable`, `bundle_integrity_failed`, or
 `bundle_binding_mismatch` as mapped above. This is not a verdict, ends the
 invocation, and never authorizes fallback.
 
-For valid, fully bound input, return:
+For valid, fully bound input, return one pretty-printed JSON object:
 
 ```json
 {
