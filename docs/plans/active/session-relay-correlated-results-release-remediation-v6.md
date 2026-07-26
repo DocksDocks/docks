@@ -1,9 +1,11 @@
 ---
 title: Finish PlanRun-native Relay promotion
-status: ongoing
+status: blocked
 created: "2026-07-26T02:00:00.000Z"
-updated: "2026-07-26T02:05:45.881Z"
+updated: "2026-07-26T05:54:12.590Z"
 started_at: "2026-07-26T02:05:45.881Z"
+blocked_reason: "Final completion-review transport failed before model execution; invocation 2 consumed the last permit."
+blocked_since: "2026-07-26T05:54:12.590Z"
 finished_at: null
 assignee: null
 tags: [session-relay, release, planrun, remediation]
@@ -21,7 +23,7 @@ related_plans:
 
 # Finish PlanRun-native Relay promotion
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"2df8eb71edfa0e9c705cf49be6323669be317e73441961e74944899a9fb78670","invocations":1,"result_sha256":"85ef0aded3e015859e6ab8f75e3d79f65f058a03c3d695b079bf1ca588408711","state":"passed"},"execution_parent":"6d794a9d2380ea74c0b67a0b90e8f3825c9d0148","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v6.md","plan_sha256":"3d224d109d12563ec364dd21ff164f683d43c18b3957854609e95a833d0c0358","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"1adc1590-49ee-42e6-93ab-8062e580d250","schema":1,"source_base":"6d794a9d2380ea74c0b67a0b90e8f3825c9d0148","source_sha256":"e35c783e7feec7f2031d1bf437f4450f5ea0e938aa784efed841426efbe45f58"}
+Plan-run: {"acceptance":{"source_sha256":"c9b409f075ef9f20a6bf38f3e8309729a033cb15108af44ecdfef2fa1b554665","verification_sha256":"87102ac0a29c0a70bc55f7100d9d2e9b3dd9a8a665fccd33c157d9ffdae5da0f"},"blocker":{"evidence_sha256":"4b0755b9be5d4c1b8236f67e7cca39306b0adf768145fe546b01ab0722d9ca0e","kind":"review_failed"},"completion_review":{"input_sha256":"1e770bb2c0efa56f1444e6b26096dfad068e59a4a7f16b0fe6a975f2e1e50798","invocations":2,"result_sha256":"4b0755b9be5d4c1b8236f67e7cca39306b0adf768145fe546b01ab0722d9ca0e","state":"blocked"},"draft_review":{"input_sha256":"2df8eb71edfa0e9c705cf49be6323669be317e73441961e74944899a9fb78670","invocations":1,"result_sha256":"85ef0aded3e015859e6ab8f75e3d79f65f058a03c3d695b079bf1ca588408711","state":"passed"},"execution_parent":"6d794a9d2380ea74c0b67a0b90e8f3825c9d0148","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":"114432b642fd89497f8e1d1fde0a0c30fdd22f7b","plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v6.md","plan_sha256":"3d224d109d12563ec364dd21ff164f683d43c18b3957854609e95a833d0c0358","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"1adc1590-49ee-42e6-93ab-8062e580d250","schema":1,"source_base":"6d794a9d2380ea74c0b67a0b90e8f3825c9d0148","source_sha256":"e35c783e7feec7f2031d1bf437f4450f5ea0e938aa784efed841426efbe45f58"}
 
 ## Goal
 
@@ -80,6 +82,24 @@ Review-result: {"findings":[],"invocation":1,"plan_sha256":"3d224d109d12563ec364
 
 Invocation 1 passed with no findings through the explicit same-model read-only transport.
 
+Completion-review-result: {"diff_sha256":"c4483d757bfcbf54d69d041c9b244721b18ebc2eb2d153f64102ed0b15791bfe","findings":[{"defect":"The new PlanRun binder passes a run whose source_base is fixed to 6d794a9d2380ea74c0b67a0b90e8f3825c9d0148 into currentCompletionEvidence, which computes the reviewed diff from run.source_base. binding.json and plan Steps 3/5 instead require the exact cumulative 8afd7e04c4d3bf7951188b83a47f82147d839cc6..implementation diff, including the pushed publication-recovery delta. SourcePreparationProofV3 therefore cannot bind the sealed CompletionReviewV1 digest: it will either reject that result or attest a different, incomplete range.","fix":"Give the V3 binder an exact review-base input pinned to 8afd7e04c4d3bf7951188b83a47f82147d839cc6, compute both changed paths and the diff SHA-256 over that range, and require equality with the completion-review result before emitting the proof.","id":"completion-diff-base-mismatch","kind":"acceptance","locator":"changes.diff:481-537 (scripts/lib/session-relay-release-preparation.mjs, currentCompletionEvidence/bindPlanRunCompletion)"},{"defect":"bindPlanRunCompletion sets tagCommit equal to the Docks implementation commit and emits it as tag_commit. For this bundle that is d5c62605721e9a2a0733047e7250a0595cf71270, while plan.md pins the existing immutable session-relay--v0.14.0 tag to 7d9cbbbdf82210d396de744372eadb6c26655601. The V3 proof therefore cannot describe the shipped prerelease identity and will either fail downstream tag/workflow-head checks or falsely rebind the release tag to the remediation implementation.","fix":"Resolve the authoritative existing CURRENT_RELEASE_TAG commit, require it to equal 7d9cbbbdf82210d396de744372eadb6c26655601, keep the Docks implementation commit as a separate identity, and model/test the post-tag remediation ancestry without assigning the implementation commit to tag_commit.","id":"immutable-tag-commit-rebound","kind":"public-contract","locator":"changes.diff:537-554 (scripts/lib/session-relay-release-preparation.mjs, bindPlanRunCompletion)"}],"implementation_commit":"d5c62605721e9a2a0733047e7250a0595cf71270","invocation":1,"run_id":"1adc1590-49ee-42e6-93ab-8062e580d250","schema":1,"verdict":"repair"}
+
+Invocation 1 found two release-evidence binding defects; both were accepted for the one permitted repair.
+
+Completion-review-transport-failure: {"error_name":"NoModelSelected","input_sha256":"1e770bb2c0efa56f1444e6b26096dfad068e59a4a7f16b0fe6a975f2e1e50798","invocation":2,"launch_consumed":true,"message":"No model selected.","phase":"completion_review","run_id":"1adc1590-49ee-42e6-93ab-8062e580d250","schema":1,"transport":"task:plan-reviewer","type":"ReviewTransportFailureV1"}
+
+Invocation 2 failed before model execution because the selected plan-reviewer transport reported `No model selected`. The second reservation consumed the final permit; external/release work cannot degrade. A same-input generic retry was cancelled and no retry output was consumed.
+
 ## Verification Results
 
-Not run.
+- `node plugins/session-relay/test/release-evidence-contract.mjs`: pass after the completion-review repair.
+- `node plugins/session-relay/test/release-publication-contract.mjs`: pass; 75 production-handler cases.
+- `node plugins/session-relay/test/release-promotion-contract.mjs`: pass, including the closed V3 immutable-tag-to-source ancestry, PlanRunV1 public-child, mixed-generation receipt, and wrong-tag/backwards-ancestry rejection cases.
+- `node scripts/ci.mjs --plugin session-relay`: pass at implementation checkpoint `114432b642fd89497f8e1d1fde0a0c30fdd22f7b`; Rust format/clippy, seven exact inventories, workspace smokes, all release contracts, JavaScript quality, and byte-identical selftest jobs 1/4 passed.
+- `node scripts/ci.mjs`: pass at implementation checkpoint `114432b642fd89497f8e1d1fde0a0c30fdd22f7b`; all three plugins and repository-wide guards passed.
+- Public release verification receipt SHA-256 `05b08d34e62b58dcbbda214bbcef4cb0658ef6781ca3e696abdfa1b3f43f5091` bound the finished public child, release commit `88ab1911490edad83b387514bb8e899f02338d69`, archive commit `2c914e1aae125f17bd9660f2accca009643ddb2a`, and completion result SHA-256 `8034b252d665e71271e932384318585e14cdc0f3ed9452e911a6136aff5739cb`.
+- Promotion receipt SHA-256 `7ffaa7967d9ca8cc7c53c3ca22efe932d3028ad3caf210cec8157aec7bbd1670` and stable finalization receipt SHA-256 `2432a3e601aa93d602b4e0a071ef0609a6a8f4cc9d914cd606dca99eaa6e6ce3` were emitted by the reviewed release entrypoint.
+- GitHub release `session-relay--v0.14.0`: observed `isDraft=false`, `isPrerelease=false`; tag and five assets remained unchanged.
+- Downloaded `session-relay-x86_64-unknown-linux-musl` SHA-256 `140ea11b700b307c07219616ca6e9b3c4fe552916871af54c3bb15712efd4ee3` matched the staged receipt and reported `session-relay 0.14.0`.
+- Downloaded-binary workspace smokes `single-session-compat` and `docs-contract`: pass.
+- Local implementation checkpoint `114432b642fd89497f8e1d1fde0a0c30fdd22f7b` contains only the three accepted repair paths; `origin/main` remains at reviewed predecessor `d5c62605721e9a2a0733047e7250a0595cf71270` pending the fresh completion verdict.
