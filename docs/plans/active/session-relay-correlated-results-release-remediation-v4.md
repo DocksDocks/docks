@@ -1,8 +1,9 @@
 ---
 title: Complete reviewed Session Relay remediation
-status: ongoing
+status: blocked
 created: "2026-07-25T21:24:31.600Z"
-updated: "2026-07-25T21:37:55.954Z"
+updated: "2026-07-26T01:49:00.000Z"
+blocked_since: "2026-07-26T01:49:00.000Z"
 started_at: "2026-07-25T21:37:55.954Z"
 finished_at: null
 assignee: null
@@ -34,7 +35,7 @@ related_plans:
 
 # Complete reviewed Session Relay remediation
 
-Plan-run: {"acceptance":{"source_sha256":"ea5f7045c3f339e4237a897f209f9b23959b22cf0187e4214265a3b028bbd6cf","verification_sha256":"2558b2d3fd3887e3d2ef5b6776c8857ce57966e6c18d258b827c73a6355d993a"},"blocker":null,"completion_review":{"input_sha256":"f295a3fcffd1a35d408c7370386f8557479c47924dadab5a972998e2903befbb","invocations":2,"result_sha256":"491925513a94c7d2c1b86cfe0fcf71ad5b7f5d994724612295a2c2cfe465c7cc","state":"passed"},"draft_review":{"input_sha256":"48f88b092c715825ac8adea71cc386bd4a7ff871f8107cf87894f0857c221236","invocations":2,"result_sha256":"ca25dbafdca2aa45f10afbaf9cda1935ebc6843ae03bbef2cca26f050db32d4e","state":"passed"},"execution_parent":"494881a0d973863d1ac8e233734c827eb6913ce8","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":"7d9cbbbdf82210d396de744372eadb6c26655601","plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v4.md","plan_sha256":"2ff21e9412120324de5290311a85558c380a90412769daa2163f760f497737a9","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"88732ba0-ef06-411b-a31c-93705ccefb27","schema":1,"source_base":"494881a0d973863d1ac8e233734c827eb6913ce8","source_sha256":"63fd6cbbd0786e951249c6ada312151eaa01afe0142a066ef51a8c14aa596d8d"}
+Plan-run: {"acceptance":{"source_sha256":"ea5f7045c3f339e4237a897f209f9b23959b22cf0187e4214265a3b028bbd6cf","verification_sha256":"2558b2d3fd3887e3d2ef5b6776c8857ce57966e6c18d258b827c73a6355d993a"},"blocker":{"evidence_sha256":"700b046dc91b0658d7fdca65203750f45087a91650058f0e21caa4c7eb2c6ce9","kind":"concurrent_change"},"completion_review":{"input_sha256":"f295a3fcffd1a35d408c7370386f8557479c47924dadab5a972998e2903befbb","invocations":2,"result_sha256":"491925513a94c7d2c1b86cfe0fcf71ad5b7f5d994724612295a2c2cfe465c7cc","state":"passed"},"draft_review":{"input_sha256":"48f88b092c715825ac8adea71cc386bd4a7ff871f8107cf87894f0857c221236","invocations":2,"result_sha256":"ca25dbafdca2aa45f10afbaf9cda1935ebc6843ae03bbef2cca26f050db32d4e","state":"passed"},"execution_parent":"494881a0d973863d1ac8e233734c827eb6913ce8","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":"7d9cbbbdf82210d396de744372eadb6c26655601","plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v4.md","plan_sha256":"2ff21e9412120324de5290311a85558c380a90412769daa2163f760f497737a9","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"88732ba0-ef06-411b-a31c-93705ccefb27","schema":1,"source_base":"494881a0d973863d1ac8e233734c827eb6913ce8","source_sha256":"63fd6cbbd0786e951249c6ada312151eaa01afe0142a066ef51a8c14aa596d8d"}
 
 ## Goal
 
