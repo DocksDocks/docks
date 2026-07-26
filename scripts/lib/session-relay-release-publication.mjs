@@ -931,15 +931,25 @@ function downloadBoundBundle(adapter, run) {
   return { run, bundle: adapter.downloadRunAssets(run.id) };
 }
 
-function completeLivePrerelease(release) {
+function completeLivePublication(release) {
   if (!release) return null;
-  assertReleaseShell(release, 'prerelease');
-  if (release.body !== PRERELEASE_BODY) fail('prerelease body conflict');
+  const stable = release.prerelease === false;
+  assertReleaseShell(release, stable ? 'stable' : 'prerelease');
+  if (release.body !== (stable ? STABLE_BODY : PRERELEASE_BODY)) {
+    fail(`${stable ? 'stable' : 'prerelease'} body conflict`);
+  }
   const assets = normalizedAssets(release);
   const expected = [...ASSETS].sort();
   if (assets.length !== expected.length || assets.some((asset, index) => asset.name !== expected[index])) return null;
   assertCompleteAssets(assets);
-  return assets;
+  return {
+    liveAssets: assets,
+    receiptRelease: stable ? { ...release, prerelease: true, body: PRERELEASE_BODY } : release,
+  };
+}
+function completeLivePrerelease(release) {
+  if (release?.prerelease !== true) return null;
+  return completeLivePublication(release)?.liveAssets ?? null;
 }
 function timestampInRunWindow(value, start, end, label) {
   const instant = Date.parse(value);
@@ -1092,10 +1102,11 @@ function validateLiveReleaseProvenance(adapter, release, run, liveAssets, boundR
 }
 
 function rebindCompletePublication(options, adapter, proof, state) {
-  if (state.commit !== proof.value.tag_commit || !state.release || state.release.prerelease !== true)
-    fail('publication rebind requires a complete matching prerelease');
-  const liveAssets = completeLivePrerelease(state.release);
-  if (!liveAssets) fail('publication rebind requires a complete matching prerelease');
+  if (state.commit !== proof.value.tag_commit || !state.release) {
+    fail('publication rebind requires a complete matching prerelease or promoted stable release');
+  }
+  const complete = completeLivePublication(state.release);
+  if (!complete) fail('publication rebind requires a complete matching prerelease or promoted stable release');
   const run = selectUniqueUsableRun(taggedRuns(adapter), proof.value.tag_commit);
   if (run?.event !== 'push' || run.status !== 'completed' || run.conclusion !== 'success')
     fail('publication rebind requires one successful bound push workflow run');
@@ -1111,14 +1122,14 @@ function rebindCompletePublication(options, adapter, proof, state) {
       adapter,
       state.release,
       settled,
-      liveAssets,
+      complete.liveAssets,
       boundRunAssets,
     );
     return emitReceipt(
       options,
       publicationReceipt(
         proof,
-        state.release,
+        complete.receiptRelease,
         verifiedLiveAssets,
         workflowIdentity(settled),
         'reconciled',
@@ -1154,8 +1165,8 @@ export function publishReviewed(options, injectedAdapter) {
   if (resume && resume.value.release_state !== 'prerelease') fail('resume publication is not a prerelease receipt');
   let state = releaseState(adapter);
   if (state.commit && state.commit !== proof.value.tag_commit) fail('tag conflict');
-  if (state.release && !state.release.prerelease) fail('premature stable release conflict');
   if (rebind) return rebindCompletePublication(options, adapter, proof, state);
+  if (state.release && !state.release.prerelease) fail('premature stable release conflict');
   let tagCreated = false;
   if (!state.commit) {
     adapter.pushTag(proof.value.tag_commit);
