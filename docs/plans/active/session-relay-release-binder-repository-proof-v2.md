@@ -1,9 +1,11 @@
 ---
 title: Complete Session Relay repository-grounded release binding
-status: ongoing
+status: blocked
 created: "2026-07-25T23:45:41.205Z"
-updated: "2026-07-25T23:50:57.277Z"
+updated: "2026-07-26T00:05:55.031Z"
 started_at: "2026-07-25T23:50:57.277Z"
+blocked_reason: "Reviewed affected-path equivalence contradicts the binder repair's own two post-review path changes."
+blocked_since: "2026-07-26T00:05:55.031Z"
 finished_at: null
 assignee: null
 tags: [session-relay, release, evidence, remediation]
@@ -17,7 +19,7 @@ related_plans:
 
 # Complete Session Relay repository-grounded release binding
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a9286c444176166acf346a23330e524009a77b7a90527cb6f480017161c5f5af","invocations":1,"result_sha256":"1119bf1afecee5b8cdeb036c774765956d23966ede75a9ba28eeb5fcd9266669","state":"passed"},"execution_parent":"c48a016e27d709703031d157d3c0426aeb93422c","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-release-binder-repository-proof-v2.md","plan_sha256":"d934c8d8e69ab2ac79d7a8938177e216411140b272483742ce64825357d07e7d","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"c66b088c-d786-497a-8782-d8d7fd993335","schema":1,"source_base":"c48a016e27d709703031d157d3c0426aeb93422c","source_sha256":"2e857c83b8ca50f67c91947832e9f79865f077ccba16d60d7a790edc538beb25"}
+Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"3b16adfe548513465f4b305f0f2e3c41daeb40220197cab8be42c667120c0fc8","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a9286c444176166acf346a23330e524009a77b7a90527cb6f480017161c5f5af","invocations":1,"result_sha256":"1119bf1afecee5b8cdeb036c774765956d23966ede75a9ba28eeb5fcd9266669","state":"passed"},"execution_parent":"c48a016e27d709703031d157d3c0426aeb93422c","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-release-binder-repository-proof-v2.md","plan_sha256":"d934c8d8e69ab2ac79d7a8938177e216411140b272483742ce64825357d07e7d","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"c66b088c-d786-497a-8782-d8d7fd993335","schema":1,"source_base":"c48a016e27d709703031d157d3c0426aeb93422c","source_sha256":"2e857c83b8ca50f67c91947832e9f79865f077ccba16d60d7a790edc538beb25"}
 
 ## Goal
 
@@ -62,4 +64,6 @@ Invocation 1 passed with no findings through the repository-authorized generic r
 
 ## Verification Results
 
-Not run. Manager will record exact red evidence, commands, hashes, commits, and completion review here.
+Verification-blocker: {"defect":"The reviewed plan requires all v4 affected paths to remain byte-identical after implementation while the authorized repair itself commits two of those affected paths after immutable v4 implementation commit 7d9cbbbdf82210d396de744372eadb6c26655601.","red_receipt_sha256":"377a0f6fdbca577ef3ef1d33c20b07074f4ef95719a2fc0ec946572944b60c1a","required_repair":"Reconstruct the accepted manifest from the immutable implementation Git tree and allowlist only the bounded binder-repair and plan-lifecycle descendant paths; reject every other post-review path.","type":"verification_failed"}
+
+- Both committed regressions failed for their intended reasons. Implementation exposed that the reviewed equivalence rule makes the real v4 binder impossible because this repair changes two v4 affected paths after the immutable reviewed commit.
