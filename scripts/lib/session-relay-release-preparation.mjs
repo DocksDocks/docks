@@ -13,11 +13,11 @@ import {
 } from '../../plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs';
 import {
   canonicalPlanView as canonicalCurrentPlanView,
+  canonicalVerificationResults,
   createAffectedPathManifest,
   parsePlan as parseCurrentPlan,
   validateAffectedPathManifest,
   validateCompletionReview as validateCurrentCompletionReview,
-  validatePlanRun,
   validatePlanRunRecord,
 } from '../../plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs';
 import {
@@ -114,6 +114,13 @@ const CURRENT_PUBLIC_VERSION = '0.12.0';
 const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
 const CURRENT_PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-0.14.0-docks-kit-0.12.0-release.md';
+const CURRENT_BINDER_CONTINUATION_PATHS = new Set([
+  CURRENT_DOCKS_PLAN_PATH,
+  'docs/plans/active/session-relay-release-binder-repository-proof.md',
+  'docs/plans/active/session-relay-release-binder-repository-proof-v2.md',
+  'plugins/session-relay/test/release-evidence-contract.mjs',
+  'scripts/lib/session-relay-release-preparation.mjs',
+]);
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const HISTORICAL_RECEIPTS_0_13 = Object.freeze({
   source_proof_v1: '419b23ccdcf0ca21672e81c05ae9d22c55bc67781839ffb6a29e7eecc2b59396',
@@ -1851,7 +1858,7 @@ function inspectPublicRepository(input) {
 function evidenceDependencies(injected) {
   const value = injected ?? {
     repoRoot: REPO,
-    git: (args) => (args[0] === 'show' ? gitRaw(args) : git(args)),
+    git: gitRaw,
     inspectPublic: inspectPublicRepository,
     run: (executable, args, runOptions = {}) => {
       const result = spawnSync(executable, args, {
@@ -2483,31 +2490,83 @@ function verifyCurrentRedBlobs(deps, red, implementationCommit) {
   }
 }
 
+function implementationManifestEntry(deps, implementationCommit, liveEntry) {
+  const { path: logical } = liveEntry;
+  const treeBytes = gitBytes(deps, ['ls-tree', '-z', implementationCommit, '--', logical]);
+  if (treeBytes.length === 0) {
+    if (liveEntry.state !== 'missing') {
+      fail(`current implementation manifest path was created after review: ${logical}`);
+    }
+    return liveEntry;
+  }
+  const match = /^(100644|100755) blob ([0-9a-f]{40})\t([\s\S]+)\0$/.exec(treeBytes.toString('utf8'));
+  if (match === null || match[3] !== logical || liveEntry.state !== 'file') {
+    fail(`current implementation manifest path is ambiguous or changed file state: ${logical}`);
+  }
+  const executable = (liveEntry.mode & 0o111) !== 0;
+  if (executable !== (match[1] === '100755')) {
+    fail(`current implementation manifest executable mode drifted after review: ${logical}`);
+  }
+  const bytes = gitBytes(deps, ['show', `${implementationCommit}:${logical}`]);
+  return { ...liveEntry, sha256: sha256(bytes) };
+}
+
+function acceptedImplementationManifest(deps, affectedPaths, implementationCommit) {
+  const currentHead = commit(gitValue(deps, ['rev-parse', 'HEAD^{commit}']), 'current release HEAD');
+  if (currentHead !== implementationCommit) {
+    ancestor(deps, implementationCommit, currentHead, 'current implementation-to-HEAD');
+    const output = gitValue(deps, ['diff', '--name-only', '--no-renames', implementationCommit, currentHead, '--']);
+    const continuationPaths = output === '' ? [] : output.split('\n');
+    for (const [index, logical] of continuationPaths.entries()) {
+      safeLogical(logical, `current post-review path ${index}`);
+      if (!CURRENT_BINDER_CONTINUATION_PATHS.has(logical)) {
+        fail(`current post-review history contains an unauthorized path: ${logical}`);
+      }
+    }
+  }
+
+  const liveManifest = createAffectedPathManifest({
+    repo: deps.repoRoot,
+    paths: affectedPaths,
+    sourceBase: currentHead,
+  });
+  const entries = liveManifest.paths.map((entry) => implementationManifestEntry(deps, implementationCommit, entry));
+  const acceptanceManifest = {
+    schema: 1,
+    source_base: implementationCommit,
+    source_sha256: sha256(
+      Buffer.from(
+        canonicalize({
+          schema: 1,
+          source_base: implementationCommit,
+          paths: entries,
+        }),
+      ),
+    ),
+    paths: entries,
+  };
+  validateAffectedPathManifest(acceptanceManifest, {
+    paths: affectedPaths,
+    sourceBase: implementationCommit,
+  });
+  return acceptanceManifest;
+}
+
 function currentCompletionEvidence(deps, planBytes, run, implementationCommit) {
   const affectedPaths = parseCurrentPlan(planBytes).frontmatter.affected_paths;
   let acceptanceManifest;
   try {
-    acceptanceManifest = createAffectedPathManifest({
-      repo: deps.repoRoot,
-      paths: affectedPaths,
-      sourceBase: implementationCommit,
-    });
-    validatePlanRun(planBytes, {
-      acceptanceManifest,
-      acceptanceManifestExpectation: {
-        repo: deps.repoRoot,
-        paths: affectedPaths,
-        sourceBase: implementationCommit,
-      },
-      goalId: CURRENT_GOAL_ID,
-      planPath: CURRENT_DOCKS_PLAN_PATH,
-      repositoryId: REPOSITORY_ID,
-      runId: CURRENT_DOCKS_RUN_ID,
-    });
+    acceptanceManifest = acceptedImplementationManifest(deps, affectedPaths, implementationCommit);
+    if (acceptanceManifest.source_sha256 !== run.acceptance.source_sha256) {
+      fail('acceptance source_sha256 does not bind the reconstructed implementation manifest');
+    }
+    const verificationSha256 = sha256(Buffer.from(canonicalVerificationResults(planBytes)));
+    if (verificationSha256 !== run.acceptance.verification_sha256) {
+      fail('acceptance verification_sha256 does not match canonical Verification Results bytes');
+    }
   } catch (error) {
     fail(`current PlanRunV1 acceptance or Verification Results are invalid: ${error.message}`);
   }
-
   const diffBytes = gitBytes(deps, [
     'diff',
     '--binary',
