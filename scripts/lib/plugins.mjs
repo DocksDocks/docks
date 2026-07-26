@@ -11,7 +11,8 @@
 // Fields:
 //   name          marketplace + tag identity (claude plugin tag → <name>--v<ver>)
 //   root          plugin dir under the repo
-//   ciLane       required plugin validation lane (`core` or `relay`)
+//   ciLane        required plugin validation lane (`core` or `relay`)
+//   javascriptQuality scoped Biome paths (`ci` required, optional `lint`)
 //   skills        skills root, or null
 //   agents        agents root, or null
 //   codex         true when a .codex-plugin/ mirror + Codex marketplace entry ship
@@ -48,6 +49,13 @@ export const PLUGINS = [
     name: 'docks',
     root: 'plugins/docks',
     ciLane: 'core',
+    javascriptQuality: {
+      ci: ['scripts', 'plugins/docks/hooks'],
+      lint: [
+        'plugins/docks/skills/productivity/plan-reviewer/scripts',
+        'plugins/docks/skills/productivity/write-skill/scripts',
+      ],
+    },
     skills: 'plugins/docks/skills',
     agents: 'plugins/docks/agents',
     codex: true,
@@ -63,6 +71,7 @@ export const PLUGINS = [
     name: 'session-relay',
     root: 'plugins/session-relay',
     ciLane: 'relay',
+    javascriptQuality: { ci: ['scripts', 'plugins/session-relay/test'], lint: [] },
     skills: 'plugins/session-relay/skills',
     agents: null,
     codex: true,
@@ -139,6 +148,7 @@ export const PLUGINS = [
     name: 'effect-kit',
     root: 'plugins/effect-kit',
     ciLane: 'core',
+    javascriptQuality: { ci: ['plugins/effect-kit/test'], lint: [] },
     skills: 'plugins/effect-kit/skills',
     agents: null,
     codex: true,

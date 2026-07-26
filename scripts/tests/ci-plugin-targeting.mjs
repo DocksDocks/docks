@@ -294,6 +294,16 @@ function testFocusedCiCommandSelection() {
     'scripts/tests/ci-plugin-targeting.mjs',
     'scripts/tests/author-tooling.mjs',
   ];
+  const effectKitBiomeCiArgv = ['exec', 'biome', 'ci', 'plugins/effect-kit/test'];
+  const sessionRelayBiomeCiArgv = ['exec', 'biome', 'ci', 'scripts', 'plugins/session-relay/test'];
+  const coreBiomeCiArgv = ['exec', 'biome', 'ci', 'scripts', 'plugins/docks/hooks', 'plugins/effect-kit/test'];
+  const docksBiomeLintArgv = [
+    'exec',
+    'biome',
+    'lint',
+    'plugins/docks/skills/productivity/plan-reviewer/scripts',
+    'plugins/docks/skills/productivity/write-skill/scripts',
+  ];
 
   try {
     if (!relayBinaryExisted) {
@@ -311,6 +321,8 @@ function testFocusedCiCommandSelection() {
         `targeted CI must not invoke repo-wide command ${script}`,
       );
     }
+    assert.equal(countToolInvocation(targeted.calls, 'pnpm', effectKitBiomeCiArgv), 1);
+    assert.match(targeted.result.stdout, /javascript quality/);
     assert.doesNotMatch(
       targeted.result.stdout,
       /workflow YAML|marketplace catalogs|repo-wide guards|CI targeting contract/,
@@ -321,7 +333,6 @@ function testFocusedCiCommandSelection() {
       'targeted CI must retain the selected plugin gate',
     );
     assert.equal(countToolInvocation(targeted.calls, 'pnpm', ['run', 'check:js']), 0);
-    assert.doesNotMatch(targeted.result.stdout, /javascript quality/);
 
     const orchestrationArgv = ['scripts/tests/plan-orchestration.mjs'];
     const boundedWorkflowArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'];
@@ -357,26 +368,31 @@ function testFocusedCiCommandSelection() {
         1,
         `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must audit Docks and Effect Kit together once`,
       );
+      if (ciArgs.length === 0) {
+        assert.equal(countToolInvocation(selected.calls, 'pnpm', ['run', 'check:js']), 1);
+      } else {
+        assert.equal(countToolInvocation(selected.calls, 'pnpm', ['run', 'check:js']), 0);
+        assert.equal(
+          countToolInvocation(selected.calls, 'pnpm', ['exec', 'biome', 'ci', 'scripts', 'plugins/docks/hooks']),
+          1,
+        );
+        assert.equal(countToolInvocation(selected.calls, 'pnpm', docksBiomeLintArgv), 1);
+        assert.match(selected.result.stdout, /javascript quality/);
+      }
     }
 
     const core = run(['--lane', 'core']);
     assert.equal(core.result.status, 0, `${core.result.stdout}\n${core.result.stderr}`);
-    for (const script of repoWideCommands) {
-      assert.equal(invokesNode(core.calls, script), true, `core CI must invoke repo-wide command ${script}`);
-    }
-    assert.match(core.result.stdout, /workflow YAML/);
-    assert.match(core.result.stdout, /marketplace catalogs/);
+    assert.equal(countToolInvocation(core.calls, 'pnpm', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeCiArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'pnpm', docksBiomeLintArgv), 1);
+    assert.match(core.result.stdout, /javascript quality/);
     assert.match(core.result.stdout, /repo-wide guards/);
     assert.match(core.result.stdout, /CI targeting contract/);
     assert.match(core.result.stdout, /plan orchestration/);
     assert.match(core.result.stdout, /plugin: docks/);
     assert.match(core.result.stdout, /plugin: effect-kit/);
     assert.doesNotMatch(core.result.stdout, /plugin: session-relay|partition passed/);
-    assert.equal(
-      countToolInvocation(core.calls, 'pnpm', ['run', 'check:js']),
-      1,
-      'core CI must launch JavaScript quality exactly once',
-    );
     assert.equal(countToolInvocation(core.calls, 'node', orchestrationArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', boundedWorkflowArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', crossPluginCollisionArgv), 1);
@@ -384,11 +400,9 @@ function testFocusedCiCommandSelection() {
     const timingPath = path.join(fixtureRoot, 'timings.json');
     const timedCore = run(['--lane', 'core', '--timings-json', timingPath]);
     assert.equal(timedCore.result.status, 0, `${timedCore.result.stdout}\n${timedCore.result.stderr}`);
-    assert.equal(
-      countToolInvocation(timedCore.calls, 'pnpm', ['run', 'check:js']),
-      1,
-      '--lane core --timings-json must not change JavaScript quality gate selection',
-    );
+    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeCiArgv), 1);
+    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', docksBiomeLintArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', orchestrationArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
     const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
@@ -405,8 +419,8 @@ function testFocusedCiCommandSelection() {
     );
     assert.deepEqual(
       timing.tasks.map(({ name }) => name),
-      ['javascript quality'],
-      'core CI must publish only the concurrent JavaScript-quality task',
+      ['javascript quality', 'javascript quality lint'],
+      'core CI must publish the concurrent JavaScript-quality tasks',
     );
     assert.deepEqual(
       timing.phases.map(({ name }) => name),
@@ -462,20 +476,19 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(relay.calls, 'node', sessionRelayCollisionArgv), 1);
     assert.equal(countToolInvocation(relay.calls, 'node', orchestrationArgv), 0);
     assert.equal(countToolInvocation(relay.calls, 'node', boundedWorkflowArgv), 0);
-    assert.equal(
-      countToolInvocation(relay.calls, 'pnpm', ['run', 'check:js']),
-      0,
-      'Relay CI must not launch JavaScript quality',
-    );
+    assert.equal(countToolInvocation(relay.calls, 'pnpm', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(relay.calls, 'pnpm', sessionRelayBiomeCiArgv), 1);
+    assert.match(relay.result.stdout, /javascript quality/);
     const relayTiming = JSON.parse(fs.readFileSync(relayTimingPath, 'utf8'));
     assert.equal(relayTiming.schema, 2);
-    assert.deepEqual(relayTiming.mode, { plugin: null, lane: 'relay' });
-    assert.equal(relayTiming.status, 'passed', JSON.stringify(relayTiming));
-    assert.deepEqual(relayTiming.tasks, [], 'Relay CI has no process-heavy regression task');
+    assert.deepEqual(
+      relayTiming.tasks.map(({ name }) => name),
+      ['javascript quality'],
+    );
     assert.deepEqual(
       relayTiming.phases.map(({ name }) => name),
-      ['shell lint', 'skill trigger collisions', 'plugin: session-relay'],
-      'Relay CI must own only its shell, trigger, and plugin gates',
+      ['shell lint', 'skill trigger collisions', 'plugin: session-relay', 'javascript quality'],
+      'Relay CI must own only its shell, trigger, plugin, and quality gates',
     );
     assert.ok(
       relayTiming.phases.every(({ status }) => status === 'passed'),

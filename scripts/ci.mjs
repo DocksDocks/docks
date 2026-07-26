@@ -198,9 +198,22 @@ try {
 const repoWide = ciLane?.repoWide ?? onlyPlugin === null;
 const authorChecks = selectedAuthorChecks(targets);
 const planAuthorChecks = authorChecks.has('plan-reviewer');
-const javascriptQualityTask = repoWide
-  ? startTask('javascript quality', 'pnpm', ['run', 'check:js'], { cwd: REPO, tasks })
-  : null;
+const javascriptQualityTasks = [];
+const javascriptQualityCommands = [];
+const scheduleJavaScriptQuality = (name, args) => {
+  javascriptQualityCommands.push(['pnpm', ...args]);
+  javascriptQualityTasks.push(startTask(name, 'pnpm', args, { cwd: REPO, tasks }));
+};
+if (onlyPlugin === null && onlyLane === null) {
+  scheduleJavaScriptQuality('javascript quality', ['run', 'check:js']);
+} else {
+  const pathsFor = (field) => [...new Set(targets.flatMap((plugin) => plugin.javascriptQuality?.[field] ?? []))];
+  const ciPaths = pathsFor('ci');
+  const lintPaths = pathsFor('lint');
+  if (ciPaths.length > 0) scheduleJavaScriptQuality('javascript quality', ['exec', 'biome', 'ci', ...ciPaths]);
+  if (lintPaths.length > 0)
+    scheduleJavaScriptQuality('javascript quality lint', ['exec', 'biome', 'lint', ...lintPaths]);
+}
 
 // Catalogs are shared; read once (used by the per-plugin version checks too).
 const claudeMarket = targets.length === 0 ? null : readJSON(CLAUDE_MARKETPLACE);
@@ -331,13 +344,14 @@ if (planAuthorChecks) {
 }
 
 for (const plugin of targets) gatePlugin(plugin);
-
-if (javascriptQualityTask !== null) {
+if (javascriptQualityTasks.length > 0) {
   section('javascript quality');
-  const javascriptQualityPassed = await javascriptQualityTask;
-  javascriptQualityPassed
-    ? ok('JavaScript format and lint checks passed')
-    : fail('JavaScript format and lint checks failed (run: pnpm run check:js)');
+  const javascriptQualityPassed = (await Promise.all(javascriptQualityTasks)).every(Boolean);
+  if (javascriptQualityPassed) ok('JavaScript format and lint checks passed');
+  else {
+    const commands = javascriptQualityCommands.map(([command, ...args]) => `${command} ${args.join(' ')}`);
+    fail(`JavaScript format and lint checks failed (run: ${commands.join(' && ')})`);
+  }
 }
 
 function gatePlugin(p) {
