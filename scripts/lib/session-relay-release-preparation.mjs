@@ -112,17 +112,25 @@ const CURRENT_DOCKS_SOURCE_BASE = '494881a0d973863d1ac8e233734c827eb6913ce8';
 const PLANRUN_DOCKS_RUN_ID = '1adc1590-49ee-42e6-93ab-8062e580d250';
 const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v6.md';
 const PLANRUN_DOCKS_SOURCE_BASE = '6d794a9d2380ea74c0b67a0b90e8f3825c9d0148';
+const PLANRUN_DOCKS_REVIEW_BASE = '8afd7e04c4d3bf7951188b83a47f82147d839cc6';
+const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
 const CURRENT_PUBLIC_VERSION = '0.12.0';
 const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
 const CURRENT_PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-0.14.0-docks-kit-0.12.0-release.md';
 const CURRENT_BINDER_CONTINUATION_PATHS = new Set([
+  'AGENTS.md',
+  'docs/plans/active/session-relay-correlated-results-release-remediation-v5.md',
   CURRENT_DOCKS_PLAN_PATH,
   'docs/plans/active/session-relay-release-binder-repository-proof.md',
   'docs/plans/active/session-relay-release-binder-repository-proof-v2.md',
   'plugins/session-relay/test/release-evidence-contract.mjs',
+  'scripts/AGENTS.md',
+  'scripts/ci.mjs',
+  'scripts/lib/plugins.mjs',
   'scripts/lib/session-relay-release-preparation.mjs',
   'scripts/lib/session-relay-release-publication.mjs',
+  'scripts/tests/ci-plugin-targeting.mjs',
 ]);
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const HISTORICAL_RECEIPTS_0_13 = Object.freeze({
@@ -1180,7 +1188,11 @@ function validateCurrentSourcePreparationProof(value) {
   commit(value.source_commit, 'current source proof source_commit');
   commit(value.implementation_commit, 'current source proof implementation_commit');
   commit(value.tag_commit, 'current source proof tag_commit');
-  if (value.tag_commit !== value.implementation_commit) {
+  if (planRunProof) {
+    if (value.tag_commit !== PLANRUN_RELEASE_TAG_COMMIT) {
+      fail('PlanRun source proof tag commit is not the immutable Session Relay release commit');
+    }
+  } else if (value.tag_commit !== value.implementation_commit) {
     fail('current source proof tag commit is not the reviewed implementation commit');
   }
 
@@ -1270,17 +1282,17 @@ function validateCurrentSourcePreparationProof(value) {
   }
 
   const ancestryKeys = planRunProof
-    ? ['source_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag']
+    ? ['tag_to_source', 'source_to_implementation', 'implementation_to_reviewed']
     : ['source_to_red', 'red_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag'];
   exactKeys(value.ancestry, ancestryKeys, 'current source proof ancestry');
   if (
     (planRunProof
-      ? value.ancestry.source_to_implementation !== true
+      ? value.ancestry.tag_to_source !== true || value.ancestry.source_to_implementation !== true
       : value.ancestry.source_to_red !== true || value.ancestry.red_to_implementation !== true) ||
     value.ancestry.implementation_to_reviewed !== true ||
-    value.ancestry.reviewed_to_tag !== true
+    (!planRunProof && value.ancestry.reviewed_to_tag !== true)
   ) {
-    fail('current source proof ancestry through reviewed implementation and tag is incomplete');
+    fail('current source proof ancestry through the immutable tag and reviewed implementation is incomplete');
   }
 
   exactKeys(
@@ -2576,6 +2588,8 @@ function currentCompletionEvidence(
   implementationCommit,
   planPath = CURRENT_DOCKS_PLAN_PATH,
   continuationPaths = [],
+  reviewBase = run.source_base,
+  affectedOnly = false,
 ) {
   const affectedPaths = parseCurrentPlan(planBytes).frontmatter.affected_paths;
   let acceptanceManifest;
@@ -2591,6 +2605,7 @@ function currentCompletionEvidence(
   } catch (error) {
     fail(`current PlanRunV1 acceptance or Verification Results are invalid: ${error.message}`);
   }
+  const pathspec = affectedOnly ? affectedPaths : [];
   const diffBytes = gitBytes(deps, [
     'diff',
     '--binary',
@@ -2599,11 +2614,12 @@ function currentCompletionEvidence(
     '--no-ext-diff',
     '--no-textconv',
     '--no-color',
-    run.source_base,
+    reviewBase,
     implementationCommit,
     '--',
+    ...pathspec,
   ]);
-  const names = gitValue(deps, ['diff', '--name-only', '--no-renames', run.source_base, implementationCommit, '--']);
+  const names = gitValue(deps, ['diff', '--name-only', '--no-renames', reviewBase, implementationCommit, '--']);
   const changedPaths = names === '' ? [] : names.split('\n');
   if (changedPaths.length === 0) fail('current reviewed implementation diff must not be empty');
   const allowedPaths = new Set([...affectedPaths, planPath, ...continuationPaths]);
@@ -2746,13 +2762,21 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     implementationCommit,
     PLANRUN_DOCKS_PLAN_PATH,
     CURRENT_BINDER_CONTINUATION_PATHS,
+    PLANRUN_DOCKS_REVIEW_BASE,
+    true,
   );
   const reviewRecord = currentCompletionReview(plan, run, completionEvidence.diffSha256);
   const reviewedCommit = reviewRecord.value.implementation_commit;
-  const tagCommit = implementationCommit;
+  const tagCommit = commit(
+    gitValue(deps, ['rev-parse', `${CURRENT_RELEASE_TAG}^{commit}`]),
+    'PlanRun immutable release tag commit',
+  );
+  if (tagCommit !== PLANRUN_RELEASE_TAG_COMMIT) {
+    fail('PlanRun immutable release tag commit changed');
+  }
+  ancestor(deps, tagCommit, sourceCommit, 'PlanRun tag-to-source');
   ancestor(deps, sourceCommit, implementationCommit, 'PlanRun source-to-implementation');
   ancestor(deps, implementationCommit, reviewedCommit, 'PlanRun implementation-to-reviewed');
-  ancestor(deps, reviewedCommit, tagCommit, 'PlanRun reviewed-to-tag');
 
   const receipt = {
     schema: 3,
@@ -2789,9 +2813,9 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
       changed_paths: completionEvidence.changedPaths,
     },
     ancestry: {
+      tag_to_source: true,
       source_to_implementation: true,
       implementation_to_reviewed: true,
-      reviewed_to_tag: true,
     },
     companion: {
       repository_id: PUBLIC_REPOSITORY_ID,

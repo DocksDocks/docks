@@ -88,6 +88,7 @@ const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
 const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
 const PLANRUN_DOCKS_RUN_ID = '1adc1590-49ee-42e6-93ab-8062e580d250';
 const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v6.md';
+const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
 const CURRENT_PUBLIC_PLAN_BASENAME = 'session-relay-0.14.0-docks-kit-0.12.0-release';
 const CURRENT_PUBLIC_FINISHED_PLAN_PATH =
@@ -1676,12 +1677,15 @@ function validateCurrentRemoteAuthority(adapter, proof, publicRelease, options) 
 
   const sourceAncestry =
     proof.value.schema === 3
-      ? [[proof.value.source_commit, proof.value.implementation_commit, 'source-to-implementation']]
+      ? [
+          [proof.value.tag_commit, proof.value.source_commit, 'tag-to-source'],
+          [proof.value.source_commit, proof.value.implementation_commit, 'source-to-implementation'],
+        ]
       : [
           [proof.value.source_commit, proof.value.tdd_red.pre_production_commit, 'source-to-red'],
           [proof.value.tdd_red.pre_production_commit, proof.value.implementation_commit, 'red-to-implementation'],
+          [proof.value.implementation_commit, proof.value.tag_commit, 'reviewed-implementation-to-tag'],
         ];
-  sourceAncestry.push([proof.value.implementation_commit, proof.value.tag_commit, 'reviewed-implementation-to-tag']);
   for (const [ancestor, descendant, label] of sourceAncestry) {
     if (adapter.isAncestor(ancestor, descendant) !== true) {
       fail(`current ${label} ancestry was not independently observed`);
@@ -2641,8 +2645,10 @@ function validateCurrentPromotionReceipt(receipt) {
   ) {
     fail('current stable promotion changed an asset digest or another byte-identical release identity');
   }
-  if (receipt.staged_release.tag_commit !== receipt.reviewed_source_commit) {
-    fail('current promotion staged tag commit is not the reviewed source commit');
+  const expectedTagCommit =
+    planRunReceipt && planRunDocksReceipt ? PLANRUN_RELEASE_TAG_COMMIT : receipt.reviewed_source_commit;
+  if (receipt.staged_release.tag_commit !== expectedTagCommit) {
+    fail('current promotion staged tag commit is not the bound immutable release commit');
   }
 
   exactKeys(
