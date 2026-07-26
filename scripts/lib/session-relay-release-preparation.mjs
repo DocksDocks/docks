@@ -31,7 +31,6 @@ import {
   exactKeys,
   fail,
   ghJson,
-  git,
   gitRaw,
   noteValue,
   PLUGIN,
@@ -110,6 +109,9 @@ const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
 const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
 const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
 const CURRENT_DOCKS_SOURCE_BASE = '494881a0d973863d1ac8e233734c827eb6913ce8';
+const PLANRUN_DOCKS_RUN_ID = '1adc1590-49ee-42e6-93ab-8062e580d250';
+const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v6.md';
+const PLANRUN_DOCKS_SOURCE_BASE = '6d794a9d2380ea74c0b67a0b90e8f3825c9d0148';
 const CURRENT_PUBLIC_VERSION = '0.12.0';
 const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
@@ -1136,6 +1138,7 @@ function validateCurrentRedReceipt(value) {
 }
 
 function validateCurrentSourcePreparationProof(value) {
+  const planRunProof = value?.schema === 3 && value?.type === 'SourcePreparationProofV3';
   exactKeys(
     value,
     [
@@ -1150,7 +1153,7 @@ function validateCurrentSourcePreparationProof(value) {
       'implementation_commit',
       'tag_commit',
       'plan_run',
-      'tdd_red',
+      ...(planRunProof ? [] : ['tdd_red']),
       'completion_review',
       'acceptance',
       'ancestry',
@@ -1158,17 +1161,17 @@ function validateCurrentSourcePreparationProof(value) {
       'historical_receipts',
       'created_at',
     ],
-    'SourcePreparationProofV2',
+    planRunProof ? 'SourcePreparationProofV3' : 'SourcePreparationProofV2',
   );
   if (
-    value.schema !== 2 ||
-    value.type !== 'SourcePreparationProofV2' ||
+    value.schema !== (planRunProof ? 3 : 2) ||
+    value.type !== (planRunProof ? 'SourcePreparationProofV3' : 'SourcePreparationProofV2') ||
     value.repository_id !== REPOSITORY_ID ||
     value.version !== CURRENT_RELEASE_VERSION ||
     value.tag !== CURRENT_RELEASE_TAG ||
     value.goal_id !== CURRENT_GOAL_ID ||
-    value.run_id !== CURRENT_DOCKS_RUN_ID ||
-    value.source_commit !== CURRENT_DOCKS_SOURCE_BASE
+    value.run_id !== (planRunProof ? PLANRUN_DOCKS_RUN_ID : CURRENT_DOCKS_RUN_ID) ||
+    value.source_commit !== (planRunProof ? PLANRUN_DOCKS_SOURCE_BASE : CURRENT_DOCKS_SOURCE_BASE)
   ) {
     fail('current source proof immutable release identity mismatch');
   }
@@ -1191,19 +1194,21 @@ function validateCurrentSourcePreparationProof(value) {
     value.plan_run.repository_id !== REPOSITORY_ID ||
     value.plan_run.goal_id !== value.goal_id ||
     value.plan_run.run_id !== value.run_id ||
-    value.plan_run.plan_path !== CURRENT_DOCKS_PLAN_PATH ||
+    value.plan_run.plan_path !== (planRunProof ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH) ||
     value.plan_run.source_base !== value.source_commit ||
     value.plan_run.implementation_commit !== value.implementation_commit ||
     value.plan_run.status !== 'ongoing'
   ) {
     fail('current source proof PlanRunV1 identity mismatch');
   }
-  validateCurrentRedReceipt(value.tdd_red);
-  if (
-    value.tdd_red.pre_production_commit === value.source_commit ||
-    value.tdd_red.pre_production_commit === value.implementation_commit
-  ) {
-    fail('current TDD-red commit must be distinct from and precede the source implementation');
+  if (!planRunProof) {
+    validateCurrentRedReceipt(value.tdd_red);
+    if (
+      value.tdd_red.pre_production_commit === value.source_commit ||
+      value.tdd_red.pre_production_commit === value.implementation_commit
+    ) {
+      fail('current TDD-red commit must be distinct from and precede the source implementation');
+    }
   }
 
   exactKeys(
@@ -1255,23 +1260,27 @@ function validateCurrentSourcePreparationProof(value) {
       prior = logical;
     }
   }
-  const allowed = new Set([...affectedPaths, CURRENT_DOCKS_PLAN_PATH]);
+  const allowed = new Set([
+    ...affectedPaths,
+    planRunProof ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH,
+    ...(planRunProof ? CURRENT_BINDER_CONTINUATION_PATHS : []),
+  ]);
   if (changedPaths.some((logical) => !allowed.has(logical))) {
     fail('current source proof changed paths exceed the accepted affected-path and plan-lifecycle scope');
   }
 
-  exactKeys(
-    value.ancestry,
-    ['source_to_red', 'red_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag'],
-    'current source proof ancestry',
-  );
+  const ancestryKeys = planRunProof
+    ? ['source_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag']
+    : ['source_to_red', 'red_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag'];
+  exactKeys(value.ancestry, ancestryKeys, 'current source proof ancestry');
   if (
-    value.ancestry.source_to_red !== true ||
-    value.ancestry.red_to_implementation !== true ||
+    (planRunProof
+      ? value.ancestry.source_to_implementation !== true
+      : value.ancestry.source_to_red !== true || value.ancestry.red_to_implementation !== true) ||
     value.ancestry.implementation_to_reviewed !== true ||
     value.ancestry.reviewed_to_tag !== true
   ) {
-    fail('current source proof ancestry from red evidence through reviewed implementation and tag is incomplete');
+    fail('current source proof ancestry through reviewed implementation and tag is incomplete');
   }
 
   exactKeys(
@@ -1326,7 +1335,10 @@ function validateCurrentSourcePreparationProof(value) {
 }
 
 export function validateSourcePreparationProof(value) {
-  if (value?.schema === 2 || value?.type === 'SourcePreparationProofV2') {
+  if (
+    [2, 3].includes(value?.schema) ||
+    ['SourcePreparationProofV2', 'SourcePreparationProofV3'].includes(value?.type)
+  ) {
     return validateCurrentSourcePreparationProof(value);
   }
   exactKeys(
@@ -2410,7 +2422,11 @@ function currentSingletonMachineRecord(plan, label) {
   return records[0];
 }
 
-function currentPlanRun(planBytes, plan) {
+function currentPlanRun(
+  planBytes,
+  plan,
+  { runId = CURRENT_DOCKS_RUN_ID, planPath = CURRENT_DOCKS_PLAN_PATH, sourceBase = CURRENT_DOCKS_SOURCE_BASE } = {},
+) {
   const machineRecord = currentSingletonMachineRecord(plan, 'Plan-run');
   const status = parseCurrentPlan(planBytes).frontmatter.status;
   try {
@@ -2423,10 +2439,10 @@ function currentPlanRun(planBytes, plan) {
     status !== 'ongoing' ||
     run.repository_id !== REPOSITORY_ID ||
     run.goal_id !== CURRENT_GOAL_ID ||
-    run.run_id !== CURRENT_DOCKS_RUN_ID ||
-    run.plan_path !== CURRENT_DOCKS_PLAN_PATH ||
-    run.source_base !== CURRENT_DOCKS_SOURCE_BASE ||
-    run.execution_parent !== CURRENT_DOCKS_SOURCE_BASE ||
+    run.run_id !== runId ||
+    run.plan_path !== planPath ||
+    run.source_base !== sourceBase ||
+    run.execution_parent !== sourceBase ||
     run.risk !== 'external' ||
     canonicalize(run.requested_effects) !== canonicalize(['local', 'probe', 'push', 'release'])
   ) {
@@ -2553,7 +2569,14 @@ function acceptedImplementationManifest(deps, affectedPaths, implementationCommi
   return acceptanceManifest;
 }
 
-function currentCompletionEvidence(deps, planBytes, run, implementationCommit) {
+function currentCompletionEvidence(
+  deps,
+  planBytes,
+  run,
+  implementationCommit,
+  planPath = CURRENT_DOCKS_PLAN_PATH,
+  continuationPaths = [],
+) {
   const affectedPaths = parseCurrentPlan(planBytes).frontmatter.affected_paths;
   let acceptanceManifest;
   try {
@@ -2583,7 +2606,7 @@ function currentCompletionEvidence(deps, planBytes, run, implementationCommit) {
   const names = gitValue(deps, ['diff', '--name-only', '--no-renames', run.source_base, implementationCommit, '--']);
   const changedPaths = names === '' ? [] : names.split('\n');
   if (changedPaths.length === 0) fail('current reviewed implementation diff must not be empty');
-  const allowedPaths = new Set([...affectedPaths, CURRENT_DOCKS_PLAN_PATH]);
+  const allowedPaths = new Set([...affectedPaths, planPath, ...continuationPaths]);
   let prior = null;
   for (const [index, logical] of changedPaths.entries()) {
     safeLogical(logical, `current reviewed diff path ${index}`);
@@ -2697,11 +2720,113 @@ function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan)
   validateSourcePreparationProof(receipt);
   return emitReceipt(options, receipt);
 }
+function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan) {
+  if (finishedRelative !== PLANRUN_DOCKS_PLAN_PATH) {
+    fail('--finished-plan must be the exact active PlanRun verification repair for Session Relay 0.14.0');
+  }
+  const requestedVersion = options.get('version');
+  if (requestedVersion !== undefined && requestedVersion !== CURRENT_RELEASE_VERSION) {
+    fail('PlanRun completion binding requires Session Relay 0.14.0');
+  }
+  const { run, status } = currentPlanRun(planBytes, plan, {
+    runId: PLANRUN_DOCKS_RUN_ID,
+    planPath: PLANRUN_DOCKS_PLAN_PATH,
+    sourceBase: PLANRUN_DOCKS_SOURCE_BASE,
+  });
+  const sourceCommit = resolveExactCurrentCommit(deps, run.source_base, 'PlanRun source commit');
+  const implementationCommit = resolveExactCurrentCommit(
+    deps,
+    run.implementation_commit,
+    'PlanRun implementation commit',
+  );
+  const completionEvidence = currentCompletionEvidence(
+    deps,
+    planBytes,
+    run,
+    implementationCommit,
+    PLANRUN_DOCKS_PLAN_PATH,
+    CURRENT_BINDER_CONTINUATION_PATHS,
+  );
+  const reviewRecord = currentCompletionReview(plan, run, completionEvidence.diffSha256);
+  const reviewedCommit = reviewRecord.value.implementation_commit;
+  const tagCommit = implementationCommit;
+  ancestor(deps, sourceCommit, implementationCommit, 'PlanRun source-to-implementation');
+  ancestor(deps, implementationCommit, reviewedCommit, 'PlanRun implementation-to-reviewed');
+  ancestor(deps, reviewedCommit, tagCommit, 'PlanRun reviewed-to-tag');
+
+  const receipt = {
+    schema: 3,
+    type: 'SourcePreparationProofV3',
+    repository_id: REPOSITORY_ID,
+    version: CURRENT_RELEASE_VERSION,
+    tag: CURRENT_RELEASE_TAG,
+    goal_id: run.goal_id,
+    run_id: run.run_id,
+    source_commit: sourceCommit,
+    implementation_commit: implementationCommit,
+    tag_commit: tagCommit,
+    plan_run: {
+      schema: run.schema,
+      repository_id: run.repository_id,
+      goal_id: run.goal_id,
+      run_id: run.run_id,
+      plan_path: run.plan_path,
+      source_base: run.source_base,
+      implementation_commit: run.implementation_commit,
+      status,
+    },
+    completion_review: {
+      schema: reviewRecord.value.schema,
+      type: 'CompletionReviewV1',
+      reviewed_commit: reviewedCommit,
+      diff_sha256: completionEvidence.diffSha256,
+      result_sha256: reviewRecord.digest,
+      verdict: reviewRecord.value.verdict,
+    },
+    acceptance: {
+      manifest: completionEvidence.acceptanceManifest,
+      verification_sha256: run.acceptance.verification_sha256,
+      changed_paths: completionEvidence.changedPaths,
+    },
+    ancestry: {
+      source_to_implementation: true,
+      implementation_to_reviewed: true,
+      reviewed_to_tag: true,
+    },
+    companion: {
+      repository_id: PUBLIC_REPOSITORY_ID,
+      goal_id: CURRENT_GOAL_ID,
+      run_id: CURRENT_PUBLIC_RUN_ID,
+      plan_path: CURRENT_PUBLIC_PLAN_PATH,
+      version: CURRENT_PUBLIC_VERSION,
+      tag: CURRENT_PUBLIC_TAG,
+      session_relay_version: CURRENT_RELEASE_VERSION,
+      session_relay_tag: CURRENT_RELEASE_TAG,
+      package: 'docks-kit',
+      npm_version: CURRENT_PUBLIC_VERSION,
+    },
+    historical_receipts: {
+      version: '0.13.0',
+      tag: 'session-relay--v0.13.0',
+      ...HISTORICAL_RECEIPTS_0_13,
+    },
+    created_at: deps.now(),
+  };
+  validateSourcePreparationProof(receipt);
+  return emitReceipt(options, receipt);
+}
 
 export function bindCompletion(options, injected) {
   const deps = evidenceDependencies(injected);
   const finishedPlanPath = canonicalPath(options.get('finished-plan'), '--finished-plan');
   const finishedRelative = path.relative(deps.repoRoot, finishedPlanPath);
+  if (finishedRelative === PLANRUN_DOCKS_PLAN_PATH) {
+    if (options.has('embedded-candidate-sha256')) {
+      digest(options.get('embedded-candidate-sha256'), '--embedded-candidate-sha256');
+    }
+    const planBytes = deps.readFile(finishedPlanPath);
+    return bindPlanRunCompletion(options, deps, finishedRelative, planBytes, planBytes.toString('utf8'));
+  }
   if (finishedRelative === CURRENT_DOCKS_PLAN_PATH || options.get('version') === CURRENT_RELEASE_VERSION) {
     if (options.has('embedded-candidate-sha256')) {
       digest(options.get('embedded-candidate-sha256'), '--embedded-candidate-sha256');
@@ -2843,6 +2968,7 @@ export function validateProof(options) {
     [
       { schema: 1, type: 'SourcePreparationProofV1' },
       { schema: 2, type: 'SourcePreparationProofV2' },
+      { schema: 3, type: 'SourcePreparationProofV3' },
     ],
     '--source-proof',
   );

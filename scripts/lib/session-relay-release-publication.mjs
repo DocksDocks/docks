@@ -767,11 +767,11 @@ function reconcilePrerelease(adapter, release, bundle) {
 
 function publicationReceipt(proof, release, assets, workflow, transition, releaseStateName, now) {
   const recoverablePrerelease =
-    proof.value.schema === 2 &&
+    [2, 3].includes(proof.value.schema) &&
     releaseStateName === 'prerelease' &&
     ['tag_and_reconciled', 'reconciled'].includes(transition);
   const receiptTransition = recoverablePrerelease ? 'tag_and_release_created' : transition;
-  if (proof.value.schema === 2) {
+  if ([2, 3].includes(proof.value.schema)) {
     if (releaseStateName === 'prerelease' && receiptTransition !== 'tag_and_release_created') {
       fail('current Session Relay 0.14.0 publication must atomically stage the reviewed tag and prerelease');
     }
@@ -1359,7 +1359,9 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
     proof,
     '--publication',
   );
-  const current = proof.value.schema === 2 || proof.value.type === 'SourcePreparationProofV2';
+  const current =
+    [2, 3].includes(proof.value.schema) ||
+    ['SourcePreparationProofV2', 'SourcePreparationProofV3'].includes(proof.value.type);
   if (current && (publication.value.schema !== 2 || publication.value.type !== 'SessionRelayPublicationReceiptV2')) {
     fail('current stable finalization requires the exact V2 prerelease publication receipt');
   }
@@ -1375,21 +1377,32 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
     [
       { schema: 1, type: 'PromotionReceiptV1' },
       { schema: 2, type: 'PromotionReceiptV2' },
+      { schema: 3, type: 'PromotionReceiptV3' },
     ],
     '--promotion',
   );
-  if (current !== (promotion.value.schema === 2 && promotion.value.type === 'PromotionReceiptV2')) {
+  const expectedPromotion =
+    proof.value.schema === 3
+      ? { schema: 3, type: 'PromotionReceiptV3' }
+      : current
+        ? { schema: 2, type: 'PromotionReceiptV2' }
+        : { schema: 1, type: 'PromotionReceiptV1' };
+  if (promotion.value.schema !== expectedPromotion.schema || promotion.value.type !== expectedPromotion.type) {
     fail('promotion receipt schema does not match the source proof release generation');
   }
   let publicRelease = null;
-  if (promotion.value.schema === 2) {
+  if ([2, 3].includes(promotion.value.schema)) {
     if (!options.has('public-release')) {
       fail('current stable finalization requires the exact public release receipt and SHA-256');
     }
     publicRelease = readCanonical(
       options.get('public-release'),
       options.get('public-release-sha256'),
-      [{ schema: 2, type: 'PublicReleaseReceiptV2' }],
+      [
+        promotion.value.schema === 3
+          ? { schema: 3, type: 'PublicReleaseReceiptV3' }
+          : { schema: 2, type: 'PublicReleaseReceiptV2' },
+      ],
       '--public-release',
     );
   }

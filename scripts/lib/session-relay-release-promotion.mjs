@@ -3,7 +3,12 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
+import {
+  canonicalPlanView,
+  canonicalVerificationResults,
+  parsePlan,
+  validatePlanRunRecord,
+} from '../../plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs';
 import {
   ASSETS,
   COMMIT,
@@ -81,6 +86,8 @@ const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.12.0';
 const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
 const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
 const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
+const PLANRUN_DOCKS_RUN_ID = '1adc1590-49ee-42e6-93ab-8062e580d250';
+const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v6.md';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
 const CURRENT_PUBLIC_PLAN_BASENAME = 'session-relay-0.14.0-docks-kit-0.12.0-release';
 const CURRENT_PUBLIC_FINISHED_PLAN_PATH =
@@ -363,6 +370,24 @@ const PUBLIC_PLAN_V2_KEYS = [
   'finished_at',
 ];
 const PUBLIC_RELEASE_EVIDENCE_KEYS = ['schema', 'type', 'ancestry', 'public_plan'];
+const PUBLIC_ANCESTRY_V3_KEYS = [
+  'execution_parent',
+  'implementation_commit',
+  'release_commit',
+  'archive_commit',
+  'execution_parent_to_implementation',
+  'implementation_to_release',
+  'release_to_archive',
+];
+const PUBLIC_PLAN_V3_KEYS = [
+  'plan_run',
+  'active_path',
+  'finished_path',
+  'release_commit',
+  'archive_commit',
+  'remote_read_back',
+  'finished_at',
+];
 const PROMOTION_V2_KEYS = [
   'schema',
   'type',
@@ -812,6 +837,141 @@ function verifyCurrentPublicEvidenceBindings(
   }
   return evidence;
 }
+function parsedPublicPlanRun(parsed) {
+  const records = [];
+  let fence = null;
+  for (const line of parsed.body.split('\n')) {
+    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      if (fence === null) {
+        fence = { character: marker[0], length: marker.length };
+      } else if (marker[0] === fence.character && marker.length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fence === null && line.startsWith('Plan-run: ')) records.push(line.slice('Plan-run: '.length));
+  }
+  if (fence !== null || records.length !== 1) {
+    fail('current public finished plan must contain exactly one unfenced PlanRunV1 record');
+  }
+  let run;
+  try {
+    run = JSON.parse(records[0]);
+  } catch {
+    fail('current public finished PlanRunV1 record is not strict JSON');
+  }
+  if (canonicalize(run) !== records[0]) fail('current public finished PlanRunV1 record is not compact JCS');
+  return run;
+}
+
+function publicPlanRunManifestDigest(adapter, implementationCommit, affectedPaths, mode) {
+  const paths = affectedPaths.map((filePath) => {
+    const bytes = adapter.getFinishedPlan(implementationCommit, filePath);
+    if (!Buffer.isBuffer(bytes)) fail(`current public implementation path observation must be bytes: ${filePath}`);
+    return {
+      path: filePath,
+      state: 'file',
+      kind: 'file',
+      mode,
+      sha256: sha256(bytes),
+    };
+  });
+  return sha256(
+    Buffer.from(
+      canonicalize({
+        schema: 1,
+        source_base: implementationCommit,
+        paths,
+      }),
+    ),
+  );
+}
+
+function verifyCurrentPublicPlanRun(
+  adapter,
+  planBytes,
+  { companionBaseCommit, completionDigest, finishedPlanPath, planCommit, releaseCommit },
+) {
+  let parsed;
+  try {
+    parsed = parsePlan(planBytes);
+  } catch {
+    fail('current public finished plan is not a valid canonical PlanRunV1 document');
+  }
+  const run = parsedPublicPlanRun(parsed);
+  try {
+    validatePlanRunRecord(run, { status: parsed.frontmatter.status });
+  } catch {
+    fail('current public finished PlanRunV1 lifecycle tuple or record shape is invalid');
+  }
+  if (run.plan_sha256 !== sha256(canonicalPlanView(planBytes))) {
+    fail('current public finished PlanRunV1 plan digest mismatch');
+  }
+  const { frontmatter } = parsed;
+  const expectedActivePath = `docs/plans/active/${CURRENT_PUBLIC_PLAN_BASENAME}.md`;
+  if (
+    frontmatter.status !== 'finished' ||
+    run.plan_path !== expectedActivePath ||
+    !CURRENT_PUBLIC_FINISHED_PLAN_PATH.test(finishedPlanPath) ||
+    run.repository_id !== PUBLIC_REPOSITORY_ID ||
+    run.goal_id !== CURRENT_GOAL_ID ||
+    run.run_id !== CURRENT_PUBLIC_RUN_ID ||
+    run.risk !== 'external' ||
+    canonicalize(run.requested_effects) !== canonicalize(['local', 'probe', 'push', 'release']) ||
+    run.source_base !== companionBaseCommit ||
+    run.execution_parent !== companionBaseCommit ||
+    run.implementation_commit === null ||
+    run.acceptance === null ||
+    run.draft_review.state !== 'passed' ||
+    run.completion_review.state !== 'passed' ||
+    run.completion_review.result_sha256 !== completionDigest ||
+    frontmatter.finished_at === null
+  ) {
+    fail('current public finished PlanRunV1 lifecycle, identity, effect, or completion binding is invalid');
+  }
+  assertTimestamp(frontmatter.finished_at, 'current public finished PlanRunV1 time');
+  if (run.acceptance.verification_sha256 !== sha256(canonicalVerificationResults(planBytes))) {
+    fail('current public finished PlanRunV1 Verification Results digest mismatch');
+  }
+  const manifestDigests = [0o644, 0o664].map((mode) =>
+    publicPlanRunManifestDigest(adapter, run.implementation_commit, frontmatter.affected_paths, mode),
+  );
+  if (!manifestDigests.includes(run.acceptance.source_sha256)) {
+    fail('current public finished PlanRunV1 affected-path source manifest mismatch');
+  }
+  const ancestry = {
+    execution_parent: run.execution_parent,
+    implementation_commit: run.implementation_commit,
+    release_commit: releaseCommit,
+    archive_commit: planCommit,
+    execution_parent_to_implementation: true,
+    implementation_to_release: true,
+    release_to_archive: true,
+  };
+  for (const [ancestor, descendant, label] of [
+    [ancestry.execution_parent, ancestry.implementation_commit, 'execution-parent-to-implementation'],
+    [ancestry.implementation_commit, ancestry.release_commit, 'implementation-to-release'],
+    [ancestry.release_commit, ancestry.archive_commit, 'release-to-archive'],
+  ]) {
+    if (adapter.isAncestor(ancestor, descendant) !== true) {
+      fail(`current public PlanRunV1 ${label} ancestry was not independently observed`);
+    }
+  }
+  return {
+    ancestry,
+    public_plan: {
+      plan_run: structuredClone(run),
+      active_path: run.plan_path,
+      finished_path: finishedPlanPath,
+      release_commit: releaseCommit,
+      archive_commit: planCommit,
+      remote_read_back: true,
+      finished_at: frontmatter.finished_at,
+    },
+  };
+}
 
 function currentPublicReleaseTimestamp(release) {
   const publishedAt = release?.published_at;
@@ -937,10 +1097,11 @@ function validateCurrentPublicReleaseReceipt(receipt, { publication = null, requ
     fail('current public release receipt digest mismatch');
   }
   const value = receipt.value;
+  const planRunReceipt = value.schema === 3 && value.type === 'PublicReleaseReceiptV3';
+  const evidenceReceipt = value.schema === 2 && value.type === 'PublicReleaseReceiptV2';
   exactKeys(value, PUBLIC_RELEASE_V2_KEYS, 'current public release receipt');
   if (
-    value.schema !== 2 ||
-    value.type !== 'PublicReleaseReceiptV2' ||
+    (!planRunReceipt && !evidenceReceipt) ||
     value.repository_id !== PUBLIC_REPOSITORY_ID ||
     value.tag !== PUBLIC_TAG ||
     value.version !== PUBLIC_VERSION
@@ -955,30 +1116,49 @@ function validateCurrentPublicReleaseReceipt(receipt, { publication = null, requ
     fail('current public release request digest mismatch');
   }
 
-  exactKeys(value.ancestry, PUBLIC_ANCESTRY_V2_KEYS, 'current public release ancestry');
-  for (const key of [
-    'execution_parent',
-    'red_pre_production_commit',
-    'implementation_commit',
-    'reviewed_commit',
-    'release_commit',
-    'archive_commit',
-  ]) {
+  exactKeys(
+    value.ancestry,
+    planRunReceipt ? PUBLIC_ANCESTRY_V3_KEYS : PUBLIC_ANCESTRY_V2_KEYS,
+    'current public release ancestry',
+  );
+  const ancestryCommits = planRunReceipt
+    ? ['execution_parent', 'implementation_commit', 'release_commit', 'archive_commit']
+    : [
+        'execution_parent',
+        'red_pre_production_commit',
+        'implementation_commit',
+        'reviewed_commit',
+        'release_commit',
+        'archive_commit',
+      ];
+  for (const key of ancestryCommits) {
     assertCommit(value.ancestry[key], `current public release ancestry ${key}`);
   }
-  assertTimestamp(value.ancestry.red_captured_at, 'current public red capture time');
-  assertTimestamp(value.ancestry.implementation_reviewed_at, 'current public implementation review time');
-  if (
-    value.ancestry.execution_parent !== value.companion_base_commit ||
-    value.ancestry.reviewed_commit !== value.ancestry.implementation_commit ||
-    value.ancestry.release_commit !== value.release_commit ||
-    value.ancestry.red_to_implementation !== true ||
-    value.ancestry.execution_parent_to_implementation !== true ||
-    value.ancestry.implementation_to_release !== true ||
-    value.ancestry.release_to_archive !== true ||
-    Date.parse(value.ancestry.red_captured_at) >= Date.parse(value.ancestry.implementation_reviewed_at)
-  ) {
-    fail('current public red, implementation, release, and archive ancestry is incomplete');
+  if (planRunReceipt) {
+    if (
+      value.ancestry.execution_parent !== value.companion_base_commit ||
+      value.ancestry.release_commit !== value.release_commit ||
+      value.ancestry.execution_parent_to_implementation !== true ||
+      value.ancestry.implementation_to_release !== true ||
+      value.ancestry.release_to_archive !== true
+    ) {
+      fail('current public PlanRunV1 implementation, release, and archive ancestry is incomplete');
+    }
+  } else {
+    assertTimestamp(value.ancestry.red_captured_at, 'current public red capture time');
+    assertTimestamp(value.ancestry.implementation_reviewed_at, 'current public implementation review time');
+    if (
+      value.ancestry.execution_parent !== value.companion_base_commit ||
+      value.ancestry.reviewed_commit !== value.ancestry.implementation_commit ||
+      value.ancestry.release_commit !== value.release_commit ||
+      value.ancestry.red_to_implementation !== true ||
+      value.ancestry.execution_parent_to_implementation !== true ||
+      value.ancestry.implementation_to_release !== true ||
+      value.ancestry.release_to_archive !== true ||
+      Date.parse(value.ancestry.red_captured_at) >= Date.parse(value.ancestry.implementation_reviewed_at)
+    ) {
+      fail('current public red, implementation, release, and archive ancestry is incomplete');
+    }
   }
 
   exactKeys(value.workflow, PUBLIC_RELEASE_WORKFLOW_KEYS, 'current public release workflow');
@@ -1023,34 +1203,59 @@ function validateCurrentPublicReleaseReceipt(receipt, { publication = null, requ
   }
   validatePublicAssetPins(value.pinned_assets, 'current public pinned Session Relay assets');
 
-  exactKeys(value.public_plan, PUBLIC_PLAN_V2_KEYS, 'current public finished PlanRunV1');
   const plan = value.public_plan;
-  if (
-    plan.schema !== 1 ||
-    plan.repository_id !== PUBLIC_REPOSITORY_ID ||
-    plan.goal_id !== CURRENT_GOAL_ID ||
-    plan.run_id !== CURRENT_PUBLIC_RUN_ID ||
-    !CURRENT_PUBLIC_FINISHED_PLAN_PATH.test(plan.path) ||
-    plan.status !== 'finished' ||
-    plan.implementation_commit !== value.ancestry.implementation_commit ||
-    plan.release_commit !== value.release_commit ||
-    plan.archive_commit !== value.ancestry.archive_commit ||
-    plan.red_pre_production_commit !== value.ancestry.red_pre_production_commit ||
-    plan.remote_read_back !== true
-  ) {
-    fail('current public finished archive plan identity or remote read-back is invalid');
-  }
-  for (const key of ['implementation_commit', 'release_commit', 'archive_commit', 'red_pre_production_commit']) {
-    assertCommit(plan[key], `current public plan ${key}`);
-  }
-  for (const key of ['red_receipt_sha256', 'completion_review_sha256', 'acceptance_sha256', 'verification_sha256']) {
-    assertDigest(plan[key], `current public plan ${key}`);
+  exactKeys(plan, planRunReceipt ? PUBLIC_PLAN_V3_KEYS : PUBLIC_PLAN_V2_KEYS, 'current public finished PlanRunV1');
+  if (planRunReceipt) {
+    const run = plan.plan_run;
+    try {
+      validatePlanRunRecord(run, { status: 'finished' });
+    } catch {
+      fail('current public release receipt PlanRunV1 lifecycle tuple or record shape is invalid');
+    }
+    if (
+      run.repository_id !== PUBLIC_REPOSITORY_ID ||
+      run.goal_id !== CURRENT_GOAL_ID ||
+      run.run_id !== CURRENT_PUBLIC_RUN_ID ||
+      run.risk !== 'external' ||
+      canonicalize(run.requested_effects) !== canonicalize(['local', 'probe', 'push', 'release']) ||
+      plan.active_path !== run.plan_path ||
+      plan.active_path !== `docs/plans/active/${CURRENT_PUBLIC_PLAN_BASENAME}.md` ||
+      !CURRENT_PUBLIC_FINISHED_PLAN_PATH.test(plan.finished_path) ||
+      run.implementation_commit !== value.ancestry.implementation_commit ||
+      plan.release_commit !== value.release_commit ||
+      plan.archive_commit !== value.ancestry.archive_commit ||
+      plan.remote_read_back !== true
+    ) {
+      fail('current public finished archive PlanRunV1 identity or remote read-back is invalid');
+    }
+  } else {
+    if (
+      plan.schema !== 1 ||
+      plan.repository_id !== PUBLIC_REPOSITORY_ID ||
+      plan.goal_id !== CURRENT_GOAL_ID ||
+      plan.run_id !== CURRENT_PUBLIC_RUN_ID ||
+      !CURRENT_PUBLIC_FINISHED_PLAN_PATH.test(plan.path) ||
+      plan.status !== 'finished' ||
+      plan.implementation_commit !== value.ancestry.implementation_commit ||
+      plan.release_commit !== value.release_commit ||
+      plan.archive_commit !== value.ancestry.archive_commit ||
+      plan.red_pre_production_commit !== value.ancestry.red_pre_production_commit ||
+      plan.remote_read_back !== true
+    ) {
+      fail('current public finished archive plan identity or remote read-back is invalid');
+    }
+    for (const key of ['implementation_commit', 'release_commit', 'archive_commit', 'red_pre_production_commit']) {
+      assertCommit(plan[key], `current public plan ${key}`);
+    }
+    for (const key of ['red_receipt_sha256', 'completion_review_sha256', 'acceptance_sha256', 'verification_sha256']) {
+      assertDigest(plan[key], `current public plan ${key}`);
+    }
+    validatePublicRedEvidence(plan.red_evidence, value.ancestry, plan);
   }
   assertTimestamp(plan.finished_at, 'current public finished plan time');
   if (Date.parse(value.created_at) >= Date.parse(plan.finished_at)) {
     fail('current public release must precede the finished archived public child');
   }
-  validatePublicRedEvidence(plan.red_evidence, value.ancestry, plan);
 
   if (publication !== null) {
     if (!record(publication) || !record(publication.value)) fail('current Session Relay publication is invalid');
@@ -1094,7 +1299,10 @@ function validateCurrentPublicReleaseReceipt(receipt, { publication = null, requ
 }
 
 export function validatePublicReleaseReceipt(receipt, { publication = null, requestDigest = null } = {}) {
-  if (receipt?.value?.schema === 2 || receipt?.value?.type === 'PublicReleaseReceiptV2') {
+  if (
+    [2, 3].includes(receipt?.value?.schema) ||
+    ['PublicReleaseReceiptV2', 'PublicReleaseReceiptV3'].includes(receipt?.value?.type)
+  ) {
     return validateCurrentPublicReleaseReceipt(receipt, { publication, requestDigest });
   }
   if (!record(receipt) || !record(receipt.value)) fail('public release receipt is invalid');
@@ -1264,14 +1472,24 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
   let evidence = null;
   if (currentPublication) {
     planBytes = adapter.getFinishedPlan(planCommit, finishedPlanPath);
-    evidence = verifyCurrentPublicEvidenceBindings(adapter, currentPublicReleaseEvidence(planBytes), {
-      companionBaseCommit: request.value.companion_base_commit,
-      completionDigest,
-      finishedPlanPath,
-      planCommit,
-      releaseCommit,
-    });
-    finishedPlanCompletion(planBytes, completionDigest, evidence.public_plan.implementation_commit);
+    if (/^Plan-run: /m.test(planBytes.toString('utf8'))) {
+      evidence = verifyCurrentPublicPlanRun(adapter, planBytes, {
+        companionBaseCommit: request.value.companion_base_commit,
+        completionDigest,
+        finishedPlanPath,
+        planCommit,
+        releaseCommit,
+      });
+    } else {
+      evidence = verifyCurrentPublicEvidenceBindings(adapter, currentPublicReleaseEvidence(planBytes), {
+        companionBaseCommit: request.value.companion_base_commit,
+        completionDigest,
+        finishedPlanPath,
+        planCommit,
+        releaseCommit,
+      });
+      finishedPlanCompletion(planBytes, completionDigest, evidence.public_plan.implementation_commit);
+    }
   } else {
     if (!adapter.isAncestor(request.value.companion_base_commit, releaseCommit)) {
       fail('public release commit fails companion base ancestry');
@@ -1294,10 +1512,11 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
     fail('public release commit pinned asset digest mismatch');
   }
   const npmState = adapter.getNpmState(run);
+  const planRunReceipt = currentPublication && evidence.public_plan.plan_run !== undefined;
   const receipt = currentPublication
     ? {
-        schema: 2,
-        type: 'PublicReleaseReceiptV2',
+        schema: planRunReceipt ? 3 : 2,
+        type: planRunReceipt ? 'PublicReleaseReceiptV3' : 'PublicReleaseReceiptV2',
         request_sha256: request.digest,
         repository_id: PUBLIC_REPOSITORY_ID,
         tag: publicTag,
@@ -1360,7 +1579,10 @@ function validatePublication(publication, proof) {
 function validateProofBinding(proof) {
   if (!record(proof) || !record(proof.value)) fail('source proof is invalid');
   assertDigest(proof.digest, 'source proof digest');
-  if (proof.value.schema === 2 || proof.value.type === 'SourcePreparationProofV2') {
+  if (
+    [2, 3].includes(proof.value.schema) ||
+    ['SourcePreparationProofV2', 'SourcePreparationProofV3'].includes(proof.value.type)
+  ) {
     validateSourcePreparationProof(proof.value);
     return;
   }
@@ -1400,12 +1622,14 @@ function validateProofBinding(proof) {
 
 function validatePromotionPublicRelease(publicRelease, proof, publication, adapter) {
   validatePublicReleaseReceipt(publicRelease, { publication });
-  if (publicRelease.value.schema === 2) {
+  if ([2, 3].includes(publicRelease.value.schema)) {
+    const publicPlan =
+      publicRelease.value.schema === 3 ? publicRelease.value.public_plan.plan_run : publicRelease.value.public_plan;
     if (
       publicRelease.value.repository_id !== proof.value.companion.repository_id ||
-      publicRelease.value.public_plan.goal_id !== proof.value.companion.goal_id ||
-      publicRelease.value.public_plan.run_id !== proof.value.companion.run_id ||
-      publicRelease.value.public_plan.implementation_commit !== publicRelease.value.ancestry.implementation_commit
+      publicPlan.goal_id !== proof.value.companion.goal_id ||
+      publicPlan.run_id !== proof.value.companion.run_id ||
+      publicPlan.implementation_commit !== publicRelease.value.ancestry.implementation_commit
     ) {
       fail('current public release receipt does not bind the reviewed companion PlanRunV1 identity');
     }
@@ -1426,7 +1650,10 @@ function validatePromotionPublicRelease(publicRelease, proof, publication, adapt
 }
 
 function isCurrentSourceProof(proof) {
-  return proof?.value?.schema === 2 || proof?.value?.type === 'SourcePreparationProofV2';
+  return (
+    [2, 3].includes(proof?.value?.schema) ||
+    ['SourcePreparationProofV2', 'SourcePreparationProofV3'].includes(proof?.value?.type)
+  );
 }
 
 function assertCurrentPromotionRefsAbsent(adapter) {
@@ -1447,23 +1674,35 @@ function validateCurrentRemoteAuthority(adapter, proof, publicRelease, options) 
     fail('current authoritative origin/main does not match the reviewed implementation commit');
   }
 
-  for (const [ancestor, descendant, label] of [
-    [proof.value.source_commit, proof.value.tdd_red.pre_production_commit, 'source-to-red'],
-    [proof.value.tdd_red.pre_production_commit, proof.value.implementation_commit, 'red-to-implementation'],
-    [proof.value.implementation_commit, proof.value.tag_commit, 'reviewed-implementation-to-tag'],
-  ]) {
+  const sourceAncestry =
+    proof.value.schema === 3
+      ? [[proof.value.source_commit, proof.value.implementation_commit, 'source-to-implementation']]
+      : [
+          [proof.value.source_commit, proof.value.tdd_red.pre_production_commit, 'source-to-red'],
+          [proof.value.tdd_red.pre_production_commit, proof.value.implementation_commit, 'red-to-implementation'],
+        ];
+  sourceAncestry.push([proof.value.implementation_commit, proof.value.tag_commit, 'reviewed-implementation-to-tag']);
+  for (const [ancestor, descendant, label] of sourceAncestry) {
     if (adapter.isAncestor(ancestor, descendant) !== true) {
       fail(`current ${label} ancestry was not independently observed`);
     }
   }
 
   const ancestry = publicRelease.value.ancestry;
-  for (const [ancestor, descendant, label] of [
-    [ancestry.red_pre_production_commit, ancestry.implementation_commit, 'public-red-to-implementation'],
-    [ancestry.execution_parent, ancestry.implementation_commit, 'public-execution-parent-to-implementation'],
-    [ancestry.implementation_commit, ancestry.release_commit, 'public-implementation-to-release'],
-    [ancestry.release_commit, ancestry.archive_commit, 'public-release-to-archive'],
-  ]) {
+  const publicAncestry =
+    publicRelease.value.schema === 3
+      ? [
+          [ancestry.execution_parent, ancestry.implementation_commit, 'public-execution-parent-to-implementation'],
+          [ancestry.implementation_commit, ancestry.release_commit, 'public-implementation-to-release'],
+          [ancestry.release_commit, ancestry.archive_commit, 'public-release-to-archive'],
+        ]
+      : [
+          [ancestry.red_pre_production_commit, ancestry.implementation_commit, 'public-red-to-implementation'],
+          [ancestry.execution_parent, ancestry.implementation_commit, 'public-execution-parent-to-implementation'],
+          [ancestry.implementation_commit, ancestry.release_commit, 'public-implementation-to-release'],
+          [ancestry.release_commit, ancestry.archive_commit, 'public-release-to-archive'],
+        ];
+  for (const [ancestor, descendant, label] of publicAncestry) {
     if (adapter.isPublicAncestor(ancestor, descendant) !== true) {
       fail(`current ${label} ancestry was not independently observed`);
     }
@@ -1508,9 +1747,26 @@ function currentReleaseSnapshot(state, publication, expectedPrerelease, label) {
 }
 
 function currentPromotionReceipt(proof, publication, publicRelease, stagedRelease, stableRelease, completedAt) {
+  const planRunReceipt = publicRelease.value.schema === 3;
+  const publicPlan = planRunReceipt ? publicRelease.value.public_plan.plan_run : publicRelease.value.public_plan;
+  const publicChild = {
+    repository_id: publicRelease.value.repository_id,
+    goal_id: publicPlan.goal_id,
+    run_id: publicPlan.run_id,
+    version: publicRelease.value.version,
+    tag: publicRelease.value.tag,
+    npm_package: publicRelease.value.npm.package,
+    npm_version: publicRelease.value.npm.version,
+    plan_path: planRunReceipt ? publicRelease.value.public_plan.finished_path : publicPlan.path,
+    status: planRunReceipt ? 'finished' : publicPlan.status,
+    ...(planRunReceipt
+      ? { planrun_verified: true }
+      : { red_first_verified: publicPlan.red_evidence.ordered_before_implementation }),
+    finished_at: planRunReceipt ? publicRelease.value.public_plan.finished_at : publicPlan.finished_at,
+  };
   return {
-    schema: 2,
-    type: 'PromotionReceiptV2',
+    schema: planRunReceipt ? 3 : 2,
+    type: planRunReceipt ? 'PromotionReceiptV3' : 'PromotionReceiptV2',
     repository_id: REPOSITORY_ID,
     version: CURRENT_VERSION,
     tag: CURRENT_TAG,
@@ -1528,19 +1784,7 @@ function currentPromotionReceipt(proof, publication, publicRelease, stagedReleas
     },
     publication_receipt_sha256: publication.digest,
     public_release_receipt_sha256: publicRelease.digest,
-    public_child: {
-      repository_id: publicRelease.value.repository_id,
-      goal_id: publicRelease.value.public_plan.goal_id,
-      run_id: publicRelease.value.public_plan.run_id,
-      version: publicRelease.value.version,
-      tag: publicRelease.value.tag,
-      npm_package: publicRelease.value.npm.package,
-      npm_version: publicRelease.value.npm.version,
-      plan_path: publicRelease.value.public_plan.path,
-      status: publicRelease.value.public_plan.status,
-      red_first_verified: publicRelease.value.public_plan.red_evidence.ordered_before_implementation,
-      finished_at: publicRelease.value.public_plan.finished_at,
-    },
+    public_child: publicChild,
     staged_release: stagedRelease,
     stable_release: stableRelease,
     byte_identical_promotion: true,
@@ -1581,8 +1825,14 @@ function promoteCurrentReviewed(options, resume, adapter, proof) {
   }
   const publicRelease = adapter.loadPublicRelease(options);
   validatePromotionPublicRelease(publicRelease, proof, publication, adapter);
-  if (publicRelease.value.schema !== 2 || publicRelease.value.type !== 'PublicReleaseReceiptV2') {
-    fail('current stable promotion requires the exact V2 public release receipt');
+  const planRunProof = proof.value.schema === 3;
+  const planRunPublicRelease = publicRelease.value.schema === 3;
+  if (
+    ![2, 3].includes(publicRelease.value.schema) ||
+    !['PublicReleaseReceiptV2', 'PublicReleaseReceiptV3'].includes(publicRelease.value.type) ||
+    planRunProof !== planRunPublicRelease
+  ) {
+    fail('current stable promotion source proof and public release receipt generations do not match');
   }
 
   const expectedMain = validateCurrentRemoteAuthority(adapter, proof, publicRelease, options);
@@ -2311,10 +2561,10 @@ function validateCurrentReleaseState(value, label, expectedPrerelease) {
 }
 
 function validateCurrentPromotionReceipt(receipt) {
+  const planRunReceipt = receipt.schema === 3 && receipt.type === 'PromotionReceiptV3';
   exactKeys(receipt, PROMOTION_V2_KEYS, 'current promotion receipt');
   if (
-    receipt.schema !== 2 ||
-    receipt.type !== 'PromotionReceiptV2' ||
+    (!planRunReceipt && (receipt.schema !== 2 || receipt.type !== 'PromotionReceiptV2')) ||
     receipt.repository_id !== REPOSITORY_ID ||
     receipt.version !== CURRENT_VERSION ||
     receipt.tag !== CURRENT_TAG ||
@@ -2338,8 +2588,8 @@ function validateCurrentPromotionReceipt(receipt) {
   if (
     receipt.docks_plan.repository_id !== REPOSITORY_ID ||
     receipt.docks_plan.goal_id !== CURRENT_GOAL_ID ||
-    receipt.docks_plan.run_id !== CURRENT_DOCKS_RUN_ID ||
-    receipt.docks_plan.plan_path !== CURRENT_DOCKS_PLAN_PATH ||
+    receipt.docks_plan.run_id !== (planRunReceipt ? PLANRUN_DOCKS_RUN_ID : CURRENT_DOCKS_RUN_ID) ||
+    receipt.docks_plan.plan_path !== (planRunReceipt ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH) ||
     receipt.docks_plan.implementation_commit !== receipt.reviewed_source_commit ||
     receipt.docks_plan.status !== 'ongoing'
   ) {
@@ -2348,23 +2598,20 @@ function validateCurrentPromotionReceipt(receipt) {
   assertCommit(receipt.docks_plan.implementation_commit, 'current promotion Docks implementation commit');
   assertDigest(receipt.docks_plan.completion_review_sha256, 'current promotion completion review digest');
 
-  exactKeys(
-    receipt.public_child,
-    [
-      'repository_id',
-      'goal_id',
-      'run_id',
-      'version',
-      'tag',
-      'npm_package',
-      'npm_version',
-      'plan_path',
-      'status',
-      'red_first_verified',
-      'finished_at',
-    ],
-    'current promotion public child',
-  );
+  const publicChildKeys = [
+    'repository_id',
+    'goal_id',
+    'run_id',
+    'version',
+    'tag',
+    'npm_package',
+    'npm_version',
+    'plan_path',
+    'status',
+    planRunReceipt ? 'planrun_verified' : 'red_first_verified',
+    'finished_at',
+  ];
+  exactKeys(receipt.public_child, publicChildKeys, 'current promotion public child');
   if (
     receipt.public_child.repository_id !== PUBLIC_REPOSITORY_ID ||
     receipt.public_child.goal_id !== CURRENT_GOAL_ID ||
@@ -2375,11 +2622,9 @@ function validateCurrentPromotionReceipt(receipt) {
     receipt.public_child.npm_version !== PUBLIC_VERSION ||
     !CURRENT_PUBLIC_FINISHED_PLAN_PATH.test(receipt.public_child.plan_path) ||
     receipt.public_child.status !== 'finished' ||
-    receipt.public_child.red_first_verified !== true
+    (planRunReceipt ? receipt.public_child.planrun_verified !== true : receipt.public_child.red_first_verified !== true)
   ) {
-    fail(
-      `current promotion requires the exact finished ${CURRENT_PUBLIC_PLAN_BASENAME} public child and verified red-first order`,
-    );
+    fail(`current promotion requires the exact finished ${CURRENT_PUBLIC_PLAN_BASENAME} validated public child`);
   }
   assertTimestamp(receipt.public_child.finished_at, 'current promotion public child finished time');
   if (Date.parse(receipt.public_child.finished_at) >= Date.parse(receipt.completed_at)) {
@@ -2418,7 +2663,7 @@ function validateCurrentPromotionReceipt(receipt) {
 }
 
 export function validatePromotionReceipt(receipt) {
-  if (receipt?.schema === 2 || receipt?.type === 'PromotionReceiptV2') {
+  if ([2, 3].includes(receipt?.schema) || ['PromotionReceiptV2', 'PromotionReceiptV3'].includes(receipt?.type)) {
     return validateCurrentPromotionReceipt(receipt);
   }
   exactKeys(receipt, RECEIPT_KEYS, 'promotion receipt');
@@ -3143,6 +3388,7 @@ const PRODUCTION_ADAPTER = Object.freeze({
       [
         { schema: 1, type: 'PublicReleaseReceiptV1' },
         { schema: 2, type: 'PublicReleaseReceiptV2' },
+        { schema: 3, type: 'PublicReleaseReceiptV3' },
       ],
       '--public-release',
     ),
@@ -3195,7 +3441,10 @@ export const CURRENT_PRODUCTION_ADAPTER = Object.freeze({
     readCanonical(
       options.get('public-release'),
       options.get('public-release-sha256'),
-      { schema: 2, type: 'PublicReleaseReceiptV2' },
+      [
+        { schema: 2, type: 'PublicReleaseReceiptV2' },
+        { schema: 3, type: 'PublicReleaseReceiptV3' },
+      ],
       '--public-release',
     ),
   remoteRef,
@@ -3218,7 +3467,7 @@ export const CURRENT_PRODUCTION_ADAPTER = Object.freeze({
 });
 export function validatePromotionReceiptForFinalization(receipt, context, injectedAdapter = PRODUCTION_ADAPTER) {
   validatePromotionReceipt(receipt);
-  const current = receipt.schema === 2;
+  const current = [2, 3].includes(receipt.schema);
   exactKeys(
     context,
     current ? ['proof', 'publication', 'publicRelease'] : ['proof', 'publication'],
@@ -3231,18 +3480,25 @@ export function validatePromotionReceiptForFinalization(receipt, context, inject
     validateSourcePreparationProof(proof.value);
     validatePublicationReceipt(publication, proof, 'current staged publication');
     validatePublicReleaseReceipt(publicRelease, { publication });
+    const publicPlan =
+      publicRelease.value.schema === 3 ? publicRelease.value.public_plan.plan_run : publicRelease.value.public_plan;
+    const publicPlanPath =
+      publicRelease.value.schema === 3 ? publicRelease.value.public_plan.finished_path : publicPlan.path;
+    const publicPlanStatus = publicRelease.value.schema === 3 ? 'finished' : publicPlan.status;
+    const publicFinishedAt =
+      publicRelease.value.schema === 3 ? publicRelease.value.public_plan.finished_at : publicPlan.finished_at;
     if (
       receipt.public_release_receipt_sha256 !== publicRelease.digest ||
       receipt.public_child.repository_id !== publicRelease.value.repository_id ||
-      receipt.public_child.goal_id !== publicRelease.value.public_plan.goal_id ||
-      receipt.public_child.run_id !== publicRelease.value.public_plan.run_id ||
+      receipt.public_child.goal_id !== publicPlan.goal_id ||
+      receipt.public_child.run_id !== publicPlan.run_id ||
       receipt.public_child.version !== publicRelease.value.version ||
       receipt.public_child.tag !== publicRelease.value.tag ||
       receipt.public_child.npm_package !== publicRelease.value.npm.package ||
       receipt.public_child.npm_version !== publicRelease.value.npm.version ||
-      receipt.public_child.plan_path !== publicRelease.value.public_plan.path ||
-      receipt.public_child.status !== publicRelease.value.public_plan.status ||
-      receipt.public_child.finished_at !== publicRelease.value.public_plan.finished_at
+      receipt.public_child.plan_path !== publicPlanPath ||
+      receipt.public_child.status !== publicPlanStatus ||
+      receipt.public_child.finished_at !== publicFinishedAt
     ) {
       fail('current stable finalization public receipt binding does not match the exact finished companion');
     }
