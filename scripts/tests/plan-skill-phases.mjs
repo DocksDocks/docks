@@ -73,14 +73,9 @@ function assertReviewerWrappersOnly() {
     .readdirSync(path.join(ROOT, '.codex/agents'))
     .filter((name) => name.startsWith('plan-') && name.endsWith('.toml'))
     .sort();
-  const scaffoldWrappers = fs
-    .readdirSync(path.join(ROOT, 'docs/scaffold/templates'))
-    .filter((name) => name.startsWith('codex-plan-') && name.endsWith('.template'))
-    .sort();
 
   assert.deepEqual(pluginAgents, ['plan-reviewer.md']);
   assert.deepEqual(codexAgents, ['plan-reviewer.toml']);
-  assert.deepEqual(scaffoldWrappers, ['codex-plan-reviewer.toml.template']);
 
   const claude = frontmatter('plugins/docks/agents/plan-reviewer.md');
   assert.equal(claude.metadata.name, 'plan-reviewer');
@@ -89,33 +84,13 @@ function assertReviewerWrappersOnly() {
   assert.match(claude.body, /PlanReviewV1/);
   assert.match(claude.body, /immutable bundle/i);
 
-  for (const relative of [
-    '.codex/agents/plan-reviewer.toml',
-    'docs/scaffold/templates/codex-plan-reviewer.toml.template',
-  ]) {
+  for (const relative of ['.codex/agents/plan-reviewer.toml']) {
     const wrapper = read(relative);
     assert.match(wrapper, /name = "plan-reviewer"/);
     assert.match(wrapper, /sandbox_mode = "read-only"/);
     assert.match(wrapper, /PlanReviewV1/);
     assert.doesNotMatch(wrapper, /plan-manager\/SKILL\.md|lifecycle authority|apply a patch/i);
   }
-}
-
-function assertScaffoldTopology() {
-  const spec = parseYaml(read('docs/scaffold/spec.yaml'));
-  const bundled = spec.bundled_skills
-    .map(({ source }) => path.basename(source))
-    .filter((name) => name.startsWith('plan-'));
-  assert.deepEqual(bundled.sort(), [...LIVE_PLAN_SKILLS].sort());
-  const planWrappers = spec.templated_files
-    .map(({ template, dest }) => ({ template, dest }))
-    .filter(({ template, dest }) => template.includes('plan-') || dest.includes('plan-'));
-  assert.deepEqual(planWrappers, [
-    {
-      template: 'codex-plan-reviewer.toml.template',
-      dest: '.codex/agents/plan-reviewer.toml',
-    },
-  ]);
 }
 
 function assertBoundedWorkflows() {
@@ -156,6 +131,5 @@ function assertBoundedWorkflows() {
 parseArgs(process.argv.slice(2));
 assertLiveTopology();
 assertReviewerWrappersOnly();
-assertScaffoldTopology();
 assertBoundedWorkflows();
 console.log('three-skill, one-wrapper bounded plan workflows passed');

@@ -1,5 +1,5 @@
-// Shared skill-tree traversal for the author-side validators. Seeded into new
-// projects (see docs/scaffold/spec.yaml) so the seeded validators share it too.
+// Shared skill-tree traversal for the author-side validators. Scaffold specs may
+// copy it into generated projects so their validators use the same traversal.
 // NOTE: the bundled write-skill/scripts/skill-guard.mjs keeps its OWN copy — it
 // ships standalone in consumer repos where this scripts/lib/ does not exist.
 import fs from 'node:fs';

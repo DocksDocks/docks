@@ -4,13 +4,15 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-07-24"
-  content_hash: "c494d7f3f123deff032752860660cee55248046a3aaa831bd3987bcc0fff459f"
+  updated: "2026-07-26"
+  content_hash: "b0975bae0e35643009625cd7123d4d5eb856da9b58adf0e1904fd815db397d84"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
 
 `scaffold` turns a project's structure into a reusable, versioned spec (`docs/scaffold/spec.yaml` + `templates/`) and seeds brand-new projects from it. One skill, two modes selected by the argument. The pattern is a generic skill consuming per-repo config captured once (mattpocock/skills). The output is a context-tree-shaped plugin — AGENTS.md/CLAUDE.md node pairs, plugin manifests, exactly one repo-local `plan-reviewer` Codex wrapper, bundled skills, and validator scripts — so a new project starts green from the same baseline.
+
+`docs/scaffold/` is opt-in, project-owned generated state, not part of this skill's payload. Its absence is normal: `scaffold setup` creates a project-specific spec and templates only after the approval gate; seed mode is available after that setup.
 
 <constraint>
 **Seed writes only into an empty target, never `docks`.** Before writing in seed mode, verify the target path is empty or non-existent (greenfield); refuse if it contains files. Refuse the plugin name `docks` (marketplace-collision guard). Run `git init` in the target only if it isn't already a repo.
@@ -78,7 +80,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 3. **Choose templates.** For each file a new project needs parameterized (manifests, root AGENTS.md, node AGENTS.md), create `templates/<name>.template` with `{{ var }}` placeholders where repo-specific values appear.
 4. **Propose.** Show the spec (variables, tree_nodes, bundled_skills, scripts) + the template file list. **STOP for confirmation** (constraint 2).
 5. **Write.** Create `docs/scaffold/spec.yaml`, `docs/scaffold/templates/`, and the `docs/scaffold/` context-tree node pair (AGENTS.md + CLAUDE.md).
-6. **Verify.** `node scripts/scaffold/guard-spec.mjs` (spec parses; every referenced template + bundled-skill path resolves).
+6. **Verify.** Parse the spec as YAML; reject anchors, aliases, unknown schema versions, missing sources, and missing templates. Render every template with fixed test values into a temporary directory, require zero unresolved `{{` tokens, then run the generated project's validators.
 
 ## Workflow — seed mode (`scaffold <target-path>`)
 

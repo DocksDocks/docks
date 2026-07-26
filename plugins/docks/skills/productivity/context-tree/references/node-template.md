@@ -67,7 +67,6 @@ Edit the node, not this list, when a folder's rules change.
 | `plugins/docks/skills/` | skill authoring + scoring |
 | `plugins/effect-kit/skills/` | effect-kit skill authoring |
 | `plugins/session-relay/` | relay plugin: bus server + hook + CLI |
-| `docs/scaffold/` | scaffold spec + templates |
 | `scripts/` | validator / CI tooling contract |
 | `.github/` | CI workflow triggers |
 ```

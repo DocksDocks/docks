@@ -11,7 +11,7 @@
 - [`variables`](#variables)
 - [Substitution rules](#substitution-rules)
 
-`docs/scaffold/spec.yaml` defines what a seeded project contains. Setup mode writes it; seed mode reads it. Stdlib-parseable YAML, no anchors/aliases. `scripts/scaffold/guard-spec.mjs` validates it; `scripts/scaffold/test.mjs` renders it.
+`docs/scaffold/spec.yaml` defines what a seeded project contains. Setup mode writes it; seed mode reads it. It must be stdlib-parseable YAML with no anchors or aliases. Setup verification checks the schema, all referenced sources, and a complete temporary render.
 
 ## Top-level keys
 
@@ -51,7 +51,7 @@ templated_files:
 
 This block shows the entry shape, not a complete inventory. Setup mode should copy the live spec's `templated_files` list after verifying each template exists.
 
-The three versioned manifests (`plugin.json`, codex `plugin.json`, claude `marketplace.json`) must agree on `version` — `scripts/scaffold/test.mjs` enforces this on the rendered output.
+The three versioned manifests (`plugin.json`, Codex `plugin.json`, Claude `marketplace.json`) must agree on `version`; setup verification checks the rendered output before accepting the spec.
 
 ## `tree_nodes`
 

@@ -13,8 +13,7 @@ const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'target', '.claude', '.codex']);
 // docs/plans is point-in-time by contract (plans cite file:line against a
-// pinned commit); every OTHER AGENTS.md node — including docs/scaffold — is
-// long-lived and in scope.
+// pinned commit); every other AGENTS.md node is long-lived and in scope.
 const SKIP_PATHS = [path.join('docs', 'plans')];
 
 function walk(dir, filter, out = []) {

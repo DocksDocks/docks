@@ -41,7 +41,6 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | Node | Covers |
 |---|---|
 | `docs/plans/AGENTS.md` | three-skill routing, PlanRunV1, review budgets, transactions, effects, lifecycle |
-| `docs/scaffold/AGENTS.md` | scaffold spec + templates — what the `scaffold` skill seeds into new projects |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `plugins/session-relay/AGENTS.md` | the relay plugin — layout, binary-release discipline, its CI gates |
 | `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x plus version-gated Effect v4 conventions |

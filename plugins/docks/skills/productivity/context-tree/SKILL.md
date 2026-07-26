@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-24"
-  content_hash: "af786295c550317bbd9ffaa0c2c83c07bc7d6cd43a77dedefa5b588a88ce0c4c"
+  updated: "2026-07-26"
+  content_hash: "ab32dde0195a8290b44f2088d2e94e06d45fe9623dc1d669c13ea30ffb9a293f"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md

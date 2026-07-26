@@ -296,16 +296,6 @@ if (targets.length > 0) {
   }
 }
 
-if (authorChecks.has('scaffold') && fs.existsSync('docs/scaffold/spec.yaml')) {
-  section('scaffold');
-  nodeOk(['scripts/scaffold/guard-spec.mjs'])
-    ? ok('scaffold/guard-spec passed (spec coherent; referenced paths resolve)')
-    : fail('scaffold/guard-spec failed (run: node scripts/scaffold/guard-spec.mjs)');
-  nodeOk(['scripts/scaffold/test.mjs'])
-    ? ok('scaffold/test passed (templates render to a valid skeleton)')
-    : fail('scaffold/test failed (run: node scripts/scaffold/test.mjs)');
-}
-
 const routingPluginNames = new Set(['docks', 'effect-kit']);
 const selectedRoutingPlugin = targets.some(({ name }) => routingPluginNames.has(name));
 const collisionGroups = [];

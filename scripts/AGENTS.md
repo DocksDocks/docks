@@ -21,7 +21,7 @@ The repo hosts **multiple plugins** (`docks`, `session-relay`, …) under `plugi
 | `ciLane` | required pull-request lane ownership: `core` for ordinary plugins, `relay` for Session Relay |
 | `rust` | Rust source/prebuilt capability, or `null`: `{ dir, binName, source: { manifest, lockfile, builtBinary, testBinaryEnv }, prebuilt: { targets, assetPrefix, checksumAsset } }` — `ci.mjs` formats, lints, builds, and exercises the source-selected host binary. Prebuilt target assets and `SHA256SUMS` are release artifacts produced by the pinned native workflow; they are never committed in a plugin payload. Helpers in `lib/rust-bin.mjs` |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
-| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `scaffold`, `plan-reviewer` for Docks; `[]` otherwise) |
+| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `plan-reviewer` for Docks; `[]` otherwise) |
 | `releaseContracts` | ordered production release-state/evidence contract tests owned by the plugin (`[]` when absent) |
 | `sourceChecks` | ordered source/process/smoke invocations; each `{ path, args, binaryArg? }`. `ci.mjs` appends the single fresh source-built Rust executable only through `binaryArg`, while also exporting the descriptor's test-binary env for nested process tests. |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
@@ -88,7 +88,6 @@ Ordinary plugin behavior stays registry-driven: extend descriptor capabilities r
 | `agents/score.mjs` | agent quality (max 15) | per-file ≥14; total = N×14 |
 | `tree/guard.mjs` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
-| `scaffold/guard-spec.mjs` · `scaffold/test.mjs` | scaffold spec coherence + a full seed starts green | pass/fail |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh` plus a Rust capability's sh launcher (`bin/<binName>`), via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |

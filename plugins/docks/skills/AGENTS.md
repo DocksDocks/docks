@@ -11,7 +11,7 @@ After changing a skill's meaning, bump `metadata.updated` (today) and re-sync th
 </constraint>
 
 <constraint>
-Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`, `scripts/scaffold/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
+Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
 </constraint>
 
 ## Description (the thing that gets matched)
@@ -88,9 +88,9 @@ authority; and Steps `Effect` values
 historical validation/quarantine only.
 
 When any part changes, synchronize the three skills, the workspace template,
-this repository's `docs/plans/AGENTS.md`, reviewer wrappers, scaffold
-spec/templates, and public routing prose. Main owns one content-hash backfill
-after a coordinated multi-file cutover.
+this repository's `docs/plans/AGENTS.md`, reviewer wrappers, and public routing
+prose. Main owns one content-hash backfill after a coordinated multi-file
+cutover.
 
 ## Cross-tool wording (Claude Code + Codex)
 

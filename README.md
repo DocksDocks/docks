@@ -105,7 +105,7 @@ The complete contract lives in `docs/plans/AGENTS.md`.
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
 │   ├── skills/guard.mjs, agents/guard.mjs + score.mjs
-│   └── scaffold/ + tree/ + config/ + lib/
+│   └── tree/ + config/ + lib/
 └── .github/workflows/ci.yml           ← validator CI on push/PR
 ```
 

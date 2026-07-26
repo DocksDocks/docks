@@ -431,7 +431,6 @@ function testFocusedCiCommandSelection() {
         'CI targeting contract',
         'skill-maintainer idempotency',
         'shell lint',
-        'scaffold',
         'skill trigger collisions',
         'plan orchestration',
         'plugin: docks',
@@ -719,7 +718,7 @@ for (const [invalidArgs, diagnostic] of [
   assert.match(rejected.stderr, diagnostic);
 }
 console.log('closed CI lane resolver and argument parser passed');
-assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'scaffold', 'plan-reviewer']);
+assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'plan-reviewer']);
 assert.deepEqual([...selectedAuthorChecks([byName('effect-kit')])], []);
 assert.deepEqual(releaseCiArgs('docks'), ['-q', '--plugin', 'docks']);
 console.log('registry targeting and author-check selection passed');
