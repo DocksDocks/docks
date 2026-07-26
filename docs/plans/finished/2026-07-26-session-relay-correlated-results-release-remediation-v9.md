@@ -1,10 +1,10 @@
 ---
 title: Rebind stable promotion evidence without mutation
-status: ongoing
+status: finished
 created: "2026-07-26T20:46:47.887Z"
-updated: "2026-07-26T20:50:29.701Z"
+updated: "2026-07-26T22:56:56.118Z"
 started_at: "2026-07-26T20:50:29.701Z"
-finished_at: null
+finished_at: "2026-07-26T22:56:56.118Z"
 blocked_reason: null
 blocked_since: null
 assignee: null
@@ -24,7 +24,7 @@ related_plans:
 
 # Rebind stable promotion evidence without mutation
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"9c66f71590e627cb2c2c00e1f4bf41eb3bac325ef5fce58e02eae6182af9610f","invocations":1,"result_sha256":"05fb7192d422f5e3b3a45317c70af5c09c5d980768f12b9e91e93397d90bafc2","state":"passed"},"execution_parent":"de4f8305ac9351cbbea4549503f2684f67fbcde9","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v9.md","plan_sha256":"885fab172a0d0db08c5701447ccfdfa12119294c8ce671edaaa97d447cdc6c7b","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"5e00cc28-4e27-42cb-9cf9-c3630006d8c0","schema":1,"source_base":"de4f8305ac9351cbbea4549503f2684f67fbcde9","source_sha256":"2b6021d534115ea2e0f4298b5c5022aaa85d665bdd2e2f6d72d4f59edcf55dea"}
+Plan-run: {"acceptance":{"source_sha256":"7f2d01284f41430e2edf01c97c73f5010a38f1e26fbea914e9f030e51c7e417c","verification_sha256":"e6304d7abea47c274339297f9ca15aea5a14830a118540e4579ddd11ff1abcdd"},"blocker":null,"completion_review":{"input_sha256":"df9378204656613706a9d691c173458f1095978b4ebcc5dceb05995770d0897b","invocations":2,"result_sha256":"25fe248d5377e206dde7f8a1c1de662c61b9e49ae830fa8c9d7461daf86eadfd","state":"passed"},"draft_review":{"input_sha256":"9c66f71590e627cb2c2c00e1f4bf41eb3bac325ef5fce58e02eae6182af9610f","invocations":1,"result_sha256":"05fb7192d422f5e3b3a45317c70af5c09c5d980768f12b9e91e93397d90bafc2","state":"passed"},"execution_parent":"de4f8305ac9351cbbea4549503f2684f67fbcde9","goal_id":"8b89aabf-7336-4352-bc11-225bab67f9aa","implementation_commit":"c6b1c6eed1244de9d15aac37fe1926b080fb1113","plan_path":"docs/plans/active/session-relay-correlated-results-release-remediation-v9.md","plan_sha256":"885fab172a0d0db08c5701447ccfdfa12119294c8ce671edaaa97d447cdc6c7b","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"5e00cc28-4e27-42cb-9cf9-c3630006d8c0","schema":1,"source_base":"de4f8305ac9351cbbea4549503f2684f67fbcde9","source_sha256":"2b6021d534115ea2e0f4298b5c5022aaa85d665bdd2e2f6d72d4f59edcf55dea"}
 
 ## Goal
 
@@ -109,6 +109,22 @@ Review-receipt: {"findings":[],"invocation":1,"plan_sha256":"885fab172a0d0db08c5
 
 Invocation 1 passed with no findings through the explicit configured gpt-5.6-sol plan-reviewer transport.
 
+Completion-review-transport-failure: {"error_name":"SchemaViolation","input_sha256":"04d6140cbc1952cf5ef92056861de7ddc5cb347dda8cd07be62f957278d13bc4","invocation":1,"launch_consumed":true,"message":"Reviewer completed the bound analysis but yielded a string instead of CompletionReviewV1.","phase":"completion_review","run_id":"5e00cc28-4e27-42cb-9cf9-c3630006d8c0","schema":1,"transport":"task:reviewer","type":"ReviewTransportFailureV1"}
+
+Invocation 1 completed analysis but failed result-shape validation; one fresh transport retry remains.
+
+Completion-review-result: {"diff_sha256":"44bf1fe95251361544743a9a2546c523f954d711426dbbd692d97aeb5815df0c","findings":[],"implementation_commit":"c6b1c6eed1244de9d15aac37fe1926b080fb1113","invocation":2,"run_id":"5e00cc28-4e27-42cb-9cf9-c3630006d8c0","schema":1,"verdict":"pass"}
+
+Invocation 2 passed with no findings after the one permitted transport retry.
+
+Release-evidence-result: {"completed_at":"2026-07-26T22:56:56.118Z","finalization_transition":"already_stable","implementation_commit":"c6b1c6eed1244de9d15aac37fe1926b080fb1113","outcome":"success","promotion_evidence_rebind_sha256":"d1300237a3864fcdc2c4077f32c00306b4c3a42875f541ec10601650d2a05542","public_release_receipt_sha256":"05b08d34e62b58dcbbda214bbcef4cb0658ef6781ca3e696abdfa1b3f43f5091","publication_receipt_sha256":"54f55781fd42c10928ac5a5a8319b6c0fd8bbdf1b84fea291d0232aed2733373","release_database_id":359891507,"release_tag_commit":"7d9cbbbdf82210d396de744372eadb6c26655601","retained_promotion_receipt_sha256":"7ffaa7967d9ca8cc7c53c3ca22efe932d3028ad3caf210cec8157aec7bbd1670","run_id":"5e00cc28-4e27-42cb-9cf9-c3630006d8c0","schema":1,"source_proof_sha256":"3c66f69475b22a6de12ab14bb3b5881415507030f376491343f88f3978bbdab3","stable_finalization_receipt_sha256":"70eb029d591fbce006a9646da71e8f3e8ad1990175cf1df59e3f61a6825bcf65","type":"SessionRelayEvidenceRebindCompletionV1"}
+
+The reviewed entrypoints rebound the completed stable release without promotion, asset, tag, ref, workflow, or release-state mutation; finalization returned `already_stable`.
+
 ## Verification Results
 
-- Not run — fresh successor awaits draft review.
+- Red contracts: the final binder, promotion, and publication tests were overlaid on start checkpoint `6cef558`; they failed on the missing fresh PlanRun identity and missing schema-4 exports/adapter as intended.
+- Focused green: `node plugins/session-relay/test/release-evidence-contract.mjs`, `release-promotion-contract.mjs`, and `release-publication-contract.mjs` passed after implementation and review repairs.
+- Authoritative gate: `node scripts/ci.mjs --plugin session-relay` passed every Session Relay contract, Rust format/clippy/inventory/smoke/selftest check, and JavaScript format/lint check at implementation `c6b1c6eed1244de9d15aac37fe1926b080fb1113`.
+- Read-only diff review reported the implementation correct against the active plan. Its use-before-validation, duplicate descriptor/timestamp helper, redundant retained-receipt predicate, and coupled continuation allowlist findings were repaired and the focused contracts rerun.
+- The observed release-created-at rule intentionally applies to explicit rebind receipts for every generation, including legacy V1; ordinary publication behavior and immutable historical receipt digests remain unchanged.
