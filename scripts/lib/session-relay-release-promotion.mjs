@@ -1825,14 +1825,11 @@ function promoteCurrentReviewed(options, resume, adapter, proof) {
   }
   const publicRelease = adapter.loadPublicRelease(options);
   validatePromotionPublicRelease(publicRelease, proof, publication, adapter);
-  const planRunProof = proof.value.schema === 3;
-  const planRunPublicRelease = publicRelease.value.schema === 3;
   if (
     ![2, 3].includes(publicRelease.value.schema) ||
-    !['PublicReleaseReceiptV2', 'PublicReleaseReceiptV3'].includes(publicRelease.value.type) ||
-    planRunProof !== planRunPublicRelease
+    !['PublicReleaseReceiptV2', 'PublicReleaseReceiptV3'].includes(publicRelease.value.type)
   ) {
-    fail('current stable promotion source proof and public release receipt generations do not match');
+    fail('current stable promotion requires a current public release receipt');
   }
 
   const expectedMain = validateCurrentRemoteAuthority(adapter, proof, publicRelease, options);
@@ -2562,6 +2559,7 @@ function validateCurrentReleaseState(value, label, expectedPrerelease) {
 
 function validateCurrentPromotionReceipt(receipt) {
   const planRunReceipt = receipt.schema === 3 && receipt.type === 'PromotionReceiptV3';
+  const planRunDocksReceipt = receipt.docks_plan?.run_id === PLANRUN_DOCKS_RUN_ID;
   exactKeys(receipt, PROMOTION_V2_KEYS, 'current promotion receipt');
   if (
     (!planRunReceipt && (receipt.schema !== 2 || receipt.type !== 'PromotionReceiptV2')) ||
@@ -2588,8 +2586,9 @@ function validateCurrentPromotionReceipt(receipt) {
   if (
     receipt.docks_plan.repository_id !== REPOSITORY_ID ||
     receipt.docks_plan.goal_id !== CURRENT_GOAL_ID ||
-    receipt.docks_plan.run_id !== (planRunReceipt ? PLANRUN_DOCKS_RUN_ID : CURRENT_DOCKS_RUN_ID) ||
-    receipt.docks_plan.plan_path !== (planRunReceipt ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH) ||
+    (!planRunReceipt && planRunDocksReceipt) ||
+    receipt.docks_plan.run_id !== (planRunDocksReceipt ? PLANRUN_DOCKS_RUN_ID : CURRENT_DOCKS_RUN_ID) ||
+    receipt.docks_plan.plan_path !== (planRunDocksReceipt ? PLANRUN_DOCKS_PLAN_PATH : CURRENT_DOCKS_PLAN_PATH) ||
     receipt.docks_plan.implementation_commit !== receipt.reviewed_source_commit ||
     receipt.docks_plan.status !== 'ongoing'
   ) {

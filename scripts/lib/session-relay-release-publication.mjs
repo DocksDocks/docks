@@ -1381,13 +1381,11 @@ export function finalizeReviewed(options, injectedAdapter, promotionValidator, i
     ],
     '--promotion',
   );
-  const expectedPromotion =
-    proof.value.schema === 3
-      ? { schema: 3, type: 'PromotionReceiptV3' }
-      : current
-        ? { schema: 2, type: 'PromotionReceiptV2' }
-        : { schema: 1, type: 'PromotionReceiptV1' };
-  if (promotion.value.schema !== expectedPromotion.schema || promotion.value.type !== expectedPromotion.type) {
+  const promotionGenerationMatches = current
+    ? [2, 3].includes(promotion.value.schema) &&
+      ['PromotionReceiptV2', 'PromotionReceiptV3'].includes(promotion.value.type)
+    : promotion.value.schema === 1 && promotion.value.type === 'PromotionReceiptV1';
+  if (!promotionGenerationMatches) {
     fail('promotion receipt schema does not match the source proof release generation');
   }
   let publicRelease = null;
