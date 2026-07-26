@@ -8,7 +8,8 @@ This root file stays **repo-wide**. Per-area authoring details — skill/agent f
 
 ```bash
 corepack enable && pnpm install --frozen-lockfile   # one-time setup (Node 24, matching CI's node-version; pnpm via corepack)
-node scripts/ci.mjs                                  # authoritative full gate for the final relevant implementation tree
+node scripts/ci.mjs --plugin <name>                  # authoritative gate for one plugin and its owned release tooling
+node scripts/ci.mjs                                  # full gate for repo-wide, shared, or multi-plugin changes
 ```
 
 ## Repository scope
@@ -132,8 +133,9 @@ CI caches pnpm data by `pnpm-lock.yaml` and restores Cargo dependencies/build ou
 
 ## Tool-agnostic rules
 
-- Run focused checks for the changed area while implementing. Before committing, pushing, or releasing the final relevant implementation tree, run `node scripts/ci.mjs` once as the authoritative all-plugin gate.
-- Plan-only orchestration or lifecycle commits may reuse that green gate only while the relevant implementation bytes, and thus the validated implementation-tree identity, are unchanged. Any relevant source or implementation change invalidates reuse and requires a new full gate.
+- Run focused checks while implementing. Before committing, pushing, or releasing a change owned by exactly one plugin, run `node scripts/ci.mjs --plugin <name>`; that selected-plugin gate is authoritative for the plugin payload and its descriptor-owned author, source, and release-contract tooling.
+- Run full `node scripts/ci.mjs` for repo-wide validation/tooling, shared infrastructure used by multiple plugins, registry or CI-topology changes, changes spanning multiple plugins, and manual full-gate requests. Do not run it merely because a single-plugin release is imminent.
+- Reuse a green gate only while its validated implementation bytes are unchanged. A relevant source change requires rerunning the same smallest authoritative gate; plan-only lifecycle changes do not.
 - Don't loosen validator floors to pass; fix the file instead
 - Manifest version numbers stay in lockstep across `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and the versioned Claude marketplace catalog — `ci.mjs`'s per-plugin gate and `release.mjs` both enforce this (verify: bump one manifest's version alone → `node scripts/ci.mjs --plugin <name>` must fail on the disagreement; revert)
 - Skill bodies stay ≤500 lines per agentskills.io spec; sweet spot 80–310

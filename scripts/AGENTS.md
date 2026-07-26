@@ -3,7 +3,7 @@
 These scripts validate and release the repo's plugins. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported) and the cross-tool `context-tree-nudge` PostToolUse hook. The only shell in the repo is session-relay's arch-dispatch launcher (`plugins/session-relay/bin/relay`, POSIX sh, shellcheck-linted). `ci.mjs` is the local gate, and `.github/workflows/ci.yml` invokes that same gate in full or with its supported `--lane` or `--plugin` target.
 
 <constraint>
-Run focused checks for the changed area while implementing, then run `node scripts/ci.mjs` once on the final relevant implementation tree before commit, push, or release; it exits non-zero on any failure. Plan-only orchestration or lifecycle commits may reuse that green gate only while the relevant implementation bytes, and thus the validated implementation-tree identity, are unchanged. Any relevant source or implementation change invalidates reuse and requires a new full gate. Don't loosen validator floors to make a problematic file pass; fix the file.
+Run focused checks while implementing. For a final change owned by exactly one plugin, `node scripts/ci.mjs --plugin <name>` is the authoritative pre-commit, pre-push, and pre-release gate, including descriptor-owned author, source, and release contracts. Run full `node scripts/ci.mjs` only for repo-wide validation/tooling, shared multi-plugin infrastructure, registry or CI-topology changes, changes spanning plugins, or an explicit full-gate request. Reuse a green gate only while its validated implementation bytes are unchanged. Don't loosen validator floors to make a problematic file pass; fix the file.
 </constraint>
 
 ## Multi-plugin model (`scripts/lib/plugins.mjs`)
@@ -118,7 +118,7 @@ This verifier-side check does not add receipt fields. `SourceCiReceiptV1`, `Prod
 ## Edit → release workflow
 
 1. Edit files inside the target plugin (`plugins/<name>/{skills,agents,…}/`).
-2. Run focused checks while iterating (`--plugin <name>` skips repo-wide sections and selects only that plugin's owned work). Once the relevant implementation tree is final, run full `node scripts/ci.mjs` once before commit, push, or release. Plan-only orchestration or lifecycle commits may reuse that green result only while the validated implementation-tree identity is unchanged; any relevant source change invalidates it.
+2. Run focused checks while iterating. Once the relevant implementation tree is final, use `node scripts/ci.mjs --plugin <name>` when exactly one plugin and its descriptor-owned tooling changed; use full `node scripts/ci.mjs` only for repo-wide, shared multi-plugin, registry/CI-topology, or multi-plugin changes. Plan-only lifecycle commits may reuse a green result while the validated implementation bytes remain unchanged.
 3. Local Claude Code test (no push): `claude --plugin-dir ./plugins/<name>` (then `/reload-plugins`).
 4. PR to main → PR-CI gates the merge.
 5. After merge, release **one plugin**. Generic positional releases are Docks/Effect Kit only: `node scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews). Session Relay positional bumps are invalid; begin its reviewed flow with `node scripts/release.mjs --prepare --plugin session-relay <reviewed-version> [--dry-run]`. That entry point continues through Relay's reviewed multi-stage protocol, not the generic bump/tag path.
@@ -126,7 +126,7 @@ This verifier-side check does not add receipt fields. `SourceCiReceiptV1`, `Prod
 ## Generic Docks / Effect Kit release flow (double-layered gating)
 
 ```text
-final implementation tree → node scripts/ci.mjs      (LAYER 1 — local, ALL plugins)
+final implementation tree → node scripts/ci.mjs --plugin <name>   (LAYER 1 — local, selected plugin)
      → node scripts/release.mjs [--plugin <docks|effect-kit>] <bump>   (one plugin)
         ├── runs ci.mjs -q --plugin <name> as the selected-plugin preflight
         ├── bumps THIS plugin's plugin.json (+ codex mirror) + its marketplace entry
@@ -142,7 +142,7 @@ The positional flow above is preserved for docks/effect-kit, including its exist
 GitHub pull requests run `node scripts/ci.mjs --lane core` and `node scripts/ci.mjs --lane relay`, then require the unchanged `validate` join status; their baseline/mutation partitions preserve the full contract without duplicate broad setup. `workflow_dispatch` runs one untargeted `node scripts/ci.mjs` full invocation. A release-tag push strictly resolves the tag's plugin identity, rejects malformed or unknown targets, and runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate. Targeted CI skips the repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting sections; it runs only the selected plugin's owned author checks, shell-hook lint, and plugin gate, including that plugin's marketplace/version coherence. pnpm and conditional Cargo caches only reduce repeated download/build work. Their contents are never validation evidence: the frozen lockfile, pinned Rust toolchain, release preflight, and `ci.mjs` result remain authoritative.
 
 <constraint>
-Run the full `node scripts/ci.mjs` gate on the final relevant implementation tree before `node scripts/release.mjs` — iterating on focused failures is easier without the release script's clean-tree requirement. That local full gate must pass before any push that goes near a tag.
+Before `node scripts/release.mjs`, run the smallest authoritative gate for the final implementation tree: `node scripts/ci.mjs --plugin <name>` for one plugin and its descriptor-owned tooling, otherwise full `node scripts/ci.mjs`. The selected release path reruns the same plugin gate before mutation, and tag CI reruns it authoritatively after push.
 </constraint>
 
 Session Relay evidence is schema-1 closed RFC 8785 JCS. Every receipt input is an explicit adjacent path/SHA-256 pair; readers reject noncanonical bytes, unknown or missing fields, and digest/identity conflicts without ambient file search. Receipt writers use a new explicit path, mode `0600`, sibling exclusive creation, file and directory fsync, and an atomic no-clobber publish. Publication and promotion reconcile authoritative tag, run, Release, asset, transaction, lock, and branch identities before mutation; a retry or resume never substitutes or overwrites a conflicting identity.
