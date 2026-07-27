@@ -33,10 +33,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { rustReleaseAssetNames } from './rust-bin.mjs';
 
-export function resolveBuiltBinary({ source, binName, env, repo }) {
+// `CARGO_TARGET_DIR` is documented as relative to cargo's working directory, not
+// to the repository root — `CARGO_TARGET_DIR=reltarget cargo metadata` run from
+// the crate reports `<crate>/reltarget`. `gateRust` invokes cargo with
+// `cwd: p.rust.dir`, so `cargoCwd` must be that same directory or the gate stats
+// a path cargo never wrote: a false red normally, and a false GREEN whenever a
+// stale binary already sits at the repo-root-relative path.
+export function resolveBuiltBinary({ source, binName, env, repo, cargoCwd }) {
   const cargoTargetDir = env.CARGO_TARGET_DIR;
   return typeof cargoTargetDir === 'string' && cargoTargetDir.length > 0
-    ? path.resolve(repo, cargoTargetDir, 'release', binName)
+    ? path.resolve(repo, cargoCwd, cargoTargetDir, 'release', binName)
     : path.resolve(repo, source.builtBinary);
 }
 

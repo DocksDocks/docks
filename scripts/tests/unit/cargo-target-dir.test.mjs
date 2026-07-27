@@ -32,15 +32,19 @@ test('resolveBuiltBinary uses an absolute CARGO_TARGET_DIR', () => {
   );
 });
 
-test('resolveBuiltBinary resolves a relative CARGO_TARGET_DIR against the repository root', () => {
+test('resolveBuiltBinary resolves a relative CARGO_TARGET_DIR against the directory cargo runs in', () => {
+  // Cargo resolves a relative CARGO_TARGET_DIR against its own cwd, and gateRust
+  // invokes cargo with `cwd: p.rust.dir`. Asserting the repository root here is
+  // what previously locked in a resolver that stats a path cargo never wrote.
   assert.equal(
     resolveBuiltBinary({
       source: SOURCE,
       binName: BIN_NAME,
       env: { CARGO_TARGET_DIR: 'shared/cargo-target' },
       repo: REPO,
+      cargoCwd: 'plugins/session-relay/rust',
     }),
-    path.resolve(REPO, 'shared/cargo-target', 'release', BIN_NAME),
+    path.resolve(REPO, 'plugins/session-relay/rust', 'shared/cargo-target', 'release', BIN_NAME),
   );
 });
 

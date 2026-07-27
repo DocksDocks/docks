@@ -542,7 +542,7 @@ function gateRust(p) {
     return null;
   }
 
-  const built = resolveBuiltBinary({ source, binName, env: process.env, repo: REPO });
+  const built = resolveBuiltBinary({ source, binName, env: process.env, repo: REPO, cargoCwd: dir });
   try {
     if (!fs.statSync(built).isFile()) throw new Error('not a regular file');
     fs.accessSync(built, fs.constants.X_OK);
