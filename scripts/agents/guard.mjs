@@ -66,9 +66,18 @@ for (const file of files) {
   if (!/\bnot\b/i.test(desc))
     fail(`${name} — description missing 'Not for…' exclusion clause (prevents delegation collisions)`);
 
+  // Plugin-shipped agents are consumed by Claude Code AND by omp, which discovers
+  // Claude plugin `agents/` dirs. Claude's model vocabulary (`inherit`, `sonnet`,
+  // `claude-*`) is not omp's: omp passes any literal straight through as a model ID,
+  // resolves nothing, and the spawn dies with "No model selected". Omitting the key
+  // is the only portable form — Claude Code documents `model` as defaulting to
+  // `inherit`, and omp falls back to the parent session model. Per-agent tiering
+  // belongs in consumer settings, not in shipped payload.
   const model = getField('model');
-  if (!/^(sonnet|opus|haiku|inherit|claude-[a-z0-9-]+)$/.test(model))
-    fail(`${name} — model field invalid ('${model}'); expected sonnet|opus|haiku|inherit|claude-*`);
+  if (model !== '')
+    fail(
+      `${name} — remove 'model: ${model}'; plugin agents must omit it (Claude defaults to inherit; omp inherits the parent session). Pin per-agent models in consumer settings instead`,
+    );
 
   const tools = getField('tools');
   if (tools === '') fail(`${name} — tools field missing or empty`);

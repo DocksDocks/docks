@@ -15,7 +15,10 @@ Before writing system-prompt content that references a library / framework / ext
 name: kebab-case-name
 description: <CSO, 3rd person, ≤1024 chars, includes scope exclusion>
 tools: <minimal — only what the agent needs>
-model: claude-opus-4-8
+# no `model:` key — omitting it is the only portable spelling. Claude Code defaults
+# to `inherit`; omp falls back to the parent session model. Any literal (`inherit`,
+# `sonnet`, `claude-*`) reaches omp as a model ID, resolves to nothing, and kills the
+# spawn. Consumers pin models via their own settings, not via shipped payload.
 maxTurns: 100   # volatile key — re-verify against the sub-agents doc (code.claude.com/docs/en/sub-agents) before emitting
 ---
 ```

@@ -2,7 +2,6 @@
 name: plan-reviewer
 description: Use when main-context plan-manager dispatches one fresh internal read-only review over an immutable draft-plan bundle and needs closed ReviewInvalidInputV1 failure or valid bound PlanReviewV1 evidence. Not for direct user invocation, completion code review, worktree or Git inspection, writes, finding acceptance, repair, permit control, lifecycle, commits, or external actions.
 tools: Read, Glob, Grep
-model: inherit
 ---
 
 # Plan Reviewer Adapter

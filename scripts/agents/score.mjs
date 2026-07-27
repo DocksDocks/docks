@@ -66,8 +66,10 @@ for (const fname of mdFiles) {
   if (bodyLines >= 60 && bodyLines <= 300) score += 1;
   // 7. anti-hallucination checklist (1)
   if (anyLine(lines, /anti-hallucination|file:line refs|verify import paths/i)) score += 1;
-  // 8. explicit model (1)
-  if (anyLine(lines, /^model:\s*(inherit|sonnet|opus|haiku|claude-[a-z0-9-]+)/)) score += 1;
+  // 8. portable model resolution: no `model:` key (1) — Claude Code defaults to
+  // `inherit` and omp falls back to the parent session model, so omitting it is the
+  // only spelling both runtimes resolve. Any literal kills the spawn under omp.
+  if (!anyLine(lines, /^model:/)) score += 1;
   // 9. tools/disallowedTools declared (1)
   if (hasFmField(lines, 'tools') || hasFmField(lines, 'disallowedTools')) score += 1;
   // 10. slop (max −2)

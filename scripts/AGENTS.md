@@ -84,7 +84,7 @@ Ordinary plugin behavior stays registry-driven: extend descriptor capabilities r
 | `skills/transform-guard.mjs` | curated transformers carry a preservation `<constraint>` + `## Verification`; pending-allowlist warns, regression fails | pass/warn |
 | `skills/no-author-scripts.mjs` | shipped SKILL.md + references/ + agent bodies must not name docks author scripts — incl. the `.mjs` entry points `scripts/ci.mjs`/`scripts/release.mjs` (verify: plant one in a non-allowlisted body → the guard must fail naming it; revert); allowlist: `scaffold`, `write-skill`. Takes `<skills-dir> [agents-dir]` args so `gatePlugin` scopes it per-plugin (agents scanned only when given) | pass/fail |
 | `skills/durable-anchors.mjs` | repo-wide (runs once): long-lived docs — every shipped skill body/reference + every AGENTS.md node outside docs/plans/ (point-in-time by contract) — carry no LIVE `file:line` anchors (a `path:NN` whose path resolves in the repo fails; fictional example paths pass by non-resolution). Fix = the durable grammar: `` `path` — `symbol` — purpose (verify: `command`) `` | pass/fail |
-| `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, model declared | pass/fail |
+| `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, **no `model` key** (any literal — `inherit` included — reaches omp as a model ID and kills the spawn; Claude defaults to `inherit` anyway) | pass/fail |
 | `agents/score.mjs` | agent quality (max 15) | per-file ≥14; total = N×14 |
 | `tree/guard.mjs` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
