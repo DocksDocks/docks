@@ -787,7 +787,7 @@ try {
       /skill-maintainer idempotency|plan review policy|plugin: docks|plugin: session-relay/,
     );
     assert.match(targeted.stdout, /plugin: effect-kit/);
-    validateTimingReport(timingPath, 'effect-kit', []);
+    validateTimingReport(timingPath, 'effect-kit', ['javascript quality']);
     console.log('targeted CI timing report passed');
   }
 } finally {
@@ -823,7 +823,7 @@ for (const [relativePath, parsed] of [
 }
 
 const validation = validateWorkflow.value;
-assert.deepEqual(Object.keys(validation.jobs), ['validation-shards', 'validate']);
+assert.deepEqual(Object.keys(validation.jobs), ['validation-shards', 'targeting-contracts', 'validate']);
 assert.deepEqual(validation.permissions, { contents: 'read' });
 assert.deepEqual(validation.on.pull_request, { branches: ['main'] });
 assert.deepEqual(validation.on.push, { tags: ['*--v*'] });
@@ -932,10 +932,52 @@ assert.match(
   /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP" node scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}"/,
 );
 
+const targetingJob = validation.jobs['targeting-contracts'];
+assert.deepEqual(Object.keys(targetingJob), ['name', 'if', 'permissions', 'runs-on', 'timeout-minutes', 'steps']);
+assert.equal(targetingJob.name, 'CI plugin-targeting contracts');
+assert.equal(targetingJob.if, "github.event_name != 'push'");
+assert.deepEqual(targetingJob.permissions, { contents: 'read' });
+assert.equal(targetingJob['runs-on'], 'ubuntu-latest');
+assert.equal(targetingJob['timeout-minutes'], 10);
+const targetingSteps = targetingJob.steps;
+const targetingStep = (name) => targetingSteps.find((row) => row.name?.startsWith(name));
+assert.deepEqual(
+  targetingSteps.map((row) => row.name ?? row.uses),
+  [
+    'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+    'setup Node 24',
+    'enable corepack',
+    'configure deterministic pnpm store',
+    'cache pnpm store',
+    'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+    'verify registry signatures (non-blocking)',
+    'materialize claude-code binary (allowBuilds denies it by default)',
+    'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
+    'run non-unit plugin-targeting contracts',
+  ],
+);
+for (const name of [
+  'setup Node 24',
+  'enable corepack',
+  'configure deterministic pnpm store',
+  'cache pnpm store',
+  'install pnpm dependencies',
+  'verify registry signatures',
+  'materialize claude-code binary',
+  'add node_modules/.bin to PATH',
+]) {
+  assert.deepEqual(targetingStep(name), shardStep(name), `${name}: targeting-contract setup drifted from shard setup`);
+}
+assert.deepEqual(targetingSteps[0], shardSteps[0]);
+assert.deepEqual(targetingStep('run non-unit plugin-targeting contracts'), {
+  name: 'run non-unit plugin-targeting contracts',
+  run: 'node scripts/tests/ci-plugin-targeting.mjs',
+});
+
 const validateJob = validation.jobs.validate;
 assert.deepEqual(Object.keys(validateJob), ['name', 'runs-on', 'needs', 'if', 'steps']);
 assert.equal(validateJob.name, 'validate (scripts/ci.mjs)');
-assert.equal(validateJob.needs, 'validation-shards');
+assert.deepEqual(validateJob.needs, ['validation-shards', 'targeting-contracts']);
 assert.equal(validateJob.if, 'always()');
 const steps = validateWorkflow.value.jobs.validate.steps;
 const step = (name) => steps.find((row) => row.name?.startsWith(name));
@@ -955,7 +997,7 @@ assert.deepEqual(
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     'provision Rust 1.85.0 with musl for the session-relay host leg',
     'run the authoritative gate (scripts/ci.mjs)',
-    'assert successful validation shards',
+    'assert successful prerequisite jobs',
   ],
 );
 const nonPullRequestCondition = "github.event_name != 'pull_request'";
@@ -978,7 +1020,7 @@ assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), 
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)': nonPullRequestCondition,
   'provision Rust 1.85.0 with musl for the session-relay host leg': nonPullRequestRustCondition,
   'run the authoritative gate (scripts/ci.mjs)': nonPullRequestCondition,
-  'assert successful validation shards': pullRequestCondition,
+  'assert successful prerequisite jobs': undefined,
 });
 function effectiveValidateInventory(eventName, needsRust = false) {
   return steps
@@ -992,6 +1034,8 @@ function effectiveValidateInventory(eventName, needsRust = false) {
           return eventName === 'pull_request';
         case nonPullRequestRustCondition:
           return eventName !== 'pull_request' && (eventName !== 'push' || needsRust);
+        case undefined:
+          return true;
         default:
           throw new Error(`unexpected validate condition for ${validateStepLabel(row)}: ${row.if}`);
       }
@@ -1011,8 +1055,9 @@ const fullValidateInventory = [
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'provision Rust 1.85.0 with musl for the session-relay host leg',
   'run the authoritative gate (scripts/ci.mjs)',
+  'assert successful prerequisite jobs',
 ];
-assert.deepEqual(effectiveValidateInventory('pull_request'), ['assert successful validation shards']);
+assert.deepEqual(effectiveValidateInventory('pull_request'), ['assert successful prerequisite jobs']);
 assert.deepEqual(effectiveValidateInventory('workflow_dispatch'), fullValidateInventory);
 assert.deepEqual(effectiveValidateInventory('push', true), [
   'checkout',
@@ -1032,6 +1077,7 @@ assert.deepEqual(effectiveValidateInventory('push', false), [
   'materialize claude-code binary (allowBuilds denies it by default)',
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'run the authoritative gate (scripts/ci.mjs)',
+  'assert successful prerequisite jobs',
 ]);
 assert.equal(step('resolve CI target').if, "github.event_name == 'push'");
 assert.match(step('resolve CI target').run, /scripts\/ci-target\.mjs release-tag/);
@@ -1086,21 +1132,33 @@ for (const name of [
   );
 }
 const authoritativeGate = step('run the authoritative gate');
-const shardAssertion = step('assert successful validation shards');
+const prerequisiteAssertion = step('assert successful prerequisite jobs');
 assert.equal(steps.at(-2), authoritativeGate);
-assert.equal(steps.at(-1), shardAssertion);
-assert.deepEqual(Object.keys(shardAssertion), ['name', 'if', 'env', 'run']);
-assert.equal(shardAssertion.if, "github.event_name == 'pull_request'");
-assert.deepEqual(shardAssertion.env, {
+assert.equal(steps.at(-1), prerequisiteAssertion);
+assert.deepEqual(Object.keys(prerequisiteAssertion), ['name', 'env', 'run']);
+assert.deepEqual(prerequisiteAssertion.env, {
   VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}`,
+  TARGETING_CONTRACTS_RESULT: `\${{ needs.targeting-contracts.result }}`,
 });
 assert.equal(
-  shardAssertion.run,
-  'if [ "$VALIDATION_SHARDS_RESULT" != "success" ]; then\n' +
+  prerequisiteAssertion.run,
+  'status=0\n' +
+    'if [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then\n' +
     '  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n' +
-    '  exit 1\n' +
-    'fi\n',
+    '  status=1\n' +
+    'fi\n' +
+    'if [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then\n' +
+    '  echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2\n' +
+    '  status=1\n' +
+    'fi\n' +
+    'exit "$status"\n',
 );
+const prerequisiteResultsPass = (...results) => results.every((result) => !['failure', 'cancelled'].includes(result));
+assert.equal(prerequisiteResultsPass('success', 'success'), true);
+assert.equal(prerequisiteResultsPass('skipped', 'success'), true);
+assert.equal(prerequisiteResultsPass('skipped', 'skipped'), true);
+assert.equal(prerequisiteResultsPass('success', 'failure'), false);
+assert.equal(prerequisiteResultsPass('cancelled', 'success'), false);
 
 const integrity = integrityWorkflow.value;
 assert.ok(integrity.on.workflow_dispatch !== undefined);

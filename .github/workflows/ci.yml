@@ -124,10 +124,48 @@ jobs:
             SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "${{ matrix.lane }}"
           )
 
+  targeting-contracts:
+    name: "CI plugin-targeting contracts"
+    if: github.event_name != 'push'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: "setup Node 24"
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+      - name: "enable corepack"
+        run: corepack enable
+      - name: "configure deterministic pnpm store"
+        run: pnpm config set store-dir "$HOME/.pnpm-store"
+      - name: "cache pnpm store"
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
+          restore-keys: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-
+      - name: "install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
+        run: pnpm install --frozen-lockfile
+      - name: "verify registry signatures (non-blocking)"
+        continue-on-error: true
+        run: npm audit signatures
+      - name: "materialize claude-code binary (allowBuilds denies it by default)"
+        run: node node_modules/@anthropic-ai/claude-code/install.cjs
+      - name: "add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)"
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: "run non-unit plugin-targeting contracts"
+        run: node scripts/tests/ci-plugin-targeting.mjs
+
   validate:
     name: "validate (scripts/ci.mjs)"
     runs-on: ubuntu-latest
-    needs: validation-shards
+    needs: [validation-shards, targeting-contracts]
     if: always()
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -242,12 +280,18 @@ jobs:
               SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs
             fi
           )
-      - name: assert successful validation shards
-        if: github.event_name == 'pull_request'
+      - name: assert successful prerequisite jobs
         env:
           VALIDATION_SHARDS_RESULT: ${{ needs.validation-shards.result }}
+          TARGETING_CONTRACTS_RESULT: ${{ needs.targeting-contracts.result }}
         run: |
-          if [ "$VALIDATION_SHARDS_RESULT" != "success" ]; then
+          status=0
+          if [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then
             echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2
-            exit 1
+            status=1
           fi
+          if [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then
+            echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2
+            status=1
+          fi
+          exit "$status"

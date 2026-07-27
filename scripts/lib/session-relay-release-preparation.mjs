@@ -417,12 +417,14 @@ function expectedValidationShardSteps() {
   ];
 }
 
-function expectedShardAssertionStep() {
+function expectedPrerequisiteAssertionStep() {
   return {
-    name: 'assert successful validation shards',
-    if: "github.event_name == 'pull_request'",
-    env: { VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}` },
-    run: 'if [ "$VALIDATION_SHARDS_RESULT" != "success" ]; then\n  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n  exit 1\nfi\n',
+    name: 'assert successful prerequisite jobs',
+    env: {
+      VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}`,
+      TARGETING_CONTRACTS_RESULT: `\${{ needs.targeting-contracts.result }}`,
+    },
+    run: 'status=0\nif [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then\n  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n  status=1\nfi\nif [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then\n  echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2\n  status=1\nfi\nexit "$status"\n',
   };
 }
 
@@ -1615,7 +1617,7 @@ function decodeWorkflowFile(file, expectedPath) {
   ) {
     fail('source CI workflow triggers or permissions mismatch');
   }
-  exactKeys(workflow.jobs, ['validation-shards', 'validate'], 'source CI jobs');
+  exactKeys(workflow.jobs, ['validation-shards', 'targeting-contracts', 'validate'], 'source CI jobs');
   const shardJob = workflow.jobs['validation-shards'];
   exactKeys(shardJob, ['name', 'if', 'permissions', 'runs-on', 'strategy', 'steps'], 'source CI validation-shards job');
   const expectedShardJob = {
@@ -1631,11 +1633,11 @@ function decodeWorkflowFile(file, expectedPath) {
   const job = workflow.jobs.validate;
   exactKeys(job, ['name', 'runs-on', 'needs', 'if', 'steps'], 'source CI validate job');
   const expectedSteps = expectedCiJobSteps();
-  const authoritativeSteps = [...expectedSteps, expectedShardAssertionStep()];
+  const authoritativeSteps = [...expectedSteps, expectedPrerequisiteAssertionStep()];
   if (
     job.name !== 'validate (scripts/ci.mjs)' ||
     job['runs-on'] !== 'ubuntu-latest' ||
-    job.needs !== 'validation-shards' ||
+    canonicalize(job.needs) !== canonicalize(['validation-shards', 'targeting-contracts']) ||
     job.if !== 'always()' ||
     canonicalize(job.steps) !== canonicalize(authoritativeSteps)
   )

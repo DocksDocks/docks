@@ -1,6 +1,15 @@
 # CI workflows (.github/)
 
-`workflows/ci.yml` keeps one authoritative `validate (scripts/ci.mjs)` status. Pull requests run two `validation-shards` matrix lanes (`core`, `relay`), and the `validate` job joins them without rerunning the gate. Core owns repo-wide checks, the focused Docks `PlanRunV1` orchestration and bounded-workflow contracts, the joint Docks/Effect Kit trigger-collision audit, both plugin gates, and JavaScript quality. Relay owns the Session Relay shell, trigger, plugin, release-contract, and native Rust gates. Manual dispatches run one full gate; tag pushes run one registry-resolved plugin gate.
+`workflows/ci.yml` keeps one authoritative `validate (scripts/ci.mjs)` status.
+Pull requests run two `validation-shards` matrix lanes (`core`, `relay`) plus
+the independent `targeting-contracts` job; `validate` joins both prerequisites
+without rerunning the gate. Core owns repo-wide checks, the focused Docks
+`PlanRunV1` orchestration and bounded-workflow contracts, the joint
+Docks/Effect Kit trigger-collision audit, both plugin gates, and JavaScript
+quality. Relay owns the Session Relay shell, trigger, plugin, release-contract,
+and native Rust gates. Manual dispatches run one full gate alongside the
+targeting contract before the same join. Tag pushes run one registry-resolved
+plugin gate; the skipped targeting contract is accepted by the join.
 
 ## build-binaries.yml — the session-relay binary producer
 
@@ -9,7 +18,7 @@
 ## Trigger model
 
 Only three events trigger CI:
-- `pull_request` to main → run the `core` and `relay` lanes, then require the unchanged `validate` join status before merge
+- `pull_request` to main → run the `core` and `relay` lanes plus the targeting contract, then require their unchanged `validate` join status before merge
 - `push` of tags matching `*--v*` — strictly resolve `<plugin>--v<version>` to a known plugin, then run that plugin's gate (`release.mjs` waits for this authoritative result)
 - `workflow_dispatch` → run the full gate manually
 
@@ -50,6 +59,12 @@ Keep the two-lane selector and authoritative join in sync with
 `scripts/lib/ci-targeting.mjs`, `scripts/ci.mjs`, and
 `scripts/tests/ci-plugin-targeting.mjs`. Adding a third lane or moving plugin
 ownership requires corresponding workflow and targeting-contract changes.
+
+The separate targeting-contract job runs this test without `--unit` for pull
+requests and manual (`workflow_dispatch`) validation, then feeds its result
+into the single authoritative `validate` join. Its nested effect-kit timing
+contract stays out of `ci.mjs` and release-tag targeted gates; a tag push skips
+the job, and the join accepts that expected skip.
 
 ## Cache behavior
 
