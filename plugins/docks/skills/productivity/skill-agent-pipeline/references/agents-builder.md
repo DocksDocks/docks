@@ -15,13 +15,12 @@ Before writing system-prompt content that references a library / framework / ext
 name: kebab-case-name
 description: <CSO, 3rd person, ≤1024 chars, includes scope exclusion>
 tools: <minimal — only what the agent needs>
-# no `model:` key — omitting it is the only portable spelling. Claude Code defaults
-# to `inherit`; omp falls back to the parent session model. Any literal (`inherit`,
-# `sonnet`, `claude-*`) reaches omp as a model ID, resolves to nothing, and kills the
-# spawn. Consumers pin models via their own settings, not via shipped payload.
+model: claude-opus-4-8
 maxTurns: 100   # volatile key — re-verify against the sub-agents doc (code.claude.com/docs/en/sub-agents) before emitting
 ---
 ```
+
+A plugin's own shipped `agents/` dir is the one exception: omit `model` there entirely. omp discovers plugin `agents/` dirs and treats any literal — `inherit` included — as a model ID, so the spawn dies with "No model selected". It does not read `.claude/agents/`, which is what this template emits, so the `model` line above is correct here and feeds the Codex model map in `codex-agents-builder.md`.
 
 ## System prompt structure (100–200 lines, excl. frontmatter)
 
