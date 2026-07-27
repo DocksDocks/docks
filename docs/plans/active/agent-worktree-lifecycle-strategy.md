@@ -1,11 +1,9 @@
 ---
 title: Establish agent worktree lifecycle strategy
 goal: Make shared Cargo target dirs safe in the gate, reap abandoned fanout worktree reservations, and document worktree location and teardown so scratch checkouts stop accumulating.
-status: blocked
-blocked_reason: "Draft review returned repair at the invocation ceiling (2 of 2). The invocation-1 transport failure consumed the permit that would have funded the repair round, so findings F1-F3 cannot be re-reviewed in this run."
-blocked_since: "2026-07-27T11:22:51-03:00"
+status: planned
 created: "2026-07-27T10:12:21-03:00"
-updated: "2026-07-27T11:22:51-03:00"
+updated: "2026-07-27T12:37:28-03:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -110,7 +108,7 @@ for authority.
 
 ## Environment & how-to-run
 
-Repository `/home/vagrant/projects/docks` at `ee9ec619a84db99dd6db2ee73972e1f3d277971a`,
+Repository `/home/vagrant/projects/docks` at `14a75c5cf0da03ddb73edb652042a6ac765cffbc`,
 branch `main`, clean. Node 24 via `corepack enable && pnpm install --frozen-lockfile`.
 Rust toolchain present; `cargo` resolves. Steps 1, 2, and 5 are validated by
 `node scripts/ci.mjs` because they touch repo-wide tooling and the root context
@@ -122,10 +120,10 @@ release action is required.
 
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
-| 1 | Resolve and privatize the gate's built binary, and pin the release-preparation build. Export `resolveBuiltBinary({ source, binName, env, repo })` from `scripts/lib/plugins.mjs`, returning `<CARGO_TARGET_DIR>/release/<binName>` when that variable is a non-empty string and the descriptor path otherwise. In `gateRust`, replace `path.resolve(REPO, source.builtBinary)` at `scripts/ci.mjs:543` with that call, then copy the validated binary to a run-private path and return the copy so no consumer reads a shared location. In `acceptanceSpecifications`, give the cargo step an `options.env` that removes `CARGO_TARGET_DIR`, leaving every argv unchanged. Name the resolved source and the private copy in the existing success line. | `scripts/lib/plugins.mjs`; `scripts/ci.mjs`; `scripts/lib/session-relay-release-preparation.mjs` | — | `local` | `planned` | A1, A2, and A4 pass. Failure: restore the original lines and STOP. |
+| 1 | Resolve and privatize the gate's built binary, and pin the release-preparation build. Export `resolveBuiltBinary({ source, binName, env, repo })` from `scripts/lib/plugins.mjs`, returning `<CARGO_TARGET_DIR>/release/<binName>` when that variable is a non-empty string and the descriptor path otherwise. Export `privatizeBuiltBinary({ binary, dir })` from the same module: it copies an already-resolved binary to a fresh run-private path inside `dir` and returns that path, so two invocations against one shared source yield distinct copies with identical bytes. In `gateRust`, replace `path.resolve(REPO, source.builtBinary)` at `scripts/ci.mjs:543` with `resolveBuiltBinary(...)`, validate that path, then hand it to `privatizeBuiltBinary(...)` and use the returned copy, so no consumer reads a shared location. In `acceptanceSpecifications`, give the cargo step an `options.env` that removes `CARGO_TARGET_DIR`, leaving every argv unchanged. Name the resolved source and the private copy in the existing success line. | `scripts/lib/plugins.mjs`; `scripts/ci.mjs`; `scripts/lib/session-relay-release-preparation.mjs` | — | `local` | `planned` | A1 and A4 pass. Failure: restore the original lines and STOP. |
 | 2 | Cover resolution, privatization, and release-build pinning with unit tests: unset variable yields the descriptor path; a set variable yields `<CARGO_TARGET_DIR>/release/<binName>`; a relative value resolves against the repository root; an empty value is treated as unset; two invocations against one shared source produce distinct private paths whose bytes match the source; the release-preparation cargo specification carries a child environment without `CARGO_TARGET_DIR` while its argv is unchanged. | `scripts/tests/unit/cargo-target-dir.test.mjs` | 1 | `local` | `planned` | A2 passes and fails when step 1 is reverted. Failure: STOP. |
-| 3 | Reap abandoned fanout reservations. Add a `worktrees` surface to the relay GC that removes a reservation's worktree only when its record has `collection_phase: None`, its state is not `Collected`, its worker process is absent, and its age exceeds `DEFAULT_GC_DAYS`. Preserve the record's branch whenever `git rev-list --count <base>..<branch>` is non-zero, and report those branch names instead of deleting them. | `plugins/session-relay/rust/src/store.rs`; `plugins/session-relay/rust/src/fanout.rs` | — | `local` | `planned` | A3 and A4 pass. Failure: revert both files and STOP. |
-| 4 | Add Rust coverage for reaping: an abandoned reservation past the window is removed; one inside the window is kept; one whose branch holds commits absent from base keeps both branch and worktree and is reported; a live worker's reservation is untouched. | `plugins/session-relay/rust/tests/fanout_reap.rs` | 3 | `local` | `planned` | A3 passes and fails when step 3 is reverted. Failure: STOP. |
+| 3 | Reap abandoned fanout reservations. Add a `worktrees` surface to the relay GC that removes a reservation's worktree only — never its branch — when its record has `collection_phase: None`, its state is not `Collected`, its worker process is absent, and its age exceeds `DEFAULT_GC_DAYS`. The surface always reports the reservation's branch name instead of deleting it, whatever `git rev-list --count <base>..<branch>` returns: branch deletion is irreversible while a stale ref costs bytes only, so it stays an operator decision. A non-zero count additionally retains the worktree, because it may hold uncollected work. | `plugins/session-relay/rust/src/store.rs`; `plugins/session-relay/rust/src/fanout.rs` | — | `local` | `planned` | A4 passes. Failure: revert both files and STOP. |
+| 4 | Add Rust coverage for reaping: an abandoned reservation past the window has its worktree removed while its branch still exists and is reported; one inside the window is kept whole; one whose branch holds commits absent from base keeps both worktree and branch and is reported; a live worker's reservation is untouched. | `plugins/session-relay/rust/tests/fanout_reap.rs` | 3 | `local` | `planned` | A3 passes and fails when step 3 is reverted. Failure: STOP. |
 | 5 | Document the convention in the repository's Tool-agnostic rules, binding agents working in this repository only: agent scratch worktrees live under `$XDG_DATA_HOME/agent-worktrees/<repo>/<slug>` (default `~/.local/share/agent-worktrees/...`), never as a sibling of the repository and never under `/tmp` or `/var/tmp`; teardown is `git worktree remove` plus `git worktree prune`; and the artifact set to delete is stack-dependent (`target/`, `node_modules/`, `dist/`, `.next/`, `__pycache__`, `.venv`) rather than a fixed `cargo clean`. State in the same paragraph that cross-repository coverage requires the user-global agent file. | `AGENTS.md` | — | `local` | `planned` | A5 and A6 pass. Failure: revert `AGENTS.md` and STOP. |
 
 ## Acceptance criteria
@@ -160,7 +158,12 @@ release action is required.
 ## STOP conditions
 
 - Any acceptance command fails twice with the same signature and no relevant
-  byte progress between attempts.
+  byte progress between attempts. A wall-clock deadline or timeout signature in
+  the session-relay suite is exempt: A1 and A4 force a cold release build, and
+  that contention reproduces the known open deadline flake (for example the
+  15-second broker deadline in `unowned_dirty_path_blocks_handback`). Retry such
+  a run once on an idle host; only a binary-path or `--version` mismatch counts
+  as a step 1 regression.
 - Step 3 cannot distinguish an abandoned reservation from a live one without
   inspecting a running worker's process state.
 - Reaping would delete a branch holding commits absent from its base.
@@ -182,7 +185,9 @@ release action is required.
 
 Pending.
 
-Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"ccef9bb4b00c159c15a12f7e7e5af68ce3f34795eed95f1cbbe49d62fe5beba8","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"4040cc54a2f2819aeeede4094020c92e676b5bd6aabfbedef7ca3eb9ae208a25","invocations":2,"result_sha256":"ccef9bb4b00c159c15a12f7e7e5af68ce3f34795eed95f1cbbe49d62fe5beba8","state":"blocked"},"execution_parent":null,"goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"6e70714092d51d5ed071f2365277b710cba61f4a566ea5648b2e1b07e57f5a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"f0073e07-9efb-4c6b-9d77-3e256575bf43","schema":1,"source_base":"ee9ec619a84db99dd6db2ee73972e1f3d277971a","source_sha256":"15c270957547620681b92c7ffce821e35ccf8431e9eed31e546e0dc3877f18b6"}
+Plan-attempt-history: {"authorization_source_sha256":"54bdcb9a2ecc6a76847d63aee7e806f57014989c6217879cd0a67f537fa66534","plan_bytes_sha256":"634cc69e48f2f37cb3a5b53bb378988727bfd69e1f0eb0a704f61ab0eed77440","replacement_run_id":"b02aa569-a19c-41e7-b880-dea5b748b626","run":{"acceptance":null,"blocker":{"evidence_sha256":"ccef9bb4b00c159c15a12f7e7e5af68ce3f34795eed95f1cbbe49d62fe5beba8","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"4040cc54a2f2819aeeede4094020c92e676b5bd6aabfbedef7ca3eb9ae208a25","invocations":2,"result_sha256":"ccef9bb4b00c159c15a12f7e7e5af68ce3f34795eed95f1cbbe49d62fe5beba8","state":"blocked"},"execution_parent":null,"goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"6e70714092d51d5ed071f2365277b710cba61f4a566ea5648b2e1b07e57f5a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"f0073e07-9efb-4c6b-9d77-3e256575bf43","schema":1,"source_base":"ee9ec619a84db99dd6db2ee73972e1f3d277971a","source_sha256":"15c270957547620681b92c7ffce821e35ccf8431e9eed31e546e0dc3877f18b6"},"schema":1,"status":"blocked","successor_run_sha256":"0362ff9ed12f7c520b744c93506db635b9999448f8f38585e73d31eaab26f880"}
+
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"5784f0e697bd5fdb555a20da55f263de03aa33592a001449f1aed4efc2b50186","invocations":2,"result_sha256":"1e0dcc67d288cbcdb264b723ac14f67420b23bf51e543ff91e8cf7355ee27363","state":"passed"},"execution_parent":null,"goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"1ced01916e7ade4a601c32395ee8caf0df9977e056735e4a00060763d477a29a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b02aa569-a19c-41e7-b880-dea5b748b626","schema":1,"source_base":"14a75c5cf0da03ddb73edb652042a6ac765cffbc","source_sha256":"f546d08ed8fcd254410419b5fcb2133a264c3cf5456618721d78e489ad60d024"}
 
 ## Verification Results
 
