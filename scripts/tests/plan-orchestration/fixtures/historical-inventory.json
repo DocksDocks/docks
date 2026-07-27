@@ -144,7 +144,6 @@
       { "path": "docs/plans/active/plan-review-controller-failure-recovery.md", "outcome": "pass" },
       { "path": "docs/plans/active/plan-workflow-phases-and-loop-escape.md", "outcome": "pass" },
       { "path": "docs/plans/active/session-relay-correlated-messaging-and-worker-results.md", "outcome": "pass" },
-      { "path": "docs/plans/active/session-relay-correlated-results-release-remediation-v9.md", "outcome": "pass" },
       {
         "path": "docs/plans/active/session-relay-linux-workspace-publication.md",
         "outcome": "pass",
@@ -164,7 +163,11 @@
       { "path": "docs/plans/finished/2026-07-18-target-plugin-ci-and-release-gates.md", "outcome": "pass" },
       { "path": "docs/plans/finished/2026-07-19-session-relay-prebuilt-cli-release.md", "outcome": "pass" },
       { "path": "docs/plans/finished/2026-07-22-session-relay-workspace-isolation.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md", "outcome": "pass" }
+      { "path": "docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md", "outcome": "pass" },
+      {
+        "path": "docs/plans/finished/2026-07-26-session-relay-correlated-results-release-remediation-v9.md",
+        "outcome": "pass"
+      }
     ]
   },
   "existing_mutation_catalog": {
