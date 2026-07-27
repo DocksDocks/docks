@@ -167,7 +167,8 @@ bound. `source_base` plus `source_sha256` binds a canonical sorted existence,
 kind, mode, and content manifest for every affected path at review time,
 including dirty/untracked bytes and tombstones. `acceptance.source_sha256` binds
 the final affected-path manifest; `verification_sha256` binds canonical
-Verification Results bytes.
+Verification Results bytes. Never list the plan record in `affected_paths`;
+acceptance writes to it and breaks that bind.
 `source_base` is null only before draft review starts and is required thereafter.
 `execution_parent` is null before start and is required, immutable, and exclusive
 to `ongoing`, post-start `blocked`, and `finished` tuples.

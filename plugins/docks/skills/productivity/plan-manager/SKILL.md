@@ -4,8 +4,8 @@ description: "Use when a goal may require a canonical plan, plan review, impleme
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-26"
-  content_hash: "dfd9ec5d62417e8c431b50cef3129a67993699d1fc7b4157991f96c190291a78"
+  updated: "2026-07-27"
+  content_hash: "c19f7b9af643320d8053f89a01fe49e21fe4017b041126c2bc85b9f4f651e3c7"
 ---
 
 # Plan Manager
@@ -102,7 +102,8 @@ and `## Verification Results`. Goal, scope, paths, steps, effects, safety,
 acceptance, and decisions stay bound. `source_base + source_sha256` binds a
 sorted existence/kind/mode/content manifest of every affected path at review
 time, including dirty/untracked bytes and tombstones. Acceptance binds the final
-affected-path manifest and canonical Verification Results bytes.
+affected-path manifest and canonical Verification Results bytes. Never list the
+plan record in `affected_paths`; acceptance writes to it and breaks that bind.
 
 ## Review-phase state table
 

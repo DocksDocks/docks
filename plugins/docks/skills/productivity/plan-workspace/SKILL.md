@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-26"
-  content_hash: "7f997f68a5ab748db7d81445d32646651b7f70d2bc211204d3cbefe0bec398c8"
+  updated: "2026-07-27"
+  content_hash: "6fa7d1e3e9fa4c4d9630c119d30079b3616da352612d4e54af97711fc97ce00f"
 ---
 
 # Plans Workspace

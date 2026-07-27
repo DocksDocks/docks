@@ -1336,7 +1336,15 @@ export function validateAffectedPathManifest(manifest, { repo, paths, sourceBase
   }
   if (repo !== undefined) {
     const current = createAffectedPathManifest({ repo, paths: logical, sourceBase: manifest.source_base });
-    if (jcs(current) !== jcs(manifest)) fail('affected-path manifest does not match repository bytes');
+    if (jcs(current) !== jcs(manifest)) {
+      const bound = new Map(manifest.paths.map((entry) => [entry.path, jcs(entry)]));
+      const diverged = current.paths.filter((entry) => jcs(entry) !== bound.get(entry.path));
+      fail(
+        diverged.length === 0
+          ? 'affected-path manifest does not match repository bytes'
+          : `affected-path manifest does not match repository bytes at ${diverged.map((entry) => entry.path).join(', ')}`,
+      );
+    }
   }
   return manifest;
 }
