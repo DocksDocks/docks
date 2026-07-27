@@ -108,6 +108,44 @@ background-task durations without changing gate selection or status. Background
 tasks remain mandatory; their failure output is retained behind reported spool
 paths and their result is joined before `ci.mjs` can pass.
 
+### Host-derived resource envelope
+
+`scripts/lib/host-resources.mjs` sizes the gate to the host that actually runs it.
+The gate prints a one-line envelope so a throttled or slow run explains itself.
+
+It separates capacity — what the machine or cgroup allows — from availability —
+what is free right now. Capacity resolves cgroup v2 or v1 limits before falling
+back to host limits; `os.totalmem()` and `os.availableParallelism()` are cgroup-blind
+and would otherwise give a CI container a host-sized envelope. Runtime availability
+is sampled from PSI stall counters rather than load average. Competing-process
+detection is human-facing diagnostics only; measurement, not the process-name list,
+determines the job count.
+
+The envelope derives only `CARGO_BUILD_JOBS`: it is memory-derived, bounded by
+point-in-time availability, and reserves one core when there is no swap.
+
+| Knob | Precedence |
+|---|---|
+| Cargo jobs | `DOCKS_CI_CARGO_JOBS` > `CARGO_BUILD_JOBS` > derived |
+
+Both cargo settings explicitly control build parallelism and outrank derivation.
+Budgeting defaults are estimates, not measurements: `cargoBytesPerJob` 512 MiB,
+`memoryBudgetFraction` 0.6, `reserveBytes` 512 MiB, and `memoryStallCeiling` 0.1.
+At or above that memory-stall fraction, the build collapses to one job.
+
+The envelope reports rather than fixes a RAM-backed-temp hazard. When temp is
+RAM-backed and the host has no swap, it emits
+`WARNING <tmpdir> is <fstype> with no swap (temp competes for RAM)`.
+Relocating temp is not an available remedy: the session-relay self-test nests roughly
+98 bytes of scenario path under the temp root against the kernel's 108-byte Unix
+`sun_path` limit, leaving under ten characters of budget. A longer root makes the
+fake app-server socket's `bind()` fail. Swap is the real remedy because it makes
+tmpfs pages reclaimable instead of pinning them in RAM until their files are deleted.
+
+For example, an 8 GB, 6-core swapless host with tmpfs `/tmp` prints
+`5/6 cpu free, 7.8G ram, swap 0.0G, WARNING /tmp is tmpfs with no swap (temp competes for RAM) → cargo -j5`;
+a 2 GB, 2-CPU cgroup yields `cargo -j1`.
+
 ## Native workspace evidence boundary
 
 The four `build-binaries.yml` matrix legs are native, not cross-build evidence. Before unchanged attestation/upload, Linux legs must complete the exact cgroup/pidfd/Landlock custody test and both smokes against that leg's explicit fresh binary; macOS legs must complete the frozen negative-admission test. `verify-session-relay-preflight.mjs` verifies all four successful job identities, exact runner labels, native target mapping, and ordered build → platform evidence → Linux smoke/skip → attestation → upload steps through the GitHub jobs API. Missing, reordered, skipped, failed, duplicated, or cross-run/cross-target evidence refuses.

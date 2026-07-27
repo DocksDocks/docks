@@ -11,6 +11,13 @@ import path from 'node:path';
 import { startTask } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 import {
+  cargoJobLimit,
+  describeEnvelope,
+  detectCompetingWork,
+  hostResources,
+  runtimeAvailability,
+} from './lib/host-resources.mjs';
+import {
   CLAUDE_MARKETPLACE,
   CODEX_MARKETPLACE,
   claudeManifest,
@@ -180,6 +187,16 @@ if (options.list) {
   for (const p of PLUGINS) console.log(`${p.name}\t${p.root}\t${fs.existsSync(p.root) ? 'present' : 'MISSING'}`);
   process.exit(0);
 }
+const resources = hostResources();
+const availability = runtimeAvailability({
+  cpus: resources.cpus,
+  constrained: resources.constrainedBy === 'cgroup',
+  cgroupRelative: resources.cgroupRelative,
+});
+const competing = detectCompetingWork();
+const cargoJobs = cargoJobLimit(resources, { availability });
+process.env.CARGO_BUILD_JOBS = String(cargoJobs);
+ok(describeEnvelope(resources, { cargoJobs, availability, competing }));
 
 // Which plugins to gate (default: every present plugin; --plugin and --lane narrow it).
 let ciLane = null;
@@ -456,12 +473,35 @@ function gatePlugin(p) {
       const jobsFour = node([p.selftest], {
         env: { ...baseEnv, SESSION_RELAY_TEST_JOBS: '4' },
       });
-      if ((jobsOne.status ?? 1) === 0 && (jobsFour.status ?? 1) === 0 && jobsOne.stdout === jobsFour.stdout) {
+      const runs = [
+        ['jobs-1', jobsOne],
+        ['jobs-4', jobsFour],
+      ];
+      const crashed = runs.filter(([, run]) => (run.status ?? 1) !== 0);
+      const drifted = crashed.length === 0 && jobsOne.stdout !== jobsFour.stdout;
+      if (crashed.length === 0 && !drifted) {
         ok(`${p.name} self-test passed with byte-identical jobs-1/jobs-4 output (${path.basename(p.selftest)})`);
       } else {
+        for (const [label, run] of crashed) {
+          const detail = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
+          console.error(`${label} exited ${run.status ?? 'null'}${detail ? `:\n${detail}` : ' with no output'}`);
+        }
+        if (drifted) {
+          const left = (jobsOne.stdout ?? '').split('\n');
+          const right = (jobsFour.stdout ?? '').split('\n');
+          const firstDiff = left.findIndex((line, index) => line !== right[index]);
+          const at = firstDiff === -1 ? Math.min(left.length, right.length) : firstDiff;
+          console.error(
+            `jobs-1 (${left.length} lines) vs jobs-4 (${right.length} lines) diverged at line ${at + 1}:\n` +
+              `- ${left[at] ?? '<eof>'}\n+ ${right[at] ?? '<eof>'}`,
+          );
+        }
         const binary = rustBinary ?? '<fresh-release-binary>';
+        const reason = drifted
+          ? 'jobs-1/jobs-4 output drifted'
+          : `failed (${crashed.map(([label]) => label).join(', ')})`;
         fail(
-          `${p.name} self-test failed or jobs-1/jobs-4 output drifted ` +
+          `${p.name} self-test ${reason} ` +
             `(run twice with ${p.rust.source.testBinaryEnv}=${binary} and SESSION_RELAY_TEST_JOBS=1|4)`,
         );
       }
