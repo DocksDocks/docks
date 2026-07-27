@@ -4,6 +4,7 @@ export const HASHES = Object.freeze({
   failure: 'c'.repeat(64),
   input: 'd'.repeat(64),
   input2: 'e'.repeat(64),
+  input3: '9'.repeat(64),
   plan: 'f'.repeat(64),
   result: '1'.repeat(64),
   source: '2'.repeat(64),
@@ -26,7 +27,8 @@ export function reviewPhase(state = 'not_started', overrides = {}) {
     not_required: { invocations: 0, input_sha256: null, result_sha256: null },
     not_started: { invocations: 0, input_sha256: null, result_sha256: null },
     reserved: { invocations: 1, input_sha256: HASHES.input, result_sha256: null },
-    retryable: { invocations: 1, input_sha256: HASHES.input, result_sha256: HASHES.failure },
+    transport_retried: { invocations: 1, input_sha256: HASHES.input2, result_sha256: null },
+    retryable: { invocations: 0, input_sha256: HASHES.input, result_sha256: HASHES.failure },
     repairing: { invocations: 1, input_sha256: HASHES.input, result_sha256: HASHES.result },
     passed: { invocations: 1, input_sha256: HASHES.input, result_sha256: HASHES.result },
     degraded: { invocations: 2, input_sha256: HASHES.input, result_sha256: HASHES.failure },
@@ -167,12 +169,20 @@ export function bindPlan(api, tupleValue, { acceptanceManifest: liveAcceptanceMa
 }
 
 export function validTupleCatalog() {
-  const localDraftStates = ['not_started', 'reserved', 'retryable', 'repairing', 'passed', 'degraded'];
+  const localDraftStates = [
+    'not_started',
+    'reserved',
+    'transport_retried',
+    'retryable',
+    'repairing',
+    'passed',
+    'degraded',
+  ];
   const catalog = localDraftStates.map((state) =>
     tuple('drafting', { draft_review: reviewPhase(state), completion_review: reviewPhase('not_required') }),
   );
   for (const risk of ['sensitive', 'external']) {
-    for (const state of ['not_started', 'reserved', 'retryable', 'repairing', 'passed']) {
+    for (const state of ['not_started', 'reserved', 'transport_retried', 'retryable', 'repairing', 'passed']) {
       catalog.push(
         tuple('drafting', {
           risk,
@@ -214,7 +224,7 @@ export function validTupleCatalog() {
         completion_review: reviewPhase('not_started'),
       }),
     );
-    for (const state of ['reserved', 'retryable', 'repairing', 'passed']) {
+    for (const state of ['reserved', 'transport_retried', 'retryable', 'repairing', 'passed']) {
       catalog.push(
         tuple('ongoing', {
           risk,

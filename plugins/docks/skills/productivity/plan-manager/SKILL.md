@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-27"
-  content_hash: "c19f7b9af643320d8053f89a01fe49e21fe4017b041126c2bc85b9f4f651e3c7"
+  content_hash: "921649a585f514240896e82a9969acdb3bf67eebdade4a966f4337e4eacf52d3"
 ---
 
 # Plan Manager
@@ -74,7 +74,7 @@ protected scope, stop conditions, open decisions, `## Review`, and manager-owned
 
 ```text
 ReviewPhaseV1 = {
-  state:"not_required"|"not_started"|"reserved"|"retryable"|"repairing"|"passed"|"degraded"|"blocked"|"cancelled",
+  state:"not_required"|"not_started"|"reserved"|"transport_retried"|"retryable"|"repairing"|"passed"|"degraded"|"blocked"|"cancelled",
   invocations:0|1|2, input_sha256:null|64hex, result_sha256:null|64hex
 }
 PlanRunV1 = {
@@ -111,35 +111,38 @@ plan record in `affected_paths`; acceptance writes to it and breaks that bind.
 |---|---:|---|---|---|
 | `not_required` | 0 | null | null | completion only, local risk |
 | `not_started` | 0 | null | null | draft or required completion baseline |
-| `reserved` | 1–2 | hash | null | exactly one live launch |
-| `retryable` | 1 | hash | failure hash | transport failure only |
+| `reserved` | 1–2 | hash | null | live initial/repair launch |
+| `transport_retried` | 1–2 | hash | null | live post-transport launch |
+| `retryable` | 0–1 | hash | failure hash | first transport failure; refunded |
 | `repairing` | 1 | hash | review hash | accepted repair verdict only |
 | `passed` | 1–2 | hash | review hash | matching validated output |
-| `degraded` | 2 | hash | failure-set hash | draft/local only |
+| `degraded` | 1–2 | hash | failure-set hash | draft/local only |
 | `blocked` | 1–2 | hash | evidence hash | terminal |
 | `cancelled` | 1–2 | hash | cancellation hash | terminal |
 
-Legal transitions are only `not_started → reserved`; `reserved → passed |
-repairing | blocked | cancelled | retryable | degraded`; `retryable → reserved |
-blocked | cancelled`; `repairing → reserved | blocked | cancelled`.
-`reserved → retryable` is invocation 1 only; `reserved → degraded` is invocation
-2 draft/local transport failure only. The second `reserved` consumes the last
-permit. Terminal states never reset.
+Legal transitions are `not_started → reserved`; `reserved → passed | repairing |
+blocked | cancelled | retryable`; `retryable → transport_retried | blocked |
+cancelled`; `transport_retried → passed | repairing | blocked | cancelled |
+degraded`; and `repairing → reserved | blocked | cancelled`.
+A transport failure from `reserved` refunds one invocation. Re-reservation
+consumes it into `transport_retried`; a second transport failure keeps that
+count and degrades only local draft review, otherwise blocks. Invocation-2
+repair blocks. Terminal states never reset.
 
-Before any fresh agent starts, transactionally increment the phase count and
-persist `reserved` with its exact input digest. Lost output consumes the permit.
-Accept a result only while the same phase is still `reserved` with matching
-`run_id`, invocation, and input hash. Discard stale results. On cold entry,
-`reserved` becomes terminal `blocked` with dangling-launch evidence; never
-redispatch it.
+Before launching, transactionally increment the phase count and persist
+`reserved`, or `transport_retried` after the first transport failure, with the
+exact input digest. A verdict spends the permit; only the first transport
+failure refunds it. Accept results only in either live state with matching
+`run_id`, invocation, and input hash. Discard stale results. Cold entry into
+either live state blocks with dangling-launch evidence and never redispatches.
 
 Preflight the reviewer route and a private full-output file before reserving.
 Seal an invocation-specific bundle; after reservation read-back, derive its
 prompt and capture complete stdout to the file. Clipped console/transcript text
 is not evidence; never reconstruct JSON or request compact/single-line output.
 Parse the file, validate the closed object, then hash canonical JCS.
-A transport retry preserves substantive bindings but seals an invocation-2
-bundle with a different input digest. A reused bundle/prompt is stale.
+A transport retry preserves substantive bindings but seals a fresh bundle with
+a different input digest and persists `transport_retried`; reuse is stale.
 
 ## Reviewer result routing
 
@@ -151,8 +154,9 @@ ReviewInvalidInputV1 = { schema:1, error:"invalid_input",
     "bundle_binding_mismatch" }
 ```
 
-Consume it only through `review_invalid_input` against the exact reserved
-`run_id`, invocation, and `input_sha256`; hash it, then terminal-block that run
+Consume it only through `review_invalid_input` against the exact live
+reservation's `run_id`, invocation, and `input_sha256`; hash it, then
+terminal-block that run
 as `review_failed`. Never retry or reset it. Later same-file replacement still
 requires exact current-user authority and fresh bindings. Only valid bound input
 may produce `PlanReviewV1` or `CompletionReviewV1`.
@@ -192,9 +196,9 @@ write.
    `blocked` identifies only a required decision or missing authority.
 4. For one accepted repair, patch only reproduced defects, then seal/reserve/
    read-back/dispatch a changed invocation-2 bundle and fresh prompt.
-5. A first genuine transport failure may spend invocation 2. Preserve canonical
-   plan/source and completion bindings, but use a new invocation-2 bundle and
-   different digest—never the old bundle/prompt. A second failure degrades only
+5. A first genuine transport failure refunds its permit. Seal a fresh bundle
+   with a different input digest, persist `transport_retried`, and dispatch once
+   more without changing substantive bindings. A second failure degrades only
    reversible local work; sensitive/public-contract/security/external work blocks.
 
 No score, quota, fallback, resumed reviewer, third invocation, or Session Relay review exists. Destroy only the returned exact bundle.
@@ -266,32 +270,27 @@ Never persist raw user bytes or broaden authority from a probe.
 
 ## Legacy quarantine
 
-List/show scan frontmatter first and never validate every active family as a
-global prerequisite. Classify legacy only for the requested target. Record-free
-plans and complete settled terminal schema-1–6 families may migrate target-
-locally during an explicitly requested local start. Active, prepared,
-commitment, cancelled, crossed, malformed, or otherwise unsettled families are
-`legacy-quarantined`: render only; never dispatch, resume, abandon, repair,
-consume, or rewrite them.
-
-A fresh unrelated local goal may create a new PlanRunV1 and run normally;
-legacy bytes grant no authority. Never edit historical finished plans. External
-recovery still requires new live authority.
+List/show scan frontmatter first; never validate every active family as a global
+prerequisite. Classify legacy only for the requested target. Record-free plans and
+complete settled terminal schema-1–6 families may migrate target-locally during an
+explicitly requested local start. Active, prepared, commitment, cancelled, crossed,
+malformed, or otherwise unsettled families are `legacy-quarantined`: render only;
+never dispatch, resume, abandon, repair, consume, or rewrite them. A fresh unrelated
+local goal may create a new PlanRunV1 and run normally; legacy bytes grant no
+authority. Never edit historical finished plans; external recovery needs live authority.
 
 ## GitHub issue publication
 
 Treat `--issues` / `publish <slug> as an issue` as scope `publish`. Require an
 existing canonical plan and exact live publish authority for the repository.
-Preflight `gh auth status`, a GitHub remote, and
-`gh repo view --json visibility`. If the repository is public, warn that the
-issue is public and obtain explicit confirmation before publishing a plan that
-names a vulnerability, credential location, or other sensitive finding.
-
-Any failed preflight, absent authority, or declined confirmation creates no issue
-and writes nothing. Create the issue from the canonical title/body, transactionally
-record its URL in `## Notes`, checkpoint only the owned plan, and read back.
-Publication never changes lifecycle, dispatches review, or makes the issue the
-source of truth.
+Preflight `gh auth status`, a GitHub remote, and `gh repo view --json visibility`.
+If the repository is public, warn that the issue is public and obtain explicit
+confirmation before publishing a plan that names a vulnerability, credential
+location, or other sensitive finding. Any failed preflight, absent authority, or
+declined confirmation creates no issue and writes nothing. Create the issue from the
+canonical title/body, transactionally record its URL in `## Notes`, checkpoint only
+the owned plan, and read back. Publication never changes lifecycle, dispatches
+review, or makes the issue the source of truth.
 
 ## BAD / GOOD
 
@@ -309,10 +308,10 @@ GOOD: require a matching live ExternalAuthorityV1 at the deploy boundary.
 ## Final checks
 
 - Exact repository/path/current-run identity and append-only attempt history.
-- Closed phase/lifecycle/status tuple and ≤2 permits per run phase.
+- Closed phase/lifecycle/status tuple, ≤2 substantive permits per phase, and at most one transport retry.
 - Exact plan/source/final-manifest/verification hashes.
 - Transaction and owned checkpoint read-backs; unrelated paths excluded.
-- Fresh reviewer bindings; stale or cold-reserved output ignored.
+- Fresh reviewer bindings; stale or cold-live-reservation output ignored.
 - Invalid reviewer input terminal-blocked through `review_invalid_input`; no retry, degrade, repair, or authority.
 - External actions matched live scope/mode/target/source; skipped otherwise.
 - Historical schemas quarantined target-locally and finished history untouched.

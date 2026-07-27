@@ -18,6 +18,7 @@ const REVIEW_STATES = new Set([
   'not_required',
   'not_started',
   'reserved',
+  'transport_retried',
   'retryable',
   'repairing',
   'passed',
@@ -40,6 +41,7 @@ const BLOCKER_KINDS = new Set([
   'legacy_invalid',
 ]);
 const PHASE_FIELDS = new Set(['draft_review', 'completion_review']);
+const LIVE_REVIEW_STATES = new Set(['reserved', 'transport_retried']);
 const LEGACY_RECORD_KINDS = Object.freeze([
   'Bootstrap-review-record',
   'Review-receipt',
@@ -433,13 +435,20 @@ function validateReviewPhaseInternal(phase, phaseName) {
       }
       break;
     case 'reserved':
-      if (![1, 2].includes(phase.invocations)) fail('reserved phase requires one or two invocations');
+    case 'transport_retried':
+      if (![1, 2].includes(phase.invocations)) {
+        fail(`${phase.state} phase requires one or two invocations`);
+      }
       requireHash(input, 'input');
-      if (result !== null) fail('reserved phase result must be null');
+      if (result !== null) fail(`${phase.state} phase result must be null`);
       break;
     case 'retryable':
+      if (![0, 1].includes(phase.invocations)) fail('retryable phase requires zero or one invocation');
+      requireHash(input, 'input');
+      requireHash(result, 'result');
+      break;
     case 'repairing':
-      if (phase.invocations !== 1) fail(`${phase.state} phase requires exactly one invocation`);
+      if (phase.invocations !== 1) fail('repairing phase requires exactly one invocation');
       requireHash(input, 'input');
       requireHash(result, 'result');
       break;
@@ -451,7 +460,7 @@ function validateReviewPhaseInternal(phase, phaseName) {
       requireHash(result, 'result');
       break;
     case 'degraded':
-      if (phase.invocations !== 2) fail('degraded phase requires exactly two invocations');
+      if (![1, 2].includes(phase.invocations)) fail('degraded phase requires one or two invocations');
       requireHash(input, 'input');
       requireHash(result, 'result');
       break;
@@ -537,7 +546,7 @@ function validateTuple(status, run) {
   }
 
   if (status === 'drafting') {
-    if (!['not_started', 'reserved', 'retryable', 'repairing', 'passed', 'degraded'].includes(draftState)) {
+    if (!['not_started', 'reserved', 'transport_retried', 'retryable', 'repairing', 'passed', 'degraded'].includes(draftState)) {
       fail(`drafting cannot retain terminal draft state ${draftState}`);
     }
     assertBaselineCompletion(run);
@@ -569,7 +578,7 @@ function validateTuple(status, run) {
       }
       return;
     }
-    if (!['reserved', 'retryable', 'repairing', 'passed'].includes(completionState)) {
+    if (!['reserved', 'transport_retried', 'retryable', 'repairing', 'passed'].includes(completionState)) {
       fail(`ongoing completion review cannot be ${completionState}`);
     }
     if (run.implementation_commit === null) fail('active completion requires an implementation binding');
@@ -980,7 +989,7 @@ export function reducePlanRun({ current, event }) {
       next.run.acceptance = clone(event.acceptance);
     }
     next.run[event.phase] = {
-      state: 'reserved',
+      state: phase.state === 'retryable' ? 'transport_retried' : 'reserved',
       invocations: phase.invocations + 1,
       input_sha256: event.input_sha256,
       result_sha256: null,
@@ -988,7 +997,7 @@ export function reducePlanRun({ current, event }) {
   } else if (event.type === 'review_invalid_input') {
     eventKeys(event, new Set(['type', 'phase', 'result', 'run_id', 'invocation', 'input_sha256']));
     const phase = selectedPhase(next, event);
-    if (phase.state !== 'reserved') {
+    if (!LIVE_REVIEW_STATES.has(phase.state)) {
       fail(`invalid reviewer input requires a matching reserved phase, not ${phase.state}`);
     }
     resultBindingMatches(next, event, phase);
@@ -1007,7 +1016,7 @@ export function reducePlanRun({ current, event }) {
     const phase = selectedPhase(next, event);
     const mayTerminateRepair =
       phase.state === 'repairing' && ['review_blocked', 'review_cancelled'].includes(event.type);
-    if (phase.state !== 'reserved' && !mayTerminateRepair)
+    if (!LIVE_REVIEW_STATES.has(phase.state) && !mayTerminateRepair)
       fail(`stale review result requires a matching reserved phase, not ${phase.state}`);
     resultBindingMatches(next, event, phase);
     if (event.type === 'review_passed') {
@@ -1030,8 +1039,13 @@ export function reducePlanRun({ current, event }) {
       next.run[event.phase] = { ...phase, state: 'cancelled', result_sha256: event.result_sha256 };
       next.status = 'blocked';
       next.run.blocker = { kind: 'user_cancelled', evidence_sha256: event.evidence_sha256 };
-    } else if (phase.invocations === 1) {
-      next.run[event.phase] = { ...phase, state: 'retryable', result_sha256: event.result_sha256 };
+    } else if (phase.state === 'reserved') {
+      next.run[event.phase] = {
+        ...phase,
+        state: 'retryable',
+        invocations: phase.invocations - 1,
+        result_sha256: event.result_sha256,
+      };
     } else if (event.phase === 'draft_review' && next.run.risk === 'local') {
       next.run[event.phase] = { ...phase, state: 'degraded', result_sha256: event.result_sha256 };
     } else {
@@ -1044,7 +1058,7 @@ export function reducePlanRun({ current, event }) {
     eventKeys(event, new Set(['type', 'phase', 'evidence_sha256']));
     if (!HASH.test(event.evidence_sha256)) fail('cold entry requires dangling-launch evidence digest');
     const phase = selectedPhase(next, event);
-    if (phase.state !== 'reserved') fail(`cold entry cannot redispatch terminal ${phase.state} phase`);
+    if (!LIVE_REVIEW_STATES.has(phase.state)) fail(`cold entry cannot redispatch terminal ${phase.state} phase`);
     blockReview(next, event.phase, event.evidence_sha256, {
       kind: 'review_failed',
       evidence_sha256: event.evidence_sha256,
@@ -1485,8 +1499,12 @@ const LIFECYCLE_TRANSITIONS = new Map([
 const REVIEW_TRANSITIONS = new Map([
   ['not_required', new Set(['not_required'])],
   ['not_started', new Set(['not_started', 'reserved'])],
-  ['reserved', new Set(['reserved', 'passed', 'repairing', 'blocked', 'cancelled', 'retryable', 'degraded'])],
-  ['retryable', new Set(['retryable', 'reserved', 'blocked', 'cancelled'])],
+  ['reserved', new Set(['reserved', 'passed', 'repairing', 'blocked', 'cancelled', 'retryable'])],
+  [
+    'transport_retried',
+    new Set(['transport_retried', 'passed', 'repairing', 'blocked', 'cancelled', 'degraded']),
+  ],
+  ['retryable', new Set(['retryable', 'transport_retried', 'blocked', 'cancelled'])],
   ['repairing', new Set(['repairing', 'reserved', 'blocked', 'cancelled'])],
   ['passed', new Set(['passed'])],
   ['degraded', new Set(['degraded'])],
@@ -1500,7 +1518,7 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
     if (jcs(before) !== jcs(after)) fail(`${phaseName} cannot mutate without a state transition`);
     return false;
   }
-  if (after.state === 'reserved') {
+  if (LIVE_REVIEW_STATES.has(after.state)) {
     if (after.invocations !== before.invocations + 1 || after.result_sha256 !== null) {
       fail(`${phaseName} reservation must consume exactly one permit and clear its result`);
     }
@@ -1511,15 +1529,30 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
       fail(`${phaseName} repair retry requires changed input bytes`);
     }
   } else {
-    if (after.invocations !== before.invocations || after.input_sha256 !== before.input_sha256) {
-      fail(`${phaseName} result cannot change invocation or input bindings`);
+    if (after.input_sha256 !== before.input_sha256) {
+      fail(`${phaseName} result cannot change input bindings`);
+    }
+    const refundedTransportFailure =
+      after.state === 'retryable' &&
+      before.state === 'reserved' &&
+      [1, 2].includes(before.invocations) &&
+      after.invocations === before.invocations - 1;
+    // A failed first transport is the sole result transition allowed to refund a reserved permit.
+    if (after.invocations !== before.invocations && !refundedTransportFailure) {
+      fail(`${phaseName} result cannot change invocation bindings`);
     }
     if (!HASH.test(after.result_sha256)) fail(`${phaseName} result transition requires a digest`);
-    if (after.state === 'retryable' && before.invocations !== 1) {
-      fail(`${phaseName} retryable transition is invocation-one only`);
+    if (after.state === 'retryable' && !refundedTransportFailure) {
+      fail(`${phaseName} retryable transition must refund one reserved invocation`);
     }
-    if (after.state === 'degraded' && (phaseName !== 'draft_review' || risk !== 'local' || before.invocations !== 2)) {
-      fail('degraded review transition is second-invocation local draft only');
+    if (
+      after.state === 'degraded' &&
+      (before.state !== 'transport_retried' ||
+        phaseName !== 'draft_review' ||
+        risk !== 'local' ||
+        ![1, 2].includes(before.invocations))
+    ) {
+      fail('degraded review transition is second-transport local draft only');
     }
   }
   return true;
@@ -1583,14 +1616,14 @@ function assertPersistedTransition(current, next) {
     const after = next.run[phaseName];
     if (phaseName === 'draft_review') {
       if (current.status !== 'drafting') fail('persisted draft review transition requires drafting status');
-      if (after.state === 'reserved' && before.state !== 'retryable') {
+      if (LIVE_REVIEW_STATES.has(after.state) && before.state !== 'retryable') {
         allowed.add('plan_sha256');
         allowed.add('source_base');
         allowed.add('source_sha256');
       }
     } else {
       if (current.status !== 'ongoing') fail('persisted completion review transition requires ongoing status');
-      if (after.state === 'reserved') {
+      if (LIVE_REVIEW_STATES.has(after.state)) {
         if (before.state === 'not_started') allowed.add('implementation_commit');
         allowed.add('acceptance');
       }

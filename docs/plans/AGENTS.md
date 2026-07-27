@@ -101,7 +101,7 @@ must not contain `TBD`, `TODO`, vague follow-ups, or undefined forward reference
 
 ```text
 ReviewPhaseV1 = {
-  state: "not_required"|"not_started"|"reserved"|"retryable"|"repairing"|"passed"|"degraded"|"blocked"|"cancelled",
+  state: "not_required"|"not_started"|"reserved"|"transport_retried"|"retryable"|"repairing"|"passed"|"degraded"|"blocked"|"cancelled",
   invocations: 0|1|2,
   input_sha256: null|64hex,
   result_sha256: null|64hex
@@ -179,28 +179,34 @@ to `ongoing`, post-start `blocked`, and `finished` tuples.
 |---|---:|---|---|---|
 | `not_required` | 0 | null | null | completion only, local risk |
 | `not_started` | 0 | null | null | draft, or sensitive/external completion |
-| `reserved` | 1–2 | hash | null | one live launch only |
-| `retryable` | 1 | hash | failure hash | transport failure only |
+| `reserved` | 1–2 | hash | null | live initial or repair launch |
+| `transport_retried` | 1–2 | hash | null | live launch after one transport failure |
+| `retryable` | 0–1 | hash | failure hash | first transport failure; permit refunded |
 | `repairing` | 1 | hash | reviewer-result hash | accepted repair verdict only |
 | `passed` | 1–2 | hash | reviewer-result hash | validated matching output |
-| `degraded` | 2 | hash | failure-set hash | draft only, local risk only |
+| `degraded` | 1–2 | hash | failure-set hash | draft only, local risk only |
 | `blocked` | 1–2 | hash | evidence/result hash | terminal for this run |
 | `cancelled` | 1–2 | hash | cancellation hash | terminal for this run |
 
 Legal phase transitions are only `not_started → reserved`; `reserved → passed |
-repairing | blocked | cancelled | retryable | degraded`; `retryable → reserved |
-blocked | cancelled`; and `repairing → reserved | blocked | cancelled`.
-`reserved → retryable` is invocation 1 only. `reserved → degraded` is invocation
-2, draft/local transport failure only. The second `reserved` consumes the final
-permit. `not_required`, `passed`, `degraded`, `blocked`, and `cancelled` are
-terminal.
+repairing | blocked | cancelled | retryable`; `retryable → transport_retried |
+blocked | cancelled`; `transport_retried → passed | repairing | blocked |
+cancelled | degraded`; and `repairing → reserved | blocked | cancelled`.
+A transport failure from `reserved` refunds exactly one invocation and enters
+`retryable` with invocation 0 or 1. Re-reservation consumes that refunded permit
+and enters `transport_retried`; a second transport failure then preserves its
+invocation and becomes local-draft `degraded` or otherwise `blocked`. A repair
+verdict at invocation 2 blocks rather than opening another round. Terminal
+states never reset.
 
 Before spawning, transactionally increment the invocation count and persist
-`reserved` with the exact input digest. A lost result still consumes that permit.
-An arriving result may mutate only the matching phase while it remains
-`reserved` with the same run id, invocation, and input hash; stale results are
-discarded. Cold entry into `reserved` changes it to `blocked` with dangling-launch
-evidence and never redispatches.
+`reserved`, or `transport_retried` after a transport failure, with the exact
+input digest. A verdict spends the reserved substantive permit. Only the first
+transport failure refunds it; the distinct retry state prevents an unbounded
+transport loop. An arriving result may mutate only the matching phase while it
+remains `reserved` or `transport_retried` with the same run id, invocation, and
+input hash; stale results are discarded. Cold entry into either live state
+changes it to `blocked` with dangling-launch evidence and never redispatches.
 
 Before reserving, preflight the exact reviewer route and a private file that will
 receive complete stdout. Each invocation has a newly sealed bundle whose closed
@@ -211,9 +217,9 @@ do not request compact/single-line reviewer output. Parse the file, validate the
 closed object, then hash canonical JCS.
 
 A transport retry preserves canonical plan/source and any completion
-implementation/acceptance bindings, but seals an invocation-2 bundle and
-therefore reserves a different bundle/input digest. Reusing the invocation-1
-bundle or prompt is stale and cannot consume the final permit.
+implementation/acceptance bindings, but seals a fresh bundle with a different
+input digest and persists `transport_retried`. It reuses the refunded
+substantive permit; reusing the failed dispatch's bundle or prompt is stale.
 
 ## Closed lifecycle and tuple matrix
 
@@ -223,11 +229,11 @@ scheduled | ongoing | blocked`; `planned` ↔ `scheduled`; `planned | scheduled`
 
 | Frontmatter status | Draft phase | Completion phase | Implementation / acceptance | Blocker |
 |---|---|---|---|---|
-| `drafting` | active states through `passed`, plus local-only `degraded` | risk baseline | both null | null |
+| `drafting` | `not_started | reserved | transport_retried | retryable | repairing | passed`, plus local-only `degraded` | risk baseline | both null | null |
 | `planned` / `scheduled` | `passed`, or local-only `degraded` | risk baseline | both null | null |
 | `ongoing` local | `passed | degraded` | `not_required` | implementation null; acceptance null | null |
 | `ongoing` sensitive/external before completion | `passed` | `not_started` | both null | null |
-| `ongoing` sensitive/external during/after completion | `passed` | `reserved | retryable | repairing | passed` | implementation required; acceptance required except that replacement clears stale acceptance while `repairing`, then the next reservation rebinds it | null |
+| `ongoing` sensitive/external during/after completion | `passed` | `reserved | transport_retried | retryable | repairing | passed` | implementation required; acceptance required except that replacement clears stale acceptance while `repairing`, then the next reservation rebinds it | null |
 | `blocked` before start | baseline or terminal draft | risk baseline | both null | required |
 | `blocked` local before acceptance | `passed | degraded` | `not_required` | both null | required |
 | `blocked` local after acceptance | `passed | degraded` | `not_required` | implementation null; acceptance required | `concurrent_change` only |
@@ -260,10 +266,11 @@ paths to bypass a terminal run or permit budget.
 3. On `pass`, continue. On a repository-grounded `repair`, patch only the exact
    accepted blocking set, seal an invocation-2 changed-input bundle, reserve its
    new digest, read back, and use a fresh prompt/reviewer. On a real missing
-   decision/authority, block with evidence. A first transport failure may spend
-   invocation 2 using unchanged canonical plan/source and completion bindings,
-   but a fresh invocation-2 bundle and different digest. Never reuse a bundle or
-   prompt. Two transport failures may degrade only reversible local draft work;
+   decision/authority, block with evidence. A first transport failure refunds
+   its reserved permit; seal a fresh bundle with a different digest, persist
+   `transport_retried`, read back, and dispatch once more without changing
+   canonical plan/source or completion bindings. Never reuse a bundle or prompt.
+   A second transport failure may degrade only reversible local draft work;
    sensitive, destructive, public-contract, security, or external work blocks.
 4. A plan-only request writes `planned` or `scheduled` and makes one owned-path
    checkpoint commit/read-back. A canonical implementation writes `ongoing`,
@@ -343,8 +350,8 @@ never mutates state.
 
 `ReviewInvalidInputV1` is a closed failure result, never a review verdict.
 Classify it before generic transport, parse/output, or verdict handling. The
-manager consumes it only through `review_invalid_input` against the exact
-reserved `run_id`, invocation, and `input_sha256`; it hashes the result and
+manager consumes it only through `review_invalid_input` against the exact live
+reservation's `run_id`, invocation, and `input_sha256`; it hashes the result and
 terminal-blocks the current run as `review_failed`. It never retries or resets
 that run. Later same-file replacement still requires exact current-user
 authority and fresh bindings.
@@ -413,7 +420,8 @@ historical finished plan.
 Before claiming success, verify the exact path, closed frontmatter, one valid
 current Plan-run line, append-only attempt history, repository/path/run identity,
 status tuple, plan/source hashes, transaction read-back, owned commit path set,
-review permit count, and observed acceptance bindings. Never claim a wrapper ran
+≤2 substantive review permits per phase, the bounded transport-retry state, and
+observed acceptance bindings. Never claim a wrapper ran
 merely because its file exists,
 claim review passed from reservation, translate stale output into state, or
 translate persisted intent into external authority.

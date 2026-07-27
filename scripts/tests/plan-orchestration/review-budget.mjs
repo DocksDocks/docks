@@ -112,6 +112,35 @@ export function registerReviewBudget(suite, api, reviewer) {
     assertPhase(passed, 'draft_review', reviewPhase('passed'));
   });
 
+  suite.test('review-budget', 'transport failure refunds a permit before a substantive repair round', () => {
+    let state = localDraftState();
+    const observed = [];
+    const apply = (step, event) => {
+      state = reduce(api, state, event);
+      observed.push({
+        invocations: state.run.draft_review.invocations,
+        state: state.run.draft_review.state,
+        step,
+      });
+    };
+
+    apply('reserve', reserve('draft_review'));
+    apply('transport_failure', result(state, 'review_transport_failure', 'draft_review', HASHES.failure));
+    apply('transport_retry', reserve('draft_review', HASHES.input2));
+    apply('repair', result(state, 'review_repair', 'draft_review'));
+    apply('repair_reserve', reserve('draft_review', HASHES.input3));
+    apply('pass', result(state, 'review_passed', 'draft_review'));
+
+    assert.deepEqual(observed, [
+      { step: 'reserve', state: 'reserved', invocations: 1 },
+      { step: 'transport_failure', state: 'retryable', invocations: 0 },
+      { step: 'transport_retry', state: 'transport_retried', invocations: 1 },
+      { step: 'repair', state: 'repairing', invocations: 1 },
+      { step: 'repair_reserve', state: 'reserved', invocations: 2 },
+      { step: 'pass', state: 'passed', invocations: 2 },
+    ]);
+  });
+
   suite.test('review-budget', 'covers every legal ReviewPhaseV1 transition edge', () => {
     const initial = localDraftState();
     const reserved1 = reduce(api, initial, reserve('draft_review'));
@@ -134,12 +163,29 @@ export function registerReviewBudget(suite, api, reviewer) {
       () => reduce(api, retryable, reserve('draft_review')),
       /transport retry.*fresh invocation-bound input/i,
     );
-    const reserved2 = reduce(api, retryable, reserve('draft_review', HASHES.input2));
-    assert.equal(reserved2.run.draft_review.invocations, 2);
-    assert.equal(
-      reduce(api, reserved2, result(reserved2, 'review_transport_failure', 'draft_review')).run.draft_review.state,
-      'degraded',
+    const transportRetried = reduce(api, retryable, reserve('draft_review', HASHES.input2));
+    assertPhase(
+      transportRetried,
+      'draft_review',
+      reviewPhase('transport_retried', {
+        input_sha256: HASHES.input2,
+        invocations: 1,
+      }),
     );
+    for (const [type, expectedState] of [
+      ['review_passed', 'passed'],
+      ['review_repair', 'repairing'],
+      ['review_blocked', 'blocked'],
+      ['review_cancelled', 'cancelled'],
+      ['review_transport_failure', 'degraded'],
+    ]) {
+      const event = result(transportRetried, type, 'draft_review');
+      if (type === 'review_blocked') event.blocker = blocker('review_failed');
+      if (type === 'review_cancelled') event.evidence_sha256 = HASHES.blocker;
+      const next = reduce(api, transportRetried, event);
+      assert.equal(next.run.draft_review.state, expectedState);
+      assert.equal(next.run.draft_review.invocations, 1);
+    }
 
     const repairing = reduce(api, reserved1, result(reserved1, 'review_repair', 'draft_review'));
     const repairReserved = reduce(api, repairing, reserve('draft_review', HASHES.input2));
@@ -186,7 +232,7 @@ export function registerReviewBudget(suite, api, reviewer) {
 
   suite.test(
     'review-budget',
-    'invalid reviewer input terminal-blocks every reason on either permit without retry, degrade, or repair',
+    'invalid reviewer input terminal-blocks every reason on either live reservation flavour',
     () => {
       const first = reduce(api, localDraftState(), reserve('draft_review'));
       const retryable = reduce(api, first, result(first, 'review_transport_failure', 'draft_review', HASHES.failure));
@@ -286,20 +332,21 @@ export function registerReviewBudget(suite, api, reviewer) {
     },
   );
 
-  suite.test('review-budget', 'draft review never opens a third invocation', () => {
+  suite.test('review-budget', 'substantive draft review permit ceiling remains two', () => {
     const first = reduce(api, localDraftState(), reserve('draft_review'));
-    const retryable = reduce(api, first, result(first, 'review_transport_failure', 'draft_review'));
-    const second = reduce(api, retryable, reserve('draft_review', HASHES.input2));
+    const repairing = reduce(api, first, result(first, 'review_repair', 'draft_review'));
+    const second = reduce(api, repairing, reserve('draft_review', HASHES.input2));
+    assert.equal(second.run.draft_review.invocations, 2);
     for (const afterSecond of [
       reduce(api, second, result(second, 'review_passed', 'draft_review')),
-      reduce(api, second, result(second, 'review_transport_failure', 'draft_review')),
+      reduce(api, second, result(second, 'review_repair', 'draft_review')),
     ]) {
       expectThrow(
-        () => reduce(api, afterSecond, reserve('draft_review', HASHES.input2)),
-        /terminal|permit|invocation|two/i,
+        () => reduce(api, afterSecond, reserve('draft_review', HASHES.input3)),
+        /terminal|permit|invocation|two|blocked/i,
       );
     }
-    expectThrow(() => reduce(api, second, reserve('draft_review')), /reserved|live|permit/i);
+    expectThrow(() => reduce(api, second, reserve('draft_review', HASHES.input3)), /reserved|live|permit/i);
   });
 
   suite.test('review-budget', 'sensitive and external draft review cannot degrade after transport failure', () => {
@@ -309,12 +356,47 @@ export function registerReviewBudget(suite, api, reviewer) {
       initial.run.requested_effects = ['local', risk === 'external' ? 'release' : 'production_access'];
       initial.run.completion_review = reviewPhase('not_started');
       const first = reduce(api, initial, reserve('draft_review'));
-      const retryable = reduce(api, first, result(first, 'review_transport_failure', 'draft_review'));
+      const retryable = reduce(api, first, result(first, 'review_transport_failure', 'draft_review', HASHES.failure));
+      assertPhase(retryable, 'draft_review', reviewPhase('retryable'));
       const second = reduce(api, retryable, reserve('draft_review', HASHES.input2));
+      assert.equal(second.run.draft_review.state, 'transport_retried');
+      assert.equal(second.run.draft_review.invocations, 1);
       const terminal = reduce(api, second, result(second, 'review_transport_failure', 'draft_review'));
       assert.equal(terminal.status, 'blocked');
       assert.equal(terminal.run.draft_review.state, 'blocked');
+      assert.equal(terminal.run.draft_review.invocations, 1);
       assert.equal(terminal.run.blocker.kind, 'review_failed');
+    }
+  });
+
+  suite.test('review-budget', 'a round-two transport retry still escalates on its second failure', () => {
+    for (const risk of ['local', 'sensitive', 'external']) {
+      const initial = localDraftState();
+      initial.run.risk = risk;
+      if (risk !== 'local') {
+        initial.run.requested_effects = ['local', risk === 'external' ? 'release' : 'production_access'];
+        initial.run.completion_review = reviewPhase('not_started');
+      }
+      const first = reduce(api, initial, reserve('draft_review'));
+      const repairing = reduce(api, first, result(first, 'review_repair', 'draft_review'));
+      const repairReserved = reduce(api, repairing, reserve('draft_review', HASHES.input2));
+      const retryable = reduce(
+        api,
+        repairReserved,
+        result(repairReserved, 'review_transport_failure', 'draft_review', HASHES.failure),
+      );
+      assert.equal(retryable.run.draft_review.state, 'retryable');
+      assert.equal(retryable.run.draft_review.invocations, 1);
+      const transportRetried = reduce(api, retryable, reserve('draft_review', HASHES.input3));
+      assert.equal(transportRetried.run.draft_review.state, 'transport_retried');
+      assert.equal(transportRetried.run.draft_review.invocations, 2);
+      const terminal = reduce(
+        api,
+        transportRetried,
+        result(transportRetried, 'review_transport_failure', 'draft_review', HASHES.failure),
+      );
+      assert.equal(terminal.run.draft_review.state, risk === 'local' ? 'degraded' : 'blocked');
+      assert.equal(terminal.run.draft_review.invocations, 2);
     }
   });
 
@@ -337,26 +419,36 @@ export function registerReviewBudget(suite, api, reviewer) {
     expectThrow(() => reduce(api, cancelled, reserve('draft_review')), /cancelled|terminal|permit/i);
   });
 
-  suite.test('review-budget', 'cold reserved phase blocks once and never redispatches', () => {
+  suite.test('review-budget', 'cold live reservation blocks once and never redispatches', () => {
     const reserved = reduce(api, localDraftState(), reserve('draft_review'));
-    const blocked = reduce(api, reserved, {
-      type: 'cold_entry',
-      phase: 'draft_review',
-      evidence_sha256: HASHES.blocker,
-    });
-    assert.equal(blocked.status, 'blocked');
-    assert.equal(blocked.run.draft_review.state, 'blocked');
-    assert.equal(blocked.run.draft_review.invocations, 1);
-    expectThrow(() => reduce(api, blocked, reserve('draft_review')), /terminal|cold|permit|blocked/i);
-    expectThrow(
-      () => reduce(api, blocked, result(blocked, 'review_passed', 'draft_review')),
-      /stale|terminal|reserved|blocked/i,
-    );
+    const retryable = reduce(api, reserved, result(reserved, 'review_transport_failure', 'draft_review'));
+    const transportRetried = reduce(api, retryable, reserve('draft_review', HASHES.input2));
+    for (const live of [reserved, transportRetried]) {
+      const blocked = reduce(api, live, {
+        type: 'cold_entry',
+        phase: 'draft_review',
+        evidence_sha256: HASHES.blocker,
+      });
+      assert.equal(blocked.status, 'blocked');
+      assert.equal(blocked.run.draft_review.state, 'blocked');
+      assert.equal(blocked.run.draft_review.invocations, 1);
+      expectThrow(() => reduce(api, blocked, reserve('draft_review')), /terminal|cold|permit|blocked/i);
+      expectThrow(
+        () => reduce(api, blocked, result(blocked, 'review_passed', 'draft_review')),
+        /stale|terminal|reserved|blocked/i,
+      );
+    }
   });
 
-  suite.test('review-budget', 'completion has an independent exact two-invocation budget', () => {
+  suite.test('review-budget', 'completion transport refund preserves its independent two-permit budget', () => {
     const first = reduce(api, sensitiveCompletionState(), reserveCompletion(DIFF_SHA256));
-    const repairing = reduce(api, first, result(first, 'review_repair', 'completion_review'));
+    const retryable = reduce(api, first, result(first, 'review_transport_failure', 'completion_review'));
+    assert.equal(retryable.run.completion_review.state, 'retryable');
+    assert.equal(retryable.run.completion_review.invocations, 0);
+    const transportRetried = reduce(api, retryable, reserveCompletion(HASHES.input2));
+    assert.equal(transportRetried.run.completion_review.state, 'transport_retried');
+    assert.equal(transportRetried.run.completion_review.invocations, 1);
+    const repairing = reduce(api, transportRetried, result(transportRetried, 'review_repair', 'completion_review'));
     const replacement = reduce(api, repairing, {
       type: 'replace_implementation',
       implementation_commit: REPLACEMENT_COMMIT,

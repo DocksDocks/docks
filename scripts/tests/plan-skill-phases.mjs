@@ -106,7 +106,9 @@ function assertBoundedWorkflows() {
     /Plan-only request[\s\S]*1–2 draft reviewers \/ 1 commit/,
     /Ordinary canonical implementation[\s\S]*1–2 draft reviewers \/ 2 commits/,
     /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤2 draft \+ ≤2 completion reviewers \/ 3 commits/,
-    /Before any fresh agent starts,[\s\S]*persist `reserved`/,
+    /Before launching, transactionally\s+increment[\s\S]*persist\s+`reserved`/,
+    /only\s+the\s+first\s+transport\s+failure\s+refunds/,
+    /persists\s+`transport_retried`/,
     /no automatic push/i,
   ]) {
     assert.match(manager, contract);

@@ -44,7 +44,78 @@ export function registerMutations(suite, api) {
     }),
   );
 
-  suite.test('mutations', 'review-budget overflow: a third reservation is impossible', () => {
+  suite.test('mutations', 'persisted transport refund carries a repair sequence through to pass', () =>
+    withTempDirectory('plan-run-mutation-refund-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const identity = { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run };
+      const events = [
+        () => ({ type: 'reserve_review', phase: 'draft_review', input_sha256: HASHES.input }),
+        (current) =>
+          reviewResultEvent(current, 'review_transport_failure', 'draft_review', {
+            result_sha256: HASHES.failure,
+          }),
+        () => ({ type: 'reserve_review', phase: 'draft_review', input_sha256: HASHES.input2 }),
+        (current) => reviewResultEvent(current, 'review_repair', 'draft_review'),
+        () => ({ type: 'reserve_review', phase: 'draft_review', input_sha256: HASHES.input3 }),
+        (current) => reviewResultEvent(current, 'review_passed', 'draft_review'),
+      ];
+      let state = { status: 'drafting', run: planRun() };
+      let fixture = bindPlan(api, state);
+      fs.writeFileSync(file, fixture.bytes);
+
+      for (const event of events) {
+        const nextState = reduce(api, state, event(state));
+        const nextFixture = bindPlan(api, nextState);
+        await api.transactPlanRun({
+          file,
+          identity,
+          expectedBytesSha256: api.sha256(fixture.bytes),
+          nextBytes: nextFixture.bytes,
+        });
+        state = nextState;
+        fixture = nextFixture;
+      }
+
+      const validated = api.validatePlanRun(fs.readFileSync(file), identity);
+      assert.equal(validated.run.draft_review.state, 'passed');
+      assert.equal(validated.run.draft_review.invocations, 2);
+    }),
+  );
+
+  suite.test('mutations', 'persisted terminal transport result cannot refund a permit', () =>
+    withTempDirectory('plan-run-mutation-terminal-refund-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const current = bindPlan(
+        api,
+        tuple('drafting', {
+          draft_review: reviewPhase('transport_retried', { invocations: 2 }),
+        }),
+      );
+      const next = bindPlan(
+        api,
+        tuple('drafting', {
+          draft_review: reviewPhase('degraded', {
+            input_sha256: HASHES.input2,
+            invocations: 1,
+          }),
+        }),
+      );
+      fs.writeFileSync(file, current.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity: { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run },
+            expectedBytesSha256: api.sha256(current.bytes),
+            nextBytes: next.bytes,
+          }),
+        /invocation|refund|transition/i,
+      );
+      assert.deepEqual(fs.readFileSync(file), current.bytes);
+    }),
+  );
+
+  suite.test('mutations', 'terminal verdict cannot reopen after a refunded transport failure', () => {
     let state = { status: 'drafting', run: planRun() };
     state = reduce(api, state, {
       type: 'reserve_review',

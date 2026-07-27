@@ -92,8 +92,12 @@ exact successor PlanRun, keeps the stable `plan_path`, appends validated
 `Plan-attempt-history`, and installs a fresh `run_id`; it never creates
 `v2`/`vN` files or resets predecessor permits. PlanRunV1 binds
 repository/path/run identity, cross-repository goal, effects/risk, commits,
-hashes, and budgets.
-Cold reserved state blocks without redispatch; local completion is not required.
+hashes, and budgets. Review budgets are ≤2 substantive review permits per phase,
+distinct from transport retries: a first transport-only failure refunds its
+reservation and allows one fresh `transport_retried` dispatch; a second
+transport failure degrades only local draft work and otherwise blocks. Cold
+`reserved` or `transport_retried` state blocks without redispatch; local
+completion is not required.
 
 Every mutation uses an exclusive preimage-checked per-plan transaction and
 read-back. Checkpoint commits additionally lock the repository and verify HEAD,
