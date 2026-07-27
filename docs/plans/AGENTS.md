@@ -425,3 +425,12 @@ observed acceptance bindings. Never claim a wrapper ran
 merely because its file exists,
 claim review passed from reservation, translate stale output into state, or
 translate persisted intent into external authority.
+
+The `plan-manager` and `plan-reviewer` skill bodies are asserted verbatim by
+`scripts/tests/plan-skill-phases.mjs --case bounded-workflows`, which pins both
+the phase/commit tables and specific normative sentences — including the
+transactional reserve-before-launch invariant and the transport-refund
+semantics. Rewording those paragraphs fails that case by design. Update the
+assertion in the same change, keeping it a positive statement of the new
+contract rather than relaxing it to match whatever prose now exists, and prove
+it still bites by reverting the sentence and observing the named failure.
