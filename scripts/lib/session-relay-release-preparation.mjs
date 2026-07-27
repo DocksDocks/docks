@@ -1997,7 +1997,7 @@ function runCheck(deps, id, specifications) {
   };
 }
 
-function acceptanceSpecifications(publicRef, publicCommit) {
+export function acceptanceSpecifications(publicRef, publicCommit) {
   return [
     [{ executable: 'node', args: ['plugins/session-relay/test/release-evidence-contract.mjs'] }],
     [{ executable: 'node', args: ['plugins/session-relay/test/release-publication-contract.mjs'] }],
@@ -2022,6 +2022,7 @@ function acceptanceSpecifications(publicRef, publicCommit) {
       {
         executable: 'cargo',
         args: ['+1.85.0', 'build', '--manifest-path', 'plugins/session-relay/rust/Cargo.toml', '--release', '--locked'],
+        options: { env: { CARGO_TARGET_DIR: undefined } },
       },
       {
         executable: 'sh',

@@ -33,6 +33,42 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { rustReleaseAssetNames } from './rust-bin.mjs';
 
+export function resolveBuiltBinary({ source, binName, env, repo }) {
+  const cargoTargetDir = env.CARGO_TARGET_DIR;
+  return typeof cargoTargetDir === 'string' && cargoTargetDir.length > 0
+    ? path.resolve(repo, cargoTargetDir, 'release', binName)
+    : path.resolve(repo, source.builtBinary);
+}
+
+// The private copy exists so a concurrent rebuild cannot swap the bytes out from
+// under validation. It is scratch, so it must not outlive the run that made it:
+// without this sweep every gate invocation would strand a `.docks-ci-binary-*`
+// directory inside `target/release/` forever.
+const privateBinaryDirs = new Set();
+let privateBinarySweepArmed = false;
+
+export function privatizeBuiltBinary({ binary, dir }) {
+  const privateDir = fs.mkdtempSync(path.join(path.resolve(dir), '.docks-ci-binary-'));
+  privateBinaryDirs.add(privateDir);
+  if (!privateBinarySweepArmed) {
+    privateBinarySweepArmed = true;
+    process.on('exit', () => {
+      for (const created of privateBinaryDirs) {
+        try {
+          fs.rmSync(created, { force: true, recursive: true });
+        } catch {
+          // Best effort: a swept-away or read-only scratch dir must never fail the gate.
+        }
+      }
+    });
+  }
+  const privateBinary = path.join(privateDir, path.basename(binary));
+  const mode = fs.statSync(binary).mode & 0o777;
+  fs.copyFileSync(binary, privateBinary, fs.constants.COPYFILE_EXCL);
+  fs.chmodSync(privateBinary, mode);
+  return privateBinary;
+}
+
 const SESSION_RELAY_PREBUILT = Object.freeze({
   targets: Object.freeze([
     'x86_64-unknown-linux-musl',
@@ -96,6 +132,10 @@ export const PLUGINS = [
       {
         path: 'plugins/session-relay/test/rust-test-inventory.mjs',
         args: ['--case', 'fanout'],
+      },
+      {
+        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
+        args: ['--case', 'fanout_reap'],
       },
       {
         path: 'plugins/session-relay/test/rust-test-inventory.mjs',

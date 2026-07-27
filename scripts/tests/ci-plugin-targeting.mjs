@@ -256,6 +256,8 @@ function testFocusedCiCommandSelection() {
   fs.writeFileSync(callLog, '', { mode: 0o600 });
 
   const probeEnv = { ...process.env };
+  // This probe stubs the descriptor binary; an inherited target dir would make gateRust look elsewhere.
+  delete probeEnv.CARGO_TARGET_DIR;
   delete probeEnv.GITHUB_ACTIONS;
   delete probeEnv.SESSION_RELAY_TEST_CGROUP_ROOT;
   const run = (ciArgs) => {

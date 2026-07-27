@@ -139,6 +139,7 @@ CI caches pnpm data by `pnpm-lock.yaml` and restores Cargo dependencies/build ou
 - Don't loosen validator floors to pass; fix the file instead
 - Manifest version numbers stay in lockstep across `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and the versioned Claude marketplace catalog — `ci.mjs`'s per-plugin gate and `release.mjs` both enforce this (verify: bump one manifest's version alone → `node scripts/ci.mjs --plugin <name>` must fail on the disagreement; revert)
 - Skill bodies stay ≤500 lines per agentskills.io spec; sweet spot 80–310
+- Agent scratch worktrees live under `$XDG_DATA_HOME/agent-worktrees/<repo>/<slug>` (default `~/.local/share/agent-worktrees/…`) — never as a sibling of the repository, and never under `/tmp` or `/var/tmp`, which are tmpfs on some hosts (a worktree there is a RAM claim, and `systemd-tmpfiles` ages out individual files, silently corrupting the checkout). Teardown is `git worktree remove` followed by `git worktree prune`; removing the directory by hand leaves an orphan admin record. The artifact set to delete before teardown is stack-dependent — `target/`, `node_modules/`, `dist/`, `.next/`, `__pycache__`, `.venv` — not a fixed `cargo clean`, because a worktree's reclaimable bytes are almost entirely build output. This rule binds agents working in **this** repository; cross-repository coverage requires your runtime's user-global agent file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.omp/agent/AGENTS.md`), each of which is outside every repository and therefore a user action.
 
 ## Security
 

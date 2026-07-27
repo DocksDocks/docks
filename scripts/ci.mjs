@@ -26,6 +26,8 @@ import {
   marketEntryVersion,
   PLUGINS,
   presentPlugins,
+  privatizeBuiltBinary,
+  resolveBuiltBinary,
   shellHooks,
 } from './lib/plugins.mjs';
 import { findCargo } from './lib/rust-bin.mjs';
@@ -518,7 +520,7 @@ function gatePlugin(p) {
 // source. Published target binaries are produced only by the release workflow;
 // local CI never reads or writes plugin bin/ assets or SHA256SUMS.
 function gateRust(p) {
-  const { dir, source } = p.rust;
+  const { binName, dir, source } = p.rust;
   const cargo = findCargo();
   if (!cargo) {
     fail(`${p.name}: cargo not found — Rust source build is required`);
@@ -540,16 +542,17 @@ function gateRust(p) {
     return null;
   }
 
-  const built = path.resolve(REPO, source.builtBinary);
+  const built = resolveBuiltBinary({ source, binName, env: process.env, repo: REPO });
   try {
     if (!fs.statSync(built).isFile()) throw new Error('not a regular file');
     fs.accessSync(built, fs.constants.X_OK);
   } catch {
-    fail(`${p.name} host build did not produce executable ${source.builtBinary}`);
+    fail(`${p.name} host build did not produce executable ${built}`);
     return null;
   }
-  ok(`${p.name} source-built host executable ready --release --locked → ${source.builtBinary}`);
-  return built;
+  const privateBinary = privatizeBuiltBinary({ binary: built, dir: path.dirname(built) });
+  ok(`${p.name} source-built host executable ready --release --locked: source ${built} → private ${privateBinary}`);
+  return privateBinary;
 }
 
 function gateSkills(p, manifest) {
