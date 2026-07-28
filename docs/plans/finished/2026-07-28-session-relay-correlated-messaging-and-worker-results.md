@@ -322,3 +322,14 @@ Caught and fixed during self-review:
 ## Notes
 
 This plan is intentionally independent of the blocked Session Relay prebuilt-source completion series. It may be reviewed and refined while that plan is blocked, but implementation and release must use their own reviewed lifecycle and must not be folded into the prebuilt-source plan or its immutable evidence.
+
+## Retirement
+
+Retired 2026-07-28 at the repository owner's explicit instruction, under the
+retirement path documented in `docs/plans/AGENTS.md`.
+
+The goal is abandoned, not completed. The legacy review evidence below stays
+`legacy-quarantined` (unsettled legacy receipt family) and is preserved byte for byte: frontmatter
+status, every record line, and the classification are unchanged by this move.
+No record was rewritten, no status was flipped, and nothing here grants
+authority to resume, repair, or migrate this plan.

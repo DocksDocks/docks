@@ -15,7 +15,21 @@ import { IDS, PLAN_PATH, planRun, REPOSITORY_ID, reviewPhase, SOURCE_BASE } from
 import { expectThrow } from './harness.mjs';
 
 const SETTLED_PLAN = 'docs/plans/finished/2026-07-17-single-gpt-plan-review-default.md';
-const CROSSED_PLAN = 'docs/plans/active/session-relay-linux-workspace-publication.md';
+const CROSSED_PLAN_SLUG = 'session-relay-linux-workspace-publication';
+
+// The crossed publication plan was retired out of `active/` under the quarantine
+// retirement path, so both locations are legitimate. Resolve it wherever it lives
+// rather than pinning one, and require exactly one match so a duplicate archive
+// cannot silently change which bytes this case asserts on.
+function crossedPlanPath(root) {
+  const active = `docs/plans/active/${CROSSED_PLAN_SLUG}.md`;
+  if (fs.existsSync(path.join(root, active))) return active;
+  const finished = fs
+    .readdirSync(path.join(root, 'docs/plans/finished'))
+    .filter((name) => new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${CROSSED_PLAN_SLUG}\\.md$`).test(name));
+  assert.equal(finished.length, 1, `exactly one crossed ${CROSSED_PLAN_SLUG} plan must be resolvable`);
+  return path.join('docs/plans/finished', finished[0]);
+}
 
 function classification(api, bytes) {
   return api.classifyLegacyPlan(bytes).classification;
@@ -114,7 +128,7 @@ export function registerLegacyQuarantine(suite, api, { root }) {
   });
 
   suite.test('legacy-quarantine', 'the named crossed Session Relay publication plan is quarantined read-only', () => {
-    const bytes = fs.readFileSync(path.join(root, CROSSED_PLAN));
+    const bytes = fs.readFileSync(path.join(root, crossedPlanPath(root)));
     const before = Buffer.from(bytes);
     const result = api.classifyLegacyPlan(bytes);
     assert.equal(result.classification, 'legacy-quarantined');

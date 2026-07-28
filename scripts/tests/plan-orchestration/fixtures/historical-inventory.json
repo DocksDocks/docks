@@ -139,34 +139,88 @@
       "Review-orchestration-controller-abort",
       "Review-orchestration-abandonment"
     ],
-    "known_quarantined": ["docs/plans/active/session-relay-linux-workspace-publication.md"],
+    "known_quarantined": ["docs/plans/finished/2026-07-28-session-relay-linux-workspace-publication.md"],
     "expected_outcomes": [
-      { "path": "docs/plans/active/plan-review-controller-failure-recovery.md", "outcome": "pass" },
-      { "path": "docs/plans/active/plan-workflow-phases-and-loop-escape.md", "outcome": "pass" },
-      { "path": "docs/plans/active/session-relay-correlated-messaging-and-worker-results.md", "outcome": "pass" },
       {
-        "path": "docs/plans/active/session-relay-linux-workspace-publication.md",
-        "outcome": "pass",
-        "quarantine": "legacy-quarantined"
+        "path": "docs/plans/active/session-relay-linux-workspace-release.md",
+        "outcome": "pass"
       },
-      { "path": "docs/plans/active/session-relay-linux-workspace-release.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-12-cross-company-review-policy.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-14-legacy-start-transition-compatibility.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-14-relay-worker-lifecycle-primitives-legacy.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-15-refactor-session-relay-rust.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-15-relay-worker-fanout.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-15-workflow-model-roles-and-bounded-reviews.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-17-completion-reuse-terminal-lf.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-17-single-gpt-plan-review-default.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-18-target-plugin-ci-and-release-gates.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-19-session-relay-prebuilt-cli-release.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-22-session-relay-workspace-isolation.md", "outcome": "pass" },
-      { "path": "docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md", "outcome": "pass" },
+      {
+        "path": "docs/plans/finished/2026-07-12-cross-company-review-policy.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-14-legacy-start-transition-compatibility.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-14-relay-worker-lifecycle-primitives-legacy.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-15-refactor-session-relay-rust.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-15-relay-worker-fanout.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-15-workflow-model-roles-and-bounded-reviews.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-16-plan-review-convergence-and-improver.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-17-completion-reuse-terminal-lf.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-17-single-gpt-plan-review-default.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-18-session-relay-prebuilt-cli-distribution.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-18-target-plugin-ci-and-release-gates.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-19-session-relay-prebuilt-cli-release.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-22-session-relay-workspace-isolation.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md",
+        "outcome": "pass"
+      },
       {
         "path": "docs/plans/finished/2026-07-26-session-relay-correlated-results-release-remediation-v9.md",
         "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-28-plan-review-controller-failure-recovery.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-28-plan-workflow-phases-and-loop-escape.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-28-session-relay-correlated-messaging-and-worker-results.md",
+        "outcome": "pass"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-28-session-relay-linux-workspace-publication.md",
+        "outcome": "pass",
+        "quarantine": "legacy-quarantined"
       }
     ]
   },

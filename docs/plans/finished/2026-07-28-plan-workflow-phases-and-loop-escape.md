@@ -698,3 +698,14 @@ acceptance. There are no open questions and no N/A checklist shortcuts.
   maximum iterations and blocker checkpoints; the exact two-attempt rule and
   substantive-input fingerprint are Docks decisions, not vendor-prescribed
   values.
+
+## Retirement
+
+Retired 2026-07-28 at the repository owner's explicit instruction, under the
+retirement path documented in `docs/plans/AGENTS.md`.
+
+The goal is abandoned, not completed. The legacy review evidence below stays
+`legacy-quarantined` (unsettled legacy receipt family) and is preserved byte for byte: frontmatter
+status, every record line, and the classification are unchanged by this move.
+No record was rewritten, no status was flipped, and nothing here grants
+authority to resume, repair, or migrate this plan.
