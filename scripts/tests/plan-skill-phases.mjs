@@ -188,10 +188,64 @@ function assertQuarantineRetirementRule() {
   }
 }
 
+// Pure function on purpose. `docs/plans/active/` is often empty, so a walk-only
+// check would pass no matter what it did — the vacuous shape completion review
+// caught as F1. The cases below exercise it directly.
+function machinePathCitations(planText) {
+  return (
+    planText
+      .split('\n')
+      // Frozen evidence is exempt. A machine record is `Key: {json}`; a `cwd` or path
+      // captured inside one is immutable history and must never be rewritten.
+      .filter((line) => !/^[A-Z][A-Za-z0-9-]*: *\{/.test(line))
+      .filter((line) => /\/home\/[a-z]|\/Users\/[A-Za-z]/.test(line))
+  );
+}
+
+function assertPortablePlanTextRule() {
+  const clauses = [
+    'portable repository identifier',
+    'never a local filesystem path',
+    'acceptance rows run from the repository root',
+    "names the other repository's id",
+    'never rewrite a `cwd`',
+  ];
+  for (const relative of [
+    'docs/plans/AGENTS.md',
+    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+  ]) {
+    const text = fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\s+/g, ' ');
+    for (const clause of clauses) {
+      assert.ok(text.includes(clause), `${relative} is missing the portable-plan-text clause: ${clause}`);
+    }
+  }
+
+  // Positive: prose that tells another agent to cd into this machine's checkout.
+  const offending = '| A1 | `cd /home/vagrant/projects/docks && node scripts/ci.mjs` | Exit 0 |';
+  assert.equal(machinePathCitations(offending).length, 1, 'an absolute machine path in plan prose must be reported');
+  // Exempt: the same path captured inside frozen record bytes.
+  const frozen = 'Review-receipt: {"command":{"cwd":"/home/vagrant/projects/docks"},"schema":6}';
+  assert.equal(
+    machinePathCitations(frozen).length,
+    0,
+    'a machine path inside a frozen machine record must stay exempt',
+  );
+
+  // Regression over whatever is actually in flight.
+  const activeDir = path.join(ROOT, 'docs/plans/active');
+  for (const name of fs.readdirSync(activeDir).filter((n) => n.endsWith('.md'))) {
+    const relative = `docs/plans/active/${name}`;
+    const hits = machinePathCitations(fs.readFileSync(path.join(activeDir, name), 'utf8'));
+    assert.equal(hits.length, 0, `${relative} cites a machine path in plan text: ${hits[0]}`);
+  }
+}
+
 parseArgs(process.argv.slice(2));
 assertLiveTopology();
 assertReviewerWrappersOnly();
 assertBoundedWorkflows();
 assertAcceptanceProofRule();
 assertQuarantineRetirementRule();
+assertPortablePlanTextRule();
 console.log('three-skill, one-wrapper bounded plan workflows passed');

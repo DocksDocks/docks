@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-28"
-  content_hash: "d34ffecb83f10b6f09d562be8980301ce377df7998becd3ad48774bd6df1248d"
+  content_hash: "9bbc87006426cf5c0abb9554143db65f45e1fe08a4428a523af14438a5bc7cf0"
 ---
 
 # Plan Manager
@@ -69,6 +69,14 @@ skipped`. Frontmatter status is `drafting | planned | scheduled | ongoing |
 blocked | finished`. The body is a cold handoff with executable acceptance,
 protected scope, stop conditions, open decisions, `## Review`, and manager-owned
 `## Verification Results`.
+
+Plan text must be portable: a cold reader may hold this repository at a different
+path. `repository_id` is a portable repository identifier such as
+`DocksDocks/docks`, never a local filesystem path. Cite repository-relative paths
+only; acceptance rows run from the repository root and carry no `cd <absolute
+path>` prefix. A cross-repository reference names the other repository's id, not a
+local checkout. Recorded evidence is exempt and frozen: never rewrite a `cwd` or
+path already captured inside a receipt.
 
 ## PlanRunV1
 

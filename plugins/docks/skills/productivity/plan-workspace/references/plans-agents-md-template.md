@@ -104,6 +104,14 @@ skipped`. Every row names exact paths and an observable done condition.
 Acceptance uses ordered unique ids in an `ID | Command | Expected` table. Plans
 must not contain `TBD`, `TODO`, vague follow-ups, or undefined forward references.
 
+Plan text must be portable: a cold reader may hold this repository at a different
+path. `repository_id` is a portable repository identifier such as
+`DocksDocks/docks`, never a local filesystem path. Cite repository-relative paths
+only; acceptance rows run from the repository root and carry no `cd <absolute
+path>` prefix. A cross-repository reference names the other repository's id, not a
+local checkout. Recorded evidence is exempt and frozen: never rewrite a `cwd` or
+path already captured inside a receipt.
+
 ## Current record
 
 ```text
