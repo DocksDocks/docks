@@ -142,10 +142,6 @@
     "known_quarantined": ["docs/plans/finished/2026-07-28-session-relay-linux-workspace-publication.md"],
     "expected_outcomes": [
       {
-        "path": "docs/plans/active/session-relay-linux-workspace-release.md",
-        "outcome": "pass"
-      },
-      {
         "path": "docs/plans/finished/2026-07-12-cross-company-review-policy.md",
         "outcome": "pass"
       },
@@ -221,6 +217,10 @@
         "path": "docs/plans/finished/2026-07-28-session-relay-linux-workspace-publication.md",
         "outcome": "pass",
         "quarantine": "legacy-quarantined"
+      },
+      {
+        "path": "docs/plans/finished/2026-07-28-session-relay-linux-workspace-release.md",
+        "outcome": "pass"
       }
     ]
   },
