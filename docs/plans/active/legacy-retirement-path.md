@@ -1,10 +1,10 @@
 ---
 title: Add a legal retirement path for quarantined legacy plans
 goal: Give quarantined legacy evidence one documented terminal exit that archives the file without rewriting its record or relabelling its classification, so abandoned goals leave active without laundering.
-status: planned
+status: ongoing
 created: "2026-07-28T04:05:00-03:00"
-updated: "2026-07-28T04:03:25-03:00"
-started_at: null
+updated: "2026-07-28T10:04:26-03:00"
+started_at: "2026-07-28T10:04:26-03:00"
 finished_at: null
 blocked_since: null
 blocked_reason: null
@@ -166,6 +166,6 @@ alternatives and the measured reason for the status-preserving constraint.
 
 Pending.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"899663549d3465d9ec3a1cfea9c9b40786dc349374c7e802fd25856adcd58409","invocations":1,"result_sha256":"4be0fe8bad8286e95e96e2702c0de941e486d0ba3ca12ee2a5689366f5ee713f","state":"passed"},"execution_parent":null,"goal_id":"0f1b065f-3fad-4722-8355-6d5574f1eb18","implementation_commit":null,"plan_path":"docs/plans/active/legacy-retirement-path.md","plan_sha256":"3934b8dc29b6c08dc36678a9d480c90af74c9cbfe1ec31ad6dcbc6e773f81957","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"7868ec5a-41c5-4124-ba1b-48aa6dc261bc","schema":1,"source_base":"4d6d854cc305d4a789d4ad44bc7d76793c7a9ee0","source_sha256":"2c85b162b9e21331da9c60fd8c4e4008ede330fb4275e55c8ee7a6012f1f7378"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"899663549d3465d9ec3a1cfea9c9b40786dc349374c7e802fd25856adcd58409","invocations":1,"result_sha256":"4be0fe8bad8286e95e96e2702c0de941e486d0ba3ca12ee2a5689366f5ee713f","state":"passed"},"execution_parent":"0ee63477122df83d6e928415cd2f52849e197d14","goal_id":"0f1b065f-3fad-4722-8355-6d5574f1eb18","implementation_commit":null,"plan_path":"docs/plans/active/legacy-retirement-path.md","plan_sha256":"3934b8dc29b6c08dc36678a9d480c90af74c9cbfe1ec31ad6dcbc6e773f81957","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"7868ec5a-41c5-4124-ba1b-48aa6dc261bc","schema":1,"source_base":"4d6d854cc305d4a789d4ad44bc7d76793c7a9ee0","source_sha256":"2c85b162b9e21331da9c60fd8c4e4008ede330fb4275e55c8ee7a6012f1f7378"}
 
 ## Verification Results
