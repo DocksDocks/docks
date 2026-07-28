@@ -1,11 +1,11 @@
 ---
 title: Establish agent worktree lifecycle strategy
 goal: Verify at a bound base that the worktree lifecycle work already landed under the predecessor run, record the observed evidence, and archive without re-ordering changes the tree contains.
-status: ongoing
+status: finished
 created: "2026-07-27T10:12:21-03:00"
-updated: "2026-07-28T03:48:20-03:00"
+updated: "2026-07-28T12:24:42-03:00"
 started_at: "2026-07-28T03:48:20-03:00"
-finished_at: null
+finished_at: "2026-07-28T12:24:42-03:00"
 blocked_since: null
 blocked_reason: null
 assignee: null
@@ -195,6 +195,34 @@ Plan-attempt-history: {"authorization_source_sha256":"54bdcb9a2ecc6a76847d63aee7
 Plan-attempt-history: {"authorization_source_sha256":"0eee9d1a56c01fcb496d87aa0b2c57eb802c2009381e9d86ef3c5d2f6a070f88","plan_bytes_sha256":"2441b80837aab76c3c029cd61e2e5a1a73677ff80cd826e549d8cfc6c89e07c6","replacement_run_id":"80044613-f381-4986-a3f0-25dff7b36f2a","run":{"acceptance":{"source_sha256":"4240db802968d02cbd8b5c2472211d2a4a4885597aaeb775565694f439450bcc","verification_sha256":"42be89b6611af7cd97370c614ccde436ced0c7f9cdf7553826889efaa85dcd5f"},"blocker":{"evidence_sha256":"d7b4d36e78a9aa043e5c4e18bbe60716c063db4e60fe9f3c565c92456a79619d","kind":"review_failed"},"completion_review":{"input_sha256":"9f041f353c5f6ec0c854c4b586a436844b1da5ad277b2c306b0385093dcf1bf4","invocations":2,"result_sha256":"d7b4d36e78a9aa043e5c4e18bbe60716c063db4e60fe9f3c565c92456a79619d","state":"blocked"},"draft_review":{"input_sha256":"5784f0e697bd5fdb555a20da55f263de03aa33592a001449f1aed4efc2b50186","invocations":2,"result_sha256":"1e0dcc67d288cbcdb264b723ac14f67420b23bf51e543ff91e8cf7355ee27363","state":"passed"},"execution_parent":"89405d04982b3fcf049087ec0fbd1310b45b518e","goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":"590c15233b8ebc4771dbcf88284dcfd45e4db199","plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"1ced01916e7ade4a601c32395ee8caf0df9977e056735e4a00060763d477a29a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b02aa569-a19c-41e7-b880-dea5b748b626","schema":1,"source_base":"14a75c5cf0da03ddb73edb652042a6ac765cffbc","source_sha256":"f546d08ed8fcd254410419b5fcb2133a264c3cf5456618721d78e489ad60d024"},"schema":1,"status":"blocked","successor_run_sha256":"205a4029dcb6fc62b02e9ab20a7f7f2fe8d3c90449f9fd3c3257f1567aa7a3dc"}
 
 Plan-attempt-history: {"authorization_source_sha256":"c152aa6a93cc4d0f5044af23d19407d7cdef12899d0d1d088eb5e8596f1cf866","plan_bytes_sha256":"007ca9c1d2fdaaeaf3fe8621d2b1c48e0afce43acae0de77cc820a4f083f97b4","replacement_run_id":"f0e233cc-228a-4594-b2e5-e48f5b077094","run":{"acceptance":null,"blocker":{"evidence_sha256":"28aa44fc35be05e52c0d4396a7fe9625fdc77092accc40c652d97c4616399fcc","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"030d31527bd6d272ddfb15b0dc11726d6c8f8a3ad84d53689a4b9ef4bbeb6184","invocations":2,"result_sha256":"28aa44fc35be05e52c0d4396a7fe9625fdc77092accc40c652d97c4616399fcc","state":"blocked"},"execution_parent":null,"goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"e78bbb3f9b5715be49d7b69a07637a2a5b1ad6171cbe1904de0d7d6199728cd7","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"80044613-f381-4986-a3f0-25dff7b36f2a","schema":1,"source_base":"d58a061b5d47fa10758390a78f48f4c0ca81e86f","source_sha256":"ddb62205a48da67164359382b8c7fad69c8d0c069c8297a1d49cb28e90717764"},"schema":1,"status":"blocked","successor_run_sha256":"0373f545f3ae1925785daca83a1677026020a906d54d04d866a48b065396f7b4"}
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_required"},"draft_review":{"input_sha256":"d0e496ee988e4e13a5c3aa63031cfd97922c850ca1a68537bcfbb13db989970e","invocations":1,"result_sha256":"fb941c2578ee31f1a5f5be9714ae74789e68ea9eeef10032609147921f01fc00","state":"passed"},"execution_parent":"23fc146c80e91ce9b898f94ac1546d18416b8f9d","goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"a60899ebfa7f2288976c0606dcb989e8d6af4c49a1b781e6f7b1544c39035b17","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"local","run_id":"f0e233cc-228a-4594-b2e5-e48f5b077094","schema":1,"source_base":"23fc146c80e91ce9b898f94ac1546d18416b8f9d","source_sha256":"e6c323805a53f30a1eee2c5c2afed50b57843d2af43c38fbe6b911d9ce76a00f"}
+Plan-run: {"acceptance":{"source_sha256":"71de806868e949c2fa168d445319e899beffea2998ba3369b73ce23014e35c9d","verification_sha256":"74c98fb79eaf2444c61b7cb9aaae44f21893fd73dad29ce78853256298254b57"},"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_required"},"draft_review":{"input_sha256":"d0e496ee988e4e13a5c3aa63031cfd97922c850ca1a68537bcfbb13db989970e","invocations":1,"result_sha256":"fb941c2578ee31f1a5f5be9714ae74789e68ea9eeef10032609147921f01fc00","state":"passed"},"execution_parent":"23fc146c80e91ce9b898f94ac1546d18416b8f9d","goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"a60899ebfa7f2288976c0606dcb989e8d6af4c49a1b781e6f7b1544c39035b17","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"local","run_id":"f0e233cc-228a-4594-b2e5-e48f5b077094","schema":1,"source_base":"23fc146c80e91ce9b898f94ac1546d18416b8f9d","source_sha256":"e6c323805a53f30a1eee2c5c2afed50b57843d2af43c38fbe6b911d9ce76a00f"}
 
 ## Verification Results
+
+| ID | Command | Observed |
+|---|---|---|
+| A1 | Cold `CARGO_TARGET_DIR` under `/var/tmp`, then `node scripts/ci.mjs --plugin session-relay` | Exit 0 — matched `source-built host executable ready`. Full line: `session-relay source-built host executable ready --release --locked: source /var/tmp/tmp.4Nsmsa0PcP/release/relay → private /var/tmp/tmp.4Nsmsa0PcP/release/.docks-ci-binary-Z0p5C7/relay`. `/var/tmp` is ext4, not tmpfs, so the cold build was disk-backed; it measured 764 MB and was torn down, leaving free space unchanged at 18G |
+| A2 | `node --test --test-reporter=tap scripts/tests/unit/cargo-target-dir.test.mjs` | Exit 0 — `# pass 6`, `# fail 0`. Observed at the start checkpoint `4d6d854` and persisted to `review-bundle/worktree-successor-step1-evidence.txt` |
+| A3 | `cargo test --test fanout_reap --locked` | Exit 0 — `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
+| A4 | `node scripts/ci.mjs --plugin session-relay` | Exit 0 — `All ci.mjs checks passed — plugin 'session-relay'; safe to release.` |
+| A5 | Three `grep` probes of `AGENTS.md` | Exit 0 — `OK`; the worktree location, the `git worktree prune` teardown command, and the stack-dependent artifact guidance are all present. Observed at `4d6d854` and persisted |
+| A6 | `node scripts/ci.mjs` | Exit 0 — `All ci.mjs checks passed — 3 plugin(s) + repo-wide; safe to release.` |
+
+This run implemented nothing and its diff is empty by design: the worktree-hygiene
+end states already existed under the predecessor run, whose `implementation_commit`
+`590c1523` is recorded in `Plan-attempt-history`. `validateTuple:648-650` lets a
+local plan reach `finished` without an `implementation_commit`, which is what makes
+a zero-diff verification run a legal finished shape.
+
+The cargo-backed rows were observed at `3c92731`, seven commits after the
+plan's bound base `23fc146`. That is not a drift: all 14 declared
+`affected_paths` are byte-identical between the two commits, verified by
+`git diff --name-only` before this checkpoint, so every declared subject is the
+same bytes the plan reviewed. The intervening commits touched other Session Relay
+test files, which the gate exercises but this plan does not declare.
+
+A1, A3, A4 and A6 were run strictly one at a time on an idle host with nothing else
+building, per the plan's own STOP guidance: this host has locked up under
+concurrent build load before. A1 additionally tears down its temporary target
+directory, which the row itself does not do - leaving multiple gigabytes behind on
+a disk-hygiene plan would contradict the goal.
