@@ -1,11 +1,11 @@
 ---
 title: Repo-key the fan-out worktree layout without a record schema change
 goal: Give fan-out worktrees a portable repo-keyed path and shorten only the fan-out worktree sweep to one day, keeping every existing flat worktree reapable and the FanoutRecord accepted key set unchanged.
-status: ongoing
+status: finished
 created: "2026-07-28T12:10:00-03:00"
-updated: "2026-07-28T17:34:13-03:00"
+updated: "2026-07-28T18:40:51-03:00"
 started_at: "2026-07-28T17:34:13-03:00"
-finished_at: null
+finished_at: "2026-07-28T18:40:51-03:00"
 blocked_since: null
 blocked_reason: null
 assignee: null
@@ -322,8 +322,100 @@ before drafting. The rejected alternative — adding a `repo_key` field and a fo
 Pending.
 
 Plan-attempt-history: {"authorization_source_sha256":"70d3144989e996dcd695c2ff5005a65413ec6ace75c91dcc08a7dfb032eba1e8","plan_bytes_sha256":"b1199ab13f01a1e1cf572671487127e702ea604fc61830d6857ef57e746b2d85","replacement_run_id":"3082c785-e6b0-488d-93e6-851de2a9bcae","run":{"acceptance":null,"blocker":{"evidence_sha256":"37b393672e30730dbf51e36f92029e7312df08e1bdd99c42a19a8aaf9293af64","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"ee1489822cb633a61f6f6d858d26693eef0c54f652e83cae04cea8a761ac0b3c","invocations":2,"result_sha256":"37b393672e30730dbf51e36f92029e7312df08e1bdd99c42a19a8aaf9293af64","state":"blocked"},"execution_parent":null,"goal_id":"6d682812-3fc7-4ddf-bd9a-f0539e5b22bb","implementation_commit":null,"plan_path":"docs/plans/active/relay-worktree-portable-layout.md","plan_sha256":"cf64c953da06c2d6c8b8d74d4126985dc365794da3da47b108ad16508283c3dc","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"d756fc6e-e272-4362-ae98-0a2b7aff6dda","schema":1,"source_base":"07229eaf498c53267ef982e52ca035d7c14dca5c","source_sha256":"c3cdceae616f18fc5a076666ec81c833201b7c640f6c695897e4f659d4e8ee56"},"schema":1,"status":"blocked","successor_run_sha256":"8259209db03c38e2abab050d86d5d6413890a7bdd392ee5ebf0e8cfb9e520fb3"}
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"3d30d8348b448ba75ab71f77bcb87b74caae8c4e4b9171503cb952e631f4a908","invocations":2,"result_sha256":"daf04c472cb805ae16487b02a4cd51aed9cff5f7f1f931008ba4d67e513aa9cc","state":"passed"},"execution_parent":"3ebf1e9703ad56649965b98d37698a5bf52afd90","goal_id":"6d682812-3fc7-4ddf-bd9a-f0539e5b22bb","implementation_commit":null,"plan_path":"docs/plans/active/relay-worktree-portable-layout.md","plan_sha256":"7b8fb6df4791987aafdad69d703b98327252f64d201dbf2b038a002e17a43bb1","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"3082c785-e6b0-488d-93e6-851de2a9bcae","schema":1,"source_base":"9659e831eabb45cddcc83d1c7ebe26145ace768b","source_sha256":"0aef1f40fbc99da8c3d412c546d9d852e4f98ccdcc77474fa07e82963f0f7f85"}
+Plan-run: {"acceptance":{"source_sha256":"f5d240bb9baf31db341fe3c92de2a9321942af81b280dff9d15c25f1afb83ce3","verification_sha256":"a578ea653f1eb32b5be5e688adf15966d39705618393b65c54a155a279924164"},"blocker":null,"completion_review":{"input_sha256":"86daf182c3a103e37209c7d4014e18bef94b600d3cb8767743f3742988c80e30","invocations":1,"result_sha256":"d2cd85953002fe1e78f028de0e1f8a7cf3dd669559c666e0df6de571942b8e02","state":"passed"},"draft_review":{"input_sha256":"3d30d8348b448ba75ab71f77bcb87b74caae8c4e4b9171503cb952e631f4a908","invocations":2,"result_sha256":"daf04c472cb805ae16487b02a4cd51aed9cff5f7f1f931008ba4d67e513aa9cc","state":"passed"},"execution_parent":"3ebf1e9703ad56649965b98d37698a5bf52afd90","goal_id":"6d682812-3fc7-4ddf-bd9a-f0539e5b22bb","implementation_commit":"5dfd7704ed83736dc72588762fad486bb80c6a88","plan_path":"docs/plans/active/relay-worktree-portable-layout.md","plan_sha256":"7b8fb6df4791987aafdad69d703b98327252f64d201dbf2b038a002e17a43bb1","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"3082c785-e6b0-488d-93e6-851de2a9bcae","schema":1,"source_base":"9659e831eabb45cddcc83d1c7ebe26145ace768b","source_sha256":"0aef1f40fbc99da8c3d412c546d9d852e4f98ccdcc77474fa07e82963f0f7f85"}
 
 ## Verification Results
 
-Pending.
+All thirteen acceptance rows were observed and all sixteen mutation probes were
+executed, satisfying STOP condition 2. Implementation checkpoint `5dfd7704`;
+`node scripts/ci.mjs --plugin session-relay` reports "All ci.mjs checks passed —
+plugin 'session-relay'; safe to release."
+
+**Baseline, captured on a clean tree at `3ebf1e9` before any edit.** `--test fanout`
+32 passed, `--test fanout_reap` 6 passed, `workspace_coordination_process` green
+through the harness including acceptance `A21`, both inventory fixtures passing, 372
+census rows. Recorded because A7's justification was a prediction about a test
+flipping, which needs a green baseline to mean anything.
+
+**A7's predicted flip, observed end to end.**
+`workspace_and_legacy_fanout_share_repository_gate` went green → `FAILED` (panic at
+`tests/workspace_coordination_process.rs:972`, "old-mode refusal provisioned a
+legacy worktree") once the nested layout landed → green again after its flat `== 0`
+count became a recursive reservation-leaf count. The other eight tests in that
+target passed throughout. This is the strongest single piece of evidence here: the
+conversion was load-bearing, not preventive, and the reason matches the row exactly —
+collection removes only the reservation leaf and nothing prunes the empty repo-key
+parent.
+
+**Final counts.** `--test fanout` 37 passed (was 32), `--test fanout_reap` 9 passed
+(was 6), `workspace_coordination_process` 9 passed. `cargo fmt --check` clean;
+`cargo clippy --release --all-targets --locked -- -D warnings` clean.
+
+**A10's census delta, exactly as predicted.** 372 → 374 rows, exactly two added, both
+`git_api` in `fanout/git.rs` under `repo_key_from_repo`, zero removed, and no
+`filesystem_probe` or `platform` row anywhere.
+
+**Probe integrity.** The working tree diff was captured before the probe passes and
+compared byte-for-byte after each one; it was identical every time, so no mutation
+leaked into the committed implementation.
+
+### Deviations
+
+1. **Nine acceptance commands are not executable as written.** A1-A8, A12 and A13
+   specify `cargo test --locked --manifest-path plugins/session-relay/rust/Cargo.toml
+   --test X` from the repository root. That fails before cargo starts: rustup resolves
+   `plugins/session-relay/rust/rust-toolchain.toml` (channel 1.85.0) from the working
+   directory, not from `--manifest-path`, and this repository sets no default
+   toolchain. Every such row was run as `cd plugins/session-relay/rust && cargo test
+   --locked --test X` — same package, same lockfile, same target, and the invocation
+   the harness itself uses (`rust-test-inventory.mjs` passes `cwd: rust`). A11 was
+   unaffected because `scripts/ci.mjs` sets `cwd` itself.
+2. **A7's second command needs the harness, not bare cargo.**
+   `workspace_coordination_process` requires a delegated cgroup; under bare cargo it
+   fails 8 of 9 with "stat cgroup /sys/fs/cgroup/session-relay-1000: No such file or
+   directory" (panic at `tests/support/workspace.rs:392`). That is environmental, not
+   a code failure: `rust-test-inventory.mjs` provisions
+   `/sys/fs/cgroup/session-relay-test-<uid>-<pid>-<ts>` via `sudo -n mkdir`. The row
+   was observed as `node plugins/session-relay/test/rust-test-inventory.mjs --case
+   workspace_coordination_process`.
+3. **`plugins/session-relay/rust/src/spawn.rs` is declared but unchanged.** Step 4
+   made a `&config.cwd` equality explicitly optional and forbade it replacing the
+   resolution. Resolving against the locally derived `fanout.root().join("worktrees")`
+   inside `rollback_before_process_start` needs nothing from the call sites, so the
+   stronger option was taken and no untrusted value is consulted at all. The declared
+   path carries zero diff.
+4. **Both regenerated fixtures needed `biome format --write` afterwards.** The
+   generators do not emit biome-clean JSON, so `--generate` alone left the gate's
+   JavaScript-quality check failing on `reentry-inventory.json`. Regenerate-then-format
+   is the working sequence.
+5. **A8 and A12 initially shared one probe, which only falsified A12.** Deleting the
+   rollback resolution leaves A8's *nested* reservation rolling back fine, so A8 would
+   have been recorded as verified when it was not. A8 was re-probed separately with
+   its own stated mutation — restore the flat rebuild so a nested path mismatches —
+   and then failed correctly.
+
+### Probes executed, sixteen in four passes
+
+Each probe was applied, its named test or validator run, and the file restored from a
+byte copy. Every one made its check fail.
+
+| Row | Mutation | Result |
+|---|---|---|
+| A1 | add a 26th key to the record writer | FAILS |
+| A2 | delete the empty-component rule | FAILS |
+| A2 | delete the relative-component rule | FAILS |
+| A2 | delete the leaf-is-reservation-id rule | FAILS |
+| A2 | swap `Path::strip_prefix` for a textual `starts_with` | FAILS |
+| A3 | narrow accepted depth to 2..=3, refusing a legacy one-component path | FAILS |
+| A4 | leave `abandoned_worktree_decision` recomputing the flat path | FAILS |
+| A5 | drop `OFlags::NOFOLLOW` from the nested creation walk | FAILS |
+| A6 | pass the shared 14-day cutoff at the fan-out argument | FAILS |
+| A6 | set `DEFAULT_GC_DAYS` to 1 | FAILS |
+| A7 | leave a reservation leaf behind on the refusal path | FAILS |
+| A8 | restore the flat rebuild so a nested path mismatches | FAILS |
+| A9 | drop a generated test name from the fixture | FAILS |
+| A10 | replace a rustix `openat` with `libc::openat` | FAILS |
+| A12 | delete the rollback resolution | FAILS |
+| A13 | accept any remote segment, so no digest fallback fires | FAILS |
+
+A11 is the authoritative gate and states no probe.
