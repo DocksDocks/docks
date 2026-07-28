@@ -1,10 +1,10 @@
 ---
 title: Repo-key the fan-out worktree layout without a record schema change
 goal: Give fan-out worktrees a portable repo-keyed path and shorten only the fan-out worktree sweep to one day, keeping every existing flat worktree reapable and the FanoutRecord accepted key set unchanged.
-status: drafting
+status: ongoing
 created: "2026-07-28T12:10:00-03:00"
-updated: "2026-07-28T17:14:52-03:00"
-started_at: null
+updated: "2026-07-28T17:34:13-03:00"
+started_at: "2026-07-28T17:34:13-03:00"
 finished_at: null
 blocked_since: null
 blocked_reason: null
@@ -322,7 +322,7 @@ before drafting. The rejected alternative — adding a `repo_key` field and a fo
 Pending.
 
 Plan-attempt-history: {"authorization_source_sha256":"70d3144989e996dcd695c2ff5005a65413ec6ace75c91dcc08a7dfb032eba1e8","plan_bytes_sha256":"b1199ab13f01a1e1cf572671487127e702ea604fc61830d6857ef57e746b2d85","replacement_run_id":"3082c785-e6b0-488d-93e6-851de2a9bcae","run":{"acceptance":null,"blocker":{"evidence_sha256":"37b393672e30730dbf51e36f92029e7312df08e1bdd99c42a19a8aaf9293af64","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"ee1489822cb633a61f6f6d858d26693eef0c54f652e83cae04cea8a761ac0b3c","invocations":2,"result_sha256":"37b393672e30730dbf51e36f92029e7312df08e1bdd99c42a19a8aaf9293af64","state":"blocked"},"execution_parent":null,"goal_id":"6d682812-3fc7-4ddf-bd9a-f0539e5b22bb","implementation_commit":null,"plan_path":"docs/plans/active/relay-worktree-portable-layout.md","plan_sha256":"cf64c953da06c2d6c8b8d74d4126985dc365794da3da47b108ad16508283c3dc","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"d756fc6e-e272-4362-ae98-0a2b7aff6dda","schema":1,"source_base":"07229eaf498c53267ef982e52ca035d7c14dca5c","source_sha256":"c3cdceae616f18fc5a076666ec81c833201b7c640f6c695897e4f659d4e8ee56"},"schema":1,"status":"blocked","successor_run_sha256":"8259209db03c38e2abab050d86d5d6413890a7bdd392ee5ebf0e8cfb9e520fb3"}
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"3d30d8348b448ba75ab71f77bcb87b74caae8c4e4b9171503cb952e631f4a908","invocations":2,"result_sha256":"daf04c472cb805ae16487b02a4cd51aed9cff5f7f1f931008ba4d67e513aa9cc","state":"passed"},"execution_parent":null,"goal_id":"6d682812-3fc7-4ddf-bd9a-f0539e5b22bb","implementation_commit":null,"plan_path":"docs/plans/active/relay-worktree-portable-layout.md","plan_sha256":"7b8fb6df4791987aafdad69d703b98327252f64d201dbf2b038a002e17a43bb1","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"3082c785-e6b0-488d-93e6-851de2a9bcae","schema":1,"source_base":"9659e831eabb45cddcc83d1c7ebe26145ace768b","source_sha256":"0aef1f40fbc99da8c3d412c546d9d852e4f98ccdcc77474fa07e82963f0f7f85"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"3d30d8348b448ba75ab71f77bcb87b74caae8c4e4b9171503cb952e631f4a908","invocations":2,"result_sha256":"daf04c472cb805ae16487b02a4cd51aed9cff5f7f1f931008ba4d67e513aa9cc","state":"passed"},"execution_parent":"3ebf1e9703ad56649965b98d37698a5bf52afd90","goal_id":"6d682812-3fc7-4ddf-bd9a-f0539e5b22bb","implementation_commit":null,"plan_path":"docs/plans/active/relay-worktree-portable-layout.md","plan_sha256":"7b8fb6df4791987aafdad69d703b98327252f64d201dbf2b038a002e17a43bb1","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"3082c785-e6b0-488d-93e6-851de2a9bcae","schema":1,"source_base":"9659e831eabb45cddcc83d1c7ebe26145ace768b","source_sha256":"0aef1f40fbc99da8c3d412c546d9d852e4f98ccdcc77474fa07e82963f0f7f85"}
 
 ## Verification Results
 
