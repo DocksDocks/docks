@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-28"
-  content_hash: "983a34bf09c9b5c604951036ffb1dbc02b4c414dfc8b8bd677b3006adad4f340"
+  content_hash: "d34ffecb83f10b6f09d562be8980301ce377df7998becd3ad48774bd6df1248d"
 ---
 
 # Plan Manager
@@ -72,38 +72,10 @@ protected scope, stop conditions, open decisions, `## Review`, and manager-owned
 
 ## PlanRunV1
 
-```text
-ReviewPhaseV1 = {
-  state:"not_required"|"not_started"|"reserved"|"transport_retried"|"retryable"|"repairing"|"passed"|"degraded"|"blocked"|"cancelled",
-  invocations:0|1|2, input_sha256:null|64hex, result_sha256:null|64hex
-}
-PlanRunV1 = {
-  schema:1, goal_id:uuid, run_id:uuid, repository_id:string,
-  plan_path:normalized-relative-path, requested_effects:["local", ...external],
-  risk:"local"|"sensitive"|"external",
-  plan_sha256:64hex, source_base:null|40hex, source_sha256:64hex,
-  draft_review:ReviewPhaseV1, execution_parent:null|40hex,
-  implementation_commit:null|40hex, completion_review:ReviewPhaseV1,
-  acceptance:null|{source_sha256:64hex,verification_sha256:64hex},
-  blocker:null|{kind:"user_decision"|"missing_authority"|"concurrent_change"|"user_cancelled"|"verification_failed"|"review_failed"|"legacy_invalid",evidence_sha256:64hex}
-}
-```
-
-`repository_id + plan_path + run_id` is the run identity. Exact current-user
-`PlanRunReplacementAuthorityV1` binds the terminal predecessor and exact
-successor-run digest for the same goal/repository/path. Append predecessor
-run/bytes/authority digests, then install fresh review baselines in that file.
-Replacement is never automatic and never reuses predecessor permits or evidence.
-Cross-repository goals join repository-qualified child runs by `goal_id`; effects
-are unique, canonical-ordered, and begin with `local`.
-
-`plan_sha256` excludes only lifecycle status/timestamps, `Plan-run`, `## Review`,
-and `## Verification Results`. Goal, scope, paths, steps, effects, safety,
-acceptance, and decisions stay bound. `source_base + source_sha256` binds a
-sorted existence/kind/mode/content manifest of every affected path at review
-time, including dirty/untracked bytes and tombstones. Acceptance binds the final
-affected-path manifest and canonical Verification Results bytes. Never list the
-plan record in `affected_paths`; acceptance writes to it and breaks that bind.
+`repository_id + plan_path + run_id` is the run identity. Never list the plan
+record itself in `affected_paths`: acceptance writes to it and breaks that bind.
+Field shapes, replacement-authority rules, and the exact `plan_sha256` exclusion
+list: [`references/planrunv1-schema.md`](references/planrunv1-schema.md).
 
 ## Review-phase state table
 
@@ -285,16 +257,8 @@ and run normally; legacy bytes grant no authority.
 
 ## GitHub issue publication
 
-Treat `--issues` / `publish <slug> as an issue` as scope `publish`. Require an
-existing canonical plan and exact live publish authority for the repository.
-Preflight `gh auth status`, a GitHub remote, and `gh repo view --json visibility`.
-If the repository is public, warn that the issue is public and obtain explicit
-confirmation before publishing a plan that names a vulnerability, credential
-location, or other sensitive finding. Any failed preflight, absent authority, or
-declined confirmation creates no issue and writes nothing. Create the issue from the
-canonical title/body, transactionally record its URL in `## Notes`, checkpoint only
-the owned plan, and read back. Publication never changes lifecycle, dispatches
-review, or makes the issue the source of truth.
+Publishing a canonical plan as a GitHub issue — scope, preflights, and what it never changes:
+[`references/github-issue-publication.md`](references/github-issue-publication.md).
 
 ## BAD / GOOD
 
