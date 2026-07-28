@@ -1,13 +1,13 @@
 ---
 title: Repair the accepted-PlanRun proof contract
 goal: Make an accepted PlanRun transactable again by proving its affected-path manifest exactly once, when the acceptance is minted, instead of re-proving it against a live worktree that has since moved.
-status: ongoing
+status: finished
 blocked_reason: null
 blocked_since: null
 created: "2026-07-27T22:05:00-03:00"
-updated: "2026-07-28T02:42:08-03:00"
+updated: "2026-07-28T03:09:12-03:00"
 started_at: "2026-07-28T02:42:08-03:00"
-finished_at: null
+finished_at: "2026-07-28T03:09:12-03:00"
 assignee: null
 tags: [plans, plan-manager, contract, acceptance, integrity]
 affected_paths:
@@ -173,6 +173,21 @@ unauthorized migration-unlock.
 ## Review
 
 Plan-attempt-history: {"authorization_source_sha256":"04dd9c7e9464019a848b69db2ed9a9b2a7def45b169e44627e7e613d67ff18ce","plan_bytes_sha256":"698ee95ac7be50113ba314347621e16a1416739f810105ab70947164a5dfd793","replacement_run_id":"a3539270-0cd5-45ed-aada-d3f56753f6d9","run":{"acceptance":null,"blocker":{"evidence_sha256":"e6e37c413ade19bc0e868e7d9a1a6825122210f768560514c649ed61a4d916ad","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"c60d5f04d841186e0830eb908b3abafd368d0e86b9238db7f3f46a678231901c","invocations":2,"result_sha256":"e6e37c413ade19bc0e868e7d9a1a6825122210f768560514c649ed61a4d916ad","state":"blocked"},"execution_parent":null,"goal_id":"fb3b1cf0-256e-4d59-b5d5-ac28f88d16f3","implementation_commit":null,"plan_path":"docs/plans/active/accepted-planrun-proof-contract.md","plan_sha256":"32d96aed130bbb6225a98d08ff4b62ee17fe509c6c6556e2a4f80ec50ad83ca1","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8afa02f4-45c6-49f4-924f-2c73ec5a9506","schema":1,"source_base":"db50e915d75397e2b30160a120484889985b0c7e","source_sha256":"7596133a9911ee5340b22baf0bf764fce288ce948bd81b295e2d3f0485e586c2"},"schema":1,"status":"blocked","successor_run_sha256":"0441ac46782446b77fa43abcb5ab3a9585c8733308dcee16ea1453fca48f4b77"}
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"0c3b1a2093fc26d406ab9acf69ebc5a0bd410a8755bf9569b757ab1458effdd3","invocations":2,"result_sha256":"ab8ab9ec8a7040752e2976f1b03d7ab5eecacbda8779fc8abcc6f5149e80063f","state":"passed"},"execution_parent":"db50e915d75397e2b30160a120484889985b0c7e","goal_id":"fb3b1cf0-256e-4d59-b5d5-ac28f88d16f3","implementation_commit":null,"plan_path":"docs/plans/active/accepted-planrun-proof-contract.md","plan_sha256":"ea818f5730212e1bb45f767e08bfd7cc9c63b4973453d3b73cd85634d5ba5136","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"a3539270-0cd5-45ed-aada-d3f56753f6d9","schema":1,"source_base":"db50e915d75397e2b30160a120484889985b0c7e","source_sha256":"de213b2de68dd547b1c06a81d4d71306f8bc4791c1b4e288051a9634342b1540"}
+Plan-run: {"acceptance":{"source_sha256":"05ec3aa3ab799ba85df0ff77d1a62d78b9fa431d3ed18aba50ebb1f04843e291","verification_sha256":"f613d35234fa522c89a03782645082937108d92cad42c06b27cc7adbddee9cd1"},"blocker":null,"completion_review":{"input_sha256":"63ec4e7bea1f394a52539b4dcfce91d93a542bea6f7c8e05a3d7e0ccd928a7ae","invocations":1,"result_sha256":"71b849a06041d44c7a5060911696094eb244657dd17b29880cc6c00eae2d83c5","state":"passed"},"draft_review":{"input_sha256":"0c3b1a2093fc26d406ab9acf69ebc5a0bd410a8755bf9569b757ab1458effdd3","invocations":2,"result_sha256":"ab8ab9ec8a7040752e2976f1b03d7ab5eecacbda8779fc8abcc6f5149e80063f","state":"passed"},"execution_parent":"db50e915d75397e2b30160a120484889985b0c7e","goal_id":"fb3b1cf0-256e-4d59-b5d5-ac28f88d16f3","implementation_commit":"bdff927591122ea2c17379ea6dfccff7a8da7267","plan_path":"docs/plans/active/accepted-planrun-proof-contract.md","plan_sha256":"ea818f5730212e1bb45f767e08bfd7cc9c63b4973453d3b73cd85634d5ba5136","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"a3539270-0cd5-45ed-aada-d3f56753f6d9","schema":1,"source_base":"db50e915d75397e2b30160a120484889985b0c7e","source_sha256":"de213b2de68dd547b1c06a81d4d71306f8bc4791c1b4e288051a9634342b1540"}
 
 ## Verification Results
+
+| ID | Command | Observed |
+|---|---|---|
+| A1 | `node scripts/tests/plan-orchestration.mjs` | Exit 0 — 98/98 passed |
+| A2 | `recorded` early return neutered, A1 re-run, restored | Mutated exit 1; restored byte-identical, exit 0 |
+| A3 | `acceptanceProof: 'live'` pin deleted, A1 re-run, restored | Mutated exit 1 naming `mutations: acceptance proof is keyed to the transition, not the side being read`; restored byte-identical, exit 0 |
+| A4 | `node scripts/ci.mjs --plugin docks` | Exit 0 |
+| A5 | Read-only validation of the blocked worktree plan | default threw `requires the final affected-path manifest`; `recorded` passed; `Recorded` threw `acceptance proof must be live or recorded`; file byte-unmodified |
+| A7 | `node scripts/tests/plan-skill-phases.mjs` | Exit 0; breaking the manifest sentence exits 1; restored byte-identical. plan-manager body 310 of 310, combined 662 of 700 |
+| A8 | `node scripts/tree/guard.mjs` | Exit 0 — 7 context-tree nodes valid |
+| A9 | `node scripts/skills/durable-anchors.mjs` | Exit 0 — 138 long-lived docs, no live anchors |
+| A10 | `allowed.add('plan_sha256')` added, A1 re-run, restored | Mutated exit 1; restored byte-identical, exit 0 |
+| A12 | Acceptance-proof sentence broken in `docs/plans/AGENTS.md`, then in the template | Each exits 1 naming the broken file; each restored byte-identical. A mid-sentence mutation is caught, not only the leading clause |
+
+A6 and A11 were removed with the dropped legacy-reclassification step.
