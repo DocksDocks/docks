@@ -110,6 +110,10 @@ function assertBoundedWorkflows() {
     /only\s+the\s+first\s+transport\s+failure\s+refunds/,
     /persists\s+`transport_retried`/,
     /no automatic push/i,
+    // `transactPlanRun` has no in-repo callers: the caller is an agent reading
+    // this body. If the instruction to pass the manifest is lost, acceptance
+    // silently fails closed at completion with no other signal.
+    /`acceptanceManifest` and `acceptanceManifestExpectation`; omitting either fails closed/,
   ]) {
     assert.match(manager, contract);
   }
@@ -130,8 +134,33 @@ function assertBoundedWorkflows() {
   assert.doesNotMatch(reviewer, /numeric score|provider\/model fallback|apply a patch|change lifecycle/i);
 }
 
+// `docs/plans/AGENTS.md` is generated verbatim from the plan-workspace
+// template, so a rule written into only one copy silently drifts and is
+// regenerated away. Bind both to the same sentence.
+function assertAcceptanceProofRule() {
+  // Bind each distinguishing clause. A single regex spanning the sentence with
+  // `[\s\S]*` would still match after a mutation in the middle, making the
+  // mutation probe vacuous — the failure mode this rule exists to prevent.
+  const clauses = [
+    /Minting or changing an acceptance requires live manifest proof/,
+    /carrying one forward unchanged, or reading an immutable terminal\s+predecessor, does not/,
+    /discharged at the instant it is\s+written and is not re-provable once HEAD moves/,
+    /never a durable\s+invariant\./,
+  ];
+  for (const relative of [
+    'docs/plans/AGENTS.md',
+    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  ]) {
+    const text = fs.readFileSync(path.join(ROOT, relative), 'utf8');
+    for (const clause of clauses) {
+      assert.match(text, clause, `${relative} is missing the acceptance-proof rule: ${clause}`);
+    }
+  }
+}
+
 parseArgs(process.argv.slice(2));
 assertLiveTopology();
 assertReviewerWrappersOnly();
 assertBoundedWorkflows();
+assertAcceptanceProofRule();
 console.log('three-skill, one-wrapper bounded plan workflows passed');

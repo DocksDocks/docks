@@ -328,6 +328,39 @@ export function registerHashingAndManifest(suite, api) {
     }),
   );
 
+  suite.test('hashing-manifests', 'recorded acceptance proof drops the live snapshot and nothing else', () =>
+    withTempDirectory('plan-run-accepted-recorded-', (root) => {
+      const fixture = acceptedLiveFixture(api, path.join(root, 'repo'));
+      const identity = {
+        goalId: fixture.run.goal_id,
+        planPath: PLAN_PATH,
+        repositoryId: REPOSITORY_ID,
+        runId: fixture.run.run_id,
+      };
+      // The default is `live`, so an omitted mode keeps today's exact strictness.
+      expectThrow(() => api.validatePlanRun(fixture.bytes, identity), /final affected-path manifest/i);
+      // `recorded` re-reads the same bytes without re-proving a discharged snapshot.
+      assert.ok(api.validatePlanRun(fixture.bytes, { ...identity, acceptanceProof: 'recorded' }));
+      // An unknown mode must fail closed rather than degrade to `recorded`.
+      expectThrow(
+        () => api.validatePlanRun(fixture.bytes, { ...identity, acceptanceProof: 'Recorded' }),
+        /acceptance proof must be live or recorded/i,
+      );
+      // `recorded` still binds the plan's own Verification Results bytes.
+      const tampered = Buffer.from(
+        replaceOnce(
+          fixture.bytes.toString(),
+          fixture.run.acceptance.verification_sha256,
+          api.sha256(Buffer.from('tampered verification bytes\n')),
+        ),
+      );
+      expectThrow(
+        () => api.validatePlanRun(tampered, { ...identity, acceptanceProof: 'recorded' }),
+        /verification_sha256/i,
+      );
+    }),
+  );
+
   suite.test('hashing-manifests', 'run identity is repository qualified even when goal and plan path match', () => {
     const fixture = bindPlan(api, tuple('drafting'));
     const validated = api.validatePlanRun(fixture.bytes, {

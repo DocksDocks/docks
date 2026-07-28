@@ -810,6 +810,21 @@ function validateAcceptedPlanBindings(bytes, frontmatter, run, expected) {
   if (verificationSha256 !== run.acceptance.verification_sha256) {
     fail('acceptance verification_sha256 does not match canonical Verification Results bytes');
   }
+  const proof = Object.hasOwn(expected, 'acceptanceProof') ? expected.acceptanceProof : 'live';
+  if (proof !== 'live' && proof !== 'recorded') fail('acceptance proof must be live or recorded');
+  // `recorded` skips only the live re-snapshot below. That snapshot proves the
+  // acceptance digest against the worktree AT THE INSTANT OF ACCEPTANCE; it is
+  // not a durable invariant, and re-running it later against a different HEAD
+  // can never pass -- every accepted record in this repository fails it today.
+  //
+  // What it stops checking, stated plainly: in `recorded` mode
+  // `run.acceptance.source_sha256` is not verified against anything. That is
+  // bounded by the caller, not by trust: `recorded` is only ever used to re-read
+  // bytes already pinned by a CAS preimage, and in replacement additionally by
+  // `plan_bytes_sha256` inside the attempt record. Minting or changing an
+  // acceptance always requires `live`, so the digest is proven exactly once,
+  // when it is created.
+  if (proof === 'recorded') return;
   if (!Object.hasOwn(expected, 'acceptanceManifest')) {
     fail('accepted PlanRun validation requires the final affected-path manifest');
   }
@@ -1806,6 +1821,8 @@ export async function transactPlanRun({
   nextBytes,
   lockRoot,
   lockTimeoutMs = 1_000,
+  acceptanceManifest,
+  acceptanceManifestExpectation,
 }) {
   assertPlainObject(identity, 'plan transaction identity');
   if (!HASH.test(expectedBytesSha256)) fail('plan transaction expected preimage must be a SHA-256 digest');
@@ -1821,9 +1838,35 @@ export async function transactPlanRun({
   try {
     const currentBytes = fs.readFileSync(file);
     if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
-    const current = validatePlanRun(currentBytes, identity);
+    const current = validatePlanRun(currentBytes, { ...identity, acceptanceProof: 'recorded' });
     const nextBuffer = Buffer.from(nextBytes);
-    const next = validatePlanRun(nextBuffer, identity);
+    // Key the proof mode on what the transition DOES, not on which side is read.
+    // Minting or changing an acceptance must be proven against live bytes;
+    // carrying one forward unchanged only re-reads bytes the CAS preimage above
+    // already pinned, and re-proving those is impossible once HEAD has moved.
+    const carried = validatePlanRun(nextBuffer, { ...identity, acceptanceProof: 'recorded' });
+    const installsAcceptance =
+      carried.run.acceptance !== null && jcs(carried.run.acceptance) !== jcs(current.run.acceptance);
+    // Pin `live` explicitly rather than relying on the default: `identity` is
+    // only asserted to be a plain object, so a caller could otherwise smuggle
+    // `acceptanceProof: 'recorded'` through the spread and skip the one proof
+    // that matters. Omitting the manifest then fails closed on the existing error.
+    const next = installsAcceptance
+      ? validatePlanRun(nextBuffer, {
+          ...identity,
+          acceptanceProof: 'live',
+          ...(acceptanceManifest === undefined ? {} : { acceptanceManifest }),
+          ...(acceptanceManifestExpectation === undefined ? {} : { acceptanceManifestExpectation }),
+        })
+      : carried;
+    // Draft review F1 observed that `recorded` drops two checks, not one: the
+    // live manifest re-snapshot and the `frontmatter.affected_paths` comparison,
+    // the only site in this module reading `affected_paths`. Its conclusion — a
+    // carry-forward could therefore rewrite the path set — was disproven: the
+    // set is inside `canonicalPlanView`, so editing it moves `plan_sha256`, and
+    // `assertPersistedTransition` permits no ordinary transition to change that.
+    // Verified both ways; an explicit guard here is unreachable. The protection
+    // is pinned by test instead of restated as code that can never fire.
     if (jcs(current.attempt_history) !== jcs(next.attempt_history)) {
       fail('ordinary PlanRun transitions cannot mutate attempt history');
     }
@@ -1876,7 +1919,11 @@ export async function replacePlanRunInPlace({
   try {
     const currentBytes = fs.readFileSync(file);
     if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
-    const current = validatePlanRun(currentBytes, currentIdentity);
+    // The predecessor is immutable, terminal, and about to be recorded rather
+    // than consulted: its bytes are pinned here by the CAS preimage and again by
+    // `plan_bytes_sha256` in the attempt entry. `assertPlanRunReplacement` also
+    // forbids acceptance on the successor, so the next side never needs a mode.
+    const current = validatePlanRun(currentBytes, { ...currentIdentity, acceptanceProof: 'recorded' });
     const nextBuffer = Buffer.from(nextBytes);
     const next = validatePlanRun(nextBuffer, {
       goalId: current.run.goal_id,

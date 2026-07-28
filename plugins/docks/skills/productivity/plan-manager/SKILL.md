@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-27"
-  content_hash: "921649a585f514240896e82a9969acdb3bf67eebdade4a966f4337e4eacf52d3"
+  content_hash: "5b79da59f0f741db4986c5dd409ce17775cf7ea5b22d6d719982adbdd58c465a"
 ---
 
 # Plan Manager
@@ -209,7 +209,8 @@ A reviewed implementation writes `ongoing`, captures `execution_parent`, and
 creates one owned-path start checkpoint before implementation. Implement or
 delegate every authorized local row. Review changes from the user's perspective,
 run the requested smoke/acceptance paths, and write observed commands/results to
-`## Verification Results` before binding acceptance.
+`## Verification Results` before binding acceptance, which passes the live
+`acceptanceManifest` and `acceptanceManifestExpectation`; omitting either fails closed.
 
 Diagnose ordinary verification failures in the implementation loop. Repeated
 same-signature failure without relevant-byte progress blocks this run and never

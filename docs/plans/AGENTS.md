@@ -169,6 +169,11 @@ including dirty/untracked bytes and tombstones. `acceptance.source_sha256` binds
 the final affected-path manifest; `verification_sha256` binds canonical
 Verification Results bytes. Never list the plan record in `affected_paths`;
 acceptance writes to it and breaks that bind.
+Minting or changing an acceptance requires live manifest proof and the caller
+passes it; carrying one forward unchanged, or reading an immutable terminal
+predecessor, does not. A live-worktree proof is discharged at the instant it is
+written and is not re-provable once HEAD moves, so it is never a durable
+invariant.
 `source_base` is null only before draft review starts and is required thereafter.
 `execution_parent` is null before start and is required, immutable, and exclusive
 to `ongoing`, post-start `blocked`, and `finished` tuples.
