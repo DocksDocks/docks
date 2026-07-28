@@ -1,11 +1,11 @@
 ---
 title: Classify schema-6-declared records carrying the schema-5 policy shape
 goal: Reclassify the three plan records whose only defect is drifted reviewer-selection metadata, narrowing legacy classification alone and leaving schema-6 receipt acceptance globally unchanged.
-status: ongoing
+status: finished
 created: "2026-07-28T04:10:00-03:00"
-updated: "2026-07-28T05:47:26-03:00"
+updated: "2026-07-28T03:16:23-03:00"
 started_at: "2026-07-28T05:47:26-03:00"
-finished_at: null
+finished_at: "2026-07-28T03:16:23-03:00"
 assignee: null
 tags: [plans, plan-manager, legacy, classification, quarantine]
 affected_paths:
@@ -290,6 +290,19 @@ constraint is settled: the publication plan restricts schema-6 receipt
 
 ## Review
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"dc64f829b53d95f0b2d998f84fe5db499e780d0b5a068f20580d8c004cd77ec9","invocations":2,"result_sha256":"15c20873ba5bf5abd3478b25a8c214c9b58ac563a48ac5e69edc72e0afa657f5","state":"passed"},"execution_parent":"f375be5d323636dc716ac82992eb84c1ba265eaa","goal_id":"0824417a-f37d-4260-a823-b1ed4fbd54ee","implementation_commit":null,"plan_path":"docs/plans/active/legacy-schema6-policy-classification.md","plan_sha256":"1b9a49eab578684e89cd219ec9ff0c694ae90a03c5398806cfb73f3fe6d760db","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"296a6721-08c5-4fb5-a2c9-a19d68c39c0a","schema":1,"source_base":"f375be5d323636dc716ac82992eb84c1ba265eaa","source_sha256":"58f1ecb4aa48f8974fc6fd1a81885351485e236453a3a42d358dab6e24950a96"}
+Plan-run: {"acceptance":{"source_sha256":"cb573f5ae0e33b9cfb648b152312326f78dfcb70fd77d4f849db656d9394e0b9","verification_sha256":"bc9871f49e54f55fda6bb91a0462e971a8b9ac6499ffc25ea1a36b1d55845706"},"blocker":null,"completion_review":{"input_sha256":"17c3b98887296dbc2115e47f85be2bf598e6349baae3087362a56e3a2d31b6fa","invocations":1,"result_sha256":"65338d0a9251b284e72bda8a0ade2348b15bfa69aa636e7f5e815373fd64b6e3","state":"passed"},"draft_review":{"input_sha256":"dc64f829b53d95f0b2d998f84fe5db499e780d0b5a068f20580d8c004cd77ec9","invocations":2,"result_sha256":"15c20873ba5bf5abd3478b25a8c214c9b58ac563a48ac5e69edc72e0afa657f5","state":"passed"},"execution_parent":"f375be5d323636dc716ac82992eb84c1ba265eaa","goal_id":"0824417a-f37d-4260-a823-b1ed4fbd54ee","implementation_commit":"b229bbcb8156e0fb8580bb849affdd77c30b576b","plan_path":"docs/plans/active/legacy-schema6-policy-classification.md","plan_sha256":"1b9a49eab578684e89cd219ec9ff0c694ae90a03c5398806cfb73f3fe6d760db","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"296a6721-08c5-4fb5-a2c9-a19d68c39c0a","schema":1,"source_base":"f375be5d323636dc716ac82992eb84c1ba265eaa","source_sha256":"58f1ecb4aa48f8974fc6fd1a81885351485e236453a3a42d358dab6e24950a96"}
 
 ## Verification Results
+
+| ID | Command | Observed |
+|---|---|---|
+| A1 | `node scripts/tests/plan-orchestration.mjs` | Exit 0 — `plan-orchestration: 103/103 passed`, the pre-change 98 plus the five cases from step 3 |
+| A2 | Read-only census of all 94 `docs/plans/{active,finished}/*.md` against the pre-change baseline | Exactly three records moved `legacy-quarantined` → `settled-terminal`: `active/session-relay-linux-workspace-release.md`, `finished/2026-07-19-session-relay-prebuilt-cli-release.md`, `finished/2026-07-23-session-relay-linux-workspace-recertification.md`. Totals 32 → 29 and 10 → 13; `current` 18 and `record-free` 34 unchanged. Two reason-only changes, both revealing the next always-present defect: the controller plan now reports `schema-6 receipt requires settled orchestration state`, and `finished/2026-07-22-session-relay-workspace-isolation.md` reports `schema-6 policy candidate must equal request author` |
+| A3 | Read-only depth-0 validation of the recertification `Completion-review-receipt`, plus five partial shapes inside the scope | Outside any scope both `validateCurrentPolicy` and `validateCompletionReceipt(receipt, {}, { orchestration })` threw `schema-6 current policy fallback must be none`, byte-equal to the message captured before the change. Inside the scope all five partial-shape variants still threw; only the exact drifted shape is accepted |
+| A4 | Guard line deleted, A1 re-run, file restored | Mutated run exit 1 with `3 of 103` failing, naming `legacy-quarantine: a drifted schema-6 policy classifies as settled terminal evidence`; restored file byte-identical to the pre-mutation digest and A1 back to exit 0 |
+| A5 | `node scripts/ci.mjs --plugin docks` | Exit 0 — `All ci.mjs checks passed — plugin 'docks'; safe to release` |
+
+Depth-0 behaviour is unchanged by construction, not only by assertion: `role`
+(`:1742`), `max_rounds` (`:1743`) and the closed six-key set (`:1740`) are all
+enforced before the guard, and the guard pins `fallback`, `candidates` and
+`provenance` by exact `jcs`, so nothing reaches the early return unvalidated.
