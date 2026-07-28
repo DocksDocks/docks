@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+// The narrowing lives in the legacy helper and is deliberately not re-exported
+// through plan-run.mjs, so depth-0 behaviour is asserted against the helper
+// directly. plan-orchestration.mjs owns the suite wiring and is not this plan's
+// to edit.
+import {
+  validateCurrentPolicy,
+  withLegacyClassification,
+} from '../../../plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs';
+import { currentPolicy, DRIFTED_SCHEMA6_POLICY, driftedSchema6Receipt } from './fixtures/historical-records.mjs';
 import { LEGACY_RECORD_KINDS, legacyPlan, malformedLegacyCatalog } from './fixtures/legacy-plans.mjs';
 import { IDS, PLAN_PATH, planRun, REPOSITORY_ID, reviewPhase, SOURCE_BASE } from './fixtures/plan-run-v1.mjs';
 import { expectThrow } from './harness.mjs';
@@ -262,4 +271,68 @@ export function registerLegacyQuarantine(suite, api, { root }) {
       }
     },
   );
+
+  // A schema-6-declared family carrying the schema-5 policy shape is drifted
+  // reviewer-selection metadata, not a receipt defect. Only the classification
+  // path narrows; every other family check, and every depth-0 caller, is
+  // unchanged. Cases (a)-(c) drive the narrowed path, (d)-(e) pin its boundary.
+  const driftedPlan = (options) => {
+    const { receipt, orchestration } = driftedSchema6Receipt(api, options);
+    return legacyPlan(
+      [`Review-orchestration-state: ${api.jcs(orchestration)}`, `Review-receipt: ${api.jcs(receipt)}`],
+      { status: 'finished' },
+    );
+  };
+
+  suite.test('legacy-quarantine', 'a drifted schema-6 policy classifies as settled terminal evidence', () => {
+    const result = api.classifyLegacyPlan(driftedPlan());
+    assert.equal(result.classification, 'settled-terminal');
+    assert.equal(result.reason, 'complete settled terminal legacy evidence');
+  });
+
+  suite.test('legacy-quarantine', 'a partially drifted schema-6 policy stays quarantined', () => {
+    const result = api.classifyLegacyPlan(
+      driftedPlan({ policy: { ...currentPolicy(6), fallback: 'availability_only' } }),
+    );
+    assert.equal(result.classification, 'legacy-quarantined');
+    assert.match(result.reason, /schema-6 current policy fallback must be none/);
+  });
+
+  suite.test('legacy-quarantine', 'the narrowing cannot smuggle cancelled evidence past the sweep', () => {
+    const result = api.classifyLegacyPlan(
+      driftedPlan({
+        mutateRun: (run) => {
+          run.reviewer.raw.attempts[0].reason = 'user_cancelled';
+        },
+      }),
+    );
+    assert.equal(result.classification, 'legacy-quarantined');
+    assert.match(result.reason, /cancelled historical evidence is quarantine-only/);
+  });
+
+  suite.test('legacy-quarantine', 'the drifted policy is still rejected outside a classification scope', () => {
+    expectThrow(
+      () => validateCurrentPolicy(structuredClone(DRIFTED_SCHEMA6_POLICY)),
+      /^Error: schema-6 current policy fallback must be none$/,
+    );
+    assert.equal(
+      withLegacyClassification(() => validateCurrentPolicy(structuredClone(DRIFTED_SCHEMA6_POLICY))).fallback,
+      'availability_only',
+    );
+  });
+
+  suite.test('legacy-quarantine', 'a throwing classification body restores the scope depth', () => {
+    expectThrow(
+      () =>
+        withLegacyClassification(() => {
+          throw new Error('body failed');
+        }),
+      /body failed/,
+    );
+    expectThrow(
+      () => validateCurrentPolicy(structuredClone(DRIFTED_SCHEMA6_POLICY)),
+      /^Error: schema-6 current policy fallback must be none$/,
+      'depth leaked: the drifted policy is still accepted after a throwing body',
+    );
+  });
 }

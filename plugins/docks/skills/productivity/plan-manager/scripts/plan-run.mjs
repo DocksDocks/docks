@@ -8,6 +8,7 @@ import {
   validateCompletionReceipt as validateLegacyCompletionReceipt,
   validateDraftReceipt as validateLegacyDraftReceipt,
   validateCanonicalOrchestrationFamily as validateLegacyOrchestrationFamily,
+  withLegacyClassification,
 } from './legacy-review-records.mjs';
 
 const HASH = /^[0-9a-f]{64}$/;
@@ -2214,7 +2215,7 @@ export function classifyLegacyPlan(bytes) {
 
   let family;
   try {
-    family = validateLegacyRecordFamily(bytes, records);
+    family = withLegacyClassification(() => validateLegacyRecordFamily(bytes, records));
   } catch (error) {
     return legacyResult(
       'legacy-quarantined',

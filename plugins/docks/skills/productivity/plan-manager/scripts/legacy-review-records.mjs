@@ -1720,6 +1720,58 @@ const CURRENT_CANDIDATES = Object.freeze([
   Object.freeze({ company: 'anthropic', tool: 'claude', model: 'opus', effort: 'xhigh' }),
 ]);
 
+// Legacy classification context.
+//
+// Five plan records on disk declare `schema: 6` while carrying the schema-5
+// policy shape: `fallback: 'availability_only'`, the three-entry default
+// candidate chain, and all-four-`skill_default` provenance. That is drifted
+// reviewer-selection metadata, not a receipt defect, and it should not force the
+// whole family to quarantine.
+//
+// The narrowing is dynamically scoped rather than threaded: `validateCurrentPolicy`
+// is reached from 17 call sites in this module, and `validateLegacyOrchestrationFamily`
+// runs before both receipt validators with no options bag, so an options
+// parameter reclassifies nothing. Only code running inside
+// `withLegacyClassification` sees the narrowing; every ordinary caller, including
+// the release binder, keeps the unmodified rule.
+//
+// The accepted chain is its own frozen literal, deliberately NOT
+// `CURRENT_CANDIDATES`. For a schema-6 policy the schema-5 branch below is
+// skipped entirely, so `validateCurrentCandidate` never runs on these entries and
+// this constant is the only thing binding them. Reusing the live roster would
+// silently re-quarantine every affected record the moment a model is swapped.
+const LEGACY_DRIFTED_SCHEMA6_CANDIDATES = Object.freeze([
+  Object.freeze({ company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high', service_tier: 'default' }),
+  Object.freeze({ company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high' }),
+  Object.freeze({ company: 'anthropic', tool: 'claude', model: 'opus', effort: 'xhigh' }),
+]);
+const LEGACY_DRIFTED_SCHEMA6_PROVENANCE = Object.freeze({
+  role: 'skill_default',
+  fallback: 'skill_default',
+  max_rounds: 'skill_default',
+  candidates: 'skill_default',
+});
+
+let legacyClassificationDepth = 0;
+
+export function withLegacyClassification(fn) {
+  legacyClassificationDepth += 1;
+  try {
+    return fn();
+  } finally {
+    legacyClassificationDepth -= 1;
+  }
+}
+
+function isDriftedLegacySchema6Policy(policy) {
+  return (
+    policy?.fallback === 'availability_only' &&
+    Array.isArray(policy.candidates) &&
+    jcs(policy.candidates) === jcs(LEGACY_DRIFTED_SCHEMA6_CANDIDATES) &&
+    jcs(policy.provenance) === jcs(LEGACY_DRIFTED_SCHEMA6_PROVENANCE)
+  );
+}
+
 function validateCurrentCandidate(candidate, label = 'current candidate') {
   const keys =
     candidate?.tool === 'codex'
@@ -1760,6 +1812,7 @@ export function validateCurrentPolicy(policy) {
       throw new Error('a pinned current candidate requires current_user provenance');
     return policy;
   }
+  if (legacyClassificationDepth > 0 && isDriftedLegacySchema6Policy(policy)) return policy;
   if (policy.fallback !== 'none') throw new Error('schema-6 current policy fallback must be none');
   if (!Array.isArray(policy.candidates) || policy.candidates.length !== 1)
     throw new Error('schema-6 current policy requires exactly one runtime candidate');

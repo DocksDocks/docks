@@ -554,6 +554,76 @@ export function currentReceipt(api, schema) {
   };
 }
 
+// The exact drifted shape carried by the affected on-disk records: `schema: 6`
+// declared over the schema-5 policy body - `availability_only` fallback, the
+// three-entry default candidate chain, and all-four-`skill_default` provenance.
+// Written as its own literal rather than derived from the live roster so the
+// fixture keeps asserting the same bytes when the roster changes.
+export const DRIFTED_SCHEMA6_POLICY = Object.freeze({
+  schema: 6,
+  role: 'primary',
+  fallback: 'availability_only',
+  max_rounds: 2,
+  candidates: [
+    { company: 'openai', tool: 'codex', model: 'gpt-5.6-sol', effort: 'high', service_tier: 'default' },
+    { company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high' },
+    { company: 'anthropic', tool: 'claude', model: 'opus', effort: 'xhigh' },
+  ],
+  provenance: {
+    role: 'skill_default',
+    fallback: 'skill_default',
+    max_rounds: 'skill_default',
+    candidates: 'skill_default',
+  },
+});
+
+// A complete, otherwise-valid settled schema-6 draft family whose only defect is
+// the drifted policy. `policy_sha256` is recomputed in both the request and the
+// receipt so the `:508` hash bind and the `:2283` receipt bind still hold, the
+// author-matching candidate stays first so the `:509-518` identity check passes,
+// and the orchestration state is rebuilt over the mutated series so the
+// receipt's `settled_orchestration_state_sha256` still matches.
+export function driftedSchema6Receipt(api, { policy = DRIFTED_SCHEMA6_POLICY, mutateRun = null } = {}) {
+  const effective = JSON.parse(JSON.stringify(policy));
+  const request = currentRequest(api, 6, {
+    policy: effective,
+    policy_sha256: api.sha256(api.jcs(effective)),
+  });
+  const run = currentRun(api, 6, { request });
+  // Applied before the series and orchestration digests are taken, so a planted
+  // value stays inside a family whose every hash still binds.
+  if (mutateRun) mutateRun(run);
+  const series = {
+    schema: 6,
+    orchestration_series_id: request.orchestration_series_id,
+    policy_sha256: request.policy_sha256,
+    initial_input_sha256: request.input_sha256,
+    current_input_sha256: request.input_sha256,
+    rounds: [run],
+    repairs: [],
+  };
+  const orchestration = settledOrchestration(api, series);
+  return {
+    receipt: {
+      schema: 6,
+      phase: 'draft',
+      request,
+      input_sha256: request.input_sha256,
+      reviewed_commit: request.reviewed_commit_or_head,
+      policy: effective,
+      policy_sha256: request.policy_sha256,
+      reviewer: run.reviewer,
+      reproduced: run.reproduced,
+      outcome: run.outcome,
+      pre_execution_eligible: run.pre_execution_eligible,
+      series,
+      settled_orchestration_state_sha256: orchestration.state_sha256,
+      reviewed_at: '2026-07-20T00:00:00Z',
+    },
+    orchestration,
+  };
+}
+
 export function currentCompletionReceipt(api, schema) {
   const series = currentCompletionSeries(api, schema);
   const run = series.rounds[0];
