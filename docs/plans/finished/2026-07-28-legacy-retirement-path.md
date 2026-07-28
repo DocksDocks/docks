@@ -1,11 +1,11 @@
 ---
 title: Add a legal retirement path for quarantined legacy plans
 goal: Give quarantined legacy evidence one documented terminal exit that archives the file without rewriting its record or relabelling its classification, so abandoned goals leave active without laundering.
-status: ongoing
+status: finished
 created: "2026-07-28T04:05:00-03:00"
-updated: "2026-07-28T10:04:26-03:00"
+updated: "2026-07-28T11:01:19-03:00"
 started_at: "2026-07-28T10:04:26-03:00"
-finished_at: null
+finished_at: "2026-07-28T11:01:19-03:00"
 blocked_since: null
 blocked_reason: null
 assignee: null
@@ -166,6 +166,42 @@ alternatives and the measured reason for the status-preserving constraint.
 
 Pending.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"899663549d3465d9ec3a1cfea9c9b40786dc349374c7e802fd25856adcd58409","invocations":1,"result_sha256":"4be0fe8bad8286e95e96e2702c0de941e486d0ba3ca12ee2a5689366f5ee713f","state":"passed"},"execution_parent":"0ee63477122df83d6e928415cd2f52849e197d14","goal_id":"0f1b065f-3fad-4722-8355-6d5574f1eb18","implementation_commit":null,"plan_path":"docs/plans/active/legacy-retirement-path.md","plan_sha256":"3934b8dc29b6c08dc36678a9d480c90af74c9cbfe1ec31ad6dcbc6e773f81957","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"7868ec5a-41c5-4124-ba1b-48aa6dc261bc","schema":1,"source_base":"4d6d854cc305d4a789d4ad44bc7d76793c7a9ee0","source_sha256":"2c85b162b9e21331da9c60fd8c4e4008ede330fb4275e55c8ee7a6012f1f7378"}
+Plan-run: {"acceptance":{"source_sha256":"cc078f9af93c7312bbdb4e67f0d4fd1c1ed1f8a66b54ae275236be78a4ee1a0d","verification_sha256":"c65a2b77b9e460be62dfd89d5c0b8c4a80c9c72b4ec7f76c194da1af98ff7977"},"blocker":null,"completion_review":{"input_sha256":"4b9e063323f5abe89e25903686fd5d03df66e768edc5980b2ddabb17b763386e","invocations":2,"result_sha256":"faaf429b9fe9d6c761305cb69bd601244c6c9c72fc2669ade61718c19d0e5704","state":"passed"},"draft_review":{"input_sha256":"899663549d3465d9ec3a1cfea9c9b40786dc349374c7e802fd25856adcd58409","invocations":1,"result_sha256":"4be0fe8bad8286e95e96e2702c0de941e486d0ba3ca12ee2a5689366f5ee713f","state":"passed"},"execution_parent":"0ee63477122df83d6e928415cd2f52849e197d14","goal_id":"0f1b065f-3fad-4722-8355-6d5574f1eb18","implementation_commit":"754d7a32bfe7e0ac4e381744e0196d58da4b2813","plan_path":"docs/plans/active/legacy-retirement-path.md","plan_sha256":"3934b8dc29b6c08dc36678a9d480c90af74c9cbfe1ec31ad6dcbc6e773f81957","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"7868ec5a-41c5-4124-ba1b-48aa6dc261bc","schema":1,"source_base":"4d6d854cc305d4a789d4ad44bc7d76793c7a9ee0","source_sha256":"2c85b162b9e21331da9c60fd8c4e4008ede330fb4275e55c8ee7a6012f1f7378"}
 
 ## Verification Results
+
+| ID | Command | Observed |
+|---|---|---|
+| A1 | `node scripts/tests/plan-orchestration.mjs 2>&1 \| tail -1` | Exit 0 — `plan-orchestration: 105/105 passed`, the pre-change 103 plus the two cases from step 3 |
+| A2 | `node scripts/tests/plan-skill-phases.mjs 2>&1 \| tail -3` | Exit 0 — `three-skill, one-wrapper bounded plan workflows passed`. Also exit 0 under CI's own `--case bounded-workflows` invocation: `parseArgs` discards its result, so the new coupled-copy assertion runs under both forms and is genuinely live in CI rather than reachable only by a bare run |
+| A3 | Read-only whitespace-normalised probe of the three coupled copies | `all three copies carry the exception`. The sentence is wrapped at each file's native width, so identity was additionally verified by normalised comparison of the whole sentence, not only the probe substring |
+| A4 | `node scripts/ci.mjs --plugin docks 2>&1 \| tail -3` | Exit 0 — `All ci.mjs checks passed — plugin 'docks'; safe to release`. The full `node scripts/ci.mjs` gate was also run and exited 0 (`3 plugin(s) + repo-wide`), because `--plugin docks` skips the repo-wide section that runs `durable-anchors`, whose scope covers two of the files amended here. Both gates were re-run after the repair |
+| A5 | Retention assertion inverted (`deepEqual` → `notDeepEqual`), A1 re-run, file restored | Mutated run exit 1 naming `legacy-quarantine: retirement retains quarantined classification and reason` and its message `retirement retention case`; restored file byte-identical to the pre-mutation digest and A1 back to `105/105` exit 0 |
+| A6 | Three mutation kinds × the three coupled copies, nine runs, A2 after each, each restored | All nine exit 1 and named the file they broke; every restore byte-identical to its pre-mutation digest; A2 exit 0 after all nine. The kinds are: corrupt the permission, widen the exception past `whose goal is abandoned`, and narrow the invariant's subject list to `Frontmatter status`. All three copies are required — an assertion reading only the generated `docs/plans/AGENTS.md` would let the template drift and be regenerated away |
+
+Completion review invocation 1 returned `repair` with two findings; both are fixed
+in the replacement checkpoint, and F1's defect was reproduced before being fixed
+rather than accepted on assertion. F1: the coupled-copy assertion bound the
+exception's mechanics but neither the `whose goal is abandoned` precondition nor
+the invariant's subject list, so two mutations stayed green — widening the
+exception to every quarantined plan, and narrowing byte-identity to frontmatter
+status alone, the latter reopening exactly the laundering vector this rule closes.
+Both spans are now bound (seven clauses per copy) and both mutations are permanent
+A6 cases, so the gap cannot silently return. F2: the 24-line bootstrap fixture was
+duplicated across the two new cases, leaving undefended the coupling that makes
+them meaningful as a pair — retirement is the safe alternative to the status flip
+it is set against. It is now one hoisted helper.
+
+STOP condition 1 was re-verified rather than assumed: flipping `status: finished`
+on the four quarantined actives still launders exactly two, the two named in
+Context, and the precedent census still reproduces exactly — 88 finished plans,
+25 classifying `legacy-quarantined`, 15 carrying `status: blocked`, and 88 of 88
+date-prefixed.
+
+One constraint the plan did not anticipate: `plan-manager/SKILL.md` sat at exactly
+310 of the 310-line body budget asserted by `plan-skill-phases.mjs`. The amendment
+was absorbed by tightening the quarantine section and merging two `Exact ...`
+final-check bullets, so the body is still 310 and the asserted cap was not
+loosened to pass. That leaves the contract with zero headroom for the next
+amendment, which is follow-up work and not fixable inside this run. No plan was
+retired: using the path is a separate requested act.
