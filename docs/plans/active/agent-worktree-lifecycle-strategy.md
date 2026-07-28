@@ -1,11 +1,9 @@
 ---
 title: Establish agent worktree lifecycle strategy
 goal: Make shared Cargo target dirs safe in the gate, reap abandoned fanout worktree reservations, and document worktree location and teardown so scratch checkouts stop accumulating.
-status: blocked
-blocked_reason: "Completion review invocation 2 of 2 returned repair. F1 is a real correctness defect (relative CARGO_TARGET_DIR resolved against the repository root, but cargo resolves it against its own cwd) and F2 records that the Verification Results table still describes the pre-fix commit. Both findings are accepted; the run has no permit left to re-review a third time."
-blocked_since: "2026-07-27T15:35:22-03:00"
+status: drafting
 created: "2026-07-27T10:12:21-03:00"
-updated: "2026-07-27T15:35:22-03:00"
+updated: "2026-07-28T03:18:01-03:00"
 started_at: "2026-07-27T12:41:23-03:00"
 finished_at: null
 assignee: null
@@ -185,11 +183,19 @@ release action is required.
 
 ## Review
 
+Successor authorization: SHA-256 `0eee9d1a56c01fcb496d87aa0b2c57eb802c2009381e9d86ef3c5d2f6a070f88` over the exact
+current-user message, 15 bytes, **no trailing newline**,
+persisted verbatim at `/home/vagrant/worktree-authorization.txt`. Literal message:
+
+> 1 - yes
+> 2 - yes
+
 Pending.
 
 Plan-attempt-history: {"authorization_source_sha256":"54bdcb9a2ecc6a76847d63aee7e806f57014989c6217879cd0a67f537fa66534","plan_bytes_sha256":"634cc69e48f2f37cb3a5b53bb378988727bfd69e1f0eb0a704f61ab0eed77440","replacement_run_id":"b02aa569-a19c-41e7-b880-dea5b748b626","run":{"acceptance":null,"blocker":{"evidence_sha256":"ccef9bb4b00c159c15a12f7e7e5af68ce3f34795eed95f1cbbe49d62fe5beba8","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"4040cc54a2f2819aeeede4094020c92e676b5bd6aabfbedef7ca3eb9ae208a25","invocations":2,"result_sha256":"ccef9bb4b00c159c15a12f7e7e5af68ce3f34795eed95f1cbbe49d62fe5beba8","state":"blocked"},"execution_parent":null,"goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"6e70714092d51d5ed071f2365277b710cba61f4a566ea5648b2e1b07e57f5a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"f0073e07-9efb-4c6b-9d77-3e256575bf43","schema":1,"source_base":"ee9ec619a84db99dd6db2ee73972e1f3d277971a","source_sha256":"15c270957547620681b92c7ffce821e35ccf8431e9eed31e546e0dc3877f18b6"},"schema":1,"status":"blocked","successor_run_sha256":"0362ff9ed12f7c520b744c93506db635b9999448f8f38585e73d31eaab26f880"}
+Plan-attempt-history: {"authorization_source_sha256":"0eee9d1a56c01fcb496d87aa0b2c57eb802c2009381e9d86ef3c5d2f6a070f88","plan_bytes_sha256":"2441b80837aab76c3c029cd61e2e5a1a73677ff80cd826e549d8cfc6c89e07c6","replacement_run_id":"80044613-f381-4986-a3f0-25dff7b36f2a","run":{"acceptance":{"source_sha256":"4240db802968d02cbd8b5c2472211d2a4a4885597aaeb775565694f439450bcc","verification_sha256":"42be89b6611af7cd97370c614ccde436ced0c7f9cdf7553826889efaa85dcd5f"},"blocker":{"evidence_sha256":"d7b4d36e78a9aa043e5c4e18bbe60716c063db4e60fe9f3c565c92456a79619d","kind":"review_failed"},"completion_review":{"input_sha256":"9f041f353c5f6ec0c854c4b586a436844b1da5ad277b2c306b0385093dcf1bf4","invocations":2,"result_sha256":"d7b4d36e78a9aa043e5c4e18bbe60716c063db4e60fe9f3c565c92456a79619d","state":"blocked"},"draft_review":{"input_sha256":"5784f0e697bd5fdb555a20da55f263de03aa33592a001449f1aed4efc2b50186","invocations":2,"result_sha256":"1e0dcc67d288cbcdb264b723ac14f67420b23bf51e543ff91e8cf7355ee27363","state":"passed"},"execution_parent":"89405d04982b3fcf049087ec0fbd1310b45b518e","goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":"590c15233b8ebc4771dbcf88284dcfd45e4db199","plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"1ced01916e7ade4a601c32395ee8caf0df9977e056735e4a00060763d477a29a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b02aa569-a19c-41e7-b880-dea5b748b626","schema":1,"source_base":"14a75c5cf0da03ddb73edb652042a6ac765cffbc","source_sha256":"f546d08ed8fcd254410419b5fcb2133a264c3cf5456618721d78e489ad60d024"},"schema":1,"status":"blocked","successor_run_sha256":"205a4029dcb6fc62b02e9ab20a7f7f2fe8d3c90449f9fd3c3257f1567aa7a3dc"}
 
-Plan-run: {"acceptance":{"source_sha256":"4240db802968d02cbd8b5c2472211d2a4a4885597aaeb775565694f439450bcc","verification_sha256":"42be89b6611af7cd97370c614ccde436ced0c7f9cdf7553826889efaa85dcd5f"},"blocker":{"evidence_sha256":"d7b4d36e78a9aa043e5c4e18bbe60716c063db4e60fe9f3c565c92456a79619d","kind":"review_failed"},"completion_review":{"input_sha256":"9f041f353c5f6ec0c854c4b586a436844b1da5ad277b2c306b0385093dcf1bf4","invocations":2,"result_sha256":"d7b4d36e78a9aa043e5c4e18bbe60716c063db4e60fe9f3c565c92456a79619d","state":"blocked"},"draft_review":{"input_sha256":"5784f0e697bd5fdb555a20da55f263de03aa33592a001449f1aed4efc2b50186","invocations":2,"result_sha256":"1e0dcc67d288cbcdb264b723ac14f67420b23bf51e543ff91e8cf7355ee27363","state":"passed"},"execution_parent":"89405d04982b3fcf049087ec0fbd1310b45b518e","goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":"590c15233b8ebc4771dbcf88284dcfd45e4db199","plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"1ced01916e7ade4a601c32395ee8caf0df9977e056735e4a00060763d477a29a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b02aa569-a19c-41e7-b880-dea5b748b626","schema":1,"source_base":"14a75c5cf0da03ddb73edb652042a6ac765cffbc","source_sha256":"f546d08ed8fcd254410419b5fcb2133a264c3cf5456618721d78e489ad60d024"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"fb3c4f2c-5f95-4b6f-b927-069973c205d6","implementation_commit":null,"plan_path":"docs/plans/active/agent-worktree-lifecycle-strategy.md","plan_sha256":"1ced01916e7ade4a601c32395ee8caf0df9977e056735e4a00060763d477a29a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"80044613-f381-4986-a3f0-25dff7b36f2a","schema":1,"source_base":"3c18fe40d46bbb0b26945ee47f8a964eb10d8593","source_sha256":"a1aca3119f1a213c8a2bdb4fac95b4cd37a7916327d84fcc7fd125b3d0f54768"}
 
 ## Verification Results
 
