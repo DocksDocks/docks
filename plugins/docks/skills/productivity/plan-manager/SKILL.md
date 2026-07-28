@@ -4,8 +4,8 @@ description: "Use when a goal may require a canonical plan, plan review, impleme
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-27"
-  content_hash: "5b79da59f0f741db4986c5dd409ce17775cf7ea5b22d6d719982adbdd58c465a"
+  updated: "2026-07-28"
+  content_hash: "983a34bf09c9b5c604951036ffb1dbc02b4c414dfc8b8bd677b3006adad4f340"
 ---
 
 # Plan Manager
@@ -271,14 +271,17 @@ Never persist raw user bytes or broaden authority from a probe.
 
 ## Legacy quarantine
 
-List/show scan frontmatter first; never validate every active family as a global
-prerequisite. Classify legacy only for the requested target. Record-free plans and
-complete settled terminal schema-1–6 families may migrate target-locally during an
-explicitly requested local start. Active, prepared, commitment, cancelled, crossed,
-malformed, or otherwise unsettled families are `legacy-quarantined`: render only;
-never dispatch, resume, abandon, repair, consume, or rewrite them. A fresh unrelated
-local goal may create a new PlanRunV1 and run normally; legacy bytes grant no
-authority. Never edit historical finished plans; external recovery needs live authority.
+List/show scan frontmatter first and classify legacy only for the requested target; never validate
+every active family as a global prerequisite. Record-free plans and complete settled terminal
+schema-1–6 families may migrate target-locally during an explicitly requested local start. Active,
+prepared, commitment, cancelled, crossed, malformed, or otherwise unsettled families are
+`legacy-quarantined`: render only; never dispatch, resume, abandon, repair, consume, or rewrite
+them. One exception: a quarantined plan whose goal is abandoned may be retired by moving the file
+unchanged to `docs/plans/finished/<YYYY-MM-DD>-<slug>.md` and appending a `## Retirement` section.
+Frontmatter status, every record line, and the classification must be byte-identical before and
+after; flipping status to `finished` is prohibited because it relabels an unsettled family
+`settled-terminal` and unlocks migration. A fresh unrelated local goal may create a new PlanRunV1
+and run normally; legacy bytes grant no authority.
 
 ## GitHub issue publication
 
@@ -298,19 +301,16 @@ review, or makes the issue the source of truth.
 ```text
 BAD: draft a plan, ask for a separate lifecycle command, then resume in another turn.
 GOOD: review once, checkpoint ongoing, implement, verify, and archive the same requested goal.
-
 BAD: spend a run's permits, then mint `plan-v2.md`.
 GOOD: keep one plan path; append terminal history, then explicitly authorize a fresh run.
-
 BAD: infer deploy permission from requested_effects or an old release receipt.
 GOOD: require a matching live ExternalAuthorityV1 at the deploy boundary.
 ```
 
 ## Final checks
 
-- Exact repository/path/current-run identity and append-only attempt history.
+- Exact repository/path/current-run identity, append-only attempt history, and exact plan/source/final-manifest/verification hashes.
 - Closed phase/lifecycle/status tuple, ≤2 substantive permits per phase, and at most one transport retry.
-- Exact plan/source/final-manifest/verification hashes.
 - Transaction and owned checkpoint read-backs; unrelated paths excluded.
 - Fresh reviewer bindings; stale or cold-live-reservation output ignored.
 - Invalid reviewer input terminal-blocked through `review_invalid_input`; no retry, degrade, repair, or authority.

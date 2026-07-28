@@ -413,6 +413,12 @@ migrated target-locally during an explicitly requested local start. Active,
 prepared, commitment, cancellation, crossed, malformed, or otherwise unsettled
 evidence is `legacy-quarantined`: render it, but never dispatch, resume, abandon,
 repair, consume, or rewrite it.
+One exception: a quarantined plan whose goal is abandoned may be retired by
+moving the file unchanged to `docs/plans/finished/<YYYY-MM-DD>-<slug>.md` and
+appending a `## Retirement` section. Frontmatter status, every record line, and
+the classification must be byte-identical before and after; flipping status to
+`finished` is prohibited because it relabels an unsettled family
+`settled-terminal` and unlocks migration.
 
 An unrelated fresh local goal may create a new plan file. An explicitly
 continued same-domain terminal goal replaces only the current run at its stable

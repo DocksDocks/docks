@@ -158,9 +158,40 @@ function assertAcceptanceProofRule() {
   }
 }
 
+// These copies are maintained separately, so bind every distinguishing clause
+// in each file. A single regex spanning the sentence with `[\s\S]*` would still
+// match after a mutation in the middle, making the mutation probe vacuous.
+function assertQuarantineRetirementRule() {
+  const clauses = [
+    // The precondition. Without it, widening the exception to every quarantined
+    // plan (not only an abandoned goal) passes.
+    'a quarantined plan whose goal is abandoned',
+    'may be retired by moving the file unchanged',
+    'docs/plans/finished/<YYYY-MM-DD>-<slug>.md',
+    'appending a `## Retirement` section',
+    // The invariant's full subject list. Binding only the predicate lets the
+    // list narrow to `Frontmatter status`, freeing record lines and the
+    // classification and reopening the laundering vector this rule closes.
+    'Frontmatter status, every record line, and the classification',
+    'must be byte-identical before and after',
+    'flipping status to `finished` is prohibited',
+  ];
+  for (const relative of [
+    'docs/plans/AGENTS.md',
+    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+  ]) {
+    const text = fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\s+/g, ' ');
+    for (const clause of clauses) {
+      assert.ok(text.includes(clause), `${relative} is missing the quarantine-retirement clause: ${clause}`);
+    }
+  }
+}
+
 parseArgs(process.argv.slice(2));
 assertLiveTopology();
 assertReviewerWrappersOnly();
 assertBoundedWorkflows();
 assertAcceptanceProofRule();
+assertQuarantineRetirementRule();
 console.log('three-skill, one-wrapper bounded plan workflows passed');

@@ -28,6 +28,36 @@ function migratableRun(api, bytes, overrides = {}) {
     ...overrides,
   });
 }
+// One unsettled bootstrap family, shared by the launder and retirement cases so
+// they provably act on the SAME family. The pair is only meaningful as a pair:
+// retirement is the safe alternative to the status flip it is set against, so a
+// second copy that could drift independently would silently decouple them.
+function bootstrapRecord(api) {
+  return `Bootstrap-review-record: ${api.jcs({
+    schema: 1,
+    kind: 'bootstrap_not_reusable',
+    plan_blob_sha256: 'a'.repeat(64),
+    plan_path: 'docs/plans/active/legacy-fixture.md',
+    reviewed_commit: 'b'.repeat(40),
+    X: {
+      effort: 'high',
+      findings_sha256: 'c'.repeat(64),
+      model: 'legacy-reviewer',
+      reviewed_at: '2026-07-20T00:00:00Z',
+      score: 100,
+      tool: 'legacy-tool',
+      verdict: 'ready',
+    },
+    S: {
+      attempted: false,
+      denial_source: 'legacy fixture',
+      reason: 'not authorized',
+      result: 'not_authorized',
+      reviewed_at: '2026-07-20T00:00:00Z',
+      selected: null,
+    },
+  })}`;
+}
 
 export function registerLegacyQuarantine(suite, api, { root }) {
   suite.test('legacy-quarantine', 'record-free and complete settled terminal evidence are distinct', () => {
@@ -57,6 +87,31 @@ export function registerLegacyQuarantine(suite, api, { root }) {
       }
     },
   );
+
+  suite.test('legacy-quarantine', 'finished status can launder an unsettled legacy family', () => {
+    const record = bootstrapRecord(api);
+    const records = [record];
+
+    assert.equal(classification(api, legacyPlan(records)), 'legacy-quarantined');
+    assert.equal(classification(api, legacyPlan(records, { status: 'finished' })), 'settled-terminal');
+  });
+
+  suite.test('legacy-quarantine', 'retirement retains quarantined classification and reason', () => {
+    const record = bootstrapRecord(api);
+    const before = api.classifyLegacyPlan(legacyPlan([record]));
+    const retired = Buffer.concat([
+      legacyPlan([record]),
+      Buffer.from('\n## Retirement\n\nThe abandoned goal was retired without changing its evidence.\n'),
+    ]);
+    const after = api.classifyLegacyPlan(retired);
+
+    assert.deepEqual(
+      [after.classification, after.reason],
+      [before.classification, before.reason],
+      'retirement retention case: classification and reason did not change',
+    );
+    assert.equal(after.classification, 'legacy-quarantined');
+  });
 
   suite.test('legacy-quarantine', 'the named crossed Session Relay publication plan is quarantined read-only', () => {
     const bytes = fs.readFileSync(path.join(root, CROSSED_PLAN));
