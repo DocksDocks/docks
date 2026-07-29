@@ -138,6 +138,17 @@ export function renderPlan({ status = 'drafting', run = null, jcs = JSON.stringi
   );
 }
 
+// The lifecycle stamps sit outside `canonicalPlanView`, so setting them moves no
+// `plan_sha256` and a bound fixture stays valid.
+export function withStamps(bytes, startedAt, finishedAt) {
+  return Buffer.from(
+    bytes
+      .toString()
+      .replace('started_at: null', `started_at: ${startedAt}`)
+      .replace('finished_at: null', `finished_at: ${finishedAt}`),
+  );
+}
+
 export function bindPlan(api, tupleValue, { acceptanceManifest: liveAcceptanceManifest } = {}) {
   const unbound = renderPlan({ status: tupleValue.status, run: tupleValue.run, jcs: api.jcs });
   const paths = [{ path: 'src/tracked.txt', state: 'missing', kind: null, mode: null, sha256: null }];

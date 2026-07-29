@@ -15,6 +15,7 @@ import {
   reviewResultEvent,
   SOURCE_BASE,
   tuple,
+  withStamps,
 } from './fixtures/plan-run-v1.mjs';
 import { expectReject, expectThrow, git, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
 
@@ -389,5 +390,60 @@ export function registerMutations(suite, api) {
         }),
       /terminal|reopen|permit/i,
     );
+  });
+
+  const chronologyWrite = (root, stamps) => {
+    const file = path.join(root, 'plan.md');
+    const current = bindPlan(api, tuple('drafting'));
+    const next = bindPlan(api, tuple('drafting', { draft_review: reviewPhase('reserved') }));
+    fs.writeFileSync(file, current.bytes);
+    return {
+      current,
+      file,
+      write: () =>
+        api.transactPlanRun({
+          file,
+          identity: { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run },
+          expectedBytesSha256: api.sha256(current.bytes),
+          nextBytes: withStamps(next.bytes, ...stamps),
+        }),
+    };
+  };
+
+  suite.test('mutations', 'chronology: a write cannot install finished_at before started_at', () =>
+    withTempDirectory('plan-run-chronology-inverted-', async (root) => {
+      const { current, file, write } = chronologyWrite(root, ['"2026-07-24T05:00:00Z"', '"2026-07-24T02:00:00Z"']);
+      await expectReject(write, /finished_at cannot precede started_at/);
+      assert.equal(fs.readFileSync(file, 'utf8'), current.bytes.toString());
+    }),
+  );
+
+  suite.test('mutations', 'chronology: the same write is accepted once the stamps are ordered', () =>
+    withTempDirectory('plan-run-chronology-ordered-', async (root) => {
+      const { write } = chronologyWrite(root, ['"2026-07-24T02:00:00Z"', '"2026-07-24T05:00:00Z"']);
+      const result = await write();
+      assert.equal(result.run.draft_review.state, 'reserved');
+    }),
+  );
+
+  suite.test('mutations', 'chronology: an unparseable lifecycle stamp is refused', () =>
+    withTempDirectory('plan-run-chronology-unparseable-', async (root) => {
+      const { write } = chronologyWrite(root, ['"the day before"', 'null']);
+      await expectReject(write, /started_at is not a valid instant/);
+    }),
+  );
+
+  suite.test('mutations', 'chronology: validation stays permissive so an archived inversion still reads', () => {
+    const inverted = withStamps(
+      bindPlan(api, tuple('drafting')).bytes,
+      '"2026-07-24T05:00:00Z"',
+      '"2026-07-24T02:00:00Z"',
+    );
+    const view = api.validatePlanRun(inverted, {
+      planPath: PLAN_PATH,
+      repositoryId: REPOSITORY_ID,
+      runId: IDS.run,
+    });
+    assert.equal(view.frontmatter.finished_at, '2026-07-24T02:00:00Z');
   });
 }

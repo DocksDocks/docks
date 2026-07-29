@@ -14,6 +14,7 @@ import {
   renderPlan,
   reviewPhase,
   tuple,
+  withStamps,
 } from './fixtures/plan-run-v1.mjs';
 import { expectReject, git, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
 
@@ -728,6 +729,49 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
           /path|relative|duplicate|escape|normalized/i,
         );
       }
+    }),
+  );
+
+  // The replacement path is a second, independent route to the same bytes, and
+  // the driver-shaped replacement is what produced the one inversion on record.
+  suite.test('locks-cas', 'chronology: replacement authority cannot install finished_at before started_at', () =>
+    withTempDirectory('plan-run-replacement-chronology-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const current = bindPlan(
+        api,
+        tuple('blocked', {
+          blocker: blocker('review_failed'),
+          draft_review: reviewPhase('blocked'),
+        }),
+      );
+      const next = amendReplacementPlan(api, replacementFixture(api, current));
+      fs.writeFileSync(file, current.bytes);
+      const input = {
+        authority: replacementAuthority(api, next.run),
+        currentIdentity: {
+          goalId: IDS.goal,
+          planPath: PLAN_PATH,
+          repositoryId: REPOSITORY_ID,
+          runId: IDS.run,
+        },
+        expectedBytesSha256: api.sha256(current.bytes),
+        file,
+        liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
+      };
+      await expectReject(
+        () =>
+          api.replacePlanRunInPlace({
+            ...input,
+            nextBytes: withStamps(next.bytes, '"2026-07-24T05:00:00Z"', '"2026-07-24T02:00:00Z"'),
+          }),
+        /finished_at cannot precede started_at/,
+      );
+      assert.equal(fs.readFileSync(file, 'utf8'), current.bytes.toString());
+      const ordered = await api.replacePlanRunInPlace({
+        ...input,
+        nextBytes: withStamps(next.bytes, '"2026-07-24T02:00:00Z"', '"2026-07-24T05:00:00Z"'),
+      });
+      assert.equal(ordered.run.run_id, IDS.otherRun);
     }),
   );
 }

@@ -547,7 +547,11 @@ function validateTuple(status, run) {
   }
 
   if (status === 'drafting') {
-    if (!['not_started', 'reserved', 'transport_retried', 'retryable', 'repairing', 'passed', 'degraded'].includes(draftState)) {
+    if (
+      !['not_started', 'reserved', 'transport_retried', 'retryable', 'repairing', 'passed', 'degraded'].includes(
+        draftState,
+      )
+    ) {
       fail(`drafting cannot retain terminal draft state ${draftState}`);
     }
     assertBaselineCompletion(run);
@@ -1516,10 +1520,7 @@ const REVIEW_TRANSITIONS = new Map([
   ['not_required', new Set(['not_required'])],
   ['not_started', new Set(['not_started', 'reserved'])],
   ['reserved', new Set(['reserved', 'passed', 'repairing', 'blocked', 'cancelled', 'retryable'])],
-  [
-    'transport_retried',
-    new Set(['transport_retried', 'passed', 'repairing', 'blocked', 'cancelled', 'degraded']),
-  ],
+  ['transport_retried', new Set(['transport_retried', 'passed', 'repairing', 'blocked', 'cancelled', 'degraded'])],
   ['retryable', new Set(['retryable', 'transport_retried', 'blocked', 'cancelled'])],
   ['repairing', new Set(['repairing', 'reserved', 'blocked', 'cancelled'])],
   ['passed', new Set(['passed'])],
@@ -1815,6 +1816,31 @@ function fsyncDirectory(directory) {
   }
 }
 
+// A plan cannot finish before it started. Enforced on the write paths rather
+// than inside `validatePlanRun` so the one archived record carrying an
+// inversion keeps validating and no historical plan is retroactively rejected.
+// `frontmatter` is already on every validated view, so this costs no extra
+// parse. Both writers must call it: an ordinary transition and a replacement
+// authority are independent routes to the same bytes, and the driver-shaped
+// replacement path is what produced the one inversion on record. No "did this
+// transition move the stamp" refinement: it would guard an unreachable case,
+// since `finished_at` is only set at finish and finished bytes are immutable.
+// A plan that somehow does carry an inversion is blocked until repaired.
+function assertPlanChronology(frontmatter) {
+  const instant = (value, label) => {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'string') fail(`PlanRun ${label} must be a string or null`);
+    const parsedInstant = Date.parse(value);
+    if (Number.isNaN(parsedInstant)) fail(`PlanRun ${label} is not a valid instant: ${value}`);
+    return parsedInstant;
+  };
+  const startedAt = instant(frontmatter.started_at, 'started_at');
+  const finishedAt = instant(frontmatter.finished_at, 'finished_at');
+  if (startedAt !== null && finishedAt !== null && finishedAt < startedAt) {
+    fail('PlanRun finished_at cannot precede started_at');
+  }
+}
+
 export async function transactPlanRun({
   file,
   identity,
@@ -1884,6 +1910,7 @@ export async function transactPlanRun({
     ) {
       fail('persisted PlanRun bytes cannot change without a legal state event');
     }
+    assertPlanChronology(next.frontmatter);
     const readback = writePlanBytes(file, expectedBytesSha256, nextBuffer);
     return {
       attempt_history: next.attempt_history,
@@ -1933,6 +1960,7 @@ export async function replacePlanRunInPlace({
     });
     validatePlanReplacementAuthority(authority, current, next, liveSourceSha256);
     assertPlanRunReplacement(current, next, currentBytes, authority);
+    assertPlanChronology(next.frontmatter);
     const readback = writePlanBytes(file, expectedBytesSha256, nextBuffer);
     return {
       attempt_history: next.attempt_history,
