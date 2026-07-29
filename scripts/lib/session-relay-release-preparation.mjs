@@ -103,8 +103,8 @@ const LEGACY_PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-cli-0.13.0-rele
 const LEGACY_PUBLIC_BLOCKED_REASON =
   'Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests.';
 
-const CURRENT_RELEASE_VERSION = '0.14.0';
-const CURRENT_RELEASE_TAG = 'session-relay--v0.14.0';
+const CURRENT_RELEASE_VERSION = VERSION;
+const CURRENT_RELEASE_TAG = TAG;
 const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
 const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
 const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
@@ -125,7 +125,7 @@ const PLANRUN_DOCKS_AFFECTED_PATHS = Object.freeze([
 const CURRENT_PUBLIC_VERSION = '0.12.0';
 const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
-const CURRENT_PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-0.14.0-docks-kit-0.12.0-release.md';
+const CURRENT_PUBLIC_PLAN_PATH = `docs/plans/active/session-relay-${CURRENT_RELEASE_VERSION}-docks-kit-${CURRENT_PUBLIC_VERSION}-release.md`;
 const CURRENT_BINDER_CONTINUATION_PATHS = new Set([
   'AGENTS.md',
   'docs/plans/active/session-relay-correlated-results-release-remediation-v5.md',
@@ -2654,11 +2654,13 @@ function currentCompletionEvidence(
 
 function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan) {
   if (finishedRelative !== CURRENT_DOCKS_PLAN_PATH) {
-    fail('--finished-plan must be the exact active correlated-results completion plan for Session Relay 0.14.0');
+    fail(
+      `--finished-plan must be the exact active correlated-results completion plan for Session Relay ${CURRENT_RELEASE_VERSION}`,
+    );
   }
   const requestedVersion = options.get('version');
   if (requestedVersion !== undefined && requestedVersion !== CURRENT_RELEASE_VERSION) {
-    fail('current correlated-results completion binding requires Session Relay 0.14.0');
+    fail(`current correlated-results completion binding requires Session Relay ${CURRENT_RELEASE_VERSION}`);
   }
   const { run, status } = currentPlanRun(planBytes, plan);
   const redRecord = currentSingletonMachineRecord(plan, 'TDD-red-evidence');
@@ -2755,11 +2757,13 @@ function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan)
 }
 function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan) {
   if (finishedRelative !== PLANRUN_DOCKS_PLAN_PATH) {
-    fail('--finished-plan must be the exact active PlanRun verification repair for Session Relay 0.14.0');
+    fail(
+      `--finished-plan must be the exact active PlanRun verification repair for Session Relay ${CURRENT_RELEASE_VERSION}`,
+    );
   }
   const requestedVersion = options.get('version');
   if (requestedVersion !== undefined && requestedVersion !== CURRENT_RELEASE_VERSION) {
-    fail('PlanRun completion binding requires Session Relay 0.14.0');
+    fail(`PlanRun completion binding requires Session Relay ${CURRENT_RELEASE_VERSION}`);
   }
   const { run, status } = currentPlanRun(planBytes, plan, {
     runId: PLANRUN_DOCKS_RUN_ID,

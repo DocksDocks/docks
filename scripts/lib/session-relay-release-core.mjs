@@ -21,10 +21,8 @@ export const ASSETS = [
   'session-relay-x86_64-unknown-linux-musl',
   'SHA256SUMS',
 ];
-export const PRERELEASE_BODY =
-  'Session Relay 0.14.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
-export const STABLE_BODY =
-  'Session Relay 0.14.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
+export const PRERELEASE_BODY = `Session Relay ${VERSION} is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.`;
+export const STABLE_BODY = `Session Relay ${VERSION} is available through docks-kit.\n\n## Install or update\n\n\`\`\`\ndocks-kit sync\n\`\`\``;
 
 export class SessionRelayReleaseError extends Error {
   constructor(message, outcome = 'conflict') {

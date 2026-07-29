@@ -93,7 +93,7 @@ const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-resu
 const PLANRUN_DOCKS_SOURCE_BASE = 'de4f8305ac9351cbbea4549503f2684f67fbcde9';
 const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
-const CURRENT_PUBLIC_PLAN_BASENAME = 'session-relay-0.14.0-docks-kit-0.12.0-release';
+const CURRENT_PUBLIC_PLAN_BASENAME = `session-relay-${CURRENT_VERSION}-docks-kit-${PUBLIC_VERSION}-release`;
 const CURRENT_PUBLIC_FINISHED_PLAN_PATH =
   /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-0\.14\.0-docks-kit-0\.12\.0-release\.md$/;
 const HISTORICAL_RELAY_VERSION = '0.13.0';

@@ -793,10 +793,10 @@ function publicationReceipt(proof, release, assets, workflow, transition, releas
   const receiptTransition = recoverablePrerelease ? 'tag_and_release_created' : transition;
   if ([2, 3].includes(proof.value.schema)) {
     if (releaseStateName === 'prerelease' && receiptTransition !== 'tag_and_release_created') {
-      fail('current Session Relay 0.14.0 publication must atomically stage the reviewed tag and prerelease');
+      fail(`current Session Relay ${VERSION} publication must atomically stage the reviewed tag and prerelease`);
     }
     if (releaseStateName === 'stable' && !['finalized', 'already_stable'].includes(receiptTransition)) {
-      fail('current Session Relay 0.14.0 stable finalization transition is invalid');
+      fail(`current Session Relay ${VERSION} stable finalization transition is invalid`);
     }
     const expectedBody = releaseStateName === 'stable' ? STABLE_BODY : PRERELEASE_BODY;
     if (release.body !== expectedBody) fail(`current Session Relay ${releaseStateName} body identity conflict`);
