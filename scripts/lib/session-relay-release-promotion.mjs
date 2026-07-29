@@ -95,9 +95,11 @@ const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
 const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
 const CURRENT_PUBLIC_PLAN_BASENAME = `session-relay-${CURRENT_VERSION}-docks-kit-${PUBLIC_VERSION}-release`;
 // Derived, not restated: 8df5adf moved the basename above onto CURRENT_VERSION but
-// left this pattern hardcoding 0\.14\.0, which a `grep "0\.14\.0"` check cannot
-// see because the escaped form carries backslashes. A bump would have left
-// promotion bound to the old public child.
+// left this pattern restating both versions in backslash-escaped regex form, which
+// a plain version-literal grep cannot see, since escaped dots in the pattern match
+// literal dots and never the escaped source text. A bump would have left promotion
+// bound to the previous public child. Do not restate a version here; the census in
+// measure/lane-identity-census.mjs scans this file for exactly that shape.
 const CURRENT_PUBLIC_FINISHED_PLAN_PATH = new RegExp(
   `^docs/plans/finished/\\d{4}-\\d{2}-\\d{2}-${CURRENT_PUBLIC_PLAN_BASENAME.replace(/\./g, '\\.')}\\.md$`,
 );
