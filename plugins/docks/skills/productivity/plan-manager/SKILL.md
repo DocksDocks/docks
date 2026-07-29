@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-29"
-  content_hash: "f7ff28023dc12a9221e73700d6dc6de7255db255be73df25ca7a081661603009"
+  content_hash: "387f20c1c7ad90eda1f1d83ba576a262d37c4c6eba00364142dce3b70bb30957"
 ---
 
 # Plan Manager
@@ -182,6 +182,13 @@ write.
    reversible local work; sensitive/public-contract/security/external work blocks.
 
 No score, quota, fallback, resumed reviewer, third invocation, or Session Relay review exists. Destroy only the returned exact bundle.
+
+The protocol is transport-agnostic: `omp --model <vendor>/<model> -p`,
+`claude -p --permission-mode plan`, and `codex exec -s read-only` all satisfy it,
+provided complete stdout reaches a private file. Invocations, per-runtime model
+pinning, the flag trap where `--no-tools` leaves MCP tools callable, and what is
+and is not measured about judge independence are in
+`references/reviewer-dispatch-methods.md`.
 
 A local **self-check** — not a review, never a substitute for the permits above, and producing no
 `PlanReviewV1` — judges properties per enumerated unit and carries approvals forward on dependency
