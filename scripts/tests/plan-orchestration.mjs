@@ -10,6 +10,7 @@ import { registerHistoricalCharacterization } from './plan-orchestration/histori
 import { registerLegacyQuarantine } from './plan-orchestration/legacy-quarantine.mjs';
 import { registerLocksAndCas } from './plan-orchestration/locks-cas.mjs';
 import { registerMutations } from './plan-orchestration/mutations.mjs';
+import { registerPlanReview } from './plan-orchestration/plan-review.mjs';
 import { registerReviewBudget } from './plan-orchestration/review-budget.mjs';
 import { registerStateMatrix } from './plan-orchestration/state-matrix.mjs';
 
@@ -19,6 +20,10 @@ const REVIEW_POLICY_PATH = path.join(ROOT, 'plugins/docks/skills/productivity/pl
 const LEGACY_POLICY_PATH = path.join(
   ROOT,
   'plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs',
+);
+const PLAN_REVIEW_PATH = path.join(
+  ROOT,
+  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-review.mjs',
 );
 
 function parseGroups(argv) {
@@ -48,6 +53,7 @@ if (!selected?.has('historical')) {
   registerExternalAuthority(suite, planRun);
   registerLegacyQuarantine(suite, planRun, { root: ROOT });
   registerMutations(suite, planRun);
+  registerPlanReview(suite, await loadModule(PLAN_REVIEW_PATH));
 }
 
 const passed = await suite.run(selected);
