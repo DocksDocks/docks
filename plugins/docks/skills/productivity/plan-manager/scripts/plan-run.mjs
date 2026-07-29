@@ -1826,6 +1826,13 @@ function fsyncDirectory(directory) {
 // transition move the stamp" refinement: it would guard an unreachable case,
 // since `finished_at` is only set at finish and finished bytes are immutable.
 // A plan that somehow does carry an inversion is blocked until repaired.
+//
+// Known bound: `Date.parse` truncates to whole milliseconds, so an inversion
+// inside one millisecond is invisible here - `...T00:00:00.0009Z` and
+// `...T00:00:00.0001Z` both parse to 1784851200000 and compare equal. A
+// lexicographic tie-break would be wrong across differing UTC offsets, and the
+// inversion this guard exists to catch was 151 minutes, so the bound is recorded
+// rather than traded for a riskier comparison.
 function assertPlanChronology(frontmatter) {
   const instant = (value, label) => {
     if (value === null || value === undefined) return null;
