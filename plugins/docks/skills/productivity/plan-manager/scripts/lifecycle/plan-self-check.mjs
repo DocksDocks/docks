@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// plan-review.mjs - bookkeeping for a unit-gated plan review. It judges nothing.
+// plan-self-check.mjs - bookkeeping for a unit-gated plan review. It judges nothing.
 //
 // WHY THERE IS NO SCORE. A predecessor scored plans on six weighted axes out of 100 and gated at
 // 90. Measured: eleven rounds of real repair on one plan produced mean 55.1, sd 9.3. Seven
@@ -27,15 +27,15 @@
 // under their own authorization. Nothing here grants it and no vendor is named.
 //
 // Usage - paths may be repository-relative or absolute:
-//   plan-review.mjs units    <plan.md>
-//   plan-review.mjs check    <plan.md>            run the deterministic script-checked properties
-//   plan-review.mjs sections <plan.md>
-//   plan-review.mjs prompt   <plan.md> [--hunt]
-//   plan-review.mjs validate <result.json> <plan.md>
-//   plan-review.mjs ledger   <result.json> <ledger.json> <plan.md> [--reviewer <label>]
-//   plan-review.mjs waive    <ledger.json> <unit-key> <property> --reason <text> --by <who>
-//   plan-review.mjs gate     <ledger.json> <plan.md>
-//   plan-review.mjs apply    <result.json> <plan.md> [--commit]
+//   plan-self-check.mjs units    <plan.md>
+//   plan-self-check.mjs check    <plan.md>            run the deterministic script-checked properties
+//   plan-self-check.mjs sections <plan.md>
+//   plan-self-check.mjs prompt   <plan.md> [--hunt]
+//   plan-self-check.mjs validate <result.json> <plan.md>
+//   plan-self-check.mjs ledger   <result.json> <ledger.json> <plan.md> [--reviewer <label>]
+//   plan-self-check.mjs waive    <ledger.json> <unit-key> <property> --reason <text> --by <who>
+//   plan-self-check.mjs gate     <ledger.json> <plan.md>
+//   plan-self-check.mjs apply    <result.json> <plan.md> [--commit]
 //
 // Exit 0 on success or a clear gate, 1 on a refusal or a blocked gate, 2 on usage error.
 
@@ -661,7 +661,9 @@ function main() {
     process.stderr.write(`${error.message}\n`);
     return 2;
   }
-  process.stderr.write('usage: plan-review.mjs units|check|sections|prompt|validate|ledger|waive|gate|apply <args>\n');
+  process.stderr.write(
+    'usage: plan-self-check.mjs units|check|sections|prompt|validate|ledger|waive|gate|apply <args>\n',
+  );
   return 2;
 }
 

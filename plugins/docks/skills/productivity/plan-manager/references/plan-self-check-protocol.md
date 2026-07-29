@@ -1,10 +1,11 @@
-# Iterated plan review: the unit-gated protocol
+# Plan self-check: the unit-gated protocol
 
 Every rule here replaced a rule that was measured to fail. The measurements are quoted because
 the failure modes are counter-intuitive: the discarded design was reasonable, popular, and wrong.
 
 ## Contents
 
+- [What this is not](#what-this-is-not)
 - [The measurement that killed scoring](#the-measurement-that-killed-scoring)
 - [Units, not documents](#units-not-documents)
 - [The scoping rule](#the-scoping-rule)
@@ -18,6 +19,27 @@ the failure modes are counter-intuitive: the discarded design was reasonable, po
 - [Evidence summary](#evidence-summary)
 - [Running it](#running-it)
 - [Transport and egress](#transport-and-egress)
+
+## What this is not
+
+This is **not** the canonical plan-review path, and its verdicts are never review evidence.
+
+|          |canonical review|this self-check|
+|---|---|---|
+|owner|the `plan-reviewer` skill|the plan's author|
+|contract|`PlanReviewV1`, validated by `plan-reviewer/scripts/review-policy.mjs`|no wire contract; a local ledger|
+|verdicts|`pass` / `repair` / `blocked`|`pass` / `fail` / `unverified` / `not_applicable`|
+|input|one immutable bundle, digest-bound|the live working document|
+|budget|counted review permits per phase|none; run it as often as you like|
+|authority|gates the lifecycle|gates nothing outside itself|
+
+<constraint>
+The verdict vocabularies are deliberately disjoint so a return from one can never be mistaken for
+the other. A self-check ledger does not satisfy a review permit, does not produce
+`PlanReviewV1`, and does not substitute for the reviewer that the plan lifecycle requires. Use
+this before spending a permit, so the permit is spent on a document that already passes its own
+mechanical checks.
+</constraint>
 
 ## The measurement that killed scoring
 
@@ -135,6 +157,11 @@ The reviewer SHOULD be a different model from the one that authored the plan, an
 different vendor: a judge sharing the author's training data plausibly shares its blind spots. This
 is a SHOULD, not a MUST — a consumer with one provider configured must still be able to clear this
 gate.
+
+For the canonical review path this is already settled and is not this document's to decide: that
+path selects a primary reviewer from a resolved candidate chain that prefers the other company's
+model, with same-company selection as an availability-only fallback, so a single-subscription user
+is never blocked. Nothing below overrides that; it only measures how much independence buys.
 
 Record it instead of assuming it. `ledger --reviewer <label>` stores an opaque caller-supplied label
 per verdict; `gate` reports the distribution over passing units and notes when every pass came from

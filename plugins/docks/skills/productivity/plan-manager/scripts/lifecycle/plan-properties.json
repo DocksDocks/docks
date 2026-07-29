@@ -333,7 +333,7 @@
     "existential": "gates at document level, because a single witness satisfies it"
   },
   "cli": {
-    "entrypoint": "plan-review.mjs",
+    "entrypoint": "plan-self-check.mjs",
     "never": "No subcommand computes, prints, or accepts a score.",
     "subcommands": {
       "units": "enumerate the bounded unit sets; deterministic, no model involved",
@@ -345,6 +345,7 @@
       "gate": "report CLEAR or BLOCKED and exactly what remains",
       "apply": "apply byte-exact fixes in the stated order; dry run unless --commit",
       "check": "run the deterministic script-checked properties; no model involved"
-    }
+    },
+    "not": "This is NOT the canonical plan-review path. `plan-reviewer` owns PlanReviewV1 evidence, its own verdict vocabulary (pass|repair|blocked), immutable bundle identity, and the per-phase review permits. This tool is an authoring-time self-check whose verdicts are never review evidence."
   }
 }

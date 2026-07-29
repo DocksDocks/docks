@@ -10,7 +10,7 @@ import { registerHistoricalCharacterization } from './plan-orchestration/histori
 import { registerLegacyQuarantine } from './plan-orchestration/legacy-quarantine.mjs';
 import { registerLocksAndCas } from './plan-orchestration/locks-cas.mjs';
 import { registerMutations } from './plan-orchestration/mutations.mjs';
-import { registerPlanReview } from './plan-orchestration/plan-review.mjs';
+import { registerPlanSelfCheck } from './plan-orchestration/plan-self-check.mjs';
 import { registerReviewBudget } from './plan-orchestration/review-budget.mjs';
 import { registerStateMatrix } from './plan-orchestration/state-matrix.mjs';
 
@@ -21,9 +21,9 @@ const LEGACY_POLICY_PATH = path.join(
   ROOT,
   'plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs',
 );
-const PLAN_REVIEW_PATH = path.join(
+const PLAN_SELF_CHECK_PATH = path.join(
   ROOT,
-  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-review.mjs',
+  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs',
 );
 
 function parseGroups(argv) {
@@ -53,7 +53,7 @@ if (!selected?.has('historical')) {
   registerExternalAuthority(suite, planRun);
   registerLegacyQuarantine(suite, planRun, { root: ROOT });
   registerMutations(suite, planRun);
-  registerPlanReview(suite, await loadModule(PLAN_REVIEW_PATH));
+  registerPlanSelfCheck(suite, await loadModule(PLAN_SELF_CHECK_PATH));
 }
 
 const passed = await suite.run(selected);

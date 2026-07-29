@@ -43,8 +43,8 @@ None.
 `;
 }
 
-export function registerPlanReview(suite, mod) {
-  const G = 'plan-review';
+export function registerPlanSelfCheck(suite, mod) {
+  const G = 'plan-self-check';
 
   suite.test(G, 'adjacent mechanism headings do not swallow the rest of the document', () => {
     const units = mod.enumerateUnits(fixture());

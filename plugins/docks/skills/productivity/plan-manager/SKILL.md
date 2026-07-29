@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-07-29"
-  content_hash: "a8a8e30d71c3eed0941e3b63ccc5df21356bf0076909156e5fc9cd6f8277f36d"
+  content_hash: "f7ff28023dc12a9221e73700d6dc6de7255db255be73df25ca7a081661603009"
 ---
 
 # Plan Manager
@@ -183,13 +183,13 @@ write.
 
 No score, quota, fallback, resumed reviewer, third invocation, or Session Relay review exists. Destroy only the returned exact bundle.
 
-An iterated external review — distinct from the two-permit `plan-reviewer` budget above, and never
-a substitute for it — judges properties per enumerated unit and carries approvals forward on
-dependency closure, so it terminates instead of re-litigating: `scripts/lifecycle/plan-review.mjs`
-— `units`/`check`/`prompt`/`validate`/`ledger`/`waive`/`gate`/`apply`. It never scores; a return
-carrying a score is refused, because seven scorings of one byte-identical plan measured sd 8.1
-against sd 9.3 across eleven rounds of real repair. Protocol and evidence in
-`references/plan-review-protocol.md` (verify: `node <plan-manager-dir>/scripts/lifecycle/plan-review.mjs check <plan.md>`).
+A local **self-check** — not a review, never a substitute for the permits above, and producing no
+`PlanReviewV1` — judges properties per enumerated unit and carries approvals forward on dependency
+closure, so an author can clear mechanical defects before spending a permit:
+`scripts/lifecycle/plan-self-check.mjs` — `units`/`check`/`prompt`/`validate`/`ledger`/`waive`/`gate`/`apply`.
+It never scores; a return carrying a score is refused, because seven scorings of one byte-identical
+plan measured sd 8.1 against sd 9.3 across eleven rounds of real repair. Protocol and evidence in
+`references/plan-self-check-protocol.md` (verify: `node <plan-manager-dir>/scripts/lifecycle/plan-self-check.mjs check <plan.md>`).
 
 ## Start, implementation, and acceptance
 
