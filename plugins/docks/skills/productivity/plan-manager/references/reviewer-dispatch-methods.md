@@ -10,6 +10,7 @@ receive and return, never which program carries it.
 - [Methods](#methods)
 - [Judge independence: what is measured](#judge-independence-what-is-measured)
 - [Reviewing code versus reviewing a document](#reviewing-code-versus-reviewing-a-document)
+- [One pass is a sample, not a verdict](#one-pass-is-a-sample-not-a-verdict)
 - [Flag traps](#flag-traps)
 
 ## What the protocol requires of any transport
@@ -96,6 +97,36 @@ either of them surfaced — sub-millisecond timestamp inversions are invisible t
 guard that compares parsed millisecond integers — was true of the code before and
 after the change it was attributed to. A confident mechanism with no executed
 check is the failure mode to reject.
+</constraint>
+
+## One pass is a sample, not a verdict
+
+The dominant source of disagreement is not the vendor. It is variance between
+passes under identical conditions.
+
+Measured on one real plan across six rounds of repair. Before spending the last
+review permit, the sealed bundle's own prompt — identical bytes, identical rubric —
+was read by two independent unpermitted passes. Both returned `pass` with zero
+findings. The permitted review that followed, on those same bytes, returned
+`repair` with two defects, both reproducible:
+
+- `grep -c` prints `0` and exits `1`, so two acceptance rows returned a failing
+  status in exactly the state they declared as success.
+- A coverage check consumed a scan whose inputs earlier steps delete, so it could
+  report success vacuously at the end state.
+
+Earlier rounds behaved the same way: each round of two passes surfaced defects the
+previous round's passes had missed, on text they had already approved.
+
+<constraint>
+Never treat "an independent pass returned pass" as evidence the document is clean.
+It is one sample from a pool whose size you do not know, and the false-negative
+rate per pass is high enough that two agreeing passes still missed two
+reproducible defects. Unpermitted passes are a cheap filter — across these rounds
+they cut findings from eight to two — and they are not a substitute for the gate.
+When more confidence is needed, take more samples of the same condition rather
+than more rounds of rewriting, because rewriting between single samples cannot
+distinguish a fixed document from a lucky pass.
 </constraint>
 
 ## Flag traps
