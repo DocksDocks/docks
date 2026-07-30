@@ -118,6 +118,21 @@ findings. The permitted review that followed, on those same bytes, returned
 Earlier rounds behaved the same way: each round of two passes surfaced defects the
 previous round's passes had missed, on text they had already approved.
 
+Rounds are not what converges a document. Counting findings per round over frozen
+bytes, across two plans and eleven rounds:
+
+|Document|Rounds|Findings per round|
+|---|--:|---|
+|one plan carrying four evidence scales|4|6, 1, 6, 6|
+|its narrower successor|7|12, 10, 13, 5, 11, 2, 10|
+
+Neither series trends down. The successor's only real drops each followed a reduction
+in scope rather than a repair: 13 to 5 when the plan was narrowed, then down to 2 -
+two of three passes clean - immediately after one capability was deleted outright.
+Every rise followed surface being added back, and the last round went from 2 to 10
+after a new schema and three new acceptance rows landed. Findings track surface, not
+iteration count.
+
 <constraint>
 Never treat "an independent pass returned pass" as evidence the document is clean.
 It is one sample from a pool whose size you do not know, and the false-negative
@@ -126,7 +141,12 @@ reproducible defects. Unpermitted passes are a cheap filter — across these rou
 they cut findings from eight to two — and they are not a substitute for the gate.
 When more confidence is needed, take more samples of the same condition rather
 than more rounds of rewriting, because rewriting between single samples cannot
-distinguish a fixed document from a lucky pass.
+distinguish a fixed document from a lucky pass. Cap the rounds at three on
+substantially unchanged bytes: if findings have not dropped materially by the third,
+the defect is scope rather than wording, so split the document or delete a capability
+instead of spending a fourth round. A round following a large rewrite is a first
+measurement of new bytes rather than a repeat, so it does not count toward the cap,
+and a counter that keeps resetting is itself the non-convergence signal.
 </constraint>
 
 ## Flag traps
