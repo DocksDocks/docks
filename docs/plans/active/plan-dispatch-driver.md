@@ -1,10 +1,10 @@
 ---
 title: Ship the crash-safe review dispatch driver
 goal: Replace the hand-rolled reserve, dispatch and settle window with one shipped driver, so a crash inside it refunds the permit instead of leaving a run cold-reserved and permanently blocked.
-status: planned
+status: ongoing
 created: "2026-07-29T13:05:00-03:00"
-updated: "2026-07-30T02:26:16.775+00:00"
-started_at: null
+updated: "2026-07-30T15:49:10.112+00:00"
+started_at: "2026-07-30T15:49:10.112+00:00"
 finished_at: null
 assignee: null
 tags: [plans, plan-manager, review, dispatch, tooling]
@@ -253,7 +253,7 @@ completion review is mandatory before finish, and implementation carries three
 checkpoint commits rather than two.
 
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"e9c600390d20d01da1c41e3996be59bcc690ceef630be337e83759a7262fd7cc","invocations":1,"result_sha256":"60efb6539568ec671aaba346ada196111c15a644d2c7c4d4795c5762584a6f70","state":"passed"},"execution_parent":null,"goal_id":"a52d016e-fb29-47b9-aedb-d9035ebff6e8","implementation_commit":null,"plan_path":"docs/plans/active/plan-dispatch-driver.md","plan_sha256":"d43c0535fa5776c401f14d814146a20c7008ddf1edbddb352f26273a9710506e","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2f2863ac-62b6-48ee-a142-572215e3c6cc","schema":1,"source_base":"72036fe30c22545a10eb98b53e41f42036fa9d42","source_sha256":"953e52a655c684bf4d40d53a1789f192b3ef2ce21eb784d66c6adaf4e70e0c81"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"e9c600390d20d01da1c41e3996be59bcc690ceef630be337e83759a7262fd7cc","invocations":1,"result_sha256":"60efb6539568ec671aaba346ada196111c15a644d2c7c4d4795c5762584a6f70","state":"passed"},"execution_parent":"180b7e50de1e0dcc5c5fa322918c88c36aa120ba","goal_id":"a52d016e-fb29-47b9-aedb-d9035ebff6e8","implementation_commit":null,"plan_path":"docs/plans/active/plan-dispatch-driver.md","plan_sha256":"d43c0535fa5776c401f14d814146a20c7008ddf1edbddb352f26273a9710506e","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2f2863ac-62b6-48ee-a142-572215e3c6cc","schema":1,"source_base":"72036fe30c22545a10eb98b53e41f42036fa9d42","source_sha256":"953e52a655c684bf4d40d53a1789f192b3ef2ce21eb784d66c6adaf4e70e0c81"}
 
 ## Review
 
