@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -25,6 +27,41 @@ const PLAN_SELF_CHECK_PATH = path.join(
   ROOT,
   'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs',
 );
+
+// Registered inline rather than as a sibling module: the dispatch-driver plan
+// declares `scripts/tests/plan-orchestration.mjs` as its registration site, and
+// `affected_paths` freezes when a run leaves `drafting`, so a new file here would
+// fall outside the path set the run binds.
+//
+// Each probe owns its fixtures - a disposable plan in a disposable repository -
+// so a case costs one child process and touches no real run's permits. They run
+// inside the gate rather than beside it, which is what keeps the driver's guards
+// regression-protected instead of hand-checked.
+const DISPATCH_PROBES = [
+  ['crash-refund', 'every catchable signal refunds the permit'],
+  ['sigkill-control', 'SIGKILL leaves a bare reserved, keeping crash-refund honest'],
+  ['stale-preimage', 'the reserve binds the bytes it sealed'],
+  ['head-drift', 'HEAD moving inside the dispatch window refunds'],
+  ['dry-run', 'a dry run reserves nothing and reports the sealed digest'],
+  ['settle-binding', 'pass settles, repair is withheld, invalid input is terminal'],
+  ['retry-block', 'a second transport failure blocks or degrades by risk'],
+];
+
+function registerDispatchDriver(target) {
+  const probeFile = path.join(ROOT, 'scripts/tests/plan-dispatch-probes.mjs');
+  for (const [probe, claim] of DISPATCH_PROBES) {
+    target.test('dispatch-driver', `${probe}: ${claim}`, () => {
+      const result = spawnSync(process.execPath, [probeFile, probe], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 300_000,
+      });
+      assert.equal(result.error, undefined, `${probe} failed to start`);
+      assert.equal(result.signal, null, `${probe} was signalled`);
+      assert.equal(result.status, 0, `${probe} failed:\n${result.stdout ?? ''}${result.stderr ?? ''}`);
+    });
+  }
+}
 
 function parseGroups(argv) {
   if (argv.length === 0) return null;
@@ -54,6 +91,7 @@ if (!selected?.has('historical')) {
   registerLegacyQuarantine(suite, planRun, { root: ROOT });
   registerMutations(suite, planRun);
   registerPlanSelfCheck(suite, await loadModule(PLAN_SELF_CHECK_PATH));
+  registerDispatchDriver(suite);
 }
 
 const passed = await suite.run(selected);
