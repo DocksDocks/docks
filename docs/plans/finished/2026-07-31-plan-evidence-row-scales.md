@@ -1,11 +1,11 @@
 ---
 title: Bind plan evidence to the bytes that produced it at row, sample and measurement scale
 goal: Extend the run-scale rule PlanRunV1 already enforces - evidence is bound to the bytes that produced it and is absent when those bytes move - down to the acceptance row, the review sample, and the quantitative claim.
-status: ongoing
+status: finished
 created: "2026-07-29T21:40:00-03:00"
-updated: "2026-07-31T14:39:14.950+00:00"
+updated: "2026-07-31T15:11:48.664+00:00"
 started_at: "2026-07-31T14:39:14.950+00:00"
-finished_at: null
+finished_at: "2026-07-31T15:11:48.664+00:00"
 assignee: null
 tags: [plans, plan-manager, evidence, review, tooling]
 affected_paths:
@@ -209,7 +209,7 @@ above as explicitly out of scope with its reason, and the recording order for
 proofs is fixed by the shipped writer rather than open to choice.
 
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"8d69c8158a0852ce57119c17477159c4145276354112bec4546ecd6fb16e3da1","invocations":1,"result_sha256":"185f38fb4c723f6633e1938e782bedcde8e99239a659de895ed14ab5670381cd","state":"passed"},"execution_parent":"db09c1b52f6b35fef41cecc85be47eae2575e27a","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":null,"plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"c6550bdedad8eeee2973d33add3ad843909574a46a6b72f668fdbc3137798b69","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"bf8ca878-7e23-47aa-b563-81e8c5c40106","schema":1,"source_base":"db09c1b52f6b35fef41cecc85be47eae2575e27a","source_sha256":"7e8650937b9693af58e44338825ee1c6673c107bd24b45df982ae74d9468e583"}
+Plan-run: {"acceptance":{"source_sha256":"eb825f9a947f49cf585a9d89a5deb8f0509914697658f770d4acb4686dc092d1","verification_sha256":"ad97de52781e7ff896444a8492619da76f647bc61335d1df519e0eaed30c3395"},"blocker":null,"completion_review":{"input_sha256":"3eb393d2efa74c717e5283f72d905fb3ea22ae8be369ee7941f2fb17e9d58a56","invocations":1,"result_sha256":"5604c11dc0fd736ad8cefe81e59832cd749ad17e8d62d2bfc7094bd623924478","state":"passed"},"draft_review":{"input_sha256":"8d69c8158a0852ce57119c17477159c4145276354112bec4546ecd6fb16e3da1","invocations":1,"result_sha256":"185f38fb4c723f6633e1938e782bedcde8e99239a659de895ed14ab5670381cd","state":"passed"},"execution_parent":"db09c1b52f6b35fef41cecc85be47eae2575e27a","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":"453d378681768c95db6f7dda821dbe91c32c25d9","plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"c6550bdedad8eeee2973d33add3ad843909574a46a6b72f668fdbc3137798b69","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"bf8ca878-7e23-47aa-b563-81e8c5c40106","schema":1,"source_base":"db09c1b52f6b35fef41cecc85be47eae2575e27a","source_sha256":"7e8650937b9693af58e44338825ee1c6673c107bd24b45df982ae74d9468e583"}
 
 ## Review
 
@@ -230,4 +230,54 @@ it is treated as adjudicated here.
 
 ## Verification Results
 
-Not yet started.
+Both repairs are implemented and verified. The two defects came from a completion reviewer
+against the predecessor run, arriving after its `replace_implementation` event was spent, so
+neither could be bound into that frozen commit. This successor was minted at the same plan path
+under exact current-user replacement authority; its draft review passed on the first permit with
+zero findings, leaving one permit unspent.
+
+R7 no longer tests status inside the rule body. Measured on the frozen fixture with one
+unresolved active path planted inside a producer block: before, `drafting` reported one finding
+at exit 1 while `finished` reported zero at exit 0; after, `finished` reports one and still
+exits 0. The exit status is derived from the mode rather than the finding count, and `finished`
+is counting-only, so making the finding visible cannot make any archived-plan invocation fail.
+
+The exclusion enumeration now names the repair section in both contract copies, which agree
+byte-for-byte on that sentence, and the paired-clause test pins it per file rather than over their
+union. Editing the template moved the owning skill manifest hash, refreshed through the
+content-hash script's own `--backfill` mode.
+
+One honesty point about the table below. A binds declaration belongs with the acceptance rows,
+where `plan_sha256` would freeze it. This body deliberately carries no binds table - it was
+authored to keep the structural-rule surface minimal - and the body is frozen once the run leaves
+`drafting`, so the table is recorded here instead. It is still bound, by
+`acceptance.verification_sha256` over this whole section, but that is a weaker commitment than
+the body freeze and should not be mistaken for one.
+
+A third defect was measured while drafting and is deliberately not repaired here. Enforcing mode
+is `drafting` only, but the proof writer refuses any status except `ongoing`, so the gate's
+strictest mode is unreachable for a newly authored row set: at `drafting` the probes a proof
+would observe do not exist yet. The predecessor's body asserted the opposite and called it what
+makes enforcing at `drafting` implementable rather than circular; that sentence was false
+against its own shipped code and is not repeated. Nothing runs the self-check against a live plan
+inside the gate, so no check is red. It needs its own plan, because the coherent fix moves
+enforcement to where proofs can be written and that changes a shipped contract a probe pins per
+status.
+
+A fourth instance of one defect class was found and fixed before this run started, as direct work
+rather than a plan step. Both probe suites sourced their mutated fixtures from this live plan, so
+`replaceMutation`'s "mutation target is absent" assertion turned a green suite red whenever an
+ordinary plan edit dropped an anchored sentence. Measured: nine of fifteen mutation anchors were
+literal bytes of this body. Fixture sources now read a frozen snapshot while the invariant reads
+that prove a probe left the real plan alone still name the real file. Rewriting this body for the
+successor touched the suite not at all, which is the observation that closed it.
+
+|Binds|Observable|Rows|
+|---|---|---|
+|`exit`|the command's exit status|A1, A2, A3|
+|`match`|a named matcher over stdout, recorded as `{matcher, result}`|A4|
+
+Falsifiability-proof: {"binds":"exit","command_sha256":"773996d1efe0b6a2ccec7385b8b22905d8b34cb19a6b3e93f0c71e04dcacf773","expected_sha256":"30aabd0d66ecd0d9e07613ffe17af9262cd4fa4777805de87540d4c167956113","observed":0,"probe":"reinstating the finished early return in a scratch copy of the self-check makes the finished cell report 0 findings instead of 1; re-applying it to the real script made the probe exit 1 naming the visibility regression, and restoring the fix returned it to exit 0","row_id":"A1","source_base":"db09c1b52f6b35fef41cecc85be47eae2575e27a","step_id":"1"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"d47f1314a932c5f8652a97ed4c7423b904b2affbeaf6c856c4460a17876daccf","expected_sha256":"f3a9a2672b35d20fca13cad9058a89aaae04662059cf78d46b80db17f3fc4025","observed":0,"probe":"deleting the new enumeration sentence from the template copy alone made the bounded-workflows case exit 1 with \"plans-agents-md-template.md is missing the Proposed repair clause\", and restoring it returned exit 0; a single assertion over both files would have stayed green","row_id":"A2","source_base":"db09c1b52f6b35fef41cecc85be47eae2575e27a","step_id":"2"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"789b36d612d12669464ae8d5abc874711ef9d38069292fe21e2887dfe7484d40","expected_sha256":"19ecd5f6e42c37eb5213c8152f8946707f4c1a4a5dc7a69b1486456c0a1cc0bd","observed":0,"probe":"reverting the refreshed content hash alone made the gate exit 1 reporting \"docks skill content_hash drift\"; restoring the refreshed hash returned exit 0, so the manifest coupling is enforced rather than conventional","row_id":"A3","source_base":"db09c1b52f6b35fef41cecc85be47eae2575e27a","step_id":"2"}
+Falsifiability-proof: {"binds":"match","command_sha256":"8ba9c7741b48d3e7f42fbfb2c649fc5dc115f3b8e8b6172e54fe6949f8ee0d9b","expected_sha256":"7ffe40addd4ad67af716b619260f9d0f80a944da2a971e1603f5c275133024cf","observed":{"matcher":"proof-line count equals the acceptance-row count","result":4},"probe":"before this section was written the plan carried 0 Falsifiability-proof lines against 4 acceptance rows, so the count disagreed; the matcher is stable under its own recording, which a whole-stdout digest would not be","row_id":"A4","source_base":"db09c1b52f6b35fef41cecc85be47eae2575e27a","step_id":"3"}
