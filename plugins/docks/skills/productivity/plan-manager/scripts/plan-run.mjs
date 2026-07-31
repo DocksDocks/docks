@@ -99,7 +99,7 @@ const LIFECYCLE_FRONTMATTER = new Set([
   'in_review_since',
   'scheduled_for',
 ]);
-const EXCLUDED_SECTIONS = new Set(['Review', 'Verification Results']);
+const EXCLUDED_SECTIONS = new Set(['Review', 'Verification Results', 'Proposed repair']);
 
 function fail(message) {
   throw new Error(message);

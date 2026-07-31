@@ -158,6 +158,24 @@ function assertAcceptanceProofRule() {
   }
 }
 
+function assertProposedRepairRule() {
+  const clauses = [
+    'The non-authoritative `## Proposed repair` section is excluded from `plan_sha256`',
+    'it is installed only by the transition that blocks a run',
+    'never added to an already-blocked run',
+    '`blocked` → `blocked` rejects any byte change',
+  ];
+  for (const relative of [
+    'docs/plans/AGENTS.md',
+    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  ]) {
+    const text = read(relative).replace(/\s+/g, ' ');
+    for (const clause of clauses) {
+      assert.ok(text.includes(clause), `${relative} is missing the Proposed repair clause: ${clause}`);
+    }
+  }
+}
+
 // These copies are maintained separately, so bind every distinguishing clause
 // in each file. A single regex spanning the sentence with `[\s\S]*` would still
 // match after a mutation in the middle, making the mutation probe vacuous.
@@ -246,6 +264,7 @@ assertLiveTopology();
 assertReviewerWrappersOnly();
 assertBoundedWorkflows();
 assertAcceptanceProofRule();
+assertProposedRepairRule();
 assertQuarantineRetirementRule();
 assertPortablePlanTextRule();
 console.log('three-skill, one-wrapper bounded plan workflows passed');

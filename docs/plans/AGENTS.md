@@ -77,6 +77,11 @@ related_plans: []
 `auto_execute`. Set `started_at` once on first `ongoing`; set `finished_at` only
 when archiving. All timestamps are quoted ISO 8601 with an offset.
 
+The non-authoritative `## Proposed repair` section is excluded from
+`plan_sha256`; it is installed only by the transition that blocks a run and is
+never added to an already-blocked run, because `blocked` → `blocked` rejects any
+byte change.
+
 ## Cold-handoff body
 
 Every canonical plan contains `## Goal`, `## Context & rationale`,
