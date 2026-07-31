@@ -91,6 +91,21 @@ function replaceMutation(text, before, after, label) {
   return changed;
 }
 
+/**
+ * Rewrite the frontmatter status line, anchored. Naming the literal `status: ongoing` coupled this
+ * fixture to the LIVE plan's transient lifecycle state: when that plan moved to `blocked` the
+ * target vanished and a green suite turned red with no code change. Matching a bare substring is
+ * no better, because a plan body may legitimately contain `status: finished` in prose. The
+ * invariant is "exactly one frontmatter status line", so that is what is asserted.
+ */
+function setFrontmatterStatus(text, status, label) {
+  const hits = text.match(/^status: \S+[ \t]*$/gm) ?? [];
+  assert.equal(hits.length, 1, `${label}: expected exactly one frontmatter status line, found ${hits.length}`);
+  const changed = text.replace(/^status: \S+[ \t]*$/m, `status: ${status}`);
+  assert.notEqual(changed, text, `${label}: status rewrite left the plan bytes unchanged`);
+  return changed;
+}
+
 function mutateRow(text, prefix, operation, label) {
   const lines = text.split('\n');
   const index = lines.findIndex((line) => line.startsWith(prefix));
@@ -577,7 +592,7 @@ node tool.mjs foo/bar:docs/plans/active/foreign.md https://example.test/docs/pla
       ['drafting', 1],
       ['planned', 0],
     ]) {
-      const fixture = replaceMutation(changed, 'status: ongoing', `status: ${status}`, `mode ${status}`);
+      const fixture = setFrontmatterStatus(changed, status, `mode ${status}`);
       withRuleScratch(status, fixture, (file) => {
         const child = runRules(file);
         assert.equal(child.status, expected, `${status}: unexpected rules exit:\n${child.output}`);

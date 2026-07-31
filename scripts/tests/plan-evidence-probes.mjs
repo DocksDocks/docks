@@ -690,8 +690,25 @@ probes['proof-writer'] = () =>
     }),
   );
 
+/**
+ * Derive the anchor instead of naming it. This previously replaced the literal
+ * `status: ongoing`, which coupled every status fixture to the LIVE plan's transient lifecycle
+ * state: the moment that plan moved to `blocked`, the anchor matched zero times and
+ * `replaceExactly` failed with "expected exactly one mutation target, found 0" - a green suite
+ * turned red with no code change, purely because a plan advanced. That is the same defect class
+ * this suite exists to catch, evidence keyed to bytes that move, so the fixture reads whatever
+ * status the source carries and rewrites that.
+ */
 function setFrontmatterStatus(planText, status) {
-  return replaceExactly(planText, 'status: ongoing', `status: ${status}`, `status ${status}`);
+  // Replace on the ANCHORED pattern, never on the extracted substring: `replaceExactly` counts
+  // plain substring hits (:89-93), and a plan body can legitimately contain the literal
+  // `status: finished` in prose - this plan's own Verification Results does, describing its
+  // sibling. Handing it the substring would count 2 and fail the moment such a plan advanced,
+  // which is the same coupling one level down.
+  const line = /^status: \S+[ \t]*$/gm;
+  const hits = planText.match(line) ?? [];
+  assert.equal(hits.length, 1, `expected exactly one frontmatter status line, found ${hits.length}`);
+  return planText.replace(/^status: \S+[ \t]*$/m, `status: ${status}`);
 }
 
 probes['status-mode'] = () =>
