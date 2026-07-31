@@ -720,6 +720,79 @@ function setFrontmatterStatus(planText, status) {
   return planText.replace(/^status: \S+[ \t]*$/m, `status: ${status}`);
 }
 
+probes['r7-finished'] = () =>
+  withLivePlanGuard(() =>
+    withScratch('evidence-r7-finished-', (root) => {
+      const unresolvedPlan = 'docs/plans/active/r7-finished-scratch.md';
+      assert.ok(!fs.existsSync(path.join(ROOT, unresolvedPlan)), `${unresolvedPlan} must remain unresolved`);
+
+      const fixture = replaceExactly(
+        fs.readFileSync(FIXTURE_PLAN, 'utf8'),
+        'docs/plans/*/*.md > /tmp/rows.txt',
+        `docs/plans/*/*.md ${unresolvedPlan} > /tmp/rows.txt`,
+        'plant unresolved R7 producer path',
+      );
+
+      const scriptsRoot = path.join(root, 'scripts');
+      const lifecycleRoot = path.join(scriptsRoot, 'lifecycle');
+      fs.mkdirSync(lifecycleRoot, { recursive: true });
+      const regressedScript = path.join(lifecycleRoot, 'plan-self-check.mjs');
+      fs.copyFileSync(SELF_CHECK_PATH, regressedScript);
+      fs.copyFileSync(MEASUREMENTS_PATH, path.join(lifecycleRoot, 'plan-measurements.mjs'));
+      fs.copyFileSync(
+        path.join(path.dirname(SELF_CHECK_PATH), 'plan-properties.json'),
+        path.join(lifecycleRoot, 'plan-properties.json'),
+      );
+      fs.copyFileSync(PLAN_RUN_PATH, path.join(scriptsRoot, 'plan-run.mjs'));
+      fs.copyFileSync(
+        path.join(path.dirname(PLAN_RUN_PATH), 'legacy-review-records.mjs'),
+        path.join(scriptsRoot, 'legacy-review-records.mjs'),
+      );
+
+      const repairedBytes = fs.readFileSync(regressedScript, 'utf8');
+      // Anchor on the rule's opening line ALONE, never on the comment beneath it. An anchor that
+      // quotes prose breaks when the prose is reworded, which is the coupling this suite already
+      // had to remove twice. Re-inserting the guard as the rule's first statement reproduces the
+      // exact shipped defect: it returned before reading `producerLines`.
+      const r7Anchor = "  structuralRule('R7', (context, fire) => {";
+      const regressedBytes = replaceExactly(
+        repairedBytes,
+        r7Anchor,
+        `${r7Anchor}\n    if (context.status === 'finished') return;`,
+        'reinsert the R7 finished suppression',
+      );
+      assert.notEqual(regressedBytes, repairedBytes, 'the regressed script copy must change bytes');
+      fs.writeFileSync(regressedScript, regressedBytes);
+
+      const cells = [
+        { label: 'repaired drafting', script: SELF_CHECK_PATH, status: 'drafting', findings: 1, exit: 1 },
+        { label: 'repaired finished', script: SELF_CHECK_PATH, status: 'finished', findings: 1, exit: 0 },
+        { label: 'regressed drafting', script: regressedScript, status: 'drafting', findings: 1, exit: 1 },
+        { label: 'regressed finished', script: regressedScript, status: 'finished', findings: 0, exit: 0 },
+      ];
+      const observations = cells.map((cell) => {
+        const fixturePath = path.join(root, `${cell.label.replace(' ', '-')}.md`);
+        fs.writeFileSync(fixturePath, setFrontmatterStatus(fixture, cell.status));
+        const child = spawnNode([cell.script, 'rules', fixturePath]);
+        const summary = /^RULES \S+ \d+ checked, (\d+) finding\(s\)$/m.exec(child.output);
+        assert.notEqual(summary, null, `${cell.label}: rules summary missing:\n${child.output}`);
+        assert.equal(Number(summary[1]), cell.findings, `${cell.label}: R7 visibility regression`);
+        assert.equal(child.status, cell.exit, `${cell.label}: R7 failure-mode regression:\n${child.output}`);
+        const namedPath = child.output.includes(`R7 fail unresolved active path ${unresolvedPlan}`);
+        assert.equal(namedPath, cell.findings === 1, `${cell.label}: R7 path visibility mismatch`);
+        return { ...cell, actualExit: child.status };
+      });
+      assert.deepEqual(
+        observations.filter((cell) => cell.status === 'finished').map((cell) => cell.actualExit),
+        [0, 0],
+        'repaired and regressed finished cells must both decline to fail',
+      );
+      process.stdout.write(
+        '  ok r7-finished repaired drafting=1/1 finished=1/0; regressed drafting=1/1 finished=0/0\n',
+      );
+    }),
+  );
+
 probes['status-mode'] = () =>
   withLivePlanGuard(() =>
     withScratch('evidence-status-', (root) => {

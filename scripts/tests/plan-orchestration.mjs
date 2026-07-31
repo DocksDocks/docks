@@ -62,6 +62,7 @@ const EVIDENCE_PROBES = [
   ['paired-clause', 'both lifecycle contracts carry the Proposed repair clause'],
   ['proof-writer', 'proofs are minted only through the bound completion reservation'],
   ['status-mode', 'drafting enforces while every immutable status only counts'],
+  ['r7-finished', 'finished plans report unresolved producer paths without blocking'],
   ['rules-archive', 'structural rules report recursively over the archive without blocking'],
 ];
 

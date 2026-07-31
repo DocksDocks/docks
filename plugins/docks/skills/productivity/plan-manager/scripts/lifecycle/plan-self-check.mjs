@@ -930,7 +930,8 @@ export const STRUCTURAL_RULES = Object.freeze([
     }
   }),
   structuralRule('R7', (context, fire) => {
-    if (context.status === 'finished') return;
+    // STATUS_MODES already decides whether findings fail. Testing status inside a rule suppresses
+    // the report instead, allowing an archived plan with a vanished active path to report clean.
     for (const line of context.producerLines) {
       for (const match of line.matchAll(/docs\/plans\/active\/[A-Za-z0-9._-]+\.md/g)) {
         const prefix = line.slice(0, match.index);

@@ -164,6 +164,9 @@ function assertProposedRepairRule() {
     'it is installed only by the transition that blocks a run',
     'never added to an already-blocked run',
     '`blocked` → `blocked` rejects any byte change',
+    // The four clauses above document the section; this one pins its exhaustive
+    // enumeration because a copy can satisfy one while contradicting the other.
+    'the `Plan-run` line, `## Review`, manager-written `## Verification Results`, and the non-authoritative `## Proposed repair`',
   ];
   for (const relative of [
     'docs/plans/AGENTS.md',

@@ -174,7 +174,8 @@ replacement transaction and retained as audit evidence; normal later lifecycle
 transitions neither recompute nor rewrite it.
 
 `plan_sha256` covers the canonical plan after excluding only lifecycle status and
-timestamps, the `Plan-run` line, `## Review`, and `## Verification Results`.
+timestamps, the `Plan-run` line, `## Review`, manager-written
+`## Verification Results`, and the non-authoritative `## Proposed repair`.
 Goal, scope, paths, steps, effects, safety, acceptance, and open decisions remain
 bound. `source_base` plus `source_sha256` binds a canonical sorted existence,
 kind, mode, and content manifest for every affected path at review time,
