@@ -64,6 +64,7 @@ const EVIDENCE_PROBES = [
   ['status-mode', 'drafting enforces while every immutable status only counts'],
   ['r7-finished', 'finished plans report unresolved producer paths without blocking'],
   ['rules-archive', 'structural rules report recursively over the archive without blocking'],
+  ['unreachable-base', 'an unreachable source_base is named rather than read as producer drift'],
 ];
 
 function registerEvidenceProbes(target) {
@@ -651,11 +652,24 @@ node tool.mjs foo/bar:docs/plans/active/foreign.md https://example.test/docs/pla
     );
     assert.deepEqual(anchored, [], `no probe constant may name a lifecycle-managed path: ${anchored.join(', ')}`);
 
-    // Rule 2: the frozen fixture is the sole source of mutated fixture bytes, and both sites use it.
+    // Rule 2: the frozen fixture is the sole source of mutated fixture bytes. Probes reach it
+    // through one reader, so assert the reader exists, that it is the ONLY place opening the
+    // fixture file, and that every consumer goes through it. Naming one call-site expression
+    // instead would fail the moment a probe is added or a read is refactored, which says
+    // nothing about the invariant; counting the direct opens says exactly it.
+    assert.match(
+      probeSource,
+      /function readFixturePlan\(\) \{\n(?:.*\n)*?\s*return mutateSourceBase\(fs\.readFileSync\(FIXTURE_PLAN, 'utf8'\), head\);/,
+      'one reader must own the frozen fixture and re-point its source_base',
+    );
     assert.equal(
-      (probeSource.match(/installProofRecords\(fs\.readFileSync\(FIXTURE_PLAN, 'utf8'\)\)/g) ?? []).length,
-      2,
-      'both mutated-fixture sources must read the frozen snapshot',
+      (probeSource.match(/fs\.readFileSync\(FIXTURE_PLAN/g) ?? []).length,
+      1,
+      'only readFixturePlan may open the frozen fixture',
+    );
+    assert.ok(
+      (probeSource.match(/readFixturePlan\(\)/g) ?? []).length >= 4,
+      'every mutated-fixture probe must source its bytes from readFixturePlan',
     );
 
     // And the replacement invariant is corpus-wide rather than single-file, so it survives a plan

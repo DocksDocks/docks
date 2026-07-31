@@ -6,7 +6,7 @@
 // then exits 0 only when the stated expectation holds. No probe dispatches a reviewer
 // or reserves a permit on a real plan.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -234,6 +234,22 @@ function mutateSourceBase(planText, value) {
   return lines.join('\n');
 }
 
+// Read the frozen fixture, then re-point its `source_base` at the commit this clone is
+// actually on. The fixture is a byte snapshot of a real plan, so it carries the commit that
+// plan recorded; `runMeasurementProducer` resolves a producer with `git show <source_base>:…`,
+// which fails outright once that commit is unreachable. A full clone hides this - the commit
+// stays resolvable as an ancestor - while a depth-1 CI checkout has only one commit, so the
+// measurement failed there and nowhere else. Pinning a commit literal in a fixture is a
+// dependency on unbounded history; HEAD exists in every clone by construction.
+//
+// This does not re-couple the fixture to live bytes. The producer counts declarations of
+// `EXCLUDED_SECTIONS = new Set`, which is one line by construction, so a count that moves is
+// a real defect rather than fixture rot.
+function readFixturePlan() {
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  return mutateSourceBase(fs.readFileSync(FIXTURE_PLAN, 'utf8'), head);
+}
+
 function reviewPhase(state) {
   if (state === 'not_required' || state === 'not_started') {
     return { state, invocations: 0, input_sha256: null, result_sha256: null };
@@ -405,7 +421,7 @@ probes['command-drift'] = () =>
 probes['stale-quantity'] = () =>
   withLivePlanGuard(() =>
     withScratch('evidence-quantity-', (root) => {
-      const fixture = installProofRecords(fs.readFileSync(FIXTURE_PLAN, 'utf8'));
+      const fixture = installProofRecords(readFixturePlan());
       const file = path.join(root, 'quantity.md');
       fs.writeFileSync(file, fixture);
 
@@ -742,7 +758,7 @@ probes['r7-finished'] = () =>
       const unresolvedPlan = 'docs/plans/active/r7-finished-scratch.md';
       assert.ok(!fs.existsSync(path.join(ROOT, unresolvedPlan)), `${unresolvedPlan} must remain unresolved`);
 
-      const baseFixture = fs.readFileSync(FIXTURE_PLAN, 'utf8');
+      const baseFixture = readFixturePlan();
       const fixture = replaceExactly(
         baseFixture,
         'docs/plans/*/*.md > /tmp/rows.txt',
@@ -828,7 +844,7 @@ probes['r7-finished'] = () =>
 probes['status-mode'] = () =>
   withLivePlanGuard(() =>
     withScratch('evidence-status-', (root) => {
-      const proven = installProofRecords(fs.readFileSync(FIXTURE_PLAN, 'utf8'));
+      const proven = installProofRecords(readFixturePlan());
       const unproven = mutateOneRowField(proven, 'command_sha256', '`node changed-status-probe.mjs`');
       const expectedModes = {
         drafting: 'enforcing',
@@ -893,6 +909,48 @@ probes['rules-archive'] = () =>
     );
     process.stdout.write(
       `  ok archive rules reported ${expectedPlans} plans, ${summary[2]} findings, and blocked none\n`,
+    );
+  });
+
+// A measurement records the commit it was taken against, so a clone that lacks that commit
+// cannot measure the producer at all. Git words "commit not in this clone" and "path not in
+// this commit" almost identically, and this repository spent a full CI round on the ambiguity:
+// a frozen fixture pinned an ancestor commit, which every full clone resolves and a depth-1
+// checkout does not have. Assert the two are distinguishable in BOTH directions, because a
+// catch that reported the typed message for every failure would hide a genuine bad path.
+probes['unreachable-base'] = () =>
+  withScratch('evidence-unreachable-', (root) => {
+    const repo = path.join(root, 'repo');
+    const head = initializeRepository(repo);
+    const producer = {
+      op: 'show-count',
+      path: 'tracked.txt',
+      matcher: 'base',
+      timeout_ms: 1_000,
+      max_bytes: 4096,
+    };
+
+    // The fixture commit holds a one-line `tracked.txt`, so the reachable case must measure
+    // exactly that line. A `typeof` check would pass on a silent zero and leave the happy path
+    // unproven, which is what makes the two throw assertions below meaningful.
+    const measured = measurements.runMeasurementProducer(producer, { repo, sourceBase: head });
+    assert.equal(measured, 1, 'a reachable commit must measure its producer against committed bytes');
+
+    const absent = 'b'.repeat(40);
+    assert.throws(
+      () => measurements.runMeasurementProducer(producer, { repo, sourceBase: absent }),
+      new RegExp(`source_base ${absent} is not present in this clone`),
+      'an unreachable source_base must name itself rather than surfacing a raw git failure',
+    );
+
+    assert.throws(
+      () => measurements.runMeasurementProducer({ ...producer, path: 'absent.txt' }, { repo, sourceBase: head }),
+      /absent\.txt/,
+      'a reachable commit with a wrong path must still report the path, not the clone',
+    );
+
+    process.stdout.write(
+      `  ok reachable base measured ${measured}; unreachable base typed; wrong path still names the path\n`,
     );
   });
 

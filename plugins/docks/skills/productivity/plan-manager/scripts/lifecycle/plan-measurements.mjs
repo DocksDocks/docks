@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 const PRODUCER_KEYS = Object.freeze(['op', 'path', 'matcher', 'timeout_ms', 'max_bytes']);
 const SAFE_FIELD = /^[A-Za-z0-9_./ :=-]+$/;
@@ -56,13 +56,26 @@ function assertProducer(producer) {
 export function runMeasurementProducer(producer, { repo = process.cwd(), sourceBase } = {}) {
   assertProducer(producer);
   if (!COMMIT.test(sourceBase ?? '')) throw new Error('measurement producer requires a 40-hex source_base');
-  const blob = execFileSync('git', ['show', `${sourceBase}:${producer.path}`], {
-    cwd: repo,
-    encoding: 'utf8',
-    timeout: producer.timeout_ms,
-    maxBuffer: producer.max_bytes,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  let blob;
+  try {
+    blob = execFileSync('git', ['show', `${sourceBase}:${producer.path}`], {
+      cwd: repo,
+      encoding: 'utf8',
+      timeout: producer.timeout_ms,
+      maxBuffer: producer.max_bytes,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (error) {
+    // A measurement names the commit it was taken against, and a clone need not contain that
+    // commit: a shallow checkout holds only its own tip. Git reports the absent commit and a
+    // wrong producer path with near-identical wording, so say which one happened. Without this
+    // the two are indistinguishable, and an unreachable commit reads like genuine drift.
+    const reachable = spawnSync('git', ['cat-file', '-e', `${sourceBase}^{commit}`], { cwd: repo }).status === 0;
+    if (reachable) throw error;
+    throw new Error(
+      `measurement source_base ${sourceBase} is not present in this clone, so the producer cannot be measured`,
+    );
+  }
   return blob.split('\n').reduce((count, line) => count + Number(line.includes(producer.matcher)), 0);
 }
 
@@ -124,7 +137,6 @@ function sourceBaseFromRecord(planText) {
   if (!line) throw new Error('committed measurement requires a Plan-run record');
   return JSON.parse(line.slice('Plan-run: '.length)).source_base;
 }
-
 
 export function checkPlanMeasurements(planText, { repo = process.cwd() } = {}) {
   let sourceBase = null;
