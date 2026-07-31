@@ -110,7 +110,17 @@ const section = (m) => {
   if (!QUIET) console.log(`\n\x1b[1m▸ ${m}\x1b[0m`);
 };
 const node = (args, options = {}) => spawnSync('node', args, { encoding: 'utf8', ...options });
-const nodeOk = (args, options) => (node(args, options).status ?? 1) === 0;
+// A failing check must name its own cause. Every `nodeOk` site asserts success, so a
+// non-zero exit is always a defect worth reading: print the child's captured output
+// rather than only the caller's one-line summary. Without this, a check that passes
+// locally and fails on a runner is undiagnosable except by bisecting through CI.
+const nodeOk = (args, options) => {
+  const result = node(args, options);
+  if ((result.status ?? 1) === 0) return true;
+  const detail = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+  if (detail) console.error(detail);
+  return false;
+};
 const readJSON = (f) => {
   try {
     return JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -450,14 +460,9 @@ function gatePlugin(p) {
     const checkOptions = p.rust
       ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }
       : undefined;
-    const checkResult = node(args, checkOptions);
-    if ((checkResult.status ?? 1) === 0) {
-      ok(`${p.name} source check passed (${(check.binaryArg ? args.slice(0, -2) : args).join(' ')})`);
-    } else {
-      const detail = `${checkResult.stdout ?? ''}${checkResult.stderr ?? ''}`.trim();
-      if (detail) console.error(detail);
-      fail(`${p.name} source check failed (run: node ${args.join(' ')})`);
-    }
+    nodeOk(args, checkOptions)
+      ? ok(`${p.name} source check passed (${(check.binaryArg ? args.slice(0, -2) : args).join(' ')})`)
+      : fail(`${p.name} source check failed (run: node ${args.join(' ')})`);
   }
 
   for (const contract of p.releaseContracts ?? []) {
