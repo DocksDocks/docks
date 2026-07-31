@@ -1,11 +1,11 @@
 ---
 title: Close the four reproduced holes in the crash-safe review dispatch driver
 goal: The dispatch driver shipped, but its own completion review reproduced four defects that break the crash-safety guarantee it exists to make. Close each one and prove each closure with a probe that fails when the defect is re-introduced into a copy of the driver.
-status: ongoing
+status: finished
 created: "2026-07-29T13:05:00-03:00"
-updated: "2026-07-30T23:29:30.471+00:00"
+updated: "2026-07-31T01:23:03.718+00:00"
 started_at: "2026-07-30T23:29:30.471+00:00"
-finished_at: null
+finished_at: "2026-07-31T01:23:03.718+00:00"
 assignee: null
 tags: [plans, plan-manager, review, dispatch, tooling]
 affected_paths:
@@ -358,7 +358,7 @@ consequences accepted: a second transport failure during review blocks rather th
 degrading (`plan-run.mjs:535`), a completion review is mandatory before finish, and
 implementation carries three checkpoint commits rather than two.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"286d1c668c3421b5e65de7cc138dd7f235b84eb7731999ef6f0bd5e7958264f3","invocations":1,"result_sha256":"69be99b203d36e66c12aa2e555d356e730cc019ce9dccb24e7098bc061f61883","state":"passed"},"execution_parent":"85310659644e7e3738ceb6c3d72bb4cb4c5ac403","goal_id":"a52d016e-fb29-47b9-aedb-d9035ebff6e8","implementation_commit":null,"plan_path":"docs/plans/active/plan-dispatch-driver.md","plan_sha256":"4ce3b7575ee7156519c6000ee28ff181751f6fcdb9478d062cfdc4674aab302e","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"3f573c0e-ef45-419b-8bd0-603d1edaec79","schema":1,"source_base":"85310659644e7e3738ceb6c3d72bb4cb4c5ac403","source_sha256":"0e766edb0700f4795582a533af6d22b0f303a46d2d8d9392e5af51c255844799"}
+Plan-run: {"acceptance":{"source_sha256":"54ceb733190532104f733cc4d633ac5a0b99c50f65984d9ff3a503545768d5be","verification_sha256":"de1266ef945eb7ffbceeaf95037e5a967f600864ca577e5414f64806583fd6fd"},"blocker":null,"completion_review":{"input_sha256":"b83c1aea0e5e729b6805f3e402a63cf9f17ebb3780cc7818c93af54fe1c2933f","invocations":1,"result_sha256":"32a6e74ffb4d977794b9f6077b7041996b13a7ac5faa2ca0af6629b4941de4d6","state":"passed"},"draft_review":{"input_sha256":"286d1c668c3421b5e65de7cc138dd7f235b84eb7731999ef6f0bd5e7958264f3","invocations":1,"result_sha256":"69be99b203d36e66c12aa2e555d356e730cc019ce9dccb24e7098bc061f61883","state":"passed"},"execution_parent":"85310659644e7e3738ceb6c3d72bb4cb4c5ac403","goal_id":"a52d016e-fb29-47b9-aedb-d9035ebff6e8","implementation_commit":"6bfe1cac8c68c6b7dc3d997e249fdf54e8c152bf","plan_path":"docs/plans/active/plan-dispatch-driver.md","plan_sha256":"4ce3b7575ee7156519c6000ee28ff181751f6fcdb9478d062cfdc4674aab302e","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"3f573c0e-ef45-419b-8bd0-603d1edaec79","schema":1,"source_base":"85310659644e7e3738ceb6c3d72bb4cb4c5ac403","source_sha256":"0e766edb0700f4795582a533af6d22b0f303a46d2d8d9392e5af51c255844799"}
 
 ## Review
 
@@ -467,5 +467,255 @@ acceptance rows, and the round-1 repair across mechanism, step 1, step 4 and A1.
 Plan-attempt-history: {"authorization_source_sha256":"ad3f214667d420412cccaef6bcb9ff358448ee64ec1ad1dae9d65fbc4c9efd17","plan_bytes_sha256":"f7ed72b550e339a9d659bad3b4750b36b368048e73b687e54288df3a3f3dd090","replacement_run_id":"3f573c0e-ef45-419b-8bd0-603d1edaec79","run":{"acceptance":null,"blocker":{"evidence_sha256":"e5b7f83cd3a4cc6563f1bac07b4963c638f10217ad47e667706a39c7152e80bc","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"24324ab0c25e5369c180d8c6fc2c8aae46deb46b1ca491023ebbeb160565f48c","invocations":2,"result_sha256":"e5b7f83cd3a4cc6563f1bac07b4963c638f10217ad47e667706a39c7152e80bc","state":"blocked"},"execution_parent":null,"goal_id":"a52d016e-fb29-47b9-aedb-d9035ebff6e8","implementation_commit":null,"plan_path":"docs/plans/active/plan-dispatch-driver.md","plan_sha256":"be6700ebf66d57ed5595fd70a9b2b8db2a4b414e8b20b0ead87d7a259e51d0f2","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2ae3d6ed-428d-4e12-bc7b-df8526a36b16","schema":1,"source_base":"85310659644e7e3738ceb6c3d72bb4cb4c5ac403","source_sha256":"0e766edb0700f4795582a533af6d22b0f303a46d2d8d9392e5af51c255844799"},"schema":1,"status":"blocked","successor_run_sha256":"fa09cea8b8932e6cb8645ce98a229ec326ddeb7bf29eff7e93188708ef245e76"}
 
 ## Verification Results
+Measured against the bytes at implementation checkpoint `6bfe1cac`. Every Observed cell below
+quotes a string the probe actually emitted: all sixteen emissions were captured from real runs,
+twice serially and compared byte-for-byte, because an earlier capture ran while mutation workers
+loaded the same machine and a truncated line would have become a wrong "verbatim" quote.
 
-Not yet started.
+### How these results were reached
+
+The completion review was rehearsed twice against a scratch plan outside `docs/plans/`, with the
+plan path rewritten to a different lock key. Neither rehearsal spent a live permit. Both returned
+`repair`, eight findings in total, and every one was legitimate.
+
+Round one found two code defects, one coverage gap and one accuracy gap. Round two found one
+further code defect and three mutations that did not match the mutation their row prescribes.
+
+The root cause of that third round-two class is worth recording, because it is the failure mode
+this plan exists to close: the executor briefs paraphrased each row's Probe cell instead of
+quoting it, and for A7 the brief offered a choice of two mutations. Given a choice, the executor
+took the easier one. Round three quoted every Probe cell verbatim with substitution forbidden,
+and the prescribed mutations were then run.
+
+This is the mechanism that worked. The predecessor run reached its permit ceiling on findings a
+rehearsal would have caught.
+
+### Acceptance rows, all twelve
+
+Probe rows ran with `DOCKS_REVIEW_TIMEOUT_MS=15000` exported, one at a time. Each cell lists every ROW-SPECIFIC success marker the
+probe emitted, verbatim, with its two-space indent preserved inside the code span. Each
+direct run additionally emits one harness line, `ok - plan-dispatch-probes: <name>`, which
+is the runner's own boilerplate rather than row evidence and is deliberately not quoted -
+A12's cell is the exception, because the gate's summary line IS its evidence.
+
+| ID | Exit | Observed, every emitted line |
+|---|---|---|
+| A1 | 0 | `  ok eight preflight refusals before reserve; valid and repo-relative routes reached RESERVED` |
+| A2 | 0 | `  ok invalid-input replies validated verbatim; malformed refunded, valid blocked` |
+| A3 | 0 | `  ok dirty affected-path drift refunded with HEAD unchanged` |
+| A4 | 0 | `  ok complete stdout persisted byte-for-byte, normalized verdict separate, pass settled` |
+| A5 | 0 | `  ok SIGTERM: reserved -> retryable, permit refunded` / `  ok SIGINT: reserved -> retryable, permit refunded` / `  ok SIGHUP: reserved -> retryable, permit refunded` |
+| A6 | 0 | `  ok SIGKILL: bare reserved, permit consumed (control holds)` |
+| A7 | 0 | `  ok stale preimage refused, phase not_started, edit intact, body not installed` |
+| A8 | 0 | `  ok pass settled, result_sha256 binds the reviewer bytes` / `  ok repair withheld: phase still reserved, result on disk` / `  ok invalid input settled terminally with blocker evidence` |
+| A9 | 0 | `  ok sensitive risk: transport_retried -> blocked` / `  ok local risk: transport_retried -> degraded` |
+| A10 | 0 | `  ok dry run: bytes identical, nothing reserved, reported digest verifies the bundle, route-blind` |
+| A11 | 0 | `  ok HEAD drift refunded to retryable, permit returned` |
+| A12 | 0 | `All ci.mjs checks passed` then `— plugin 'docks'; safe to release.` - two fragments, because an ANSI reset sits between them and the joined sentence is never emitted contiguously |
+
+A12's cell is two fragments because its first single-string form was a fabricated quote: the check
+binding these cells to real output rejected it, and `cat -A` showed `\x1b[0m` between `passed` and
+`— plugin`. Recorded because that is the defect class the predecessor's completion review faulted,
+caught here before the bytes were written.
+
+A1's emission says eight because the case drives eight refusals - invalid JSON, non-array, missing
+executable, non-executable, a directory, an empty string, a route resolvable only from the
+launcher's cwd, and an unwritable raw-stdout target - plus two positive controls.
+
+### Mutation probes: every row falsified against a copy
+
+Each mutant was written into the driver's own `scripts/lifecycle/` directory and passed by ABSOLUTE
+path, for the two reasons documented at `plan-dispatch-probes.mjs:15-32`. Each is reported with the
+assertion it broke, because a mutant that dies in the module loader is indistinguishable from a
+caught defect. Where a row prescribes a specific mutation, that prescribed mutation is recorded.
+
+| Row | Mutation | Assertion broken, verbatim |
+|---|---|---|
+| A1 | route parse moved back after the reserve, stdout check left in place | `invalid JSON route: preflight refusal must leave phase not_started` - actual `'reserved'`, measured `reserved`/1 |
+| A1 | stdout-target check moved after the reserve, route parse left in place | `unwritable raw-stdout target: preflight refusal must leave phase not_started` - actual `'reserved'`, measured `reserved`/1 |
+| A1 | ONLY `resolveExecutable(parsedArgv[0])` moved after the reserve, JSON/array checks and stdout probe left in place | `missing executable: preflight refusal must leave phase not_started` - actual `'reserved'`, bare `reserved` reproduced |
+| A1 | both `resolveExecutable` guards reverted to access-only | `directory as argv[0]: preflight refusal must exit 2` - `0 !== 2`, measured `retryable`/0 |
+| A1 | every relative `argv[0]` rejected | `a relative route resolving against --repo must preflight clean` |
+| A2 | reconstruction restored in place of the returned object | `every malformed invalid-input reply must refund to retryable without consuming a permit` |
+| A3 | digest comparison deleted, HEAD check intact | `the driver must name affected-path manifest divergence`; `head-drift` stayed exit 0 |
+| A3, A11 | the `driftRefused` exit block deleted from `finally` | `a drift refund must not exit 0: no verdict was captured` - BOTH halves failed at their own exit assertions |
+| A4 | raw-stdout write deleted | `raw stdout must equal every byte emitted by the reviewer` |
+| A4 | a NORMALIZED write deleted instead | the raw-byte comparison still PASSED; caught later at `normalized verdict artifact must exist separately` |
+| A5 | the `for (const signal of SIGNALS)` registration loop deleted | `SIGTERM: expected a refund, found reserved` - measured `reserved`/1, permit consumed |
+| A7 | body edit moved outside the transaction, as prescribed | exits non-zero at `plan_sha256 does not match canonical plan digest` - see the note below |
+| A7 | sealed-byte expectation replaced by a transaction-time reread | `the reserve must name a stale preimage` |
+| A8 | `run_id` dropped from the `resultEvent` factory | `a bound pass must settle, found reserved` |
+| A9 | `settle()` hardcodes a `retryable` successor instead of letting the reducer choose | `sensitive: expected blocked, found transport_retried` |
+| A10 | the `!COMMIT` early exit removed so the dry run reserves, as prescribed | `a dry run must not change the plan bytes` |
+| A10 | preflight re-hoisted above the `!COMMIT` gate | `a dry run must not evaluate the reviewer route: dispatch-review: reviewer route is unusable: DOCKS_REVIEWER_ARGV is not JSON` |
+| A11 | HEAD comparison deleted, `headNow` kept defined | `the driver must name the drift it detected`; `dirty-drift` stayed exit 0 |
+| A12 | buffer-equality assertion of `stdout-persistence` INVERTED | suite exit 1 naming `dispatch-driver: stdout-persistence`; `ci.mjs --plugin docks` exit 1 |
+
+**A1's three preflight obligations were mutated separately, as step 1's done-when requires** -
+it demands A1 fail against "any one of the three preflights moved back after the reserve", so
+the route parse, the executable resolution and the stdout-target check each moved alone, because a single combined
+relocation would pass with one half still misplaced. Each reproduced a bare `reserved` with
+`invocations` 1 and no refund: `process.exit(2)` inside a preflight bypasses the settlement path
+entirely, which is why the obligation belongs above the reserve. The stdout half was confirmed to
+fail at its own sub-case rather than at an earlier route sub-case.
+
+**A7's prescribed mutation is a weaker proof than the substitute, and both are recorded.** Moving
+the body edit outside the transaction does make the probe exit non-zero, so the row's literal
+requirement holds - but it fails at `plan_sha256 does not match canonical plan digest`, because a
+body written outside the transaction leaves the record's digest stale and the probe can no longer
+read a valid phase. That failure is not attributable to the preimage guard. The substitute -
+replacing the sealed-byte expectation with a transaction-time reread - defeats the guard directly
+and fails at A7's own assertion. Reported rather than smoothed over: the executor stopped and said
+so instead of restructuring the driver to manufacture a cleaner failure.
+
+**A10 carries two mutations** because it now binds two things. The prescribed one - remove the
+`!COMMIT` early exit so the dry run reserves - fails first at `a dry run must not change the plan
+bytes`, the phase then refunding to `retryable`/0. The re-hoist falsifies the route-independence
+assertion this repair added; dropping it would leave that widening unfalsified.
+
+A6 carries no mutation because it IS the control: its row exists to keep A5 honest, and if A6 and
+A5 ever agree the crash probe is measuring nothing. A5's mutant discharges that directly - deleting
+the handlers made SIGTERM land on `reserved`/1, precisely what A6 asserts SIGKILL does. The two
+rows agreeing is the collapse A6 detects, and it is reachable.
+
+A9's mutant fails by reducer rejection rather than by reaching a wrong successor:
+`transport_retried` to `retryable` is absent from the review transitions, so the write is refused
+and the phase stays `transport_retried`. Recorded because "refused before write" and "reached the
+wrong state" are different proofs.
+
+A3 and A11 are independently attributable in both directions: A3's mutant leaves `head-drift`
+green, and A11's mutant leaves `dirty-drift` green. Their shared exit contract is the one thing
+binding both, which is why its mutation breaks them together and is listed once.
+
+A12 is the only mutation editing a tracked payload file, since its claim is that the new cases run
+inside the gate. It took a byte copy first and asserted `sha256` equality after restoring:
+`4e567c8112608b40`, 38129 bytes, identical before and after. It inverts an EXISTING assertion
+rather than appending an always-false one, because the row says "break one of the four new cases'
+assertions" and an appended assertion would prove only that the body executes.
+
+### Implemented after rehearsal: A3's non-zero driver exit
+
+A3 requires the refund to arrive "with a non-zero driver exit naming manifest divergence". The
+first implementation left the driver exiting 0 and disclosed the clause as falsified. The rehearsal
+rejected that, correctly: the row is the contract, and a disclosure does not satisfy it. The clause
+is now implemented.
+
+Both drift branches set a `driftRefused` message and the finalizer exits non-zero. Deliberately
+symmetric across the committed and uncommitted halves: an exit status differing between two
+adjacent throws in the same `try`, for no reason any row states, would itself be an unexplained
+observable contract. The refund still happens and the permit still returns to zero, so no
+verdict-bearing behaviour moved.
+
+This also makes the clause discriminating for the first time. Pre-repair the driver exited 0 on both
+sides, so the clause distinguished nothing; it now separates repaired from unrepaired bytes, proven
+by the mutation that deletes the exit block.
+
+### Corrected twice: what the C1 preflight must actually prove
+
+Two accounts of C1 were wrong before measurement corrected them.
+
+**The claimed harm was wrong.** The first account said an unusable route "failed at `spawn` after
+the reservation, leaving a live `reserved` that cold entry can only block". Measured against a
+mutant carrying the defect, the spawn failure IS caught and refunded: `retryable`, `invocations` 0,
+driver exit 0. The real cost is subtler and still worth guarding - a preventable local
+misconfiguration spends the run's one refundable transport failure, and the next genuine transport
+failure then cannot refund from `transport_retried`, so it degrades local work or blocks at
+non-local risk. The driver also exits 0 there, so a caller reading only the status learns nothing.
+
+**The check itself was incomplete, twice.** An access-only `X_OK` test passes for directories, and
+an empty command joins to the directory itself, so both preflighted clean; the repair now requires
+a regular file and rejects empty commands. Round two then found that relative commands and relative
+PATH entries were resolved against the launcher's cwd while `spawn` runs the reviewer with
+`cwd: REPO` - the OS resolves a relative command after that chdir, so the preflight was checking a
+different file than the one that would execute. Both are now resolved against REPO, and A1 carries
+a discriminating pair: a route existing only beside the launcher is refused, and a route resolving
+only against REPO is accepted.
+
+That second sub-case was itself non-discriminating when first written - it passed an absolute
+interpreter with a relative script, so `argv[0]` never exercised the relative branch. It now passes
+a relative `argv[0]`, and a mutant rejecting every relative route fails it.
+
+### Widened rows, recorded rather than left implicit
+
+**A10 now also binds route-independence of the dry run.** Its probe asserts that a dry run with an
+unparseable `DOCKS_REVIEWER_ARGV` still exits 0 and changes neither the plan bytes nor the phase.
+This exists because the C1 preflight must stay BELOW the `!COMMIT` exit, and every other case forces
+`--commit` through `startDriver`, so no other row can catch a re-hoist. Without it a hoist would
+make bare inspection depend on the default route's `omp` binary, absent on most consumer machines.
+The first draft of this repair had exactly that defect and no row failed. A10's emitted string
+consequently ends `, route-blind`, and its probe now captures stderr, which it previously discarded
+- turning any named driver refusal into a bare exit code.
+
+**A11 now also binds the driver's exit status.** The frozen row says only that committed drift
+refunds to `retryable`. Asserting the exit there is a widening, taken so the two halves of one guard
+cannot silently diverge.
+
+**A1 gained the relative-route pair, and one shared-helper change with it.** `startDriver` accepts
+an optional `cwd`, defaulting to the scratch repository. Overriding it is the only way a probe can
+tell `cwd` and `--repo` apart; with the default they coincide and that confusion is invisible.
+
+### Citation relocation, not drift
+
+Nine distinct `dispatch-review.mjs` and `plan-dispatch-probes.mjs` line citations appear in this
+frozen body. All were verified accurate at `source_base` `85310659`, the baseline this record binds;
+seven were moved by this implementation, which adds 647 diff lines across three files. The body
+cannot be corrected at `ongoing`, so the mapping is recorded here.
+
+| Cited | At `source_base` 85310659 | At `6bfe1cac` |
+|---|---|---|
+| `dispatch-review.mjs:282` | `const reviewerArgv = JSON.parse(process.env.DOCKS_REVIEWER_ARGV ...` | inside the route preflight; the parse moved above the reserve |
+| `dispatch-review.mjs:270-284` | began at `const afterReserve = await lib.transactPlanRun({` | inside the preflight region |
+| `dispatch-review.mjs:350-353` | the `if (headNow !== head)` drift guard | the signal handler's transport settlement |
+| `dispatch-review.mjs:363-367` | `extractReview` and the `outcome` assignment | the reserve's digest rebinding |
+| `dispatch-review.mjs:286-330`, `:295-330` | the settle and dispatch region | the route log and the drift-exit comment |
+| `plan-dispatch-probes.mjs:438` | the `dry run` ok emission | a blank line; the emission moved and its string changed |
+| `dispatch-review.mjs:47` | `DISPATCH_TIMEOUT_MS` | unchanged |
+| `plan-dispatch-probes.mjs:15` | the `--driver=` falsification note | unchanged, now extended with both mutation traps |
+
+### Two mutation-idiom traps, found and documented
+
+Both make a mutant exit non-zero for reasons unrelated to the guard under test, so both manufacture
+vacuous proofs that look exactly like caught defects. Documented at
+`plan-dispatch-probes.mjs:15-32`.
+
+1. A copy outside the driver's own directory dies at `ERR_MODULE_NOT_FOUND` for `/plan-run.mjs`:
+   the driver resolves `../plan-run.mjs` relative to its own file. `node --check` cannot see it,
+   because dynamic `import()` is not resolved at parse time.
+2. A repository-relative `--driver=` resolves against the probe's scratch `cwd` rather than the
+   repository, and dies the same way.
+
+Measured cost: the first attempt at A10's re-hoist mutation died at `ERR_MODULE_NOT_FOUND` while
+appearing to prove the guard, and the second died in the loader on a relative path. Both were
+caught only because the failure did not name the expected assertion - which is why every mutation
+above is reported with its assertion rather than with an exit code.
+
+### Gate and shipped guarantees
+
+`node scripts/ci.mjs --plugin docks` exits 0 on the checkpoint bytes, with the worktree verified
+byte-identical to `6bfe1cac` for all three owned paths, and includes all eleven dispatch probes now
+registered in the orchestration suite. It was re-run after every code change rather than reusing an
+earlier green; one such re-run caught a formatting violation in the new probe code that eleven
+passing probes did not, fixed with the project formatter rather than by hand.
+
+STOP condition 2 was checked directly rather than assumed: the seven pre-existing rows -
+`crash-refund`, `sigkill-control`, `stale-preimage`, `settle-binding`, `retry-block`, `dry-run`,
+`head-drift` - each still exit 0 after all four repairs, measured one at a time. `head-drift` gained
+an assertion, but no shipped behaviour of its guard changed except the exit status described above.
+
+### Environment
+
+Repository `DocksDocks/docks`, Node 24 via corepack, Linux 6.12.90, non-root user - which matters
+for the 0o400 fixture in A1, whose premise the probe proves by attempting an append and requiring it
+to throw, so the sub-case fails loudly instead of silently passing under root. CI runs on
+GitHub-hosted `ubuntu-latest`/`ubuntu-24.04` with no `container:`, so that premise holds there too.
+
+Every command ran from the repository root. Implementation checkpoint `6bfe1cac` contains exactly the
+three declared affected paths and a 647-line bound diff. It was amended three times, all before any completion
+reservation: twice to fold in the code defects the rehearsals found, and once for the message
+alone. That third amendment names the single post-reserve, pre-`try` filesystem operation, which
+step 1's done-when requires be named in the commit message -
+`fs.writeFileSync(RAW_STDOUT, raw)` in the reviewer's `close` handler, lexically before the
+`try` but executing inside it because `runReviewer()` is awaited there. Its tree digest is
+unchanged by that amendment, so the bound diff is identical. The checkpoint count remains three -
+start, implementation, archive. The absence of stray `*.tmp.mjs` mutation artifacts
+in the payload was asserted before every commit and amendment.
