@@ -81,7 +81,13 @@ function registerEvidenceProbes(target) {
   }
 }
 
-const STRUCTURAL_PLAN = path.join(ROOT, 'docs/plans/active/plan-evidence-row-scales.md');
+// A FROZEN snapshot, never the live plan. Every read below mutates these bytes and asserts a
+// rule fires on the result, so the source must be a fixture the lifecycle cannot move. Pointing
+// this at `docs/plans/active/` coupled the suite to a plan body that drafting rewrites and
+// lifecycle transitions edit: `replaceMutation` hard-asserts `text.includes(before)`, so a
+// routine plan edit that dropped an anchored sentence turned this suite red with no code change.
+// Refresh the fixture deliberately when a rule's construct changes; never point it back.
+const STRUCTURAL_PLAN = path.join(ROOT, 'scripts/tests/fixtures/structural-plan.md');
 
 function replaceMutation(text, before, after, label) {
   assert.notEqual(before, after, `${label}: mutation left the requested bytes unchanged`);
@@ -618,6 +624,52 @@ node tool.mjs foo/bar:docs/plans/active/foreign.md https://example.test/docs/pla
     assert.ok(
       selfCheck.structuralPlanRules(sibling).every((finding) => finding.rule !== 'R18'),
       'an acceptance table without a Step column must not fire R18',
+    );
+  });
+
+  // Load-bearing guard for the de-anchoring itself. Fixture SOURCES - the bytes a probe mutates
+  // and then asserts a rule against - must never be a file the plan lifecycle writes, or an
+  // ordinary plan edit reds this suite with no code change. Invariant READS are the opposite:
+  // they must keep naming the real live plan, because their whole claim is that it did not move.
+  target.test('structural-rules', 'fixture sources are frozen and invariant reads stay live', () => {
+    assert.ok(fs.existsSync(STRUCTURAL_PLAN), 'the frozen structural fixture must exist');
+    const fixtureRelative = path.relative(ROOT, STRUCTURAL_PLAN);
+    assert.ok(
+      !fixtureRelative.startsWith('docs/plans/'),
+      `structural fixture must live outside docs/plans/, found ${fixtureRelative}`,
+    );
+
+    const probeSource = fs.readFileSync(path.join(ROOT, 'scripts/tests/plan-evidence-probes.mjs'), 'utf8');
+    const declared = Object.fromEntries(
+      [...probeSource.matchAll(/^const (LIVE_PLAN|FIXTURE_PLAN) = path\.join\(ROOT, '([^']+)'\);$/gm)].map((match) => [
+        match[1],
+        match[2],
+      ]),
+    );
+    assert.deepEqual(
+      Object.keys(declared).sort(),
+      ['FIXTURE_PLAN', 'LIVE_PLAN'],
+      'both roles must be declared as separate single-line constants',
+    );
+    assert.ok(
+      declared.LIVE_PLAN.startsWith('docs/plans/'),
+      `LIVE_PLAN must name the real plan, found ${declared.LIVE_PLAN}`,
+    );
+    assert.ok(
+      !declared.FIXTURE_PLAN.startsWith('docs/plans/'),
+      `FIXTURE_PLAN must be frozen, found ${declared.FIXTURE_PLAN}`,
+    );
+
+    // And the split must be observed, not merely declared: mutation sources read the fixture.
+    assert.equal(
+      probeSource.match(/installProofRecords\(fs\.readFileSync\(LIVE_PLAN, 'utf8'\)\)/g),
+      null,
+      'no probe may build a mutated fixture from the live plan',
+    );
+    assert.equal(
+      (probeSource.match(/installProofRecords\(fs\.readFileSync\(FIXTURE_PLAN, 'utf8'\)\)/g) ?? []).length,
+      2,
+      'both mutated-fixture sources must read the frozen snapshot',
     );
   });
 }

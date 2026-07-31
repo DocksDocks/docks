@@ -16,7 +16,16 @@ import { initializeRepository, withTempDirectory } from './plan-orchestration/ha
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
+// Two distinct roles, deliberately two constants.
+//
+// `LIVE_PLAN` is only ever READ to prove a probe left the real plan alone - that is a genuine
+// invariant and must keep naming the real file.
+//
+// `FIXTURE_PLAN` is the byte source probes MUTATE into scratch fixtures. It must be frozen:
+// `installProofRecords` reads the acceptance table and `mutateOneRowField` indexes fixed row
+// columns, so sourcing those from a live plan coupled them to a body that drafting rewrites.
 const LIVE_PLAN = path.join(ROOT, 'docs/plans/active/plan-evidence-row-scales.md');
+const FIXTURE_PLAN = path.join(ROOT, 'scripts/tests/fixtures/structural-plan.md');
 const SELF_CHECK_PATH = path.join(
   ROOT,
   'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs',
@@ -379,7 +388,7 @@ probes['command-drift'] = () =>
 probes['stale-quantity'] = () =>
   withLivePlanGuard(() =>
     withScratch('evidence-quantity-', (root) => {
-      const fixture = installProofRecords(fs.readFileSync(LIVE_PLAN, 'utf8'));
+      const fixture = installProofRecords(fs.readFileSync(FIXTURE_PLAN, 'utf8'));
       const file = path.join(root, 'quantity.md');
       fs.writeFileSync(file, fixture);
 
@@ -714,7 +723,7 @@ function setFrontmatterStatus(planText, status) {
 probes['status-mode'] = () =>
   withLivePlanGuard(() =>
     withScratch('evidence-status-', (root) => {
-      const proven = installProofRecords(fs.readFileSync(LIVE_PLAN, 'utf8'));
+      const proven = installProofRecords(fs.readFileSync(FIXTURE_PLAN, 'utf8'));
       const unproven = mutateOneRowField(proven, 'command_sha256', '`node changed-status-probe.mjs`');
       const expectedModes = {
         drafting: 'enforcing',
