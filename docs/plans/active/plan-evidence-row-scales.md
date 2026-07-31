@@ -1,24 +1,21 @@
 ---
 title: Bind plan evidence to the bytes that produced it at row, sample and measurement scale
 goal: Extend the run-scale rule PlanRunV1 already enforces - evidence is bound to the bytes that produced it and is absent when those bytes move - down to the acceptance row, the review sample, and the quantitative claim.
-status: blocked
+status: ongoing
 created: "2026-07-29T21:40:00-03:00"
-updated: "2026-07-31T12:30:17.521+00:00"
-started_at: "2026-07-31T04:13:06.994+00:00"
+updated: "2026-07-31T14:39:14.950+00:00"
+started_at: "2026-07-31T14:39:14.950+00:00"
 finished_at: null
 assignee: null
 tags: [plans, plan-manager, evidence, review, tooling]
 affected_paths:
-  - plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs
-  - plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs
-  - plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-measurements.mjs
-  - plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/sample-review.mjs
-  - plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md
-  - plugins/docks/skills/productivity/plan-workspace/SKILL.md
   - docs/plans/AGENTS.md
+  - plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs
+  - plugins/docks/skills/productivity/plan-workspace/SKILL.md
+  - plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md
   - scripts/tests/plan-evidence-probes.mjs
-  - scripts/tests/plan-skill-phases.mjs
   - scripts/tests/plan-orchestration.mjs
+  - scripts/tests/plan-skill-phases.mjs
 related_plans: [docs/plans/finished/2026-07-30-plan-dispatch-driver.md]
 ---
 
@@ -31,169 +28,90 @@ pre-check reports agreement across samples over *unchanged* bytes, and a cited
 quantity is re-derived from a committed producer. Each is the run-scale rule
 PlanRunV1 already enforces, applied one scale down.
 
+The machinery that does this is already shipped. This run closes the two defects a
+completion reviewer found in it that its predecessor could not repair.
+
 ## Context & rationale
 
-This plan is the second half of a split, and `docs/plans/finished/2026-07-30-plan-dispatch-driver.md`
-is declared in `related_plans`. The coupling is informational, not blocking, and that
-is a correction: when the split was made this plan was described as depending on the
-driver because its sampler would dispatch reviews. Measured since, over nine sampling
-rounds: the free pre-check spent zero permits and used no dispatch driver at all. The
-sampler is therefore a **non-dispatching aggregator** over caller-supplied,
-digest-bound reviewer results, which is what lets it stay outside the permit system.
-A dispatching sampler would contradict its own acceptance row, because the driver
-always reserves. The sibling plan's Out-of-scope section still describes the stronger
-coupling; it passed review before this correction and its bytes are terminal at
-`finished`, so this sentence is the accurate one.
+### What is already shipped, and why this run exists
 
-The split itself was measured rather than guessed. Five rounds of free sampling over
-frozen bytes returned 5, 6, 1, 6 and 6 findings with no convergence, and the
-distribution was lopsided: the driver rows drew almost no findings while this
-machinery drew nearly all of them. Each acceptance row is itself a falsifiable
-surface, so carrying twelve rows in one plan grew the surface faster than the repairs
-closed it.
+The predecessor run built and shipped the whole mechanism: the falsifiability
+record and its writer, the enforcing/counting mode split, the committed measurement
+producer, the K-sample aggregator, the excluded repair section, seven probes, and
+eighteen structural rules. That work is in `main` and gated green. This run adds no
+new capability.
 
-### The rule, and where it is enforced
+It exists because the predecessor's completion review returned `repair` with two
+findings, and they arrived after `replace_implementation` had already been spent.
+That event may be used once per run and refuses a second use once `acceptance` is
+null, so the frozen implementation commit could not absorb either fix. The run was
+blocked deliberately on `user_decision` rather than failed, and this successor
+carries the two repairs under exact current-user replacement authority. The plan
+path, goal and goal identity are unchanged; the predecessor is recorded in
+`Plan-attempt-history` under `## Review`.
 
-|Scale|Evidence|Bound to|Enforced today|
-|---|---|---|---|
-|run|reviewer verdict|`plan_sha256`, invalidated by repair|yes|
-|row|falsifiability proof of one acceptance row|the row's own command bytes|no|
-|sample|agreement across free review passes|fixed bundle bytes|no|
-|measurement|a quantitative claim in a plan body|the producer's output|no|
+Two consequences a reader must not misread. The predecessor's record shows a
+completion count of two, but only one reviewer ever assessed it live: the second
+reservation existed only to re-mint the acceptance a blocked tuple requires. And
+both findings came from *free* review rounds run against scratch worktree copies,
+which spend a permit on the copy and none on the live record.
 
-### Claim classes
+### The first defect: a rule suppressed instead of reported
 
-Every quantitative claim here carries one of three classes, and the self-check
-treats them differently. Naming the class is what makes step 4 implementable and
-A4 satisfiable: an unscoped "any cited number" rule is unsatisfiable, because most
-numbers in this section are deliberately not enforceable.
+`plan-self-check.mjs` classifies each plan status into one of two modes, and only
+`drafting` enforces. Every later status counts findings and reports them without
+failing. Rule R7, which names an active plan path a producer cites but the body
+never resolves, additionally returns early when the status is `finished`. That
+early return is redundant with the mode map and lossy: it removes the finding from
+the report rather than declining to fail on it.
 
-|Class|Marker|Producer|Self-check behaviour|
-|---|---|---|---|
-|committed-producer|`{measurement:committed}`|a command re-runnable against the run's `source_base` commit|**enforced** - a mismatch fails and names the claim|
-|snapshot|`{measurement:snapshot}`|a named command whose value moves as the repository moves|**reported** - recorded with its producer, never fails|
-|operator-local|`{measurement:operator}`|untracked operator state, deleted with scratch|**motivation only** - never checked, never a denominator|
+Measured on scratch copies, with a single unresolved active path planted inside a
+producer block. The shipped script reports one finding at `drafting` and exits 1;
+at `finished` it reports zero findings and exits 0. With the early return deleted,
+`drafting` is unchanged, and `finished` reports one finding and still exits 0.
 
-Only committed-producer claims are enforceable, so only they may back an
-acceptance row.
+That last cell is the whole fix, and it is why deleting the line is safe rather
+than merely tidy. The command's exit status is derived from the mode, not from the
+finding count: a non-zero exit requires enforcing mode with at least one finding.
+`finished` is counting-only, so no `finished` invocation can begin to fail because
+a finding became visible. The defect is that an archived plan citing a path that no
+longer exists reports clean today, which is the "declared but unbound" shape this
+plan family exists to remove, present in the family's own tooling.
 
-A producer is a closed declarative form, never free-form shell. It persists as
-`{op, path, matcher, timeout_ms, max_bytes}` with a single operation:
+### The second defect: the contract contradicts its own code
 
-|`op`|Reads|Emits|
-|---|---|---|
-|`show-count`|the blob at `path` at the run's `source_base`, matched by `matcher`|a count|
+`plan_sha256` is documented twice in each of the two lifecycle contract copies. One
+paragraph describes the non-authoritative repair section and says it is excluded
+from the digest. A second sentence enumerates the exclusions exhaustively, and its
+own wording is `only`: it names lifecycle status and timestamps, the record line,
+`## Review`, and `## Verification Results`. It omits the repair section that the
+paragraph above it and the shipped code both exclude.
 
-One operation, because this plan contains exactly one producer and an enum declaring
-forms no producer exercises is the same "declared but unbound" defect as an unkeyed
-record field: an implementation supporting only the used form, or implementing the
-others wrongly, would pass every acceptance row. A later plan that needs a directory
-listing or a file-set count widens the enum together with the producer and the row that
-exercises it.
+The code is the accurate side. The single declaration of the excluded-section set
+carries the repair section already. So the enumeration is a direct
+documentation-versus-code contradiction in the sentence that claims to be complete,
+in a contract whose whole purpose is to say precisely which bytes a digest binds.
 
-The base commit is never a field an author can set: it is read from the record's
-`source_base`, so a producer cannot be repointed by editing the body. Each `op` maps
-to one fixed argv run through `execFile` with no shell, bounded by `timeout_ms` and
-`max_bytes`. An unknown `op`, an extra key, or shell syntax anywhere in a field is
-rejected unparsed rather than executed, and a negative probe asserts that rejection.
-The fenced blocks below are the human rendering of that form, not its storage; a
-weaker executor implements that single operation, never a shell string.
+The repair is one sentence in each copy. Both copies matter, and the paired-clause
+test already asserts four clauses of the paragraph above in both files, so the fix
+also binds the corrected enumeration there. Editing the template forces a content
+hash refresh in the owning skill manifest, which the plugin gate enforces.
 
-A committed producer reads the run's `source_base` commit, never the working
-tree. This is the run-scale binding applied one scale down: `source_base` is
-already pinned in the record and a commit is immutable, so the value cannot drift
-and the plan cannot invalidate its own evidence by doing its own work. That
-failure was real, not hypothetical - three independent review samples over
-identical bytes each derived it. Measured: the producers below yield the same
-values against the run's `source_base` as against the tree today, while steps 1, 4, 5 and 6
-would change every one of them if they read the tree - `ls` of the lifecycle
-directory alone goes from 2 to 5, `transactPlanRun` callers from 1 to 2, and
-scripts performing reserve/dispatch/settle from 0 to 1.
+### A third defect, measured and deliberately out of this run
 
-### Measured: acceptance rows are mostly unproven, and a pre-state gate mis-fires {measurement:snapshot}
+The strictest mode of the falsifiability gate cannot be reached by a newly authored
+row set. Enforcing mode is `drafting` only, but the proof writer refuses any status
+except `ongoing`, and at `drafting` the probes a proof would observe do not exist
+yet. The predecessor's own body asserted the opposite and called it what makes
+enforcing at `drafting` implementable rather than circular. That sentence was false
+against its own shipped code, and this body does not repeat it.
 
-Producer, at draft time over the plans tracked then:
-
-```
-grep -hE '^\| A[0-9]+ ' docs/plans/*/*.md > /tmp/rows.txt
-grep '`' /tmp/rows.txt > /tmp/exec.txt
-wc -l < /tmp/rows.txt; wc -l < /tmp/exec.txt
-grep -ciE 'still |unchanged|stays|remains|byte-identical|no change|lockstep|green|clean|zero |empty' /tmp/exec.txt
-grep -ciE 'revert|loosen|plant|weaken|proving|load-bearing|non-vacuous' /tmp/rows.txt
-```
-
-|Quantity|Value at draft time|
-|---|--:|
-|acceptance rows across tracked plans|437|
-|executable, containing a backtick-quoted command|398|
-|prose-only|39|
-|invariant-shaped, correctly passing before the change|127|
-|change-demonstrating|271|
-|carrying any mutation proof|13|
-
-The obvious gate - *every row must fail against the untouched tree* - is wrong. It
-would flag **127 of 398 executable rows**, or 31%, as vacuous when they are
-correct: invariant rows such as manifest-lockstep or "the chronology guard still
-passes" are supposed to pass before the change. A check with a 31% false-positive
-rate gets disabled, so the property must be falsifiability under a named mutation,
-not pre-state failure.
-
-These counts move as plans are added, including by this plan. They are a draft-time
-snapshot with their producer named, which is exactly the discipline step 4 makes
-mechanical. An earlier count of the mutation-proof row reported 16 rather than 13
-because it used a looser pattern; the number moved between two producers for one
-claim, which is the measurement-scale defect this plan closes, observed while
-drafting it.
-
-### Measured: one review pass is a sample, not a verdict {measurement:operator}
-
-|Condition|Outcome|
-|---|---|
-|planted-defect code matrix, 4 tool and vendor cells|6 of 6 in every cell - saturated, no discrimination|
-|cross-vendor agreement|88.6%|
-|same-vendor agreement|90.0%|
-|two vendors, one pass each, on the sealed prompt|both `pass`, zero findings|
-|the permitted dispatch, identical bytes|`repair`, two real defects|
-
-Vendor diversity buys approximately nothing; sample count buys the discrimination.
-Those free passes were taken one per rewrite, so no two samples shared bytes and
-their agreement measured nothing. The stopping rule must hold bytes fixed. This
-row set comes from a measurement campaign whose artifacts are operator-local, so
-it motivates step 5 and is not an acceptance denominator.
-
-### Measured: the exclusion precedent is one line {measurement:committed}
-
-Producer. The commit is read from this plan's own record, never pasted as a
-literal: the reserve transition may rebind `source_base`
-(`plan-run.mjs:1636-1638`), and a pasted SHA would then name a different commit
-than the record. The pattern is narrowed to the declaration, because an
-unnarrowed `grep EXCLUDED_SECTIONS` also matches the `328:` use site and would
-not equal the count recorded below.
-
-```
-P=docs/plans/active/plan-evidence-row-scales.md
-B="$(sed -n 's/^Plan-run: .*"source_base":"\([0-9a-f]\{40\}\)".*/\1/p' "$P")"
-git show "$B":plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs | grep -c 'EXCLUDED_SECTIONS = new Set'
-```
-
-One enforced quantity, one producer that emits it and nothing else:
-
-|Enforced quantity|Value|
-|---|--:|
-|lines declaring `EXCLUDED_SECTIONS`|1|
-
-A blocked run is immutable, so a repaired body has nowhere legal to live and
-currently survives only as untracked operator state. `Proposed repair` joining that
-set gives it a home without weakening immutability, because the digest already
-excludes two sections by the same mechanism.
-
-The timing is the whole design, and getting it wrong makes the step impossible.
-Measured: `blocked` to `blocked` fails on **any** byte difference with "blocked
-PlanRun bytes are immutable" (`plan-run.mjs:1908-1913`), so exclusion grants a blocked
-run no writability whatsoever and a repair section cannot be added afterwards. The
-only legal shape is to install `## Proposed repair` in the same transaction that
-installs `blocked`, because that transition is itself the state event. A step that
-plans to write it later has planned something the transaction layer refuses.
+Nothing runs the self-check against a live plan inside the gate, so no check is red
+today, and this run leaves the mode map untouched. It is recorded here because it
+was found while drafting this body and belongs to a reader's understanding of the
+gate, not because it is in scope. It needs its own plan and its own decision: the
+coherent fix moves enforcement to where proofs can be written, which changes a
+shipped contract that a probe pins per status.
 
 ## Environment & how-to-run
 
@@ -204,444 +122,112 @@ corepack enable && pnpm install --frozen-lockfile
 node scripts/ci.mjs --plugin docks
 ```
 
-The selected-plugin gate is authoritative: every path here is plugin payload or its
-owned tests, except `docs/plans/AGENTS.md`, which is documentation. No step contacts
-GitHub, npm, or any remote. Every step's effect is `local`.
+The selected-plugin gate is authoritative. Every path in scope is plugin payload or
+its owned tests, except the lifecycle contract, which is documentation. No step
+contacts GitHub, npm, or any remote, and every step's effect is `local`.
+
+Acceptance proofs are recorded after the implementation exists and before the
+completion review is reserved, because the writer requires `ongoing` status with the
+completion phase still unstarted. That ordering is a constraint of the shipped
+writer, not a preference.
 
 ### Falsifiability record {mechanism}
 
-A row's proof is a record `{row_id, step_id, command_sha256, expected_sha256,
-source_base, binds, observed, probe}`. `row_id` says which row the record belongs to;
-the four fields below it are the **key**; `binds`, `observed` and `probe` are payload.
+A row's proof is a record whose key is four fields: a digest of the row's Command
+cell, a digest of its Expected cell, the owning Steps row, and the commit the claim
+was made against. The remaining fields are payload - which observable was read, its
+value, and the named mutation that would falsify it. A row counts as proven when its
+record exists and every key field equals the live plan's; any key moving makes the
+row unproven, because the proof belonged to bytes that no longer exist.
 
-|Field|Role|
-|---|---|
-|`command_sha256`|key - digests the row's Command cell verbatim|
-|`expected_sha256`|key - digests the row's Expected cell verbatim|
-|`step_id`|key - the single Steps row that owns it|
-|`source_base`|key - the commit the claim was made against|
-|`binds`, `observed`, `probe`|payload - which observable was read, its value, the mutation that produced it|
+The checker compares keys and never executes a row's command. Observation drift is
+caught where the observation is made: the probes run inside the plugin gate, so a
+recorded exit that stops reproducing fails the gate rather than the checker. This run
+relies on that mechanism rather than changing it, and step 3 is the only step that
+writes a record.
 
-Keying the Expected cell is what the first review round of this plan corrected. The
-expectation carries the matcher and the named mutation probe, so a proof keyed on the
-command alone survives an author changing what the row claims to observe or how it is
-falsified. Recording `binds`, `observed` and `probe` while keying none of the text they
-came from is the same "declared but unbound" defect this plan exists to remove, and it
-was present in this plan's own mechanism.
-
-**The checker verifies bindings; it never executes a row's command.** That is the
-central scoping decision of this plan, and it was reached by measurement rather than
-taste. Earlier drafts had the checker re-execute each row to confirm its observation,
-and every review round then returned a new consequence of that one capability: an
-unbounded execution surface needing a sandbox, an argv grammar and an effect gate; a
-recursion with no base case, because rows invoke the checker; and a replay that cannot
-work at all, because `source_base` is pinned *before* implementation and therefore
-contains neither the new subcommands nor the probe files whose exits the proofs record.
-Removing the capability removes all four at the root.
-
-So the division of labour is:
-
-|Who|Produces what|
-|---|---|
-|the probe, run by CI|the observation - it executes, in the tree that contains the implementation|
-|the checker|the verdict on whether a recorded observation still belongs to these bytes|
-
-A row counts as proven when its record exists and every key field equals the live
-plan's. Any key moving makes the row **unproven**: the proof belonged to bytes that no
-longer exist. That is the run-scale
-rule one scale down, and it needs no execution to enforce - which is the point, since
-a checker that executed plan-supplied text would be a capability increase an
-authoring-time tool has no authority for.
-
-Observation drift is caught where the observation is made. The probes run inside
-`node scripts/ci.mjs --plugin docks`, so a recorded exit that stops reproducing fails
-the gate, not the checker. Nothing is trusted that is not re-run; it is simply re-run
-by the suite that owns execution.
-
-`binds` is a closed two-value domain:
-
-|`binds`|Observable|Rows|
-|---|---|---|
-|`exit`|the command's exit status|A1, A3, A4, A5, A6, A7, A8, A9, A10, A11|
-|`match`|a named matcher over stdout, recorded as `{matcher, result}`|A2|
-
-A whole-stdout digest is deliberately not an option. A2's command prints one proof
-line per acceptance row, so its own proof line sits inside the output it observes, and
-a raw digest of that output would be a value that changes when it is recorded - it
-cannot converge. A matcher result does: the proof-line count, which must equal the
-acceptance-row count, is stable under its own recording.
-
-The one execution this plan keeps is the measurement producer defined under Claim
-classes. Its single-operation closed form is why it is safe where row re-execution was not:
-the one operation reads a commit through a fixed argv and cannot write.
-
-Proofs are written into this plan's own `## Verification Results`, which needs no new
-artifact and no new mechanism: `EXCLUDED_SECTIONS` already excludes that heading from
-`plan_sha256` (`plan-run.mjs:102`), so recording a proof never disturbs the review
-binding, and `canonicalVerificationResults` already hashes it into
-`acceptance.verification_sha256` (`:395`, `:814`), enforced at `:815-816`. Proofs are
-therefore digest-excluded where they must be and digest-bound where it counts, and the
-contract sentence "The Markdown plan is the only tracked artifact"
-(`docs/plans/AGENTS.md:4`) still holds.
-
-The event that writes proofs while a plan is still `drafting` is the **draft
-preparation** transition, and it is repeatable and free. With status `drafting` on both
-sides and `draft_review.state` in `{not_started, repairing}`, `plan-run.mjs:1657-1665`
-permits exactly `plan_sha256`, `source_base` and `source_sha256` to move, changes no
-phase, keeps `run_id`, spends no review permit, and stays inside the preimage-checked
-transaction. Measured: this pair's own bodies were installed through that transition
-roughly twenty times while drafting, with `draft_review` never leaving `not_started`.
-So a proof can be written, a `check` run, a defect repaired and the proof refreshed,
-all before any permit is reserved - which is what makes enforcing at `drafting`
-implementable rather than circular. After `drafting` the body is frozen, which is
-exactly why enforcement stops there.
-
-Exclusion is not by itself a licence to write, which is the trap here. Measured while
-drafting this pair: a body edit whose record bytes do not change is refused with
-"persisted PlanRun bytes cannot change without a legal state event"
-(`plan-run.mjs:1914-1919`), so a byte-only write into `## Verification Results` fails
-even though the section is excluded from `plan_sha256`. Proof lines are therefore
-written **inside the transaction that carries a lifecycle event**, exactly as this
-pair's own `## Review` sections were. No acceptance row may require proof lines to
-exist before the transition that writes them.
-
-Executable check: A1 edits each key field alone, in turn - the Command cell, the
-Expected cell, `step_id`, `source_base` - and the checker must report the row unproven
-and name which key moved, every time. Editing every key is the point: a key that no
-probe moves is declared rather than bound, which is the defect class this plan
-removes. Third check: break a probe's assertion
-and run the gate; it must fail, proving observations are re-run by CI rather than
-trusted from the record.
-
-### Sample stopping rule {mechanism}
-
-A free pre-check passes only on K consecutive zero-finding samples over
-**unchanged** bundle bytes, K configurable with a floor of 3. Any finding in any
-sample must be resolved, and resolving it changes the bytes, which resets the
-count to zero.
-
-Executable check: supply a result set in which one sample carries a finding; the
-aggregator must place it in the union and refuse a clean stop for that digest, and must
-keep refusing until the digest changes. Supply a set with no findings and it must report
-clean. Detection is not asserted anywhere: the aggregator consumes results it did not
-produce, so a claim that it detects a planted defect would be satisfied by its own
-fixture.
-
-## Structural plan rules {mechanism}
-
-Eighteen deterministic rules over a plan body, each one derived from a defect a real
-reviewer returned during this plan's own drafting. They exist because the expensive
-findings were mechanical: across five rounds of sampling on one document, most
-findings were a renamed label, a dangling reference, or a count that disagreed with a
-list - and two were regressions introduced by the previous round's repair. Sampling
-cost roughly fifteen minutes per round; these run in milliseconds.
-
-Scan scope is part of the contract, because it decides what every rule sees. Rules read
-the body between the frontmatter and the first `## Review` or `## Verification Results`
-heading; both hold operator and reviewer prose that no rule governs. `Plan-attempt-history`
-lines are exempt from the commit-literal rule, because a superseded run's recorded base is
-immutable history rather than a live producer base. The `Plan-run:` record itself stays in
-scope for the repository-id rule, whose target field lives there and nowhere else.
-The rule table itself is exempt, by construction: each row defines its rule by quoting an
-example of what that rule rejects, so any rule scanning the table would fire on its own
-definition. Measured across all eighteen rows, exactly one self-matches: R4, whose row carries
-a placeholder literal of the shape it rejects. The exemption is stated for the table rather than
-for that row alone, because every future rule added there will carry an example for the same reason.
-
-|Rule|Rejects|
-|---|---|
-|R1|a row label quoted in prose that no enforced-quantity row carries|
-|R2|an acceptance row that is neither runnable nor declares a non-command observable|
-|R3|enforced quantities that are not 1:1 with producer commands, in order|
-|R4|an unsubstituted template placeholder such as `__UPDATED__`|
-|R5|a commit literal used as a producer base outside the record|
-|R6|an acceptance id referenced in prose that is not a row|
-|R7|an unresolved local `docs/plans/active/` path used by a producer; foreign-repository citations and archived `docs/plans/finished/` references are exempt|
-|R8|a shell variable a producer cites but the body never derives|
-|R9|a `binds` table that does not partition the acceptance rows exactly once|
-|R10|a `step N` prose reference that is not in the Steps table|
-|R11|a `binds: X` named in prose but absent from the `binds` table|
-|R12|an acceptance-row subcommand that no step names|
-|R13|a producer whose `P=` differs from this plan's own `plan_path`|
-|R14|a `repository_id` shaped like a local filesystem path|
-|R15|a step whose number word disagrees with the subcommands it names|
-|R16|a Steps table whose row numbers are not strictly increasing|
-|R17|an acceptance table whose row ids are not strictly increasing|
-|R18|an acceptance row that names no step, an unknown step, or more than one|
-
-### Measured rule proof and archive precision {measurement:snapshot}
-
-A scratch mutation harness planted one defect for each rule and asserted that the
-unfiltered failure set was exactly that rule's label. All eighteen were sole detectors
-of their planted class. The harness also asserted that every mutation changed the bytes;
-a temporary linter with L14 replaced by a no-op exited non-zero at L14, so the harness
-observes the rule rather than printing a precomputed result. This proves discrimination
-of the planted classes, not that every class has appeared in production.
-
-The archive was re-measured with frontmatter, review sections, verification results and
-Plan-attempt-history snapshots excluded from semantic scans; the Plan-run repository
-record remains in scope for the repository-id rule. Across the 96 finished plans present at measurement the narrowed
-measurement produced 147 firings: 143 came from 75 pre-PlanRunV1 records and are not
-applicable to these conventions. The current-schema stratum has 21 plans, 4 firings and
-5 distinct goal IDs; 16 of the plans share one release-chain goal, so these are not 21
-independent observations. Only L14 fired: all four filesystem-shaped repository IDs were
-classified true across four distinct goals. Precision is therefore 4/4 (100%) by firing
-in this small census; the other seventeen rules have no real-defect firing in this corpus.
-The result supports the separate claims "18/18 sole detectors of planted classes" and
-"one rule with confirmed real-defect evidence", not a blanket claim that all rules are
-production-proven.
-
-Two of these reproduced findings a reviewer had already returned independently, and
-R14 caught a contract violation - `repository_id` carrying a filesystem path against
-`docs/plans/AGENTS.md:101` - that no validator checks and that both plans in this
-pair were carrying.
-
-Every rule is **construct-conditional**: it fires only on a plan that carries the
-construct it governs, and is silent otherwise. That is not a convenience, it is what
-keeps the archive from lighting up. Measured over the 96 plans then in
-`docs/plans/finished/`: the rules as first written fired **581** times, and 0 of those
-96 plans carried an enforced-quantity table or a `binds` table while only 32 carried any
-acceptance row at all - so most firings were judgements about conventions those plans
-never adopted. Conditioning two rules on construct presence cut the total to **281**
-without changing either live plan's result. The later scan-scope and producer-path
-refinements were separate rule-set changes, so this record does not present an
-unreproduced intermediate as another arithmetic step. The final narrowed census above is
-**147**. A rule that fires where its construct is
-absent is measuring the archive's age, not its correctness, and a check with that
-false-positive rate gets switched off - the same failure this plan already avoided at
-the pre-state-gate stage.
-
-Set size at measurement was 96. `docs/plans/finished/` now holds 97: archiving
-`2026-07-30-plan-dispatch-driver.md` added one. Measured on that file, it carries acceptance
-rows and carries neither an enforced-quantity table nor a `binds` table. So on a
-re-measurement "0 of those 96 carried an enforced-quantity table or a `binds` table" stays 0,
-and "only 32 carry any acceptance row" becomes 33. The 581-firing census itself is dated
-rather than re-run, because the harness that produced it is what step 1 of this plan builds -
-it does not exist yet, so a fresh figure here would be unbacked.
-
-Executable check: run the rules over a plan body carrying a known defect of each class;
-each must be named. Delete one rule and rerun: its class must go unreported by **any** rule
-- the whole run reporting no failure at all - which is what proves the rule load-bearing
-rather than decorative and separates it from a class some other rule already covers.
-Deleting the rule is the stronger form, because it exercises the rule body rather than a
-reporting switch. A mutation that leaves the bytes unchanged must fail the harness rather
-than score as a silent rule: both produce the same signal, and the wrong repair is deleting
-a working rule. Second check: run them over
-`docs/plans/finished/`; every rule whose construct is absent must stay silent, and the
-run must report rather than fail.
+Recording is constrained twice by the shipped writer, which is why step 3 is last and
+separate. The writer requires `ongoing` status, so proofs cannot be written while this
+body is still being repaired. It also requires the completion phase to be unstarted,
+so they must be written before that reservation. Both constraints are the writer's,
+and neither is negotiable from here.
 
 ## Steps
 
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
-| 1 | Add the falsifiability record format, its writer and its verifier. The record is keyed to `command_sha256`, `expected_sha256`, `source_base` and `step_id`, and is absent when any key drifts. The writer records the observable named by each row's `binds` field; the verifier compares keys only and spawns no child process. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs` | — | `local` | `planned` | A proven row reports proven; editing any one key field - Command cell, Expected cell, `step_id`, `source_base` - reports it unproven and names which key moved. The verifier spawns no child process, which is what makes it safe to run over an arbitrary plan. A recorded observation that stops reproducing is caught by the gate that runs the probes, not by the verifier - that division of labour is the mechanism's central decision. If a rewritten row keeps its proof, STOP: the binding is not keyed to the bytes. |
-| 2 | Gate on falsifiability in the self-check's `check` subcommand, with a `report` subcommand that prints records without judging them, naming a mode for each of the contract's six statuses (`docs/plans/AGENTS.md:63`): enforcing for `drafting` only; counting-only for `planned`, `scheduled`, `ongoing`, `finished` and `blocked`. The rule is immutability, applied consistently: a plan body may only change while `drafting`, because `LIFECYCLE_TRANSITIONS` offers no edge back to it and the content-mutation branch is `drafting` to `drafting` alone. Enforcing on any later status would demand a repair the transaction layer forbids - the sibling `plan-dispatch-driver.md` is `planned` with ten rows, no `Step` column and no proofs, and could never acquire them - and a gate that blocks a passed plan on its first run gets switched off. Coverage is reported by a separate `coverage` subcommand whose exit status reflects only the falsifiability dimension. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs` | 1 | `local` | `planned` | A drafting plan with an unproven row exits non-zero naming the row; `coverage docs/plans/finished/` exits 0 with a count and never fails on an unproven row. If the finished set blocks, STOP: a retroactive cliff gets the gate disabled. |
-| 3 | Add a committed measurement producer and make the self-check re-run every `{measurement:committed}` quantity and diff it against the body. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-measurements.mjs`, `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs` | 2 | `local` | `planned` | Editing a quantity inside a `{measurement:committed}` block makes the self-check fail naming that claim. The self-check takes the commit from the record's `source_base`, never from body text, so a rebind cannot silently repoint a producer. Blocks marked `{measurement:snapshot}` are reported with their producer and never fail; `{measurement:operator}` blocks are never checked. If a committed-producer claim can go stale silently, STOP: the producer is not authoritative. |
-| 4 | Add the K-sample pre-check aggregator: fixed bundle bytes, K caller-supplied reviewer results each bound to the same bundle digest, union of findings, pass rate, and the stopping rule with a floor of 3. It dispatches nothing and reserves nothing, so it stays outside the permit system. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/sample-review.mjs` | — | `local` | `planned` | K results over one identical bundle digest report a union and a rate; a supplied finding enters the union and prevents a clean stop for that digest. The aggregator is not required to detect anything - it dispatches nothing, so detection is not a property it can have. If the harness re-seals between samples, STOP: it is measuring rewrites, not variance. |
-| 5 | Add `Proposed repair` to `EXCLUDED_SECTIONS`, document the section as non-authoritative and digest-excluded in **both** copies of the lifecycle contract, and bind the new sentence in the paired-clause test. The section is installed by the transition that blocks a run, never added to an already-blocked one, because `blocked` to `blocked` rejects any byte change (`plan-run.mjs:1908-1913`). | `plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs`, `docs/plans/AGENTS.md`, `plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md`, `plugins/docks/skills/productivity/plan-workspace/SKILL.md`, `scripts/tests/plan-skill-phases.mjs` | — | `local` | `planned` | Adding a `## Proposed repair` section leaves `plan_sha256` unchanged; adding the same text under any other heading changes it. The sentence is present in both contract copies and the paired-clause test names it. If both change the digest, STOP: the exclusion is not wired. The owning `plan-workspace/SKILL.md` carries a refreshed `content_hash` for the same reason. If the sentence lands in one copy only, STOP: `plan-workspace` copies the template over `docs/plans/AGENTS.md`, so a refresh regenerates it away. |
-| 6 | Add the seven probes as test scaffolding - `command-drift`, `stale-quantity`, `injected-defect`, `excluded-section`, `paired-clause`, `proof-writer` and `status-mode` - each exiting 0 when its expectation holds and non-zero when it does not. A probe whose expectation is that an inner command fails still exits 0 once it observes that failure: the child's status is evidence, never the probe's verdict, which is what keeps the suite green while still proving the child fails. Every probe operates on a scratch copy outside `docs/plans/`, drives any reviewer through a scripted response sequence rather than a live model so nothing reserves a permit, and asserts the live plan and its record are byte-identical afterwards. Register the probes in the orchestration suite. This step's condition is observed on a fixture body carrying recorded proofs, never on this plan, whose own proofs step 7 writes later - depending on them here would leave step 6 uncompletable and step 7 unstartable. | `scripts/tests/plan-evidence-probes.mjs`, `scripts/tests/plan-orchestration.mjs` | 1, 2, 3, 4, 5 | `local` | `planned` | `node scripts/ci.mjs --plugin docks` exits 0, the orchestration suite case count rises, and the self-check reports one proof line per acceptance row. `plan_sha256` is byte-identical before and after the proofs are written, because the section is excluded. The plan record is deliberately absent from `affected_paths` and from this step's Files, per `docs/plans/AGENTS.md:178` - "Never list the plan record in `affected_paths`; acceptance writes to it and breaks that bind". If writing proofs moves `plan_sha256`, STOP: the proofs are landing outside the excluded section. |
-| 7 | Ship the eighteen structural rules as a `rules` subcommand of the self-check, alongside the existing P13/P16/P19 checks, and register its cases in the orchestration suite. Rules are construct-conditional, and their mode map is identical to the falsifiability gate's: enforcing for `drafting` only, counting-only for every later status. The Step-mapping rule ships here rather than in `check`, so an enforcing `rules` run would otherwise fail the `planned` sibling on a column its frozen body can never gain - the same immutability argument, and it has to hold in both subcommands or only one of them is safe. Then record this plan's own acceptance proofs into its `## Verification Results`, last of all, because recording earlier would bind A9 to a failing observation that this very step changes, and the drift rule would then report it unproven with no later step to refresh it. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs`, `scripts/tests/plan-orchestration.mjs` | 6 | `local` | `planned` | `rules` names one defect per planted class on a fixture body and exits non-zero; a clean body exits 0. Deleting any one rule leaves its planted defect unreported, which proves that rule load-bearing. If a rule cannot be made to fail on a planted defect, STOP: it is decorative and must not be shipped. |
+| 1 | Delete the `finished` early return from rule R7 so a finished plan reports the finding instead of dropping it, leaving the mode map untouched. Add a probe case named `r7-finished` covering both cells of the fix, and register it in the orchestration suite. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs`, `scripts/tests/plan-evidence-probes.mjs`, `scripts/tests/plan-orchestration.mjs` | — | `local` | `planned` | A finished-status plan carrying one unresolved active producer path reports one finding and exits 0; the same plan at drafting still reports it and exits 1. If deleting the line makes any finished-status invocation exit non-zero, STOP: the exit status is not derived from the mode as measured, and the mode map is load-bearing in a way this step did not establish. |
+| 2 | Add the repair section to the exhaustive exclusion enumeration in both lifecycle contract copies, extend the paired-clause assertion to bind the corrected enumeration in both files, and refresh the owning skill manifest's content hash. | `docs/plans/AGENTS.md`, `plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md`, `plugins/docks/skills/productivity/plan-workspace/SKILL.md`, `scripts/tests/plan-skill-phases.mjs` | — | `local` | `planned` | Both copies enumerate the repair section, the paired-clause assertion fails if either copy loses the new clause, and the plugin gate accepts the refreshed hash. If a single assertion cannot distinguish one copy from the other, STOP: a check that passes when one file drifts is the defect, not the fix. |
+| 3 | Record this plan's acceptance proofs into `## Verification Results` through the shipped writer, using its `report` subcommand to read them back, after both repairs land and before the completion review is reserved. The section it writes belongs to this plan's own record, which is deliberately absent from `affected_paths` because acceptance binds those bytes and listing them would break that bind. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs` | 1, 2 | `local` | `planned` | Every acceptance row below carries a proof record keyed to its own command and expectation bytes, and reading them back prints one line per row. If the writer refuses the transition, STOP and record the refusal rather than writing the section directly: a hand-written proof is exactly the unbacked evidence this plan removes. |
 
 ## Acceptance criteria
 
-Each row states its class. Change-demonstrating rows are falsifiable by failing
-against the untouched tree; invariant rows carry a named mutation probe, because a
-gate demanding pre-state failure would flag correct invariant rows and get switched
-off.
+Each row names the single step that owns it. Change-demonstrating rows fail against
+the untouched tree; invariant rows carry a named mutation, because a gate demanding
+pre-state failure would flag correct invariant rows and get switched off.
 
 | ID | Step | Command | Expected |
 |---|---:|---|---|
-| A1 | 1 | `node scripts/tests/plan-evidence-probes.mjs command-drift` | Invariant under mutation. Exit 0: for **each** key field in turn - Command cell, Expected cell, `step_id`, `source_base` - the probe edits that field alone in a scratch copy, runs the checker, and asserts the row reports unproven naming that key; then restores it and asserts the row reports proven again. A key no case moves would be declared but unbound.
-
-The probe also binds the negative claim, which is otherwise the largest unchecked
-assertion in this plan: one fixture row is given a command that would be *detectable if
-executed* - it writes a sentinel file and exits non-zero - and the probe asserts the row
-still reports proven and that no sentinel exists afterwards. "The verifier spawns no
-child process" is what justified deleting the sandbox, the argv grammar and the effect
-gate, and key-drift cases pass whether or not the checker also executes, so without this
-observation an implementation that re-executes rows would satisfy every row while the
-whole scoping argument went unenforced. The probe works on a copy at a scratch path outside `docs/plans/` and asserts the live plan bytes and its `PlanRun` record are byte-identical afterwards. |
-| A2 | 2 | `node plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs report docs/plans/active/plan-evidence-row-scales.md` | Change-demonstrating on its **output**, not its exit code. Prints one proof line per acceptance row in `report` mode, which prints records without judging them, keeping the printing path separate from the judging path. Fails today, measured: `report` is not a subcommand, so it exits 2 printing the usage line, and `plan-self-check.mjs` has no per-row proof, `command_sha256`, `source_base`, or frontmatter-status handling. The observable is the proof-line count rather than the exit status, because after the change exit 0 alone would also be produced by a `report` that printed nothing. |
-| A3 | 2 | `node plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs coverage docs/plans/finished/` | Change-demonstrating. Exit 0 reporting a coverage count over that set, blocking nothing. Fails today, measured: `coverage` is not a subcommand and exits 2 with the usage line, so this row cannot be classified invariant. It also asserts the count is reported rather than enforced over that set: the rules fired 581 times across the 96 archived plans present at measurement before being made construct-conditional, so enforcing there would be the retroactive cliff STOP condition 1 names. The separate subcommand is what makes this exit status reachable: `check` also runs P19/P13/P16, so any unrelated failure in an archived plan would otherwise decide this row. Probe: switch the finished set to enforcing - it must exit non-zero, showing the counting mode is deliberate rather than accidental. |
-| A4 | 3 | `node scripts/tests/plan-evidence-probes.mjs stale-quantity` | Invariant under mutation. Exit 0: the probe changes `1` to `2` in the committed-producer row "lines declaring `EXCLUDED_SECTIONS`" and asserts the child self-check exits non-zero naming that claim, because its producer - the `grep -c` above with `$B` read from the record - disagrees. It then restores the value and asserts the child exits 0, and separately edits a `{measurement:snapshot}` number and asserts the child does **not** fail, which is what distinguishes the classes. The child's expected non-zero status is evidence, never the probe's own verdict. The probe also submits each forbidden producer form in turn - an unknown `op`, an extra key, and shell syntax in a field - and asserts each is rejected before execution, with a sentinel command proving nothing ran; the rejection promise is otherwise declared and unbound, which is the class this repair swept. The probe works on a copy at a scratch path outside `docs/plans/` and asserts the live plan bytes and its `PlanRun` record are byte-identical afterwards. |
-| A5 | 4 | `node scripts/tests/plan-evidence-probes.mjs injected-defect` | Invariant under mutation. Exit 0: the probe seals one fixture bundle and drives the harness through a **scripted reviewer response sequence** rather than a live model, so the outcome is deterministic and no permit is spent. The assertions are about the aggregator, the only component this step ships: given a result set in which one sample names a defect it must surface that finding in the union and refuse a clean stop, and given a set in which none do it must report clean. It never asserts a defect was *detected* - a scripted result naming a defect proves only that the script named it, an assertion its own fixture satisfies. It further asserts that a configured K below 3 is rejected; that every sample shares one unchanged bundle digest; that any finding permanently taints that digest, so a finding followed by K clean samples over the **same** digest still fails while K clean samples after a byte change pass; that K-1 clean samples never pass; and that the union and pass rate are reported. It snapshots the live plan bytes and draft-review invocation count before and after and asserts both unchanged, so a harness that reserved through the dispatch driver fails here. The probe works on a copy at a scratch path outside `docs/plans/` and asserts the live plan bytes and its `PlanRun` record are byte-identical afterwards. |
-| A6 | 5 | `node scripts/tests/plan-evidence-probes.mjs excluded-section` | Invariant under mutation. Exit 0: the probe adds a `## Proposed repair` section in the same transaction that installs `blocked` and asserts the write succeeds with `plan_sha256` unchanged; it then attempts a byte-only edit to that already-blocked run and asserts the refusal "blocked PlanRun bytes are immutable"; and it moves the identical text under `## Notes` and asserts the digest changes. The refusal case is the one that matters, because a row that only compared digests would pass while the step stayed impossible. The probe works on a copy at a scratch path outside `docs/plans/` and asserts the live plan bytes and its `PlanRun` record are byte-identical afterwards. |
-| A7 | 6 | `node scripts/ci.mjs --plugin docks` | Invariant. Exit 0. Probe: break one probe's assertion - the gate must exit non-zero, proving the new cases run inside the gate rather than beside it. |
-| A8 | 5 | `node scripts/tests/plan-evidence-probes.mjs paired-clause` | Invariant under mutation. Exit 0: the probe asserts the `Proposed repair` sentence is present in **both** `docs/plans/AGENTS.md` and the `plan-workspace` template, failing if either lacks it. It is a single invocation that asserts each file separately rather than two greps joined by `&&`. A single `grep -c` over both paths exits 0 when only one matches, so it could not fail on the drift this row exists to catch. Probe: delete the sentence from the template only, then run `node scripts/ci.mjs --plugin docks` - the paired-clause test must fail naming the template, proving the binding is load-bearing rather than decorative. |
-| A9 | 7 | `node plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs rules docs/plans/active/plan-evidence-row-scales.md` | Change-demonstrating. Exit 0 on this plan, which the rules already pass. Fails today: the `rules` subcommand does not exist. Probe: build one scratch copy per defect class; each copy must be named by exactly its own rule, and with that rule deleted the run over that copy must report no failure at all. A mutation that leaves the bytes unchanged must fail the probe rather than count as a silent rule. |
-| A10 | 1 | `node scripts/tests/plan-evidence-probes.mjs proof-writer` | Invariant under mutation. Exit 0: the probe starts from a scratch plan with an unproven row, writes a proof through a legal lifecycle transition, reads it back, and asserts every record field is populated, that `plan_sha256` is unchanged, and that `acceptance.verification_sha256` binds the new `## Verification Results` bytes. It then attempts a byte-only write to the same section and asserts the refusal. Probe: drop the transition and write the bytes directly - it must exit non-zero. Nothing else in this table exercises the writer, so without this row an implementation could record proofs no transaction would accept. |
-| A11 | 2 | `node scripts/tests/plan-evidence-probes.mjs status-mode` | Invariant under mutation. Exit 0: the probe builds one scratch fixture per contract status - `drafting`, `planned`, `scheduled`, `ongoing`, `finished`, `blocked` - each carrying an unproven row, and asserts the gate exits non-zero naming that row for `drafting` and exits 0 reporting a count for the other five. Probe: make any one of the five enforce - it must exit non-zero. The mode map is declared in two steps but only `finished` was exercised before this row, so an implementation enforcing on `ongoing`, or on `planned` where a frozen body could never be repaired, passed every other row. |
+| A1 | 1 | `node scripts/tests/plan-evidence-probes.mjs r7-finished` | Change-demonstrating. Exit 0. Fails today because the case does not exist, so the probe script exits non-zero on an unknown case rather than reporting a passing assertion. The case builds one scratch plan carrying a single unresolved active path inside a producer block and asserts all four measured cells: at `finished` the shipped behaviour reports zero findings, the repaired behaviour reports one, and both exit 0; at `drafting` both report one and exit 1. Asserting the `finished` exit status is what proves the repair adds visibility without adding a failure. |
+| A2 | 2 | `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows` | Invariant under mutation. Exit 0. The case is named explicitly because it is the one the plugin gate runs, so an assertion placed anywhere else would leave the gate green while a copy drifted. Probe: delete the new enumeration clause from the template copy alone, then run `node scripts/ci.mjs --plugin docks` - the gate must exit non-zero naming the template. Routing the probe through the gate rather than this script is what proves CI catches the drift, not merely that a local run can. The case asserts each file separately rather than testing their union, because one assertion spanning both passes while either one drifts. |
+| A3 | 2 | `node scripts/ci.mjs --plugin docks` | Invariant. Exit 0, including the refreshed content hash for the edited template. Probe: revert the hash alone and rerun - the gate must exit non-zero naming the stale hash, proving the manifest coupling is enforced rather than conventional. |
+| A4 | 3 | `node plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs report docs/plans/active/plan-evidence-row-scales.md` | Change-demonstrating on its output, not its exit code. Prints one proof line per acceptance row in this table. Before step 3 the section carries no proof records, so the count is zero and disagrees with the row count. The observable is the line count rather than the exit status, because `report` prints without judging and would exit 0 having printed nothing. |
 
 ## Out of scope / do-NOT-touch
 
-- The crash-safe dispatch driver, its probes and its reference update. Those are
-  `docs/plans/finished/2026-07-30-plan-dispatch-driver.md`, which this plan does not touch.
-- The PlanRunV1 schema. No field, event, status or transition is added, removed or
-  renamed. Only `EXCLUDED_SECTIONS` gains one member.
-- Review budgets. Two substantive permits per phase stays exactly as it is; the
-  K-sample harness spends none, being a free pre-check outside the permit system.
-- The finished plan set. Their bytes stay identical and their rows are counted,
-  never enforced.
-- Reconciling the drift between `docs/plans/AGENTS.md` and its `plan-workspace`
-  template. Measured, counting with `wc -l`: the live contract is 455 lines, the template's fenced block
-  435, with 46 lines present only in the live copy and 27 only in the template, and
-  17 of the 46 live-only lines are the transport-refund contract this work cites. A
-  refresh today would delete them. The step below that edits the contract puts its
-  own sentence in both copies so this plan's deliverable survives a refresh;
-  repairing the other 46 lines, and replacing clause enumeration with one
+- The mode map, and the unreachable enforcing mode described above. Recorded, not
+  repaired; it needs its own plan and a decision that changes a shipped contract.
+- Every capability the predecessor shipped. No record field, event, status,
+  transition, rule, probe or subcommand is added, removed or renamed. Rule R7 loses
+  one status test; its detection logic is untouched.
+- The predecessor's frozen implementation commit and its plan record. Both are
+  historical evidence, appended to attempt history, and are never rewritten.
+- Reconciling the wider drift between the two lifecycle contract copies. This run
+  puts its own sentence in both so the deliverable survives a later refresh;
+  repairing the remaining divergence, and replacing clause enumeration with one
   byte-equality assertion, is separate work.
 - `plugins/session-relay/` and `plugins/effect-kit/`. No behaviour there changes.
-- Operator scratch scripts. They are not repository content.
 
 ## STOP conditions
 
-1. Enforcing mode fires on a committed plan. A retroactive cliff over the whole
-   finished set gets the gate switched off, which is the failure this design already
-   avoided once at the pre-state-gate stage.
-2. A rewritten row inherits its proof. The binding is not keyed to the bytes and the
-   plan has not met its goal; record which key failed to move.
-3. Adding `## Proposed repair` changes `plan_sha256`. The exclusion is not wired and
-   a repaired body still has no legal home.
-4. A byte-only edit to an already-blocked run succeeds. Immutability has been
-   weakened, which is worse than the problem this plan set out to solve.
-5. A recorded observation stops reproducing and nothing fails. The checker verifies
-   bindings by design, so the gate is the only thing that re-runs a probe; if a broken
-   probe assertion leaves `node scripts/ci.mjs --plugin docks` green, the observation
-   is trusted rather than evidenced, which is the vacuity this plan removes.
-6. `node scripts/ci.mjs --plugin docks` fails twice with the same signature and no
+1. Deleting the early return makes any non-drafting invocation exit non-zero. The
+   exit status is then not derived from the mode as measured, and the change is
+   larger than a visibility repair.
+2. A single paired-clause assertion cannot fail on one copy drifting. A check that
+   passes while one file loses the sentence is worse than no check, because it
+   reports agreement it never tested.
+3. The proof writer refuses the recording transition. Record the refusal and stop;
+   writing the section directly would manufacture the unbacked evidence this plan
+   set out to remove.
+4. `node scripts/ci.mjs --plugin docks` fails twice with the same signature and no
    change in the relevant bytes between attempts.
 
 ## Open questions
 
-None. The scales, the falsifiability record shape, the enforcing and counting split,
-the K floor of 3, the single-member `EXCLUDED_SECTIONS` change, and the dependency on
-the dispatch-driver plan are all settled above.
+None. The scope is the two reviewer-found defects; the third defect is recorded
+above as explicitly out of scope with its reason, and the recording order for
+proofs is fixed by the shipped writer rather than open to choice.
 
 
-Plan-run: {"acceptance":{"source_sha256":"a13f8b5342bab8e585abb3ec6fd0478bc34b4256acae35212796d1cd9dced62c","verification_sha256":"ea14812ce39d8dac2f2d4f04d25506ef815127c5cff099bde948c4283a23a2c8"},"blocker":{"evidence_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","kind":"user_decision"},"completion_review":{"input_sha256":"51f97be67866b34ab4e0b82f52fdef918b4f3abcfade6ec780d3aed8dd0a2e77","invocations":2,"result_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","state":"blocked"},"draft_review":{"input_sha256":"33565c793806ef3aa7604b6effefec63171ddafa2c32e14377252f6e96f3114b","invocations":1,"result_sha256":"effb0f89c32d46022959c5fcd3616a26ff61b16bffada6271e1818bb300f8101","state":"passed"},"execution_parent":"0b7d3ed31aacf60b1c1f47ccc3837ba388a96be0","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":"5badc54309d653db4f868b5c97a6e58596aa273c","plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"2f5eeec2e4317e759f0ef5bd249459d336076620c262684947617765f411f545","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2492b60a-9166-4c89-81d9-3cee5f2da5a8","schema":1,"source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","source_sha256":"0e5c236d2b1303aec340814a4617cccad709e5ba98c763f144baa03e59ed0c9b"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"8d69c8158a0852ce57119c17477159c4145276354112bec4546ecd6fb16e3da1","invocations":1,"result_sha256":"185f38fb4c723f6633e1938e782bedcde8e99239a659de895ed14ab5670381cd","state":"passed"},"execution_parent":"db09c1b52f6b35fef41cecc85be47eae2575e27a","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":null,"plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"c6550bdedad8eeee2973d33add3ad843909574a46a6b72f668fdbc3137798b69","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"bf8ca878-7e23-47aa-b563-81e8c5c40106","schema":1,"source_base":"db09c1b52f6b35fef41cecc85be47eae2575e27a","source_sha256":"7e8650937b9693af58e44338825ee1c6673c107bd24b45df982ae74d9468e583"}
 
 ## Review
 
 Plan-attempt-history: {"authorization_source_sha256":"7fe265131d26d2993b9b11c6266e1b67354990ef5405ef37c91b4da618220369","plan_bytes_sha256":"b0873bd33128c31ee034b87432b4f9f6e0eca4447e90b378820b6a3e18657f5c","replacement_run_id":"2492b60a-9166-4c89-81d9-3cee5f2da5a8","run":{"acceptance":null,"blocker":{"evidence_sha256":"a16f17b388e6ed12e23f3b2cfcdd914ac80725579a5e41d94564f155489e4b16","kind":"concurrent_change"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a9de10f5cd5c4bdae6b4c9a83444a48da3127b5a54e6aa206e2c5716134de4fc","invocations":2,"result_sha256":"e500729df02717a912400a1ab9ed02233a171f2be1e5237bb065334cec22753f","state":"passed"},"execution_parent":null,"goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":null,"plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"b5c10b2159362e8b01197b7328872dc050f55249301d25ca10cb75b2291e8dcb","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"0eff10d5-c904-4390-91f5-de766e89c2c1","schema":1,"source_base":"3d7b9b0047b58f1dfa5756fec19ea803496e78eb","source_sha256":"0c004bc7e79b2a7696f127674ab7e141d9575186505c8c8a1a573d1408ab65e2"},"schema":1,"status":"blocked","successor_run_sha256":"ff8247bc420d264f3709d1666759c58692d1bd62e8e5c79a77f7701d0698fc51"}
 
-Draft review invocation 1 returned `repair` with two findings, both reproduced from
-repository facts and accepted, so the phase settled to `repairing`. The driver did not
-settle them itself: `repairing` is for an accepted repair verdict only
-(`docs/plans/AGENTS.md:198`) and reviewer prose never mutates state (`:360-362`), so it
-captured the verdict and held the reservation for adjudication.
+Plan-attempt-history: {"authorization_source_sha256":"7827561b2bf7acde515a2a5652d8ebcec36f4c2961cd8dd79bb17917296bfe53","plan_bytes_sha256":"6cfee264cdb083e7a0360c205f9e8451ce5e67675f1578e6766aa1c2a83b3094","replacement_run_id":"bf8ca878-7e23-47aa-b563-81e8c5c40106","run":{"acceptance":{"source_sha256":"a13f8b5342bab8e585abb3ec6fd0478bc34b4256acae35212796d1cd9dced62c","verification_sha256":"ea14812ce39d8dac2f2d4f04d25506ef815127c5cff099bde948c4283a23a2c8"},"blocker":{"evidence_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","kind":"user_decision"},"completion_review":{"input_sha256":"51f97be67866b34ab4e0b82f52fdef918b4f3abcfade6ec780d3aed8dd0a2e77","invocations":2,"result_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","state":"blocked"},"draft_review":{"input_sha256":"33565c793806ef3aa7604b6effefec63171ddafa2c32e14377252f6e96f3114b","invocations":1,"result_sha256":"effb0f89c32d46022959c5fcd3616a26ff61b16bffada6271e1818bb300f8101","state":"passed"},"execution_parent":"0b7d3ed31aacf60b1c1f47ccc3837ba388a96be0","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":"5badc54309d653db4f868b5c97a6e58596aa273c","plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"2f5eeec2e4317e759f0ef5bd249459d336076620c262684947617765f411f545","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2492b60a-9166-4c89-81d9-3cee5f2da5a8","schema":1,"source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","source_sha256":"0e5c236d2b1303aec340814a4617cccad709e5ba98c763f144baa03e59ed0c9b"},"schema":1,"status":"blocked","successor_run_sha256":"2c52a777a8473c400e258c9b1a377ec98205445d838b7b59d2467e83bb9a5f87"}
 
-Both findings were the same class - something declared but bound to no check - so the
-repair swept the class rather than patching the two instances:
+This run is a same-path successor minted under exact current-user replacement
+authority. The predecessor is terminal and immutable: status `blocked`, blocker
+`user_decision`, completion review `blocked` at two invocations, with a frozen
+implementation commit and re-minted acceptance. Its full record is preserved in the
+attempt history above, together with the authorizing message digest and the exact
+predecessor plan bytes.
 
-- **F1, accepted.** The record stored `binds`, `observed` and `probe` but keyed proven
-  status on the command, `source_base` and `step_id` alone, so editing a row's matcher
-  or its named probe kept the proof. `expected_sha256` is now a key, and A1 moves every
-  key field in turn.
-- **F2, accepted.** A5 asserted a planted defect was "named by at least one sample"
-  while the aggregator consumes scripted results, so its own fixture satisfied the
-  assertion. The row now asserts aggregator behaviour and explicitly claims no
-  detection.
-- **Third instance, found by sweep.** The producer schema had declared three
-  operations while the body contains one producer, and was narrowed to the single
-  `show-count` form; a later plan widens the
-  enum together with the producer and the row that exercises it.
-- **Fourth instance, found by sweep.** The six-status mode map was declared in two
-  steps while only `finished` was exercised, so an implementation enforcing on
-  `ongoing` - or on `planned`, whose frozen body could never be repaired - passed every
-  row. A `status-mode` probe now binds all six, one scratch fixture each.
-- **Fifth instance, found by sweep, and the load-bearing one.** "The verifier spawns no
-  child process" justified deleting the sandbox, the argv grammar and the effect gate,
-  yet nothing observed it: every key-drift case passes whether or not the checker also
-  executes. `command-drift` now gives one fixture row a command that would be
-  detectable if run - it writes a sentinel and exits non-zero - and asserts the row
-  still reports proven with no sentinel created. The central scoping claim is now
-  checked rather than asserted.
-
-Invocation 2 is the last permit and a second substantive repair verdict blocks this
-plan. The repaired bytes therefore get a fresh free pre-check first, which is the loop
-that carried this plan from twelve findings to two across six rounds.
-
+Review budgets are fresh because a replacement never inherits permits or evidence.
+Nothing from the predecessor's reviews carries over, and no finding recorded against
+it is treated as adjudicated here.
 
 ## Verification Results
 
-All eleven acceptance rows were observed at implementation checkpoint `ba598a6`, which is
-the amended checkpoint 2 of 3. Every `Observed` value below is an exit status or a matcher
-result that a command actually returned; the per-row `Falsifiability-proof:` records that
-follow carry the same values keyed to each row's own command and expected bytes.
-
-|Row|Class|Command|Observed|
-|---|---|---|---|
-|A1|invariant|`plan-evidence-probes.mjs command-drift`|exit 0|
-|A2|change-demonstrating|`plan-self-check.mjs report <this plan>`|11 proof lines|
-|A3|change-demonstrating|`plan-self-check.mjs coverage docs/plans/finished/`|exit 0, `plans=97 rows=355 proven=0 unproven=355 unclassified=23`|
-|A4|invariant|`plan-evidence-probes.mjs stale-quantity`|exit 0|
-|A5|invariant|`plan-evidence-probes.mjs injected-defect`|exit 0|
-|A6|invariant|`plan-evidence-probes.mjs excluded-section`|exit 0|
-|A7|invariant|`scripts/ci.mjs --plugin docks`|exit 0|
-|A8|invariant|`plan-evidence-probes.mjs paired-clause`|exit 0|
-|A9|change-demonstrating|`plan-self-check.mjs rules <this plan>`|exit 0, `18 checked, 0 finding(s)`|
-|A10|invariant|`plan-evidence-probes.mjs proof-writer`|exit 0|
-|A11|invariant|`plan-evidence-probes.mjs status-mode`|exit 0|
-
-The three change-demonstrating rows were measured against the untouched tree rather than
-assumed: at `0b7d3ed` the pre-change `plan-self-check.mjs`, executed beside the shipped one
-so its relative imports resolved, exited 2 printing the usage line for `report`, `coverage`
-and `rules` alike. The shipped file returns exit 0 with real output for all three.
-
-A9 deserves one qualification. This plan is `ongoing`, so `rules` runs counting-only, and
-exit 0 alone would not distinguish a clean body from a masked one. Measured separately: the
-identical body at `drafting`, where the same map enforces, reports `RULES enforcing 18
-checked, 0 finding(s)` and exits 0; planting an unresolved active-path reference in that
-drafting copy reports two R7 findings and exits 1. The row's pass is therefore substantive.
-
-The orchestration suite rose from 141 cases to 169: seven evidence probes and twenty-one
-structural-rule cases. `node scripts/ci.mjs` passed in full - three plugins plus repo-wide -
-at this tree. The full gate is required here rather than only A7's `--plugin docks`, for two
-measured reasons: the targeted run skips `durable-anchors.mjs`, which governs the
-context-tree node step 5 edits, and it skips the relay shard, while
-`plugins/session-relay/test/release-evidence-contract.mjs` consumes PlanRunV1 directly - it
-pins a plan path, reads a real plan body as a fixture template and rewrites its `Plan-run:`
-line - so a `plan-run.mjs` edit can break a session-relay test that A7 never runs.
-
-Two observations recorded because they are true and unflattering rather than because they
-help. First, one full-gate run failed on
-`rust-test-inventory.mjs --case workspace_coordination_process`; re-running that case in
-isolation passed 9 of 9 and the next full gate passed, and these commits touch zero files
-under `plugins/session-relay/`, so it was a flake under gate parallelism and is recorded as
-one rather than omitted.
-
-Second, an internal discrepancy in this plan's own frozen body. Steps 2 and 7 both describe
-the sibling `plan-dispatch-driver.md` as `planned`; measured, that file carries
-`status: finished`, and this same body already says at its census that archiving it added one
-to `docs/plans/finished/`. So the body asserts both. The distinction is not load-bearing for
-the argument those steps make: the mode map returns counting-only for `planned` and
-`finished` alike, so an enforcing `rules` run would fail that sibling under either word, and
-the immutability reasoning is unchanged. Verified directly - `rules` over that archived
-sibling exits 0 and reports no Step-mapping finding. The word is stale because the sibling was
-archived after this body was frozen, and `drafting -> drafting` content mutation is refused
-once a draft review has passed, so it cannot be corrected in place. It is recorded here
-instead, which is the only surface still writable.
-
-One deviation from the plan's own text, stated plainly. Step 7 says to record these proofs
-into `## Verification Results`, and `writeFalsifiabilityProofs` was built to do it - but that
-function also emits the completion-review reserve. Using it live would have reserved the
-phase, leaving the review dispatch either burning the second of two permits or refused
-outright, and its `input_sha256` covers plan bytes alone while the reviewer is dispatched
-against a bundle digest over the plan plus the affected-path manifest, so the verdict would
-have bound evidence the reviewer never saw. Composition was therefore separated from the
-transaction as an exported `composeProofSection`, and these bytes are installed inside the
-single completion reserve. `writeFalsifiabilityProofs` remains the scratch entry point A10's
-probe exercises. That change is part of the amended implementation checkpoint, so
-`implementation_commit` still names the whole implementation.
-
-Falsifiability-proof: {"binds":"exit","command_sha256":"34baa88e869064c927aa2db51f53fa1b2c932fd78e722d8c649b2d9c285427cc","expected_sha256":"947c4df366bce1a1cd844937b6ca553f558e7ce03df1efdb8a92b933265b010e","observed":0,"probe":"command-drift: each of the four keys edited alone reported the row unproven naming that key, then restored to proven; a row whose command writes a sentinel and exits non-zero still reported proven and no sentinel existed afterwards","row_id":"A1","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"1"}
-Falsifiability-proof: {"binds":"match","command_sha256":"8ba9c7741b48d3e7f42fbfb2c649fc5dc115f3b8e8b6172e54fe6949f8ee0d9b","expected_sha256":"db674bb0949637c503d727844b9d73cee4bc53fe7ceb6f8767be7b4fee128b50","observed":{"matcher":"proof-line count equals the acceptance-row count","result":11},"probe":"pre-change tree 0b7d3ed: `report` was not a subcommand and exited 2 printing the usage line, measured by running that exact file beside the shipped one","row_id":"A2","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"2"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"cd71357e38eef784a98d04b8351def7af01ac1411601e6b98a17a99930df0f49","expected_sha256":"4a3990597afcef95c31db49568d090a52a040e8081ae09b953c0f27562f2aa9d","observed":0,"probe":"pre-change tree 0b7d3ed: `coverage` was not a subcommand and exited 2 printing the usage line, measured the same way","row_id":"A3","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"2"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"2cf0a0262fd736d07b3417b19426460da43bc2c3e2f9b4edac6410dc59868f9b","expected_sha256":"c89b23182b537a0ddee49631bbf6f5d1f1f90977c6761bfdc83cc9c4b09e5e6d","observed":0,"probe":"stale-quantity: editing the committed quantity failed naming that claim and restoring it passed, while editing a snapshot number did not fail; an unknown op, an extra key and shell syntax in a field were each rejected without execution","row_id":"A4","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"3"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"6b62491e10777819abf69e277c088e780db56aec299485305e28fe7cf44bf3c4","expected_sha256":"97881a857c9b68fe6332e62c422c91b5cdd08374498b18aaa998655c03ecadbd","observed":0,"probe":"injected-defect: over one fixed bundle digest a scripted sample naming a finding entered the union and refused a clean stop, a set naming none reported clean, and a configured K of 2 was rejected below the floor of 3","row_id":"A5","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"4"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"cb2e7dadf9ce6b16e11ae70cc7abad9e72a6ea0568788bb21f2c9c7b621c1781","expected_sha256":"10e0f91f0c4f3196ed714db49758c7a6ee31d6982d28116518e0c152bc4b09ce","observed":0,"probe":"excluded-section: installing `## Proposed repair` in the same transaction as `blocked` left plan_sha256 unchanged, a byte-only edit to that already-blocked run was refused as immutable, and the identical text under `## Notes` moved the digest","row_id":"A6","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"5"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"789b36d612d12669464ae8d5abc874711ef9d38069292fe21e2887dfe7484d40","expected_sha256":"6da2c573ab2ca5096f9ad60511bbcd119137328e7c681bc8d075fc2c0d1b45c0","observed":0,"probe":"a paired-clause assertion was broken in place: `node scripts/ci.mjs --plugin docks` exited 1 naming the orchestration contract, and the probe named its own assertion, \"docs/plans/AGENTS.md is missing the Proposed repair sentence\"; restoring it returned exit 0","row_id":"A7","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"6"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"af0a7c0ee281e0c7d8d6aef1bac11d8d08a8cb696ecb5fae32e5ed4180a8db96","expected_sha256":"60e4fa9cb53ee7819002a857c6119b86ceef1c9a6bdc1b7bc3137734347cc105","observed":0,"probe":"paired-clause: deleting the sentence from the plan-workspace template alone failed the test naming that template, and restoring it passed","row_id":"A8","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"5"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"f711c433da09a24586d0a5b7e4f746d0acb9e0778e9ca4edb8f14e34839e2cce","expected_sha256":"5216d9139d8b85dc501bc03518b6f5363c65ad6a8c6735a4c30d32070a4bbf17","observed":0,"probe":"eighteen scratch copies, one planted defect each: every planted defect was named by exactly its own rule, and with that rule deleted the run over its own copy reported no failure at all","row_id":"A9","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"7"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"6b55bb21d2cf7db08d8093bcc66356ccd623ce57706385de38f01c846d247379","expected_sha256":"5795328b4fff8a48c8e6ec536d8f2c24327980d143465ce712d6f0df8adc227c","observed":0,"probe":"proof-writer: a proof minted through the completion reserve populated every record field with plan_sha256 unchanged and acceptance.verification_sha256 bound to the new section bytes, and a later byte-only write to that section was refused","row_id":"A10","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"1"}
-Falsifiability-proof: {"binds":"exit","command_sha256":"e590bd7c990d8b65093330db41565bf3c7715d3f311ff49bb5e7e3ca3376f650","expected_sha256":"6c9a9833ef9b876d249522d23c29eac39232257a49ec36f4655bf1fbf2706d71","observed":0,"probe":"status-mode: the drafting fixture exited non-zero naming the unproven row, while planned, scheduled, ongoing, finished and blocked each exited 0 reporting a count","row_id":"A11","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"2"}
+Not yet started.
