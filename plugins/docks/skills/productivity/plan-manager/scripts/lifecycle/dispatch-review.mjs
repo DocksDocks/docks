@@ -187,15 +187,118 @@ console.log('bundle        :', bundle.path);
 console.log('bundle_sha256 :', bundle.sha256);
 console.log('prompt bytes  :', Buffer.byteLength(prompt));
 
+// --- preflight: everything the dispatch depends on, proven BEFORE a permit is at
+// stake ---------------------------------------------------------------------
+//
+// `docs/plans/AGENTS.md:224-226` is one sentence with two halves: preflight the
+// exact reviewer route AND a private file that will receive complete stdout.
+// Both run here, above the reserve, because a throw PAST the reservation leaves a
+// live `reserved` that cold entry can only block - and no refund path covers a
+// defect the driver could have seen before spending anything.
+const RAW_STDOUT = path.join(OUT_DIR, `${TAG}-${PHASE}-${invocation}-stdout.raw`);
+
+// A bare command name is resolved through PATH the way `spawn` will resolve it;
+// anything containing a separator is checked where it points. `spawn` itself is
+// left untouched - this proves the route, it does not replace it.
+const resolveExecutable = (command) => {
+  // An empty command joins to the directory itself, and every traversable directory
+  // carries X_OK, so `''` and a directory-valued argv[0] both passed an access-only
+  // check and then failed at `spawn` - after the reservation.
+  //
+  // Measured consequence, not assumed: that spawn failure IS caught and refunded, so the
+  // phase reaches `retryable` with `invocations` 0 rather than a cold `reserved`. The harm
+  // is subtler and still real - a preventable local misconfiguration spends the run's ONE
+  // refundable transport failure, and the next genuine transport failure then cannot
+  // refund from `transport_retried`: it degrades local work, or blocks at non-local risk.
+  // The driver also exits 0 on that path, so a caller reading the status learns nothing.
+  if (typeof command !== 'string' || command.trim() === '') {
+    throw new Error('reviewer argv[0] is empty');
+  }
+  const executableFile = (candidate) => {
+    // statSync follows symlinks, so a symlinked binary still resolves.
+    if (!fs.statSync(candidate).isFile()) throw new Error(`not a regular file: ${candidate}`);
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return candidate;
+  };
+  // Resolved against REPO, not this process's cwd, because `spawn` runs the reviewer with
+  // `cwd: REPO` and the OS resolves a relative command after that chdir. Checking `./x`
+  // against the launcher's cwd is a DIFFERENT file: the route could pass preflight, reserve,
+  // and then fail at spawn - the exact ordering this preflight exists to prevent. Relative
+  // PATH entries carry the same hazard and get the same treatment.
+  if (command.includes(path.sep)) return executableFile(path.resolve(REPO, command));
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    if (dir === '') continue;
+    try {
+      return executableFile(path.resolve(REPO, dir, command));
+    } catch {
+      // Keep walking PATH. Only exhaustion is a failure.
+    }
+  }
+  throw new Error(`not found on PATH: ${command}`);
+};
+
+const preflight = (label, operation) => {
+  try {
+    return operation();
+  } catch (error) {
+    console.error(`\ndispatch-review: ${label}: ${String(error.message).slice(0, 200)}`);
+    console.error('PREFLIGHT FAILED - no permit reserved, no reviewer dispatched.');
+    process.exit(2);
+  }
+};
+
 if (!COMMIT) {
   console.log('\nDRY RUN - nothing reserved, nothing dispatched, plan untouched.');
   process.exit(0);
 }
 
+// Below the dry-run exit ON PURPOSE. Step 1 requires the route proven ahead of the
+// RESERVE, and the reserve is ~40 lines below; the dry-run early exit is not the
+// reserve. Hoisting these above it would make `DEFAULT_REVIEWER`'s bare `omp`
+// (:46) a hard failure for any consumer inspecting a plan without that binary on
+// PATH - narrowing the one path whose contract is "nothing reserved, nothing
+// dispatched, plan untouched". Every probe case still exercises this, because
+// `startDriver` always appends `--commit` (plan-dispatch-probes.mjs:183).
+const reviewerArgv = preflight('reviewer route is unusable', () => {
+  let parsedArgv;
+  try {
+    parsedArgv = JSON.parse(process.env.DOCKS_REVIEWER_ARGV ?? JSON.stringify(DEFAULT_REVIEWER));
+  } catch (error) {
+    throw new Error(`DOCKS_REVIEWER_ARGV is not JSON: ${error.message}`);
+  }
+  if (!Array.isArray(parsedArgv) || parsedArgv.length === 0) {
+    throw new Error(`DOCKS_REVIEWER_ARGV must be a non-empty array, got ${typeof parsedArgv}`);
+  }
+  if (!parsedArgv.every((a) => typeof a === 'string')) {
+    throw new Error('DOCKS_REVIEWER_ARGV must contain only strings');
+  }
+  // Executability is part of the route being "exact": a binary that does not exist
+  // fails at `spawn` after the reservation, which is the same hazard reached later.
+  resolveExecutable(parsedArgv[0]);
+  return parsedArgv.map((a) => (a === '{{PROMPT}}' ? prompt : a));
+});
+
+preflight('raw-stdout target is not writable', () => {
+  // Append mode, NOT 'w'. A transport failure refunds the permit, so the retry
+  // recomputes the same `invocation` (:163) and the same target path - and a
+  // truncating probe would erase the previous attempt's captured stdout, which is
+  // the one artifact worth having at that moment. Creating the file here keeps
+  // step 4's write the only truncating writer.
+  const descriptor = fs.openSync(RAW_STDOUT, 'a', 0o600);
+  fs.closeSync(descriptor);
+});
+
+console.log('route         :', reviewerArgv[0], `(${reviewerArgv.length} argv)`);
+console.log('raw stdout    :', RAW_STDOUT);
+
 // --- from here on a permit is at stake ------------------------------------
 
 let withheld = null;
 let child = null;
+// Set when the reviewed tree moved under the dispatch. The permit refunds, but no verdict
+// was captured, so the run still needs redispatching after the tree is reconciled - and a
+// caller reading only the exit status would otherwise be told "fine".
+let driftRefused = null;
 
 const resultEvent = (type, extra) => ({
   type,
@@ -279,10 +382,6 @@ console.log(
   `${PHASE} ${afterReserve.run[PHASE].state}, invocation ${afterReserve.run[PHASE].invocations} of 2`,
 );
 
-const reviewerArgv = JSON.parse(process.env.DOCKS_REVIEWER_ARGV ?? JSON.stringify(DEFAULT_REVIEWER)).map((a) =>
-  a === '{{PROMPT}}' ? prompt : a,
-);
-
 const runReviewer = () =>
   new Promise((resolve, reject) => {
     child = spawn(reviewerArgv[0], reviewerArgv.slice(1), { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -300,11 +399,23 @@ const runReviewer = () =>
     });
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      // Persist the COMPLETE byte stream before interpreting it. The target's
+      // existence and writability are proven pre-reserve, so this write is the
+      // second half of `docs/plans/AGENTS.md:224-226` and nothing more. The
+      // normalized verdict stays a SEPARATE artifact (`resultFile`), because a
+      // reply that fails validation must still be recoverable verbatim.
+      const raw = Buffer.concat(chunks);
+      try {
+        fs.writeFileSync(RAW_STDOUT, raw);
+      } catch (error) {
+        reject(error);
+        return;
+      }
       if (code !== 0) {
         reject(new Error(`reviewer exited ${signal ?? code}: ${Buffer.concat(errors).toString().slice(0, 200)}`));
         return;
       }
-      resolve(Buffer.concat(chunks).toString());
+      resolve(raw.toString());
     });
   });
 
@@ -349,7 +460,22 @@ try {
     // reservation either.
     const headNow = git(REPO, ['rev-parse', 'HEAD']);
     if (headNow !== head) {
-      throw new Error(`HEAD drifted during dispatch: ${head.slice(0, 12)} -> ${headNow.slice(0, 12)}`);
+      driftRefused = `HEAD drifted during dispatch: ${head.slice(0, 12)} -> ${headNow.slice(0, 12)}`;
+      throw new Error(driftRefused);
+    }
+
+    // HEAD holding still does not mean the reviewed bytes held still: the manifest
+    // digests worktree CONTENT (`plan-run.mjs:snapshotPath`), so an uncommitted edit
+    // to an affected path moves `source_sha256` while HEAD is unchanged. Re-derive
+    // and compare both, or the guard settles against a stale manifest - which is
+    // exactly what it did.
+    const driftNow = lib.createAffectedPathManifest({ repo: REPO, sourceBase: headNow, paths });
+    if (driftNow.source_sha256 !== manifest.source_sha256) {
+      // Both drift branches set this, deliberately symmetric: they are the committed and
+      // uncommitted halves of ONE guard, and an exit status that differed between them
+      // would be an observable contract no acceptance row explains.
+      driftRefused = `affected paths drifted during dispatch: ${manifest.source_sha256.slice(0, 12)} -> ${driftNow.source_sha256.slice(0, 12)}`;
+      throw new Error(driftRefused);
     }
   } catch (error) {
     console.log('\nTRANSPORT FAILED:', String(error.message).slice(0, 300));
@@ -361,9 +487,14 @@ try {
     let outcome;
     try {
       const parsed = extractReview(stdout);
+      // Validate what the reviewer RETURNED, never a reconstruction. Rebuilding
+      // `{schema:1,error:'invalid_input',reason}` normalised a wrong-schema, no-schema
+      // or extra-key reply into a valid one and settled it TERMINALLY - so a reply the
+      // reviewer never made could end the run. Passing `parsed` lets `assertClosed`
+      // refuse it as malformed reviewer output, which refunds instead.
       outcome =
         parsed.error === 'invalid_input'
-          ? { invalid: lib.validateReviewInvalidInput({ schema: 1, error: 'invalid_input', reason: parsed.reason }) }
+          ? { invalid: lib.validateReviewInvalidInput(parsed) }
           : { review: policy.validatePlanReview(parsed, binding) };
     } catch (error) {
       // The reviewer answered, but not in a form the contract can consume.
@@ -413,5 +544,13 @@ try {
       console.log('FATAL: left live on disk with no captured verdict.');
       process.exitCode = 1;
     }
+  }
+  // A drift refund returns the permit, so the phase is not left live and the block above
+  // stays quiet - but no verdict was captured and the review still has to happen. Exit
+  // non-zero so a caller reading only the status is not told the review completed.
+  if (driftRefused !== null) {
+    console.log('drift refused :', driftRefused);
+    console.log('                permit refunded; reconcile the tree, then redispatch.');
+    process.exitCode = 1;
   }
 }

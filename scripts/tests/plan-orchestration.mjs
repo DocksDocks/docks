@@ -45,6 +45,12 @@ const DISPATCH_PROBES = [
   ['dry-run', 'a dry run reserves nothing and reports the sealed digest'],
   ['settle-binding', 'pass settles, repair is withheld, invalid input is terminal'],
   ['retry-block', 'a second transport failure blocks or degrades by risk'],
+  // The four repair cases. Registered here so the gate runs them rather than
+  // trusting a hand-run; each fails when its defect is re-introduced into a copy.
+  ['preflight-before-reserve', 'the route and raw-stdout target are proven before a permit is at stake'],
+  ['invalid-input-verbatim', 'a malformed invalid-input reply refunds instead of settling terminally'],
+  ['dirty-drift', 'uncommitted affected-path drift refunds with HEAD unmoved'],
+  ['stdout-persistence', 'the complete reviewer stdout is persisted byte-for-byte before interpretation'],
 ];
 
 function registerDispatchDriver(target) {
