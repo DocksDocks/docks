@@ -236,7 +236,10 @@ const STRUCTURAL_RULE_PROBES = [
     (text) =>
       replaceMutation(
         text,
-        'P=docs/plans/active/plan-evidence-row-scales.md',
+        // Anchor tracks the fixture: its producer base is the ARCHIVED path, which agrees with the
+        // fixture's own plan_path so R13 is silent at rest. The mutation repoints it at a different
+        // archived plan, which is the disagreement R13 exists to catch.
+        'P=docs/plans/finished/2026-07-31-plan-evidence-row-scales.md',
         'P=docs/plans/finished/2026-07-30-plan-dispatch-driver.md',
         'R13',
       ),
@@ -628,11 +631,11 @@ node tool.mjs foo/bar:docs/plans/active/foreign.md https://example.test/docs/pla
     );
   });
 
-  // Load-bearing guard for the de-anchoring itself. Fixture SOURCES - the bytes a probe mutates
-  // and then asserts a rule against - must never be a file the plan lifecycle writes, or an
-  // ordinary plan edit reds this suite with no code change. Invariant READS are the opposite:
-  // they must keep naming the real live plan, because their whole claim is that it did not move.
-  target.test('structural-rules', 'fixture sources are frozen and invariant reads stay live', () => {
+  // Load-bearing guard against ONE recurring defect: a test anchored on a path the plan lifecycle
+  // is free to move. It bit three times - a status line, the mutation-source bytes, and finally
+  // the live-plan guard itself, which broke the moment its plan archived. Two rules follow, and
+  // this case enforces both mechanically.
+  target.test('structural-rules', 'no test anchors on a mutable plan path', () => {
     assert.ok(fs.existsSync(STRUCTURAL_PLAN), 'the frozen structural fixture must exist');
     const fixtureRelative = path.relative(ROOT, STRUCTURAL_PLAN);
     assert.ok(
@@ -640,38 +643,26 @@ node tool.mjs foo/bar:docs/plans/active/foreign.md https://example.test/docs/pla
       `structural fixture must live outside docs/plans/, found ${fixtureRelative}`,
     );
 
+    // Rule 1: no module-level constant may point into docs/plans/. That is what made an archive
+    // move break the suite, so it is banned outright rather than merely discouraged.
     const probeSource = fs.readFileSync(path.join(ROOT, 'scripts/tests/plan-evidence-probes.mjs'), 'utf8');
-    const declared = Object.fromEntries(
-      [...probeSource.matchAll(/^const (LIVE_PLAN|FIXTURE_PLAN) = path\.join\(ROOT, '([^']+)'\);$/gm)].map((match) => [
-        match[1],
-        match[2],
-      ]),
+    const anchored = [...probeSource.matchAll(/^const (\w+) = path\.join\(ROOT, '(docs\/plans\/[^']+)'\);$/gm)].map(
+      (match) => `${match[1]} -> ${match[2]}`,
     );
-    assert.deepEqual(
-      Object.keys(declared).sort(),
-      ['FIXTURE_PLAN', 'LIVE_PLAN'],
-      'both roles must be declared as separate single-line constants',
-    );
-    assert.ok(
-      declared.LIVE_PLAN.startsWith('docs/plans/'),
-      `LIVE_PLAN must name the real plan, found ${declared.LIVE_PLAN}`,
-    );
-    assert.ok(
-      !declared.FIXTURE_PLAN.startsWith('docs/plans/'),
-      `FIXTURE_PLAN must be frozen, found ${declared.FIXTURE_PLAN}`,
-    );
+    assert.deepEqual(anchored, [], `no probe constant may name a lifecycle-managed path: ${anchored.join(', ')}`);
 
-    // And the split must be observed, not merely declared: mutation sources read the fixture.
-    assert.equal(
-      probeSource.match(/installProofRecords\(fs\.readFileSync\(LIVE_PLAN, 'utf8'\)\)/g),
-      null,
-      'no probe may build a mutated fixture from the live plan',
-    );
+    // Rule 2: the frozen fixture is the sole source of mutated fixture bytes, and both sites use it.
     assert.equal(
       (probeSource.match(/installProofRecords\(fs\.readFileSync\(FIXTURE_PLAN, 'utf8'\)\)/g) ?? []).length,
       2,
       'both mutated-fixture sources must read the frozen snapshot',
     );
+
+    // And the replacement invariant is corpus-wide rather than single-file, so it survives a plan
+    // being archived, created or renamed underneath it.
+    for (const required of ['function planCorpusDigest()', "'docs/plans/active', 'docs/plans/finished'"]) {
+      assert.ok(probeSource.includes(required), `the live-plan guard must be corpus-wide: missing ${required}`);
+    }
   });
 }
 

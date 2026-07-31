@@ -18,13 +18,13 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
 // Two distinct roles, deliberately two constants.
 //
-// `LIVE_PLAN` is only ever READ to prove a probe left the real plan alone - that is a genuine
-// invariant and must keep naming the real file.
+// `LIVE_PLAN` is gone on purpose. Proving a probe left the real plans alone is now
+// `withLivePlanGuard`, which digests the whole corpus instead of naming one path that the
+// lifecycle is free to archive.
 //
 // `FIXTURE_PLAN` is the byte source probes MUTATE into scratch fixtures. It must be frozen:
 // `installProofRecords` reads the acceptance table and `mutateOneRowField` indexes fixed row
 // columns, so sourcing those from a live plan coupled them to a body that drafting rewrites.
-const LIVE_PLAN = path.join(ROOT, 'docs/plans/active/plan-evidence-row-scales.md');
 const FIXTURE_PLAN = path.join(ROOT, 'scripts/tests/fixtures/structural-plan.md');
 const SELF_CHECK_PATH = path.join(
   ROOT,
@@ -57,10 +57,29 @@ const planRunLine = (bytes) =>
     .find((line) => line.startsWith('Plan-run: '));
 const planRunRecord = (bytes) => JSON.parse(planRunLine(bytes).slice('Plan-run: '.length));
 
+// Guard the whole plan CORPUS, never one path. The invariant these probes need is "the probe
+// wrote nothing into docs/plans/", and naming a single file could not express it: this suite was
+// pinned to one active plan, and the moment that plan archived, every guarded probe failed on
+// ENOENT against a path the lifecycle had legitimately moved. A digest map over both directories
+// is path-independent - it survives archive, creation and deletion - and is strictly stronger,
+// because it also catches a probe that damages some OTHER plan.
+function planCorpusDigest() {
+  const corpus = new Map();
+  for (const relative of ['docs/plans/active', 'docs/plans/finished']) {
+    const directory = path.join(ROOT, relative);
+    if (!fs.existsSync(directory)) continue;
+    for (const entry of fs.readdirSync(directory).sort()) {
+      const file = path.join(directory, entry);
+      if (!fs.statSync(file).isFile()) continue;
+      corpus.set(`${relative}/${entry}`, sha256(fs.readFileSync(file)));
+    }
+  }
+  return corpus;
+}
+
 async function withLivePlanGuard(operation) {
-  const before = fs.readFileSync(LIVE_PLAN);
-  const beforeDigest = sha256(before);
-  const beforeRecord = planRunLine(before);
+  const before = planCorpusDigest();
+  assert.ok(before.size > 0, 'the plan corpus must not be empty, or this guard proves nothing');
   let result;
   let failure;
   try {
@@ -68,10 +87,8 @@ async function withLivePlanGuard(operation) {
   } catch (error) {
     failure = error;
   }
-  const after = fs.readFileSync(LIVE_PLAN);
-  assert.equal(sha256(after), beforeDigest, 'live plan byte digest changed during the probe');
-  assert.ok(after.equals(before), 'live plan bytes changed during the probe');
-  assert.equal(planRunLine(after), beforeRecord, 'live Plan-run record changed during the probe');
+  const after = planCorpusDigest();
+  assert.deepEqual([...after.entries()].sort(), [...before.entries()].sort(), 'the probe changed docs/plans/');
   if (failure !== undefined) throw failure;
   return result;
 }
@@ -463,7 +480,9 @@ function review(binding, finding = null) {
 probes['injected-defect'] = () =>
   withLivePlanGuard(() =>
     withScratch('evidence-samples-', (root) => {
-      const liveBefore = planRunRecord(fs.readFileSync(LIVE_PLAN));
+      // No live-plan read here: `withLivePlanGuard` digests the whole plan corpus around this
+      // probe, and reserving a permit would necessarily change those bytes. Watching one path
+      // was weaker AND broke when that plan archived.
       const bundle = path.join(root, 'bundle.bin');
       const results = path.join(root, 'results.json');
       const bundleBytes = Buffer.from('sealed evidence sample bundle\n');
@@ -528,12 +547,9 @@ probes['injected-defect'] = () =>
       assert.equal(afterChange.clean_stop, true, 'K clean samples after a byte change must pass for the new digest');
       assert.notEqual(afterChange.bundle_sha256, digest, 'byte change must create a distinct aggregation identity');
 
-      const liveAfter = planRunRecord(fs.readFileSync(LIVE_PLAN));
-      assert.equal(
-        liveAfter.draft_review.invocations,
-        liveBefore.draft_review.invocations,
-        'scripted aggregation must not reserve a real draft-review permit',
-      );
+      // The "no real permit was reserved" claim is carried by the corpus guard wrapping this
+      // probe: a reservation rewrites a `Plan-run` line, which the digest map would catch in
+      // whichever file held it.
       process.stdout.write(
         '  ok scripted union taints one digest; clean/changed digest passes; K floor and sharing enforced\n',
       );
@@ -726,8 +742,9 @@ probes['r7-finished'] = () =>
       const unresolvedPlan = 'docs/plans/active/r7-finished-scratch.md';
       assert.ok(!fs.existsSync(path.join(ROOT, unresolvedPlan)), `${unresolvedPlan} must remain unresolved`);
 
+      const baseFixture = fs.readFileSync(FIXTURE_PLAN, 'utf8');
       const fixture = replaceExactly(
-        fs.readFileSync(FIXTURE_PLAN, 'utf8'),
+        baseFixture,
         'docs/plans/*/*.md > /tmp/rows.txt',
         `docs/plans/*/*.md ${unresolvedPlan} > /tmp/rows.txt`,
         'plant unresolved R7 producer path',
@@ -764,23 +781,38 @@ probes['r7-finished'] = () =>
       assert.notEqual(regressedBytes, repairedBytes, 'the regressed script copy must change bytes');
       fs.writeFileSync(regressedScript, regressedBytes);
 
+      // Assert the DELTA the planted path causes, never an absolute finding count. The fixture is
+      // a frozen snapshot of a real plan, and its own producer block cites the plan path it was
+      // taken from - so archiving that plan made the citation unresolved and moved every absolute
+      // count by one. The delta is what this probe actually claims: planting one unresolved path
+      // adds exactly one finding, and the suppression removes it again at `finished`.
       const cells = [
-        { label: 'repaired drafting', script: SELF_CHECK_PATH, status: 'drafting', findings: 1, exit: 1 },
-        { label: 'repaired finished', script: SELF_CHECK_PATH, status: 'finished', findings: 1, exit: 0 },
-        { label: 'regressed drafting', script: regressedScript, status: 'drafting', findings: 1, exit: 1 },
-        { label: 'regressed finished', script: regressedScript, status: 'finished', findings: 0, exit: 0 },
+        { label: 'repaired drafting', script: SELF_CHECK_PATH, status: 'drafting', delta: 1, exit: 1 },
+        { label: 'repaired finished', script: SELF_CHECK_PATH, status: 'finished', delta: 1, exit: 0 },
+        { label: 'regressed drafting', script: regressedScript, status: 'drafting', delta: 1, exit: 1 },
+        { label: 'regressed finished', script: regressedScript, status: 'finished', delta: 0, exit: 0 },
       ];
-      const observations = cells.map((cell) => {
-        const fixturePath = path.join(root, `${cell.label.replace(' ', '-')}.md`);
-        fs.writeFileSync(fixturePath, setFrontmatterStatus(fixture, cell.status));
-        const child = spawnNode([cell.script, 'rules', fixturePath]);
+      const countFindings = (script, text, label) => {
+        const file = path.join(root, `${label}.md`);
+        fs.writeFileSync(file, text);
+        const child = spawnNode([script, 'rules', file]);
         const summary = /^RULES \S+ \d+ checked, (\d+) finding\(s\)$/m.exec(child.output);
-        assert.notEqual(summary, null, `${cell.label}: rules summary missing:\n${child.output}`);
-        assert.equal(Number(summary[1]), cell.findings, `${cell.label}: R7 visibility regression`);
-        assert.equal(child.status, cell.exit, `${cell.label}: R7 failure-mode regression:\n${child.output}`);
-        const namedPath = child.output.includes(`R7 fail unresolved active path ${unresolvedPlan}`);
-        assert.equal(namedPath, cell.findings === 1, `${cell.label}: R7 path visibility mismatch`);
-        return { ...cell, actualExit: child.status };
+        assert.notEqual(summary, null, `${label}: rules summary missing:\n${child.output}`);
+        return { count: Number(summary[1]), output: child.output, status: child.status };
+      };
+      const observations = cells.map((cell) => {
+        const slug = cell.label.replace(' ', '-');
+        const baseline = countFindings(cell.script, setFrontmatterStatus(baseFixture, cell.status), `${slug}-base`);
+        const planted = countFindings(cell.script, setFrontmatterStatus(fixture, cell.status), slug);
+        assert.equal(
+          planted.count - baseline.count,
+          cell.delta,
+          `${cell.label}: R7 visibility regression - planted ${planted.count} vs baseline ${baseline.count}`,
+        );
+        assert.equal(planted.status, cell.exit, `${cell.label}: R7 failure-mode regression:\n${planted.output}`);
+        const namedPath = planted.output.includes(`R7 fail unresolved active path ${unresolvedPlan}`);
+        assert.equal(namedPath, cell.delta === 1, `${cell.label}: R7 path visibility mismatch`);
+        return { ...cell, actualExit: planted.status };
       });
       assert.deepEqual(
         observations.filter((cell) => cell.status === 'finished').map((cell) => cell.actualExit),
@@ -788,7 +820,7 @@ probes['r7-finished'] = () =>
         'repaired and regressed finished cells must both decline to fail',
       );
       process.stdout.write(
-        '  ok r7-finished repaired drafting=1/1 finished=1/0; regressed drafting=1/1 finished=0/0\n',
+        '  ok r7-finished delta over baseline: repaired drafting=+1/1 finished=+1/0; regressed drafting=+1/1 finished=+0/0\n',
       );
     }),
   );

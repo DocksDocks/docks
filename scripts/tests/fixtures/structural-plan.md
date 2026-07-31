@@ -171,7 +171,7 @@ unnarrowed `grep EXCLUDED_SECTIONS` also matches the `328:` use site and would
 not equal the count recorded below.
 
 ```
-P=docs/plans/active/plan-evidence-row-scales.md
+P=docs/plans/finished/2026-07-31-plan-evidence-row-scales.md
 B="$(sed -n 's/^Plan-run: .*"source_base":"\([0-9a-f]\{40\}\)".*/\1/p' "$P")"
 git show "$B":plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs | grep -c 'EXCLUDED_SECTIONS = new Set'
 ```
@@ -518,7 +518,7 @@ the K floor of 3, the single-member `EXCLUDED_SECTIONS` change, and the dependen
 the dispatch-driver plan are all settled above.
 
 
-Plan-run: {"acceptance":{"source_sha256":"a13f8b5342bab8e585abb3ec6fd0478bc34b4256acae35212796d1cd9dced62c","verification_sha256":"ea14812ce39d8dac2f2d4f04d25506ef815127c5cff099bde948c4283a23a2c8"},"blocker":{"evidence_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","kind":"user_decision"},"completion_review":{"input_sha256":"51f97be67866b34ab4e0b82f52fdef918b4f3abcfade6ec780d3aed8dd0a2e77","invocations":2,"result_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","state":"blocked"},"draft_review":{"input_sha256":"33565c793806ef3aa7604b6effefec63171ddafa2c32e14377252f6e96f3114b","invocations":1,"result_sha256":"effb0f89c32d46022959c5fcd3616a26ff61b16bffada6271e1818bb300f8101","state":"passed"},"execution_parent":"0b7d3ed31aacf60b1c1f47ccc3837ba388a96be0","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":"5badc54309d653db4f868b5c97a6e58596aa273c","plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"2f5eeec2e4317e759f0ef5bd249459d336076620c262684947617765f411f545","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2492b60a-9166-4c89-81d9-3cee5f2da5a8","schema":1,"source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","source_sha256":"0e5c236d2b1303aec340814a4617cccad709e5ba98c763f144baa03e59ed0c9b"}
+Plan-run: {"acceptance":{"source_sha256":"a13f8b5342bab8e585abb3ec6fd0478bc34b4256acae35212796d1cd9dced62c","verification_sha256":"ea14812ce39d8dac2f2d4f04d25506ef815127c5cff099bde948c4283a23a2c8"},"blocker":{"evidence_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","kind":"user_decision"},"completion_review":{"input_sha256":"51f97be67866b34ab4e0b82f52fdef918b4f3abcfade6ec780d3aed8dd0a2e77","invocations":2,"result_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","state":"blocked"},"draft_review":{"input_sha256":"33565c793806ef3aa7604b6effefec63171ddafa2c32e14377252f6e96f3114b","invocations":1,"result_sha256":"effb0f89c32d46022959c5fcd3616a26ff61b16bffada6271e1818bb300f8101","state":"passed"},"execution_parent":"0b7d3ed31aacf60b1c1f47ccc3837ba388a96be0","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":"5badc54309d653db4f868b5c97a6e58596aa273c","plan_path":"docs/plans/finished/2026-07-31-plan-evidence-row-scales.md","plan_sha256":"2f5eeec2e4317e759f0ef5bd249459d336076620c262684947617765f411f545","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2492b60a-9166-4c89-81d9-3cee5f2da5a8","schema":1,"source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","source_sha256":"0e5c236d2b1303aec340814a4617cccad709e5ba98c763f144baa03e59ed0c9b"}
 
 ## Review
 
