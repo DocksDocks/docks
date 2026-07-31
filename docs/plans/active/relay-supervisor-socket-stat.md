@@ -3,7 +3,7 @@ title: Remove the lifecycle supervisor socket stat that races its own cleanup
 goal: Delete the client-side socket path stat from the lifecycle supervisor handshake, because the frame the client already validated binds strictly more identity than that stat can, and the stat fails whenever the supervisor retires the socket first.
 status: drafting
 created: "2026-07-31T18:18:37.005+00:00"
-updated: "2026-07-31T18:18:37.005+00:00"
+updated: "2026-07-31T18:30:15.194+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -174,7 +174,7 @@ missing file or widen a deadline, the requirement that the frame check be proven
 load-bearing before that deletion is accepted, and the exclusion of the unrelated
 release contract and health path are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"e638f67f1c19e782140ce41705aa9bc93e7dd668f6f344d8538ec01b1dc2cabf","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"440e31f9-8323-4b0f-b909-ef77c1b3a826","schema":1,"source_base":"fa4b0ed5a2e75e39dff5c1f3ea9c43995193b918","source_sha256":"4615fe3e5e99e8b4cd9055e0b87e4652560c4ec7a4890402f8c836a00ae4c1a2"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"129b12a1d821983827e88a7aaefa78f9661a5b872d4bb9338b372dff5791d272","invocations":1,"result_sha256":"5c92499ff415ab00dc0593e547c7e851f2c2fc3d4f9bdae9b0665bdae18726de","state":"passed"},"execution_parent":null,"goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"e638f67f1c19e782140ce41705aa9bc93e7dd668f6f344d8538ec01b1dc2cabf","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"440e31f9-8323-4b0f-b909-ef77c1b3a826","schema":1,"source_base":"a1c6a3130144834da6bfc5983567df16d7407eab","source_sha256":"3a9dac614c15bc1f2089025d3a0a7bd4cf24e2e0cdf00a46d963d61f9afa7f54"}
 
 ## Review
 
