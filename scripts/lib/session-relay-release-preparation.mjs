@@ -310,7 +310,7 @@ function expectedCiJobSteps() {
     {
       uses: 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
       if: NON_PULL_REQUEST_CONDITION,
-      with: { ref: `\${{ github.sha }}`, 'persist-credentials': false },
+      with: { ref: `\${{ github.sha }}`, 'persist-credentials': false, 'fetch-depth': 0 },
     },
     EXPECTED_CI_STEP_DEFINITIONS[0],
     {
@@ -360,7 +360,7 @@ function expectedValidationShardSteps() {
   return [
     {
       uses: 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
-      with: { ref: `\${{ github.sha }}`, 'persist-credentials': false },
+      with: { ref: `\${{ github.sha }}`, 'persist-credentials': false, 'fetch-depth': 0 },
     },
     {
       name: 'setup Node 24',

@@ -34,6 +34,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          # Depth 1 cannot resolve the commit literals some checks pin.
+          fetch-depth: 0
       - name: "setup Node 24"
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -136,6 +138,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - name: "setup Node 24"
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -173,6 +176,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - name: "setup Node 24"
         if: github.event_name != 'pull_request'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
