@@ -1,9 +1,9 @@
 ---
 title: Remove the lifecycle supervisor socket stat that races its own cleanup
 goal: Delete the client-side socket path stat from the lifecycle supervisor handshake, because the frame the client already validated binds strictly more identity than that stat can, and the stat fails whenever the supervisor retires the socket first.
-status: ongoing
+status: blocked
 created: "2026-07-31T18:18:37.005+00:00"
-updated: "2026-07-31T19:05:59.976+00:00"
+updated: "2026-07-31T17:12:41-03:00"
 started_at: "2026-07-31T19:05:59.976+00:00"
 finished_at: null
 assignee: null
@@ -174,12 +174,169 @@ missing file or widen a deadline, the requirement that the frame check be proven
 load-bearing before that deletion is accepted, and the exclusion of the unrelated
 release contract and health path are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"129b12a1d821983827e88a7aaefa78f9661a5b872d4bb9338b372dff5791d272","invocations":1,"result_sha256":"5c92499ff415ab00dc0593e547c7e851f2c2fc3d4f9bdae9b0665bdae18726de","state":"passed"},"execution_parent":"27a9f0c76a005d5838a638176b7dbb2eb8c8e197","goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"e638f67f1c19e782140ce41705aa9bc93e7dd668f6f344d8538ec01b1dc2cabf","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"440e31f9-8323-4b0f-b909-ef77c1b3a826","schema":1,"source_base":"a1c6a3130144834da6bfc5983567df16d7407eab","source_sha256":"3a9dac614c15bc1f2089025d3a0a7bd4cf24e2e0cdf00a46d963d61f9afa7f54"}
+Plan-run: {"acceptance":{"source_sha256":"40035bc0d2c73a5a362d60331b72dc0d8e4e577190019788519d1e54c1ca4e95","verification_sha256":"9ef7e1fbdc7548f3b81efad23c2634efec7c327f48ce53b89f3ed41ad3e630c2"},"blocker":{"evidence_sha256":"5b68f6295e8fba7f419defc036d4281b0945df5ddca4d6c868233a599ec95fc7","kind":"review_failed"},"completion_review":{"input_sha256":"ba483ce0b629e3bb395dc59c01146ed64644f5fa09dc2c4668f46bf7c9e330ba","invocations":2,"result_sha256":"5b68f6295e8fba7f419defc036d4281b0945df5ddca4d6c868233a599ec95fc7","state":"blocked"},"draft_review":{"input_sha256":"129b12a1d821983827e88a7aaefa78f9661a5b872d4bb9338b372dff5791d272","invocations":1,"result_sha256":"5c92499ff415ab00dc0593e547c7e851f2c2fc3d4f9bdae9b0665bdae18726de","state":"passed"},"execution_parent":"27a9f0c76a005d5838a638176b7dbb2eb8c8e197","goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":"fcade333f1d95aca654a965552f75c96b48334b7","plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"e638f67f1c19e782140ce41705aa9bc93e7dd668f6f344d8538ec01b1dc2cabf","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"440e31f9-8323-4b0f-b909-ef77c1b3a826","schema":1,"source_base":"a1c6a3130144834da6bfc5983567df16d7407eab","source_sha256":"3a9dac614c15bc1f2089025d3a0a7bd4cf24e2e0cdf00a46d963d61f9afa7f54"}
 
 ## Review
 
-Not yet dispatched.
+Draft review passed on invocation 1 with zero findings.
+
+Completion review spent both permits. Invocation 1 returned `repair` with one finding
+(C1: a comment claiming `wait_control_ready` compares the socket path metadata), which
+was reproduced, accepted and repaired; the implementation checkpoint was amended rather
+than stacked. Invocation 2 returned `repair` with two further findings, both reproduced:
+
+- **C1** The latch proves the socket was unlinked, not that the ready record survives.
+  A 400 ms sleep inserted after the latch and before the record read fails the new case
+  with `lifecycle supervisor ready record is missing`. The record read that this plan
+  kept has the same race shape as the stat it removed, so the handshake is not free of
+  retired-state dependence and A2 is not safe on a loaded runner. Closing it needs a
+  bounded client acknowledgement holding the supervisor alive across that read - a
+  design change wider than the reviewed scope.
+- **C2** A1 and A3 name the Node inventory command in the pre-step-3 state; the recorded
+  evidence is a filtered `cargo test --exact` run and bare exit codes, so it does not
+  establish that the new case alone failed or that the nine pre-existing cases held
+  their status.
+
+Accepting a repair on invocation 2 is a terminal block by contract. This run is
+immutable. Reopening the goal requires exact current-user replacement authority on this
+same path; no `v2` file exists or may be created.
 
 ## Verification Results
 
-Not yet started.
+Every command below was run in `/home/vagrant/projects/docks`. Exit codes and quoted
+text are copied from the runs, not reconstructed.
+
+### A1 - the reproduction is red, and red for the stated reason
+
+With step 2 applied and step 3 reverted (the `fs::metadata` call and the
+`socket_dev`/`socket_ino` comparison restored verbatim):
+
+```
+cd plugins/session-relay/rust
+cargo test --locked --test lifecycle_supervisor -- \
+  --exact lifecycle_supervisor_handshake_survives_a_retired_socket_path
+exit=101
+stat lifecycle supervisor socket: No such file or directory (os error 2)
+```
+
+That is byte-identical to the text CI run 30653654341 produced. The same log contains no
+`deadline`, `timed out`, or `timeout` match, so the red is the ordering defect and not a
+widened-deadline artifact.
+
+### A2 - the check CI reported failing now passes, whole binary
+
+```
+node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_supervisor
+exit=0
+
+cd plugins/session-relay/rust
+cargo test --locked --test lifecycle_supervisor -- --test-threads=1
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+All 11 named cases are listed as `ok`, so the 9 pre-existing cases are unchanged in
+status and STOP condition 5 does not fire.
+
+### A3 - the deletion is what fixed it
+
+```
+restore the two deleted regions   -> exit=101
+  stat lifecycle supervisor socket: No such file or directory (os error 2)
+delete them again                 -> exit=0
+```
+
+The restored file was byte-compared against the pre-mutation copy (`cmp -s` reported
+identical), so the green is the same bytes that shipped, not a different edit.
+
+### A4 - the frame check is the enforcement the deletion relies on
+
+`return Ok(());` injected as the first statement of `validate_identity_frame`:
+
+```
+cargo test --locked --test lifecycle_supervisor -- --test-threads=1
+test result: FAILED. 10 passed; 1 failed
+test lifecycle_supervisor_refuses_a_mismatched_supervisor_identity ... FAILED
+```
+
+Exactly the step-4 case failed and nothing else. Restoring the file (`cmp -s` identical)
+returns the binary to 11 passed.
+
+### A5 - the selected-plugin gate
+
+```
+SESSION_RELAY_TEST_CGROUP_ROOT=<delegated cgroup> node scripts/ci.mjs --plugin session-relay
+exit=0
+✔ All ci.mjs checks passed — plugin 'session-relay'; safe to release.
+```
+
+The cgroup root is required by the host, not by this change. `delegated_root()` in
+`plugins/session-relay/rust/src/workspace/platform/linux.rs:270-292` falls back to
+`/sys/fs/cgroup/session-relay-<euid>`, which does not exist here and which
+`mkdir -p /sys/fs/cgroup/session-relay-1000` refuses with `Permission denied`. Without the
+variable, `overlapping_path_claims_are_atomic_and_refused` in
+`workspace_coordination_process` fails with
+`stat cgroup /sys/fs/cgroup/session-relay-1000: No such file or directory (os error 2)`.
+That failure was reproduced with this change stashed, at HEAD, with identical text, so it
+is environmental and predates this work. The relay lane in `.github/workflows/ci.yml`
+supplies the same variable, so this run matches how CI runs the gate.
+
+### Deviation from step 1, and why
+
+Step 1 asked for a delay knob mirroring the supervisor's startup knob. It is implemented
+as a latch instead: the supervisor writes a signal immediately after it unlinks the
+socket, and the client blocks on that signal. A tuned sleep was implemented first and
+measured, then rejected:
+
+```
+SWEEP_MS   0 -> PASS      300 -> failed, different cause
+          25 -> PASS      750 -> failed, different cause
+         100 -> PASS
+```
+
+At 300 ms and beyond the operation had terminalized and the failure became
+`lifecycle supervisor ready record is missing`, which is not the failure CI reports. A
+sleep therefore selects between two different states by load, which is the same class of
+defect this plan removes. The latch reproduces one exact interleaving at any load, fails
+loudly when the signal never arrives rather than degrading into a silent pass, and the
+case asserts the signal file exists so it cannot pass without reaching the window. The
+step-1 done-when still holds: the variable is read only when set, and unset leaves timing
+unchanged.
+
+### Scope note recorded rather than hidden
+
+`plugins/session-relay/test/fixtures/rust-test-inventory.json` is the generated
+declaration of the relay test surface. Adding a case necessarily changes it, and the plan
+did not declare it. It could not be added to `affected_paths` mid-run: that set is inside
+`canonicalPlanView`, so editing it moves `plan_sha256`, and `assertPersistedTransition`
+admits no ordinary transition that changes `plan_sha256`. It was regenerated with the
+file's own `--generate` mode, its diff is the two new case names and nothing else, and it
+is committed in the implementation checkpoint through `ownedPaths`. The acceptance
+manifest binds exactly the two declared paths, so this file sits outside acceptance
+evidence.
+
+### Completion review 1 of 2, and the repair it produced
+
+Invocation 1 returned `repair` with one finding, C1: the surviving comment at the
+supervisor's bind-time stat claimed `wait_control_ready` compares the socket path's
+device and inode against the record, which this change deletes.
+
+The finding was reproduced before it was accepted. The comment did say that, at
+`supervisor.rs:1355-1357`. The repair corrects only those sentences and leaves the
+bind-time stat unchanged, because a `stat` of the path is still the right identity there:
+
+```
+grep -rn 'socket_dev\|socket_ino' src/
+  src/supervisor.rs:1487-1488   written by run_supervisor
+  src/lifecycle.rs:6109         read by ping_supervisor
+```
+
+So the fields keep a live reader and are not orphaned by this change; only the attribution
+to `wait_control_ready` was false. A sweep of the whole relay Rust tree for sibling prose
+asserting the client compares or stats the path found no other stale claim. The
+"substituting an fstat failed six lifecycle tests" sentence is kept but re-scoped as
+history, because that measurement was taken while the client still compared them.
+
+After the repair: `cargo fmt --check` clean, `test result: ok. 11 passed; 0 failed`, and
+`node scripts/ci.mjs --plugin session-relay` exit 0 with the delegated cgroup root. The
+implementation checkpoint was amended rather than stacked, because it is unpublished and
+sensitive work owns three checkpoints, not four.
