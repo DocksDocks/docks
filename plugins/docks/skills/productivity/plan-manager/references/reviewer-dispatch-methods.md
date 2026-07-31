@@ -45,6 +45,33 @@ tool access and repository mount where a bare `codex exec` invocation did not, s
 prefer omp when it is installed and the model is authenticated. This is a
 convenience ranking, not a requirement.
 
+### One conforming implementation
+
+`plan-manager/scripts/lifecycle/dispatch-review.mjs` performs seal, reserve,
+dispatch and settle in a single process, so no window exists where the run sits
+cold-`reserved` with nobody holding it. It is *an* implementation of the
+requirements above, never a required one - the protocol still constrains only
+what a reviewer receives and returns.
+
+What it adds over an ad-hoc script is crash accounting. Handlers for the three
+catchable signals persist a transport failure and let the reducer choose the
+successor the phase actually permits: a refund from `reserved`, and from
+`transport_retried` either a local-risk degrade or a block, because that state
+has no `retryable` successor. An interrupted dispatch therefore returns the
+permit instead of stranding the run.
+
+It settles only what is mechanical - `pass`, a closed `ReviewInvalidInputV1`,
+and transport failures. A `repair` or `blocked` verdict is written to its result
+file with the phase deliberately left `reserved`, because `repairing` is for an
+accepted repair verdict only and reviewer prose never mutates state; main
+context reproduces each finding and settles from the accepted set.
+
+<constraint>
+Run it detached. A caller-side timeout that SIGKILLs the driver cannot be
+handled, so it leaves a bare `reserved` for cold entry to block - the exact
+outcome the driver exists to prevent. Only the three catchable signals refund.
+</constraint>
+
 ## Judge independence: what is measured
 
 <constraint>
