@@ -1,9 +1,9 @@
 ---
 title: Bind plan evidence to the bytes that produced it at row, sample and measurement scale
 goal: Extend the run-scale rule PlanRunV1 already enforces - evidence is bound to the bytes that produced it and is absent when those bytes move - down to the acceptance row, the review sample, and the quantitative claim.
-status: ongoing
+status: blocked
 created: "2026-07-29T21:40:00-03:00"
-updated: "2026-07-31T04:13:06.994+00:00"
+updated: "2026-07-31T12:30:17.521+00:00"
 started_at: "2026-07-31T04:13:06.994+00:00"
 finished_at: null
 assignee: null
@@ -518,7 +518,7 @@ the K floor of 3, the single-member `EXCLUDED_SECTIONS` change, and the dependen
 the dispatch-driver plan are all settled above.
 
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"33565c793806ef3aa7604b6effefec63171ddafa2c32e14377252f6e96f3114b","invocations":1,"result_sha256":"effb0f89c32d46022959c5fcd3616a26ff61b16bffada6271e1818bb300f8101","state":"passed"},"execution_parent":"0b7d3ed31aacf60b1c1f47ccc3837ba388a96be0","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":null,"plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"2f5eeec2e4317e759f0ef5bd249459d336076620c262684947617765f411f545","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2492b60a-9166-4c89-81d9-3cee5f2da5a8","schema":1,"source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","source_sha256":"0e5c236d2b1303aec340814a4617cccad709e5ba98c763f144baa03e59ed0c9b"}
+Plan-run: {"acceptance":{"source_sha256":"a13f8b5342bab8e585abb3ec6fd0478bc34b4256acae35212796d1cd9dced62c","verification_sha256":"ea14812ce39d8dac2f2d4f04d25506ef815127c5cff099bde948c4283a23a2c8"},"blocker":{"evidence_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","kind":"user_decision"},"completion_review":{"input_sha256":"51f97be67866b34ab4e0b82f52fdef918b4f3abcfade6ec780d3aed8dd0a2e77","invocations":2,"result_sha256":"2d3c6570abea0a1c889a9b14f7f010c9074c431f364de79e8cdccb26d2be7e0d","state":"blocked"},"draft_review":{"input_sha256":"33565c793806ef3aa7604b6effefec63171ddafa2c32e14377252f6e96f3114b","invocations":1,"result_sha256":"effb0f89c32d46022959c5fcd3616a26ff61b16bffada6271e1818bb300f8101","state":"passed"},"execution_parent":"0b7d3ed31aacf60b1c1f47ccc3837ba388a96be0","goal_id":"3a1b14a3-1e58-4ede-92a8-ea3034793c3d","implementation_commit":"5badc54309d653db4f868b5c97a6e58596aa273c","plan_path":"docs/plans/active/plan-evidence-row-scales.md","plan_sha256":"2f5eeec2e4317e759f0ef5bd249459d336076620c262684947617765f411f545","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"2492b60a-9166-4c89-81d9-3cee5f2da5a8","schema":1,"source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","source_sha256":"0e5c236d2b1303aec340814a4617cccad709e5ba98c763f144baa03e59ed0c9b"}
 
 ## Review
 
@@ -564,4 +564,84 @@ that carried this plan from twelve findings to two across six rounds.
 
 ## Verification Results
 
-Not yet started.
+All eleven acceptance rows were observed at implementation checkpoint `ba598a6`, which is
+the amended checkpoint 2 of 3. Every `Observed` value below is an exit status or a matcher
+result that a command actually returned; the per-row `Falsifiability-proof:` records that
+follow carry the same values keyed to each row's own command and expected bytes.
+
+|Row|Class|Command|Observed|
+|---|---|---|---|
+|A1|invariant|`plan-evidence-probes.mjs command-drift`|exit 0|
+|A2|change-demonstrating|`plan-self-check.mjs report <this plan>`|11 proof lines|
+|A3|change-demonstrating|`plan-self-check.mjs coverage docs/plans/finished/`|exit 0, `plans=97 rows=355 proven=0 unproven=355 unclassified=23`|
+|A4|invariant|`plan-evidence-probes.mjs stale-quantity`|exit 0|
+|A5|invariant|`plan-evidence-probes.mjs injected-defect`|exit 0|
+|A6|invariant|`plan-evidence-probes.mjs excluded-section`|exit 0|
+|A7|invariant|`scripts/ci.mjs --plugin docks`|exit 0|
+|A8|invariant|`plan-evidence-probes.mjs paired-clause`|exit 0|
+|A9|change-demonstrating|`plan-self-check.mjs rules <this plan>`|exit 0, `18 checked, 0 finding(s)`|
+|A10|invariant|`plan-evidence-probes.mjs proof-writer`|exit 0|
+|A11|invariant|`plan-evidence-probes.mjs status-mode`|exit 0|
+
+The three change-demonstrating rows were measured against the untouched tree rather than
+assumed: at `0b7d3ed` the pre-change `plan-self-check.mjs`, executed beside the shipped one
+so its relative imports resolved, exited 2 printing the usage line for `report`, `coverage`
+and `rules` alike. The shipped file returns exit 0 with real output for all three.
+
+A9 deserves one qualification. This plan is `ongoing`, so `rules` runs counting-only, and
+exit 0 alone would not distinguish a clean body from a masked one. Measured separately: the
+identical body at `drafting`, where the same map enforces, reports `RULES enforcing 18
+checked, 0 finding(s)` and exits 0; planting an unresolved active-path reference in that
+drafting copy reports two R7 findings and exits 1. The row's pass is therefore substantive.
+
+The orchestration suite rose from 141 cases to 169: seven evidence probes and twenty-one
+structural-rule cases. `node scripts/ci.mjs` passed in full - three plugins plus repo-wide -
+at this tree. The full gate is required here rather than only A7's `--plugin docks`, for two
+measured reasons: the targeted run skips `durable-anchors.mjs`, which governs the
+context-tree node step 5 edits, and it skips the relay shard, while
+`plugins/session-relay/test/release-evidence-contract.mjs` consumes PlanRunV1 directly - it
+pins a plan path, reads a real plan body as a fixture template and rewrites its `Plan-run:`
+line - so a `plan-run.mjs` edit can break a session-relay test that A7 never runs.
+
+Two observations recorded because they are true and unflattering rather than because they
+help. First, one full-gate run failed on
+`rust-test-inventory.mjs --case workspace_coordination_process`; re-running that case in
+isolation passed 9 of 9 and the next full gate passed, and these commits touch zero files
+under `plugins/session-relay/`, so it was a flake under gate parallelism and is recorded as
+one rather than omitted.
+
+Second, an internal discrepancy in this plan's own frozen body. Steps 2 and 7 both describe
+the sibling `plan-dispatch-driver.md` as `planned`; measured, that file carries
+`status: finished`, and this same body already says at its census that archiving it added one
+to `docs/plans/finished/`. So the body asserts both. The distinction is not load-bearing for
+the argument those steps make: the mode map returns counting-only for `planned` and
+`finished` alike, so an enforcing `rules` run would fail that sibling under either word, and
+the immutability reasoning is unchanged. Verified directly - `rules` over that archived
+sibling exits 0 and reports no Step-mapping finding. The word is stale because the sibling was
+archived after this body was frozen, and `drafting -> drafting` content mutation is refused
+once a draft review has passed, so it cannot be corrected in place. It is recorded here
+instead, which is the only surface still writable.
+
+One deviation from the plan's own text, stated plainly. Step 7 says to record these proofs
+into `## Verification Results`, and `writeFalsifiabilityProofs` was built to do it - but that
+function also emits the completion-review reserve. Using it live would have reserved the
+phase, leaving the review dispatch either burning the second of two permits or refused
+outright, and its `input_sha256` covers plan bytes alone while the reviewer is dispatched
+against a bundle digest over the plan plus the affected-path manifest, so the verdict would
+have bound evidence the reviewer never saw. Composition was therefore separated from the
+transaction as an exported `composeProofSection`, and these bytes are installed inside the
+single completion reserve. `writeFalsifiabilityProofs` remains the scratch entry point A10's
+probe exercises. That change is part of the amended implementation checkpoint, so
+`implementation_commit` still names the whole implementation.
+
+Falsifiability-proof: {"binds":"exit","command_sha256":"34baa88e869064c927aa2db51f53fa1b2c932fd78e722d8c649b2d9c285427cc","expected_sha256":"947c4df366bce1a1cd844937b6ca553f558e7ce03df1efdb8a92b933265b010e","observed":0,"probe":"command-drift: each of the four keys edited alone reported the row unproven naming that key, then restored to proven; a row whose command writes a sentinel and exits non-zero still reported proven and no sentinel existed afterwards","row_id":"A1","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"1"}
+Falsifiability-proof: {"binds":"match","command_sha256":"8ba9c7741b48d3e7f42fbfb2c649fc5dc115f3b8e8b6172e54fe6949f8ee0d9b","expected_sha256":"db674bb0949637c503d727844b9d73cee4bc53fe7ceb6f8767be7b4fee128b50","observed":{"matcher":"proof-line count equals the acceptance-row count","result":11},"probe":"pre-change tree 0b7d3ed: `report` was not a subcommand and exited 2 printing the usage line, measured by running that exact file beside the shipped one","row_id":"A2","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"2"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"cd71357e38eef784a98d04b8351def7af01ac1411601e6b98a17a99930df0f49","expected_sha256":"4a3990597afcef95c31db49568d090a52a040e8081ae09b953c0f27562f2aa9d","observed":0,"probe":"pre-change tree 0b7d3ed: `coverage` was not a subcommand and exited 2 printing the usage line, measured the same way","row_id":"A3","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"2"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"2cf0a0262fd736d07b3417b19426460da43bc2c3e2f9b4edac6410dc59868f9b","expected_sha256":"c89b23182b537a0ddee49631bbf6f5d1f1f90977c6761bfdc83cc9c4b09e5e6d","observed":0,"probe":"stale-quantity: editing the committed quantity failed naming that claim and restoring it passed, while editing a snapshot number did not fail; an unknown op, an extra key and shell syntax in a field were each rejected without execution","row_id":"A4","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"3"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"6b62491e10777819abf69e277c088e780db56aec299485305e28fe7cf44bf3c4","expected_sha256":"97881a857c9b68fe6332e62c422c91b5cdd08374498b18aaa998655c03ecadbd","observed":0,"probe":"injected-defect: over one fixed bundle digest a scripted sample naming a finding entered the union and refused a clean stop, a set naming none reported clean, and a configured K of 2 was rejected below the floor of 3","row_id":"A5","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"4"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"cb2e7dadf9ce6b16e11ae70cc7abad9e72a6ea0568788bb21f2c9c7b621c1781","expected_sha256":"10e0f91f0c4f3196ed714db49758c7a6ee31d6982d28116518e0c152bc4b09ce","observed":0,"probe":"excluded-section: installing `## Proposed repair` in the same transaction as `blocked` left plan_sha256 unchanged, a byte-only edit to that already-blocked run was refused as immutable, and the identical text under `## Notes` moved the digest","row_id":"A6","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"5"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"789b36d612d12669464ae8d5abc874711ef9d38069292fe21e2887dfe7484d40","expected_sha256":"6da2c573ab2ca5096f9ad60511bbcd119137328e7c681bc8d075fc2c0d1b45c0","observed":0,"probe":"a paired-clause assertion was broken in place: `node scripts/ci.mjs --plugin docks` exited 1 naming the orchestration contract, and the probe named its own assertion, \"docs/plans/AGENTS.md is missing the Proposed repair sentence\"; restoring it returned exit 0","row_id":"A7","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"6"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"af0a7c0ee281e0c7d8d6aef1bac11d8d08a8cb696ecb5fae32e5ed4180a8db96","expected_sha256":"60e4fa9cb53ee7819002a857c6119b86ceef1c9a6bdc1b7bc3137734347cc105","observed":0,"probe":"paired-clause: deleting the sentence from the plan-workspace template alone failed the test naming that template, and restoring it passed","row_id":"A8","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"5"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"f711c433da09a24586d0a5b7e4f746d0acb9e0778e9ca4edb8f14e34839e2cce","expected_sha256":"5216d9139d8b85dc501bc03518b6f5363c65ad6a8c6735a4c30d32070a4bbf17","observed":0,"probe":"eighteen scratch copies, one planted defect each: every planted defect was named by exactly its own rule, and with that rule deleted the run over its own copy reported no failure at all","row_id":"A9","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"7"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"6b55bb21d2cf7db08d8093bcc66356ccd623ce57706385de38f01c846d247379","expected_sha256":"5795328b4fff8a48c8e6ec536d8f2c24327980d143465ce712d6f0df8adc227c","observed":0,"probe":"proof-writer: a proof minted through the completion reserve populated every record field with plan_sha256 unchanged and acceptance.verification_sha256 bound to the new section bytes, and a later byte-only write to that section was refused","row_id":"A10","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"1"}
+Falsifiability-proof: {"binds":"exit","command_sha256":"e590bd7c990d8b65093330db41565bf3c7715d3f311ff49bb5e7e3ca3376f650","expected_sha256":"6c9a9833ef9b876d249522d23c29eac39232257a49ec36f4655bf1fbf2706d71","observed":0,"probe":"status-mode: the drafting fixture exited non-zero naming the unproven row, while planned, scheduled, ongoing, finished and blocked each exited 0 reporting a count","row_id":"A11","source_base":"a3462e201707fd75fc3dbb122e1905c76383c45e","step_id":"2"}
