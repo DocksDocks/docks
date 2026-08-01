@@ -1,10 +1,10 @@
 ---
 title: Keep the frame-corruption test knob out of released relay binaries
 goal: Gate the test-only supervisor identity override behind debug assertions so it cannot reach a release artifact, and certify the merged handshake change against every path it touched.
-status: drafting
+status: ongoing
 created: "2026-07-31T18:18:37.005+00:00"
-updated: "2026-08-01T01:32:25.304+00:00"
-started_at: null
+updated: "2026-08-01T01:36:21.452+00:00"
+started_at: "2026-08-01T01:36:21.452+00:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, supervisor, lifecycle, release]
@@ -116,7 +116,7 @@ created.
 None. The exposure, the profile split that makes a debug gate safe, the reason the timing
 latches are excluded, and the four paths acceptance must bind are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"472b7f76206626e79314ee92951a340c8341550cd52c5f78b174a7f2b3fc953f","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"321a83d9-985c-4354-a30f-519d6cf58118","schema":1,"source_base":"17829e60169774de76b84678041c1de3f240b891","source_sha256":"c32beea63bec4f8f7ca5caec9a3f8c000ba78457da0263ca24f87c526f8d665d"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"f395a6d754e81fdf0ef4e4e88399ec616f08cf76fc9dcdcc6ba9c9b4b8dc8c16","invocations":1,"result_sha256":"f441bdbf00a9dab5a8d28ca059fd38e27d4c70b9390a3e948e9d8872eade9246","state":"passed"},"execution_parent":"a5c9020b2d6ec552e9728f2c4c7d7aa43d1f09e0","goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"472b7f76206626e79314ee92951a340c8341550cd52c5f78b174a7f2b3fc953f","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"321a83d9-985c-4354-a30f-519d6cf58118","schema":1,"source_base":"a5c9020b2d6ec552e9728f2c4c7d7aa43d1f09e0","source_sha256":"7f3c2ff939105090d9269fdca15ab67bccce17e16c082aa176e19653808725c2"}
 
 ## Review
 
