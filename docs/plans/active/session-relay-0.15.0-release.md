@@ -1,10 +1,10 @@
 ---
 title: Release Session Relay 0.15.0 and accept docks-kit child 0.13.0
 goal: Ship Session Relay 0.15.0 from the docks repository and move the parent release lane onto public child docks-kit 0.13.0, so the separation work in this lane is exercised by a real transition instead of asserted against absent versions.
-status: blocked
+status: planned
 created: "2026-08-01T16:35:59-03:00"
-updated: "2026-08-01T21:32:18-03:00"
-started_at: null
+updated: "2026-08-01T23:32:38-03:00"
+started_at: "2026-08-01T23:32:38-03:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, release, public-child, cross-repository]
@@ -171,7 +171,13 @@ string, because all three of the collisions above defeat that.
 4. The plugin version triple agrees: `ci.mjs --plugin session-relay`'s lockstep
    check passes, selecting the marketplace entry by `name`.
 5. The explicit two-commit diff `git diff --name-only <source_base> <last-local>`
-   lists only paths declared in `affected_paths`. `<source_base>` is the sealed
+   lists only paths declared in `affected_paths`, plus this plan's own
+   record. That record is the one path the check must exempt rather than require:
+   lifecycle checkpoints write to it by design, and `docs/plans/AGENTS.md:184`
+   forbids declaring it in `affected_paths` because acceptance writes there and
+   breaks the manifest bind. Without the exemption this row fails precisely when
+   the implementation is correct, which is the defect `PRV1-004` named.
+   `<source_base>` is the sealed
    `source_base` in this plan’s own record; `<last-local>` is the commit produced
    by the last `local`-effect row before the first `release`-effect row. Both
    endpoints are named on purpose: a one-commit `git diff --name-only <commit>`
@@ -290,9 +296,11 @@ only, and a second local edit plus gate cycle is required after the tag.
 
 ## Review
 
-Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a72ea0243ff254c961181df426773d925a7089003b9e62fa09c292ccae92adb8","invocations":2,"result_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0f835b0f2730ab72922eafc603855f6bc7df19f0abcc34aeeac07a964d5fadb8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","schema":1,"source_base":"2298bbc7fac269b57ce6915ff82d84e452b661b8","source_sha256":"ba16f51fb7e440d0f0899bc55169b563f8d8d9ac294b56e7b0052d8d0c9ec18d"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"ee372eb5dc6b2b77634ddacea91f85d0e33c1d655ee99956e8cd4f5fe7973080","invocations":1,"result_sha256":"72a2689609b6957ed830a3c5eff0a0f44d0baab5facdcf00320930933f3dc3c9","state":"passed"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"bce2ed5b567719ddb60dcd9bb2ab25d21d05628995b5a7fa4c9e7bf9610d1a4b","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"12a460e2-af44-4bc8-bc7d-d7aaec2c991b","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"55f3b87f0caef4fbed640cb3e771a1f3f2080044400585eae2e3ddd1e4afc35d"}
 
 Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"a95e8eb8efdc196dda0f1e51dfc7c027393f6f65bdc1601c0bc48fda9bedc993","replacement_run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","run":{"acceptance":null,"blocker":{"evidence_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"61a68eb853346511ad236bbd35f814500b0e7b5e0c8da8977144951b7ebfa904","invocations":2,"result_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"e29a06f0f7a807a4ee13efc8936bc7ff83fbf471f38d0db11bfb8b68ff87fddc","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"ff2125bd-746a-427b-86ba-2fc2cde51747","schema":1,"source_base":"95575af016dd1119f6fe85a5d5ca52e9f0b9f185","source_sha256":"78d1eeb735ef1bb8a664ba4aa4c82b07d7b4e4aafdcac225b9f52216c04942dc"},"schema":1,"status":"blocked","successor_run_sha256":"aa5cbb3b3cc4920e866949f1710478ffcbf5fcc781b613a9fe49b89dbae0c91b"}
+Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"8e8506026f58cb2c747d7a9b8d06178c1ec539614163129f9e3fe39e40657873","replacement_run_id":"12a460e2-af44-4bc8-bc7d-d7aaec2c991b","run":{"acceptance":null,"blocker":{"evidence_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a72ea0243ff254c961181df426773d925a7089003b9e62fa09c292ccae92adb8","invocations":2,"result_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0f835b0f2730ab72922eafc603855f6bc7df19f0abcc34aeeac07a964d5fadb8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","schema":1,"source_base":"2298bbc7fac269b57ce6915ff82d84e452b661b8","source_sha256":"ba16f51fb7e440d0f0899bc55169b563f8d8d9ac294b56e7b0052d8d0c9ec18d"},"schema":1,"status":"blocked","successor_run_sha256":"d50fd5465109e39f81e30a6174c89a7e6e6375b49d304982a94f799aa660612a"}
+
 
 ### Replacement authority derivation
 
