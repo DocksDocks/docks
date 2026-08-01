@@ -27,6 +27,41 @@ matter how convenient it is.
 Reserve the phase and read back before dispatch, because a lost output consumes
 the permit either way.
 
+### What "a sealed bundle" means on disk
+
+The word *bundle* is not a synonym for *a copy of the plan*. The protocol requires
+the reviewer to verify the bundle's shape **before** evaluating any content and to
+map a missing or malformed binding to `bundle_binding_mismatch`, a closed
+invalid-input result that ends the invocation. Treat that as the reviewer's
+obligation, not as your safety net: a flat `.md` plan copy passed as the bundle
+path has been observed being accepted and reviewed anyway, so the shape check
+cannot be relied on to catch your mistake in either direction. A hand-rolled
+transport is permitted, so a hand-rolled transport owns producing this layout:
+
+```text
+plan-review-v1-<rand>/
+  plan.md          immutable plan bytes, exactly as reserved
+  manifest.json    {paths:[{kind,mode,path,sha256,state}],schema,source_base,source_sha256}
+  binding.json     {invocation,manifest_sha256,plan_bytes_sha256,plan_sha256,run_id,schema,source_sha256}
+```
+
+Both JSON files are compact JCS, one line, keys in canonical order.
+`plan_bytes_sha256` digests `plan.md`; `manifest_sha256` digests `manifest.json`;
+`plan_sha256` is the canonical-view digest and is *not* the digest of `plan.md`.
+The phase's `input_sha256` is the composite bundle digest, so it matches none of
+the three files individually — derive it, never guess it.
+
+<constraint>
+Passing a bare `.md` plan copy as the bundle path is the classic failure, and its
+real cost is not a lost permit. The review may come back usable, which is worse:
+the phase's `input_sha256` then digests a bundle shape that never existed, so the
+plan's own audit trail asserts a review nobody can re-derive. If you are not using
+a conforming implementation, diff your output against a precedent bundle directory
+**before** reserving — reserving pins `input_sha256` over whatever you built, so
+resealing afterwards can never bind, and there is no path back that does not spend
+another permit or end the run.
+</constraint>
+
 ## Methods
 
 |Method|Invocation|Notes|
