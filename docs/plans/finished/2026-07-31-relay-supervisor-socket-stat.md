@@ -1,11 +1,11 @@
 ---
 title: Keep the frame-corruption test knob out of released relay binaries
 goal: Gate the test-only supervisor identity override behind debug assertions so it cannot reach a release artifact, and certify the merged handshake change against every path it touched.
-status: ongoing
+status: finished
 created: "2026-07-31T18:18:37.005+00:00"
-updated: "2026-08-01T01:36:21.452+00:00"
+updated: "2026-08-01T01:49:35.204+00:00"
 started_at: "2026-08-01T01:36:21.452+00:00"
-finished_at: null
+finished_at: "2026-08-01T01:49:35.204+00:00"
 assignee: null
 tags: [plans, session-relay, supervisor, lifecycle, release]
 affected_paths:
@@ -116,7 +116,7 @@ created.
 None. The exposure, the profile split that makes a debug gate safe, the reason the timing
 latches are excluded, and the four paths acceptance must bind are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"f395a6d754e81fdf0ef4e4e88399ec616f08cf76fc9dcdcc6ba9c9b4b8dc8c16","invocations":1,"result_sha256":"f441bdbf00a9dab5a8d28ca059fd38e27d4c70b9390a3e948e9d8872eade9246","state":"passed"},"execution_parent":"a5c9020b2d6ec552e9728f2c4c7d7aa43d1f09e0","goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"472b7f76206626e79314ee92951a340c8341550cd52c5f78b174a7f2b3fc953f","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"321a83d9-985c-4354-a30f-519d6cf58118","schema":1,"source_base":"a5c9020b2d6ec552e9728f2c4c7d7aa43d1f09e0","source_sha256":"7f3c2ff939105090d9269fdca15ab67bccce17e16c082aa176e19653808725c2"}
+Plan-run: {"acceptance":{"source_sha256":"51ea03fa0ad6a153d5d28106705a88b67d06814f5b2006fed017f55b60be893a","verification_sha256":"665c8abda49717441ac724d0e9a4d7422439739e2dac5bd61c3d2ce31cbde757"},"blocker":null,"completion_review":{"input_sha256":"e08c4574c585a14c406a2545c3291c9a648fe062bf8ce79c15ed8246bcc33b73","invocations":1,"result_sha256":"77999ccee2b6e8c8490cfff326773fa579f998fe29d658d90b2cefe4ac41f2a9","state":"passed"},"draft_review":{"input_sha256":"f395a6d754e81fdf0ef4e4e88399ec616f08cf76fc9dcdcc6ba9c9b4b8dc8c16","invocations":1,"result_sha256":"f441bdbf00a9dab5a8d28ca059fd38e27d4c70b9390a3e948e9d8872eade9246","state":"passed"},"execution_parent":"a5c9020b2d6ec552e9728f2c4c7d7aa43d1f09e0","goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":"a68f733916f5d3c37202b008db76ddd50fb3dfc2","plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"472b7f76206626e79314ee92951a340c8341550cd52c5f78b174a7f2b3fc953f","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"321a83d9-985c-4354-a30f-519d6cf58118","schema":1,"source_base":"a5c9020b2d6ec552e9728f2c4c7d7aa43d1f09e0","source_sha256":"7f3c2ff939105090d9269fdca15ab67bccce17e16c082aa176e19653808725c2"}
 
 ## Review
 
@@ -126,4 +126,111 @@ Plan-attempt-history: {"authorization_source_sha256":"122fcb06da81e1f13c8d11a07b
 
 ## Verification Results
 
-Not yet started.
+Every command below was run at the repository root, in the relay crate where a `cargo`
+invocation is shown. Exit codes, counts and summary lines are copied from the runs.
+
+### A1 - the override was present in the released binary
+
+Before step 2, on the merged handshake commit:
+
+```
+cargo build --release --locked
+strings target/release/relay | grep -c 'RELAY_TEST_CORRUPT_CONTROL_FRAME'
+1
+```
+
+The premise holds: a switch that makes the supervisor send a mismatched instance id was
+compiled into the artifact this plugin distributes.
+
+### A2 - it is absent after the gate
+
+After step 2, rebuilding the same profile:
+
+```
+cargo build --release --locked
+strings target/release/relay | grep -c 'RELAY_TEST_CORRUPT_CONTROL_FRAME'
+0
+
+strings target/release/relay | grep -c 'RELAY_TEST_CONTROL_READY_LATCH'
+1
+```
+
+One to zero for the override, and the timing latch is deliberately still there. That second
+count is what makes the first meaningful: the binary was rebuilt and still carries the
+ungated test names, so the zero is the gate working rather than a build that never ran or a
+`strings` invocation that matched nothing.
+
+The probe is sound for this crate. The release profile sets `opt-level`, `lto`,
+`codegen-units`, `panic` and `strip`, but never `debug-assertions`, so it stays false and
+`#[cfg(debug_assertions)]` genuinely removes the code. `strip = true` removes symbols, not
+read-only string data, so an environment variable name that is present would still be found.
+
+### A3 - the proof survives in the test profile
+
+```
+node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_supervisor
+wrapper exit: 0
+
+cargo test --locked --test lifecycle_supervisor -- --test-threads=1
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+All twelve cases pass, so the gate disabled nothing. The wrapper prints no summary when it
+succeeds, so the binary summary comes from a direct run of the same tree.
+
+### A4 - the gated override still drives a real proof
+
+`return Ok(());` injected as the first statement of `validate_identity_frame`:
+
+```
+node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_supervisor
+wrapper exit: 1
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
+test lifecycle_supervisor_refuses_a_mismatched_supervisor_identity ... FAILED
+```
+
+Exactly the mismatched-identity case failed and nothing else. Restoring the file:
+
+```
+node plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_supervisor
+wrapper exit: 0
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+The restored file was byte-compared against the pre-mutation copy and reported identical, so
+the returning green is the committed bytes.
+
+### A5 - the selected-plugin gate
+
+```
+SESSION_RELAY_TEST_CGROUP_ROOT=<delegated cgroup> node scripts/ci.mjs --plugin session-relay
+exit: 0
+All ci.mjs checks passed — plugin 'session-relay'; safe to release.
+```
+
+### Both profiles, because they now compile different code
+
+```
+cargo clippy --release --all-targets --locked -- -D warnings   exit: 0
+cargo clippy --all-targets --locked -- -D warnings             exit: 0
+```
+
+The gate means the shipped path and the tested path are no longer the same code, so a
+debug-only check would not have covered the artifact. `kind` keeps a use under both
+profiles, since the frame records it regardless.
+
+### Scope, and what acceptance binds
+
+This run declares four paths and this diff carries one. The other three hold the merged
+handshake change that the two predecessor runs implemented, and acceptance binds the
+manifest of all four, which is what neither predecessor could do:
+
+- The first bound three paths while its checkpoint contained four, because adding a test
+  changed the generated test-surface declaration nobody had declared.
+- The second bound three while its checkpoint contained four again, because deleting the
+  client read orphaned a reader in `lifecycle.rs` and the gate denies warnings, so the
+  reader had to go.
+
+The path set here was taken from `git show --name-only` on the merged checkpoint rather than
+from analysis, which is why it is complete. `git status --porcelain` listed only declared
+paths before the checkpoint was taken.
