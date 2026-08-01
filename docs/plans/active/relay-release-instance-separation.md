@@ -3,7 +3,7 @@ title: Separate the relay release protocol from one release instance
 goal: Move every release-instance identity out of the Session Relay release lane into per-version instance files so a release edits only the version declaration.
 status: drafting
 created: "2026-07-29T12:10:41-03:00"
-updated: "2026-08-01T04:18:35.007+00:00"
+updated: "2026-08-01T04:24:57.247+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -286,7 +286,7 @@ layout, per-version file naming, closed-key validation, the exclusion of
 runtime-composed paths, and the decision to keep two literal tripwires in
 `distribution-contract.mjs` are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"5c1600a6-7116-4e94-add0-978924b40ab9","implementation_commit":null,"plan_path":"docs/plans/active/relay-release-instance-separation.md","plan_sha256":"aff45deaa0d8fe02474f599d0ec296e0e1a29a811bfe40a57288333bd9de4bd2","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"5f914768-8da2-4202-b40a-fe41a0d265b2","schema":1,"source_base":"1905be54f53b249f93d62be9e430bedf641c950e","source_sha256":"2b76c079c36e87486bc3285d3ce01fd40e13e2450f02bc5c5913d733995f0ed2"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"64cd3f9dedf2475afe1b0264d15f8ee9f33c291ae099609d97b05511001d1fd0","invocations":1,"result_sha256":"48ff9e54e63292f64c72df46f1315934a1ceb82a709f7a02b0733a786c4213fb","state":"repairing"},"execution_parent":null,"goal_id":"5c1600a6-7116-4e94-add0-978924b40ab9","implementation_commit":null,"plan_path":"docs/plans/active/relay-release-instance-separation.md","plan_sha256":"aff45deaa0d8fe02474f599d0ec296e0e1a29a811bfe40a57288333bd9de4bd2","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"5f914768-8da2-4202-b40a-fe41a0d265b2","schema":1,"source_base":"26bbc92a639dba44bb9ee5e504289d5010b2dbcd","source_sha256":"4f3ae0e36374fd178d9a4ab9bc6cde0dc1f75600416a0d48f808fd6ea0196c05"}
 
 ## Review
 
