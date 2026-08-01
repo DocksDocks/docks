@@ -187,3 +187,41 @@ Session Relay evidence is schema-1 closed RFC 8785 JCS. Every receipt input is a
 ## Versioning
 
 Versions are **per-plugin and independent** — `docks` and `session-relay` bump separately, and the Claude marketplace catalog holds one entry per plugin (matched by `name`). Within a single plugin, both its `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and its marketplace entry carry a `version` that must agree — `release.mjs` keeps that plugin's triple in lockstep, and `ci.mjs`'s per-plugin gate fails on disagreement; `claude plugin tag` validates it too. The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `<name>--v<X.Y.Z>` (e.g. `docks--v0.6.5`, `session-relay--v0.1.0`; double-dash separator from `claude plugin tag`).
+
+### Bumping the public child (`docks-kit`) version
+
+The child version is pinned in `scripts/lib/session-relay-release-promotion.mjs`,
+`…-publication.mjs`, `public_child.{version,tag}` in the current
+`session-relay-release-instances/<relay>.json`, and — in the large majority — across
+the `plugins/session-relay/test/*contract*.mjs` files, which pin the literals, the
+derived forms, the plan paths, the generated payload version, and the npm coordinate.
+`…-preparation.mjs` needs **no** edit: it already reads
+`INSTANCE.public_child.{version,tag}`. Bump as one gated transaction, never
+incrementally — the contract tests fail on any partial state. Derive the current
+inventory when you bump; do not transcribe a count here, because a stale inventory is
+worse than none.
+
+<constraint>
+Bump by **constant name, never by value find-replace**. Two same-valued constants in
+`companion-distribution-contract.mjs` must NOT move with the child: `PRODUCTION_VERSION`
+is the *Session Relay* version (consumed as `session-relay--v${…}`, `relay.verified`,
+`relay.plugin_version`), and `PUBLIC_VERSION` is the *legacy blocked-preflight* public
+version — whose value is the number the child is moving toward, so it reads exactly
+like the thing you came to change.
+</constraint>
+
+`release-instance-contract.mjs`'s identity census does **not** guard this, for two
+independent reasons — widening either one alone is insufficient:
+
+1. **File scope.** Its `MODULES` list names `scripts/lib/session-relay-release-*.mjs`
+   only, with no entry under `plugins/`, so no contract-test file is ever scanned.
+2. **Class scope.** Its `CLASSES` are `uuid`, `commit40`, `digest64`, and `planpath`.
+   A bare version string such as `'0.12.0'` matches none of them, so version pins are
+   out of scope in *every* file, including the ones it does scan.
+
+Closing it means adding a version class whose expected value derives from
+`loadReleaseInstance(VERSION).public_child`, extending the scan to the contract tests,
+and allowlisting the two collisions above by constant name. Until then every
+version-pin site must be swept by hand. Note the existing `CENSUS`/`PERMITTED_ESCAPED_PIN`
+machinery is the pattern to reuse, including its rule: when a scan disagrees with the
+frozen census, re-measure — never edit the census to match the scan.
