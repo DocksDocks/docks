@@ -1,10 +1,10 @@
 ---
 title: Separate the relay release protocol from one release instance
 goal: Move every release-instance identity out of the Session Relay release lane into per-version instance files so a release edits only the version declaration.
-status: drafting
+status: ongoing
 created: "2026-07-29T12:10:41-03:00"
-updated: "2026-08-01T03:05:26.803+00:00"
-started_at: null
+updated: "2026-08-01T03:10:57.628+00:00"
+started_at: "2026-08-01T03:10:57.628+00:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, release, refactor]
@@ -266,7 +266,7 @@ layout, per-version file naming, closed-key validation, the exclusion of
 runtime-composed paths, and the decision to keep two literal tripwires in
 `distribution-contract.mjs` are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"5c1600a6-7116-4e94-add0-978924b40ab9","implementation_commit":null,"plan_path":"docs/plans/active/relay-release-instance-separation.md","plan_sha256":"aa26134d4b6a148a0ab493b0ce10f5c4817b158c6a6222e49403f1424a36efc3","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"864d76a0-cfba-4791-a4f1-21e82e167e4b","schema":1,"source_base":"e1ff0e930197dd8ad31c3666e855d76c5c915aae","source_sha256":"1e5293f37bfe236fea4734193cdef4f035d867e4de07be66e4f070973a97359d"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"8cf72127f9bc791124caf9664dab8e2a67817756995e19a86897ddae789e83a1","invocations":1,"result_sha256":"935f7384bf3a68270d21122cf2f60fc4987fd3e54255672e7354e19bd361feda","state":"passed"},"execution_parent":"911c18d0df9e8c628c83e651fd87e37927b380d1","goal_id":"5c1600a6-7116-4e94-add0-978924b40ab9","implementation_commit":null,"plan_path":"docs/plans/active/relay-release-instance-separation.md","plan_sha256":"aa26134d4b6a148a0ab493b0ce10f5c4817b158c6a6222e49403f1424a36efc3","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"864d76a0-cfba-4791-a4f1-21e82e167e4b","schema":1,"source_base":"911c18d0df9e8c628c83e651fd87e37927b380d1","source_sha256":"0ee34c5a7b863d8116154802dd347932610c478fb917e5c7377c76a360de37b0"}
 
 ## Review
 
