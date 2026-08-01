@@ -27,6 +27,7 @@ import {
   fail,
   ghJson,
   git,
+  loadReleaseInstance,
   REPO,
   REPOSITORY_ID,
   readCanonical,
@@ -49,13 +50,20 @@ import {
   validatePublicationReceipt,
 } from './session-relay-release-publication.mjs';
 
+const INSTANCE = loadReleaseInstance(CURRENT_VERSION, {
+  require: ['current_attempt', 'planrun_attempt', 'retained_promotion'],
+});
+const LEGACY = loadReleaseInstance('0.13.0', {
+  require: ['legacy_0_13', 'historical_receipts'],
+});
+
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
 const PUBLIC_VERSION = '0.12.0';
 const PUBLIC_TAG = `cli-v${PUBLIC_VERSION}`;
 const PUBLIC_WORKFLOW = '.github/workflows/release-cli.yml';
 const LEGACY_PUBLIC_FINISHED_PLAN_PATH =
   /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-cli-0\.13\.0-production-release\.md$/;
-const LEGACY_COMPANION_BASE_COMMIT = '6c07f9bc02ef7a0a26b8ffb539c16c42a87a3172';
+const LEGACY_COMPANION_BASE_COMMIT = LEGACY.legacy_0_13.companion_base_commit;
 const LEGACY_PUBLIC_VERSION = '0.10.2';
 const LEGACY_PUBLIC_TAG = `cli-v${LEGACY_PUBLIC_VERSION}`;
 const LEGACY_DOCKS_KIT_RELEASE = LEGACY_PUBLIC_TAG;
@@ -85,14 +93,14 @@ const PUBLICATION_TRANSITIONS = new Set([
   'tag_and_release_created',
 ]);
 const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.12.0';
-const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
-const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
-const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
-const PLANRUN_DOCKS_RUN_ID = '5e00cc28-4e27-42cb-9cf9-c3630006d8c0';
-const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v9.md';
-const PLANRUN_DOCKS_SOURCE_BASE = 'de4f8305ac9351cbbea4549503f2684f67fbcde9';
-const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
-const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
+const CURRENT_GOAL_ID = INSTANCE.current_attempt.goal_id;
+const CURRENT_DOCKS_RUN_ID = INSTANCE.current_attempt.docks_run_id;
+const CURRENT_DOCKS_PLAN_PATH = INSTANCE.current_attempt.docks_plan_path;
+const PLANRUN_DOCKS_RUN_ID = INSTANCE.planrun_attempt.docks_run_id;
+const PLANRUN_DOCKS_PLAN_PATH = INSTANCE.planrun_attempt.docks_plan_path;
+const PLANRUN_DOCKS_SOURCE_BASE = INSTANCE.planrun_attempt.docks_source_base;
+const PLANRUN_RELEASE_TAG_COMMIT = INSTANCE.planrun_attempt.release_tag_commit;
+const CURRENT_PUBLIC_RUN_ID = INSTANCE.current_attempt.public_run_id;
 const CURRENT_PUBLIC_PLAN_BASENAME = `session-relay-${CURRENT_VERSION}-docks-kit-${PUBLIC_VERSION}-release`;
 // Derived, not restated: 8df5adf moved the basename above onto CURRENT_VERSION but
 // left this pattern restating both versions in backslash-escaped regex form, which
@@ -105,21 +113,20 @@ const CURRENT_PUBLIC_FINISHED_PLAN_PATH = new RegExp(
 );
 const HISTORICAL_RELAY_VERSION = '0.13.0';
 const HISTORICAL_RELAY_TAG = 'session-relay--v0.13.0';
-const HISTORICAL_PUBLICATION_SHA256 = '31d096d31702b66d7e97085a82d8b7da1b75155f828b1d2382a0ac8427ba7ea2';
-const HISTORICAL_PUBLIC_REQUEST_SHA256 = '7cf02781a2ed3c75423321492fb2cd4c4944f6da6d6d41290e26a5f3ca0cf902';
+const HISTORICAL_PUBLICATION_SHA256 = LEGACY.historical_receipts.publication;
+const HISTORICAL_PUBLIC_REQUEST_SHA256 = LEGACY.historical_receipts.public_request;
 const LEGACY_PROMOTION_VERSION = HISTORICAL_RELAY_VERSION;
 const LEGACY_PROMOTION_TAG = HISTORICAL_RELAY_TAG;
 const LEGACY_PROMOTION_TRANSACTION_REF = LEGACY_TRANSACTION_REF;
 const LEGACY_PROMOTION_LOCK_REF = LEGACY_LOCK_REF;
 const LEGACY_PROMOTION_DOCKS_KIT_RELEASE = LEGACY_DOCKS_KIT_RELEASE;
-const RETAINED_PROMOTION_SHA256 = '7ffaa7967d9ca8cc7c53c3ca22efe932d3028ad3caf210cec8157aec7bbd1670';
-const RETAINED_PROMOTION_SOURCE_PROOF_SHA256 = 'c853e528411b881b2c551fb3b549146679eb76b10e8d8dde55627121a16c98cd';
-const RETAINED_PROMOTION_PUBLICATION_SHA256 = '784ff59a2705884aae1de7fab9f21551a6872a54cfd047df3ba57b0f41e81588';
-const RETAINED_PROMOTION_PUBLIC_RELEASE_SHA256 = '05b08d34e62b58dcbbda214bbcef4cb0658ef6781ca3e696abdfa1b3f43f5091';
-const RETAINED_PROMOTION_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
-const RETAINED_PROMOTION_DOCKS_PLAN_PATH =
-  'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
-const RETAINED_PROMOTION_COMPLETION_REVIEW_SHA256 = '491925513a94c7d2c1b86cfe0fcf71ad5b7f5d994724612295a2c2cfe465c7cc';
+const RETAINED_PROMOTION_SHA256 = INSTANCE.retained_promotion.promotion_sha256;
+const RETAINED_PROMOTION_SOURCE_PROOF_SHA256 = INSTANCE.retained_promotion.source_proof_sha256;
+const RETAINED_PROMOTION_PUBLICATION_SHA256 = INSTANCE.retained_promotion.publication_sha256;
+const RETAINED_PROMOTION_PUBLIC_RELEASE_SHA256 = INSTANCE.retained_promotion.public_release_sha256;
+const RETAINED_PROMOTION_DOCKS_RUN_ID = INSTANCE.retained_promotion.docks_run_id;
+const RETAINED_PROMOTION_DOCKS_PLAN_PATH = INSTANCE.retained_promotion.docks_plan_path;
+const RETAINED_PROMOTION_COMPLETION_REVIEW_SHA256 = INSTANCE.retained_promotion.completion_review_sha256;
 const EMPTY_SHA256 = sha256(Buffer.alloc(0));
 const PREPUSH_REPAIR_PATHS = [
   'plugins/session-relay/test/release-promotion-contract.mjs',

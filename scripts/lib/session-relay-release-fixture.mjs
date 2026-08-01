@@ -6,6 +6,7 @@ import {
   exactKeys,
   fail,
   LOCK_REF,
+  loadReleaseInstance,
   PRERELEASE_BODY,
   REPO,
   STABLE_BODY,
@@ -15,6 +16,8 @@ import {
   VERSION,
   writeCanonicalExclusive,
 } from './session-relay-release-core.mjs';
+
+const INSTANCE = loadReleaseInstance(VERSION, { require: ['fixture'] });
 
 export function positionalPlugin(argv) {
   const index = argv.indexOf('--plugin');
@@ -60,7 +63,7 @@ function fixtureReceipt(mode, fixture, outcome) {
       execution_base_commit: fixture.source_commit,
       input_receipts: {},
       checks: [],
-      plan_path: 'docs/plans/active/session-relay-prebuilt-cli-distribution.md',
+      plan_path: INSTANCE.fixture.plan_path,
       plan_sha256: '0'.repeat(64),
       created_at: baseTime,
     };

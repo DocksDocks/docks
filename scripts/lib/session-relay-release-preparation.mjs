@@ -32,6 +32,7 @@ import {
   fail,
   ghJson,
   gitRaw,
+  loadReleaseInstance,
   noteValue,
   PLUGIN,
   REPO,
@@ -45,109 +46,46 @@ import {
   writeCanonicalExclusive,
 } from './session-relay-release-core.mjs';
 
-const PLAN_PATH = 'docs/plans/active/session-relay-linux-workspace-recertification.md';
-const FINISHED_PLAN = /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-linux-workspace-recertification\.md$/;
-const AUTHORIZED_CURRENT_MAIN_BASE = '25592c6550069e300a7a0148d3cd3c21880da8e7';
-const SHIPPED_TO_PROMOTED_PATHS = [
-  '.claude-plugin/marketplace.json',
-  '.codex/agents/plan-manager.toml',
-  '.codex/agents/plan-reviewer.toml',
-  'AGENTS.md',
-  'README.md',
-  'docs/plans/AGENTS.md',
-  'docs/plans/active/session-relay-linux-workspace-publication.md',
-  'docs/scaffold/templates/codex-plan-manager.toml.template',
-  'docs/scaffold/templates/codex-plan-reviewer.toml.template',
-  'docs/scaffold/templates/root-AGENTS.md.template',
-  'plugins/docks/.claude-plugin/plugin.json',
-  'plugins/docks/.codex-plugin/plugin.json',
-  'plugins/docks/README.md',
-  'plugins/docks/agents/plan-manager.md',
-  'plugins/docks/agents/plan-reviewer.md',
-  'plugins/docks/skills/AGENTS.md',
-  'plugins/docks/skills/productivity/plan-creator/SKILL.md',
-  'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-  'plugins/docks/skills/productivity/plan-repairer/SKILL.md',
-  'plugins/docks/skills/productivity/plan-reviewer/SKILL.md',
-  'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
-  'plugins/docks/skills/productivity/plan-workspace/SKILL.md',
-  'plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md',
-  'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
-  'plugins/session-relay/test/companion-distribution-contract.mjs',
-  'plugins/session-relay/test/release-evidence-contract.mjs',
-  'plugins/session-relay/test/release-promotion-contract.mjs',
-  'plugins/session-relay/test/release-publication-contract.mjs',
-  'scripts/agents/score.mjs',
-  'scripts/lib/session-relay-release-preparation.mjs',
-  'scripts/lib/session-relay-release-promotion.mjs',
-  'scripts/lib/session-relay-release-publication.mjs',
-  'scripts/tests/plan-orchestration.mjs',
-  'scripts/tests/plan-orchestration/historical-characterization.mjs',
-  'scripts/tests/plan-orchestration/historical-malformed-corpus.mjs',
-  'scripts/tests/plan-skill-phases.mjs',
-];
-const AUTHORIZED_BASE_TO_PROMOTED_PATHS = [
-  'docs/plans/active/session-relay-linux-workspace-publication.md',
-  'plugins/session-relay/test/companion-distribution-contract.mjs',
-  'plugins/session-relay/test/release-evidence-contract.mjs',
-  'plugins/session-relay/test/release-promotion-contract.mjs',
-  'plugins/session-relay/test/release-publication-contract.mjs',
-  'scripts/lib/session-relay-release-preparation.mjs',
-  'scripts/lib/session-relay-release-promotion.mjs',
-  'scripts/lib/session-relay-release-publication.mjs',
-];
 const LEGACY_RELEASE_VERSION = '0.13.0';
+const INSTANCE = loadReleaseInstance(VERSION, {
+  require: ['current_attempt', 'planrun_attempt', 'continuation_paths', 'public_child', 'authorized_base'],
+});
+const LEGACY = loadReleaseInstance(LEGACY_RELEASE_VERSION, {
+  require: ['legacy_0_13', 'historical_receipts'],
+});
+
+const PLAN_PATH = INSTANCE.current_attempt.release_plan_path;
+const FINISHED_PLAN_BASENAME = path
+  .basename(INSTANCE.current_attempt.release_plan_path, '.md')
+  .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const FINISHED_PLAN = new RegExp(String.raw`^docs/plans/finished/\d{4}-\d{2}-\d{2}-${FINISHED_PLAN_BASENAME}\.md$`);
+const AUTHORIZED_CURRENT_MAIN_BASE = INSTANCE.authorized_base.current_main_base;
+const SHIPPED_TO_PROMOTED_PATHS = INSTANCE.authorized_base.shipped_to_promoted_paths;
+const AUTHORIZED_BASE_TO_PROMOTED_PATHS = INSTANCE.authorized_base.authorized_base_to_promoted_paths;
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
 const PUBLIC_REMOTE = 'https://github.com/DocksDocks/public.git';
-const LEGACY_PUBLIC_PLAN_PATH = 'docs/plans/active/session-relay-cli-0.13.0-release-preparation.md';
-const LEGACY_PUBLIC_BLOCKED_REASON =
-  'Awaiting the four independently hashed `session-relay--v0.13.0` production asset digests.';
+const LEGACY_PUBLIC_PLAN_PATH = LEGACY.legacy_0_13.public_plan_path;
+const LEGACY_PUBLIC_BLOCKED_REASON = LEGACY.legacy_0_13.public_blocked_reason;
 
 const CURRENT_RELEASE_VERSION = VERSION;
 const CURRENT_RELEASE_TAG = TAG;
-const CURRENT_GOAL_ID = '8b89aabf-7336-4352-bc11-225bab67f9aa';
-const CURRENT_DOCKS_RUN_ID = '88732ba0-ef06-411b-a31c-93705ccefb27';
-const CURRENT_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v4.md';
-const CURRENT_DOCKS_SOURCE_BASE = '494881a0d973863d1ac8e233734c827eb6913ce8';
-const PLANRUN_DOCKS_RUN_ID = '5e00cc28-4e27-42cb-9cf9-c3630006d8c0';
-const PLANRUN_DOCKS_PLAN_PATH = 'docs/plans/active/session-relay-correlated-results-release-remediation-v9.md';
-const PLANRUN_DOCKS_SOURCE_BASE = 'de4f8305ac9351cbbea4549503f2684f67fbcde9';
-const PLANRUN_RELEASE_TAG_COMMIT = '7d9cbbbdf82210d396de744372eadb6c26655601';
-const PLANRUN_DOCKS_AFFECTED_PATHS = Object.freeze([
-  'plugins/session-relay/test/release-evidence-contract.mjs',
-  'plugins/session-relay/test/release-promotion-contract.mjs',
-  'plugins/session-relay/test/release-publication-contract.mjs',
-  'scripts/lib/session-relay-release-cli.mjs',
-  'scripts/lib/session-relay-release-preparation.mjs',
-  'scripts/lib/session-relay-release-promotion.mjs',
-  'scripts/lib/session-relay-release-publication.mjs',
-]);
-const CURRENT_PUBLIC_VERSION = '0.12.0';
-const CURRENT_PUBLIC_TAG = 'cli-v0.12.0';
-const CURRENT_PUBLIC_RUN_ID = '1f801952-705e-4c7e-a533-91026c013383';
+const CURRENT_GOAL_ID = INSTANCE.current_attempt.goal_id;
+const CURRENT_DOCKS_RUN_ID = INSTANCE.current_attempt.docks_run_id;
+const CURRENT_DOCKS_PLAN_PATH = INSTANCE.current_attempt.docks_plan_path;
+const CURRENT_DOCKS_SOURCE_BASE = INSTANCE.current_attempt.docks_source_base;
+const PLANRUN_DOCKS_RUN_ID = INSTANCE.planrun_attempt.docks_run_id;
+const PLANRUN_DOCKS_PLAN_PATH = INSTANCE.planrun_attempt.docks_plan_path;
+const PLANRUN_DOCKS_SOURCE_BASE = INSTANCE.planrun_attempt.docks_source_base;
+const PLANRUN_RELEASE_TAG_COMMIT = INSTANCE.planrun_attempt.release_tag_commit;
+const PLANRUN_DOCKS_AFFECTED_PATHS = Object.freeze([...INSTANCE.planrun_attempt.docks_affected_paths]);
+const CURRENT_PUBLIC_VERSION = INSTANCE.public_child.version;
+const CURRENT_PUBLIC_TAG = INSTANCE.public_child.tag;
+const CURRENT_PUBLIC_RUN_ID = INSTANCE.current_attempt.public_run_id;
 const CURRENT_PUBLIC_PLAN_PATH = `docs/plans/active/session-relay-${CURRENT_RELEASE_VERSION}-docks-kit-${CURRENT_PUBLIC_VERSION}-release.md`;
-const CURRENT_BINDER_CONTINUATION_PATHS = new Set([
-  'AGENTS.md',
-  'docs/plans/active/session-relay-correlated-results-release-remediation-v5.md',
-  CURRENT_DOCKS_PLAN_PATH,
-  'docs/plans/active/session-relay-release-binder-repository-proof.md',
-  'docs/plans/active/session-relay-release-binder-repository-proof-v2.md',
-  'plugins/session-relay/test/release-evidence-contract.mjs',
-  'scripts/AGENTS.md',
-  'scripts/ci.mjs',
-  'scripts/lib/plugins.mjs',
-  'scripts/lib/session-relay-release-preparation.mjs',
-  'scripts/lib/session-relay-release-publication.mjs',
-  'scripts/tests/ci-plugin-targeting.mjs',
-]);
-const PLANRUN_BINDER_CONTINUATION_PATHS = new Set([PLANRUN_DOCKS_PLAN_PATH]);
+const CURRENT_BINDER_CONTINUATION_PATHS = new Set(INSTANCE.continuation_paths.current);
+const PLANRUN_BINDER_CONTINUATION_PATHS = new Set(INSTANCE.continuation_paths.planrun);
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const HISTORICAL_RECEIPTS_0_13 = Object.freeze({
-  source_proof_v1: '419b23ccdcf0ca21672e81c05ae9d22c55bc67781839ffb6a29e7eecc2b59396',
-  source_proof_v2: '87a6260ae20280712ebb2d76d39667b128c8f6cf687141ebd779d8eca16c2262',
-  publication: '31d096d31702b66d7e97085a82d8b7da1b75155f828b1d2382a0ac8427ba7ea2',
-  public_request: '7cf02781a2ed3c75423321492fb2cd4c4944f6da6d6d41290e26a5f3ca0cf902',
-});
+const HISTORICAL_RECEIPTS_0_13 = LEGACY.historical_receipts;
 const SOURCE_CI_WORKFLOW = '.github/workflows/ci.yml';
 const BUILD_WORKFLOW = '.github/workflows/build-binaries.yml';
 const TARGETS = [
@@ -954,62 +892,10 @@ export function validateSourcePreparationCandidate(value, context = {}) {
   return value;
 }
 
-const PINNED_LEGACY_COMPLETION = Object.freeze({
-  finishedPlanPath: 'docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md',
-  candidateSha256: '75e5bf5386a203cd81e3930ca2309ceed4e1a665d995848a29eb73a0fa5cb395',
-  receiptSha256: 'd929ab3156532858ec515cc4bcecc00500adb24009dd2cc6b38bc3c396d42cfc',
-  policySha256: 'bb95e1516f9fc1b6f4d8a75991d4650428428dc35d842db1710f4d64dc082a1b',
-  reviewedHead: '762f2ad2b173c964435364cac651a63e43e2501c',
-  planInputSha256: '5275399617cf4812a55523aa30606e8a1aad34bf0d36bdf1ee40de3f2f5ebbbf',
-  seriesId: 'cd8ec18d-fed0-4063-b49d-812d0f5bda05',
-  settledStateSha256: '064e08a437e587d6f5600788754a8af2cc3d5800adfdcb520b7399c7162ed3bb',
-});
-const PINNED_LEGACY_COMPLETION_POLICY = Object.freeze({
-  schema: 6,
-  role: 'primary',
-  fallback: 'availability_only',
-  max_rounds: 2,
-  candidates: [
-    {
-      company: 'openai',
-      tool: 'codex',
-      model: 'gpt-5.6-sol',
-      effort: 'high',
-      service_tier: 'default',
-    },
-    { company: 'anthropic', tool: 'claude', model: 'fable', effort: 'high' },
-    { company: 'anthropic', tool: 'claude', model: 'opus', effort: 'xhigh' },
-  ],
-  provenance: {
-    role: 'skill_default',
-    fallback: 'skill_default',
-    max_rounds: 'skill_default',
-    candidates: 'skill_default',
-  },
-});
+const PINNED_LEGACY_COMPLETION = LEGACY.legacy_0_13.pinned_completion;
+const PINNED_LEGACY_COMPLETION_POLICY = LEGACY.legacy_0_13.pinned_completion_policy;
 const PINNED_LEGACY_COMPLETION_POLICY_JCS = canonicalize(PINNED_LEGACY_COMPLETION_POLICY);
-const PINNED_LEGACY_COMPLETION_STATE = Object.freeze({
-  schema: 2,
-  plan_path: PLAN_PATH,
-  phase: 'completion',
-  lifecycle_intent: 'none',
-  initial_input_sha256: PINNED_LEGACY_COMPLETION.planInputSha256,
-  current_input_sha256: PINNED_LEGACY_COMPLETION.planInputSha256,
-  orchestration_attempt: 1,
-  series_id: PINNED_LEGACY_COMPLETION.seriesId,
-  request_ids: ['c83e57f6-d6f1-4420-894c-7d71ee44b2fc'],
-  round_index: 1,
-  status: 'passed',
-  stop_reason: null,
-  series_sha256: 'a5f83bf419edde75160f8e67193ca555f15da4d2f78fbb5fd495e91295b508ba',
-  apply_state: 'none',
-  transitioned_from_state_sha256: null,
-  retry_authorization: null,
-  terminal_evidence_sha256: null,
-  terminated_from_state_sha256: null,
-  terminated_from_state: null,
-  state_sha256: PINNED_LEGACY_COMPLETION.settledStateSha256,
-});
+const PINNED_LEGACY_COMPLETION_STATE = LEGACY.legacy_0_13.pinned_completion_state;
 const PINNED_LEGACY_COMPLETION_STATE_JCS = canonicalize(PINNED_LEGACY_COMPLETION_STATE);
 
 function pinnedLegacyCompletionState(plan) {

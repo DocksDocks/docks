@@ -174,6 +174,25 @@ export const PLUGINS = [
         args: ['--case', 'docs-contract'],
         binaryArg: '--bin',
       },
+      // Release-instance separation. The lane must hold protocol logic only: every value
+      // identifying one release attempt lives in an instance file loaded by version, so a
+      // release edits the single `VERSION` declaration. These run as source checks rather
+      // than release contracts because they scan lane source and need `--case` arguments.
+      {
+        path: 'plugins/session-relay/test/release-instance-contract.mjs',
+      },
+      {
+        path: 'plugins/session-relay/test/release-instance-contract.mjs',
+        args: ['--case', 'modules'],
+      },
+      {
+        path: 'plugins/session-relay/test/release-instance-contract.mjs',
+        args: ['--case', 'validator'],
+      },
+      {
+        path: 'plugins/session-relay/test/release-instance-contract.mjs',
+        args: ['--case', 'coverage'],
+      },
     ],
     extraJson: ['plugins/session-relay/hooks/codex-hooks.json', 'plugins/session-relay/.codex-plugin/bus.mcp.json'],
     authorChecks: [],

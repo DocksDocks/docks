@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { validateReleaseInstance } from './session-relay-release-instances/schema.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '../..');
 export const REPOSITORY_ID = 'DocksDocks/docks';
@@ -36,6 +38,61 @@ export const fail = (message, outcome = 'conflict') => {
   throw new SessionRelayReleaseError(message, outcome);
 };
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+// Release-instance identity. Every value that identifies one particular release attempt
+// lives in `session-relay-release-instances/<version>.json`, so the lane holds protocol
+// logic and a release edits `VERSION` plus one new instance file.
+//
+// This is the only reader. No caller may parse an instance file directly, so validation
+// cannot be skipped by going around it: an absent file, malformed JSON, an unknown key,
+// or a badly shaped value each fail closed with a message naming what was wrong.
+export const INSTANCE_DIR = path.join(HERE, 'session-relay-release-instances');
+
+const instanceCache = new Map();
+
+export function releaseInstancePath(version) {
+  return path.join(INSTANCE_DIR, `${version}.json`);
+}
+
+export function loadReleaseInstance(version, { require: required = [] } = {}) {
+  // Required groups are checked on every call, cached or not. Caching the parse but not
+  // the requirement would make the check order-dependent: a call site that needs
+  // `current_attempt` would pass merely because some earlier call loaded the same version
+  // without requiring it, and the omission would surface only when the call order changed.
+  const cached = instanceCache.get(version);
+  if (cached) return assertInstanceGroups(cached, version, required);
+
+  const file = releaseInstancePath(version);
+  if (!fs.existsSync(file)) {
+    fail(`release instance for ${version} is missing: expected ${path.relative(REPO, file)}`, 'conflict');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    fail(`release instance ${path.relative(REPO, file)} is not valid JSON: ${error.message}`, 'conflict');
+  }
+
+  let instance;
+  try {
+    instance = validateReleaseInstance(parsed, { source: `${version}.json` });
+  } catch (error) {
+    fail(error.message, 'conflict');
+  }
+
+  instanceCache.set(version, instance);
+  return assertInstanceGroups(instance, version, required);
+}
+
+function assertInstanceGroups(instance, version, required) {
+  for (const group of required) {
+    if (!(group in instance)) {
+      fail(`${version}.json is missing required field group ${group}`, 'conflict');
+    }
+  }
+  return instance;
+}
 
 export function canonicalize(value) {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);

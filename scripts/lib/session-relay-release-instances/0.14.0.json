@@ -1,0 +1,109 @@
+{
+  "current_attempt": {
+    "goal_id": "8b89aabf-7336-4352-bc11-225bab67f9aa",
+    "docks_run_id": "88732ba0-ef06-411b-a31c-93705ccefb27",
+    "docks_plan_path": "docs/plans/active/session-relay-correlated-results-release-remediation-v4.md",
+    "docks_source_base": "494881a0d973863d1ac8e233734c827eb6913ce8",
+    "public_run_id": "1f801952-705e-4c7e-a533-91026c013383",
+    "release_plan_path": "docs/plans/active/session-relay-linux-workspace-recertification.md"
+  },
+  "planrun_attempt": {
+    "docks_run_id": "5e00cc28-4e27-42cb-9cf9-c3630006d8c0",
+    "docks_plan_path": "docs/plans/active/session-relay-correlated-results-release-remediation-v9.md",
+    "docks_source_base": "de4f8305ac9351cbbea4549503f2684f67fbcde9",
+    "release_tag_commit": "7d9cbbbdf82210d396de744372eadb6c26655601",
+    "docks_affected_paths": [
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "plugins/session-relay/test/release-promotion-contract.mjs",
+      "plugins/session-relay/test/release-publication-contract.mjs",
+      "scripts/lib/session-relay-release-cli.mjs",
+      "scripts/lib/session-relay-release-preparation.mjs",
+      "scripts/lib/session-relay-release-promotion.mjs",
+      "scripts/lib/session-relay-release-publication.mjs"
+    ]
+  },
+  "retained_promotion": {
+    "docks_run_id": "88732ba0-ef06-411b-a31c-93705ccefb27",
+    "docks_plan_path": "docs/plans/active/session-relay-correlated-results-release-remediation-v4.md",
+    "promotion_sha256": "7ffaa7967d9ca8cc7c53c3ca22efe932d3028ad3caf210cec8157aec7bbd1670",
+    "completion_review_sha256": "491925513a94c7d2c1b86cfe0fcf71ad5b7f5d994724612295a2c2cfe465c7cc",
+    "publication_sha256": "784ff59a2705884aae1de7fab9f21551a6872a54cfd047df3ba57b0f41e81588",
+    "public_release_sha256": "05b08d34e62b58dcbbda214bbcef4cb0658ef6781ca3e696abdfa1b3f43f5091",
+    "source_proof_sha256": "c853e528411b881b2c551fb3b549146679eb76b10e8d8dde55627121a16c98cd"
+  },
+  "continuation_paths": {
+    "current": [
+      "AGENTS.md",
+      "docs/plans/active/session-relay-correlated-results-release-remediation-v5.md",
+      "docs/plans/active/session-relay-correlated-results-release-remediation-v4.md",
+      "docs/plans/active/session-relay-release-binder-repository-proof.md",
+      "docs/plans/active/session-relay-release-binder-repository-proof-v2.md",
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "scripts/AGENTS.md",
+      "scripts/ci.mjs",
+      "scripts/lib/plugins.mjs",
+      "scripts/lib/session-relay-release-preparation.mjs",
+      "scripts/lib/session-relay-release-publication.mjs",
+      "scripts/tests/ci-plugin-targeting.mjs"
+    ],
+    "planrun": ["docs/plans/active/session-relay-correlated-results-release-remediation-v9.md"]
+  },
+  "public_child": {
+    "version": "0.12.0",
+    "tag": "cli-v0.12.0"
+  },
+  "authorized_base": {
+    "current_main_base": "25592c6550069e300a7a0148d3cd3c21880da8e7",
+    "shipped_to_promoted_paths": [
+      ".claude-plugin/marketplace.json",
+      ".codex/agents/plan-manager.toml",
+      ".codex/agents/plan-reviewer.toml",
+      "AGENTS.md",
+      "README.md",
+      "docs/plans/AGENTS.md",
+      "docs/plans/active/session-relay-linux-workspace-publication.md",
+      "docs/scaffold/templates/codex-plan-manager.toml.template",
+      "docs/scaffold/templates/codex-plan-reviewer.toml.template",
+      "docs/scaffold/templates/root-AGENTS.md.template",
+      "plugins/docks/.claude-plugin/plugin.json",
+      "plugins/docks/.codex-plugin/plugin.json",
+      "plugins/docks/README.md",
+      "plugins/docks/agents/plan-manager.md",
+      "plugins/docks/agents/plan-reviewer.md",
+      "plugins/docks/skills/AGENTS.md",
+      "plugins/docks/skills/productivity/plan-creator/SKILL.md",
+      "plugins/docks/skills/productivity/plan-manager/SKILL.md",
+      "plugins/docks/skills/productivity/plan-repairer/SKILL.md",
+      "plugins/docks/skills/productivity/plan-reviewer/SKILL.md",
+      "plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs",
+      "plugins/docks/skills/productivity/plan-workspace/SKILL.md",
+      "plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md",
+      "plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "plugins/session-relay/test/release-promotion-contract.mjs",
+      "plugins/session-relay/test/release-publication-contract.mjs",
+      "scripts/agents/score.mjs",
+      "scripts/lib/session-relay-release-preparation.mjs",
+      "scripts/lib/session-relay-release-promotion.mjs",
+      "scripts/lib/session-relay-release-publication.mjs",
+      "scripts/tests/plan-orchestration.mjs",
+      "scripts/tests/plan-orchestration/historical-characterization.mjs",
+      "scripts/tests/plan-orchestration/historical-malformed-corpus.mjs",
+      "scripts/tests/plan-skill-phases.mjs"
+    ],
+    "authorized_base_to_promoted_paths": [
+      "docs/plans/active/session-relay-linux-workspace-publication.md",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "plugins/session-relay/test/release-promotion-contract.mjs",
+      "plugins/session-relay/test/release-publication-contract.mjs",
+      "scripts/lib/session-relay-release-preparation.mjs",
+      "scripts/lib/session-relay-release-promotion.mjs",
+      "scripts/lib/session-relay-release-publication.mjs"
+    ]
+  },
+  "fixture": {
+    "plan_path": "docs/plans/active/session-relay-prebuilt-cli-distribution.md"
+  }
+}

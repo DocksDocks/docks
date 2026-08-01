@@ -11,6 +11,7 @@ import {
   exactKeys,
   fail,
   ghJson,
+  loadReleaseInstance,
   PRERELEASE_BODY,
   REPO,
   REPOSITORY_ID,
@@ -106,12 +107,13 @@ const TARGET_RUNNERS = {
 const CURRENT_PUBLIC_VERSION = '0.12.0';
 const CURRENT_PUBLIC_TAG = `cli-v${CURRENT_PUBLIC_VERSION}`;
 const LEGACY_VERSION = '0.13.0';
+const LEGACY = loadReleaseInstance('0.13.0', { require: ['historical_receipts'] });
 const LEGACY_TAG = 'session-relay--v0.13.0';
 const LEGACY_PRERELEASE_BODY =
   'Session Relay 0.13.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
 const LEGACY_STABLE_BODY =
   'Session Relay 0.13.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
-const HISTORICAL_PUBLICATION_SHA256 = '31d096d31702b66d7e97085a82d8b7da1b75155f828b1d2382a0ac8427ba7ea2';
+const HISTORICAL_PUBLICATION_SHA256 = LEGACY.historical_receipts.publication;
 const ORDINARY_ASSETS = ASSETS.filter((name) => name !== 'SHA256SUMS');
 const PUBLICATION_V2_KEYS = [
   'schema',
