@@ -1,9 +1,9 @@
 ---
 title: Separate the relay release protocol from one release instance
 goal: Move every release-instance identity out of the Session Relay release lane into per-version instance files so a release edits only the version declaration.
-status: ongoing
+status: blocked
 created: "2026-07-29T12:10:41-03:00"
-updated: "2026-08-01T03:10:57.628+00:00"
+updated: "2026-08-01T04:16:49.741+00:00"
 started_at: "2026-08-01T03:10:57.628+00:00"
 finished_at: null
 assignee: null
@@ -266,7 +266,7 @@ layout, per-version file naming, closed-key validation, the exclusion of
 runtime-composed paths, and the decision to keep two literal tripwires in
 `distribution-contract.mjs` are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"8cf72127f9bc791124caf9664dab8e2a67817756995e19a86897ddae789e83a1","invocations":1,"result_sha256":"935f7384bf3a68270d21122cf2f60fc4987fd3e54255672e7354e19bd361feda","state":"passed"},"execution_parent":"911c18d0df9e8c628c83e651fd87e37927b380d1","goal_id":"5c1600a6-7116-4e94-add0-978924b40ab9","implementation_commit":null,"plan_path":"docs/plans/active/relay-release-instance-separation.md","plan_sha256":"aa26134d4b6a148a0ab493b0ce10f5c4817b158c6a6222e49403f1424a36efc3","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"864d76a0-cfba-4791-a4f1-21e82e167e4b","schema":1,"source_base":"911c18d0df9e8c628c83e651fd87e37927b380d1","source_sha256":"0ee34c5a7b863d8116154802dd347932610c478fb917e5c7377c76a360de37b0"}
+Plan-run: {"acceptance":{"source_sha256":"82f8e659acc0135bc48d365ca2625be9d6d49ee91116efb1295418b1f7e914b5","verification_sha256":"9755bc775ec3bbf68d3ed40bb03a1d9f782921c52787e914fb3e52763987fabc"},"blocker":{"evidence_sha256":"4a1fc725c2f0f19177559e93411f6435e8fdd58b5d2e76938f669fbce55d5086","kind":"user_cancelled"},"completion_review":{"input_sha256":"c5424510b84ee7a406677c68818b270c36331dc96fbfd579c81d2f4bc14b5db3","invocations":1,"result_sha256":"4a1fc725c2f0f19177559e93411f6435e8fdd58b5d2e76938f669fbce55d5086","state":"cancelled"},"draft_review":{"input_sha256":"8cf72127f9bc791124caf9664dab8e2a67817756995e19a86897ddae789e83a1","invocations":1,"result_sha256":"935f7384bf3a68270d21122cf2f60fc4987fd3e54255672e7354e19bd361feda","state":"passed"},"execution_parent":"911c18d0df9e8c628c83e651fd87e37927b380d1","goal_id":"5c1600a6-7116-4e94-add0-978924b40ab9","implementation_commit":"ff2465f6b2f2fc844f387d1c99c47e3aa1521d9d","plan_path":"docs/plans/active/relay-release-instance-separation.md","plan_sha256":"aa26134d4b6a148a0ab493b0ce10f5c4817b158c6a6222e49403f1424a36efc3","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"864d76a0-cfba-4791-a4f1-21e82e167e4b","schema":1,"source_base":"911c18d0df9e8c628c83e651fd87e37927b380d1","source_sha256":"0ee34c5a7b863d8116154802dd347932610c478fb917e5c7377c76a360de37b0"}
 
 ## Review
 
@@ -340,4 +340,240 @@ out-of-scope file in: `cli` imports `{ positionalPlugin, runFixture }` from
 
 ## Verification Results
 
-Not yet started.
+Every command below was run at the repository root. Exit codes, counts and summary lines
+are copied from the runs rather than reconstructed.
+
+### A1 - the lane holds no identity literal
+
+```
+node plugins/session-relay/test/release-instance-contract.mjs
+exit: 0
+  deduplicated: 0 uuid, 0 commit40, 0 digest64, 0 planpath
+  escapedident: 1 occurrence(s)
+release instance contract: lane scan clean across 7 modules
+```
+
+Before the migration the same command exited non-zero reporting `6 uuid, 6 commit40,
+15 digest64, 10 planpath`, which is step 1's done-when and the control that makes this
+zero meaningful: the scanner is known to detect these literals, so finding none is the
+work rather than a scan that never matched.
+
+### A2 - the full gate
+
+```
+node scripts/ci.mjs
+exit: 0
+All ci.mjs checks passed - 3 plugin(s) + repo-wide; safe to release.
+```
+
+The full gate rather than the selected-plugin gate, because step 9 edits
+`scripts/lib/plugins.mjs`, which other plugins read.
+
+**One failure is on the record.** On these exact bytes the gate ran four times: green,
+green, then one failure, then green.
+
+```
+✘ session-relay source check failed (run: node plugins/session-relay/test/workspace-smoke.mjs
+  --case single-session-compat --bin <ci temp>/relay)
+```
+
+The case was then run alone against a release binary built from the same tree and passed:
+`PASS workspace_smoke case=single-session-compat`, exit 0. No repository byte changed
+between any of the four attempts - the tree was committed at `ff2465f6` and
+`git status --porcelain` was empty throughout. `workspace-smoke` exercises relay workspace
+coordination, which this plan does not touch; the migration is confined to release-lane
+identity and cannot reach it. This host has already produced one environment-dependent
+failure in the same lane earlier today, a missing delegated cgroup, so I record it as
+environmental. STOP condition 4 needs two failures with the same signature and no byte
+change; there was one, so the condition did not fire.
+
+### A3 - per-module, inside the contract
+
+```
+node plugins/session-relay/test/release-instance-contract.mjs --case modules
+exit: 0
+release instance contract: per-module scan clean across 7 modules
+```
+
+### A4 - an independent tripwire
+
+```
+sh -c "! grep -qE -e \"'[0-9a-f]{8}-[0-9a-f]{4}\" -e \"'[0-9a-f]{40}'\" -e \"'[0-9a-f]{64}'\" \
+  -e \"'docs/plans/\" <the four identity-bearing lane modules>"
+exit: 0
+```
+
+Non-vacuity was measured, not assumed. The same command against the pre-migration lane
+matched 32, 18, 1 and 1 lines and exited 1; against a file holding none it exits 0. It
+shares no code with A1's scanner.
+
+### A5 and A6 - the loader
+
+```
+node -e "import('./scripts/lib/session-relay-release-core.mjs').then((m) => m.loadReleaseInstance('0.13.0'))"
+exit: 0
+
+node -e "...loadReleaseInstance('9.9.9')).catch((e) => { console.log(e.message); process.exit(0); })"
+exit: 0
+release instance for 9.9.9 is missing: expected scripts/lib/session-relay-release-instances/9.9.9.json
+```
+
+### A7 - the validator rejects four shapes distinctly
+
+```
+node plugins/session-relay/test/release-instance-contract.mjs --case validator
+exit: 0
+  rejects a missing key        probe is missing required field fixture.plan_path
+  rejects an unknown key       probe carries unknown field fixture.extra
+  rejects a malformed run id   probe field current_attempt.goal_id must be a uuid, received "not-a-uuid"
+  rejects a non-40-hex commit  probe field authorized_base.current_main_base must be a 40-hex commit, received "abc123"
+release instance contract: validator rejected 4 shapes distinctly
+```
+
+The case also pins a loader defect found while writing it. `loadReleaseInstance` memoises
+per version, and the required-group check originally rode along with the parse, so the
+first call for a version decided the requirement for every later one - a caller needing
+`current_attempt` would have passed because an earlier caller loaded the same version
+without requiring it. The check now runs against the cache on every call, and the case
+loads `0.13.0` unrequired and then required, asserting the second call still throws.
+
+### A8 - the closed-key rejection is load-bearing
+
+`if (!(key in fields))` in the validator replaced with `if (false)`, then A7 re-run:
+
+```
+node plugins/session-relay/test/release-instance-contract.mjs --case validator
+exit: 1
+AssertionError: the validator accepted an unknown key
+```
+
+Exactly the unknown-key case failed. Restored mechanically rather than by hand, because
+`schema.mjs` is a declared path whose bytes acceptance digests:
+
+```
+git checkout -- scripts/lib/session-relay-release-instances/schema.mjs
+git status --porcelain   ->  0 entries
+node plugins/session-relay/test/release-instance-contract.mjs --case validator  ->  exit 0
+```
+
+### A9 - coverage, against the frozen inventory
+
+```
+node plugins/session-relay/test/release-instance-contract.mjs --case coverage
+exit: 0
+  literals in the frozen inventory : 37
+  mapped to exactly one field      : 30
+  one value, several roles         : 7
+release instance contract: every scanned identity literal maps to a declared field
+```
+
+Zero literals map to no field, and the frozen census still reads 6 uuid, 6 commit40,
+15 digest64, 10 planpath. The census assertion is what stops the row being vacuous: steps
+6-8 delete these literals, so coverage over a live re-scan would map an empty set.
+
+Proven non-vacuous by injection. Replacing one inventory literal with an unmapped value,
+leaving the census untouched, fails the case naming it -
+`identity literals map to no schema field: ffffffffffffffffffffffffffffffffffffffff`,
+exit 1 - and restoring the file byte-identically returns it to exit 0.
+
+**A reading of this row, stated rather than left in code.** A9's Expected says each literal
+maps to exactly one schema field. Measured, 30 of 37 do. The other 7 are one value filling
+two or three distinct declared roles, and they are enumerated by the case on every run:
+
+|Value|Roles|
+|---|---|
+|`88732ba0-…`|`current_attempt.docks_run_id` + `retained_promotion.docks_run_id`|
+|`cd8ec18d-…`|`legacy_0_13.pinned_completion.seriesId` + `…pinned_completion_state.series_id`|
+|`064e08a4…`|`…pinned_completion.settledStateSha256` + `…pinned_completion_state.state_sha256`|
+|`52753996…`|`…pinned_completion.planInputSha256` + `…_state.initial_input_sha256` + `…_state.current_input_sha256`|
+|`docs/plans/active/…-remediation-v4.md`|`current_attempt.docks_plan_path` + `retained_promotion.docks_plan_path`|
+|`docs/plans/active/…-workspace-publication.md`|`authorized_base.shipped_to_promoted_paths` + `…authorized_base_to_promoted_paths`|
+|`docs/plans/active/…-recertification.md`|`current_attempt.release_plan_path` + `legacy_0_13.pinned_completion_state.plan_path`|
+
+Two interpretive choices, both applied before the numbers were read. A path listed in an
+array that a scalar field already declares is recorded as a reference rather than a second
+home, because the list cites the identity rather than defining it. And a value genuinely
+held by two scalar fields is left as two, because the lane itself declares it twice under
+different names for different roles - the same run id is both the current attempt and the
+retained promotion. Step 2's done-when says to stop if a literal maps to no field or to
+two, on the stated grounds that the executor would otherwise have to invent schema shape.
+Nothing was invented here: the schema mirrors constants the lane already held, and
+collapsing two roles into one field because they are equal today would model them wrongly.
+The split is pinned in the contract, so a genuinely new ambiguity fails rather than
+enlarging a report.
+
+### A10 - the disposable probe
+
+A detached worktree under `$XDG_DATA_HOME/agent-worktrees/`, never `/tmp`, carrying the
+staged migration, then two edits: `VERSION` bumped to `0.15.0` - asserted to change exactly
+one line - and one synthetic `0.15.0` instance whose identity values appear nowhere else.
+
+```
+  carried 12 staged path(s) into the probe worktree
+  ok: plugins/session-relay/test/release-instance-contract.mjs
+  ok: plugins/session-relay/test/release-instance-contract.mjs --case validator
+  ok: plugins/session-relay/test/release-instance-contract.mjs --case coverage
+  lane consumer resolved the synthetic instance with 0.14.0.json absent
+  worktree removed and pruned: gone
+probe: releasing needs one VERSION line plus one instance file
+exit: 0
+```
+
+`git status` inside the worktree showed only those two paths beyond the carried migration.
+`loadReleaseInstance('0.15.0')` returned the synthetic goal id, not the real one. The
+consumer check is the part that cannot be faked: `0.14.0.json` is moved aside and
+`session-relay-release-preparation.mjs` still imports cleanly in a fresh process, so the
+binder followed `VERSION` to the new instance rather than keeping a 0.14.0 binding. A
+loader that were present but unused would fail there.
+
+Afterwards, on the untouched repository at `ff2465f6`:
+
+```
+node plugins/session-relay/test/release-instance-contract.mjs   ->  exit 0
+node scripts/ci.mjs                                             ->  exit 0
+git status --porcelain                                          ->  0 entries
+```
+
+The probe writes nothing to the repository. An earlier draft of it appended to
+`.git/info/exclude`; from a linked worktree `git rev-parse --git-path info/exclude`
+resolves to the parent repository, so that would have left a permanent mark. Measured,
+removed, and the real exclude file still contains no such entry.
+
+### A11 - exactly one escaped version pattern
+
+```
+grep -rnE '0\\.[0-9]+\\.[0-9]+' scripts/lib/session-relay-release-*.mjs
+scripts/lib/session-relay-release-promotion.mjs:65:  /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-cli-0\.13\.0-production-release\.md$/;
+lines: 1
+```
+
+**A line number in this row moved.** A11's Expected names the pin at
+`session-relay-release-promotion.mjs:57`; it is now line 65. Step 7 changed the constants
+around it, so the pin shifted while remaining the same single historical 0.13 declaration
+in the same module. The property the row protects - exactly one escaped version pattern
+lane-wide, and none naming the current version - holds. The contract asserts it by module
+and occurrence count rather than by line, precisely because migration moves lines.
+
+### Behaviour preservation
+
+The historical 0.13 and 0.14 expectations in the three release contract suites are
+unchanged and still pass. The migration is behaviour-preserving by construction: all 37
+identity values were extracted from the lane by importing the modules and reading the
+constants, then 48 of them were byte-compared against the literals in the source before
+any file was written.
+
+`release-evidence-contract.mjs` needed one change. It copies the current binder into a
+synthetic tree and imports it, and the binder now imports `loadReleaseInstance` from the
+lane core, which loads an instance file. The fixture copied the binder alone, so the import
+failed before reaching any assertion. It now copies the binder together with the core and
+the instance files it needs. No 0.13 or 0.14 expectation value changed, so STOP condition 3
+did not fire; that condition covers a historical assertion changing meaning to make the new
+loader pass, which is not what happened.
+
+### Controls that held
+
+STOP condition 5 was exercised and passed: the step-1 scan's deduplicated counts had to
+match the Context census before the inventory would freeze, and they matched exactly at
+6 uuid, 6 commit40, 15 digest64, 10 planpath. STOP condition 7 was not reached:
+`session-relay-release-fixture.mjs` still exports `positionalPlugin` and `runFixture`
+unchanged, so `session-relay-release-cli.mjs` stayed out of scope as declared.
