@@ -3,7 +3,7 @@ title: Remove the client-side ready-record read from the supervisor handshake
 goal: Make the lifecycle supervisor handshake depend only on the identity frame validated over the held connection, by deleting the client-side ready-record read that races watchdog cleanup of that record.
 status: drafting
 created: "2026-07-31T18:18:37.005+00:00"
-updated: "2026-08-01T00:18:19.167+00:00"
+updated: "2026-08-01T00:27:57.968+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -117,7 +117,10 @@ declaration changes and no tag is created.
   correct; the defect is the client depending on that entry.
 - `MANAGED_ATTACH_DEADLINE_MS` and `READY_POLL`. Widening a deadline would hide the
   ordering defect rather than remove it.
-- The release evidence contract, which fails for an unrelated reason and has its own fix.
+- The release evidence contract. It failed only on the runner, because it resolves a
+  pinned commit that a depth-1 checkout cannot see, and that is fixed and merged: the
+  workflow now fetches full history and CI reports the contract passing. The plugin gate
+  can therefore reach exit 0, and A5 needs no prerequisite. Nothing here changes it.
 
 ## STOP conditions
 
@@ -136,7 +139,7 @@ None. The retirement site, the process that performs it, the ordering that makes
 read redundant, the reason a deadline change is not the fix, and the boundary against the
 health path are all settled above.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"4327f1f42f89fec04e34c72f5b3d9189e40cc223a3a9fbaca9a3fa10639c7af3","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8a74adb1-d494-4220-8a84-6ca21b9dd5a0","schema":1,"source_base":"ec56b78c8bc8d38bfcc68785f017f01287c48d56","source_sha256":"2ed2129fac60de776f92b8962ab668440f761242a9276f071441a46ede8f4ce2"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"3ecdc5c8c1ed8304c5c8003e27b2eec5928c56355703fcc3e474fbf9e3ad4aa7","invocations":1,"result_sha256":"7439ce7b62bec92cc0d5f59c892a122d21adc0c8d7591b2156f1f9ea084116a6","state":"repairing"},"execution_parent":null,"goal_id":"2557b5e7-76e6-4373-952e-0f4eba454142","implementation_commit":null,"plan_path":"docs/plans/active/relay-supervisor-socket-stat.md","plan_sha256":"c1197ec40b0502fd1716be7d5c3f496ff332960c6b558f22deb5a9feccdcb636","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8a74adb1-d494-4220-8a84-6ca21b9dd5a0","schema":1,"source_base":"c134eb558d676c8e570d570c8eb227f957fcfaf9","source_sha256":"e1c8ccac64d050ae3dbc837544c5d95e97d9f8a4cb01d76eb64385c9e7e9e8af"}
 
 ## Review
 
