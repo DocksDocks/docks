@@ -596,11 +596,7 @@ probes['reserved-rebind'] = () =>
     });
     const expectedPlanSha256 = api.sha256(api.canonicalPlanView(repairedBytes));
 
-    assert.notEqual(
-      expectedPlanSha256,
-      world.run.plan_sha256,
-      'probe premise: repaired body must stale plan_sha256',
-    );
+    assert.notEqual(expectedPlanSha256, world.run.plan_sha256, 'probe premise: repaired body must stale plan_sha256');
     assert.notEqual(
       expectedManifest.source_base,
       world.run.source_base,
@@ -689,16 +685,8 @@ probes['reserved-rebind'] = () =>
         expectedManifest.source_sha256,
         'sealed source_sha256 must equal the freshly computed source digest',
       );
-      assert.equal(
-        sealed.plan_sha256,
-        persisted.plan_sha256,
-        'sealed and persisted plan_sha256 bindings must agree',
-      );
-      assert.equal(
-        sealed.source_base,
-        persisted.source_base,
-        'sealed and persisted source_base bindings must agree',
-      );
+      assert.equal(sealed.plan_sha256, persisted.plan_sha256, 'sealed and persisted plan_sha256 bindings must agree');
+      assert.equal(sealed.source_base, persisted.source_base, 'sealed and persisted source_base bindings must agree');
       assert.equal(
         sealed.source_sha256,
         persisted.source_sha256,
@@ -710,9 +698,7 @@ probes['reserved-rebind'] = () =>
         'the sealed candidate must retain the pre-reserve review phase',
       );
       assert.ok(
-        Buffer.from(api.canonicalPlanView(sealedPlan)).equals(
-          Buffer.from(api.canonicalPlanView(persistedBytes)),
-        ),
+        Buffer.from(api.canonicalPlanView(sealedPlan)).equals(Buffer.from(api.canonicalPlanView(persistedBytes))),
         'sealed and persisted canonical reviewed-body bytes must be identical',
       );
     } finally {
