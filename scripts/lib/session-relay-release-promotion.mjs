@@ -28,6 +28,7 @@ import {
   ghJson,
   git,
   loadReleaseInstance,
+  PUBLIC_PLANRUN_EFFECTS,
   REPO,
   REPOSITORY_ID,
   readCanonical,
@@ -96,6 +97,7 @@ const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.13.0';
 const CURRENT_GOAL_ID = INSTANCE.current_attempt.goal_id;
 const CURRENT_DOCKS_RUN_ID = INSTANCE.current_attempt.docks_run_id;
 const CURRENT_DOCKS_PLAN_PATH = INSTANCE.current_attempt.docks_plan_path;
+const PLANRUN_DOCKS_REPOSITORY_ID = INSTANCE.planrun_attempt.docks_repository_id;
 const PLANRUN_DOCKS_RUN_ID = INSTANCE.planrun_attempt.docks_run_id;
 const PLANRUN_DOCKS_PLAN_PATH = INSTANCE.planrun_attempt.docks_plan_path;
 const PLANRUN_DOCKS_SOURCE_BASE = INSTANCE.planrun_attempt.docks_source_base;
@@ -1029,7 +1031,7 @@ function verifyCurrentPublicPlanRun(
     run.goal_id !== CURRENT_GOAL_ID ||
     run.run_id !== CURRENT_PUBLIC_RUN_ID ||
     run.risk !== 'external' ||
-    canonicalize(run.requested_effects) !== canonicalize(['local', 'probe', 'push', 'release']) ||
+    canonicalize(run.requested_effects) !== canonicalize(PUBLIC_PLANRUN_EFFECTS) ||
     run.source_base !== companionBaseCommit ||
     run.execution_parent !== companionBaseCommit ||
     run.implementation_commit === null ||
@@ -1327,7 +1329,7 @@ function validateCurrentPublicReleaseReceipt(receipt, { publication = null, requ
       run.goal_id !== CURRENT_GOAL_ID ||
       run.run_id !== CURRENT_PUBLIC_RUN_ID ||
       run.risk !== 'external' ||
-      canonicalize(run.requested_effects) !== canonicalize(['local', 'probe', 'push', 'release']) ||
+      canonicalize(run.requested_effects) !== canonicalize(PUBLIC_PLANRUN_EFFECTS) ||
       plan.active_path !== run.plan_path ||
       plan.active_path !== `docs/plans/active/${CURRENT_PUBLIC_PLAN_BASENAME}.md` ||
       !CURRENT_PUBLIC_FINISHED_PLAN_PATH.test(plan.finished_path) ||
@@ -1887,7 +1889,7 @@ function currentPromotionReceipt(proof, publication, publicRelease, stagedReleas
     reviewed_source_commit: proof.value.implementation_commit,
     reviewed_source_ancestry: true,
     docks_plan: {
-      repository_id: proof.value.plan_run.repository_id,
+      repository_id: REPOSITORY_ID,
       goal_id: proof.value.plan_run.goal_id,
       run_id: proof.value.plan_run.run_id,
       plan_path: proof.value.plan_run.plan_path,
@@ -2805,11 +2807,14 @@ function validateRetainedPromotionReceipt(receipt, expected = RETAINED_PROMOTION
     expectedPlanPath: expected.docks_plan_path,
     allowV2: false,
   });
+  // V3 chronology is tag -> implementation, so its reviewed source commit must
+  // not be equated with the tag. The retained receipt digest binds the reviewed
+  // source; bind the immutable release commit through the staged release instead.
   if (
     receipt.source_proof_sha256 !== expected.source_proof_sha256 ||
     receipt.publication_receipt_sha256 !== expected.publication_sha256 ||
     receipt.public_release_receipt_sha256 !== expected.public_release_sha256 ||
-    receipt.reviewed_source_commit !== expected.release_tag_commit ||
+    receipt.staged_release.tag_commit !== expected.release_tag_commit ||
     receipt.docks_plan.completion_review_sha256 !== expected.completion_review_sha256
   ) {
     fail('retained promotion receipt does not match the exact immutable successful promotion identity');
@@ -3039,7 +3044,7 @@ function validatePromotionEvidenceFreshContext(
     proof.value.run_id !== PLANRUN_DOCKS_RUN_ID ||
     proof.value.source_commit !== PLANRUN_DOCKS_SOURCE_BASE ||
     proof.value.tag_commit !== PLANRUN_RELEASE_TAG_COMMIT ||
-    proof.value.plan_run.repository_id !== REPOSITORY_ID ||
+    proof.value.plan_run.repository_id !== PLANRUN_DOCKS_REPOSITORY_ID ||
     proof.value.plan_run.goal_id !== CURRENT_GOAL_ID ||
     proof.value.plan_run.run_id !== PLANRUN_DOCKS_RUN_ID ||
     proof.value.plan_run.plan_path !== PLANRUN_DOCKS_PLAN_PATH ||
@@ -4047,7 +4052,7 @@ export function rebindPromotionEvidence(
     reviewed_source_commit: proof.value.implementation_commit,
     reviewed_source_ancestry: true,
     docks_plan: {
-      repository_id: proof.value.plan_run.repository_id,
+      repository_id: REPOSITORY_ID,
       goal_id: proof.value.plan_run.goal_id,
       run_id: proof.value.plan_run.run_id,
       plan_path: proof.value.plan_run.plan_path,
@@ -4114,7 +4119,10 @@ export function validatePromotionReceiptForFinalization(
     const publicPlanStatus = publicRelease.value.schema === 3 ? 'finished' : publicPlan.status;
     const publicFinishedAt =
       publicRelease.value.schema === 3 ? publicRelease.value.public_plan.finished_at : publicPlan.finished_at;
+    // V2 red-first evidence and V3 PlanRun-native evidence are different
+    // provenance contracts even when their projected child identities coincide.
     if (
+      receipt.schema !== publicRelease.value.schema ||
       receipt.public_release_receipt_sha256 !== publicRelease.digest ||
       receipt.public_child.repository_id !== publicRelease.value.repository_id ||
       receipt.public_child.goal_id !== publicPlan.goal_id ||

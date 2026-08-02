@@ -48,6 +48,7 @@ const KINDS = Object.freeze({
 export const INSTANCE_FIELD_GROUPS = Object.freeze({
   current_attempt: Object.freeze({
     goal_id: 'uuid',
+    docks_repository_id: 'text',
     docks_run_id: 'uuid',
     docks_plan_path: 'planpath',
     docks_source_base: 'commit40',
@@ -55,6 +56,7 @@ export const INSTANCE_FIELD_GROUPS = Object.freeze({
     release_plan_path: 'planpath',
   }),
   planrun_attempt: Object.freeze({
+    docks_repository_id: 'text',
     docks_run_id: 'uuid',
     docks_plan_path: 'planpath',
     docks_source_base: 'commit40',

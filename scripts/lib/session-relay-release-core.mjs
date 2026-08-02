@@ -14,6 +14,18 @@ export const VERSION = '0.15.0';
 export const TAG = `${PLUGIN}--v${VERSION}`;
 export const TRANSACTION_REF = `refs/heads/transactions/${PLUGIN}-${VERSION}`;
 export const LOCK_REF = `refs/heads/locks/${PLUGIN}-${VERSION}`;
+// Two DIFFERENT runs, two different effect sets - they are not interchangeable.
+//
+// The public child ships docks-kit to npm through the tag workflow's OIDC job,
+// which its own Steps table binds as `Effect: publish`, so its set has five.
+// That literal was duplicated four times and one copy omitted `publish`, which
+// would have rejected a correct child at the promote boundary - after the Relay
+// tag was already burned.
+export const PUBLIC_PLANRUN_EFFECTS = Object.freeze(['local', 'probe', 'publish', 'push', 'release']);
+// The docks parent publishes no package; it tags and releases binaries only, so
+// it has four and MUST NOT carry `publish`. Conflating the two is easy because
+// `currentPlanRun` validates the parent while its sibling validates the child.
+export const DOCKS_PLANRUN_EFFECTS = Object.freeze(['local', 'probe', 'push', 'release']);
 export const SHA256 = /^[0-9a-f]{64}$/;
 export const COMMIT = /^[0-9a-f]{40}$/;
 export const ASSETS = [

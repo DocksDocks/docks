@@ -25,6 +25,7 @@ import {
   canonicalize,
   canonicalPath,
   command,
+  DOCKS_PLANRUN_EFFECTS,
   embeddedReceipt,
   emitReceipt,
   ensureCleanTree,
@@ -73,10 +74,18 @@ const LEGACY_PUBLIC_BLOCKED_REASON = LEGACY.legacy_0_13.public_blocked_reason;
 const CURRENT_RELEASE_VERSION = VERSION;
 const CURRENT_RELEASE_TAG = TAG;
 const CURRENT_GOAL_ID = INSTANCE.current_attempt.goal_id;
+// This lineage's own repository identity, pinned per-release like docks_run_id and
+// docks_source_base beside it. It is NOT the global REPOSITORY_ID: the 0.15.0 plan
+// lineage predates the portable owner/repo rule and records a local-form id, and it
+// cannot be migrated - attempt history is immutable and plan-run.mjs:1740 forbids a
+// replacement from changing repository_id. Comparing against the global constant
+// would reject that lineage at bind-completion, after the tag is burned.
 const CURRENT_DOCKS_RUN_ID = INSTANCE.current_attempt.docks_run_id;
+const CURRENT_DOCKS_REPOSITORY_ID = INSTANCE.current_attempt.docks_repository_id;
 const CURRENT_DOCKS_PLAN_PATH = INSTANCE.current_attempt.docks_plan_path;
 const CURRENT_DOCKS_SOURCE_BASE = INSTANCE.current_attempt.docks_source_base;
 const PLANRUN_DOCKS_RUN_ID = INSTANCE.planrun_attempt.docks_run_id;
+const PLANRUN_DOCKS_REPOSITORY_ID = INSTANCE.planrun_attempt.docks_repository_id;
 const PLANRUN_DOCKS_PLAN_PATH = INSTANCE.planrun_attempt.docks_plan_path;
 const PLANRUN_DOCKS_SOURCE_BASE = INSTANCE.planrun_attempt.docks_source_base;
 // Null until the release tag is cut. Every use below is an inequality, so the unborn
@@ -93,6 +102,7 @@ const PLANRUN_BINDER_CONTINUATION_PATHS = new Set(INSTANCE.continuation_paths.pl
 const RETAINED_V2_RELEASE_TAG = `${PLUGIN}--v${RETAINED_V2_RELEASE_VERSION}`;
 const RETAINED_V2_GOAL_ID = RETAINED_V2_INSTANCE.current_attempt.goal_id;
 const RETAINED_V2_DOCKS_RUN_ID = RETAINED_V2_INSTANCE.current_attempt.docks_run_id;
+const RETAINED_V2_DOCKS_REPOSITORY_ID = RETAINED_V2_INSTANCE.current_attempt.docks_repository_id;
 const RETAINED_V2_DOCKS_PLAN_PATH = RETAINED_V2_INSTANCE.current_attempt.docks_plan_path;
 const RETAINED_V2_DOCKS_SOURCE_BASE = RETAINED_V2_INSTANCE.current_attempt.docks_source_base;
 const RETAINED_V2_PUBLIC_VERSION = RETAINED_V2_INSTANCE.public_child.version;
@@ -1067,6 +1077,7 @@ function validateCurrentSourcePreparationProof(value) {
   const expectedRunId = planRunProof ? PLANRUN_DOCKS_RUN_ID : RETAINED_V2_DOCKS_RUN_ID;
   const expectedSourceBase = planRunProof ? PLANRUN_DOCKS_SOURCE_BASE : RETAINED_V2_DOCKS_SOURCE_BASE;
   const expectedPlanPath = planRunProof ? PLANRUN_DOCKS_PLAN_PATH : RETAINED_V2_DOCKS_PLAN_PATH;
+  const expectedDocksRepositoryId = planRunProof ? PLANRUN_DOCKS_REPOSITORY_ID : RETAINED_V2_DOCKS_REPOSITORY_ID;
   const expectedPublicRunId = planRunProof ? CURRENT_PUBLIC_RUN_ID : RETAINED_V2_PUBLIC_RUN_ID;
   const expectedPublicPlanPath = planRunProof ? CURRENT_PUBLIC_PLAN_PATH : RETAINED_V2_PUBLIC_PLAN_PATH;
   const expectedPublicVersion = planRunProof ? CURRENT_PUBLIC_VERSION : RETAINED_V2_PUBLIC_VERSION;
@@ -1127,7 +1138,7 @@ function validateCurrentSourcePreparationProof(value) {
   );
   if (
     value.plan_run.schema !== 1 ||
-    value.plan_run.repository_id !== REPOSITORY_ID ||
+    value.plan_run.repository_id !== expectedDocksRepositoryId ||
     value.plan_run.goal_id !== value.goal_id ||
     value.plan_run.run_id !== value.run_id ||
     value.plan_run.plan_path !== expectedPlanPath ||
@@ -2366,9 +2377,11 @@ function currentPlanRun(
   plan,
   {
     goalId = CURRENT_GOAL_ID,
+    repositoryId = CURRENT_DOCKS_REPOSITORY_ID,
     runId = CURRENT_DOCKS_RUN_ID,
     planPath = CURRENT_DOCKS_PLAN_PATH,
     sourceBase = CURRENT_DOCKS_SOURCE_BASE,
+    expectedExecutionParent = sourceBase,
   } = {},
 ) {
   const machineRecord = currentSingletonMachineRecord(plan, 'Plan-run');
@@ -2381,14 +2394,14 @@ function currentPlanRun(
   const run = machineRecord.value;
   if (
     status !== 'ongoing' ||
-    run.repository_id !== REPOSITORY_ID ||
+    run.repository_id !== repositoryId ||
     run.goal_id !== goalId ||
     run.run_id !== runId ||
     run.plan_path !== planPath ||
     run.source_base !== sourceBase ||
-    run.execution_parent !== sourceBase ||
+    (expectedExecutionParent !== null && run.execution_parent !== expectedExecutionParent) ||
     run.risk !== 'external' ||
-    canonicalize(run.requested_effects) !== canonicalize(['local', 'probe', 'push', 'release'])
+    canonicalize(run.requested_effects) !== canonicalize(DOCKS_PLANRUN_EFFECTS)
   ) {
     fail('current PlanRunV1 release identity mismatch');
   }
@@ -2586,6 +2599,7 @@ function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan)
   }
   const { run, status } = currentPlanRun(planBytes, plan, {
     goalId: RETAINED_V2_GOAL_ID,
+    repositoryId: RETAINED_V2_DOCKS_REPOSITORY_ID,
     runId: RETAINED_V2_DOCKS_RUN_ID,
     planPath: RETAINED_V2_DOCKS_PLAN_PATH,
     sourceBase: RETAINED_V2_DOCKS_SOURCE_BASE,
@@ -2692,12 +2706,18 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
   if (requestedVersion !== undefined && requestedVersion !== CURRENT_RELEASE_VERSION) {
     fail(`PlanRun completion binding requires Session Relay ${CURRENT_RELEASE_VERSION}`);
   }
+  // PlanRun captures the implementation parent at start; unlike the retained V2
+  // run, it need not equal the earlier draft-review source base. Resolve and bound
+  // that exact commit in the release ancestry below instead of copying the child rule.
   const { run, status } = currentPlanRun(planBytes, plan, {
+    repositoryId: PLANRUN_DOCKS_REPOSITORY_ID,
     runId: PLANRUN_DOCKS_RUN_ID,
     planPath: PLANRUN_DOCKS_PLAN_PATH,
     sourceBase: PLANRUN_DOCKS_SOURCE_BASE,
+    expectedExecutionParent: null,
   });
   const sourceCommit = resolveExactCurrentCommit(deps, run.source_base, 'PlanRun source commit');
+  const executionParent = resolveExactCurrentCommit(deps, run.execution_parent, 'PlanRun execution parent');
   const implementationCommit = resolveExactCurrentCommit(
     deps,
     run.implementation_commit,
@@ -2732,6 +2752,8 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     fail('PlanRun immutable release tag commit changed');
   }
   ancestor(deps, { older: sourceCommit, newer: tagCommit }, 'PlanRun source-to-tag');
+  ancestor(deps, { older: sourceCommit, newer: executionParent }, 'PlanRun source-to-execution-parent');
+  ancestor(deps, { older: executionParent, newer: implementationCommit }, 'PlanRun execution-parent-to-implementation');
   ancestor(deps, { older: tagCommit, newer: implementationCommit }, 'PlanRun tag-to-implementation');
   ancestor(deps, { older: implementationCommit, newer: reviewedCommit }, 'PlanRun implementation-to-reviewed');
 

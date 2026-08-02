@@ -1,14 +1,15 @@
 {
   "current_attempt": {
     "goal_id": "258b44c2-c3b2-4902-862c-7461724ca078",
-    "docks_run_id": "12a460e2-af44-4bc8-bc7d-d7aaec2c991b",
+    "docks_run_id": "887eaf82-ffac-4d78-9368-b62cb64dda19",
     "docks_plan_path": "docs/plans/active/session-relay-0.15.0-release.md",
     "docks_source_base": "c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f",
     "public_run_id": "ad7f3b75-dfff-4bcd-8d1f-c8c11555b119",
-    "release_plan_path": "docs/plans/active/session-relay-0.15.0-release.md"
+    "release_plan_path": "docs/plans/active/session-relay-0.15.0-release.md",
+    "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
   "planrun_attempt": {
-    "docks_run_id": "12a460e2-af44-4bc8-bc7d-d7aaec2c991b",
+    "docks_run_id": "887eaf82-ffac-4d78-9368-b62cb64dda19",
     "docks_plan_path": "docs/plans/active/session-relay-0.15.0-release.md",
     "docks_source_base": "c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f",
     "release_tag_commit": "4c372a8dec2daca5bf4327fa6eee09539b1b7b56",
@@ -26,11 +27,16 @@
       "plugins/session-relay/test/release-promotion-contract.mjs",
       "plugins/session-relay/test/release-publication-contract.mjs",
       "plugins/session-relay/test/remediation-contract.mjs",
+      "scripts/lib/plugins.mjs",
       "scripts/lib/session-relay-release-core.mjs",
       "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "scripts/lib/session-relay-release-instances/schema.mjs",
+      "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
-      "scripts/lib/session-relay-release-publication.mjs"
-    ]
+      "scripts/lib/session-relay-release-publication.mjs",
+      "scripts/verify-session-relay-preflight.mjs"
+    ],
+    "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
   "continuation_paths": {
     "current": [

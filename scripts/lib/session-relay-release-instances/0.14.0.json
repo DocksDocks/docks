@@ -5,7 +5,8 @@
     "docks_plan_path": "docs/plans/active/session-relay-correlated-results-release-remediation-v4.md",
     "docks_source_base": "494881a0d973863d1ac8e233734c827eb6913ce8",
     "public_run_id": "1f801952-705e-4c7e-a533-91026c013383",
-    "release_plan_path": "docs/plans/active/session-relay-linux-workspace-recertification.md"
+    "release_plan_path": "docs/plans/active/session-relay-linux-workspace-recertification.md",
+    "docks_repository_id": "DocksDocks/docks"
   },
   "planrun_attempt": {
     "docks_run_id": "5e00cc28-4e27-42cb-9cf9-c3630006d8c0",
@@ -20,7 +21,8 @@
       "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
       "scripts/lib/session-relay-release-publication.mjs"
-    ]
+    ],
+    "docks_repository_id": "DocksDocks/docks"
   },
   "retained_promotion": {
     "docks_run_id": "88732ba0-ef06-411b-a31c-93705ccefb27",
