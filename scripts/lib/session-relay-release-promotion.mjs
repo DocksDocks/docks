@@ -1787,8 +1787,8 @@ function validateCurrentRemoteAuthority(adapter, proof, publicRelease, options) 
   const sourceAncestry =
     proof.value.schema === 3
       ? [
-          [proof.value.tag_commit, proof.value.source_commit, 'tag-to-source'],
-          [proof.value.source_commit, proof.value.implementation_commit, 'source-to-implementation'],
+          [proof.value.source_commit, proof.value.tag_commit, 'source-to-tag'],
+          [proof.value.tag_commit, proof.value.implementation_commit, 'tag-to-implementation'],
         ]
       : [
           [proof.value.source_commit, proof.value.tdd_red.pre_production_commit, 'source-to-red'],
@@ -2752,7 +2752,8 @@ function validateCurrentPromotionReceiptCore(receipt, { label, expectedPlanRunId
   ) {
     fail(`${label} changed an asset digest or another byte-identical release identity`);
   }
-  const expectedTagCommit = planRunReceipt ? PLANRUN_RELEASE_TAG_COMMIT : receipt.reviewed_source_commit;
+  const expectedTagCommit =
+    planRunReceipt || PLANRUN_RELEASE_TAG_COMMIT !== null ? PLANRUN_RELEASE_TAG_COMMIT : receipt.reviewed_source_commit;
   if (receipt.staged_release.tag_commit !== expectedTagCommit) {
     fail(`${label} staged tag commit is not the bound immutable release commit`);
   }
@@ -3065,9 +3066,16 @@ function validatePromotionEvidenceFreshContext(
     fail('promotion evidence rebind requires the exact PlanRun-native public release receipt');
   }
 
+  // Chronology is source_base -> tag -> implementation: the tag is cut on the last
+  // implementation commit of the release, and the step that binds that tag commit
+  // back into the release instance lands AFTER it. This asserted the reverse until
+  // 0.15.0. It never fired because `release_tag_commit` was `null` on every prior
+  // release, so this branch was unreachable; it would first have failed at the
+  // promote step, with the version already burned. Two sibling copies of the same
+  // inversion were found and fixed at the same time.
   for (const [ancestor, descendant, label] of [
-    [proof.value.tag_commit, proof.value.source_commit, 'tag-to-source'],
-    [proof.value.source_commit, proof.value.implementation_commit, 'source-to-implementation'],
+    [proof.value.source_commit, proof.value.tag_commit, 'source-to-tag'],
+    [proof.value.tag_commit, proof.value.implementation_commit, 'tag-to-implementation'],
   ]) {
     if (adapter.isAncestor(ancestor, descendant) !== true) {
       fail(`promotion evidence ${label} ancestry was not independently observed`);

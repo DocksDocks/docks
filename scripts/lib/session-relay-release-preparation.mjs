@@ -1204,12 +1204,12 @@ function validateCurrentSourcePreparationProof(value) {
   }
 
   const ancestryKeys = planRunProof
-    ? ['tag_to_source', 'source_to_implementation', 'implementation_to_reviewed']
+    ? ['source_to_tag', 'tag_to_implementation', 'implementation_to_reviewed']
     : ['source_to_red', 'red_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag'];
   exactKeys(value.ancestry, ancestryKeys, 'current source proof ancestry');
   if (
     (planRunProof
-      ? value.ancestry.tag_to_source !== true || value.ancestry.source_to_implementation !== true
+      ? value.ancestry.source_to_tag !== true || value.ancestry.tag_to_implementation !== true
       : value.ancestry.source_to_red !== true || value.ancestry.red_to_implementation !== true) ||
     value.ancestry.implementation_to_reviewed !== true ||
     (!planRunProof && value.ancestry.reviewed_to_tag !== true)
@@ -1847,7 +1847,7 @@ function gitBytes(deps, args) {
   return Buffer.isBuffer(value) ? value : Buffer.from(String(value));
 }
 
-function ancestor(deps, older, newer, label) {
+function ancestor(deps, { older, newer }, label) {
   try {
     deps.git(['merge-base', '--is-ancestor', older, newer]);
   } catch {
@@ -1962,7 +1962,11 @@ function runAcceptanceChecks(deps, plan, sourceCommit) {
 }
 
 function verifyRedBlobs(deps, receipt, implementationCommit, label) {
-  ancestor(deps, receipt.pre_production_commit, implementationCommit, `${label} red-to-implementation`);
+  ancestor(
+    deps,
+    { older: receipt.pre_production_commit, newer: implementationCommit },
+    `${label} red-to-implementation`,
+  );
   for (const item of receipt.test_paths) {
     const atRed = gitValue(deps, ['rev-parse', `${receipt.pre_production_commit}:${item.path}`]);
     const atImplementation = gitValue(deps, ['rev-parse', `${implementationCommit}:${item.path}`]);
@@ -1979,7 +1983,7 @@ function requireSourceTree(deps, sourceCommit) {
   if (gitValue(deps, ['rev-parse', `${sourceCommit}^{commit}`]) !== sourceCommit)
     fail('SOURCE_COMMIT does not resolve exactly');
   const head = gitValue(deps, ['rev-parse', 'HEAD^{commit}']);
-  ancestor(deps, sourceCommit, head, 'source-to-evidence');
+  ancestor(deps, { older: sourceCommit, newer: head }, 'source-to-evidence');
   const nonPlan = gitValue(deps, ['diff', '--name-only', sourceCommit, head, '--', '.', `:(exclude)${PLAN_PATH}`]);
   if (nonPlan !== '') fail('tree differs from SOURCE_COMMIT outside the active plan');
   const status = gitValue(deps, ['status', '--porcelain=v2', '-z', '--untracked-files=all']);
@@ -2189,7 +2193,7 @@ export function checkPrepared(options, injected) {
   const planBytes = deps.readFile(path.join(REPO, PLAN_PATH));
   const plan = planBytes.toString('utf8');
   const executionBase = parseExecutionBase(plan);
-  ancestor(deps, executionBase, source, 'execution-base-to-source');
+  ancestor(deps, { older: executionBase, newer: source }, 'execution-base-to-source');
   verifyRedBlobs(deps, docks.value, source, 'Docks');
   if (preflight.value.workflow.file_blob_id !== gitValue(deps, ['rev-parse', `${source}:${BUILD_WORKFLOW}`]))
     fail('preflight workflow blob does not belong to SOURCE_COMMIT');
@@ -2263,7 +2267,7 @@ export function verifyEmbedded(options, injected) {
   const executionBase = parseExecutionBase(plan);
   if (evidence.candidate.value.execution_base_commit !== executionBase)
     fail('embedded candidate execution base mismatch');
-  ancestor(deps, executionBase, source, 'execution-base-to-source');
+  ancestor(deps, { older: executionBase, newer: source }, 'execution-base-to-source');
   const expectedDocksRed = {
     sha256: evidence.docks.digest,
     pre_production_commit: evidence.docks.value.pre_production_commit,
@@ -2471,7 +2475,7 @@ function implementationManifestEntry(deps, implementationCommit, liveEntry) {
 function acceptedImplementationManifest(deps, affectedPaths, implementationCommit, allowedContinuationPaths) {
   const currentHead = commit(gitValue(deps, ['rev-parse', 'HEAD^{commit}']), 'current release HEAD');
   if (currentHead !== implementationCommit) {
-    ancestor(deps, implementationCommit, currentHead, 'current implementation-to-HEAD');
+    ancestor(deps, { older: implementationCommit, newer: currentHead }, 'current implementation-to-HEAD');
     const output = gitValue(deps, ['diff', '--name-only', '--no-renames', implementationCommit, currentHead, '--']);
     const postImplementationPaths = output === '' ? [] : output.split('\n');
     for (const [index, logical] of postImplementationPaths.entries()) {
@@ -2609,10 +2613,10 @@ function bindCurrentCompletion(options, deps, finishedRelative, planBytes, plan)
   const reviewRecord = currentCompletionReview(plan, run, completionEvidence.diffSha256);
   const reviewedCommit = reviewRecord.value.implementation_commit;
   const tagCommit = implementationCommit;
-  ancestor(deps, sourceCommit, redCommit, 'current source-to-red');
-  ancestor(deps, redCommit, implementationCommit, 'current red-to-implementation');
-  ancestor(deps, implementationCommit, reviewedCommit, 'current implementation-to-reviewed');
-  ancestor(deps, reviewedCommit, tagCommit, 'current reviewed-to-tag');
+  ancestor(deps, { older: sourceCommit, newer: redCommit }, 'current source-to-red');
+  ancestor(deps, { older: redCommit, newer: implementationCommit }, 'current red-to-implementation');
+  ancestor(deps, { older: implementationCommit, newer: reviewedCommit }, 'current implementation-to-reviewed');
+  ancestor(deps, { older: reviewedCommit, newer: tagCommit }, 'current reviewed-to-tag');
   verifyCurrentRedBlobs(deps, redRecord.value, implementationCommit);
 
   const receipt = {
@@ -2727,9 +2731,9 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
   if (tagCommit !== PLANRUN_RELEASE_TAG_COMMIT) {
     fail('PlanRun immutable release tag commit changed');
   }
-  ancestor(deps, tagCommit, sourceCommit, 'PlanRun tag-to-source');
-  ancestor(deps, sourceCommit, implementationCommit, 'PlanRun source-to-implementation');
-  ancestor(deps, implementationCommit, reviewedCommit, 'PlanRun implementation-to-reviewed');
+  ancestor(deps, { older: sourceCommit, newer: tagCommit }, 'PlanRun source-to-tag');
+  ancestor(deps, { older: tagCommit, newer: implementationCommit }, 'PlanRun tag-to-implementation');
+  ancestor(deps, { older: implementationCommit, newer: reviewedCommit }, 'PlanRun implementation-to-reviewed');
 
   const receipt = {
     schema: 3,
@@ -2766,8 +2770,8 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
       changed_paths: completionEvidence.changedPaths,
     },
     ancestry: {
-      tag_to_source: true,
-      source_to_implementation: true,
+      source_to_tag: true,
+      tag_to_implementation: true,
       implementation_to_reviewed: true,
     },
     companion: {
@@ -2870,10 +2874,10 @@ export function bindCompletion(options, injected) {
     AUTHORIZED_BASE_TO_PROMOTED_PATHS,
     'authorized-base-to-promoted diff',
   );
-  ancestor(deps, sourceCommit, evidenceCommit, 'source-to-evidence');
-  ancestor(deps, evidenceCommit, shippedCommit, 'evidence-to-shipped');
-  ancestor(deps, shippedCommit, currentHead, 'shipped-to-current');
-  ancestor(deps, AUTHORIZED_CURRENT_MAIN_BASE, currentHead, 'authorized-base-to-promoted');
+  ancestor(deps, { older: sourceCommit, newer: evidenceCommit }, 'source-to-evidence');
+  ancestor(deps, { older: evidenceCommit, newer: shippedCommit }, 'evidence-to-shipped');
+  ancestor(deps, { older: shippedCommit, newer: currentHead }, 'shipped-to-current');
+  ancestor(deps, { older: AUTHORIZED_CURRENT_MAIN_BASE, newer: currentHead }, 'authorized-base-to-promoted');
   const nonPlan = gitValue(deps, [
     'diff',
     '--name-only',

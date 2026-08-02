@@ -11,7 +11,7 @@
     "docks_run_id": "12a460e2-af44-4bc8-bc7d-d7aaec2c991b",
     "docks_plan_path": "docs/plans/active/session-relay-0.15.0-release.md",
     "docks_source_base": "c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f",
-    "release_tag_commit": null,
+    "release_tag_commit": "4c372a8dec2daca5bf4327fa6eee09539b1b7b56",
     "docks_affected_paths": [
       ".claude-plugin/marketplace.json",
       "plugins/session-relay/.claude-plugin/plugin.json",
