@@ -574,7 +574,7 @@ probes['dry-run'] = () =>
 // The reserve transaction must persist the same rebound record that was sealed.
 // A repaired body plus a moved HEAD makes every source binding in the live record
 // stale, so retaining even one predecessor value is observable here.
-probes['reserved-rebind'] = () =>
+const assertReservedRebind = () =>
   withScratchRoot('dispatch-reserved-rebind-', async (root) => {
     const world = buildWorld(root);
     const bodyFile = path.join(root, 'repaired.md');
@@ -1134,6 +1134,8 @@ probes['preflight-before-reserve'] = () =>
       assert.equal(phase.state, 'retryable', 'malformed control output must refund after reservation');
       assert.equal(phase.invocations, 0, 'the control refund must return its permit');
     }
+
+    await assertReservedRebind();
 
     process.stdout.write(
       '  ok nine preflight refusals before reserve; valid and repo-relative routes reached RESERVED\n',
