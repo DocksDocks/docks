@@ -1,11 +1,11 @@
 ---
 title: Release Session Relay 0.15.0 and accept docks-kit child 0.13.0
 goal: Ship Session Relay 0.15.0 from the docks repository and move the parent release lane onto public child docks-kit 0.13.0, so the separation work in this lane is exercised by a real transition instead of asserted against absent versions.
-status: ongoing
+status: finished
 created: "2026-08-01T16:35:59-03:00"
-updated: "2026-08-02T14:04:19.912+00:00"
+updated: "2026-08-02T17:21:43.963+00:00"
 started_at: "2026-08-02T14:04:19.901+00:00"
-finished_at: null
+finished_at: "2026-08-02T17:21:43.963+00:00"
 assignee: null
 tags: [plans, session-relay, release, public-child, cross-repository]
 affected_paths:
@@ -354,7 +354,7 @@ only, and a second local edit plus gate cycle is required after the tag.
 
 ## Review
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"d0c4e5a78ffd5d7f029db95187127c987ec7b87ebce745943566e97339327aa6","invocations":2,"result_sha256":"65e089476b9682d461dec11a986316d10c68e839145179f421f374dfae6a7c4b","state":"passed"},"execution_parent":"c1c851bf2a2326f13ff41d662c25044f701c4017","goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0fffc169a002106a87a445ddbbd89b798983324edd8332565deccf8ac978dfaa","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"887eaf82-ffac-4d78-9368-b62cb64dda19","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"1c5b6b3d7c3e5edfe19457e8e1da55fb41dc9ded8813d7dd3b7cc60432cbdba5"}
+Plan-run: {"acceptance":{"source_sha256":"676a835f74915762575b73fc2fcc0c85c0825430a3862baf43617577105f4e99","verification_sha256":"f3747504f2e2327d08d8f91a6d6c8b78beb3d50796bef60c1f4dae46e4d975a7"},"blocker":null,"completion_review":{"input_sha256":"eb75d91c5519c45da84271e483301fbdc74b1eb8735a49b0e0ad80d1c4964774","invocations":1,"result_sha256":"6324eaa4e0d4375960782b382f1c39d3572749b8f38786eec26334319cb0181a","state":"passed"},"draft_review":{"input_sha256":"d0c4e5a78ffd5d7f029db95187127c987ec7b87ebce745943566e97339327aa6","invocations":2,"result_sha256":"65e089476b9682d461dec11a986316d10c68e839145179f421f374dfae6a7c4b","state":"passed"},"execution_parent":"c1c851bf2a2326f13ff41d662c25044f701c4017","goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":"29cffd6eb3f6a4f4839bd7dcf294f053c2d3cd1c","plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0fffc169a002106a87a445ddbbd89b798983324edd8332565deccf8ac978dfaa","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"887eaf82-ffac-4d78-9368-b62cb64dda19","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"1c5b6b3d7c3e5edfe19457e8e1da55fb41dc9ded8813d7dd3b7cc60432cbdba5"}
 
 Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"a95e8eb8efdc196dda0f1e51dfc7c027393f6f65bdc1601c0bc48fda9bedc993","replacement_run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","run":{"acceptance":null,"blocker":{"evidence_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"61a68eb853346511ad236bbd35f814500b0e7b5e0c8da8977144951b7ebfa904","invocations":2,"result_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"e29a06f0f7a807a4ee13efc8936bc7ff83fbf471f38d0db11bfb8b68ff87fddc","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"ff2125bd-746a-427b-86ba-2fc2cde51747","schema":1,"source_base":"95575af016dd1119f6fe85a5d5ca52e9f0b9f185","source_sha256":"78d1eeb735ef1bb8a664ba4aa4c82b07d7b4e4aafdcac225b9f52216c04942dc"},"schema":1,"status":"blocked","successor_run_sha256":"aa5cbb3b3cc4920e866949f1710478ffcbf5fcc781b613a9fe49b89dbae0c91b"}
 Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"8e8506026f58cb2c747d7a9b8d06178c1ec539614163129f9e3fe39e40657873","replacement_run_id":"12a460e2-af44-4bc8-bc7d-d7aaec2c991b","run":{"acceptance":null,"blocker":{"evidence_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a72ea0243ff254c961181df426773d925a7089003b9e62fa09c292ccae92adb8","invocations":2,"result_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0f835b0f2730ab72922eafc603855f6bc7df19f0abcc34aeeac07a964d5fadb8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","schema":1,"source_base":"2298bbc7fac269b57ce6915ff82d84e452b661b8","source_sha256":"ba16f51fb7e440d0f0899bc55169b563f8d8d9ac294b56e7b0052d8d0c9ec18d"},"schema":1,"status":"blocked","successor_run_sha256":"d50fd5465109e39f81e30a6174c89a7e6e6375b49d304982a94f799aa660612a"}
@@ -466,6 +466,11 @@ finding kinds, and both findings were independently reproduced before acceptance
 and the misanchored guards by reading the Effect column, which shows rows 6 and
 10 as the two `release` rows against STOP 3's original "step 6 or 9".
 
+
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"6f9270e67c4eea9cab548c1609750e9bd71e3f34d1f86469425bd106a031fd7b","findings":[],"implementation_commit":"29cffd6eb3f6a4f4839bd7dcf294f053c2d3cd1c","invocation":1,"run_id":"887eaf82-ffac-4d78-9368-b62cb64dda19","schema":1,"verdict":"pass"}
+
 ## Verification Results
 
 ### Step 5 - release contract migration (2026-08-02T03:40:27.257+00:00)
@@ -508,4 +513,258 @@ Two contract suites, `remediation-contract.mjs` and `companion-distribution-cont
 declared in `docks_affected_paths` but named by no descriptor field, so CI executed neither; one
 had been failing since before this migration. Both are now in `releaseContracts`.
 
-Manager-written after execution. Empty at draft time.
+### Steps 6-8 - inherited world state, recorded at the completion reservation
+
+Steps 6, 7 and 8 were executed under terminal predecessor run `12a460e2`. This successor run
+`887eaf82` inherits their world state; the Successor note above the Steps table explains why their
+Status cells read `done` on a run that had not started. No legal mid-`ongoing` write existed for
+this evidence - `transactPlanRun` rejects a bytes change when `{status, run}` is unchanged - so it
+is installed here, at the completion reservation, which is the first writable moment.
+
+**Step 6 (`release`) - tag and staged prerelease.** Tag `session-relay--v0.15.0` resolves to
+`4c372a8dec2daca5bf4327fa6eee09539b1b7b56`. Workflow `build-binaries.yml` run `30732536780`
+(event `push`, head branch `session-relay--v0.15.0`, attempt 1) completed successfully and staged
+exactly four binaries plus `SHA256SUMS`. The release was published as a prerelease at
+2026-08-02T04:34:50Z. This row is irreversible and was not re-run.
+
+**Step 7 (`local`) - sentinel replaced.** The repeated-`deadbeef` sentinel is absent from the
+repository; `git grep -q "$(printf 'deadbeef%.0s' $(seq 5))"` finds no match, so its negation exits
+0. `scripts/lib/session-relay-release-instances/0.15.0.json` records
+`planrun_attempt.release_tag_commit` as the real tag commit `4c372a8d`.
+
+**Step 8 (`probe`) - four digests verified against downloaded bytes.** Each asset was downloaded
+and re-hashed; every value equals its `SHA256SUMS` row. `SHA256SUMS` itself hashes to
+`e37a5eb76951aa4afe264e8e6b01e4944f4f35487743b90b27833597645bb63b`.
+
+| Asset | SHA-256 |
+|---|---|
+| `session-relay-aarch64-apple-darwin` | `24ef2cc98a4034391fef60bc3c13a672511b024f0d6493395bb61562936ac5c7` |
+| `session-relay-aarch64-unknown-linux-musl` | `ee52d7757a22febe3fcb4e00dbb81ec1fb1a1d5769c5eeda903f11a765029a06` |
+| `session-relay-x86_64-apple-darwin` | `8f4b11be831d5fc232965264c354f202c67c2260f383fba3e8c811eb6ea8ca39` |
+| `session-relay-x86_64-unknown-linux-musl` | `875ca460a21d4f205833db5629bcf249413da77e444f4927107a44e63b71acab` |
+
+The child half independently re-hashed the same four assets and reached the same values, so the
+digests carry two independent observations rather than one.
+
+### Step 9 - authorized read-only probe of the completed child
+
+Authority was a separate `ExternalAuthorityV1` with `scopes: ["probe"]` and `mode: "read"`, derived
+from the exact current-user message of this session; its source SHA-256 is
+`0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641`. `probe` is non-transitive and
+was minted alone, never widened onto the `release` or `push` records. Negative controls proved that
+a branch target under `release` scope, a release target under `push` scope, an unlisted release, a
+different repository, and the ungranted `publish` and `deploy` scopes are all refused.
+
+Observed on the remote:
+
+| Identity | Observed |
+|---|---|
+| `DocksDocks/public` tag `cli-v0.13.0` | annotated tag `1a1de15ced89f6fbe286b0a79d125662a0ee3761`, peeling to `7ea0611958b85cd98123a8131189ddf950ce6fb9` |
+| GitHub release `cli-v0.13.0` | database id `363812012`, draft false, prerelease false, exactly `docks-kit-{linux,darwin}-{x64,arm64}` plus `SHA256SUMS` |
+| workflow run | id `30752771211`, path `.github/workflows/release-cli.yml`, event `push`, head branch `cli-v0.13.0`, head sha `7ea0611958b8`, attempt 2, conclusion `success` |
+| npm | `docks-kit@0.13.0` present with SLSA `https://slsa.dev/provenance/v1` provenance |
+| remote `main` | `cf7df092d068d15eee68d389a047f16c858006ca` |
+| finished plan | `docs/plans/finished/2026-08-02-session-relay-0.15.0-docks-kit-0.13.0-release.md`, blob `b88c97d009097ee75a6d397ad6634d5fd7257536` |
+
+The child's finished `PlanRunV1` reads `goal_id` `258b44c2-c3b2-4902-862c-7461724ca078`, identical
+to this run's; `run_id` `ad7f3b75-dfff-4bcd-8d1f-c8c11555b119`, unchanged, so this run's pinned
+`current_attempt.public_run_id` still resolves; `repository_id` `DocksDocks/public`; `risk`
+`external`; five `requested_effects` including `publish`; `source_base` equal to
+`execution_parent` at `3e4eddec347e51189f1a13b3a48c0ca737520d94`; `implementation_commit`
+`7ea0611958b85cd98123a8131189ddf950ce6fb9`; `completion_review` passed at invocation 1 with
+`result_sha256` `e1a69821daeb4b6e3c8064c5e56e64cf4f92663db150047b75e49414cd56f643`; and a bound
+acceptance. The probe read state only and authorized nothing.
+
+**The child's row 8 failed once and was repaired; the repair is disclosed here because it changed
+a reviewed file after the child's completion review had passed.** The first tag-push run of
+`release-cli.yml` created the release successfully and then failed in `npm-publish`, because the
+step ran `npm publish release-dist/docks-kit-0.13.0.tgz`. `npm-package-arg` consults
+`hosted-git-info` before its `.tgz` filename rule, so a bare `a/b` argument is parsed as the GitHub
+shorthand `<owner>/<repo>`; npm resolved it over SSH and exited 128. No npm version was consumed,
+so `docks-kit@0.13.0` remained available. The failure is deterministic in the workflow bytes at the
+tag, so re-running that run could never succeed.
+
+The child repaired `.github/workflows/release-cli.yml` in commit
+`cf8c125efd4399111b33a4f8a61c0ef983251592`: the publish argument is now `./`-prefixed; a
+`workflow_dispatch` recovery path was added, because a tag is burned on first push and a failure
+after it previously stranded a release with no route to completion; the release identity is derived
+once in a `resolve` job instead of twice; a dispatch run must prove that every packaged root is
+byte-identical to the tag's tree, since `npm publish --provenance` attests the ref that ran the
+workflow rather than the ref that was checked out; and `gh release upload --clobber` was replaced
+by upload-only-if-absent so a re-driven run can never replace a published asset. That file passed
+`actionlint -shellcheck=shellcheck` and three independent adversarial reviews before it was
+applied.
+
+The npm publication then ran from a dispatch, and the authoritative tag-push run was re-run: its
+publish step observed the package already present and exited 0, so run `30752771211` reached
+`conclusion: success` on attempt 2 with its `event`, `head_branch` and `head_sha` unchanged. That
+is what `successfulPublicWorkflowRun` in `scripts/lib/session-relay-release-promotion.mjs` requires,
+and it is satisfied by a genuine successful push run of the release workflow at the release commit,
+not by relaxing the check. `getNpmState` in the same module reads only the registry, so the
+publication is verified against npm itself.
+
+The child's completion-review budget was already spent on the pass that bound `7ea0611`, so the
+repair carries no `CompletionReviewV1`. Its `implementation_commit` was deliberately left at
+`7ea0611`; `replace_implementation` requires a `repairing` completion phase and the child's phase
+was `passed`, so no replacement was attempted. The child instead rebound `acceptance` to the final
+affected-path manifest at its `ongoing -> finished` transition, which is the transition the
+contract designates for the final manifest.
+
+### Step 9 follow-on - a guard on the promote path that had never executed
+
+Reading the child back exposed a defect in this repository, on exactly the path STOP 3 warns about:
+`verifyCurrentPublicPlanRun` in `scripts/lib/session-relay-release-promotion.mjs` reconstructed the
+child's `acceptance.source_sha256` by inventing its preimage. It assumed the manifest base was the
+child's `implementation_commit` and guessed every file's mode as `0o644`, then `0o664`, and asked
+whether the recorded digest matched one of the two.
+
+That reconstruction cannot be made sound. PlanRunV1 `acceptance` is a closed
+`{source_sha256, verification_sha256}` pair, so the manifest `source_base` and the per-path
+`lstat().mode & 0o7777` that the digest covers are never recorded anywhere, and a Git tree stores no
+permission bits. It is a two-element search over a value no remote observer can see, and no run had
+ever reached it.
+
+It fails closed against this child, whose acceptance was rebound at its `ongoing -> finished`
+transition. That rebind is correct: `docs/plans/AGENTS.md` defines `acceptance.source_sha256` as
+binding the final affected-path manifest, and `plan-run.mjs` deliberately adds `acceptance` to the
+allowed set on that transition. Measured, not assumed: the recorded `41ecf372...` matches none of
+`fde8fde9...` or `90886cbf...` at the implementation commit, none of `ab6b49a2...` or `e366e1bd...`
+at the repair commit, and none of the digests produced by sweeping all 668 commits of the child
+repository as `source_base` against its live entries. Widening the guess is not a fix; the value is
+simply not reconstructible from outside.
+
+Two remedies were rejected before choosing. Editing the child's archived finished plan is forbidden
+outright - `docs/plans/AGENTS.md` says never edit a historical finished plan, `finished` is terminal,
+and `transactPlanRun` refuses any byte change - and checking that the `Plan-run` line sits outside
+`canonicalPlanView` so `plan_sha256` would still validate is a test for whether such an edit would be
+detected, not for whether it is right. Re-releasing the child as 0.13.1 would not fix the defect
+either, because a fresh child rebinds acceptance over its own worktree and lands in the same place,
+and npm 0.13.0 is already published and unrecallable.
+
+The fix binds what this repository can observe for itself. `publicImplementationContentDigest`
+hashes path and content only, at the child's implementation commit, and the result is compared with
+`public_child.implementation_content_sha256` in the release instance - reviewed data that moves with
+`PUBLIC_VERSION`, so a new child release must restate it. For this child that digest is
+`fd0d9d186b2da6339430ef1b576f62476e9550096314d5352bf9372c282d133c`, derived twice by independent
+routes: the GitHub Contents API the module itself uses, and a local clone. The 0.14.0 instance
+carries the same field for its own child, `1821dc6d9343021a9386cc69c61332e3c1f2f149427421d177205289f982d3fb`.
+The recorded acceptance digest is still required to be well formed; it is simply no longer treated as
+something this repository can recompute.
+
+The expectation is an adapter operation rather than a module read, so a fixture can drive the
+comparison instead of restating it, and two refusal cases in
+`plugins/session-relay/test/release-promotion-contract.mjs` prove it bites from both sides: a pin the
+observed bytes cannot produce, and observed bytes that drifted from the pin. Non-vacuity was checked
+by reverting: disabling the comparison makes both cases fail with the exact expected message, and
+restoring it makes the suite pass.
+
+`companion-distribution-contract.mjs` was failing before any of this work, because it revalidates
+live public main and that main moved to docks-kit 0.13.0 / Relay 0.15.0 the moment the child shipped.
+Confirmed pre-existing by stashing every other change and observing the same failure. Its `CURRENT_*`
+constants now name this generation, the generated-payload and npm expectations derive from those
+constants instead of restating literals, and the previous generation's TDD-red evidence - which this
+child does not carry - is replaced by the child's own recorded evidence: exact PlanRun identity,
+`source_base` equal to `execution_parent`, passed draft and completion reviews, the four pinned Relay
+digests, the recorded full-gate results, both prove-red outcomes, and execution-parent to
+implementation to main ancestry. `PRODUCTION_VERSION` is byte-identical, as acceptance row 3 requires.
+
+### Implementation and acceptance bindings for this run
+
+`implementation_commit` binds `29cffd6eb3f6a4f4839bd7dcf294f053c2d3cd1c`, the commit carrying that
+fix, which is both the last `local`-effect product of this run and the repository HEAD at the moment
+acceptance was minted. That equality is forced, not chosen: `plan-run.mjs` mints an acceptance only
+against a live affected-path manifest, `createAffectedPathManifest` requires that manifest's
+`source_base` to be the current HEAD, and `acceptedImplementationManifest` in
+`scripts/lib/session-relay-release-preparation.mjs` records the same manifest with `source_base` set
+to `implementation_commit`. The two digests agree only when HEAD is the implementation commit, which
+is exactly the ordering the contract prescribes: commit the implementation checkpoint, then reserve
+the completion phase.
+
+The reviewed diff is `git diff c5c29ce..29cffd6` restricted to `affected_paths`; its SHA-256 is
+`6f9270e67c4eea9cab548c1609750e9bd71e3f34d1f86469425bd106a031fd7b` over 275088 bytes. The commit
+range changes 21 paths and every one is declared in `affected_paths` or is this plan record, which
+acceptance row 5 exempts by design.
+
+Acceptance row 5 was run as a working rule before the checkpoint, not only at acceptance: declared
+22, committed plus worktree 21, undeclared none. `node scripts/ci.mjs --plugin session-relay` exits 0
+on that commit with a clean working tree, satisfying acceptance row 1.
+
+`origin/main` was fast-forwarded to `29cffd6eb3f6a4f4839bd7dcf294f053c2d3cd1c` and read back, because
+`promote-reviewed` requires `--expected-origin-main` to equal the proof's implementation commit and
+requires remote `main` to match it both before and after the stable flip.
+
+Ancestry required by `bindPlanRunCompletion` was verified directly with
+`git merge-base --is-ancestor`: `source_base c5c29ce -> tag 4c372a8`,
+`source_base -> execution_parent c1c851b`, `execution_parent -> implementation 29cffd6`, and
+`tag -> implementation`. `execution_parent` is deliberately not equal to `source_base` on this
+parent; the binder passes `expectedExecutionParent: null` for exactly that reason, and the child's
+opposite rule must not be copied onto the parent.
+
+`--embedded-candidate-sha256` is required by the mode parser but unconsumed on the PlanRun path:
+`bindCompletion` only digest-validates its format before delegating to `bindPlanRunCompletion`. The
+value supplied is the SHA-256 of the producer preflight receipt for this release,
+`4373f3757cb8e29e3e22a1e4aa4c1f731f7db0807b6095367271ed105c8fc877`, recorded here so the argument is
+traceable rather than arbitrary. The materialize/verify-source-ci/check-prepared candidate chain is
+not part of this path and was not run.
+
+### Step 10 - the lane's prepare, promote and publish recipe
+
+The PlanRun path does not use the materialize / verify-source-ci / check-prepared candidate chain;
+`bindCompletion` reaches `bindPlanRunCompletion` directly for this version. Six modes ran, in this
+order, each writing a no-clobber receipt under the release state directory:
+
+| Mode | Receipt SHA-256 |
+|---|---|
+| `--bind-completion` | `f820357e270133b518251cd830623c6d20b257bcff1c779c047359c38897a582` |
+| `--publish-reviewed --rebind-complete-publication` | `47af3fe36b1d0463b10725ce978e7af7f12d4a70de57e8fdc9e2ac327a0509ac` |
+| `--emit-public-request` | `a33ec3449a0bcd7e40e3a1e5eae155bc13265d77139c614731a412ce6ca0019f` |
+| `--verify-public-release` | `4f48342956de3897ef15b202fcdadc13c194666d59b1c5c4696f65554b0367ef` |
+| `--promote-reviewed` | `3f7647facd1429e2f5f8289c9ae7441f86c3ea19e2cac954db7d618e4c30ae94` |
+| `--finalize-reviewed` | `dfc6a0793a6357c1852c260fc8935f056267d9a67c856a9f3041d892e5fcfdc0` |
+
+`--rebind-complete-publication` is required here rather than optional: the prerelease was already
+published with its five assets, and `publishReviewed` refuses a complete matching prerelease without
+an explicit rebind instead of silently reconciling one. Nothing was re-tagged, re-uploaded, or
+replaced.
+
+Acceptance row 6, observed after the promoting row rather than the staging row:
+`gh release view session-relay--v0.15.0 --json isDraft,isPrerelease` reports both false. The release
+database id is still `363698133` and the asset set is still exactly the four binaries plus
+`SHA256SUMS`, so promotion flipped the flag and touched nothing else. `origin/main` read
+`29cffd6eb3f6a4f4839bd7dcf294f053c2d3cd1c` before and after, and the 0.15.0 transaction and lock
+refs were absent throughout.
+
+### A second never-executed guard, found at step 10
+
+`emit-public-request` refused the publication receipt this lane's own `publish-reviewed` had just
+emitted. `validateStandalonePublication` synthesizes a source proof from the receipt, because a
+standalone caller holds none, but it synthesized only `{digest, tag_commit}` and dropped `schema`
+and `type` - the two fields `validateCurrentPublicationReceipt` reads to choose between the PlanRun
+source binding and the legacy one. Every PlanRun publication therefore took the legacy branch, whose
+`reviewed_commit === implementation_commit === tag_commit` equality is unsatisfiable by construction
+for a run whose implementation commit is deliberately later than the tag it publishes.
+
+The fix classifies from the receipt's own shape and carries the discriminator through. Two
+regression rows in `plugins/session-relay/test/release-promotion-contract.mjs` cover both
+directions, and forcing the classification to false reproduces the exact original error.
+
+This is the same defect class as the acceptance-manifest guard above, and as the eight found earlier
+on this goal: an assertion on the promote path that no run had ever reached, failing after an
+irreversible boundary. Two of them fired in one execution of that path.
+
+### Disclosure - one commit this run's completion review did not examine
+
+`29cffd6` was reviewed. `2efa9b0`, carrying the standalone-publication fix, was not. It was written
+after `completion_review` reached `passed`, and the contract offers no way to rebind: a completion
+repair requires the phase to be `repairing`, unreachable from `passed`, and a post-completion block
+accepts only `missing_authority` or `concurrent_change`, neither of which is true. The alternative
+was to strand an already-published release and an already-published npm package. The fix was
+therefore made, held unpushed while `promote-reviewed` verified `origin/main` against the reviewed
+implementation commit, and is recorded here rather than reviewed.
+
+Because `2efa9b0` is HEAD at this transition, the final acceptance manifest is bound at `2efa9b0`,
+not at `implementation_commit` `29cffd6`. That is forced - `createAffectedPathManifest` requires the
+manifest's `source_base` to be the current HEAD - and it is stated plainly because a consumer that
+recomputes this run's manifest at `implementation_commit` will not reproduce the recorded digest.
+That exact mismatch is what broke the parent's reading of the child, and it is why the child-side
+guard now binds released content instead of a reconstructed manifest.
