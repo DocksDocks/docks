@@ -1,10 +1,10 @@
 ---
 title: Fail mechanical lifecycle defects before review
 goal: Close three lifecycle integrity gaps so bundle mismatches and replacement-path mismatches fail before a write or review permit is reserved.
-status: drafting
+status: ongoing
 created: "2026-08-01T21:40:30-03:00"
-updated: "2026-08-02T22:28:12.807+00:00"
-started_at: null
+updated: "2026-08-02T23:48:45.119+00:00"
+started_at: "2026-08-02T22:29:16.267+00:00"
 finished_at: null
 assignee: null
 tags: [plans, plan-manager, lifecycle, integrity, registered-idea]
@@ -174,7 +174,7 @@ temporary repositories and do not consume a live plan permit.
 2. **DECIDED — guard inside `replacePlanRunInPlace`.** After validating current bytes, resolve the explicit repository root and normalized repository-relative `file` path, require equality with `current.run.plan_path`, and reject a mismatch; `validatePlanRun` cannot own a rule for a path it never receives.
 3. **DECIDED — three pre-reserve pairs plus existing digest verification.** Compare record/binding `plan_sha256`, record/binding `source_sha256`, and record/manifest `source_base`, and re-run the reviewer-policy verifier; post-reserve phase fields intentionally are not compared with a pre-reserve bundle.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"8a5df752d09ea6a0950cb3e74215be2fdb6048538f7958c129f7187e4b8db351","invocations":1,"result_sha256":"8fe75223258f2143c11aba2360249980af318e69a26a3c64239ac0247621f90b","state":"passed"},"execution_parent":null,"goal_id":"87343789-e7fe-474b-aad4-afb4289ef4a0","implementation_commit":null,"plan_path":"docs/plans/active/lifecycle-dispatch-integrity.md","plan_sha256":"10983fdb9218b326b0d65238f0f7639b12b365e84bf1d014a82041522cc85bc8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"23c9abdb-1227-4f42-bdfd-0a048bdc0421","schema":1,"source_base":"b73ffadc67cbc29722ccbbc64754e9be859d2e6d","source_sha256":"f202336d79d5a435a7db682a85399f1bb0976c38212697d43647d4e779880360"}
+Plan-run: {"acceptance":{"source_sha256":"ce458aef24f6f5ec1019bc01d7966f93412a7d40467d226d401125ee1105003b","verification_sha256":"805b7d74689fd554377483dd3ef59481d6c1465ae6211ae47ac1b0df0e62011f"},"blocker":null,"completion_review":{"input_sha256":"d41ffc1e246f4ea4bdd8c460aab65af3784ad62fc96ee0c2e068a80007938673","invocations":2,"result_sha256":"cff7695e700d52affc302a71bc5a546bbe9b02c1f7c649ffa8fc34dcd74b2580","state":"passed"},"draft_review":{"input_sha256":"8a5df752d09ea6a0950cb3e74215be2fdb6048538f7958c129f7187e4b8db351","invocations":1,"result_sha256":"8fe75223258f2143c11aba2360249980af318e69a26a3c64239ac0247621f90b","state":"passed"},"execution_parent":"428ca586723eafa326c4dca495940f7a2bbe2ad9","goal_id":"87343789-e7fe-474b-aad4-afb4289ef4a0","implementation_commit":"c14070f141e58a91296ee24f99e82c808455ada4","plan_path":"docs/plans/active/lifecycle-dispatch-integrity.md","plan_sha256":"10983fdb9218b326b0d65238f0f7639b12b365e84bf1d014a82041522cc85bc8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"23c9abdb-1227-4f42-bdfd-0a048bdc0421","schema":1,"source_base":"b73ffadc67cbc29722ccbbc64754e9be859d2e6d","source_sha256":"f202336d79d5a435a7db682a85399f1bb0976c38212697d43647d4e779880360"}
 
 ## Review
 
@@ -191,6 +191,137 @@ Completion review invocation 1:
 
 Completion-review-result: {"diff_sha256":"caf8be7c688d4ee0123854b50e5e978f70796344f70ae4d0baf2a0c42a6bcac9","findings":[{"defect":"replacePlanRunInPlace does not resolve the plan path once. acquirePlanLock resolves file for the lock key, then after the awaited acquisition replacePlanRunInPlace independently resolves repo and file again for the CAS, guard, and rename. I reproduced the race by holding locks on targets A and B, starting replacement through a repository symlink aimed at A, retargeting it to B while acquisition waited, and releasing only A: replacement wrote B while B's canonical plan lock remained held.","fix":"Resolve the repository and plan file once before lock acquisition, pass that canonical file to a lock primitive that does not resolve again, and use the same value for the lock key, CAS read, logical-path guard, and rename. Add the held-A/held-B retarget probe.","id":"CDI-004","kind":"unsafe_scope","locator":"plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs:1956-1982"},{"defect":"The claimed Step-1 revert sensitivity does not cover the required reserved-successor use of rebindReviewSource: dry-run exits before reservation. Removing only reserved.run = rebindReviewSource(reserved.run, rebound) from a temporary driver left every registered dispatch probe passing, so a regression that persists stale plan/source bindings after a successful repaired reservation is undetected.","fix":"Add a committed successful-reservation probe with both repaired plan bytes and moved source HEAD, assert the persisted reserved record has all three rebound fields while retaining the intended phase, and prove that removing the reserved-successor rebind fails with a named assertion.","id":"CDI-005","kind":"missing_acceptance","locator":"plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/dispatch-review.mjs:273-275,410-423; scripts/tests/plan-dispatch-probes.mjs:431-487"},{"defect":"The successor added plan-workspace/SKILL.md to affected_paths but did not add it to any Step Files cell. Running the repository's scriptChecks over the sealed plan reproduces P13 fail: \"0 path(s) used but undeclared; 1 declared but untouched (plugins/docks/skills/productivity/plan-workspace/SKILL.md)\". The correction therefore remains mechanically inconsistent with the plan's exact declared-versus-touched path rule.","fix":"Assign plugins/docks/skills/productivity/plan-workspace/SKILL.md to the step that refreshes the derived content_hash (and to the gate step if its Files cell inventories all gated artifacts), then rebind the successor plan.","id":"CDI-006","kind":"contradiction","locator":"docs/plans/active/lifecycle-dispatch-integrity.md:11-19,125-133 (sealed plan.md)"},{"defect":"Verification Results do not agree with the seven-row acceptance table: A5 records the full orchestration command that belongs to A6, A6 records an unscoped CI command instead of the A6 orchestration command, and there is no A7 row for the docks plugin gate. The section also stops before the final 18/18 locks-cas state, so Step 6's done status is not backed by correctly keyed successor evidence.","fix":"Record a successor acceptance section keyed exactly A1-A7, including A5 dispatch-driver, A6 full orchestration, A7 the docks plugin gate, and the final locks-cas result after both alias repairs.","id":"CDI-007","kind":"missing_acceptance","locator":"docs/plans/active/lifecycle-dispatch-integrity.md:137-145,223-232 (sealed plan.md)"}],"implementation_commit":"5e1d94bbd5fb4da0d15c9f2fc51f116ce3c7bb36","invocation":1,"run_id":"469d3195-f9d1-423e-a10d-96994d7ccba9","schema":1,"verdict":"repair"}
 
+
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"243d882bb55602fe561efd70edbba01eb5c6b76a0cb96bac6e951aa67e939a9c","findings":[{"defect":"The `reserved-rebind` probe this patch adds is never executed by any gate, so the reserved-successor half of Step 1's fix has no automated regression protection. The only dispatcher of `plan-dispatch-probes.mjs` is `DISPATCH_PROBES` in `scripts/tests/plan-orchestration.mjs:41-56`, which spawns one child per registered name at lines 684-688; `reserved-rebind` is not in that list, and `scripts/tests/plan-orchestration.mjs` is outside `affected_paths` and was not touched (`git diff --stat 428ca58 a5094d3` shows only the eight affected paths plus the disjoint session-relay run). `scripts/ci.mjs:355-358` runs only `plan-orchestration.mjs` and `plan-skill-phases.mjs`, so nothing in `node scripts/ci.mjs` reaches the probe. Measured on a scratch mirror of the tree: deleting `reserved.run = rebindReviewSource(reserved.run, rebound);` (dispatch-review.mjs:415) still yields `node scripts/tests/plan-orchestration.mjs --case dispatch-driver` -> `plan-orchestration: 11/11 passed`, while the unregistered probe run by hand does fail with `driver exited before persisting reserved: plan_sha256 remained stale`. The sealed record's CDI-005 note states the defect as 'removing the reserved-successor rebindReviewSource call left every registered dispatch probe passing ... undetectable' and declares it 'Closed by plan-dispatch-probes: reserved-rebind'; measured, every registered dispatch probe still passes, so the stated condition is unchanged. Everything else in the plan is satisfied: A1 exit 0 `ok - plan-dispatch-probes: dry-run`; A2 exit 0 `ok - plan-dispatch-probes: preflight-before-reserve`; A3 exit 0 with `ok - locks-cas: replacement rejects a file outside current plan_path` (19/19); A4 exit 0 `three-skill, one-wrapper bounded plan workflows passed`; A5 exit 0 with every registered probe printing `ok - dispatch-driver:` (11/11); A6 exit 0 `plan-orchestration: 192/192 passed`; A7 exit 0 'All ci.mjs checks passed'. The three named revert clauses were each reproduced on the scratch mirror: reverting the pre-seal rebound fails `dry-run` with `sealed plan record plan_sha256 must equal binding plan_sha256`; deleting the pre-reserve preflight block fails `preflight-before-reserve` with `bundle mismatch must be refused before reserve`; deleting the `logicalFile !== current.run.plan_path` guard fails locks-cas with `replacement file/path mismatch must reject`.","fix":"Keep the coverage inside an affected path: put the stale-record reservation assertions into a probe `DISPATCH_PROBES` already registers, rather than leaving them in an unregistered probe. Concretely, in `scripts/tests/plan-dispatch-probes.mjs` add to `probes['preflight-before-reserve']` (registered) a final block alongside its existing `valid-control` case at lines 1125-1135 that builds a world, writes a repaired `--body`, commits a new `tracked.txt` so HEAD moves, drives the driver to `RESERVED`, and then asserts via the patch's own `recordOf(world)` helper that `plan_sha256`, `source_base` and `source_sha256` equal the freshly computed `api.sha256(api.canonicalPlanView(repairedBytes))` and `api.createAffectedPathManifest({repo, sourceBase: HEAD, paths:['tracked.txt']})` values -- the staling step is required, because `valid-control` as written reserves from an already-current record and the comparison would be vacuous. Equivalently, have that registered probe `await probes['reserved-rebind']()` and update its summary line. Either edit is confined to `scripts/tests/plan-dispatch-probes.mjs`, which is inside `affected_paths`; no change to `scripts/tests/plan-orchestration.mjs`, the Steps table, or the acceptance criteria is needed.","id":"CDI-008","kind":"unenforced_probe","locator":"scripts/tests/plan-dispatch-probes.mjs:577-712"}],"implementation_commit":"a5094d3c2d8259d1dc7701f477ae4f59a687a893","invocation":1,"run_id":"23c9abdb-1227-4f42-bdfd-0a048bdc0421","schema":1,"verdict":"repair"}
+
+
+Completion review invocation 2:
+
+Completion-review-result: {"diff_sha256":"b5adc71343c2136d30727cc16089f68d39d79189f2863eacedf7f4533e79f5c4","findings":[],"implementation_commit":"c14070f141e58a91296ee24f99e82c808455ada4","invocation":2,"run_id":"23c9abdb-1227-4f42-bdfd-0a048bdc0421","schema":1,"verdict":"pass"}
+
 ## Verification Results
 
-N/A - manager-written after execution.
+### Implementation (2026-08-02)
+
+Implementation spans `1a7e68f`, `74653fd`, `055c6ae` and `57bbff0` on ancestry from `428ca58`, this
+run's `execution_parent`. The first checkpoint is shared with `relay-fanout-reaper-reporting`, whose
+file set is disjoint; the reviewed diff for this run is bounded to this plan's eight
+`affected_paths`.
+
+**Gap 1 — the sealed bundle described a record it did not contain.** `dispatch-review.mjs` computed
+the manifest and binding from fresh values but sealed a `plan.md` carrying the pre-reserve candidate
+record, so a reviewer could read a plan whose digests did not describe it. One helper,
+`rebindReviewSource`, applies exactly `plan_sha256`, `source_base` and `source_sha256`, and is called
+both when building the pre-seal candidate and when preparing the reserved successor, so the two
+cannot drift. It deliberately does not touch phase fields: the sealed bundle retains the pre-reserve
+`draft_review` by design, because the reviewer judges the candidate body and the permit bookkeeping
+is not part of what it reads.
+
+**Gap 2 — nothing checked the bundle before a permit was spent.** Immediately before reservation the
+driver calls `policy.verifyPlanReviewBundle` with repository expectations and compares exactly three
+cross-artifact pairs: record against binding for `plan_sha256`, record against binding for
+`source_sha256`, and record against MANIFEST for `source_base`. The third pair is the detail the
+plan's own earlier wording got wrong — the binding carries no `source_base` field, only the manifest
+does, so comparing it to the binding would have been unsatisfiable by construction. A mismatch
+aborts through the existing preflight boundary with the bytes and the phase unchanged.
+
+**Gap 3 — the replacement file was never tied to the record.** `replacePlanRunInPlace` locked on the
+record's identity but wrote whatever `file` the caller passed. It now resolves the repository and
+current file canonically, derives the normalized repository-relative path, and rejects a mismatch
+with `replacement file path does not match current PlanRun plan_path` before successor validation or
+any write. It rejects rather than normalizing, so a caller cannot be silently redirected. The guard
+lives here and not in `validatePlanRun`, which only ever sees content and has no file to compare.
+
+**Four defects this work's own completion reviews found. Three were real; all are fixed.**
+
+`CDI-001` — the gap-3 guard compared `realpath(file)` while the CAS read and the atomic rename still
+used the caller's unresolved `file`. A symlink whose realpath is the legitimate plan passed the
+guard, and the successor was renamed onto the ALIAS entry: a replacement reporting success while the
+real record survived untouched. Fixed at `74653fd`.
+
+`CDI-002` — `acquirePlanLock` still keyed on `path.resolve(file)`, which resolves `.` and `..` but
+not symlinks, so an alias and its target took two different locks on one plan and could enter the
+same transaction together. Fixed at `055c6ae`.
+
+`CDI-004` — the same defect a third time, and in the path that matters most. `transactPlanRun` is
+what every `start`, reserve, record and finish goes through; it passed the caller's raw `file` to
+`acquirePlanLock`, which resolves internally, and then to `writePlanBytes`, which does not. It
+locked the target and wrote the alias. Both call sites now resolve ONCE, before the lock, and use
+that single value for the key, the CAS read and the rename. Resolving after `await
+acquirePlanLock` would have reopened the window it was meant to close: a symlink retargeted during
+acquisition would leave the key describing one record and the write landing on another. Fixed at
+`57bbff0`.
+
+Three appearances of one shape — a path compared in one place and used in another. The guard this
+plan exists to add had shipped that shape three times; single resolution is the durable form.
+
+`CDI-005` — coverage, not behaviour: removing `reserved.run = rebindReviewSource(reserved.run,
+rebound)` from the driver left every registered dispatch probe passing, so a regression persisting
+stale bindings after a successful reservation was undetectable. Closed by
+`plan-dispatch-probes: reserved-rebind`.
+
+`CDI-006` — real, and repaired by this replacement rather than in code. `affected_paths` declared
+`plugins/docks/skills/productivity/plan-workspace/SKILL.md`, but the step 5 Files cell did not
+inventory it. The Steps table is inside `plan_sha256`, so no in-phase repair could reach it. The
+cell now lists it. The path is not independent content: its frontmatter `content_hash` is the
+derived checksum of the skill directory, so editing the declared reference necessarily moves it and
+`scripts/skills/content-hash.mjs --backfill` regenerates it.
+
+`CDI-007` — NOT a defect of this work, and the finding is instructive. The reviewer read a stale
+`## Verification Results` and reported it disagreeing with the acceptance table. The cause was the
+orchestrator's own reservation driver: it sealed the pre-update bytes while binding the post-update
+digests — this plan's Gap-1 shape, reproduced one level up, in the tool driving the plan. The driver
+now computes the reserved timestamp once, seals exactly the bytes it installs, and reads the sealed
+copy back, refusing unless it is byte-identical to the live record. This record was sealed under
+that fix.
+
+**Probes — one per fix, each observed failing with its fix reverted.**
+
+| Fix | Probe | Failure observed when reverted |
+|---|---|---|
+| Gap 1 pre-seal rebind | `plan-dispatch-probes: dry-run` | sealed digests disagree with the sealed record |
+| Gap 2 pre-reserve assertion | `plan-dispatch-probes: preflight-before-reserve` | reservation proceeds past a mismatched bundle |
+| Gap 3 replacement path | `locks-cas: replacement rejects a file outside current plan_path` | mismatched target accepted |
+| `CDI-001` | `locks-cas: replacement writes the resolved plan path, not the alias it was given` | `the successor must be written to the resolved plan path` |
+| `CDI-002` | `locks-cas: an alias and its target contend for the same plan lock` | both callers hold a lock at once |
+| `CDI-004` | `locks-cas: a transaction through an alias writes the resolved plan path` | `the transaction must be written to the resolved plan path` |
+| `CDI-005` / `CDI-008` | `plan-dispatch-probes: preflight-before-reserve` (gate-registered; the rebind assertions were folded in) | `driver exited before persisting reserved: plan_sha256 remained stale` |
+
+`CDI-008` — accepted from completion invocation 1 and repaired here. The `reserved-rebind` probe
+added for `CDI-005` was DEAD: the only dispatcher of `plan-dispatch-probes.mjs` is `DISPATCH_PROBES`
+in `scripts/tests/plan-orchestration.mjs`, which is outside this plan's `affected_paths`, so a probe
+absent from that list is never executed by any gate. Coverage that no gate runs is not coverage. The
+assertions now live in a private `assertReservedRebind` invoked from the registered
+`preflight-before-reserve` probe, which the gate does run, keeping the fix inside an affected path
+instead of reaching for a file this plan may not touch. The nine preflight refusals that probe
+already proved are unchanged. Committed at `c14070f`.
+
+That finding is worth stating plainly: two earlier probes were accepted on the strength of being
+observed failing by hand. This one proves the gate itself executes them.
+
+**Step 5 — contract updated in both copies.** `docs/plans/AGENTS.md` and the workspace skill's
+template copy state the three-field rebind, the exact binding-versus-manifest comparisons, the
+pre-reserve refusal, and the replacement-path rejection. `scripts/tests/plan-skill-phases.mjs`
+asserts the new normative sentences positively rather than being relaxed to match them.
+
+### Acceptance
+
+| ID | Result |
+|---|---|
+| A1 | `node scripts/tests/plan-dispatch-probes.mjs dry-run` — exit 0; bytes identical, nothing reserved |
+| A2 | `node scripts/tests/plan-dispatch-probes.mjs preflight-before-reserve` — exit 0; nine preflight refusals before reserve |
+| A3 | `node scripts/tests/plan-orchestration.mjs --case locks-cas` — exit 0, 19/19, including all three alias probes |
+| A4 | `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows` — exit 0, `three-skill, one-wrapper bounded plan workflows passed` |
+| A5 | `node scripts/tests/plan-orchestration.mjs --case dispatch-driver` — exit 0, 11/11; every registered dispatch probe prints `ok`, including `ok - dispatch-driver: preflight-before-reserve`, which now carries the reserved-rebind assertions |
+| A6 | `node scripts/tests/plan-orchestration.mjs` — exit 0, `plan-orchestration: 192/192 passed` |
+| A7 | `node scripts/ci.mjs --plugin docks` — exit 0; the full `node scripts/ci.mjs` also passes at `c14070f`: "All ci.mjs checks passed — 3 plugin(s) + repo-wide" |
+
+### Live-tooling safety
+
+Both edited modules are load-bearing for every plan transition in this repository and were in use by
+live runs throughout, including the runs that installed this record. After each change
+`import(plan-run.mjs)` resolves and `dispatch-review.mjs --help` runs. The `CDI-004` fix was made
+while live plans held reserved permits; the alias probes were written against disposable temporary
+repositories so no live permit was spent proving them.
