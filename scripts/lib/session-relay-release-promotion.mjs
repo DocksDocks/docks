@@ -52,7 +52,7 @@ import {
 } from './session-relay-release-publication.mjs';
 
 const INSTANCE = loadReleaseInstance(CURRENT_VERSION, {
-  require: ['current_attempt', 'planrun_attempt'],
+  require: ['current_attempt', 'planrun_attempt', 'public_child'],
 });
 const LEGACY = loadReleaseInstance('0.13.0', {
   require: ['legacy_0_13', 'historical_receipts'],
@@ -94,6 +94,13 @@ const PUBLICATION_TRANSITIONS = new Set([
   'tag_and_release_created',
 ]);
 const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.13.0';
+// The exact released content of the public child, as this repository observed it: the SHA-256 of
+// the compact JCS of `{schema:1, source_base:<implementation commit>, paths:[{path, sha256}]}` over
+// every `affected_paths` entry of the child's finished plan, read at that commit. Derived twice by
+// independent routes - the GitHub Contents API this module actually uses, and a local clone - and
+// reviewed as instance data rather than recomputed from whatever the child happened to record. It
+// lives beside `version` and `tag`, so a new child release must restate it and pass through review.
+const PUBLIC_IMPLEMENTATION_CONTENT_SHA256 = INSTANCE.public_child.implementation_content_sha256;
 const CURRENT_GOAL_ID = INSTANCE.current_attempt.goal_id;
 const CURRENT_DOCKS_RUN_ID = INSTANCE.current_attempt.docks_run_id;
 const CURRENT_DOCKS_PLAN_PATH = INSTANCE.current_attempt.docks_plan_path;
@@ -501,6 +508,9 @@ export const PUBLIC_RELEASE_ADAPTER_KEYS = Object.freeze([
   'downloadReleaseAsset',
   'getPinnedAssets',
   'getNpmState',
+  // The reviewed released-content digest is an adapter operation, not a module read, so a test can
+  // exercise the comparison with its own fixture bytes. Production supplies the instance value.
+  'expectedImplementationContent',
 ]);
 
 export const PROMOTION_ADAPTER_KEYS = Object.freeze([
@@ -978,15 +988,29 @@ function parsedPublicPlanRun(parsed) {
   return run;
 }
 
-function publicPlanRunManifestDigest(adapter, implementationCommit, affectedPaths, mode) {
+// The parent cannot reconstruct a child's `acceptance.source_sha256`, and must not pretend to.
+// PlanRunV1 `acceptance` is a closed `{source_sha256, verification_sha256}` pair, so the record
+// persists a digest whose preimage - the manifest's `source_base` and every path's
+// `lstat().mode & 0o7777` - is never written down anywhere. A Git tree stores no filesystem
+// permission bits, so no remote observer can ever recover that preimage.
+//
+// The previous code did not verify the recorded digest; it invented a preimage
+// (`source_base := implementation_commit`, `mode := 0o644` then `0o664`) and asked whether the
+// recorded number happened to hash-match one of two guesses. That is a two-element search over an
+// unobservable value, and it had never executed against a real child. It fails closed against any
+// child whose acceptance was proven at a different live instant - which the contract expressly
+// permits, because `ongoing -> finished` may rebind acceptance to the final manifest.
+//
+// So bind what this repository can observe for itself: the exact released bytes. This digest
+// covers path and content only, and is compared against a literal reviewed here, beside the other
+// child identity pins. Content is what a consumer installs; a permission bit on the child's
+// worktree is not.
+function publicImplementationContentDigest(adapter, implementationCommit, affectedPaths) {
   const paths = affectedPaths.map((filePath) => {
     const bytes = adapter.getFinishedPlan(implementationCommit, filePath);
     if (!Buffer.isBuffer(bytes)) fail(`current public implementation path observation must be bytes: ${filePath}`);
     return {
       path: filePath,
-      state: 'file',
-      kind: 'file',
-      mode,
       sha256: sha256(bytes),
     };
   });
@@ -1047,11 +1071,19 @@ function verifyCurrentPublicPlanRun(
   if (run.acceptance.verification_sha256 !== sha256(canonicalVerificationResults(planBytes))) {
     fail('current public finished PlanRunV1 Verification Results digest mismatch');
   }
-  const manifestDigests = [0o644, 0o664].map((mode) =>
-    publicPlanRunManifestDigest(adapter, run.implementation_commit, frontmatter.affected_paths, mode),
+  // Well-formedness only: the digest is a real binding on the child's side, proven live against
+  // its worktree at the instant it was written, but its preimage is not recoverable here. See
+  // publicImplementationContentDigest.
+  if (!/^[0-9a-f]{64}$/.test(run.acceptance.source_sha256)) {
+    fail('current public finished PlanRunV1 acceptance source digest is malformed');
+  }
+  const contentDigest = publicImplementationContentDigest(
+    adapter,
+    run.implementation_commit,
+    frontmatter.affected_paths,
   );
-  if (!manifestDigests.includes(run.acceptance.source_sha256)) {
-    fail('current public finished PlanRunV1 affected-path source manifest mismatch');
+  if (contentDigest !== adapter.expectedImplementationContent()) {
+    fail('current public finished PlanRunV1 released affected-path content does not match the reviewed digest');
   }
   const ancestry = {
     execution_parent: run.execution_parent,
@@ -1540,6 +1572,7 @@ const PUBLIC_RELEASE_ADAPTER = Object.freeze({
     }
     fail('public npm version state does not match docks-kit release');
   },
+  expectedImplementationContent: () => PUBLIC_IMPLEMENTATION_CONTENT_SHA256,
 });
 
 export function verifyPublicRelease(options, injectedAdapter = undefined) {

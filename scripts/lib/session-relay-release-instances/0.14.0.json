@@ -52,7 +52,8 @@
   },
   "public_child": {
     "version": "0.12.0",
-    "tag": "cli-v0.12.0"
+    "tag": "cli-v0.12.0",
+    "implementation_content_sha256": "1821dc6d9343021a9386cc69c61332e3c1f2f149427421d177205289f982d3fb"
   },
   "authorized_base": {
     "current_main_base": "25592c6550069e300a7a0148d3cd3c21880da8e7",

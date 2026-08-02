@@ -79,6 +79,12 @@ export const INSTANCE_FIELD_GROUPS = Object.freeze({
   public_child: Object.freeze({
     version: 'version',
     tag: 'text',
+    // SHA-256 over the compact JCS of `{schema:1, source_base:<child implementation commit>,
+    // paths:[{path, sha256}]}` for every affected path of the child's finished plan, read at that
+    // commit. It pins the released bytes this repository reviewed, because a child's PlanRunV1
+    // `acceptance.source_sha256` hashes a preimage - manifest source_base plus per-path filesystem
+    // modes - that the record never persists and no remote observer can reconstruct.
+    implementation_content_sha256: 'digest64',
   }),
   legacy_0_13: Object.freeze({
     release_version: 'version',
