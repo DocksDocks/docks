@@ -1489,7 +1489,17 @@ export async function acquirePlanLock({
   if (typeof repositoryId !== 'string' || repositoryId === '') fail('plan lock repository identity is required');
   normalizeLogicalPaths([planPath], 'plan path');
   if (!UUID.test(runId) || !HASH.test(expectedBytesSha256)) fail('plan lock run/preimage identity is invalid');
-  const absolute = path.resolve(file);
+  // Resolve symlinks, not just `.`/`..`. The lock key is the plan's identity, so two callers naming
+  // the SAME record through different paths must contend for the same lock. Keying on
+  // `path.resolve` alone let an alias and its target take two different locks and enter the same
+  // transaction together, which is the mutual exclusion this lock exists to provide. An absent
+  // file keeps the resolved path and fails the preimage check immediately below.
+  let absolute = path.resolve(file);
+  try {
+    absolute = fs.realpathSync(absolute);
+  } catch {
+    // The preimage verification below reports the missing file with its own message.
+  }
   const verifyPreimage = () => {
     if (!fs.existsSync(absolute) || sha256(fs.readFileSync(absolute)) !== expectedBytesSha256) {
       fail('dead plan lock preimage is stale');

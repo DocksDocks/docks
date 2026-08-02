@@ -1,10 +1,10 @@
 ---
 title: Make the fanout reaper report why a worktree survived
 goal: Return and emit a typed reason when fan-out GC protects a worktree, cannot remove it, refuses a flat legacy reservation, or cannot open the worktrees surface.
-status: drafting
+status: ongoing
 created: "2026-08-01T23:17:11-03:00"
-updated: "2026-08-02T17:39:50.362+00:00"
-started_at: null
+updated: "2026-08-02T18:44:01.247+00:00"
+started_at: "2026-08-02T17:55:37.690+00:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, fanout, gc, observability, registered-idea]
@@ -99,8 +99,70 @@ Use `cargo +1.85.0 --manifest-path plugins/session-relay/rust/Cargo.toml ...` fo
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"56bcbb2cf1acf2b2437c0181f45fa6656aec25aa00654b20f452508c6892c449","invocations":1,"result_sha256":"f598651f8a166226414c83ece2c84b549169df942a6e2bd64ea96e1898d25d8c","state":"passed"},"execution_parent":null,"goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":null,"plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"076d022a2856147d1be2e1c128d6d955a5e546be84126c0d1547b9521b596593","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8e656e8b-8a20-4acc-9460-3a7dabc5c447","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"309f51fbad84174a850cf673817f5c3af4d3be07640bbb095b4a5271f11a8646"}
+Plan-run: {"acceptance":{"source_sha256":"dc9d7b86bf1d884aaff21340a7baf93383447938c73980f9ad9df749cf5e3d73","verification_sha256":"84d69e4184e2e72de2783bfee3763943bcd636d2085c8417f36eb19a4f2c81c6"},"blocker":null,"completion_review":{"input_sha256":"36175bcaad63f6ddd7b92e120b3fcf731c7056d8a823c401dd9a1661a77493eb","invocations":1,"result_sha256":"e06194a5985ee080fc607a603488d13b88ae811aac6bc7c3698ddc453efa1752","state":"repairing"},"draft_review":{"input_sha256":"56bcbb2cf1acf2b2437c0181f45fa6656aec25aa00654b20f452508c6892c449","invocations":1,"result_sha256":"f598651f8a166226414c83ece2c84b549169df942a6e2bd64ea96e1898d25d8c","state":"passed"},"execution_parent":"428ca586723eafa326c4dca495940f7a2bbe2ad9","goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":"1a7e68f8dc16d0193881bb27e10689c4710f1c23","plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"076d022a2856147d1be2e1c128d6d955a5e546be84126c0d1547b9521b596593","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8e656e8b-8a20-4acc-9460-3a7dabc5c447","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"309f51fbad84174a850cf673817f5c3af4d3be07640bbb095b4a5271f11a8646"}
+
+
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"e6e1a9e899544d5705655a981f694efb6b5892cfcc8c205c1bf953b72fb33d58","findings":[{"defect":"Acceptance A6 is not executable as specified. Running its exact command, `node plugins/session-relay/test/rust-test-inventory.mjs`, exits 1 with `usage: node rust-test-inventory.mjs --case <name>` because the unchanged inventory checker requires a named case. The corrected focused invocation with `--case fanout_reap` passes, but that is not the sealed acceptance command.","fix":"Correct A6 to invoke `node plugins/session-relay/test/rust-test-inventory.mjs --case fanout_reap`, rebind the canonical plan, and rerun completion review so every exact acceptance command is satisfiable.","id":"A6-inventory-command","kind":"missing_acceptance","locator":".git/docks-review/completion-relay-fanout-reaper-reporting-1/plan.md:70; plugins/session-relay/test/rust-test-inventory.mjs:111-114"}],"implementation_commit":"1a7e68f8dc16d0193881bb27e10689c4710f1c23","invocation":1,"run_id":"8e656e8b-8a20-4acc-9460-3a7dabc5c447","schema":1,"verdict":"repair"}
 
 ## Verification Results
 
-N/A — manager-written after execution.
+### Implementation (2026-08-02)
+
+Implementation commit `1a7e68f`, based on `execution_parent` `428ca586723eafa326c4dca495940f7a2bbe2ad9`.
+The checkpoint is shared with `lifecycle-dispatch-integrity`, whose file set is disjoint; the
+reviewed diff for this run is bounded to this plan's `affected_paths`.
+
+**Step 1 — typed outcome reason.** `FanoutGcOutcome::Retained` and `FanoutGcDecision::Retained` now
+require a `FanoutGcReason`, with eight stable labels: `legacy_shape`,
+`repository_identity_changed`, `worktree_changed`, `uncollected_commits`,
+`commit_inspection_failed`, `worktree_not_clean`, `removal_failed`, and
+`worktrees_surface_unavailable`. Commit inspection, cleanliness, revalidation and removal now map to
+distinct arms. Keyed-worktree removal eligibility is unchanged.
+
+**Step 2 — unavailable surface.** A missing worktrees surface returned
+`FanoutGcReport::default()`, an empty success report indistinguishable from "nothing to do". It now
+returns `FanoutGcReport::worktrees_surface_unavailable()`.
+
+**Step 3 — reasons tested.** Four named unit tests plus integration coverage. Non-vacuity was
+demonstrated, not asserted: collapsing `RemovalFailed` into `WorktreeNotClean` made
+`fanout::tests::removal_failure_has_distinct_report_reason` fail, and restoring the arm made it pass.
+
+**Step 4 — legacy shape refused, not migrated.** A validated one-component path is recognised and
+reported as `legacy_shape` before any repository or Git inspection. The record is not mutated, the
+tree is not moved or deleted, and the branch is not deleted. `worktree_path_components` stays
+`1..=3`. Migration was rejected because no authority or path-rewrite mechanism exists for those
+records and rewriting persisted paths during a GC sweep could move custody unsafely.
+
+**Step 5 — documented.** All eight labels and their operator actions are documented in
+`plugins/session-relay/AGENTS.md` under Store hygiene, with the keyed/flat policy and the
+refusal-without-migration contract under Worktree fan-out.
+
+**Reason rendering.** One discriminant, two renderings: the typed reason travels in the report and
+the store boundary emits `{"event":"fanout_gc",...,"reason":"<label>"}` on stderr, reading only
+`entry.reason.label()`. Both the report data and the exact stderr bytes are tested. This matters
+because the sweep runs from an unattended hook, where the returned report has no reader.
+
+### Acceptance
+
+| ID | Result |
+|---|---|
+| A1 | `fanout::tests::retention_report_keeps_reason_discriminants` — 1 passed |
+| A2 | `fanout::tests::removal_failure_has_distinct_report_reason` — 1 passed |
+| A3 | `store::tests::fanout_diagnostics_render_report_reasons` — 1 passed, exact bytes for all eight reasons |
+| A4 | `store::tests::missing_worktrees_surface_reports_unavailable` — 1 passed |
+| A5 | flat-reservation integration test passes and asserts the directory, branch and persisted path all survive |
+| A6 | see the deviation below |
+| A7 | `node scripts/ci.mjs` exits 0 across all three plugins and repo-wide |
+
+**A6 deviation, recorded rather than silently substituted.** The row's command as written,
+`node plugins/session-relay/test/rust-test-inventory.mjs`, cannot run: the script requires
+`--case <name>`. That script is outside this plan's `affected_paths`, and the acceptance table is
+inside `plan_sha256` with both draft permits spent, so the row could not be amended without a full
+plan replacement — disproportionate for a missing argument. The substituted commands were
+`node plugins/session-relay/test/rust-test-inventory.mjs --generate` and
+`node plugins/session-relay/test/rust-test-inventory.mjs --case fanout_reap`, which report 10/10
+`fanout_reap` tests. The check performed is the one the row intended.
+
+The full serial crate suite passes, and `cargo fmt` was applied before the final gate.

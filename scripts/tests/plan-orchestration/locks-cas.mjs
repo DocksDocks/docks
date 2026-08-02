@@ -511,6 +511,47 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
     }),
   );
 
+  // The lock key is the plan's identity. Two callers naming the SAME record through different
+  // paths must contend for one lock; if an alias and its target take separate locks they enter the
+  // same transaction together and the mutual exclusion is gone.
+  suite.test('locks-cas', 'an alias and its target contend for the same plan lock', () =>
+    withTempDirectory('plan-run-alias-lock-', async (root) => {
+      const currentFile = replacementFile(root);
+      const aliasFile = path.join(path.dirname(currentFile), 'alias-lock-plan.md');
+      const current = bindPlan(api, tuple('drafting'));
+      fs.writeFileSync(currentFile, current.bytes);
+      fs.symlinkSync(path.basename(currentFile), aliasFile);
+
+      const held = await api.acquirePlanLock({
+        file: currentFile,
+        repositoryId: REPOSITORY_ID,
+        planPath: PLAN_PATH,
+        runId: IDS.run,
+        expectedBytesSha256: api.sha256(current.bytes),
+        lockRoot: path.join(root, 'locks'),
+        lockTimeoutMs: 50,
+      });
+      try {
+        await expectReject(
+          () =>
+            api.acquirePlanLock({
+              file: aliasFile,
+              repositoryId: REPOSITORY_ID,
+              planPath: PLAN_PATH,
+              runId: IDS.run,
+              expectedBytesSha256: api.sha256(current.bytes),
+              lockRoot: path.join(root, 'locks'),
+              lockTimeoutMs: 50,
+            }),
+          /lock/i,
+          'an alias must not take a second lock on a plan that is already locked',
+        );
+      } finally {
+        held.release();
+      }
+    }),
+  );
+
   suite.test('locks-cas', 'same-file recovery requires current-user authority and exact append-only history', () =>
     withTempDirectory('plan-run-replacement-guard-', async (root) => {
       const file = replacementFile(root);
