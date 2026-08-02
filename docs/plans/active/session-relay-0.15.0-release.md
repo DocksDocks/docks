@@ -1,14 +1,15 @@
 ---
 title: Release Session Relay 0.15.0 and accept docks-kit child 0.13.0
 goal: Ship Session Relay 0.15.0 from the docks repository and move the parent release lane onto public child docks-kit 0.13.0, so the separation work in this lane is exercised by a real transition instead of asserted against absent versions.
-status: ongoing
+status: drafting
 created: "2026-08-01T16:35:59-03:00"
-updated: "2026-08-02T03:40:27.257+00:00"
-started_at: "2026-08-01T23:32:38-03:00"
+updated: "2026-08-02T05:34:39.692+00:00"
+started_at: null
 finished_at: null
 assignee: null
 tags: [plans, session-relay, release, public-child, cross-repository]
 affected_paths:
+  - .claude-plugin/marketplace.json
   - plugins/session-relay/.claude-plugin/plugin.json
   - plugins/session-relay/.codex-plugin/plugin.json
   - plugins/session-relay/rust/Cargo.lock
@@ -21,11 +22,14 @@ affected_paths:
   - plugins/session-relay/test/release-promotion-contract.mjs
   - plugins/session-relay/test/release-publication-contract.mjs
   - plugins/session-relay/test/remediation-contract.mjs
+  - scripts/lib/plugins.mjs
   - scripts/lib/session-relay-release-core.mjs
   - scripts/lib/session-relay-release-instances/0.15.0.json
+  - scripts/lib/session-relay-release-instances/schema.mjs
+  - scripts/lib/session-relay-release-preparation.mjs
   - scripts/lib/session-relay-release-promotion.mjs
   - scripts/lib/session-relay-release-publication.mjs
-  - .claude-plugin/marketplace.json
+  - scripts/verify-session-relay-preflight.mjs
 related_plans: []
 ---
 
@@ -129,16 +133,53 @@ from the repository root.
 
 ## Steps
 
+> **Successor note — why Steps 1-8 read `done` on a run that has not started.**
+> This run (`887eaf82`) replaced terminal predecessor `12a460e2`, which was blocked
+> `verification_failed`: its declared `affected_paths` listed 17 paths while the
+> implementation had changed 21, omitting `plugins.mjs`, the release-instance
+> `schema.mjs`, `session-relay-release-preparation.mjs`, and
+> `verify-session-relay-preflight.mjs` — four load-bearing files, so the acceptance
+> manifest would not have covered the ancestry and unborn-tag fixes they carry.
+> `affected_paths` is inside `plan_sha256` and only a `draft_review` transition may
+> move that, which requires `drafting`; the predecessor was `ongoing`, so no
+> amendment was legal and replacement was the only mechanism. It was authorized by
+> the exact current-user message digested in `Plan-attempt-history`.
+>
+> The Step statuses describe **world state inherited from the predecessor's
+> execution**, not work performed by this run. Steps 1-8 are genuinely done: tag
+> `session-relay--v0.15.0` is cut at `4c372a8` and its prerelease is published with
+> four binaries plus `SHA256SUMS`, all four digests verified against downloaded
+> bytes. Step 6 is irreversible and must not be re-run.
+>
+> `execution_parent` is `null` because this run has not started. At start it binds
+> to **`c1c851b`, the real parent of the implementation commits** — deliberately
+> NOT equal to `source_base` (`c5c29ce`). `git log c5c29ce..4c372a8` shows
+> `c1c851b` is the direct parent of `580662d`, the first implementation commit, so
+> `source_base -> execution_parent -> implementation_commit` is a true ancestry
+> chain and that is exactly what the binder now checks.
+>
+> `session-relay-release-preparation.mjs` previously required
+> `execution_parent === source_base` here. That was the public child's rule copied
+> onto the parent, where it does not hold: `plan-run.mjs:1692-1696` requires only a
+> one-time non-null capture, and PlanRunV1 defines `source_base` as the draft-review
+> manifest base while `execution_parent` is the implementation parent captured at
+> start. The guard sat on the `bind-completion` path that no run has ever reached,
+> so it never fired; the predecessor would have been rejected by it at step 10 with
+> the tag already burned. It is fixed, and the retained V2 sample keeps its own
+> equality because that sample genuinely satisfies it. Two earlier drafts of this
+> paragraph asserted the equality; both were wrong and are recorded so the claim is
+> not revived a third time.
+
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
-| 1 | Bump the Relay crate version, which the binaries carry | `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock` | — | `local` | `planned` | run from `plugins/session-relay/rust/`, `cargo metadata --format-version 1 --no-deps` emits exactly one package whose `packages[0].version` is `0.15.0`, and `Cargo.lock` agrees. Both details are measured, not stylistic: `--no-deps` is required because the bare form emits the entire resolved dependency graph rather than one version, and the working directory must be the crate directory because rustup resolves the pinned toolchain from the working directory — invoked from the repository root with no default toolchain configured, `cargo` exits 1 before emitting any JSON. Failure: STOP; a wrong crate version would silently ship in the binaries staged by the tag row. |
-| 2 | Bump Relay's declared version across manifests and the lane constant | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `scripts/lib/session-relay-release-core.mjs` | 1 | `local` | `planned` | All three manifest sites plus `core.mjs VERSION` read `0.15.0`, selected by marketplace entry `name` rather than by value because the docks entry already reads `0.15.0`. Failure: STOP. |
-| 3 | Create the release instance for 0.15.0 | `scripts/lib/session-relay-release-instances/0.15.0.json` | 2, and the public plan's `goal_id`/`run_id` | `local` | `planned` | `loadReleaseInstance('0.15.0', { require: ['current_attempt','planrun_attempt','continuation_paths','public_child','authorized_base'] })` resolves; `public_child` reads `{version:'0.13.0', tag:'cli-v0.13.0'}`; `current_attempt.goal_id` is `258b44c2-c3b2-4902-862c-7461724ca078` and `public_run_id` is `ad7f3b75-dfff-4bcd-8d1f-c8c11555b119`. `planrun_attempt.release_tag_commit` holds the sentinel formed by repeating `deadbeef` five times — 40 hex characters, so it satisfies the schema's `commit40` rule, while being unmistakably a placeholder that no reader or diff can mistake for a settled SHA. It was chosen by measurement, not taste: `f` × 40 and `0` × 40 both already occur in this repository and would leave the sentinel sweep unsatisfiable. Failure: STOP. |
-| 4 | Move the child identity in lane source | `scripts/lib/session-relay-release-promotion.mjs`, `scripts/lib/session-relay-release-publication.mjs` | 3 | `local` | `planned` | `PUBLIC_VERSION`, `CURRENT_DOCKS_KIT_RELEASE`, and `CURRENT_PUBLIC_VERSION` name the child by constant, each `0.13.0`/`cli-v0.13.0`; `PRODUCTION_VERSION` is unchanged. Verified by reading each constant by name, never by grepping the value. Failure: STOP. |
-| 5 | Re-point every contract-test expectation and re-freeze the census | the eight `plugins/session-relay/test/**` paths in `affected_paths` — seven `.mjs` contracts plus the `fixtures/release-identity-inventory.json` census this row re-freezes | 4 | `local` | `planned` | `node scripts/ci.mjs --plugin session-relay` exits 0. `release-evidence-contract.mjs` enumerates `0.15.0.json`. The identity inventory is regenerated through its own `--freeze` path, never hand-edited. Failure: STOP; do not relax a floor or edit a census to match a scan. |
-| 6 | Tag and stage the Relay prerelease | none (Git ref + CI artifacts) | 5 | `release` | `planned` | Tag `session-relay--v0.15.0` resolves to the commit produced by the last `local`-effect row preceding it, and `build-binaries.yml` publishes exactly four binaries plus `SHA256SUMS`. Failure: STOP permanently — the version is burned and cannot be retagged or re-uploaded. |
-| 7 | Replace the sentinel tagged-commit value everywhere it is pinned | `scripts/lib/session-relay-release-instances/0.15.0.json`, `plugins/session-relay/test/release-evidence-contract.mjs`, `plugins/session-relay/test/release-promotion-contract.mjs` | 6 | `local` | `planned` | A repository-wide sweep for the sentinel finds nothing, stated as a satisfiable observable: `! git grep -q "$(printf 'deadbeef%.0s' $(seq 5))"` exits 0. The negation is deliberate and measured — `git grep` exits **1** with empty output when there are no matches, so phrasing this as a command that "returns zero hits" and expecting exit 0 would be unsatisfiable. The pattern is built at run time rather than written literally, so the command cannot match this plan record and needs no path exclusion — an exclusion here could only hide a future literal. This sweep is the acceptance rather than the three named sites, because a site list only proves the sites I thought of and four of my inventories this session were short. Then `planrun_attempt.release_tag_commit` and both `PLANRUN_RELEASE_TAG_COMMIT` literals equal the 40-hex commit that `git rev-parse session-relay--v0.15.0^{commit}` reports. The `^{commit}` suffix is load-bearing and measured, not stylistic: `git tag --points-at <tag>` prints tag *names*, so comparing a 40-hex field against it can never pass, and bare `git rev-parse <annotated-tag>` yields the tag *object* SHA — also 40 hex, also never equal to this field, and `node scripts/ci.mjs --plugin session-relay` exits 0 a second time. Failure: STOP; a sentinel must never reach a promotion receipt. |
-| 8 | Verify the four digests against downloaded bytes and hand them to the child | none | 6 | `probe` | `planned` | Each asset's recomputed `sha256` equals its `SHA256SUMS` row; the four values are reported to the child half. `SHA256SUMS` alone is not evidence. Failure: STOP before the child pins anything. |
+| 1 | Bump the Relay crate version, which the binaries carry | `plugins/session-relay/rust/Cargo.toml`, `plugins/session-relay/rust/Cargo.lock` | — | `local` | `done` | run from `plugins/session-relay/rust/`, `cargo metadata --format-version 1 --no-deps` emits exactly one package whose `packages[0].version` is `0.15.0`, and `Cargo.lock` agrees. Both details are measured, not stylistic: `--no-deps` is required because the bare form emits the entire resolved dependency graph rather than one version, and the working directory must be the crate directory because rustup resolves the pinned toolchain from the working directory — invoked from the repository root with no default toolchain configured, `cargo` exits 1 before emitting any JSON. Failure: STOP; a wrong crate version would silently ship in the binaries staged by the tag row. |
+| 2 | Bump Relay's declared version across manifests and the lane constant | `plugins/session-relay/.claude-plugin/plugin.json`, `plugins/session-relay/.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `scripts/lib/session-relay-release-core.mjs` | 1 | `local` | `done` | All three manifest sites plus `core.mjs VERSION` read `0.15.0`, selected by marketplace entry `name` rather than by value because the docks entry already reads `0.15.0`. Failure: STOP. |
+| 3 | Create the release instance for 0.15.0 | `scripts/lib/session-relay-release-instances/0.15.0.json` | 2, and the public plan's `goal_id`/`run_id` | `local` | `done` | `loadReleaseInstance('0.15.0', { require: ['current_attempt','planrun_attempt','continuation_paths','public_child','authorized_base'] })` resolves; `public_child` reads `{version:'0.13.0', tag:'cli-v0.13.0'}`; `current_attempt.goal_id` is `258b44c2-c3b2-4902-862c-7461724ca078` and `public_run_id` is `ad7f3b75-dfff-4bcd-8d1f-c8c11555b119`. `planrun_attempt.release_tag_commit` holds the sentinel formed by repeating `deadbeef` five times — 40 hex characters, so it satisfies the schema's `commit40` rule, while being unmistakably a placeholder that no reader or diff can mistake for a settled SHA. It was chosen by measurement, not taste: `f` × 40 and `0` × 40 both already occur in this repository and would leave the sentinel sweep unsatisfiable. Failure: STOP. |
+| 4 | Move the child identity in lane source | `scripts/lib/session-relay-release-promotion.mjs`, `scripts/lib/session-relay-release-publication.mjs` | 3 | `local` | `done` | `PUBLIC_VERSION`, `CURRENT_DOCKS_KIT_RELEASE`, and `CURRENT_PUBLIC_VERSION` name the child by constant, each `0.13.0`/`cli-v0.13.0`; `PRODUCTION_VERSION` is unchanged. Verified by reading each constant by name, never by grepping the value. Failure: STOP. |
+| 5 | Re-point every contract-test expectation and re-freeze the census | the eight `plugins/session-relay/test/**` paths in `affected_paths` — seven `.mjs` contracts plus the `fixtures/release-identity-inventory.json` census this row re-freezes | 4 | `local` | `done` | `node scripts/ci.mjs --plugin session-relay` exits 0. `release-evidence-contract.mjs` enumerates `0.15.0.json`. The identity inventory is regenerated through its own `--freeze` path, never hand-edited. Failure: STOP; do not relax a floor or edit a census to match a scan. |
+| 6 | Tag and stage the Relay prerelease | none (Git ref + CI artifacts) | 5 | `release` | `done` | Tag `session-relay--v0.15.0` resolves to the commit produced by the last `local`-effect row preceding it, and `build-binaries.yml` publishes exactly four binaries plus `SHA256SUMS`. Failure: STOP permanently — the version is burned and cannot be retagged or re-uploaded. |
+| 7 | Replace the sentinel tagged-commit value everywhere it is pinned | `scripts/lib/session-relay-release-instances/0.15.0.json`, `plugins/session-relay/test/release-evidence-contract.mjs`, `plugins/session-relay/test/release-promotion-contract.mjs` | 6 | `local` | `done` | A repository-wide sweep for the sentinel finds nothing, stated as a satisfiable observable: `! git grep -q "$(printf 'deadbeef%.0s' $(seq 5))"` exits 0. The negation is deliberate and measured — `git grep` exits **1** with empty output when there are no matches, so phrasing this as a command that "returns zero hits" and expecting exit 0 would be unsatisfiable. The pattern is built at run time rather than written literally, so the command cannot match this plan record and needs no path exclusion — an exclusion here could only hide a future literal. This sweep is the acceptance rather than the three named sites, because a site list only proves the sites I thought of and four of my inventories this session were short. Then `planrun_attempt.release_tag_commit` and both `PLANRUN_RELEASE_TAG_COMMIT` literals equal the 40-hex commit that `git rev-parse session-relay--v0.15.0^{commit}` reports. The `^{commit}` suffix is load-bearing and measured, not stylistic: `git tag --points-at <tag>` prints tag *names*, so comparing a 40-hex field against it can never pass, and bare `git rev-parse <annotated-tag>` yields the tag *object* SHA — also 40 hex, also never equal to this field, and `node scripts/ci.mjs --plugin session-relay` exits 0 a second time. Failure: STOP; a sentinel must never reach a promotion receipt. |
+| 8 | Verify the four digests against downloaded bytes and hand them to the child | none | 6 | `probe` | `done` | Each asset's recomputed `sha256` equals its `SHA256SUMS` row; the four values are reported to the child half. `SHA256SUMS` alone is not evidence. Failure: STOP before the child pins anything. |
 | 9 | Read back the child's completed release | none | 8, and the child's rows that pin the digests, tag `cli-v0.13.0`, and archive its finished plan | `probe` | `planned` | The child's `cli-v0.13.0` tag, finished archived plan, and `run.completion_review.result_sha256` are all readable on the remote, and its `goal_id` still matches this run's. Read-only; grants nothing. Failure: STOP. |
 | 10 | Run the lane's prepare, promote, and publish recipe | lane receipts | 7, 9 | `release` | `planned` | The lane's documented atomic recipe completes and Session Relay 0.15.0 is a stable, non-prerelease release. Failure: STOP with the receipt. |
 | 11 | Archive this plan | this plan record | 10 | `push` | `planned` | Plan is `finished` at the dated archive path and pushed. Failure: leave `ongoing`. |
@@ -296,10 +337,11 @@ only, and a second local edit plus gate cycle is required after the tag.
 
 ## Review
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"ee372eb5dc6b2b77634ddacea91f85d0e33c1d655ee99956e8cd4f5fe7973080","invocations":1,"result_sha256":"72a2689609b6957ed830a3c5eff0a0f44d0baab5facdcf00320930933f3dc3c9","state":"passed"},"execution_parent":"c1c851bf2a2326f13ff41d662c25044f701c4017","goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"bce2ed5b567719ddb60dcd9bb2ab25d21d05628995b5a7fa4c9e7bf9610d1a4b","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"12a460e2-af44-4bc8-bc7d-d7aaec2c991b","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"55f3b87f0caef4fbed640cb3e771a1f3f2080044400585eae2e3ddd1e4afc35d"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"5b6ddc9c925d69d2b7e5686ce8b4ad2ca07c4810d883d8dcd3e09b25587db775","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"887eaf82-ffac-4d78-9368-b62cb64dda19","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"1c5b6b3d7c3e5edfe19457e8e1da55fb41dc9ded8813d7dd3b7cc60432cbdba5"}
 
 Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"a95e8eb8efdc196dda0f1e51dfc7c027393f6f65bdc1601c0bc48fda9bedc993","replacement_run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","run":{"acceptance":null,"blocker":{"evidence_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"61a68eb853346511ad236bbd35f814500b0e7b5e0c8da8977144951b7ebfa904","invocations":2,"result_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"e29a06f0f7a807a4ee13efc8936bc7ff83fbf471f38d0db11bfb8b68ff87fddc","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"ff2125bd-746a-427b-86ba-2fc2cde51747","schema":1,"source_base":"95575af016dd1119f6fe85a5d5ca52e9f0b9f185","source_sha256":"78d1eeb735ef1bb8a664ba4aa4c82b07d7b4e4aafdcac225b9f52216c04942dc"},"schema":1,"status":"blocked","successor_run_sha256":"aa5cbb3b3cc4920e866949f1710478ffcbf5fcc781b613a9fe49b89dbae0c91b"}
 Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"8e8506026f58cb2c747d7a9b8d06178c1ec539614163129f9e3fe39e40657873","replacement_run_id":"12a460e2-af44-4bc8-bc7d-d7aaec2c991b","run":{"acceptance":null,"blocker":{"evidence_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a72ea0243ff254c961181df426773d925a7089003b9e62fa09c292ccae92adb8","invocations":2,"result_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0f835b0f2730ab72922eafc603855f6bc7df19f0abcc34aeeac07a964d5fadb8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","schema":1,"source_base":"2298bbc7fac269b57ce6915ff82d84e452b661b8","source_sha256":"ba16f51fb7e440d0f0899bc55169b563f8d8d9ac294b56e7b0052d8d0c9ec18d"},"schema":1,"status":"blocked","successor_run_sha256":"d50fd5465109e39f81e30a6174c89a7e6e6375b49d304982a94f799aa660612a"}
+Plan-attempt-history: {"authorization_source_sha256":"3f5bd9c08190dc8e3be5abd9ea80af6b0758ae6100b039370f8bacb16e4456a4","plan_bytes_sha256":"f7e8f30eec9edeb5ac705c84fc6cf26b8c5e8581f8a764e6c6096755bbddf777","replacement_run_id":"887eaf82-ffac-4d78-9368-b62cb64dda19","run":{"acceptance":null,"blocker":{"evidence_sha256":"0ca68b782c2c42fa453c7521bd6d55780dd6ed5860d12047a1376a6f2151f588","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"ee372eb5dc6b2b77634ddacea91f85d0e33c1d655ee99956e8cd4f5fe7973080","invocations":1,"result_sha256":"72a2689609b6957ed830a3c5eff0a0f44d0baab5facdcf00320930933f3dc3c9","state":"passed"},"execution_parent":"c1c851bf2a2326f13ff41d662c25044f701c4017","goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"bce2ed5b567719ddb60dcd9bb2ab25d21d05628995b5a7fa4c9e7bf9610d1a4b","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"12a460e2-af44-4bc8-bc7d-d7aaec2c991b","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"55f3b87f0caef4fbed640cb3e771a1f3f2080044400585eae2e3ddd1e4afc35d"},"schema":1,"status":"blocked","successor_run_sha256":"e5c117c3a91a57ff8f3e69b08da45aed1a99e6f5cc29a3da02c24891f6736c28"}
 
 
 ### Replacement authority derivation
@@ -321,7 +363,7 @@ prefixes; that byte form existed nowhere outside the operator's scratch file and
 could not have been re-derived, which would have made the authority record an
 assertion. Stating the construction rule is the difference.
 
-### This run: invocation 1 adjudication
+### Predecessor run `12a460e2`: invocation 1 adjudication
 
 Verdict `repair`, three findings returned, two accepted and one rejected. Each was
 reproduced by command before adjudication, because asserting structure instead of
