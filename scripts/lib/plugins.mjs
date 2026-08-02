@@ -200,6 +200,14 @@ export const PLUGINS = [
       'plugins/session-relay/test/release-evidence-contract.mjs',
       'plugins/session-relay/test/release-publication-contract.mjs',
       'plugins/session-relay/test/release-promotion-contract.mjs',
+      // These two were real contract suites that nothing executed: declared in the
+      // release instance's `docks_affected_paths` but absent from every descriptor
+      // field, so CI never ran them. One had been failing since before the 0.15.0
+      // migration and nobody noticed. Listing them here is the fix for that rot -
+      // a contract nothing runs is not a contract. Both take no arguments, matching
+      // how `ci.mjs` invokes each entry.
+      'plugins/session-relay/test/remediation-contract.mjs',
+      'plugins/session-relay/test/companion-distribution-contract.mjs',
     ],
     transformGuard: false,
     release: {

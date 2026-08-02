@@ -24,6 +24,16 @@ const SEMVER = /^\d+\.\d+\.\d+$/;
 const KINDS = Object.freeze({
   uuid: [(v) => typeof v === 'string' && UUID.test(v), 'a uuid'],
   commit40: [(v) => typeof v === 'string' && COMMIT40.test(v), 'a 40-hex commit'],
+  // A tag that has not been cut yet has no commit, and `null` is the only honest
+  // spelling of that. A placeholder such as `deadbeef…` satisfies `commit40`, so it
+  // reads as a real commit everywhere downstream and would MATCH a receipt that
+  // happened to carry it - turning each `!==` guard into a fail-open. `null` cannot
+  // equal a real commit, so every comparison site refuses on its own with no
+  // load-time guard, and the publish path asserts the value is no longer null.
+  unborn_commit40: [
+    (v) => v === null || (typeof v === 'string' && COMMIT40.test(v)),
+    'a 40-hex commit, or null while the release tag is not yet cut',
+  ],
   digest64: [(v) => typeof v === 'string' && DIGEST64.test(v), 'a 64-hex digest'],
   planpath: [(v) => typeof v === 'string' && PLANPATH.test(v), 'a docs/plans path'],
   version: [(v) => typeof v === 'string' && SEMVER.test(v), 'a semantic version'],
@@ -48,7 +58,7 @@ export const INSTANCE_FIELD_GROUPS = Object.freeze({
     docks_run_id: 'uuid',
     docks_plan_path: 'planpath',
     docks_source_base: 'commit40',
-    release_tag_commit: 'commit40',
+    release_tag_commit: 'unborn_commit40',
     docks_affected_paths: 'paths',
   }),
   retained_promotion: Object.freeze({
@@ -92,6 +102,43 @@ export const INSTANCE_FIELD_GROUPS = Object.freeze({
     plan_path: 'planpath',
   }),
 });
+
+// One spelling of the unborn-tag question, so that libraries and contract suites
+// cannot each invent their own. `release_tag_commit` is null until the tag is cut;
+// see the `unborn_commit40` kind above for why a placeholder commit is not an
+// option. Read through these rather than reaching into the instance, so a future
+// change to how the unborn state is represented has exactly one edit site.
+// Deliberately not written with optional chaining and `?? null`: that spelling
+// collapses five states - absent instance, absent group, absent key, `undefined`,
+// and an explicit `null` - into a confident "tag not cut", when only the last one
+// means that. A suite handing in a partial fixture would then receive a reassuring
+// answer instead of an error, which is the same vacuous-assertion failure this
+// helper exists to prevent. Only an explicit `null` is the unborn state.
+export function releaseTagCommit(instance) {
+  const group = instance === null || typeof instance !== 'object' ? undefined : instance.planrun_attempt;
+  if (group === null || typeof group !== 'object' || Array.isArray(group)) {
+    throw new ReleaseInstanceError(
+      'release instance has no planrun_attempt group, so the release tag state is unknown',
+    );
+  }
+  if (!('release_tag_commit' in group)) {
+    throw new ReleaseInstanceError(
+      'release instance planrun_attempt omits release_tag_commit, so the release tag state is unknown',
+    );
+  }
+  // Presence is not enough. An explicit `undefined` would otherwise flow out and
+  // make `isReleaseTagCut` answer true, asserting the tag is cut when nothing is
+  // known - the fail-open this helper exists to close.
+  const value = group.release_tag_commit;
+  if (value !== null && !(typeof value === 'string' && COMMIT40.test(value))) {
+    throw new ReleaseInstanceError(
+      `release instance release_tag_commit must be a 40-hex commit or null, received ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
+}
+export const isReleaseTagCut = (instance) => releaseTagCommit(instance) !== null;
+export const UNBORN_RELEASE_TAG_REASON = 'the release tag is not cut yet, so no commit can be bound to it';
 
 export class ReleaseInstanceError extends Error {
   constructor(message) {

@@ -17,10 +17,11 @@ import {
   rustHostTarget,
   rustReleaseAssetNames,
 } from './lib/rust-bin.mjs';
+import { VERSION as CURRENT_RELEASE_VERSION } from './lib/session-relay-release-core.mjs';
 
 const REPOSITORY_ID = 'DocksDocks/docks';
 const WORKFLOW_FILE = '.github/workflows/build-binaries.yml';
-const EXPECTED_VERSION_STDOUT = 'session-relay 0.14.0';
+const EXPECTED_VERSION_STDOUT = `session-relay ${CURRENT_RELEASE_VERSION}`;
 const PRODUCER_PATH = 'scripts/verify-session-relay-preflight.mjs';
 const PRODUCER_VERSION = '2';
 const CHECKSUM_ARTIFACT = 'session-relay-checksums';
@@ -305,8 +306,8 @@ function validateRun(run, parsed) {
   requireEqual(requireString(run.conclusion, 'workflow run conclusion'), 'success', 'workflow run conclusion');
   requireEqual(requireString(run.head_sha, 'workflow run head_sha'), parsed.expectedCommit, 'workflow run head_sha');
   const branch = requireString(run.head_branch, 'workflow run head_branch');
-  const branchMatch = /^preflight\/session-relay-(0\.13\.0|0\.14\.0)-([0-9a-f]{12})$/.exec(branch);
-  if (!branchMatch || branchMatch[2] !== parsed.expectedCommit.slice(0, 12)) {
+  const expectedBranch = `preflight/session-relay-${CURRENT_RELEASE_VERSION}-${parsed.expectedCommit.slice(0, 12)}`;
+  if (branch !== expectedBranch) {
     fail('workflow run head_branch mismatch');
   }
   requireEqual(requireString(run.path, 'workflow run path'), WORKFLOW_FILE, 'workflow run path');
@@ -333,7 +334,7 @@ function validateRun(run, parsed) {
   return {
     branch,
     validationRef: `refs/heads/${branch}`,
-    releaseVersion: branchMatch[1],
+    releaseVersion: CURRENT_RELEASE_VERSION,
     attempt,
     workflowId,
     repositoryDatabaseId,

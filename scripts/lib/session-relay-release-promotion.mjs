@@ -99,6 +99,9 @@ const CURRENT_DOCKS_PLAN_PATH = INSTANCE.current_attempt.docks_plan_path;
 const PLANRUN_DOCKS_RUN_ID = INSTANCE.planrun_attempt.docks_run_id;
 const PLANRUN_DOCKS_PLAN_PATH = INSTANCE.planrun_attempt.docks_plan_path;
 const PLANRUN_DOCKS_SOURCE_BASE = INSTANCE.planrun_attempt.docks_source_base;
+// Null until the release tag is cut; see the `unborn_commit40` note in the instance
+// schema. Each use below is an inequality, so the unborn state fails closed by
+// itself. A placeholder commit would instead MATCH a receipt carrying it.
 const PLANRUN_RELEASE_TAG_COMMIT = INSTANCE.planrun_attempt.release_tag_commit;
 const CURRENT_PUBLIC_RUN_ID = INSTANCE.current_attempt.public_run_id;
 const CURRENT_PUBLIC_PLAN_BASENAME = `session-relay-${CURRENT_VERSION}-docks-kit-${PUBLIC_VERSION}-release`;
