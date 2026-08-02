@@ -1,17 +1,19 @@
 ---
 title: Make the fanout reaper report why a worktree survived
-goal: Stop the fan-out worktree reaper from reporting removal failure and deliberate retention identically, so an operator can tell a protected worktree from one that has silently failed to collect for weeks.
+goal: Return and emit a typed reason when fan-out GC protects a worktree, cannot remove it, refuses a flat legacy reservation, or cannot open the worktrees surface.
 status: drafting
 created: "2026-08-01T23:17:11-03:00"
-updated: "2026-08-01T23:17:11-03:00"
+updated: "2026-08-02T17:39:50.362+00:00"
 started_at: null
 finished_at: null
 assignee: null
 tags: [plans, session-relay, fanout, gc, observability, registered-idea]
 affected_paths:
+  - plugins/session-relay/AGENTS.md
   - plugins/session-relay/rust/src/fanout.rs
   - plugins/session-relay/rust/src/store.rs
-  - plugins/session-relay/AGENTS.md
+  - plugins/session-relay/rust/tests/fanout_reap.rs
+  - plugins/session-relay/test/fixtures/rust-test-inventory.json
 related_plans: []
 ---
 
@@ -19,124 +21,86 @@ related_plans: []
 
 ## Goal
 
-Every worktree the reaper leaves behind carries a recorded reason, so a silent
-no-op cannot be mistaken for a healthy sweep.
+Fan-out GC returns a typed reason for every protective or failed-removal retention covered by this plan, for a refused flat legacy reservation, and for an unavailable worktrees surface; the store boundary emits that same discriminant as a structured stderr diagnostic.
 
 ## Context & rationale
 
-Measured on this host, then cleared at the owner's request. The evidence no
-longer exists on disk, so this record is what survives.
+`FanoutGcReport` currently contains only `removed_worktrees` and `retained_branches`, and `FanoutGcOutcome` distinguishes only skipped, retained, and removed dispositions (`plugins/session-relay/rust/src/fanout.rs:49-59`). Repository-identity and worktree-snapshot changes both become an unreasoned retained branch (`plugins/session-relay/rust/src/fanout.rs:389-405`). The commit/cleanliness guard also becomes `Retained(branch)` (`plugins/session-relay/rust/src/fanout.rs:479-490`), and a failed `remove_unstarted_worktree` call becomes the same value (`plugins/session-relay/rust/src/fanout.rs:507-513`). The final fold records only branch names and a removal count (`plugins/session-relay/rust/src/fanout.rs:520-529`), so the caller cannot distinguish protection from failure.
 
-Six fan-out worktrees survived **fourteen days** against a documented one-day
-sweep. GC was enabled (`AGENT_RELAY_GC_DAYS` unset everywhere) and the sweep was
-running: throttle stamp rewritten ninety minutes earlier, 1,657 repository-gate
-entries touched half an hour before measurement. Every documented skip gate was
-measured and none fired:
+At the store boundary, an absent `worktrees` GC surface is replaced with `FanoutGcReport::default()`, which is an empty successful report, and stderr renders only branch names (`plugins/session-relay/rust/src/store.rs:1313-1324`). That is the reproducible silent-success path this plan removes.
 
-| Gate | Source | Measured |
-|---|---|---|
-| record absent | `fanout.rs:352` | all six present |
-| invalid path | `fanout.rs:360` | valid |
-| younger than cutoff | `fanout.rs:368` | 14 days vs 1-day cutoff |
-| `collection_phase` set | `fanout.rs:382` | `null` |
-| `state == Collected` | `fanout.rs:383` | none |
-| worker live | `fanout.rs:384` | `active_operations` empty |
-| collection lock held | `fanout.rs:448` | `flock`, zero live holders |
-| identity mismatch | `fanout.rs:392` | device and inode matched |
-| managed refusal | `repository_gate.rs:469` | `repositories/` empty, no marker |
-| commits or dirty | `fanout.rs:479` | five of six clean, zero past base |
+Current reservations are created below a repository key (`plugins/session-relay/rust/src/fanout.rs:556-564`), while `worktree_path_components` explicitly accepts the legacy one-component shape through the current three-component maximum (`plugins/session-relay/rust/src/fanout.rs:112-125`, `plugins/session-relay/rust/src/fanout.rs:152-159`). The existing integration fixture proves that a flat record is presently reaped (`plugins/session-relay/rust/tests/fanout_reap.rs:355-391`). This plan changes that policy at the reaper boundary: a flat record is retained with the explicit `legacy_shape` reason, without widening or rewriting the containment parser.
 
-One was legitimately retained: it held one commit past its `base_sha`, which is
-the branch-preserving behaviour the code intends.
+The reaper also acquires the managed-repository refusal gate before mutation (`plugins/session-relay/rust/src/fanout.rs:453-459`); the gate itself is `RepositoryGate::refuse_legacy_if_managed` (`plugins/session-relay/rust/src/workspace/repository_gate.rs:450-475`). This plan does not change that authority boundary.
 
-The six were then removed with a plain `git worktree remove`, all succeeding with
-no `--force` and no error. `remove_unstarted_worktree` (`fanout.rs:507`) drives
-that same operation, so git-level removal worked the whole time. That demotes
-removal failure and promotes the surface lookup: `store.rs:1313` resolves
-`gc_surface_dir(&self.surface_dirs, "worktrees")`, and the `None` arm at
-`store.rs:1318` substitutes `FanoutGcReport::default()` — zero removals,
-indistinguishable from a healthy sweep. Hypothesis, not conclusion; confirming it
-needs an instrumented run.
-
-The defect is the silence, not the retention. Protecting a worktree with
-uncollected commits is correct (`fanout.rs:389-390`). But `fanout.rs:512` maps a
-failed removal to `Retained(branch)` — the identical value a deliberate
-retention produces at `:489` — and neither path emits a diagnostic.
-
-All six survivors carried flat single-component paths (`worktrees/<uuid>`), while
-current code provisions a repository-keyed two-component layout
-(`fanout/git.rs:189-191`, asserted at `fanout.rs:2322-2332`).
-`worktree_path_components` accepts one to three components, so it tolerated the
-legacy shape. A correlation across the whole observed set, not a proven cause.
+Historical note, not relied on: a cleared observation associated six surviving worktrees with flat records. The evidence is no longer available, so no causal claim or historical census is an input to this plan. The flat-shape decision is instead proven by a deterministic fixture built from current code.
 
 ## Environment & how-to-run
 
-Run every command from the repository root of this checkout. Rust work needs the
-pinned toolchain from `rust-toolchain.toml`, resolved from the crate directory.
+Run commands from the repository root. Node dependencies are pinned by `package.json`; the Rust crate pins toolchain `1.85.0` in `plugins/session-relay/rust/rust-toolchain.toml`. Install prerequisites when needed with:
 
 ```bash
-corepack enable && pnpm install --frozen-lockfile   # Node 24
-node scripts/ci.mjs --plugin session-relay          # authoritative gate for this plan
+corepack pnpm install --frozen-lockfile
+rustup toolchain install 1.85.0 --profile minimal --component rustfmt --component clippy
 ```
+
+Use `cargo +1.85.0 --manifest-path plugins/session-relay/rust/Cargo.toml ...` for focused Rust checks. The authoritative repository gate for this plugin is `node scripts/ci.mjs --plugin session-relay`.
 
 ## Steps
 
-| # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |
-|---:|---|---|---|---|---|---|---|
-| 1 | `outcome_reason` | Give the retained outcome a reason discriminant, separating protective retention, removal failure, and unevaluated | `rust/src/fanout.rs` | — | `local` | `planned` | The report distinguishes retention for uncollected commits from retention because removal errored. Failure: STOP; a boolean or bare string reintroduces the collapse. |
-| 2 | `surface_absent` | Make an unavailable worktrees surface a reported condition, not an empty success report | `rust/src/store.rs` | `outcome_reason` | `local` | `planned` | With the surface unavailable the sweep reports that condition instead of zero removals. Failure: STOP; a default report for an error is the silence being fixed. |
-| 3 | `reason_test` | Cover each reason with a test that fails when its arm reverts to the collapsed value | `rust/src/fanout.rs` | `outcome_reason`, `surface_absent` | `local` | `planned` | Each reason has a test; reverting its arm fails it. Failure: STOP; a test passing both ways proves nothing. |
-| 4 | `legacy_shape` | Decide and record whether flat single-component reservations are migrated or refused, rather than silently tolerated | `rust/src/fanout.rs`, `AGENTS.md` | `reason_test` | `local` | `planned` | The chosen behaviour is implemented and stated in the plugin context file. Failure: STOP; do not widen `worktree_path_components`, which deepens the tolerance that hid this. |
-| 5 | `document` | State each reported reason in the plugin contract with its operator action | `AGENTS.md` | `reason_test` | `local` | `planned` | The contract lists every reason and what to do about it. Failure: STOP; an observable nobody can interpret is not observability. |
-| 6 | `archive` | Archive this plan | this plan record | `document` | `local` | `planned` | Plan is `finished` at the dated archive path with a local commit. Failure: leave `ongoing`. |
+| # | Task | Files | Depends | Effect | Status | Done when / failure action |
+|---:|---|---|---|---|---|---|
+| 1 | Replace unreasoned retained outcomes with a typed `FanoutGcReason` carried by report entries. Define stable labels for `legacy_shape`, `repository_identity_changed`, `worktree_changed`, `uncollected_commits`, `commit_inspection_failed`, `worktree_not_clean`, `removal_failed`, and `worktrees_surface_unavailable`; map each current retained arm without changing removal eligibility. | `plugins/session-relay/rust/src/fanout.rs` | — | `local` | `planned` | Report data distinguishes protective retention, failed inspection, and failed removal by enum variant and stable label. STOP if a retained outcome can reach the report without a reason, or if introducing the report changes which keyed worktrees are removed. |
+| 2 | Refuse a one-component legacy reservation at the reaper policy boundary before Git inspection or removal. Preserve its worktree and branch and report `legacy_shape`; keep the existing 1..=3 containment parser unchanged because rollback and validation still need to resolve persisted paths. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/tests/fanout_reap.rs`, `plugins/session-relay/test/fixtures/rust-test-inventory.json` | 1 | `local` | `planned` | Rename the existing flat fixture to `legacy_flat_worktree_is_refused_and_reported`; it constructs a flat record deterministically, proves the worktree and branch remain, and observes `legacy_shape`. Regenerate the exact Rust test inventory. STOP if the record path is rewritten, the branch is deleted, or `worktree_path_components` is widened. |
+| 3 | Replace the missing-surface default with a report entry carrying `worktrees_surface_unavailable`, and render report reasons at the store boundary as stable structured stderr records whose `reason` field comes only from `FanoutGcReason`. Preserve the existing removed-count return and branch-retention message. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/store.rs` | 1 | `local` | `planned` | An absent worktrees surface produces a non-empty reason report, and the stderr writer renders the report discriminant without re-inferring a cause. STOP if the `None` arm remains an empty default or if rendering has an independent reason switch. |
+| 4 | Add non-vacuous reason tests at their owning boundaries: create a `#[cfg(test)] mod tests` at the end of `fanout.rs` containing `retention_report_keeps_reason_discriminants` and `removal_failure_has_distinct_report_reason`; extend the existing `store.rs` test module with `fanout_diagnostics_render_report_reasons` and `missing_worktrees_surface_reports_unavailable`; update the existing `fanout_reap.rs` flat-shape integration test from step 2. | `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/tests/fanout_reap.rs`, `plugins/session-relay/test/fixtures/rust-test-inventory.json` | 2, 3 | `local` | `planned` | The fanout unit tests fail if protective retention and removal failure collapse; the store unit tests assert report data and exact structured stderr bytes; the integration test fails if a flat reservation is removed, rewritten, or diagnosed without `legacy_shape`. STOP if a test only compares source text or still passes after its production mapping is collapsed. |
+| 5 | Document every stable reason label and its operator action in the plugin Store hygiene and Worktree fan-out contracts, including that flat legacy reservations are refused rather than migrated. | `plugins/session-relay/AGENTS.md` | 4 | `local` | `planned` | The contract maps each reason from step 1 to an inspection or recovery action and states that `legacy_shape` preserves the worktree and branch. STOP if documentation promises migration or path rewriting. |
+| 6 | Run the focused tests, exact test-inventory check, and authoritative plugin gate. | `plugins/session-relay/AGENTS.md`, `plugins/session-relay/rust/src/fanout.rs`, `plugins/session-relay/rust/src/store.rs`, `plugins/session-relay/rust/tests/fanout_reap.rs`, `plugins/session-relay/test/fixtures/rust-test-inventory.json` | 5 | `local` | `planned` | Every Acceptance criteria command exits 0 with the stated observation. On failure, keep the plan `ongoing`, preserve all worktrees and branches, and repair only the failing owned path; STOP on any retention-safety regression. |
+| 7 | Archive the finished plan through the plan-manager transaction. | `docs/plans/finished/<finish-date>-relay-fanout-reaper-reporting.md` | 6 | `local` | `planned` | The plan is `finished` at the named archive path, where `<finish-date>` is the UTC date on which the archive transaction runs, and the archive checkpoint contains only owned implementation paths plus the finished plan. On transaction or checkpoint mismatch, leave the plan `ongoing` and STOP. |
 
 ## Acceptance criteria
 
-| Id | Criterion |
-|---|---|
-| A1 | `node scripts/ci.mjs --plugin session-relay` exits 0 with a clean working tree. |
-| A2 | Retention for uncollected commits and retention after a failed removal report different reasons. Non-vacuity: collapsing both arms fails a test. |
-| A3 | A sweep that cannot open the worktrees surface reports that condition rather than zero removals. Non-vacuity: restoring the `None` default arm fails a test. |
-| A4 | A flat single-component reservation behaves as step 4 decided, asserted rather than assumed. |
-| A5 | Every source line cited in Context still resolves to the construct it describes, re-read rather than trusted. |
-
-Each row names an observable outcome rather than a step number, so renumbering
-cannot desync it.
+| ID | Command | Expected |
+|---|---|---|
+| A1 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --lib fanout::tests::retention_report_keeps_reason_discriminants -- --exact` | Exit 0; exactly one named unit test passes and its report entries retain distinct typed reason variants. |
+| A2 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --lib fanout::tests::removal_failure_has_distinct_report_reason -- --exact` | Exit 0; exactly one named unit test passes and the failed-removal arm reports `removal_failed`, not a protective reason. |
+| A3 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --lib store::tests::fanout_diagnostics_render_report_reasons -- --exact` | Exit 0; exactly one named unit test passes and exact structured stderr bytes contain the discriminant-derived `reason` field for every report reason. |
+| A4 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --lib store::tests::missing_worktrees_surface_reports_unavailable -- --exact` | Exit 0; exactly one named unit test passes and the absent-surface path returns and renders `worktrees_surface_unavailable` rather than an empty default report. |
+| A5 | `cargo +1.85.0 test --manifest-path plugins/session-relay/rust/Cargo.toml --locked --test fanout_reap legacy_flat_worktree_is_refused_and_reported -- --exact` | Exit 0; exactly one named integration test passes, the flat worktree and branch still exist, and stderr contains `legacy_shape`. |
+| A6 | `node plugins/session-relay/test/rust-test-inventory.mjs` | Exit 0 with `PASS rust_test_inventory`; the committed fixture exactly matches the renamed integration-test inventory. |
+| A7 | `node scripts/ci.mjs --plugin session-relay` | Exit 0 and prints `All ci.mjs checks passed — plugin 'session-relay'; safe to release.` after the plugin checks complete. |
 
 ## Out of scope / do-NOT-touch
 
-- The retention policy. Protecting a worktree with uncollected commits or a dirty
-  tree is correct and must not be relaxed to reduce accumulation.
-- Branch deletion. `fanout.rs:389-390` states GC never deletes refs; that is the
-  only thing keeping an uncollected commit reachable.
-- The one-day cutoff and six-hour throttle. Nothing measured implicates them.
-- The other registered plans. Separate goals.
+- Do not relax retention for uncollected commits, failed inspection, or a non-clean worktree.
+- Do not delete fan-out branch refs; the current reaper explicitly preserves them (`plugins/session-relay/rust/src/fanout.rs:389-390`).
+- Do not migrate or rewrite flat persisted paths. There is no authority or path-rewrite mechanism for transferring their custody safely during GC.
+- Do not widen `worktree_path_components`; keyed two- and three-component paths remain the current accepted removal shapes, while the reaper refuses the legacy one-component shape.
+- Do not change the one-day fan-out cutoff, six-hour throttle, repository gate, managed-workspace authority, or collection protocol.
+- Do not modify files outside `affected_paths`, except for the lifecycle-owned archive move in the final step.
 
 ## STOP conditions
 
-1. Any row whose `Effect` column is not `local` is reached.
-2. A change makes the reaper remove a worktree holding uncollected commits or
-   uncommitted changes. Accumulation is the symptom; data loss is worse.
-3. `worktree_path_components` is widened to accept more shapes as the legacy fix.
-4. A reason is added that no test can produce.
-5. The removal path changes before the reporting is fixed; without discriminated
-   reasons there is no way to observe whether it helped.
+1. Any implementation step requires an effect other than `local`.
+2. A test or diff shows that a worktree with uncollected commits, a failed inspection, a non-clean tree, or a flat legacy path can be removed.
+3. A flat record's persisted path is rewritten, its worktree is moved, or its branch is deleted.
+4. A reason is represented as an untyped free-form string in report data, or stderr chooses a cause independently of the report discriminant.
+5. The unavailable-worktrees-surface path can still return an empty successful report.
+6. A reason arm lacks a deterministic test that fails when mapped to another reason.
+7. The exact Rust inventory or `node scripts/ci.mjs --plugin session-relay` fails after an owned-path repair.
 
 ## Open questions
 
-1. Whether the leading hypothesis holds. Confirming needs one instrumented sweep
-   against a reconstructed flat-shape reservation.
-2. Whether the reason belongs only in the returned report, or also in a log line,
-   since the sweep runs unattended from a hook.
-3. Whether existing flat-shape records are migrated in place or refused.
+1. **D1 — Decided:** The cleared observation of six flat historical survivors is not causal evidence and the plan does not rely on it. A deterministic flat-record fixture establishes the chosen behavior from current code.
+2. **D2 — Decided:** The reason is a typed discriminant in the returned report and is rendered at the store boundary as a structured stderr diagnostic. The discriminant is the single source of truth; report data and emitted bytes each have tests.
+3. **D3 — Decided:** Flat legacy reservations are refused with `legacy_shape`, preserving their worktree and branch. They are not migrated because no authority or safe path-rewrite mechanism exists during GC, and `worktree_path_components` is not widened.
 
 ## Review
 
-Not dispatched. Registered so measurements taken against a state that no longer
-exists survive the session. Full review budget, no permit reserved or spent.
+N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":null,"plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"9c8f1745b59ae621cb91bd70572c1197441a276f6d285b3ccb5c88ae3ad84d53","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8e656e8b-8a20-4acc-9460-3a7dabc5c447","schema":1,"source_base":"f295cce5c776485d6e70399c952e4e7ef2ce216c","source_sha256":"f28faafabb3833ed484c04e884bd4fc1c073d1f861dda1e79b33878aa3eee30a"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"56bcbb2cf1acf2b2437c0181f45fa6656aec25aa00654b20f452508c6892c449","invocations":1,"result_sha256":"f598651f8a166226414c83ece2c84b549169df942a6e2bd64ea96e1898d25d8c","state":"passed"},"execution_parent":null,"goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":null,"plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"076d022a2856147d1be2e1c128d6d955a5e546be84126c0d1547b9521b596593","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8e656e8b-8a20-4acc-9460-3a7dabc5c447","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"309f51fbad84174a850cf673817f5c3af4d3be07640bbb095b4a5271f11a8646"}
 
 ## Verification Results
 
-Manager-written after execution. Empty at registration time.
+N/A — manager-written after execution.
