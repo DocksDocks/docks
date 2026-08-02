@@ -552,6 +552,27 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
     }),
   );
 
+  // `transactPlanRun` is the hot path: every start, reserve, record and finish goes through it, so
+  // the alias rule matters more here than in replacement. The lock resolves symlinks to build its
+  // key, so a write on the caller's raw path would lock the target and write the alias.
+  suite.test('locks-cas', 'a transaction through an alias writes the resolved plan path', () =>
+    withTempDirectory('plan-run-transact-alias-', async (root) => {
+      const currentFile = path.join(root, 'plan.md');
+      const aliasFile = path.join(root, 'transact-alias-plan.md');
+      const { current, next } = transitionFixtures(api);
+      fs.writeFileSync(currentFile, current.fixture.bytes);
+      fs.symlinkSync(path.basename(currentFile), aliasFile);
+
+      await api.transactPlanRun(transactionInput(aliasFile, current, next));
+
+      assert.ok(
+        fs.readFileSync(currentFile).equals(next.bytes),
+        'the transaction must be written to the resolved plan path',
+      );
+      assert.ok(fs.lstatSync(aliasFile).isSymbolicLink(), 'the alias must remain a symlink, not be replaced by a file');
+    }),
+  );
+
   suite.test('locks-cas', 'same-file recovery requires current-user authority and exact append-only history', () =>
     withTempDirectory('plan-run-replacement-guard-', async (root) => {
       const file = replacementFile(root);

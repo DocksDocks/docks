@@ -1870,8 +1870,19 @@ export async function transactPlanRun({
 }) {
   assertPlainObject(identity, 'plan transaction identity');
   if (!HASH.test(expectedBytesSha256)) fail('plan transaction expected preimage must be a SHA-256 digest');
+  // Same single-resolution rule as `replacePlanRunInPlace`, and it matters more here: every
+  // `start`, reserve, record and finish goes through this function. `acquirePlanLock` resolves
+  // symlinks to build its key, so passing the caller's raw `file` on to the CAS read and
+  // `writePlanBytes` would lock the target and write the alias. Resolve once, then use that one
+  // value for the lock, the read and the rename.
+  let canonicalFile = path.resolve(file);
+  try {
+    canonicalFile = fs.realpathSync(canonicalFile);
+  } catch {
+    // An absent file keeps the resolved path; the lock's own preimage check reports it.
+  }
   const lock = await acquirePlanLock({
-    file,
+    file: canonicalFile,
     repositoryId: identity.repositoryId,
     planPath: identity.planPath,
     runId: identity.runId,
@@ -1880,7 +1891,7 @@ export async function transactPlanRun({
     lockTimeoutMs,
   });
   try {
-    const currentBytes = fs.readFileSync(file);
+    const currentBytes = fs.readFileSync(canonicalFile);
     if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
     const current = validatePlanRun(currentBytes, { ...identity, acceptanceProof: 'recorded' });
     const nextBuffer = Buffer.from(nextBytes);
@@ -1928,7 +1939,7 @@ export async function transactPlanRun({
       fail('persisted PlanRun bytes cannot change without a legal state event');
     }
     assertPlanChronology(next.frontmatter);
-    const readback = writePlanBytes(file, expectedBytesSha256, nextBuffer);
+    const readback = writePlanBytes(canonicalFile, expectedBytesSha256, nextBuffer);
     return {
       attempt_history: next.attempt_history,
       bytes_sha256: sha256(readback),
@@ -1953,8 +1964,22 @@ export async function replacePlanRunInPlace({
 }) {
   assertPlainObject(currentIdentity, 'current plan transaction identity');
   if (!HASH.test(expectedBytesSha256)) fail('plan transaction expected preimage must be a SHA-256 digest');
+  // Resolve ONCE, before the lock, and use that single value for the lock key, the CAS read, the
+  // logical-path guard and the rename. Resolving again after `await acquirePlanLock` reopened the
+  // window the guard was meant to close: a symlink retargeted during acquisition made the lock key
+  // describe one record while the write landed on another. One resolution, one path, no window.
+  const root = repositoryRoot(repo);
+  let logicalFile;
+  let canonicalFile;
+  try {
+    canonicalFile = fs.realpathSync(file);
+    const relativeFile = path.relative(root, canonicalFile).split(path.sep).join('/');
+    [logicalFile] = normalizeLogicalPaths([relativeFile], 'replacement file path');
+  } catch {
+    fail('replacement file path does not match current PlanRun plan_path');
+  }
   const lock = await acquirePlanLock({
-    file,
+    file: canonicalFile,
     repositoryId: currentIdentity.repositoryId,
     planPath: currentIdentity.planPath,
     runId: currentIdentity.runId,
@@ -1963,21 +1988,6 @@ export async function replacePlanRunInPlace({
     lockTimeoutMs,
   });
   try {
-    // Resolve BEFORE reading, and then read and write only the resolved path. Checking
-    // `realpath(file)` while the CAS read and the atomic rename still used the caller's `file`
-    // left an alias gap: a symlink whose realpath is the legitimate plan passed this guard, and
-    // the successor was then renamed onto the ALIAS directory entry, leaving the real record
-    // untouched. Comparing one path and writing another is the defect; there is now one path.
-    const root = repositoryRoot(repo);
-    let logicalFile;
-    let canonicalFile;
-    try {
-      canonicalFile = fs.realpathSync(file);
-      const relativeFile = path.relative(root, canonicalFile).split(path.sep).join('/');
-      [logicalFile] = normalizeLogicalPaths([relativeFile], 'replacement file path');
-    } catch {
-      fail('replacement file path does not match current PlanRun plan_path');
-    }
     const currentBytes = fs.readFileSync(canonicalFile);
     if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
     // The predecessor is immutable, terminal, and about to be recorded rather
