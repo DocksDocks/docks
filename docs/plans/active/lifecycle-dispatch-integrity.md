@@ -3,7 +3,7 @@ title: Fail mechanical lifecycle defects before review
 goal: Close three lifecycle integrity gaps so bundle mismatches and replacement-path mismatches fail before a write or review permit is reserved.
 status: drafting
 created: "2026-08-01T21:40:30-03:00"
-updated: "2026-08-02T22:23:45.850+00:00"
+updated: "2026-08-02T22:28:12.807+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -174,7 +174,7 @@ temporary repositories and do not consume a live plan permit.
 2. **DECIDED — guard inside `replacePlanRunInPlace`.** After validating current bytes, resolve the explicit repository root and normalized repository-relative `file` path, require equality with `current.run.plan_path`, and reject a mismatch; `validatePlanRun` cannot own a rule for a path it never receives.
 3. **DECIDED — three pre-reserve pairs plus existing digest verification.** Compare record/binding `plan_sha256`, record/binding `source_sha256`, and record/manifest `source_base`, and re-run the reviewer-policy verifier; post-reserve phase fields intentionally are not compared with a pre-reserve bundle.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"87343789-e7fe-474b-aad4-afb4289ef4a0","implementation_commit":null,"plan_path":"docs/plans/active/lifecycle-dispatch-integrity.md","plan_sha256":"10983fdb9218b326b0d65238f0f7639b12b365e84bf1d014a82041522cc85bc8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"23c9abdb-1227-4f42-bdfd-0a048bdc0421","schema":1,"source_base":"57bbff08749eef2cb0233c1e02d9714ed19ea90d","source_sha256":"8a847b1d552ae55e157fb307e16b55daeb1f49897b5d454304c373aa18251f11"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"8a5df752d09ea6a0950cb3e74215be2fdb6048538f7958c129f7187e4b8db351","invocations":1,"result_sha256":"8fe75223258f2143c11aba2360249980af318e69a26a3c64239ac0247621f90b","state":"passed"},"execution_parent":null,"goal_id":"87343789-e7fe-474b-aad4-afb4289ef4a0","implementation_commit":null,"plan_path":"docs/plans/active/lifecycle-dispatch-integrity.md","plan_sha256":"10983fdb9218b326b0d65238f0f7639b12b365e84bf1d014a82041522cc85bc8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"23c9abdb-1227-4f42-bdfd-0a048bdc0421","schema":1,"source_base":"b73ffadc67cbc29722ccbbc64754e9be859d2e6d","source_sha256":"f202336d79d5a435a7db682a85399f1bb0976c38212697d43647d4e779880360"}
 
 ## Review
 
