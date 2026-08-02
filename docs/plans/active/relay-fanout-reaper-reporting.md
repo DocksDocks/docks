@@ -3,7 +3,7 @@ title: Make the fanout reaper report why a worktree survived
 goal: Return and emit a typed reason when fan-out GC protects a worktree, cannot remove it, refuses a flat legacy reservation, or cannot open the worktrees surface.
 status: drafting
 created: "2026-08-01T23:17:11-03:00"
-updated: "2026-08-02T19:23:10.984+00:00"
+updated: "2026-08-02T22:23:45.722+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -48,18 +48,27 @@ Use `cargo +1.85.0 --manifest-path plugins/session-relay/rust/Cargo.toml ...` fo
 
 ## Steps
 
-> **Successor note - why steps 1-6 read `done` on a run that has not started.**
-> This run replaces terminal predecessor `8e656e8b`, blocked `review_failed`. Its completion
-> review returned one reproducible finding: acceptance row A6 named
-> `node plugins/session-relay/test/rust-test-inventory.mjs`, which exits 1 because the script
-> requires `--case <name>`, and asserted a `PASS rust_test_inventory` line the script never
-> prints. That script is outside `affected_paths`, and the acceptance table is inside
-> `plan_sha256`, which only a `draft_review` transition may move - and that requires `drafting`.
-> A completion repair can only amend the implementation, so no in-phase repair existed and
-> replacement was the only mechanism. A6 is corrected here; nothing else changed.
+> **Successor note - why the implementation steps read `done` on a run that has not started.**
+> This run replaces terminal predecessor `db7f7dcc`, blocked `review_failed`. Its completion review
+> returned two findings: one real defect in this work, now fixed, and one artifact of the
+> orchestrator's reservation driver.
 >
-> Steps 1-6 describe world state inherited from the predecessor: the implementation is complete
-> at commit `1a7e68f` and `node scripts/ci.mjs` passes. Step 7 stays `planned`.
+> `CR-1` - REAL, fixed. One of the eight fan-out GC reasons, `repository_identity_changed`, could
+> never be produced by the production reaper: the initial identity mismatch was discarded by a
+> catch-all `continue`, and the later reason arm was reachable only once the identity had already
+> matched, so the label existed solely for a unit helper. A successful inspection that does not
+> match the persisted reservation now records the reason and continues, leaving the reservation,
+> worktree and branch intact; the impossible branch is removed. A production-boundary test swaps a
+> different real repository in at the same valid nested path and asserts survival plus the
+> structured-stderr label.
+>
+> `CR-2` - NOT a defect of this work. The reviewer read a stale `## Verification Results` and found
+> it contradicting the corrected A6 row. The orchestrator's reservation driver sealed the pre-update
+> bytes while binding the post-update digests. The driver now seals exactly the installed bytes and
+> reads them back, requiring byte equality with the live record before returning.
+>
+> Implementation is inherited across `1a7e68f` and `57bbff0`, with `node scripts/ci.mjs` passing.
+> The archive step stays `planned`.
 
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
@@ -113,68 +122,18 @@ Use `cargo +1.85.0 --manifest-path plugins/session-relay/rust/Cargo.toml ...` fo
 No review has been dispatched for this run. The predecessor run `8e656e8b` and its
 completion-review evidence are recorded below as append-only attempt history.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"50e2456062fcdda65faeaa44e750fcd942250e650a99e3e7372355d5b53ed5d6","invocations":1,"result_sha256":"08407af64bcef40d799dc527650d81095c9ad0b053e3dfccf65f864e26e949bd","state":"passed"},"execution_parent":null,"goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":null,"plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"8ce01bf42a064ca75543b30a2e9d28c5942b49c7fff2cd3d8941746c549881d4","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"db7f7dcc-3ede-4b59-910a-beecfe6288b1","schema":1,"source_base":"07432faf38462bcd2db8c115b01751b1c5543e9e","source_sha256":"d3931fd672b82d69cb7f35f0e28dec1af9769861c62d300a4eeeac7b0f1e2fdb"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":null,"plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"2b1446fe65e972585cbeb34efdfd28ae135e81b81a1f6776a4dbcaa2ba1c8bb9","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"a4c26e2a-7576-455f-a697-55328cdfb701","schema":1,"source_base":"57bbff08749eef2cb0233c1e02d9714ed19ea90d","source_sha256":"9f15163f2a165932278cbeeee039284dd7dfb78e6568461bff5b4f43d61af2d4"}
 
 
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"bc696ae9790029b084bf7353ab1889008a7b9f658bad49e6c479f6183e37512b","replacement_run_id":"db7f7dcc-3ede-4b59-910a-beecfe6288b1","run":{"acceptance":{"source_sha256":"dc9d7b86bf1d884aaff21340a7baf93383447938c73980f9ad9df749cf5e3d73","verification_sha256":"84d69e4184e2e72de2783bfee3763943bcd636d2085c8417f36eb19a4f2c81c6"},"blocker":{"evidence_sha256":"e06194a5985ee080fc607a603488d13b88ae811aac6bc7c3698ddc453efa1752","kind":"review_failed"},"completion_review":{"input_sha256":"36175bcaad63f6ddd7b92e120b3fcf731c7056d8a823c401dd9a1661a77493eb","invocations":1,"result_sha256":"e06194a5985ee080fc607a603488d13b88ae811aac6bc7c3698ddc453efa1752","state":"blocked"},"draft_review":{"input_sha256":"56bcbb2cf1acf2b2437c0181f45fa6656aec25aa00654b20f452508c6892c449","invocations":1,"result_sha256":"f598651f8a166226414c83ece2c84b549169df942a6e2bd64ea96e1898d25d8c","state":"passed"},"execution_parent":"428ca586723eafa326c4dca495940f7a2bbe2ad9","goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":"1a7e68f8dc16d0193881bb27e10689c4710f1c23","plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"076d022a2856147d1be2e1c128d6d955a5e546be84126c0d1547b9521b596593","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"8e656e8b-8a20-4acc-9460-3a7dabc5c447","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"309f51fbad84174a850cf673817f5c3af4d3be07640bbb095b4a5271f11a8646"},"schema":1,"status":"blocked","successor_run_sha256":"4c128613169ac12920244fc0949fd1e8fa5fdefbb208145ee1d95eba404e2e69"}
+Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"430e104db892ce49d4c24d74be9a2fd9120b671e714fa328d9404278de8b082b","replacement_run_id":"a4c26e2a-7576-455f-a697-55328cdfb701","run":{"acceptance":{"source_sha256":"9d031c84a9d02cf992162578676a1b3832a7bfdc887879fe1789163ae9079758","verification_sha256":"3fbc276d6d404545c73a853622191e1936f9a0e9647f4a69e0736891b19f56be"},"blocker":{"evidence_sha256":"644ce23a42385766ad675abfe961785aac5b1b19748893fa4128b1e3358c6a4e","kind":"review_failed"},"completion_review":{"input_sha256":"70cbdf86d93265fe796383b8743d0d65a4107b404ad4c6b2d8ae3a5f2e35cff5","invocations":1,"result_sha256":"644ce23a42385766ad675abfe961785aac5b1b19748893fa4128b1e3358c6a4e","state":"blocked"},"draft_review":{"input_sha256":"50e2456062fcdda65faeaa44e750fcd942250e650a99e3e7372355d5b53ed5d6","invocations":1,"result_sha256":"08407af64bcef40d799dc527650d81095c9ad0b053e3dfccf65f864e26e949bd","state":"passed"},"execution_parent":"428ca586723eafa326c4dca495940f7a2bbe2ad9","goal_id":"b3a2ec1d-440c-45b2-ad81-6e0f8a270abd","implementation_commit":"5e1d94bbd5fb4da0d15c9f2fc51f116ce3c7bb36","plan_path":"docs/plans/active/relay-fanout-reaper-reporting.md","plan_sha256":"8ce01bf42a064ca75543b30a2e9d28c5942b49c7fff2cd3d8941746c549881d4","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"db7f7dcc-3ede-4b59-910a-beecfe6288b1","schema":1,"source_base":"07432faf38462bcd2db8c115b01751b1c5543e9e","source_sha256":"d3931fd672b82d69cb7f35f0e28dec1af9769861c62d300a4eeeac7b0f1e2fdb"},"schema":1,"status":"blocked","successor_run_sha256":"86b4702a153063d75bdade3345581a9e0a8fdcc5f1ad6bc0e5b65299d3ebc60a"}
+
+
+
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"e6e1a9e899544d5705655a981f694efb6b5892cfcc8c205c1bf953b72fb33d58","findings":[{"defect":"The production reaper cannot report `repository_identity_changed` for the mismatch it encounters: the initial identity mismatch is silently discarded by `Ok(_) | Err(_) => continue`, while the later reason arm receives an identity that already matched `snapshot` and is reached only when `current == expected_record`, so `ctx.identity.matches_record(current)` cannot be false. The A1 probe manufactures `changed_candidate_reason(false, None)` directly and therefore passes without exercising this production wiring; its repository-identity non-vacuity claim is not real.","fix":"Retain and report an initial or revalidated repository-identity mismatch with `FanoutGcReason::RepositoryIdentityChanged` without permitting removal, and add a production-boundary fixture that creates the mismatch, proves the worktree and branch survive, and observes the reason.","id":"CR-1","kind":"missing_acceptance","locator":"plugins/session-relay/rust/src/fanout.rs:505-530,584-586,1238-1266"},{"defect":"The successor note and current A6 row say A6 was corrected to `--case fanout_reap`, but the current Verification Results still say `A6 | see the deviation below` and claim the row omits `--case`. Reproduction contradicts that stale record: the corrected command exits 0 and prints `PASS rust_test_inventory case=fanout_reap tests=10 executed=10`. Thus the successor note, acceptance table, and Verification Results do not agree.","fix":"Create a corrected successor plan record whose Verification Results record the runnable A6 command and its per-case output, removing the stale predecessor deviation from the current-run results (the predecessor remains preserved in attempt history).","id":"CR-2","kind":"contradiction","locator":".git/docks-review/completion-relay-fanout-reaper-reporting-1/plan.md:51-59,83,168-178"}],"implementation_commit":"5e1d94bbd5fb4da0d15c9f2fc51f116ce3c7bb36","invocation":1,"run_id":"db7f7dcc-3ede-4b59-910a-beecfe6288b1","schema":1,"verdict":"blocked"}
 
 ## Verification Results
 
-### Implementation (2026-08-02)
-
-Implementation commit `1a7e68f`, based on `execution_parent` `428ca586723eafa326c4dca495940f7a2bbe2ad9`.
-The checkpoint is shared with `lifecycle-dispatch-integrity`, whose file set is disjoint; the
-reviewed diff for this run is bounded to this plan's `affected_paths`.
-
-**Step 1 — typed outcome reason.** `FanoutGcOutcome::Retained` and `FanoutGcDecision::Retained` now
-require a `FanoutGcReason`, with eight stable labels: `legacy_shape`,
-`repository_identity_changed`, `worktree_changed`, `uncollected_commits`,
-`commit_inspection_failed`, `worktree_not_clean`, `removal_failed`, and
-`worktrees_surface_unavailable`. Commit inspection, cleanliness, revalidation and removal now map to
-distinct arms. Keyed-worktree removal eligibility is unchanged.
-
-**Step 2 — unavailable surface.** A missing worktrees surface returned
-`FanoutGcReport::default()`, an empty success report indistinguishable from "nothing to do". It now
-returns `FanoutGcReport::worktrees_surface_unavailable()`.
-
-**Step 3 — reasons tested.** Four named unit tests plus integration coverage. Non-vacuity was
-demonstrated, not asserted: collapsing `RemovalFailed` into `WorktreeNotClean` made
-`fanout::tests::removal_failure_has_distinct_report_reason` fail, and restoring the arm made it pass.
-
-**Step 4 — legacy shape refused, not migrated.** A validated one-component path is recognised and
-reported as `legacy_shape` before any repository or Git inspection. The record is not mutated, the
-tree is not moved or deleted, and the branch is not deleted. `worktree_path_components` stays
-`1..=3`. Migration was rejected because no authority or path-rewrite mechanism exists for those
-records and rewriting persisted paths during a GC sweep could move custody unsafely.
-
-**Step 5 — documented.** All eight labels and their operator actions are documented in
-`plugins/session-relay/AGENTS.md` under Store hygiene, with the keyed/flat policy and the
-refusal-without-migration contract under Worktree fan-out.
-
-**Reason rendering.** One discriminant, two renderings: the typed reason travels in the report and
-the store boundary emits `{"event":"fanout_gc",...,"reason":"<label>"}` on stderr, reading only
-`entry.reason.label()`. Both the report data and the exact stderr bytes are tested. This matters
-because the sweep runs from an unattended hook, where the returned report has no reader.
-
-### Acceptance
-
-| ID | Result |
-|---|---|
-| A1 | `fanout::tests::retention_report_keeps_reason_discriminants` — 1 passed |
-| A2 | `fanout::tests::removal_failure_has_distinct_report_reason` — 1 passed |
-| A3 | `store::tests::fanout_diagnostics_render_report_reasons` — 1 passed, exact bytes for all eight reasons |
-| A4 | `store::tests::missing_worktrees_surface_reports_unavailable` — 1 passed |
-| A5 | flat-reservation integration test passes and asserts the directory, branch and persisted path all survive |
-| A6 | see the deviation below |
-| A7 | `node scripts/ci.mjs` exits 0 across all three plugins and repo-wide |
-
-**A6 deviation, recorded rather than silently substituted.** The row's command as written,
-`node plugins/session-relay/test/rust-test-inventory.mjs`, cannot run: the script requires
-`--case <name>`. That script is outside this plan's `affected_paths`, and the acceptance table is
-inside `plan_sha256` with both draft permits spent, so the row could not be amended without a full
-plan replacement — disproportionate for a missing argument. The substituted commands were
-`node plugins/session-relay/test/rust-test-inventory.mjs --generate` and
-`node plugins/session-relay/test/rust-test-inventory.mjs --case fanout_reap`, which report 10/10
-`fanout_reap` tests. The check performed is the one the row intended.
-
-The full serial crate suite passes, and `cargo fmt` was applied before the final gate.
+N/A - manager-written after execution.

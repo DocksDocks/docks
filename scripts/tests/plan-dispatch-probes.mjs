@@ -168,6 +168,15 @@ function buildWorld(root, { risk = 'sensitive' } = {}) {
 
 const phaseOf = (world) => api.validatePlanRun(fs.readFileSync(world.planFile), world.identity).run.draft_review;
 
+function recordOf(world) {
+  const line = fs
+    .readFileSync(world.planFile, 'utf8')
+    .split('\n')
+    .find((candidate) => candidate.startsWith('Plan-run:'));
+  assert.ok(line, 'persisted plan must carry a Plan-run record');
+  return JSON.parse(line.slice('Plan-run:'.length));
+}
+
 function writeStub(world, { reply, goFile, name = 'stub' }) {
   const stub = path.join(world.root, `${name}.mjs`);
   fs.writeFileSync(
@@ -218,7 +227,7 @@ function startDriver(world, { body = null, cwd = null, driver = DRIVER, stub, en
   const done = new Promise((resolve) => {
     child.on('close', (code, signal) => resolve({ code, output: Buffer.concat(out).toString(), signal }));
   });
-  return { child, done };
+  return { child, done, output: () => Buffer.concat(out).toString() };
 }
 
 // A sealed bundle is chmod 0o500 by design, so the harness cannot unlink it.
@@ -267,14 +276,17 @@ const waitForState = (world, states) =>
 
 // Reads the binding the driver actually sealed, so assertions compare against the
 // live reservation rather than a value the probe recomputed.
-function sealedBinding(world) {
+function sealedBundlePath(world) {
   const dirs = fs
     .readdirSync(world.outDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => path.join(world.outDir, e.name));
   assert.ok(dirs.length > 0, 'driver sealed no bundle');
-  const newest = dirs.sort((a, b) => fs.statSync(a).mtimeMs - fs.statSync(b).mtimeMs).at(-1);
-  return JSON.parse(fs.readFileSync(path.join(newest, 'binding.json'), 'utf8'));
+  return dirs.sort((a, b) => fs.statSync(a).mtimeMs - fs.statSync(b).mtimeMs).at(-1);
+}
+
+function sealedBinding(world) {
+  return JSON.parse(fs.readFileSync(path.join(sealedBundlePath(world), 'binding.json'), 'utf8'));
 }
 
 async function withStaleBundleDriver(operation) {
@@ -557,6 +569,160 @@ probes['dry-run'] = () =>
     process.stdout.write(
       '  ok dry run: bytes identical, nothing reserved, reported digest verifies the bundle, route-blind\n',
     );
+  });
+
+// The reserve transaction must persist the same rebound record that was sealed.
+// A repaired body plus a moved HEAD makes every source binding in the live record
+// stale, so retaining even one predecessor value is observable here.
+probes['reserved-rebind'] = () =>
+  withScratchRoot('dispatch-reserved-rebind-', async (root) => {
+    const world = buildWorld(root);
+    const bodyFile = path.join(root, 'repaired.md');
+    const repairedBytes = Buffer.from(
+      fs
+        .readFileSync(world.planFile, 'utf8')
+        .replace('Exercise the dispatch driver against a disposable plan.', 'Exercise a persisted rebound plan.'),
+    );
+    fs.writeFileSync(bodyFile, repairedBytes);
+
+    fs.writeFileSync(path.join(world.repo, 'tracked.txt'), 'rebound reviewed source\n');
+    git(world.repo, ['add', 'tracked.txt']);
+    git(world.repo, ['commit', '-qm', 'move rebound source']);
+    const expectedHead = git(world.repo, ['rev-parse', 'HEAD']).stdout;
+    const expectedManifest = api.createAffectedPathManifest({
+      repo: world.repo,
+      sourceBase: expectedHead,
+      paths: ['tracked.txt'],
+    });
+    const expectedPlanSha256 = api.sha256(api.canonicalPlanView(repairedBytes));
+
+    assert.notEqual(
+      expectedPlanSha256,
+      world.run.plan_sha256,
+      'probe premise: repaired body must stale plan_sha256',
+    );
+    assert.notEqual(
+      expectedManifest.source_base,
+      world.run.source_base,
+      'probe premise: moved HEAD must stale source_base',
+    );
+    assert.notEqual(
+      expectedManifest.source_sha256,
+      world.run.source_sha256,
+      'probe premise: moved source must stale source_sha256',
+    );
+
+    const placeholder = { __placeholder: true };
+    const go = path.join(root, 'go');
+    const stub = writeStub(world, { goFile: go, reply: placeholder });
+    const { done, output } = startDriver(world, { body: bodyFile, stub });
+    const prematureExit = await Promise.race([
+      waitFor('persisted reserved record', () => recordOf(world).draft_review.state === 'reserved').then(() => null),
+      done,
+    ]);
+    if (prematureExit !== null) {
+      assert.equal(
+        recordOf(world).plan_sha256,
+        expectedPlanSha256,
+        `driver exited before persisting reserved: plan_sha256 remained stale (${prematureExit.output.slice(-200)})`,
+      );
+      assert.fail('driver exited before persisting the reserved successor record');
+    }
+    const bundlePath = sealedBundlePath(world);
+    const binding = sealedBinding(world);
+    const reportedDigest = await waitFor(
+      'reported bundle digest',
+      () => /bundle_sha256 : ([0-9a-f]{64})\b/.exec(output())?.[1] ?? false,
+    );
+    rebindStub(stub, placeholder, REPAIR_REVIEW(binding));
+
+    let result;
+    try {
+      const persistedBytes = fs.readFileSync(world.planFile);
+      const persisted = recordOf(world);
+      assert.equal(
+        persisted.plan_sha256,
+        expectedPlanSha256,
+        'persisted reserved plan_sha256 must replace the stale record value',
+      );
+      assert.equal(
+        persisted.source_base,
+        expectedManifest.source_base,
+        'persisted reserved source_base must replace the stale record value',
+      );
+      assert.equal(
+        persisted.source_sha256,
+        expectedManifest.source_sha256,
+        'persisted reserved source_sha256 must replace the stale record value',
+      );
+      assert.deepEqual(
+        api.validatePlanRun(persistedBytes, world.identity).run,
+        persisted,
+        'the persisted rebound successor record must validate',
+      );
+      assert.equal(persisted.draft_review.state, 'reserved', 'persisted review phase must be reserved');
+      assert.equal(persisted.draft_review.invocations, 1, 'persisted reservation must consume invocation one');
+      assert.equal(
+        persisted.draft_review.input_sha256,
+        reportedDigest,
+        'persisted reservation input_sha256 must bind the sealed bundle digest',
+      );
+      assert.equal(
+        persisted.draft_review.result_sha256,
+        null,
+        'a newly persisted reservation must not carry a result digest',
+      );
+      const sealedPlan = fs.readFileSync(path.join(bundlePath, 'plan.md'));
+      const sealed = api.validatePlanRun(sealedPlan, world.identity).run;
+      assert.equal(
+        sealed.plan_sha256,
+        expectedPlanSha256,
+        'sealed plan_sha256 must equal the freshly computed repaired-body digest',
+      );
+      assert.equal(
+        sealed.source_base,
+        expectedManifest.source_base,
+        'sealed source_base must equal the freshly computed source base',
+      );
+      assert.equal(
+        sealed.source_sha256,
+        expectedManifest.source_sha256,
+        'sealed source_sha256 must equal the freshly computed source digest',
+      );
+      assert.equal(
+        sealed.plan_sha256,
+        persisted.plan_sha256,
+        'sealed and persisted plan_sha256 bindings must agree',
+      );
+      assert.equal(
+        sealed.source_base,
+        persisted.source_base,
+        'sealed and persisted source_base bindings must agree',
+      );
+      assert.equal(
+        sealed.source_sha256,
+        persisted.source_sha256,
+        'sealed and persisted source_sha256 bindings must agree',
+      );
+      assert.deepEqual(
+        sealed.draft_review,
+        world.run.draft_review,
+        'the sealed candidate must retain the pre-reserve review phase',
+      );
+      assert.ok(
+        Buffer.from(api.canonicalPlanView(sealedPlan)).equals(
+          Buffer.from(api.canonicalPlanView(persistedBytes)),
+        ),
+        'sealed and persisted canonical reviewed-body bytes must be identical',
+      );
+    } finally {
+      fs.writeFileSync(go, 'go\n');
+      result = await done;
+    }
+
+    assert.equal(result.code, 0, `the successful reservation driver must exit 0: ${result.output.slice(-300)}`);
+    assert.match(result.output, /NOT SETTLED/, 'the bound repair keeps the successfully persisted reservation live');
+    process.stdout.write('  ok reserved successor persisted all rebound fields and matches sealed reviewed bytes\n');
   });
 
 // A7: the settlement boundary. `pass` and a closed ReviewInvalidInputV1 settle
