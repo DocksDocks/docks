@@ -127,6 +127,13 @@ const readRecord = (text) => {
   return JSON.parse(line.slice('Plan-run:'.length));
 };
 
+const rebindReviewSource = (run, { planSha256, sourceBase, sourceSha256 }) => ({
+  ...run,
+  plan_sha256: planSha256,
+  source_base: sourceBase,
+  source_sha256: sourceSha256,
+});
+
 const liveBytes = fs.readFileSync(planFile);
 const record = readRecord(liveBytes.toString());
 const identity = { goalId: record.goal_id, planPath: PLAN, repositoryId: record.repository_id, runId: record.run_id };
@@ -143,7 +150,7 @@ if (BODY !== null && phase.state === 'retryable') {
 
 // The bundle binds the bytes the reviewer will actually see, so a repaired body
 // is folded in BEFORE sealing and installed by the reserve transaction below.
-const candidateText = BODY === null ? liveBytes.toString() : fs.readFileSync(path.resolve(BODY), 'utf8');
+const candidateSourceText = BODY === null ? liveBytes.toString() : fs.readFileSync(path.resolve(BODY), 'utf8');
 const withRecord = (baseText, state) => {
   const lines = baseText.split('\n');
   const at = lines.findIndex((l) => l.startsWith('Plan-run:'));
@@ -159,9 +166,34 @@ const withRecord = (baseText, state) => {
 const head = git(REPO, ['rev-parse', 'HEAD']);
 const paths = current.frontmatter.affected_paths;
 const manifest = lib.createAffectedPathManifest({ repo: REPO, sourceBase: head, paths });
-const planSha256 = lib.sha256(lib.canonicalPlanView(Buffer.from(candidateText)));
+const planSha256 = lib.sha256(lib.canonicalPlanView(Buffer.from(candidateSourceText)));
+const rebound = {
+  planSha256,
+  sourceBase: manifest.source_base,
+  sourceSha256: manifest.source_sha256,
+};
+const candidate = {
+  status: current.status,
+  run: rebindReviewSource(current.run, rebound),
+};
+const candidateText = withRecord(candidateSourceText, candidate).toString();
 const invocation = phase.invocations + 1;
-const binding = { run_id: record.run_id, invocation, plan_sha256: planSha256, source_sha256: manifest.source_sha256 };
+const binding = {
+  run_id: record.run_id,
+  invocation,
+  plan_sha256: planSha256,
+  source_sha256: manifest.source_sha256,
+};
+
+const preflight = (label, operation) => {
+  try {
+    return operation();
+  } catch (error) {
+    console.error(`\ndispatch-review: ${label}: ${String(error.message).slice(0, 200)}`);
+    console.error('PREFLIGHT FAILED - no permit reserved, no reviewer dispatched.');
+    process.exit(2);
+  }
+};
 
 fs.mkdirSync(OUT_DIR, { recursive: true, mode: 0o700 });
 const bundle = policy.createPlanReviewBundle({
@@ -237,15 +269,6 @@ const resolveExecutable = (command) => {
   throw new Error(`not found on PATH: ${command}`);
 };
 
-const preflight = (label, operation) => {
-  try {
-    return operation();
-  } catch (error) {
-    console.error(`\ndispatch-review: ${label}: ${String(error.message).slice(0, 200)}`);
-    console.error('PREFLIGHT FAILED - no permit reserved, no reviewer dispatched.');
-    process.exit(2);
-  }
-};
 
 if (!COMMIT) {
   console.log('\nDRY RUN - nothing reserved, nothing dispatched, plan untouched.');
@@ -286,6 +309,29 @@ preflight('raw-stdout target is not writable', () => {
   // step 4's write the only truncating writer.
   const descriptor = fs.openSync(RAW_STDOUT, 'a', 0o600);
   fs.closeSync(descriptor);
+});
+// Re-read and verify the sealed artifacts as the last fallible preflight before
+// reservation, then bind the record to the two artifacts that actually carry
+// each field. The review binding intentionally has no source_base field.
+preflight('sealed review bundle is inconsistent', () => {
+  const verifiedBundle = policy.verifyPlanReviewBundle({
+    binding,
+    bundlePath: bundle.path,
+    expectedSha256: bundle.sha256,
+    repo: REPO,
+    paths,
+    sourceBase: head,
+  });
+  const sealedRecord = readRecord(verifiedBundle.planBytes.toString());
+  if (sealedRecord.plan_sha256 !== verifiedBundle.binding.plan_sha256) {
+    throw new Error('sealed plan record plan_sha256 must equal binding plan_sha256');
+  }
+  if (sealedRecord.source_sha256 !== verifiedBundle.binding.source_sha256) {
+    throw new Error('sealed plan record source_sha256 must equal binding source_sha256');
+  }
+  if (sealedRecord.source_base !== verifiedBundle.manifest.source_base) {
+    throw new Error('sealed plan record source_base must equal manifest source_base');
+  }
 });
 
 console.log('route         :', reviewerArgv[0], `(${reviewerArgv.length} argv)`);
@@ -366,9 +412,7 @@ const reserved = lib.reducePlanRun({
   event: { type: 'reserve_review', phase: PHASE, input_sha256: bundle.sha256 },
 });
 // Permitted by this transition alone, and only from a non-retryable predecessor.
-reserved.run.plan_sha256 = planSha256;
-reserved.run.source_base = manifest.source_base;
-reserved.run.source_sha256 = manifest.source_sha256;
+reserved.run = rebindReviewSource(reserved.run, rebound);
 
 const afterReserve = await lib.transactPlanRun({
   file: planFile,

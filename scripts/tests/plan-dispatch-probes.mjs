@@ -199,8 +199,8 @@ function rebindStub(stub, previous, next) {
 // probe can tell the two apart: the driver must resolve a relative reviewer route against
 // `--repo`, because `spawn` chdirs there before the OS resolves the command. With the
 // default they coincide and that confusion is invisible.
-function startDriver(world, { body = null, cwd = null, stub, env = {} }) {
-  const argv = [DRIVER, world.planFile, `--out-dir=${world.outDir}`, `--repo=${world.repo}`, '--commit'];
+function startDriver(world, { body = null, cwd = null, driver = DRIVER, stub, env = {} }) {
+  const argv = [driver, world.planFile, `--out-dir=${world.outDir}`, `--repo=${world.repo}`, '--commit'];
   if (body !== null) argv.push(`--body=${body}`);
   const child = spawn(process.execPath, argv, {
     cwd: cwd ?? world.repo,
@@ -275,6 +275,22 @@ function sealedBinding(world) {
   assert.ok(dirs.length > 0, 'driver sealed no bundle');
   const newest = dirs.sort((a, b) => fs.statSync(a).mtimeMs - fs.statSync(b).mtimeMs).at(-1);
   return JSON.parse(fs.readFileSync(path.join(newest, 'binding.json'), 'utf8'));
+}
+
+async function withStaleBundleDriver(operation) {
+  const source = fs.readFileSync(DRIVER, 'utf8');
+  const needle = 'planBytes: Buffer.from(candidateText),';
+  assert.equal(source.split(needle).length - 1, 1, 'driver must have one planBytes bundle input');
+  const mutant = path.join(path.dirname(DRIVER), `.dispatch-review-stale-bundle-${process.pid}.mjs`);
+  fs.writeFileSync(
+    mutant,
+    source.replace(needle, "planBytes: Buffer.from(candidateText.replace(record.plan_sha256, '0'.repeat(64))),"),
+  );
+  try {
+    return await operation(mutant);
+  } finally {
+    fs.unlinkSync(mutant);
+  }
 }
 
 // --- probes ----------------------------------------------------------------
@@ -416,11 +432,21 @@ probes['dry-run'] = () =>
   withScratchRoot('dispatch-dryrun-', async (root) => {
     const world = buildWorld(root);
     const stub = writeStub(world, { goFile: null, reply: {} });
+    const bodyFile = path.join(root, 'repaired.md');
+    fs.writeFileSync(
+      bodyFile,
+      fs
+        .readFileSync(world.planFile, 'utf8')
+        .replace('Exercise the dispatch driver against a disposable plan.', 'Exercise a rebound dry-run plan.'),
+    );
+    fs.writeFileSync(path.join(world.repo, 'tracked.txt'), 'new reviewed source\n');
+    git(world.repo, ['add', 'tracked.txt']);
+    git(world.repo, ['commit', '-qm', 'move reviewed source']);
     const before = fs.readFileSync(world.planFile);
 
     const child = spawn(
       process.execPath,
-      [DRIVER, world.planFile, `--out-dir=${world.outDir}`, `--repo=${world.repo}`],
+      [DRIVER, world.planFile, `--body=${bodyFile}`, `--out-dir=${world.outDir}`, `--repo=${world.repo}`],
       {
         cwd: world.repo,
         env: { ...process.env, DOCKS_REVIEWER_ARGV: JSON.stringify([process.execPath, stub]) },
@@ -450,7 +476,46 @@ probes['dry-run'] = () =>
     const bundleLine = /bundle {8}: (\S+)/.exec(output);
     assert.ok(bundleLine, 'a dry run must report the sealed bundle path');
     const sealed = sealedBinding(world);
-    assert.equal(sealed.plan_sha256, world.run.plan_sha256, 'the sealed bundle must bind the live plan digest');
+    const bundlePath = bundleLine[1];
+    const sealedPlan = fs.readFileSync(path.join(bundlePath, 'plan.md'), 'utf8');
+    const sealedRecord = JSON.parse(
+      sealedPlan
+        .split('\n')
+        .find((line) => line.startsWith('Plan-run:'))
+        .slice('Plan-run:'.length),
+    );
+    const sealedManifest = JSON.parse(fs.readFileSync(path.join(bundlePath, 'manifest.json'), 'utf8'));
+    assert.equal(
+      sealedRecord.plan_sha256,
+      sealed.plan_sha256,
+      'sealed plan record plan_sha256 must equal binding plan_sha256',
+    );
+    assert.equal(
+      sealedRecord.source_sha256,
+      sealed.source_sha256,
+      'sealed plan record source_sha256 must equal binding source_sha256',
+    );
+    assert.equal(
+      sealedRecord.source_base,
+      sealedManifest.source_base,
+      'sealed plan record source_base must equal manifest source_base',
+    );
+    assert.deepEqual(
+      sealedRecord.draft_review,
+      world.run.draft_review,
+      'the sealed plan record must retain the pre-reserve draft_review',
+    );
+    assert.notEqual(sealed.plan_sha256, world.run.plan_sha256, 'the repaired body must move the reviewed plan digest');
+    assert.notEqual(
+      sealed.source_sha256,
+      world.run.source_sha256,
+      'the source commit must move the reviewed source digest',
+    );
+    assert.notEqual(
+      sealedManifest.source_base,
+      world.run.source_base,
+      'the source commit must move the reviewed source base',
+    );
     assert.equal(sealed.invocation, 1, 'the sealed bundle must bind the invocation it would consume');
     policy.verifyPlanReviewBundle({
       binding: {
@@ -777,6 +842,26 @@ probes['preflight-before-reserve'] = () =>
       assert.equal(phase.invocations, 0, `${name}: preflight refusal must spend no permit`);
     };
 
+    {
+      const world = buildWorld(path.join(root, 'stale-sealed-record'));
+      const before = fs.readFileSync(world.planFile);
+      const stub = writeStub(world, { goFile: null, reply: {} });
+      const result = await withStaleBundleDriver((driver) => startDriver(world, { driver, stub }).done);
+      assert.equal(result.code, 2, 'bundle mismatch must be refused before reserve');
+      assert.match(
+        result.output,
+        /sealed plan record plan_sha256 must equal binding plan_sha256/,
+        'bundle mismatch refusal must name plan_sha256',
+      );
+      assert.match(
+        result.output,
+        /PREFLIGHT FAILED - no permit reserved, no reviewer dispatched\./,
+        'bundle mismatch refusal must report the preflight boundary',
+      );
+      assert.ok(fs.readFileSync(world.planFile).equals(before), 'bundle mismatch must not change plan bytes');
+      assert.deepEqual(phaseOf(world), world.run.draft_review, 'bundle mismatch must not change the review phase');
+    }
+
     await assertRefusedBeforeReserve(buildWorld(path.join(root, 'invalid-json')), {
       env: { DOCKS_REVIEWER_ARGV: 'not json' },
       label: 'reviewer route is unusable',
@@ -899,23 +984,26 @@ probes['preflight-before-reserve'] = () =>
     }
 
     process.stdout.write(
-      '  ok eight preflight refusals before reserve; valid and repo-relative routes reached RESERVED\n',
+      '  ok nine preflight refusals before reserve; valid and repo-relative routes reached RESERVED\n',
     );
   });
 
 export const PROBE_NAMES = Object.keys(probes);
 
 const name = args.find((a) => !a.startsWith('-'));
-if (name === undefined || !Object.hasOwn(probes, name)) {
-  console.error(`usage: node scripts/tests/plan-dispatch-probes.mjs <${PROBE_NAMES.join('|')}> [--driver=<path>]`);
+if (name !== undefined && !Object.hasOwn(probes, name)) {
+  console.error(`usage: node scripts/tests/plan-dispatch-probes.mjs [${PROBE_NAMES.join('|')}] [--driver=<path>]`);
   process.exit(2);
 }
 
-try {
-  await probes[name]();
-  process.stdout.write(`ok - plan-dispatch-probes: ${name}\n`);
-} catch (error) {
-  process.stderr.write(`not ok - plan-dispatch-probes: ${name}\n`);
-  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  process.exitCode = 1;
+for (const probeName of name === undefined ? PROBE_NAMES : [name]) {
+  try {
+    await probes[probeName]();
+    process.stdout.write(`ok - plan-dispatch-probes: ${probeName}\n`);
+  } catch (error) {
+    process.stderr.write(`not ok - plan-dispatch-probes: ${probeName}\n`);
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+    process.exitCode = 1;
+    break;
+  }
 }

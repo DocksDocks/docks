@@ -58,6 +58,12 @@ function replacementAuthority(api, successorRun, overrides = {}) {
   };
 }
 
+function replacementFile(root) {
+  const file = path.join(root, PLAN_PATH);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  return file;
+}
+
 function historyFixture(api, { attemptHistory, run, status }) {
   const historyRecords = attemptHistory.map((attempt) => `Plan-attempt-history: ${api.jcs(attempt)}`).join('\n');
   const review = ['Fresh reviewer output that is excluded from plan identity.', historyRecords]
@@ -389,7 +395,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
 
   suite.test('locks-cas', 'terminal same-goal recovery replaces the current run in the same plan file', () =>
     withTempDirectory('plan-run-replacement-', async (root) => {
-      const file = path.join(root, 'plan.md');
+      const file = replacementFile(root);
       const current = bindPlan(
         api,
         tuple('blocked', {
@@ -410,6 +416,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
         },
         expectedBytesSha256: api.sha256(current.bytes),
         file,
+        repo: root,
         liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
         nextBytes: next.bytes,
       });
@@ -418,13 +425,53 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
       assert.deepEqual(result.attempt_history, [next.attempt]);
       assert.ok(fs.readFileSync(file).equals(next.bytes));
       assert.match(fs.readFileSync(file, 'utf8'), /corrected bounded local change/);
-      assert.deepEqual(fs.readdirSync(root), ['plan.md']);
+      assert.deepEqual(fs.readdirSync(path.dirname(file)), [path.basename(file)]);
+    }),
+  );
+
+  suite.test('locks-cas', 'replacement rejects a file outside current plan_path', () =>
+    withTempDirectory('plan-run-replacement-path-', async (root) => {
+      const currentFile = replacementFile(root);
+      const otherFile = path.join(path.dirname(currentFile), 'other-plan.md');
+      const current = bindPlan(
+        api,
+        tuple('blocked', {
+          blocker: blocker('review_failed'),
+          draft_review: reviewPhase('blocked'),
+        }),
+      );
+      const next = replacementFixture(api, current);
+      fs.writeFileSync(currentFile, current.bytes);
+      fs.writeFileSync(otherFile, current.bytes);
+
+      await expectReject(
+        () =>
+          api.replacePlanRunInPlace({
+            authority: replacementAuthority(api, next.run),
+            currentIdentity: {
+              goalId: IDS.goal,
+              planPath: PLAN_PATH,
+              repositoryId: REPOSITORY_ID,
+              runId: IDS.run,
+            },
+            expectedBytesSha256: api.sha256(current.bytes),
+            file: otherFile,
+            liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
+            nextBytes: next.bytes,
+            repo: root,
+          }),
+        /replacement file path does not match current PlanRun plan_path/,
+        'replacement file/path mismatch must reject',
+      );
+      assert.ok(fs.readFileSync(currentFile).equals(current.bytes));
+      assert.ok(fs.readFileSync(otherFile).equals(current.bytes));
+      assert.equal(api.validatePlanRun(fs.readFileSync(otherFile)).run.draft_review.state, 'blocked');
     }),
   );
 
   suite.test('locks-cas', 'same-file recovery requires current-user authority and exact append-only history', () =>
     withTempDirectory('plan-run-replacement-guard-', async (root) => {
-      const file = path.join(root, 'plan.md');
+      const file = replacementFile(root);
       const current = bindPlan(
         api,
         tuple('blocked', {
@@ -463,6 +510,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
         },
         expectedBytesSha256: api.sha256(current.bytes),
         file,
+        repo: root,
         liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
         nextBytes: next.bytes,
       };
@@ -515,7 +563,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
 
   suite.test('locks-cas', 'reviewer-blocked user answers replace the run without creating a new plan file', () =>
     withTempDirectory('plan-run-user-answer-', async (root) => {
-      const file = path.join(root, 'plan.md');
+      const file = replacementFile(root);
       const current = bindPlan(
         api,
         tuple('blocked', {
@@ -536,18 +584,19 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
         },
         expectedBytesSha256: api.sha256(current.bytes),
         file,
+        repo: root,
         liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
         nextBytes: next.bytes,
       });
 
       assert.ok(fs.readFileSync(file).equals(next.bytes));
-      assert.deepEqual(fs.readdirSync(root), ['plan.md']);
+      assert.deepEqual(fs.readdirSync(path.dirname(file)), [path.basename(file)]);
     }),
   );
 
   suite.test('locks-cas', 'attempt history chains across repeated authorized runs at one stable path', () =>
     withTempDirectory('plan-run-history-chain-', async (root) => {
-      const file = path.join(root, 'plan.md');
+      const file = replacementFile(root);
       const predecessor = bindPlan(
         api,
         tuple('blocked', {
@@ -580,6 +629,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
         },
         expectedBytesSha256: api.sha256(secondPredecessor.bytes),
         file,
+        repo: root,
         liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
         nextBytes: secondSuccessor.bytes,
       });
@@ -592,7 +642,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
 
   suite.test('locks-cas', 'resumable blockers and finished plans cannot start replacement runs', () =>
     withTempDirectory('plan-run-replacement-terminal-guards-', async (root) => {
-      const file = path.join(root, 'plan.md');
+      const file = replacementFile(root);
       const fixtures = [
         bindPlan(
           api,
@@ -625,6 +675,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
               },
               expectedBytesSha256: api.sha256(current.bytes),
               file,
+              repo: root,
               liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
               nextBytes: next.bytes,
             }),
@@ -688,7 +739,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
 
   suite.test('locks-cas', 'concurrent replacements admit exactly one successor', () =>
     withTempDirectory('plan-run-replacement-race-', async (root) => {
-      const file = path.join(root, 'plan.md');
+      const file = replacementFile(root);
       const current = bindPlan(
         api,
         tuple('blocked', {
@@ -708,6 +759,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
         },
         expectedBytesSha256: api.sha256(current.bytes),
         file,
+        repo: root,
         liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
         nextBytes: next.bytes,
       };
@@ -736,7 +788,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
   // the driver-shaped replacement is what produced the one inversion on record.
   suite.test('locks-cas', 'chronology: replacement authority cannot install finished_at before started_at', () =>
     withTempDirectory('plan-run-replacement-chronology-', async (root) => {
-      const file = path.join(root, 'plan.md');
+      const file = replacementFile(root);
       const current = bindPlan(
         api,
         tuple('blocked', {
@@ -756,6 +808,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
         },
         expectedBytesSha256: api.sha256(current.bytes),
         file,
+        repo: root,
         liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
       };
       await expectReject(

@@ -1939,6 +1939,7 @@ export async function replacePlanRunInPlace({
   lockRoot,
   lockTimeoutMs = 1_000,
   nextBytes,
+  repo,
 }) {
   assertPlainObject(currentIdentity, 'current plan transaction identity');
   if (!HASH.test(expectedBytesSha256)) fail('plan transaction expected preimage must be a SHA-256 digest');
@@ -1959,6 +1960,18 @@ export async function replacePlanRunInPlace({
     // `plan_bytes_sha256` in the attempt entry. `assertPlanRunReplacement` also
     // forbids acceptance on the successor, so the next side never needs a mode.
     const current = validatePlanRun(currentBytes, { ...currentIdentity, acceptanceProof: 'recorded' });
+    const root = repositoryRoot(repo);
+    let logicalFile;
+    try {
+      const canonicalFile = fs.realpathSync(file);
+      const relativeFile = path.relative(root, canonicalFile).split(path.sep).join('/');
+      [logicalFile] = normalizeLogicalPaths([relativeFile], 'replacement file path');
+    } catch {
+      fail('replacement file path does not match current PlanRun plan_path');
+    }
+    if (logicalFile !== current.run.plan_path) {
+      fail('replacement file path does not match current PlanRun plan_path');
+    }
     const nextBuffer = Buffer.from(nextBytes);
     const next = validatePlanRun(nextBuffer, {
       goalId: current.run.goal_id,

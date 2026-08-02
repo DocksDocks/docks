@@ -179,6 +179,48 @@ function assertProposedRepairRule() {
   }
 }
 
+function assertLifecycleDispatchIntegrityRule() {
+  const clauses = [
+    {
+      name: 'three-field pre-seal rebound',
+      text: "pre-seal rebinding changes exactly the run's `plan_sha256`, `source_base`, and `source_sha256`",
+    },
+    { name: 'pre-reserve phase retention', text: 'leaves both review phases untouched' },
+    {
+      name: 'record/binding plan digest',
+      text: 'record `plan_sha256` to equal binding `plan_sha256`',
+    },
+    {
+      name: 'record/binding source digest',
+      text: 'record `source_sha256` to equal binding `source_sha256`',
+    },
+    { name: 'record/manifest source base', text: 'record `source_base` to equal manifest `source_base`' },
+    { name: 'binding excludes source base', text: 'The binding has no `source_base` field' },
+    {
+      name: 'pre-reserve mismatch refusal',
+      text: 'PREFLIGHT FAILED - no permit reserved, no reviewer dispatched.',
+    },
+    {
+      name: 'replacement repository-relative path',
+      text: "the current file's normalized repository-relative path after validating the current record",
+    },
+    {
+      name: 'replacement path equality',
+      text: "rejects unless that file path equals the current run's `plan_path`",
+    },
+    { name: 'replacement target is never rewritten', text: 'never rewrites the target to make it match' },
+  ];
+  for (const relative of [
+    'docs/plans/AGENTS.md',
+    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  ]) {
+    const text = read(relative).replace(/\s+/g, ' ');
+    for (const clause of clauses) {
+      assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
+    }
+  }
+}
+
 // These copies are maintained separately, so bind every distinguishing clause
 // in each file. A single regex spanning the sentence with `[\s\S]*` would still
 // match after a mutation in the middle, making the mutation probe vacuous.
@@ -268,6 +310,7 @@ assertReviewerWrappersOnly();
 assertBoundedWorkflows();
 assertAcceptanceProofRule();
 assertProposedRepairRule();
+assertLifecycleDispatchIntegrityRule();
 assertQuarantineRetirementRule();
 assertPortablePlanTextRule();
 console.log('three-skill, one-wrapper bounded plan workflows passed');

@@ -235,6 +235,16 @@ console rendering, clipped lines, transcript fragments, or reconstructed JSON;
 do not request compact/single-line reviewer output. Parse the file, validate the
 closed object, then hash canonical JCS.
 
+For draft review, pre-seal rebinding changes exactly the run's `plan_sha256`,
+`source_base`, and `source_sha256`; it leaves both review phases untouched, so
+sealed `plan.md` retains the pre-reserve draft phase. Immediately before a
+permit is reserved, the driver re-verifies the bundle and its digests through
+reviewer policy, then requires record `plan_sha256` to equal binding
+`plan_sha256`, record `source_sha256` to equal binding `source_sha256`, and
+record `source_base` to equal manifest `source_base`. The binding has no
+`source_base` field. Any mismatch fails with `PREFLIGHT FAILED - no permit
+reserved, no reviewer dispatched.` before the reserve transaction.
+
 A transport retry preserves canonical plan/source and any completion
 implementation/acceptance bindings, but seals a fresh bundle with a different
 input digest and persists `transport_retried`. It reuses the refunded
@@ -272,6 +282,11 @@ start fresh review budgets under a new `run_id` at the same `plan_path`.
 Replacement is never automatic and never reuses predecessor permits, bundles,
 prompts, output, or hashes. Unrelated goals use new files; never mint `v2`/`vN`
 paths to bypass a terminal run or permit budget.
+
+The same-file replacement transaction resolves an explicit repository root and
+the current file's normalized repository-relative path after validating the
+current record. It rejects unless that file path equals the current run's
+`plan_path`, before any write, and never rewrites the target to make it match.
 
 ## Main-context orchestration
 
