@@ -664,11 +664,35 @@ function validateStandalonePublication(publication, label) {
   if (!record(publication) || !record(publication.value)) fail(`${label} is invalid`);
   assertDigest(publication.digest, `${label} digest`);
   if (publication.value.schema === 2 || publication.value.type === 'SessionRelayPublicationReceiptV2') {
+    // A standalone caller holds no source proof, so the proof-bound fields are synthesized from the
+    // receipt. The PlanRun discriminator has to travel with them: `validateCurrentPublicationReceipt`
+    // reads `proof.value.schema`/`type` to choose between the PlanRun binding
+    // (`reviewed_commit === tag_commit`, implementation bound separately) and the legacy binding
+    // (`reviewed_commit === implementation_commit === tag_commit`). Dropping it forced every PlanRun
+    // publication down the legacy branch, where the equality can never hold, because a PlanRun run's
+    // implementation commit is deliberately later than the tag it publishes.
+    //
+    // Classify from the receipt's own shape rather than assuming: only a PlanRun publication records
+    // an implementation commit distinct from its tag commit. The implementation equality is then
+    // self-satisfied here, which is exactly right - a standalone caller has nothing independent to
+    // compare against. It is not skipped, only deferred to the callers that do load the proof
+    // (`publish-reviewed`, `promote-reviewed`, `finalize-reviewed`), where `proof.digest` and
+    // `proof.value.implementation_commit` come from the signed receipt on disk.
+    const source = record(publication.value.source) ? publication.value.source : {};
+    const planRunShaped =
+      typeof source.implementation_commit === 'string' && source.implementation_commit !== publication.value.tag_commit;
     return validatePublicationReceipt(
       publication,
       {
         digest: publication.value.source_proof_sha256,
-        value: { tag_commit: publication.value.tag_commit },
+        value: planRunShaped
+          ? {
+              schema: 3,
+              type: 'SourcePreparationProofV3',
+              tag_commit: publication.value.tag_commit,
+              implementation_commit: source.implementation_commit,
+            }
+          : { tag_commit: publication.value.tag_commit },
       },
       label,
     );
