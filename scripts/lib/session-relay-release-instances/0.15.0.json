@@ -1,0 +1,106 @@
+{
+  "current_attempt": {
+    "goal_id": "258b44c2-c3b2-4902-862c-7461724ca078",
+    "docks_run_id": "12a460e2-af44-4bc8-bc7d-d7aaec2c991b",
+    "docks_plan_path": "docs/plans/active/session-relay-0.15.0-release.md",
+    "docks_source_base": "c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f",
+    "public_run_id": "ad7f3b75-dfff-4bcd-8d1f-c8c11555b119",
+    "release_plan_path": "docs/plans/active/session-relay-0.15.0-release.md"
+  },
+  "planrun_attempt": {
+    "docks_run_id": "12a460e2-af44-4bc8-bc7d-d7aaec2c991b",
+    "docks_plan_path": "docs/plans/active/session-relay-0.15.0-release.md",
+    "docks_source_base": "c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f",
+    "release_tag_commit": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "docks_affected_paths": [
+      ".claude-plugin/marketplace.json",
+      "plugins/session-relay/.claude-plugin/plugin.json",
+      "plugins/session-relay/.codex-plugin/plugin.json",
+      "plugins/session-relay/rust/Cargo.lock",
+      "plugins/session-relay/rust/Cargo.toml",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
+      "plugins/session-relay/test/distribution-contract.mjs",
+      "plugins/session-relay/test/fixtures/release-identity-inventory.json",
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "plugins/session-relay/test/release-instance-contract.mjs",
+      "plugins/session-relay/test/release-promotion-contract.mjs",
+      "plugins/session-relay/test/release-publication-contract.mjs",
+      "plugins/session-relay/test/remediation-contract.mjs",
+      "scripts/lib/session-relay-release-core.mjs",
+      "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "scripts/lib/session-relay-release-promotion.mjs",
+      "scripts/lib/session-relay-release-publication.mjs"
+    ]
+  },
+  "continuation_paths": {
+    "current": [
+      ".claude-plugin/marketplace.json",
+      "plugins/session-relay/.claude-plugin/plugin.json",
+      "plugins/session-relay/.codex-plugin/plugin.json",
+      "plugins/session-relay/rust/Cargo.lock",
+      "plugins/session-relay/rust/Cargo.toml",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
+      "plugins/session-relay/test/distribution-contract.mjs",
+      "plugins/session-relay/test/fixtures/release-identity-inventory.json",
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "plugins/session-relay/test/release-instance-contract.mjs",
+      "plugins/session-relay/test/release-promotion-contract.mjs",
+      "plugins/session-relay/test/release-publication-contract.mjs",
+      "plugins/session-relay/test/remediation-contract.mjs",
+      "scripts/lib/session-relay-release-core.mjs",
+      "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "scripts/lib/session-relay-release-promotion.mjs",
+      "scripts/lib/session-relay-release-publication.mjs"
+    ],
+    "planrun": ["docs/plans/active/session-relay-0.15.0-release.md"]
+  },
+  "public_child": {
+    "version": "0.13.0",
+    "tag": "cli-v0.13.0"
+  },
+  "authorized_base": {
+    "current_main_base": "c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f",
+    "shipped_to_promoted_paths": [
+      ".claude-plugin/marketplace.json",
+      "plugins/session-relay/.claude-plugin/plugin.json",
+      "plugins/session-relay/.codex-plugin/plugin.json",
+      "plugins/session-relay/rust/Cargo.lock",
+      "plugins/session-relay/rust/Cargo.toml",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
+      "plugins/session-relay/test/distribution-contract.mjs",
+      "plugins/session-relay/test/fixtures/release-identity-inventory.json",
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "plugins/session-relay/test/release-instance-contract.mjs",
+      "plugins/session-relay/test/release-promotion-contract.mjs",
+      "plugins/session-relay/test/release-publication-contract.mjs",
+      "plugins/session-relay/test/remediation-contract.mjs",
+      "scripts/lib/session-relay-release-core.mjs",
+      "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "scripts/lib/session-relay-release-promotion.mjs",
+      "scripts/lib/session-relay-release-publication.mjs"
+    ],
+    "authorized_base_to_promoted_paths": [
+      ".claude-plugin/marketplace.json",
+      "docs/plans/active/session-relay-0.15.0-release.md",
+      "plugins/session-relay/.claude-plugin/plugin.json",
+      "plugins/session-relay/.codex-plugin/plugin.json",
+      "plugins/session-relay/rust/Cargo.lock",
+      "plugins/session-relay/rust/Cargo.toml",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
+      "plugins/session-relay/test/distribution-contract.mjs",
+      "plugins/session-relay/test/fixtures/release-identity-inventory.json",
+      "plugins/session-relay/test/release-evidence-contract.mjs",
+      "plugins/session-relay/test/release-instance-contract.mjs",
+      "plugins/session-relay/test/release-promotion-contract.mjs",
+      "plugins/session-relay/test/release-publication-contract.mjs",
+      "plugins/session-relay/test/remediation-contract.mjs",
+      "scripts/lib/session-relay-release-core.mjs",
+      "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "scripts/lib/session-relay-release-promotion.mjs",
+      "scripts/lib/session-relay-release-publication.mjs"
+    ]
+  },
+  "fixture": {
+    "plan_path": "docs/plans/active/session-relay-0.15.0-release.md"
+  }
+}

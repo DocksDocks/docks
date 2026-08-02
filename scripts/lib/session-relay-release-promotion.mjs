@@ -51,14 +51,14 @@ import {
 } from './session-relay-release-publication.mjs';
 
 const INSTANCE = loadReleaseInstance(CURRENT_VERSION, {
-  require: ['current_attempt', 'planrun_attempt', 'retained_promotion'],
+  require: ['current_attempt', 'planrun_attempt'],
 });
 const LEGACY = loadReleaseInstance('0.13.0', {
   require: ['legacy_0_13', 'historical_receipts'],
 });
 
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
-const PUBLIC_VERSION = '0.12.0';
+const PUBLIC_VERSION = '0.13.0';
 const PUBLIC_TAG = `cli-v${PUBLIC_VERSION}`;
 const PUBLIC_WORKFLOW = '.github/workflows/release-cli.yml';
 const LEGACY_PUBLIC_FINISHED_PLAN_PATH =
@@ -92,7 +92,7 @@ const PUBLICATION_TRANSITIONS = new Set([
   'tag_and_reconciled',
   'tag_and_release_created',
 ]);
-const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.12.0';
+const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.13.0';
 const CURRENT_GOAL_ID = INSTANCE.current_attempt.goal_id;
 const CURRENT_DOCKS_RUN_ID = INSTANCE.current_attempt.docks_run_id;
 const CURRENT_DOCKS_PLAN_PATH = INSTANCE.current_attempt.docks_plan_path;
@@ -120,13 +120,22 @@ const LEGACY_PROMOTION_TAG = HISTORICAL_RELAY_TAG;
 const LEGACY_PROMOTION_TRANSACTION_REF = LEGACY_TRANSACTION_REF;
 const LEGACY_PROMOTION_LOCK_REF = LEGACY_LOCK_REF;
 const LEGACY_PROMOTION_DOCKS_KIT_RELEASE = LEGACY_DOCKS_KIT_RELEASE;
-const RETAINED_PROMOTION_SHA256 = INSTANCE.retained_promotion.promotion_sha256;
-const RETAINED_PROMOTION_SOURCE_PROOF_SHA256 = INSTANCE.retained_promotion.source_proof_sha256;
-const RETAINED_PROMOTION_PUBLICATION_SHA256 = INSTANCE.retained_promotion.publication_sha256;
-const RETAINED_PROMOTION_PUBLIC_RELEASE_SHA256 = INSTANCE.retained_promotion.public_release_sha256;
-const RETAINED_PROMOTION_DOCKS_RUN_ID = INSTANCE.retained_promotion.docks_run_id;
-const RETAINED_PROMOTION_DOCKS_PLAN_PATH = INSTANCE.retained_promotion.docks_plan_path;
-const RETAINED_PROMOTION_COMPLETION_REVIEW_SHA256 = INSTANCE.retained_promotion.completion_review_sha256;
+// A retained promotion exists only when a promotion succeeded and its run was then
+// re-attempted. A first attempt has none, and `0.13.0.json` omits the group for
+// exactly that reason, so demanding it here would force an executor to invent
+// identity that was never recorded. Absent means "no retained promotion is
+// acceptable", which the consumers turn into a hard refusal, never a skipped check.
+const RETAINED_PROMOTION = INSTANCE.retained_promotion ?? null;
+// The full identity the retained-promotion validators compare a receipt against,
+// and the default for their `expected` seam, so production behaviour is unchanged.
+// A test may pass a prior release's real identity to exercise the adversarial
+// receipt cases from a release that declares no retained promotion of its own.
+// Null-preserving on purpose: a plain spread of `null` would yield a non-null
+// object and silently disarm the `expected === null` refusal below.
+const RETAINED_PROMOTION_EXPECTATION =
+  RETAINED_PROMOTION === null
+    ? null
+    : Object.freeze({ ...RETAINED_PROMOTION, release_tag_commit: PLANRUN_RELEASE_TAG_COMMIT });
 const EMPTY_SHA256 = sha256(Buffer.alloc(0));
 const PREPUSH_REPAIR_PATHS = [
   'plugins/session-relay/test/release-promotion-contract.mjs',
@@ -2770,19 +2779,34 @@ function validateCurrentPromotionReceipt(receipt) {
   });
 }
 
-function validateRetainedPromotionReceipt(receipt) {
+function validateRetainedPromotionReceipt(receipt, expected = RETAINED_PROMOTION_EXPECTATION) {
+  // `expected` is a defaulted seam, not a policy switch: production callers omit it
+  // and receive this release's declared identity unchanged. It exists so the
+  // adversarial receipt suite can exercise every mutation case against a real
+  // retained identity even from a release that declares none.
+  //
+  // Distinguish "this release declares no retained promotion" from "the receipt
+  // omitted the field". The former must refuse any presented retained promotion
+  // outright: with nothing to compare against, accepting one would let an
+  // unverifiable prior promotion ride along on a first attempt.
+  if (expected === null) {
+    fail('this release records no retained promotion, so a presented retained promotion cannot be accepted');
+  }
+  if (receipt === null || receipt === undefined) {
+    fail('retained promotion receipt is absent while this release declares one');
+  }
   validateCurrentPromotionReceiptCore(receipt, {
     label: 'retained promotion receipt',
-    expectedPlanRunId: RETAINED_PROMOTION_DOCKS_RUN_ID,
-    expectedPlanPath: RETAINED_PROMOTION_DOCKS_PLAN_PATH,
+    expectedPlanRunId: expected.docks_run_id,
+    expectedPlanPath: expected.docks_plan_path,
     allowV2: false,
   });
   if (
-    receipt.source_proof_sha256 !== RETAINED_PROMOTION_SOURCE_PROOF_SHA256 ||
-    receipt.publication_receipt_sha256 !== RETAINED_PROMOTION_PUBLICATION_SHA256 ||
-    receipt.public_release_receipt_sha256 !== RETAINED_PROMOTION_PUBLIC_RELEASE_SHA256 ||
-    receipt.reviewed_source_commit !== PLANRUN_RELEASE_TAG_COMMIT ||
-    receipt.docks_plan.completion_review_sha256 !== RETAINED_PROMOTION_COMPLETION_REVIEW_SHA256
+    receipt.source_proof_sha256 !== expected.source_proof_sha256 ||
+    receipt.publication_receipt_sha256 !== expected.publication_sha256 ||
+    receipt.public_release_receipt_sha256 !== expected.public_release_sha256 ||
+    receipt.reviewed_source_commit !== expected.release_tag_commit ||
+    receipt.docks_plan.completion_review_sha256 !== expected.completion_review_sha256
   ) {
     fail('retained promotion receipt does not match the exact immutable successful promotion identity');
   }
@@ -2825,7 +2849,7 @@ function observedPromotionLiveStable(state, publication) {
   };
 }
 
-function validatePromotionEvidenceRebindStructure(receipt) {
+function validatePromotionEvidenceRebindStructure(receipt, expected = RETAINED_PROMOTION_EXPECTATION) {
   exactKeys(receipt, PROMOTION_EVIDENCE_REBIND_KEYS, 'promotion evidence rebind receipt');
   if (
     receipt.schema !== PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.schema ||
@@ -2833,7 +2857,7 @@ function validatePromotionEvidenceRebindStructure(receipt) {
     receipt.repository_id !== REPOSITORY_ID ||
     receipt.version !== CURRENT_VERSION ||
     receipt.tag !== CURRENT_TAG ||
-    receipt.retained_promotion_sha256 !== RETAINED_PROMOTION_SHA256 ||
+    receipt.retained_promotion_sha256 !== (expected?.promotion_sha256 ?? null) ||
     receipt.reviewed_source_ancestry !== true ||
     receipt.byte_identical_promotion !== true ||
     receipt.outcome !== 'success'
@@ -2846,10 +2870,10 @@ function validatePromotionEvidenceRebindStructure(receipt) {
   assertCommit(receipt.reviewed_source_commit, 'promotion evidence rebind reviewed source commit');
   assertTimestamp(receipt.reconciled_at, 'promotion evidence reconciliation time');
 
-  if (sha256(Buffer.from(canonicalize(receipt.retained_promotion))) !== RETAINED_PROMOTION_SHA256) {
+  if (sha256(Buffer.from(canonicalize(receipt.retained_promotion))) !== (expected?.promotion_sha256 ?? null)) {
     fail('promotion evidence retained promotion digest mismatch');
   }
-  validateRetainedPromotionReceipt(receipt.retained_promotion);
+  validateRetainedPromotionReceipt(receipt.retained_promotion, expected);
 
   exactKeys(
     receipt.docks_plan,
@@ -3091,8 +3115,13 @@ function validatePromotionEvidenceFreshContext(
   return receipt;
 }
 
-export function validatePromotionEvidenceRebindReceipt(receipt, context, injectedAdapter = undefined) {
-  const validated = validatePromotionEvidenceRebindStructure(receipt);
+export function validatePromotionEvidenceRebindReceipt(
+  receipt,
+  context,
+  injectedAdapter = undefined,
+  expected = RETAINED_PROMOTION_EXPECTATION,
+) {
+  const validated = validatePromotionEvidenceRebindStructure(receipt, expected);
   const adapter = validatePromotionEvidenceRebindAdapter(
     injectedAdapter ?? PROMOTION_EVIDENCE_REBIND_PRODUCTION_ADAPTER,
   );
@@ -3946,7 +3975,11 @@ export const PROMOTION_EVIDENCE_REBIND_PRODUCTION_ADAPTER = Object.freeze({
   writeReceipt,
 });
 
-export function rebindPromotionEvidence(options, injectedAdapter = undefined) {
+export function rebindPromotionEvidence(
+  options,
+  injectedAdapter = undefined,
+  expected = RETAINED_PROMOTION_EXPECTATION,
+) {
   const adapter = validatePromotionEvidenceRebindAdapter(
     injectedAdapter ?? PROMOTION_EVIDENCE_REBIND_PRODUCTION_ADAPTER,
   );
@@ -3964,10 +3997,17 @@ export function rebindPromotionEvidence(options, injectedAdapter = undefined) {
     adapter.loadRetainedPromotion(options),
     'retained promotion receipt',
   );
-  if (retainedPromotion.digest !== RETAINED_PROMOTION_SHA256) {
-    fail(`--promotion must have the exact retained SHA-256 ${RETAINED_PROMOTION_SHA256}`);
+  // Rebinding promotion evidence only makes sense for a re-attempt, which is the
+  // only case that has a prior successful promotion to retain. Refuse explicitly
+  // rather than comparing a real digest against a null constant, which would
+  // otherwise surface as "the exact retained SHA-256 null".
+  if (expected === null) {
+    fail('this release records no retained promotion, so promotion evidence cannot be rebound');
   }
-  validateRetainedPromotionReceipt(retainedPromotion.value);
+  if (retainedPromotion.digest !== expected.promotion_sha256) {
+    fail(`--promotion must have the exact retained SHA-256 ${expected.promotion_sha256}`);
+  }
+  validateRetainedPromotionReceipt(retainedPromotion.value, expected);
   validateProofBinding(proof);
   validatePublication(publication, proof);
   if (publication.value.schema !== 2 || publication.value.type !== 'SessionRelayPublicationReceiptV2') {
@@ -4020,7 +4060,7 @@ export function rebindPromotionEvidence(options, injectedAdapter = undefined) {
     outcome: 'success',
     reconciled_at: reconciledAt,
   };
-  const validated = validatePromotionEvidenceRebindStructure(receipt);
+  const validated = validatePromotionEvidenceRebindStructure(receipt, expected);
   validatePromotionEvidenceFreshContext(
     validated,
     { proof, publication, publicRelease },
@@ -4030,12 +4070,17 @@ export function rebindPromotionEvidence(options, injectedAdapter = undefined) {
   );
   return invocationResult(adapter, options, receipt, false);
 }
-export function validatePromotionReceiptForFinalization(receipt, context, injectedAdapter = undefined) {
+export function validatePromotionReceiptForFinalization(
+  receipt,
+  context,
+  injectedAdapter = undefined,
+  expected = RETAINED_PROMOTION_EXPECTATION,
+) {
   if (
     receipt?.schema === PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.schema ||
     receipt?.type === PROMOTION_EVIDENCE_REBIND_RECEIPT_DESCRIPTOR.type
   ) {
-    return validatePromotionEvidenceRebindReceipt(receipt, context, injectedAdapter);
+    return validatePromotionEvidenceRebindReceipt(receipt, context, injectedAdapter, expected);
   }
   validatePromotionReceipt(receipt);
   const current = [2, 3].includes(receipt.schema);
