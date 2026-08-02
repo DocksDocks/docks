@@ -1,10 +1,10 @@
 ---
 title: Release Session Relay 0.15.0 and accept docks-kit child 0.13.0
 goal: Ship Session Relay 0.15.0 from the docks repository and move the parent release lane onto public child docks-kit 0.13.0, so the separation work in this lane is exercised by a real transition instead of asserted against absent versions.
-status: drafting
+status: ongoing
 created: "2026-08-01T16:35:59-03:00"
-updated: "2026-08-02T05:34:39.692+00:00"
-started_at: null
+updated: "2026-08-02T14:04:19.912+00:00"
+started_at: "2026-08-02T14:04:19.901+00:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, release, public-child, cross-repository]
@@ -24,6 +24,7 @@ affected_paths:
   - plugins/session-relay/test/remediation-contract.mjs
   - scripts/lib/plugins.mjs
   - scripts/lib/session-relay-release-core.mjs
+  - scripts/lib/session-relay-release-instances/0.14.0.json
   - scripts/lib/session-relay-release-instances/0.15.0.json
   - scripts/lib/session-relay-release-instances/schema.mjs
   - scripts/lib/session-relay-release-preparation.mjs
@@ -219,12 +220,28 @@ string, because all three of the collisions above defeat that.
    breaks the manifest bind. Without the exemption this row fails precisely when
    the implementation is correct, which is the defect `PRV1-004` named.
    `<source_base>` is the sealed
-   `source_base` in this plan’s own record; `<last-local>` is the commit produced
-   by the last `local`-effect row before the first `release`-effect row. Both
-   endpoints are named on purpose: a one-commit `git diff --name-only <commit>`
-   compares the working tree against that commit instead of bounding a range, so
-   it can report an empty or unrelated path set while the implementation scope
-   goes entirely unchecked.
+   `source_base` in this plan’s own record; `<last-local>` is the run's
+   implementation commit — the commit produced by the last `local`-effect row
+   **overall**, not the last one preceding the first `release`-effect row. That
+   earlier bound structurally exempted a whole implementation phase: row 6 is the
+   first `release` row and row 7 is `local` and lands after it, so every path row 7
+   touches fell outside the audited range by construction, and the row could report
+   green while the condition it exists to enforce was already violated. The
+   implementation commit is also the exact endpoint
+   `session-relay-release-preparation.mjs` scans at `bind-completion`, so this row
+   now anticipates that gate instead of being weaker than it. Both endpoints are
+   named on purpose: a one-commit `git diff --name-only <commit>` compares the
+   working tree against that commit instead of bounding a range, so it can report
+   an empty or unrelated path set while the implementation scope goes entirely
+   unchecked.
+
+   **Working rule, not just an acceptance check.** Run this same diff before every
+   commit on this run, not only at acceptance. Undeclared paths reached a commit
+   twice on this goal — the four files that forced predecessor `12a460e2` into
+   `verification_failed`, and `0.14.0.json` in this successor's own repair — and
+   both were caught long after the fact, once by step-10 analysis and once by a
+   reviewer. The check is one command and needs no tooling; running it late is what
+   made both expensive.
 6. After the row that promotes the staged prerelease to stable — identified by its
    done-when text, not by its number — `gh release view session-relay--v0.15.0
    --json isDraft,isPrerelease` reports both false. The row that stages the
@@ -337,7 +354,7 @@ only, and a second local edit plus gate cycle is required after the tag.
 
 ## Review
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"5b6ddc9c925d69d2b7e5686ce8b4ad2ca07c4810d883d8dcd3e09b25587db775","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"887eaf82-ffac-4d78-9368-b62cb64dda19","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"1c5b6b3d7c3e5edfe19457e8e1da55fb41dc9ded8813d7dd3b7cc60432cbdba5"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"d0c4e5a78ffd5d7f029db95187127c987ec7b87ebce745943566e97339327aa6","invocations":2,"result_sha256":"65e089476b9682d461dec11a986316d10c68e839145179f421f374dfae6a7c4b","state":"passed"},"execution_parent":"c1c851bf2a2326f13ff41d662c25044f701c4017","goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0fffc169a002106a87a445ddbbd89b798983324edd8332565deccf8ac978dfaa","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"887eaf82-ffac-4d78-9368-b62cb64dda19","schema":1,"source_base":"c5c29cec073f1c6734a8f9b6b98ce8bf7ac4029f","source_sha256":"1c5b6b3d7c3e5edfe19457e8e1da55fb41dc9ded8813d7dd3b7cc60432cbdba5"}
 
 Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"a95e8eb8efdc196dda0f1e51dfc7c027393f6f65bdc1601c0bc48fda9bedc993","replacement_run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","run":{"acceptance":null,"blocker":{"evidence_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"61a68eb853346511ad236bbd35f814500b0e7b5e0c8da8977144951b7ebfa904","invocations":2,"result_sha256":"070667735e7df15b996e47f29b6dc16202cd382574f0efd363b4115301c88877","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"e29a06f0f7a807a4ee13efc8936bc7ff83fbf471f38d0db11bfb8b68ff87fddc","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"ff2125bd-746a-427b-86ba-2fc2cde51747","schema":1,"source_base":"95575af016dd1119f6fe85a5d5ca52e9f0b9f185","source_sha256":"78d1eeb735ef1bb8a664ba4aa4c82b07d7b4e4aafdcac225b9f52216c04942dc"},"schema":1,"status":"blocked","successor_run_sha256":"aa5cbb3b3cc4920e866949f1710478ffcbf5fcc781b613a9fe49b89dbae0c91b"}
 Plan-attempt-history: {"authorization_source_sha256":"521f0e36922ee111e8069b9f91466bddcb154db673f8b86929d8c9f5456588f0","plan_bytes_sha256":"8e8506026f58cb2c747d7a9b8d06178c1ec539614163129f9e3fe39e40657873","replacement_run_id":"12a460e2-af44-4bc8-bc7d-d7aaec2c991b","run":{"acceptance":null,"blocker":{"evidence_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"a72ea0243ff254c961181df426773d925a7089003b9e62fa09c292ccae92adb8","invocations":2,"result_sha256":"3c74e21c6297ee94a812de77266162ae671a810f77450e719dde6a5abdd9e150","state":"blocked"},"execution_parent":null,"goal_id":"258b44c2-c3b2-4902-862c-7461724ca078","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.15.0-release.md","plan_sha256":"0f835b0f2730ab72922eafc603855f6bc7df19f0abcc34aeeac07a964d5fadb8","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"8dd47f78-e890-4e3d-bf60-e26b0193236c","schema":1,"source_base":"2298bbc7fac269b57ce6915ff82d84e452b661b8","source_sha256":"ba16f51fb7e440d0f0899bc55169b563f8d8d9ac294b56e7b0052d8d0c9ec18d"},"schema":1,"status":"blocked","successor_run_sha256":"d50fd5465109e39f81e30a6174c89a7e6e6375b49d304982a94f799aa660612a"}
