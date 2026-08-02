@@ -469,6 +469,48 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
     }),
   );
 
+  // An alias whose realpath IS the plan passes a path guard that only compares `realpath(file)`.
+  // The write must land on the same resolved path the guard approved, or the successor is renamed
+  // onto the alias entry and the real record survives untouched - a replacement that reports
+  // success while replacing nothing.
+  suite.test('locks-cas', 'replacement writes the resolved plan path, not the alias it was given', () =>
+    withTempDirectory('plan-run-replacement-alias-', async (root) => {
+      const currentFile = replacementFile(root);
+      const aliasFile = path.join(path.dirname(currentFile), 'alias-plan.md');
+      const current = bindPlan(
+        api,
+        tuple('blocked', {
+          blocker: blocker('review_failed'),
+          draft_review: reviewPhase('blocked'),
+        }),
+      );
+      const next = replacementFixture(api, current);
+      fs.writeFileSync(currentFile, current.bytes);
+      fs.symlinkSync(path.basename(currentFile), aliasFile);
+
+      await api.replacePlanRunInPlace({
+        authority: replacementAuthority(api, next.run),
+        currentIdentity: {
+          goalId: IDS.goal,
+          planPath: PLAN_PATH,
+          repositoryId: REPOSITORY_ID,
+          runId: IDS.run,
+        },
+        expectedBytesSha256: api.sha256(current.bytes),
+        file: aliasFile,
+        liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
+        nextBytes: next.bytes,
+        repo: root,
+      });
+
+      assert.ok(
+        fs.readFileSync(currentFile).equals(Buffer.from(next.bytes)),
+        'the successor must be written to the resolved plan path',
+      );
+      assert.ok(fs.lstatSync(aliasFile).isSymbolicLink(), 'the alias must remain a symlink, not be replaced by a file');
+    }),
+  );
+
   suite.test('locks-cas', 'same-file recovery requires current-user authority and exact append-only history', () =>
     withTempDirectory('plan-run-replacement-guard-', async (root) => {
       const file = replacementFile(root);

@@ -1953,22 +1953,28 @@ export async function replacePlanRunInPlace({
     lockTimeoutMs,
   });
   try {
-    const currentBytes = fs.readFileSync(file);
+    // Resolve BEFORE reading, and then read and write only the resolved path. Checking
+    // `realpath(file)` while the CAS read and the atomic rename still used the caller's `file`
+    // left an alias gap: a symlink whose realpath is the legitimate plan passed this guard, and
+    // the successor was then renamed onto the ALIAS directory entry, leaving the real record
+    // untouched. Comparing one path and writing another is the defect; there is now one path.
+    const root = repositoryRoot(repo);
+    let logicalFile;
+    let canonicalFile;
+    try {
+      canonicalFile = fs.realpathSync(file);
+      const relativeFile = path.relative(root, canonicalFile).split(path.sep).join('/');
+      [logicalFile] = normalizeLogicalPaths([relativeFile], 'replacement file path');
+    } catch {
+      fail('replacement file path does not match current PlanRun plan_path');
+    }
+    const currentBytes = fs.readFileSync(canonicalFile);
     if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
     // The predecessor is immutable, terminal, and about to be recorded rather
     // than consulted: its bytes are pinned here by the CAS preimage and again by
     // `plan_bytes_sha256` in the attempt entry. `assertPlanRunReplacement` also
     // forbids acceptance on the successor, so the next side never needs a mode.
     const current = validatePlanRun(currentBytes, { ...currentIdentity, acceptanceProof: 'recorded' });
-    const root = repositoryRoot(repo);
-    let logicalFile;
-    try {
-      const canonicalFile = fs.realpathSync(file);
-      const relativeFile = path.relative(root, canonicalFile).split(path.sep).join('/');
-      [logicalFile] = normalizeLogicalPaths([relativeFile], 'replacement file path');
-    } catch {
-      fail('replacement file path does not match current PlanRun plan_path');
-    }
     if (logicalFile !== current.run.plan_path) {
       fail('replacement file path does not match current PlanRun plan_path');
     }
@@ -1981,7 +1987,7 @@ export async function replacePlanRunInPlace({
     validatePlanReplacementAuthority(authority, current, next, liveSourceSha256);
     assertPlanRunReplacement(current, next, currentBytes, authority);
     assertPlanChronology(next.frontmatter);
-    const readback = writePlanBytes(file, expectedBytesSha256, nextBuffer);
+    const readback = writePlanBytes(canonicalFile, expectedBytesSha256, nextBuffer);
     return {
       attempt_history: next.attempt_history,
       bytes_sha256: sha256(readback),
