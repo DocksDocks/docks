@@ -1,11 +1,11 @@
 ---
 title: Make the fanout reaper report why a worktree survived
 goal: Return and emit a typed reason when fan-out GC protects a worktree, cannot remove it, refuses a flat legacy reservation, or cannot open the worktrees surface.
-status: ongoing
+status: finished
 created: "2026-08-01T23:17:11-03:00"
-updated: "2026-08-02T23:48:44.987+00:00"
+updated: "2026-08-02T23:48:55.775+00:00"
 started_at: "2026-08-02T22:29:16.140+00:00"
-finished_at: null
+finished_at: "2026-08-02T23:48:55.775+00:00"
 assignee: null
 tags: [plans, session-relay, fanout, gc, observability, registered-idea]
 affected_paths:

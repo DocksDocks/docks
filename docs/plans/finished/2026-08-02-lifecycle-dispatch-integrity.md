@@ -1,11 +1,11 @@
 ---
 title: Fail mechanical lifecycle defects before review
 goal: Close three lifecycle integrity gaps so bundle mismatches and replacement-path mismatches fail before a write or review permit is reserved.
-status: ongoing
+status: finished
 created: "2026-08-01T21:40:30-03:00"
-updated: "2026-08-02T23:48:45.119+00:00"
+updated: "2026-08-02T23:48:55.904+00:00"
 started_at: "2026-08-02T22:29:16.267+00:00"
-finished_at: null
+finished_at: "2026-08-02T23:48:55.904+00:00"
 assignee: null
 tags: [plans, plan-manager, lifecycle, integrity, registered-idea]
 affected_paths:
