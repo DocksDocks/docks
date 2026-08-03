@@ -26,20 +26,12 @@ const STEP_CLASS_CONTRACT_CLAUSES = [
     text: 'Every `PlanReviewV1` finding carries a required `class`.',
   },
   {
-    name: 'grandfather-path-dispatch-integrity',
-    text: '`docs/plans/active/lifecycle-dispatch-integrity.md`',
+    name: 'grandfather-two-routes',
+    text: 'The exemption has exactly two routes: the frozen set, exactly `docs/plans/active/plan-lifecycle-plugin-extraction.md` and `docs/plans/active/step-ids-and-class-budget.md`, and every `docs/plans/finished/` path by prefix. An archived plan carries no frozen entry: keeping its old active path would exempt a new plan that reused the filename, silently skipping the Id requirement.',
   },
   {
     name: 'grandfather-path-lifecycle-extraction',
     text: '`docs/plans/active/plan-lifecycle-plugin-extraction.md`',
-  },
-  {
-    name: 'grandfather-path-fanout-reaper',
-    text: '`docs/plans/active/relay-fanout-reaper-reporting.md`',
-  },
-  {
-    name: 'grandfather-path-release',
-    text: '`docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md`',
   },
   {
     name: 'grandfather-path-step-ids',
@@ -114,6 +106,7 @@ function assertStepClassContractsAndMutations() {
     'legacy-new-schema',
     'new-id',
     'grandfather-cutover',
+    'grandfather-two-routes',
     'stable-guard-citation',
     'repeated-class',
     'pre-reservation-sweep',

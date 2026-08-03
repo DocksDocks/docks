@@ -754,6 +754,37 @@ export function registerReviewBudget(suite, api, reviewer) {
       );
     }
   });
+
+  suite.test('review-budget', 'draft invocation bound is class-derived while completion stays at two', () => {
+    const draftMax = 1 + Object.values(reviewer.PLAN_FINDING_CLASSES).flat().length;
+    assert.equal(draftMax, 12);
+    for (const invocation of [3, draftMax]) {
+      const binding = {
+        invocation,
+        plan_sha256: HASHES.plan,
+        run_id: IDS.run,
+        source_sha256: HASHES.source,
+      };
+      reviewer.validatePlanReview(planReview(binding), binding);
+    }
+    const overflow = {
+      invocation: draftMax + 1,
+      plan_sha256: HASHES.plan,
+      run_id: IDS.run,
+      source_sha256: HASHES.source,
+    };
+    expectThrow(() => reviewer.validatePlanReview(planReview(overflow), overflow), /invocation/i);
+    const completionBinding = {
+      diff_sha256: DIFF_SHA256,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      invocation: 3,
+      run_id: IDS.run,
+    };
+    expectThrow(
+      () => reviewer.validateCompletionReview(completionReview(completionBinding), completionBinding),
+      /invocation/i,
+    );
+  });
   suite.test(
     'review-budget',
     'PlanReviewV1 class vocabulary accepts every pair and rejects missing or incompatible classes',

@@ -22,6 +22,8 @@ export const PLAN_FINDING_CLASSES = Object.freeze({
 });
 const PLAN_FINDING_KINDS = new Set(Object.keys(PLAN_FINDING_CLASSES));
 const PLAN_FINDING_CLASS_VOCABULARY = new Set(Object.values(PLAN_FINDING_CLASSES).flat());
+const DRAFT_REVIEW_INVOCATION_MAX = 1 + PLAN_FINDING_CLASS_VOCABULARY.size;
+const COMPLETION_REVIEW_INVOCATION_MAX = 2;
 const VERDICTS = new Set(['pass', 'repair', 'blocked']);
 const MAX_REVIEW_BYTES = 32 * 1024;
 const BUNDLE_PREFIX = 'plan-review-v1-';
@@ -105,8 +107,10 @@ function validateUuid(value, label) {
   if (typeof value !== 'string' || !UUID.test(value)) throw new Error(`${label} must be a UUID`);
 }
 
-function validateInvocation(value, label) {
-  if (value !== 1 && value !== 2) throw new Error(`${label} invocation must be 1 or 2`);
+function validateInvocation(value, label, max) {
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new Error(`${label} invocation must be an integer between 1 and ${max}`);
+  }
 }
 
 function validateDigest(value, label) {
@@ -120,7 +124,7 @@ function validateCommit(value, label) {
 function validatePlanBinding(binding, label = 'plan review binding') {
   assertClosed(binding, ['run_id', 'invocation', 'plan_sha256', 'source_sha256'], label);
   validateUuid(binding.run_id, `${label} run_id`);
-  validateInvocation(binding.invocation, label);
+  validateInvocation(binding.invocation, label, DRAFT_REVIEW_INVOCATION_MAX);
   validateDigest(binding.plan_sha256, `${label} plan_sha256`);
   validateDigest(binding.source_sha256, `${label} source_sha256`);
   return binding;
@@ -129,7 +133,7 @@ function validatePlanBinding(binding, label = 'plan review binding') {
 function validateCompletionBinding(binding, label = 'completion review binding') {
   assertClosed(binding, ['run_id', 'invocation', 'implementation_commit', 'diff_sha256'], label);
   validateUuid(binding.run_id, `${label} run_id`);
-  validateInvocation(binding.invocation, label);
+  validateInvocation(binding.invocation, label, COMPLETION_REVIEW_INVOCATION_MAX);
   validateCommit(binding.implementation_commit, `${label} implementation_commit`);
   validateDigest(binding.diff_sha256, `${label} diff_sha256`);
   return binding;
@@ -196,11 +200,20 @@ function validateFinding(finding, label, allowedKinds = null, allowedClasses = n
   nonemptyString(finding.fix, `${label} fix`);
 }
 
-function validateReviewEnvelope(review, label, keys, binding, bindingKeys, allowedKinds = null, allowedClasses = null) {
+function validateReviewEnvelope(
+  review,
+  label,
+  keys,
+  binding,
+  bindingKeys,
+  invocationMax,
+  allowedKinds = null,
+  allowedClasses = null,
+) {
   assertClosed(review, keys, label);
   if (review.schema !== 1) throw new Error(`${label} schema must be 1`);
   validateUuid(review.run_id, `${label} run_id`);
-  validateInvocation(review.invocation, label);
+  validateInvocation(review.invocation, label, invocationMax);
   if (!VERDICTS.has(review.verdict)) throw new Error(`${label} verdict is invalid`);
   if (!Array.isArray(review.findings)) throw new Error(`${label} findings must be an array`);
   const ids = new Set();
@@ -230,6 +243,7 @@ export function validatePlanReview(value, expectedBinding) {
     ['schema', 'run_id', 'invocation', 'plan_sha256', 'source_sha256', 'verdict', 'findings'],
     binding,
     ['run_id', 'invocation', 'plan_sha256', 'source_sha256'],
+    DRAFT_REVIEW_INVOCATION_MAX,
     PLAN_FINDING_KINDS,
     PLAN_FINDING_CLASSES,
   );
@@ -256,6 +270,7 @@ export function validateCompletionReview(value, expectedBinding) {
     ['schema', 'run_id', 'invocation', 'implementation_commit', 'diff_sha256', 'verdict', 'findings'],
     binding,
     ['run_id', 'invocation', 'implementation_commit', 'diff_sha256'],
+    COMPLETION_REVIEW_INVOCATION_MAX,
   );
   validateCommit(review.implementation_commit, 'CompletionReviewV1 implementation_commit');
   validateDigest(review.diff_sha256, 'CompletionReviewV1 diff_sha256');

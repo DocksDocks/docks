@@ -107,12 +107,13 @@ The new Steps table is exact:
 
 `Id` is immediately after `#` and must match `[a-z][a-z0-9_]{0,63}`. A
 missing `Id` is advisory only for the frozen grandfather set; every new plan
-requires the `Id` column and one valid, unique id per Steps row. The frozen set
-is exactly `docs/plans/active/lifecycle-dispatch-integrity.md`,
-`docs/plans/active/plan-lifecycle-plugin-extraction.md`,
-`docs/plans/active/relay-fanout-reaper-reporting.md`,
-`docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md`, and
-`docs/plans/active/step-ids-and-class-budget.md`. Within `Done when / failure
+requires the `Id` column and one valid, unique id per Steps row. The exemption
+has exactly two routes: the frozen set, exactly
+`docs/plans/active/plan-lifecycle-plugin-extraction.md` and
+`docs/plans/active/step-ids-and-class-budget.md`, and every
+`docs/plans/finished/` path by prefix. An archived plan carries no frozen
+entry: keeping its old active path would exempt a new plan that reused the
+filename, silently skipping the Id requirement. Within `Done when / failure
 action`, step citations are accepted only as `step:<id>` and must resolve to a
 declared id; valid-looking numeric `step N` citations are rejected. `#` and
 `Depends` keep their numeric display-number semantics.
