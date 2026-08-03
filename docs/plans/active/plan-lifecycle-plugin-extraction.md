@@ -1,10 +1,10 @@
 ---
 title: Extract the plan lifecycle into its own cross-tool plugin
 goal: Move the three lifecycle skills and reviewer into a registered plan-lifecycle plugin while preserving routing safety, history, and full-gate coverage.
-status: blocked
+status: drafting
 created: "2026-08-01T21:18:16-03:00"
-updated: "2026-08-03T14:58:23.827+00:00"
-started_at: "2026-08-03T13:52:15.551+00:00"
+updated: "2026-08-03T14:59:26.338+00:00"
+started_at: null
 finished_at: null
 assignee: null
 tags: [plans, plugins, architecture, registered-idea]
@@ -73,10 +73,13 @@ affected_paths:
   - plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md
   - plugins/plan-lifecycle/test/selftest.mjs
   - plugins/session-relay/test/release-evidence-contract.mjs
+  - plugins/session-relay/test/release-promotion-contract.mjs
   - plugins/session-relay/test/remediation-contract.mjs
+  - scripts/ci.mjs
   - scripts/lib/plugins.mjs
   - scripts/lib/session-relay-release-preparation.mjs
   - scripts/lib/session-relay-release-promotion.mjs
+  - scripts/skills/transform-guard.mjs
   - scripts/tests/ci-plugin-targeting.mjs
   - scripts/tests/fixtures/structural-plan.md
   - scripts/tests/plan-dispatch-probes.mjs
@@ -162,6 +165,30 @@ full `node scripts/ci.mjs`, not a selected-plugin gate.
 
 ## Steps
 
+> **Successor note - why the implementation rows read `done` on a run that has not started.**
+> This run replaces terminal predecessor blocked `verification_failed`. Its implementation is
+> complete and committed at `8416733`; every gate is green except two, and both fail for the same
+> reason: the predecessor's `affected_paths` did not declare the file that had to change.
+>
+> `scripts/skills/transform-guard.mjs` holds a curated repo-wide list of six transforming-skill
+> NAMES and hard-fails when one is absent under the scanned root. `scripts/ci.mjs` invokes it once
+> per plugin over that plugin's own `skills` root, so after the move `plan-workspace` cannot resolve
+> under `plugins/docks/skills`. `findSkillByName` recurses, so one repo-wide invocation resolves all
+> six with the curated list untouched - but that needs `scripts/ci.mjs`, which was undeclared.
+> Repointing the docks descriptor's `skills` field was rejected: that field also feeds content-hash,
+> scoring, skill-guard and no-author-scripts, so widening it would make the docks gate validate
+> plan-lifecycle's skills and break per-plugin targeting. `transformGuard:false` is validator
+> weakening and a STOP condition.
+>
+> `plugins/session-relay/test/release-promotion-contract.mjs` imports the moved module by the
+> relative spelling `../../docks/...`, which is why every `plugins/docks/...` sweep missed it while
+> its two sibling contracts were correctly declared and repointed.
+>
+> Both paths plus `scripts/ci.mjs` are declared here and closed by the final Steps row. Two
+> historical citations that the move wrongly repointed were already restored in `8416733`: a
+> committed measurement producer and the structural fixture's producer block are both read at a
+> commit predating the extraction, so their paths must name the tree as it was then.
+
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
 | 1 | Add one byte-identical absent-lifecycle prerequisite paragraph to every route and assert it as text in the existing lifecycle validator. | `plugins/docks/skills/engineering/refactor/SKILL.md`; `plugins/docks/skills/engineering/security/SKILL.md`; `plugins/docks/skills/productivity/context-tree/SKILL.md`; `plugins/docks/skills/productivity/skill-agent-pipeline/SKILL.md`; `plugins/effect-kit/skills/engineering/effect-ts-port/SKILL.md`; `plugins/effect-kit/skills/engineering/effect-ts-setup/SKILL.md`; `scripts/tests/plan-skill-phases.mjs` | — | `local` | `planned` | The validator finds the exact paragraph in all six files and fails when it is removed or changed in any one file. Failure: STOP; do not move a lifecycle skill while a route can proceed silently without it. |
@@ -172,6 +199,7 @@ full `node scripts/ci.mjs`, not a selected-plugin gate.
 | 6 | Repoint live imports, wrappers, scaffold sources, author-tooling paths, fixtures, and contract prose to the new plugin while preserving frozen release-instance and finished-plan bytes. | `.codex/agents/plan-reviewer.toml`; `AGENTS.md`; `README.md`; `docs/plans/AGENTS.md`; `package.json`; `plugins/docks/README.md`; `plugins/docks/skills/AGENTS.md`; `plugins/docks/skills/productivity/scaffold/SKILL.md`; `plugins/docks/skills/productivity/scaffold/references/spec-schema.md`; `plugins/session-relay/test/release-evidence-contract.mjs`; `plugins/session-relay/test/remediation-contract.mjs`; `scripts/lib/plugins.mjs`; `scripts/lib/session-relay-release-preparation.mjs`; `scripts/lib/session-relay-release-promotion.mjs`; `scripts/tests/ci-plugin-targeting.mjs`; `scripts/tests/fixtures/structural-plan.md`; `scripts/tests/plan-dispatch-probes.mjs`; `scripts/tests/plan-evidence-probes.mjs`; `scripts/tests/plan-orchestration.mjs`; `scripts/tests/plan-orchestration/fixtures/historical-inventory.json`; `scripts/tests/plan-orchestration/historical-characterization.mjs`; `scripts/tests/plan-orchestration/legacy-quarantine.mjs`; `scripts/tests/plan-skill-phases.mjs` | 5 | `local` | `planned` | All live imports and generated-source pointers resolve under `plugins/plan-lifecycle`, focused orchestration and targeting tests exit 0, and no file under `docs/plans/finished/` or `scripts/lib/session-relay-release-instances/` changes. Failure: STOP and repair the reference; do not weaken a test or rewrite frozen evidence. |
 | 7 | Remove lifecycle claims from docks manifests, bump docks manifests and its Claude catalog entry to `0.16.0`, run A1-A5, and bind the sensitive implementation checkpoint to a findings-free completion review. | `.claude-plugin/marketplace.json`; `plugins/docks/.claude-plugin/plugin.json`; `plugins/docks/.codex-plugin/plugin.json` | 6 | `local` | `planned` | A1-A5 pass, both docks manifests and its Claude catalog entry agree at `0.16.0`, both docks descriptions omit the removed lifecycle, and the required completion review passes on the exact implementation checkpoint. Failure: STOP; do not lower validator floors, edit expected censuses to fit a broken scan, or archive after a failed check/review. |
 | 8 | Archive this plan through the lifecycle transaction, then confirm the tree is clean. | `docs/plans/finished/<finish-date>-plan-lifecycle-plugin-extraction.md` | 7 | `local` | `planned` | Step 7 already committed and reviewed the implementation, so this checkpoint owns the archive transition alone: `<finish-date>` is replaced by the UTC date on which the archive transaction runs; the manager verifies HEAD/index and owned-path preimages, writes `finished`, moves the plan, commits exactly the two plan paths and nothing else, and reads the checkpoint back. A6 runs after that commit, which is the only point at which a clean tree is observable. Any unowned change or read-back mismatch leaves the plan `ongoing` and STOPS. |
+| 9 | Route the repo-wide transforming-skill guard over every registered plugin root and repoint the release-promotion contract at the moved module. | `scripts/ci.mjs`, `scripts/skills/transform-guard.mjs`, `plugins/session-relay/test/release-promotion-contract.mjs` | 8 | `local` | `planned` | `node scripts/skills/transform-guard.mjs` resolves all six curated names across both plugin roots with the curated list unchanged, and `node plugins/session-relay/test/release-promotion-contract.mjs` exits 0. Failure: STOP; do not set `transformGuard:false`, do not widen a descriptor's `skills` field, and do not drop a curated name.|
 
 ## Acceptance criteria
 
@@ -183,6 +211,7 @@ full `node scripts/ci.mjs`, not a selected-plugin gate.
 | A4 | `test ! -e plugins/docks/skills/productivity/plan-manager && test ! -e plugins/docks/skills/productivity/plan-workspace && test ! -e plugins/docks/skills/productivity/plan-reviewer && test ! -e plugins/docks/agents/plan-reviewer.md` | Exits 0; the exact four old payload paths are absent. |
 | A5 | `sh -c 'set -- plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md plugins/docks/skills/productivity/plan-manager/SKILL.md plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md plugins/docks/skills/productivity/plan-workspace/SKILL.md plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md plugins/docks/skills/productivity/plan-reviewer/SKILL.md plugins/plan-lifecycle/agents/plan-reviewer.md plugins/docks/agents/plan-reviewer.md; while [ "$#" -gt 0 ]; do new=$1; old=$2; shift 2; before=$(git log -1 --format=%H HEAD^ -- "$old"); test -n "$before" || exit 1; case "$(git log --follow --format=%H -- "$new")" in *"$before"*) ;; *) exit 1;; esac; done'` | Exits 0; each new path's followed history contains its old path's last pre-move commit. |
 | A6 | `test -z "$(git status --porcelain)"` | Exits 0 with no output after the archive checkpoint; the gate itself is not claimed to enforce cleanliness. |
+| A7 | `node scripts/skills/transform-guard.mjs` and `node plugins/session-relay/test/release-promotion-contract.mjs` | Both exit 0. The guard resolves all six curated transforming-skill names across every registered plugin root, and the release contract loads the moved module. |
 
 ## Out of scope / do-NOT-touch
 
@@ -238,8 +267,11 @@ full `node scripts/ci.mjs`, not a selected-plugin gate.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"30b5e05e0097ba524a66b1af1471883f7a811e958f92940627d127fd6eff3add","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"2b3239ca896c0a05edcba368dc593521f6bb6af6c85f03b9f8eae3f1ee9bf57c","invocations":2,"result_sha256":"527e00f24051d43acfa1f59d8d219bbee94cb0097978fbf12796414602c75f1e","state":"passed"},"execution_parent":"010237580158992e736e224d674b374076db16fe","goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"2ae0f0058712006dd326845dd8fef5e888fc4447fcde0032cd9f82c3c1e71a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"84b7d04d-b23a-4313-9793-a330a4f65a4d","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"c8855e7b66d4d150f208bbe3e8a7320618279ad0a311c2e1ac9b198cbed1c89f"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"16c65ac336f6025c82f81db4fc9b7c1231e787bb3a88b329df5628c6b7096721","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ef96ce9c-6bf3-435c-b768-eab04b29e0c5","schema":1,"source_base":"8416733a349e65b211fafa47832d3782624f0444","source_sha256":"0e3308f90c3016fd0d420d48f34dd18a50a822b39d18b5e03eba6e1b23def234"}
+
+
+Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"5e077c279d15e38d4093913448119f8b79c1e9b3644ea041512d6fe38eca998c","replacement_run_id":"ef96ce9c-6bf3-435c-b768-eab04b29e0c5","run":{"acceptance":null,"blocker":{"evidence_sha256":"30b5e05e0097ba524a66b1af1471883f7a811e958f92940627d127fd6eff3add","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"2b3239ca896c0a05edcba368dc593521f6bb6af6c85f03b9f8eae3f1ee9bf57c","invocations":2,"result_sha256":"527e00f24051d43acfa1f59d8d219bbee94cb0097978fbf12796414602c75f1e","state":"passed"},"execution_parent":"010237580158992e736e224d674b374076db16fe","goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"2ae0f0058712006dd326845dd8fef5e888fc4447fcde0032cd9f82c3c1e71a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"84b7d04d-b23a-4313-9793-a330a4f65a4d","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"c8855e7b66d4d150f208bbe3e8a7320618279ad0a311c2e1ac9b198cbed1c89f"},"schema":1,"status":"blocked","successor_run_sha256":"fdeadb4437b5508e8741b840e454f3b3ec13569dbc7669af56377985712ffd5f"}
 
 ## Verification Results
 
-N/A — manager-written after execution.
+N/A - manager-written after execution.
