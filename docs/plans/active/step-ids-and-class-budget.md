@@ -1,10 +1,10 @@
 ---
 title: Give steps stable identifiers and charge permits by defect class
 goal: Make step references stable, catch decidable guard defects before review, and continue draft review only for unseen closed defect classes.
-status: ongoing
+status: drafting
 created: "2026-08-01T22:11:43-03:00"
-updated: "2026-08-03T01:53:11.124+00:00"
-started_at: "2026-08-02T23:55:38.576+00:00"
+updated: "2026-08-03T02:28:24.879+00:00"
+started_at: null
 finished_at: null
 assignee: null
 tags: [plans, plan-manager, plan-reviewer, review-budget, registered-idea]
@@ -34,7 +34,7 @@ related_plans: []
 
 # Give steps stable identifiers and charge permits by defect class
 
-Plan-run: {"acceptance":{"source_sha256":"0662f180e6196ea53f514f64ae2f82ebada878a3a34d5f0661c62e141fbb6cfe","verification_sha256":"3114e9188f2a8bcdff8dc1acf02a3f38c44f251c2b4962e846b9aa615bcaa511"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"d9e80ef76b2c6caad7c6b69cbd08da30895c27cfd7f594a57a41ad69dfc9fa80","invocations":2,"result_sha256":null,"state":"reserved"},"draft_review":{"input_sha256":"67dea20241cab99329f4c75f1b04c3daab06b9095aad8616bec55af72e7c08e9","invocations":1,"result_sha256":"760f7c79aa716319981f7d8fce7a4e1f92427f25960a9cc6c397e85ebf8f279d","state":"passed"},"execution_parent":"7328cb569e1f2578733a02915a1068435d437785","goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":"e11e82c003c59d54a61b38e5a3ecbc6a9b91af39","plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"da5f735f0337588df69c15a8fc9396e34bb7d198d87f10421a51098c14f83768","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b6167972-c6ae-40b6-9738-849e21364b81","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"acab5a01791fda0b130e39b1072f2b99f020b5caec7fefccc4b741e3d737a25e"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"a748ed152d86dad50ca905b30cae864c828307cd73ead8560c4963cdb0ed34d1","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"ae3e91272bb5845ad55b404a2f2a1b2217c6fa12","source_sha256":"4834f2d86d16ab64b9869702bf915045731a553f4d2e5763c115062fd322cafb"}
 
 ## Goal
 
@@ -146,6 +146,34 @@ node scripts/ci.mjs --plugin docks
 
 ## Steps
 
+> **Successor note - why the implementation rows read `done` on a run that has not started.**
+> This run replaces terminal predecessor `2ab6fc4b`, blocked `review_failed` after a repair verdict
+> at completion invocation 2, which is terminal by contract. Five findings were returned across the
+> two invocations. Four were real and are fixed in the world; one is deferred to its own plan
+> because it needs paths this plan may not declare.
+>
+> `F1`/`F2` (invocation 1) - the default-route prompt still specified the pre-`class` finding shape
+> while its own validator required `class`, so every default-route review would have emitted an
+> object the validator rejects; and the grandfather rule never engaged, because the record lookup
+> read `structuralScope` output, which truncates at `## Review` - exactly where the `Plan-run:` line
+> lives. Both fixed at `e11e82c`.
+>
+> `F1`/`F2` (invocation 2) - two latent defects in the shipped feature. The accepted-class guard sat
+> above the unchanged-phase early return, so any transaction leaving `draft_review` in `repairing`
+> failed with an unsatisfiable atomicity error, reaching completion reserves, records and finishes.
+> The class sweep validated the ledger against the record-injected text rather than the `--body`
+> bytes it was built from, making draft repair reservation impossible for any plan whose record sits
+> in a level-two section. Both fixed at `ae3e912`.
+>
+> `F3` (invocation 1) - DEFERRED. The two shipped reviewer wrappers still document the pre-`class`
+> finding shape. Both are outside this plan's `affected_paths`, and they are shipped payload, so the
+> correction is a public-contract change that needs its own canonical plan rather than an
+> undeclared edit here.
+>
+> Two probes in this work were measured against their own re-introduced defect and found blind
+> before being replaced. Steps 1-6 describe world state inherited across `9107d10`, `e11e82c` and
+> `ae3e912`, with `node scripts/ci.mjs` passing. Step 7 stays `planned`.
+
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
 | 1 | Add an optional `Id` column after `#`, using `[a-z][a-z0-9_]{0,63}`, and parse Steps columns by header name so `#` stays numeric and `Depends` keeps its numeric semantics. Accept guard citations only as `step:<id>`; reject duplicate or unknown ids and valid-looking `step N` citations in the guard cell. Freeze the current active plan paths as the grandfather set described in D1. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs`, `scripts/tests/plan-orchestration/plan-self-check.mjs` | — | `local` | `planned` | Focused tests show new plans without ids fail, every frozen active plan receives only an advisory for a missing column, known ids pass, duplicate/unknown ids and numeric guard citations fail, and numeric `Depends` ordering behaves exactly as before. Failure: STOP before changing the plan contract. |
@@ -236,132 +264,14 @@ Completion review invocation 1:
 
 Completion-review-result: {"diff_sha256":"b5885fc9515bc1254f729d6bb99a97b9f4c854bed2b6dbc999ed0712016e0b8e","findings":[{"defect":"buildPlanReviewPrompt still instructs the reviewer with 'Each finding has exactly: id, kind, locator, defect, fix.' and 'Allowed finding kinds: ...', while validatePlanReview in the same module (line 174-175, keys.splice(2,0,'class')) now makes `class` a required closed key. The generated prompt is the whole specification the reviewer receives on the default route: DEFAULT_REVIEWER in dispatch-review.mjs:46 is ['omp','--model','openai-codex/gpt-5.6-sol','-p','--mode','json','{{PROMPT}}'], which loads no skill and no wrapper, and createPlanReviewBundle seals only binding.json, manifest.json and plan.md — no instructions. Verified by constructing the exact object the prompt specifies and validating it: `PlanReviewV1 finding 1 is missing class`. In dispatch-review.mjs that raises ReviewerOutputError and prints 'INVALID REVIEWER OUTPUT' with a refund, so every `repair` and `blocked` draft verdict is now unusable and only a zero-finding `pass` can ever settle. This defeats the plan's own mechanism: D2 states 'the reviewer emits and output validation checks it', but the reviewer is never told to emit it. No acceptance criterion covers the prompt — A5 pins contract prose, and the review-budget class test calls validatePlanReview directly with hand-written `class` values, so the producing side is never exercised against the consuming side.","fix":"In buildPlanReviewPrompt, replace line 621 with 'Each finding has exactly: id, kind, class, locator, defect, fix.' and add the closed kind-to-class mapping after line 622, e.g. 'Allowed class by kind: missing_decision=v1_missing_decision; contradiction=v1_contract_contradiction|v1_evidence_mismatch|v1_unstable_step_reference; unsafe_scope=v1_unauthorized_effect|v1_missing_safety_boundary|v1_affected_paths_incomplete; missing_acceptance=v1_acceptance_command_not_runnable|v1_acceptance_output_mismatch|v1_acceptance_coverage_incomplete|v1_failure_action_missing.' Derive the text from the exported PLAN_FINDING_CLASSES rather than a fourth hand-written copy, so the prompt cannot drift from the validator. The prompt is ~600 bytes against the 4 KiB cap at line 625, so there is room. Add a probe in scripts/tests/plan-orchestration/review-budget.mjs (already in affected_paths) that feeds buildPlanReviewPrompt output shape through validatePlanReview — i.e. assert the prompt names every key validateFinding requires — so the two sides stay bound. review-policy.mjs is in affected_paths under Step 2, whose task text already covers 'update reviewer instructions'; no sealed content changes.","id":"F1","kind":"contradiction","locator":"plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs:621-622"},{"defect":"stepIdentifierDiagnosticsFromContext resolves the grandfather decision from context.record, but structuralContext builds its lines from structuralScope(planText) (line 856), and structuralScope truncates the document at the first '## Review' or '## Verification Results' heading (line 704). The canonical position of the `Plan-run:` record line is inside '## Review' — that is precisely why plan_sha256 excludes both. So context.record is null for most real plans, planPath is null, `grandfathered` is false, and a frozen-set plan receives the new-plan error instead of the required advisory. Verified against the live repository: docs/plans/active/plan-lifecycle-plugin-extraction.md — an active plan named verbatim in D1's frozen set — went from `RULES enforcing 18 checked, 0 finding(s)` exit 0 at parent 7328cb5 to `RULES enforcing 18 checked, 1 finding(s) / R10 fail Steps table has no Id column; new plans require Id immediately after #` exit 1 at 9107d10. Its record sits at line 241, after '## Review' at line 237. Relocating only that line above '## Goal' in memory flips the result to the intended `advisories: [Steps table has no Id column for docs/plans/active/plan-lifecycle-plugin-extraction.md; grandfathered plan keeps numeric display identifiers]` with zero errors, proving record position — not plan identity — decides grandfathering. This is STOP condition 2 verbatim: 'A current active plan becomes invalid solely because it lacks the new Id column, rather than receiving the required grandfather advisory.' docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md and docs/plans/finished/2026-08-02-relay-fanout-reaper-reporting.md, both in the frozen set, likewise get the error rather than the advisory (counting-only, so exit stays 0 and A7 is unaffected). The same null record also propagates into validateAcceptedClassSweep, which recomputes stepIdentifierDiagnostics for v1_unstable_step_reference, so a grandfathered plan carrying that accepted class can never produce a clear sweep and its repair reservation is permanently refused. The focused tests miss this because the fixture() helper in scripts/tests/plan-orchestration/plan-self-check.mjs injects the `Plan-run:` line into the '## Goal' section, a position no real plan uses.","fix":"Resolve the record from the untruncated plan text rather than from structuralScope output: in structuralContext, replace the `lines.find((line) => line.startsWith('Plan-run: '))` lookup at line 904 with a scan over planText.split('\\n'), or add a dedicated helper and call it from stepIdentifierDiagnosticsFromContext. Then extend the grandfather case in scripts/tests/plan-orchestration/plan-self-check.mjs so fixture() can place the record under '## Review' (add a `recordInReview` option) and assert the frozen paths still yield errors: [] with exactly one advisory in that layout — the current fixture passes with the bug present, so it must be made to bite. Both files are in affected_paths under Step 1; no Steps row, acceptance criterion, or affected path changes.","id":"F2","kind":"contradiction","locator":"plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs:936-939"},{"defect":"Both shipped reviewer wrappers still assert a closed finding shape that the patch invalidated: 'For `repair` or `blocked`, each finding is exactly `{id,kind,locator,defect,fix}`.' Step 2 updated plan-reviewer/SKILL.md with the class table, but neither wrapper was touched, so a reviewer dispatched through the Claude or Codex wrapper route is told to emit exactly the object that validatePlanReview now rejects. Impact is lower than F1 because the wrappers are not the default route (dispatch-review.mjs:46 uses a bare model invocation) and because each wrapper defers its kind list to 'the canonical skill', which is correct — but the quoted sentence is an independent closed assertion, not a deferral, and it will contradict the prompt even after F1 is fixed. No gate binds wrapper text to the skill: plan-skill-phases.mjs assertBoundedWorkflows reads plan-manager/SKILL.md and plan-reviewer/SKILL.md only (line 223-224), and the docks agents checks in scripts/ci.mjs score quality rather than contract agreement.","fix":"Amend both sentences to `{id,kind,class,locator,defect,fix}` and add one line pointing at the canonical skill's kind-to-class table, e.g. 'class is closed to the v1 vocabulary compatible with kind, as defined by the canonical skill.' These two wrapper files are outside affected_paths, so if this run may not touch them, record the correction as a follow-up under the plan-workspace wrapper-maintenance path; the functional defect is fully closed by F1 inside affected_paths, so this does not require reopening sealed plan content.","id":"F3","kind":"contradiction","locator":"plugins/docks/agents/plan-reviewer.md:77-78 and .codex/agents/plan-reviewer.toml:74-75"}],"implementation_commit":"9107d10cd1346d6309644d6cc45d654e9f890f0a","invocation":1,"run_id":"b6167972-c6ae-40b6-9738-849e21364b81","schema":1,"verdict":"repair"}
 
+
+Completion review invocation 2:
+
+Completion-review-result: {"diff_sha256":"227769717f53d82e7b669f6f7c0729c9c5335e392bd2d2f709b50ac52b1479a6","findings":[{"defect":"The accepted-class sweep is unsatisfiable for any plan whose `Plan-run:` line sits inside a level-two section, so no draft repair round can ever be reserved for such a plan. Step 4 and the reference this patch adds both state that dispatch verifies the ledger against the candidate body ('the exact `--body` bytes'; plan-self-check-protocol.md:269-272 'against the exact candidate body'), and the ledger is in fact built from that file: `plan-self-check.mjs ledger <result.json> <ledger.json> <plan.md>` -> mergeLedger -> createAcceptedClassSweep(..., planText) (plan-self-check.mjs:1737-1739, 1463-1465, 1000-1023). But dispatch validates against `candidateText` (dispatch-review.mjs:216), which is the body with its `Plan-run:` line replaced by the rebound record (`withRecord`, dispatch-review.mjs:163-174, 188). enumerateUnits emits one `document_sections` unit per level-two heading whose text is the raw line span (plan-self-check.mjs:531-546), so the section holding the record line hashes differently on the two sides, and validateAcceptedClassSweep reports it stale (plan-self-check.mjs:1047-1049). A repair necessarily moves `plan_sha256`, so the rebind is never a no-op. Verified against the live active plan docs/plans/active/plan-lifecycle-plugin-extraction.md (record inside `## Review`): a ledger built from a repaired body validates clean against that body ([]) and fails against dispatch's rebound text with [\"accepted-class sweep unit document_sections:review is stale\"], which the preflight turns into exit 2 before bundle creation. That is 1 of the 2 live active plans, plus most recent archived plans (record under `## Review` or `## Open questions`) and the probe fixture itself (record under `## Acceptance criteria`, plan-dispatch-probes.mjs:121-124). The new probe stays green only because its clear case copies the plan file unmodified (plan-dispatch-probes.mjs 'clear' block), so the rebound record is byte-identical; its script-failing case does hit the stale-unit problem but only asserts the later script-check substring.","fix":"Validate the ledger against the exact `--body` bytes: pass `candidateSourceText` instead of `candidateText` at dispatch-review.mjs:216 (planSha256, acceptedClasses and reviewResultSha256 bindings are unaffected, and stepIdentifierDiagnostics still resolves the record from the body). Alternatively, make the unit digests record-insensitive by hashing a Plan-run-line-excluded view in acceptedClassSweepUnitDigests (plan-self-check.mjs:989-996). Then strengthen the probe so the clear case uses a genuinely repaired body (as the script-failing case does) — the current clear case cannot fail on the real input shape.","id":"F1","kind":"contradiction","locator":"plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/dispatch-review.mjs:188,216-220"},{"defect":"The new draft accepted-class guard runs before the unchanged-phase early return, so it rejects every persisted transaction that leaves `draft_review` in `repairing`. assertPersistedTransition calls assertPersistedReviewTransition for both phases on every transaction (plan-run.mjs:1762-1766); when the draft phase is unchanged, `before` and `after` are the same object, `after.state === 'repairing'` matches at line 1682, and `afterAcceptedClasses.length <= beforeAcceptedClasses.length` is true, so it fails with 'draft repair transition must atomically add only unseen accepted classes' before reaching the `before.state === after.state` return at line 1693. This kills the 'draft preparation' transaction that the same module explicitly authorises while repairing: plan-run.mjs:1818-1821 permits a `drafting -> drafting` plan-content/`plan_sha256` rebind exactly when `draft_review.state` is `not_started` or `repairing`, and the `repairing` arm of that allow-list is now dead code. Verified by running one identical drafting-content transaction through transactPlanRun twice with the shipped fixtures: `not_started` -> ACCEPTED (persisted), `repairing` -> REJECTED: 'draft repair transition must atomically add only unseen accepted classes'. Nothing in the sealed plan asks for that path to be closed, no test covers it (no orchestration case exercises a drafting-content mutation while repairing), and the diagnostic misdescribes the transaction, which carries no repair result at all.","fix":"Gate the accepted-classes comparison on a real state change, e.g. wrap the block at plan-run.mjs:1679-1692 in `if (phaseName === 'draft_review' && before.state !== after.state)`, or move it below the `before.state === after.state` early return at 1693-1696 so an unchanged phase is compared only by the existing jcs identity check. Add a case asserting that a `drafting -> drafting` plan_sha256 rebind still succeeds while draft_review is `repairing` and that accepted_classes is carried unchanged.","id":"F2","kind":"contradiction","locator":"plugins/docks/skills/productivity/plan-run.mjs:1679-1693"}],"implementation_commit":"e11e82c003c59d54a61b38e5a3ecbc6a9b91af39","invocation":2,"run_id":"b6167972-c6ae-40b6-9738-849e21364b81","schema":1,"verdict":"repair"}
+
+
+Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"42c1d00351720a807b933b0d5f08054fb5c9d5617ff8d7ca6648d91ca9f8f1e3","replacement_run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","run":{"acceptance":{"source_sha256":"0662f180e6196ea53f514f64ae2f82ebada878a3a34d5f0661c62e141fbb6cfe","verification_sha256":"3114e9188f2a8bcdff8dc1acf02a3f38c44f251c2b4962e846b9aa615bcaa511"},"blocker":{"evidence_sha256":"7a6aec5e70339e15b0059f9069553b9270b25e108724518683ed40fdfc5eda02","kind":"review_failed"},"completion_review":{"accepted_classes":[],"input_sha256":"d9e80ef76b2c6caad7c6b69cbd08da30895c27cfd7f594a57a41ad69dfc9fa80","invocations":2,"result_sha256":"7a6aec5e70339e15b0059f9069553b9270b25e108724518683ed40fdfc5eda02","state":"blocked"},"draft_review":{"input_sha256":"67dea20241cab99329f4c75f1b04c3daab06b9095aad8616bec55af72e7c08e9","invocations":1,"result_sha256":"760f7c79aa716319981f7d8fce7a4e1f92427f25960a9cc6c397e85ebf8f279d","state":"passed"},"execution_parent":"7328cb569e1f2578733a02915a1068435d437785","goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":"e11e82c003c59d54a61b38e5a3ecbc6a9b91af39","plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"da5f735f0337588df69c15a8fc9396e34bb7d198d87f10421a51098c14f83768","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b6167972-c6ae-40b6-9738-849e21364b81","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"acab5a01791fda0b130e39b1072f2b99f020b5caec7fefccc4b741e3d737a25e"},"schema":1,"status":"blocked","successor_run_sha256":"c40a34d33b71b7bf47b9836e28594e1893ab33571e221c8d56c2704c4cb8a1d5"}
+
 ## Verification Results
 
-### Implementation (2026-08-02)
-
-Implementation spans `9107d10` and the accepted-repair commit `e11e82c`, on ancestry from
-`7328cb5`, this run's `execution_parent`. Every one
-of the twenty `affected_paths` changed and nothing outside them did; the only other modified file is
-the plan record itself, which lifecycle transitions own and which is correctly absent from
-`affected_paths`.
-
-**Stable step identifiers.** Steps rows now carry identifiers, and a guard citation must name
-`step:<id>` instead of a display position. The defect this closes is silent, not loud: renumbering a
-table repointed a guard at whatever row inherited the number, and nothing failed. `plan-self-check`
-enforces identifiers on new plans, rejects a numeric guard citation with `numeric guard citation
-step 1; use step:<id>`, and grandfathers existing plans as advisories so the rollout does not
-invalidate live records. Numeric `Depends` still accepts an earlier display number and rejects
-missing, equal or forward references.
-
-**Closed finding-class vocabulary and budget.** Reviewer findings carry a closed
-`ReviewerFindingClassV1` class. A draft phase records `accepted_classes`; on read an absent field is
-the empty set, and every legal draft transition emits it. A repeated accepted class enters terminal
-`review_failed` rather than spending another permit — the budget exists to bound judgement, not to
-re-buy the same finding. A mixed repeated-and-unseen set blocks rather than accepting a partial
-union, because a partial union would silently drop the repeated half.
-
-**The sweep happens before anything is at stake.** Dispatch verifies the accepted-class ledger
-before sealing the bundle and before reserving the permit. A missing, stale, incomplete or
-script-failing ledger refuses with exit 2, with the record and the permit untouched. Ordering is the
-whole point: a check after reservation has already spent what it was protecting.
-
-**The contract exceeded its cap, and the fix was to remove a duplicate rather than raise the cap.**
-Adding the new clauses pushed `docs/plans/AGENTS.md` to 543 lines against the context-tree cap of
-500. Lowering the cap is a STOP condition and thinning the contract would lose the clauses. The
-inline 44-line record-shape fence was a second copy of what
-`plan-manager/references/planrunv1-schema.md` already defines — and the two copies had drifted into
-two different spellings of one schema, so the duplication was already costing correctness. The
-reference is now the single source of truth for field names, types and enum members; the node states
-the rules and cites the shapes. `PlanAttemptHistoryV1`, `PlanRunReplacementAuthorityV1` and the
-`source_base`/`execution_parent`/`successor_run_sha256` field constraints moved there with it. The
-node is 498 lines and `tree/guard` passes.
-
-**A verbatim-generation invariant that was not holding.** `docs/plans/AGENTS.md` is generated
-verbatim from the plan-workspace template, and `plan-skill-phases.mjs` binds clauses in both copies
-precisely because a rule written into one silently drifts. The two had nonetheless diverged: three
-lines present only in the node, and one sentence worded differently. Both are now aligned, and the
-template's fenced block is byte-identical to the node — verified by extracting the block and
-comparing, not by eye.
-
-**Probes.** Every fix has one that fails with the fix reverted and names its diagnostic:
-
-| Fix | Reverted failure |
-|---|---|
-| new-plan identifier enforcement | `not ok - plan-self-check: new plans require stable step identifiers` |
-| numeric guard citation rejection | `numeric guard citation step 1; use step:<id>` |
-| kind/class compatibility | `review-budget: ... Missing expected exception: operation must reject` |
-| repeated and mixed repeated class blocking | 2 of 23 review-budget cases fail |
-| accepted-class sweep before bundle/reservation | `script-failing: sweep refusal must exit 2`, `0 !== 2` |
-| contract-copy clauses | each pinned clause removed in memory produces its named missing-clause failure |
-
-**Three findings from completion invocation 1. Two were in scope and are fixed; one is deferred with
-a named owner rather than silently dropped.**
-
-`F1` — the default-route prompt contradicted its own validator. `validatePlanReview` made `class` a
-required closed key, but `buildPlanReviewPrompt`, in the same module, still stated the finding shape
-as exactly `{id,kind,locator,defect,fix}`. That prompt is the entire specification a reviewer
-receives on the default route: `DEFAULT_REVIEWER` is a bare model invocation that loads no skill and
-no wrapper, and the sealed bundle carries only the binding, the manifest and the plan. Every
-default-route review would therefore have emitted an object its own validator rejects — the class
-budget would have failed closed on first contact. The prompt now requires `class` and renders the
-kind-to-class mapping directly from `PLAN_FINDING_CLASSES` instead of restating it, so the two
-cannot drift. Proven by round trip: a finding built exactly as the amended prompt instructs is
-accepted by `validatePlanReview`. Revert-sensitive test: `plan review prompt must require the class
-finding key`.
-
-`F2` — the grandfather rule never engaged, so the non-breaking rollout was breaking.
-`structuralContext` resolved the record from `structuralScope` output, and `structuralScope`
-truncates at `## Review`. The canonical position of the `Plan-run` line is inside `## Review` —
-which is exactly why `plan_sha256` excludes it. `context.record` was therefore null for essentially
-every real plan, `grandfathered` was false, and a frozen plan received the hard new-plan error
-instead of the required advisory. The lookup now scans the untruncated plan text; `structuralScope`
-keeps its deliberate truncation, because other callers depend on it. Verified against a real
-archived plan on disk, which now emits `R10 advisory ... grandfathered plan keeps numeric display
-identifiers`.
-
-The pre-existing grandfather fixture could not have caught `F2`: it places the record line in the
-Goal body and has no `## Review` section at all, so it exercised a document shape no real plan has.
-The replacement fixture puts the record where records actually live. A test that cannot fail on the
-real input shape is not coverage, and this one had been green throughout.
-
-`F3` — DEFERRED, not fixed here, and deliberately so. The two shipped reviewer wrappers,
-`plugins/docks/agents/plan-reviewer.md` and `.codex/agents/plan-reviewer.toml`, still document the
-pre-`class` finding shape. Both are outside this plan's `affected_paths`, and editing an undeclared
-path is a STOP condition; declaring them would require changing `affected_paths`, which is inside
-`plan_sha256` and unreachable from a `repairing` phase. They are also shipped payload, so the change
-is a public-contract change and the contract requires a canonical plan for it. It is therefore
-carried to its own successor plan rather than smuggled in here. Impact is bounded: the wrappers are
-not the default route, and each defers its kind list to the canonical skill, which Step 2 already
-updated.
-
-### Acceptance
-
-| ID | Result |
-|---|---|
-| A1 | `node scripts/tests/plan-orchestration.mjs --case plan-self-check` — exit 0, `plan-orchestration: 25/25 passed`; grandfather advisories, new-plan identifier enforcement, and known/unknown/duplicate guard citations all named |
-| A2 | `node scripts/tests/plan-orchestration.mjs --case plan-self-check` — exit 0, `plan-orchestration: 25/25 passed`; numeric `Depends` accepts an earlier display number and rejects missing, equal and forward references. Same command as A1 by the plan's own text; recorded separately because the criteria table lists it twice |
-| A3 | `node scripts/tests/plan-orchestration.mjs --case review-budget` — exit 0, `plan-orchestration: 23/23 passed` |
-| A4 | `node scripts/tests/plan-orchestration.mjs --case dispatch-driver` — exit 0, `plan-orchestration: 12/12 passed`, including `ok - plan-dispatch-probes: class-sweep-before-reserve` |
-| A5 | `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows` — exit 0, `three-skill, one-wrapper bounded plan workflows passed` |
-| A6 | `node scripts/tests/plan-orchestration.mjs` — exit 0, `plan-orchestration: 206/206 passed` at `e11e82c`; it was 205/205 at `9107d10`, before the repair added the Review-section grandfather case |
-| A7 | `git diff --exit-code -- docs/plans/finished` — exit 0, no output |
-| A8 | `node scripts/ci.mjs --plugin docks` — exit 0, `All ci.mjs checks passed — plugin 'docks'; safe to release.` The full `node scripts/ci.mjs` also passes at `e11e82c` across all three plugins and repo-wide |
-
-### Live-tooling safety
-
-`plan-run.mjs`, `dispatch-review.mjs`, `plan-self-check.mjs` and `review-policy.mjs` drive every plan
-transition in this repository, including the transitions of this run. After each change
-`import(plan-run.mjs)` resolves and `dispatch-review.mjs --help` runs, now listing
-`--class-sweep-ledger=<file>` before `--commit`.
-
-### A reliability observation outside this plan's scope
-
-Two full-gate runs during this work failed on `session-relay self-test failed (jobs-1)` — an exit
-status, not output drift — out of roughly nine. The direct reproduction attempt did not reproduce it:
-26 consecutive jobs-1 runs against a prebuilt release binary all exited 0, and a six-iteration
-jobs-1-versus-jobs-4 comparison was byte-identical 6/6. The distinguishing factor is that the gate
-builds a fresh binary and runs under concurrent load. Nothing under `plugins/session-relay/` is in
-this plan's `affected_paths` and nothing there was modified by this run, so this is recorded as an
-observation for a successor rather than treated as this plan's defect. It is stated because a
-release gate that fails roughly one time in five is a real risk, and omitting it would hide that.
+N/A - manager-written after execution.
