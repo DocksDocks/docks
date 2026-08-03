@@ -4,19 +4,22 @@ const PRODUCER_KEYS = Object.freeze(['op', 'path', 'matcher', 'timeout_ms', 'max
 const SAFE_FIELD = /^[A-Za-z0-9_./ :=-]+$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 
-// A committed producer re-runs `git show <record source_base>:<path>`, so its path is read at a
-// HISTORICAL commit, not in the working tree. This entry re-verifies one claim from a plan whose
-// `source_base` predates the plan-lifecycle extraction, where the file was still under
-// `plugins/docks/`. Repointing it at the new location makes `git show` fail with "exists on disk,
-// but not in <sha>" and the measurement unprovable. Move a producer path only when the record it
-// serves is itself re-based past the move.
+// A committed producer re-runs `git show <record source_base>:<path>`, so its path is read at the
+// commit the record names, not in the working tree. The only record carrying this claim is
+// `scripts/tests/fixtures/structural-plan.md`, and `readFixturePlan` rebases that fixture's
+// `source_base` onto current HEAD deliberately, so drift it reports is a real defect rather than
+// fixture rot. The path must therefore name the file's CURRENT location: a spelling that died in
+// an earlier commit makes `git show` fail with "exists on disk, but not in <sha>" and the
+// measurement unprovable. Move this path in the same change that moves the file. A record pinned
+// to a pre-move base needs its own entry naming the pre-move spelling; do not add a path list,
+// because the producer key set is closed and asserted as closed.
 const COMMITTED_PRODUCERS = Object.freeze([
   Object.freeze({
     heading: 'Measured: the exclusion precedent is one line',
     claim: 'lines declaring `EXCLUDED_SECTIONS`',
     producer: Object.freeze({
       op: 'show-count',
-      path: 'plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs',
+      path: 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs',
       matcher: 'EXCLUDED_SECTIONS = new Set',
       timeout_ms: 1_000,
       max_bytes: 1_048_576,

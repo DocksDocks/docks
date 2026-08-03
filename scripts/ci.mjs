@@ -587,9 +587,9 @@ function gateSkills(p, manifest) {
     ? ok(`${p.name} skill content_hash in sync`)
     : fail(`${p.name} skill content_hash drift (node scripts/skills/content-hash.mjs --backfill ${p.skills})`);
   if (p.transformGuard)
-    nodeOk(['scripts/skills/transform-guard.mjs', p.skills])
-      ? ok(`${p.name} transform-guard passed`)
-      : fail(`${p.name} transform-guard failed (node scripts/skills/transform-guard.mjs ${p.skills})`);
+    nodeOk(['scripts/skills/transform-guard.mjs'])
+      ? ok(`repo-wide transform-guard passed (owned by ${p.name})`)
+      : fail(`repo-wide transform-guard failed (node scripts/skills/transform-guard.mjs)`);
 
   const scores = node([BUNDLE, 'score', '--per-file', p.skills])
     .stdout.trim()

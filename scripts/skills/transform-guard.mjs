@@ -5,12 +5,21 @@
 // Usage: transform-guard.mjs [skills-dir]
 import fs from 'node:fs';
 import path from 'node:path';
+import { PLUGINS } from '../lib/plugins.mjs';
 import { bodyAfterFrontmatter, splitLines } from '../lib/skills-parse.mjs';
 import { findSkillByName } from '../lib/skills-walk.mjs';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
-const DIR = path.resolve(process.argv[2] || path.join(REPO_DIR, 'plugins/docks/skills'));
+// An explicit argument scans exactly that one root (targeted invocation). The
+// bare default is registry-derived: the curated list below is repo-wide while
+// the transforming skills it names are distributed across plugin skill roots,
+// so a single hardcoded root silently loses a skill after a cross-plugin move.
+const DIRS = process.argv[2]
+  ? [path.resolve(process.argv[2])]
+  : PLUGINS.filter((p) => p.skills)
+      .map((p) => path.resolve(REPO_DIR, p.skills))
+      .filter((dir) => fs.existsSync(dir));
 
 const TRANSFORMING_SKILLS = [
   'context-tree',
@@ -33,9 +42,13 @@ let fail = 0;
 let missing = 0;
 try {
   for (const name of TRANSFORMING_SKILLS) {
-    const file = findSkillByName(DIR, name);
+    let file = null;
+    for (const dir of DIRS) {
+      file = findSkillByName(dir, name);
+      if (file) break;
+    }
     if (!file) {
-      console.error(`FAIL: listed transforming skill '${name}' has no SKILL.md under ${DIR}`);
+      console.error(`FAIL: listed transforming skill '${name}' has no SKILL.md under ${DIRS.join(', ')}`);
       missing += 1;
       continue;
     }

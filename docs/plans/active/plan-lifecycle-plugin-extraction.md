@@ -1,10 +1,10 @@
 ---
 title: Extract the plan lifecycle into its own cross-tool plugin
 goal: Move the three lifecycle skills and reviewer into a registered plan-lifecycle plugin while preserving routing safety, history, and full-gate coverage.
-status: drafting
+status: ongoing
 created: "2026-08-01T21:18:16-03:00"
-updated: "2026-08-03T15:47:30.657+00:00"
-started_at: null
+updated: "2026-08-03T16:02:37.653+00:00"
+started_at: "2026-08-03T16:02:37.653+00:00"
 finished_at: null
 assignee: null
 tags: [plans, plugins, architecture, registered-idea]
@@ -273,7 +273,7 @@ full `node scripts/ci.mjs`, not a selected-plugin gate.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_contract_contradiction"],"input_sha256":"d11ede9b82d43ad0395f967c322b7242ce53e1cfa08bd28b7a3fad0660f86233","invocations":1,"result_sha256":"d041b562b03d0f7f314f759af493873ec9a46ee3df2afd3e9075c7965ef7e24e","state":"repairing"},"execution_parent":null,"goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"0b76c1a8807fa8e1b1d232714a52a52d3c94b2e53b00e46f74506c6e0766c92d","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ef96ce9c-6bf3-435c-b768-eab04b29e0c5","schema":1,"source_base":"b5a6ddb6210d3d46d51a523c8d607ff87dc17ca4","source_sha256":"83e7bb8af0cc59956f80b7f98280467604baf78bc5e9a3201543b8ca5a8a2955"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_contract_contradiction"],"input_sha256":"d1cd1ebd01f4aa557d490d7095888a6d74c1e7bf29e99e290d94801fb69a782c","invocations":2,"result_sha256":"509f31da5fd2b0bc3cb75d8eb439d9b38947f720e41de838892ba7cd7720efa6","state":"passed"},"execution_parent":"70e5d0d259694c6f290da96a26fe455a3eba9a38","goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"0b76c1a8807fa8e1b1d232714a52a52d3c94b2e53b00e46f74506c6e0766c92d","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ef96ce9c-6bf3-435c-b768-eab04b29e0c5","schema":1,"source_base":"70e5d0d259694c6f290da96a26fe455a3eba9a38","source_sha256":"41aaedcebb4a0ee0d9d0482161c3eb4013c9f55656e4ebff65707ae567dc4f80"}
 
 
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"5e077c279d15e38d4093913448119f8b79c1e9b3644ea041512d6fe38eca998c","replacement_run_id":"ef96ce9c-6bf3-435c-b768-eab04b29e0c5","run":{"acceptance":null,"blocker":{"evidence_sha256":"30b5e05e0097ba524a66b1af1471883f7a811e958f92940627d127fd6eff3add","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"2b3239ca896c0a05edcba368dc593521f6bb6af6c85f03b9f8eae3f1ee9bf57c","invocations":2,"result_sha256":"527e00f24051d43acfa1f59d8d219bbee94cb0097978fbf12796414602c75f1e","state":"passed"},"execution_parent":"010237580158992e736e224d674b374076db16fe","goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"2ae0f0058712006dd326845dd8fef5e888fc4447fcde0032cd9f82c3c1e71a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"84b7d04d-b23a-4313-9793-a330a4f65a4d","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"c8855e7b66d4d150f208bbe3e8a7320618279ad0a311c2e1ac9b198cbed1c89f"},"schema":1,"status":"blocked","successor_run_sha256":"fdeadb4437b5508e8741b840e454f3b3ec13569dbc7669af56377985712ffd5f"}
