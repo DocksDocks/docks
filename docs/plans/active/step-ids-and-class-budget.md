@@ -3,7 +3,7 @@ title: Give steps stable identifiers and charge permits by defect class
 goal: Make step references stable, catch decidable guard defects before review, and continue draft review only for unseen closed defect classes.
 status: drafting
 created: "2026-08-01T22:11:43-03:00"
-updated: "2026-08-03T02:45:07.983+00:00"
+updated: "2026-08-03T03:03:25.415+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -36,7 +36,7 @@ related_plans: []
 
 # Give steps stable identifiers and charge permits by defect class
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"6d4b691faf3ebc09e045732321b89f4afde50927dc06dc5ec810714a484d910e","invocations":1,"result_sha256":"bfc7a75b8dde44c7d4743a31d5b6437f264acf7856d2077e3d5b71dc7f7349b0","state":"repairing"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"5f1a9daf29ece3395eac4009ee5ad7640d06b617ee0cb00e9f85abbb58e2a912","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"b0f498967c72b54edb6162b7c6222b807cd9d3b5","source_sha256":"cdbb4dc6c503bbab60674ec86aaa32a68376d9ffbebe80aae547bc4cf6475127"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"6d4b691faf3ebc09e045732321b89f4afde50927dc06dc5ec810714a484d910e","invocations":1,"result_sha256":"bfc7a75b8dde44c7d4743a31d5b6437f264acf7856d2077e3d5b71dc7f7349b0","state":"repairing"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"e46d921ab7b5189cc0034156a5628652d3a3fbd814ee750d45ff4fed832f40fe","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"068131fa043838c19951563345cc5dfad5eb6179","source_sha256":"e133578254c4afe81e8e41da1e39865ece02b4adb24d982ed28538bebe0d75aa"}
 
 ## Goal
 
@@ -236,17 +236,17 @@ node scripts/ci.mjs --plugin docks
 
 ## Open questions
 
-- D1 — Decided: the `Id` column is optional for the frozen current active set and
-  required for every later plan. The validator freezes these normalized
-  `PlanRunV1.plan_path` values as grandfathered:
-  `docs/plans/active/lifecycle-dispatch-integrity.md`,
-  `docs/plans/active/plan-lifecycle-plugin-extraction.md`,
-  `docs/plans/active/relay-fanout-reaper-reporting.md`,
-  `docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md`, and
-  `docs/plans/active/step-ids-and-class-budget.md`. A plan is new exactly when
-  its normalized active `plan_path` is absent from that frozen set; finished
-  paths cannot reopen. Missing ids are advisory for the frozen set and errors
-  for new plans, avoiding timestamp or Git-history inference.
+- D1 — Decided: the `Id` column is optional for the plans that were already active
+  when it was introduced, and required for every later plan. The validator
+  grandfathers two things: every `docs/plans/finished/` path by prefix, and the
+  frozen normalized `PlanRunV1.plan_path` values still active at introduction,
+  namely `docs/plans/active/plan-lifecycle-plugin-extraction.md` and
+  `docs/plans/active/step-ids-and-class-budget.md`. An archived plan is covered by
+  the prefix and therefore carries no frozen entry; leaving its old active path in
+  the set would exempt a NEW plan that happened to reuse the filename, which is
+  the opposite of the intent. A plan is new exactly when its normalized active
+  `plan_path` is absent from the frozen set. Missing ids are advisory for those
+  plans and errors for new ones, avoiding timestamp or Git-history inference.
 - D2 — Decided: the reviewer defect-class vocabulary is the closed v1 mapping in
   Context, owned by `review-policy.mjs`. Repository code must change to add a
   class; the reviewer emits and output validation checks it, and the manager

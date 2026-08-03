@@ -72,11 +72,12 @@ const STATUS_MODES = Object.freeze({
   blocked: 'counting-only',
 });
 const STEP_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+// Only plans still ACTIVE when the Id column was introduced. An archived plan needs no entry: the
+// caller already grandfathers every `docs/plans/finished/` path by prefix. Keeping a stale active
+// path here would be worse than redundant — a NEW plan reusing that filename would inherit the
+// exemption and silently skip the Id requirement this rule exists to impose.
 const GRANDFATHERED_STEP_ID_PLAN_PATHS = new Set([
-  'docs/plans/active/lifecycle-dispatch-integrity.md',
   'docs/plans/active/plan-lifecycle-plugin-extraction.md',
-  'docs/plans/active/relay-fanout-reaper-reporting.md',
-  'docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md',
   'docs/plans/active/step-ids-and-class-budget.md',
 ]);
 

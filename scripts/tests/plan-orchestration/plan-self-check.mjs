@@ -140,12 +140,14 @@ export function registerPlanSelfCheck(suite, mod) {
   });
 
   suite.test(G, 'the frozen grandfather set receives only a missing-Id advisory', () => {
+    // Two routes to the exemption: the frozen still-active paths, and any archived path by prefix.
+    // An archived plan's OLD active path must NOT be exempt — that is the filename-reuse hole.
     const grandfathered = [
-      'docs/plans/active/lifecycle-dispatch-integrity.md',
       'docs/plans/active/plan-lifecycle-plugin-extraction.md',
-      'docs/plans/active/relay-fanout-reaper-reporting.md',
-      'docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md',
       'docs/plans/active/step-ids-and-class-budget.md',
+      'docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md',
+      'docs/plans/finished/2026-08-02-relay-fanout-reaper-reporting.md',
+      'docs/plans/finished/2026-08-02-lifecycle-dispatch-integrity.md',
     ];
     for (const planPath of grandfathered) {
       const plan = fixture({ includeIds: false, planPath });
@@ -154,6 +156,21 @@ export function registerPlanSelfCheck(suite, mod) {
       assert.equal(result.advisories.length, 1, planPath);
       assert.equal(mod.scriptChecks(plan).P20.verdict, 'pass', planPath);
       assert.equal(mod.scriptChecks(plan).P20.advisory, true, planPath);
+    }
+  });
+
+  // The exemption is for plans that predate the Id column, not for filenames. Once a plan is
+  // archived, its old active path is free for reuse, and a new plan taking that name must be held
+  // to the Id requirement. Leaving an archived plan's active path frozen would silently exempt it.
+  suite.test(G, 'an archived plan frees its active path, which is no longer grandfathered', () => {
+    for (const planPath of [
+      'docs/plans/active/relay-fanout-reaper-reporting.md',
+      'docs/plans/active/lifecycle-dispatch-integrity.md',
+    ]) {
+      const plan = fixture({ includeIds: false, planPath });
+      const result = mod.stepIdentifierDiagnostics(plan);
+      assert.notDeepEqual(result.errors, [], `${planPath} must be treated as a new plan`);
+      assert.equal(mod.scriptChecks(plan).P20.verdict, 'fail', planPath);
     }
   });
 
