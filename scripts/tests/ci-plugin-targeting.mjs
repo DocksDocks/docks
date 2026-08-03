@@ -1215,8 +1215,11 @@ assert.equal(integrityStep('verify registry signatures')['continue-on-error'], u
 const binary = binaryWorkflow.value;
 const matrix = binary.jobs.build.strategy.matrix.include;
 assert.equal(binary.jobs.build.strategy['fail-fast'], false);
-assert.equal(matrix.length, 4);
-assert.equal(new Set(matrix.map((row) => row.target)).size, 4);
+// Three legs as of Session Relay 0.16.0: `x86_64-apple-darwin` was retired from the current
+// release lane, so the matrix and this census move together. A retained historical receipt still
+// names four targets; that capability lives in the release validators, not in this workflow scan.
+assert.equal(matrix.length, 3);
+assert.equal(new Set(matrix.map((row) => row.target)).size, 3);
 const binaryCache = binary.jobs.build.steps.find((row) => row.name === 'cache Cargo dependencies and target outputs');
 assert.equal(binaryCache.uses, pnpmCache.uses);
 assert.deepEqual(binaryCache.with.path.split('\n').filter(Boolean), [
