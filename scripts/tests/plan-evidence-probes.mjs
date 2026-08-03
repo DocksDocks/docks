@@ -514,6 +514,7 @@ probes['injected-defect'] = () =>
       const finding = {
         id: 'R1',
         kind: 'contradiction',
+        class: 'v1_contract_contradiction',
         locator: 'fixture acceptance row',
         defect: 'The scripted sample names an injected contradiction.',
         fix: 'Remove the contradiction from the fixture.',

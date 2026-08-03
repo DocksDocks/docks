@@ -11,6 +11,7 @@ import {
   PLAN_PATH,
   planRun,
   REPOSITORY_ID,
+  REVIEW_CLASSES,
   reviewPhase,
   reviewResultEvent,
   SOURCE_BASE,
@@ -199,7 +200,10 @@ export function registerMutations(suite, api) {
             result_sha256: HASHES.failure,
           }),
         () => ({ type: 'reserve_review', phase: 'draft_review', input_sha256: HASHES.input2 }),
-        (current) => reviewResultEvent(current, 'review_repair', 'draft_review'),
+        (current) =>
+          reviewResultEvent(current, 'review_repair', 'draft_review', {
+            finding_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable],
+          }),
         () => ({ type: 'reserve_review', phase: 'draft_review', input_sha256: HASHES.input3 }),
         (current) => reviewResultEvent(current, 'review_passed', 'draft_review'),
       ];
@@ -223,6 +227,60 @@ export function registerMutations(suite, api) {
       const validated = api.validatePlanRun(fs.readFileSync(file), identity);
       assert.equal(validated.run.draft_review.state, 'passed');
       assert.equal(validated.run.draft_review.invocations, 2);
+    }),
+  );
+
+  suite.test('mutations', 'accepted repair atomically persists sorted classes and reads them back', () =>
+    withTempDirectory('plan-run-mutation-accepted-classes-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const identity = { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run };
+      const legacyRun = planRun();
+      delete legacyRun.draft_review.accepted_classes;
+      const state = { status: 'drafting', run: legacyRun };
+      let fixture = bindPlan(api, state);
+      fs.writeFileSync(file, fixture.bytes);
+
+      const reserved = reduce(api, state, {
+        type: 'reserve_review',
+        phase: 'draft_review',
+        input_sha256: HASHES.input,
+      });
+      assert.deepEqual(reserved.run.draft_review.accepted_classes, []);
+      let nextFixture = bindPlan(api, reserved);
+      await api.transactPlanRun({
+        file,
+        identity,
+        expectedBytesSha256: api.sha256(fixture.bytes),
+        nextBytes: nextFixture.bytes,
+      });
+
+      const repaired = reduce(
+        api,
+        reserved,
+        reviewResultEvent(reserved, 'review_repair', 'draft_review', {
+          finding_classes: [REVIEW_CLASSES.evidenceMismatch, REVIEW_CLASSES.acceptanceCommandNotRunnable],
+        }),
+      );
+      assert.equal(repaired.run.draft_review.state, 'repairing');
+      assert.deepEqual(repaired.run.draft_review.accepted_classes, [
+        REVIEW_CLASSES.acceptanceCommandNotRunnable,
+        REVIEW_CLASSES.evidenceMismatch,
+      ]);
+      fixture = nextFixture;
+      nextFixture = bindPlan(api, repaired);
+      await api.transactPlanRun({
+        file,
+        identity,
+        expectedBytesSha256: api.sha256(fixture.bytes),
+        nextBytes: nextFixture.bytes,
+      });
+
+      const readback = api.validatePlanRun(fs.readFileSync(file), identity);
+      assert.equal(readback.run.draft_review.state, 'repairing');
+      assert.deepEqual(readback.run.draft_review.accepted_classes, [
+        REVIEW_CLASSES.acceptanceCommandNotRunnable,
+        REVIEW_CLASSES.evidenceMismatch,
+      ]);
     }),
   );
 

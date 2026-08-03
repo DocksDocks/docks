@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-31"
-  content_hash: "0056a30ee5257d52f6627364b57e81c53379a835eee69ec21c34148a8fb1feac"
+  updated: "2026-08-02"
+  content_hash: "c4b83562972360b2acaba0b70bef185f912ea830feefee04c3588c8c8c956cca"
 ---
 
 # Plans Workspace
@@ -37,7 +37,7 @@ workspace maintenance has crossed into plan ownership.
 | Request | Owner |
 |---|---|
 | Bootstrap, migrate, audit, or explicit workspace refresh | `plan-workspace` |
-| Decide direct work versus a canonical plan; draft/review/one repair; execute, verify, finish, archive, list/show, publish | main-context `plan-manager` |
+| Decide direct work versus a canonical plan; draft/review/class-bounded repair; execute, verify, finish, archive, list/show, publish | main-context `plan-manager` |
 | Read one immutable bundle and return `PlanReviewV1` | internal `plan-reviewer` |
 
 These are the three live plan skills. Only `plan-reviewer` has Claude/Codex
@@ -80,7 +80,12 @@ preservation checks. Current markers are:
 - one current unfenced compact-JCS `Plan-run: PlanRunV1` record, validated
   append-only `Plan-attempt-history` in Review, and schemas 1–6 historical only;
 - adaptive direct-work threshold and no manual follow-up `start` handoff;
-- draft/completion budgets of at most two reserved fresh invocations each;
+- a new Steps schema with stable ids, while only the frozen grandfather set may
+  retain the legacy schema with an advisory;
+- a draft limit of one initial round plus the closed v1 class vocabulary,
+  repeated or mixed repeated classes terminal-blocked, and completion fixed at
+  two substantive invocations;
+- an exact accepted-class sweep before repair-bundle creation or reservation;
 - exclusive preimage/CAS transactions and major checkpoint commits only;
 - step `Effect` values `local|probe|production_access|publish|push|release|deploy`;
 - literal live external authority and target-local legacy quarantine;
@@ -90,6 +95,55 @@ Wrappers are support files, not version evidence. Missing
 `.codex/agents/plan-reviewer.toml` is reported separately; existing wrapper files
 are project-owned and never overwritten. Any manager or unexpected plan-prefixed
 wrapper is drift to report, not permission to delete it.
+
+## Stable step and draft-review contract
+
+The legacy Steps schema omits `Id`; the new Steps schema adds it immediately
+after `#`.
+
+The legacy Steps schema is `# | Task | Files | Depends | Effect | Status | Done
+when / failure action`; the new schema is `# | Id | Task | Files | Depends |
+Effect | Status | Done when / failure action`. `Id` is immediately after `#` and
+must match `[a-z][a-z0-9_]{0,63}`. A missing `Id` is advisory only for the frozen
+grandfather set; every new plan requires the `Id` column and one valid, unique id
+per Steps row. The frozen set is exactly
+`docs/plans/active/lifecycle-dispatch-integrity.md`,
+`docs/plans/active/plan-lifecycle-plugin-extraction.md`,
+`docs/plans/active/relay-fanout-reaper-reporting.md`,
+`docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md`, and
+`docs/plans/active/step-ids-and-class-budget.md`. Within `Done when / failure
+action`, step citations are accepted only as `step:<id>` and must resolve to a
+declared id; valid-looking numeric `step N` citations are rejected. `#` and
+`Depends` keep their numeric display-number semantics.
+
+Every `PlanReviewV1` finding carries a required `class`. The draft finding
+vocabulary is closed by kind: `missing_decision` permits only
+`v1_missing_decision`; `contradiction` permits only
+`v1_contract_contradiction`, `v1_evidence_mismatch`, or
+`v1_unstable_step_reference`; `unsafe_scope` permits only
+`v1_unauthorized_effect`, `v1_missing_safety_boundary`, or
+`v1_affected_paths_incomplete`; and `missing_acceptance` permits only
+`v1_acceptance_command_not_runnable`, `v1_acceptance_output_mismatch`,
+`v1_acceptance_coverage_incomplete`, or `v1_failure_action_missing`. The
+reviewer emits `class`; the manager validates the kind/class pair and never
+derives a class from plan prose.
+
+For draft review only, `accepted_classes` is sorted and unique; an absent field
+on an existing record reads as empty, and the next legal draft transition writes
+it. An accepted repair atomically unions only unseen validated classes. Any
+draft result containing an already accepted class, including a mixed seen/unseen
+result, terminal-blocks the run; only an unseen-only class set may enter
+`repairing`. The draft limit is one initial round plus the closed v1 vocabulary
+cardinality (12 substantive invocations). Completion review keeps exactly two
+substantive invocations and an empty accepted-class set.
+
+Before creating a draft repair bundle or reserving its permit, verify the exact
+accepted-class sweep against the candidate plan bytes; an absent, stale,
+incomplete, or non-clear sweep fails before bundle creation and leaves the phase
+unchanged. The sweep is bound to the candidate `plan_sha256`, preceding
+reviewer-result digest, every accepted class, and every enumerated Steps row,
+acceptance row, named mechanism, and level-two document section. Waivers and
+wildcard units never satisfy it.
 
 ## Classification report
 
@@ -156,7 +210,7 @@ an obsolete project-owned wrapper automatically; report it for the user.
 ```markdown
 ## Plans
 
-Use direct implementation for one clear reversible low-risk local diff with one bounded acceptance path; it creates no plan, reviewer, or automatic commit. Canonical plans live in `docs/plans/active/`; lifecycle is frontmatter, and `docs/plans/finished/` is terminal. Exactly three skills own the workflow: `plan-workspace` maintains the workspace, main-context `plan-manager` owns classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive, and internal `plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable bundle. Only the reviewer has wrappers.
+Use direct implementation for one clear reversible low-risk local diff with one bounded acceptance path; it creates no plan, reviewer, or automatic commit. Canonical plans live in `docs/plans/active/`; lifecycle is frontmatter, and `docs/plans/finished/` is terminal. Exactly three skills own the workflow: `plan-workspace` maintains the workspace, main-context `plan-manager` owns classify → draft/class-bounded review and repair → start → implement/delegate → observed acceptance → finish/archive, and internal `plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable bundle. Only the reviewer has wrappers.
 
 The current record is one compact-JCS `Plan-run: PlanRunV1` line. Exact current-user authority may preserve a terminal predecessor as append-only `Plan-attempt-history` and install a fresh run at the same stable path; never create `v2`/`vN` plans to reset review. Schemas 1–6 are historical only. Every Steps row has `Effect: local|probe|production_access|publish|push|release|deploy`; persisted intent is never live authority. The complete contract lives in `docs/plans/AGENTS.md`; `docs/plans/CLAUDE.md` contains only `@AGENTS.md`.
 ```

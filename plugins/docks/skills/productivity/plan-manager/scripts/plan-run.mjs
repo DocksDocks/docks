@@ -27,6 +27,20 @@ const REVIEW_STATES = new Set([
   'blocked',
   'cancelled',
 ]);
+const PLAN_FINDING_CLASSES = new Set([
+  'v1_missing_decision',
+  'v1_contract_contradiction',
+  'v1_evidence_mismatch',
+  'v1_unstable_step_reference',
+  'v1_unauthorized_effect',
+  'v1_missing_safety_boundary',
+  'v1_affected_paths_incomplete',
+  'v1_acceptance_command_not_runnable',
+  'v1_acceptance_output_mismatch',
+  'v1_acceptance_coverage_incomplete',
+  'v1_failure_action_missing',
+]);
+const DRAFT_REVIEW_INVOCATION_LIMIT = 1 + PLAN_FINDING_CLASSES.size;
 const EFFECT_ORDER = Object.freeze(['local', 'probe', 'production_access', 'publish', 'push', 'release', 'deploy']);
 const EFFECTS = new Set(EFFECT_ORDER);
 const EXTERNAL_EFFECTS = new Set(['probe', 'publish', 'push', 'release', 'deploy']);
@@ -114,12 +128,16 @@ function assertPlainObject(value, label) {
 }
 
 function assertClosed(value, keys, label) {
+  assertClosedWithOptional(value, keys, [], label);
+}
+
+function assertClosedWithOptional(value, requiredKeys, optionalKeys, label) {
   assertPlainObject(value, label);
-  const allowed = new Set(keys);
+  const allowed = new Set([...requiredKeys, ...optionalKeys]);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) fail(`${label} contains unknown field ${key}`);
   }
-  for (const key of keys) {
+  for (const key of requiredKeys) {
     if (!Object.hasOwn(value, key)) fail(`${label} is missing ${key}`);
   }
 }
@@ -418,10 +436,40 @@ function normalizeLogicalPaths(values, label = 'path') {
 }
 
 function validateReviewPhaseInternal(phase, phaseName) {
-  assertClosed(phase, ['state', 'invocations', 'input_sha256', 'result_sha256'], 'ReviewPhaseV1');
+  assertClosedWithOptional(
+    phase,
+    ['state', 'invocations', 'input_sha256', 'result_sha256'],
+    ['accepted_classes'],
+    'ReviewPhaseV1',
+  );
   if (!REVIEW_STATES.has(phase.state)) fail(`unknown ReviewPhaseV1 state: ${phase.state}`);
-  if (!Number.isInteger(phase.invocations) || phase.invocations < 0 || phase.invocations > 2) {
-    fail('ReviewPhaseV1 invocation permit must be between zero and two');
+  const invocationLimit = phaseName === 'completion_review' ? 2 : DRAFT_REVIEW_INVOCATION_LIMIT;
+  if (!Number.isInteger(phase.invocations) || phase.invocations < 0 || phase.invocations > invocationLimit) {
+    fail(
+      phaseName === 'completion_review'
+        ? 'completion ReviewPhaseV1 invocation permit must be between zero and two'
+        : `draft ReviewPhaseV1 invocation permit must be between zero and ${DRAFT_REVIEW_INVOCATION_LIMIT}`,
+    );
+  }
+  const acceptedClasses = phase.accepted_classes ?? [];
+  if (!Array.isArray(acceptedClasses)) fail('ReviewPhaseV1 accepted_classes must be an array');
+  const sortedAcceptedClasses = [...acceptedClasses].sort(compareUtf16);
+  const seenClasses = new Set();
+  for (const findingClass of acceptedClasses) {
+    if (typeof findingClass !== 'string' || !PLAN_FINDING_CLASSES.has(findingClass)) {
+      fail(`ReviewPhaseV1 accepted_classes contains unknown class ${String(findingClass)}`);
+    }
+    if (seenClasses.has(findingClass)) fail(`ReviewPhaseV1 accepted_classes contains duplicate class ${findingClass}`);
+    seenClasses.add(findingClass);
+  }
+  if (acceptedClasses.some((findingClass, index) => findingClass !== sortedAcceptedClasses[index])) {
+    fail('ReviewPhaseV1 accepted_classes must be sorted');
+  }
+  if (phaseName === 'completion_review' && acceptedClasses.length !== 0) {
+    fail('completion ReviewPhaseV1 accepted_classes must remain empty');
+  }
+  if (['not_required', 'not_started'].includes(phase.state) && acceptedClasses.length !== 0) {
+    fail(`${phase.state} phase cannot carry accepted draft finding classes`);
   }
   const input = phase.input_sha256;
   const result = phase.result_sha256;
@@ -437,31 +485,39 @@ function validateReviewPhaseInternal(phase, phaseName) {
       break;
     case 'reserved':
     case 'transport_retried':
-      if (![1, 2].includes(phase.invocations)) {
-        fail(`${phase.state} phase requires one or two invocations`);
+      if (phase.invocations < 1 || phase.invocations > invocationLimit) {
+        fail(`${phase.state} phase requires between one and ${invocationLimit} invocations`);
       }
       requireHash(input, 'input');
       if (result !== null) fail(`${phase.state} phase result must be null`);
       break;
     case 'retryable':
-      if (![0, 1].includes(phase.invocations)) fail('retryable phase requires zero or one invocation');
+      if (phase.invocations < 0 || phase.invocations >= invocationLimit) {
+        fail(`retryable phase requires between zero and ${invocationLimit - 1} invocations`);
+      }
       requireHash(input, 'input');
       requireHash(result, 'result');
       break;
     case 'repairing':
-      if (phase.invocations !== 1) fail('repairing phase requires exactly one invocation');
+      if (phase.invocations < 1 || phase.invocations >= invocationLimit) {
+        fail(`repairing phase requires between one and ${invocationLimit - 1} invocations`);
+      }
       requireHash(input, 'input');
       requireHash(result, 'result');
       break;
     case 'passed':
     case 'blocked':
     case 'cancelled':
-      if (![1, 2].includes(phase.invocations)) fail(`${phase.state} phase requires one or two invocations`);
+      if (phase.invocations < 1 || phase.invocations > invocationLimit) {
+        fail(`${phase.state} phase requires between one and ${invocationLimit} invocations`);
+      }
       requireHash(input, 'input');
       requireHash(result, 'result');
       break;
     case 'degraded':
-      if (![1, 2].includes(phase.invocations)) fail('degraded phase requires one or two invocations');
+      if (phase.invocations < 1 || phase.invocations > invocationLimit) {
+        fail(`degraded phase requires between one and ${invocationLimit} invocations`);
+      }
       requireHash(input, 'input');
       requireHash(result, 'result');
       break;
@@ -912,6 +968,30 @@ function selectedPhase(state, event) {
   return state.run[event.phase];
 }
 
+function acceptedClasses(phase) {
+  return phase.accepted_classes ?? [];
+}
+
+function persistedPhase(phase, phaseName, overrides = {}) {
+  return {
+    ...phase,
+    accepted_classes: phaseName === 'completion_review' ? [] : [...acceptedClasses(phase)],
+    ...overrides,
+  };
+}
+
+function validateRepairFindingClasses(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    fail('draft review repair requires explicit non-empty finding_classes');
+  }
+  for (const findingClass of value) {
+    if (typeof findingClass !== 'string' || !PLAN_FINDING_CLASSES.has(findingClass)) {
+      fail(`draft review repair contains unknown finding class ${String(findingClass)}`);
+    }
+  }
+  return value;
+}
+
 function resultBindingMatches(state, event, phase) {
   for (const field of ['run_id', 'invocation', 'input_sha256']) {
     if (!Object.hasOwn(event, field)) fail(`review result is missing exact ${field} binding`);
@@ -927,7 +1007,10 @@ function resultBindingMatches(state, event, phase) {
 
 function blockReview(state, phaseName, resultSha256, blockerValue) {
   const phase = state.run[phaseName];
-  state.run[phaseName] = { ...phase, state: 'blocked', result_sha256: resultSha256 };
+  state.run[phaseName] = persistedPhase(phase, phaseName, {
+    state: 'blocked',
+    result_sha256: resultSha256,
+  });
   state.status = 'blocked';
   state.run.blocker = blockerValue;
 }
@@ -971,7 +1054,14 @@ export function reducePlanRun({ current, event }) {
     if (!['not_started', 'retryable', 'repairing'].includes(phase.state)) {
       fail(`review phase ${phase.state} is terminal, live, or has no remaining permit`);
     }
-    if (phase.invocations >= 2) fail('review invocation permit ceiling is two');
+    const invocationLimit = completionReservation ? 2 : DRAFT_REVIEW_INVOCATION_LIMIT;
+    if (phase.invocations >= invocationLimit) {
+      fail(
+        completionReservation
+          ? 'completion review invocation permit ceiling is two'
+          : `draft review invocation permit ceiling is ${DRAFT_REVIEW_INVOCATION_LIMIT}`,
+      );
+    }
     if (phase.state === 'retryable' && event.input_sha256 === phase.input_sha256) {
       fail('transport retry requires a fresh invocation-bound input');
     }
@@ -1008,12 +1098,12 @@ export function reducePlanRun({ current, event }) {
       next.run.implementation_commit = event.implementation_commit;
       next.run.acceptance = clone(event.acceptance);
     }
-    next.run[event.phase] = {
+    next.run[event.phase] = persistedPhase(phase, event.phase, {
       state: phase.state === 'retryable' ? 'transport_retried' : 'reserved',
       invocations: phase.invocations + 1,
       input_sha256: event.input_sha256,
       result_sha256: null,
-    };
+    });
   } else if (event.type === 'review_invalid_input') {
     eventKeys(event, new Set(['type', 'phase', 'result', 'run_id', 'invocation', 'input_sha256']));
     const phase = selectedPhase(next, event);
@@ -1028,9 +1118,20 @@ export function reducePlanRun({ current, event }) {
       evidence_sha256: resultSha256,
     });
   } else if (resultTypes.has(event.type)) {
+    const draftRepair = event.type === 'review_repair' && event.phase === 'draft_review';
     eventKeys(
       event,
-      new Set(['type', 'phase', 'result_sha256', 'evidence_sha256', 'blocker', 'run_id', 'invocation', 'input_sha256']),
+      new Set([
+        'type',
+        'phase',
+        'result_sha256',
+        'evidence_sha256',
+        'blocker',
+        'run_id',
+        'invocation',
+        'input_sha256',
+        ...(draftRepair ? ['finding_classes'] : []),
+      ]),
     );
     if (!HASH.test(event.result_sha256)) fail('review result must be a SHA-256 digest');
     const phase = selectedPhase(next, event);
@@ -1040,15 +1141,40 @@ export function reducePlanRun({ current, event }) {
       fail(`stale review result requires a matching reserved phase, not ${phase.state}`);
     resultBindingMatches(next, event, phase);
     if (event.type === 'review_passed') {
-      next.run[event.phase] = { ...phase, state: 'passed', result_sha256: event.result_sha256 };
+      next.run[event.phase] = persistedPhase(phase, event.phase, {
+        state: 'passed',
+        result_sha256: event.result_sha256,
+      });
     } else if (event.type === 'review_repair') {
-      if (phase.invocations === 2) {
-        blockReview(next, event.phase, event.result_sha256, {
-          kind: 'review_failed',
-          evidence_sha256: event.result_sha256,
-        });
+      if (event.phase === 'completion_review') {
+        if (phase.invocations === 2) {
+          blockReview(next, event.phase, event.result_sha256, {
+            kind: 'review_failed',
+            evidence_sha256: event.result_sha256,
+          });
+        } else {
+          next.run[event.phase] = persistedPhase(phase, event.phase, {
+            state: 'repairing',
+            result_sha256: event.result_sha256,
+          });
+        }
       } else {
-        next.run[event.phase] = { ...phase, state: 'repairing', result_sha256: event.result_sha256 };
+        const findingClasses = validateRepairFindingClasses(event.finding_classes);
+        const previouslyAccepted = new Set(acceptedClasses(phase));
+        const repeatsAcceptedClass = findingClasses.some((findingClass) => previouslyAccepted.has(findingClass));
+        if (repeatsAcceptedClass || phase.invocations >= DRAFT_REVIEW_INVOCATION_LIMIT) {
+          blockReview(next, event.phase, event.result_sha256, {
+            kind: 'review_failed',
+            evidence_sha256: event.result_sha256,
+          });
+        } else {
+          const nextAcceptedClasses = [...new Set([...previouslyAccepted, ...findingClasses])].sort(compareUtf16);
+          next.run[event.phase] = persistedPhase(phase, event.phase, {
+            state: 'repairing',
+            result_sha256: event.result_sha256,
+            accepted_classes: nextAcceptedClasses,
+          });
+        }
       }
     } else if (event.type === 'review_blocked') {
       const blockerValue = event.blocker ?? { kind: 'review_failed', evidence_sha256: event.result_sha256 };
@@ -1056,18 +1182,23 @@ export function reducePlanRun({ current, event }) {
       blockReview(next, event.phase, event.result_sha256, clone(blockerValue));
     } else if (event.type === 'review_cancelled') {
       if (!HASH.test(event.evidence_sha256)) fail('review cancellation requires evidence_sha256');
-      next.run[event.phase] = { ...phase, state: 'cancelled', result_sha256: event.result_sha256 };
+      next.run[event.phase] = persistedPhase(phase, event.phase, {
+        state: 'cancelled',
+        result_sha256: event.result_sha256,
+      });
       next.status = 'blocked';
       next.run.blocker = { kind: 'user_cancelled', evidence_sha256: event.evidence_sha256 };
     } else if (phase.state === 'reserved') {
-      next.run[event.phase] = {
-        ...phase,
+      next.run[event.phase] = persistedPhase(phase, event.phase, {
         state: 'retryable',
         invocations: phase.invocations - 1,
         result_sha256: event.result_sha256,
-      };
+      });
     } else if (event.phase === 'draft_review' && next.run.risk === 'local') {
-      next.run[event.phase] = { ...phase, state: 'degraded', result_sha256: event.result_sha256 };
+      next.run[event.phase] = persistedPhase(phase, event.phase, {
+        state: 'degraded',
+        result_sha256: event.result_sha256,
+      });
     } else {
       blockReview(next, event.phase, event.result_sha256, {
         kind: 'review_failed',
@@ -1540,7 +1671,25 @@ const REVIEW_TRANSITIONS = new Map([
 ]);
 
 function assertPersistedReviewTransition(before, after, phaseName, risk) {
+  const invocationLimit = phaseName === 'completion_review' ? 2 : DRAFT_REVIEW_INVOCATION_LIMIT;
   if (!REVIEW_TRANSITIONS.get(before.state)?.has(after.state)) fail(`illegal ${phaseName} transition`);
+  if (phaseName === 'draft_review' && before.state !== after.state && !Object.hasOwn(after, 'accepted_classes')) {
+    fail('draft review transition must persist accepted_classes');
+  }
+  if (phaseName === 'draft_review') {
+    const beforeAcceptedClasses = acceptedClasses(before);
+    const afterAcceptedClasses = acceptedClasses(after);
+    if (after.state === 'repairing') {
+      if (
+        afterAcceptedClasses.length <= beforeAcceptedClasses.length ||
+        beforeAcceptedClasses.some((findingClass) => !afterAcceptedClasses.includes(findingClass))
+      ) {
+        fail('draft repair transition must atomically add only unseen accepted classes');
+      }
+    } else if (jcs(beforeAcceptedClasses) !== jcs(afterAcceptedClasses)) {
+      fail('draft accepted_classes may change only on an accepted repair');
+    }
+  }
   if (before.state === after.state) {
     if (jcs(before) !== jcs(after)) fail(`${phaseName} cannot mutate without a state transition`);
     return false;
@@ -1562,7 +1711,8 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
     const refundedTransportFailure =
       after.state === 'retryable' &&
       before.state === 'reserved' &&
-      [1, 2].includes(before.invocations) &&
+      before.invocations >= 1 &&
+      before.invocations <= invocationLimit &&
       after.invocations === before.invocations - 1;
     // A failed first transport is the sole result transition allowed to refund a reserved permit.
     if (after.invocations !== before.invocations && !refundedTransportFailure) {
@@ -1577,7 +1727,8 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
       (before.state !== 'transport_retried' ||
         phaseName !== 'draft_review' ||
         risk !== 'local' ||
-        ![1, 2].includes(before.invocations))
+        before.invocations < 1 ||
+        before.invocations > invocationLimit)
     ) {
       fail('degraded review transition is second-transport local draft only');
     }

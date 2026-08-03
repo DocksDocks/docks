@@ -11,6 +11,26 @@ export const HASHES = Object.freeze({
   verification: '3'.repeat(64),
 });
 
+export const REVIEW_CLASSES = Object.freeze({
+  missingDecision: 'v1_missing_decision',
+  contractContradiction: 'v1_contract_contradiction',
+  evidenceMismatch: 'v1_evidence_mismatch',
+  unstableStepReference: 'v1_unstable_step_reference',
+  unauthorizedEffect: 'v1_unauthorized_effect',
+  missingSafetyBoundary: 'v1_missing_safety_boundary',
+  affectedPathsIncomplete: 'v1_affected_paths_incomplete',
+  acceptanceCommandNotRunnable: 'v1_acceptance_command_not_runnable',
+  acceptanceOutputMismatch: 'v1_acceptance_output_mismatch',
+  acceptanceCoverageIncomplete: 'v1_acceptance_coverage_incomplete',
+  failureActionMissing: 'v1_failure_action_missing',
+});
+
+export const REVIEW_INPUTS = Object.freeze(
+  Array.from({ length: Object.keys(REVIEW_CLASSES).length + 1 }, (_, index) =>
+    (index + 1).toString(16).padStart(64, '0'),
+  ),
+);
+
 export const IDS = Object.freeze({
   goal: '11111111-1111-4111-8111-111111111111',
   run: '22222222-2222-4222-8222-222222222222',
@@ -23,6 +43,7 @@ export const IMPLEMENTATION_COMMIT = '4'.repeat(40);
 export const SOURCE_BASE = '5'.repeat(40);
 
 export function reviewPhase(state = 'not_started', overrides = {}) {
+  const acceptedClasses = overrides.accepted_classes ?? [];
   const defaults = {
     not_required: { invocations: 0, input_sha256: null, result_sha256: null },
     not_started: { invocations: 0, input_sha256: null, result_sha256: null },
@@ -35,7 +56,7 @@ export function reviewPhase(state = 'not_started', overrides = {}) {
     blocked: { invocations: 1, input_sha256: HASHES.input, result_sha256: HASHES.result },
     cancelled: { invocations: 1, input_sha256: HASHES.input, result_sha256: HASHES.result },
   };
-  return { state, ...defaults[state], ...overrides };
+  return { state, ...defaults[state], accepted_classes: acceptedClasses, ...overrides };
 }
 
 export function acceptance(overrides = {}) {

@@ -10,6 +10,7 @@ import {
   PLAN_PATH,
   planRun,
   REPOSITORY_ID,
+  REVIEW_CLASSES,
   renderPlan,
   reviewPhase,
   SOURCE_BASE,
@@ -162,6 +163,18 @@ function invalidTupleCases() {
       }),
       error: /risk|requested_effects|release/i,
     },
+    {
+      name: 'completion review keeps its two-invocation ceiling',
+      value: tuple('ongoing', {
+        risk: 'sensitive',
+        draft_review: reviewPhase('passed'),
+        execution_parent: SOURCE_BASE,
+        implementation_commit: IMPLEMENTATION_COMMIT,
+        completion_review: reviewPhase('passed', { invocations: 3 }),
+        acceptance: acceptance(),
+      }),
+      error: /completion|invocation|permit|two/i,
+    },
   ];
 }
 
@@ -178,6 +191,7 @@ function phaseTableCases() {
     ['repairing', reviewPhase('repairing')],
     ['passed first', reviewPhase('passed')],
     ['passed second', reviewPhase('passed', { invocations: 2 })],
+    ['passed at finite draft class bound', reviewPhase('passed', { invocations: 12 })],
     ['degraded first', reviewPhase('degraded', { invocations: 1 })],
     ['degraded second', reviewPhase('degraded')],
     ['blocked first', reviewPhase('blocked')],
@@ -198,12 +212,12 @@ function phaseTableCases() {
       reviewPhase('transport_retried', { result_sha256: HASHES.result }),
       /transport_retried|result/i,
     ],
-    ['retryable second permit', reviewPhase('retryable', { invocations: 2 }), /retryable|invocation/i],
-    ['repairing second permit', reviewPhase('repairing', { invocations: 2 }), /repairing|invocation/i],
+    ['retryable at finite bound', reviewPhase('retryable', { invocations: 12 }), /retryable|invocation|11/i],
+    ['repairing at finite bound', reviewPhase('repairing', { invocations: 12 }), /repairing|invocation|11/i],
     ['passed missing result', reviewPhase('passed', { result_sha256: null }), /passed|result/i],
     ['degraded without a permit', reviewPhase('degraded', { invocations: 0 }), /degraded|invocation/i],
     ['terminal missing input', reviewPhase('blocked', { input_sha256: null }), /blocked|input/i],
-    ['third invocation', reviewPhase('passed', { invocations: 3 }), /invocation|permit|two/i],
+    ['beyond finite draft bound', reviewPhase('passed', { invocations: 13 }), /invocation|permit|12/i],
   ];
   return { invalid, valid };
 }
@@ -242,6 +256,62 @@ export function registerStateMatrix(suite, api) {
     for (const [name, phase, error] of invalid) {
       expectThrow(() => validate(api, tuple('drafting', { draft_review: phase })), error, `phase row ${name}`);
     }
+  });
+
+  suite.test('state-matrix', 'accepted_classes is optional on read and otherwise sorted unique and closed', () => {
+    const legacy = tuple('drafting');
+    delete legacy.run.draft_review.accepted_classes;
+    delete legacy.run.completion_review.accepted_classes;
+    validate(api, legacy);
+
+    validate(
+      api,
+      tuple('drafting', {
+        draft_review: reviewPhase('reserved', {
+          accepted_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable, REVIEW_CLASSES.evidenceMismatch],
+        }),
+      }),
+    );
+
+    for (const [name, acceptedClasses, error] of [
+      [
+        'unsorted',
+        [REVIEW_CLASSES.evidenceMismatch, REVIEW_CLASSES.acceptanceCommandNotRunnable],
+        /accepted_classes|sorted/i,
+      ],
+      ['duplicate', [REVIEW_CLASSES.evidenceMismatch, REVIEW_CLASSES.evidenceMismatch], /accepted_classes|duplicate/i],
+      ['unknown', ['v1_unknown'], /accepted_classes|unknown|class/i],
+    ]) {
+      expectThrow(
+        () =>
+          validate(
+            api,
+            tuple('drafting', {
+              draft_review: reviewPhase('reserved', { accepted_classes: acceptedClasses }),
+            }),
+          ),
+        error,
+        name,
+      );
+    }
+
+    expectThrow(
+      () =>
+        validate(
+          api,
+          tuple('ongoing', {
+            risk: 'sensitive',
+            draft_review: reviewPhase('passed'),
+            execution_parent: SOURCE_BASE,
+            implementation_commit: IMPLEMENTATION_COMMIT,
+            completion_review: reviewPhase('passed', {
+              accepted_classes: [REVIEW_CLASSES.evidenceMismatch],
+            }),
+            acceptance: acceptance(),
+          }),
+        ),
+      /completion|accepted_classes|empty/i,
+    );
   });
 
   suite.test('state-matrix', 'closes PlanRunV1 and both nested record shapes', () => {

@@ -52,6 +52,7 @@ const DISPATCH_PROBES = [
   ['invalid-input-verbatim', 'a malformed invalid-input reply refunds instead of settling terminally'],
   ['dirty-drift', 'uncommitted affected-path drift refunds with HEAD unmoved'],
   ['stdout-persistence', 'the complete reviewer stdout is persisted byte-for-byte before interpretation'],
+  ['class-sweep-before-reserve', 'only an exact complete clear accepted-class sweep reaches reservation'],
 ];
 
 const EVIDENCE_PROBES = [
@@ -276,11 +277,33 @@ const STRUCTURAL_RULE_PROBES = [
   ],
 ];
 
-const structuralFixture = (body) => `---
+const structuralFixture = (body) => {
+  let inSteps = false;
+  let expectSeparator = false;
+  let stepIndex = 0;
+  const normalized = body
+    .trim()
+    .split('\n')
+    .map((line) => {
+      if (/^##\s+/.test(line)) inSteps = /^## Steps\s*$/.test(line);
+      if (!inSteps) return line;
+      if (/^\|\s*#\s*\|/.test(line)) {
+        expectSeparator = true;
+        return line.replace(/^(\|\s*#\s*\|)/, '$1 Id |');
+      }
+      if (expectSeparator && /^\|\s*:?-+:?\s*\|/.test(line)) {
+        expectSeparator = false;
+        return line.replace(/^(\|\s*:?-+:?\s*\|)/, '$1---|');
+      }
+      return line.replace(/^(\|\s*(\d{1,3})\s*\|)/, (match, prefix) => `${prefix} step_${++stepIndex} |`);
+    })
+    .join('\n');
+  return `---
 status: drafting
 ---
-${body.trim()}
+${normalized}
 `;
+};
 
 const STRUCTURAL_WIDER_REGRESSIONS = [
   [

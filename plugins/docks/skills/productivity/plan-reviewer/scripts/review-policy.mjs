@@ -9,7 +9,19 @@ const HEX40 = /^[0-9a-f]{40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const FINDING_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const KIND_TOKEN = /^[a-z][a-z0-9_]{0,63}$/;
-const PLAN_FINDING_KINDS = new Set(['missing_decision', 'contradiction', 'unsafe_scope', 'missing_acceptance']);
+export const PLAN_FINDING_CLASSES = Object.freeze({
+  missing_decision: Object.freeze(['v1_missing_decision']),
+  contradiction: Object.freeze(['v1_contract_contradiction', 'v1_evidence_mismatch', 'v1_unstable_step_reference']),
+  unsafe_scope: Object.freeze(['v1_unauthorized_effect', 'v1_missing_safety_boundary', 'v1_affected_paths_incomplete']),
+  missing_acceptance: Object.freeze([
+    'v1_acceptance_command_not_runnable',
+    'v1_acceptance_output_mismatch',
+    'v1_acceptance_coverage_incomplete',
+    'v1_failure_action_missing',
+  ]),
+});
+const PLAN_FINDING_KINDS = new Set(Object.keys(PLAN_FINDING_CLASSES));
+const PLAN_FINDING_CLASS_VOCABULARY = new Set(Object.values(PLAN_FINDING_CLASSES).flat());
 const VERDICTS = new Set(['pass', 'repair', 'blocked']);
 const MAX_REVIEW_BYTES = 32 * 1024;
 const BUNDLE_PREFIX = 'plan-review-v1-';
@@ -158,8 +170,10 @@ function decodeReviewValue(value, label) {
   return parsed;
 }
 
-function validateFinding(finding, label, allowedKinds = null) {
-  assertClosed(finding, ['id', 'kind', 'locator', 'defect', 'fix'], label);
+function validateFinding(finding, label, allowedKinds = null, allowedClasses = null) {
+  const keys = ['id', 'kind', 'locator', 'defect', 'fix'];
+  if (allowedClasses !== null) keys.splice(2, 0, 'class');
+  assertClosed(finding, keys, label);
   if (typeof finding.id !== 'string' || !FINDING_ID.test(finding.id)) {
     throw new Error(`${label} id must be a compact identifier`);
   }
@@ -167,12 +181,22 @@ function validateFinding(finding, label, allowedKinds = null) {
     throw new Error(`${label} kind must be a compact token`);
   }
   if (allowedKinds !== null && !allowedKinds.has(finding.kind)) throw new Error(`${label} kind is unknown`);
+  if (allowedClasses !== null) {
+    if (typeof finding.class !== 'string') throw new Error(`${label} class must be a string`);
+    if (!finding.class.startsWith('v1_')) {
+      throw new Error(`${label} class has the wrong vocabulary version; expected v1_`);
+    }
+    if (!PLAN_FINDING_CLASS_VOCABULARY.has(finding.class)) throw new Error(`${label} class is unknown`);
+    if (!allowedClasses[finding.kind].includes(finding.class)) {
+      throw new Error(`${label} class is incompatible with kind ${finding.kind}`);
+    }
+  }
   nonemptyString(finding.locator, `${label} locator`);
   nonemptyString(finding.defect, `${label} defect`);
   nonemptyString(finding.fix, `${label} fix`);
 }
 
-function validateReviewEnvelope(review, label, keys, binding, bindingKeys, allowedKinds = null) {
+function validateReviewEnvelope(review, label, keys, binding, bindingKeys, allowedKinds = null, allowedClasses = null) {
   assertClosed(review, keys, label);
   if (review.schema !== 1) throw new Error(`${label} schema must be 1`);
   validateUuid(review.run_id, `${label} run_id`);
@@ -182,7 +206,7 @@ function validateReviewEnvelope(review, label, keys, binding, bindingKeys, allow
   const ids = new Set();
   for (let index = 0; index < review.findings.length; index += 1) {
     const finding = review.findings[index];
-    validateFinding(finding, `${label} finding ${index + 1}`, allowedKinds);
+    validateFinding(finding, `${label} finding ${index + 1}`, allowedKinds, allowedClasses);
     if (ids.has(finding.id)) throw new Error(`${label} finding ids must be unique`);
     ids.add(finding.id);
   }
@@ -207,6 +231,7 @@ export function validatePlanReview(value, expectedBinding) {
     binding,
     ['run_id', 'invocation', 'plan_sha256', 'source_sha256'],
     PLAN_FINDING_KINDS,
+    PLAN_FINDING_CLASSES,
   );
   validateDigest(review.plan_sha256, 'PlanReviewV1 plan_sha256');
   validateDigest(review.source_sha256, 'PlanReviewV1 source_sha256');

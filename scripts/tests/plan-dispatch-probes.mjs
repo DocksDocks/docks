@@ -47,6 +47,9 @@ const api = await import(path.join(ROOT, 'plugins/docks/skills/productivity/plan
 const policy = await import(
   path.join(ROOT, 'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs')
 );
+const selfCheck = await import(
+  path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs')
+);
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -73,6 +76,7 @@ const REPAIR_REVIEW = (binding) => ({
     {
       id: 'R1',
       kind: 'contradiction',
+      class: 'v1_contract_contradiction',
       locator: 'Goal',
       defect: 'The scratch fixture declares a goal it never verifies.',
       fix: 'Add one acceptance row that binds the goal to an exit status.',
@@ -105,9 +109,9 @@ function renderPlan({ status, run }) {
       '',
       '## Steps',
       '',
-      '| # | Task | Files | Depends | Effect | Status |',
-      '|---|---|---|---|---|---|',
-      '| 1 | Touch the tracked fixture | `tracked.txt` | — | local | planned |',
+      '| # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |',
+      '|---|---|---|---|---|---|---|---|',
+      '| 1 | touch_fixture | Touch the tracked fixture | `tracked.txt` | — | local | planned | Clear |',
       '',
       '## Acceptance criteria',
       '',
@@ -129,7 +133,7 @@ function renderPlan({ status, run }) {
   );
 }
 
-function buildWorld(root, { risk = 'sensitive' } = {}) {
+function buildWorld(root, { risk = 'sensitive', draftReview = reviewPhase('not_started') } = {}) {
   const repo = path.join(root, 'repo');
   initializeRepository(repo);
   const head = git(repo, ['rev-parse', 'HEAD']).stdout;
@@ -146,7 +150,7 @@ function buildWorld(root, { risk = 'sensitive' } = {}) {
     plan_sha256: '0'.repeat(64),
     source_base: manifest.source_base,
     source_sha256: manifest.source_sha256,
-    draft_review: reviewPhase('not_started'),
+    draft_review: draftReview,
     execution_parent: null,
     implementation_commit: null,
     completion_review: reviewPhase(risk === 'local' ? 'not_required' : 'not_started'),
@@ -208,9 +212,10 @@ function rebindStub(stub, previous, next) {
 // probe can tell the two apart: the driver must resolve a relative reviewer route against
 // `--repo`, because `spawn` chdirs there before the OS resolves the command. With the
 // default they coincide and that confusion is invisible.
-function startDriver(world, { body = null, cwd = null, driver = DRIVER, stub, env = {} }) {
+function startDriver(world, { body = null, classSweepLedger = null, cwd = null, driver = DRIVER, stub, env = {} }) {
   const argv = [driver, world.planFile, `--out-dir=${world.outDir}`, `--repo=${world.repo}`, '--commit'];
   if (body !== null) argv.push(`--body=${body}`);
+  if (classSweepLedger !== null) argv.push(`--class-sweep-ledger=${classSweepLedger}`);
   const child = spawn(process.execPath, argv, {
     cwd: cwd ?? world.repo,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -306,8 +311,115 @@ async function withStaleBundleDriver(operation) {
 }
 
 // --- probes ----------------------------------------------------------------
-
 const probes = {};
+
+function writeClassSweepLedger(world, bodyFile, mutate = (sweep) => sweep) {
+  const planText = fs.readFileSync(bodyFile, 'utf8');
+  const acceptedClasses = world.run.draft_review.accepted_classes;
+  const reviewResultSha256 = world.run.draft_review.result_sha256;
+  const unitSnapshot = selfCheck.createAcceptedClassSweep(
+    { accepted_classes: acceptedClasses, review_result_sha256: reviewResultSha256, verdicts: [] },
+    planText,
+  );
+  const verdicts = Object.keys(unitSnapshot.units).map((unit) => ({
+    class: acceptedClasses[0],
+    unit,
+    verdict: 'clear',
+  }));
+  const sweep = selfCheck.createAcceptedClassSweep(
+    { accepted_classes: acceptedClasses, review_result_sha256: reviewResultSha256, verdicts },
+    planText,
+  );
+  const ledgerFile = path.join(world.root, 'class-sweep-ledger.json');
+  fs.writeFileSync(ledgerFile, `${JSON.stringify({ accepted_class_sweep: mutate(sweep) }, null, 2)}\n`);
+  return ledgerFile;
+}
+
+// A repair permit is conditional on an exact, complete accepted-class sweep. Every refusal is
+// checked at the only meaningful boundary: the prior repairing bytes and invocation count remain
+// unchanged, and the bundle directory was never created.
+probes['class-sweep-before-reserve'] = () =>
+  withScratchRoot('dispatch-class-sweep-', async (root) => {
+    const repairing = () => reviewPhase('repairing', { accepted_classes: ['v1_contract_contradiction'] });
+
+    {
+      const world = buildWorld(path.join(root, 'clear'), { draftReview: repairing() });
+      const bodyFile = path.join(world.root, 'repaired.md');
+      fs.copyFileSync(world.planFile, bodyFile);
+      const ledgerFile = writeClassSweepLedger(world, bodyFile);
+      const neverGo = path.join(world.root, 'never-go');
+      const stub = writeStub(world, { goFile: neverGo, reply: {} });
+      const running = startDriver(world, { body: bodyFile, classSweepLedger: ledgerFile, stub });
+      await waitForState(world, new Set(['reserved']));
+      assert.ok(fs.existsSync(world.outDir), 'a complete clear sweep must be the only case that creates a bundle');
+      running.child.kill('SIGTERM');
+      await running.done;
+    }
+    {
+      const world = buildWorld(path.join(root, 'script-failing'), {
+        draftReview: reviewPhase('repairing', { accepted_classes: ['v1_unstable_step_reference'] }),
+      });
+      const bodyFile = path.join(world.root, 'repaired.md');
+      const body = fs
+        .readFileSync(world.planFile, 'utf8')
+        .replace('| local | planned | Clear |', '| local | planned | Return to step 1 |');
+      fs.writeFileSync(bodyFile, body);
+      const ledgerFile = writeClassSweepLedger(world, bodyFile);
+      const before = fs.readFileSync(world.planFile);
+      const priorPhase = phaseOf(world);
+      const stub = writeStub(world, { goFile: null, reply: {} });
+      const result = await startDriver(world, { body: bodyFile, classSweepLedger: ledgerFile, stub }).done;
+      assert.equal(result.code, 2, 'script-failing: sweep refusal must exit 2');
+      assert.match(result.output, /v1_unstable_step_reference script check failed:.*numeric guard citation step 1/);
+      assert.ok(fs.readFileSync(world.planFile).equals(before), 'script-failing: plan bytes must remain unchanged');
+      assert.deepEqual(phaseOf(world), priorPhase, 'script-failing: repairing phase must remain unchanged');
+      assert.equal(fs.existsSync(world.outDir), false, 'script-failing: refusal must occur before bundle creation');
+    }
+
+    const refused = [
+      ['missing', null, /accepted-class sweep ledger is required/],
+      [
+        'stale',
+        (world, bodyFile) =>
+          writeClassSweepLedger(world, bodyFile, (sweep) => ({ ...sweep, plan_sha256: '0'.repeat(64) })),
+        /plan_sha256 is stale/,
+      ],
+      [
+        'incomplete',
+        (world, bodyFile) =>
+          writeClassSweepLedger(world, bodyFile, (sweep) => ({ ...sweep, verdicts: sweep.verdicts.slice(1) })),
+        /lacks clear verdict/,
+      ],
+      [
+        'failing',
+        (world, bodyFile) =>
+          writeClassSweepLedger(world, bodyFile, (sweep) => ({
+            ...sweep,
+            verdicts: [{ ...sweep.verdicts[0], verdict: 'fail' }, ...sweep.verdicts.slice(1)],
+          })),
+        /is not clear/,
+      ],
+    ];
+    for (const [name, ledgerFactory, diagnostic] of refused) {
+      const world = buildWorld(path.join(root, name), { draftReview: repairing() });
+      const bodyFile = path.join(world.root, 'repaired.md');
+      fs.copyFileSync(world.planFile, bodyFile);
+      const ledgerFile = ledgerFactory?.(world, bodyFile) ?? null;
+      const before = fs.readFileSync(world.planFile);
+      const priorPhase = phaseOf(world);
+      const stub = writeStub(world, { goFile: null, reply: {} });
+      const result = await startDriver(world, { body: bodyFile, classSweepLedger: ledgerFile, stub }).done;
+      assert.equal(result.code, 2, `${name}: sweep refusal must exit 2`);
+      assert.match(result.output, diagnostic, `${name}: refusal must name its sweep diagnostic`);
+      assert.ok(fs.readFileSync(world.planFile).equals(before), `${name}: plan bytes must remain unchanged`);
+      assert.deepEqual(phaseOf(world), priorPhase, `${name}: repairing phase must remain unchanged`);
+      assert.equal(phaseOf(world).invocations, 1, `${name}: prior repairing invocation count must remain one`);
+      assert.equal(fs.existsSync(world.outDir), false, `${name}: refusal must occur before bundle directory creation`);
+    }
+    process.stdout.write(
+      '  ok class sweep: clear reserved; missing, stale, incomplete, failing, and script-failing refused before bundle/reserve\n',
+    );
+  });
 
 // A2: every catchable signal the driver registers must refund, never leave a bare
 // `reserved`. Enumerated rather than sampled: a single-signal probe would let a

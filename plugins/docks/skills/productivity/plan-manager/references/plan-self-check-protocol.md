@@ -253,6 +253,24 @@ noticed, while the property rubric refused it on the first pass.
 |the property set partly generalises|derived from rounds 1–8; 96% class-level recall on held-out rounds 9–11 — **author-contaminated**, since those rounds had been read before the properties were written, so it is weaker than a clean holdout|
 |it catches what review missed|17 of 17 probe-only corrections map to a property; one property accounts for 6|
 
+## Accepted-class repair sweep
+
+A draft repair may reserve its next review only with an `accepted_class_sweep` in this ledger.
+`ledger` constructs `AcceptedClassSweepV1` from an `accepted_class_sweep` request in the result:
+it binds the candidate `plan_sha256`, the preceding reviewer `result_sha256`, the exact sorted
+`accepted_classes` set, and the digest of every enumerated Steps row, acceptance row, declared
+mechanism, and level-two document section.
+
+For `v1_unstable_step_reference`, the script reruns the closed identifier and guard-citation checks
+against the candidate bytes. Every other accepted class requires an explicit `clear` verdict for
+every enumerated unit. A missing or `fail` verdict blocks; duplicate, unknown, stale, extra, or
+wildcard units are refused. Ordinary waivers never clear this sweep.
+
+`dispatch-review.mjs --class-sweep-ledger=<ledger.json> --body=<candidate.md> --commit` verifies the
+sweep against the exact candidate body and the persisted repairing phase before it creates the
+bundle directory, seals a bundle, or calls `reserve_review`. An absent, stale, incomplete, or
+non-clear sweep exits nonzero with the phase and plan bytes unchanged.
+
 ## Running it
 
 `plan-review.mjs` — `units` · `check` · `sections` · `prompt` (`--hunt`) · `validate` · `ledger` ·

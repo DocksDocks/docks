@@ -46,7 +46,6 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkPlanMeasurements } from './plan-measurements.mjs';
 import {
   canonicalPlanView,
   canonicalVerificationResults,
@@ -57,6 +56,7 @@ import {
   transactPlanRun,
   validatePlanRun,
 } from '../plan-run.mjs';
+import { checkPlanMeasurements } from './plan-measurements.mjs';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const RUBRIC = JSON.parse(fs.readFileSync(path.join(HERE, 'plan-properties.json'), 'utf8'));
@@ -71,7 +71,14 @@ const STATUS_MODES = Object.freeze({
   finished: 'counting-only',
   blocked: 'counting-only',
 });
-
+const STEP_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const GRANDFATHERED_STEP_ID_PLAN_PATHS = new Set([
+  'docs/plans/active/lifecycle-dispatch-integrity.md',
+  'docs/plans/active/plan-lifecycle-plugin-extraction.md',
+  'docs/plans/active/relay-fanout-reaper-reporting.md',
+  'docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md',
+  'docs/plans/active/step-ids-and-class-budget.md',
+]);
 
 export function statusMode(status) {
   if (!Object.hasOwn(STATUS_MODES, status)) throw new Error(`unknown plan status: ${String(status)}`);
@@ -325,9 +332,7 @@ function installProofRecords(planText, records, narrative = []) {
   if (start < 0) throw new Error('plan is missing its Verification Results section');
   const following = lines.findIndex((line, index) => index > start && /^##\s+/.test(line));
   const end = following < 0 ? lines.length : following;
-  const retained = lines
-    .slice(start + 1, end)
-    .filter((line) => !line.startsWith('Falsifiability-proof: '));
+  const retained = lines.slice(start + 1, end).filter((line) => !line.startsWith('Falsifiability-proof: '));
   while (retained.length > 0 && retained.at(-1) === '') retained.pop();
   while (retained.length > 0 && retained[0] === '') retained.shift();
   // Leading blanks are stripped BEFORE this check because every plan template puts a blank line
@@ -483,7 +488,7 @@ export function sectionDigests(planText, { strict = false } = {}) {
  */
 export function enumerateUnits(planText) {
   const lines = planText.split('\n');
-  const units = { acceptance_rows: [], steps_rows: [], named_mechanisms: [] };
+  const units = { acceptance_rows: [], steps_rows: [], named_mechanisms: [], document_sections: [] };
   const mechStarts = [];
   let section = null;
   for (const ev of scan(planText)) {
@@ -503,12 +508,9 @@ export function enumerateUnits(planText) {
       }
       continue;
     }
-    const cells = ev.raw
-      .split('|')
-      .slice(1, -1)
-      .map((c) => c.trim());
+    const cells = markdownCells(ev.raw);
     if (!cells.length || /^-{2,}$|^:?-+:?$/.test(cells[0])) continue;
-    const first = cells[0].replace(/`/g, '');
+    const first = cleanCell(cells[0]);
     if (section === 'acceptance-criteria' && /^[A-Z]\d{1,3}[a-z]?$/.test(first)) {
       units.acceptance_rows.push({
         id: first,
@@ -517,9 +519,32 @@ export function enumerateUnits(planText) {
         section,
         text: ev.raw,
       });
-    } else if (section === 'steps' && /^\d{1,3}$/.test(first)) {
-      units.steps_rows.push({ id: first, line: ev.line, label: cells[1]?.slice(0, 60) ?? '', section, text: ev.raw });
     }
+  }
+  for (const row of stepRows(planText)) {
+    units.steps_rows.push({
+      id: row.stableId ?? row.displayId,
+      display_id: row.displayId,
+      line: row.line,
+      label: row.cells[row.columns.task]?.slice(0, 60) ?? '',
+      section: 'steps',
+      text: row.raw,
+    });
+  }
+  const levelTwo = [...scan(planText)].filter((event) => event.kind === 'heading' && event.level === 2);
+  const sectionIds = new Map();
+  for (let index = 0; index < levelTwo.length; index++) {
+    const heading = levelTwo[index];
+    const baseId = slug(heading.text);
+    const occurrence = (sectionIds.get(baseId) ?? 0) + 1;
+    sectionIds.set(baseId, occurrence);
+    units.document_sections.push({
+      id: occurrence === 1 ? baseId : `${baseId}-${occurrence}`,
+      line: heading.line,
+      label: heading.text,
+      section: baseId,
+      text: lines.slice(heading.line - 1, (levelTwo[index + 1]?.line ?? lines.length + 1) - 1).join('\n'),
+    });
   }
   for (const m of mechStarts) if (!m.closed) m.unit.text = lines.slice(m.unit.line - 1).join('\n');
   for (const list of Object.values(units)) for (const u of list) u.sha256 = digest(u.text ?? '');
@@ -558,8 +583,10 @@ export function scriptChecks(planText) {
       .filter(Boolean),
   );
   const used = new Set();
-  for (const row of stepRows(planText))
-    for (const m of (row.cells[2] ?? '').matchAll(/`([^`]+)`/g)) used.add(m[1].trim());
+  for (const row of stepRows(planText)) {
+    const files = row.cells[row.columns.files] ?? '';
+    for (const m of files.matchAll(/`([^`]+)`/g)) used.add(m[1].trim());
+  }
   const undeclared = [...used].filter((p) => !declared.has(p));
   const untouched = [...declared].filter((p) => !used.has(p));
   out.P13 =
@@ -571,38 +598,73 @@ export function scriptChecks(planText) {
       : { verdict: 'pass', reason: `${declared.size} declared path(s) match the steps exactly` };
 
   const rows = stepRows(planText);
-  const ids = rows.map((r) => r.cells[0].replace(/`/g, ''));
+  const ids = rows.map((row) => row.displayId);
   const bad = [];
-  for (const r of rows) {
-    const self = Number(r.cells[0].replace(/`/g, ''));
-    for (const d of (r.cells[3] ?? '')
+  for (const row of rows) {
+    const self = Number(row.displayId);
+    for (const dependency of (row.cells[row.columns.depends] ?? '')
       .split(/[,\s]+/)
-      .map((x) => x.replace(/[^0-9]/g, ''))
+      .map((value) => value.replace(/[^0-9]/g, ''))
       .filter(Boolean)) {
-      if (!ids.includes(d)) bad.push(`step ${self} depends on ${d}, which does not exist`);
-      else if (Number(d) >= self) bad.push(`step ${self} depends on ${d}, which is not earlier`);
+      if (!ids.includes(dependency)) bad.push(`step ${self} depends on ${dependency}, which does not exist`);
+      else if (Number(dependency) >= self) bad.push(`step ${self} depends on ${dependency}, which is not earlier`);
     }
   }
   out.P16 = bad.length
     ? { verdict: 'fail', reason: bad.slice(0, 4).join('; ') }
     : { verdict: 'pass', reason: `${rows.length} step(s) in a valid order` };
+  const identifierDiagnostics = stepIdentifierDiagnostics(planText);
+  out.P20 = identifierDiagnostics.errors.length
+    ? { verdict: 'fail', reason: identifierDiagnostics.errors.join('; '), advisory: false }
+    : {
+        verdict: 'pass',
+        reason: identifierDiagnostics.advisories.length
+          ? `advisory: ${identifierDiagnostics.advisories.join('; ')}`
+          : `${rows.length} step identifier(s) are valid`,
+        advisory: identifierDiagnostics.advisories.length > 0,
+      };
   return out;
 }
 
 function stepRows(planText) {
   const rows = [];
   let section = null;
+  let headers = null;
   for (const ev of scan(planText)) {
     if (ev.kind === 'heading') {
-      if (ev.level === 2) section = slug(ev.text);
+      if (ev.level === 2) {
+        section = slug(ev.text);
+        headers = null;
+      }
       continue;
     }
     if (section !== 'steps') continue;
-    const cells = ev.raw
-      .split('|')
-      .slice(1, -1)
-      .map((c) => c.trim());
-    if (cells.length && /^\d{1,3}$/.test(cells[0].replace(/`/g, ''))) rows.push({ cells });
+    const cells = markdownCells(ev.raw);
+    if (cleanCell(cells[0] ?? '').toLowerCase() === '#') {
+      headers = cells.map((cell) => cleanCell(cell).toLowerCase());
+      continue;
+    }
+    if (headers === null || cells.every((cell) => /^:?-+:?$/.test(cell))) continue;
+    const columns = {
+      number: headers.indexOf('#'),
+      id: headers.indexOf('id'),
+      task: headers.indexOf('task'),
+      files: headers.indexOf('files'),
+      depends: headers.indexOf('depends'),
+      guard: headers.indexOf('done when / failure action'),
+    };
+    const displayId = cleanCell(cells[columns.number] ?? '');
+    if (!/^\d{1,3}$/.test(displayId)) continue;
+    const candidateId = columns.id < 0 ? '' : cleanCell(cells[columns.id] ?? '');
+    rows.push({
+      cells,
+      columns,
+      displayId,
+      stableId: STEP_ID_PATTERN.test(candidateId) ? candidateId : null,
+      candidateId,
+      line: ev.line,
+      raw: ev.raw,
+    });
   }
   return rows;
 }
@@ -638,12 +700,8 @@ function structuralScope(planText) {
     const closing = lines.indexOf('---', 1);
     if (closing >= 0) start = closing + 1;
   }
-  const end = lines.findIndex(
-    (line, index) => index >= start && /^## (?:Review|Verification Results)\s*$/.test(line),
-  );
-  return lines
-    .slice(start, end < 0 ? lines.length : end)
-    .filter((line) => !/^\|\s*R\d+\s*\|/.test(line));
+  const end = lines.findIndex((line, index) => index >= start && /^## (?:Review|Verification Results)\s*$/.test(line));
+  return lines.slice(start, end < 0 ? lines.length : end).filter((line) => !/^\|\s*R\d+\s*\|/.test(line));
 }
 
 const producerOutputCommandPattern =
@@ -724,9 +782,7 @@ function tablesInSection(lines, firstHeader) {
 function runnableAcceptanceCommand(cell) {
   const match = /^\s*`([^`\n]+)`\s*$/.exec(cell);
   if (match === null) return false;
-  return /^(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+)\s+)*(?:[A-Za-z0-9_./~-]+)(?:\s+.*)?$/.test(
-    match[1].trim(),
-  );
+  return /^(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+)\s+)*(?:[A-Za-z0-9_./~-]+)(?:\s+.*)?$/.test(match[1].trim());
 }
 
 function acceptanceSubcommands(cell) {
@@ -737,9 +793,7 @@ function acceptanceSubcommands(cell) {
     let scriptIndex = -1;
     if (/^(?:node|bun|deno|python\d*|bash|sh)$/.test(tokens[0])) {
       if (tokens.slice(1).some((token) => /^(?:-e|--eval|-p|--print)$/.test(token))) continue;
-      scriptIndex = tokens.findIndex(
-        (token, index) => index > 0 && /\.(?:mjs|cjs|js|ts|py|sh)$/.test(token),
-      );
+      scriptIndex = tokens.findIndex((token, index) => index > 0 && /\.(?:mjs|cjs|js|ts|py|sh)$/.test(token));
     } else if (/\.(?:mjs|cjs|js|ts|py|sh)$/.test(tokens[0])) {
       scriptIndex = 0;
     }
@@ -811,12 +865,18 @@ function structuralContext(planText) {
     .map((line, index) => ({ cells: /^\s*\|/.test(line) ? markdownCells(line) : [], line, index }))
     .filter((row) => /^[A-Z]\d{1,3}[a-z]?$/.test(cleanCell(row.cells[0] ?? '')));
   const acceptanceTable = acceptanceHeader === null ? null : { ...acceptanceHeader, rows: acceptanceRows };
-  const steps = stepsTables.flatMap(
-    (table) =>
-      table.rows
-        .filter((row) => /^\d{1,3}$/.test(cleanCell(row.cells[0] ?? '')))
-        .map((row) => ({ ...row, id: cleanCell(row.cells[0]), cells: row.cells })),
-  );
+  const steps = stepsTables.flatMap((table) => {
+    const numberColumn = table.headers.indexOf('#');
+    const idColumn = table.headers.indexOf('id');
+    return table.rows
+      .filter((row) => /^\d{1,3}$/.test(cleanCell(row.cells[numberColumn] ?? '')))
+      .map((row) => ({
+        ...row,
+        id: cleanCell(row.cells[numberColumn]),
+        stableId: idColumn < 0 ? null : cleanCell(row.cells[idColumn]),
+        cells: row.cells,
+      }));
+  });
   const acceptance = acceptanceRows.map((row) => ({
     ...row,
     id: cleanCell(row.cells[0]),
@@ -864,6 +924,171 @@ function structuralContext(planText) {
     tableLines: classified.filter((line) => line.kind === 'table').map((line) => line.raw),
     text,
   };
+}
+function normalizedPlanPath(record) {
+  if (typeof record?.plan_path !== 'string' || record.plan_path.length === 0) return null;
+  return path.posix.normalize(record.plan_path.replaceAll('\\', '/'));
+}
+
+function stepIdentifierDiagnosticsFromContext(context) {
+  const errors = [];
+  const advisories = [];
+  const planPath = normalizedPlanPath(context.record);
+  const grandfathered =
+    planPath !== null &&
+    (GRANDFATHERED_STEP_ID_PLAN_PATHS.has(planPath) || planPath.startsWith('docs/plans/finished/'));
+  const ids = new Set();
+
+  for (const table of context.stepsTables) {
+    const numberColumn = table.headers.indexOf('#');
+    const idColumn = table.headers.indexOf('id');
+    const guardColumn = table.headers.indexOf('done when / failure action');
+    const rows = table.rows.filter((row) => /^\d{1,3}$/.test(cleanCell(row.cells[numberColumn] ?? '')));
+    if (idColumn < 0) {
+      const detail = `Steps table has no Id column${planPath === null ? '' : ` for ${planPath}`}`;
+      if (grandfathered) advisories.push(`${detail}; grandfathered plan keeps numeric display identifiers`);
+      else errors.push(`${detail}; new plans require Id immediately after #`);
+      continue;
+    }
+    if (idColumn !== numberColumn + 1) errors.push('Steps Id column must appear immediately after #');
+    for (const row of rows) {
+      const displayId = cleanCell(row.cells[numberColumn] ?? '');
+      const id = cleanCell(row.cells[idColumn] ?? '');
+      if (!STEP_ID_PATTERN.test(id)) {
+        errors.push(`Steps row ${displayId} has invalid Id ${JSON.stringify(id)}; expected [a-z][a-z0-9_]{0,63}`);
+        continue;
+      }
+      if (ids.has(id)) errors.push(`duplicate step Id ${id}`);
+      else ids.add(id);
+    }
+
+    if (guardColumn < 0) continue;
+    for (const row of rows) {
+      const displayId = cleanCell(row.cells[numberColumn] ?? '');
+      const guard = row.cells[guardColumn] ?? '';
+      for (const match of guard.matchAll(/\bstep\s+(\d{1,3})\b/gi)) {
+        errors.push(`Steps row ${displayId} has numeric guard citation ${match[0]}; use step:<id>`);
+      }
+      for (const match of guard.matchAll(/\bstep:([A-Za-z0-9_-]+)\b/g)) {
+        if (!STEP_ID_PATTERN.test(match[1])) {
+          errors.push(`Steps row ${displayId} has invalid guard step identifier ${match[1]}`);
+        } else if (!ids.has(match[1])) {
+          errors.push(`Steps row ${displayId} names unknown guard step Id ${match[1]}`);
+        }
+      }
+    }
+  }
+  return { errors, advisories };
+}
+
+export function stepIdentifierDiagnostics(planText) {
+  return stepIdentifierDiagnosticsFromContext(structuralContext(planText));
+}
+const SCRIPT_DECIDABLE_FINDING_CLASSES = new Set(['v1_unstable_step_reference']);
+
+function acceptedClassSweepUnitDigests(planText) {
+  const units = enumerateUnits(planText);
+  return Object.fromEntries(
+    ['steps_rows', 'acceptance_rows', 'named_mechanisms', 'document_sections']
+      .flatMap((set) => units[set].map((unit) => [`${set}:${unit.id}`, fullDigest(unit.text ?? '')]))
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+export function createAcceptedClassSweep(
+  { accepted_classes: acceptedClasses, review_result_sha256: reviewResultSha256, verdicts = [] },
+  planText,
+) {
+  if (!Array.isArray(acceptedClasses) || !acceptedClasses.every((value) => typeof value === 'string')) {
+    throw new Error('accepted-class sweep accepted_classes must be an array of strings');
+  }
+  const canonicalClasses = [...new Set(acceptedClasses)].sort();
+  if (JSON.stringify(canonicalClasses) !== JSON.stringify(acceptedClasses)) {
+    throw new Error('accepted-class sweep accepted_classes must be sorted and unique');
+  }
+  if (!/^[0-9a-f]{64}$/.test(reviewResultSha256 ?? '')) {
+    throw new Error('accepted-class sweep review_result_sha256 must be a sha256');
+  }
+  if (!Array.isArray(verdicts)) throw new Error('accepted-class sweep verdicts must be an array');
+  return {
+    schema: 'AcceptedClassSweepV1',
+    plan_sha256: sha256(canonicalPlanView(Buffer.from(planText))),
+    review_result_sha256: reviewResultSha256,
+    accepted_classes: canonicalClasses,
+    units: acceptedClassSweepUnitDigests(planText),
+    verdicts: verdicts.map((verdict) => ({ ...verdict })),
+  };
+}
+
+export function validateAcceptedClassSweep(
+  ledger,
+  planText,
+  { acceptedClasses, reviewResultSha256, planSha256 = sha256(canonicalPlanView(Buffer.from(planText))) },
+) {
+  const problems = [];
+  const sweep = ledger?.accepted_class_sweep;
+  if (sweep === null || typeof sweep !== 'object' || Array.isArray(sweep)) {
+    return ['accepted-class sweep ledger is absent'];
+  }
+  if (sweep.schema !== 'AcceptedClassSweepV1')
+    problems.push('accepted-class sweep schema must be AcceptedClassSweepV1');
+  if (sweep.plan_sha256 !== planSha256) problems.push('accepted-class sweep plan_sha256 is stale');
+  if (sweep.review_result_sha256 !== reviewResultSha256) {
+    problems.push('accepted-class sweep review_result_sha256 does not match the preceding reviewer result');
+  }
+  const expectedClasses = [...acceptedClasses];
+  if (JSON.stringify(sweep.accepted_classes) !== JSON.stringify(expectedClasses)) {
+    problems.push('accepted-class sweep accepted_classes does not exactly match the persisted accepted class set');
+  }
+
+  const expectedUnits = acceptedClassSweepUnitDigests(planText);
+  const actualUnits =
+    sweep.units !== null && typeof sweep.units === 'object' && !Array.isArray(sweep.units) ? sweep.units : {};
+  for (const [unit, unitSha256] of Object.entries(expectedUnits)) {
+    if (!Object.hasOwn(actualUnits, unit)) problems.push(`accepted-class sweep omits enumerated unit ${unit}`);
+    else if (actualUnits[unit] !== unitSha256) problems.push(`accepted-class sweep unit ${unit} is stale`);
+  }
+  for (const unit of Object.keys(actualUnits)) {
+    if (!Object.hasOwn(expectedUnits, unit)) problems.push(`accepted-class sweep names unknown unit ${unit}`);
+  }
+
+  const seen = new Set();
+  if (!Array.isArray(sweep.verdicts)) {
+    problems.push('accepted-class sweep verdicts must be an array');
+  } else {
+    for (const verdict of sweep.verdicts) {
+      const className = verdict?.class;
+      const unit = verdict?.unit;
+      const key = `${className}|${unit}`;
+      if (!expectedClasses.includes(className))
+        problems.push(`accepted-class sweep verdict names unaccepted class ${className}`);
+      if (typeof unit !== 'string' || unit.includes('*') || !Object.hasOwn(expectedUnits, unit)) {
+        problems.push(`accepted-class sweep verdict names unknown or wildcard unit ${String(unit)}`);
+      }
+      if (!['clear', 'fail'].includes(verdict?.verdict)) {
+        problems.push(`accepted-class sweep ${key} has invalid verdict ${String(verdict?.verdict)}`);
+      }
+      if (seen.has(key)) problems.push(`accepted-class sweep duplicates verdict ${key}`);
+      seen.add(key);
+    }
+  }
+
+  for (const className of expectedClasses) {
+    if (SCRIPT_DECIDABLE_FINDING_CLASSES.has(className)) {
+      for (const error of stepIdentifierDiagnostics(planText).errors) {
+        problems.push(`accepted-class sweep ${className} script check failed: ${error}`);
+      }
+      continue;
+    }
+    for (const unit of Object.keys(expectedUnits)) {
+      const verdict = sweep.verdicts?.find((candidate) => candidate.class === className && candidate.unit === unit);
+      if (verdict === undefined) problems.push(`accepted-class sweep lacks clear verdict for ${className} on ${unit}`);
+      else if (verdict.verdict !== 'clear') {
+        problems.push(`accepted-class sweep ${className} is not clear on ${unit}`);
+      }
+    }
+  }
+  return problems;
 }
 
 const structuralRule = (id, check) => Object.freeze({ id, check });
@@ -942,9 +1167,7 @@ export const STRUCTURAL_RULES = Object.freeze([
   }),
   structuralRule('R8', (context, fire) => {
     if (context.producerSections.length === 0) return;
-    const derived = new Set(
-      [...context.text.matchAll(/(?:^|[\s;])([A-Z_][A-Z0-9_]*)=/gm)].map((match) => match[1]),
-    );
+    const derived = new Set([...context.text.matchAll(/(?:^|[\s;])([A-Z_][A-Z0-9_]*)=/gm)].map((match) => match[1]));
     const cited = new Set(
       context.producerSections.flatMap((section) =>
         [...section.lines.join('\n').matchAll(/\$(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))/g)].map(
@@ -979,6 +1202,7 @@ export const STRUCTURAL_RULES = Object.freeze([
     for (const id of new Set([...prose.matchAll(/\bstep (\d{1,3})\b/gi)].map((match) => match[1]))) {
       if (!stepIds.has(id)) fire(`prose names step ${id}, which is not a Steps row`);
     }
+    for (const detail of stepIdentifierDiagnosticsFromContext(context).errors) fire(detail);
   }),
   structuralRule('R11', (context, fire) => {
     if (context.bindsTables.length === 0) return;
@@ -1052,7 +1276,10 @@ export const STRUCTURAL_RULES = Object.freeze([
     for (let index = 1; index < context.acceptance.length; index++) {
       const current = Number(context.acceptance[index].id.match(/\d+/)?.[0]);
       const prior = Number(context.acceptance[index - 1].id.match(/\d+/)?.[0]);
-      if (!(current > prior)) fire(`acceptance id ${context.acceptance[index].id} does not increase after ${context.acceptance[index - 1].id}`);
+      if (!(current > prior))
+        fire(
+          `acceptance id ${context.acceptance[index].id} does not increase after ${context.acceptance[index - 1].id}`,
+        );
     }
   }),
   structuralRule('R18', (context, fire) => {
@@ -1232,6 +1459,11 @@ export function mergeLedger(ledger, result, planText, { reviewer = null } = {}) 
     hunt: [...(ledger.hunt ?? [])],
     approvals: [...(result.approvals ?? ledger.approvals ?? [])],
   };
+  if (result.accepted_class_sweep !== undefined) {
+    next.accepted_class_sweep = createAcceptedClassSweep(result.accepted_class_sweep, planText);
+  } else if (ledger.accepted_class_sweep !== undefined) {
+    next.accepted_class_sweep = ledger.accepted_class_sweep;
+  }
   for (const v of result.verdicts ?? []) {
     const p = RUBRIC.properties.find((x) => x.id === (v.property ?? v.id));
     if (!p) continue;
@@ -1388,9 +1620,7 @@ const COMMANDS = {
           process.stdout.write(`MEASUREMENT snapshot reported ${result.heading}; producer=${result.producer}\n`);
         } else {
           if (result.verdict !== 'pass') bad++;
-          process.stdout.write(
-            `MEASUREMENT committed ${result.verdict.padEnd(8)} ${result.claim}: ${result.reason}\n`,
-          );
+          process.stdout.write(`MEASUREMENT committed ${result.verdict.padEnd(8)} ${result.claim}: ${result.reason}\n`);
         }
       }
     } catch (error) {
@@ -1444,6 +1674,9 @@ const COMMANDS = {
     const findings = structuralPlanRules(planText);
     process.stdout.write(`RULES ${mode} ${STRUCTURAL_RULES.length} checked, ${findings.length} finding(s)\n`);
     for (const finding of findings) process.stdout.write(`${finding.rule} fail ${finding.detail}\n`);
+    for (const advisory of stepIdentifierDiagnostics(planText).advisories) {
+      process.stdout.write(`R10 advisory ${advisory}\n`);
+    }
     return mode === 'enforcing' && findings.length > 0 ? 1 : 0;
   },
   report({ rest, read }) {
@@ -1588,9 +1821,7 @@ function main() {
   };
   const command = COMMANDS[op];
   if (!command) {
-    process.stderr.write(
-      `usage: plan-self-check.mjs ${Object.keys(COMMANDS).join('|')} <args>\n`,
-    );
+    process.stderr.write(`usage: plan-self-check.mjs ${Object.keys(COMMANDS).join('|')} <args>\n`);
     return 2;
   }
   try {

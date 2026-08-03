@@ -9,9 +9,26 @@ function fixture({
   rows = ['A1', 'A2', 'A3'],
   declared = ['src/a.mjs'],
   depends = '-',
+  includeIds = true,
+  planPath = null,
+  steps = null,
 } = {}) {
   const mech = mechanisms.map((m) => `### ${m} {mechanism}\n\nProse for ${m}.\n`).join('\n');
   const acc = rows.map((id, i) => `| ${id} | claim ${i} | \`cmd ${id}\` |`).join('\n');
+  const stepFixtures = steps ?? [
+    { number: 1, id: 'first_step', task: 'first', files: '`src/a.mjs`', depends, guard: 'clear' },
+  ];
+  const stepHeader = includeIds
+    ? '| # | Id | Task | Files | Depends | Done when / failure action |\n|---|---|---|---|---|---|'
+    : '| # | Task | Files | Depends | Done when / failure action |\n|---|---|---|---|---|';
+  const stepTable = stepFixtures
+    .map((step) =>
+      includeIds
+        ? `| ${step.number} | ${step.id} | ${step.task} | ${step.files} | ${step.depends} | ${step.guard} |`
+        : `| ${step.number} | ${step.task} | ${step.files} | ${step.depends} | ${step.guard} |`,
+    )
+    .join('\n');
+  const record = planPath === null ? '' : `\nPlan-run: ${JSON.stringify({ plan_path: planPath })}\n`;
   return `---
 title: fixture
 affected_paths:
@@ -21,15 +38,15 @@ ${declared.map((p) => `  - ${p}`).join('\n')}
 ## Goal
 
 Ship it.
+${record}
 
 ## Context & rationale
 
 ${mech}
 ## Steps
 
-| # | Task | Files | Depends |
-|---|---|---|---|
-| 1 | first | \`src/a.mjs\` | ${depends} |
+${stepHeader}
+${stepTable}
 
 ## Acceptance criteria
 
@@ -97,10 +114,110 @@ export function registerPlanSelfCheck(suite, mod) {
     assert.match(extra.P13.reason, /untouched/);
   });
 
-  suite.test(G, 'a step may not depend on a later or absent step', () => {
-    assert.equal(mod.scriptChecks(fixture()).P16.verdict, 'pass');
-    assert.equal(mod.scriptChecks(fixture({ depends: '2' })).P16.verdict, 'fail', 'forward dependency');
-    assert.equal(mod.scriptChecks(fixture({ depends: '9' })).P16.verdict, 'fail', 'absent dependency');
+  suite.test(G, 'numeric Depends keeps its earlier-display-number semantics with an Id column', () => {
+    const steps = (dependency) => [
+      { number: 1, id: 'prepare', task: 'prepare', files: '`src/a.mjs`', depends: '-', guard: 'clear' },
+      { number: 2, id: 'apply', task: 'apply', files: '`src/a.mjs`', depends: dependency, guard: 'clear' },
+      { number: 3, id: 'verify', task: 'verify', files: '`src/a.mjs`', depends: '2', guard: 'clear' },
+    ];
+    assert.equal(mod.scriptChecks(fixture({ steps: steps('1') })).P16.verdict, 'pass', 'earlier display number');
+    for (const [dependency, diagnostic] of [
+      ['9', /does not exist/],
+      ['2', /not earlier/],
+      ['3', /not earlier/],
+    ]) {
+      const result = mod.scriptChecks(fixture({ steps: steps(dependency) })).P16;
+      assert.equal(result.verdict, 'fail', `dependency ${dependency}`);
+      assert.match(result.reason, diagnostic);
+    }
+  });
+
+  suite.test(G, 'new plans require stable step identifiers', () => {
+    const result = mod.stepIdentifierDiagnostics(fixture({ includeIds: false }));
+    assert.equal(result.advisories.length, 0);
+    assert.ok(result.errors.some((detail) => /new plans require Id immediately after #/.test(detail)));
+    assert.equal(mod.scriptChecks(fixture({ includeIds: false })).P20.verdict, 'fail');
+  });
+
+  suite.test(G, 'the frozen grandfather set receives only a missing-Id advisory', () => {
+    const grandfathered = [
+      'docs/plans/active/lifecycle-dispatch-integrity.md',
+      'docs/plans/active/plan-lifecycle-plugin-extraction.md',
+      'docs/plans/active/relay-fanout-reaper-reporting.md',
+      'docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md',
+      'docs/plans/active/step-ids-and-class-budget.md',
+    ];
+    for (const planPath of grandfathered) {
+      const plan = fixture({ includeIds: false, planPath });
+      const result = mod.stepIdentifierDiagnostics(plan);
+      assert.deepEqual(result.errors, [], planPath);
+      assert.equal(result.advisories.length, 1, planPath);
+      assert.equal(mod.scriptChecks(plan).P20.verdict, 'pass', planPath);
+      assert.equal(mod.scriptChecks(plan).P20.advisory, true, planPath);
+    }
+  });
+
+  suite.test(G, 'known guard step identifiers pass and enumerate by stable Id', () => {
+    const plan = fixture({
+      steps: [
+        { number: 1, id: 'prepare', task: 'prepare', files: '`src/a.mjs`', depends: '-', guard: 'clear' },
+        {
+          number: 2,
+          id: 'verify',
+          task: 'verify',
+          files: '`src/a.mjs`',
+          depends: '1',
+          guard: 'run after step:prepare',
+        },
+      ],
+    });
+    assert.deepEqual(mod.stepIdentifierDiagnostics(plan), { errors: [], advisories: [] });
+    assert.deepEqual(
+      mod.enumerateUnits(plan).steps_rows.map((row) => row.id),
+      ['prepare', 'verify'],
+    );
+  });
+
+  suite.test(G, 'duplicate and unknown guard step identifiers fail by name', () => {
+    const duplicate = fixture({
+      steps: [
+        { number: 1, id: 'same', task: 'first', files: '`src/a.mjs`', depends: '-', guard: 'clear' },
+        { number: 2, id: 'same', task: 'second', files: '`src/a.mjs`', depends: '1', guard: 'clear' },
+      ],
+    });
+    assert.ok(mod.stepIdentifierDiagnostics(duplicate).errors.some((detail) => /duplicate step Id same/.test(detail)));
+    const unknown = fixture({
+      steps: [
+        {
+          number: 1,
+          id: 'known',
+          task: 'first',
+          files: '`src/a.mjs`',
+          depends: '-',
+          guard: 'after step:missing',
+        },
+      ],
+    });
+    assert.ok(
+      mod.stepIdentifierDiagnostics(unknown).errors.some((detail) => /unknown guard step Id missing/.test(detail)),
+    );
+  });
+
+  suite.test(G, 'numeric guard citations are rejected as renumber-sensitive', () => {
+    const plan = fixture({
+      steps: [
+        {
+          number: 1,
+          id: 'known',
+          task: 'first',
+          files: '`src/a.mjs`',
+          depends: '-',
+          guard: 'failure: return to step 1',
+        },
+      ],
+    });
+    const result = mod.stepIdentifierDiagnostics(plan);
+    assert.ok(result.errors.some((detail) => /numeric guard citation step 1; use step:<id>/.test(detail)));
   });
 
   suite.test(G, 'a return carrying a score is refused', () => {

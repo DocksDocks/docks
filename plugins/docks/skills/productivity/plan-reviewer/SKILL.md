@@ -4,8 +4,8 @@ description: "Use when main-context plan-manager dispatches one fresh internal r
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-26"
-  content_hash: "f7df114d58bd01738393b5a4f897bf11a216c7b2b7261dcd241e32018bf89742"
+  updated: "2026-08-02"
+  content_hash: "f6fe010ad03341d51220e22a539d722c9c328ac98a71a261b1b3faa394143c42"
 ---
 
 # Plan Reviewer
@@ -102,6 +102,19 @@ sealed bytes. A blocking defect is limited to:
 | `unsafe_scope` | an action is destructive/unauthorized or a required safety boundary is missing |
 | `missing_acceptance` | success lacks an executable observable check or failure action |
 
+Every finding has one required `class`, closed to the values compatible with its `kind`:
+
+| Kind | Allowed `class` values |
+|---|---|
+| `missing_decision` | `v1_missing_decision` |
+| `contradiction` | `v1_contract_contradiction`, `v1_evidence_mismatch`, `v1_unstable_step_reference` |
+| `unsafe_scope` | `v1_unauthorized_effect`, `v1_missing_safety_boundary`, `v1_affected_paths_incomplete` |
+| `missing_acceptance` | `v1_acceptance_command_not_runnable`, `v1_acceptance_output_mismatch`, `v1_acceptance_coverage_incomplete`, `v1_failure_action_missing` |
+
+The `v1_` prefix versions this vocabulary. Emit the class directly from this
+table. Never supply a free-form or other-version value, and never ask or permit
+the manager to infer a class from plan prose.
+
 Do not demand stylistic cleanup, optional refactors/docs, speculative performance
 work, exhaustive implementation edge cases, exact internal symbols, or defects
 best established by running implementation. A complete simple plan passes.
@@ -127,6 +140,7 @@ PlanReviewV1 = {
   findings: [{
     id: string,
     kind: "missing_decision" | "contradiction" | "unsafe_scope" | "missing_acceptance",
+    class: "v1_missing_decision" | "v1_contract_contradiction" | "v1_evidence_mismatch" | "v1_unstable_step_reference" | "v1_unauthorized_effect" | "v1_missing_safety_boundary" | "v1_affected_paths_incomplete" | "v1_acceptance_command_not_runnable" | "v1_acceptance_output_mismatch" | "v1_acceptance_coverage_incomplete" | "v1_failure_action_missing",
     locator: string,
     defect: string,
     fix: string
@@ -163,6 +177,7 @@ GOOD: pass a sufficient plan; report only defects that prevent safe execution.
 - Confirm the selected output has no extra keys and is ≤32 KiB.
 - Confirm `PlanReviewV1` `pass` has zero findings and every other verdict has
   findings.
+- Confirm every finding has exactly one closed v1 class compatible with its kind.
 - Confirm repair findings are solvable from sealed facts; user decisions block.
 - Claim no worktree, Git, test, cleanup, repair, lifecycle, or external action.
 - Return exactly once; invalid input, transport, or parse failure does not

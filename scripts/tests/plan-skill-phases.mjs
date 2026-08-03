@@ -9,6 +9,132 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PRODUCTIVITY = path.join(ROOT, 'plugins/docks/skills/productivity');
 const LIVE_PLAN_SKILLS = ['plan-manager', 'plan-reviewer', 'plan-workspace'];
 const REMOVED_PLAN_SKILLS = ['plan-creator', 'plan-repairer', 'plan-init', 'plan-review', 'plan-improver'];
+const PINNED_STEP_CLASS_CONTRACTS = [
+  'docs/plans/AGENTS.md',
+  'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+  'plugins/docks/skills/productivity/plan-workspace/SKILL.md',
+  'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+];
+
+const STEP_CLASS_CONTRACT_CLAUSES = [
+  {
+    name: 'legacy-new-schema',
+    text: 'The legacy Steps schema omits `Id`; the new Steps schema adds it immediately after `#`.',
+  },
+  {
+    name: 'required-class-field',
+    text: 'Every `PlanReviewV1` finding carries a required `class`.',
+  },
+  {
+    name: 'grandfather-path-dispatch-integrity',
+    text: '`docs/plans/active/lifecycle-dispatch-integrity.md`',
+  },
+  {
+    name: 'grandfather-path-lifecycle-extraction',
+    text: '`docs/plans/active/plan-lifecycle-plugin-extraction.md`',
+  },
+  {
+    name: 'grandfather-path-fanout-reaper',
+    text: '`docs/plans/active/relay-fanout-reaper-reporting.md`',
+  },
+  {
+    name: 'grandfather-path-release',
+    text: '`docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md`',
+  },
+  {
+    name: 'grandfather-path-step-ids',
+    text: '`docs/plans/active/step-ids-and-class-budget.md`',
+  },
+  {
+    name: 'new-id',
+    text: '`Id` is immediately after `#` and must match `[a-z][a-z0-9_]{0,63}`.',
+  },
+  {
+    name: 'grandfather-cutover',
+    text: 'A missing `Id` is advisory only for the frozen grandfather set; every new plan requires the `Id` column and one valid, unique id per Steps row.',
+  },
+  {
+    name: 'stable-guard-citation',
+    text: 'Within `Done when / failure action`, step citations are accepted only as `step:<id>` and must resolve to a declared id; valid-looking numeric `step N` citations are rejected. `#` and `Depends` keep their numeric display-number semantics.',
+  },
+  {
+    name: 'missing-decision-class',
+    text: '`missing_decision` permits only `v1_missing_decision`',
+  },
+  {
+    name: 'contradiction-classes',
+    text: '`contradiction` permits only `v1_contract_contradiction`, `v1_evidence_mismatch`, or `v1_unstable_step_reference`',
+  },
+  {
+    name: 'unsafe-scope-classes',
+    text: '`unsafe_scope` permits only `v1_unauthorized_effect`, `v1_missing_safety_boundary`, or `v1_affected_paths_incomplete`',
+  },
+  {
+    name: 'acceptance-classes',
+    text: '`missing_acceptance` permits only `v1_acceptance_command_not_runnable`, `v1_acceptance_output_mismatch`, `v1_acceptance_coverage_incomplete`, or `v1_failure_action_missing`',
+  },
+  {
+    name: 'reviewer-owned-class',
+    text: 'The reviewer emits `class`; the manager validates the kind/class pair and never derives a class from plan prose.',
+  },
+  {
+    name: 'legacy-empty-class-set',
+    text: 'For draft review only, `accepted_classes` is sorted and unique; an absent field on an existing record reads as empty, and the next legal draft transition writes it.',
+  },
+  {
+    name: 'repeated-class',
+    text: 'Any draft result containing an already accepted class, including a mixed seen/unseen result, terminal-blocks the run; only an unseen-only class set may enter `repairing`.',
+  },
+  {
+    name: 'finite-draft-budget',
+    text: 'The draft limit is one initial round plus the closed v1 vocabulary cardinality (12 substantive invocations). Completion review keeps exactly two substantive invocations and an empty accepted-class set.',
+  },
+  {
+    name: 'pre-reservation-sweep',
+    text: 'Before creating a draft repair bundle or reserving its permit, verify the exact accepted-class sweep against the candidate plan bytes; an absent, stale, incomplete, or non-clear sweep fails before bundle creation and leaves the phase unchanged.',
+  },
+  {
+    name: 'sweep-bindings',
+    text: 'The sweep is bound to the candidate `plan_sha256`, preceding reviewer-result digest, every accepted class, and every enumerated Steps row, acceptance row, named mechanism, and level-two document section.',
+  },
+];
+
+function normalizeContract(text) {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function assertStepClassContract(text, relative) {
+  for (const clause of STEP_CLASS_CONTRACT_CLAUSES) {
+    assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
+  }
+}
+
+function assertStepClassContractsAndMutations() {
+  const mutationTargets = new Set([
+    'legacy-new-schema',
+    'new-id',
+    'grandfather-cutover',
+    'stable-guard-citation',
+    'repeated-class',
+    'pre-reservation-sweep',
+    'sweep-bindings',
+  ]);
+  for (const relative of PINNED_STEP_CLASS_CONTRACTS) {
+    const text = normalizeContract(read(relative));
+    assertStepClassContract(text, relative);
+
+    for (const clause of STEP_CLASS_CONTRACT_CLAUSES.filter(({ name }) => mutationTargets.has(name))) {
+      const occurrences = text.split(clause.text).length - 1;
+      assert.equal(occurrences, 1, `${relative} must contain exactly one ${clause.name} mutation target`);
+      const mutated = text.replace(clause.text, '');
+      assert.throws(
+        () => assertStepClassContract(mutated, relative),
+        new RegExp(`missing the ${clause.name} clause`),
+        `${relative} must fail when its ${clause.name} clause is removed`,
+      );
+    }
+  }
+}
 
 function parseArgs(argv) {
   if (argv.length === 0) return { caseName: 'default' };
@@ -103,9 +229,9 @@ function assertBoundedWorkflows() {
     /ExternalAuthorityV1/,
     /legacy-quarantined/,
     /One clear, reversible, low-risk local diff[\s\S]*`0 \/ 0 \/ 0`/,
-    /Plan-only request[\s\S]*1–2 draft reviewers \/ 1 commit/,
-    /Ordinary canonical implementation[\s\S]*1–2 draft reviewers \/ 2 commits/,
-    /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤2 draft \+ ≤2 completion reviewers \/ 3 commits/,
+    /Plan-only request[\s\S]*≤12 draft reviewers \/ 1 commit/,
+    /Ordinary canonical implementation[\s\S]*≤12 draft reviewers \/ 2 commits/,
+    /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤12 draft \+ ≤2 completion reviewers \/ 3 commits/,
     /Before launching, transactionally\s+increment[\s\S]*persist\s+`reserved`/,
     /only\s+the\s+first\s+transport\s+failure\s+refunds/,
     /persists\s+`transport_retried`/,
@@ -117,7 +243,7 @@ function assertBoundedWorkflows() {
   ]) {
     assert.match(manager, contract);
   }
-  assert.doesNotMatch(manager, /say [`“"]?start|turn-terminal|fallback model|third draft invocation/i);
+  assert.doesNotMatch(manager, /say [`“"]?start|turn-terminal|fallback model/i);
 
   for (const contract of [
     /read-only bundle boundary/i,
@@ -127,6 +253,18 @@ function assertBoundedWorkflows() {
     /contradiction/,
     /unsafe_scope/,
     /missing_acceptance/,
+    /v1_missing_decision/,
+    /v1_contract_contradiction/,
+    /v1_evidence_mismatch/,
+    /v1_unstable_step_reference/,
+    /v1_unauthorized_effect/,
+    /v1_missing_safety_boundary/,
+    /v1_affected_paths_incomplete/,
+    /v1_acceptance_command_not_runnable/,
+    /v1_acceptance_output_mismatch/,
+    /v1_acceptance_coverage_incomplete/,
+    /v1_failure_action_missing/,
+    /required `class`/,
     /there is no score, quota/i,
   ]) {
     assert.match(reviewer, contract);
@@ -308,6 +446,7 @@ parseArgs(process.argv.slice(2));
 assertLiveTopology();
 assertReviewerWrappersOnly();
 assertBoundedWorkflows();
+assertStepClassContractsAndMutations();
 assertAcceptanceProofRule();
 assertProposedRepairRule();
 assertLifecycleDispatchIntegrityRule();

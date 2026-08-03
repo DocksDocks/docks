@@ -14,8 +14,8 @@ plan merely to unlock review.
 
 <constraint>
 There are exactly three live owners. `plan-workspace` maintains this workspace.
-Main-context `plan-manager` owns goal classification, drafting, bounded review,
-one accepted repair, lifecycle, implementation/delegation, observed acceptance,
+Main-context `plan-manager` owns goal classification, drafting, class-bounded
+review and repair, lifecycle, implementation/delegation, observed acceptance,
 archive, and guarded GitHub issue publication. Internal `plan-reviewer` reads one
 immutable bundle and returns `PlanReviewV1` evidence only. Only the reviewer has
 Claude/Codex wrappers; main invokes `plan-manager` directly.
@@ -90,11 +90,32 @@ Every canonical plan contains `## Goal`, `## Context & rationale`,
 `## Review`, and manager-written `## Verification Results`. Use a specific
 `N/A — <reason>` only when a section truly does not apply.
 
-The Steps table is exact:
+The legacy Steps schema omits `Id`; the new Steps schema adds it immediately
+after `#`.
+
+The legacy Steps table is exact:
 
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
 | 1 | concrete action | exact paths | — | `local` | `planned` | observable proof or STOP |
+
+The new Steps table is exact:
+
+| # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |
+|---:|---|---|---|---|---|---|---|
+| 1 | concrete_action | concrete action | exact paths | — | `local` | `planned` | observable proof or STOP |
+
+`Id` is immediately after `#` and must match `[a-z][a-z0-9_]{0,63}`. A
+missing `Id` is advisory only for the frozen grandfather set; every new plan
+requires the `Id` column and one valid, unique id per Steps row. The frozen set
+is exactly `docs/plans/active/lifecycle-dispatch-integrity.md`,
+`docs/plans/active/plan-lifecycle-plugin-extraction.md`,
+`docs/plans/active/relay-fanout-reaper-reporting.md`,
+`docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md`, and
+`docs/plans/active/step-ids-and-class-budget.md`. Within `Done when / failure
+action`, step citations are accepted only as `step:<id>` and must resolve to a
+declared id; valid-looking numeric `step N` citations are rejected. `#` and
+`Depends` keep their numeric display-number semantics.
 
 `Effect` is exactly `local | probe | production_access | publish | push |
 release | deploy`. Status is exactly `planned | in-flight | done | blocked |
@@ -112,49 +133,12 @@ path already captured inside a receipt.
 
 ## Current record
 
-```text
-ReviewPhaseV1 = {
-  state: "not_required"|"not_started"|"reserved"|"transport_retried"|"retryable"|"repairing"|"passed"|"degraded"|"blocked"|"cancelled",
-  invocations: 0|1|2,
-  input_sha256: null|64hex,
-  result_sha256: null|64hex
-}
+The closed record shapes — `ReviewPhaseV1`, `PlanRunV1`, `PlanAttemptHistoryV1` and
+`PlanRunReplacementAuthorityV1` — are defined once in the `plan-manager` skill's
+`references/planrunv1-schema.md`. That file is the single source of truth for
+field names, types and enum members; this node states the rules that govern them
+and never restates the shapes, because two spellings of one schema drift.
 
-PlanRunV1 = {
-  schema: 1,
-  goal_id: uuid,
-  run_id: uuid,
-  repository_id: string,
-  plan_path: normalized-relative-path,
-  requested_effects: ["local", ...("probe"|"production_access"|"publish"|"push"|"release"|"deploy")],
-  risk: "local"|"sensitive"|"external",
-  plan_sha256: 64hex,
-  source_base: null|40hex,
-  source_sha256: 64hex,
-  draft_review: ReviewPhaseV1,
-  execution_parent: null|40hex,
-  implementation_commit: null|40hex,
-  completion_review: ReviewPhaseV1,
-  acceptance: null|{source_sha256:64hex,verification_sha256:64hex},
-  blocker: null|{kind:"user_decision"|"missing_authority"|"concurrent_change"|"user_cancelled"|"verification_failed"|"review_failed"|"legacy_invalid",evidence_sha256:64hex}
-}
-
-PlanAttemptHistoryV1 = {
-  schema: 1,
-  authorization_source_sha256: 64hex,
-  plan_bytes_sha256: 64hex,
-  replacement_run_id: uuid,
-  successor_run_sha256: 64hex,
-  run: PlanRunV1,
-  status: "blocked"
-}
-
-PlanRunReplacementAuthorityV1 = {
-  schema: 1, goal_id: uuid, repository_id: string,
-  plan_path: normalized-relative-path, run_id: predecessor-uuid,
-  source_sha256: 64hex, successor_run_sha256: 64hex
-}
-```
 
 Compact JCS is byte-authoritative. `repository_id + plan_path + run_id` is the
 run identity. Cross-repository goals use one child run per repository joined by
@@ -168,10 +152,6 @@ predecessor identity and digest of the exact successor PlanRun. The transaction
 appends the predecessor record and bytes/authorization digests, then installs
 the fresh `run_id` and review baselines in the same file. History is append-only;
 ordinary transitions cannot alter it. A finished plan file never reopens.
-
-`successor_run_sha256` is the exact install-time successor digest checked by the
-replacement transaction and retained as audit evidence; normal later lifecycle
-transitions neither recompute nor rewrite it.
 
 `plan_sha256` covers the canonical plan after excluding only lifecycle status and
 timestamps, the `Plan-run` line, `## Review`, manager-written
@@ -188,35 +168,31 @@ passes it; carrying one forward unchanged, or reading an immutable terminal
 predecessor, does not. A live-worktree proof is discharged at the instant it is
 written and is not re-provable once HEAD moves, so it is never a durable
 invariant.
-`source_base` is null only before draft review starts and is required thereafter.
-`execution_parent` is null before start and is required, immutable, and exclusive
-to `ongoing`, post-start `blocked`, and `finished` tuples.
 
 ## Closed phase table and transitions
 
-| Phase state | Invocations | Input | Result | Extra rule |
-|---|---:|---|---|---|
-| `not_required` | 0 | null | null | completion only, local risk |
-| `not_started` | 0 | null | null | draft, or sensitive/external completion |
-| `reserved` | 1–2 | hash | null | live initial or repair launch |
-| `transport_retried` | 1–2 | hash | null | live launch after one transport failure |
-| `retryable` | 0–1 | hash | failure hash | first transport failure; permit refunded |
-| `repairing` | 1 | hash | reviewer-result hash | accepted repair verdict only |
-| `passed` | 1–2 | hash | reviewer-result hash | validated matching output |
-| `degraded` | 1–2 | hash | failure-set hash | draft only, local risk only |
-| `blocked` | 1–2 | hash | evidence/result hash | terminal for this run |
-| `cancelled` | 1–2 | hash | cancellation hash | terminal for this run |
+| Phase state | Draft invocations | Completion invocations | Input | Result | Extra rule |
+|---|---:|---:|---|---|---|
+| `not_required` | forbidden | 0 | null | null | completion only, local risk |
+| `not_started` | 0 | 0 | null | null | draft, or sensitive/external completion |
+| `reserved` | 1–12 | 1–2 | hash | null | live initial or repair launch |
+| `transport_retried` | 1–12 | 1–2 | hash | null | live launch after one transport failure |
+| `retryable` | 0–11 | 0–1 | hash | failure hash | first transport failure; permit refunded |
+| `repairing` | 1–11 | 1 | hash | reviewer-result hash | accepted repair verdict only |
+| `passed` | 1–12 | 1–2 | hash | reviewer-result hash | validated matching output |
+| `degraded` | 1–12 | forbidden | hash | failure-set hash | draft only, local risk only |
+| `blocked` | 1–12 | 1–2 | hash | evidence/result hash | terminal for this run |
+| `cancelled` | 1–12 | 1–2 | hash | cancellation hash | terminal for this run |
 
 Legal phase transitions are only `not_started → reserved`; `reserved → passed |
 repairing | blocked | cancelled | retryable`; `retryable → transport_retried |
 blocked | cancelled`; `transport_retried → passed | repairing | blocked |
 cancelled | degraded`; and `repairing → reserved | blocked | cancelled`.
 A transport failure from `reserved` refunds exactly one invocation and enters
-`retryable` with invocation 0 or 1. Re-reservation consumes that refunded permit
-and enters `transport_retried`; a second transport failure then preserves its
-invocation and becomes local-draft `degraded` or otherwise `blocked`. A repair
-verdict at invocation 2 blocks rather than opening another round. Terminal
-states never reset.
+`retryable`. Re-reservation consumes that refunded permit and enters
+`transport_retried`; a second transport failure then preserves its invocation
+and becomes local-draft `degraded` or otherwise `blocked`. Terminal states never
+reset.
 
 Before spawning, transactionally increment the invocation count and persist
 `reserved`, or `transport_retried` after a transport failure, with the exact
@@ -234,6 +210,14 @@ prompt only from that bundle and capture directly to the file. Never consume
 console rendering, clipped lines, transcript fragments, or reconstructed JSON;
 do not request compact/single-line reviewer output. Parse the file, validate the
 closed object, then hash canonical JCS.
+
+Before creating a draft repair bundle or reserving its permit, verify the exact
+accepted-class sweep against the candidate plan bytes; an absent, stale,
+incomplete, or non-clear sweep fails before bundle creation and leaves the phase
+unchanged. The sweep is bound to the candidate `plan_sha256`, preceding
+reviewer-result digest, every accepted class, and every enumerated Steps row,
+acceptance row, named mechanism, and level-two document section. Waivers and
+wildcard units never satisfy it.
 
 For draft review, pre-seal rebinding changes exactly the run's `plan_sha256`,
 `source_base`, and `source_sha256`; it leaves both review phases untouched, so
@@ -294,18 +278,22 @@ current record. It rejects unless that file path equals the current run's
    stable canonical path: create it only if absent; for an explicitly continued
    same-domain terminal goal, use the guarded same-file replacement transaction.
 2. Research repository facts and bind plan/source manifests. Preflight reviewer
-   availability and private full-output capture. Seal the invocation-1 bundle,
-   reserve its digest, read back, derive the prompt from that exact bundle, then
-   launch one fresh reviewer and capture its complete stdout to the file.
-3. On `pass`, continue. On a repository-grounded `repair`, patch only the exact
-   accepted blocking set, seal an invocation-2 changed-input bundle, reserve its
-   new digest, read back, and use a fresh prompt/reviewer. On a real missing
-   decision/authority, block with evidence. A first transport failure refunds
-   its reserved permit; seal a fresh bundle with a different digest, persist
-   `transport_retried`, read back, and dispatch once more without changing
-   canonical plan/source or completion bindings. Never reuse a bundle or prompt.
-   A second transport failure may degrade only reversible local draft work;
-   sensitive, destructive, public-contract, security, or external work blocks.
+   availability and private full-output capture. For a repair round, verify the
+   exact accepted-class sweep against the candidate bytes before creating a
+   bundle. Seal the invocation bundle, reserve its digest, read back, derive the
+   prompt from that exact bundle, then launch one fresh reviewer and capture its
+   complete stdout to the file.
+3. On `pass`, continue. On a repository-grounded `repair`, reject the result if
+   any finding has an already accepted class; otherwise atomically union its
+   unseen classes, patch only the exact accepted blocking set, complete the
+   accepted-class sweep, and dispatch a changed-input repair round. On a real
+   missing decision/authority, block with evidence. A first transport failure
+   refunds its reserved permit; seal a fresh bundle with a different digest,
+   persist `transport_retried`, read back, and dispatch once more without
+   changing canonical plan/source or completion bindings. Never reuse a bundle
+   or prompt. A second transport failure may degrade only reversible local draft
+   work; sensitive, destructive, public-contract, security, or external work
+   blocks.
 4. A plan-only request writes `planned` or `scheduled` and makes one owned-path
    checkpoint commit/read-back. A canonical implementation writes `ongoing`,
    captures `execution_parent`, and makes one reviewed start checkpoint.
@@ -324,8 +312,9 @@ current record. It rejects unless that file path equals the current run's
    the archive checkpoint.
 
 No numeric score, finding quota, fallback provider/model, resumed reviewer,
-third invocation, completion-plan recursion, automatic push, or per-round
-state/request/receipt commit exists.
+draft invocation beyond one initial round plus the closed class-vocabulary
+cardinality, completion invocation beyond two, completion-plan recursion,
+automatic push, or per-round state/request/receipt commit exists.
 
 ## Transactions and checkpoint commits
 
@@ -354,11 +343,21 @@ blocker commit. No automatic push follows any checkpoint.
 ## Reviewer records
 
 ```text
+ReviewerFindingClassV1 =
+  "v1_missing_decision" |
+  "v1_contract_contradiction" | "v1_evidence_mismatch" |
+    "v1_unstable_step_reference" |
+  "v1_unauthorized_effect" | "v1_missing_safety_boundary" |
+    "v1_affected_paths_incomplete" |
+  "v1_acceptance_command_not_runnable" |
+    "v1_acceptance_output_mismatch" |
+    "v1_acceptance_coverage_incomplete" | "v1_failure_action_missing"
+
 PlanReviewV1 = {
-  schema:1, run_id:uuid, invocation:1|2,
+  schema:1, run_id:uuid, invocation:1..12,
   plan_sha256:64hex, source_sha256:64hex,
   verdict:"pass"|"repair"|"blocked",
-  findings:[{id,kind:"missing_decision"|"contradiction"|"unsafe_scope"|"missing_acceptance",locator,defect,fix}]
+  findings:[{id,kind:"missing_decision"|"contradiction"|"unsafe_scope"|"missing_acceptance",class:ReviewerFindingClassV1,locator,defect,fix}]
 }
 
 CompletionReviewV1 = {
@@ -374,6 +373,28 @@ ReviewInvalidInputV1 = {
   reason:"bundle_unavailable"|"bundle_integrity_failed"|"bundle_binding_mismatch"
 }
 ```
+
+Every `PlanReviewV1` finding carries a required `class`.
+
+The draft finding vocabulary is closed by kind: `missing_decision` permits only
+`v1_missing_decision`; `contradiction` permits only
+`v1_contract_contradiction`, `v1_evidence_mismatch`, or
+`v1_unstable_step_reference`; `unsafe_scope` permits only
+`v1_unauthorized_effect`, `v1_missing_safety_boundary`, or
+`v1_affected_paths_incomplete`; and `missing_acceptance` permits only
+`v1_acceptance_command_not_runnable`, `v1_acceptance_output_mismatch`,
+`v1_acceptance_coverage_incomplete`, or `v1_failure_action_missing`. The
+reviewer emits `class`; the manager validates the kind/class pair and never
+derives a class from plan prose.
+
+For draft review only, `accepted_classes` is sorted and unique; an absent field
+on an existing record reads as empty, and the next legal draft transition writes
+it. An accepted repair atomically unions only unseen validated classes. Any
+draft result containing an already accepted class, including a mixed seen/unseen
+result, terminal-blocks the run; only an unseen-only class set may enter
+`repairing`. The draft limit is one initial round plus the closed v1 vocabulary
+cardinality (12 substantive invocations). Completion review keeps exactly two
+substantive invocations and an empty accepted-class set.
 
 The two verdict records are closed compact JCS objects capped at 32 KiB. `pass`
 has no findings; other verdicts have at least one. Draft `repair` contains only
@@ -460,17 +481,18 @@ historical finished plan.
 Before claiming success, verify the exact path, closed frontmatter, one valid
 current Plan-run line, append-only attempt history, repository/path/run identity,
 status tuple, plan/source hashes, transaction read-back, owned commit path set,
-≤2 substantive review permits per phase, the bounded transport-retry state, and
-observed acceptance bindings. Never claim a wrapper ran
+the draft limit of one initial permit plus the closed class-vocabulary
+cardinality, exactly two completion permits, the bounded transport-retry state,
+and observed acceptance bindings. Never claim a wrapper ran
 merely because its file exists,
 claim review passed from reservation, translate stale output into state, or
 translate persisted intent into external authority.
 
 The `plan-manager` and `plan-reviewer` skill bodies are asserted verbatim by
-`scripts/tests/plan-skill-phases.mjs --case bounded-workflows`, which pins both
-the phase/commit tables and specific normative sentences — including the
-transactional reserve-before-launch invariant and the transport-refund
-semantics. Rewording those paragraphs fails that case by design. Update the
-assertion in the same change, keeping it a positive statement of the new
-contract rather than relaxing it to match whatever prose now exists, and prove
-it still bites by reverting the sentence and observing the named failure.
+`scripts/tests/plan-skill-phases.mjs --case bounded-workflows`, which also pins
+the stable-step and class-budget contract independently in this file,
+`plan-manager`, `plan-workspace`, and the generated workspace template. Its
+mutation probes remove the id, repeated-class, and pre-reservation-sweep clauses
+from every pinned copy and require the named assertion to fail. Update positive
+assertions in the same change as their normative sentences; never relax a
+matcher to accept drift.

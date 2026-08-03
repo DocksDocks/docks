@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync, spawn } from 'node:child_process';
 // Crash-safe draft-review dispatch driver.
 //
 // Seal, reserve, dispatch and settle happen in ONE process, so no window exists
@@ -38,7 +39,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync, spawn } from 'node:child_process';
 
 const SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 const PHASE = 'draft_review';
@@ -48,9 +48,10 @@ const DISPATCH_TIMEOUT_MS = Number(process.env.DOCKS_REVIEW_TIMEOUT_MS ?? 1_800_
 // `transactPlanRun` defaults its per-plan lock to 1 s. A contended repository -
 // or a probe that deliberately holds the lock to order a preimage race - needs a
 // longer budget, so the existing parameter is threaded rather than raced.
-const LOCK = process.env.DOCKS_PLAN_LOCK_TIMEOUT_MS === undefined
-  ? {}
-  : { lockTimeoutMs: Number(process.env.DOCKS_PLAN_LOCK_TIMEOUT_MS) };
+const LOCK =
+  process.env.DOCKS_PLAN_LOCK_TIMEOUT_MS === undefined
+    ? {}
+    : { lockTimeoutMs: Number(process.env.DOCKS_PLAN_LOCK_TIMEOUT_MS) };
 
 const USAGE = `Usage: node dispatch-review.mjs <plan-path> [options]
 
@@ -65,6 +66,9 @@ Options:
   --body=<file>    repaired plan body installed inside the reserve transaction;
                    rejected when the prior phase state is 'retryable', because a
                    transport retry must not move the reviewed bytes
+  --class-sweep-ledger=<file>
+                   self-check ledger required before a repair reservation;
+                   bound to the exact candidate --body bytes and preceding result
   --commit         actually reserve and dispatch (default: dry run)
   --help           print this text
 
@@ -109,6 +113,7 @@ const PLAN = path.relative(REPO, planFile).split(path.sep).join('/');
 const TAG = flag('tag') ?? path.basename(planFile, '.md');
 const OUT_DIR = flag('out-dir') ?? path.join(REPO, '.git', 'docks-review');
 const BODY = flag('body');
+const CLASS_SWEEP_LEDGER = flag('class-sweep-ledger');
 const COMMIT = args.includes('--commit');
 
 // Resolved from this file, never from the plan's repository: when the plugin is
@@ -120,6 +125,8 @@ const COMMIT = args.includes('--commit');
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const lib = await import(path.join(HERE, '../plan-run.mjs'));
 const policy = await import(path.join(HERE, '../../../plan-reviewer/scripts/review-policy.mjs'));
+const selfCheck = await import(path.join(HERE, 'plan-self-check.mjs'));
+const DRAFT_REVIEW_INVOCATION_LIMIT = 1 + Object.values(policy.PLAN_FINDING_CLASSES).flat().length;
 
 const readRecord = (text) => {
   const line = text.split('\n').find((l) => l.startsWith('Plan-run:'));
@@ -143,7 +150,9 @@ const phase = current.run[PHASE];
 if (!['not_started', 'retryable', 'repairing'].includes(phase.state)) {
   throw new Error(`draft_review is ${phase.state}: terminal, already live, or out of permits`);
 }
-if (phase.invocations >= 2) throw new Error('draft-review permit ceiling of two is spent');
+if (phase.invocations >= DRAFT_REVIEW_INVOCATION_LIMIT) {
+  throw new Error(`draft-review permit ceiling of ${DRAFT_REVIEW_INVOCATION_LIMIT} is spent`);
+}
 if (BODY !== null && phase.state === 'retryable') {
   throw new Error('a transport retry must not move the reviewed bytes; drop --body');
 }
@@ -194,6 +203,24 @@ const preflight = (label, operation) => {
     process.exit(2);
   }
 };
+if (phase.state === 'repairing') {
+  preflight('accepted-class sweep is not clear', () => {
+    if (CLASS_SWEEP_LEDGER === null)
+      throw new Error('accepted-class sweep ledger is required before repair reservation');
+    let ledger;
+    try {
+      ledger = JSON.parse(fs.readFileSync(path.resolve(CLASS_SWEEP_LEDGER), 'utf8'));
+    } catch (error) {
+      throw new Error(`accepted-class sweep ledger is unreadable: ${error.message}`);
+    }
+    const problems = selfCheck.validateAcceptedClassSweep(ledger, candidateText, {
+      acceptedClasses: candidate.run[PHASE].accepted_classes ?? [],
+      reviewResultSha256: candidate.run[PHASE].result_sha256,
+      planSha256,
+    });
+    if (problems.length > 0) throw new Error(problems.join('; '));
+  });
+}
 
 fs.mkdirSync(OUT_DIR, { recursive: true, mode: 0o700 });
 const bundle = policy.createPlanReviewBundle({
@@ -209,9 +236,17 @@ const prompt = policy.buildPlanReviewPrompt({ binding, bundlePath: bundle.path, 
 const resultFile = path.join(OUT_DIR, `${TAG}-${PHASE}-${invocation}-result.json`);
 
 console.log('plan          :', PLAN);
-console.log('phase         :', PHASE, `${phase.state} -> reserved, invocation ${invocation} of 2`);
+console.log(
+  'phase         :',
+  PHASE,
+  `${phase.state} -> reserved, invocation ${invocation} of ${DRAFT_REVIEW_INVOCATION_LIMIT}`,
+);
 console.log('head          :', head.slice(0, 12));
-console.log('plan_sha256   :', record.plan_sha256.slice(0, 16), BODY === null ? '(unchanged)' : `-> ${planSha256.slice(0, 16)}`);
+console.log(
+  'plan_sha256   :',
+  record.plan_sha256.slice(0, 16),
+  BODY === null ? '(unchanged)' : `-> ${planSha256.slice(0, 16)}`,
+);
 console.log('bundle        :', bundle.path);
 // Printed in full, not truncated: A6 requires the dry run's reported digest to be
 // checkable against the sealed bundle, and a 16-character prefix cannot be handed to
@@ -268,7 +303,6 @@ const resolveExecutable = (command) => {
   }
   throw new Error(`not found on PATH: ${command}`);
 };
-
 
 if (!COMMIT) {
   console.log('\nDRY RUN - nothing reserved, nothing dispatched, plan untouched.');
@@ -423,7 +457,7 @@ const afterReserve = await lib.transactPlanRun({
 });
 console.log(
   '\nRESERVED      :',
-  `${PHASE} ${afterReserve.run[PHASE].state}, invocation ${afterReserve.run[PHASE].invocations} of 2`,
+  `${PHASE} ${afterReserve.run[PHASE].state}, invocation ${afterReserve.run[PHASE].invocations} of ${DRAFT_REVIEW_INVOCATION_LIMIT}`,
 );
 
 const runReviewer = () =>
@@ -556,7 +590,10 @@ try {
       for (const f of review.findings) console.log(`  [${f.id}] ${f.kind} @ ${f.locator.slice(0, 70)}`);
 
       if (review.verdict === 'pass') {
-        await settle(resultEvent('review_passed', { result_sha256: lib.sha256(Buffer.from(lib.jcs(review))) }), 'PASSED');
+        await settle(
+          resultEvent('review_passed', { result_sha256: lib.sha256(Buffer.from(lib.jcs(review))) }),
+          'PASSED',
+        );
       } else {
         withheld = review.verdict;
         console.log(`\nNOT SETTLED   : "${review.verdict}" requires main-context acceptance.`);
@@ -568,7 +605,10 @@ try {
   }
 } catch (error) {
   const invalidOutput = error instanceof ReviewerOutputError;
-  console.log(`\n${invalidOutput ? 'INVALID REVIEWER OUTPUT' : 'DISPATCH FAILED'}:`, String(error.message).slice(0, 300));
+  console.log(
+    `\n${invalidOutput ? 'INVALID REVIEWER OUTPUT' : 'DISPATCH FAILED'}:`,
+    String(error.message).slice(0, 300),
+  );
   if (invalidOutput) {
     console.log('The reviewer replied but the reply is not contract-shaped, so the');
     console.log('verdict is unusable. Refunding: a malformed reply must not burn a');
