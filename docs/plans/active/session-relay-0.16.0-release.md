@@ -3,7 +3,7 @@ title: Release Session Relay 0.16.0 with custody-safe disconnects
 goal: Ship Session Relay 0.16.0 without fencing a managed worker on caller disconnect, retire Intel macOS production assets, and retain preflight evidence refs.
 status: drafting
 created: "2026-08-02T18:00:00+00:00"
-updated: "2026-08-03T17:13:12.651+00:00"
+updated: "2026-08-03T17:22:51.831+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -331,6 +331,22 @@ checkpoint.
 
 ## Steps
 
+> **Successor note - why this run replaces a terminal `review_failed` predecessor.**
+> Draft review invocation 2 returned one finding of class `v1_contract_contradiction`, a class the
+> predecessor had already accepted at invocation 1. A repeated accepted class is terminal by
+> contract, so the predecessor blocked and this successor carries the fix. The defect: Acceptance
+> A5 asserted the instance child is docks-kit `0.14.0` unconditionally, while `step:bump_version`
+> writes the retained finished `0.13.0` child as pretag evidence and `step:focused_proof` requires
+> A1-A7 to pass before the `0.14.0` child can exist. A5 now states the child phase-dependently,
+> exactly as it already stated the tag commit. `release-instance-contract.mjs` derives both fields
+> from the instance file - its `0.13.0`/`0.14.0`/`0.15.0` literals are Relay instance generations,
+> not child versions - so one command remains correct in both phases and no step moved.
+>
+> The predecessor's sweep cleared every unit for every accepted class in one pass. That was the
+> mechanism failure behind the repeat: a blanket clear is not a judgement. This successor's sweep,
+> if one is needed, must judge each unit against each class on its own evidence.
+
+
 | # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|---|
 | 1 | regression_first | Add the managed caller-disconnect regression before changing production behavior, and register its exact test identity. | `plugins/session-relay/rust/tests/lifecycle_supervisor.rs`; `plugins/session-relay/test/fixtures/rust-test-inventory.json` | — | `local` | `planned` | The named test reaches `ChildOwned`, kills the caller, and fails against the current source because the worker becomes `Fencing`; the failure signature is the state/second-use assertion, not setup. If it passes before the fix or fails earlier, STOP and repair the test. |
@@ -357,7 +373,7 @@ checkpoint.
 | A2 | `(cd plugins/session-relay/rust && cargo test --locked --test lifecycle_supervisor)` | Exit 0; explicit unmanaged cancel/reap, true supervisor-loss fencing, bootstrap disconnect, PTY, and managed claim transfer retain their existing semantics. |
 | A3 | `node plugins/session-relay/test/distribution-contract.mjs && node plugins/session-relay/test/release-evidence-contract.mjs` | Exit 0; the current producer/preflight matrix has exactly three native targets and historical evidence remains closed. |
 | A4 | `node plugins/session-relay/test/release-publication-contract.mjs && node plugins/session-relay/test/release-promotion-contract.mjs` | Exit 0; current publication/promotion requires three Relay binaries plus `SHA256SUMS`, rejects Intel Darwin as an extra current asset, and still validates frozen four-asset predecessors. |
-| A5 | `node plugins/session-relay/test/release-instance-contract.mjs` | Exit 0; the 0.16.0 instance is closed and fully mapped, its child is docks-kit 0.14.0 with reproduced content digest, its tag commit is null only before tagging, and frozen instance generations remain unchanged. |
+| A5 | `node plugins/session-relay/test/release-instance-contract.mjs` | Exit 0; the 0.16.0 instance is closed and fully mapped, and frozen instance generations remain unchanged. Two fields are phase-dependent and the contract derives both from the instance file rather than pinning them: the child is the retained finished docks-kit 0.13.0 before `step:finalize_instance` and docks-kit 0.14.0 with reproduced content digest after it, and the tag commit is null only before tagging. |
 | A6 | `(cd plugins/session-relay/rust && cargo metadata --format-version 1 --no-deps)` | Exit 0; exactly one package is emitted and `packages[0].version` is `0.16.0`; `Cargo.lock` agrees. |
 | A7 | `node scripts/ci.mjs --plugin session-relay` | Exit 0 on the complete local implementation with the Session Relay Rust, self-test, inventory, manifest, distribution, release-evidence, publication, promotion, and instance gates green. |
 | A8 | `sh -c 'set -eu; live="$(git ls-remote --heads origin "preflight/*" | cut -f2)"; for ref in refs/heads/preflight/session-relay-0.12.0-00284a84acb9 refs/heads/preflight/session-relay-0.12.0-0f47fb7bccb1 refs/heads/preflight/session-relay-0.12.0-12fc047e8931 refs/heads/preflight/session-relay-0.12.0-321e02c28408 refs/heads/preflight/session-relay-0.12.0-45f9e0f2a0eb refs/heads/preflight/session-relay-0.12.0-86bf4eebe8f5 refs/heads/preflight/session-relay-0.12.0-e20541c29b37 refs/heads/preflight/session-relay-0.12.0-e20541c905e1 refs/heads/preflight/session-relay-0.12.0-ef3d99fb9fef refs/heads/preflight/session-relay-0.13.0-0f43985a5306 refs/heads/preflight/session-relay-0.13.0-3fb9211f3309 refs/heads/preflight/session-relay-0.13.0-5ef57785df57 refs/heads/preflight/session-relay-0.13.0-79eaf56ed941 refs/heads/preflight/session-relay-0.13.0-89d55ec25db4 refs/heads/preflight/session-relay-0.13.0-b12c772d refs/heads/preflight/session-relay-0.13.0-bcf9982283bd refs/heads/preflight/session-relay-0.13.0-fba4a16f refs/heads/preflight/session-relay-0.13.0-fba4a16fa00b refs/heads/preflight/session-relay-0.15.0-4c372a8dec2d; do printf "%s\n" "$live" | grep -qxF "$ref" || { echo "missing baseline ref: $ref" >&2; exit 1; }; done'` | Exit 0 only when every one of the 19 recorded baseline `preflight/*` refs is individually present on the remote; a missing baseline ref exits non-zero naming that ref, and it fails even when the total count is unchanged because the added 0.16.0 validate-only ref replaced it in the tally. The 0.16.0 ref is additional retained evidence, never a replacement for an older ref. |
@@ -437,7 +453,10 @@ historical-byte boundary are resolved.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_acceptance_output_mismatch","v1_contract_contradiction","v1_unauthorized_effect"],"input_sha256":"eeebbb32cc0d7aa68729e8c3f723df2aa4401694d24311daf150ed5a5dc1fbbc","invocations":1,"result_sha256":"e8d47d763b91045d41c75c682cb9b4f2d286233376e37ab8e284ca7fb250155f","state":"repairing"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"83750324a0aa2dd622a942ff7b15312722b298c1bb4f097743dccb25b70bc101","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"6feb5288-d1ac-4578-9466-6252501361e6","schema":1,"source_base":"09645bfb7df84a3a231fd8909b5c220ed082cc9e","source_sha256":"ba3b246743481c2f899c1fd272c500269910656899986c0784045284f425ead2"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"3747f60e4f81e0dc9b825fd10e8776a65df60622e0c548832564b4f5a758c87b","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb","schema":1,"source_base":"407bc52d7ebfcef5bf16f1d249394b2401aab4fd","source_sha256":"87180b7ba10105e50701b62e9c4def5a58d5ce553fc0a5239488000ca44fa656"}
+
+
+Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"465b6035896e8d889e432e0335c23a36da91f779b5bb0880fd34200f35aae7fd","replacement_run_id":"ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb","run":{"acceptance":null,"blocker":{"evidence_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_acceptance_output_mismatch","v1_contract_contradiction","v1_unauthorized_effect"],"input_sha256":"878917bdc4b3df7d88d98d7c48e9666f9b97b89cff7d4b4351675b6a307e7dd1","invocations":2,"result_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","state":"blocked"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"83750324a0aa2dd622a942ff7b15312722b298c1bb4f097743dccb25b70bc101","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"6feb5288-d1ac-4578-9466-6252501361e6","schema":1,"source_base":"407bc52d7ebfcef5bf16f1d249394b2401aab4fd","source_sha256":"87180b7ba10105e50701b62e9c4def5a58d5ce553fc0a5239488000ca44fa656"},"schema":1,"status":"blocked","successor_run_sha256":"0b761ae4050729f3eda85fbe3b7a1310582b6bfb867c4c23afd7bc9b977cc56d"}
 
 ## Verification Results
 
