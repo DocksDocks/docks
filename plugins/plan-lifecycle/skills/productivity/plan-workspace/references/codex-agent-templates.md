@@ -77,11 +77,15 @@ For valid, fully bound input, return one pretty-printed JSON object:
 }
 ```
 
-For `repair` or `blocked`, each finding is exactly
-`{id,kind,locator,defect,fix}`. The closed compact-JCS-compatible object is at
-most 32 KiB. `pass` has no findings; other verdicts have at least one. `repair`
-is limited to defects resolvable from sealed facts. `blocked` is limited to a
-required user decision or missing safety authority.
+For `repair` or `blocked`, each `PlanReviewV1` finding is exactly
+`{id,kind,class,locator,defect,fix}`. `class` is closed to the v1 vocabulary
+compatible with its `kind`, as defined by the canonical skill. `class` is a
+draft-review key: a `CompletionReviewV1` finding is `{id,kind,locator,defect,fix}`
+and carrying `class` there is rejected as an unknown field. The closed
+compact-JCS-compatible object is at most 32 KiB. `pass` has no findings; other
+verdicts have at least one. `repair` is limited to defects resolvable from
+sealed facts. `blocked` is limited to a required user decision or missing
+safety authority.
 
 ## BAD / GOOD
 

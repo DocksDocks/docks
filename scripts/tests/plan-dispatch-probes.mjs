@@ -41,14 +41,16 @@ const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, '../..');
 const SHIPPED_DRIVER = path.join(
   ROOT,
-  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/dispatch-review.mjs',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/dispatch-review.mjs',
 );
-const api = await import(path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs'));
+const api = await import(
+  path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs')
+);
 const policy = await import(
-  path.join(ROOT, 'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs')
+  path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts/review-policy.mjs')
 );
 const selfCheck = await import(
-  path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs')
+  path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs')
 );
 
 const args = process.argv.slice(2);

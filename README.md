@@ -55,13 +55,17 @@ Auto-trigger on matching tasks (all `user-invocable: false`):
 
 Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills bridging), `zoom-out`, and `caveman` under `productivity/`.
 
-### Plan lifecycle
+### Plan lifecycle (the `plan-lifecycle` plugin)
 
 Directly implement one clear, reversible, low-risk local diff with one bounded
 acceptance path; it creates no tracked plan, reviewer, or automatic commit. Use
 a canonical plan for explicit planning, multi-commit/cross-repository work,
 scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
 changes, security-sensitive/destructive work, or an external effect.
+
+The three lifecycle skills, their shipped PlanRunV1 machinery, and the
+read-only Claude reviewer wrapper ship as the self-versioned `plan-lifecycle`
+plugin (`plugins/plan-lifecycle/`), installable from this same marketplace.
 
 | Owner | Skill | Invocation | Responsibility |
 |---|---|---|---|
@@ -70,7 +74,9 @@ changes, security-sensitive/destructive work, or an external effect.
 | Draft evidence | `plan-reviewer` | Internal, read-only | Return bound `PlanReviewV1` evidence over one immutable bundle |
 
 These are the only live plan skills. Only `plan-reviewer` ships/gets seeded as a
-thin Claude/Codex wrapper; main context invokes `plan-manager` directly.
+thin Claude/Codex wrapper; main context invokes `plan-manager` directly. The
+docks pipelines route to these skills and stop, naming the missing
+`plan-lifecycle` plugin, when they are unavailable.
 
 Current plans contain one current compact-JCS `Plan-run: PlanRunV1` line.
 Exact current-user same-domain recovery keeps the stable plan path, appends the
@@ -97,11 +103,13 @@ The complete contract lives in `docs/plans/AGENTS.md`.
 ├── .claude-plugin/marketplace.json   ← marketplace catalog (this file is what /plugin marketplace add reads)
 ├── .codex/agents/                     ← repo-local Codex plan-reviewer wrapper
 ├── plugins/
-│   └── docks/                         ← the plugin itself (only this gets cached on user install)
-│       ├── .claude-plugin/plugin.json
-│       ├── skills/                    ← cross-tool skills
-│       ├── agents/                    ← Claude-only read-only plan-reviewer wrapper
-│       └── README.md                  ← plugin-facing docs
+│   ├── docks/                         ← the engineering kit plugin (only plugin dirs get cached on user install)
+│   │   ├── .claude-plugin/plugin.json
+│   │   ├── skills/                    ← cross-tool skills
+│   │   └── README.md                  ← plugin-facing docs
+│   ├── plan-lifecycle/                ← docs/plans lifecycle plugin (three plan skills + agents/plan-reviewer.md wrapper)
+│   ├── session-relay/                 ← cross-session message-bus plugin
+│   └── effect-kit/                    ← Effect-TS skill kit plugin
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
 │   ├── skills/guard.mjs, agents/guard.mjs + score.mjs
@@ -109,7 +117,7 @@ The complete contract lives in `docs/plans/AGENTS.md`.
 └── .github/workflows/ci.yml           ← validator CI on push/PR
 ```
 
-**What ships to users**: only `plugins/docks/`. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to `~/.claude/plugins/cache/` on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism — Claude Code's plugin cache copies only the directory pointed at by `source`.
+**What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to `~/.claude/plugins/cache/` on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism — Claude Code's plugin cache copies only the directory pointed at by `source`.
 
 ## Develop locally
 

@@ -6,14 +6,30 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const PRODUCTIVITY = path.join(ROOT, 'plugins/docks/skills/productivity');
+const PRODUCTIVITY = path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity');
 const LIVE_PLAN_SKILLS = ['plan-manager', 'plan-reviewer', 'plan-workspace'];
 const REMOVED_PLAN_SKILLS = ['plan-creator', 'plan-repairer', 'plan-init', 'plan-review', 'plan-improver'];
 const PINNED_STEP_CLASS_CONTRACTS = [
   'docs/plans/AGENTS.md',
-  'plugins/docks/skills/productivity/plan-manager/SKILL.md',
-  'plugins/docks/skills/productivity/plan-workspace/SKILL.md',
-  'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+];
+
+// The absent-lifecycle guard: every route into the plan lifecycle carries one
+// byte-identical prerequisite paragraph, so a Codex install without the
+// `plan-lifecycle` plugin fails loud instead of silently proceeding without a
+// plan. Exact text is decided by the extraction plan; assert it verbatim and
+// exactly once per route so removing or rewording it in any one file fails.
+const LIFECYCLE_ROUTE_PREREQUISITE =
+  'Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.';
+const LIFECYCLE_ROUTE_FILES = [
+  'plugins/docks/skills/engineering/refactor/SKILL.md',
+  'plugins/docks/skills/engineering/security/SKILL.md',
+  'plugins/docks/skills/productivity/context-tree/SKILL.md',
+  'plugins/docks/skills/productivity/skill-agent-pipeline/SKILL.md',
+  'plugins/effect-kit/skills/engineering/effect-ts-port/SKILL.md',
+  'plugins/effect-kit/skills/engineering/effect-ts-setup/SKILL.md',
 ];
 
 const STEP_CLASS_CONTRACT_CLAUSES = [
@@ -101,6 +117,17 @@ function assertStepClassContract(text, relative) {
   }
 }
 
+function assertLifecycleRoutePrerequisite() {
+  for (const relative of LIFECYCLE_ROUTE_FILES) {
+    const occurrences = read(relative).split(LIFECYCLE_ROUTE_PREREQUISITE).length - 1;
+    assert.equal(
+      occurrences,
+      1,
+      `${relative} must carry the absent-lifecycle prerequisite paragraph exactly once (found ${occurrences})`,
+    );
+  }
+}
+
 function assertStepClassContractsAndMutations() {
   const mutationTargets = new Set([
     'legacy-new-schema',
@@ -170,7 +197,7 @@ function assertLiveTopology() {
   ]);
   let combinedBodyLines = 0;
   for (const name of LIVE_PLAN_SKILLS) {
-    const relative = `plugins/docks/skills/productivity/${name}/SKILL.md`;
+    const relative = `plugins/plan-lifecycle/skills/productivity/${name}/SKILL.md`;
     const { metadata, body } = frontmatter(relative);
     assert.equal(metadata.name, name);
     assert.equal(metadata['user-invocable'], expectedInvocable.get(name));
@@ -185,7 +212,7 @@ function assertLiveTopology() {
 
 function assertReviewerWrappersOnly() {
   const pluginAgents = fs
-    .readdirSync(path.join(ROOT, 'plugins/docks/agents'))
+    .readdirSync(path.join(ROOT, 'plugins/plan-lifecycle/agents'))
     .filter((name) => name.startsWith('plan-') && name.endsWith('.md'))
     .sort();
   const codexAgents = fs
@@ -196,7 +223,7 @@ function assertReviewerWrappersOnly() {
   assert.deepEqual(pluginAgents, ['plan-reviewer.md']);
   assert.deepEqual(codexAgents, ['plan-reviewer.toml']);
 
-  const claude = frontmatter('plugins/docks/agents/plan-reviewer.md');
+  const claude = frontmatter('plugins/plan-lifecycle/agents/plan-reviewer.md');
   assert.equal(claude.metadata.name, 'plan-reviewer');
   assert.equal(claude.metadata.tools, 'Read, Glob, Grep');
   assert.doesNotMatch(String(claude.metadata.tools), /Edit|Write|Bash|Agent/);
@@ -213,8 +240,8 @@ function assertReviewerWrappersOnly() {
 }
 
 function assertBoundedWorkflows() {
-  const manager = frontmatter('plugins/docks/skills/productivity/plan-manager/SKILL.md').body;
-  const reviewer = frontmatter('plugins/docks/skills/productivity/plan-reviewer/SKILL.md').body;
+  const manager = frontmatter('plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md').body;
+  const reviewer = frontmatter('plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md').body;
 
   for (const contract of [
     /main-context `plan-manager` classifies, drafts, reviews, repairs, implements/i,
@@ -280,7 +307,7 @@ function assertAcceptanceProofRule() {
   ];
   for (const relative of [
     'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
   ]) {
     const text = fs.readFileSync(path.join(ROOT, relative), 'utf8');
     for (const clause of clauses) {
@@ -301,7 +328,7 @@ function assertProposedRepairRule() {
   ];
   for (const relative of [
     'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
   ]) {
     const text = read(relative).replace(/\s+/g, ' ');
     for (const clause of clauses) {
@@ -343,7 +370,7 @@ function assertLifecycleDispatchIntegrityRule() {
   ];
   for (const relative of [
     'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
   ]) {
     const text = read(relative).replace(/\s+/g, ' ');
     for (const clause of clauses) {
@@ -372,8 +399,8 @@ function assertQuarantineRetirementRule() {
   ];
   for (const relative of [
     'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md',
   ]) {
     const text = fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\s+/g, ' ');
     for (const clause of clauses) {
@@ -406,8 +433,8 @@ function assertPortablePlanTextRule() {
   ];
   for (const relative of [
     'docs/plans/AGENTS.md',
-    'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
-    'plugins/docks/skills/productivity/plan-manager/SKILL.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md',
   ]) {
     const text = fs.readFileSync(path.join(ROOT, relative), 'utf8').replace(/\s+/g, ' ');
     for (const clause of clauses) {
@@ -445,4 +472,5 @@ assertProposedRepairRule();
 assertLifecycleDispatchIntegrityRule();
 assertQuarantineRetirementRule();
 assertPortablePlanTextRule();
+assertLifecycleRoutePrerequisite();
 console.log('three-skill, one-wrapper bounded plan workflows passed');

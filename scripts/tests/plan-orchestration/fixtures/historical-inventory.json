@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "helper": "plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs",
+  "helper": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/legacy-review-records.mjs",
   "categories": {
     "parse_canonical": [
       "jcs",

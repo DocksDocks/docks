@@ -18,15 +18,18 @@ import { registerReviewBudget } from './plan-orchestration/review-budget.mjs';
 import { registerStateMatrix } from './plan-orchestration/state-matrix.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const PLAN_RUN_PATH = path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs');
-const REVIEW_POLICY_PATH = path.join(ROOT, 'plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs');
+const PLAN_RUN_PATH = path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs');
+const REVIEW_POLICY_PATH = path.join(
+  ROOT,
+  'plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts/review-policy.mjs',
+);
 const LEGACY_POLICY_PATH = path.join(
   ROOT,
-  'plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/legacy-review-records.mjs',
 );
 const PLAN_SELF_CHECK_PATH = path.join(
   ROOT,
-  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs',
 );
 
 // Registered inline rather than as a sibling module: the dispatch-driver plan

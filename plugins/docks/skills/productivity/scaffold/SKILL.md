@@ -4,8 +4,8 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-07-26"
-  content_hash: "b0975bae0e35643009625cd7123d4d5eb856da9b58adf0e1904fd815db397d84"
+  updated: "2026-08-03"
+  content_hash: "bca697c0461b81fb1269bd46078ab4a3c62e4ea14524bdae52ddf49c6ba2233d"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -54,9 +54,9 @@ tree_nodes:
   - { path: "plugins/{{ plugin_name }}/skills", template: node-templates/skills-AGENTS.md }
 bundled_skills:
   - { source: plugins/docks/skills/productivity/context-tree }
-  - { source: plugins/docks/skills/productivity/plan-workspace }
-  - { source: plugins/docks/skills/productivity/plan-manager }
-  - { source: plugins/docks/skills/productivity/plan-reviewer }
+  - { source: plugins/plan-lifecycle/skills/productivity/plan-workspace }
+  - { source: plugins/plan-lifecycle/skills/productivity/plan-manager }
+  - { source: plugins/plan-lifecycle/skills/productivity/plan-reviewer }
 variables:
   plugin_name:        { prompt: "Plugin name (kebab-case)" }
   plugin_description: { prompt: "Short description" }

@@ -28,20 +28,20 @@ const ROOT = path.resolve(HERE, '../..');
 const FIXTURE_PLAN = path.join(ROOT, 'scripts/tests/fixtures/structural-plan.md');
 const SELF_CHECK_PATH = path.join(
   ROOT,
-  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs',
 );
 const SAMPLE_REVIEW_PATH = path.join(
   ROOT,
-  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/sample-review.mjs',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/sample-review.mjs',
 );
-const PLAN_RUN_PATH = path.join(ROOT, 'plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs');
+const PLAN_RUN_PATH = path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs');
 const MEASUREMENTS_PATH = path.join(
   ROOT,
-  'plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-measurements.mjs',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/plan-measurements.mjs',
 );
 const CONTRACT_PATHS = [
   path.join(ROOT, 'docs/plans/AGENTS.md'),
-  path.join(ROOT, 'plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md'),
+  path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md'),
 ];
 
 const selfCheck = await import(SELF_CHECK_PATH);
@@ -454,7 +454,7 @@ probes['stale-quantity'] = () =>
 
       const validProducer = {
         op: 'show-count',
-        path: 'plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs',
+        path: 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs',
         matcher: 'EXCLUDED_SECTIONS = new Set',
         timeout_ms: 1_000,
         max_bytes: 1_048_576,

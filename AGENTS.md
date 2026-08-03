@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for agentskills.io-compliant runtimes (Codex, Claude Code, OpenCode, VS Code Copilot), including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the `docs/plans/` lifecycle instead of runtime-specific Plan Mode. The installable plugin's sole Claude-specific plan subagent is the read-only `plan-reviewer`; this source repo has the matching reviewer-only Codex wrapper under `.codex/agents/`.
+docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for agentskills.io-compliant runtimes (Codex, Claude Code, OpenCode, VS Code Copilot), including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the `docs/plans/` lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin's sole Claude-specific plan subagent is the read-only `plan-reviewer`; this source repo has the matching reviewer-only Codex wrapper under `.codex/agents/`.
 
 This root file stays **repo-wide**. Per-area authoring details — skill/agent frontmatter, scoring, the release flow, CI triggers — live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -20,8 +20,8 @@ node scripts/ci.mjs                                  # full gate for repo-wide, 
 │   ├── .claude-plugin/plugin.json    Claude plugin manifest
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks — near-parity with Claude)
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
-│   ├── agents/   (Claude-only)       one read-only plan-reviewer wrapper
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
+├── plugins/plan-lifecycle/           plan lifecycle plugin (cross-tool): plan-workspace / plan-manager / plan-reviewer skills, shipped PlanRunV1 machinery, one read-only Claude plan-reviewer wrapper under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── plugins/session-relay/            2nd plugin (cross-tool: Claude + Codex): cross-session/cross-project/cross-tool agent message bus — MCP bus server + shared SessionStart hook + relay CLI; self-versioned, gated by its own ci.mjs section
 ├── plugins/effect-kit/               3rd plugin (cross-tool): Effect-TS skill kit — effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
@@ -44,6 +44,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `plugins/session-relay/AGENTS.md` | the relay plugin — layout, binary-release discipline, its CI gates |
 | `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x plus version-gated Effect v4 conventions |
+| `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring — the three lifecycle skills, contract sync, fail-loud routing |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 
@@ -56,7 +57,7 @@ on this repository with Codex and are not part of the installable Docks plugin.
 Keep them thin: load the matching canonical skill, add only Codex-specific
 dispatch/sandbox guidance, and avoid duplicating full skill bodies.
 
-Plugin-shipped agents are not Codex-visible (Codex does not consume plugin-shipped subagents), but they are **not Claude-exclusive**: omp discovers Claude plugin `agents/` dirs too, so this payload has two consuming runtimes and must stay portable across both. `plugins/docks/agents/` holds one thin read-only `plan-reviewer` wrapper for inter-agent `Agent(subagent_type=…)` dispatch. It is the flat file `agents/plan-reviewer.md`; main context invokes the canonical `plan-manager` skill directly.
+Plugin-shipped agents are not Codex-visible (Codex does not consume plugin-shipped subagents), but they are **not Claude-exclusive**: omp discovers Claude plugin `agents/` dirs too, so this payload has two consuming runtimes and must stay portable across both. `plugins/plan-lifecycle/agents/` holds the repository's one thin read-only `plan-reviewer` wrapper for inter-agent `Agent(subagent_type=…)` dispatch. It is the flat file `agents/plan-reviewer.md`; main context invokes the canonical `plan-manager` skill directly.
 
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): `claude plugin validate` lints every `*.md` under `agents/` as a subagent, so an `AGENTS.md`/`CLAUDE.md` pair there fails `validate --strict` with "No frontmatter". Neither relocating the files into a subdir nor declaring an `agents` array in the manifest avoids that scan (both tried and ruled out). These authoring rules therefore live in this root file instead of a nested node.
 

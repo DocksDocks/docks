@@ -4,6 +4,12 @@ const PRODUCER_KEYS = Object.freeze(['op', 'path', 'matcher', 'timeout_ms', 'max
 const SAFE_FIELD = /^[A-Za-z0-9_./ :=-]+$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 
+// A committed producer re-runs `git show <record source_base>:<path>`, so its path is read at a
+// HISTORICAL commit, not in the working tree. This entry re-verifies one claim from a plan whose
+// `source_base` predates the plan-lifecycle extraction, where the file was still under
+// `plugins/docks/`. Repointing it at the new location makes `git show` fail with "exists on disk,
+// but not in <sha>" and the measurement unprovable. Move a producer path only when the record it
+// serves is itself re-based past the move.
 const COMMITTED_PRODUCERS = Object.freeze([
   Object.freeze({
     heading: 'Measured: the exclusion precedent is one line',

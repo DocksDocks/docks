@@ -4,8 +4,8 @@ description: "Use when porting existing Fastify, Next.js App Router, or React co
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-24"
-  content_hash: "c470472d7cf6d3f4a40e037bb3836b26990ad04e07868bcfd40266af372d98b3"
+  updated: "2026-08-03"
+  content_hash: "c6443efa3759601612bd176388d850fdfc083adb870eb60efc7f7ed473d9547d"
 ---
 
 # Effect-TS Port (cross-tool pipeline)
@@ -15,6 +15,8 @@ Migrate an existing Fastify / Next.js / React codebase to Effect 3.x as one sequ
 <constraint>
 Single-agent sequential, gated on the plan lifecycle — NOT Plan Mode. Run the phases IN ORDER, in THIS context. Phases 0–3 are read-only analysis. Route missing-workspace bootstrap to `plan-workspace`; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, implementation/delegation, verification, and finish/archive. A plan-only or assessment-only request stops after the reviewed migration plan. An implementation request continues into Phase 4 after the manager records the reviewed start checkpoint; no additional user lifecycle command is required. Append each phase under its exact heading so a mid-run compaction resumes from the artifact.
 </constraint>
+
+Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 
 <constraint>
 Boundary-first, incremental — never a big-bang rewrite. Wrap existing Promise/throwing code with `Effect.tryPromise({ try, catch })`, run it through a single `ManagedRuntime` at the framework edge, and migrate the highest-value slice first, expanding outward (strangler-fig). Port ONE slice at a time: change it, run the type-checker + tests, and on failure REVERT immediately (`git restore`) and log `REVERTED: <reason>` — do not try to "fix forward". The app stays green and shippable after every slice.

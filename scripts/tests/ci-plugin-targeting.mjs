@@ -231,12 +231,13 @@ fs.appendFileSync(process.env.DOCKS_CI_PROBE_LOG, JSON.stringify({ tool, args })
 if (tool === 'claude') process.stdout.write('Validation passed\\n');
 if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs') {
   const skillRoot = args.at(-1);
-  if (skillRoot === 'plugins/docks/skills') process.stdout.write('engineering/security 16\\nproductivity/plan-manager 14\\n');
+  if (skillRoot === 'plugins/docks/skills') process.stdout.write('engineering/security 16\\nproductivity/write-skill 14\\n');
   else if (skillRoot === 'plugins/session-relay/skills') process.stdout.write('productivity/session-relay 14\\n');
   else if (skillRoot === 'plugins/effect-kit/skills') process.stdout.write('engineering/effect-ts-setup 14\\n');
+  else if (skillRoot === 'plugins/plan-lifecycle/skills') process.stdout.write('productivity/plan-manager 14\\n');
 }
 if (tool === 'node' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
-  process.stdout.write('plan-manager.md 14\\nplan-reviewer.md 14\\n');
+  process.stdout.write('plan-reviewer.md 14\\n');
 }
 if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
 process.exit(0);
@@ -298,13 +299,22 @@ function testFocusedCiCommandSelection() {
   ];
   const effectKitBiomeCiArgv = ['exec', 'biome', 'ci', 'plugins/effect-kit/test'];
   const sessionRelayBiomeCiArgv = ['exec', 'biome', 'ci', 'scripts', 'plugins/session-relay/test'];
-  const coreBiomeCiArgv = ['exec', 'biome', 'ci', 'scripts', 'plugins/docks/hooks', 'plugins/effect-kit/test'];
-  const docksBiomeLintArgv = [
+  const coreBiomeCiArgv = [
+    'exec',
+    'biome',
+    'ci',
+    'scripts',
+    'plugins/docks/hooks',
+    'plugins/effect-kit/test',
+    'plugins/plan-lifecycle/test',
+  ];
+  const docksBiomeLintArgv = ['exec', 'biome', 'lint', 'plugins/docks/skills/productivity/write-skill/scripts'];
+  const coreBiomeLintArgv = [
     'exec',
     'biome',
     'lint',
-    'plugins/docks/skills/productivity/plan-reviewer/scripts',
     'plugins/docks/skills/productivity/write-skill/scripts',
+    'plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts',
   ];
 
   try {
@@ -344,6 +354,7 @@ function testFocusedCiCommandSelection() {
       'plugins/effect-kit/skills',
     ];
     const sessionRelayCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/session-relay/skills'];
+    const planLifecycleCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/plan-lifecycle/skills'];
 
     assert.equal(
       countToolInvocation(targeted.calls, 'node', crossPluginCollisionArgv),
@@ -387,24 +398,27 @@ function testFocusedCiCommandSelection() {
     assert.equal(core.result.status, 0, `${core.result.stdout}\n${core.result.stderr}`);
     assert.equal(countToolInvocation(core.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeCiArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'pnpm', docksBiomeLintArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeLintArgv), 1);
     assert.match(core.result.stdout, /javascript quality/);
     assert.match(core.result.stdout, /repo-wide guards/);
     assert.match(core.result.stdout, /CI targeting contract/);
     assert.match(core.result.stdout, /plan orchestration/);
     assert.match(core.result.stdout, /plugin: docks/);
     assert.match(core.result.stdout, /plugin: effect-kit/);
+    assert.match(core.result.stdout, /plugin: plan-lifecycle/);
     assert.doesNotMatch(core.result.stdout, /plugin: session-relay|partition passed/);
     assert.equal(countToolInvocation(core.calls, 'node', orchestrationArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', boundedWorkflowArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', crossPluginCollisionArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'node', planLifecycleCollisionArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'node', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
 
     const timingPath = path.join(fixtureRoot, 'timings.json');
     const timedCore = run(['--lane', 'core', '--timings-json', timingPath]);
     assert.equal(timedCore.result.status, 0, `${timedCore.result.stdout}\n${timedCore.result.stderr}`);
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeCiArgv), 1);
-    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', docksBiomeLintArgv), 1);
+    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeLintArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', orchestrationArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
     const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
@@ -437,6 +451,7 @@ function testFocusedCiCommandSelection() {
         'plan orchestration',
         'plugin: docks',
         'plugin: effect-kit',
+        'plugin: plan-lifecycle',
         'javascript quality',
       ],
       'core CI timing phases must retain repo-wide, focused plan, plugin, and quality ownership',
@@ -456,14 +471,23 @@ function testFocusedCiCommandSelection() {
       );
     }
     assert.equal(
-      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', '--per-file', 'plugins/docks/agents']),
+      countToolInvocation(core.calls, 'node', [
+        'scripts/agents/score.mjs',
+        '--per-file',
+        'plugins/plan-lifecycle/agents',
+      ]),
       1,
       'core CI must launch one per-file agent score command',
     );
     assert.equal(
-      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', 'plugins/docks/agents']),
+      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', 'plugins/plan-lifecycle/agents']),
       0,
       'core CI must derive the agent total without a second score command',
+    );
+    assert.equal(
+      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', '--per-file', 'plugins/docks/agents']),
+      0,
+      'docks no longer ships agents, so core CI must not score a docks agents dir',
     );
 
     const relayTimingPath = path.join(fixtureRoot, 'relay-timings.json');
@@ -634,9 +658,12 @@ if (mode === '--timing-write-failure') {
 const names = (rows) => rows.map((row) => row.name);
 const byName = (name) => PLUGINS.find((plugin) => plugin.name === name);
 
-assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'session-relay', 'effect-kit']);
+assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'session-relay', 'effect-kit', 'plan-lifecycle']);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, 'docks')), ['docks']);
-assert.throws(() => resolveCiTargets(PLUGINS, 'unknown-plugin'), /unknown plugin.*docks, session-relay, effect-kit/);
+assert.throws(
+  () => resolveCiTargets(PLUGINS, 'unknown-plugin'),
+  /unknown plugin.*docks, session-relay, effect-kit, plan-lifecycle/,
+);
 const laneShape = ({ name, targets, repoWide }) => ({
   name,
   targets: names(targets),
@@ -650,11 +677,12 @@ assert.deepEqual(
     { name: 'docks', ciLane: 'core' },
     { name: 'session-relay', ciLane: 'relay' },
     { name: 'effect-kit', ciLane: 'core' },
+    { name: 'plan-lifecycle', ciLane: 'core' },
   ],
 );
 assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'core')), {
   name: 'core',
-  targets: ['docks', 'effect-kit'],
+  targets: ['docks', 'effect-kit', 'plan-lifecycle'],
   repoWide: true,
 });
 assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'relay')), {
@@ -670,7 +698,12 @@ const syntheticCorePlugin = {
 };
 PLUGINS.push(syntheticCorePlugin);
 try {
-  assert.deepEqual(names(resolveCiLane(PLUGINS, 'core').targets), ['docks', 'effect-kit', 'synthetic-core-plugin']);
+  assert.deepEqual(names(resolveCiLane(PLUGINS, 'core').targets), [
+    'docks',
+    'effect-kit',
+    'plan-lifecycle',
+    'synthetic-core-plugin',
+  ]);
 } finally {
   assert.equal(PLUGINS.pop(), syntheticCorePlugin);
 }
@@ -722,6 +755,12 @@ for (const [invalidArgs, diagnostic] of [
 console.log('closed CI lane resolver and argument parser passed');
 assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'plan-reviewer']);
 assert.deepEqual([...selectedAuthorChecks([byName('effect-kit')])], []);
+assert.deepEqual([...selectedAuthorChecks([byName('plan-lifecycle')])], ['plan-reviewer']);
+assert.deepEqual(
+  [...selectedAuthorChecks([byName('docks'), byName('plan-lifecycle')])],
+  ['idempotency', 'plan-reviewer'],
+  'shared plan-reviewer ownership must dedupe on a joint selection',
+);
 assert.deepEqual(releaseCiArgs('docks'), ['-q', '--plugin', 'docks']);
 console.log('registry targeting and author-check selection passed');
 testFocusedCiCommandSelection();

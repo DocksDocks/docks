@@ -4,8 +4,8 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-26"
-  content_hash: "ab32dde0195a8290b44f2088d2e94e06d45fe9623dc1d669c13ea30ffb9a293f"
+  updated: "2026-08-03"
+  content_hash: "ae321c931f5bf145fd316570f71197671d297877dcf55ab86143559e87c67a13"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
@@ -23,6 +23,8 @@ A *context tree* is a repo where each major folder carries its own `AGENTS.md` (
 <constraint>
 **Intent gate — cross-tool, NOT Plan Mode.** `audit`, `--dry-run`, and an explicit preview/proposal request are read-only and end after the report. An explicit `init`, `refresh`, or "fix the audit findings" request continues through proposal, review, writes, and verification in the same orchestration. Render the node list and per-section relocation table before writing; when a canonical plan is warranted, the unified `plan-manager` creates and freshly reviews it, then records the reviewed start checkpoint. No additional user lifecycle command is required. Ask only for a genuinely unresolved relocation or explicit `DROP` decision; absent such a decision, keep the section in root.
 </constraint>
+
+Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 
 <constraint>
 **No content loss when relocating — per-section, NOT byte-percentage.** A split *adds* scaffolding (imports, CLAUDE.md files, node headings, breadcrumbs), so output is normally ≥100% of input — a byte-% floor is the wrong primary check (a lost section hides under added bytes). Instead: (1) inventory every source `^#{1,3}` section before writing; (2) the relocation table accounts for EACH section → a destination or an explicit user `DROP` (unclassified → KEEP in root); (3) relocate verbatim (reformat OK, reword NOT); (4) two-phase write — nodes first + the pair check (every CLAUDE.md exactly `@AGENTS.md`, every AGENTS.md non-empty, ≤500 lines), then re-read the source preimage and prune root LAST; (5) the `## Verification` block confirms every source section survives downstream + flags any net shrink. On a miss: stop, restore, locate it — do NOT report success. Full algorithm: [`references/data-preservation.md`](references/data-preservation.md).

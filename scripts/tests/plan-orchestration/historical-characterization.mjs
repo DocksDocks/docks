@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { classifyLegacyPlan } from '../../../plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs';
+import { classifyLegacyPlan } from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs';
 import {
   acceptanceInventoryFixture,
   currentAttempt,

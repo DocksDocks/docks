@@ -26,7 +26,7 @@ When a `--plugin-dir` plugin shares a name with an installed marketplace plugin,
 
 ### Pipeline skills
 
-Each runs as one sequential pass in a single context. Approval gates through the `docs/plans/` lifecycle (the `plan-manager` skill), not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`. The pipeline skills are `user-invocable` — trigger by name or natural language.
+Each runs as one sequential pass in a single context. Approval gates through the `docs/plans/` lifecycle (the `plan-manager` skill from the companion `plan-lifecycle` plugin), not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`. The pipeline skills are `user-invocable` — trigger by name or natural language.
 
 | Skill | Pipeline |
 |---------|----------|
@@ -56,38 +56,20 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 
 Plus `write-skill`, `multi-tool-bridge`, and `zoom-out` under `productivity/`.
 
-### Plan lifecycle
+### Plan lifecycle (companion plugin)
 
-Directly implement one clear, reversible, low-risk local diff with one bounded
-acceptance path; it creates no tracked plan, reviewer, or automatic commit. Use
-a canonical plan for explicit planning, multi-commit/cross-repository work,
-scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
-changes, security-sensitive/destructive work, or an external effect.
+The plan lifecycle — `plan-workspace`, `plan-manager`, internal `plan-reviewer`,
+their shipped PlanRunV1 machinery, and the read-only Claude reviewer wrapper —
+ships separately as the self-versioned `plan-lifecycle` plugin in this same
+marketplace. Every docks route into that lifecycle is fail-loud:
 
-| Owner | Skill | Invocation | Responsibility |
-|---|---|---|---|
-| Workspace | `plan-workspace` | Public | Bootstrap, migrate, audit, or explicitly refresh `docs/plans/`; never mutate an individual plan |
-| Orchestration | `plan-manager` | Public, main context | Classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive; list/show/lifecycle and guarded issue publication |
-| Draft evidence | `plan-reviewer` | Internal, read-only | Return bound `PlanReviewV1` evidence over one immutable bundle |
+Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 
-These are the only live plan skills. Only `plan-reviewer` ships/gets seeded as a
-thin Claude/Codex wrapper; main context invokes `plan-manager` directly.
+Install it alongside docks:
 
-Current plans contain one current compact-JCS `Plan-run: PlanRunV1` line.
-Exact current-user same-domain recovery keeps the stable plan path, appends the
-terminal predecessor as validated `Plan-attempt-history`, and installs a fresh
-`run_id`; it never creates `v2`/`vN` files or resets predecessor permits.
-PlanRunV1 binds repository/path/run identity, cross-repository `goal_id`,
-effects/risk, plan/source and acceptance hashes, commits, review budgets, and one blocker.
-Reviews reserve before fresh launch; cold reserved state blocks. Ordinary local
-work has no completion review; sensitive/external exact-diff review is bounded.
-
-Plan writes use exclusive preimage-checked transactions and major checkpoint
-commits only. Steps use `Effect` exactly
-`local|probe|production_access|publish|push|release|deploy`; persisted intent is
-never external authority. Each non-local action needs matching exact live
-current-user scope/mode/target authority. Schemas 1–6 are historical
-validation/quarantine-only and never block unrelated goals.
+```bash
+/plugin install plan-lifecycle@docks
+```
 
 ## Why sequential, single-context?
 

@@ -4,8 +4,8 @@ description: "Use when bootstrapping Effect 3.x in a repo — resolve package.js
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-24"
-  content_hash: "87d799eced4df3b3b1912a6c5e3704c60e23b72e16b551cd6441da8621950272"
+  updated: "2026-08-03"
+  content_hash: "7dec8850070f20b1058fdb4d2d96b5d6d9574a1302649dab9a3bfe0659df7559"
 ---
 
 # Effect-TS Setup (one-time repo bootstrap)
@@ -132,6 +132,8 @@ Then add a one-line `## Local Effect Source` note pointing at that path. Never i
 Report: package manager, steps completed vs skipped (with reasons), files created/modified, and any errors plus their resolution. Name a later matching Effect skill only if the user separately requests that work after dependency resolution; do not stack another Effect skill onto setup by default.
 
 For a large monorepo or multi-package setup, route the complete implementation request through the unified **`plan-manager`** when it warrants a canonical plan; after review, continue without asking for a lifecycle command.
+
+Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 
 ## Gotchas
 

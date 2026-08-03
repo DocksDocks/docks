@@ -1,10 +1,10 @@
 ---
 title: Extract the plan lifecycle into its own cross-tool plugin
 goal: Move the three lifecycle skills and reviewer into a registered plan-lifecycle plugin while preserving routing safety, history, and full-gate coverage.
-status: drafting
+status: blocked
 created: "2026-08-01T21:18:16-03:00"
-updated: "2026-08-02T17:52:46.966+00:00"
-started_at: null
+updated: "2026-08-03T14:58:23.827+00:00"
+started_at: "2026-08-03T13:52:15.551+00:00"
 finished_at: null
 assignee: null
 tags: [plans, plugins, architecture, registered-idea]
@@ -238,7 +238,7 @@ full `node scripts/ci.mjs`, not a selected-plugin gate.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"2b3239ca896c0a05edcba368dc593521f6bb6af6c85f03b9f8eae3f1ee9bf57c","invocations":2,"result_sha256":"527e00f24051d43acfa1f59d8d219bbee94cb0097978fbf12796414602c75f1e","state":"passed"},"execution_parent":null,"goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"2ae0f0058712006dd326845dd8fef5e888fc4447fcde0032cd9f82c3c1e71a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"84b7d04d-b23a-4313-9793-a330a4f65a4d","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"c8855e7b66d4d150f208bbe3e8a7320618279ad0a311c2e1ac9b198cbed1c89f"}
+Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"30b5e05e0097ba524a66b1af1471883f7a811e958f92940627d127fd6eff3add","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":"2b3239ca896c0a05edcba368dc593521f6bb6af6c85f03b9f8eae3f1ee9bf57c","invocations":2,"result_sha256":"527e00f24051d43acfa1f59d8d219bbee94cb0097978fbf12796414602c75f1e","state":"passed"},"execution_parent":"010237580158992e736e224d674b374076db16fe","goal_id":"2ee17ed0-f3e0-483a-9c79-15bc68bf39a8","implementation_commit":null,"plan_path":"docs/plans/active/plan-lifecycle-plugin-extraction.md","plan_sha256":"2ae0f0058712006dd326845dd8fef5e888fc4447fcde0032cd9f82c3c1e71a0a","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"84b7d04d-b23a-4313-9793-a330a4f65a4d","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"c8855e7b66d4d150f208bbe3e8a7320618279ad0a311c2e1ac9b198cbed1c89f"}
 
 ## Verification Results
 

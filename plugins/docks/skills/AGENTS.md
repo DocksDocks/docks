@@ -61,7 +61,7 @@ A skill that **moves, splits, migrates, or rewrites existing content** (root →
 
 `scripts/skills/transform-guard.mjs` enforces both across the curated transformer list (`scripts/AGENTS.md`).
 
-## Plan-skill contract sync (three homes)
+## Plan-skill routing (lifecycle lives in plan-lifecycle)
 
 Use direct implementation for one clear, reversible, low-risk local diff with
 one bounded acceptance path; it creates no tracked plan, reviewer, or automatic
@@ -70,27 +70,15 @@ cross-repository work, scheduling, cold handoff, unresolved decisions,
 cross-subsystem/public-contract changes, security-sensitive/destructive work, or
 external effects.
 
-The convention lives in exactly three `plan-*` skills, each consumer project's
-`docs/plans/AGENTS.md`, and the embedded
-`plan-workspace/references/plans-agents-md-template.md`. `plan-workspace`
-maintains the workspace; main-context `plan-manager` owns classify →
-draft/review/one repair → start → implement/delegate → observed acceptance →
-finish/archive; internal `plan-reviewer` returns read-only `PlanReviewV1`
-evidence over one immutable bundle. Only reviewer wrappers exist.
-
-The current contract moves as one PlanRunV1 surface: one unfenced compact-JCS
-record; repository/path/run and cross-repository goal identity; canonical
-plan/source/acceptance hashes; separate two-permit draft/completion phases;
-exclusive preimage/CAS transactions; major checkpoint commits; risk-based
-completion review; target-local legacy quarantine; literal live external
-authority; and Steps `Effect` values
-`local|probe|production_access|publish|push|release|deploy`. Schemas 1–6 are
-historical validation/quarantine only.
-
-When any part changes, synchronize the three skills, the workspace template,
-this repository's `docs/plans/AGENTS.md`, reviewer wrappers, and public routing
-prose. Main owns one content-hash backfill after a coordinated multi-file
-cutover.
+The three `plan-*` skills, their shipped PlanRunV1 machinery, and the reviewer
+wrapper live in the `plan-lifecycle` plugin
+(`plugins/plan-lifecycle/skills/AGENTS.md` owns their authoring and contract
+sync). Under this tree, `refactor`, `security`, `context-tree`, and
+`skill-agent-pipeline` are lifecycle ROUTES: each carries one byte-identical
+absent-lifecycle prerequisite paragraph, asserted verbatim by
+`scripts/tests/plan-skill-phases.mjs` and the plan-lifecycle self-test. Change
+that paragraph only in lockstep across all six routes (these four plus
+effect-kit's `effect-ts-port` and `effect-ts-setup`) and both validators.
 
 ## Cross-tool wording (Claude Code + Codex)
 

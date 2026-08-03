@@ -8,8 +8,8 @@
     {
       "name": "docks",
       "source": "./plugins/docks",
-      "description": "Cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode). Sequential pipeline skills — security audit (OWASP Top 10), refactor (dead code, duplication, SOLID), and skill-agent-pipeline — plus portable convention skills: test-first, coverage, fix workflows, code review, design tokens, dependency-vuln triage, lint discipline, UI polish, SOLID, type-safety, React component patterns, and a docs/plans lifecycle.",
-      "version": "0.15.0",
+      "description": "Cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode). Sequential pipeline skills — security audit (OWASP Top 10), refactor (dead code, duplication, SOLID), and skill-agent-pipeline — plus portable convention skills: test-first, coverage, fix workflows, code review, design tokens, dependency-vuln triage, lint discipline, UI polish, SOLID, type-safety, and React component patterns. Routes plan approval to the companion plan-lifecycle plugin.",
+      "version": "0.16.0",
       "author": {
         "name": "Eduardo Marquez"
       },
@@ -69,7 +69,7 @@
       "name": "effect-kit",
       "source": "./plugins/effect-kit",
       "description": "Cross-tool Effect skill kit: Effect 3.x setup (effect-ts-setup), patterns (effect-ts-specialist), and porting (effect-ts-port), plus version-gated Effect v4 beta guidance (effect-v4).",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "author": {
         "name": "Eduardo Marquez"
       },
@@ -88,6 +88,35 @@
       "tags": [
         "effect",
         "typescript",
+        "cross-tool",
+        "skills",
+        "codex"
+      ]
+    },
+    {
+      "name": "plan-lifecycle",
+      "source": "./plugins/plan-lifecycle",
+      "description": "Cross-tool plan lifecycle for the docs/plans workspace: plan-workspace bootstrap/audit/refresh, main-context plan-manager orchestration (classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive), and the internal read-only plan-reviewer returning bound PlanReviewV1 evidence, plus the shipped PlanRunV1 transaction, lock, and review-policy machinery.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Eduardo Marquez"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/DocksDocks/docks",
+      "repository": "https://github.com/DocksDocks/docks",
+      "keywords": [
+        "plans",
+        "lifecycle",
+        "planning",
+        "review",
+        "skills",
+        "cross-tool",
+        "codex"
+      ],
+      "category": "engineering-workflows",
+      "tags": [
+        "plans",
+        "lifecycle",
         "cross-tool",
         "skills",
         "codex"

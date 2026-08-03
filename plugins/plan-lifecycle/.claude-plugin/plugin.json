@@ -1,0 +1,21 @@
+{
+  "name": "plan-lifecycle",
+  "description": "Cross-tool plan lifecycle for the docs/plans workspace: plan-workspace bootstrap/audit/refresh, main-context plan-manager orchestration (classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive), and the internal read-only plan-reviewer returning bound PlanReviewV1 evidence, plus the shipped PlanRunV1 transaction, lock, and review-policy machinery.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Eduardo Marquez"
+  },
+  "license": "MIT",
+  "keywords": [
+    "plans",
+    "lifecycle",
+    "planning",
+    "review",
+    "skills",
+    "cross-tool",
+    "codex"
+  ],
+  "skills": [
+    "./skills/productivity"
+  ]
+}

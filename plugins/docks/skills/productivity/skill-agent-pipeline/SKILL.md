@@ -4,8 +4,8 @@ description: "Use when bootstrapping or auditing a project's skills and agents â
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-27"
-  content_hash: "c3f57881b5c74e9d7b0daa0b44ffd5ca2033679dfd37db291025e70badf74306"
+  updated: "2026-08-03"
+  content_hash: "bc92b1628f8f4ad01c54c250ac20b0dfd1a8de2205a872190cfa4d0f9482d0f4"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -23,6 +23,8 @@ Agents are emitted in BOTH formats, on every runtime. Phases 4a/4b/5 draft each 
 <constraint>
 Intent controls the plan handoff, not Plan Mode. Write the full skills/agents plan to `docs/plans/` and do NOT call `ExitPlanMode` (Claude-only). Route missing-workspace bootstrap to `plan-workspace`; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, implementation/delegation, verification, and finish/archive. An audit-only or plan-only request stops after the reviewed report. A bootstrap, refresh, or implementation request continues directly into Phase 7 after the manager records the reviewed start checkpoint; no additional user lifecycle command is required.
 </constraint>
+
+Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 
 ## When to use
 

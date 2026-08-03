@@ -8,7 +8,7 @@ import path from 'node:path';
 import {
   validateCurrentPolicy,
   withLegacyClassification,
-} from '../../../plugins/docks/skills/productivity/plan-manager/scripts/legacy-review-records.mjs';
+} from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/legacy-review-records.mjs';
 import { currentPolicy, DRIFTED_SCHEMA6_POLICY, driftedSchema6Receipt } from './fixtures/historical-records.mjs';
 import { LEGACY_RECORD_KINDS, legacyPlan, malformedLegacyCatalog } from './fixtures/legacy-plans.mjs';
 import { IDS, PLAN_PATH, planRun, REPOSITORY_ID, reviewPhase, SOURCE_BASE } from './fixtures/plan-run-v1.mjs';

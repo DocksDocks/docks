@@ -78,9 +78,9 @@ tree_nodes:
 ```yaml
 bundled_skills:
   - { source: plugins/docks/skills/productivity/context-tree }
-  - { source: plugins/docks/skills/productivity/plan-workspace }
-  - { source: plugins/docks/skills/productivity/plan-manager }
-  - { source: plugins/docks/skills/productivity/plan-reviewer }
+  - { source: plugins/plan-lifecycle/skills/productivity/plan-workspace }
+  - { source: plugins/plan-lifecycle/skills/productivity/plan-manager }
+  - { source: plugins/plan-lifecycle/skills/productivity/plan-reviewer }
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 

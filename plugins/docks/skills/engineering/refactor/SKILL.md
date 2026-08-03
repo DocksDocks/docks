@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-07-24"
-  content_hash: "5015812fbe4d0d58821ab6deb9b8ac7cf4a358f7b3fe2f73cbadf4a7511f990f"
+  updated: "2026-08-03"
+  content_hash: "8f037ab1425d3b1a6fccd3ddfb69bdba14ed4607bf2567e5e7836375a396f08e"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -19,6 +19,8 @@ Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS con
 <constraint>
 Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, the unified `plan-manager` owns canonical-plan creation, fresh review, the reviewed start checkpoint, implementation/delegation, verification, and finish/archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Do not call `ExitPlanMode` (Claude-only). Stop only for a real unresolved user decision or persisted blocker.
 </constraint>
+
+Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 
 <constraint>
 Implementation discipline (Phases 7–8). ONE refactoring at a time — never batch before testing. Run tests after each change; on failure REVERT immediately (`git restore`, or `git restore --staged` + `git restore` for a re-staged `git rm`) and log `REVERTED: <reason>` — do not try to "fix" it. Delete files with `git rm` only (never raw `rm`). Do not touch code beyond the planned change.

@@ -8,7 +8,7 @@ import {
   canonicalVerificationResults,
   parsePlan,
   validatePlanRunRecord,
-} from '../../plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs';
+} from '../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs';
 import {
   ASSETS,
   COMMIT,
