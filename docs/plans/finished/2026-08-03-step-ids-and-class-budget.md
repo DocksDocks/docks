@@ -1,11 +1,11 @@
 ---
 title: Give steps stable identifiers and charge permits by defect class
 goal: Make step references stable, catch decidable guard defects before review, and continue draft review only for unseen closed defect classes.
-status: ongoing
+status: finished
 created: "2026-08-01T22:11:43-03:00"
-updated: "2026-08-03T12:57:20.610+00:00"
+updated: "2026-08-03T13:45:31.981+00:00"
 started_at: "2026-08-03T03:19:58.502+00:00"
-finished_at: null
+finished_at: "2026-08-03T13:45:31.981+00:00"
 assignee: null
 tags: [plans, plan-manager, plan-reviewer, review-budget, registered-idea]
 affected_paths:
@@ -36,7 +36,7 @@ related_plans: []
 
 # Give steps stable identifiers and charge permits by defect class
 
-Plan-run: {"acceptance":{"source_sha256":"b909501eda67eb2c9143e94a50c9534548bca68a5c32c52f50b35fe89891e210","verification_sha256":"dac7a1f50eefe64889ea7831330b79cf932955fef16f2712e615a25344ba9508"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"4fc631c93296642ea30f36ab4a62f5b464bc0ab9adfd3ff9a8df1dffe517c69a","invocations":1,"result_sha256":"4e500b6fb7a6838c22ce9e560cd2932e05b63f4e8fbb06753f9ea4b257c307eb","state":"repairing"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"0a6642ffb5b88b25e060a703f8e913df481e74e7c5848dcaa66b4f587426786f","invocations":2,"result_sha256":"d35d4efb88c7b3d13c9a0c7d539571cca94e816cb384e8fc9ba3ca91778983ea","state":"passed"},"execution_parent":"7328cb569e1f2578733a02915a1068435d437785","goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":"882e54fc1ba891b23114f047f008c1fd814f6997","plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"e46d921ab7b5189cc0034156a5628652d3a3fbd814ee750d45ff4fed832f40fe","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"219e900ba7d828bcaa117f015555cd25c22fbd10","source_sha256":"539539e124309e16180e71e53d033f3ab9adbb890fa25ed3a61971a80ec09419"}
+Plan-run: {"acceptance":{"source_sha256":"9bf87dbb5ad0fa482b62ea0147dbba3e39e5a4dd980d3c7be4f14d1d4fdc9de0","verification_sha256":"7ad55fc1c0cd056ab40fe37f60831628a3e7733d54fd5d1802cd878eb517bc0e"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"f9da4a0bc3664428c082ed75e50c09cab2b57e96a4dee57bbdbfa539c7657076","invocations":2,"result_sha256":"28abe99e8c4531b9caf7036663e3da8358d22eed0694bb2bd314251271229247","state":"passed"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"0a6642ffb5b88b25e060a703f8e913df481e74e7c5848dcaa66b4f587426786f","invocations":2,"result_sha256":"d35d4efb88c7b3d13c9a0c7d539571cca94e816cb384e8fc9ba3ca91778983ea","state":"passed"},"execution_parent":"7328cb569e1f2578733a02915a1068435d437785","goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":"426860f53336ee1d58c45e093715aaf99b23d12e","plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"e46d921ab7b5189cc0034156a5628652d3a3fbd814ee750d45ff4fed832f40fe","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"219e900ba7d828bcaa117f015555cd25c22fbd10","source_sha256":"539539e124309e16180e71e53d033f3ab9adbb890fa25ed3a61971a80ec09419"}
 
 ## Goal
 
@@ -282,11 +282,16 @@ Completion review invocation 1:
 
 Completion-review-result: {"diff_sha256":"7e23607ebc1ce919681b6672f4a9cdf401fa28e1d02f33a2bc4d83bb6e3f4ad6","findings":[{"defect":"All four shipped contract copies still state \"The frozen set is exactly `docs/plans/active/lifecycle-dispatch-integrity.md`, `docs/plans/active/plan-lifecycle-plugin-extraction.md`, `docs/plans/active/relay-fanout-reaper-reporting.md`, `docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md`, and `docs/plans/active/step-ids-and-class-budget.md`\", but `GRANDFATHERED_STEP_ID_PLAN_PATHS` holds exactly two entries (`plan-lifecycle-plugin-extraction.md`, `step-ids-and-class-budget.md`), and sealed decision D1 names exactly those two. The three dropped entries were removed at 219e900 precisely to close the archived-filename-reuse hole (`scripts/tests/plan-orchestration/plan-self-check.mjs` asserts `docs/plans/active/relay-fanout-reaper-reporting.md` and `docs/plans/active/lifecycle-dispatch-integrity.md` now `must be treated as a new plan`), yet the contract a cold author reads still promises those two active paths an exemption the validator will refuse with `new plans require Id immediately after #`. Worse, `scripts/tests/plan-skill-phases.mjs` pins the three stale strings as required clauses (`grandfather-path-dispatch-integrity`, `grandfather-path-fanout-reaper`, `grandfather-path-release`), so A5 is green while certifying the wrong set — it now blocks the correction instead of catching the drift. This defeats Step 5 (\"Synchronize the optional legacy/new Steps schemas … across the live contract, manager/workspace skills, generated contract template, and verbatim assertions\") whose failure action is \"STOP on contract/template drift\". Verified: `docs/plans/active/` contains only the two plans the code lists; the other two files do not exist as active plans.","fix":"In `docs/plans/AGENTS.md`, `plan-manager/SKILL.md`, `plan-workspace/SKILL.md` and `plan-workspace/references/plans-agents-md-template.md`, reduce the enumerated frozen set to the two paths in `GRANDFATHERED_STEP_ID_PLAN_PATHS` and state D1's second route explicitly (every `docs/plans/finished/` path is grandfathered by prefix, so an archived plan carries no frozen entry and its old active path is treated as new). Keep the node and the template's fenced block byte-identical. In `scripts/tests/plan-skill-phases.mjs`, delete the `grandfather-path-dispatch-integrity`, `grandfather-path-fanout-reaper` and `grandfather-path-release` clauses and add a positive clause for the finished-prefix route, so the pinned copies match `plan-self-check.mjs`. Refresh the two `metadata.content_hash` values and re-run `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows` and `node scripts/ci.mjs --plugin docks`.","id":"C1","kind":"contradiction","locator":"docs/plans/AGENTS.md:110-115; plugins/docks/skills/productivity/plan-manager/SKILL.md:73; plugins/docks/skills/productivity/plan-workspace/SKILL.md:109-114; plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md:117-122; scripts/tests/plan-skill-phases.mjs:28-43 (vs plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs:75-82)"},{"defect":"`validateInvocation` still enforces `if (value !== 1 && value !== 2) throw new Error(...)` for every `PlanReviewV1` binding and result, while this patch raised the draft budget to `DRAFT_REVIEW_INVOCATION_LIMIT = 12` in `plan-run.mjs:43` and `dispatch-review.mjs:129`, and the contract copies this patch wrote declare `PlanReviewV1 = { schema:1, run_id:uuid, invocation:1..12, … }` (`docs/plans/AGENTS.md:357`, `plans-agents-md-template.md:364`). `dispatch-review.mjs` computes `invocation = phase.invocations + 1` and passes it to `policy.createPlanReviewBundle` (dispatch-review.mjs:232), which calls `validatePlanBinding` → `validateInvocation`; a third draft round therefore dies before sealing a bundle, and `validatePlanReview` would reject any invocation-3 result as well. Confirmed by direct call: `validatePlanReview({… invocation:3 …}, {… invocation:3 …})` throws `expected plan review binding invocation must be 1 or 2`. The effective draft ceiling is still the flat two the plan set out to replace, so D3 and Step 3 (\"replace the draft-only flat ceiling with the finite class budget\") are unreachable end to end. A3's `finite draft class budget allows twelve invocations` case (`scripts/tests/plan-orchestration/review-budget.mjs`) drives only the `plan-run.mjs` reducer and never binds the reviewer policy, which is why 208/208 passes over a broken path.","fix":"In `review-policy.mjs`, split the bound: derive the plan-review maximum from the closed vocabulary (`1 + Object.values(PLAN_FINDING_CLASSES).flat().length`) and accept `1..that` in `validatePlanBinding`/`validateReviewEnvelope` for `PlanReviewV1`, while `validateCompletionBinding`/`validateCompletionReview` keep `1|2` (the plan's out-of-scope list fixes completion review at two). Then add a case to `scripts/tests/plan-orchestration/review-budget.mjs` that seals a bundle and validates a result at the twelfth draft invocation and still rejects thirteen, so the reviewer-policy bound and `DRAFT_REVIEW_INVOCATION_LIMIT` cannot drift apart again; both files are already declared in `affected_paths` and named by Steps 2 and 3.","id":"C2","kind":"contradiction","locator":"plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs:108-110 (vs plan-run.mjs:43, dispatch-review.mjs:129,232, docs/plans/AGENTS.md:357)"}],"implementation_commit":"882e54fc1ba891b23114f047f008c1fd814f6997","invocation":1,"run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"verdict":"repair"}
 
+
+Completion review invocation 2:
+
+Completion-review-result: {"diff_sha256":"db4f120faddbea3bb5d28bb24293ab15c93d4c85fc815c43134c879e2042cdc9","findings":[],"implementation_commit":"426860f53336ee1d58c45e093715aaf99b23d12e","invocation":2,"run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"verdict":"pass"}
+
 ## Verification Results
 
 ### Implementation (2026-08-02)
 
-Implementation spans `9107d10`, `e11e82c`, `ae3e912`, `068131f` and `219e900`, on ancestry from
+Implementation spans `9107d10`, `e11e82c`, `ae3e912`, `068131f`, `219e900` and `426860f`, on ancestry from
 `7328cb5`, this run's `execution_parent`. Every path this work
 touched is inside the twenty-two `affected_paths`; the only other modified file is the plan record
 itself, which lifecycle transitions own and which is correctly absent from `affected_paths`.
@@ -433,18 +438,70 @@ compares only the working tree with the index, so a committed change to a histor
 was invisible to it — and Steps 1-6 commit. `A7` is now a range diff over
 `execution_parent..implementation_commit`, which is the form that can actually fail.
 
+**Two contradictions from completion invocation 1, both fixed at `426860f`.**
+
+`C2` — the feature could not run past its second draft round. `review-policy.mjs` still enforced
+`invocation !== 1 && invocation !== 2` for every `PlanReviewV1` binding and result, while the draft
+budget had become one initial round plus the closed vocabulary. `dispatch-review.mjs` computes
+`invocation = phase.invocations + 1` and hands it to `createPlanReviewBundle`, so a third draft
+round — precisely what the class budget exists to permit — would have thrown inside the reviewer
+policy before any review happened. The plan shipped a budget its own validator forbade spending.
+
+The bound is now split by review type and derived from `PLAN_FINDING_CLASS_VOCABULARY`, so no
+literal ceiling exists to drift from the vocabulary; completion review keeps `1..2`. The obvious
+wrong fix is tested against: widening the shared bound for both paths instead of splitting it fails
+the case requiring `CompletionReviewV1` at invocation 3 to be rejected, which is STOP condition 7.
+
+`C1` — all four shipped contract copies still enumerated the stale five-path frozen grandfather set
+while the validator holds two. They now state both routes and why an archived plan carries no frozen
+entry. `docs/plans/AGENTS.md` is 499 lines against its 500 cap, and the template still generates it
+byte-for-byte, verified by extracting the fenced block and comparing digests rather than by eye.
+
+**A clarity change deliberately NOT made here.** Correcting the wrappers for `class` left them
+stating that "each finding" carries it. Both wrappers are draft-only — neither mentions
+`CompletionReviewV1` — so the claim is true in scope, but it reads as universal and naming
+`PlanReviewV1` would be clearer. That is a clarity improvement, not a correctness fix, and the
+contract allows exactly one implementation replacement per repair, already spent on `426860f` for
+the two real findings. Rather than spend a second checkpoint on wording, the change is held as a
+patch for `plan-lifecycle-plugin-extraction`, which declares both wrapper files and the
+`codex-agent-templates.md` copy carrying the same stale shape, so all three land together.
+
+**A claim checked and rejected, recorded because the check is the evidence.** It was put to me that
+`dispatch-review.mjs` builds the class-bearing prompt for both phases, so any completion review
+returning `repair` would emit an unrecordable result through the shipped path. Measured: `PHASE` is
+the hard-coded constant `'draft_review'` at `dispatch-review.mjs:44`, and `completion_review` never
+appears in that file. The driver is draft-only, `buildPlanReviewPrompt` only ever serves the draft
+path, and `class` is required there. There is no shipped path on which that prompt reaches
+`validateCompletionReview`. No change was made, because none was warranted.
+
+**A real drift this plan may not touch, with a named owner.**
+`plugins/docks/skills/productivity/plan-workspace/references/codex-agent-templates.md:80-81` still
+documents the pre-`class` draft finding shape, which now contradicts the wrappers this plan
+corrected. It is outside these twenty-two `affected_paths`, and this run is `ongoing`, so the path
+set can no longer move: declaring it would require another replacement, and editing it undeclared is
+STOP condition 6. It is already declared by `docs/plans/active/plan-lifecycle-plugin-extraction.md`,
+which owns and relocates that file, so the correction belongs there. Recorded rather than silently
+carried or quietly fixed.
+
+**One harness error, recorded because it was mine and not the code's.** My first completion dispatch
+required a `class` key on `CompletionReviewV1` findings. The validator rejected it with
+`CompletionReviewV1 finding contains unknown field class`, and it was right: the class vocabulary is
+scoped to draft review by design, and extending it to completion review is explicitly out of scope.
+The verdict and its two findings were unaffected; the field was stripped and the result recorded
+unchanged.
+
 ### Acceptance
 
 | ID | Result |
 |---|---|
 | A1 | `node scripts/tests/plan-orchestration.mjs --case plan-self-check` — exit 0, `plan-orchestration: 27/27 passed`; grandfather advisories, new-plan identifier enforcement, and known/unknown/duplicate guard citations all named |
 | A2 | `node scripts/tests/plan-orchestration.mjs --case plan-self-check` — exit 0, `plan-orchestration: 27/27 passed`; numeric `Depends` accepts an earlier display number and rejects missing, equal and forward references. Same command as A1 by the plan's own text; recorded separately because the criteria table lists it twice |
-| A3 | `node scripts/tests/plan-orchestration.mjs --case review-budget` — exit 0, `plan-orchestration: 24/24 passed` |
+| A3 | `node scripts/tests/plan-orchestration.mjs --case review-budget` — exit 0, `plan-orchestration: 25/25 passed`, including the class-derived draft bound |
 | A4 | `node scripts/tests/plan-orchestration.mjs --case dispatch-driver` — exit 0, `plan-orchestration: 12/12 passed`, including `ok - plan-dispatch-probes: class-sweep-before-reserve`, whose realistic Review-body case now bites |
 | A5 | `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows` — exit 0, `three-skill, one-wrapper bounded plan workflows passed` |
-| A6 | `node scripts/tests/plan-orchestration.mjs` — exit 0, `plan-orchestration: 208/208 passed` at `219e900`. It was 205/205 at `9107d10`; the repairs added the Review-section grandfather case, the repairing-transaction case, and the archived-path reuse case |
-| A7 | `git diff --exit-code 7328cb5..219e900 -- docs/plans/finished` — exit 0, no output. The range form is the binding one; the working-tree form the predecessor used could not see a committed historical change |
-| A8 | `node scripts/ci.mjs --plugin docks` — exit 0, `All ci.mjs checks passed — plugin 'docks'; safe to release.` The full `node scripts/ci.mjs` also passes at `219e900` across all three plugins and repo-wide |
+| A6 | `node scripts/tests/plan-orchestration.mjs` — exit 0, `plan-orchestration: 209/209 passed`. It was 205/205 at `9107d10`; the repairs added the Review-section grandfather case, the repairing-transaction case, and the archived-path reuse case |
+| A7 | `git diff --exit-code 7328cb5..<implementation_commit> -- docs/plans/finished` — exit 0, no output. The range form is the binding one; the working-tree form the predecessor used could not see a committed historical change |
+| A8 | `node scripts/ci.mjs --plugin docks` — exit 0, `All ci.mjs checks passed — plugin 'docks'; safe to release.` The full `node scripts/ci.mjs` also passes across all three plugins and repo-wide |
 | A9 | `grep -n 'id,kind,class,locator,defect,fix' plugins/docks/agents/plan-reviewer.md .codex/agents/plan-reviewer.toml` — exit 0, one match in each shipped wrapper |
 
 ### Live-tooling safety
