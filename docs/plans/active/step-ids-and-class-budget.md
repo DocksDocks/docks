@@ -3,7 +3,7 @@ title: Give steps stable identifiers and charge permits by defect class
 goal: Make step references stable, catch decidable guard defects before review, and continue draft review only for unseen closed defect classes.
 status: drafting
 created: "2026-08-01T22:11:43-03:00"
-updated: "2026-08-03T02:38:12.199+00:00"
+updated: "2026-08-03T02:44:19.407+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -34,7 +34,7 @@ related_plans: []
 
 # Give steps stable identifiers and charge permits by defect class
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"6150d99ff82dbcf92be0ea373b2b93e377c139324fa3af61c89fb1f0c26a6610","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"a30d50a4328e42b7f02ec6447cbf765d952224c7","source_sha256":"4747cd48ade7d7d7681801cbf6dcabf36392c1961e7b82538d286dd3103cc050"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"6d4b691faf3ebc09e045732321b89f4afde50927dc06dc5ec810714a484d910e","invocations":1,"result_sha256":"bfc7a75b8dde44c7d4743a31d5b6437f264acf7856d2077e3d5b71dc7f7349b0","state":"repairing"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"6150d99ff82dbcf92be0ea373b2b93e377c139324fa3af61c89fb1f0c26a6610","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"bf983e2e548c14e1fdbd5177935b90b00b403778","source_sha256":"230266632b7b8ae63189883549b452319eb2d1965a121ac0fbc7ac05262bdfa4"}
 
 ## Goal
 
