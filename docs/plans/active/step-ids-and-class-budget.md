@@ -3,7 +3,7 @@ title: Give steps stable identifiers and charge permits by defect class
 goal: Make step references stable, catch decidable guard defects before review, and continue draft review only for unseen closed defect classes.
 status: drafting
 created: "2026-08-01T22:11:43-03:00"
-updated: "2026-08-03T03:03:25.415+00:00"
+updated: "2026-08-03T03:17:57.954+00:00"
 started_at: null
 finished_at: null
 assignee: null
@@ -36,7 +36,7 @@ related_plans: []
 
 # Give steps stable identifiers and charge permits by defect class
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"6d4b691faf3ebc09e045732321b89f4afde50927dc06dc5ec810714a484d910e","invocations":1,"result_sha256":"bfc7a75b8dde44c7d4743a31d5b6437f264acf7856d2077e3d5b71dc7f7349b0","state":"repairing"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"e46d921ab7b5189cc0034156a5628652d3a3fbd814ee750d45ff4fed832f40fe","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"068131fa043838c19951563345cc5dfad5eb6179","source_sha256":"e133578254c4afe81e8e41da1e39865ece02b4adb24d982ed28538bebe0d75aa"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"0a6642ffb5b88b25e060a703f8e913df481e74e7c5848dcaa66b4f587426786f","invocations":2,"result_sha256":"d35d4efb88c7b3d13c9a0c7d539571cca94e816cb384e8fc9ba3ca91778983ea","state":"passed"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"e46d921ab7b5189cc0034156a5628652d3a3fbd814ee750d45ff4fed832f40fe","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"219e900ba7d828bcaa117f015555cd25c22fbd10","source_sha256":"539539e124309e16180e71e53d033f3ab9adbb890fa25ed3a61971a80ec09419"}
 
 ## Goal
 
