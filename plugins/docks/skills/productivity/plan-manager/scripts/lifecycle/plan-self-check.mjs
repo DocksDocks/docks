@@ -901,7 +901,7 @@ function structuralContext(planText) {
     const table = tableInSection(lines.slice(index), first);
     if (table !== null) bindsTables.push(table);
   }
-  const recordLine = lines.find((line) => line.startsWith('Plan-run: '));
+  const recordLine = planText.split('\n').find((line) => line.startsWith('Plan-run: '));
   const record = recordLine === undefined ? null : JSON.parse(recordLine.slice('Plan-run: '.length));
   const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(planText)?.[1] ?? '';
   const status = /^status:\s*(\S+)\s*$/m.exec(frontmatter)?.[1] ?? null;

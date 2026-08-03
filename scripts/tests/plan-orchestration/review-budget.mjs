@@ -1057,6 +1057,14 @@ export function registerReviewBudget(suite, api, reviewer) {
 
       reviewer.cleanupPlanReviewBundle({ bundlePath: bundle.path, expectedSha256: bundle.sha256 });
       assert.equal(fs.existsSync(bundle.path), false);
+      assert.ok(
+        prompt.includes('Each finding has exactly these required keys: id, kind, class, locator, defect, fix.'),
+        'plan review prompt must require the class finding key',
+      );
+      for (const [kind, classes] of Object.entries(reviewer.PLAN_FINDING_CLASSES)) {
+        const mapping = `${kind}: ${classes.join(', ')}`;
+        assert.ok(prompt.includes(mapping), `plan review prompt must name the closed class mapping for ${mapping}`);
+      }
     }),
   );
 

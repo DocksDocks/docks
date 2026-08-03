@@ -618,8 +618,9 @@ export function buildPlanReviewPrompt(input) {
     'Return exactly one compact canonical JCS object matching PlanReviewV1.',
     'Use verdict pass with no findings, repair only for repository-grounded defects,',
     'or blocked only when a required user decision or safety authority is missing.',
-    'Each finding has exactly: id, kind, locator, defect, fix.',
-    'Allowed finding kinds: missing_decision, contradiction, unsafe_scope, missing_acceptance.',
+    'Each finding has exactly these required keys: id, kind, class, locator, defect, fix.',
+    'Allowed finding kind-to-class mapping (closed):',
+    ...Object.entries(PLAN_FINDING_CLASSES).map(([kind, classes]) => `- ${kind}: ${classes.join(', ')}`),
     'Do not echo the plan, manifest, bundle, or prompt.',
   ].join('\n');
   if (Buffer.byteLength(prompt) >= 4 * 1024) throw new Error('plan review prompt exceeds 4 KiB');

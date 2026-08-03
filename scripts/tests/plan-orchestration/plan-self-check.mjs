@@ -157,6 +157,22 @@ export function registerPlanSelfCheck(suite, mod) {
     }
   });
 
+  suite.test(G, 'a frozen plan reads its Plan-run record from the Review section', () => {
+    const planPath = 'docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md';
+    const plan = `${fixture({ includeIds: false })}
+## Review
+
+Plan-run: ${JSON.stringify({ plan_path: planPath })}
+`;
+    const result = mod.stepIdentifierDiagnostics(plan);
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(result.advisories, [
+      `Steps table has no Id column for ${planPath}; grandfathered plan keeps numeric display identifiers`,
+    ]);
+    assert.equal(mod.scriptChecks(plan).P20.verdict, 'pass');
+    assert.equal(mod.scriptChecks(plan).P20.advisory, true);
+  });
+
   suite.test(G, 'known guard step identifiers pass and enumerate by stable Id', () => {
     const plan = fixture({
       steps: [
