@@ -20,6 +20,7 @@ import {
   validateCompletionReview as validateCurrentCompletionReview,
   validatePlanRunRecord,
 } from '../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs';
+import { CURRENT_RELEASE_TARGETS } from './rust-bin.mjs';
 import {
   COMMIT,
   canonicalize,
@@ -114,12 +115,10 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const HISTORICAL_RECEIPTS_0_13 = LEGACY.historical_receipts;
 const SOURCE_CI_WORKFLOW = '.github/workflows/ci.yml';
 const BUILD_WORKFLOW = '.github/workflows/build-binaries.yml';
-const TARGETS = [
-  'x86_64-unknown-linux-musl',
-  'aarch64-unknown-linux-musl',
-  'x86_64-apple-darwin',
-  'aarch64-apple-darwin',
-];
+// Current-generation preflight target set. Retained 0.13-0.15 preflight
+// receipts are bound by digest in `historical_receipts`, never re-validated
+// through this list, so narrowing it cannot touch historical evidence.
+const TARGETS = CURRENT_RELEASE_TARGETS;
 const NON_PULL_REQUEST_CONDITION = "github.event_name != 'pull_request'";
 const NON_PULL_REQUEST_RUST_CONDITION =
   "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
@@ -581,7 +580,7 @@ export function validateProducerPreflightReceipt(value, context = {}) {
   exactArray(value.artifacts, 'preflight artifacts');
   exactArray(value.attestations, 'preflight attestations');
   if (value.artifacts.length !== TARGETS.length || value.attestations.length !== TARGETS.length)
-    fail('preflight must contain four binaries and four attestations');
+    fail('preflight must contain three binaries and three attestations');
   const artifactByTarget = new Map();
   const ids = new Set();
   for (const artifact of value.artifacts) {

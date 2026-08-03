@@ -142,11 +142,6 @@ jobs:
             runner_arch: ARM64
             target: aarch64-unknown-linux-musl
             asset: session-relay-aarch64-unknown-linux-musl
-          - runner: macos-15-intel
-            runner_os: macOS
-            runner_arch: X64
-            target: x86_64-apple-darwin
-            asset: session-relay-x86_64-apple-darwin
           - runner: macos-15
             runner_os: macOS
             runner_arch: ARM64
@@ -260,7 +255,7 @@ jobs:
           echo "workspace filesystem: $filesystem_device ($filesystem_type)"
           test "$filesystem_type" = apfs
           case "$(uname -m):$TARGET" in
-            x86_64:x86_64-apple-darwin|arm64:aarch64-apple-darwin) ;;
+            arm64:aarch64-apple-darwin) ;;
             *) echo "target is not native to this macOS runner" >&2; exit 1 ;;
           esac
           test -x "$RUNNER_TEMP/session-relay/$TARGET/$ASSET_NAME"
@@ -338,7 +333,7 @@ jobs:
           compression-level: 0
 
   aggregate:
-    name: verify four native assets and generate checksums
+    name: verify three native assets and generate checksums
     needs: [identity, build]
     runs-on: ubuntu-24.04
     steps:
@@ -372,7 +367,6 @@ jobs:
           const targets = {
             'aarch64-apple-darwin': { runner_arch: 'ARM64', runner_os: 'macOS' },
             'aarch64-unknown-linux-musl': { runner_arch: 'ARM64', runner_os: 'Linux' },
-            'x86_64-apple-darwin': { runner_arch: 'X64', runner_os: 'macOS' },
             'x86_64-unknown-linux-musl': { runner_arch: 'X64', runner_os: 'Linux' },
           };
           const keys = [
@@ -415,10 +409,9 @@ jobs:
           sha256sum \
             session-relay-aarch64-apple-darwin \
             session-relay-aarch64-unknown-linux-musl \
-            session-relay-x86_64-apple-darwin \
             session-relay-x86_64-unknown-linux-musl \
             > SHA256SUMS
-          test "$(wc -l < SHA256SUMS)" -eq 4
+          test "$(wc -l < SHA256SUMS)" -eq 3
       - name: upload same-run checksum manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -450,7 +443,7 @@ jobs:
         with:
           name: session-relay-checksums
           path: ${{ runner.temp }}/session-relay-publish
-      - name: validate and stage exactly five release assets
+      - name: validate and stage exactly four release assets
         env:
           EXPECTED_COMMIT: ${{ needs.identity.outputs.source_commit }}
           EXPECTED_TAG: ${{ needs.identity.outputs.tag }}
@@ -466,7 +459,6 @@ jobs:
           assets=(
             session-relay-aarch64-apple-darwin
             session-relay-aarch64-unknown-linux-musl
-            session-relay-x86_64-apple-darwin
             session-relay-x86_64-unknown-linux-musl
           )
           for asset in "${assets[@]}"; do
@@ -480,10 +472,10 @@ jobs:
 
           shopt -s nullglob
           staged=("$release"/*)
-          test "${#staged[@]}" -eq 5
-          printf 'Session Relay %s is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.' \
+          test "${#staged[@]}" -eq 4
+          printf 'Session Relay %s is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.\n\nx86_64-apple-darwin is no longer published as of Session Relay 0.16.0; macOS support is aarch64-apple-darwin.' \
             "$EXPECTED_VERSION" > "$RUNNER_TEMP/session-relay-prerelease.md"
-      - name: create or reconcile public prerelease from exactly five same-run assets
+      - name: create or reconcile public prerelease from exactly four same-run assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.identity.outputs.tag }}
@@ -496,7 +488,6 @@ jobs:
           assets=(
             session-relay-aarch64-apple-darwin
             session-relay-aarch64-unknown-linux-musl
-            session-relay-x86_64-apple-darwin
             session-relay-x86_64-unknown-linux-musl
             SHA256SUMS
           )

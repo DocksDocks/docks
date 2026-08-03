@@ -97,10 +97,12 @@ const ATTESTATION_KEYS = [
   'workflow_run_id',
 ];
 const INPUT_KEYS = ['expected_commit', 'expected_tag', 'mode'];
+// Runner map for the CURRENT three-leg native producer; validateRunBundle sizes
+// the live attestation set from it. The retired x86_64-apple-darwin leg only
+// survives in RETAINED_LEGACY_ASSETS below for reading frozen 0.13 receipts.
 const TARGET_RUNNERS = {
   'aarch64-apple-darwin': { runner_arch: 'ARM64', runner_os: 'macOS' },
   'aarch64-unknown-linux-musl': { runner_arch: 'ARM64', runner_os: 'Linux' },
-  'x86_64-apple-darwin': { runner_arch: 'X64', runner_os: 'macOS' },
   'x86_64-unknown-linux-musl': { runner_arch: 'X64', runner_os: 'Linux' },
 };
 
@@ -114,6 +116,17 @@ const LEGACY_PRERELEASE_BODY =
 const LEGACY_STABLE_BODY =
   'Session Relay 0.13.0 is available through docks-kit.\n\n## Install or update\n\n```\ndocks-kit sync\n```';
 const HISTORICAL_PUBLICATION_SHA256 = LEGACY.historical_receipts.publication;
+// The retained 0.13-generation closed asset set. That generation shipped four
+// binaries including x86_64-apple-darwin; its receipts are frozen and must keep
+// validating byte-identically, so the legacy validators never read the narrowed
+// current ASSETS set.
+const RETAINED_LEGACY_ASSETS = Object.freeze([
+  'session-relay-aarch64-apple-darwin',
+  'session-relay-aarch64-unknown-linux-musl',
+  'session-relay-x86_64-apple-darwin',
+  'session-relay-x86_64-unknown-linux-musl',
+  'SHA256SUMS',
+]);
 const ORDINARY_ASSETS = ASSETS.filter((name) => name !== 'SHA256SUMS');
 const PUBLICATION_V2_KEYS = [
   'schema',
@@ -369,21 +382,24 @@ export function normalizedAssets(release) {
     .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 }
 
-function assertAssetRecord(asset, label) {
+function assertAssetRecord(asset, label, closedSet = ASSETS) {
   exactKeys(asset, ASSET_KEYS, label);
   if (!Number.isInteger(asset.database_id) || asset.database_id <= 0) fail(`${label} database identity is invalid`);
-  if (!ASSETS.includes(asset.name)) fail(`${label} name is invalid`);
+  if (!closedSet.includes(asset.name)) fail(`${label} name is invalid`);
   if (!Number.isInteger(asset.size) || asset.size < 0) fail(`${label} size is invalid`);
   if (!SHA256.test(asset.digest ?? '')) fail(`${label} digest is missing or invalid`);
 }
 
-export function assertCompleteAssets(assets) {
-  const expected = [...ASSETS].sort();
+// Closed-set check for one release generation: the CURRENT three-binary set by
+// default, or RETAINED_LEGACY_ASSETS when a retained schema-1 0.13 receipt is
+// being read.
+export function assertCompleteAssets(assets, closedSet = ASSETS) {
+  const expected = [...closedSet].sort();
   if (assets.length !== expected.length || assets.some((asset, index) => asset.name !== expected[index])) {
     fail('release asset set is absent, partial, duplicated, or conflicting');
   }
   assets.forEach((asset, index) => {
-    assertAssetRecord(asset, `release asset ${index}`);
+    assertAssetRecord(asset, `release asset ${index}`, closedSet);
   });
 }
 
@@ -623,7 +639,7 @@ function validateCurrentPublicationReceipt(receipt, proof, label) {
   if (!Array.isArray(value.assets)) fail(`${label} assets must be an array`);
   const names = value.assets.map(({ name }) => name);
   if (canonicalize(names) !== canonicalize([...ASSETS].sort())) {
-    fail(`${label} closed asset set must be exactly four native binaries plus SHA256SUMS and no Windows asset`);
+    fail(`${label} closed asset set must be exactly three native binaries plus SHA256SUMS and no Windows asset`);
   }
   const assetByName = new Map();
   const databaseIds = new Set();
@@ -722,7 +738,9 @@ export function validatePublicationReceipt(receipt, proof, label) {
     fail(`${label} immutable identity conflict`);
   validateWorkflowIdentity(receipt.value.workflow, proof.value.tag_commit, `${label} workflow`, expectedTag);
   if (!Array.isArray(receipt.value.assets)) fail(`${label} assets must be an array`);
-  assertCompleteAssets(receipt.value.assets);
+  // Retained schema-1 0.13 receipts keep their frozen four-binary closed set;
+  // a schema-1 receipt minted for the current version carries the current set.
+  assertCompleteAssets(receipt.value.assets, legacy ? RETAINED_LEGACY_ASSETS : ASSETS);
   return receipt;
 }
 

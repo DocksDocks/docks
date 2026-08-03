@@ -10,12 +10,28 @@ const HOST_ARCHITECTURES = {
   arm64: 'aarch64',
 };
 
+// Known target identities for compatibility parsing. This table deliberately
+// retains x86_64-apple-darwin: frozen 0.13-0.15 receipts, captured fixtures, and
+// finished plans still name that target, and their validators must keep reading
+// it byte-identically. Whether a target is CURRENTLY produced is a separate
+// question answered by CURRENT_RELEASE_TARGETS below.
 const TARGET_IDENTITIES = {
   'x86_64-unknown-linux-musl': { format: 'elf', architecture: 'x86_64' },
   'aarch64-unknown-linux-musl': { format: 'elf', architecture: 'aarch64' },
   'x86_64-apple-darwin': { format: 'mach-o', architecture: 'x86_64' },
   'aarch64-apple-darwin': { format: 'mach-o', architecture: 'aarch64' },
 };
+
+// The current-generation prebuilt release target set. x86_64-apple-darwin is no
+// longer published as of Session Relay 0.16.0; macOS support is
+// aarch64-apple-darwin. Current producer, preflight, publication, and promotion
+// paths accept exactly these targets plus SHA256SUMS, while retained historical
+// validators keep their own four-target sets.
+export const CURRENT_RELEASE_TARGETS = Object.freeze([
+  'x86_64-unknown-linux-musl',
+  'aarch64-unknown-linux-musl',
+  'aarch64-apple-darwin',
+]);
 
 // Host target triple matching the supported prebuilt release targets.
 export function rustHostTarget(platform = process.platform, arch = process.arch) {

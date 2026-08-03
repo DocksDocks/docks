@@ -31,7 +31,7 @@
 //                 prerelease staging and its closed prebuilt asset set
 import fs from 'node:fs';
 import path from 'node:path';
-import { rustReleaseAssetNames } from './rust-bin.mjs';
+import { CURRENT_RELEASE_TARGETS, rustReleaseAssetNames } from './rust-bin.mjs';
 
 // `CARGO_TARGET_DIR` is documented as relative to cargo's working directory, not
 // to the repository root — `CARGO_TARGET_DIR=reltarget cargo metadata` run from
@@ -75,13 +75,11 @@ export function privatizeBuiltBinary({ binary, dir }) {
   return privateBinary;
 }
 
+// The Session Relay prebuilt descriptor tracks the CURRENT release generation
+// only; retained historical four-target (x86_64-apple-darwin) expectations live
+// beside the retained validators, never here.
 const SESSION_RELAY_PREBUILT = Object.freeze({
-  targets: Object.freeze([
-    'x86_64-unknown-linux-musl',
-    'aarch64-unknown-linux-musl',
-    'x86_64-apple-darwin',
-    'aarch64-apple-darwin',
-  ]),
+  targets: CURRENT_RELEASE_TARGETS,
   assetPrefix: 'session-relay',
   checksumAsset: 'SHA256SUMS',
 });

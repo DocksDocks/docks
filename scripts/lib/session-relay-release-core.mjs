@@ -10,7 +10,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '../..');
 export const REPOSITORY_ID = 'DocksDocks/docks';
 export const PLUGIN = 'session-relay';
-export const VERSION = '0.15.0';
+export const VERSION = '0.16.0';
 export const TAG = `${PLUGIN}--v${VERSION}`;
 export const TRANSACTION_REF = `refs/heads/transactions/${PLUGIN}-${VERSION}`;
 export const LOCK_REF = `refs/heads/locks/${PLUGIN}-${VERSION}`;
@@ -28,15 +28,24 @@ export const PUBLIC_PLANRUN_EFFECTS = Object.freeze(['local', 'probe', 'publish'
 export const DOCKS_PLANRUN_EFFECTS = Object.freeze(['local', 'probe', 'push', 'release']);
 export const SHA256 = /^[0-9a-f]{64}$/;
 export const COMMIT = /^[0-9a-f]{40}$/;
+// The CURRENT-generation closed release asset set: three native binaries plus
+// SHA256SUMS. x86_64-apple-darwin left the current lane in 0.16.0; the retained
+// historical four-binary sets live beside the retained validators (see the
+// legacy paths in session-relay-release-publication.mjs and -promotion.mjs) so
+// frozen 0.13-0.15 receipts keep validating byte-identically.
 export const ASSETS = [
   'session-relay-aarch64-apple-darwin',
   'session-relay-aarch64-unknown-linux-musl',
-  'session-relay-x86_64-apple-darwin',
   'session-relay-x86_64-unknown-linux-musl',
   'SHA256SUMS',
 ];
-export const PRERELEASE_BODY = `Session Relay ${VERSION} is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.`;
-export const STABLE_BODY = `Session Relay ${VERSION} is available through docks-kit.\n\n## Install or update\n\n\`\`\`\ndocks-kit sync\n\`\`\``;
+// Byte-for-byte identical to the sentence the tag workflow prints into the
+// staged prerelease body (.github/workflows/build-binaries.yml). Do not reword
+// either copy independently.
+export const INTEL_DARWIN_DEPRECATION =
+  'x86_64-apple-darwin is no longer published as of Session Relay 0.16.0; macOS support is aarch64-apple-darwin.';
+export const PRERELEASE_BODY = `Session Relay ${VERSION} is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.\n\n${INTEL_DARWIN_DEPRECATION}`;
+export const STABLE_BODY = `Session Relay ${VERSION} is available through docks-kit.\n\n## Install or update\n\n\`\`\`\ndocks-kit sync\n\`\`\`\n\n${INTEL_DARWIN_DEPRECATION}`;
 
 export class SessionRelayReleaseError extends Error {
   constructor(message, outcome = 'conflict') {

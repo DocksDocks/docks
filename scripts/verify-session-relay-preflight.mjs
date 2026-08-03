@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
 
 import {
+  CURRENT_RELEASE_TARGETS,
   detectRustFileIdentity,
   expectedRustFileIdentity,
   formatSha256Sums,
@@ -28,6 +29,10 @@ const CHECKSUM_ARTIFACT = 'session-relay-checksums';
 const CHECKSUM_FILE = 'SHA256SUMS';
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
+// The CURRENT three-leg native verifier matrix; kept in lockstep with
+// CURRENT_RELEASE_TARGETS (asserted below). Retained 0.13-0.15 preflight
+// receipts recorded a fourth x86_64-apple-darwin leg; those receipts are frozen
+// evidence and are never re-verified through this matrix.
 const TARGETS = [
   {
     target: rustHostTarget('linux', 'x64'),
@@ -42,18 +47,18 @@ const TARGETS = [
     runner: 'ubuntu-24.04-arm',
   },
   {
-    target: rustHostTarget('darwin', 'x64'),
-    runner_os: 'macOS',
-    runner_arch: 'X64',
-    runner: 'macos-15-intel',
-  },
-  {
     target: rustHostTarget('darwin', 'arm64'),
     runner_os: 'macOS',
     runner_arch: 'ARM64',
     runner: 'macos-15',
   },
 ];
+if (
+  TARGETS.length !== CURRENT_RELEASE_TARGETS.length ||
+  TARGETS.some((entry, index) => entry.target !== CURRENT_RELEASE_TARGETS[index])
+) {
+  throw new Error('verifier matrix disagrees with the current supported release target set');
+}
 
 export class VerificationError extends Error {}
 
@@ -871,7 +876,7 @@ function validateExtractedArtifacts(parsed, runIdentity, artifactApi, extracted)
     } catch (error) {
       fail(`invalid ${CHECKSUM_FILE}: ${error.message}`);
     }
-    if (manifest.size !== digests.size) fail(`${CHECKSUM_FILE} must contain exactly four entries`);
+    if (manifest.size !== digests.size) fail(`${CHECKSUM_FILE} must contain exactly three entries`);
     for (const [assetName, digest] of digests)
       requireEqual(manifest.get(assetName), digest, `${CHECKSUM_FILE} digest for ${assetName}`);
     for (const name of manifest.keys())

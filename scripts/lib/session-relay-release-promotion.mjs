@@ -72,11 +72,28 @@ const LEGACY_TRANSACTION_REF = 'refs/heads/transactions/session-relay-0.13.0';
 const LEGACY_LOCK_REF = 'refs/heads/locks/session-relay-0.13.0';
 const LEGACY_PRERELEASE_BODY =
   'Session Relay 0.13.0 is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.';
-const PUBLIC_ASSET_TARGETS = [
+// Current-generation Relay pin targets: the exact triples whose digests the
+// current publication, public request, child toolchain pin, and promotion
+// receipts carry. x86_64-apple-darwin left this set in 0.16.0.
+const CURRENT_PUBLIC_ASSET_TARGETS = [
+  'x86_64-unknown-linux-musl',
+  'aarch64-unknown-linux-musl',
+  'aarch64-apple-darwin',
+];
+// Retained 0.13-generation pin targets. Frozen legacy receipts pin four
+// binaries including x86_64-apple-darwin and must keep validating
+// byte-identically; only the CURRENT set above narrowed.
+const RETAINED_PUBLIC_ASSET_TARGETS = [
   'x86_64-unknown-linux-musl',
   'aarch64-unknown-linux-musl',
   'x86_64-apple-darwin',
   'aarch64-apple-darwin',
+];
+// Retained 0.13-generation closed Relay release asset set, for the legacy
+// promotion machine's release/projection/terminal validators.
+const RETAINED_PUBLICATION_ASSET_NAMES = [
+  'SHA256SUMS',
+  ...RETAINED_PUBLIC_ASSET_TARGETS.map((target) => `session-relay-${target}`).sort(),
 ];
 const PUBLIC_RELEASE_ASSET_NAMES = [
   'SHA256SUMS',
@@ -604,6 +621,9 @@ function assertBlobMap(value, label, nullable = false) {
   }
 }
 
+// `requireSessionRelaySet`: falsy for open sets, `true` for the CURRENT closed
+// Relay set, or an explicit closed name list (RETAINED_PUBLICATION_ASSET_NAMES)
+// when a retained legacy receipt is being read.
 function validateAssets(assets, label, requireSessionRelaySet = false, allowMissingDigest = false) {
   if (!Array.isArray(assets)) fail(`${label} must be an array`);
   for (const asset of assets) {
@@ -616,7 +636,8 @@ function validateAssets(assets, label, requireSessionRelaySet = false, allowMiss
   const names = assets.map(({ name }) => name);
   if (new Set(names).size !== names.length || canonicalize(names) !== canonicalize([...names].sort()))
     fail(`${label} assets must be unique and sorted`);
-  if (requireSessionRelaySet && canonicalize(names) !== canonicalize([...ASSETS].sort()))
+  const closedSet = requireSessionRelaySet === true ? ASSETS : requireSessionRelaySet;
+  if (closedSet && canonicalize(names) !== canonicalize([...closedSet].sort()))
     fail(`${label} has the wrong closed asset set`);
 }
 
@@ -648,10 +669,16 @@ function validateCanonicalEnvelope(envelope, label) {
   return envelope;
 }
 
+// A schema-2 receipt is the current three-target generation; a schema-1 receipt
+// is the retained 0.13 four-target generation.
+function publicationPinTargets(publication) {
+  return publication.value.schema === 2 ? CURRENT_PUBLIC_ASSET_TARGETS : RETAINED_PUBLIC_ASSET_TARGETS;
+}
+
 function publicationAssetPins(publication) {
   const assets = new Map(publication.value.assets.map((asset) => [asset.name, asset]));
   return Object.fromEntries(
-    PUBLIC_ASSET_TARGETS.map((target) => {
+    publicationPinTargets(publication).map((target) => {
       const asset = assets.get(`session-relay-${target}`);
       if (!asset) fail(`publication receipt is missing executable asset ${target}`);
       assertDigest(asset.digest, `publication executable asset ${target}`);
@@ -735,7 +762,7 @@ function validateStandalonePublication(publication, label) {
     value.workflow.attempt <= 0
   )
     fail(`${label} workflow identity is invalid`);
-  validateAssets(value.assets, label, true);
+  validateAssets(value.assets, label, RETAINED_PUBLICATION_ASSET_NAMES);
   if (new Set(value.assets.map(({ database_id: databaseId }) => databaseId)).size !== value.assets.length) {
     fail(`${label} asset database identities are duplicated`);
   }
@@ -743,23 +770,23 @@ function validateStandalonePublication(publication, label) {
   return publication;
 }
 
-function validatePublicAssetPins(value, label) {
-  exactKeys(value, PUBLIC_ASSET_TARGETS, label);
-  for (const target of PUBLIC_ASSET_TARGETS) assertDigest(value[target], `${label} ${target}`);
+function validatePublicAssetPins(value, label, targets = CURRENT_PUBLIC_ASSET_TARGETS) {
+  exactKeys(value, targets, label);
+  for (const target of targets) assertDigest(value[target], `${label} ${target}`);
   return value;
 }
-function normalizedRelayDigestPins(value, label) {
+function normalizedRelayDigestPins(value, label, pinTargets = CURRENT_PUBLIC_ASSET_TARGETS) {
   if (!record(value)) fail(`${label} must be an object`);
   const keys = Object.keys(value).sort();
-  const targets = [...PUBLIC_ASSET_TARGETS].sort();
+  const targets = [...pinTargets].sort();
   if (canonicalize(keys) === canonicalize(targets)) {
-    validatePublicAssetPins(value, label);
+    validatePublicAssetPins(value, label, pinTargets);
     return value;
   }
-  const assetNames = PUBLIC_ASSET_TARGETS.map((target) => `session-relay-${target}`).sort();
+  const assetNames = pinTargets.map((target) => `session-relay-${target}`).sort();
   exactKeys(value, assetNames, label);
   return Object.fromEntries(
-    PUBLIC_ASSET_TARGETS.map((target) => {
+    pinTargets.map((target) => {
       const digestValue = value[`session-relay-${target}`];
       assertDigest(digestValue, `${label} ${target}`);
       return [target, digestValue];
@@ -794,7 +821,7 @@ function validatePublicRequest(request, publication, expectedCompanionBase = LEG
     fail('public release request immutable identity conflict');
   assertCommit(value.companion_base_commit, 'public release request companion execution parent');
   assertTimestamp(value.created_at, 'public release request creation time');
-  validatePublicAssetPins(value.assets, 'public release request assets');
+  validatePublicAssetPins(value.assets, 'public release request assets', publicationPinTargets(publication));
   if (canonicalize(value.assets) !== canonicalize(publicationAssetPins(publication))) {
     fail('public release request asset digests do not match the publication receipt');
   }
@@ -1524,7 +1551,8 @@ export function validatePublicReleaseReceipt(receipt, { publication = null, requ
   }
   exactKeys(value.npm, PUBLIC_NPM_KEYS, 'public release receipt npm');
   if (!['published', 'oidc_warning'].includes(value.npm.state)) fail('public release receipt npm state is invalid');
-  validatePublicAssetPins(value.pinned_assets, 'public release receipt pinned assets');
+  // Legacy public release receipts pin the retained four-target 0.13 generation.
+  validatePublicAssetPins(value.pinned_assets, 'public release receipt pinned assets', RETAINED_PUBLIC_ASSET_TARGETS);
   exactKeys(value.public_plan, PUBLIC_PLAN_KEYS, 'public release receipt public plan');
   if (!LEGACY_PUBLIC_FINISHED_PLAN_PATH.test(value.public_plan.path))
     fail('public release receipt finished plan path is invalid');
@@ -1676,7 +1704,7 @@ export function verifyPublicRelease(options, injectedAdapter = undefined) {
   const releaseObservation = adapter.getRelease();
   const release = downloadedPublicRelease(adapter, releaseObservation, publicTag);
   const pinnedAssets = adapter.getPinnedAssets(releaseCommit);
-  validatePublicAssetPins(pinnedAssets, 'public release commit pinned assets');
+  validatePublicAssetPins(pinnedAssets, 'public release commit pinned assets', publicationPinTargets(publication));
   if (canonicalize(pinnedAssets) !== canonicalize(request.value.assets)) {
     fail('public release commit pinned asset digest mismatch');
   }
@@ -2356,7 +2384,7 @@ function validateProjection(value, label) {
   if ((value.docks_kit.release_database_id === null) !== (value.docks_kit.asset === null))
     fail(`${label} docks-kit evidence nullability is invalid`);
   if (value.docks_kit.asset !== null) validateAssets([value.docks_kit.asset], `${label} docks-kit`);
-  validateAssets(value.session_relay_assets, `${label} Session Relay`, true);
+  validateAssets(value.session_relay_assets, `${label} Session Relay`, RETAINED_PUBLICATION_ASSET_NAMES);
   validateSmoke(value.exact_source_smoke, `${label} exact-source smoke`);
   validateSmoke(value.live_smoke, `${label} live smoke`);
   if (value.exact_source_smoke !== null) {
@@ -2580,7 +2608,7 @@ function validateLiveRelease(live, publication, proof) {
     fail('authoritative release identity changed', 'manual_incident');
   if (live.release_database_id !== publication.value.release_database_id || live.prerelease !== true)
     fail('authoritative prerelease identity changed', 'manual_incident');
-  validateAssets(live.assets, 'authoritative release', true);
+  validateAssets(live.assets, 'authoritative release', RETAINED_PUBLICATION_ASSET_NAMES);
   if (canonicalize(live.assets) !== canonicalize(publication.value.assets))
     fail('authoritative release assets changed', 'manual_incident');
 }
@@ -3650,8 +3678,13 @@ function reapplyCompatibility({ expected, promoted }) {
 }
 
 function sessionRelayHostAssetName() {
-  if (process.platform === 'darwin')
-    return process.arch === 'arm64' ? 'session-relay-aarch64-apple-darwin' : 'session-relay-x86_64-apple-darwin';
+  if (process.platform === 'darwin') {
+    if (process.arch === 'arm64') return 'session-relay-aarch64-apple-darwin';
+    // x86_64-apple-darwin is no longer published as of Session Relay 0.16.0.
+    fail(
+      'Session Relay promotion smoke does not support Intel macOS: x86_64-apple-darwin is not a current release target',
+    );
+  }
   if (process.platform === 'linux')
     return process.arch === 'arm64'
       ? 'session-relay-aarch64-unknown-linux-musl'
@@ -4358,7 +4391,7 @@ function validateTerminalAuthority(
     !releaseStateAllowed
   )
     fail('terminal receipt recovery release identity conflict');
-  validateAssets(live.assets, 'terminal recovery authoritative Release', true);
+  validateAssets(live.assets, 'terminal recovery authoritative Release', RETAINED_PUBLICATION_ASSET_NAMES);
   if (canonicalize(live.assets) !== canonicalize(receipt.session_relay_assets))
     fail('terminal receipt recovery Release asset conflict');
   if (main !== receipt.observed_origin_main) fail('terminal receipt recovery origin/main conflict');
