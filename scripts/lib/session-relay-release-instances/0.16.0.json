@@ -1,17 +1,17 @@
 {
   "current_attempt": {
     "goal_id": "cef66d21-5bd3-4e07-a0e8-e393822dcfb0",
-    "docks_run_id": "ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb",
+    "docks_run_id": "75c7a055-44f2-4435-b863-301af9bb352f",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
-    "docks_source_base": "b6e983b0dc5bf432374d24a1487f3c56162d1181",
+    "docks_source_base": "26506257255482e30e50e31edd74ce96f6785eee",
     "public_run_id": "ad7f3b75-dfff-4bcd-8d1f-c8c11555b119",
     "release_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
   "planrun_attempt": {
-    "docks_run_id": "ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb",
+    "docks_run_id": "75c7a055-44f2-4435-b863-301af9bb352f",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
-    "docks_source_base": "b6e983b0dc5bf432374d24a1487f3c56162d1181",
+    "docks_source_base": "26506257255482e30e50e31edd74ce96f6785eee",
     "release_tag_commit": null,
     "docks_affected_paths": [
       ".claude-plugin/marketplace.json",
@@ -39,7 +39,8 @@
       "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
       "scripts/lib/session-relay-release-publication.mjs",
-      "scripts/verify-session-relay-preflight.mjs"
+      "scripts/verify-session-relay-preflight.mjs",
+      "scripts/tests/ci-plugin-targeting.mjs"
     ],
     "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
@@ -70,7 +71,8 @@
       "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
       "scripts/lib/session-relay-release-publication.mjs",
-      "scripts/verify-session-relay-preflight.mjs"
+      "scripts/verify-session-relay-preflight.mjs",
+      "scripts/tests/ci-plugin-targeting.mjs"
     ],
     "planrun": ["docs/plans/active/session-relay-0.16.0-release.md"]
   },
@@ -80,11 +82,12 @@
     "implementation_content_sha256": "fd0d9d186b2da6339430ef1b576f62476e9550096314d5352bf9372c282d133c"
   },
   "authorized_base": {
-    "current_main_base": "b6e983b0dc5bf432374d24a1487f3c56162d1181",
+    "current_main_base": "26506257255482e30e50e31edd74ce96f6785eee",
     "shipped_to_promoted_paths": [
       ".claude-plugin/marketplace.json",
       ".github/AGENTS.md",
       ".github/workflows/build-binaries.yml",
+      "docs/plans/active/session-relay-0.16.0-release.md",
       "plugins/session-relay/.claude-plugin/plugin.json",
       "plugins/session-relay/.codex-plugin/plugin.json",
       "plugins/session-relay/AGENTS.md",
@@ -107,6 +110,7 @@
       "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
       "scripts/lib/session-relay-release-publication.mjs",
+      "scripts/tests/ci-plugin-targeting.mjs",
       "scripts/verify-session-relay-preflight.mjs"
     ],
     "authorized_base_to_promoted_paths": [
@@ -136,6 +140,7 @@
       "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
       "scripts/lib/session-relay-release-publication.mjs",
+      "scripts/tests/ci-plugin-targeting.mjs",
       "scripts/verify-session-relay-preflight.mjs"
     ]
   },
