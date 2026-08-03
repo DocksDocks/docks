@@ -3,13 +3,15 @@ title: Give steps stable identifiers and charge permits by defect class
 goal: Make step references stable, catch decidable guard defects before review, and continue draft review only for unseen closed defect classes.
 status: drafting
 created: "2026-08-01T22:11:43-03:00"
-updated: "2026-08-03T02:44:19.407+00:00"
+updated: "2026-08-03T02:45:07.983+00:00"
 started_at: null
 finished_at: null
 assignee: null
 tags: [plans, plan-manager, plan-reviewer, review-budget, registered-idea]
 affected_paths:
+  - .codex/agents/plan-reviewer.toml
   - docs/plans/AGENTS.md
+  - plugins/docks/agents/plan-reviewer.md
   - plugins/docks/skills/productivity/plan-manager/SKILL.md
   - plugins/docks/skills/productivity/plan-manager/references/plan-self-check-protocol.md
   - plugins/docks/skills/productivity/plan-manager/references/planrunv1-schema.md
@@ -34,7 +36,7 @@ related_plans: []
 
 # Give steps stable identifiers and charge permits by defect class
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"6d4b691faf3ebc09e045732321b89f4afde50927dc06dc5ec810714a484d910e","invocations":1,"result_sha256":"bfc7a75b8dde44c7d4743a31d5b6437f264acf7856d2077e3d5b71dc7f7349b0","state":"repairing"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"6150d99ff82dbcf92be0ea373b2b93e377c139324fa3af61c89fb1f0c26a6610","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"bf983e2e548c14e1fdbd5177935b90b00b403778","source_sha256":"230266632b7b8ae63189883549b452319eb2d1965a121ac0fbc7ac05262bdfa4"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_affected_paths_incomplete"],"input_sha256":"6d4b691faf3ebc09e045732321b89f4afde50927dc06dc5ec810714a484d910e","invocations":1,"result_sha256":"bfc7a75b8dde44c7d4743a31d5b6437f264acf7856d2077e3d5b71dc7f7349b0","state":"repairing"},"execution_parent":null,"goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":null,"plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"5f1a9daf29ece3395eac4009ee5ad7640d06b617ee0cb00e9f85abbb58e2a912","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"1b06c547-4ea7-42a4-8166-44b0192a5c64","schema":1,"source_base":"b0f498967c72b54edb6162b7c6222b807cd9d3b5","source_sha256":"cdbb4dc6c503bbab60674ec86aaa32a68376d9ffbebe80aae547bc4cf6475127"}
 
 ## Goal
 
@@ -149,8 +151,8 @@ node scripts/ci.mjs --plugin docks
 > **Successor note - why the implementation rows read `done` on a run that has not started.**
 > This run replaces terminal predecessor `2ab6fc4b`, blocked `review_failed` after a repair verdict
 > at completion invocation 2, which is terminal by contract. Five findings were returned across the
-> two invocations. Four were real and are fixed in the world; one is deferred to its own plan
-> because it needs paths this plan may not declare.
+> two invocations. All five were real. Four are already fixed in the world; the fifth needed paths
+> the predecessor could not declare and is declared and fixed by this successor.
 >
 > `F1`/`F2` (invocation 1) - the default-route prompt still specified the pre-`class` finding shape
 > while its own validator required `class`, so every default-route review would have emitted an
@@ -165,10 +167,12 @@ node scripts/ci.mjs --plugin docks
 > bytes it was built from, making draft repair reservation impossible for any plan whose record sits
 > in a level-two section. Both fixed at `ae3e912`.
 >
-> `F3` (invocation 1) - DEFERRED. The two shipped reviewer wrappers still document the pre-`class`
-> finding shape. Both are outside this plan's `affected_paths`, and they are shipped payload, so the
-> correction is a public-contract change that needs its own canonical plan rather than an
-> undeclared edit here.
+> `F3` (invocation 1) - IN SCOPE, not deferred. The two shipped reviewer wrappers still documented the
+> pre-`class` finding shape. The predecessor could not declare them, because `affected_paths` is
+> inside `plan_sha256` and a `repairing` completion phase cannot move it. This successor is
+> `drafting`, where that table may legally change, so the wrappers are declared here and fixed with
+> the rest of the contract. A shipped consumer left documenting a contract this plan replaced is
+> incomplete scope, not a follow-up.
 >
 > Two probes in this work were measured against their own re-introduced defect and found blind
 > before being replaced. Steps 1-6 describe world state inherited across `9107d10`, `e11e82c` and
@@ -177,7 +181,7 @@ node scripts/ci.mjs --plugin docks
 | # | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|
 | 1 | Add an optional `Id` column after `#`, using `[a-z][a-z0-9_]{0,63}`, and parse Steps columns by header name so `#` stays numeric and `Depends` keeps its numeric semantics. Accept guard citations only as `step:<id>`; reject duplicate or unknown ids and valid-looking `step N` citations in the guard cell. Freeze the current active plan paths as the grandfather set described in D1. | `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs`, `scripts/tests/plan-orchestration/plan-self-check.mjs` | — | `local` | `done` | Focused tests show new plans without ids fail, every frozen active plan receives only an advisory for a missing column, known ids pass, duplicate/unknown ids and numeric guard citations fail, and numeric `Depends` ordering behaves exactly as before. Failure: STOP before changing the plan contract. |
-| 2 | Add the closed v1 `class` field to `PlanReviewV1`, enforce the kind-to-class mapping in reviewer output validation, and update reviewer instructions and all current review fixtures. | `plugins/docks/skills/productivity/plan-reviewer/SKILL.md`, `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs`, `scripts/tests/plan-dispatch-probes.mjs`, `scripts/tests/plan-evidence-probes.mjs`, `scripts/tests/plan-orchestration/review-budget.mjs` | — | `local` | `done` | Policy tests accept every declared kind/class pair and reject a missing, unknown, wrong-version, or kind-incompatible class; no manager path infers a class. Failure: STOP rather than accepting free-form reviewer output. |
+| 2 | Add the closed v1 `class` field to `PlanReviewV1`, enforce the kind-to-class mapping in reviewer output validation, and update reviewer instructions and all current review fixtures. | `plugins/docks/skills/productivity/plan-reviewer/SKILL.md`, `plugins/docks/skills/productivity/plan-reviewer/scripts/review-policy.mjs`, `scripts/tests/plan-dispatch-probes.mjs`, `scripts/tests/plan-evidence-probes.mjs`, `scripts/tests/plan-orchestration/review-budget.mjs`, `plugins/docks/agents/plan-reviewer.md`, `.codex/agents/plan-reviewer.toml` | — | `local` | `done` | Policy tests accept every declared kind/class pair and reject a missing, unknown, wrong-version, or kind-incompatible class; no manager path infers a class. Failure: STOP rather than accepting free-form reviewer output. Both shipped reviewer wrappers state the `class` key and defer the closed mapping to the canonical skill; a wrapper still documenting the pre-`class` shape fails A9. |
 | 3 | Persist sorted unique accepted draft classes, replace the draft-only flat ceiling with the finite class budget, block the first repeated or mixed repeated result, and preserve completion review's two-invocation and transport-refund behavior. Treat a missing `accepted_classes` field on an existing record as empty and emit the field on its next legal draft transition. | `plugins/docks/skills/productivity/plan-manager/references/planrunv1-schema.md`, `plugins/docks/skills/productivity/plan-manager/scripts/plan-run.mjs`, `scripts/tests/plan-orchestration/fixtures/plan-run-v1.mjs`, `scripts/tests/plan-orchestration/mutations.mjs`, `scripts/tests/plan-orchestration/review-budget.mjs`, `scripts/tests/plan-orchestration/state-matrix.mjs` | 2 | `local` | `done` | Reducer tests prove an unseen-only result reaches `repairing`, any repeated class blocks immediately, a mixed result blocks, the accepted set is present after read-back before redispatch, the finite upper bound rejects overflow, and completion/transport cases retain their current outcomes. Failure: STOP on any reset, inferred class, unbounded invocation, or completion-budget drift. |
 | 4 | Extend the self-check ledger with exact accepted-class sweep coverage and enforce it in `dispatch-review.mjs` against the candidate body before bundle creation and `reserve_review`. Add a dispatch probe that supplies clear, missing, stale, incomplete, and failing ledgers and observes the reservation state. | `plugins/docks/skills/productivity/plan-manager/references/plan-self-check-protocol.md`, `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/dispatch-review.mjs`, `plugins/docks/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs`, `scripts/tests/plan-dispatch-probes.mjs`, `scripts/tests/plan-orchestration.mjs` | 1, 3 | `local` | `done` | Only the clear ledger reaches `reserved`; every other case exits nonzero while `draft_review`, the plan bytes, and the bundle directory remain unchanged. Failure: STOP if any path can reserve first and sweep later. |
 | 5 | Synchronize the optional legacy/new Steps schemas, draft class budget, closed reviewer vocabulary, and reservation-time sweep across the live contract, manager/workspace skills, generated contract template, and verbatim assertions. | `docs/plans/AGENTS.md`, `plugins/docks/skills/productivity/plan-manager/SKILL.md`, `plugins/docks/skills/productivity/plan-workspace/SKILL.md`, `plugins/docks/skills/productivity/plan-workspace/references/plans-agents-md-template.md`, `scripts/tests/plan-skill-phases.mjs` | 1, 2, 3, 4 | `local` | `done` | The bounded-workflows case passes and still fails when the new-id rule, repeated-class rule, or pre-reservation sweep sentence is removed from any pinned contract copy. Failure: STOP on contract/template drift or a relaxed assertion. |
@@ -194,8 +198,9 @@ node scripts/ci.mjs --plugin docks
 | A4 | `node scripts/tests/plan-orchestration.mjs --case dispatch-driver` | Exit 0 with a named class-sweep probe showing only a complete clear ledger reaches reservation and every refused case leaves the prior repairing invocation count unchanged and creates no bundle. |
 | A5 | `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows` | Exit 0 after asserting the identifier rollout, closed class vocabulary, repeated-class block, and sweep-before-reserve clauses in every live contract copy. |
 | A6 | `node scripts/tests/plan-orchestration.mjs` | Exit 0 with all registered orchestration, state-matrix, policy, self-check, and dispatch cases passing. |
-| A7 | `git diff --exit-code -- docs/plans/finished` | Exit 0 with no tracked historical finished-plan byte changes. |
+| A7 | `git diff --exit-code $(git rev-parse HEAD) -- docs/plans/finished` run from the implementation checkpoint, and `git diff --exit-code <execution_parent>..<implementation_commit> -- docs/plans/finished` | Exit 0 for both. The working-tree form alone cannot see a committed historical change, so the range form over `execution_parent..implementation_commit` is the binding one and must be run before Step 7. |
 | A8 | `node scripts/ci.mjs --plugin docks` | Exit 0 for the Docks plugin gate. |
+| A9 | `grep -n 'id,kind,class,locator,defect,fix' plugins/docks/agents/plan-reviewer.md .codex/agents/plan-reviewer.toml` | Exit 0 with one match in each shipped wrapper, proving neither still documents the pre-`class` finding shape the validator rejects. |
 
 ## Out of scope / do-NOT-touch
 

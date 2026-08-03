@@ -75,7 +75,8 @@ For valid, fully bound input, return `PlanReviewV1`:
 ```
 
 For `repair` or `blocked`, each finding is exactly
-`{id,kind,locator,defect,fix}`. The object is compact-JCS compatible and at most
+`{id,kind,class,locator,defect,fix}`. `class` is closed to the v1 vocabulary
+compatible with its `kind`, as defined by the canonical skill. The object is compact-JCS compatible and at most
 32 KiB. `pass` has no findings; other verdicts have at least one. `repair` is
 limited to defects resolvable from sealed repository facts. `blocked` is limited
 to a required user decision or missing safety authority.
