@@ -213,7 +213,11 @@ if (phase.state === 'repairing') {
     } catch (error) {
       throw new Error(`accepted-class sweep ledger is unreadable: ${error.message}`);
     }
-    const problems = selfCheck.validateAcceptedClassSweep(ledger, candidateText, {
+    // Validate against the exact `--body` bytes, which is what the ledger was built from and what
+    // `planSha256` above already binds. `candidateText` carries an injected record line, so for any
+    // plan whose `Plan-run:` sits inside a level-two section the comparison is unsatisfiable by
+    // construction and no draft repair round could ever be reserved.
+    const problems = selfCheck.validateAcceptedClassSweep(ledger, candidateSourceText, {
       acceptedClasses: candidate.run[PHASE].accepted_classes ?? [],
       reviewResultSha256: candidate.run[PHASE].result_sha256,
       planSha256,

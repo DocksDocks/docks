@@ -3,7 +3,7 @@ title: Give steps stable identifiers and charge permits by defect class
 goal: Make step references stable, catch decidable guard defects before review, and continue draft review only for unseen closed defect classes.
 status: ongoing
 created: "2026-08-01T22:11:43-03:00"
-updated: "2026-08-03T01:52:20.513+00:00"
+updated: "2026-08-03T01:53:11.124+00:00"
 started_at: "2026-08-02T23:55:38.576+00:00"
 finished_at: null
 assignee: null
@@ -34,7 +34,7 @@ related_plans: []
 
 # Give steps stable identifiers and charge permits by defect class
 
-Plan-run: {"acceptance":{"source_sha256":"6e1ab8b6da5b2b50c2b8b84339c6bbc8cd63040322aa4c9fd0882683d4f02582","verification_sha256":"ebaa9a6c79ce6270ad5256a9535b5c8bc0a3930fd96684a316dd494fb2672d99"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"39ae9b9056e18461018698597565eefee492b42979b21b33a4b93ff9a119afc6","invocations":1,"result_sha256":"04358432df4635e6cadbb89909af88f2bc3fbeb26303a54a9ddf843c0bbe0ddc","state":"repairing"},"draft_review":{"input_sha256":"67dea20241cab99329f4c75f1b04c3daab06b9095aad8616bec55af72e7c08e9","invocations":1,"result_sha256":"760f7c79aa716319981f7d8fce7a4e1f92427f25960a9cc6c397e85ebf8f279d","state":"passed"},"execution_parent":"7328cb569e1f2578733a02915a1068435d437785","goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":"9107d10cd1346d6309644d6cc45d654e9f890f0a","plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"da5f735f0337588df69c15a8fc9396e34bb7d198d87f10421a51098c14f83768","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b6167972-c6ae-40b6-9738-849e21364b81","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"acab5a01791fda0b130e39b1072f2b99f020b5caec7fefccc4b741e3d737a25e"}
+Plan-run: {"acceptance":{"source_sha256":"0662f180e6196ea53f514f64ae2f82ebada878a3a34d5f0661c62e141fbb6cfe","verification_sha256":"3114e9188f2a8bcdff8dc1acf02a3f38c44f251c2b4962e846b9aa615bcaa511"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"d9e80ef76b2c6caad7c6b69cbd08da30895c27cfd7f594a57a41ad69dfc9fa80","invocations":2,"result_sha256":null,"state":"reserved"},"draft_review":{"input_sha256":"67dea20241cab99329f4c75f1b04c3daab06b9095aad8616bec55af72e7c08e9","invocations":1,"result_sha256":"760f7c79aa716319981f7d8fce7a4e1f92427f25960a9cc6c397e85ebf8f279d","state":"passed"},"execution_parent":"7328cb569e1f2578733a02915a1068435d437785","goal_id":"4f091bda-6643-437e-84d0-8d4ca0118bb7","implementation_commit":"e11e82c003c59d54a61b38e5a3ecbc6a9b91af39","plan_path":"docs/plans/active/step-ids-and-class-budget.md","plan_sha256":"da5f735f0337588df69c15a8fc9396e34bb7d198d87f10421a51098c14f83768","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b6167972-c6ae-40b6-9738-849e21364b81","schema":1,"source_base":"702383f504757336ebe6c3859db70384e82a814f","source_sha256":"acab5a01791fda0b130e39b1072f2b99f020b5caec7fefccc4b741e3d737a25e"}
 
 ## Goal
 
@@ -240,7 +240,8 @@ Completion-review-result: {"diff_sha256":"b5885fc9515bc1254f729d6bb99a97b9f4c854
 
 ### Implementation (2026-08-02)
 
-Implementation commit `9107d10`, whose parent `7328cb5` is this run's `execution_parent`. Every one
+Implementation spans `9107d10` and the accepted-repair commit `e11e82c`, on ancestry from
+`7328cb5`, this run's `execution_parent`. Every one
 of the twenty `affected_paths` changed and nothing outside them did; the only other modified file is
 the plan record itself, which lifecycle transitions own and which is correctly absent from
 `affected_paths`.
@@ -294,6 +295,46 @@ comparing, not by eye.
 | accepted-class sweep before bundle/reservation | `script-failing: sweep refusal must exit 2`, `0 !== 2` |
 | contract-copy clauses | each pinned clause removed in memory produces its named missing-clause failure |
 
+**Three findings from completion invocation 1. Two were in scope and are fixed; one is deferred with
+a named owner rather than silently dropped.**
+
+`F1` — the default-route prompt contradicted its own validator. `validatePlanReview` made `class` a
+required closed key, but `buildPlanReviewPrompt`, in the same module, still stated the finding shape
+as exactly `{id,kind,locator,defect,fix}`. That prompt is the entire specification a reviewer
+receives on the default route: `DEFAULT_REVIEWER` is a bare model invocation that loads no skill and
+no wrapper, and the sealed bundle carries only the binding, the manifest and the plan. Every
+default-route review would therefore have emitted an object its own validator rejects — the class
+budget would have failed closed on first contact. The prompt now requires `class` and renders the
+kind-to-class mapping directly from `PLAN_FINDING_CLASSES` instead of restating it, so the two
+cannot drift. Proven by round trip: a finding built exactly as the amended prompt instructs is
+accepted by `validatePlanReview`. Revert-sensitive test: `plan review prompt must require the class
+finding key`.
+
+`F2` — the grandfather rule never engaged, so the non-breaking rollout was breaking.
+`structuralContext` resolved the record from `structuralScope` output, and `structuralScope`
+truncates at `## Review`. The canonical position of the `Plan-run` line is inside `## Review` —
+which is exactly why `plan_sha256` excludes it. `context.record` was therefore null for essentially
+every real plan, `grandfathered` was false, and a frozen plan received the hard new-plan error
+instead of the required advisory. The lookup now scans the untruncated plan text; `structuralScope`
+keeps its deliberate truncation, because other callers depend on it. Verified against a real
+archived plan on disk, which now emits `R10 advisory ... grandfathered plan keeps numeric display
+identifiers`.
+
+The pre-existing grandfather fixture could not have caught `F2`: it places the record line in the
+Goal body and has no `## Review` section at all, so it exercised a document shape no real plan has.
+The replacement fixture puts the record where records actually live. A test that cannot fail on the
+real input shape is not coverage, and this one had been green throughout.
+
+`F3` — DEFERRED, not fixed here, and deliberately so. The two shipped reviewer wrappers,
+`plugins/docks/agents/plan-reviewer.md` and `.codex/agents/plan-reviewer.toml`, still document the
+pre-`class` finding shape. Both are outside this plan's `affected_paths`, and editing an undeclared
+path is a STOP condition; declaring them would require changing `affected_paths`, which is inside
+`plan_sha256` and unreachable from a `repairing` phase. They are also shipped payload, so the change
+is a public-contract change and the contract requires a canonical plan for it. It is therefore
+carried to its own successor plan rather than smuggled in here. Impact is bounded: the wrappers are
+not the default route, and each defers its kind list to the canonical skill, which Step 2 already
+updated.
+
 ### Acceptance
 
 | ID | Result |
@@ -303,9 +344,9 @@ comparing, not by eye.
 | A3 | `node scripts/tests/plan-orchestration.mjs --case review-budget` — exit 0, `plan-orchestration: 23/23 passed` |
 | A4 | `node scripts/tests/plan-orchestration.mjs --case dispatch-driver` — exit 0, `plan-orchestration: 12/12 passed`, including `ok - plan-dispatch-probes: class-sweep-before-reserve` |
 | A5 | `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows` — exit 0, `three-skill, one-wrapper bounded plan workflows passed` |
-| A6 | `node scripts/tests/plan-orchestration.mjs` — exit 0, `plan-orchestration: 205/205 passed` |
+| A6 | `node scripts/tests/plan-orchestration.mjs` — exit 0, `plan-orchestration: 206/206 passed` at `e11e82c`; it was 205/205 at `9107d10`, before the repair added the Review-section grandfather case |
 | A7 | `git diff --exit-code -- docs/plans/finished` — exit 0, no output |
-| A8 | `node scripts/ci.mjs --plugin docks` — exit 0, `All ci.mjs checks passed — plugin 'docks'; safe to release.` The full `node scripts/ci.mjs` also passes at `9107d10` across all three plugins and repo-wide |
+| A8 | `node scripts/ci.mjs --plugin docks` — exit 0, `All ci.mjs checks passed — plugin 'docks'; safe to release.` The full `node scripts/ci.mjs` also passes at `e11e82c` across all three plugins and repo-wide |
 
 ### Live-tooling safety
 

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   acceptance,
+  bindPlan,
   blocker,
   HASHES,
   IDS,
@@ -17,6 +19,7 @@ import {
   reviewPhase,
   reviewResultEvent,
   SOURCE_BASE,
+  tuple,
 } from './fixtures/plan-run-v1.mjs';
 import { clone, expectThrow, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
 
@@ -1090,4 +1093,51 @@ export function registerReviewBudget(suite, api, reviewer) {
     });
     expectThrow(() => reviewer.validatePlanReview(oversized, binding), /32|size|large|bytes/i);
   });
+
+  // The accepted-class guard must not fire on a phase that did not move. Placed above the
+  // unchanged-phase return it compares `draft_review` against itself, and since the lengths are
+  // then equal the `<=` check holds and EVERY persisted transaction that merely leaves the draft
+  // phase in `repairing` fails with an atomicity error no caller can satisfy. That reaches
+  // completion reserves, records and finishes, so a plan could be stranded mid-lifecycle.
+  suite.test(
+    'review-budget',
+    'a transaction leaving draft_review repairing is not blocked by the class guard',
+    async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-run-repairing-transact-'));
+      try {
+        const file = path.join(root, 'plan.md');
+        const repairingPhase = reviewPhase('repairing', {
+          accepted_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable],
+        });
+        const current = bindPlan(api, tuple('drafting', { draft_review: repairingPhase }));
+        const next = bindPlan(
+          api,
+          tuple('drafting', { draft_review: repairingPhase, completion_review: reviewPhase('not_required') }),
+        );
+        const currentBytes = current.bytes;
+        const nextBytes = next.bytes;
+        fs.writeFileSync(file, currentBytes);
+
+        await api.transactPlanRun({
+          file,
+          identity: {
+            goalId: current.run.goal_id,
+            planPath: current.run.plan_path,
+            repositoryId: current.run.repository_id,
+            runId: current.run.run_id,
+          },
+          expectedBytesSha256: api.sha256(currentBytes),
+          nextBytes,
+          lockRoot: path.join(root, 'locks'),
+        });
+
+        assert.ok(
+          fs.readFileSync(file).equals(nextBytes),
+          'an unchanged repairing draft phase must not block an otherwise legal transaction',
+        );
+      } finally {
+        fs.rmSync(root, { force: true, recursive: true });
+      }
+    },
+  );
 }

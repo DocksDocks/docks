@@ -1676,6 +1676,15 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
   if (phaseName === 'draft_review' && before.state !== after.state && !Object.hasOwn(after, 'accepted_classes')) {
     fail('draft review transition must persist accepted_classes');
   }
+  if (before.state === after.state) {
+    if (jcs(before) !== jcs(after)) fail(`${phaseName} cannot mutate without a state transition`);
+    return false;
+  }
+  // This block MUST stay below the unchanged-phase return above. Run before it, the
+  // `repairing` arm compares a phase against itself: the lengths are equal, so
+  // `after.length <= before.length` holds and every transaction that merely leaves
+  // `draft_review` sitting in `repairing` fails with an atomicity error it cannot satisfy.
+  // That reaches completion reserves, records and finishes, not just draft work.
   if (phaseName === 'draft_review') {
     const beforeAcceptedClasses = acceptedClasses(before);
     const afterAcceptedClasses = acceptedClasses(after);
@@ -1689,10 +1698,6 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
     } else if (jcs(beforeAcceptedClasses) !== jcs(afterAcceptedClasses)) {
       fail('draft accepted_classes may change only on an accepted repair');
     }
-  }
-  if (before.state === after.state) {
-    if (jcs(before) !== jcs(after)) fail(`${phaseName} cannot mutate without a state transition`);
-    return false;
   }
   if (LIVE_REVIEW_STATES.has(after.state)) {
     if (after.invocations !== before.invocations + 1 || after.result_sha256 !== null) {

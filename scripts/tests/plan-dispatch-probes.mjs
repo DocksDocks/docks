@@ -86,7 +86,8 @@ const REPAIR_REVIEW = (binding) => ({
 
 // --- scratch world ---------------------------------------------------------
 
-function renderPlan({ status, run }) {
+function renderPlan({ status, run, recordInReview = false }) {
+  const record = `Plan-run: ${api.jcs(run)}`;
   return Buffer.from(
     [
       '---',
@@ -119,21 +120,24 @@ function renderPlan({ status, run }) {
       '|---|---|---|',
       '| A1 | `true` | Exit 0 |',
       '',
-      `Plan-run: ${api.jcs(run)}`,
-      '',
+      ...(recordInReview ? [] : [record, '']),
       '## Verification Results',
       '',
       'Not yet started.',
       '',
       '## Review',
       '',
+      ...(recordInReview ? [record, ''] : []),
       '(pending)',
       '',
     ].join('\n'),
   );
 }
 
-function buildWorld(root, { risk = 'sensitive', draftReview = reviewPhase('not_started') } = {}) {
+function buildWorld(
+  root,
+  { risk = 'sensitive', draftReview = reviewPhase('not_started'), recordInReview = false } = {},
+) {
   const repo = path.join(root, 'repo');
   initializeRepository(repo);
   const head = git(repo, ['rev-parse', 'HEAD']).stdout;
@@ -158,12 +162,12 @@ function buildWorld(root, { risk = 'sensitive', draftReview = reviewPhase('not_s
     blocker: null,
   };
   // Two-pass bind: plan_sha256 covers the body with the record line excluded.
-  const unbound = renderPlan({ status: 'drafting', run: base });
+  const unbound = renderPlan({ status: 'drafting', run: base, recordInReview });
   const run = { ...base, plan_sha256: api.sha256(api.canonicalPlanView(unbound)) };
 
   const planFile = path.join(repo, PLAN_PATH);
   fs.mkdirSync(path.dirname(planFile), { recursive: true });
-  fs.writeFileSync(planFile, renderPlan({ status: 'drafting', run }));
+  fs.writeFileSync(planFile, renderPlan({ status: 'drafting', run, recordInReview }));
 
   const identity = { goalId: run.goal_id, planPath: PLAN_PATH, repositoryId: run.repository_id, runId: run.run_id };
   api.validatePlanRun(fs.readFileSync(planFile), identity);
@@ -352,6 +356,46 @@ probes['class-sweep-before-reserve'] = () =>
       const running = startDriver(world, { body: bodyFile, classSweepLedger: ledgerFile, stub });
       await waitForState(world, new Set(['reserved']));
       assert.ok(fs.existsSync(world.outDir), 'a complete clear sweep must be the only case that creates a bundle');
+      running.child.kill('SIGTERM');
+      await running.done;
+    }
+    {
+      const world = buildWorld(path.join(root, 'review-record-clear'), {
+        draftReview: repairing(),
+        recordInReview: true,
+      });
+      const bodyFile = path.join(world.root, 'repaired.md');
+      const source = fs.readFileSync(world.planFile, 'utf8');
+      const body = source.replace('| A1 | `true` | Exit 0 |', '| A1 | `true` | Exit status 0 |');
+      assert.notEqual(body, source, 'the repaired body must change plan-hashed bytes');
+      assert.match(
+        body,
+        /## Verification Results[\s\S]*## Review\n\nPlan-run: /,
+        'the realistic body must keep Plan-run inside Review after Verification Results',
+      );
+      fs.writeFileSync(bodyFile, body);
+      const ledgerFile = writeClassSweepLedger(world, bodyFile);
+      const neverGo = path.join(world.root, 'never-go');
+      const stub = writeStub(world, { goFile: neverGo, reply: {} });
+      const running = startDriver(world, { body: bodyFile, classSweepLedger: ledgerFile, stub });
+      const outcome = await waitFor('realistic repair to reserve or exit', () => {
+        const phase = phaseOf(world);
+        if (phase.state === 'reserved') return { phase };
+        if (running.child.exitCode !== null || running.child.signalCode !== null) return { exited: true };
+        return false;
+      });
+      if (outcome.exited) {
+        const result = await running.done;
+        assert.fail(
+          `a complete sweep over a Review-contained Plan-run body must reserve; driver exited ${result.code}:\n${result.output.trim()}`,
+        );
+      }
+      const reserved = outcome.phase;
+      assert.equal(reserved.state, 'reserved', 'the realistic repair must reach reserved');
+      assert.ok(
+        fs.existsSync(path.join(sealedBundlePath(world), 'binding.json')),
+        'the realistic repair must create a sealed bundle',
+      );
       running.child.kill('SIGTERM');
       await running.done;
     }
