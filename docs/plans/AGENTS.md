@@ -132,6 +132,32 @@ path>` prefix. A cross-repository reference names the other repository's id, not
 local checkout. Recorded evidence is exempt and frozen: never rewrite a `cwd` or
 path already captured inside a receipt.
 
+## Release pre-completion guards
+
+A release plan that will mutate an external boundary places every available live
+read-only final-boundary check before completion-review reservation, using the
+exact canonical identities and data spellings consumed by the later mutation.
+Available means the repository already provides a read-only command or adapter
+path that exercises the boundary without the pending mutation; never invent a
+check or network call. If an available check requires probe authority and exact
+live `ExternalAuthorityV1` is absent, block before completion review rather than
+review an unexercised release assumption.
+
+Every closed object that affected code validates or emits has an explicit
+preserve-or-change disposition. A preserved shape has an exact-key compatibility
+fixture. An intentional shape change is in scope and includes migration,
+versioning, and historical-reader acceptance.
+
+When present, roles include release source, plan source, execution parent,
+implementation commit, and tag commit. A release identity matrix names each
+role, producer, consumer, and required equality, distinction, or ancestry
+relation. Reject a contradictory or unstated relation and any later successor
+whose current-run fixtures remain pinned to its predecessor.
+
+Existing `PlanRunV1`, review-result, affected-path manifest,
+`ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible; these
+guards add no field, state, result, or authority.
+
 ## Current record
 
 The closed record shapes — `ReviewPhaseV1`, `PlanRunV1`, `PlanAttemptHistoryV1` and
@@ -306,11 +332,12 @@ current record. It rejects unless that file path equals the current run's
    unique archive path, and commits implementation plus finished plan as one final
    checkpoint. It has no completion reviewer.
 7. Sensitive, destructive, public-contract, security, or external work first
-   commits the implementation checkpoint, binds its exact diff, and runs a fresh
-   code-review agent returning `CompletionReviewV1`. One accepted blocker fix
-   replaces/amends the unpublished checkpoint, reruns invalidated checks, and
-   consumes invocation 2 on the replacement SHA. Only a matching pass may create
-   the archive checkpoint.
+   commits the implementation checkpoint, binds its exact diff, and completes
+   every required available live read-only final-boundary check. Only then may it
+   reserve and run a fresh code-review agent returning `CompletionReviewV1`. One
+   accepted blocker fix replaces/amends the unpublished checkpoint, reruns
+   invalidated checks, and consumes invocation 2 on the replacement SHA. Only a
+   matching pass may create the archive checkpoint.
 
 No numeric score, finding quota, fallback provider/model, resumed reviewer,
 draft invocation beyond one initial round plus the closed class-vocabulary
@@ -493,7 +520,7 @@ The `plan-manager` and `plan-reviewer` skill bodies are asserted verbatim by
 `scripts/tests/plan-skill-phases.mjs --case bounded-workflows`, which also pins
 the stable-step and class-budget contract independently in this file,
 `plan-manager`, `plan-workspace`, and the generated workspace template. Its
-mutation probes remove the id, repeated-class, and pre-reservation-sweep clauses
-from every pinned copy and require the named assertion to fail. Update positive
-assertions in the same change as their normative sentences; never relax a
-matcher to accept drift.
+mutation probes remove the id, repeated-class, pre-reservation-sweep, and release
+pre-completion clauses from every pinned copy and require the named assertion to
+fail. Update positive assertions in the same change as their normative
+sentences; never relax a matcher to accept drift.

@@ -4,8 +4,8 @@ description: "Use when main-context plan-manager dispatches one fresh internal r
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-02"
-  content_hash: "f6fe010ad03341d51220e22a539d722c9c328ac98a71a261b1b3faa394143c42"
+  updated: "2026-08-04"
+  content_hash: "d259c09e164254042586bb0b4c95e99aad7f5ca4d7e39dfef93ba5903d3e2269"
 ---
 
 # Plan Reviewer
@@ -124,6 +124,9 @@ Use `repair` only when every finding is resolvable from facts already sealed in
 the bundle. Use `blocked` only for a required user decision or missing safety
 authority that the repository facts cannot resolve. The manager independently
 reproduces findings and decides the accepted set.
+
+A release plan that will mutate an external boundary places every available live read-only final-boundary check before completion-review reservation, using the exact canonical identities and data spellings consumed by the later mutation. Available means the repository already provides a read-only command or adapter path that exercises the boundary without the pending mutation; never invent a check or network call. If an available check requires probe authority and exact live `ExternalAuthorityV1` is absent, block before completion review rather than review an unexercised release assumption.
+Every closed object that affected code validates or emits has an explicit preserve-or-change disposition. A preserved shape has an exact-key compatibility fixture. An intentional shape change is in scope and includes migration, versioning, and historical-reader acceptance. When present, roles include release source, plan source, execution parent, implementation commit, and tag commit. A release identity matrix names each role, producer, consumer, and required equality, distinction, or ancestry relation. Reject a contradictory or unstated relation and any later successor whose current-run fixtures remain pinned to its predecessor. Existing `PlanRunV1`, review-result, affected-path manifest, `ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible; these guards add no field, state, result, or authority. Treat a missing guard as a reproducible draft blocker using only sealed plan and manifest evidence; never perform the boundary check, seek live authority, or inspect outside the bundle.
 
 ## Output contract
 

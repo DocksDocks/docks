@@ -107,6 +107,49 @@ const STEP_CLASS_CONTRACT_CLAUSES = [
   },
 ];
 
+const RELEASE_PRECOMPLETION_CONTRACT_CLAUSES = [
+  {
+    name: 'live-boundary-order-and-canonical-inputs',
+    text: 'A release plan that will mutate an external boundary places every available live read-only final-boundary check before completion-review reservation, using the exact canonical identities and data spellings consumed by the later mutation.',
+  },
+  {
+    name: 'available-check-definition',
+    text: 'Available means the repository already provides a read-only command or adapter path that exercises the boundary without the pending mutation; never invent a check or network call.',
+  },
+  {
+    name: 'missing-probe-authority',
+    text: 'If an available check requires probe authority and exact live `ExternalAuthorityV1` is absent, block before completion review rather than review an unexercised release assumption.',
+  },
+  {
+    name: 'closed-object-disposition',
+    text: 'Every closed object that affected code validates or emits has an explicit preserve-or-change disposition.',
+  },
+  {
+    name: 'preserved-exact-key-fixture',
+    text: 'A preserved shape has an exact-key compatibility fixture.',
+  },
+  {
+    name: 'intentional-shape-change',
+    text: 'An intentional shape change is in scope and includes migration, versioning, and historical-reader acceptance.',
+  },
+  {
+    name: 'release-identity-roles',
+    text: 'When present, roles include release source, plan source, execution parent, implementation commit, and tag commit.',
+  },
+  {
+    name: 'release-identity-relations',
+    text: 'A release identity matrix names each role, producer, consumer, and required equality, distinction, or ancestry relation.',
+  },
+  {
+    name: 'predecessor-current-run-pin',
+    text: 'Reject a contradictory or unstated relation and any later successor whose current-run fixtures remain pinned to its predecessor.',
+  },
+  {
+    name: 'closed-shape-and-authority-preservation',
+    text: 'Existing `PlanRunV1`, review-result, affected-path manifest, `ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible; these guards add no field, state, result, or authority.',
+  },
+];
+
 function normalizeContract(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -114,6 +157,33 @@ function normalizeContract(text) {
 function assertStepClassContract(text, relative) {
   for (const clause of STEP_CLASS_CONTRACT_CLAUSES) {
     assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
+  }
+}
+
+function assertReleasePrecompletionContract(text, relative) {
+  for (const clause of RELEASE_PRECOMPLETION_CONTRACT_CLAUSES) {
+    assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
+  }
+}
+
+function assertReleasePrecompletionContractsAndMutations() {
+  for (const relative of [
+    'docs/plans/AGENTS.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  ]) {
+    const text = normalizeContract(read(relative));
+    assertReleasePrecompletionContract(text, relative);
+    for (const clause of RELEASE_PRECOMPLETION_CONTRACT_CLAUSES) {
+      const occurrences = text.split(clause.text).length - 1;
+      assert.equal(occurrences, 1, `${relative} must contain exactly one ${clause.name} mutation target`);
+      assert.throws(
+        () => assertReleasePrecompletionContract(text.replace(clause.text, ''), relative),
+        new RegExp(`missing the ${clause.name} clause`),
+        `${relative} must fail when its ${clause.name} clause is removed`,
+      );
+    }
   }
 }
 
@@ -158,10 +228,16 @@ function assertStepClassContractsAndMutations() {
 
 function parseArgs(argv) {
   if (argv.length === 0) return { caseName: 'default' };
-  if (argv.length === 2 && argv[0] === '--case' && argv[1] === 'bounded-workflows') {
+  if (
+    argv.length === 2 &&
+    argv[0] === '--case' &&
+    ['bounded-workflows', 'plan-workspace-template'].includes(argv[1])
+  ) {
     return { caseName: argv[1] };
   }
-  throw new Error('usage: plan-skill-phases.mjs [--case bounded-workflows]');
+  throw new Error(
+    'usage: plan-skill-phases.mjs [--case bounded-workflows|--case plan-workspace-template]',
+  );
 }
 
 function read(relative) {
@@ -290,6 +366,22 @@ function assertBoundedWorkflows() {
     assert.match(reviewer, contract);
   }
   assert.doesNotMatch(reviewer, /numeric score|provider\/model fallback|apply a patch|change lifecycle/i);
+}
+
+function assertWorkspaceTemplateSynchronized() {
+  const template = read(
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  );
+  const opening = '````markdown\n';
+  const closing = '\n````\n';
+  const start = template.indexOf(opening);
+  assert.ok(start >= 0 && template.endsWith(closing), 'workspace template must contain one terminal fence');
+  const generated = `${template.slice(start + opening.length, -closing.length)}\n`;
+  assert.equal(
+    read('docs/plans/AGENTS.md'),
+    generated,
+    'docs/plans/AGENTS.md must match the workspace template verbatim',
+  );
 }
 
 // `docs/plans/AGENTS.md` is generated verbatim from the plan-workspace
@@ -462,15 +554,22 @@ function assertPortablePlanTextRule() {
   }
 }
 
-parseArgs(process.argv.slice(2));
-assertLiveTopology();
-assertReviewerWrappersOnly();
-assertBoundedWorkflows();
-assertStepClassContractsAndMutations();
-assertAcceptanceProofRule();
-assertProposedRepairRule();
-assertLifecycleDispatchIntegrityRule();
-assertQuarantineRetirementRule();
-assertPortablePlanTextRule();
-assertLifecycleRoutePrerequisite();
-console.log('three-skill, one-wrapper bounded plan workflows passed');
+const { caseName } = parseArgs(process.argv.slice(2));
+if (caseName === 'plan-workspace-template') {
+  assertWorkspaceTemplateSynchronized();
+  console.log('plan workspace template synchronized');
+} else {
+  assertLiveTopology();
+  assertReviewerWrappersOnly();
+  assertBoundedWorkflows();
+  assertStepClassContractsAndMutations();
+  assertReleasePrecompletionContractsAndMutations();
+  assertAcceptanceProofRule();
+  assertProposedRepairRule();
+  assertLifecycleDispatchIntegrityRule();
+  assertQuarantineRetirementRule();
+  assertPortablePlanTextRule();
+  assertLifecycleRoutePrerequisite();
+  assertWorkspaceTemplateSynchronized();
+  console.log('three-skill, one-wrapper bounded plan workflows passed');
+}

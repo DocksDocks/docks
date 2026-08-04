@@ -4,8 +4,8 @@ description: "Use when a goal may require a canonical plan, plan review, impleme
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-02"
-  content_hash: "14fdeec01d7dad8056a8fb8fda6ec177fbc7fc771413b89474e9e5e869841f41"
+  updated: "2026-08-04"
+  content_hash: "e65984c5b6d6ffb8c7501aafcdbd9e6d51f502ce6a0955173823b325607d6b07"
 ---
 
 # Plan Manager
@@ -83,6 +83,9 @@ A cross-repository reference names the other repository's id, not a local checko
 
 `repository_id + plan_path + run_id` is the run identity. Never list the plan record itself in `affected_paths`: acceptance writes to it and breaks that bind.
 Field shapes, replacement-authority rules, and the exact `plan_sha256` exclusion list: [`references/planrunv1-schema.md`](references/planrunv1-schema.md).
+
+A release plan that will mutate an external boundary places every available live read-only final-boundary check before completion-review reservation, using the exact canonical identities and data spellings consumed by the later mutation. Available means the repository already provides a read-only command or adapter path that exercises the boundary without the pending mutation; never invent a check or network call. If an available check requires probe authority and exact live `ExternalAuthorityV1` is absent, block before completion review rather than review an unexercised release assumption.
+Every closed object that affected code validates or emits has an explicit preserve-or-change disposition. A preserved shape has an exact-key compatibility fixture. An intentional shape change is in scope and includes migration, versioning, and historical-reader acceptance. When present, roles include release source, plan source, execution parent, implementation commit, and tag commit. A release identity matrix names each role, producer, consumer, and required equality, distinction, or ancestry relation. Reject a contradictory or unstated relation and any later successor whose current-run fixtures remain pinned to its predecessor. Existing `PlanRunV1`, review-result, affected-path manifest, `ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible; these guards add no field, state, result, or authority.
 
 ## Review-phase state table
 
@@ -189,13 +192,14 @@ local work sets `finished`, moves to the unique archive path, and commits
 implementation plus finished plan as one final checkpoint. Local completion
 review is `not_required`.
 
-Sensitive/external work commits the implementation checkpoint, binds its exact
-commit/diff, and reserves a separate completion phase for a fresh code-review
-agent returning `CompletionReviewV1`. One accepted blocker fix replaces/amends
-the still-unpublished checkpoint, reruns invalidated checks, and consumes the
-second permit on the replacement SHA. The first result is invalid after any
-relevant byte changes. Only a matching pass may archive; repeated same-signature
-no-progress blocks this run and never reopens its completion review.
+Sensitive/external work commits the implementation checkpoint and binds its exact
+commit/diff. Before reserving completion review, run every required available
+live read-only final-boundary check under exact authority. Then reserve a separate
+completion phase for a fresh code-review agent returning `CompletionReviewV1`.
+One accepted blocker fix replaces/amends the still-unpublished checkpoint, reruns
+invalidated checks, and consumes the second permit on the replacement SHA. The
+first result is invalid after any relevant byte changes. Only a matching pass may
+archive; repeated same-signature no-progress blocks this run and never reopens its completion review.
 
 ## Transactions and commits
 
