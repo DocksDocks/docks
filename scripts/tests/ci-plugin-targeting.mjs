@@ -742,6 +742,15 @@ async function testGenericReleaseModuleContract(dispatchPluginRelease, runGeneri
       ),
       expected: /unknown release policy kind/i,
     },
+    {
+      name: 'reviewed plugin assigned a generic policy',
+      plugins: PLUGINS.map((plugin) =>
+        plugin.name === relay.name
+          ? { ...plugin, release: { kind: 'generic', install: plugin.release.install } }
+          : plugin,
+      ),
+      expected: /unknown generic release option.*--prepare/i,
+    },
   ]) {
     let reviewedDispatchCalls = 0;
     await assert.rejects(

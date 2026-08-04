@@ -95,12 +95,26 @@ function validateIo(io) {
   }
 }
 
-function parseGenericArgs(argv, plugins) {
-  const dryRun = argv.includes('--dry-run');
+function selectedPlugin(argv, plugins) {
+  if (!Array.isArray(argv)) throw new Error('release argv must be an array');
   const pluginIndex = argv.indexOf('--plugin');
   const pluginName = pluginIndex >= 0 ? argv[pluginIndex + 1] : 'docks';
   const plugin = plugins.find((candidate) => candidate.name === pluginName);
   if (!plugin) throw new Error(`unknown plugin: ${pluginName} (known: ${plugins.map(({ name }) => name).join(', ')})`);
+  return plugin;
+}
+
+function parseGenericArgs(argv, plugins) {
+  const plugin = selectedPlugin(argv, plugins);
+  const unknownOption = argv.find(
+    (argument, index) =>
+      argument.startsWith('--') &&
+      argument !== '--dry-run' &&
+      argument !== '--plugin' &&
+      argv[index - 1] !== '--plugin',
+  );
+  if (unknownOption) throw new Error(`unknown generic release option: ${unknownOption}`);
+  const dryRun = argv.includes('--dry-run');
   if (plugin.release.kind === 'reviewed-session-relay') {
     throw new Error(
       'Session Relay uses its reviewed release flow; positional Session Relay releases are not supported',
@@ -153,9 +167,15 @@ export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchR
   if (typeof dispatchReviewed !== 'function') {
     throw new Error('reviewed release dispatcher must be a function');
   }
+  const plugin = selectedPlugin(argv, plugins);
+  if (plugin.release.kind !== 'reviewed-session-relay') {
+    return runGenericPluginRelease({ argv, repo, plugins, io });
+  }
   const reviewed = await dispatchReviewed(argv);
-  if (reviewed !== null) return reviewed;
-  return runGenericPluginRelease({ argv, repo, plugins, io });
+  if (reviewed === null) {
+    throw new Error(`reviewed release dispatcher did not handle plugin ${plugin.name}`);
+  }
+  return reviewed;
 }
 
 export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
