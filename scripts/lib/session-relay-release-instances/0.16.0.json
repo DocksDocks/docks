@@ -1,7 +1,7 @@
 {
   "current_attempt": {
     "goal_id": "cef66d21-5bd3-4e07-a0e8-e393822dcfb0",
-    "docks_run_id": "d5d1e9fa-7627-47b8-bac2-bed0b7465d9e",
+    "docks_run_id": "c268ecc1-cf5e-4266-9a29-a83b59e9717d",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
     "public_run_id": "fb5a6880-9bca-45c5-9136-d0424a020d5a",
@@ -9,7 +9,7 @@
     "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
   "planrun_attempt": {
-    "docks_run_id": "d5d1e9fa-7627-47b8-bac2-bed0b7465d9e",
+    "docks_run_id": "c268ecc1-cf5e-4266-9a29-a83b59e9717d",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
     "release_tag_commit": "875661640c1c45894c66a9b2fdc437fd47307e1f",
@@ -24,6 +24,7 @@
       "plugins/session-relay/rust/Cargo.toml",
       "plugins/session-relay/rust/src/supervisor.rs",
       "plugins/session-relay/rust/tests/lifecycle_supervisor.rs",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
       "plugins/session-relay/test/distribution-contract.mjs",
       "plugins/session-relay/test/fixtures/release-identity-inventory.json",
       "plugins/session-relay/test/fixtures/rust-test-inventory.json",
@@ -56,6 +57,7 @@
       "plugins/session-relay/rust/Cargo.toml",
       "plugins/session-relay/rust/src/supervisor.rs",
       "plugins/session-relay/rust/tests/lifecycle_supervisor.rs",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
       "plugins/session-relay/test/distribution-contract.mjs",
       "plugins/session-relay/test/fixtures/release-identity-inventory.json",
       "plugins/session-relay/test/fixtures/rust-test-inventory.json",
@@ -95,6 +97,7 @@
       "plugins/session-relay/rust/Cargo.toml",
       "plugins/session-relay/rust/src/supervisor.rs",
       "plugins/session-relay/rust/tests/lifecycle_supervisor.rs",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
       "plugins/session-relay/test/distribution-contract.mjs",
       "plugins/session-relay/test/fixtures/release-identity-inventory.json",
       "plugins/session-relay/test/fixtures/rust-test-inventory.json",
@@ -125,6 +128,7 @@
       "plugins/session-relay/rust/Cargo.toml",
       "plugins/session-relay/rust/src/supervisor.rs",
       "plugins/session-relay/rust/tests/lifecycle_supervisor.rs",
+      "plugins/session-relay/test/companion-distribution-contract.mjs",
       "plugins/session-relay/test/distribution-contract.mjs",
       "plugins/session-relay/test/fixtures/release-identity-inventory.json",
       "plugins/session-relay/test/fixtures/rust-test-inventory.json",
