@@ -1,10 +1,10 @@
 ---
 title: Release Session Relay 0.16.0 with custody-safe disconnects
 goal: Ship Session Relay 0.16.0 without fencing a managed worker on caller disconnect, retire Intel macOS production assets, and retain preflight evidence refs.
-status: blocked
+status: ongoing
 created: "2026-08-02T18:00:00+00:00"
-updated: "2026-08-04T02:36:41.751+00:00"
-started_at: "2026-08-04T02:32:37.432+00:00"
+updated: "2026-08-04T02:42:27.070+00:00"
+started_at: "2026-08-04T02:42:27.070+00:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, release, custody, supply-chain]
@@ -178,7 +178,7 @@ spelling either literal and therefore also change.
 | `docs/plans/finished/2026-07-23-session-relay-linux-workspace-recertification.md` | 224 | Captured four-target receipt. |
 | `docs/plans/finished/2026-07-28-session-relay-linux-workspace-release.md` | 62, 79, 114 | Finished historical plan. |
 | `docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md` | 543 | Immutable published 0.15.0 digest evidence. |
-| `plugins/session-relay/test/companion-distribution-contract.mjs` | 24, 42, 48, 458 | Retained 0.13.0/0.15.0 child and historical digest fixtures stay byte-identical, but line 24's `CURRENT_PUBLIC_RELAY_VERSION` is a CURRENT-generation pin compared against the live public checkout, so it moves with the child. |
+| `plugins/session-relay/test/companion-distribution-contract.mjs` | 24-50, 151-265, 458 | The historical plan, 0.13.0 asset, digest, receipt, and archive fixtures stay byte-identical. The complete `CURRENT_*` child/parent identity tuple, `CURRENT_ASSET_DIGESTS`, and current three-target key-set assertion move together to the live docks-kit 0.14.0 / Relay 0.16.0 generation. |
 
 The published 0.15.0 archive records all four downloaded digests at
 `docs/plans/finished/2026-08-02-session-relay-0.15.0-release.md:539-544`.
@@ -333,14 +333,15 @@ checkpoint.
 
 ## Steps
 
-> **Successor note - close the companion scope consistently.**
-> Steps 1-11 remain inherited world state. The reviewed predecessor declared the companion
-> distribution contract but left A11, Out of scope, and STOP condition 4 forbidding its required
-> current-generation pin update. Those three clauses now permit only
-> `CURRENT_PUBLIC_RELAY_VERSION` to move from 0.15.0 to 0.16.0; every retained child, digest,
-> receipt, archive, and instance fixture stays immutable. The 0.16.0 release instance and the
-> promotion contract's closed path census also move to this successor run and its exact 28-path
-> declaration. No release artifact is retagged, replaced, or republished.
+> **Successor note - move the complete live companion generation.**
+> Steps 1-11 remain inherited world state. The predecessor proved that changing only
+> `CURRENT_PUBLIC_RELAY_VERSION` is insufficient: the same live contract also binds the current
+> docks-kit version, child and Docks PlanRun identities, implementation commits, asset digests, and
+> target key set. This successor moves that complete `CURRENT_*` / `CURRENT_ASSET_DIGESTS` tuple to
+> docks-kit 0.14.0 and Relay 0.16.0, and changes the current key-set assertion from four targets to
+> the shipped three. Every `HISTORICAL_*` value, frozen plan digest, retained receipt, and 0.13.0 /
+> 0.15.0 fixture stays byte-identical. The 0.16.0 instance and promotion census bind this run
+> and its exact 28-path declaration. No release artifact is retagged, replaced, or republished.
 
 > **Successor note - two corrections, no new release work.**
 > Steps 1-11 are inherited world state. The tag, the staged prerelease and the published docks-kit
@@ -495,9 +496,10 @@ checkpoint.
   digests, receipts, review evidence, and release bodies.
 - `scripts/lib/session-relay-release-instances/0.15.0.json` and every earlier
   instance. Historical validators may read them; no migration rewrites them.
-- Historical 0.13.0/0.15.0 child, digest, receipt, and archive fixtures inside
-  `plugins/session-relay/test/companion-distribution-contract.mjs`. Only its
-  `CURRENT_PUBLIC_RELAY_VERSION` current-generation pin is in scope.
+- Historical plan paths, 0.13.0/0.15.0 child identities, asset digests, receipts,
+  and archive fixtures inside `plugins/session-relay/test/companion-distribution-contract.mjs`.
+  Its complete `CURRENT_*` tuple, `CURRENT_ASSET_DIGESTS`, and current target-set assertion are in
+  scope because they validate live public main.
 - Any file in `DocksDocks/public`. The child is a separate canonical run and owns
   its package, workflow, toolchain pin, generated payload, tests, goldens,
   publication, and archive.
@@ -521,9 +523,9 @@ checkpoint.
 3. Explicit cancel stops cancelling/reaping, or genuine supervisor/custody loss
    no longer reaches the existing typed fail-closed state.
 4. Any current three-target edit changes a captured historical asset, digest,
-   receipt, finished plan, 0.15.0 instance, or any retained fixture in the
-   companion distribution contract. Only its current-generation Relay pin may
-   move; split current and retained validation if more must change.
+   receipt, finished plan, 0.15.0 instance, or retained companion fixture. The
+   complete current companion tuple may move, but `HISTORICAL_*` bytes may not;
+   split current and retained validation if those boundaries cannot stay separate.
 5. The current producer, verifier, checksum, publication, promotion, or child pin
    disagrees on the exact three-target set, or the release body omits the Intel
    macOS deprecation.
@@ -561,7 +563,7 @@ historical-byte boundary are resolved.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":{"evidence_sha256":"3092c510030240070530bb65120b53edfd18836b96bad92384184162ac469f69","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_failure_action_missing"],"input_sha256":"3681e3a8d2baa204e60001f097fdae40b8fb6302c552aa34a0647bd2f4697e0c","invocations":2,"result_sha256":"38ac2e6fa394c03bcb76b82897951f3f740eedd2350c54a0bfe86b9b095d96a5","state":"passed"},"execution_parent":"664f9db6001e49b06ceba6e85a3b1ec4fa984c0b","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"e566b7c898dd77109b58452e54eb520010bf8b569dee0895012ff46322cade49","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"16510f46-c86d-4198-88aa-04583ded46c1","schema":1,"source_base":"875661640c1c45894c66a9b2fdc437fd47307e1f","source_sha256":"6ce9e198ef90247e9c01b83a1530319d81ca46cd94f763f9cb9c07b9e341728a"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"aaf54a3b6c16204a9f77ff7f270f67bb6ec1f78caf9996bde6e5e3276ae8f78b","invocations":1,"result_sha256":"66289760ea8f3214b980f4db873adc47537494c248b4263c7f159abf16597fae","state":"passed"},"execution_parent":"664f9db6001e49b06ceba6e85a3b1ec4fa984c0b","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"393f558ac87cde095d8dcee2f2dd9be25eb05f65b84a9904eab18b62c3ab6bbc","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"c268ecc1-cf5e-4266-9a29-a83b59e9717d","schema":1,"source_base":"875661640c1c45894c66a9b2fdc437fd47307e1f","source_sha256":"6ce9e198ef90247e9c01b83a1530319d81ca46cd94f763f9cb9c07b9e341728a"}
 
 
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"465b6035896e8d889e432e0335c23a36da91f779b5bb0880fd34200f35aae7fd","replacement_run_id":"ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb","run":{"acceptance":null,"blocker":{"evidence_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_acceptance_output_mismatch","v1_contract_contradiction","v1_unauthorized_effect"],"input_sha256":"878917bdc4b3df7d88d98d7c48e9666f9b97b89cff7d4b4351675b6a307e7dd1","invocations":2,"result_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","state":"blocked"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"83750324a0aa2dd622a942ff7b15312722b298c1bb4f097743dccb25b70bc101","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"6feb5288-d1ac-4578-9466-6252501361e6","schema":1,"source_base":"407bc52d7ebfcef5bf16f1d249394b2401aab4fd","source_sha256":"87180b7ba10105e50701b62e9c4def5a58d5ce553fc0a5239488000ca44fa656"},"schema":1,"status":"blocked","successor_run_sha256":"0b761ae4050729f3eda85fbe3b7a1310582b6bfb867c4c23afd7bc9b977cc56d"}
@@ -571,6 +573,8 @@ Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"e5172771943e0b97166491d9189896d2dc45260d9d760aae0f5b155d235e766d","replacement_run_id":"d5d1e9fa-7627-47b8-bac2-bed0b7465d9e","run":{"acceptance":null,"blocker":{"evidence_sha256":"21d99d29830710d113dbe344512895e9510bc1438a267cee5dbbd626b8509f93","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete"],"input_sha256":"2b2802716b9bcae2f50756c61dfe7886c71a26898cdf3229b35413c989d7d690","invocations":2,"result_sha256":"c51410fb4e9920ccdd65e8721ff7905745516c56b70d17749a1dc00425335fa4","state":"passed"},"execution_parent":"598906234b45cad062c42e94840643f4af8cb913","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"2757f4dceda23fa9532045e773e74e24ed6393d8408508b65554eee7eab893da","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"1c5b6f71-c69d-4566-adcc-4c15a9f0c599","schema":1,"source_base":"598906234b45cad062c42e94840643f4af8cb913","source_sha256":"a37412a428a14e75b8267f268468fc96d168037c89deb069b118d2d9409f5ee7"},"schema":1,"status":"blocked","successor_run_sha256":"ed125ddc30d32b9467acbe38a34f6564d1b18dd5a1e96dbb18afed9151bf3333"}
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"de87935135f8c103e3573345f24f2d89fbf607e6aefa7e3eac822225d4959528","replacement_run_id":"a2607f9b-7346-4224-bdb4-a6ffeb1bc8a4","run":{"acceptance":null,"blocker":{"evidence_sha256":"1e78b5a18e8da3e7a2495c614d9409a5ed5df58efcaf41573fdb2687dd3311ca","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_contract_contradiction","v1_unauthorized_effect"],"input_sha256":"0467dcbff34b420041d2ecadf108d4f5bc65da86c4e7650b8142600dba5aa90f","invocations":3,"result_sha256":"5b0af4c6e0d99e28358db4f2aabf603581db9217019d3d89f5da450b3c74ac4d","state":"passed"},"execution_parent":"b1b7e91244c8d786ccfc71756aa7d553eae130ea","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"39b4423d06a97eba4e97e2e0136a41a29efb89315dda8f7e85802fe45481012b","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"d5d1e9fa-7627-47b8-bac2-bed0b7465d9e","schema":1,"source_base":"875661640c1c45894c66a9b2fdc437fd47307e1f","source_sha256":"efa0881efe22655b2b2ba8061b64f93bac66e92f04fc3c5c0f6a9c9166ab1106"},"schema":1,"status":"blocked","successor_run_sha256":"a458e8b6679ea893f8426fb0389f9cae6a72eeccabf22c87664c7d9996d97c46"}
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"2c2dc59dd0f7e0a69565cac13cfbe92f3b2a09009ca3f22d2aa79fe137ea4a39","replacement_run_id":"16510f46-c86d-4198-88aa-04583ded46c1","run":{"acceptance":null,"blocker":{"evidence_sha256":"be6c7664fe34aaa4320a1cbb3c99007ae86595a01b65883269903d3f3fd6fc68","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"3f99ae4951ae9cd4429c6d177443820e35d149304e8aa15663bb205dfb49cdf1","invocations":1,"result_sha256":"cbe5848b7df4f102926cdce9f3d843abefb4dcdbb58d33f8a6915592f6182642","state":"passed"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"dc38a3ccb644e2d287e76da314d34fd2bd2625e5c7ba80f376041c6276d9c42f","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"a2607f9b-7346-4224-bdb4-a6ffeb1bc8a4","schema":1,"source_base":"875661640c1c45894c66a9b2fdc437fd47307e1f","source_sha256":"6ce9e198ef90247e9c01b83a1530319d81ca46cd94f763f9cb9c07b9e341728a"},"schema":1,"status":"blocked","successor_run_sha256":"eeae2f9c830b69fa0ce1d5706907fcb843854986f49db0f5eba49bbbda38ff6f"}
+Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"cacebd187daa83ff32e59e12b4948b12f2babc2f7de1dae214f0c5eb1c9f0b19","replacement_run_id":"c268ecc1-cf5e-4266-9a29-a83b59e9717d","run":{"acceptance":null,"blocker":{"evidence_sha256":"3092c510030240070530bb65120b53edfd18836b96bad92384184162ac469f69","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_failure_action_missing"],"input_sha256":"3681e3a8d2baa204e60001f097fdae40b8fb6302c552aa34a0647bd2f4697e0c","invocations":2,"result_sha256":"38ac2e6fa394c03bcb76b82897951f3f740eedd2350c54a0bfe86b9b095d96a5","state":"passed"},"execution_parent":"664f9db6001e49b06ceba6e85a3b1ec4fa984c0b","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"e566b7c898dd77109b58452e54eb520010bf8b569dee0895012ff46322cade49","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"16510f46-c86d-4198-88aa-04583ded46c1","schema":1,"source_base":"875661640c1c45894c66a9b2fdc437fd47307e1f","source_sha256":"6ce9e198ef90247e9c01b83a1530319d81ca46cd94f763f9cb9c07b9e341728a"},"schema":1,"status":"blocked","successor_run_sha256":"10fa2d42a04147458d0181d256173ba5f16e634a0cc92935db65ad25f284fe29"}
+
 
 
 
