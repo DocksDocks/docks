@@ -1,11 +1,11 @@
 ---
 title: Release Session Relay 0.16.0 with custody-safe disconnects
 goal: Ship Session Relay 0.16.0 without fencing a managed worker on caller disconnect, retire Intel macOS production assets, and retain preflight evidence refs.
-status: ongoing
+status: finished
 created: "2026-08-02T18:00:00+00:00"
-updated: "2026-08-04T07:00:46.431+00:00"
+updated: "2026-08-04T07:32:20.293+00:00"
 started_at: "2026-08-04T07:00:46.431+00:00"
-finished_at: null
+finished_at: "2026-08-04T07:32:20.293+00:00"
 assignee: null
 tags: [plans, session-relay, release, custody, supply-chain]
 affected_paths:
@@ -698,7 +698,7 @@ historical-byte boundary are resolved.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"fef58b81a0717e99432ac15536e0a41a67b75bdc5125e7b0aa45a17999067679","invocations":1,"result_sha256":"ae779151cb211c98487a4f2424c3e5f658f46ac1562e43611de4d7fdcdfd8d97","state":"passed"},"execution_parent":"05ad9aff31e2c4ec0fe0a84c19c2d6a14a153032","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"938e144ccbcb1b11e20bde4772d87f157bc2c1586a1e174770873719293f0672","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"5a4c1c26-4084-4488-8ced-f49c85848080","schema":1,"source_base":"05ad9aff31e2c4ec0fe0a84c19c2d6a14a153032","source_sha256":"23e18a3d952f079c67be299a976ef1272cfee3bd12547ed8066b2675ffe5de37"}
+Plan-run: {"acceptance":{"source_sha256":"68e48cb4f6f32fb208fd347edbbb12193de3d0fd61510b3e65c3d7c8cf8be995","verification_sha256":"c9af20ec3cc2dad149df2eee154583f8b3ad0d5039e2d8b00c49dbc63ded68ce"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"bae88687a14102036d24ea17d7aada84005a9ca4f6ef1ddf2756073de1e1cd7c","invocations":1,"result_sha256":"c2df3349b85e59c2b82529cedc5dd4e415276c9d8d4a02dc97e272dd89138b3e","state":"passed"},"draft_review":{"accepted_classes":[],"input_sha256":"fef58b81a0717e99432ac15536e0a41a67b75bdc5125e7b0aa45a17999067679","invocations":1,"result_sha256":"ae779151cb211c98487a4f2424c3e5f658f46ac1562e43611de4d7fdcdfd8d97","state":"passed"},"execution_parent":"05ad9aff31e2c4ec0fe0a84c19c2d6a14a153032","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":"33bef50ea5775648cba59c884d8953c8e7e12299","plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"938e144ccbcb1b11e20bde4772d87f157bc2c1586a1e174770873719293f0672","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"5a4c1c26-4084-4488-8ced-f49c85848080","schema":1,"source_base":"05ad9aff31e2c4ec0fe0a84c19c2d6a14a153032","source_sha256":"23e18a3d952f079c67be299a976ef1272cfee3bd12547ed8066b2675ffe5de37"}
 
 
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"465b6035896e8d889e432e0335c23a36da91f779b5bb0880fd34200f35aae7fd","replacement_run_id":"ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb","run":{"acceptance":null,"blocker":{"evidence_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_acceptance_output_mismatch","v1_contract_contradiction","v1_unauthorized_effect"],"input_sha256":"878917bdc4b3df7d88d98d7c48e9666f9b97b89cff7d4b4351675b6a307e7dd1","invocations":2,"result_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","state":"blocked"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"83750324a0aa2dd622a942ff7b15312722b298c1bb4f097743dccb25b70bc101","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"6feb5288-d1ac-4578-9466-6252501361e6","schema":1,"source_base":"407bc52d7ebfcef5bf16f1d249394b2401aab4fd","source_sha256":"87180b7ba10105e50701b62e9c4def5a58d5ce553fc0a5239488000ca44fa656"},"schema":1,"status":"blocked","successor_run_sha256":"0b761ae4050729f3eda85fbe3b7a1310582b6bfb867c4c23afd7bc9b977cc56d"}
@@ -763,6 +763,22 @@ Completion-review-result: {"diff_sha256":"82dcb5849a78e78d5a9317c05aac01568a4124
 
 Execution-blocker: {"evidence_sha256":"701e1027f07cda34beda6ce4a2850235ecddc80035ff5c7b83d4239a7cf951c1","kind":"concurrent_change","reason":"stable preflight exposed RFC3339 UTC and closed V3 receipt-shape regressions"}
 
+
+Completion-review-transport-failure: {"input_sha256":"0ebb8d885c8f7abdb263dd1915662fdd1210ea236e52b7b7b382e0b806d0762e","invocation":1,"kind":"invalid_completion_review_schema","result_sha256":"2af79a263e67aaf95eaa7f88136ec68dc800d2f556fce815517c36167805d28b"}
+
+
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"0b1bb39577eb203435d8290449f6b68f2170127db09577c51264eecd07d5b2bc","findings":[],"implementation_commit":"33bef50ea5775648cba59c884d8953c8e7e12299","invocation":1,"run_id":"5a4c1c26-4084-4488-8ced-f49c85848080","schema":1,"verdict":"pass"}
+
 ## Verification Results
 
-N/A - manager-written after execution.
+- Steps 29-34 completed on implementation commit `33bef50ea5775648cba59c884d8953c8e7e12299`.
+- Closed V3 reproduction before repair: `node plugins/session-relay/test/release-evidence-contract.mjs` failed because the generated proof still contained `plan_source_to_implementation` while the exact compatibility fixture expected only `source_to_tag`, `tag_to_implementation`, and `implementation_to_reviewed`.
+- Canonical UTC reproduction before repair: `node plugins/session-relay/test/release-promotion-contract.mjs` failed with `current public finished PlanRunV1 time must be an exact RFC3339 UTC timestamp` after the canonical fixture moved to `+00:00`.
+- The repaired timestamp validator accepts exact millisecond `Z` and `+00:00`; focused negatives reject `-03:00`, `+01:00`, missing milliseconds, impossible dates, and non-string values.
+- The SourcePreparationProofV3 validator, producer, and all three fixture families retain the original three-key ancestry object. Preparation still observes `plan_run.source_base` to implementation with Git, and both promotion consumers still observe that edge independently.
+- The current 0.16.0 instance plus both independent Docks run oracles now bind live run `5a4c1c26-4084-4488-8ced-f49c85848080`; immutable release source, tag commit, public child, and assets are unchanged.
+- Focused checks passed after formatting: release-instance-contract.mjs, distribution-contract.mjs, companion-distribution-contract.mjs, release-evidence-contract.mjs, release-promotion-contract.mjs, and release-publication-contract.mjs.
+- Full authoritative gate: `node scripts/ci.mjs` exited 0; all four plugin gates and repository-wide checks passed.
+- Pre-completion live read-only rehearsal: exact probe authority covered `DocksDocks/public:release:cli-v0.14.0`; `--verify-public-release` accepted the released child plan with canonical `+00:00` times and emitted receipt digest `61eda1cf61e35e27ea90564e5676764e92873799439691d45fb89d3f2184216d`. No remote mutator ran.
