@@ -11,26 +11,32 @@
 // The shared dispatcher validates every closed release policy before selecting a
 // lane. This file only composes production adapters and reports failures.
 import path from 'node:path';
-import { createGenericPluginReleaseIo, dispatchPluginRelease } from './lib/plugin-release.mjs';
+import {
+  createGenericPluginReleaseIo,
+  dispatchPluginRelease,
+  resolveGenericReleaseIo,
+  resolveReleaseFixtureConfiguration,
+} from './lib/plugin-release.mjs';
 import { PLUGINS } from './lib/plugins.mjs';
 import { dispatchSessionRelayRelease } from './lib/session-relay-release.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const argv = process.argv.slice(2);
-
-const dispatchFixture = async (args) => {
-  const fixtureConfigured =
-    process.env.SESSION_RELAY_RELEASE_FIXTURE !== undefined || process.env.SESSION_RELAY_RELEASE_REPORT !== undefined;
-  if (!fixtureConfigured) return null;
-  return dispatchSessionRelayRelease(args);
-};
+const fixturePath = process.env.SESSION_RELAY_RELEASE_FIXTURE;
+const reportPath = process.env.SESSION_RELAY_RELEASE_REPORT;
 
 try {
+  const fixtureConfigured = resolveReleaseFixtureConfiguration({ fixturePath, reportPath });
+  const dispatchFixture = fixtureConfigured ? dispatchSessionRelayRelease : undefined;
+
   const succeeded = await dispatchPluginRelease({
     argv,
     repo: REPO,
     plugins: PLUGINS,
-    io: createGenericPluginReleaseIo({ repo: REPO, plugins: PLUGINS }),
+    io: resolveGenericReleaseIo({
+      fixtureConfigured,
+      createIo: () => createGenericPluginReleaseIo({ repo: REPO, plugins: PLUGINS }),
+    }),
     dispatchFixture,
     dispatchReviewed: dispatchSessionRelayRelease,
   });

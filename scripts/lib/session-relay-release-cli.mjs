@@ -1,3 +1,4 @@
+import { resolveReleaseFixtureConfiguration } from './plugin-release.mjs';
 import { assertReceiptOutputFree, fail, PLUGIN, VERSION } from './session-relay-release-core.mjs';
 import { positionalPlugin, runFixture } from './session-relay-release-fixture.mjs';
 import {
@@ -198,9 +199,10 @@ function parseMode(argv) {
 }
 
 export async function dispatchSessionRelayRelease(argv = process.argv.slice(2)) {
-  const fixture = process.env.SESSION_RELAY_RELEASE_FIXTURE || process.env.SESSION_RELAY_RELEASE_REPORT;
-  if (Boolean(process.env.SESSION_RELAY_RELEASE_FIXTURE) !== Boolean(process.env.SESSION_RELAY_RELEASE_REPORT))
-    fail('fixture and report environment variables must be provided together');
+  const fixtureConfigured = resolveReleaseFixtureConfiguration({
+    fixturePath: process.env.SESSION_RELAY_RELEASE_FIXTURE,
+    reportPath: process.env.SESSION_RELAY_RELEASE_REPORT,
+  });
   let parsed;
   let parseError;
   try {
@@ -208,10 +210,10 @@ export async function dispatchSessionRelayRelease(argv = process.argv.slice(2)) 
   } catch (error) {
     parseError = error;
   }
-  if (fixture && parsed?.mode === 'rebind-promotion-evidence') {
+  if (fixtureConfigured && parsed?.mode === 'rebind-promotion-evidence') {
     fail('--rebind-promotion-evidence is unavailable in fixture mode; immutable evidence cannot be simulated');
   }
-  if (fixture) return runFixture(argv, parsed, parseError);
+  if (fixtureConfigured) return runFixture(argv, parsed, parseError);
   if (parseError) throw parseError;
   if (!parsed) {
     if (positionalPlugin(argv) === PLUGIN) fail('Session Relay positional release syntax is disabled; use --prepare');

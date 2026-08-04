@@ -638,7 +638,11 @@ async function expectReleasePolicyRefusal(runGenericPluginRelease, plugin, relea
   assert.deepEqual(calls, [], 'invalid release policy must fail before IO');
 }
 
-async function testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease) {
+async function testGenericReleaseModuleContract(
+  dispatchPluginRelease,
+  runGenericPluginRelease,
+  resolveGenericReleaseIo,
+) {
   const ordinaryNames = ['docks', 'effect-kit', 'plan-lifecycle'];
   const ordinaryPlugins = ordinaryNames.map((name) => PLUGINS.find((plugin) => plugin.name === name));
   for (const plugin of ordinaryPlugins) {
@@ -802,6 +806,92 @@ async function testGenericReleaseModuleContract(dispatchPluginRelease, runGeneri
   assert.equal(reviewedDispatchCalls, 0, 'generic fixture dispatch reached the reviewed dispatcher');
   assert.deepEqual(fixtureIo.calls, [], 'generic fixture dispatch reached production release IO');
 
+  for (const [name, argv, expected] of [
+    ['unknown default-plugin option in fixture mode', ['--unknown', 'patch'], /unknown.*--unknown/i],
+    ['reviewed option without plugin selector in fixture mode', ['--prepare', '0.16.1'], /unknown.*--prepare/i],
+    [
+      'duplicate generic plugin option in fixture mode',
+      ['--plugin', generic.name, '--plugin', ordinaryNames[1], 'patch'],
+      /duplicate generic release option.*--plugin/i,
+    ],
+    ['unknown generic option in fixture mode', ['--plugin', generic.name, '--unknown', 'patch'], /unknown.*--unknown/i],
+    ['missing generic version in fixture mode', ['--plugin', generic.name], /missing version/i],
+    ['invalid generic version in fixture mode', ['--plugin', generic.name, 'nonsense'], /version must be/i],
+    [
+      'duplicate generic dry-run option in fixture mode',
+      ['--dry-run', '--dry-run', '--plugin', generic.name, 'patch'],
+      /duplicate generic release option.*--dry-run/i,
+    ],
+    [
+      'reviewed option assigned to generic plugin in fixture mode',
+      ['--prepare', '--plugin', generic.name, 'patch'],
+      /unknown generic release option.*--prepare/i,
+    ],
+  ]) {
+    const malformedFixtureIo = genericReleaseIo(ROOT);
+    let malformedFixtureCalls = 0;
+    await assert.rejects(
+      dispatchPluginRelease({
+        argv,
+        repo: ROOT,
+        plugins: PLUGINS,
+        io: malformedFixtureIo.io,
+        dispatchFixture: async () => {
+          malformedFixtureCalls += 1;
+          return true;
+        },
+        dispatchReviewed: async () => true,
+      }),
+      expected,
+      name,
+    );
+    assert.equal(malformedFixtureCalls, 0, `${name} reached fixture dispatch`);
+    assert.deepEqual(malformedFixtureIo.calls, [], `${name} reached production release IO`);
+
+    const malformedDirectIo = genericReleaseIo(ROOT);
+    await assert.rejects(
+      runGenericPluginRelease({ argv, repo: ROOT, plugins: PLUGINS, io: malformedDirectIo.io }),
+      expected,
+      `${name} through direct generic dispatch`,
+    );
+    assert.deepEqual(malformedDirectIo.calls, [], `${name} reached direct generic release IO`);
+  }
+
+  let createdGenericIo = 0;
+  const noFixtureIo = resolveGenericReleaseIo({
+    fixtureConfigured: true,
+    createIo: () => {
+      createdGenericIo += 1;
+      return fixtureIo.io;
+    },
+  });
+  assert.equal(noFixtureIo, undefined, 'fixture mode retained a production generic IO adapter');
+  assert.equal(createdGenericIo, 0, 'fixture mode constructed a production generic IO adapter');
+
+  let declinedFixtureCalls = 0;
+  let declinedReviewedCalls = 0;
+  await assert.rejects(
+    dispatchPluginRelease({
+      argv: ['--plugin', generic.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: noFixtureIo,
+      dispatchFixture: async () => {
+        declinedFixtureCalls += 1;
+        return null;
+      },
+      dispatchReviewed: async () => {
+        declinedReviewedCalls += 1;
+        return true;
+      },
+    }),
+    /generic release IO must be the exact closed adapter/i,
+    'a missed fixture interception retained production release capability',
+  );
+  assert.equal(declinedFixtureCalls, 1);
+  assert.equal(declinedReviewedCalls, 0);
+  assert.equal(createdGenericIo, 0, 'a missed fixture interception reached production release IO');
+
   const successfulRelease = genericReleaseIo(ROOT);
   await runGenericPluginRelease({
     argv: ['--plugin', generic.name, 'patch'],
@@ -846,10 +936,46 @@ async function testGenericReleaseModuleContract(dispatchPluginRelease, runGeneri
 }
 
 async function testDryRunReleaseSafety() {
-  const { dispatchPluginRelease, runGenericPluginRelease } = await import('../lib/plugin-release.mjs');
+  const {
+    dispatchPluginRelease,
+    resolveGenericReleaseIo,
+    resolveReleaseFixtureConfiguration,
+    runGenericPluginRelease,
+  } = await import('../lib/plugin-release.mjs');
   assert.equal(typeof dispatchPluginRelease, 'function');
+  assert.equal(typeof resolveGenericReleaseIo, 'function');
+  assert.equal(typeof resolveReleaseFixtureConfiguration, 'function');
   assert.equal(typeof runGenericPluginRelease, 'function');
-  await testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease);
+  assert.equal(resolveReleaseFixtureConfiguration({ fixturePath: undefined, reportPath: undefined }), false);
+  assert.equal(resolveReleaseFixtureConfiguration({ fixturePath: '/fixture.json', reportPath: '/report.json' }), true);
+  for (const [fixturePath, reportPath] of [
+    ['', ''],
+    ['', '/report.json'],
+    ['/fixture.json', ''],
+    [undefined, '/report.json'],
+    ['/fixture.json', undefined],
+  ]) {
+    assert.throws(
+      () => resolveReleaseFixtureConfiguration({ fixturePath, reportPath }),
+      /fixture and report environment variables must both be non-empty/i,
+    );
+  }
+  await testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease, resolveGenericReleaseIo);
+  const emptyFixtureResult = spawnSync(
+    process.execPath,
+    ['scripts/release.mjs', '--prepare', '--plugin', 'session-relay', '0.16.0', '--dry-run'],
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        SESSION_RELAY_RELEASE_FIXTURE: '',
+        SESSION_RELAY_RELEASE_REPORT: '',
+      },
+    },
+  );
+  assert.equal(emptyFixtureResult.status, 1, 'empty fixture capability reached a release lane');
+  assert.match(emptyFixtureResult.stderr, /fixture and report environment variables must both be non-empty/i);
   const before = gitSnapshot();
   assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-dry-run-'));

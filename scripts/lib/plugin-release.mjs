@@ -95,10 +95,40 @@ function validateIo(io) {
   }
 }
 
+export function resolveGenericReleaseIo({ fixtureConfigured, createIo }) {
+  if (typeof fixtureConfigured !== 'boolean') throw new Error('fixtureConfigured must be a boolean');
+  if (typeof createIo !== 'function') throw new Error('generic release IO factory must be a function');
+  return fixtureConfigured ? undefined : createIo();
+}
+
+export function resolveReleaseFixtureConfiguration({ fixturePath, reportPath }) {
+  const fixturePresent = fixturePath !== undefined;
+  const reportPresent = reportPath !== undefined;
+  if (!fixturePresent && !reportPresent) return false;
+  if (
+    !fixturePresent ||
+    !reportPresent ||
+    typeof fixturePath !== 'string' ||
+    fixturePath.length === 0 ||
+    typeof reportPath !== 'string' ||
+    reportPath.length === 0
+  ) {
+    throw new Error('fixture and report environment variables must both be non-empty');
+  }
+  return true;
+}
+
 function resolvePlugin(pluginName, plugins) {
   const plugin = plugins.find((candidate) => candidate.name === pluginName);
   if (!plugin) throw new Error(`unknown plugin: ${pluginName} (known: ${plugins.map(({ name }) => name).join(', ')})`);
   return plugin;
+}
+
+function fixturePlugin(argv, plugins) {
+  if (!Array.isArray(argv)) throw new Error('release argv must be an array');
+  const pluginIndex = argv.indexOf('--plugin');
+  const pluginName = pluginIndex < 0 ? 'docks' : argv[pluginIndex + 1];
+  return plugins.find((candidate) => candidate.name === pluginName);
 }
 
 function selectedPlugin(argv, plugins) {
@@ -155,7 +185,12 @@ function parseGenericArgs(argv, plugins) {
   }
   if (positional.length > 1)
     throw new Error(`generic release accepts one version argument, received ${positional.length}`);
-  return { dryRun, plugin, versionArgument: positional[0] };
+  const versionArgument = positional[0];
+  if (!versionArgument) throw new Error('missing version arg (use X.Y.Z, patch, minor, or major)');
+  if (!['patch', 'minor', 'major'].includes(versionArgument) && !/^\d+\.\d+\.\d+$/.test(versionArgument)) {
+    throw new Error(`version must be X.Y.Z, patch, minor, or major (got: ${versionArgument})`);
+  }
+  return { dryRun, plugin, versionArgument };
 }
 
 function nextVersion(current, requested) {
@@ -198,6 +233,8 @@ export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchF
   validateReleaseRegistry(plugins);
   if (dispatchFixture !== undefined) {
     if (typeof dispatchFixture !== 'function') throw new Error('release fixture dispatcher must be a function');
+    const candidate = fixturePlugin(argv, plugins);
+    if (candidate?.release.kind === 'generic') parseGenericArgs(argv, plugins);
     const fixture = await dispatchFixture(argv);
     if (fixture !== null) return fixture;
   }
@@ -239,7 +276,6 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   }
   io.log('');
 
-  if (!versionArgument) throw new Error('missing version arg (use X.Y.Z, patch, minor, or major)');
   const pluginManifest = await io.readJson(pluginJson);
   const currentVersion = pluginManifest.version;
   const newVersion = nextVersion(currentVersion, versionArgument);

@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 
+import { validateReleaseRegistry } from './plugin-release.mjs';
+import { PLUGINS } from './plugins.mjs';
+
 import {
   canonicalize,
   canonicalPath,
@@ -18,6 +21,10 @@ import {
 } from './session-relay-release-core.mjs';
 
 const INSTANCE = loadReleaseInstance(VERSION, { require: ['fixture'] });
+validateReleaseRegistry(PLUGINS);
+const GENERIC_RELEASE_PLUGIN_NAMES = new Set(
+  PLUGINS.filter(({ release }) => release.kind === 'generic').map(({ name }) => name),
+);
 
 export function positionalPlugin(argv) {
   const index = argv.indexOf('--plugin');
@@ -186,15 +193,19 @@ export function runFixture(argv, parsed, parseError) {
   );
   if (fixture.schema !== 1 || fixture.type !== 'SessionRelayReleaseFixtureV1') fail('release fixture schema mismatch');
   const mode =
-    parsed?.mode ?? (['docks', 'effect-kit'].includes(positionalPlugin(argv)) ? 'legacy-release' : 'grammar');
-  const outcome = fixture.expected_outcome;
+    parsed?.mode ?? (GENERIC_RELEASE_PLUGIN_NAMES.has(positionalPlugin(argv)) ? 'legacy-release' : 'grammar');
+  const fixtureOutcome = fixture.expected_outcome;
   let receipt = null;
   let calls = [];
   let mutations = [];
   let journal = [];
   let state = { version: VERSION, tag: TAG };
   const forcedConflict =
-    outcome === 'conflict' || mode === 'grammar' || parseError || fixture.scenario === 'session-relay-positional';
+    fixtureOutcome === 'conflict' ||
+    mode === 'grammar' ||
+    parseError ||
+    fixture.scenario === 'session-relay-positional';
+  const outcome = forcedConflict ? 'conflict' : fixtureOutcome;
   if (!forcedConflict) {
     receipt = fixtureReceipt(mode, fixture, outcome);
     journal = fixtureJournal(fixture, outcome);
