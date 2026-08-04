@@ -1215,14 +1215,12 @@ function validateCurrentSourcePreparationProof(value) {
   }
 
   const ancestryKeys = planRunProof
-    ? ['source_to_tag', 'plan_source_to_implementation', 'tag_to_implementation', 'implementation_to_reviewed']
+    ? ['source_to_tag', 'tag_to_implementation', 'implementation_to_reviewed']
     : ['source_to_red', 'red_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag'];
   exactKeys(value.ancestry, ancestryKeys, 'current source proof ancestry');
   if (
     (planRunProof
-      ? value.ancestry.source_to_tag !== true ||
-        value.ancestry.plan_source_to_implementation !== true ||
-        value.ancestry.tag_to_implementation !== true
+      ? value.ancestry.source_to_tag !== true || value.ancestry.tag_to_implementation !== true
       : value.ancestry.source_to_red !== true || value.ancestry.red_to_implementation !== true) ||
     value.ancestry.implementation_to_reviewed !== true ||
     (!planRunProof && value.ancestry.reviewed_to_tag !== true)
@@ -2803,7 +2801,6 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     },
     ancestry: {
       source_to_tag: true,
-      plan_source_to_implementation: true,
       tag_to_implementation: true,
       implementation_to_reviewed: true,
     },

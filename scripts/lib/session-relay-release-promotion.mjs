@@ -604,12 +604,13 @@ function assertDigest(value, label, nullable = false) {
 }
 
 function assertTimestamp(value, label) {
-  if (
-    typeof value !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
-    new Date(value).toISOString() !== value
-  )
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|\+00:00)$/.test(value)) {
     fail(`${label} must be an exact RFC3339 UTC timestamp`);
+  }
+  const canonical = value.endsWith('+00:00') ? `${value.slice(0, -6)}Z` : value;
+  if (new Date(value).toISOString() !== canonical) {
+    fail(`${label} must be an exact RFC3339 UTC timestamp`);
+  }
 }
 
 function assertBlobMap(value, label, nullable = false) {
