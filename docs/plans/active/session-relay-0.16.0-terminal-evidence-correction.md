@@ -1,0 +1,109 @@
+---
+title: Record Session Relay 0.16.0 terminal release evidence
+goal: Preserve a durable correction for the immutable Session Relay 0.16.0 release archive by binding its lifecycle contradiction and the live terminal evidence that the archive omitted, without changing historical bytes.
+status: ongoing
+created: "2026-08-04T14:17:35.000+00:00"
+updated: "2026-08-04T14:53:34.858+00:00"
+started_at: "2026-08-04T14:53:34.858+00:00"
+finished_at: null
+assignee: null
+tags: [plans, session-relay, release, evidence-correction]
+affected_paths:
+  - docs/release-evidence/session-relay-0.16.0-terminal-correction.md
+related_plans:
+  - docs/plans/finished/2026-08-04-session-relay-0.16.0-release.md
+---
+
+# Record Session Relay 0.16.0 terminal release evidence
+
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"734853f963977c443689edaa38353209801d767f33343f3f5c3532b8706b7ba2","invocations":1,"result_sha256":"a59db9f9dfdd6ec92060cde6d1b5e1e90f2fd3ce4e4520737d882473bc4d0721","state":"passed"},"execution_parent":"61cba17190b36beb052984978699330f8c8c3ce3","goal_id":"264745fc-8d2c-437a-9261-62f3ef77d9d1","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-terminal-evidence-correction.md","plan_sha256":"989fe7fcccebac5f9a0b70f2b2bfbc75cfda9a5dc7326d5ac5c4371ee2be1b31","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push"],"risk":"external","run_id":"b804abe2-e583-4e70-8b30-722974d8dc30","schema":1,"source_base":"61cba17190b36beb052984978699330f8c8c3ce3","source_sha256":"29b71bfd4710ec76f7bdd9619841ecb5f8e64f5520feacbd2cc14ce9002f8d34"}
+
+## Goal
+
+Create a durable correction artifact at `docs/release-evidence/session-relay-0.16.0-terminal-correction.md`, then archive this canonical run. Bind the original archive's exact bytes, its contradictory lifecycle state, the stable release identity, byte-verified assets, retained preflight refs, and remote archive checkpoint.
+
+The original archive remains historical evidence. This run does not relabel, amend, replace, or delete it.
+
+## Corrective finding
+
+The immutable archive at `docs/plans/finished/2026-08-04-session-relay-0.16.0-release.md` has SHA-256 `a3d0fc2b4784c074356143163e6269fa6950e24b3f51d61e38f7622761bdde7f`.
+
+Its frontmatter says `status: finished`, but Steps rows 29 through 40 all retain status `planned`. Its Verification Results says Steps 29 through 34 completed, then ends at a pre-completion rehearsal. It does not bind the later completion pass, stable promotion, final byte verification, retained-ref proof, or remote archive read-back.
+
+The release itself succeeded. The missing facts must be observed again and recorded here rather than inferred from the finished archive.
+
+## Correction mechanism {mechanism}
+1. Preserve the original archive byte-for-byte.
+2. Parse the original plan. Do not rely on prose substring matches for PlanRunV1 state or step status.
+3. Observe the current GitHub release under fresh read-only authority.
+4. Download every current release asset and verify the served checksum file.
+5. Re-read every retained `preflight/*` ref and bind the exact ref-to-object set.
+6. Read remote `main` and prove that it contains the immutable archive while the old active path is absent.
+7. Write a closed `Correction-record:` JSON object with every observation and the exact 20-entry ref map to the declared correction artifact.
+8. Put the same observed facts in this plan's manager-owned Verification Results before completion review.
+9. Archive and push this corrective record without editing the historical archive.
+
+### Closed correction record
+
+The artifact contains one unfenced compact-JCS `Correction-record:` line. Its exact top-level keys are `archive`, `implementation`, `observed_at`, `preflight_refs`, `receipts`, `release`, `remote`, `schema`, and `type`.
+
+- `archive` has exactly `active_path`, `contradictory_step_ids`, `path`, `sha256`, `status`, `terminal_evidence_bound`, and `verification_claimed_through`.
+- `implementation` has exactly `commit`, `completion_review_sha256`, and `run_id`.
+- `release` has exactly `assets`, `published_at`, `state`, and `tag`; `assets` has exactly the three binary names.
+- `receipts` has exactly `finalization_sha256` and `promotion_sha256`.
+- `preflight_refs` has exactly `refs` and `sha256`; `refs` is the exact 20-entry ref-to-object map. Rebuilding sorted `<oid> TAB <ref> LF` rows must reproduce its fixed SHA-256.
+- `remote` has exactly `active_absent`, `archive_present`, and `main`.
+
+Unknown, missing, noncanonical, malformed, or identity-conflicting data fails A4.
+
+## Steps
+
+| # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |
+|---:|---|---|---|---|---|---|---|
+| 1 | inspect_archive | Parse the immutable archive and expose its contradiction. | `docs/release-evidence/session-relay-0.16.0-terminal-correction.md` | — | `local` | `planned` | The archive digest is exact, frontmatter is finished, rows 29-40 are all planned, Verification Results claims 29-34 completed, and no terminal release evidence follows. Any mismatch stops because this correction targets different bytes. |
+| 2 | verify_stable_release | Re-observe stable metadata and every asset byte. | `docs/release-evidence/session-relay-0.16.0-terminal-correction.md` | 1 | `probe` | `planned` | With exact live read-only authority, GitHub reports tag `session-relay--v0.16.0`, draft false, prerelease false, and exactly three binaries plus `SHA256SUMS`; a fresh download matches the served three-row checksum file and the frozen expected digests. |
+| 3 | verify_refs_and_archive | Re-observe retained refs and remote archive state. | `docs/release-evidence/session-relay-0.16.0-terminal-correction.md` | 2 | `probe` | `planned` | With exact live read-only authority, `preflight/*` contains the exact 20 ref-to-object rows whose canonical output digest is `2ab34ea12c38601373bb1a784f24f18191027230119f3fa1b1a7a1a89eff1722`; remote main contains the immutable archive at digest `a3d0fc2b4784c074356143163e6269fa6950e24b3f51d61e38f7622761bdde7f` and no old active plan. |
+| 4 | write_correction_artifact | Persist the closed terminal evidence object. | `docs/release-evidence/session-relay-0.16.0-terminal-correction.md` | 3 | `local` | `planned` | One closed `SessionRelayTerminalEvidenceCorrectionV1` object binds the archive contradiction, reviewed implementation, completion result, stable release, asset digests, receipt digests, exact ref map, and observed remote main. The artifact validates against live observations, then enters the implementation checkpoint. |
+| 5 | bind_and_publish_correction | Bind, review, archive, and publish the correction. | all affected paths in frontmatter | 4 | `push` | `planned` | Verification Results bind the observations; CompletionReviewV1 passes; the archived plan has all five step statuses `done`; the terminal checkpoint reaches `DocksDocks/docks:main` and reads back. Any preimage, review, push, or read-back mismatch stops without changing the original archive. |
+
+## Acceptance
+
+| ID | Command | Expected |
+|---|---|---|
+| A1 | `node --input-type=module -e 'import fs from "node:fs"; import crypto from "node:crypto"; const p="docs/plans/finished/2026-08-04-session-relay-0.16.0-release.md"; const b=fs.readFileSync(p); const t=b.toString("utf8"); const h=crypto.createHash("sha256").update(b).digest("hex"); if(h!=="a3d0fc2b4784c074356143163e6269fa6950e24b3f51d61e38f7622761bdde7f") throw new Error("archive digest drift"); if(!/^status: finished$/m.test(t)) throw new Error("archive is not finished"); const rows=t.split("\n").filter((l)=>/^\| (?:29|3[0-9]|40) \|/.test(l)); if(rows.length!==12||rows.some((l)=>!l.includes("| `planned` |"))) throw new Error("rows 29-40 are not the exact planned contradiction"); const vr=t.split("## Verification Results\n")[1]??""; if(!vr.includes("Steps 29-34 completed")||vr.includes("A8: all recorded refs retained")||vr.includes("remote main 61cba17190b3")) throw new Error("terminal evidence shape differs"); console.log(`archive ${h} is finished with ${rows.length} planned terminal rows and truncated evidence`);'` | Exit 0 and print the exact archive digest plus twelve contradictory planned terminal rows. |
+| A2 | `node --input-type=module -e 'import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import crypto from "node:crypto"; import {execFileSync} from "node:child_process"; const repo="DocksDocks/docks",tag="session-relay--v0.16.0"; const release=JSON.parse(execFileSync("gh",["release","view",tag,"--repo",repo,"--json","tagName,isDraft,isPrerelease,assets"],{encoding:"utf8"})); if(release.tagName!==tag||release.isDraft!==false||release.isPrerelease!==false)throw new Error("release is not stable"); const expected={"session-relay-aarch64-apple-darwin":"da8b114216c3f2301ad582df8e59b49e91953abcc1112b510466b31637fda825","session-relay-aarch64-unknown-linux-musl":"816b6b8bd2d2c2518ea359a5a21502213347b387a1cc576a0fb9cf541e5646ed","session-relay-x86_64-unknown-linux-musl":"b3ca082dc5ea51e8322be407cdb4bbcaaa05d80bd62c3553f82ab98c1a95498a"}; const names=release.assets.map((a)=>a.name).sort(); const wanted=["SHA256SUMS",...Object.keys(expected)].sort(); if(JSON.stringify(names)!==JSON.stringify(wanted))throw new Error("wrong release asset set"); const root=path.join(process.env.XDG_STATE_HOME??path.join(os.homedir(),".local/state"),"docks"); fs.mkdirSync(root,{recursive:true,mode:0o700}); const dir=fs.mkdtempSync(path.join(root,"relay-0160-correction.")); execFileSync("gh",["release","download",tag,"--repo",repo,"--pattern","session-relay-*","--pattern","SHA256SUMS","--dir",dir],{stdio:"inherit"}); const hash=(p)=>crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex"); if(hash(path.join(dir,"SHA256SUMS"))!=="2a61b20a656d002836f21dc853ee9bc161836d474a0acdad082425f40ab91e36")throw new Error("wrong checksum blob"); const rows=fs.readFileSync(path.join(dir,"SHA256SUMS"),"utf8").trimEnd().split("\n"); if(rows.length!==3)throw new Error("wrong checksum row count"); for(const [name,digest] of Object.entries(expected)){if(!rows.includes(`${digest}  ${name}`)||hash(path.join(dir,name))!==digest)throw new Error(`asset digest mismatch: ${name}`)} console.log("stable release assets verify");'` | Exit 0 only for stable metadata, the exact closed asset set, the exact checksum blob, and all three expected binary digests. |
+| A3 | `sh -c 'set -eu; refs="$(git ls-remote --heads origin "preflight/*")"; test "$(printf "%s\n" "$refs" | wc -l)" -eq 20; test "$(printf "%s\n" "$refs" | sha256sum | cut -d" " -f1)" = 2ab34ea12c38601373bb1a784f24f18191027230119f3fa1b1a7a1a89eff1722; remote="$(git ls-remote origin refs/heads/main | cut -f1)"; test -n "$remote"; test "$(git show "$remote:docs/plans/finished/2026-08-04-session-relay-0.16.0-release.md" | sha256sum | cut -d" " -f1)" = a3d0fc2b4784c074356143163e6269fa6950e24b3f51d61e38f7622761bdde7f; test -z "$(git ls-tree --name-only "$remote" docs/plans/active/session-relay-0.16.0-release.md)"'` | Exit 0 only when the exact retained ref set survives and remote main serves the unchanged archive at no active predecessor path. |
+| A4 | `node --input-type=module -e 'import fs from "node:fs"; import crypto from "node:crypto"; import {canonicalize} from "./scripts/lib/session-relay-release.mjs"; const t=fs.readFileSync("docs/release-evidence/session-relay-0.16.0-terminal-correction.md","utf8"),l=t.split("\n").find((x)=>x.startsWith("Correction-record: ")); if(!l)throw new Error("missing Correction-record"); const r=JSON.parse(l.slice(19)); const exact=(o,k,n)=>{if(!o||typeof o!=="object"||Array.isArray(o)||JSON.stringify(Object.keys(o).sort())!==JSON.stringify([...k].sort()))throw new Error(n+" keys")}; exact(r,["archive","implementation","observed_at","preflight_refs","receipts","release","remote","schema","type"],"record"); exact(r.archive,["active_path","contradictory_step_ids","path","sha256","status","terminal_evidence_bound","verification_claimed_through"],"archive"); exact(r.implementation,["commit","completion_review_sha256","run_id"],"implementation"); exact(r.release,["assets","published_at","state","tag"],"release"); exact(r.release.assets,["session-relay-aarch64-apple-darwin","session-relay-aarch64-unknown-linux-musl","session-relay-x86_64-unknown-linux-musl"],"assets"); exact(r.receipts,["finalization_sha256","promotion_sha256"],"receipts"); exact(r.preflight_refs,["refs","sha256"],"preflight_refs"); exact(r.remote,["active_absent","archive_present","main"],"remote"); if(r.schema!==1||r.type!=="SessionRelayTerminalEvidenceCorrectionV1")throw new Error("wrong correction schema"); const ids=Array.from({length:12},(_,i)=>i+29); if(r.archive.path!=="docs/plans/finished/2026-08-04-session-relay-0.16.0-release.md"||r.archive.active_path!=="docs/plans/active/session-relay-0.16.0-release.md"||r.archive.sha256!=="a3d0fc2b4784c074356143163e6269fa6950e24b3f51d61e38f7622761bdde7f"||r.archive.status!=="finished"||JSON.stringify(r.archive.contradictory_step_ids)!==JSON.stringify(ids)||r.archive.verification_claimed_through!==34||r.archive.terminal_evidence_bound!==false)throw new Error("wrong archive correction"); if(r.implementation.commit!=="33bef50ea5775648cba59c884d8953c8e7e12299"||r.implementation.run_id!=="5a4c1c26-4084-4488-8ced-f49c85848080"||r.implementation.completion_review_sha256!=="c2df3349b85e59c2b82529cedc5dd4e415276c9d8d4a02dc97e272dd89138b3e")throw new Error("wrong implementation evidence"); const assets={"session-relay-aarch64-apple-darwin":"da8b114216c3f2301ad582df8e59b49e91953abcc1112b510466b31637fda825","session-relay-aarch64-unknown-linux-musl":"816b6b8bd2d2c2518ea359a5a21502213347b387a1cc576a0fb9cf541e5646ed","session-relay-x86_64-unknown-linux-musl":"b3ca082dc5ea51e8322be407cdb4bbcaaa05d80bd62c3553f82ab98c1a95498a"}; if(r.release.tag!=="session-relay--v0.16.0"||r.release.state!=="stable"||r.release.published_at!=="2026-08-03T19:53:10Z"||JSON.stringify(r.release.assets)!==JSON.stringify(assets))throw new Error("wrong release evidence"); if(r.receipts.promotion_sha256!=="a3adbe4d4c70c26b7a77a76f7436edb34647997451667e3438e244f4641a0397"||r.receipts.finalization_sha256!=="d04a31acc521414973803d0567119821f66dd7c4457b14ea1f8433ce23377bc9")throw new Error("wrong receipt evidence"); const entries=Object.entries(r.preflight_refs.refs); if(entries.length!==20||entries.some(([ref,oid])=>!/^refs\/heads\/preflight\/session-relay-/.test(ref)||!/^[0-9a-f]{40}$/.test(oid)))throw new Error("wrong ref map"); const rows=entries.sort(([a],[b])=>a.localeCompare(b)).map(([ref,oid])=>`${oid}\t${ref}\n`).join(""); const refsHash=crypto.createHash("sha256").update(rows).digest("hex"); if(r.preflight_refs.sha256!=="2ab34ea12c38601373bb1a784f24f18191027230119f3fa1b1a7a1a89eff1722"||refsHash!==r.preflight_refs.sha256)throw new Error("wrong ref digest"); if(r.remote.main!=="61cba17190b36beb052984978699330f8c8c3ce3"||r.remote.archive_present!==true||r.remote.active_absent!==true)throw new Error("wrong remote evidence"); if(typeof r.observed_at!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[.]000Z$/.test(r.observed_at)||Number.isNaN(Date.parse(r.observed_at)))throw new Error("wrong observation time"); if(l!==`Correction-record: ${canonicalize(r)}`)throw new Error("Correction-record is not canonical JCS"); console.log("closed correction record validates");'` | Exit 0 only when every record and nested key set is closed, all identities and digests equal their observed constants, the exact ref map reproduces its fixed digest, and the stored line is canonical JCS. |
+| A5 | `node plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/plan-self-check.mjs check docs/plans/active/session-relay-0.16.0-terminal-evidence-correction.md` | Exit 0 with every declared path and step valid before completion review. |
+| A6 | `node -e 'const cp=require("child_process"); const p=process.env.ARCHIVE_PATH,c=process.env.CORRECTION_COMMIT; if(!p||!c) throw new Error("ARCHIVE_PATH and CORRECTION_COMMIT are required"); const remote=cp.execFileSync("git",["ls-remote","origin","refs/heads/main"],{encoding:"utf8"}).split(/\s+/)[0]; if(remote!==c) throw new Error(`remote main ${remote} differs from correction ${c}`); if(cp.execFileSync("git",["ls-tree","--name-only",remote,p],{encoding:"utf8"}).trim()!==p) throw new Error("correction archive is not remotely readable"); if(cp.execFileSync("git",["ls-tree","--name-only",remote,"docs/release-evidence/session-relay-0.16.0-terminal-correction.md"],{encoding:"utf8"}).trim()!=="docs/release-evidence/session-relay-0.16.0-terminal-correction.md")throw new Error("correction artifact is not remotely readable"); console.log(`remote main ${remote} serves ${p} and the correction artifact`);'` | Exit 0 after the terminal push and prove both corrective records are remotely readable. |
+
+## Out of scope / do-NOT-touch
+
+- Do not edit, rename, replace, or delete `docs/plans/finished/2026-08-04-session-relay-0.16.0-release.md`.
+- Do not change Session Relay binaries, tags, releases, assets, manifests, or source.
+- Do not delete or repoint any `preflight/*` ref.
+- Do not implement the separate planned release-process guard plan.
+- Do not claim that this record changes historical bytes. It records a correction beside them.
+
+## STOP conditions
+
+1. The original archive digest differs from `a3d0fc2b4784c074356143163e6269fa6950e24b3f51d61e38f7622761bdde7f`.
+2. Any release state, asset name, asset digest, ref identity, or remote archive observation differs from the closed expectations.
+3. The correction requires changing the original finished plan.
+4. Draft or completion review finds an unbound claim or unsafe scope that cannot be corrected within this plan.
+5. The terminal checkpoint cannot fast-forward exact remote main.
+
+## Open decisions
+
+None. The user selected a new corrective lifecycle run instead of overriding archive immutability.
+
+## Review
+
+N/A — manager-written after draft and completion review.
+
+
+Plan-attempt-history: {"authorization_source_sha256":"5c1210455f6854c60c9e9e916c73e784f8df289ebd017a406f7d6a823054c20a","plan_bytes_sha256":"905ec8920305c4b0527ba3b72b21932dd58ed366c79e42f6bb7418d307d80733","replacement_run_id":"b804abe2-e583-4e70-8b30-722974d8dc30","run":{"acceptance":null,"blocker":{"evidence_sha256":"4e69701efbdaef578560e0a1f95f159d49c2d6baf9ee97bea0ff6713a9a85597","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete"],"input_sha256":"a3a2fa429d191ed3448d34b9cb2f29fe5a962b49036ae65479ffeec10113a59c","invocations":2,"result_sha256":"4e69701efbdaef578560e0a1f95f159d49c2d6baf9ee97bea0ff6713a9a85597","state":"blocked"},"execution_parent":null,"goal_id":"264745fc-8d2c-437a-9261-62f3ef77d9d1","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-terminal-evidence-correction.md","plan_sha256":"43f2eba545108cb62a93d8763325af948afd486f7f83048ede74158f24ad95b3","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push"],"risk":"external","run_id":"b7554943-f402-4d7f-86b5-2da41f432c36","schema":1,"source_base":"61cba17190b36beb052984978699330f8c8c3ce3","source_sha256":"29b71bfd4710ec76f7bdd9619841ecb5f8e64f5520feacbd2cc14ce9002f8d34"},"schema":1,"status":"blocked","successor_run_sha256":"abed4c6ec065a0cfee5381a3b0e531bf5675e16e78eac6d653ac4f7d4ff996ec"}
+
+## Verification Results
+
+N/A — manager-written after execution.
