@@ -106,7 +106,7 @@ const TARGET_RUNNERS = {
   'x86_64-unknown-linux-musl': { runner_arch: 'X64', runner_os: 'Linux' },
 };
 
-const CURRENT_PUBLIC_VERSION = '0.13.0';
+const CURRENT_PUBLIC_VERSION = '0.14.0';
 const CURRENT_PUBLIC_TAG = `cli-v${CURRENT_PUBLIC_VERSION}`;
 const LEGACY_VERSION = '0.13.0';
 const LEGACY = loadReleaseInstance('0.13.0', { require: ['historical_receipts'] });

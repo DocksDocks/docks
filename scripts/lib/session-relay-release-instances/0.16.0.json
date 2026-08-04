@@ -1,7 +1,7 @@
 {
   "current_attempt": {
     "goal_id": "cef66d21-5bd3-4e07-a0e8-e393822dcfb0",
-    "docks_run_id": "1c5b6f71-c69d-4566-adcc-4c15a9f0c599",
+    "docks_run_id": "d5d1e9fa-7627-47b8-bac2-bed0b7465d9e",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
     "public_run_id": "fb5a6880-9bca-45c5-9136-d0424a020d5a",
@@ -9,7 +9,7 @@
     "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
   "planrun_attempt": {
-    "docks_run_id": "1c5b6f71-c69d-4566-adcc-4c15a9f0c599",
+    "docks_run_id": "d5d1e9fa-7627-47b8-bac2-bed0b7465d9e",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
     "release_tag_commit": "875661640c1c45894c66a9b2fdc437fd47307e1f",
@@ -74,9 +74,7 @@
       "scripts/tests/ci-plugin-targeting.mjs",
       "scripts/verify-session-relay-preflight.mjs"
     ],
-    "planrun": [
-      "docs/plans/active/session-relay-0.16.0-release.md"
-    ]
+    "planrun": ["docs/plans/active/session-relay-0.16.0-release.md"]
   },
   "public_child": {
     "version": "0.14.0",
