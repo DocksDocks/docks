@@ -1107,7 +1107,6 @@ function verifyCurrentPublicPlanRun(
     run.run_id !== CURRENT_PUBLIC_RUN_ID ||
     run.risk !== 'external' ||
     canonicalize(run.requested_effects) !== canonicalize(PUBLIC_PLANRUN_EFFECTS) ||
-    run.source_base !== companionBaseCommit ||
     run.execution_parent !== companionBaseCommit ||
     run.implementation_commit === null ||
     run.acceptance === null ||
@@ -1146,6 +1145,7 @@ function verifyCurrentPublicPlanRun(
     release_to_archive: true,
   };
   for (const [ancestor, descendant, label] of [
+    [run.source_base, ancestry.implementation_commit, 'source-base-to-implementation'],
     [ancestry.execution_parent, ancestry.implementation_commit, 'execution-parent-to-implementation'],
     [ancestry.implementation_commit, ancestry.release_commit, 'implementation-to-release'],
     [ancestry.release_commit, ancestry.archive_commit, 'release-to-archive'],
@@ -1876,6 +1876,7 @@ function validateCurrentRemoteAuthority(adapter, proof, publicRelease, options) 
       ? [
           [proof.value.source_commit, proof.value.tag_commit, 'source-to-tag'],
           [proof.value.tag_commit, proof.value.implementation_commit, 'tag-to-implementation'],
+          [proof.value.plan_run.source_base, proof.value.implementation_commit, 'plan-source-to-implementation'],
         ]
       : [
           [proof.value.source_commit, proof.value.tdd_red.pre_production_commit, 'source-to-red'],
@@ -3133,7 +3134,6 @@ function validatePromotionEvidenceFreshContext(
     proof.value.plan_run.goal_id !== CURRENT_GOAL_ID ||
     proof.value.plan_run.run_id !== PLANRUN_DOCKS_RUN_ID ||
     proof.value.plan_run.plan_path !== PLANRUN_DOCKS_PLAN_PATH ||
-    proof.value.plan_run.source_base !== PLANRUN_DOCKS_SOURCE_BASE ||
     proof.value.plan_run.implementation_commit !== proof.value.implementation_commit ||
     proof.value.completion_review.reviewed_commit !== proof.value.implementation_commit
   ) {
@@ -3166,6 +3166,7 @@ function validatePromotionEvidenceFreshContext(
   for (const [ancestor, descendant, label] of [
     [proof.value.source_commit, proof.value.tag_commit, 'source-to-tag'],
     [proof.value.tag_commit, proof.value.implementation_commit, 'tag-to-implementation'],
+    [proof.value.plan_run.source_base, proof.value.implementation_commit, 'plan-source-to-implementation'],
   ]) {
     if (adapter.isAncestor(ancestor, descendant) !== true) {
       fail(`promotion evidence ${label} ancestry was not independently observed`);

@@ -1135,13 +1135,14 @@ function validateCurrentSourcePreparationProof(value) {
     ['schema', 'repository_id', 'goal_id', 'run_id', 'plan_path', 'source_base', 'implementation_commit', 'status'],
     'current source proof plan run',
   );
+  commit(value.plan_run.source_base, 'current source proof PlanRun source_base');
   if (
     value.plan_run.schema !== 1 ||
     value.plan_run.repository_id !== expectedDocksRepositoryId ||
     value.plan_run.goal_id !== value.goal_id ||
     value.plan_run.run_id !== value.run_id ||
     value.plan_run.plan_path !== expectedPlanPath ||
-    value.plan_run.source_base !== value.source_commit ||
+    (!planRunProof && value.plan_run.source_base !== value.source_commit) ||
     value.plan_run.implementation_commit !== value.implementation_commit ||
     value.plan_run.status !== 'ongoing'
   ) {
@@ -1214,17 +1215,21 @@ function validateCurrentSourcePreparationProof(value) {
   }
 
   const ancestryKeys = planRunProof
-    ? ['source_to_tag', 'tag_to_implementation', 'implementation_to_reviewed']
+    ? ['source_to_tag', 'plan_source_to_implementation', 'tag_to_implementation', 'implementation_to_reviewed']
     : ['source_to_red', 'red_to_implementation', 'implementation_to_reviewed', 'reviewed_to_tag'];
   exactKeys(value.ancestry, ancestryKeys, 'current source proof ancestry');
   if (
     (planRunProof
-      ? value.ancestry.source_to_tag !== true || value.ancestry.tag_to_implementation !== true
+      ? value.ancestry.source_to_tag !== true ||
+        value.ancestry.plan_source_to_implementation !== true ||
+        value.ancestry.tag_to_implementation !== true
       : value.ancestry.source_to_red !== true || value.ancestry.red_to_implementation !== true) ||
     value.ancestry.implementation_to_reviewed !== true ||
     (!planRunProof && value.ancestry.reviewed_to_tag !== true)
   ) {
-    fail('current source proof ancestry through the immutable tag and reviewed implementation is incomplete');
+    fail(
+      'current source proof ancestry through the PlanRun source, immutable tag, and reviewed implementation is incomplete',
+    );
   }
 
   exactKeys(
@@ -2397,7 +2402,7 @@ function currentPlanRun(
     run.goal_id !== goalId ||
     run.run_id !== runId ||
     run.plan_path !== planPath ||
-    run.source_base !== sourceBase ||
+    (sourceBase !== null && run.source_base !== sourceBase) ||
     (expectedExecutionParent !== null && run.execution_parent !== expectedExecutionParent) ||
     run.risk !== 'external' ||
     canonicalize(run.requested_effects) !== canonicalize(DOCKS_PLANRUN_EFFECTS)
@@ -2712,10 +2717,15 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     repositoryId: PLANRUN_DOCKS_REPOSITORY_ID,
     runId: PLANRUN_DOCKS_RUN_ID,
     planPath: PLANRUN_DOCKS_PLAN_PATH,
-    sourceBase: PLANRUN_DOCKS_SOURCE_BASE,
+    sourceBase: null,
     expectedExecutionParent: null,
   });
-  const sourceCommit = resolveExactCurrentCommit(deps, run.source_base, 'PlanRun source commit');
+  const releaseSourceCommit = resolveExactCurrentCommit(
+    deps,
+    PLANRUN_DOCKS_SOURCE_BASE,
+    'PlanRun release source commit',
+  );
+  const planSourceCommit = resolveExactCurrentCommit(deps, run.source_base, 'PlanRun source commit');
   const executionParent = resolveExactCurrentCommit(deps, run.execution_parent, 'PlanRun execution parent');
   const implementationCommit = resolveExactCurrentCommit(
     deps,
@@ -2751,8 +2761,8 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
   if (tagCommit !== PLANRUN_RELEASE_TAG_COMMIT) {
     fail('PlanRun immutable release tag commit changed');
   }
-  ancestor(deps, { older: sourceCommit, newer: tagCommit }, 'PlanRun source-to-tag');
-  ancestor(deps, { older: sourceCommit, newer: executionParent }, 'PlanRun source-to-execution-parent');
+  ancestor(deps, { older: releaseSourceCommit, newer: tagCommit }, 'PlanRun release-source-to-tag');
+  ancestor(deps, { older: planSourceCommit, newer: implementationCommit }, 'PlanRun source-to-implementation');
   ancestor(deps, { older: executionParent, newer: implementationCommit }, 'PlanRun execution-parent-to-implementation');
   ancestor(deps, { older: tagCommit, newer: implementationCommit }, 'PlanRun tag-to-implementation');
   ancestor(deps, { older: implementationCommit, newer: reviewedCommit }, 'PlanRun implementation-to-reviewed');
@@ -2765,7 +2775,7 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     tag: CURRENT_RELEASE_TAG,
     goal_id: run.goal_id,
     run_id: run.run_id,
-    source_commit: sourceCommit,
+    source_commit: releaseSourceCommit,
     implementation_commit: implementationCommit,
     tag_commit: tagCommit,
     plan_run: {
@@ -2793,6 +2803,7 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     },
     ancestry: {
       source_to_tag: true,
+      plan_source_to_implementation: true,
       tag_to_implementation: true,
       implementation_to_reviewed: true,
     },
