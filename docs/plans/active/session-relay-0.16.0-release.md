@@ -1,10 +1,10 @@
 ---
 title: Release Session Relay 0.16.0 with custody-safe disconnects
 goal: Ship Session Relay 0.16.0 without fencing a managed worker on caller disconnect, retire Intel macOS production assets, and retain preflight evidence refs.
-status: drafting
+status: ongoing
 created: "2026-08-02T18:00:00+00:00"
-updated: "2026-08-04T06:55:09.274+00:00"
-started_at: null
+updated: "2026-08-04T07:00:46.431+00:00"
+started_at: "2026-08-04T07:00:46.431+00:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, release, custody, supply-chain]
@@ -698,7 +698,7 @@ historical-byte boundary are resolved.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"938e144ccbcb1b11e20bde4772d87f157bc2c1586a1e174770873719293f0672","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"5a4c1c26-4084-4488-8ced-f49c85848080","schema":1,"source_base":"b82d621a545bfb5ac81fb66261c6dba556cf95df","source_sha256":"d98291f1ede0e0d83bbba8fd144faf6d658c2925e69f6e9910469498aa60d615"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"fef58b81a0717e99432ac15536e0a41a67b75bdc5125e7b0aa45a17999067679","invocations":1,"result_sha256":"ae779151cb211c98487a4f2424c3e5f658f46ac1562e43611de4d7fdcdfd8d97","state":"passed"},"execution_parent":"05ad9aff31e2c4ec0fe0a84c19c2d6a14a153032","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"938e144ccbcb1b11e20bde4772d87f157bc2c1586a1e174770873719293f0672","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"5a4c1c26-4084-4488-8ced-f49c85848080","schema":1,"source_base":"05ad9aff31e2c4ec0fe0a84c19c2d6a14a153032","source_sha256":"23e18a3d952f079c67be299a976ef1272cfee3bd12547ed8066b2675ffe5de37"}
 
 
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"465b6035896e8d889e432e0335c23a36da91f779b5bb0880fd34200f35aae7fd","replacement_run_id":"ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb","run":{"acceptance":null,"blocker":{"evidence_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_acceptance_output_mismatch","v1_contract_contradiction","v1_unauthorized_effect"],"input_sha256":"878917bdc4b3df7d88d98d7c48e9666f9b97b89cff7d4b4351675b6a307e7dd1","invocations":2,"result_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","state":"blocked"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"83750324a0aa2dd622a942ff7b15312722b298c1bb4f097743dccb25b70bc101","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"6feb5288-d1ac-4578-9466-6252501361e6","schema":1,"source_base":"407bc52d7ebfcef5bf16f1d249394b2401aab4fd","source_sha256":"87180b7ba10105e50701b62e9c4def5a58d5ce553fc0a5239488000ca44fa656"},"schema":1,"status":"blocked","successor_run_sha256":"0b761ae4050729f3eda85fbe3b7a1310582b6bfb867c4c23afd7bc9b977cc56d"}
