@@ -80,7 +80,7 @@ function validateReleasePolicy(plugin) {
   }
 }
 
-function validateReleaseRegistry(plugins) {
+export function validateReleaseRegistry(plugins) {
   if (!Array.isArray(plugins) || plugins.length === 0) throw new Error('plugin registry is empty');
   for (const plugin of plugins) validateReleasePolicy(plugin);
 }
@@ -146,6 +146,16 @@ function reportedFailure(message) {
   const error = new Error(message);
   error.releaseFailureReported = true;
   return error;
+}
+
+export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchReviewed }) {
+  validateReleaseRegistry(plugins);
+  if (typeof dispatchReviewed !== 'function') {
+    throw new Error('reviewed release dispatcher must be a function');
+  }
+  const reviewed = await dispatchReviewed(argv);
+  if (reviewed !== null) return reviewed;
+  return runGenericPluginRelease({ argv, repo, plugins, io });
 }
 
 export async function runGenericPluginRelease({ argv, repo, plugins, io }) {

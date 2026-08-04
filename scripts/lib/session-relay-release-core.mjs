@@ -127,6 +127,17 @@ export function releaseInstancePath(version) {
   return path.join(INSTANCE_DIR, `${version}.json`);
 }
 
+export function validatePublicChildIdentity(publicChild, source = 'public_child') {
+  if (!publicChild || typeof publicChild !== 'object' || Array.isArray(publicChild)) {
+    throw new Error(`${source} must be an object`);
+  }
+  const expectedTag = `cli-v${publicChild.version}`;
+  if (publicChild.tag !== expectedTag) {
+    throw new Error(`${source} tag must equal ${expectedTag}`);
+  }
+  return publicChild;
+}
+
 export function loadReleaseInstance(version, { require: required = [] } = {}) {
   // Required groups are checked on every call, cached or not. Caching the parse but not
   // the requirement would make the check order-dependent: a call site that needs
@@ -150,6 +161,9 @@ export function loadReleaseInstance(version, { require: required = [] } = {}) {
   let instance;
   try {
     instance = validateReleaseInstance(parsed, { source: `${version}.json` });
+    if (instance.public_child !== undefined) {
+      validatePublicChildIdentity(instance.public_child, `${version}.json.public_child`);
+    }
   } catch (error) {
     fail(error.message, 'conflict');
   }

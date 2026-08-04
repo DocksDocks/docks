@@ -638,7 +638,7 @@ async function expectReleasePolicyRefusal(runGenericPluginRelease, plugin, relea
   assert.deepEqual(calls, [], 'invalid release policy must fail before IO');
 }
 
-async function testGenericReleaseModuleContract(runGenericPluginRelease) {
+async function testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease) {
   const ordinaryNames = ['docks', 'effect-kit', 'plan-lifecycle'];
   const ordinaryPlugins = ordinaryNames.map((name) => PLUGINS.find((plugin) => plugin.name === name));
   for (const plugin of ordinaryPlugins) {
@@ -725,6 +725,42 @@ async function testGenericReleaseModuleContract(runGenericPluginRelease) {
     /Session Relay.*reviewed|positional.*Session Relay/i,
   );
 
+  for (const { name, plugins, expected } of [
+    {
+      name: 'malformed reviewed descriptor',
+      plugins: PLUGINS.map((plugin) =>
+        plugin.name === relay.name ? { ...plugin, release: { ...plugin.release, prepare() {} } } : plugin,
+      ),
+      expected: /closed release policy|unexpected release policy field/i,
+    },
+    {
+      name: 'malformed unrelated descriptor',
+      plugins: PLUGINS.map((plugin) =>
+        plugin.name === generic.name
+          ? { ...plugin, release: { kind: 'future-release-policy', install: plugin.release.install } }
+          : plugin,
+      ),
+      expected: /unknown release policy kind/i,
+    },
+  ]) {
+    let reviewedDispatchCalls = 0;
+    await assert.rejects(
+      dispatchPluginRelease({
+        argv: ['--prepare', '--plugin', relay.name, '0.16.1', '--dry-run'],
+        repo: ROOT,
+        plugins,
+        io: genericReleaseIo(ROOT).io,
+        dispatchReviewed: async () => {
+          reviewedDispatchCalls += 1;
+          return true;
+        },
+      }),
+      expected,
+      name,
+    );
+    assert.equal(reviewedDispatchCalls, 0, `${name} reached reviewed release dispatch`);
+  }
+
   const successfulRelease = genericReleaseIo(ROOT);
   await runGenericPluginRelease({
     argv: ['--plugin', generic.name, 'patch'],
@@ -769,9 +805,10 @@ async function testGenericReleaseModuleContract(runGenericPluginRelease) {
 }
 
 async function testDryRunReleaseSafety() {
-  const { runGenericPluginRelease } = await import('../lib/plugin-release.mjs');
+  const { dispatchPluginRelease, runGenericPluginRelease } = await import('../lib/plugin-release.mjs');
+  assert.equal(typeof dispatchPluginRelease, 'function');
   assert.equal(typeof runGenericPluginRelease, 'function');
-  await testGenericReleaseModuleContract(runGenericPluginRelease);
+  await testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease);
   const before = gitSnapshot();
   assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-dry-run-'));
