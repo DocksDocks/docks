@@ -1,7 +1,7 @@
 {
   "current_attempt": {
     "goal_id": "cef66d21-5bd3-4e07-a0e8-e393822dcfb0",
-    "docks_run_id": "c268ecc1-cf5e-4266-9a29-a83b59e9717d",
+    "docks_run_id": "1d28abf4-a843-42db-9ac4-db86dcb3e420",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
     "public_run_id": "fb5a6880-9bca-45c5-9136-d0424a020d5a",
@@ -9,7 +9,7 @@
     "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
   "planrun_attempt": {
-    "docks_run_id": "c268ecc1-cf5e-4266-9a29-a83b59e9717d",
+    "docks_run_id": "1d28abf4-a843-42db-9ac4-db86dcb3e420",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
     "release_tag_commit": "875661640c1c45894c66a9b2fdc437fd47307e1f",

@@ -2533,8 +2533,8 @@ function currentCompletionEvidence(
   planPath,
   continuationPaths,
   affectedOnly = false,
+  reviewBase = run.source_base,
 ) {
-  const reviewBase = run.source_base;
   const affectedPaths = parseCurrentPlan(planBytes).frontmatter.affected_paths;
   let acceptanceManifest;
   try {
@@ -2730,6 +2730,7 @@ function bindPlanRunCompletion(options, deps, finishedRelative, planBytes, plan)
     PLANRUN_DOCKS_PLAN_PATH,
     PLANRUN_BINDER_CONTINUATION_PATHS,
     true,
+    run.execution_parent,
   );
   const reviewRecord = currentCompletionReview(plan, run, completionEvidence.diffSha256);
   const reviewedCommit = reviewRecord.value.implementation_commit;
