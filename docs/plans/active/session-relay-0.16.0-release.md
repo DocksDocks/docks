@@ -1,10 +1,10 @@
 ---
 title: Release Session Relay 0.16.0 with custody-safe disconnects
 goal: Ship Session Relay 0.16.0 without fencing a managed worker on caller disconnect, retire Intel macOS production assets, and retain preflight evidence refs.
-status: drafting
+status: ongoing
 created: "2026-08-02T18:00:00+00:00"
-updated: "2026-08-04T05:46:59.533+00:00"
-started_at: null
+updated: "2026-08-04T05:47:14.852+00:00"
+started_at: "2026-08-04T05:47:14.852+00:00"
 finished_at: null
 assignee: null
 tags: [plans, session-relay, release, custody, supply-chain]
@@ -667,7 +667,7 @@ historical-byte boundary are resolved.
 
 N/A — no review has been dispatched for this run.
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_unauthorized_effect"],"input_sha256":"092baad03da1c274e1ba6819867d102d6a2cae2416130b3f79165db7ba26a864","invocations":2,"result_sha256":"0ab627430061fca79931599126c1b10f2a0b2a76f00686b47a7d40c3bac1b16c","state":"passed"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"4bf2f55eee348ad9b1751fe0a888031130f3c666639b8aadfecc5017f8ca4c5f","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"3c2a2253-3999-464f-b58c-055bf60604e1","schema":1,"source_base":"31da76812dd9dc5f037bde50b66a23d85345533e","source_sha256":"565793a305c07c49f5471b7329c413a8fa4118c922538f465fa396dba870a75f"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_unauthorized_effect"],"input_sha256":"092baad03da1c274e1ba6819867d102d6a2cae2416130b3f79165db7ba26a864","invocations":2,"result_sha256":"0ab627430061fca79931599126c1b10f2a0b2a76f00686b47a7d40c3bac1b16c","state":"passed"},"execution_parent":"0d46ab0a7e38145b0217858258732a3606b9d791","goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"4bf2f55eee348ad9b1751fe0a888031130f3c666639b8aadfecc5017f8ca4c5f","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"3c2a2253-3999-464f-b58c-055bf60604e1","schema":1,"source_base":"31da76812dd9dc5f037bde50b66a23d85345533e","source_sha256":"565793a305c07c49f5471b7329c413a8fa4118c922538f465fa396dba870a75f"}
 
 
 Plan-attempt-history: {"authorization_source_sha256":"0889cde97525945382fbfa4f98b7f726fca77bdb38221c558412b63fb9ae6641","plan_bytes_sha256":"465b6035896e8d889e432e0335c23a36da91f779b5bb0880fd34200f35aae7fd","replacement_run_id":"ce7df5fd-8ccb-41a6-942c-56bbf67cd1bb","run":{"acceptance":null,"blocker":{"evidence_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","kind":"review_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_acceptance_coverage_incomplete","v1_acceptance_output_mismatch","v1_contract_contradiction","v1_unauthorized_effect"],"input_sha256":"878917bdc4b3df7d88d98d7c48e9666f9b97b89cff7d4b4351675b6a307e7dd1","invocations":2,"result_sha256":"c84e1f914e4ea6416ac24dffab9a72e7e641c64f71fa55e72ba37e157dfb1dc5","state":"blocked"},"execution_parent":null,"goal_id":"cef66d21-5bd3-4e07-a0e8-e393822dcfb0","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-release.md","plan_sha256":"83750324a0aa2dd622a942ff7b15312722b298c1bb4f097743dccb25b70bc101","repository_id":"docks:/home/vagrant/projects/docks","requested_effects":["local","probe","push","release"],"risk":"external","run_id":"6feb5288-d1ac-4578-9466-6252501361e6","schema":1,"source_base":"407bc52d7ebfcef5bf16f1d249394b2401aab4fd","source_sha256":"87180b7ba10105e50701b62e9c4def5a58d5ce553fc0a5239488000ca44fa656"},"schema":1,"status":"blocked","successor_run_sha256":"0b761ae4050729f3eda85fbe3b7a1310582b6bfb867c4c23afd7bc9b977cc56d"}
