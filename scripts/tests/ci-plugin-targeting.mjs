@@ -543,10 +543,13 @@ const GENERIC_RELEASE_IO_KEYS = Object.freeze([
   'writeJson',
 ]);
 
-function genericReleaseIo(repo) {
+function genericReleaseIo(repo, options = {}) {
   const calls = [];
   const output = [];
   const relativePath = (file) => path.relative(repo, path.isAbsolute(file) ? file : path.join(repo, file));
+  const tagCiResult = Object.hasOwn(options, 'tagCiResult')
+    ? options.tagCiResult
+    : { ok: true, runId: 'fixture-tag-ci-run' };
   const record = (tool, args = []) => calls.push({ tool, args });
   const io = {
     commit(files, message) {
@@ -598,6 +601,7 @@ function genericReleaseIo(repo) {
     },
     waitForTagCi(tag, commit) {
       record('waitForTagCi', [tag, commit]);
+      return tagCiResult;
     },
     writeJson(file, value) {
       record('writeJson', [relativePath(file), value]);
@@ -720,6 +724,48 @@ async function testGenericReleaseModuleContract(runGenericPluginRelease) {
     relay.release,
     /Session Relay.*reviewed|positional.*Session Relay/i,
   );
+
+  const successfulRelease = genericReleaseIo(ROOT);
+  await runGenericPluginRelease({
+    argv: ['--plugin', generic.name, 'patch'],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: successfulRelease.io,
+  });
+  assert.ok(
+    successfulRelease.calls.some(({ tool }) => tool === 'createRelease'),
+    'an explicit green tag-CI result must authorize stable release creation',
+  );
+
+  for (const tagCiResult of [
+    undefined,
+    null,
+    {},
+    { ok: 'true', runId: 'fixture-tag-ci-run' },
+    { ok: true },
+    { ok: true, runId: '' },
+    { ok: true, runId: 'fixture-tag-ci-run', extra: true },
+  ]) {
+    const malformed = genericReleaseIo(ROOT, { tagCiResult });
+    await assert.rejects(
+      runGenericPluginRelease({
+        argv: ['--plugin', generic.name, 'patch'],
+        repo: ROOT,
+        plugins: PLUGINS,
+        io: malformed.io,
+      }),
+      /tag CI.*explicit green|tag CI result.*malformed/i,
+    );
+    assert.ok(
+      malformed.calls.some(({ tool }) => tool === 'waitForTagCi'),
+      'the malformed-result case must reach the tag-CI gate',
+    );
+    assert.equal(
+      malformed.calls.some(({ tool }) => ['readReleaseNotes', 'createRelease'].includes(tool)),
+      false,
+      'absent or malformed tag-CI results must refuse before release publication',
+    );
+  }
 }
 
 async function testDryRunReleaseSafety() {

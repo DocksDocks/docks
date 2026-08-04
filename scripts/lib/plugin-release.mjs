@@ -23,11 +23,27 @@ const RELEASE_POLICY_KEYS = Object.freeze({
   generic: Object.freeze(['install', 'kind']),
   'reviewed-session-relay': Object.freeze(['assets', 'install', 'kind', 'prereleaseBody']),
 });
+const TAG_CI_RESULT_KEYS = Object.freeze(['ok', 'runId']);
 
 function sameKeys(value, expected) {
   const actual = Object.keys(value).sort();
   const wanted = [...expected].sort();
   return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
+}
+
+function validateTagCiResult(result, tag) {
+  if (
+    !result ||
+    typeof result !== 'object' ||
+    Array.isArray(result) ||
+    !sameKeys(result, TAG_CI_RESULT_KEYS) ||
+    typeof result.ok !== 'boolean' ||
+    typeof result.runId !== 'string' ||
+    result.runId.trim() === ''
+  ) {
+    throw new Error(`tag CI result for ${tag} is malformed; an explicit green result is required`);
+  }
+  return result;
 }
 
 function validateReleasePolicy(plugin) {
@@ -202,8 +218,8 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   const tagCommit = await io.resolveTagCommit(tag);
 
   io.log(`\nWaiting for CI on tag ${tag} (commit ${tagCommit})...`);
-  const ci = await io.waitForTagCi(tag, tagCommit);
-  if (ci?.ok === false) {
+  const ci = validateTagCiResult(await io.waitForTagCi(tag, tagCommit), tag);
+  if (ci.ok !== true) {
     const runId = ci.runId;
     io.log(`\n✘ CI failed for ${tag} — NOT creating GitHub Release.\n`);
     io.log('To recover:');
