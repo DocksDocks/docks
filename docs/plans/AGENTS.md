@@ -1,34 +1,25 @@
 # AGENTS.md — docs/plans/
 
-Canonical plans are complete cold handoffs for work that benefits from durable
-coordination. The Markdown plan is the only tracked artifact; rendered views are
-disposable. `active/` is multi-occupancy and `finished/` is the terminal archive.
+Canonical plans are complete cold handoffs for work that benefits from durable coordination. The Markdown plan is the only tracked artifact;
+rendered views are disposable. `active/` is multi-occupancy and `finished/` is the terminal archive.
 
-Use direct implementation for one clear, reversible, low-risk local diff with one
-bounded acceptance path. Direct work creates no plan, reviewer invocation, or
-automatic commit. Use a canonical plan for an explicit planning request,
-multi-commit or cross-repository work, scheduling, cold handoff, an unresolved
-decision, a cross-subsystem or public-contract change, security-sensitive or
-destructive work, or any requested external effect. Never create a placeholder
-plan merely to unlock review.
+Use direct implementation for one clear, reversible, low-risk local diff with one bounded acceptance path. Direct work creates no plan,
+reviewer invocation, or automatic commit. Use a canonical plan for an explicit planning request, multi-commit or cross-repository work,
+scheduling, cold handoff, an unresolved decision, a cross-subsystem or public-contract change, security-sensitive or destructive work,
+or any requested external effect. Never create a placeholder plan merely to unlock review.
 
 <constraint>
-There are exactly three live owners. `plan-workspace` maintains this workspace.
-Main-context `plan-manager` owns goal classification, drafting, class-bounded
-review and repair, lifecycle, implementation/delegation, observed acceptance,
-archive, and guarded GitHub issue publication. Internal `plan-reviewer` reads one
-immutable bundle and returns `PlanReviewV1` evidence only. Only the reviewer has
+There are exactly three live owners. `plan-workspace` maintains this workspace. Main-context `plan-manager` owns goal classification,
+drafting, class-bounded review and repair, lifecycle, implementation/delegation, observed acceptance, archive, and guarded GitHub issue
+publication. Internal `plan-reviewer` reads one immutable bundle and returns `PlanReviewV1` evidence only. Only the reviewer has
 Claude/Codex wrappers; main invokes `plan-manager` directly.
 </constraint>
 
 <constraint>
-Current plans contain exactly one unfenced current
-`Plan-run: <compact JCS PlanRunV1>` line. Prior terminal runs may appear only as
-validated append-only `Plan-attempt-history: <compact JCS PlanAttemptHistoryV1>`
-records inside `## Review`; history is never current authority. Schemas 1–6 are
-historical validation/quarantine formats only: preserve their bytes and behavior,
-but never emit one as current authority. Unsettled legacy evidence never blocks
-an unrelated goal or authorizes dispatch or an external effect.
+Current plans contain exactly one unfenced current `Plan-run: <compact JCS PlanRunV1>` line. Prior terminal runs may appear only as
+validated append-only `Plan-attempt-history: <compact JCS PlanAttemptHistoryV1>` records inside `## Review`; history is never current
+authority. Schemas 1–6 are historical validation/quarantine formats only: preserve their bytes and behavior, but never emit one as
+current authority. Unsettled legacy evidence never blocks an unrelated goal or authorizes dispatch or an external effect.
 </constraint>
 
 ## Skill routing
@@ -39,9 +30,8 @@ an unrelated goal or authorizes dispatch or an external effect.
 | Decide direct work versus a canonical plan; create, review, repair, execute, verify, block, schedule, finish, archive, list, show, or publish a plan | main-context `plan-manager` |
 | Inspect one immutable draft-review bundle and return typed findings | internal `plan-reviewer` |
 
-No creator, repairer, improver, or manager wrapper is live. A missing reviewer
-wrapper does not create another role: dispatch a fresh read-only task with the
-same `PlanReviewV1` contract.
+No creator, repairer, improver, or manager wrapper is live. A missing reviewer wrapper does not create another role: dispatch a fresh
+read-only task with the same `PlanReviewV1` contract.
 
 ## Directory and frontmatter
 
@@ -53,13 +43,13 @@ docs/plans/
 └── finished/      # terminal archive, unique date-prefixed filename
 ```
 
-Every current plan starts with a closed frontmatter map. Project-specific fields
-may extend this shape only when the nested contract names them.
+Every current plan starts with a closed frontmatter map. Project-specific fields may extend this shape only when the nested contract names them.
 
 ```yaml
 ---
 title: Short imperative title, ≤70 chars
 goal: One observable sentence, ≤200 chars
+plan_hash_mode: status-excluded-v1
 status: drafting | planned | scheduled | ongoing | blocked | finished
 created: "2026-07-24T12:00:00+00:00"
 updated: "2026-07-24T12:00:00+00:00"
@@ -72,26 +62,19 @@ related_plans: []
 ---
 ```
 
-`blocked` adds `blocked_reason` and `blocked_since`. `scheduled` adds
-`trigger: date | manual-approval`, and a date trigger adds `scheduled_date` plus
-`auto_execute`. Set `started_at` once on first `ongoing`; set `finished_at` only
-when archiving. All timestamps are quoted ISO 8601 with an offset.
+`blocked` adds `blocked_reason` and `blocked_since`. `scheduled` adds `trigger: date | manual-approval`, and a date trigger adds
+`scheduled_date` plus `auto_execute`. Set `started_at` once on first `ongoing`; set `finished_at` only when archiving. All timestamps are quoted ISO 8601 with an offset.
 
-The non-authoritative `## Proposed repair` section is excluded from
-`plan_sha256`; it is installed only by the transition that blocks a run and is
-never added to an already-blocked run, because `blocked` → `blocked` rejects any
-byte change.
+The non-authoritative `## Proposed repair` section is excluded from `plan_sha256`; it is installed only by the transition that blocks a
+run and is never added to an already-blocked run, because `blocked` → `blocked` rejects any byte change.
 
 ## Cold-handoff body
 
-Every canonical plan contains `## Goal`, `## Context & rationale`,
-`## Environment & how-to-run`, `## Steps`, `## Acceptance criteria`,
-`## Out of scope / do-NOT-touch`, `## STOP conditions`, `## Open questions`,
-`## Review`, and manager-written `## Verification Results`. Use a specific
-`N/A — <reason>` only when a section truly does not apply.
+Every canonical plan contains `## Goal`, `## Context & rationale`, `## Environment & how-to-run`, `## Steps`, `## Acceptance criteria`,
+`## Out of scope / do-NOT-touch`, `## STOP conditions`, `## Open questions`, `## Review`, and manager-written `## Verification Results`.
+Use a specific `N/A — <reason>` only when a section truly does not apply.
 
-The legacy Steps schema omits `Id`; the new Steps schema adds it immediately
-after `#`.
+The legacy Steps schema omits `Id`; the new Steps schema adds it immediately after `#`.
 
 The legacy Steps table is exact:
 
@@ -105,95 +88,74 @@ The new Steps table is exact:
 |---:|---|---|---|---|---|---|---|
 | 1 | concrete_action | concrete action | exact paths | — | `local` | `planned` | observable proof or STOP |
 
-`Id` is immediately after `#` and must match `[a-z][a-z0-9_]{0,63}`. A
-missing `Id` is advisory only for the frozen grandfather set; every new plan
-requires the `Id` column and one valid, unique id per Steps row. The exemption
-has exactly two routes: the frozen set, exactly
-`docs/plans/active/plan-lifecycle-plugin-extraction.md` and
-`docs/plans/active/step-ids-and-class-budget.md`, and every
-`docs/plans/finished/` path by prefix. An archived plan carries no frozen
-entry: keeping its old active path would exempt a new plan that reused the
-filename, silently skipping the Id requirement. Within `Done when / failure
-action`, step citations are accepted only as `step:<id>` and must resolve to a
-declared id; valid-looking numeric `step N` citations are rejected. `#` and
-`Depends` keep their numeric display-number semantics.
+`Id` is immediately after `#` and must match `[a-z][a-z0-9_]{0,63}`. A missing `Id` is advisory only for the frozen grandfather set;
+every new plan requires the `Id` column and one valid, unique id per Steps row. The exemption has exactly two routes: the frozen set,
+exactly `docs/plans/active/plan-lifecycle-plugin-extraction.md` and `docs/plans/active/step-ids-and-class-budget.md`, and every
+`docs/plans/finished/` path by prefix. An archived plan carries no frozen entry: keeping its old active path would exempt a new plan that
+reused the filename, silently skipping the Id requirement. Within `Done when / failure action`, step citations are accepted only as
+`step:<id>` and must resolve to a declared id; valid-looking numeric `step N` citations are rejected. `#` and `Depends` keep their numeric
+display-number semantics.
 
-`Effect` is exactly `local | probe | production_access | publish | push |
-release | deploy`. Status is exactly `planned | in-flight | done | blocked |
-skipped`. Every row names exact paths and an observable done condition.
-Acceptance uses ordered unique ids in an `ID | Command | Expected` table. Plans
-must not contain `TBD`, `TODO`, vague follow-ups, or undefined forward references.
+`Effect` is exactly `local | probe | production_access | publish | push | release | deploy`. Status is exactly
+`planned | in-flight | done | blocked | skipped`. Every row names exact paths and an observable done condition. Acceptance uses ordered
+unique ids in an `ID | Command | Expected` table. Plans must not contain `TBD`, `TODO`, vague follow-ups, or undefined forward references.
 
-Plan text must be portable: a cold reader may hold this repository at a different
-path. `repository_id` is a portable repository identifier such as
-`DocksDocks/docks`, never a local filesystem path. Cite repository-relative paths
-only; acceptance rows run from the repository root and carry no `cd <absolute
-path>` prefix. A cross-repository reference names the other repository's id, not a
-local checkout. Recorded evidence is exempt and frozen: never rewrite a `cwd` or
-path already captured inside a receipt.
+### Status-excluded Steps hashing
+
+New and successor plans opt in with frontmatter `plan_hash_mode: status-excluded-v1`; unmarked plans use byte-identical legacy hashing.
+For marked all-`planned` bootstrap plans, validation accepts either the legacy full-body digest or the normalized digest. The first legal
+status progress transaction atomically installs the normalized digest.
+
+Normalization applies only to the exact `Status` cells of a valid unfenced `## Steps` table; every other cell and byte remains bound.
+A status progress transaction allows only legal row-state changes plus the lifecycle `updated` timestamp and an optional bootstrap
+`plan_sha256` change. `done` and `skipped` are terminal; blocked and finished PlanRun bytes stay immutable.
+
+Plan text must be portable: a cold reader may hold this repository at a different path. `repository_id` is a portable repository identifier
+such as `DocksDocks/docks`, never a local filesystem path. Cite repository-relative paths only; acceptance rows run from the repository
+root and carry no `cd <absolute path>` prefix. A cross-repository reference names the other repository's id, not a local checkout.
+Recorded evidence is exempt and frozen: never rewrite a `cwd` or path already captured inside a receipt.
 
 ## Release pre-completion guards
 
-A release plan that will mutate an external boundary places every available live
-read-only final-boundary check before completion-review reservation, using the
-exact canonical identities and data spellings consumed by the later mutation.
-Available means the repository already provides a read-only command or adapter
-path that exercises the boundary without the pending mutation; never invent a
-check or network call. If an available check requires probe authority and exact
-live `ExternalAuthorityV1` is absent, block before completion review rather than
-review an unexercised release assumption.
+A release plan that will mutate an external boundary places every available live read-only final-boundary check before completion-review
+reservation, using the exact canonical identities and data spellings consumed by the later mutation. Available means the repository
+already provides a read-only command or adapter path that exercises the boundary without the pending mutation; never invent a check or
+network call. If an available check requires probe authority and exact live `ExternalAuthorityV1` is absent, block before completion
+review rather than review an unexercised release assumption.
 
-Every closed object that affected code validates or emits has an explicit
-preserve-or-change disposition. A preserved shape has an exact-key compatibility
-fixture. An intentional shape change is in scope and includes migration,
-versioning, and historical-reader acceptance.
+Every closed object that affected code validates or emits has an explicit preserve-or-change disposition. A preserved shape has an
+exact-key compatibility fixture. An intentional shape change is in scope and includes migration, versioning, and historical-reader acceptance.
 
-When present, roles include release source, plan source, execution parent,
-implementation commit, and tag commit. A release identity matrix names each
-role, producer, consumer, and required equality, distinction, or ancestry
-relation. Reject a contradictory or unstated relation and any later successor
-whose current-run fixtures remain pinned to its predecessor.
+When present, roles include release source, plan source, execution parent, implementation commit, and tag commit. A release identity
+matrix names each role, producer, consumer, and required equality, distinction, or ancestry relation. Reject a contradictory or unstated
+relation and any later successor whose current-run fixtures remain pinned to its predecessor.
 
-Existing `PlanRunV1`, review-result, affected-path manifest,
-`ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible; these
-guards add no field, state, result, or authority.
+Existing `PlanRunV1`, review-result, affected-path manifest, `ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible;
+these guards add no field, state, result, or authority.
 
 ## Current record
 
-The closed record shapes — `ReviewPhaseV1`, `PlanRunV1`, `PlanAttemptHistoryV1` and
-`PlanRunReplacementAuthorityV1` — are defined once in the `plan-manager` skill's
-`references/planrunv1-schema.md`. That file is the single source of truth for
-field names, types and enum members; this node states the rules that govern them
-and never restates the shapes, because two spellings of one schema drift.
+The closed record shapes — `ReviewPhaseV1`, `PlanRunV1`, `PlanAttemptHistoryV1` and `PlanRunReplacementAuthorityV1` — are defined once in
+the `plan-manager` skill's `references/planrunv1-schema.md`. That file is the single source of truth for field names, types and enum
+members; this node states the rules that govern them and never restates the shapes, because two spellings of one schema drift.
 
+Compact JCS is byte-authoritative. `repository_id + plan_path + run_id` is the run identity. Cross-repository goals use one child run per
+repository joined by `goal_id`; never record an unqualified commit as cross-repository identity. `requested_effects` is unique and
+canonical-ordered, always beginning with `local`. It records intended scope, never authority.
 
-Compact JCS is byte-authoritative. `repository_id + plan_path + run_id` is the
-run identity. Cross-repository goals use one child run per repository joined by
-`goal_id`; never record an unqualified commit as cross-repository identity.
-`requested_effects` is unique and canonical-ordered, always beginning with
-`local`. It records intended scope, never authority.
+A terminal `blocked` run is immutable. Exact current-user authorization may replace it only for the same
+`goal_id + repository_id + plan_path`; it binds the predecessor identity and digest of the exact successor PlanRun. The transaction
+appends the predecessor record and bytes/authorization digests, then installs the fresh `run_id` and review baselines in the same file.
+History is append-only; ordinary transitions cannot alter it. A finished plan file never reopens.
 
-A terminal `blocked` run is immutable. Exact current-user authorization may
-replace it only for the same `goal_id + repository_id + plan_path`; it binds the
-predecessor identity and digest of the exact successor PlanRun. The transaction
-appends the predecessor record and bytes/authorization digests, then installs
-the fresh `run_id` and review baselines in the same file. History is append-only;
-ordinary transitions cannot alter it. A finished plan file never reopens.
-
-`plan_sha256` covers the canonical plan after excluding only lifecycle status and
-timestamps, the `Plan-run` line, `## Review`, manager-written
-`## Verification Results`, and the non-authoritative `## Proposed repair`.
-Goal, scope, paths, steps, effects, safety, acceptance, and open decisions remain
-bound. `source_base` plus `source_sha256` binds a canonical sorted existence,
-kind, mode, and content manifest for every affected path at review time,
-including dirty/untracked bytes and tombstones. `acceptance.source_sha256` binds
-the final affected-path manifest; `verification_sha256` binds canonical
-Verification Results bytes. Never list the plan record in `affected_paths`;
-acceptance writes to it and breaks that bind.
-Minting or changing an acceptance requires live manifest proof and the caller
-passes it; carrying one forward unchanged, or reading an immutable terminal
-predecessor, does not. A live-worktree proof is discharged at the instant it is
-written and is not re-provable once HEAD moves, so it is never a durable
+`plan_sha256` covers the canonical plan after excluding only lifecycle status and timestamps, the `Plan-run` line, `## Review`,
+manager-written `## Verification Results`, and the non-authoritative `## Proposed repair`. Goal, scope, paths, steps, effects, safety,
+acceptance, and open decisions remain bound. `source_base` plus `source_sha256` binds a canonical sorted existence, kind, mode, and content
+manifest for every affected path at review time, including dirty/untracked bytes and tombstones. `acceptance.source_sha256` binds the
+final affected-path manifest; `verification_sha256` binds canonical Verification Results bytes. Never list the plan record in
+`affected_paths`; acceptance writes to it and breaks that bind.
+Minting or changing an acceptance requires live manifest proof and the caller passes it; carrying one forward unchanged, or reading an immutable terminal
+predecessor, does not. A live-worktree proof is discharged at the instant it is written and is not re-provable once HEAD moves, so it is never a durable
 invariant.
 
 ## Closed phase table and transitions
@@ -520,7 +482,7 @@ The `plan-manager` and `plan-reviewer` skill bodies are asserted verbatim by
 `scripts/tests/plan-skill-phases.mjs --case bounded-workflows`, which also pins
 the stable-step and class-budget contract independently in this file,
 `plan-manager`, `plan-workspace`, and the generated workspace template. Its
-mutation probes remove the id, repeated-class, pre-reservation-sweep, and release
-pre-completion clauses from every pinned copy and require the named assertion to
-fail. Update positive assertions in the same change as their normative
-sentences; never relax a matcher to accept drift.
+mutation probes remove the id, repeated-class, pre-reservation-sweep, release
+pre-completion, workspace-current-marker, and status-hash clauses from every
+pinned copy and require the named assertion to fail. Update positive assertions
+in the same change as their normative sentences; never relax a matcher to accept drift.

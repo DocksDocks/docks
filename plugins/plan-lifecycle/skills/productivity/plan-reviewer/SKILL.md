@@ -5,11 +5,10 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-04"
-  content_hash: "d259c09e164254042586bb0b4c95e99aad7f5ca4d7e39dfef93ba5903d3e2269"
+  content_hash: "7c5ba890e44888e5be285f77b338347d2f10733980231dc62f17664f794d85c7"
 ---
 
 # Plan Reviewer
-
 Inspect one immutable draft-review bundle. Return closed
 `ReviewInvalidInputV1` on an unavailable, integrity-failed, or binding-mismatched
 bundle; return hash-bound `PlanReviewV1` only for valid, fully bound input. This
@@ -41,7 +40,6 @@ replacement after any output or failure.
 </constraint>
 
 ## Input boundary
-
 The prompt contains only:
 
 ```text
@@ -65,7 +63,6 @@ transition opened the permit. It reviews only the supplied current bundle; no
 prior result is evidence.
 
 ## Invalid-input result
-
 Classify bundle input before any plan verdict:
 
 | Failure | Exact `reason` |
@@ -91,7 +88,6 @@ replacement needs current-user authority and a fresh run/bundle. Reviewer output
 never grants replacement, lifecycle, or external authority.
 
 ## Review question
-
 Determine whether a weaker executor can safely start the plan using only the
 sealed bytes. A blocking defect is limited to:
 
@@ -129,7 +125,6 @@ A release plan that will mutate an external boundary places every available live
 Every closed object that affected code validates or emits has an explicit preserve-or-change disposition. A preserved shape has an exact-key compatibility fixture. An intentional shape change is in scope and includes migration, versioning, and historical-reader acceptance. When present, roles include release source, plan source, execution parent, implementation commit, and tag commit. A release identity matrix names each role, producer, consumer, and required equality, distinction, or ancestry relation. Reject a contradictory or unstated relation and any later successor whose current-run fixtures remain pinned to its predecessor. Existing `PlanRunV1`, review-result, affected-path manifest, `ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible; these guards add no field, state, result, or authority. Treat a missing guard as a reproducible draft blocker using only sealed plan and manifest evidence; never perform the boundary check, seek live authority, or inspect outside the bundle.
 
 ## Output contract
-
 For valid, fully bound input, return one JSON object pretty-printed with two-space indentation and no surrounding prose:
 
 ```text
@@ -162,7 +157,6 @@ historical request, policy, output, receipt, waiver, attempt, series, repair,
 bundle, or orchestration record as current review evidence.
 
 ## BAD / GOOD
-
 ```text
 BAD: inspect the live repository, fix the plan, and report that review passed.
 GOOD: inspect only the immutable bundle and return matching PlanReviewV1 evidence.
@@ -172,7 +166,6 @@ GOOD: pass a sufficient plan; report only defects that prevent safe execution.
 ```
 
 ## Anti-hallucination checks
-
 - Before plan evaluation, return the exact reason-mapped `ReviewInvalidInputV1`
   for an unavailable, integrity-failed, or binding-mismatched bundle.
 - For valid input, re-read each cited sealed locator and match all four prompt

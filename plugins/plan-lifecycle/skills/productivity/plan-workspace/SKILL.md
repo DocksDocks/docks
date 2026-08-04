@@ -5,11 +5,10 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-04"
-  content_hash: "8a5cc550f92746b0d4223fc92e576ac2b257352c78767f642f4c24bc62309967"
+  content_hash: "ddf0753b503109c24d8cc87bf538900d4f567c144d0113e2e655049e7fbc5276"
 ---
 
 # Plans Workspace
-
 Maintain the project-level `docs/plans/` convention: `active/`, `finished/`, the
 plans-local cross-tool contract, one-line Claude discovery shim, root routing,
 and the optional project-local Codex reviewer wrapper. This skill never owns an
@@ -33,7 +32,6 @@ workspace maintenance has crossed into plan ownership.
 </constraint>
 
 ## Ownership and adaptive entry
-
 | Request | Owner |
 |---|---|
 | Bootstrap, migrate, audit, or explicit workspace refresh | `plan-workspace` |
@@ -51,7 +49,6 @@ handoff, unresolved decisions, cross-subsystem/public-contract changes,
 security/destructive risk, or external effects.
 
 ## Resolve operation and root
-
 Take the operation from the current user request; drift never implies mutation.
 Resolve the repository root with the runtime's repository tools, falling back to
 the current directory for a non-Git workspace. A non-Git directory may be
@@ -59,7 +56,6 @@ bootstrapped or audited, but migration/refresh still use byte-preserving
 filesystem operations and report that no commit workflow is available.
 
 ## Read-only classification
-
 Inspect directory names, tracked plan paths, the nested contract, root Plans
 section, Claude shim, and `.codex/agents/plan-*.toml`. Scan plan frontmatter
 first. Do not validate every legacy record family as an audit/list prerequisite.
@@ -86,10 +82,23 @@ preservation checks. Current markers are:
   repeated or mixed repeated classes terminal-blocked, and completion fixed at
   two substantive invocations;
 - an exact accepted-class sweep before repair-bundle creation or reservation;
+- release pre-completion guards for available live read-only final-boundary
+  checks, closed-shape dispositions, and a release identity matrix;
+- frontmatter `plan_hash_mode: status-excluded-v1` for new and successor plans,
+  byte-identical legacy hashing for unmarked plans, dual-digest all-`planned`
+  bootstrap validation, and normalized-digest installation on first legal
+  status progress;
+- status normalization limited to the exact `Status` cells of a valid unfenced
+  `## Steps` table, with only legal row-state changes plus lifecycle `updated`
+  and optional bootstrap `plan_sha256`; terminal `done` and `skipped`, and
+  immutable blocked/finished PlanRun bytes;
 - exclusive preimage/CAS transactions and major checkpoint commits only;
 - step `Effect` values `local|probe|production_access|publish|push|release|deploy`;
 - literal live external authority and target-local legacy quarantine;
 - status as frontmatter plus complete cold-handoff/acceptance sections.
+
+Missing any marker above makes an otherwise recognizable generated two-folder
+contract `STALE`; only explicit refresh installs the current embedded template.
 
 Wrappers are support files, not version evidence. Missing
 `.codex/agents/plan-reviewer.toml` is reported separately; existing wrapper files
@@ -97,7 +106,6 @@ are project-owned and never overwritten. Any manager or unexpected plan-prefixed
 wrapper is drift to report, not permission to delete it.
 
 ## Stable step and draft-review contract
-
 The legacy Steps schema omits `Id`; the new Steps schema adds it immediately
 after `#`.
 
@@ -146,7 +154,6 @@ acceptance row, named mechanism, and level-two document section. Waivers and
 wildcard units never satisfy it.
 
 ## Classification report
-
 Before mutation, show a table such as:
 
 ```text
@@ -163,7 +170,6 @@ For audit, this report plus observed marker/digest evidence is final. Do not
 continue into an apply path.
 
 ## Bootstrap
-
 For `GREENFIELD` plus an explicit bootstrap request:
 
 1. Create `docs/plans/active/` and `docs/plans/finished/`; retain empty folders
@@ -178,7 +184,6 @@ For `GREENFIELD` plus an explicit bootstrap request:
    [`references/codex-agent-templates.md`](references/codex-agent-templates.md).
 
 ## Migrate a recognized legacy workspace
-
 1. Capture the sorted source path/digest inventory for every plan.
 2. Create `active/`. Map each non-finished plan to `active/<basename>` and STOP
    on duplicate basenames or a nonidentical destination.
@@ -195,7 +200,6 @@ migration of record-free or settled terminal schema-1–6 evidence belongs to
 crossed/malformed families remain visible as `legacy-quarantined`.
 
 ## Explicit refresh
-
 A refresh request must be explicit in the current turn. Reclassify immediately
 before writing. `CURRENT` is a no-op; any class other than `STALE` is a STOP.
 
@@ -206,7 +210,6 @@ reviewer wrapper. Do not move, edit, normalize, or reformat a plan. Never delete
 an obsolete project-owned wrapper automatically; report it for the user.
 
 ## Generated root Plans section
-
 ```markdown
 ## Plans
 
@@ -216,7 +219,6 @@ The current record is one compact-JCS `Plan-run: PlanRunV1` line. Exact current-
 ```
 
 ## Verification
-
 After migration moves and before deleting any legacy path:
 
 - **Per-plan presence:** each inventoried non-finished source has exactly one
@@ -234,7 +236,6 @@ fails. Report observed paths and repository status without claiming a wrapper
 ran merely because its file exists.
 
 ## BAD / GOOD
-
 ```text
 BAD: Audit finds drift, so rewrite the generated contract immediately.
 GOOD: Audit reports drift; only an explicit refresh may rewrite recognizable generated files.
@@ -247,7 +248,6 @@ GOOD: Frontmatter-scan globally; quarantine legacy evidence only for the request
 ```
 
 ## References
-
 - `references/plans-agents-md-template.md` — copy-only current workspace contract.
 - `references/codex-agent-templates.md` — reviewer-only Codex wrapper default;
   existing files remain project-owned.

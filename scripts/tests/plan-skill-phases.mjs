@@ -150,6 +150,52 @@ const RELEASE_PRECOMPLETION_CONTRACT_CLAUSES = [
   },
 ];
 
+const WORKSPACE_CURRENT_MARKER_CLAUSES = [
+  {
+    name: 'release-precompletion-current-marker',
+    text: 'release pre-completion guards for available live read-only final-boundary checks, closed-shape dispositions, and a release identity matrix;',
+  },
+  {
+    name: 'status-hash-mode-current-marker',
+    text: 'frontmatter `plan_hash_mode: status-excluded-v1` for new and successor plans, byte-identical legacy hashing for unmarked plans, dual-digest all-`planned` bootstrap validation, and normalized-digest installation on first legal status progress;',
+  },
+  {
+    name: 'status-normalization-current-marker',
+    text: 'status normalization limited to the exact `Status` cells of a valid unfenced `## Steps` table, with only legal row-state changes plus lifecycle `updated` and optional bootstrap `plan_sha256`; terminal `done` and `skipped`, and immutable blocked/finished PlanRun bytes;',
+  },
+  {
+    name: 'missing-marker-stale-refresh',
+    text: 'Missing any marker above makes an otherwise recognizable generated two-folder contract `STALE`; only explicit refresh installs the current embedded template.',
+  },
+];
+
+const STATUS_EXCLUDED_HASH_CONTRACT_CLAUSES = [
+  {
+    name: 'marked-opt-in-and-legacy-hashing',
+    text: 'New and successor plans opt in with frontmatter `plan_hash_mode: status-excluded-v1`; unmarked plans use byte-identical legacy hashing.',
+  },
+  {
+    name: 'bootstrap-dual-digest',
+    text: 'For marked all-`planned` bootstrap plans, validation accepts either the legacy full-body digest or the normalized digest.',
+  },
+  {
+    name: 'first-progress-normalized-install',
+    text: 'The first legal status progress transaction atomically installs the normalized digest.',
+  },
+  {
+    name: 'exact-status-cell-normalization',
+    text: 'Normalization applies only to the exact `Status` cells of a valid unfenced `## Steps` table; every other cell and byte remains bound.',
+  },
+  {
+    name: 'status-progress-write-set',
+    text: 'A status progress transaction allows only legal row-state changes plus the lifecycle `updated` timestamp and an optional bootstrap `plan_sha256` change.',
+  },
+  {
+    name: 'terminal-status-and-run-bytes',
+    text: '`done` and `skipped` are terminal; blocked and finished PlanRun bytes stay immutable.',
+  },
+];
+
 function normalizeContract(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -180,6 +226,56 @@ function assertReleasePrecompletionContractsAndMutations() {
       assert.equal(occurrences, 1, `${relative} must contain exactly one ${clause.name} mutation target`);
       assert.throws(
         () => assertReleasePrecompletionContract(text.replace(clause.text, ''), relative),
+        new RegExp(`missing the ${clause.name} clause`),
+        `${relative} must fail when its ${clause.name} clause is removed`,
+      );
+    }
+  }
+}
+
+function assertWorkspaceCurrentMarkersAndMutations() {
+  const relative = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md';
+  const text = normalizeContract(read(relative));
+  for (const clause of WORKSPACE_CURRENT_MARKER_CLAUSES) {
+    assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
+    assert.equal(
+      text.split(clause.text).length - 1,
+      1,
+      `${relative} must contain exactly one ${clause.name} mutation target`,
+    );
+    assert.throws(
+      () => {
+        const mutated = text.replace(clause.text, '');
+        for (const required of WORKSPACE_CURRENT_MARKER_CLAUSES) {
+          assert.ok(mutated.includes(required.text), `${relative} is missing the ${required.name} clause`);
+        }
+      },
+      new RegExp(`missing the ${clause.name} clause`),
+      `${relative} must fail when its ${clause.name} clause is removed`,
+    );
+  }
+}
+
+function assertStatusExcludedHashContractsAndMutations() {
+  for (const relative of [
+    'docs/plans/AGENTS.md',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  ]) {
+    const text = normalizeContract(read(relative));
+    for (const clause of STATUS_EXCLUDED_HASH_CONTRACT_CLAUSES) {
+      assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
+      assert.equal(
+        text.split(clause.text).length - 1,
+        1,
+        `${relative} must contain exactly one ${clause.name} mutation target`,
+      );
+      assert.throws(
+        () => {
+          const mutated = text.replace(clause.text, '');
+          for (const required of STATUS_EXCLUDED_HASH_CONTRACT_CLAUSES) {
+            assert.ok(mutated.includes(required.text), `${relative} is missing the ${required.name} clause`);
+          }
+        },
         new RegExp(`missing the ${clause.name} clause`),
         `${relative} must fail when its ${clause.name} clause is removed`,
       );
@@ -228,16 +324,10 @@ function assertStepClassContractsAndMutations() {
 
 function parseArgs(argv) {
   if (argv.length === 0) return { caseName: 'default' };
-  if (
-    argv.length === 2 &&
-    argv[0] === '--case' &&
-    ['bounded-workflows', 'plan-workspace-template'].includes(argv[1])
-  ) {
+  if (argv.length === 2 && argv[0] === '--case' && ['bounded-workflows', 'plan-workspace-template'].includes(argv[1])) {
     return { caseName: argv[1] };
   }
-  throw new Error(
-    'usage: plan-skill-phases.mjs [--case bounded-workflows|--case plan-workspace-template]',
-  );
+  throw new Error('usage: plan-skill-phases.mjs [--case bounded-workflows|--case plan-workspace-template]');
 }
 
 function read(relative) {
@@ -382,6 +472,14 @@ function assertWorkspaceTemplateSynchronized() {
     generated,
     'docs/plans/AGENTS.md must match the workspace template verbatim',
   );
+  const generatedLineCount = generated.endsWith('\n')
+    ? generated.slice(0, -1).split('\n').length
+    : generated.split('\n').length;
+  assert.ok(generatedLineCount <= 500, `generated docs/plans/AGENTS.md exceeds 500 lines: ${generatedLineCount}`);
+  const templateLineCount = template.endsWith('\n')
+    ? template.slice(0, -1).split('\n').length
+    : template.split('\n').length;
+  assert.ok(templateLineCount <= 500, `embedded workspace template exceeds 500 lines: ${templateLineCount}`);
 }
 
 // `docs/plans/AGENTS.md` is generated verbatim from the plan-workspace
@@ -564,6 +662,8 @@ if (caseName === 'plan-workspace-template') {
   assertBoundedWorkflows();
   assertStepClassContractsAndMutations();
   assertReleasePrecompletionContractsAndMutations();
+  assertWorkspaceCurrentMarkersAndMutations();
+  assertStatusExcludedHashContractsAndMutations();
   assertAcceptanceProofRule();
   assertProposedRepairRule();
   assertLifecycleDispatchIntegrityRule();

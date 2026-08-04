@@ -23,6 +23,54 @@ import { expectReject, expectThrow, git, initializeRepository, withTempDirectory
 function reduce(api, current, event) {
   return api.reducePlanRun({ current, event });
 }
+function markedPlan(api, tupleValue, { legacyDigest = false } = {}) {
+  const fixture = bindPlan(api, tupleValue);
+  const marked = fixture.bytes
+    .toString()
+    .replace(
+      'title: Autonomous controller fixture',
+      `plan_hash_mode: status-excluded-v1
+title: Autonomous controller fixture`,
+    )
+    .replace(
+      '| # | Task | Files | Depends | Effect | Status |',
+      '| # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |',
+    )
+    .replace('|---|---|---|---|---|---|', '|---:|---|---|---|---|---|---|---|')
+    .replace(
+      '| 1 | Change fixture | `src/tracked.txt` | — | local | planned |',
+      '| 1 | change_fixture | Change fixture | `src/tracked.txt` | — | local | planned | Observable proof |',
+    );
+  const normalizedView = api.canonicalPlanView(Buffer.from(marked));
+  const normalizedDigest = api.sha256(normalizedView);
+  const legacyView = normalizedView.replace(' status-excluded-v1 ', ' planned ');
+  const run = {
+    ...fixture.run,
+    plan_sha256: legacyDigest ? api.sha256(legacyView) : normalizedDigest,
+  };
+  return {
+    bytes: Buffer.from(marked.replace(`Plan-run: ${api.jcs(fixture.run)}`, `Plan-run: ${api.jcs(run)}`)),
+    normalizedDigest,
+    run,
+    status: tupleValue.status,
+  };
+}
+
+function progressBytes(api, fixture, before, after, updated, overrides = {}) {
+  const run = { ...fixture.run, plan_sha256: fixture.normalizedDigest, ...overrides };
+  return Buffer.from(
+    fixture.bytes
+      .toString()
+      .replace(`| local | ${before} |`, `| local | ${after} |`)
+      .replace(/^updated: .*$/m, `updated: "${updated}"`)
+      .replace(`Plan-run: ${api.jcs(fixture.run)}`, `Plan-run: ${api.jcs(run)}`),
+  );
+}
+
+const ONGOING_LOCAL = Object.freeze({
+  draft_review: reviewPhase('passed'),
+  execution_parent: IMPLEMENTATION_COMMIT,
+});
 
 export function registerMutations(suite, api) {
   suite.test('mutations', 'CAS bypass: stale plan bytes fail before overwrite', () =>
@@ -449,6 +497,165 @@ export function registerMutations(suite, api) {
       /terminal|reopen|permit/i,
     );
   });
+
+  suite.test('mutations', 'status progress bootstraps once and carries later normalized progress', () =>
+    withTempDirectory('plan-run-status-bootstrap-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const identity = { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run };
+      const current = markedPlan(api, tuple('ongoing', ONGOING_LOCAL), { legacyDigest: true });
+      fs.writeFileSync(file, current.bytes);
+      const firstBytes = progressBytes(api, current, 'planned', 'in-flight', '2026-07-24T01:00:00Z');
+      const first = await api.transactPlanRun({
+        file,
+        identity,
+        expectedBytesSha256: api.sha256(current.bytes),
+        nextBytes: firstBytes,
+      });
+      assert.equal(first.run.plan_sha256, current.normalizedDigest);
+      assert.match(fs.readFileSync(file, 'utf8'), /\| local \| in-flight \|/);
+
+      const progressed = {
+        ...current,
+        bytes: firstBytes,
+        run: first.run,
+      };
+      const secondBytes = progressBytes(api, progressed, 'in-flight', 'done', '2026-07-24T02:00:00Z');
+      const second = await api.transactPlanRun({
+        file,
+        identity,
+        expectedBytesSha256: api.sha256(firstBytes),
+        nextBytes: secondBytes,
+      });
+      assert.equal(second.run.plan_sha256, current.normalizedDigest);
+      assert.match(fs.readFileSync(file, 'utf8'), /\| local \| done \|/);
+    }),
+  );
+
+  suite.test('mutations', 'status progress rejects terminal reversal and unrelated byte drift', () =>
+    withTempDirectory('plan-run-status-rejections-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const identity = { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run };
+      const current = markedPlan(api, tuple('ongoing', ONGOING_LOCAL));
+      const done = {
+        ...current,
+        bytes: progressBytes(api, current, 'planned', 'done', '2026-07-24T01:00:00Z'),
+      };
+      fs.writeFileSync(file, done.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity,
+            expectedBytesSha256: api.sha256(done.bytes),
+            nextBytes: progressBytes(api, done, 'done', 'in-flight', '2026-07-24T02:00:00Z'),
+          }),
+        /illegal Steps Status transition|done.*in-flight/i,
+      );
+
+      fs.writeFileSync(file, current.bytes);
+      const unrelated = progressBytes(api, current, 'planned', 'done', '2026-07-24T01:00:00Z')
+        .toString()
+        .replace('Observable proof', 'Unrelated proof rewrite');
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity,
+            expectedBytesSha256: api.sha256(current.bytes),
+            nextBytes: Buffer.from(unrelated),
+          }),
+        /canonical plan digest|only Steps Status cells/i,
+      );
+    }),
+  );
+
+  suite.test('mutations', 'status progress requires ongoing state with no live review reservation', () =>
+    withTempDirectory('plan-run-status-state-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const identity = { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run };
+      const planned = markedPlan(api, tuple('planned', { draft_review: reviewPhase('passed') }));
+      fs.writeFileSync(file, planned.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity,
+            expectedBytesSha256: api.sha256(planned.bytes),
+            nextBytes: progressBytes(api, planned, 'planned', 'done', '2026-07-24T01:00:00Z'),
+          }),
+        /requires an ongoing PlanRun/i,
+      );
+
+      const draftLive = markedPlan(api, tuple('drafting', { draft_review: reviewPhase('reserved') }));
+      fs.writeFileSync(file, draftLive.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity,
+            expectedBytesSha256: api.sha256(draftLive.bytes),
+            nextBytes: progressBytes(api, draftLive, 'planned', 'in-flight', '2026-07-24T01:00:00Z'),
+          }),
+        /review reservation is live/i,
+      );
+
+      const completionLive = markedPlan(
+        api,
+        tuple('ongoing', {
+          acceptance: acceptance(),
+          completion_review: reviewPhase('reserved'),
+          draft_review: reviewPhase('passed'),
+          execution_parent: SOURCE_BASE,
+          implementation_commit: IMPLEMENTATION_COMMIT,
+          requested_effects: ['local', 'production_access'],
+          risk: 'sensitive',
+        }),
+      );
+      fs.writeFileSync(file, completionLive.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity,
+            expectedBytesSha256: api.sha256(completionLive.bytes),
+            nextBytes: progressBytes(api, completionLive, 'planned', 'done', '2026-07-24T01:00:00Z'),
+          }),
+        /review reservation is live/i,
+      );
+
+      const terminal = [
+        markedPlan(
+          api,
+          tuple('blocked', {
+            blocker: { kind: 'verification_failed', evidence_sha256: HASHES.blocker },
+            draft_review: reviewPhase('passed'),
+            execution_parent: SOURCE_BASE,
+          }),
+        ),
+        markedPlan(
+          api,
+          tuple('finished', {
+            acceptance: acceptance(),
+            draft_review: reviewPhase('passed'),
+            execution_parent: SOURCE_BASE,
+          }),
+        ),
+      ];
+      for (const fixture of terminal) {
+        fs.writeFileSync(file, fixture.bytes);
+        await expectReject(
+          () =>
+            api.transactPlanRun({
+              file,
+              identity,
+              expectedBytesSha256: api.sha256(fixture.bytes),
+              nextBytes: progressBytes(api, fixture, 'planned', 'done', '2026-07-24T01:00:00Z'),
+            }),
+          /PlanRun bytes are immutable/i,
+        );
+      }
+    }),
+  );
 
   const chronologyWrite = (root, stamps) => {
     const file = path.join(root, 'plan.md');

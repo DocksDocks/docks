@@ -114,6 +114,35 @@ const LIFECYCLE_FRONTMATTER = new Set([
   'scheduled_for',
 ]);
 const EXCLUDED_SECTIONS = new Set(['Review', 'Verification Results', 'Proposed repair']);
+const PLAN_HASH_MODE = 'status-excluded-v1';
+const STEP_STATUSES = new Set(['planned', 'in-flight', 'done', 'blocked', 'skipped']);
+const STEP_STATUS_TRANSITIONS = new Map([
+  ['planned', new Set(['in-flight', 'done', 'blocked', 'skipped'])],
+  ['in-flight', new Set(['done', 'blocked', 'skipped'])],
+  ['blocked', new Set(['in-flight', 'done', 'skipped'])],
+  ['done', new Set()],
+  ['skipped', new Set()],
+]);
+const LEGACY_STEP_COLUMNS = Object.freeze([
+  '#',
+  'Task',
+  'Files',
+  'Depends',
+  'Effect',
+  'Status',
+  'Done when / failure action',
+]);
+const IDENTIFIED_STEP_COLUMNS = Object.freeze([
+  '#',
+  'Id',
+  'Task',
+  'Files',
+  'Depends',
+  'Effect',
+  'Status',
+  'Done when / failure action',
+]);
+const NORMALIZED_STEP_STATUS = ' status-excluded-v1 ';
 
 function fail(message) {
   throw new Error(message);
@@ -315,6 +344,138 @@ function headingAt(line) {
   const match = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line);
   return match ? { level: match[1].length, title: match[2].trim() } : null;
 }
+function markdownTableCells(line) {
+  const first = line.search(/\S/);
+  if (first < 0 || first > 3 || line[first] !== '|') return null;
+  const dividers = [];
+  let codeTicks = 0;
+  for (let index = first; index < line.length; index += 1) {
+    if (line[index] === '`') {
+      let end = index + 1;
+      while (line[end] === '`') end += 1;
+      const length = end - index;
+      if (codeTicks === 0) codeTicks = length;
+      else if (codeTicks === length) codeTicks = 0;
+      index = end - 1;
+      continue;
+    }
+    if (line[index] !== '|' || codeTicks !== 0) continue;
+    let escapes = 0;
+    for (let cursor = index - 1; cursor >= 0 && line[cursor] === '\\'; cursor -= 1) escapes += 1;
+    if (escapes % 2 === 0) dividers.push(index);
+  }
+  if (codeTicks !== 0 || dividers.length < 2 || !/^\s*$/.test(line.slice(dividers.at(-1) + 1))) return null;
+  return dividers.slice(0, -1).map((start, index) => ({
+    end: dividers[index + 1],
+    raw: line.slice(start + 1, dividers[index + 1]),
+    start: start + 1,
+  }));
+}
+
+function stepStatus(raw) {
+  const value = raw.trim();
+  const match = /^(?:`([^`]+)`|([^`]+))$/.exec(value);
+  const status = match?.[1] ?? match?.[2] ?? null;
+  return status !== null && STEP_STATUSES.has(status) ? status : null;
+}
+
+function parseStepsTable(body) {
+  const lines = body.split('\n');
+  const headings = [];
+  let fence = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const marker = fenceAt(lines[index]);
+    if (fence === null && marker !== null) {
+      fence = marker;
+      continue;
+    }
+    if (
+      fence !== null &&
+      marker !== null &&
+      marker.marker === fence.marker &&
+      marker.length >= fence.length &&
+      /^\s*$/.test(marker.tail)
+    ) {
+      fence = null;
+      continue;
+    }
+    if (fence === null) {
+      const heading = headingAt(lines[index]);
+      if (heading !== null) headings.push({ ...heading, index });
+    }
+  }
+  if (fence !== null) fail('Steps discovery rejects an unclosed Markdown fence');
+  const matching = headings.filter((heading) => heading.level === 2 && heading.title === 'Steps');
+  if (matching.length === 0) fail('status-excluded-v1 requires one unfenced ## Steps section');
+  if (matching.length !== 1) fail('status-excluded-v1 rejects duplicate ## Steps sections');
+  const start = matching[0].index;
+  const following = headings.find((heading) => heading.index > start && heading.level <= 2);
+  const end = following?.index ?? lines.length;
+  let headerIndex = start + 1;
+  while (headerIndex < end && /^\s*$/.test(lines[headerIndex])) headerIndex += 1;
+  const header = markdownTableCells(lines[headerIndex] ?? '');
+  const separator = markdownTableCells(lines[headerIndex + 1] ?? '');
+  if (header === null || separator === null) fail('## Steps must begin with an exact Markdown table');
+  const columns = header.map(({ raw }) => raw.trim());
+  const expected = columns.length === IDENTIFIED_STEP_COLUMNS.length ? IDENTIFIED_STEP_COLUMNS : LEGACY_STEP_COLUMNS;
+  if (columns.length !== expected.length || columns.some((column, index) => column !== expected[index])) {
+    fail('## Steps table columns do not match the canonical schema');
+  }
+  if (separator.length !== columns.length || separator.some(({ raw }) => !/^:?-{3,}:?$/.test(raw.trim()))) {
+    fail('## Steps table separator is invalid');
+  }
+  const numberIndex = columns.indexOf('#');
+  const idIndex = columns.indexOf('Id');
+  const statusIndex = columns.indexOf('Status');
+  const rows = [];
+  const identities = new Set();
+  for (let index = headerIndex + 2; index < end; index += 1) {
+    if (/^\s*$/.test(lines[index])) {
+      if (lines.slice(index, end).some((line) => !/^\s*$/.test(line))) {
+        fail('## Steps must contain only its canonical table');
+      }
+      break;
+    }
+    const cells = markdownTableCells(lines[index]);
+    if (cells === null || cells.length !== columns.length) fail('## Steps row does not match its header');
+    const number = cells[numberIndex].raw.trim();
+    if (!/^[1-9]\d*$/.test(number)) fail('## Steps row number must be a positive integer');
+    const id = idIndex < 0 ? null : cells[idIndex].raw.trim();
+    if (id !== null && !/^[a-z][a-z0-9_]{0,63}$/.test(id)) fail('## Steps row Id is invalid');
+    const identity = id === null ? number : `${number}\u0000${id}`;
+    if (identities.has(identity)) fail('## Steps row identities must be unique');
+    identities.add(identity);
+    const status = stepStatus(cells[statusIndex].raw);
+    if (status === null) fail('## Steps row Status is invalid');
+    rows.push({
+      identity,
+      lineIndex: index,
+      status,
+      statusEnd: cells[statusIndex].end,
+      statusStart: cells[statusIndex].start,
+    });
+  }
+  if (rows.length === 0) fail('## Steps table must contain at least one row');
+  return { lines, rows };
+}
+
+function bodyWithNormalizedStepStatuses(body, table = parseStepsTable(body)) {
+  const lines = [...table.lines];
+  for (const row of table.rows) {
+    const line = lines[row.lineIndex];
+    lines[row.lineIndex] = line.slice(0, row.statusStart) + NORMALIZED_STEP_STATUS + line.slice(row.statusEnd);
+  }
+  return lines.join('\n');
+}
+
+function canonicalPlanViewFromParsed(frontmatter, body, normalizeStatuses) {
+  const kept = Object.create(null);
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (!LIFECYCLE_FRONTMATTER.has(key)) kept[key] = value;
+  }
+  const canonicalInput = normalizeStatuses ? bodyWithNormalizedStepStatuses(body) : body;
+  return `${jcs(kept)}\n${canonicalBody(canonicalInput)}\n`;
+}
 
 function canonicalBody(body) {
   const retained = [];
@@ -366,11 +527,7 @@ function canonicalBody(body) {
 
 export function canonicalPlanView(bytes) {
   const { frontmatter, body } = parsePlan(bytes);
-  const kept = Object.create(null);
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (!LIFECYCLE_FRONTMATTER.has(key)) kept[key] = value;
-  }
-  return `${jcs(kept)}\n${canonicalBody(body)}\n`;
+  return canonicalPlanViewFromParsed(frontmatter, body, frontmatter.plan_hash_mode === PLAN_HASH_MODE);
 }
 
 function canonicalSection(body, title) {
@@ -940,8 +1097,21 @@ export function validatePlanRun(bytes, expected = {}) {
     }
   }
   const attemptHistory = validatePlanAttemptHistory(parsed.body, run);
-  const digest = sha256(canonicalPlanView(bytes));
-  if (digest !== run.plan_sha256) fail('plan_sha256 does not match canonical plan digest');
+  const hashMode = parsed.frontmatter.plan_hash_mode;
+  if (hashMode !== undefined && hashMode !== PLAN_HASH_MODE) fail('frontmatter plan_hash_mode is invalid');
+  let digest = sha256(canonicalPlanViewFromParsed(parsed.frontmatter, parsed.body, false));
+  let bootstrapDigest = null;
+  if (hashMode === PLAN_HASH_MODE) {
+    const steps = parseStepsTable(parsed.body);
+    const legacyDigest = digest;
+    digest = sha256(
+      canonicalPlanViewFromParsed(parsed.frontmatter, bodyWithNormalizedStepStatuses(parsed.body, steps), false),
+    );
+    if (steps.rows.every((row) => row.status === 'planned')) bootstrapDigest = legacyDigest;
+  }
+  if (run.plan_sha256 !== digest && run.plan_sha256 !== bootstrapDigest) {
+    fail('plan_sha256 does not match canonical plan digest');
+  }
   validateAcceptedPlanBindings(bytes, parsed.frontmatter, run, expected);
   return { attempt_history: attemptHistory, frontmatter: parsed.frontmatter, run, status };
 }
@@ -2013,6 +2183,132 @@ function assertPlanChronology(frontmatter) {
     fail('PlanRun finished_at cannot precede started_at');
   }
 }
+function planRunBodyLineIndex(body) {
+  let fence = null;
+  let recordIndex = null;
+  const lines = body.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const marker = fenceAt(lines[index]);
+    if (fence === null && marker !== null) {
+      fence = marker;
+      continue;
+    }
+    if (
+      fence !== null &&
+      marker !== null &&
+      marker.marker === fence.marker &&
+      marker.length >= fence.length &&
+      /^\s*$/.test(marker.tail)
+    ) {
+      fence = null;
+      continue;
+    }
+    if (fence === null && /^Plan-run:/.test(lines[index])) {
+      if (recordIndex !== null) fail('duplicate Plan-run record');
+      recordIndex = index;
+    }
+  }
+  if (recordIndex === null) fail('missing unfenced Plan-run record');
+  return recordIndex;
+}
+
+function comparableStatusProgressBytes(bytes, parsed, steps) {
+  const lines = Buffer.from(bytes).toString('utf8').split('\n');
+  const bodyOffset = parsed.frontmatterEnd + 1;
+  for (const row of steps.rows) {
+    const index = bodyOffset + row.lineIndex;
+    const line = lines[index];
+    lines[index] = line.slice(0, row.statusStart) + NORMALIZED_STEP_STATUS + line.slice(row.statusEnd);
+  }
+  const updatedIndexes = [];
+  for (let index = 1; index < parsed.frontmatterEnd; index += 1) {
+    if (/^updated:/.test(parsed.lines[index])) updatedIndexes.push(index);
+  }
+  if (updatedIndexes.length !== 1) fail('status progress requires exactly one frontmatter updated timestamp');
+  const updatedIndex = updatedIndexes[0];
+  const updatedEnding = lines[updatedIndex].endsWith('\r') ? '\r' : '';
+  lines[updatedIndex] = `<updated>${updatedEnding}`;
+  const recordIndex = bodyOffset + planRunBodyLineIndex(parsed.body);
+  const recordEnding = lines[recordIndex].endsWith('\r') ? '\r' : '';
+  lines[recordIndex] = `<Plan-run>${recordEnding}`;
+  return lines.join('\n');
+}
+
+function assertStatusProgressTransition(current, next, currentBytes, nextBytes) {
+  if (current.frontmatter.plan_hash_mode !== PLAN_HASH_MODE || next.frontmatter.plan_hash_mode !== PLAN_HASH_MODE) {
+    return false;
+  }
+  const currentSteps = parseStepsTable(parsePlan(currentBytes).body);
+  const nextParsed = parsePlan(nextBytes);
+  const nextSteps = parseStepsTable(nextParsed.body);
+  if (
+    currentSteps.rows.length !== nextSteps.rows.length ||
+    currentSteps.rows.some((row, index) => row.identity !== nextSteps.rows[index].identity)
+  ) {
+    fail('status progress must preserve Steps row identities and order');
+  }
+  const changedRows = currentSteps.rows.filter((row, index) => row.status !== nextSteps.rows[index].status);
+  if (changedRows.length === 0) return false;
+  if (current.status === 'blocked' || current.status === 'finished') {
+    fail(`${current.status} PlanRun bytes are immutable`);
+  }
+  if (
+    [current.run.draft_review.state, current.run.completion_review.state].some((state) => LIVE_REVIEW_STATES.has(state))
+  ) {
+    fail('status progress is forbidden while a review reservation is live');
+  }
+  if (current.status !== 'ongoing') fail('status progress requires an ongoing PlanRun');
+  if (current.status !== next.status) fail('status progress cannot change lifecycle status');
+  for (let index = 0; index < currentSteps.rows.length; index += 1) {
+    const before = currentSteps.rows[index].status;
+    const after = nextSteps.rows[index].status;
+    if (before !== after && !STEP_STATUS_TRANSITIONS.get(before).has(after)) {
+      fail(`illegal Steps Status transition: ${before} -> ${after}`);
+    }
+  }
+  const currentParsed = parsePlan(currentBytes);
+  const currentUpdated = currentParsed.frontmatter.updated;
+  const nextUpdated = nextParsed.frontmatter.updated;
+  if (
+    typeof currentUpdated !== 'string' ||
+    typeof nextUpdated !== 'string' ||
+    Number.isNaN(Date.parse(currentUpdated)) ||
+    Number.isNaN(Date.parse(nextUpdated)) ||
+    currentUpdated === nextUpdated
+  ) {
+    fail('status progress requires a changed valid frontmatter updated timestamp');
+  }
+  const changed = changedRunFields(current, next);
+  const normalizedDigest = sha256(
+    canonicalPlanViewFromParsed(
+      currentParsed.frontmatter,
+      bodyWithNormalizedStepStatuses(currentParsed.body, currentSteps),
+      false,
+    ),
+  );
+  const bootstrap = current.run.plan_sha256 !== normalizedDigest;
+  if (bootstrap) {
+    if (!currentSteps.rows.every((row) => row.status === 'planned')) {
+      fail('only an all-planned marked plan may bootstrap its normalized digest');
+    }
+    if (next.run.plan_sha256 !== normalizedDigest) {
+      fail('first status progress must atomically install the normalized plan digest');
+    }
+    assertOnlyChanged(changed, new Set(['plan_sha256']), 'bootstrap status progress');
+  } else {
+    if (next.run.plan_sha256 !== current.run.plan_sha256) {
+      fail('status progress cannot change an installed normalized plan digest');
+    }
+    assertOnlyChanged(changed, new Set(), 'status progress');
+  }
+  if (
+    comparableStatusProgressBytes(currentBytes, currentParsed, currentSteps) !==
+    comparableStatusProgressBytes(nextBytes, nextParsed, nextSteps)
+  ) {
+    fail('status progress may change only Steps Status cells, updated, and the bootstrap digest');
+  }
+  return true;
+}
 
 export async function transactPlanRun({
   file,
@@ -2081,7 +2377,10 @@ export async function transactPlanRun({
     if (jcs(current.attempt_history) !== jcs(next.attempt_history)) {
       fail('ordinary PlanRun transitions cannot mutate attempt history');
     }
-    assertPersistedTransition({ status: current.status, run: current.run }, { status: next.status, run: next.run });
+    const statusProgress = assertStatusProgressTransition(current, next, currentBytes, nextBuffer);
+    if (!statusProgress) {
+      assertPersistedTransition({ status: current.status, run: current.run }, { status: next.status, run: next.run });
+    }
     if (
       (current.status === 'finished' || (current.status === 'blocked' && next.status === 'blocked')) &&
       !currentBytes.equals(nextBuffer)
@@ -2089,6 +2388,7 @@ export async function transactPlanRun({
       fail(`${current.status} PlanRun bytes are immutable`);
     }
     if (
+      !statusProgress &&
       jcs({ status: current.status, run: current.run }) === jcs({ status: next.status, run: next.run }) &&
       !currentBytes.equals(nextBuffer)
     ) {

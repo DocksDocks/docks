@@ -48,13 +48,34 @@ Replacement is never automatic and never reuses predecessor permits or evidence.
 Cross-repository goals join repository-qualified child runs by `goal_id`; effects
 are unique, canonical-ordered, and begin with `local`.
 
-`plan_sha256` excludes only lifecycle status/timestamps, `Plan-run`, `## Review`,
-and `## Verification Results`. Goal, scope, paths, steps, effects, safety,
-acceptance, and decisions stay bound. `source_base + source_sha256` binds a
-sorted existence/kind/mode/content manifest of every affected path at review
-time, including dirty/untracked bytes and tombstones. Acceptance binds the final
-affected-path manifest and canonical Verification Results bytes. Never list the
-plan record in `affected_paths`; acceptance writes to it and breaks that bind.
+For an unmarked plan, `plan_sha256` keeps its byte-compatible legacy canonical
+view: it excludes only lifecycle status/timestamps, `Plan-run`, `## Review`, and
+`## Verification Results`. Goal, scope, paths, steps, effects, safety,
+acceptance, and decisions stay bound.
+
+A new or successor plan opts into `plan_hash_mode: status-excluded-v1`. Its
+canonical view requires exactly one unfenced `## Steps` section containing the
+canonical legacy or `Id`-bearing Steps table and normalizes only each validated
+row's `Status` cell. The header, row identity/order, every non-Status cell, all
+non-Steps tables, and fenced examples remain bound. Malformed rows, duplicate
+identities, and unknown states fail closed. An all-`planned` marked bootstrap
+validates with either its legacy full-body digest or normalized digest.
+
+Only `transactPlanRun` may advance Steps state. The write requires an `ongoing`
+run, no `reserved` or `transport_retried` review phase, at least one row change,
+unchanged row identities/order, and only closed transitions:
+`planned → in-flight | done | blocked | skipped`; `in-flight → done | blocked |
+skipped`; and `blocked → in-flight | done | skipped`. `done` and `skipped` are
+terminal. The same atomic write may change only the matching frontmatter
+`updated` timestamp and, on the first progress from a legacy-digest bootstrap,
+`plan_sha256` to the normalized digest. Every other byte is unchanged. Blocked
+and finished PlanRun bytes remain immutable.
+
+`source_base + source_sha256` binds a sorted existence/kind/mode/content
+manifest of every affected path at review time, including dirty/untracked bytes
+and tombstones. Acceptance binds the final affected-path manifest and canonical
+Verification Results bytes. Never list the plan record in `affected_paths`;
+acceptance writes to it and breaks that bind.
 
 `source_base` is null only before draft review starts and is required thereafter.
 `execution_parent` is null before start and is required, immutable, and exclusive

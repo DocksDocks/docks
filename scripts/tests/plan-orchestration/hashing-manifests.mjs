@@ -8,6 +8,37 @@ function replaceOnce(text, before, after) {
   assert.equal(text.split(before).length - 1, 1, `fixture must contain exactly one ${before}`);
   return text.replace(before, after);
 }
+function markedPlan(api, { legacyDigest = false } = {}) {
+  const fixture = bindPlan(api, tuple('drafting'));
+  const marked = fixture.bytes
+    .toString()
+    .replace(
+      'title: Autonomous controller fixture',
+      `plan_hash_mode: status-excluded-v1
+title: Autonomous controller fixture`,
+    )
+    .replace(
+      '| # | Task | Files | Depends | Effect | Status |',
+      '| # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |',
+    )
+    .replace('|---|---|---|---|---|---|', '|---:|---|---|---|---|---|---|---|')
+    .replace(
+      '| 1 | Change fixture | `src/tracked.txt` | — | local | planned |',
+      '| 1 | change_fixture | Change fixture | `src/tracked.txt` | — | local | planned | Observable proof |',
+    );
+  const normalizedView = api.canonicalPlanView(Buffer.from(marked));
+  const normalizedDigest = api.sha256(normalizedView);
+  const legacyView = normalizedView.replace(' status-excluded-v1 ', ' planned ');
+  const run = {
+    ...fixture.run,
+    plan_sha256: legacyDigest ? api.sha256(legacyView) : normalizedDigest,
+  };
+  return {
+    bytes: Buffer.from(marked.replace(`Plan-run: ${api.jcs(fixture.run)}`, `Plan-run: ${api.jcs(run)}`)),
+    normalizedDigest,
+    run,
+  };
+}
 
 const PLAN_AFFECTED_PATHS = Object.freeze(['src/tracked.txt', 'src/untracked.txt']);
 
@@ -144,6 +175,78 @@ export function registerHashingAndManifest(suite, api) {
       }
     },
   );
+
+  suite.test('hashing-manifests', 'unmarked plans retain status-bound legacy digest identity', () => {
+    const fixture = bindPlan(api, tuple('drafting'));
+    const changedStatus = replaceOnce(fixture.bytes.toString(), '| local | planned |', '| local | done |');
+    assert.notEqual(api.canonicalPlanView(Buffer.from(changedStatus)), api.canonicalPlanView(fixture.bytes));
+    assert.equal(api.validatePlanRun(fixture.bytes).run.plan_sha256, fixture.run.plan_sha256);
+  });
+
+  suite.test('hashing-manifests', 'marked mode excludes only valid Steps Status cells', () => {
+    const fixture = markedPlan(api, { legacyDigest: true });
+    assert.notEqual(fixture.run.plan_sha256, fixture.normalizedDigest);
+    assert.equal(api.validatePlanRun(fixture.bytes).run.plan_sha256, fixture.run.plan_sha256);
+    const original = fixture.bytes.toString();
+    const progressed = replaceOnce(original, '| local | planned |', '| local | done |');
+    assert.equal(api.canonicalPlanView(Buffer.from(progressed)), api.canonicalPlanView(fixture.bytes));
+
+    const boundCells = [
+      ['| 1 | change_fixture |', '| 2 | change_fixture |'],
+      ['| 1 | change_fixture |', '| 1 | changed_identity |'],
+      ['| Change fixture |', '| Change other fixture |'],
+      ['| `src/tracked.txt` |', '| `src/other.txt` |'],
+      ['| — | local |', '| 1 | local |'],
+      ['| local | planned |', '| release | planned |'],
+      ['| Observable proof |', '| Different proof |'],
+    ];
+    for (const [before, after] of boundCells) {
+      assert.notEqual(
+        api.canonicalPlanView(Buffer.from(replaceOnce(original, before, after))),
+        api.canonicalPlanView(fixture.bytes),
+        `${before} must remain bound in status-excluded-v1`,
+      );
+    }
+    expectThrow(
+      () => api.canonicalPlanView(Buffer.from(replaceOnce(original, '| planned |', '| unknown |'))),
+      /Steps row Status is invalid/i,
+    );
+    expectThrow(
+      () => api.canonicalPlanView(Buffer.from(replaceOnce(original, '| Status |', '| State |'))),
+      /Steps table columns|canonical schema/i,
+    );
+  });
+
+  suite.test('hashing-manifests', 'fenced and non-Steps Status text remains bound', () => {
+    const fixture = markedPlan(api);
+    const decorated = fixture.bytes.toString().replace(
+      '## Steps',
+      `## Context
+
+| Label | Status |
+|---|---|
+| non_steps | planned |
+
+\`\`\`markdown
+## Steps
+| # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |
+|---:|---|---|---|---|---|---|---|
+| 9 | fenced_example | Example | \`example.txt\` | — | local | planned | Example only |
+\`\`\`
+
+## Steps`,
+    );
+    const digest = api.sha256(api.canonicalPlanView(Buffer.from(decorated)));
+    for (const [before, after] of [
+      ['| non_steps | planned |', '| non_steps | done |'],
+      [
+        '| 9 | fenced_example | Example | `example.txt` | — | local | planned |',
+        '| 9 | fenced_example | Example | `example.txt` | — | local | done |',
+      ],
+    ]) {
+      assert.notEqual(api.sha256(api.canonicalPlanView(Buffer.from(replaceOnce(decorated, before, after)))), digest);
+    }
+  });
 
   suite.test(
     'hashing-manifests',
