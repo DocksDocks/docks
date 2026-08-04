@@ -1,10 +1,10 @@
 ---
 title: Require pre-completion release rehearsals and contract-preservation checks
 goal: Add durable, positively tested planning rules that move available live read-only release checks before completion review, preserve closed schemas unless a plan explicitly changes them, and keep every release identity role distinct.
-status: planned
+status: ongoing
 created: "2026-08-04T03:42:06-03:00"
-updated: "2026-08-04T06:50:24.392+00:00"
-started_at: null
+updated: "2026-08-04T22:08:55.102+00:00"
+started_at: "2026-08-04T22:08:55.102+00:00"
 finished_at: null
 assignee: null
 tags: [plans, plan-lifecycle, release-safety, contract-preservation]
@@ -12,6 +12,7 @@ affected_paths:
   - docs/plans/AGENTS.md
   - plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
   - plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+  - plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md
   - plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md
   - scripts/tests/plan-skill-phases.mjs
 related_plans:
@@ -20,7 +21,7 @@ related_plans:
 
 # Require pre-completion release rehearsals and contract-preservation checks
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"c964bdc9a2573298c4fe6cffba7a21e06fc3d953dbdabca87322d44c3b97aede","invocations":1,"result_sha256":"23aee97e6efd35f38f6ed44e338dc06b1b5dfe744563e3e32e690fa21d4aaeda","state":"passed"},"execution_parent":null,"goal_id":"08c02047-0941-4a0f-9d9a-2d9f12a08c58","implementation_commit":null,"plan_path":"docs/plans/active/release-precompletion-rehearsal-and-contract-guards.md","plan_sha256":"d7a2b7c3b2f678a78308b3a12f36717e86db142de7e9ce5acc4b78d429ded024","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"fe1da33a-65e8-4a60-9b5c-afdefb2f7667","schema":1,"source_base":"ae9a7a977c785ad3b8462df0f3a12ad152fb9c1c","source_sha256":"c43f7df36436cd5cb30002686e4d6a88c528d7f1172606501a8673759c878843"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"7a9d3092ce9469be7e4c7263fc61f00294b91ad344e15378963c9db8607adda8","invocations":1,"result_sha256":"895ffbbb363af56baea29561543db6dd5a3899ea60631107c642ad86846beb4b","state":"passed"},"execution_parent":"c1c3c5b3928ea50a8efd15ed88ec3ba899a49471","goal_id":"08c02047-0941-4a0f-9d9a-2d9f12a08c58","implementation_commit":null,"plan_path":"docs/plans/active/release-precompletion-rehearsal-and-contract-guards.md","plan_sha256":"0c18b8274b14882bb9f83abe77aab8e1e302d347a998dab962d12bfd9c6dcffb","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ee3afd7f-2056-40a9-b947-a0a46d4afcc8","schema":1,"source_base":"c1c3c5b3928ea50a8efd15ed88ec3ba899a49471","source_sha256":"d0540eed2960d4e3c126dfc69d6f6591ec9fb1b43bf14576116f6f5c15809a70"}
 
 ## Goal
 
@@ -70,7 +71,7 @@ A reviewer must reject an unstated equality, a contradictory role pin, or a late
 | 1 | pin_missing_rules | Add failing positive assertions. | `scripts/tests/plan-skill-phases.mjs` | — | `local` | `planned` | The bounded-workflow case fails with a specific missing-clause error for early live rehearsal, closed-schema disposition, and explicit release identity roles; unrelated assertions stay green. |
 | 2 | specify_manager_boundary | Define the manager boundary rule. | `plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md` | 1 | `local` | `planned` | The manager requires available read-only final-boundary checks before completion review, including canonical inputs and missing probe authority, but neither authorizes effects nor mandates a nonexistent check. |
 | 3 | specify_reviewer_contracts | Define reviewer contract checks. | `plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md` | 1 | `local` | `planned` | Review guidance names reproducible blockers for out-of-scope schema drift, noncanonical live fixtures, conflated identity roles, and predecessor current-run pins. |
-| 4 | sync_workspace_contract | Synchronize workspace policy. | `plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md`; `docs/plans/AGENTS.md` | 2, 3 | `local` | `planned` | The source template and generated policy carry the same concise rules; existing generation checks pass. |
+| 4 | sync_workspace_contract | Synchronize workspace policy. | `plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md`; `plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md`; `docs/plans/AGENTS.md` | 2, 3 | `local` | `planned` | The source template and generated policy carry the same concise rules; existing generation checks pass. |
 | 5 | prove_rules_bite | Prove the rules and assertions. | all affected paths in frontmatter | 4 | `local` | `planned` | A1-A4 pass. Each one-clause mutation fails the named assertion and restoration returns green. Any weakened assertion or schema change is STOP. |
 | 6 | checkpoint_and_archive | Review and archive implementation. | all affected paths in frontmatter | 5 | `local` | `planned` | The implementation commit and exact diff pass CompletionReviewV1; the final archive is valid and the active path is absent. |
 
@@ -113,6 +114,10 @@ A reviewer must reject an unstated equality, a contradictory role pin, or a late
 ## Review
 
 N/A - manager-written after review.
+
+Plan-attempt-history: {"authorization_source_sha256":"6a3e9b6dd36d7be02f7529cc13369608d54c8c0fae360eed0d3e57e57cc806dd","plan_bytes_sha256":"5af4918515fcc4261769b4b57cb538aa8f6f81a5c8dd4f023b71b9989ce3be30","replacement_run_id":"bd54c043-ef65-4343-8494-7d531b61b3b2","run":{"acceptance":null,"blocker":{"evidence_sha256":"8d624040999d022fc6a1a55f40a45c7b2e6d4325bd5e86abe76868422be07678","kind":"review_failed"},"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"c964bdc9a2573298c4fe6cffba7a21e06fc3d953dbdabca87322d44c3b97aede","invocations":1,"result_sha256":"23aee97e6efd35f38f6ed44e338dc06b1b5dfe744563e3e32e690fa21d4aaeda","state":"passed"},"execution_parent":null,"goal_id":"08c02047-0941-4a0f-9d9a-2d9f12a08c58","implementation_commit":null,"plan_path":"docs/plans/active/release-precompletion-rehearsal-and-contract-guards.md","plan_sha256":"d7a2b7c3b2f678a78308b3a12f36717e86db142de7e9ce5acc4b78d429ded024","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"fe1da33a-65e8-4a60-9b5c-afdefb2f7667","schema":1,"source_base":"ae9a7a977c785ad3b8462df0f3a12ad152fb9c1c","source_sha256":"c43f7df36436cd5cb30002686e4d6a88c528d7f1172606501a8673759c878843"},"schema":1,"status":"blocked","successor_run_sha256":"f16b308cb0ea071dbd2f40807d02f3c3b5c5b0bbf7f8fbec2ce2f35e9e6c9140"}
+
+Plan-attempt-history: {"authorization_source_sha256":"6a3e9b6dd36d7be02f7529cc13369608d54c8c0fae360eed0d3e57e57cc806dd","plan_bytes_sha256":"191dbe57b27a157dc33faff56d609c0b9ffe417ba7a420a9aa14350f1ed087cb","replacement_run_id":"ee3afd7f-2056-40a9-b947-a0a46d4afcc8","run":{"acceptance":null,"blocker":{"evidence_sha256":"76e3cb7ffba7ba0caaa07a01cfb00de14c96860071deb6e12828031600bc7a9c","kind":"review_failed"},"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"1888b1f56870fefe33a007cc750da5abd21e60e5775b4828f00afdb246f1fa03","invocations":1,"result_sha256":"76e3cb7ffba7ba0caaa07a01cfb00de14c96860071deb6e12828031600bc7a9c","state":"blocked"},"execution_parent":null,"goal_id":"08c02047-0941-4a0f-9d9a-2d9f12a08c58","implementation_commit":null,"plan_path":"docs/plans/active/release-precompletion-rehearsal-and-contract-guards.md","plan_sha256":"0c18b8274b14882bb9f83abe77aab8e1e302d347a998dab962d12bfd9c6dcffb","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"bd54c043-ef65-4343-8494-7d531b61b3b2","schema":1,"source_base":"c1c3c5b3928ea50a8efd15ed88ec3ba899a49471","source_sha256":"d0540eed2960d4e3c126dfc69d6f6591ec9fb1b43bf14576116f6f5c15809a70"},"schema":1,"status":"blocked","successor_run_sha256":"344cb20e7a8f26822e1daef6fe3435d664b00ee7883601e31d47542d3a328eee"}
 
 ## Verification Results
 
