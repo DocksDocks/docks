@@ -59,8 +59,8 @@ const LEGACY = loadReleaseInstance('0.13.0', {
 });
 
 const PUBLIC_REPOSITORY_ID = 'DocksDocks/public';
-const PUBLIC_VERSION = '0.14.0';
-const PUBLIC_TAG = `cli-v${PUBLIC_VERSION}`;
+const PUBLIC_VERSION = INSTANCE.public_child.version;
+const PUBLIC_TAG = INSTANCE.public_child.tag;
 const PUBLIC_WORKFLOW = '.github/workflows/release-cli.yml';
 const LEGACY_PUBLIC_FINISHED_PLAN_PATH =
   /^docs\/plans\/finished\/\d{4}-\d{2}-\d{2}-session-relay-cli-0\.13\.0-production-release\.md$/;
@@ -110,7 +110,7 @@ const PUBLICATION_TRANSITIONS = new Set([
   'tag_and_reconciled',
   'tag_and_release_created',
 ]);
-const CURRENT_DOCKS_KIT_RELEASE = 'cli-v0.14.0';
+const CURRENT_DOCKS_KIT_RELEASE = PUBLIC_TAG;
 // The exact released content of the public child, as this repository observed it: the SHA-256 of
 // the compact JCS of `{schema:1, source_base:<implementation commit>, paths:[{path, sha256}]}` over
 // every `affected_paths` entry of the child's finished plan, read at that commit. Derived twice by

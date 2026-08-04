@@ -3,14 +3,77 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import { byName, CLAUDE_MARKETPLACE, claudeManifest, codexManifest, marketEntryVersion } from './plugins.mjs';
 import { validateReleaseInstance } from './session-relay-release-instances/schema.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '../..');
 export const REPOSITORY_ID = 'DocksDocks/docks';
 export const PLUGIN = 'session-relay';
-export const VERSION = '0.16.0';
+
+export class SessionRelayReleaseError extends Error {
+  constructor(message, outcome = 'conflict') {
+    super(message);
+    this.name = 'SessionRelayReleaseError';
+    this.outcome = outcome;
+  }
+}
+
+export const fail = (message, outcome = 'conflict') => {
+  throw new SessionRelayReleaseError(message, outcome);
+};
+
+const SEMVER = /^\d+\.\d+\.\d+$/;
+
+function readReleaseIdentityJson(relative) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(REPO, relative), 'utf8'));
+  } catch (error) {
+    fail(`${relative} is not readable JSON: ${error.message}`);
+  }
+}
+
+function synchronizedRelayVersion(identities) {
+  for (const { source, name, version } of identities) {
+    if (name !== PLUGIN) fail(`${source} does not identify ${PLUGIN}`);
+    if (typeof version !== 'string' || !SEMVER.test(version)) {
+      fail(`${source} does not declare a semantic version`);
+    }
+  }
+  const [expected, ...rest] = identities.map(({ version }) => version);
+  if (rest.some((version) => version !== expected)) {
+    fail('Session Relay Claude manifest, Codex manifest, and Claude marketplace versions disagree');
+  }
+  return expected;
+}
+
+function currentRelayVersion() {
+  const plugin = byName(PLUGIN);
+  if (plugin === null || plugin.codex !== true) fail('Session Relay plugin descriptor is missing its Codex mirror');
+
+  const claudePath = claudeManifest(plugin);
+  const codexPath = codexManifest(plugin);
+  const claude = readReleaseIdentityJson(claudePath);
+  const codex = readReleaseIdentityJson(codexPath);
+  const marketplace = readReleaseIdentityJson(CLAUDE_MARKETPLACE);
+  if (!Array.isArray(marketplace?.plugins)) {
+    fail(`Claude marketplace must contain exactly one ${PLUGIN} entry`);
+  }
+  const marketplaceEntries = marketplace.plugins.filter(({ name }) => name === PLUGIN);
+  if (marketplaceEntries.length !== 1) fail(`Claude marketplace must contain exactly one ${PLUGIN} entry`);
+
+  return synchronizedRelayVersion([
+    { source: claudePath, name: claude?.name, version: claude?.version },
+    { source: codexPath, name: codex?.name, version: codex?.version },
+    {
+      source: CLAUDE_MARKETPLACE,
+      name: marketplaceEntries[0]?.name,
+      version: marketEntryVersion(marketplace, PLUGIN),
+    },
+  ]);
+}
+
+export const VERSION = currentRelayVersion();
 export const TAG = `${PLUGIN}--v${VERSION}`;
 export const TRANSACTION_REF = `refs/heads/transactions/${PLUGIN}-${VERSION}`;
 export const LOCK_REF = `refs/heads/locks/${PLUGIN}-${VERSION}`;
@@ -47,22 +110,11 @@ export const INTEL_DARWIN_DEPRECATION =
 export const PRERELEASE_BODY = `Session Relay ${VERSION} is staged for compatibility validation. Do not install it directly or advertise installation instructions. Wait for the stable release.\n\n${INTEL_DARWIN_DEPRECATION}`;
 export const STABLE_BODY = `Session Relay ${VERSION} is available through docks-kit.\n\n## Install or update\n\n\`\`\`\ndocks-kit sync\n\`\`\`\n\n${INTEL_DARWIN_DEPRECATION}`;
 
-export class SessionRelayReleaseError extends Error {
-  constructor(message, outcome = 'conflict') {
-    super(message);
-    this.name = 'SessionRelayReleaseError';
-    this.outcome = outcome;
-  }
-}
-
-export const fail = (message, outcome = 'conflict') => {
-  throw new SessionRelayReleaseError(message, outcome);
-};
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 // Release-instance identity. Every value that identifies one particular release attempt
 // lives in `session-relay-release-instances/<version>.json`, so the lane holds protocol
-// logic and a release edits `VERSION` plus one new instance file.
+// logic and a release synchronizes its manifests/catalog plus adds one instance file.
 //
 // This is the only reader. No caller may parse an instance file directly, so validation
 // cannot be skipped by going around it: an absent file, malformed JSON, an unknown key,

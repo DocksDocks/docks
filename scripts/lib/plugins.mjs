@@ -27,8 +27,8 @@
 //   sourceChecks  ordered source/process/smoke checks; `binaryArg` appends the
 //                 one fresh source-built executable as an explicit CLI argument
 //   transformGuard run scripts/skills/transform-guard.mjs (curated transformers)
-//   install/release consumer installation text; Session Relay additionally owns
-//                 prerelease staging and its closed prebuilt asset set
+//   release       closed data-only policy. Generic plugins own only kind/install;
+//                 Session Relay additionally owns prerelease staging/assets.
 import fs from 'node:fs';
 import path from 'node:path';
 import { CURRENT_RELEASE_TARGETS, rustReleaseAssetNames } from './rust-bin.mjs';
@@ -102,7 +102,10 @@ export const PLUGINS = [
     authorChecks: ['idempotency', 'plan-reviewer'],
     releaseContracts: [],
     transformGuard: true,
-    install: '/plugin marketplace update docks\n/plugin install docks@docks',
+    release: {
+      kind: 'generic',
+      install: '/plugin marketplace update docks\n/plugin install docks@docks',
+    },
   },
   {
     name: 'session-relay',
@@ -206,6 +209,7 @@ export const PLUGINS = [
     ],
     transformGuard: false,
     release: {
+      kind: 'reviewed-session-relay',
       assets: rustReleaseAssetNames(SESSION_RELAY_PREBUILT),
       prereleaseBody:
         'This prerelease stages Session Relay binaries for downstream checksum pinning. It is not ready for installation.',
@@ -226,7 +230,10 @@ export const PLUGINS = [
     authorChecks: [],
     releaseContracts: [],
     transformGuard: false,
-    install: '/plugin marketplace update docks\n/plugin install effect-kit@docks',
+    release: {
+      kind: 'generic',
+      install: '/plugin marketplace update docks\n/plugin install effect-kit@docks',
+    },
   },
   {
     name: 'plan-lifecycle',
@@ -249,7 +256,10 @@ export const PLUGINS = [
     authorChecks: ['plan-reviewer'],
     releaseContracts: [],
     transformGuard: false,
-    install: '/plugin marketplace update docks\n/plugin install plan-lifecycle@docks',
+    release: {
+      kind: 'generic',
+      install: '/plugin marketplace update docks\n/plugin install plan-lifecycle@docks',
+    },
   },
 ];
 

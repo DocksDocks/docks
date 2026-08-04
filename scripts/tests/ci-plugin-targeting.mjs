@@ -526,7 +526,206 @@ function testFocusedCiCommandSelection() {
   }
 }
 
-function testDryRunReleaseSafety() {
+const GENERIC_RELEASE_IO_KEYS = Object.freeze([
+  'commit',
+  'createRelease',
+  'createTag',
+  'ensureCleanTree',
+  'ensureTool',
+  'fileExists',
+  'log',
+  'push',
+  'readJson',
+  'readReleaseNotes',
+  'resolveTagCommit',
+  'runSelectedCi',
+  'waitForTagCi',
+  'writeJson',
+]);
+
+function genericReleaseIo(repo) {
+  const calls = [];
+  const output = [];
+  const relativePath = (file) => path.relative(repo, path.isAbsolute(file) ? file : path.join(repo, file));
+  const record = (tool, args = []) => calls.push({ tool, args });
+  const io = {
+    commit(files, message) {
+      record('commit', [files, message]);
+    },
+    createRelease(release) {
+      record('createRelease', [release]);
+    },
+    createTag(tag) {
+      record('createTag', [tag]);
+    },
+    ensureCleanTree() {
+      record('ensureCleanTree');
+      return true;
+    },
+    ensureTool(tool) {
+      record('ensureTool', [tool]);
+      return true;
+    },
+    fileExists(file) {
+      const relative = relativePath(file);
+      record('fileExists', [relative]);
+      return fs.existsSync(path.join(repo, relative));
+    },
+    log(message) {
+      output.push(message);
+      record('log', [message]);
+    },
+    push() {
+      record('push');
+    },
+    readJson(file) {
+      const relative = relativePath(file);
+      record('readJson', [relative]);
+      return JSON.parse(fs.readFileSync(path.join(repo, relative), 'utf8'));
+    },
+    readReleaseNotes(plugin) {
+      record('readReleaseNotes', [plugin]);
+      return 'fixture release notes';
+    },
+    resolveTagCommit(tag) {
+      record('resolveTagCommit', [tag]);
+      return 'a'.repeat(40);
+    },
+    runSelectedCi(plugin, ciArgs) {
+      record('node', [path.join(repo, 'scripts/ci.mjs'), ...ciArgs]);
+      assert.equal(plugin.name, ciArgs.at(-1));
+      return { status: 0, stdout: '', stderr: '' };
+    },
+    waitForTagCi(tag, commit) {
+      record('waitForTagCi', [tag, commit]);
+    },
+    writeJson(file, value) {
+      record('writeJson', [relativePath(file), value]);
+    },
+  };
+  assert.deepEqual(Object.keys(io).sort(), [...GENERIC_RELEASE_IO_KEYS].sort());
+  return { calls, io: Object.freeze(io), output };
+}
+
+async function expectReleasePolicyRefusal(runGenericPluginRelease, plugin, release, expected) {
+  const calls = [];
+  const io = new Proxy(
+    {},
+    {
+      get(_target, operation) {
+        calls.push(String(operation));
+        return () => {
+          throw new Error(`release policy reached IO operation ${String(operation)}`);
+        };
+      },
+    },
+  );
+  await assert.rejects(
+    Promise.resolve().then(() =>
+      runGenericPluginRelease({
+        argv: ['--dry-run', '--plugin', plugin.name, 'patch'],
+        repo: ROOT,
+        plugins: PLUGINS.map((candidate) => (candidate.name === plugin.name ? { ...candidate, release } : candidate)),
+        io,
+      }),
+    ),
+    expected,
+  );
+  assert.deepEqual(calls, [], 'invalid release policy must fail before IO');
+}
+
+async function testGenericReleaseModuleContract(runGenericPluginRelease) {
+  const ordinaryNames = ['docks', 'effect-kit', 'plan-lifecycle'];
+  const ordinaryPlugins = ordinaryNames.map((name) => PLUGINS.find((plugin) => plugin.name === name));
+  for (const plugin of ordinaryPlugins) {
+    assert.ok(plugin, `missing ordinary plugin descriptor: ${plugin?.name}`);
+    assert.deepEqual(Object.keys(plugin.release).sort(), ['install', 'kind']);
+    assert.equal(plugin.release.kind, 'generic');
+    assert.match(plugin.release.install, /\S/);
+    assert.equal('install' in plugin, false, `${plugin.name} install text belongs only to its release policy`);
+
+    const currentVersion = JSON.parse(
+      fs.readFileSync(path.join(ROOT, plugin.root, '.claude-plugin/plugin.json'), 'utf8'),
+    ).version;
+    const fixture = genericReleaseIo(ROOT);
+    await runGenericPluginRelease({
+      argv: ['--dry-run', '--plugin', plugin.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: fixture.io,
+    });
+    assert.ok(
+      fixture.calls.some(
+        ({ tool, args: callArgs }) =>
+          tool === 'readJson' && callArgs[0] === `${plugin.root}/.claude-plugin/plugin.json`,
+      ),
+      `${plugin.name} must derive its current version from its own Claude manifest`,
+    );
+    assert.ok(
+      fixture.calls.some(
+        ({ tool, args: callArgs }) =>
+          tool === 'node' &&
+          callArgs[0] === path.join(ROOT, 'scripts/ci.mjs') &&
+          callArgs.slice(1).join(' ') === `-q --plugin ${plugin.name}`,
+      ),
+      `${plugin.name} must run its selected plugin gate`,
+    );
+    assert.match(
+      fixture.output.join('\n'),
+      new RegExp(`Bumping ${plugin.name}: ${currentVersion.replaceAll('.', '\\.')} →`),
+    );
+    assert.equal(
+      fixture.calls.some(({ tool }) =>
+        ['writeJson', 'commit', 'push', 'createTag', 'waitForTagCi', 'createRelease'].includes(tool),
+      ),
+      false,
+      `${plugin.name} dry-run must not invoke write, commit, push, tag, workflow, or GitHub Release IO`,
+    );
+  }
+
+  const relay = PLUGINS.find(({ name }) => name === 'session-relay');
+  assert.ok(relay, 'missing Session Relay descriptor');
+  assert.deepEqual(Object.keys(relay.release).sort(), ['assets', 'install', 'kind', 'prereleaseBody']);
+  assert.equal(relay.release.kind, 'reviewed-session-relay');
+  assert.equal('install' in relay, false, 'Session Relay install text belongs only to its reviewed policy');
+
+  const generic = ordinaryPlugins[0];
+  await expectReleasePolicyRefusal(
+    runGenericPluginRelease,
+    generic,
+    { kind: 'future-release-policy', install: generic.release.install },
+    /unknown release policy kind/i,
+  );
+  await expectReleasePolicyRefusal(
+    runGenericPluginRelease,
+    generic,
+    { ...generic.release, prepare() {} },
+    /closed release policy|unexpected release policy field|executable callback/i,
+  );
+  await expectReleasePolicyRefusal(
+    runGenericPluginRelease,
+    generic,
+    { ...generic.release, command: 'git push origin HEAD' },
+    /closed release policy|unexpected release policy field|shell command/i,
+  );
+  await expectReleasePolicyRefusal(
+    runGenericPluginRelease,
+    generic,
+    { kind: 'generic' },
+    /install.*non-empty|missing.*install/i,
+  );
+  await expectReleasePolicyRefusal(
+    runGenericPluginRelease,
+    relay,
+    relay.release,
+    /Session Relay.*reviewed|positional.*Session Relay/i,
+  );
+}
+
+async function testDryRunReleaseSafety() {
+  const { runGenericPluginRelease } = await import('../lib/plugin-release.mjs');
+  assert.equal(typeof runGenericPluginRelease, 'function');
+  await testGenericReleaseModuleContract(runGenericPluginRelease);
   const before = gitSnapshot();
   assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-dry-run-'));
@@ -582,6 +781,75 @@ function testDryRunReleaseSafety() {
       calls.some(({ tool, args: callArgs }) => tool === 'gh' && callArgs[0] === 'release' && callArgs[1] === 'create'),
       false,
       'dry-run must not invoke gh release create',
+    );
+    assert.equal(
+      calls.some(
+        ({ tool, args: callArgs }) =>
+          (tool === 'git' && ['add', 'commit', 'push', 'tag'].includes(callArgs[0])) ||
+          (tool === 'claude' && callArgs[0] === 'plugin' && callArgs[1] === 'tag') ||
+          (tool === 'gh' &&
+            ((callArgs[0] === 'workflow' && callArgs[1] === 'run') ||
+              (callArgs[0] === 'release' && ['create', 'edit', 'upload', 'delete'].includes(callArgs[1])))),
+      ),
+      false,
+      'Docks dry-run must not invoke write, commit, push, tag, workflow, or GitHub Release mutation',
+    );
+    assert.deepEqual(gitSnapshot(), before);
+    const ordinaryReleaseBytes = ['effect-kit', 'plan-lifecycle']
+      .flatMap((name) => [`plugins/${name}/.claude-plugin/plugin.json`, `plugins/${name}/.codex-plugin/plugin.json`])
+      .map((file) => fs.readFileSync(path.join(ROOT, file), 'base64'));
+    for (const pluginName of ['effect-kit', 'plan-lifecycle']) {
+      fs.writeFileSync(callLog, '', { mode: 0o600 });
+      const pluginResult = spawnSync(
+        process.execPath,
+        ['scripts/release.mjs', '--dry-run', '--plugin', pluginName, 'patch'],
+        {
+          cwd: ROOT,
+          encoding: 'utf8',
+          timeout: 600_000,
+          env: {
+            ...process.env,
+            PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+            DOCKS_RELEASE_CALL_LOG: callLog,
+            DOCKS_RELEASE_REAL_NODE: process.execPath,
+            DOCKS_RELEASE_REAL_PATH: process.env.PATH ?? '',
+          },
+        },
+      );
+      assert.equal(pluginResult.status, 0, `${pluginResult.stdout}\n${pluginResult.stderr}`);
+      const pluginCalls = fs
+        .readFileSync(callLog, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      assert.ok(
+        pluginCalls.some(
+          ({ tool, args: callArgs }) =>
+            tool === 'node' &&
+            callArgs[0] === path.join(ROOT, 'scripts/ci.mjs') &&
+            callArgs.slice(1).join(' ') === `-q --plugin ${pluginName}`,
+        ),
+        `fixture must intercept and preserve the targeted ${pluginName} preflight`,
+      );
+      assert.equal(
+        pluginCalls.some(
+          ({ tool, args: callArgs }) =>
+            (tool === 'git' && ['add', 'commit', 'push', 'tag'].includes(callArgs[0])) ||
+            (tool === 'claude' && callArgs[0] === 'plugin' && callArgs[1] === 'tag') ||
+            (tool === 'gh' &&
+              ((callArgs[0] === 'workflow' && callArgs[1] === 'run') ||
+                (callArgs[0] === 'release' && ['create', 'edit', 'upload', 'delete'].includes(callArgs[1])))),
+        ),
+        false,
+        `${pluginName} dry-run must not invoke write, commit, push, tag, workflow, or GitHub Release mutation`,
+      );
+    }
+    assert.deepEqual(
+      ['effect-kit', 'plan-lifecycle']
+        .flatMap((name) => [`plugins/${name}/.claude-plugin/plugin.json`, `plugins/${name}/.codex-plugin/plugin.json`])
+        .map((file) => fs.readFileSync(path.join(ROOT, file), 'base64')),
+      ordinaryReleaseBytes,
     );
     assert.deepEqual(gitSnapshot(), before);
   } finally {
@@ -646,7 +914,7 @@ if (mode === '--background-output') {
   process.exit(0);
 }
 if (mode === '--dry-run-release-safety') {
-  testDryRunReleaseSafety();
+  await testDryRunReleaseSafety();
   console.log('Docks release dry-run left repository bytes and refs unchanged');
   process.exit(0);
 }

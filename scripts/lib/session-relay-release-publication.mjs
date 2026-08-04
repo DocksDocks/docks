@@ -106,8 +106,8 @@ const TARGET_RUNNERS = {
   'x86_64-unknown-linux-musl': { runner_arch: 'X64', runner_os: 'Linux' },
 };
 
-const CURRENT_PUBLIC_VERSION = '0.14.0';
-const CURRENT_PUBLIC_TAG = `cli-v${CURRENT_PUBLIC_VERSION}`;
+const CURRENT_INSTANCE = loadReleaseInstance(VERSION, { require: ['public_child'] });
+const { version: CURRENT_PUBLIC_VERSION, tag: CURRENT_PUBLIC_TAG } = CURRENT_INSTANCE.public_child;
 const LEGACY_VERSION = '0.13.0';
 const LEGACY = loadReleaseInstance('0.13.0', { require: ['historical_receipts'] });
 const LEGACY_TAG = 'session-relay--v0.13.0';
