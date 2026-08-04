@@ -725,7 +725,7 @@ async function testGenericReleaseModuleContract(dispatchPluginRelease, runGeneri
     /Session Relay.*reviewed|positional.*Session Relay/i,
   );
 
-  for (const { name, plugins, expected } of [
+  for (const { name, plugins, expected, argv = ['--prepare', '--plugin', relay.name, '0.16.1', '--dry-run'] } of [
     {
       name: 'malformed reviewed descriptor',
       plugins: PLUGINS.map((plugin) =>
@@ -751,11 +751,21 @@ async function testGenericReleaseModuleContract(dispatchPluginRelease, runGeneri
       ),
       expected: /unknown generic release option.*--prepare/i,
     },
+    {
+      name: 'duplicate plugin option hides a reviewed flag',
+      plugins: PLUGINS.map((plugin) =>
+        plugin.name === relay.name
+          ? { ...plugin, release: { kind: 'generic', install: plugin.release.install } }
+          : plugin,
+      ),
+      expected: /duplicate generic release option.*--plugin/i,
+      argv: ['--plugin', relay.name, '--plugin', '--prepare', '0.16.1'],
+    },
   ]) {
     let reviewedDispatchCalls = 0;
     await assert.rejects(
       dispatchPluginRelease({
-        argv: ['--prepare', '--plugin', relay.name, '0.16.1', '--dry-run'],
+        argv,
         repo: ROOT,
         plugins,
         io: genericReleaseIo(ROOT).io,
@@ -769,6 +779,28 @@ async function testGenericReleaseModuleContract(dispatchPluginRelease, runGeneri
     );
     assert.equal(reviewedDispatchCalls, 0, `${name} reached reviewed release dispatch`);
   }
+
+  const fixtureIo = genericReleaseIo(ROOT);
+  let fixtureDispatchCalls = 0;
+  let reviewedDispatchCalls = 0;
+  const fixtureResult = await dispatchPluginRelease({
+    argv: ['--plugin', generic.name, 'patch'],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: fixtureIo.io,
+    dispatchFixture: async () => {
+      fixtureDispatchCalls += 1;
+      return true;
+    },
+    dispatchReviewed: async () => {
+      reviewedDispatchCalls += 1;
+      return true;
+    },
+  });
+  assert.equal(fixtureResult, true);
+  assert.equal(fixtureDispatchCalls, 1, 'fixture-only dispatcher did not intercept the simulated release');
+  assert.equal(reviewedDispatchCalls, 0, 'generic fixture dispatch reached the reviewed dispatcher');
+  assert.deepEqual(fixtureIo.calls, [], 'generic fixture dispatch reached production release IO');
 
   const successfulRelease = genericReleaseIo(ROOT);
   await runGenericPluginRelease({

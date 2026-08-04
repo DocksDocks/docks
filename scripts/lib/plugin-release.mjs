@@ -95,34 +95,66 @@ function validateIo(io) {
   }
 }
 
-function selectedPlugin(argv, plugins) {
-  if (!Array.isArray(argv)) throw new Error('release argv must be an array');
-  const pluginIndex = argv.indexOf('--plugin');
-  const pluginName = pluginIndex >= 0 ? argv[pluginIndex + 1] : 'docks';
+function resolvePlugin(pluginName, plugins) {
   const plugin = plugins.find((candidate) => candidate.name === pluginName);
   if (!plugin) throw new Error(`unknown plugin: ${pluginName} (known: ${plugins.map(({ name }) => name).join(', ')})`);
   return plugin;
 }
 
+function selectedPlugin(argv, plugins) {
+  if (!Array.isArray(argv)) throw new Error('release argv must be an array');
+  let pluginName = 'docks';
+  let pluginSeen = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== '--plugin') continue;
+    if (pluginSeen) throw new Error('duplicate generic release option: --plugin');
+    const value = argv[index + 1];
+    if (typeof value !== 'string' || value.startsWith('--')) {
+      throw new Error('generic release option --plugin requires a plugin name');
+    }
+    pluginSeen = true;
+    pluginName = value;
+    index += 1;
+  }
+  return resolvePlugin(pluginName, plugins);
+}
+
 function parseGenericArgs(argv, plugins) {
-  const plugin = selectedPlugin(argv, plugins);
-  const unknownOption = argv.find(
-    (argument, index) =>
-      argument.startsWith('--') &&
-      argument !== '--dry-run' &&
-      argument !== '--plugin' &&
-      argv[index - 1] !== '--plugin',
-  );
-  if (unknownOption) throw new Error(`unknown generic release option: ${unknownOption}`);
-  const dryRun = argv.includes('--dry-run');
+  if (!Array.isArray(argv)) throw new Error('generic release argv must be an array');
+  let dryRun = false;
+  let dryRunSeen = false;
+  let pluginName = 'docks';
+  let pluginSeen = false;
+  const positional = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--plugin') {
+      if (pluginSeen) throw new Error('duplicate generic release option: --plugin');
+      const value = argv[index + 1];
+      if (typeof value !== 'string' || value.startsWith('--')) {
+        throw new Error('generic release option --plugin requires a plugin name');
+      }
+      pluginSeen = true;
+      pluginName = value;
+      index += 1;
+    } else if (argument === '--dry-run') {
+      if (dryRunSeen) throw new Error('duplicate generic release option: --dry-run');
+      dryRunSeen = true;
+      dryRun = true;
+    } else if (argument.startsWith('--')) {
+      throw new Error(`unknown generic release option: ${argument}`);
+    } else {
+      positional.push(argument);
+    }
+  }
+  const plugin = resolvePlugin(pluginName, plugins);
   if (plugin.release.kind === 'reviewed-session-relay') {
     throw new Error(
       'Session Relay uses its reviewed release flow; positional Session Relay releases are not supported',
     );
   }
-  const positional = argv.filter(
-    (argument, index) => argument !== '--dry-run' && argument !== '--plugin' && argv[index - 1] !== '--plugin',
-  );
+  if (positional.length > 1)
+    throw new Error(`generic release accepts one version argument, received ${positional.length}`);
   return { dryRun, plugin, versionArgument: positional[0] };
 }
 
@@ -162,14 +194,19 @@ function reportedFailure(message) {
   return error;
 }
 
-export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchReviewed }) {
+export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchFixture, dispatchReviewed }) {
   validateReleaseRegistry(plugins);
-  if (typeof dispatchReviewed !== 'function') {
-    throw new Error('reviewed release dispatcher must be a function');
+  if (dispatchFixture !== undefined) {
+    if (typeof dispatchFixture !== 'function') throw new Error('release fixture dispatcher must be a function');
+    const fixture = await dispatchFixture(argv);
+    if (fixture !== null) return fixture;
   }
   const plugin = selectedPlugin(argv, plugins);
   if (plugin.release.kind !== 'reviewed-session-relay') {
     return runGenericPluginRelease({ argv, repo, plugins, io });
+  }
+  if (typeof dispatchReviewed !== 'function') {
+    throw new Error('reviewed release dispatcher must be a function');
   }
   const reviewed = await dispatchReviewed(argv);
   if (reviewed === null) {
