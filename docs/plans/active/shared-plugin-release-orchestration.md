@@ -3,8 +3,8 @@ title: Extract shared plugin release orchestration
 goal: Move the ordinary multi-plugin release lane behind one closed function-first library, make plugin release policy descriptor-driven, and derive current Session Relay identities from synchronized manifests and release instances without weakening its reviewed prerelease protocol or historical receipts.
 status: ongoing
 created: "2026-08-04T14:30:00.000+00:00"
-updated: "2026-08-04T15:34:19.281+00:00"
-started_at: "2026-08-04T15:34:19.281+00:00"
+updated: "2026-08-04T16:15:51.980+00:00"
+started_at: "2026-08-04T16:15:51.980+00:00"
 finished_at: null
 assignee: null
 tags: [plans, release, multi-plugin, refactor]
@@ -21,13 +21,15 @@ affected_paths:
   - plugins/session-relay/test/release-publication-contract.mjs
   - plugins/session-relay/test/release-promotion-contract.mjs
   - plugins/session-relay/test/companion-distribution-contract.mjs
+  - plugins/session-relay/test/distribution-contract.mjs
+  - plugins/session-relay/test/release-evidence-contract.mjs
 related_plans:
   - docs/plans/finished/2026-08-04-session-relay-0.16.0-release.md
 ---
 
 # Extract shared plugin release orchestration
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"65d8807916c24d0912523597b62a236827ba592c0acc70cba8985a0b1d2d8614","invocations":1,"result_sha256":"a8abb4c7f9fc6194ca18146a58e3243ed10665b725ac18e11bae69508a6db1ca","state":"passed"},"execution_parent":"98ea3821689bdfb04c919023cccac9401ff61c63","goal_id":"35a855fb-19c4-484e-b019-22a0b49a65df","implementation_commit":null,"plan_path":"docs/plans/active/shared-plugin-release-orchestration.md","plan_sha256":"3db508b66fae44ed5df2e9a786bbdec6670e1009a71de23de08dcdfd35c50d65","repository_id":"DocksDocks/docks","requested_effects":["local","push"],"risk":"external","run_id":"56f68445-c0b6-4229-848e-dfb40493af6d","schema":1,"source_base":"98ea3821689bdfb04c919023cccac9401ff61c63","source_sha256":"cf1c89cf0384ad3b4492ea3c43b1371c6dfbee36a46676c2c4aea8918905eb8d"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"a2ba31b8bac01256885d81e1d5a9e9ecf9d25d719fa80bda7dff6df95f33333f","invocations":1,"result_sha256":"2108e04d757429b031227fa04ed865f80a5c48ca9518808cc9e160e3b5afae8f","state":"passed"},"execution_parent":"98ea3821689bdfb04c919023cccac9401ff61c63","goal_id":"35a855fb-19c4-484e-b019-22a0b49a65df","implementation_commit":null,"plan_path":"docs/plans/active/shared-plugin-release-orchestration.md","plan_sha256":"f54969979ca2a21072eb99cd92bbaf77ec5328288fd81d509f41d7f77ba5e434","repository_id":"DocksDocks/docks","requested_effects":["local","push"],"risk":"external","run_id":"91be1391-90a4-481b-bb1d-8f47f730eace","schema":1,"source_base":"438b07c424e88f3a98868df4c89b985c8f3a4664","source_sha256":"937be3ce0ac5bc850c8311b83e5626c9fc4c6eee35aca1ced9adc8829dca672c"}
 
 ## Goal
 
@@ -90,7 +92,7 @@ Generic releases remain stable-only. `--dry-run` remains the no-mutation test pa
 | 1 | characterize_generic_lane | Add failing module-level contracts for three ordinary descriptors, closed policy, mutation ordering, and dry-run refusal. | `scripts/tests/ci-plugin-targeting.mjs` | — | `local` | `planned` | Tests reproduce that orchestration is trapped in the CLI, then define identical Docks, Effect Kit, and Plan Lifecycle behavior through one Interface. |
 | 2 | extract_generic_engine | Move ordinary release implementation behind the exact IO Adapter and leave the CLI as dispatch plus error reporting. | `scripts/release.mjs`; `scripts/lib/plugin-release.mjs` | 1 | `local` | `planned` | All existing output, semver, manifest writes, CI selection, commit/tag/release order, and failures remain compatible; no mutation primitive remains in the CLI. |
 | 3 | close_release_descriptors | Give every plugin one closed release-policy variant and update author guidance. | `scripts/lib/plugins.mjs`; `scripts/AGENTS.md`; `scripts/tests/ci-plugin-targeting.mjs` | 2 | `local` | `planned` | Three generic descriptors run the shared engine; Relay selects only the reviewed dispatcher; unknown policy, callback, shell, missing install, and cross-lane inputs fail before mutation. |
-| 4 | derive_current_relay_identity | Derive live Relay and public-child identities from synchronized current records, and verify the accepted child at its immutable release tag instead of assuming moving public main remains on that generation. | `scripts/lib/session-relay-release-core.mjs`; `scripts/lib/session-relay-release-publication.mjs`; `scripts/lib/session-relay-release-promotion.mjs`; `plugins/session-relay/test/release-instance-contract.mjs`; `plugins/session-relay/test/release-publication-contract.mjs`; `plugins/session-relay/test/release-promotion-contract.mjs`; `plugins/session-relay/test/companion-distribution-contract.mjs` | 3 | `local` | `planned` | Current version comes from exact manifest/catalog agreement; current child comes from the selected instance; the companion contract reads the immutable accepted child tag; mismatches refuse; all historical 0.13-0.15 fixtures stay byte-identical. |
+| 4 | derive_current_relay_identity | Derive live Relay and public-child identities from synchronized current records, and verify the accepted child at its immutable release tag instead of assuming moving public main remains on that generation. | `scripts/lib/session-relay-release-core.mjs`; `scripts/lib/session-relay-release-publication.mjs`; `scripts/lib/session-relay-release-promotion.mjs`; `plugins/session-relay/test/distribution-contract.mjs`; `plugins/session-relay/test/release-evidence-contract.mjs`; `plugins/session-relay/test/release-instance-contract.mjs`; `plugins/session-relay/test/release-publication-contract.mjs`; `plugins/session-relay/test/release-promotion-contract.mjs`; `plugins/session-relay/test/companion-distribution-contract.mjs` | 3 | `local` | `planned` | Current version comes from exact manifest/catalog agreement; current child comes from the selected instance; the companion contract reads the immutable accepted child tag; current and historical harnesses receive their identity through synchronized fixture manifests instead of source-text mutation; mismatches refuse; all historical 0.13-0.15 fixtures stay byte-identical. |
 | 5 | prove_release_contracts | Run focused release, Relay, dry-run, and full shared-tooling gates. | all affected paths in frontmatter | 4 | `local` | `planned` | A1-A5 pass. Reverting descriptor closure, dry-run mutation refusal, or live identity derivation makes its named test fail and restoration returns green. |
 | 6 | checkpoint_and_archive | Bind the exact implementation, pass CompletionReviewV1, archive, and publish the terminal checkpoint. | all affected paths in frontmatter | 5 | `push` | `planned` | Reviewed implementation and archive reach exact `origin/main`; no release, tag, prerelease, or asset mutation occurs. |
 
@@ -99,7 +101,7 @@ Generic releases remain stable-only. `--dry-run` remains the no-mutation test pa
 | ID | Command | Expected result |
 |---|---|---|
 | A1 | `node scripts/tests/ci-plugin-targeting.mjs --dry-run-release-safety` | Exit 0; Docks, Effect Kit, and Plan Lifecycle all select one generic Interface, run their targeted CI, and invoke no write, push, tag, or release mutation under dry-run. |
-| A2 | `node plugins/session-relay/test/release-instance-contract.mjs && node plugins/session-relay/test/release-publication-contract.mjs && node plugins/session-relay/test/release-promotion-contract.mjs && node plugins/session-relay/test/companion-distribution-contract.mjs` | Exit 0; current identities derive from synchronized records, the accepted child verifies at its immutable release tag, and closed current and historical receipt, asset, child, and promotion contracts remain valid after public main advances. |
+| A2 | `node plugins/session-relay/test/distribution-contract.mjs && node plugins/session-relay/test/release-evidence-contract.mjs && node plugins/session-relay/test/release-instance-contract.mjs && node plugins/session-relay/test/release-publication-contract.mjs && node plugins/session-relay/test/release-promotion-contract.mjs && node plugins/session-relay/test/companion-distribution-contract.mjs` | Exit 0; current identities derive from synchronized records, current and historical fixture harnesses bind exact manifest identity without source mutation, the accepted child verifies at its immutable release tag, and closed receipt, asset, child, and promotion contracts remain valid after public main advances. |
 | A3 | `node scripts/release.mjs --dry-run --plugin docks patch && node scripts/release.mjs --dry-run --plugin effect-kit patch && node scripts/release.mjs --dry-run --plugin plan-lifecycle patch` | Exit 0; all three ordinary plugins preview through the shared library, derive their own manifest version, and leave repository bytes and refs unchanged. |
 | A4 | `node scripts/release.mjs --dry-run --plugin session-relay patch` | Exit non-zero with the existing positional-release refusal before generic orchestration or mutation. |
 | A5 | `node scripts/ci.mjs` | Exit 0; full shared-tooling, all plugin gates, release contracts, formatting, and lint pass. |
@@ -128,6 +130,9 @@ None. The approved approach is the narrow generic extraction. Generic prerelease
 ## Review
 
 N/A — manager-written after draft and completion review.
+
+
+Plan-attempt-history: {"authorization_source_sha256":"5c1210455f6854c60c9e9e916c73e784f8df289ebd017a406f7d6a823054c20a","plan_bytes_sha256":"153646f07aaff7f26f42bc456940723640c1964c645a8f42f4233c3e2f3dbe63","replacement_run_id":"91be1391-90a4-481b-bb1d-8f47f730eace","run":{"acceptance":null,"blocker":{"evidence_sha256":"21264bd15d057d9a4ff1d842b5b2adfc1223c38a6af4b3ec419546fd3633ea4f","kind":"verification_failed"},"completion_review":{"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"65d8807916c24d0912523597b62a236827ba592c0acc70cba8985a0b1d2d8614","invocations":1,"result_sha256":"a8abb4c7f9fc6194ca18146a58e3243ed10665b725ac18e11bae69508a6db1ca","state":"passed"},"execution_parent":"98ea3821689bdfb04c919023cccac9401ff61c63","goal_id":"35a855fb-19c4-484e-b019-22a0b49a65df","implementation_commit":null,"plan_path":"docs/plans/active/shared-plugin-release-orchestration.md","plan_sha256":"3db508b66fae44ed5df2e9a786bbdec6670e1009a71de23de08dcdfd35c50d65","repository_id":"DocksDocks/docks","requested_effects":["local","push"],"risk":"external","run_id":"56f68445-c0b6-4229-848e-dfb40493af6d","schema":1,"source_base":"98ea3821689bdfb04c919023cccac9401ff61c63","source_sha256":"cf1c89cf0384ad3b4492ea3c43b1371c6dfbee36a46676c2c4aea8918905eb8d"},"schema":1,"status":"blocked","successor_run_sha256":"bda22b16adfd2ac96d911f3863084d2b74e2a3a54499d2560c372e6e4689efa3"}
 
 ## Verification Results
 
