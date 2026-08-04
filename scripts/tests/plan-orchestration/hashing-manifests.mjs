@@ -217,6 +217,61 @@ export function registerHashingAndManifest(suite, api) {
     );
   });
 
+  suite.test('hashing-manifests', 'marked Steps reject duplicate display numbers with distinct stable Ids', () => {
+    const original = markedPlan(api).bytes.toString();
+    const row = '| 1 | change_fixture | Change fixture | `src/tracked.txt` | — | local | planned | Observable proof |';
+    const duplicateNumber = replaceOnce(
+      original,
+      row,
+      `${row}
+| 1 | verify_fixture | Verify fixture | \`src/other.txt\` | — | local | planned | Different proof |`,
+    );
+
+    expectThrow(() => api.canonicalPlanView(Buffer.from(duplicateNumber)), /duplicate.*Steps row number/i);
+  });
+
+  suite.test('hashing-manifests', 'marked Steps reject duplicate stable Ids with distinct display numbers', () => {
+    const original = markedPlan(api).bytes.toString();
+    const row = '| 1 | change_fixture | Change fixture | `src/tracked.txt` | — | local | planned | Observable proof |';
+    const duplicateId = replaceOnce(
+      original,
+      row,
+      `${row}
+| 2 | change_fixture | Verify fixture | \`src/other.txt\` | — | local | planned | Different proof |`,
+    );
+
+    expectThrow(() => api.canonicalPlanView(Buffer.from(duplicateId)), /duplicate.*Steps row Id/i);
+  });
+
+  suite.test('hashing-manifests', 'marked legacy Steps retain duplicate display-number rejection', () => {
+    const fixture = bindPlan(api, tuple('drafting'));
+    const marked = replaceOnce(
+      fixture.bytes
+        .toString()
+        .replace(
+          '| # | Task | Files | Depends | Effect | Status |',
+          '| # | Task | Files | Depends | Effect | Status | Done when / failure action |',
+        )
+        .replace('|---|---|---|---|---|---|', '|---|---|---|---|---|---|---|')
+        .replace(
+          '| 1 | Change fixture | `src/tracked.txt` | — | local | planned |',
+          '| 1 | Change fixture | `src/tracked.txt` | — | local | planned | Observable proof |',
+        ),
+      'title: Autonomous controller fixture',
+      `plan_hash_mode: status-excluded-v1
+title: Autonomous controller fixture`,
+    );
+    const row = '| 1 | Change fixture | `src/tracked.txt` | — | local | planned | Observable proof |';
+    const duplicateNumber = replaceOnce(
+      marked,
+      row,
+      `${row}
+| 1 | Verify fixture | \`src/other.txt\` | — | local | planned | Different proof |`,
+    );
+
+    expectThrow(() => api.canonicalPlanView(Buffer.from(duplicateNumber)), /duplicate.*Steps row number/i);
+  });
+
   suite.test('hashing-manifests', 'fenced and non-Steps Status text remains bound', () => {
     const fixture = markedPlan(api);
     const decorated = fixture.bytes.toString().replace(

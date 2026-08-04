@@ -569,6 +569,35 @@ export function registerMutations(suite, api) {
     }),
   );
 
+  suite.test('mutations', 'status progress rejects concurrent drift in excluded Verification Results bytes', () =>
+    withTempDirectory('plan-run-status-evidence-drift-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const identity = { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run };
+      const current = markedPlan(api, tuple('ongoing', ONGOING_LOCAL));
+      const verificationDrift = progressBytes(api, current, 'planned', 'done', '2026-07-24T01:00:00Z')
+        .toString()
+        .replace(
+          'Manager-written output that is excluded from plan identity.',
+          'Concurrently rewritten Verification Results output.',
+        );
+      fs.writeFileSync(file, current.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity,
+            expectedBytesSha256: api.sha256(current.bytes),
+            nextBytes: Buffer.from(verificationDrift),
+          }),
+        /status progress may change only Steps Status cells, updated, and the bootstrap digest/i,
+      );
+      assert.ok(
+        fs.readFileSync(file).equals(current.bytes),
+        'excluded Verification Results drift must leave the plan byte-identical',
+      );
+    }),
+  );
+
   suite.test('mutations', 'status progress requires ongoing state with no live review reservation', () =>
     withTempDirectory('plan-run-status-state-', async (root) => {
       const file = path.join(root, 'plan.md');

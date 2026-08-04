@@ -64,16 +64,26 @@ function replacementFile(root) {
   return file;
 }
 
-function historyFixture(api, { attemptHistory, run, status }) {
+function historyFixture(api, { attemptHistory, marked = true, run, status }) {
   const historyRecords = attemptHistory.map((attempt) => `Plan-attempt-history: ${api.jcs(attempt)}`).join('\n');
   const review = ['Fresh reviewer output that is excluded from plan identity.', historyRecords]
     .filter(Boolean)
     .join('\n\n');
-  const unbound = Buffer.from(
-    renderPlan({ status, run, jcs: api.jcs })
-      .toString('utf8')
-      .replace('Fresh reviewer output that is excluded from plan identity.', review),
-  );
+  let source = renderPlan({ status, run, jcs: api.jcs }).toString('utf8');
+  if (marked) {
+    source = source
+      .replace(/^status: .*$/m, '$&\nplan_hash_mode: status-excluded-v1')
+      .replace(
+        '| # | Task | Files | Depends | Effect | Status |',
+        '| # | Task | Files | Depends | Effect | Status | Done when / failure action |',
+      )
+      .replace('|---|---|---|---|---|---|', '|---|---|---|---|---|---|---|')
+      .replace(
+        '| 1 | Change fixture | `src/tracked.txt` | — | local | planned |',
+        '| 1 | Change fixture | `src/tracked.txt` | — | local | planned | Observable proof |',
+      );
+  }
+  const unbound = Buffer.from(source.replace('Fresh reviewer output that is excluded from plan identity.', review));
   const boundRun = { ...run, plan_sha256: api.sha256(api.canonicalPlanView(unbound)) };
   return {
     attempt_history: attemptHistory,
@@ -83,9 +93,10 @@ function historyFixture(api, { attemptHistory, run, status }) {
   };
 }
 
-function replacementFixture(api, current, { includeAttempt = true, nextRunId = IDS.otherRun } = {}) {
+function replacementFixture(api, current, { includeAttempt = true, marked = true, nextRunId = IDS.otherRun } = {}) {
   const replacement = historyFixture(api, {
     attemptHistory: [],
+    marked,
     run: planRun({ run_id: nextRunId }),
     status: 'drafting',
   });
@@ -101,7 +112,7 @@ function replacementFixture(api, current, { includeAttempt = true, nextRunId = I
   const attemptHistory = [...(current.attempt_history ?? []), ...(includeAttempt ? [attempt] : [])];
   return {
     attempt,
-    ...historyFixture(api, { attemptHistory, run: replacement.run, status: 'drafting' }),
+    ...historyFixture(api, { attemptHistory, marked, run: replacement.run, status: 'drafting' }),
   };
 }
 
@@ -404,6 +415,7 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
         }),
       );
       const next = amendReplacementPlan(api, replacementFixture(api, current));
+      assert.match(next.bytes.toString('utf8'), /^plan_hash_mode: status-excluded-v1$/m);
       fs.writeFileSync(file, current.bytes);
 
       const result = await api.replacePlanRunInPlace({
@@ -427,6 +439,47 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
       assert.match(fs.readFileSync(file, 'utf8'), /corrected bounded local change/);
       assert.deepEqual(fs.readdirSync(path.dirname(file)), [path.basename(file)]);
     }),
+  );
+
+  suite.test(
+    'locks-cas',
+    'same-file replacement rejects an unmarked successor without changing predecessor bytes',
+    () =>
+      withTempDirectory('plan-run-replacement-unmarked-', async (root) => {
+        const file = replacementFile(root);
+        const current = bindPlan(
+          api,
+          tuple('blocked', {
+            blocker: blocker('review_failed'),
+            draft_review: reviewPhase('blocked'),
+          }),
+        );
+        const next = replacementFixture(api, current, { marked: false });
+        assert.equal(api.validatePlanRun(next.bytes).run.run_id, IDS.otherRun);
+        assert.doesNotMatch(next.bytes.toString('utf8'), /^plan_hash_mode:/m);
+        fs.writeFileSync(file, current.bytes);
+
+        await expectReject(
+          () =>
+            api.replacePlanRunInPlace({
+              authority: replacementAuthority(api, next.run),
+              currentIdentity: {
+                goalId: IDS.goal,
+                planPath: PLAN_PATH,
+                repositoryId: REPOSITORY_ID,
+                runId: IDS.run,
+              },
+              expectedBytesSha256: api.sha256(current.bytes),
+              file,
+              repo: root,
+              liveSourceSha256: REPLACEMENT_AUTH_SOURCE,
+              nextBytes: next.bytes,
+            }),
+          /successor frontmatter plan_hash_mode must be status-excluded-v1/,
+          'unmarked successor must reject at the replacement boundary',
+        );
+        assert.ok(fs.readFileSync(file).equals(current.bytes));
+      }),
   );
 
   suite.test('locks-cas', 'replacement rejects a file outside current plan_path', () =>

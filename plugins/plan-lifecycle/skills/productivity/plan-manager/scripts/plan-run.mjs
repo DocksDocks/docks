@@ -428,7 +428,8 @@ function parseStepsTable(body) {
   const idIndex = columns.indexOf('Id');
   const statusIndex = columns.indexOf('Status');
   const rows = [];
-  const identities = new Set();
+  const numbers = new Set();
+  const ids = new Set();
   for (let index = headerIndex + 2; index < end; index += 1) {
     if (/^\s*$/.test(lines[index])) {
       if (lines.slice(index, end).some((line) => !/^\s*$/.test(line))) {
@@ -440,11 +441,13 @@ function parseStepsTable(body) {
     if (cells === null || cells.length !== columns.length) fail('## Steps row does not match its header');
     const number = cells[numberIndex].raw.trim();
     if (!/^[1-9]\d*$/.test(number)) fail('## Steps row number must be a positive integer');
+    if (numbers.has(number)) fail(`duplicate ## Steps row number: ${number}`);
+    numbers.add(number);
     const id = idIndex < 0 ? null : cells[idIndex].raw.trim();
     if (id !== null && !/^[a-z][a-z0-9_]{0,63}$/.test(id)) fail('## Steps row Id is invalid');
+    if (id !== null && ids.has(id)) fail(`duplicate ## Steps row Id: ${id}`);
+    if (id !== null) ids.add(id);
     const identity = id === null ? number : `${number}\u0000${id}`;
-    if (identities.has(identity)) fail('## Steps row identities must be unique');
-    identities.add(identity);
     const status = stepStatus(cells[statusIndex].raw);
     if (status === null) fail('## Steps row Status is invalid');
     rows.push({
@@ -2448,8 +2451,8 @@ export async function replacePlanRunInPlace({
     if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
     // The predecessor is immutable, terminal, and about to be recorded rather
     // than consulted: its bytes are pinned here by the CAS preimage and again by
-    // `plan_bytes_sha256` in the attempt entry. `assertPlanRunReplacement` also
-    // forbids acceptance on the successor, so the next side never needs a mode.
+    // `plan_bytes_sha256` in the attempt entry, so historical unmarked records
+    // remain valid. The successor is separately mode-guarded below.
     const current = validatePlanRun(currentBytes, { ...currentIdentity, acceptanceProof: 'recorded' });
     if (logicalFile !== current.run.plan_path) {
       fail('replacement file path does not match current PlanRun plan_path');
@@ -2460,6 +2463,9 @@ export async function replacePlanRunInPlace({
       planPath: current.run.plan_path,
       repositoryId: current.run.repository_id,
     });
+    if (next.frontmatter.plan_hash_mode !== PLAN_HASH_MODE) {
+      fail(`successor frontmatter plan_hash_mode must be ${PLAN_HASH_MODE}`);
+    }
     validatePlanReplacementAuthority(authority, current, next, liveSourceSha256);
     assertPlanRunReplacement(current, next, currentBytes, authority);
     assertPlanChronology(next.frontmatter);
