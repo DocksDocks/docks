@@ -1,18 +1,18 @@
 {
   "current_attempt": {
     "goal_id": "cef66d21-5bd3-4e07-a0e8-e393822dcfb0",
-    "docks_run_id": "75c7a055-44f2-4435-b863-301af9bb352f",
+    "docks_run_id": "1c5b6f71-c69d-4566-adcc-4c15a9f0c599",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
-    "docks_source_base": "26506257255482e30e50e31edd74ce96f6785eee",
-    "public_run_id": "ad7f3b75-dfff-4bcd-8d1f-c8c11555b119",
+    "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
+    "public_run_id": "fb5a6880-9bca-45c5-9136-d0424a020d5a",
     "release_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
     "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
   "planrun_attempt": {
-    "docks_run_id": "75c7a055-44f2-4435-b863-301af9bb352f",
+    "docks_run_id": "1c5b6f71-c69d-4566-adcc-4c15a9f0c599",
     "docks_plan_path": "docs/plans/active/session-relay-0.16.0-release.md",
-    "docks_source_base": "26506257255482e30e50e31edd74ce96f6785eee",
-    "release_tag_commit": null,
+    "docks_source_base": "875661640c1c45894c66a9b2fdc437fd47307e1f",
+    "release_tag_commit": "875661640c1c45894c66a9b2fdc437fd47307e1f",
     "docks_affected_paths": [
       ".claude-plugin/marketplace.json",
       ".github/AGENTS.md",
@@ -39,8 +39,8 @@
       "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
       "scripts/lib/session-relay-release-publication.mjs",
-      "scripts/verify-session-relay-preflight.mjs",
-      "scripts/tests/ci-plugin-targeting.mjs"
+      "scripts/tests/ci-plugin-targeting.mjs",
+      "scripts/verify-session-relay-preflight.mjs"
     ],
     "docks_repository_id": "docks:/home/vagrant/projects/docks"
   },
@@ -71,18 +71,20 @@
       "scripts/lib/session-relay-release-preparation.mjs",
       "scripts/lib/session-relay-release-promotion.mjs",
       "scripts/lib/session-relay-release-publication.mjs",
-      "scripts/verify-session-relay-preflight.mjs",
-      "scripts/tests/ci-plugin-targeting.mjs"
+      "scripts/tests/ci-plugin-targeting.mjs",
+      "scripts/verify-session-relay-preflight.mjs"
     ],
-    "planrun": ["docs/plans/active/session-relay-0.16.0-release.md"]
+    "planrun": [
+      "docs/plans/active/session-relay-0.16.0-release.md"
+    ]
   },
   "public_child": {
-    "version": "0.13.0",
-    "tag": "cli-v0.13.0",
-    "implementation_content_sha256": "fd0d9d186b2da6339430ef1b576f62476e9550096314d5352bf9372c282d133c"
+    "version": "0.14.0",
+    "tag": "cli-v0.14.0",
+    "implementation_content_sha256": "510d496cc4dcb498911a53356bb6bac1b77646e242133261b5ec133e3393f074"
   },
   "authorized_base": {
-    "current_main_base": "26506257255482e30e50e31edd74ce96f6785eee",
+    "current_main_base": "598906234b45cad062c42e94840643f4af8cb913",
     "shipped_to_promoted_paths": [
       ".claude-plugin/marketplace.json",
       ".github/AGENTS.md",
