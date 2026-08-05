@@ -518,6 +518,200 @@ test('add succeeds, rejects stale preimages, and changes only queue bytes', asyn
     assertPlanSnapshot(repo, plans);
   }));
 
+// Step 6 enumerates concurrency fixtures, and STOP condition 7 names exclusive locking. Nothing
+// above contends for the lock, so every setter case takes the uncontended first-try branch and the
+// whole lock could be deleted without a red test. These cases enter the held, foreign, and
+// dead-owner branches, and they also pin the pre-write successor validation that rejects a bad
+// mutation before any byte moves.
+function queueLockPath(repo, file) {
+  return path.join(repo, '.locks', `${sha256(Buffer.from(fs.realpathSync(file)))}.lock`);
+}
+
+function writeForeignLock(lockPath, owner) {
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(lockPath, jcs({ schema: 1, ...owner }), { mode: 0o600 });
+}
+
+function deadPid() {
+  for (let candidate = 40_000; candidate < 60_000; candidate += 1) {
+    try {
+      process.kill(candidate, 0);
+    } catch (error) {
+      if (error.code === 'ESRCH') return candidate;
+    }
+  }
+  throw new Error('no dead pid available for the stale-lock fixture');
+}
+
+test('a live lock holder blocks a setter and leaves both files untouched', async () =>
+  withRepoAsync(async (repo) => {
+    writePlan(repo, { goalId: GOALS.root, status: 'finished', location: 'finished' });
+    writePlan(repo, { goalId: GOALS.alpha });
+    const { bytes, file } = writeQueue(repo, [row(1, GOALS.root)]);
+    const digest = sha256(bytes);
+    const lockPath = queueLockPath(repo, file);
+    writeForeignLock(lockPath, {
+      hostname: os.hostname(),
+      pid: process.pid,
+      expected_preimage: digest,
+      nonce: randomUUID(),
+    });
+    const lockBefore = fs.readFileSync(lockPath);
+    await assertRejectsAsync(
+      () =>
+        queueApi.addQueueRow({
+          file,
+          repo,
+          expectedBytesSha256: digest,
+          row: row(2, GOALS.alpha, [GOALS.root]),
+          lockRoot: path.join(repo, '.locks'),
+          lockTimeoutMs: 20,
+        }),
+      /held|timed out/i,
+    );
+    assert.ok(fs.readFileSync(file).equals(bytes), 'a blocked setter must not change queue bytes');
+    assert.ok(fs.readFileSync(lockPath).equals(lockBefore), 'release must not remove a lock it does not own');
+    assert.deepEqual(
+      fs.readdirSync(path.join(repo, 'docs/plans')).filter((name) => name.includes('.tmp')),
+      [],
+    );
+  }));
+
+test('a foreign-host lock is refused rather than reclaimed', async () =>
+  withRepoAsync(async (repo) => {
+    writePlan(repo, { goalId: GOALS.root, status: 'finished', location: 'finished' });
+    writePlan(repo, { goalId: GOALS.alpha });
+    const { bytes, file } = writeQueue(repo, [row(1, GOALS.root)]);
+    const digest = sha256(bytes);
+    const lockPath = queueLockPath(repo, file);
+    writeForeignLock(lockPath, {
+      hostname: `${os.hostname()}-not-this-host`,
+      pid: deadPid(),
+      expected_preimage: digest,
+      nonce: randomUUID(),
+    });
+    await assertRejectsAsync(
+      () =>
+        queueApi.addQueueRow({
+          file,
+          repo,
+          expectedBytesSha256: digest,
+          row: row(2, GOALS.alpha, [GOALS.root]),
+          lockRoot: path.join(repo, '.locks'),
+          lockTimeoutMs: 20,
+        }),
+      /foreign/i,
+    );
+    assert.ok(fs.readFileSync(file).equals(bytes));
+    assert.ok(fs.existsSync(lockPath), 'a foreign lock must survive the refusal');
+  }));
+
+test('a same-host dead owner is reclaimed and the lock is released afterwards', async () =>
+  withRepoAsync(async (repo) => {
+    writePlan(repo, { goalId: GOALS.root, status: 'finished', location: 'finished' });
+    writePlan(repo, { goalId: GOALS.alpha });
+    const { bytes, file } = writeQueue(repo, [row(1, GOALS.root)]);
+    const digest = sha256(bytes);
+    const lockPath = queueLockPath(repo, file);
+    writeForeignLock(lockPath, {
+      hostname: os.hostname(),
+      pid: deadPid(),
+      expected_preimage: digest,
+      nonce: randomUUID(),
+    });
+    const result = await queueApi.addQueueRow({
+      file,
+      repo,
+      expectedBytesSha256: digest,
+      row: row(2, GOALS.alpha, [GOALS.root]),
+      lockRoot: path.join(repo, '.locks'),
+      lockTimeoutMs: 250,
+    });
+    assert.deepEqual(
+      result.rows.map((item) => item.goal_id),
+      [GOALS.root, GOALS.alpha],
+    );
+    assert.equal(fs.existsSync(lockPath), false, 'a completed setter must leave no lock behind');
+    assert.deepEqual(
+      fs.readdirSync(path.join(repo, 'docs/plans')).filter((name) => name.includes('.tmp')),
+      [],
+    );
+  }));
+
+test('a successor that would not validate is rejected before any byte moves', async () =>
+  withRepoAsync(async (repo) => {
+    writePlan(repo, { goalId: GOALS.root, status: 'finished', location: 'finished' });
+    writePlan(repo, { goalId: GOALS.alpha });
+    const { bytes, file } = writeQueue(repo, [row(1, GOALS.root), row(2, GOALS.alpha, [GOALS.root])]);
+    const digest = sha256(bytes);
+    await assertRejectsAsync(
+      () =>
+        queueApi.addQueueRow({
+          file,
+          repo,
+          expectedBytesSha256: digest,
+          // A duplicate goal id can only be caught by validating the successor bytes.
+          row: row(3, GOALS.alpha, [GOALS.root]),
+          lockRoot: path.join(repo, '.locks'),
+          lockTimeoutMs: 250,
+        }),
+      /duplicate|unique/i,
+    );
+    assert.ok(fs.readFileSync(file).equals(bytes));
+    assert.equal(fs.existsSync(queueLockPath(repo, file)), false, 'a refused setter must leave no lock behind');
+    assert.deepEqual(
+      fs.readdirSync(path.join(repo, 'docs/plans')).filter((name) => name.includes('.tmp')),
+      [],
+    );
+  }));
+
+// A duplicate goal id is caught by the mutate step itself, so it does not pin the successor
+// validation. These two mutations are locally legal and only the whole-successor validation can
+// reject them: removing a depended-upon row leaves a dangling reference, and restaging a
+// dependency below its dependent inverts the strictly-earlier rule.
+test('removing a depended-upon row is rejected by successor validation', async () =>
+  withRepoAsync(async (repo) => {
+    writePlan(repo, { goalId: GOALS.root, status: 'finished', location: 'finished' });
+    writePlan(repo, { goalId: GOALS.alpha });
+    const { bytes, file } = writeQueue(repo, [row(1, GOALS.root), row(2, GOALS.alpha, [GOALS.root])]);
+    await assertRejectsAsync(
+      () =>
+        queueApi.removeQueueRow({
+          file,
+          repo,
+          expectedBytesSha256: sha256(bytes),
+          goal_id: GOALS.root,
+          lockRoot: path.join(repo, '.locks'),
+          lockTimeoutMs: 250,
+        }),
+      /dangling|unqueued|depend/i,
+    );
+    assert.ok(fs.readFileSync(file).equals(bytes));
+  }));
+
+test('restaging a dependency below its dependent is rejected by successor validation', async () =>
+  withRepoAsync(async (repo) => {
+    writePlan(repo, { goalId: GOALS.root, status: 'finished', location: 'finished' });
+    writePlan(repo, { goalId: GOALS.alpha });
+    const { bytes, file } = writeQueue(repo, [row(1, GOALS.root), row(2, GOALS.alpha, [GOALS.root])]);
+    await assertRejectsAsync(
+      () =>
+        queueApi.moveQueueRow({
+          depends_on: [],
+          why: 'Restaged by the fixture',
+          file,
+          repo,
+          expectedBytesSha256: sha256(bytes),
+          goal_id: GOALS.root,
+          stage: 3,
+          lockRoot: path.join(repo, '.locks'),
+          lockTimeoutMs: 250,
+        }),
+      /earlier stage|stage/i,
+    );
+    assert.ok(fs.readFileSync(file).equals(bytes));
+  }));
+
 test('move succeeds, rejects stale preimages, and changes only queue bytes', async () =>
   withRepoAsync(async (repo) => {
     writePlan(repo, { goalId: GOALS.root, status: 'finished', location: 'finished' });
