@@ -9,7 +9,7 @@ acceptance remain authoritative.
 
 | Stage | Plan | Start gate |
 |---:|---|---|
-| 1 | [`ci-observability-and-test-contracts.md`](active/ci-observability-and-test-contracts.md) | Start first. |
+| 1 | [`2026-08-05-ci-observability-and-test-contracts.md`](finished/2026-08-05-ci-observability-and-test-contracts.md) | Finished. |
 | 2 | [`plan-execution-queue-contract.md`](active/plan-execution-queue-contract.md) | CI observability is finished and its full gate is green; implement next so PlanQueueV1 manages the remaining queue. |
 | 3 | [`session-relay-typed-irc-sqlite.md`](active/session-relay-typed-irc-sqlite.md) | PlanQueueV1 is finished and the CI observability gate remains green. |
 | 3 | [`plan-lifecycle-review-and-authority-modules.md`](active/plan-lifecycle-review-and-authority-modules.md) | PlanQueueV1 is finished; this may run in parallel with Relay vNext. |
