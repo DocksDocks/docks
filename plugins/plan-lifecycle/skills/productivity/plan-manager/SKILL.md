@@ -4,8 +4,8 @@ description: "Use when a goal may require a canonical plan, plan review, impleme
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-04"
-  content_hash: "d41c2d49b92c917ab018edfb65307395dd61ff12436214142072b0ca6484970b"
+  updated: "2026-08-05"
+  content_hash: "518356e2c1cc1e06d4b909173ee31c28c34b1f325dc4811268ac084caac67675"
 ---
 
 # Plan Manager
@@ -86,6 +86,13 @@ cells. Fenced examples, non-Steps tables, row identity/order, and every
 non-Status byte remain bound. A marked all-`planned` bootstrap may validate with
 its legacy digest until the first legal progress write installs the normalized
 digest.
+
+## PlanQueueV1
+A valid optional queue guides dependency-aware list and `next`; record explicit priority only through the preimage-checked,
+locking add/move/remove setters in `scripts/plan-queue.mjs`. `next` returns every startable row, stage then table order, so
+several plans may run at once; a row is startable only once its full direct and transitive closure resolves to finished
+PlanRuns, and stage is priority, never a gate on unrelated work. Resolve archive moves by goal id; report blocked
+dependencies. Queue state never starts, reviews, schedules, or grants an effect: [`references/planqueuev1-schema.md`](references/planqueuev1-schema.md).
 
 
 A release plan that will mutate an external boundary places every available live read-only final-boundary check before completion-review reservation, using the exact canonical identities and data spellings consumed by the later mutation. Available means the repository already provides a read-only command or adapter path that exercises the boundary without the pending mutation; never invent a check or network call. If an available check requires probe authority and exact live `ExternalAuthorityV1` is absent, block before completion review rather than review an unexercised release assumption.

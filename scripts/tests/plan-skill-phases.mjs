@@ -196,6 +196,11 @@ const STATUS_EXCLUDED_HASH_CONTRACT_CLAUSES = [
   },
 ];
 
+const WORKSPACE_QUEUE_CLAUSE =
+  '`docs/plans/QUEUE.md` is optional; when present it carries exactly one `Plan-queue: PlanQueueV1` marker';
+const MANAGER_QUEUE_CLAUSE = 'A valid optional queue guides dependency-aware list and `next`';
+const WORKSPACE_SKILL_QUEUE_CLAUSE = '`docs/plans/QUEUE.md` is optional and classification-neutral:';
+
 function normalizeContract(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -322,12 +327,63 @@ function assertStepClassContractsAndMutations() {
   }
 }
 
+function assertOneQueueClause(text, relative, clause, name) {
+  assert.equal(text.split(clause).length - 1, 1, `${relative} must contain exactly one ${name} queue clause`);
+  assert.throws(
+    () => {
+      const mutated = text.replace(clause, '');
+      assert.ok(mutated.includes(clause), `${relative} is missing the ${name} queue clause`);
+    },
+    new RegExp(`missing the ${name} queue clause`),
+    `${relative} must fail when its ${name} queue clause is removed`,
+  );
+}
+
+function assertPlanQueueContractsAndMutations() {
+  const agents = read('docs/plans/AGENTS.md');
+  const template = read(
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  );
+  const opening = '````markdown\n';
+  const closing = '\n````\n';
+  const start = template.indexOf(opening);
+  assert.ok(start >= 0 && template.endsWith(closing), 'workspace template must contain one terminal fence');
+  const generated = `${template.slice(start + opening.length, -closing.length)}\n`;
+  assert.equal(agents, generated, 'docs/plans/AGENTS.md must match the workspace template verbatim');
+  assertOneQueueClause(agents, 'docs/plans/AGENTS.md', WORKSPACE_QUEUE_CLAUSE, 'workspace');
+  assertOneQueueClause(
+    generated,
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+    WORKSPACE_QUEUE_CLAUSE,
+    'workspace',
+  );
+
+  assertOneQueueClause(
+    read('plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md'),
+    'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md',
+    MANAGER_QUEUE_CLAUSE,
+    'manager',
+  );
+  assertOneQueueClause(
+    read('plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md'),
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md',
+    WORKSPACE_SKILL_QUEUE_CLAUSE,
+    'workspace-skill',
+  );
+}
+
 function parseArgs(argv) {
   if (argv.length === 0) return { caseName: 'default' };
-  if (argv.length === 2 && argv[0] === '--case' && ['bounded-workflows', 'plan-workspace-template'].includes(argv[1])) {
+  if (
+    argv.length === 2 &&
+    argv[0] === '--case' &&
+    ['bounded-workflows', 'plan-workspace-template', 'plan-queue'].includes(argv[1])
+  ) {
     return { caseName: argv[1] };
   }
-  throw new Error('usage: plan-skill-phases.mjs [--case bounded-workflows|--case plan-workspace-template]');
+  throw new Error(
+    'usage: plan-skill-phases.mjs [--case bounded-workflows|--case plan-workspace-template|--case plan-queue]',
+  );
 }
 
 function read(relative) {
@@ -656,6 +712,9 @@ const { caseName } = parseArgs(process.argv.slice(2));
 if (caseName === 'plan-workspace-template') {
   assertWorkspaceTemplateSynchronized();
   console.log('plan workspace template synchronized');
+} else if (caseName === 'plan-queue') {
+  assertPlanQueueContractsAndMutations();
+  console.log('plan queue contracts synchronized');
 } else {
   assertLiveTopology();
   assertReviewerWrappersOnly();

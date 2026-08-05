@@ -394,6 +394,12 @@ if (planAuthorChecks) {
     : fail(
         'bounded plan workflow contract failed (run: node scripts/tests/plan-skill-phases.mjs --case bounded-workflows)',
       );
+  nodeOk(['scripts/tests/plan-queue.mjs'])
+    ? ok('queue contract passed')
+    : fail('queue contract failed (run: node scripts/tests/plan-queue.mjs)');
+  nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'plan-queue'])
+    ? ok('plan-queue skill contract passed')
+    : fail('plan-queue skill contract failed (run: node scripts/tests/plan-skill-phases.mjs --case plan-queue)');
 }
 
 for (const plugin of targets) gatePlugin(plugin);

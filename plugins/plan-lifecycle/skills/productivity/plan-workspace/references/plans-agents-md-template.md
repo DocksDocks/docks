@@ -49,6 +49,9 @@ docs/plans/
 ├── active/        # every nonterminal plan; status is frontmatter
 └── finished/      # terminal archive, unique date-prefixed filename
 ```
+`docs/plans/QUEUE.md` is optional; when present it carries exactly one `Plan-queue: PlanQueueV1` marker and one `Stage | Goal ID | Plan | Depends on | Why` table. Goal ID is the row identity, and current paths are resolved by scanning `active/` and `finished/` records.
+A row is eligible only when every explicit direct and transitive dependency is finished; stages give deterministic priority among otherwise eligible rows. The queue is a discovery and prioritization view only, never lifecycle, review, mutation, scheduling, or external-effect authority.
+A workspace without the queue stays valid.
 
 Every current plan starts with a closed frontmatter map. Project-specific fields may extend this shape only when the nested contract names them.
 

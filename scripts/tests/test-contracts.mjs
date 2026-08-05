@@ -172,24 +172,56 @@ function unitDescriptors(packageJson) {
   });
 }
 
+function gateInvocationArguments(ciSource) {
+  const bySuite = new Map();
+  const invocationPattern = /\bnode(?:Ok)?\(\[\s*['"](?<suite>[^'"]+\.mjs)['"](?<args>[^[]*?)\]\)/gu;
+  for (const match of ciSource.matchAll(invocationPattern)) {
+    const args = [...match.groups.args.matchAll(/,\s*(['"])([^'"]*)\1/gu)].map((argument) => argument[2]);
+    const invocations = bySuite.get(match.groups.suite) ?? [];
+    invocations.push(args);
+    bySuite.set(match.groups.suite, invocations);
+  }
+  return bySuite;
+}
+
+function gateSelection(suite, invocations = []) {
+  const distinct = [...new Map(invocations.map((args) => [JSON.stringify(args), args])).values()].sort((left, right) =>
+    JSON.stringify(left).localeCompare(JSON.stringify(right)),
+  );
+  if (distinct.length === 0) return { selector: suite, selectedCount: 1 };
+  if (distinct.length === 1) return { selector: [suite, ...distinct[0]].join(' '), selectedCount: 1 };
+
+  const commonFlag = distinct[0][0];
+  const sameFlagCases =
+    commonFlag?.startsWith('--') && distinct.every((args) => args.length === 2 && args[0] === commonFlag);
+  const selector = sameFlagCases
+    ? `${suite} ${commonFlag} ${distinct
+        .map(([, value]) => value)
+        .sort()
+        .join('|')}`
+    : `${suite} ${distinct.map((args) => JSON.stringify(args)).join('|')}`;
+  return { selector, selectedCount: distinct.length };
+}
+
 function repoSuiteDescriptors(ciSource) {
   const paths = [...ciSource.matchAll(/['"]((?:scripts\/tests|tests)\/[^'"]+\.mjs)['"]/gu)]
     .map((match) => match[1])
     .filter((suite) => !suite.startsWith('scripts/tests/unit/'));
   const selectors = new Map([
     ['scripts/tests/ci-plugin-targeting.mjs', 'scripts/tests/ci-plugin-targeting.mjs --unit'],
-    ['scripts/tests/plan-skill-phases.mjs', 'scripts/tests/plan-skill-phases.mjs --case bounded-workflows'],
   ]);
-  return [...new Set(paths)].sort().map((suite) =>
-    descriptor({
+  const invocations = gateInvocationArguments(ciSource);
+  return [...new Set(paths)].sort().map((suite) => {
+    const selection = gateSelection(suite, invocations.get(suite));
+    return descriptor({
       id: `repo-${slug(path.basename(suite))}`,
       suite,
       kind: 'node-script',
-      selector: selectors.get(suite) ?? suite,
-      selectedCount: 1,
+      selector: selectors.get(suite) ?? selection.selector,
+      selectedCount: selection.selectedCount,
       executed: true,
-    }),
-  );
+    });
+  });
 }
 
 function sourceCheckId(plugin, check) {

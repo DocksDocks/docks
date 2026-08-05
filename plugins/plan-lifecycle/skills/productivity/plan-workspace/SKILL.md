@@ -4,23 +4,18 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-04"
-  content_hash: "ddf0753b503109c24d8cc87bf538900d4f567c144d0113e2e655049e7fbc5276"
+  updated: "2026-08-05"
+  content_hash: "f38ec32ad37a1bbeaa92d912315e8d18f52a027a94ca77703b0648e93fc9f6e7"
 ---
 
 # Plans Workspace
-Maintain the project-level `docs/plans/` convention: `active/`, `finished/`, the
-plans-local cross-tool contract, one-line Claude discovery shim, root routing,
-and the optional project-local Codex reviewer wrapper. This skill never owns an
-individual plan or implementation.
+Maintain the project-level `docs/plans/` convention: `active/`, `finished/`, the plans-local contract, Claude shim, root routing, and optional
+project-local Codex reviewer wrapper; this skill never owns an individual plan or implementation.
 
 <constraint>
-Resolve the project root and classify the requested operation before writing.
-Audit is read-only. Bootstrap applies only to a missing workspace; migration only
-to a recognizable legacy workspace; refresh only when the current user explicitly
-requests it for a recognizable generated contract. A current workspace is a
-no-op, and an ambiguous/custom workspace is a STOP. Never overwrite a
-project-owned agent file or turn audit findings into an implicit refresh.
+Resolve the project root and classify the operation before writing. Audit is read-only. Bootstrap applies only to a missing workspace;
+migration only to a recognizable legacy workspace; refresh only when explicitly requested for a recognizable generated contract. `CURRENT`
+is a no-op and ambiguous/custom is a STOP. Never overwrite project-owned agent files or turn audit findings into an implicit refresh.
 </constraint>
 
 <constraint>
@@ -67,6 +62,8 @@ first. Do not validate every legacy record family as an audit/list prerequisite.
 | `CURRENT` | two folders, three-skill PlanRunV1 contract, exact shim, reviewer-only wrapper topology | no-op or audit report |
 | `STALE` | recognizable generated two-folder contract lacks a current marker | audit report; explicit refresh only |
 | `AMBIGUOUS_CUSTOM` | any other shape or customized generated section | report and STOP |
+`docs/plans/QUEUE.md` is optional and classification-neutral: absence keeps an otherwise valid workspace `CURRENT`. Audit validates a
+present queue, reports drift or malformed bytes, and never rewrites or silently repairs it.
 
 Legacy markers win over current markers so an interrupted migration re-enters
 preservation checks. Current markers are:
@@ -162,6 +159,7 @@ Before mutation, show a table such as:
 | docs/plans/active/ | CREATE | GREENFIELD bootstrap |
 | docs/plans/AGENTS.md | OFFER REFRESH | recognizable STALE contract |
 | docs/plans/finished/example.md | PRESERVE | archived plan bytes are out of scope |
+| docs/plans/QUEUE.md | VALIDATE | optional PlanQueueV1 is present |
 | .codex/agents/plan-reviewer.toml | CREATE | missing wrapper during authorized bootstrap |
 | .codex/agents/custom.toml | SKIP | project-owned file |
 ```
@@ -180,7 +178,8 @@ For `GREENFIELD` plus an explicit bootstrap request:
 3. Write `docs/plans/CLAUDE.md` as exactly `@AGENTS.md` plus trailing newline.
 4. Write `docs/plans/.gitignore` with `*.html` and `.rendered/`.
 5. Add the generated root Plans section below without altering unrelated rules.
-6. Seed only a missing `.codex/agents/plan-reviewer.toml` from
+6. Only on explicit current-user queue request, bootstrap may seed empty valid `PlanQueueV1` at `docs/plans/QUEUE.md`; otherwise omit it.
+7. Seed only a missing `.codex/agents/plan-reviewer.toml` from
    [`references/codex-agent-templates.md`](references/codex-agent-templates.md).
 
 ## Migrate a recognized legacy workspace

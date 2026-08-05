@@ -77,6 +77,8 @@ cross-repository work, scheduling, cold handoff, unresolved decisions,
 cross-subsystem/public-contract changes, security-sensitive or destructive work,
 or an external effect.
 
+The optional `docs/plans/QUEUE.md` is only a discovery and prioritization view: its goal id is the row identity, and eligibility requires the complete direct and transitive dependency closure to be finished. It grants no lifecycle or execution authority.
+
 <constraint>
 Canonical plans live in `docs/plans/active/`; status is frontmatter and
 `docs/plans/finished/` is terminal. Exactly three skills own the workflow:

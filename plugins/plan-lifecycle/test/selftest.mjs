@@ -13,6 +13,50 @@ const repoRoot = path.resolve(pluginRoot, '../..');
 const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(repoRoot, relative), 'utf8'));
 const read = (relative) => fs.readFileSync(path.join(repoRoot, relative), 'utf8');
 
+// ---- PlanQueueV1: closed shipped API and no lifecycle authority ------------
+const queueScriptRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-queue.mjs';
+const queueReferenceRelative =
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/references/planqueuev1-schema.md';
+const managerSkillRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md';
+assert.ok(fs.existsSync(path.join(repoRoot, queueScriptRelative)), `${queueScriptRelative} must exist`);
+assert.ok(fs.existsSync(path.join(repoRoot, queueReferenceRelative)), `${queueReferenceRelative} must exist`);
+assert.ok(
+  read(managerSkillRelative).includes('[`references/planqueuev1-schema.md`](references/planqueuev1-schema.md)'),
+  `${managerSkillRelative} must link the PlanQueueV1 reference`,
+);
+
+const queue = await import(new URL('../skills/productivity/plan-manager/scripts/plan-queue.mjs', import.meta.url));
+const QUEUE_EXPORTS = [
+  'QUEUE_MARKER',
+  'addQueueRow',
+  'moveQueueRow',
+  'nextQueue',
+  'parseQueue',
+  'removeQueueRow',
+  'resolvePlanRecords',
+  'showQueue',
+  'validateQueue',
+];
+assert.deepEqual(
+  Object.keys(queue).sort(),
+  QUEUE_EXPORTS,
+  'plan-queue.mjs must expose only the closed PlanQueueV1 API',
+);
+assert.equal(queue.QUEUE_MARKER, 'Plan-queue: PlanQueueV1');
+for (const name of QUEUE_EXPORTS.slice(1)) {
+  assert.equal(typeof queue[name], 'function', `plan-queue.mjs export ${name} must be a function`);
+}
+const PLAN_RUN_TRANSITION_EXPORTS = new Set(['reducePlanRun', 'replacePlanRunInPlace', 'transactPlanRun']);
+const queueSource = read(queueScriptRelative);
+for (const name of PLAN_RUN_TRANSITION_EXPORTS) {
+  assert.ok(!queueSource.includes(name), `plan-queue.mjs must not import or invoke PlanRun transition ${name}`);
+}
+assert.deepEqual(
+  Object.keys(queue).filter((name) => PLAN_RUN_TRANSITION_EXPORTS.has(name)),
+  [],
+  'plan-queue.mjs must not export any PlanRun transition capability',
+);
+
 // ---- routing prerequisite: byte-identical, exactly once per route ----------
 // Keep in lockstep with scripts/tests/plan-skill-phases.mjs and the six files.
 const LIFECYCLE_ROUTE_PREREQUISITE =

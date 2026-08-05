@@ -62,6 +62,11 @@ validation/quarantine only. The focused current contract lives in
 including the frozen 143-case malformed corpus, is selected through
 `--case historical`.
 
+The optional plan queue keeps its data in `docs/plans/QUEUE.md`; the shipped
+validator and setter module is `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-queue.mjs`.
+The queue is only a discovery and prioritization view and grants no lifecycle or execution authority. Both new
+contracts run inside the existing plan-orchestration section, so the timing phase census is unchanged.
+
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 
 1. **Payload** at `plugins/<name>/` — `.claude-plugin/plugin.json` (+ `.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
@@ -91,6 +96,8 @@ Ordinary plugin behavior stays registry-driven: extend descriptor capabilities r
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
+| `tests/plan-queue.mjs` | validates the optional PlanQueueV1 parser, dependency selection, setters, and non-authority boundary | pass/fail |
+| `tests/plan-skill-phases.mjs` | validates selected plan skill, workspace, routing, and synchronized-copy contracts | pass/fail |
 | `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
 | `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh` plus a Rust capability's sh launcher (`bin/<binName>`), via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
@@ -132,6 +139,9 @@ ignored, or zero-selected entries. It never chooses tests or authorises
 deletions. Run the focused validators through the `test:observability` and
 `test:contracts` package scripts. Both validators run inside the gate's existing
 repo-wide guards section, so the phase census is unchanged.
+
+When one suite has multiple gate-selected cases, its selector joins the sorted case values with `|`, and
+`expected_min` records the number of distinct invocations.
 
 ### Host-derived resource envelope
 
