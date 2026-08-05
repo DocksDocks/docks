@@ -2,11 +2,11 @@
 title: Extract and close shared plugin release orchestration
 goal: Move the ordinary multi-plugin release lane behind one closed function-first library, make policy selection and command parsing fail closed, preserve fixture-only simulation before production dispatch, derive current Session Relay identities from synchronized records, and reconcile the immutable accidental Docks 0.16.1 publication without another release effect.
 plan_hash_mode: status-excluded-v1
-status: ongoing
+status: finished
 created: "2026-08-04T14:30:00.000+00:00"
-updated: "2026-08-05T00:15:14.315+00:00"
+updated: "2026-08-05T00:28:17.210+00:00"
 started_at: "2026-08-05T00:15:14.315+00:00"
-finished_at: null
+finished_at: "2026-08-05T00:28:17.210+00:00"
 assignee: null
 tags: [plans, release, multi-plugin, refactor]
 affected_paths:
@@ -34,7 +34,7 @@ related_plans:
 
 # Extract and close shared plugin release orchestration
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_unauthorized_effect"],"input_sha256":"c1f11a4d4b1562c635b16a0454856657461524f59325abc4ddfbec71804eaa63","invocations":2,"result_sha256":"be30ac38919de8669a0d2d359968fa1afc190d1a037d825bac8b4b9d795004f4","state":"passed"},"execution_parent":"f237e1a044eb7d0fa4179bd36ed99d3c44f0c11d","goal_id":"35a855fb-19c4-484e-b019-22a0b49a65df","implementation_commit":null,"plan_path":"docs/plans/active/shared-plugin-release-orchestration.md","plan_sha256":"64e150af0bcc8758e69ced45e3ebe4fd2b078b82a197550ec9e817e4305806dd","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push"],"risk":"external","run_id":"8910884e-661a-403f-9665-b5a9802ec4bb","schema":1,"source_base":"f237e1a044eb7d0fa4179bd36ed99d3c44f0c11d","source_sha256":"8bd8ef553bad162bf95fe5bed75ac51d76da48dcbad8fa1e2a3dca92cef9f485"}
+Plan-run: {"acceptance":{"source_sha256":"4c1be0d03cb5afe3815db7da2ac4f95d03299361a5617da3c72ed162c19c9867","verification_sha256":"400992a0ec84ff6723dd895db436d18dc7cc80f7f42ec032320aa5678440fdda"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"0e7d450bfdace2549ae18484195575c4bc15190010b37779e6ad15be24f50f15","invocations":1,"result_sha256":"68b5f5de4e2106a4da2c29a9428d49fe8fb9611f7450452707b7bf2f83955efc","state":"passed"},"draft_review":{"accepted_classes":["v1_unauthorized_effect"],"input_sha256":"c1f11a4d4b1562c635b16a0454856657461524f59325abc4ddfbec71804eaa63","invocations":2,"result_sha256":"be30ac38919de8669a0d2d359968fa1afc190d1a037d825bac8b4b9d795004f4","state":"passed"},"execution_parent":"f237e1a044eb7d0fa4179bd36ed99d3c44f0c11d","goal_id":"35a855fb-19c4-484e-b019-22a0b49a65df","implementation_commit":"e1ef7fd89384565af8a6ee7c41971aa5573adfff","plan_path":"docs/plans/active/shared-plugin-release-orchestration.md","plan_sha256":"64e150af0bcc8758e69ced45e3ebe4fd2b078b82a197550ec9e817e4305806dd","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push"],"risk":"external","run_id":"8910884e-661a-403f-9665-b5a9802ec4bb","schema":1,"source_base":"f237e1a044eb7d0fa4179bd36ed99d3c44f0c11d","source_sha256":"8bd8ef553bad162bf95fe5bed75ac51d76da48dcbad8fa1e2a3dca92cef9f485"}
 
 ## Goal
 
@@ -109,7 +109,7 @@ Generic releases remain stable-only. `--dry-run` remains the no-mutation test pa
 | 6 | close_parser_fixture_boundaries | Add failing contracts for duplicate plugin-option smuggling and generic fixture isolation, then close both boundaries before production IO. | `scripts/release.mjs`; `scripts/lib/plugin-release.mjs`; `scripts/tests/ci-plugin-targeting.mjs`; `plugins/session-relay/test/distribution-contract.mjs` | 5 | `local` | `done` | The duplicate `--plugin` case refuses before any adapter. Generic fixture scenarios emit canonical reports through the fixture dispatcher and invoke no production mutation operation. |
 | 7 | bind_unexpected_release | Probe and bind the immutable Docks 0.16.1 remote commit, tag, release state, and three synchronized manifest paths without mutating them. | `.claude-plugin/marketplace.json`; `plugins/docks/.claude-plugin/plugin.json`; `plugins/docks/.codex-plugin/plugin.json` | 6 | `probe` | `done` | A matching live `ExternalAuthorityV1` authorizes the exact repository, ref, and release targets. A6 asserts version 0.16.1 and exact SHA-256 digests `6da30165eaf1536f18942955e6197816eadd49979fadfe1a9c3b2a3470bfdb42`, `e26c1e6b603e0c643bb9ed1d144c28ae8cd1509077edcedd0bf3fa976d0ec64a`, and `651ee5db0d24ec4bbb796ca9a311ffa579f570badb0bc55a9a0a918e3ecf83db`; it also reports the exact remote commit, tag, and stable release timestamp. No remote write occurs. |
 | 8 | generalize_generic_fixture_registry | Add a failing Plan Lifecycle composition-root fixture case, then classify every validated non-Relay descriptor through the closed registry. | `scripts/lib/session-relay-release-fixture.mjs`; `plugins/session-relay/test/distribution-contract.mjs` | 7 | `local` | `done` | Docks, Effect Kit, and Plan Lifecycle each emit a successful `legacy-release` fixture report. Unknown, malformed, and reviewed descriptors still fail closed; no hard-coded ordinary-plugin list remains. |
-| 9 | checkpoint_and_archive | Require live push authority for `DocksDocks/docks:main`, then bind the exact implementation checkpoint created after Step 8 and the required A1, A2, and A5 reruns, pass CompletionReviewV1, archive, and publish the terminal checkpoint. | all affected paths in frontmatter | 8 | `push` | `planned` | The PlanRun and a live ExternalAuthorityV1 jointly bind the exact checkpoint and push target `DocksDocks/docks:main`; absent authority blocks before archive or mutation. Reviewed implementation and archive reach exact `origin/main`; no additional release, tag, prerelease, asset, or package mutation occurs. |
+| 9 | checkpoint_and_archive | Require live push authority for `DocksDocks/docks:main`, then bind the exact implementation checkpoint created after Step 8 and the required A1, A2, and A5 reruns, pass CompletionReviewV1, archive, and publish the terminal checkpoint. | all affected paths in frontmatter | 8 | `push` | `done` | The PlanRun and a live ExternalAuthorityV1 jointly bind the exact checkpoint and push target `DocksDocks/docks:main`; absent authority blocks before archive or mutation. Reviewed implementation and archive reach exact `origin/main`; no additional release, tag, prerelease, asset, or package mutation occurs. |
 
 ## Acceptance
 
@@ -170,6 +170,14 @@ Plan-attempt-history: {"authorization_source_sha256":"fc62261898c1b4befe209e12c7
 
 Plan-review-result: {"findings":[{"class":"v1_unauthorized_effect","defect":"The plan schedules a push to origin/main, but the sealed bundle contains no live ExternalAuthorityV1 for that push boundary.","fix":"Obtain a live ExternalAuthorityV1 with scope push and target DocksDocks/docks origin/main, bound to the exact checkpoint, before Step 9.","id":"F1","kind":"unsafe_scope","locator":"Steps row 9 (checkpoint_and_archive); Plan-run requested_effects"}],"invocation":1,"plan_sha256":"208504485d5d3ea13d9e1c047f404e2d1d0a7996f0b95f4409b6bd051ba2ad45","run_id":"8910884e-661a-403f-9665-b5a9802ec4bb","schema":1,"source_sha256":"8bd8ef553bad162bf95fe5bed75ac51d76da48dcbad8fa1e2a3dca92cef9f485","verdict":"blocked"}
 
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"877e6148ffdfe8446e8d6022e2997a3a9b35b3f435b49627da444b1663394131","findings":[],"implementation_commit":"e1ef7fd89384565af8a6ee7c41971aa5573adfff","invocation":1,"run_id":"8910884e-661a-403f-9665-b5a9802ec4bb","schema":1,"verdict":"pass"}
+
 ## Verification Results
 
-N/A — manager-written after execution.
+- A1 passed on the completed Step 8 implementation: `node scripts/tests/ci-plugin-targeting.mjs --dry-run-release-safety` reported 72 passing assertions, including Plan Lifecycle registry coverage.
+- A2 passed on the same implementation bytes: the six Session Relay release contract commands reported 77 passing assertions.
+- A5 passed after all lifecycle repairs: `node scripts/ci.mjs` completed successfully. No implementation bytes covered by A1, A2, or A5 changed afterward.
+- `git diff --check` passed immediately before completion review preparation.
+- Step 8 is implemented in commit `c1c3c5b3928ea50a8efd15ed88ec3ba899a49471`; the status-excluded successor preserves that implementation and marks the row `done`.
