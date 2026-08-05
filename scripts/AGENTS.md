@@ -91,23 +91,47 @@ Ordinary plugin behavior stays registry-driven: extend descriptor capabilities r
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
+| `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
+| `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh` plus a Rust capability's sh launcher (`bin/<binName>`), via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
 
 **Shared author-side libs (`scripts/lib/`):** `rust-bin.mjs` (the `rust` capability's helpers — `rustHostTarget()` maps the host to a supported target, `rustReleaseAssetNames()` defines the release asset set, `parseSha256Sums()` / `formatSha256Sums()` handle checksum manifests, `expectedRustFileIdentity()` / `detectRustFileIdentity()` validate target files, and `findCargo()` locates Cargo for source builds). `skills-walk.mjs` (SKILL.md traversal — `findSkillFiles`/`eachSkillDir`/`findSkillByName`) and `skills-parse.mjs` (frontmatter/body line helpers — `bodyAfterFrontmatter`/`slopCount`/`metaUpdated`/…) are imported by the author-side validators so the walk + body-line method live once. The bundled `write-skill/scripts/skill-guard.mjs` keeps its OWN copies on purpose — it ships standalone into consumer repos …
 
-`ci-background-task.mjs` owns asynchronous Node-task capture for `ci.mjs`.
-Successful tasks remove their private spool. Failed tasks retain complete stdout
-and stderr in an owned mode-`0700` temporary directory with mode-`0600` files,
-and print both exact paths before the gate reports failure.
+`ci-background-task.mjs` owns asynchronous Node-task capture for `ci.mjs`. It
+launches each background child through a separate short-lived Node process. That
+launcher measures its own child with one monotonic clock and owns both log
+files, so neither this gate's blocked event loop nor pipe backpressure can
+inflate a duration; each recorded duration is the real spawn-to-exit lifetime. A
+worker thread was measured and rejected for this job: its loop stalled for the
+whole blocking window on a minority of runs. Successful tasks remove their
+private spool. Failed tasks retain complete stdout and stderr in an owned
+mode-`0700` temporary directory with mode-`0600` files, and print both exact
+paths before the gate reports failure.
 
 **Single-source scorer:** the 16-pt skill scorer lives ONCE, in the bundled `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (`score [--per-file]`). The kit's `ci.mjs` scores with that same shipped file over `plugins/docks/skills`, and consumers run it on their own skills (`validate` / `score`) — one rubric, no author-side mirror, no sync contract. Bundled `scripts/` aren't content-hashed; bump write-skill's `metadata.updated` when the rubric changes.
 
-`--timings-json` is observational: it records ordered phase durations and
-background-task durations without changing gate selection or status. Background
-tasks remain mandatory; their failure output is retained behind reported spool
-paths and their result is joined before `ci.mjs` can pass.
+`--timings-json` is observational. It changes no gate selection and no pass/fail
+status. The report includes `commands`, with one closed `CommandRecordV1` per
+orchestrated child command. Each record carries stable identity, argv, phase,
+monotonic start and end offsets, exit state, overlap, a retained-output
+reference, and optional cache facts. The `reconstruction` member contains
+`wall_ms`, `command_busy_ms`, `command_total_ms`, `overlap_ms`,
+`unaccounted_ms`, and `peak_concurrency`. The `host` member contains the GitHub
+run, attempt, job, workflow, and runner identity, or `null` off CI. A child that
+has not exited is never reported as passed.
+
+### Closed test-contract registry
+
+`scripts/config/test-contracts.json` is the registry data, and
+`scripts/tests/test-contracts.mjs` is its validator. The registry assigns one
+suite owner per normative contract. The validator computes discovered,
+registered, selected, and executed sets. It rejects unknown, duplicate, expired,
+ignored, or zero-selected entries. It never chooses tests or authorises
+deletions. Run the focused validators through the `test:observability` and
+`test:contracts` package scripts. Both validators run inside the gate's existing
+repo-wide guards section, so the phase census is unchanged.
 
 ### Host-derived resource envelope
 

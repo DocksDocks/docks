@@ -8,7 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { startTask } from './lib/ci-background-task.mjs';
+import { beginCommand, startTask, summarizeCommands } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 import {
   cargoJobLimit,
@@ -83,6 +83,7 @@ const onlyLane = options.lane;
 const startedAt = performance.now();
 const phases = [];
 const tasks = [];
+const commands = [];
 let activePhase = null;
 const failures = [];
 const ok = (m) => {
@@ -109,7 +110,28 @@ const section = (m) => {
   activePhase = { name: m, startedAt: performance.now(), failureCount: failures.length };
   if (!QUIET) console.log(`\n\x1b[1m▸ ${m}\x1b[0m`);
 };
-const node = (args, options = {}) => spawnSync('node', args, { encoding: 'utf8', ...options });
+const runCommand = (id, [command, ...args], commandOptions = {}) => {
+  const trackedCommand = beginCommand(commands, {
+    id,
+    kind: 'sync',
+    argv: [command, ...args],
+    cwd: commandOptions.cwd ?? null,
+    phase: activePhase?.name ?? null,
+  });
+  let result;
+  try {
+    result = spawnSync(command, args, commandOptions);
+    return result;
+  } finally {
+    trackedCommand.finish({
+      status: (result?.status ?? 1) === 0 ? 'passed' : 'failed',
+      exit_code: result?.status ?? null,
+      signal: result?.signal ?? null,
+    });
+  }
+};
+const node = (args, options = {}) =>
+  runCommand(`node ${args.join(' ')}`, ['node', ...args], { encoding: 'utf8', ...options });
 // A failing check must name its own cause. Every `nodeOk` site asserts success, so a
 // non-zero exit is always a defect worth reading: print the child's captured output
 // rather than only the caller's one-line summary. Without this, a check that passes
@@ -167,7 +189,7 @@ function prepareRelayLinuxDelegation(selected) {
     `/sys/fs/cgroup/session-relay-test-${uid}-` +
     `${process.env.GITHUB_RUN_ID ?? 'run'}-${process.env.GITHUB_RUN_ATTEMPT ?? 'attempt'}-${process.pid}`;
   const runSudo = (args) =>
-    spawnSync('sudo', ['-n', ...args], {
+    runCommand(`sudo -n ${args.join(' ')}`, ['sudo', '-n', ...args], {
       encoding: 'utf8',
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -231,7 +253,9 @@ const javascriptQualityTasks = [];
 const javascriptQualityCommands = [];
 const scheduleJavaScriptQuality = (name, args) => {
   javascriptQualityCommands.push(['pnpm', ...args]);
-  javascriptQualityTasks.push(startTask(name, 'pnpm', args, { cwd: REPO, tasks }));
+  javascriptQualityTasks.push(
+    startTask(name, 'pnpm', args, { cwd: REPO, tasks, commands, phase: activePhase?.name ?? null }),
+  );
 };
 if (onlyPlugin === null && onlyLane === null) {
   scheduleJavaScriptQuality('javascript quality', ['run', 'check:js']);
@@ -285,7 +309,13 @@ if (repoWide) {
   nodeOk(['scripts/tests/author-tooling.mjs'])
     ? ok('author tooling contracts passed')
     : fail('author tooling contracts failed (run: node scripts/tests/author-tooling.mjs)');
-  (spawnSync('pnpm', ['run', 'test:unit'], { encoding: 'utf8' }).status ?? 1) === 0
+  nodeOk(['scripts/tests/ci-observability.mjs'])
+    ? ok('CI observability contracts passed')
+    : fail('CI observability contracts failed (run: node scripts/tests/ci-observability.mjs)');
+  nodeOk(['scripts/tests/test-contracts.mjs'])
+    ? ok('test-contract registry passed')
+    : fail('test-contract registry failed (run: node scripts/tests/test-contracts.mjs)');
+  (runCommand('pnpm run test:unit', ['pnpm', 'run', 'test:unit'], { encoding: 'utf8' }).status ?? 1) === 0
     ? ok('unit tests passed')
     : fail('unit tests failed (run: pnpm run test:unit)');
 
@@ -318,7 +348,11 @@ if (targets.length > 0) {
   const bashFiles = targets.flatMap(shellHooks);
   if (bashFiles.length === 0) ok('no bash to lint (all tooling is Node .mjs)');
   else {
-    const shellcheck = spawnSync('shellcheck', ['-S', 'warning', ...bashFiles], { encoding: 'utf8' });
+    const shellcheck = runCommand(
+      `shellcheck -S warning ${bashFiles.join(' ')}`,
+      ['shellcheck', '-S', 'warning', ...bashFiles],
+      { encoding: 'utf8' },
+    );
     if (shellcheck.error) warn('shellcheck not installed — skipped locally (CI enforces)');
     else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean (${bashFiles.length} hook(s))`);
     else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
@@ -368,8 +402,8 @@ if (javascriptQualityTasks.length > 0) {
   const javascriptQualityPassed = (await Promise.all(javascriptQualityTasks)).every(Boolean);
   if (javascriptQualityPassed) ok('JavaScript format and lint checks passed');
   else {
-    const commands = javascriptQualityCommands.map(([command, ...args]) => `${command} ${args.join(' ')}`);
-    fail(`JavaScript format and lint checks failed (run: ${commands.join(' && ')})`);
+    const renderedCommands = javascriptQualityCommands.map(([command, ...args]) => `${command} ${args.join(' ')}`);
+    fail(`JavaScript format and lint checks failed (run: ${renderedCommands.join(' && ')})`);
   }
 }
 
@@ -381,7 +415,9 @@ function gatePlugin(p) {
   if (manifest?.version && manifest.version === mv) ok(`${p.name} version agrees (${manifest.version})`);
   else fail(`${p.name} version drift: plugin.json=${manifest?.version} marketplace.json=${mv}`);
 
-  const v = spawnSync('claude', ['plugin', 'validate', `./${p.root}`], { encoding: 'utf8' });
+  const v = runCommand(`claude plugin validate ./${p.root}`, ['claude', 'plugin', 'validate', `./${p.root}`], {
+    encoding: 'utf8',
+  });
   if (v.error) (p.name === 'docks' ? fail : warn)(`claude CLI not found — ${p.name} plugin validate skipped`);
   else if (`${v.stdout}${v.stderr}`.includes('Validation passed')) ok(`claude plugin validate ./${p.root}`);
   else fail(`claude plugin validate ./${p.root} (run manually for details)`);
@@ -532,7 +568,7 @@ function gateRust(p) {
     return null;
   }
 
-  const cargoRun = (args) => spawnSync(cargo, args, { encoding: 'utf8', cwd: dir });
+  const cargoRun = (args) => runCommand(`cargo ${args.join(' ')}`, [cargo, ...args], { encoding: 'utf8', cwd: dir });
   (cargoRun(['fmt', '--check']).status ?? 1) === 0
     ? ok(`${p.name} cargo fmt --check clean`)
     : fail(`${p.name} cargo fmt --check failed (run: cargo fmt, in ${dir})`);
@@ -630,14 +666,32 @@ function gateSkills(p, manifest) {
 
 // ============================ summary ============================
 closePhase();
-const timingReport = (status) => ({
-  schema: ciLane === null ? 1 : 2,
-  mode: ciLane === null ? { plugin: onlyPlugin } : { plugin: null, lane: ciLane.name },
-  status,
-  total_ms: Math.max(0, Math.round(performance.now() - startedAt)),
-  phases,
-  tasks,
-});
+const timingReport = (status) => {
+  const totalMs = Math.max(0, Math.round(performance.now() - startedAt));
+  const reconstruction = summarizeCommands(commands, totalMs);
+  const host =
+    process.env.GITHUB_ACTIONS === 'true'
+      ? {
+          run_id: process.env.GITHUB_RUN_ID ?? null,
+          run_attempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+          job: process.env.GITHUB_JOB ?? null,
+          workflow: process.env.GITHUB_WORKFLOW ?? null,
+          runner_os: process.env.RUNNER_OS ?? null,
+          runner_arch: process.env.RUNNER_ARCH ?? null,
+        }
+      : null;
+  return {
+    schema: ciLane === null ? 1 : 2,
+    mode: ciLane === null ? { plugin: onlyPlugin } : { plugin: null, lane: ciLane.name },
+    status,
+    total_ms: totalMs,
+    phases,
+    tasks,
+    commands,
+    reconstruction,
+    host,
+  };
+};
 const writeTimings = (status) => {
   if (options.timingsJson === null) return;
   try {

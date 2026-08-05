@@ -70,6 +70,19 @@ the job, and the join accepts that expected skip.
 
 The workflow pins the Corepack-provided pnpm version from `package.json`, configures a deterministic `~/.pnpm-store`, and caches that store with official `actions/cache`; the exact key binds runner identity, `pnpm-lock.yaml`, and `package.json`, with a same-pnpm-major restore prefix. The conditional Cargo cache stores registry/git dependencies and `plugins/session-relay/rust/target`; its exact key binds runner identity, dependencies, toolchain, and Rust sources, while its restore prefix permits incremental rebuilds only with the same dependency/toolchain identity. Cargo caching runs for the PR Relay lane, manual full validation, and Rust-capable release tags. Caches are hints only: frozen installs, Cargo's source validation, the pinned toolchain, and `ci.mjs` remain authoritative.
 
+## Hosted cost capture
+
+`workflows/ci.yml` — hosted timing stamps — `start hosted step timing` establishes the baseline and
+`mark hosted cache restore` records pnpm/Cargo outcomes. The frozen install, registry-signature audit, Claude binary
+materialization, PATH update, conditional Rust provisioning, `run validation lane`,
+`run non-unit plugin-targeting contracts`, and `run the authoritative gate (scripts/ci.mjs)` append stamps. A stamped
+step's duration is its stamp minus the preceding stamp.
+
+`workflows/ci.yml` — `publish hosted timing artifact` — uploads
+`${{ runner.temp }}/docks-hosted-timings.jsonl` and `${{ runner.temp }}/docks-ci-timings.json` with the sole permitted
+uploader, `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1`. The `validate` job remains
+read-only; never add `contents: write`.
+
 ## Supply-chain hardening
 
 Mitigations against npm / GitHub Actions supply-chain attacks (per the Supabase + pnpm Dec-2025 guidance). Each is load-bearing — don't undo one to simplify a diff:

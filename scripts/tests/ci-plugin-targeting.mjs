@@ -34,9 +34,78 @@ if (!validInvocation) {
 }
 const unitOnly = mode === '--unit';
 
+const TIMING_REPORT_KEYS = [
+  'schema',
+  'mode',
+  'status',
+  'total_ms',
+  'phases',
+  'tasks',
+  'commands',
+  'reconstruction',
+  'host',
+];
+const COMMAND_RECORD_KEYS = [
+  'schema',
+  'id',
+  'kind',
+  'phase',
+  'argv',
+  'cwd',
+  'started_ms',
+  'ended_ms',
+  'duration_ms',
+  'status',
+  'exit_code',
+  'signal',
+  'overlap_ms',
+  'retained_output',
+  'cache',
+];
+const RECONSTRUCTION_KEYS = [
+  'wall_ms',
+  'command_busy_ms',
+  'command_total_ms',
+  'overlap_ms',
+  'unaccounted_ms',
+  'peak_concurrency',
+];
+
+function assertCommandTelemetry(timing) {
+  assert.deepEqual(Object.keys(timing), TIMING_REPORT_KEYS);
+  assert.ok(timing.commands.length > 0, 'timing report must contain observed commands');
+  for (const command of timing.commands) {
+    assert.deepEqual(Object.keys(command), COMMAND_RECORD_KEYS);
+    assert.equal(command.schema, 1);
+    assert.ok(['background', 'sync'].includes(command.kind));
+    assert.ok(['passed', 'failed'].includes(command.status));
+    for (const field of ['started_ms', 'ended_ms', 'duration_ms', 'overlap_ms']) {
+      assert.ok(Number.isInteger(command[field]) && command[field] >= 0, `${command.id}.${field} must be a duration`);
+    }
+    assert.equal(command.duration_ms, command.ended_ms - command.started_ms);
+  }
+  assert.deepEqual(Object.keys(timing.reconstruction), RECONSTRUCTION_KEYS);
+  for (const field of RECONSTRUCTION_KEYS) {
+    assert.ok(
+      Number.isInteger(timing.reconstruction[field]) && timing.reconstruction[field] >= 0,
+      `reconstruction.${field} must be a duration`,
+    );
+  }
+  assert.equal(
+    timing.reconstruction.overlap_ms,
+    timing.reconstruction.command_total_ms - timing.reconstruction.command_busy_ms,
+  );
+  assert.equal(timing.reconstruction.wall_ms, timing.total_ms);
+  assert.equal(timing.host, null);
+  const backgroundIds = new Set(timing.commands.filter(({ kind }) => kind === 'background').map(({ id }) => id));
+  for (const task of timing.tasks) {
+    assert.ok(backgroundIds.has(task.name), `task ${task.name} must have a background command record`);
+  }
+}
+
 function validateTimingReport(timingPath, plugin, taskNames) {
   const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
-  assert.deepEqual(Object.keys(timing), ['schema', 'mode', 'status', 'total_ms', 'phases', 'tasks']);
+  assertCommandTelemetry(timing);
   assert.equal(timing.schema, 1);
   assert.deepEqual(timing.mode, { plugin });
   assert.equal(timing.status, 'passed');
@@ -296,6 +365,8 @@ function testFocusedCiCommandSelection() {
     'scripts/skills/durable-anchors.mjs',
     'scripts/tests/ci-plugin-targeting.mjs',
     'scripts/tests/author-tooling.mjs',
+    'scripts/tests/ci-observability.mjs',
+    'scripts/tests/test-contracts.mjs',
   ];
   const effectKitBiomeCiArgv = ['exec', 'biome', 'ci', 'plugins/effect-kit/test'];
   const sessionRelayBiomeCiArgv = ['exec', 'biome', 'ci', 'scripts', 'plugins/session-relay/test'];
@@ -422,6 +493,7 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(timedCore.calls, 'node', orchestrationArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
     const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
+    assertCommandTelemetry(timing);
     assert.equal(timing.schema, 2);
     assert.deepEqual(timing.mode, { plugin: null, lane: 'core' });
     assert.equal(timing.status, 'passed', JSON.stringify(timing));
@@ -505,6 +577,7 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(relay.calls, 'pnpm', sessionRelayBiomeCiArgv), 1);
     assert.match(relay.result.stdout, /javascript quality/);
     const relayTiming = JSON.parse(fs.readFileSync(relayTimingPath, 'utf8'));
+    assertCommandTelemetry(relayTiming);
     assert.equal(relayTiming.schema, 2);
     assert.deepEqual(
       relayTiming.tasks.map(({ name }) => name),
@@ -1333,9 +1406,16 @@ try {
 
   if (!unitOnly) {
     const timingPath = path.join(tmp, 'effect-kit-timings.json');
+    // The gate records hosted identity whenever GITHUB_ACTIONS is set, and this suite runs unfiltered
+    // inside the hosted targeting-contracts job. Inheriting that marker would make the fixture report
+    // a non-null `host` and fail the closed assertion below on every pull request, so scrub it here
+    // exactly as the focused-selection probe does.
+    const hostFreeEnv = { ...process.env };
+    delete hostFreeEnv.GITHUB_ACTIONS;
     const targeted = spawnSync('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', timingPath], {
       cwd: ROOT,
       encoding: 'utf8',
+      env: hostFreeEnv,
       timeout: 120_000,
     });
     assert.equal(targeted.status, 0, `${targeted.stdout}\n${targeted.stderr}`);
@@ -1346,6 +1426,37 @@ try {
     assert.match(targeted.stdout, /plugin: effect-kit/);
     validateTimingReport(timingPath, 'effect-kit', ['javascript quality']);
     console.log('targeted CI timing report passed');
+
+    // `host` is only populated under GitHub Actions, so prove it with an explicit synthetic
+    // environment rather than leaving the field unexercised by every fixture.
+    const hostedTimingPath = path.join(tmp, 'effect-kit-hosted-timings.json');
+    const hostedEnv = {
+      ...hostFreeEnv,
+      GITHUB_ACTIONS: 'true',
+      GITHUB_RUN_ID: '424242',
+      GITHUB_RUN_ATTEMPT: '2',
+      GITHUB_JOB: 'targeting-contracts',
+      GITHUB_WORKFLOW: 'validate',
+      RUNNER_OS: 'Linux',
+      RUNNER_ARCH: 'X64',
+    };
+    const hosted = spawnSync('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', hostedTimingPath], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: hostedEnv,
+      timeout: 120_000,
+    });
+    assert.equal(hosted.status, 0, `${hosted.stdout}\n${hosted.stderr}`);
+    const hostedTiming = JSON.parse(fs.readFileSync(hostedTimingPath, 'utf8'));
+    assert.deepEqual(hostedTiming.host, {
+      run_id: '424242',
+      run_attempt: '2',
+      job: 'targeting-contracts',
+      workflow: 'validate',
+      runner_os: 'Linux',
+      runner_arch: 'X64',
+    });
+    console.log('hosted CI timing identity passed');
   }
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -1385,7 +1496,32 @@ assert.deepEqual(validation.permissions, { contents: 'read' });
 assert.deepEqual(validation.on.pull_request, { branches: ['main'] });
 assert.deepEqual(validation.on.push, { tags: ['*--v*'] });
 assert.ok(validation.on.workflow_dispatch !== undefined);
-assert.doesNotMatch(validateWorkflow.text, /(?:contents:\s*write|actions\/upload-artifact@)/);
+assert.doesNotMatch(validateWorkflow.text, /contents:\s*write/);
+const HOSTED_TIMING_UPLOAD_ACTION = 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a';
+assert.doesNotMatch(validateWorkflow.text.replaceAll(HOSTED_TIMING_UPLOAD_ACTION, ''), /actions\/[^\s]*artifact[^\s]*/);
+for (const [jobName, job] of Object.entries(validation.jobs)) {
+  const uploadSteps = job.steps.filter(({ uses }) => uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(uploadSteps.length, 1, `${jobName} must publish exactly one timing artifact`);
+  const [uploadStep] = uploadSteps;
+  assert.equal(uploadStep.name, 'publish hosted timing artifact');
+  assert.equal(uploadStep.uses, HOSTED_TIMING_UPLOAD_ACTION);
+  assert.match(uploadStep.if, /always\(\)/);
+  assert.deepEqual(
+    uploadStep.with.path
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    ['${{ runner.temp }}/docks-hosted-timings.jsonl', '${{ runner.temp }}/docks-ci-timings.json'],
+  );
+}
+for (const job of Object.values(validation.jobs)) {
+  for (const cacheStep of job.steps.filter(({ name }) => name === 'cache pnpm store')) {
+    assert.equal(cacheStep.id, 'pnpm-cache');
+  }
+  for (const cacheStep of job.steps.filter(({ name }) => name === 'cache Cargo dependencies and target outputs')) {
+    assert.equal(cacheStep.id, 'cargo-cache');
+  }
+}
 
 const shardJob = validation.jobs['validation-shards'];
 assert.deepEqual(Object.keys(shardJob), ['name', 'if', 'permissions', 'runs-on', 'strategy', 'steps']);
@@ -1422,22 +1558,27 @@ assert.deepEqual(
   [
     'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
     'setup Node 24',
+    'start hosted step timing',
     'enable corepack',
     'configure deterministic pnpm store',
     'cache pnpm store',
     'cache Cargo dependencies and target outputs',
+    'mark hosted cache restore',
     'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
     'materialize claude-code binary (allowBuilds denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     'provision Rust 1.85.0 with musl for the session-relay host leg',
     'run validation lane',
+    'publish hosted timing artifact',
   ],
 );
 for (const name of [
   'enable corepack',
+  'start hosted step timing',
   'configure deterministic pnpm store',
   'cache pnpm store',
+  'mark hosted cache restore',
   'install pnpm dependencies',
   'verify registry signatures',
   'materialize claude-code binary',
@@ -1448,33 +1589,42 @@ for (const name of ['cache Cargo dependencies', 'provision Rust 1.85.0 with musl
   assert.equal(shardStep(name).if, "matrix.lane == 'relay'");
 const shardStepsForLane = (lane) =>
   shardSteps
-    .filter((row) => row.if === undefined || (row.if === "matrix.lane == 'relay'" && lane === 'relay'))
+    .filter(
+      (row) =>
+        row.if === undefined || row.if === 'always()' || (row.if === "matrix.lane == 'relay'" && lane === 'relay'),
+    )
     .map((row) => row.name ?? 'checkout');
 assert.deepEqual(shardStepsForLane('core'), [
   'checkout',
   'setup Node 24',
+  'start hosted step timing',
   'enable corepack',
   'configure deterministic pnpm store',
   'cache pnpm store',
+  'mark hosted cache restore',
   'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
   'verify registry signatures (non-blocking)',
   'materialize claude-code binary (allowBuilds denies it by default)',
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'run validation lane',
+  'publish hosted timing artifact',
 ]);
 assert.deepEqual(shardStepsForLane('relay'), [
   'checkout',
   'setup Node 24',
+  'start hosted step timing',
   'enable corepack',
   'configure deterministic pnpm store',
   'cache pnpm store',
   'cache Cargo dependencies and target outputs',
+  'mark hosted cache restore',
   'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
   'verify registry signatures (non-blocking)',
   'materialize claude-code binary (allowBuilds denies it by default)',
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'provision Rust 1.85.0 with musl for the session-relay host leg',
   'run validation lane',
+  'publish hosted timing artifact',
 ]);
 assert.equal(shardSteps[0].with['persist-credentials'], false);
 assert.equal(shardStep('setup Node 24').with['node-version'], '24');
@@ -1503,14 +1653,17 @@ assert.deepEqual(
   [
     'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
     'setup Node 24',
+    'start hosted step timing',
     'enable corepack',
     'configure deterministic pnpm store',
     'cache pnpm store',
+    'mark hosted cache restore',
     'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
     'materialize claude-code binary (allowBuilds denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     'run non-unit plugin-targeting contracts',
+    'publish hosted timing artifact',
   ],
 );
 for (const name of [
@@ -1525,10 +1678,19 @@ for (const name of [
 ]) {
   assert.deepEqual(targetingStep(name), shardStep(name), `${name}: targeting-contract setup drifted from shard setup`);
 }
+for (const name of ['start hosted step timing', 'mark hosted cache restore']) {
+  assert.ok(shardStep(name), `${name} must exist in validation-shards`);
+  assert.ok(targetingStep(name), `${name} must exist in targeting-contracts`);
+}
+assert.match(shardStep('mark hosted cache restore').run, /steps\.cargo-cache\.outputs\.cache-hit/);
+assert.doesNotMatch(targetingStep('mark hosted cache restore').run, /steps\.cargo-cache\.outputs\.cache-hit/);
 assert.deepEqual(targetingSteps[0], shardSteps[0]);
 assert.deepEqual(targetingStep('run non-unit plugin-targeting contracts'), {
   name: 'run non-unit plugin-targeting contracts',
-  run: 'node scripts/tests/ci-plugin-targeting.mjs',
+  run:
+    `node scripts/tests/ci-plugin-targeting.mjs\n` +
+    `printf '{"step":"run non-unit plugin-targeting contracts","at_ms":%s}\\n'` +
+    ` "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"\n`,
 });
 
 const validateJob = validation.jobs.validate;
@@ -1544,16 +1706,19 @@ assert.deepEqual(
     'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
     'setup Node 24',
     'resolve CI target',
+    'start hosted step timing',
     'enable corepack',
     'configure deterministic pnpm store',
     'cache pnpm store',
     'cache Cargo dependencies and target outputs',
+    'mark hosted cache restore',
     'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
     'materialize claude-code binary (allowBuilds denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     'provision Rust 1.85.0 with musl for the session-relay host leg',
     'run the authoritative gate (scripts/ci.mjs)',
+    'publish hosted timing artifact',
     'assert successful prerequisite jobs',
   ],
 );
@@ -1562,15 +1727,18 @@ const pushCondition = "github.event_name == 'push'";
 const pullRequestCondition = "github.event_name == 'pull_request'";
 const nonPullRequestRustCondition =
   "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
+const hostedTimingPublishCondition = "always() && github.event_name != 'pull_request'";
 const validateStepLabel = (row) => row.name ?? 'checkout';
 assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), row.if])), {
   checkout: nonPullRequestCondition,
   'setup Node 24': nonPullRequestCondition,
   'resolve CI target': pushCondition,
+  'start hosted step timing': nonPullRequestCondition,
   'enable corepack': nonPullRequestCondition,
   'configure deterministic pnpm store': nonPullRequestCondition,
   'cache pnpm store': nonPullRequestCondition,
   'cache Cargo dependencies and target outputs': nonPullRequestRustCondition,
+  'mark hosted cache restore': nonPullRequestCondition,
   'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)': nonPullRequestCondition,
   'verify registry signatures (non-blocking)': nonPullRequestCondition,
   'materialize claude-code binary (allowBuilds denies it by default)': nonPullRequestCondition,
@@ -1578,6 +1746,7 @@ assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), 
   'provision Rust 1.85.0 with musl for the session-relay host leg': nonPullRequestRustCondition,
   'run the authoritative gate (scripts/ci.mjs)': nonPullRequestCondition,
   'assert successful prerequisite jobs': undefined,
+  'publish hosted timing artifact': hostedTimingPublishCondition,
 });
 function effectiveValidateInventory(eventName, needsRust = false) {
   return steps
@@ -1591,6 +1760,8 @@ function effectiveValidateInventory(eventName, needsRust = false) {
           return eventName === 'pull_request';
         case nonPullRequestRustCondition:
           return eventName !== 'pull_request' && (eventName !== 'push' || needsRust);
+        case hostedTimingPublishCondition:
+          return eventName !== 'pull_request';
         case undefined:
           return true;
         default:
@@ -1602,16 +1773,19 @@ function effectiveValidateInventory(eventName, needsRust = false) {
 const fullValidateInventory = [
   'checkout',
   'setup Node 24',
+  'start hosted step timing',
   'enable corepack',
   'configure deterministic pnpm store',
   'cache pnpm store',
   'cache Cargo dependencies and target outputs',
+  'mark hosted cache restore',
   'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
   'verify registry signatures (non-blocking)',
   'materialize claude-code binary (allowBuilds denies it by default)',
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'provision Rust 1.85.0 with musl for the session-relay host leg',
   'run the authoritative gate (scripts/ci.mjs)',
+  'publish hosted timing artifact',
   'assert successful prerequisite jobs',
 ];
 assert.deepEqual(effectiveValidateInventory('pull_request'), ['assert successful prerequisite jobs']);
@@ -1626,14 +1800,17 @@ assert.deepEqual(effectiveValidateInventory('push', false), [
   'checkout',
   'setup Node 24',
   'resolve CI target',
+  'start hosted step timing',
   'enable corepack',
   'configure deterministic pnpm store',
   'cache pnpm store',
+  'mark hosted cache restore',
   'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
   'verify registry signatures (non-blocking)',
   'materialize claude-code binary (allowBuilds denies it by default)',
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'run the authoritative gate (scripts/ci.mjs)',
+  'publish hosted timing artifact',
   'assert successful prerequisite jobs',
 ]);
 assert.equal(step('resolve CI target').if, "github.event_name == 'push'");
@@ -1649,19 +1826,31 @@ assert.match(
   authoritativeGateRun,
   /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/,
 );
-assert.match(authoritativeGateRun, /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP" node scripts\/ci\.mjs$/m);
+assert.match(
+  authoritativeGateRun,
+  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*node scripts\/ci\.mjs[\s\\]*--timings-json "\$RUNNER_TEMP\/docks-ci-timings\.json"/,
+);
 const signatureAudit = step('verify registry signatures (non-blocking)');
-assert.equal(signatureAudit.run, 'npm audit signatures');
+assert.deepEqual(
+  signatureAudit.run,
+  `status=0\n` +
+    `npm audit signatures || status=$?\n` +
+    `printf '{"step":"verify registry signatures (non-blocking)","at_ms":%s}\\n'` +
+    ` "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"\n` +
+    `exit "$status"\n`,
+);
 assert.equal(signatureAudit['continue-on-error'], true);
 const setupNode = steps.find((row) => typeof row.uses === 'string' && row.uses.startsWith('actions/setup-node@'));
 assert.ok(setupNode);
 assert.equal(setupNode.with['node-version'], '24');
 assert.ok(steps.indexOf(step('resolve CI target')) < steps.indexOf(step('cache pnpm store')));
 const pnpmCache = step('cache pnpm store');
+assert.equal(pnpmCache.id, 'pnpm-cache');
 assert.equal(pnpmCache.with.path, '~/.pnpm-store');
 assert.match(pnpmCache.with.key, /runner\.os.*runner\.arch.*hashFiles\('pnpm-lock\.yaml', 'package\.json'\)/);
 assert.match(pnpmCache.with['restore-keys'], /pnpm-v11-.*runner\.os.*runner\.arch/);
 const cargoCache = step('cache Cargo dependencies and target outputs');
+assert.equal(cargoCache.id, 'cargo-cache');
 assert.equal(cargoCache.if, nonPullRequestRustCondition);
 assert.match(
   cargoCache.with.key,
@@ -1690,7 +1879,8 @@ for (const name of [
 }
 const authoritativeGate = step('run the authoritative gate');
 const prerequisiteAssertion = step('assert successful prerequisite jobs');
-assert.equal(steps.at(-2), authoritativeGate);
+assert.equal(steps.at(-3), authoritativeGate);
+assert.equal(steps.at(-2).name, 'publish hosted timing artifact');
 assert.equal(steps.at(-1), prerequisiteAssertion);
 assert.deepEqual(Object.keys(prerequisiteAssertion), ['name', 'env', 'run']);
 assert.deepEqual(prerequisiteAssertion.env, {

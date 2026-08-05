@@ -10,7 +10,9 @@
     "format:js": "biome format --write scripts tests plugins/session-relay/test plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks package.json biome.json",
     "lint:js": "biome lint scripts tests plugins/session-relay/test plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts plugins/docks/skills/productivity/write-skill/scripts",
     "check:js": "biome ci scripts tests plugins/session-relay/test plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks package.json biome.json && biome lint plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts plugins/docks/skills/productivity/write-skill/scripts",
-    "test:unit": "node --test --test-concurrency=4 scripts/tests/unit/*.test.mjs"
+    "test:unit": "node --test --test-concurrency=4 scripts/tests/unit/*.test.mjs",
+    "test:observability": "node scripts/tests/ci-observability.mjs",
+    "test:contracts": "node scripts/tests/test-contracts.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/claude-code": "2.1.158",

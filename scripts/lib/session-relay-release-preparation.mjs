@@ -123,7 +123,8 @@ const NON_PULL_REQUEST_CONDITION = "github.event_name != 'pull_request'";
 const NON_PULL_REQUEST_RUST_CONDITION =
   "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
 const SHARD_GATE_RUN = `if [ "\${{ matrix.lane }}" != "relay" ]; then
-  node scripts/ci.mjs --lane "\${{ matrix.lane }}"
+  node scripts/ci.mjs --lane "\${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+  printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
   exit
 fi
 CURRENT_CGROUP=
@@ -167,11 +168,13 @@ sudo -n chown "$(id -u):$(id -g)" \\
 (
   test_pid=$BASHPID
   sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
-  SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "\${{ matrix.lane }}"
+  SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "\${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
 )
+printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
 `;
 const AUTHORITATIVE_GATE_RUN = `if [ "\${{ github.event_name }}" = "push" ] && [ "\${{ steps.target.outputs.needs_rust }}" != "true" ]; then
-  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
+  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+  printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
   exit
 fi
 CURRENT_CGROUP=
@@ -216,12 +219,12 @@ sudo -n chown "$(id -u):$(id -g)" \\
   test_pid=$BASHPID
   sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
   if [ "\${{ github.event_name }}" = "push" ]; then
-    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" \\
-      node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}"
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
   else
-    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
   fi
 )
+printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
 `;
 
 const REQUIRED_CI_STEPS = [
@@ -233,39 +236,109 @@ const REQUIRED_CI_STEPS = [
   'provision Rust 1.85.0 with musl for the session-relay host leg',
   'run the authoritative gate (scripts/ci.mjs)',
 ];
-const REQUIRED_CI_STEP_NUMBERS = [3, 5, 9, 11, 12, 13, 14];
+const REQUIRED_CI_STEP_NUMBERS = [3, 6, 11, 13, 14, 15, 16];
 const EXPECTED_CI_STEP_DEFINITIONS = [
   {
     name: 'setup Node 24',
     if: NON_PULL_REQUEST_CONDITION,
     uses: 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e',
-    with: { 'node-version': '24' },
+    with: {
+      'node-version': '24',
+    },
   },
-  { name: 'enable corepack', if: NON_PULL_REQUEST_CONDITION, run: 'corepack enable' },
+  {
+    name: 'enable corepack',
+    if: NON_PULL_REQUEST_CONDITION,
+    run: 'corepack enable',
+  },
   {
     name: 'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     if: NON_PULL_REQUEST_CONDITION,
-    run: 'pnpm install --frozen-lockfile',
+    run: `pnpm install --frozen-lockfile
+printf '{"step":"install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
   },
   {
     name: 'materialize claude-code binary (allowBuilds denies it by default)',
     if: NON_PULL_REQUEST_CONDITION,
-    run: 'node node_modules/@anthropic-ai/claude-code/install.cjs',
+    run: `node node_modules/@anthropic-ai/claude-code/install.cjs
+printf '{"step":"materialize claude-code binary (allowBuilds denies it by default)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
   },
   {
     name: 'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     if: NON_PULL_REQUEST_CONDITION,
-    run: 'echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"',
+    run: `echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
   },
   {
     name: 'provision Rust 1.85.0 with musl for the session-relay host leg',
     if: NON_PULL_REQUEST_RUST_CONDITION,
-    run: 'if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then\n  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools\n  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)\nfi\n',
+    run: `if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then
+  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)
+fi
+printf '{"step":"provision Rust 1.85.0 with musl for the session-relay host leg","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
   },
   {
     name: 'run the authoritative gate (scripts/ci.mjs)',
     if: NON_PULL_REQUEST_CONDITION,
-    run: AUTHORITATIVE_GATE_RUN,
+    run: `if [ "\${{ github.event_name }}" = "push" ] && [ "\${{ steps.target.outputs.needs_rust }}" != "true" ]; then
+  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+  printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+  exit
+fi
+CURRENT_CGROUP=
+while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
+  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
+    CURRENT_CGROUP="$CGROUP_PATH"
+    break
+  fi
+done < /proc/self/cgroup
+test -n "$CURRENT_CGROUP"
+CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-validate"
+sudo -n mkdir "$CGROUP"
+cleanup() {
+  status=$?
+  trap - EXIT
+  for _ in {1..100}; do
+    grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+    sleep 0.05
+  done
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
+    echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
+    status=1
+    if [ -f "$CGROUP/cgroup.kill" ]; then
+      printf '1\\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
+      for _ in {1..100}; do
+        grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+        sleep 0.05
+      done
+    fi
+  fi
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
+    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
+sudo -n chown "$(id -u):$(id -g)" \\
+  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
+(
+  test_pid=$BASHPID
+  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
+  if [ "\${{ github.event_name }}" = "push" ]; then
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+  else
+    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+  fi
+)
+printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
   },
 ];
 function expectedCiJobSteps() {
@@ -273,14 +346,24 @@ function expectedCiJobSteps() {
     {
       uses: 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
       if: NON_PULL_REQUEST_CONDITION,
-      with: { ref: `\${{ github.sha }}`, 'persist-credentials': false, 'fetch-depth': 0 },
+      with: {
+        ref: `\${{ github.sha }}`,
+        'persist-credentials': false,
+        'fetch-depth': 0,
+      },
     },
     EXPECTED_CI_STEP_DEFINITIONS[0],
     {
       name: 'resolve CI target',
       id: 'target',
-      if: "github.event_name == 'push'",
+      if: `github.event_name == 'push'`,
       run: 'node scripts/ci-target.mjs release-tag "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"',
+    },
+    {
+      name: 'start hosted step timing',
+      if: NON_PULL_REQUEST_CONDITION,
+      run: `printf '{"step":"start hosted step timing","at_ms":%s,"job":"%s","run_id":"%s","run_attempt":"%s","runner_os":"%s","runner_arch":"%s"}\\n' "$(date +%s%3N)" "$GITHUB_JOB" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$RUNNER_OS" "$RUNNER_ARCH" > "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
     },
     EXPECTED_CI_STEP_DEFINITIONS[1],
     {
@@ -290,6 +373,7 @@ function expectedCiJobSteps() {
     },
     {
       name: 'cache pnpm store',
+      id: 'pnpm-cache',
       if: NON_PULL_REQUEST_CONDITION,
       uses: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
       with: {
@@ -300,22 +384,51 @@ function expectedCiJobSteps() {
     },
     {
       name: 'cache Cargo dependencies and target outputs',
+      id: 'cargo-cache',
       if: NON_PULL_REQUEST_RUST_CONDITION,
       uses: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
       with: {
-        path: '~/.cargo/registry\n~/.cargo/git\nplugins/session-relay/rust/target\n',
+        path: `~/.cargo/registry
+~/.cargo/git
+plugins/session-relay/rust/target
+`,
         key: `cargo-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-\${{ hashFiles('plugins/session-relay/rust/src/**/*.rs', 'plugins/session-relay/rust/build.rs', 'plugins/session-relay/rust/tests/**/*.rs', 'plugins/session-relay/rust/.cargo/config', 'plugins/session-relay/rust/.cargo/config.toml') }}`,
         'restore-keys': `cargo-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-`,
       },
+    },
+    {
+      name: 'mark hosted cache restore',
+      if: NON_PULL_REQUEST_CONDITION,
+      run: `printf '{"step":"mark hosted cache restore","at_ms":%s,"pnpm_cache_hit":"%s","pnpm_cache_key":"%s","cargo_cache_hit":"%s","cargo_cache_key":"%s"}\\n' "$(date +%s%3N)" '\${{ steps.pnpm-cache.outputs.cache-hit }}' '\${{ steps.pnpm-cache.outputs.cache-primary-key }}' '\${{ steps.cargo-cache.outputs.cache-hit }}' '\${{ steps.cargo-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
     },
     EXPECTED_CI_STEP_DEFINITIONS[2],
     {
       name: 'verify registry signatures (non-blocking)',
       if: NON_PULL_REQUEST_CONDITION,
       'continue-on-error': true,
-      run: 'npm audit signatures',
+      run: `status=0
+npm audit signatures || status=$?
+printf '{"step":"verify registry signatures (non-blocking)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+exit "$status"
+`,
     },
-    ...EXPECTED_CI_STEP_DEFINITIONS.slice(3),
+    EXPECTED_CI_STEP_DEFINITIONS[3],
+    EXPECTED_CI_STEP_DEFINITIONS[4],
+    EXPECTED_CI_STEP_DEFINITIONS[5],
+    EXPECTED_CI_STEP_DEFINITIONS[6],
+    {
+      name: 'publish hosted timing artifact',
+      if: `always() && github.event_name != 'pull_request'`,
+      uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+      with: {
+        name: 'docks-hosted-timings-validate',
+        path: `\${{ runner.temp }}/docks-hosted-timings.jsonl
+\${{ runner.temp }}/docks-ci-timings.json
+`,
+        'if-no-files-found': 'warn',
+      },
+    },
   ];
 }
 
@@ -323,20 +436,36 @@ function expectedValidationShardSteps() {
   return [
     {
       uses: 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
-      with: { ref: `\${{ github.sha }}`, 'persist-credentials': false, 'fetch-depth': 0 },
+      with: {
+        ref: `\${{ github.sha }}`,
+        'persist-credentials': false,
+        'fetch-depth': 0,
+      },
     },
     {
       name: 'setup Node 24',
       uses: 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e',
-      with: { 'node-version': '24' },
+      with: {
+        'node-version': '24',
+      },
     },
-    { name: 'enable corepack', run: 'corepack enable' },
+    {
+      name: 'start hosted step timing',
+      run: `# A stamped step's duration is its stamp minus the preceding stamp.
+printf '{"step":"start hosted step timing","at_ms":%s,"job":"%s","run_id":"%s","run_attempt":"%s","runner_os":"%s","runner_arch":"%s"}\\n' "$(date +%s%3N)" "\${GITHUB_JOB}-\${{ matrix.lane }}" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$RUNNER_OS" "$RUNNER_ARCH" > "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
+    },
+    {
+      name: 'enable corepack',
+      run: 'corepack enable',
+    },
     {
       name: 'configure deterministic pnpm store',
       run: 'pnpm config set store-dir "$HOME/.pnpm-store"',
     },
     {
       name: 'cache pnpm store',
+      id: 'pnpm-cache',
       uses: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
       with: {
         path: '~/.pnpm-store',
@@ -346,37 +475,125 @@ function expectedValidationShardSteps() {
     },
     {
       name: 'cache Cargo dependencies and target outputs',
-      if: "matrix.lane == 'relay'",
+      id: 'cargo-cache',
+      if: `matrix.lane == 'relay'`,
       uses: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
       with: {
-        path: '~/.cargo/registry\n~/.cargo/git\nplugins/session-relay/rust/target\n',
+        path: `~/.cargo/registry
+~/.cargo/git
+plugins/session-relay/rust/target
+`,
         key: `cargo-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-\${{ hashFiles('plugins/session-relay/rust/src/**/*.rs', 'plugins/session-relay/rust/build.rs', 'plugins/session-relay/rust/tests/**/*.rs', 'plugins/session-relay/rust/.cargo/config', 'plugins/session-relay/rust/.cargo/config.toml') }}`,
         'restore-keys': `cargo-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-`,
       },
     },
     {
+      name: 'mark hosted cache restore',
+      run: `printf '{"step":"mark hosted cache restore","at_ms":%s,"pnpm_cache_hit":"%s","pnpm_cache_key":"%s","cargo_cache_hit":"%s","cargo_cache_key":"%s"}\\n' "$(date +%s%3N)" '\${{ steps.pnpm-cache.outputs.cache-hit }}' '\${{ steps.pnpm-cache.outputs.cache-primary-key }}' '\${{ steps.cargo-cache.outputs.cache-hit }}' '\${{ steps.cargo-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
+    },
+    {
       name: 'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
-      run: 'pnpm install --frozen-lockfile',
+      run: `pnpm install --frozen-lockfile
+printf '{"step":"install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
     },
     {
       name: 'verify registry signatures (non-blocking)',
       'continue-on-error': true,
-      run: 'npm audit signatures',
+      run: `status=0
+npm audit signatures || status=$?
+printf '{"step":"verify registry signatures (non-blocking)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+exit "$status"
+`,
     },
     {
       name: 'materialize claude-code binary (allowBuilds denies it by default)',
-      run: 'node node_modules/@anthropic-ai/claude-code/install.cjs',
+      run: `node node_modules/@anthropic-ai/claude-code/install.cjs
+printf '{"step":"materialize claude-code binary (allowBuilds denies it by default)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
     },
     {
       name: 'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-      run: 'echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"',
+      run: `echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
     },
     {
       name: 'provision Rust 1.85.0 with musl for the session-relay host leg',
-      if: "matrix.lane == 'relay'",
-      run: 'if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then\n  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools\n  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)\nfi\n',
+      if: `matrix.lane == 'relay'`,
+      run: `if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then
+  sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+  (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)
+fi
+printf '{"step":"provision Rust 1.85.0 with musl for the session-relay host leg","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
     },
-    { name: 'run validation lane', run: SHARD_GATE_RUN },
+    {
+      name: 'run validation lane',
+      run: `if [ "\${{ matrix.lane }}" != "relay" ]; then
+  node scripts/ci.mjs --lane "\${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+  printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+  exit
+fi
+CURRENT_CGROUP=
+while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
+  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
+    CURRENT_CGROUP="$CGROUP_PATH"
+    break
+  fi
+done < /proc/self/cgroup
+test -n "$CURRENT_CGROUP"
+CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-\${{ matrix.lane }}"
+sudo -n mkdir "$CGROUP"
+cleanup() {
+  status=$?
+  trap - EXIT
+  for _ in {1..100}; do
+    grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+    sleep 0.05
+  done
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
+    echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
+    status=1
+    if [ -f "$CGROUP/cgroup.kill" ]; then
+      printf '1\\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
+      for _ in {1..100}; do
+        grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
+        sleep 0.05
+      done
+    fi
+  fi
+  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
+    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
+sudo -n chown "$(id -u):$(id -g)" \\
+  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
+(
+  test_pid=$BASHPID
+  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
+  SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "\${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+)
+printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
+    },
+    {
+      name: 'publish hosted timing artifact',
+      if: 'always()',
+      uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+      with: {
+        name: `docks-hosted-timings-validation-shards-\${{ matrix.lane }}`,
+        path: `\${{ runner.temp }}/docks-hosted-timings.jsonl
+\${{ runner.temp }}/docks-ci-timings.json
+`,
+        'if-no-files-found': 'warn',
+      },
+    },
   ];
 }
 
