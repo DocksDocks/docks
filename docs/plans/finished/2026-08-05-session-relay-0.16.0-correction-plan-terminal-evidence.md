@@ -2,11 +2,11 @@
 title: Correct the Session Relay correction-plan terminal status contradiction
 goal: Preserve a durable successor correction for the immutable Session Relay 0.16.0 terminal-evidence correction plan, bind its false all-steps-done promise to the already observed terminal publication evidence, and validate that exact promise without weakening generic PlanRun validation.
 plan_hash_mode: status-excluded-v1
-status: ongoing
+status: finished
 created: "2026-08-05T00:33:50.874+00:00"
-updated: "2026-08-05T01:17:50.827+00:00"
+updated: "2026-08-05T01:34:25.537+00:00"
 started_at: "2026-08-05T01:09:29.098+00:00"
-finished_at: null
+finished_at: "2026-08-05T01:34:25.537+00:00"
 assignee: null
 tags: [plans, session-relay, evidence-correction, lifecycle]
 affected_paths:
@@ -18,7 +18,7 @@ related_plans:
 
 # Correct the Session Relay correction-plan terminal status contradiction
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_contract_contradiction"],"input_sha256":"3e2635567ff4b7169cb73d52377ad66ab68f3cfc63933b751c20ba5ca0b1a43e","invocations":2,"result_sha256":"64c48733c5e514a786e1578d3e78d7e83bccac114468b2fd6f35555a38004123","state":"passed"},"execution_parent":"0f858b307fc5b15062fb68c18f06594557a73a14","goal_id":"4550fa07-cf4a-4fb7-a3c1-e7a011908f70","implementation_commit":null,"plan_path":"docs/plans/active/session-relay-0.16.0-correction-plan-terminal-evidence.md","plan_sha256":"4cc1ef30af8d5b6e36683c80055e4b5b5954eafacbd8f8fc515cd347509215ab","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push"],"risk":"external","run_id":"a8147a98-a154-4e8f-aac0-106250378a19","schema":1,"source_base":"0f858b307fc5b15062fb68c18f06594557a73a14","source_sha256":"80984ac199be36f886aa09eadac2975145b026077c0f5db66cf7020b956cecea"}
+Plan-run: {"acceptance":{"source_sha256":"affa739172925465874774f6b7f15edd22e521a6ac43c594c6c7474a67ac05de","verification_sha256":"a9a80d351d5bae47d6b78a3a42cf14d6681d5391a83020feea32973528d5ff57"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"79b2ea49aa8f2e49e0294cda7012c83376a7b08e5d7e0e4669a530fdf0bb27e2","invocations":1,"result_sha256":"b08d3080936135ab15637aac90e0f8b8770a054099bd6c281b89b7cc8f5f114e","state":"passed"},"draft_review":{"accepted_classes":["v1_contract_contradiction"],"input_sha256":"3e2635567ff4b7169cb73d52377ad66ab68f3cfc63933b751c20ba5ca0b1a43e","invocations":2,"result_sha256":"64c48733c5e514a786e1578d3e78d7e83bccac114468b2fd6f35555a38004123","state":"passed"},"execution_parent":"0f858b307fc5b15062fb68c18f06594557a73a14","goal_id":"4550fa07-cf4a-4fb7-a3c1-e7a011908f70","implementation_commit":"64cd7b8add6257cdfc9ad96b129b122bf74b9063","plan_path":"docs/plans/active/session-relay-0.16.0-correction-plan-terminal-evidence.md","plan_sha256":"4cc1ef30af8d5b6e36683c80055e4b5b5954eafacbd8f8fc515cd347509215ab","repository_id":"DocksDocks/docks","requested_effects":["local","probe","push"],"risk":"external","run_id":"a8147a98-a154-4e8f-aac0-106250378a19","schema":1,"source_base":"0f858b307fc5b15062fb68c18f06594557a73a14","source_sha256":"80984ac199be36f886aa09eadac2975145b026077c0f5db66cf7020b956cecea"}
 
 ## Goal
 
@@ -42,7 +42,7 @@ The predecessor plan and evidence remain immutable. This plan uses `status-exclu
 | 2 | write_successor_record | Write the closed successor correction record and bounded validator. | `docs/release-evidence/session-relay-0.16.0-terminal-correction-successor.md`, `scripts/tests/plan-orchestration/session-relay-terminal-correction-successor.mjs` | inspect_predecessor | `local` | `done` | One `SessionRelayTerminalEvidenceCorrectionSuccessorV1` object binds the predecessor plan, predecessor evidence SHA-256 `e0c9363e06d434250c398e5b8987e943f2ed11c04bb525a7236f67173a13f775`, reviewed implementation `98ea3821689bdfb04c919023cccac9401ff61c63`, archive publication commit `ef625042b7db018cb60def998a31b165b08b87ef`, and the exact contradiction. |
 | 3 | validate_successor_record | Run the plan-specific closed-record validator. | `docs/release-evidence/session-relay-0.16.0-terminal-correction-successor.md`, `scripts/tests/plan-orchestration/session-relay-terminal-correction-successor.mjs` | write_successor_record | `local` | `done` | The validator reparses both immutable predecessors and the successor, rejects extra or missing keys, proves the exact `bind_and_publish_correction` promise fails in the predecessor, and proves the successor binds the terminal evidence. A negative mutation of the recorded status or promise must fail. |
 | 4 | reobserve_predecessor_remote | Re-observe the prior correction publication without mutation. | `docs/release-evidence/session-relay-0.16.0-terminal-correction-successor.md` | validate_successor_record | `probe` | `done` | With live probe authority, remote main contains commit `ef625042b7db018cb60def998a31b165b08b87ef`, serves both immutable predecessor paths at their bound digests, and omits the old active predecessor path; any mismatch blocks before completion review. |
-| 5 | review_archive_publish | Bind completion review and prepare the terminal archive checkpoint. | all affected paths in frontmatter | reobserve_predecessor_remote | `local` | `planned` | CompletionReviewV1 passes on the exact implementation checkpoint, all implementation and verification evidence is bound, and the row becomes `done` before the local archive commit. |
+| 5 | review_archive_publish | Bind completion review and prepare the terminal archive checkpoint. | all affected paths in frontmatter | reobserve_predecessor_remote | `local` | `done` | CompletionReviewV1 passes on the exact implementation checkpoint, all implementation and verification evidence is bound, and the row becomes `done` before the local archive commit. |
 
 ## Acceptance criteria
 
@@ -89,6 +89,16 @@ Plan-attempt-history: {"authorization_source_sha256":"8f8550c24403f68175a0310de0
 
 Plan-review-result: {"findings":[{"class":"v1_contract_contradiction","defect":"The review_archive_publish row cannot truthfully be done before push because its completion requires the push and remote readback, while acceptance requires all five rows done before that push. This recreates the terminal-status contradiction.","fix":"Limit the final row to review and local archive preparation that completes before push. Keep the authorized push and remote readback as terminal lifecycle acceptance after all row statuses are done.","id":"F1","kind":"contradiction","locator":"plan.md:35,45,54-55"}],"invocation":1,"plan_sha256":"6766dc5d440a7d0059be59e3896a4d0f057216addab8ef4c0ad278aef2b79c84","run_id":"a8147a98-a154-4e8f-aac0-106250378a19","schema":1,"source_sha256":"80984ac199be36f886aa09eadac2975145b026077c0f5db66cf7020b956cecea","verdict":"repair"}
 
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"b9e4decca0b6ce8e7d1e9e16db3766b2287c51b6b27f207deb538be2e771fa8d","findings":[],"implementation_commit":"64cd7b8add6257cdfc9ad96b129b122bf74b9063","invocation":1,"run_id":"a8147a98-a154-4e8f-aac0-106250378a19","schema":1,"verdict":"pass"}
+
 ## Verification Results
 
-N/A — manager-written after execution.
+- The plan-specific positive validator passed on exact predecessor and successor bytes.
+- The status-mutation and promise-mutation modes each passed by proving that the validator rejected the altered predecessor.
+- The predecessor probe observed remote main `0f858b307fc5b15062fb68c18f06594557a73a14`; archive commit `ef625042b7db018cb60def998a31b165b08b87ef` is its ancestor.
+- The probe read both immutable predecessor paths at SHA-256 `5616f8060401f17bf150108ad9d00fae7eb109602d5f46dc3ffb4a790701a30d` and `e0c9363e06d434250c398e5b8987e943f2ed11c04bb525a7236f67173a13f775`, and confirmed the old active path is absent.
+- The validator has no language-server diagnostics. The active plan self-check passed.
+- `git diff --check` passed and `node scripts/ci.mjs` passed all four plugins plus repository-wide checks.
+- Implementation checkpoint: 64cd7b8add6257cdfc9ad96b129b122bf74b9063.
