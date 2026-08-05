@@ -10,9 +10,12 @@ acceptance remain authoritative.
 | Stage | Plan | Start gate |
 |---:|---|---|
 | 1 | [`ci-observability-and-test-contracts.md`](active/ci-observability-and-test-contracts.md) | Start first. |
-| 2 | [`session-relay-typed-irc-sqlite.md`](active/session-relay-typed-irc-sqlite.md) | Stage 1 is finished and its full gate is green. |
-| 2 | [`plan-lifecycle-review-and-authority-modules.md`](active/plan-lifecycle-review-and-authority-modules.md) | Stage 1 is finished; this may run in parallel with Relay vNext. |
-| 3 | [`session-relay-post-cutover-modules.md`](active/session-relay-post-cutover-modules.md) | Relay vNext is finished and its selected plugin gate is green. |
+| 2 | [`plan-execution-queue-contract.md`](active/plan-execution-queue-contract.md) | CI observability is finished and its full gate is green; implement next so PlanQueueV1 manages the remaining queue. |
+| 3 | [`session-relay-typed-irc-sqlite.md`](active/session-relay-typed-irc-sqlite.md) | PlanQueueV1 is finished and the CI observability gate remains green. |
+| 3 | [`plan-lifecycle-review-and-authority-modules.md`](active/plan-lifecycle-review-and-authority-modules.md) | PlanQueueV1 is finished; this may run in parallel with Relay vNext. |
+| 4 | [`session-relay-post-cutover-modules.md`](active/session-relay-post-cutover-modules.md) | Relay vNext is finished and its selected plugin gate is green. |
+| 4 | [`plan-lifecycle-review-dispatch-performance.md`](active/plan-lifecycle-review-dispatch-performance.md) | CI observability and Plan Lifecycle authority modules are finished. |
+| 5 | [`plan-lifecycle-derived-history-navigation.md`](active/plan-lifecycle-derived-history-navigation.md) | Plan Lifecycle authority modules, review dispatch performance, and PlanQueueV1 are finished. |
 
 ## OptMem design input
 
