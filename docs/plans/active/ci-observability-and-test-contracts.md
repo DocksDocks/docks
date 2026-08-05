@@ -2,10 +2,10 @@
 title: Make CI timing and test ownership authoritative
 goal: Measure every CI command correctly and establish one discoverable owner for each versioned test contract without changing test selection or release evidence.
 plan_hash_mode: status-excluded-v1
-status: planned
+status: ongoing
 created: "2026-08-05T03:40:58.144Z"
-updated: "2026-08-05T03:48:07.577+00:00"
-started_at: null
+updated: "2026-08-05T14:28:46.466Z"
+started_at: "2026-08-05T14:28:46.466Z"
 finished_at: null
 assignee: null
 tags: [ci, testing, observability, contracts]
@@ -21,6 +21,7 @@ affected_paths:
   - scripts/config/test-contracts.json
   - scripts/lib/ci-background-task.mjs
   - scripts/tests/ci-observability.mjs
+  - scripts/tests/ci-plugin-targeting.mjs
   - scripts/tests/test-contracts.mjs
   - scripts/tests/unit/ci-background-task.test.mjs
 related_plans: []
@@ -28,7 +29,7 @@ related_plans: []
 
 # Make CI timing and test ownership authoritative
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"429729c55c63bf10c16ba135de8fa5a761469602331e2871dfd2e259d989bea1","invocations":1,"result_sha256":"56a2788a9a5ba24ab2e9e51dc774d758f6c77d81d0a116903086c93336e9f48d","state":"passed"},"execution_parent":null,"goal_id":"213aef20-2306-4f43-bcb2-80f7591665e9","implementation_commit":null,"plan_path":"docs/plans/active/ci-observability-and-test-contracts.md","plan_sha256":"ea72392d52b2905318fd2abc8435e0818ab39ea3d664a6a50a1937d906e153be","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"bd2d28c3-5b5c-4c4b-bbe3-8427aa1f260a","schema":1,"source_base":"672246bd388d3f34475be70857e3ec0dcb222b23","source_sha256":"3711a030437cb98b6a98e2ae783934cfccb987fd8e980e9e0284b49f6d554c93"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_contract_contradiction"],"input_sha256":"055648447f148c4d58236b977488d62ddf3de09d1d2a9fd9fbaba36947ea0b4e","invocations":2,"result_sha256":"0316ae9f6e322e7ebcb2d6b7d220fb9e66498cd3121b8d886f462301d23d3e4e","state":"passed"},"execution_parent":"535ad4f8232ee7aeb345c2531ea67f7d41ff8884","goal_id":"213aef20-2306-4f43-bcb2-80f7591665e9","implementation_commit":null,"plan_path":"docs/plans/active/ci-observability-and-test-contracts.md","plan_sha256":"a9c94636f0dc96845bec0ad45060bdcf77e78d61708719342b3c60745381b7d5","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"01d4c7d0-1bca-4fb3-ae61-9f6fc89f9f17","schema":1,"source_base":"535ad4f8232ee7aeb345c2531ea67f7d41ff8884","source_sha256":"97b673f9bc6a5c1f5a81f7b6763dc0a0384987f59bcf4c0662efc54be498ba99"}
 
 ## Goal
 
@@ -53,11 +54,11 @@ The test registry is declarative data. It maps each normative contract to one su
 | # | Id | Task | Files | Depends | Effect | Status | Done when / failure action |
 |---:|---|---|---|---|---|---|---|
 | 1 | characterize_timing | Add deterministic red contracts for child spawn/exit duration, concurrent task accounting, failed-log retention, and full wall-time reconstruction. | `scripts/tests/unit/ci-background-task.test.mjs`; `scripts/tests/ci-observability.mjs` | — | `local` | `planned` | Fixtures reproduce the current await-lifetime error and prove actual monotonic process start/exit accounting within `max(1 s, 1%)`; failure preserves complete output. |
-| 2 | fix_command_telemetry | Record every orchestrated command at actual spawn and exit with argv identity, status, duration, overlap, and retained artifact metadata. | `scripts/lib/ci-background-task.mjs`; `scripts/ci.mjs` | 1 | `local` | `planned` | Timing JSON reconstructs observed local wall time, distinguishes phase and child intervals, and never reports an unfinished child as passed; failure leaves authoritative logs. |
-| 3 | capture_hosted_costs | Emit and upload success or failure timing artifacts for checkout-adjacent install, cache, Claude materialization, Rust provisioning, and gate steps without changing trigger topology. | `.github/workflows/ci.yml`; `.github/AGENTS.md`; `scripts/ci.mjs`; `scripts/AGENTS.md` | 2 | `local` | `planned` | Every current workflow lane retains its gate and publishes one bound timing artifact; cache hit, miss, bytes, and step duration are explicit where GitHub exposes them. |
+| 2 | fix_command_telemetry | Record every orchestrated command at actual spawn and exit with argv identity, status, duration, overlap, and retained artifact metadata. | `scripts/lib/ci-background-task.mjs`; `scripts/ci.mjs`; `scripts/tests/ci-plugin-targeting.mjs` | 1 | `local` | `planned` | Timing JSON reconstructs observed local wall time, distinguishes phase and child intervals, and never reports an unfinished child as passed; failure leaves authoritative logs. |
+| 3 | capture_hosted_costs | Emit and upload success or failure timing artifacts for checkout-adjacent install, cache, Claude materialization, Rust provisioning, and gate steps without changing trigger topology. | `.github/workflows/ci.yml`; `.github/AGENTS.md`; `scripts/ci.mjs`; `scripts/AGENTS.md`; `scripts/tests/ci-plugin-targeting.mjs` | 2 | `local` | `planned` | Every current workflow lane retains its gate and publishes exactly one bound timing artifact; cache hit, miss, bytes, and step duration are explicit where GitHub exposes them; the workflow census moves with the workflow, and the replacement upload rule admits only that named timing artifact while still rejecting every other upload and any `contents: write` permission. |
 | 4 | define_contract_inventory | Create a closed, versioned test-contract inventory and validator with one suite owner per normative contract and any distinct boundary cases. | `scripts/config/test-contracts.json`; `scripts/tests/test-contracts.mjs`; `scripts/AGENTS.md` | 2 | `local` | `planned` | Each row names contract/version, owner, stable selectors, layer, platforms/toolchains, transitive inputs, acceptance/release role, and replacement dependencies; unknown fields and duplicate ownership fail. |
 | 5 | register_existing_surfaces | Register existing Relay A01–A29 inventory, omitted Rust targets, unit-test policy, JavaScript semantic labels, and exact release-evidence exclusions without deleting tests. | `plugins/session-relay/test/fixtures/rust-test-inventory.json`; `plugins/session-relay/test/rust-test-inventory.mjs`; `plugins/session-relay/test/selftest.mjs`; `scripts/config/test-contracts.json` | 4 | `local` | `planned` | Discovery proves `discovered = registered`, nonzero `selected = expected`, and `executed = selected`; every skip, ignore, or filter has owner, reason, and expiry; frozen release contracts remain non-selectable. |
-| 6 | integrate_authoritative_gate | Run timing and contract validation through the current CI composition while preserving all existing full and targeted gates. | `package.json`; `scripts/ci.mjs`; `scripts/tests/ci-observability.mjs`; `scripts/tests/test-contracts.mjs` | 3, 5 | `local` | `planned` | Focused tests and the unchanged full gate pass; no PR, tag, manual, platform, checksum, attestation, or publication prerequisite is weakened. |
+| 6 | integrate_authoritative_gate | Run timing and contract validation through the current CI composition while preserving all existing full and targeted gates. | `package.json`; `scripts/ci.mjs`; `scripts/tests/ci-observability.mjs`; `scripts/tests/test-contracts.mjs`; `scripts/tests/ci-plugin-targeting.mjs` | 3, 5 | `local` | `planned` | Focused tests, the CI targeting contract, and the unchanged full gate pass; no PR, tag, manual, platform, checksum, attestation, or publication prerequisite is weakened. |
 
 ## Acceptance criteria
 
@@ -73,7 +74,7 @@ The test registry is declarative data. It maps each normative contract to one su
 
 - Do not adopt Bazel, remote execution, or a remote cache in this plan.
 - Do not change PR, default-branch, tag, manual, or release trigger topology.
-- Do not delete, merge, retry-mask, skip, or narrow any current test or release-evidence contract.
+- Do not delete, merge, retry-mask, skip, or narrow any current test or release-evidence contract, with exactly one bounded replacement: the validate workflow may publish its own timing artifact, and the CI targeting contract replaces its blanket upload ban with a rule that allows that single named timing artifact and rejects every other upload and any `contents: write` permission.
 - Do not add SQLite-, Relay-vNext-, planctl-, or optional Relay-review tests before those protocols exist.
 - Do not use coverage or mutation score as a universal gate.
 
@@ -81,18 +82,20 @@ The test registry is declarative data. It maps each normative contract to one su
 
 1. Timing evidence cannot distinguish child exit from await/finalization or cannot reconstruct observed wall time.
 2. Automatic discovery cannot map every current acceptance owner and semantic label without silently dropping a contract.
-3. Any release producer can publish an asset whose exact digest did not pass its same-run platform and evidence checks.
+3. Any release producer can publish an asset whose exact digest did not pass its same-run platform and evidence checks, or the validate workflow gains an upload beyond the single named timing artifact or any `contents: write` permission.
 4. Any selector can pass after selecting zero tests, or an ignored/filtered test lacks an owner and expiry.
 5. Full CI or a currently authoritative targeted plugin gate regresses.
 
 ## Open questions
 
-None. Bazel remains rejected until a separate evidence-gated pilot satisfies the measured thresholds recorded in this plan’s context and conclusions.
+None. Bazel remains rejected until a separate evidence-gated pilot satisfies the measured thresholds recorded in this plan’s context and conclusions. The predecessor omitted `scripts/tests/ci-plugin-targeting.mjs`, which pins the workflow step census, bans artifact upload in the validate workflow, and pins the background-task and timing-report contracts; this successor owns that path. Its blanket upload ban is replaced, not removed: the successor rule admits exactly one named timing artifact per lane and still rejects every other upload and any `contents: write` permission, so validate stays a read-only gate.
 
 ## Review
 
-N/A — manager-written after draft review.
+Plan-attempt-history: {"authorization_source_sha256":"896b5a45804a4f2f18d7c49189e50a0413f497c7169a7ccb1581dbb7dfffa2d7","plan_bytes_sha256":"a94b73db4df681371f627ed699fd8b82fb986fb5ec46d7c8f113234e76fc8be3","replacement_run_id":"01d4c7d0-1bca-4fb3-ae61-9f6fc89f9f17","run":{"acceptance":null,"blocker":{"evidence_sha256":"ec0d6ad6cb489f59d2f67cc1e17b094294590c2ca4caefaf8ee0d259e649bc63","kind":"review_failed"},"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"429729c55c63bf10c16ba135de8fa5a761469602331e2871dfd2e259d989bea1","invocations":1,"result_sha256":"56a2788a9a5ba24ab2e9e51dc774d758f6c77d81d0a116903086c93336e9f48d","state":"passed"},"execution_parent":null,"goal_id":"213aef20-2306-4f43-bcb2-80f7591665e9","implementation_commit":null,"plan_path":"docs/plans/active/ci-observability-and-test-contracts.md","plan_sha256":"ea72392d52b2905318fd2abc8435e0818ab39ea3d664a6a50a1937d906e153be","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"bd2d28c3-5b5c-4c4b-bbe3-8427aa1f260a","schema":1,"source_base":"672246bd388d3f34475be70857e3ec0dcb222b23","source_sha256":"3711a030437cb98b6a98e2ae783934cfccb987fd8e980e9e0284b49f6d554c93"},"schema":1,"status":"blocked","successor_run_sha256":"13d83aecc437b1380122a594190cdc94ba390f901cde853ecabcf035a9b617f9"}
+
+The predecessor passed draft review but omitted the CI targeting contract from its owned paths. That file pins the validate-workflow step census, bans artifact upload in the validate workflow, and pins the background-task and timing-report contracts, so steps 2, 3, and 6 could not be implemented without it.
 
 ## Verification Results
 
-N/A — plan-only request; implementation and acceptance have not run.
+N/A — implementation and acceptance have not run.
