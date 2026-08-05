@@ -2,11 +2,11 @@
 title: Require release guards and status-only plan progress
 goal: Require release pre-completion guards, detect stale workspace contracts, and add a backward-compatible status-excluded plan hash mode with validated status-only progress.
 plan_hash_mode: status-excluded-v1
-status: ongoing
+status: finished
 created: "2026-08-04T03:42:06-03:00"
-updated: "2026-08-04T23:51:32.328+00:00"
+updated: "2026-08-05T00:02:55.594+00:00"
 started_at: "2026-08-04T23:51:08.826+00:00"
-finished_at: null
+finished_at: "2026-08-05T00:02:55.594+00:00"
 assignee: null
 tags: [plans, plan-lifecycle, release-safety, contract-preservation]
 affected_paths:
@@ -27,7 +27,7 @@ related_plans:
 
 # Require release guards and status-only plan progress
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"9c690b2cfe3d27261bc1147cae20fd68d8a89bb72080fc4c7904b3951e42ce50","invocations":1,"result_sha256":"f717d4a4befd704a39ea9259b917f2b401014baf53338bd891a0cc838ddab1ed","state":"passed"},"execution_parent":"0026f38bc074996c1b8f54e022573cc6fb8d8ac3","goal_id":"08c02047-0941-4a0f-9d9a-2d9f12a08c58","implementation_commit":null,"plan_path":"docs/plans/active/release-precompletion-rehearsal-and-contract-guards.md","plan_sha256":"5474ba3cc199d5e5eb9d89ca5228d447b43c6903d06aa0496769bad725ce4c88","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"08b8ef53-a1ce-49aa-9181-e873d5e55678","schema":1,"source_base":"0026f38bc074996c1b8f54e022573cc6fb8d8ac3","source_sha256":"5e53ae1afa29f79345e72fbed1000971a3cd1483b279c22e300dc77d13d2fd99"}
+Plan-run: {"acceptance":{"source_sha256":"40b3b9434567adc96e3573e17789024603d18ebcb55f3e9026a16bde3a31c303","verification_sha256":"40a48d8a0f8888e419e2ddc4f06790535234b3848145906ba0544841d745c641"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"3ee23e2183734f90a1e00d945007dd61a58c3a616cccb8e21fcdad5b4914f26f","invocations":1,"result_sha256":"b382c72216164d040d416a5b627f07bdf2e43fa77214781056cc8e990c9d8048","state":"passed"},"draft_review":{"accepted_classes":[],"input_sha256":"9c690b2cfe3d27261bc1147cae20fd68d8a89bb72080fc4c7904b3951e42ce50","invocations":1,"result_sha256":"f717d4a4befd704a39ea9259b917f2b401014baf53338bd891a0cc838ddab1ed","state":"passed"},"execution_parent":"0026f38bc074996c1b8f54e022573cc6fb8d8ac3","goal_id":"08c02047-0941-4a0f-9d9a-2d9f12a08c58","implementation_commit":"fa24c1dcce9354697a29401b47717a7128d42b4b","plan_path":"docs/plans/active/release-precompletion-rehearsal-and-contract-guards.md","plan_sha256":"5474ba3cc199d5e5eb9d89ca5228d447b43c6903d06aa0496769bad725ce4c88","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"08b8ef53-a1ce-49aa-9181-e873d5e55678","schema":1,"source_base":"0026f38bc074996c1b8f54e022573cc6fb8d8ac3","source_sha256":"5e53ae1afa29f79345e72fbed1000971a3cd1483b279c22e300dc77d13d2fd99"}
 
 ## Goal
 
@@ -92,7 +92,7 @@ A status-only progress transaction validates each row transition, permits only t
 | 8 | require_successor_marker | Require every same-file successor to declare the selected hash mode. | `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs`; `scripts/tests/plan-orchestration/locks-cas.mjs` | 6 | `local` | `done` | Replacement rejects an unmarked successor without changing predecessor bytes, while marked replacement passes. |
 | 9 | pin_excluded_drift | Prove status progress cannot carry excluded-section drift. | `scripts/tests/plan-orchestration/mutations.mjs` | 6 | `local` | `done` | A legal row transition combined with Review evidence drift is rejected by the raw-byte comparison and leaves bytes unchanged. |
 | 10 | rerun_checks | Apply the three repairs and rerun every invalidated acceptance path. | all affected paths in frontmatter | 7, 8, 9 | `local` | `done` | A1-A6 pass on repaired bytes and the replacement implementation checkpoint is bound. |
-| 11 | checkpoint_and_archive | Run one valid bound completion review and archive. | all affected paths in frontmatter | 10 | `local` | `planned` | Fresh CompletionReviewV1 passes; this row becomes done through the validated transition before the finished archive commit; the active path is absent. |
+| 11 | checkpoint_and_archive | Run one valid bound completion review and archive. | all affected paths in frontmatter | 10 | `local` | `done` | Fresh CompletionReviewV1 passes; this row becomes done through the validated transition before the finished archive commit; the active path is absent. |
 ## Acceptance
 
 | ID | Command | Expected result |
@@ -151,6 +151,17 @@ Plan-attempt-history: {"authorization_source_sha256":"fc62261898c1b4befe209e12c7
 
 Plan-attempt-history: {"authorization_source_sha256":"fc62261898c1b4befe209e12c7d849dcb47954a3043c5cfb5b7627a01c21ce95","plan_bytes_sha256":"3ff52dcbcc6d825c2622330e0e31d5179f643f7dcd1e333fbc2274dd37cb2e57","replacement_run_id":"08b8ef53-a1ce-49aa-9181-e873d5e55678","run":{"acceptance":{"source_sha256":"5e53ae1afa29f79345e72fbed1000971a3cd1483b279c22e300dc77d13d2fd99","verification_sha256":"ea4f9937e9aa6041be3e4a53b107ae4ad32c9e0cff32cb0d160e6435bbf4093a"},"blocker":{"evidence_sha256":"6cc1106764ab6111ad4f4d77417f0476055828e26812058685649008e3a81d0b","kind":"concurrent_change"},"completion_review":{"accepted_classes":[],"input_sha256":"bfee3f9a46c6695f787e4398746cc2619d573494df61d25cbdc6ff8a6e2b8ea8","invocations":1,"result_sha256":"d2c8f7a338f5b3b26066e98ef28a1da3ba0956635a2585827055bb8b177f260b","state":"passed"},"draft_review":{"accepted_classes":[],"input_sha256":"575e6a661f580ed9f1805391d3f9e123257907262604b29581efce5dd4f18de1","invocations":1,"result_sha256":"3d8ef09a751f97cb79784d243cddafa21f2e25ce09584585ab1fa419e64df206","state":"passed"},"execution_parent":"4f0cdd84ae57c90e887cf2b9ed827f29718d430f","goal_id":"08c02047-0941-4a0f-9d9a-2d9f12a08c58","implementation_commit":"0026f38bc074996c1b8f54e022573cc6fb8d8ac3","plan_path":"docs/plans/active/release-precompletion-rehearsal-and-contract-guards.md","plan_sha256":"5474ba3cc199d5e5eb9d89ca5228d447b43c6903d06aa0496769bad725ce4c88","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"54291ea8-cfda-4bec-a0e8-4da4aeab0066","schema":1,"source_base":"4f0cdd84ae57c90e887cf2b9ed827f29718d430f","source_sha256":"7292e9844964a08d4bca3cb4f38a822e2dd764d57dc25fa21d54cb8a06caa540"},"schema":1,"status":"blocked","successor_run_sha256":"de7ceb14585abb099c3a7de5b50b9a2851bf4fb542f3dcdde7a2860daa64b545"}
 
+Completion review invocation 1:
+
+Completion-review-result: {"diff_sha256":"c41d1885d27a53e34e23d60b75be6b4f0df2fa1f5cf4f8bc1ca2b5fa67f0ae58","findings":[],"implementation_commit":"fa24c1dcce9354697a29401b47717a7128d42b4b","invocation":1,"run_id":"08b8ef53-a1ce-49aa-9181-e873d5e55678","schema":1,"verdict":"pass"}
+
 ## Verification Results
 
-N/A - manager-written after execution.
+- A1 passed: bounded-workflow release guards and removal probes passed.
+- A2 passed: repository policy and generated workspace template are synchronized and below 500 lines.
+- A3 passed: all three lifecycle skill guards accepted structure, references, metadata, and content hashes.
+- A4 passed: hashing-manifests passed 22/22, locks-cas passed 20/20, and mutations passed 19/19. Independent number and Id collisions, unmarked successors, and excluded Verification Results drift all reject.
+- A5 passed: `node scripts/ci.mjs --plugin plan-lifecycle` passed the authoritative plugin gate.
+- A6 passed: `node scripts/ci.mjs` passed all four plugins and repository-wide checks.
+- Implementation bytes are unchanged from `0026f38bc074996c1b8f54e022573cc6fb8d8ac3`; the later checkpoints contain lifecycle evidence only.
+- Capture-safe implementation checkpoint: fa24c1dcce9354697a29401b47717a7128d42b4b.
