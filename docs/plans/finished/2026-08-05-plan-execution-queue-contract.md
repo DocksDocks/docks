@@ -2,11 +2,11 @@
 title: Promote the plan execution queue into the workspace contract
 goal: Promote the temporary plan-order index into optional validated PlanQueueV1 support with explicit dependency gates and no lifecycle or execution authority.
 plan_hash_mode: status-excluded-v1
-status: ongoing
+status: finished
 created: "2026-08-05T04:13:23.006Z"
-updated: "2026-08-05T20:27:15.557Z"
+updated: "2026-08-05T21:03:32.021Z"
 started_at: "2026-08-05T20:27:15.449Z"
-finished_at: null
+finished_at: "2026-08-05T21:03:32.021Z"
 assignee: null
 tags: [plans, queue, plan-lifecycle, routing]
 affected_paths:
@@ -36,7 +36,7 @@ related_plans:
 
 # Promote the plan execution queue into the workspace contract
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":["v1_contract_contradiction"],"input_sha256":"4303c333cfcc0e75e4a27c536f8b4159339c06a72cac00d7e06a994245151f67","invocations":2,"result_sha256":"55e22326a720f787f0c7f17670972e1a753a32ca401c1a09fc7c6fa1253ce055","state":"passed"},"execution_parent":"d77c1ebc86baf5a743db24cfb8059b3d846d91a1","goal_id":"ba268ab2-a4d9-4b05-8041-d44188dadef5","implementation_commit":null,"plan_path":"docs/plans/active/plan-execution-queue-contract.md","plan_sha256":"8bfe266808ac2f0091aaa63cf3f0cb61c4b4cc99ec44cda3cf78e92216d617d2","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ccc2e7ff-af11-491a-92ab-6ea18166c4e6","schema":1,"source_base":"d77c1ebc86baf5a743db24cfb8059b3d846d91a1","source_sha256":"c4db6b4c39f9152943e87b6917d33f8dfed5dc48e64f2cde747435564779a661"}
+Plan-run: {"acceptance":{"source_sha256":"6d7b095f6604482f212686729db5940a905f4f948be12f71ba8df4cd2acad637","verification_sha256":"a3570b9cd96120cc91342684a833e0a0dd4a07bfd5e65608572de144bb68a6e7"},"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":"e90da7753aa611ae6bbf8dd930444fc0ae3417253acfab9cd471b7a1aa479d1a","invocations":2,"result_sha256":"cb403233f6b3a9b0f98b8a9f32418586ea21d427de93c8f104de48a09614f91b","state":"passed"},"draft_review":{"accepted_classes":["v1_contract_contradiction"],"input_sha256":"4303c333cfcc0e75e4a27c536f8b4159339c06a72cac00d7e06a994245151f67","invocations":2,"result_sha256":"55e22326a720f787f0c7f17670972e1a753a32ca401c1a09fc7c6fa1253ce055","state":"passed"},"execution_parent":"d77c1ebc86baf5a743db24cfb8059b3d846d91a1","goal_id":"ba268ab2-a4d9-4b05-8041-d44188dadef5","implementation_commit":"78a5b6481102bd7b40a208d45c046cb6c414f5fc","plan_path":"docs/plans/active/plan-execution-queue-contract.md","plan_sha256":"8bfe266808ac2f0091aaa63cf3f0cb61c4b4cc99ec44cda3cf78e92216d617d2","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ccc2e7ff-af11-491a-92ab-6ea18166c4e6","schema":1,"source_base":"d77c1ebc86baf5a743db24cfb8059b3d846d91a1","source_sha256":"c4db6b4c39f9152943e87b6917d33f8dfed5dc48e64f2cde747435564779a661"}
 
 ## Goal
 
@@ -127,4 +127,48 @@ The predecessor implemented this goal and passed every acceptance row, but spent
 
 ## Verification Results
 
-N/A — implementation and acceptance have not run.
+Observed on this host, Node 24, from the repository root against the final implementation bytes.
+
+| ID | Command | Observed result |
+|---|---|---|
+| A1 | `node scripts/tests/plan-queue.mjs` | Exit 0; `plan queue contracts passed (38 cases)`. |
+| A2 | `node scripts/tests/plan-skill-phases.mjs --case plan-queue` | Exit 0; `plan queue contracts synchronized`. The workspace contract and its embedded template stay byte-identical, and each of the four contract copies carries its queue clause exactly once with a mutation proof. |
+| A3 | `node plugins/plan-lifecycle/test/selftest.mjs` | Exit 0; the shipped plugin carries the queue module and its reference, with unchanged routing, manifest, catalog, and compatibility assertions. |
+| A4 | `node scripts/ci.mjs --plugin plan-lifecycle` | Exit 0. |
+| A5 | `node scripts/ci.mjs` | Exit 0; four plugin gates plus repo-wide workflow, tooling, format, lint, and plan contracts pass. Total 361169 ms across 70 recorded commands. |
+
+### Observed queue behaviour
+
+`plan-queue.mjs check docs/plans/QUEUE.md` reports `PlanQueueV1 queue is valid (7 rows)`. `plan-queue.mjs next docs/plans/QUEUE.md` returns an empty eligible set while this plan is `ongoing` and lists all five downstream rows as blocked with their transitive `waiting_on` closures. The stage-4 Relay row reports both its direct dependency and the transitive queue-contract goal, which is the value a direct-only closure would silently truncate.
+
+### Superseding current-user instruction
+
+The current user stated: "one thing about plan queues, we should be able to do more than one plan at a time, just adding this note."
+
+`next` therefore returns every startable row, ordered by stage then table order. Stage is priority, not permission: the caller may start any row in the set, and starting one never invalidates another. Eligibility is unchanged — a row is startable only when its complete direct and transitive dependency closure is finished — so no dependency gate was relaxed. The mechanism section and the `integrate_manager` step were both rewritten to match; this run's draft review accepted one `v1_contract_contradiction` finding for that mismatch and passed on the repair.
+
+### Mutation-proven coverage
+
+Four completion-review rounds across two runs found the same defect class: a promise stated in the plan or in a shipped document that no test could falsify. Every one is now pinned, and each was proven by mutating the module on an isolated copy, observing a red suite, and restoring the file byte-identically:
+
+| Mechanism | Mutation that must fail the suite |
+|---|---|
+| Zero-row parse and first-row splice | make the row scan skip its zero-iteration case |
+| Transitive dependency closure | collect direct dependencies instead of visiting recursively |
+| Contradicting dependency status | delete the started-status rejection branch |
+| Exclusive setter lock | replace lock acquisition with a no-op release handle |
+| Whole-successor validation | delete both pre-write `validateQueue` calls |
+
+Two mechanisms remain unpinned by construction, and this is a stated limitation rather than an oversight. Crash atomicity of the temporary-file-plus-rename commit and the post-rename read-back cannot be observed from a single in-process test: no in-process fixture can interrupt the process between rename and read. What is pinned instead is every externally observable consequence — a refused setter leaves the queue byte-identical, leaves no lock file, and leaves no temporary file in the plans directory.
+
+### Run history and diff base
+
+A predecessor run implemented this goal and passed every acceptance row, then spent both completion permits on repair verdicts about missing fixtures. Exact current-user authority installed this fresh run at the same path. The implementation was carried over intact; this run added the fixtures above and the selection-contradiction repair.
+
+Because the implementation already sat in the tree when this run started, its `execution_parent` is the amended predecessor checkpoint, so a diff against it would be nearly empty. The completion review is bound to the full implementation range `5076c3e86ce787e2438b42bdebdbaeda2a2586de..78a5b6481102bd7b40a208d45c046cb6c414f5fc`, restricted to the owned trees.
+
+### Scope and protected bytes
+
+Exactly the fifteen owned paths changed: twelve modified and three created. The five other active plan records are byte-identical to their pre-implementation digests, so STOP condition 1 holds.
+
+The workspace contract and its embedded template are 491 and 499 lines against the 500-line cap, and the three live plan skill bodies total exactly 700 lines against the 700-line cap. Both budgets were reclaimed by compressing newly added prose into the shipped reference rather than by raising a floor.
