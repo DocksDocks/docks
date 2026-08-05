@@ -2,10 +2,10 @@
 title: Promote the plan execution queue into the workspace contract
 goal: Promote the temporary plan-order index into optional validated PlanQueueV1 support with explicit dependency gates and no lifecycle or execution authority.
 plan_hash_mode: status-excluded-v1
-status: planned
+status: ongoing
 created: "2026-08-05T04:13:23.006Z"
-updated: "2026-08-05T05:33:12.935Z"
-started_at: null
+updated: "2026-08-05T18:56:20.751Z"
+started_at: "2026-08-05T18:56:20.751Z"
 finished_at: null
 assignee: null
 tags: [plans, queue, plan-lifecycle, routing]
@@ -20,10 +20,13 @@ affected_paths:
   - plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md
   - plugins/plan-lifecycle/test/selftest.mjs
   - scripts/AGENTS.md
+  - scripts/ci.mjs
+  - scripts/config/test-contracts.json
   - scripts/tests/plan-queue.mjs
   - scripts/tests/plan-skill-phases.mjs
+  - scripts/tests/test-contracts.mjs
 related_plans:
-  - docs/plans/active/ci-observability-and-test-contracts.md
+  - docs/plans/finished/2026-08-05-ci-observability-and-test-contracts.md
   - docs/plans/active/session-relay-typed-irc-sqlite.md
   - docs/plans/active/plan-lifecycle-review-and-authority-modules.md
   - docs/plans/active/session-relay-post-cutover-modules.md
@@ -33,7 +36,7 @@ related_plans:
 
 # Promote the plan execution queue into the workspace contract
 
-Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"e17fe9d2ac91850571c15aad64a377c6cfac8e4839870a1621b6f6e9e0b1cce6","invocations":1,"result_sha256":"b372f0365747441d21ec7d779aecf7125d3119674fd0615d7f6ac818affe3e96","state":"passed"},"execution_parent":null,"goal_id":"ba268ab2-a4d9-4b05-8041-d44188dadef5","implementation_commit":null,"plan_path":"docs/plans/active/plan-execution-queue-contract.md","plan_sha256":"32f54319fdf7e6a09cdfb04e320066e7100237a58ec1e54bb4a91ee5757f64b1","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ea745436-60d4-41b6-a870-10db49f1cdbd","schema":1,"source_base":"f49c2852cb60e7741a354ef5c610486345b1796f","source_sha256":"6f0d3110e1f8e24ff5f57c1cc058ab2d66c7943c4119e2d57ef8fedec1fcd7ab"}
+Plan-run: {"acceptance":null,"blocker":null,"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"32305d2086dba70ecf63fd84c50716d5f05a9ae426cdd631596c6d46e6ebf2b4","invocations":1,"result_sha256":"9357e96a98fa7e75eee921c736c6862d39bb6763c949a6a426aa01dcd1752a19","state":"passed"},"execution_parent":"5c7148fad7dd12b6b620239e888f8a23fe5fe348","goal_id":"ba268ab2-a4d9-4b05-8041-d44188dadef5","implementation_commit":null,"plan_path":"docs/plans/active/plan-execution-queue-contract.md","plan_sha256":"db4b2c49c1db717761a4f7483e5aec837f112ab1f1442bb83f2b9cd63bcb2162","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"e5064d43-b9bd-40d5-a48f-3b180e21508f","schema":1,"source_base":"5c7148fad7dd12b6b620239e888f8a23fe5fe348","source_sha256":"0e93b788b9d79076417f5bb513a6691c7b8affe2d198ce25fe4433f61d82839b"}
 
 ## Goal
 
@@ -64,7 +67,7 @@ Read-only check, show, and next operations reject malformed rows, duplicate or m
 | 3 | promote_current_queue | Convert every valid row in the temporary queue into PlanQueueV1 without assuming a fixed row count. | `docs/plans/QUEUE.md` | 1, 2 | `local` | `planned` | All seven current plans, including the queue-contract goal, retain their explicit dependency graph, dedicated queue-contract stage, parallel plugin stage, downstream priority stages, start-gate meaning, and stable goal ids; later explicit rows also survive a stale implementation preimage check rather than being dropped. |
 | 4 | integrate_workspace | Teach plan-workspace and its generated contract to recognize, bootstrap, audit, and explicitly add the optional queue without changing plan bytes. | `docs/plans/AGENTS.md`; `plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md`; `plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md` | 1, 2, 3 | `local` | `planned` | Existing no-queue workspaces remain current; bootstrap may seed an empty valid queue; audit validates a present queue and never rewrites it implicitly. |
 | 5 | integrate_manager | Teach plan-manager and root routing to own explicit queue setters and consult a valid queue for dependency-aware list and next selection. | `AGENTS.md`; `plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md` | 1, 2, 4 | `local` | `planned` | The manager records explicit priority through lock/CAS setters, proposes the lowest-stage entry whose complete dependency closure is finished, resolves archive moves by goal id, reports blocked dependencies, and never treats queue state as authority. |
-| 6 | close_queue_contracts | Add parser, setter, concurrency, archive, compatibility, dependency, dynamic-row, workspace-copy, and authority fixtures. | `plugins/plan-lifecycle/test/selftest.mjs`; `scripts/AGENTS.md`; `scripts/tests/plan-queue.mjs`; `scripts/tests/plan-skill-phases.mjs` | 1, 2, 3, 4, 5 | `local` | `planned` | Tests cover no-queue compatibility, empty bootstrap, subset growth, active-to-finished resolution, CAS setters, stale preimages, same-stage parallelism, blocked dependency closure, independent higher-stage eligibility, the queued queue-contract prerequisite and dedicated stage, malformed graphs, and no queue-derived authority. |
+| 6 | close_queue_contracts | Add parser, setter, concurrency, archive, compatibility, dependency, dynamic-row, workspace-copy, and authority fixtures. | `plugins/plan-lifecycle/test/selftest.mjs`; `scripts/AGENTS.md`; `scripts/tests/plan-queue.mjs`; `scripts/tests/plan-skill-phases.mjs`; `scripts/ci.mjs`; `scripts/config/test-contracts.json`; `scripts/tests/test-contracts.mjs` | 1, 2, 3, 4, 5 | `local` | `planned` | Tests cover no-queue compatibility, empty bootstrap, subset growth, active-to-finished resolution, CAS setters, stale preimages, same-stage parallelism, blocked dependency closure, independent higher-stage eligibility, the queued queue-contract prerequisite and dedicated stage, malformed graphs, and no queue-derived authority. Both new queue contracts run inside the existing gate composition, and the test-contract registry records them so discovered, registered, and selected stay equal. |
 | 7 | verify_public_cutover | Run focused queue contracts, plan-lifecycle self-test, selected plugin gate, and full shared gate against final bytes. | all affected paths in frontmatter | 6 | `local` | `planned` | Every acceptance command passes; all other active plan digests match their inventory; plugin and repository-wide gates stay green. |
 
 ## Acceptance criteria
@@ -96,11 +99,11 @@ Read-only check, show, and next operations reject malformed rows, duplicate or m
 5. Plan creation or archive invalidates an unchanged queued goal, or ambiguous goal resolution is accepted.
 6. Conversion drops a valid row added after this plan was drafted instead of failing on the stale preimage.
 7. A setter lacks exact preimage, exclusive locking, full-successor validation, fsync, atomic rename, or readback.
-8. The selected plugin gate or full repository gate fails.
+8. The selected plugin gate or full repository gate fails, or a new queue contract is added without a matching registry row so the discovered and registered suite sets diverge.
 
 ## Open questions
 
-None. Earlier predecessors fixed path coverage, unsafe stage selection, a global barrier, and a missing queue-contract row. This successor gives that goal a dedicated stage before the two plugin branches, so the stated order is enforceable by explicit dependencies.
+None. Earlier predecessors fixed path coverage, unsafe stage selection, a global barrier, and a missing queue-contract row. This successor gives that goal a dedicated stage before the two plugin branches, so the stated order is enforceable by explicit dependencies. It also owns the gate wiring, the suite registry, and the discovery selector, because the test-contract registry introduced by the CI observability plan derives its discovered set from the gate source.
 
 ## Review
 
@@ -116,8 +119,10 @@ Plan-attempt-history: {"authorization_source_sha256":"13ff4bea26bef2d136234ca41f
 
 Plan-attempt-history: {"authorization_source_sha256":"13ff4bea26bef2d136234ca41fdefec4b4e9f533edbf1e78e0598c2012dc8cd9","plan_bytes_sha256":"f1839ad685d8b8c7f56c6472d514f4db1ca8b579a7b50e6c97acbc6eaf6dff49","replacement_run_id":"ea745436-60d4-41b6-a870-10db49f1cdbd","run":{"acceptance":null,"blocker":{"evidence_sha256":"6f34de1b4b1a03021b2ae60e8392a410209a5de7ed43b433c1db751be85b5ee6","kind":"review_failed"},"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"9937d6078d60301e6c474349daa23d23d694d884b8253528fb6d8920d1c1fd73","invocations":1,"result_sha256":"7571eedf1a48d14dc3d097f34adf3489cf3f8163f56df8326bac84b0ec438fb7","state":"passed"},"execution_parent":null,"goal_id":"ba268ab2-a4d9-4b05-8041-d44188dadef5","implementation_commit":null,"plan_path":"docs/plans/active/plan-execution-queue-contract.md","plan_sha256":"32f54319fdf7e6a09cdfb04e320066e7100237a58ec1e54bb4a91ee5757f64b1","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"9b5aec8d-70bc-4367-ad3c-7227204ab93e","schema":1,"source_base":"dc18293cff533eb08a3a577466a75b6ad17efa47","source_sha256":"5159b797106560a8faeda932423562a7f6bbd63c73feb9fdb9666ec396efe8df"},"schema":1,"status":"blocked","successor_run_sha256":"fc6ebbf49a5d6ca62fda92bc25c4fcf935296deda1c93b8be52752e41868316e"}
 
-Predecessors repaired path coverage, stage selection, global-barrier overconstraint, the missing queue-contract row, and its stage placement. The sixth predecessor was blocked because the approved squash removed its source_base commit. This successor preserves the reviewed semantics and rebinds provenance to the stable checkpoint parent.
+Plan-attempt-history: {"authorization_source_sha256":"896b5a45804a4f2f18d7c49189e50a0413f497c7169a7ccb1581dbb7dfffa2d7","plan_bytes_sha256":"41f69ba1734feca32e3478c4978424455a4a49b51a84ddd6fee086b9cd662c72","replacement_run_id":"e5064d43-b9bd-40d5-a48f-3b180e21508f","run":{"acceptance":null,"blocker":{"evidence_sha256":"a89a6266a0c828825d7efe7b76e55ef4735d8ec9bee780b95cc849f4e195d28f","kind":"review_failed"},"completion_review":{"accepted_classes":[],"input_sha256":null,"invocations":0,"result_sha256":null,"state":"not_started"},"draft_review":{"accepted_classes":[],"input_sha256":"e17fe9d2ac91850571c15aad64a377c6cfac8e4839870a1621b6f6e9e0b1cce6","invocations":1,"result_sha256":"b372f0365747441d21ec7d779aecf7125d3119674fd0615d7f6ac818affe3e96","state":"passed"},"execution_parent":null,"goal_id":"ba268ab2-a4d9-4b05-8041-d44188dadef5","implementation_commit":null,"plan_path":"docs/plans/active/plan-execution-queue-contract.md","plan_sha256":"32f54319fdf7e6a09cdfb04e320066e7100237a58ec1e54bb4a91ee5757f64b1","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"ea745436-60d4-41b6-a870-10db49f1cdbd","schema":1,"source_base":"f49c2852cb60e7741a354ef5c610486345b1796f","source_sha256":"6f0d3110e1f8e24ff5f57c1cc058ab2d66c7943c4119e2d57ef8fedec1fcd7ab"},"schema":1,"status":"blocked","successor_run_sha256":"51b6840d592987720e5f63da0d4d0f96bcaa984d8b9ceaa310551f9a85484fca"}
+
+Earlier predecessors repaired path coverage, stage selection, global-barrier overconstraint, the missing queue-contract row, its stage placement, and a squashed source_base. This successor additionally owns the gate wiring, the test-contract registry, and the discovery selector, because the CI observability plan finished first and made the discovered suite set derive from the gate source. Its related-plan reference to that finished plan now names the archive path.
 
 ## Verification Results
 
-N/A — plan-only successor; implementation and acceptance have not run.
+N/A — implementation and acceptance have not run.
