@@ -2,9 +2,9 @@
 title: Consolidate Plan Lifecycle authority and bound reviews
 goal: Consolidate current PlanRun authority, freeze historical readers, move deterministic checks before review, and allow only one repair plus mandatory verification.
 plan_hash_mode: status-excluded-v1
-status: ongoing
+status: blocked
 created: "2026-08-05T03:40:58.144Z"
-updated: "2026-08-06T05:33:08.411+00:00"
+updated: "2026-08-06T13:54:33.568+00:00"
 started_at: "2026-08-06T04:43:27.184+00:00"
 finished_at: null
 assignee: null
@@ -89,7 +89,7 @@ related_plans:
 
 # Consolidate Plan Lifecycle authority and bound reviews
 
-Plan-run: {"acceptance":{"source_sha256":"3d89e0d7ac88b3e00b8ad924cb78eb8e73f43b33d3821dc98aca052aeb74e4ce","verification_sha256":"d28a48fc020af2467ed8383c8bcefc3b988639bacd6fdfbd3b1b897f0b0040ab"},"blocker":null,"completion_review":{"input_sha256":"6934a911d6f20595dab01c31f3013210a46cf6c209d229941ad403bd39b8d053","invocations":1,"result_sha256":"b21deff885dfa048074a91609122e39092faf4b2c3a82154ab3e39cbb3bd8ee1","state":"repairing"},"draft_review":{"input_sha256":"60fd2d8106d3c1575dbd8ff1b86e263c06f1e097c0bd26eb378ba50db72e0163","invocations":2,"result_sha256":"6499c17cd91952d4060781aa9283ec0dc39813947e4cd5974b7a3561d2a93b8e","state":"passed"},"execution_parent":"dc42814a34d516b945924359c7dbf3bd00818276","goal_id":"248e3f50-2528-4dd3-b92c-d0373f702d65","implementation_commit":"c6efde97a952698720884ba7d8c2e6fe58f8000e","plan_path":"docs/plans/active/plan-lifecycle-review-and-authority-modules.md","plan_sha256":"61360d700fdba2dcecbae0b4cb38b63213fa7c4bacfa2bc97b51aa121d685d8d","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b602145d-3edc-4859-af1a-66b7f3da3bcb","schema":1,"source_base":"dc42814a34d516b945924359c7dbf3bd00818276","source_sha256":"8a1efe55f73c4c14b05b759871ed86634167659a7213f690bff7e324b8eccd89"}
+Plan-run: {"acceptance":{"source_sha256":"f9607ab6dc0e235c3a50a95b01dca5263571f67123cc76a3b487bb9fea3ee5a9","verification_sha256":"be868fb0c878e75caf48d8ba20fbf0c617f33b055d63cad0d9acb3bcf41d15c7"},"blocker":{"evidence_sha256":"4190814aea808ba9a748007e8b9a64d30476a5a0fb4128caef49dd1adcb81373","kind":"review_failed"},"completion_review":{"input_sha256":"3c8671db3db6a9b1f8fc27e6fd25ed6222a8fbd75b2bd32d7dab7de6cf01405b","invocations":2,"result_sha256":"4190814aea808ba9a748007e8b9a64d30476a5a0fb4128caef49dd1adcb81373","state":"blocked"},"draft_review":{"input_sha256":"60fd2d8106d3c1575dbd8ff1b86e263c06f1e097c0bd26eb378ba50db72e0163","invocations":2,"result_sha256":"6499c17cd91952d4060781aa9283ec0dc39813947e4cd5974b7a3561d2a93b8e","state":"passed"},"execution_parent":"dc42814a34d516b945924359c7dbf3bd00818276","goal_id":"248e3f50-2528-4dd3-b92c-d0373f702d65","implementation_commit":"28135d3ec20ea0592d3e7584099d5a071b13cd49","plan_path":"docs/plans/active/plan-lifecycle-review-and-authority-modules.md","plan_sha256":"61360d700fdba2dcecbae0b4cb38b63213fa7c4bacfa2bc97b51aa121d685d8d","repository_id":"DocksDocks/docks","requested_effects":["local"],"risk":"sensitive","run_id":"b602145d-3edc-4859-af1a-66b7f3da3bcb","schema":1,"source_base":"dc42814a34d516b945924359c7dbf3bd00818276","source_sha256":"8a1efe55f73c4c14b05b759871ed86634167659a7213f690bff7e324b8eccd89"}
 
 ## Goal
 
@@ -192,7 +192,7 @@ Observed on this host, Node 24, from the repository root against the final imple
 | A2 | `node scripts/tests/plan-orchestration.mjs --case review-budget` | Exit 0; 23/23, from a baseline of 25: four cases proving class-vocabulary renewal were deleted as obsolete, two were added for the new ceiling and the persisted refund. A clean first pass plans, one repair is accepted, a second terminal-blocks, and a transport failure refunds without spending a substantive invocation. |
 | A3 | `node scripts/tests/plan-orchestration.mjs --case plan-self-check && node scripts/tests/plan-orchestration.mjs --case dispatch-driver` | Exit 0; 36/36 then 13/13. P21 fails a scope defect before bundle creation and before reserve, the sealed prompt carries only bundle identity and the judgment contract, and the payload is scanned for a Session Relay import specifier or manifest dependency entry with none found. |
 | A4 | `node scripts/tests/plan-skill-phases.mjs --case bounded-workflows && node plugins/plan-lifecycle/test/selftest.mjs` | Exit 0 for both. Ten normative copies agree on one initial review plus one mandatory post-repair verification, and `docs/plans/AGENTS.md` at 488 lines is byte-identical to the fenced body of the 496-line workspace template. |
-| A5 | `node scripts/ci.mjs` | Exit 0; all four plugins plus repo-wide, format and lint. Run against the final bytes after the producer-path repair. The two failures it surfaced earlier, a fixture tree copying the facade without its runtime modules and a committed producer pinned to the pre-split path, are both fixed, which is why this row is the authoritative gate. |
+| A5 | `node scripts/ci.mjs` | Exit 0 on commit 28135d3ec20ea0592d3e7584099d5a071b13cd49, all four plugins plus repo-wide, format and lint. Three failures it surfaced are all fixed and are why this row is the authoritative gate: a fixture tree copying the facade without its runtime modules, a committed measurement producer pinned to the pre-split `plan-run.mjs` path, and a stale index entry after an amend. |
 
 The new pre-reserve scope check, proven end to end outside this repository: a plan declaring
 `src/lib.mjs` while `src/mirror.mjs` names it literally exits 1 naming the exact coupling, and
@@ -207,6 +207,19 @@ check catches 7 of the 11 real omissions. It misses couplings expressed through 
 than a path, an import of a module that is itself undeclared, and Markdown contract mirrors, which
 are out of scope so that the independence and budget sentences steps 7 and 8 synchronize are never
 their own violations.
+
+The completion review returned `repair` at invocation 1 with three findings, all reproduced and all
+accepted. Two were contract copies still naming the discarded waiver key: the P21 property
+statement in `lifecycle/plan-properties.json` and the `--scope-waivers` help text in
+`dispatch-review.mjs` both said the waiver is keyed to a declared path alone, while the enforced key
+is the exact offending-file and declared-path pair. The third was six header comments in
+`dispatch-review.mjs` citing `plan-run.mjs` line numbers that this commit itself erased when that
+file became a 33-line facade; each now names the module that owns the code instead of a line. All
+three are the symbol-carried and prose-carried coupling class P21 cannot detect, which is why the
+plan assigns them to review judgment. The implementation checkpoint was amended in place rather
+than followed by a fourth commit, `replace_implementation` rebound the run to the replacement SHA
+and cleared the stale acceptance, and every invalidated check was re-run before acceptance was
+re-minted for invocation 2.
 
 | Mechanism | Mutation that must fail the suite |
 |---|---|
