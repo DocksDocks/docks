@@ -11,6 +11,7 @@ the failure modes are counter-intuitive: the discarded design was reasonable, po
 - [The scoping rule](#the-scoping-rule)
 - [What the script decides](#what-the-script-decides)
 - [Literal scope coupling](#literal-scope-coupling)
+- [No bespoke gate per plan](#no-bespoke-gate-per-plan)
 - [Declaring mechanisms](#declaring-mechanisms)
 - [Approvals expire on dependency change](#approvals-expire-on-dependency-change)
 - [Fixes arrive as bytes](#fixes-arrive-as-bytes)
@@ -24,7 +25,7 @@ the failure modes are counter-intuitive: the discarded design was reasonable, po
 
 ## What this is not
 
-This is **not** the canonical plan-review path, and its verdicts are never review evidence.
+This is **not** the canonical plan-review path, and its verdicts are never `PlanReviewV1` evidence.
 
 |          |canonical review|this self-check|
 |---|---|---|
@@ -33,14 +34,15 @@ This is **not** the canonical plan-review path, and its verdicts are never revie
 |verdicts|`pass` / `repair` / `blocked`|`pass` / `fail` / `unverified` / `not_applicable`|
 |input|one immutable bundle, digest-bound|the live working document|
 |budget|counted review permits per phase|none; run it as often as you like|
-|authority|gates the lifecycle|gates nothing outside itself|
+|authority|gates the lifecycle at every risk|is the draft gate at local risk only|
 
 <constraint>
 The verdict vocabularies are deliberately disjoint so a return from one can never be mistaken for
-the other. A self-check ledger does not satisfy a review permit, does not produce
-`PlanReviewV1`, and does not substitute for the reviewer that the plan lifecycle requires. Use
-this before spending a permit, so the permit is spent on a document that already passes its own
-mechanical checks.
+the other. A self-check ledger never produces `PlanReviewV1` and never satisfies a review permit:
+at sensitive or external risk it is what you run before spending one, so the permit is spent on a
+document that already passes its own mechanical checks. At local risk it is the whole draft gate —
+a passing ledger settles `draft_review` to `not_required`, which spends no permit and freezes the
+draft body exactly as a passed review does. It never reaches a completion review at any risk.
 </constraint>
 
 ## The measurement that killed scoring
@@ -155,6 +157,36 @@ contract mirror. Literal-path couplings in code are caught. Symbol-expressed cou
 contract mirrors, and second-order references to shared infrastructure still require judgment or
 a reasoned waiver. A plugin manifest description that enumerates MCP tool names is another
 symbol/tool-name coupling this check cannot discover.
+
+## No bespoke gate per plan
+
+`scripts/plans/no-bespoke-gates.mjs` is a repository guard, not a rubric property: it judges the
+repository, runs no model, and gates the shared tooling rather than one plan. It scans every
+shipped `.mjs`, `.js` and `.cjs` module outside `.git/`, `node_modules/`, `target/`, `dist/` and
+any `test/`, `tests/` or `fixtures/` directory, and considers every exported function that
+collects findings into a local array and hands that array back. Such a function is reported when
+four measurements hold at once: at least one finding is pushed inside a loop over a set derived
+from the function's own parameters while nothing outside the loops requires that set to be
+non-empty; the body validates against a versioned schema identity it declares itself; at most one
+other shipped module names the export; and a plan body under `docs/plans/` names it. It exits 1
+naming each reported gate and the four measurements behind it, 2 on an unreadable root.
+
+The rule it enforces is that **a gate certifying one member of a set at a time must require that
+set to be non-empty**, and that a verification mechanism must answer to more than one caller.
+
+A plan invented an accepted-class sweep: its own ledger schema, digest helpers, CLI subcommand and
+test surface, built for a review budget a later change removed. With an empty accepted class set
+its clearance loop never ran and only an empty-verdict ledger validated, so it asserted nothing
+while looking like a gate, and it was deleted at net gain in `28135d3`. It was the second
+plan-specific verification mechanism to be invented, go stale and be removed. Run against the tree
+as it stood immediately before that deletion the guard names `validateAcceptedClassSweep`, its one
+consumer, and the finished plan that named it; run against the tree after, it reports nothing.
+
+This boundary is measured, not complete. Two current exports — `structuralPlanRules` and
+`validateReturn`, both in `plan-self-check.mjs` — have the empty-tolerant coverage shape and are
+cleared only because they mint no artifact of their own and no plan body names them. A bespoke
+gate that declares no schema, or that a plan invents without naming it, is outside the check. The
+shape it does catch is the one that has now cost two removals.
 
 ## Declaring mechanisms
 

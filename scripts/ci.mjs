@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beginCommand, startTask, summarizeCommands } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
-import { computeGateKey, lookupMemo, memoRoot, recordMemo } from './lib/gate-memo.mjs';
+import { changedScopes, computeGateKey, lookupMemo, memoRoot, recordMemo, renderGateCost } from './lib/gate-memo.mjs';
 import {
   cargoJobLimit,
   describeEnvelope,
@@ -229,7 +229,10 @@ if (options.list) {
 // full gate exactly as before. `--timings-json` forces a full run: a memo hit produces
 // no commands to report, and a caller asking for a timing report must get a real one.
 const memoScope = { plugin: onlyPlugin, lane: onlyLane };
-const memoEnabled = (options.memo || process.env.DOCKS_CI_MEMO === '1') && options.timingsJson === null;
+// `--memo`/DOCKS_CI_MEMO asked for the memo; `--timings-json` then declines it (see
+// above). The end-of-run cost summary suggests `--memo` only when nobody asked.
+const memoRequested = options.memo || process.env.DOCKS_CI_MEMO === '1';
+const memoEnabled = memoRequested && options.timingsJson === null;
 const MEMO_ROOT = memoRoot();
 let memoKey = null;
 if (memoEnabled) {
@@ -336,6 +339,9 @@ if (repoWide) {
   nodeOk(['scripts/tree/guard.mjs'])
     ? ok('tree/guard passed (context-tree node pairs)')
     : fail("tree/guard failed (run 'node scripts/tree/guard.mjs')");
+  nodeOk(['scripts/plans/no-bespoke-gates.mjs'])
+    ? ok('plans/no-bespoke-gates passed (no bespoke per-plan verification gate)')
+    : fail("plans/no-bespoke-gates failed (run 'node scripts/plans/no-bespoke-gates.mjs')");
   nodeOk(['scripts/skills/durable-anchors.mjs'])
     ? ok('durable-anchors passed (no live file:line anchors in long-lived docs)')
     : fail("durable-anchors failed (run 'node scripts/skills/durable-anchors.mjs')");
@@ -731,10 +737,10 @@ const timingReport = (status) => {
     host,
   };
 };
-const writeTimings = (status) => {
+const writeTimings = (report) => {
   if (options.timingsJson === null) return;
   try {
-    fs.writeFileSync(options.timingsJson, `${JSON.stringify(timingReport(status))}\n`, { encoding: 'utf8' });
+    fs.writeFileSync(options.timingsJson, `${JSON.stringify(report)}\n`, { encoding: 'utf8' });
   } catch (error) {
     try {
       fs.rmSync(options.timingsJson, { force: true });
@@ -742,10 +748,22 @@ const writeTimings = (status) => {
     console.error(`[WARN] cannot write timing report ${options.timingsJson}: ${error.message}`);
   }
 };
+// The same record `--timings-json` would write also drives the end-of-run cost
+// summary, so the two can never disagree about what the gate charged.
+const report = timingReport(failures.length === 0 ? 'passed' : 'failed');
+// The advice line names the scope the working tree actually needs, so it costs one
+// `git status` - and only on a full run, which is the only run that prints it.
+const costSummary = renderGateCost(report, {
+  memoRequested,
+  scopes: onlyPlugin === null && onlyLane === null ? changedScopes({ repo: REPO, plugins: PLUGINS }) : null,
+});
+const printCost = () => {
+  if (costSummary !== null) console.log(`\n${costSummary}`);
+};
 
 console.log('');
 if (failures.length === 0) {
-  writeTimings('passed');
+  writeTimings(report);
   console.log(
     `\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${ciLane ? `lane '${ciLane.name}'` : onlyPlugin ? `plugin '${onlyPlugin}'` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`,
   );
@@ -767,9 +785,11 @@ if (failures.length === 0) {
       console.log(`\x1b[1;33m  ⚠\x1b[0m memo not recorded: ${error.message}`);
     }
   }
+  printCost();
   process.exit(0);
 }
-writeTimings('failed');
+writeTimings(report);
 console.log(`\x1b[1;31m✘ ${failures.length} check(s) failed:\x1b[0m`);
 for (const f of failures) console.log(`  - ${f}`);
+printCost();
 process.exit(1);

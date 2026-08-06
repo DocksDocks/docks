@@ -1,0 +1,47 @@
+// The same reconstruction with the one defect repaired: the certified set must be non-empty
+// before the gate can clear. Everything else — accumulator, shape checks, clearance loop,
+// single consumer, plan body naming it — is unchanged, so this isolates the measured property.
+import crypto from 'node:crypto';
+
+const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
+function acceptedClassSweepUnitDigests(planText) {
+  return Object.fromEntries(
+    planText
+      .split('\n')
+      .filter((line) => line.startsWith('## '))
+      .map((line) => [`document_sections:${line.slice(3).trim()}`, sha256(line)]),
+  );
+}
+
+export function validateAcceptedClassSweep(ledger, planText, { acceptedClasses, planSha256 = sha256(planText) }) {
+  const problems = [];
+  const sweep = ledger?.accepted_class_sweep;
+  if (sweep === null || typeof sweep !== 'object' || Array.isArray(sweep)) {
+    return ['accepted-class sweep ledger is absent'];
+  }
+  if (sweep.schema !== 'AcceptedClassSweepV1') problems.push('accepted-class sweep schema must be AcceptedClassSweepV1');
+  if (sweep.plan_sha256 !== planSha256) problems.push('accepted-class sweep plan_sha256 is stale');
+
+  const expectedClasses = [...acceptedClasses];
+  if (expectedClasses.length === 0) problems.push('accepted-class sweep certifies nothing: no accepted class to clear');
+  if (JSON.stringify(sweep.accepted_classes) !== JSON.stringify(expectedClasses)) {
+    problems.push('accepted-class sweep accepted_classes does not exactly match the persisted accepted class set');
+  }
+
+  const expectedUnits = acceptedClassSweepUnitDigests(planText);
+  const actualUnits = sweep.units !== null && typeof sweep.units === 'object' ? sweep.units : {};
+  for (const [unit, unitSha256] of Object.entries(expectedUnits)) {
+    if (!Object.hasOwn(actualUnits, unit)) problems.push(`accepted-class sweep omits enumerated unit ${unit}`);
+    else if (actualUnits[unit] !== unitSha256) problems.push(`accepted-class sweep unit ${unit} is stale`);
+  }
+
+  for (const className of expectedClasses) {
+    for (const unit of Object.keys(expectedUnits)) {
+      const verdict = sweep.verdicts?.find((candidate) => candidate.class === className && candidate.unit === unit);
+      if (verdict === undefined) problems.push(`accepted-class sweep lacks clear verdict for ${className} on ${unit}`);
+      else if (verdict.verdict !== 'clear') problems.push(`accepted-class sweep ${className} is not clear on ${unit}`);
+    }
+  }
+  return problems;
+}

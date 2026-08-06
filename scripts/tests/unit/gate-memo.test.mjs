@@ -4,7 +4,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { computeGateKey, lookupMemo, memoRoot, pruneMemos, recordMemo } from '../../lib/gate-memo.mjs';
+import {
+  changedScopes,
+  computeGateKey,
+  lookupMemo,
+  MEMO_HINT_MS,
+  memoRoot,
+  pruneMemos,
+  recordMemo,
+  renderGateCost,
+} from '../../lib/gate-memo.mjs';
 
 const TOOLS = ['cargo=absent'];
 
@@ -183,4 +192,155 @@ test('the memo store is bounded', () => {
   }
   pruneMemos(root, 3);
   assert.deepEqual(fs.readdirSync(root).sort(), ['k5.json', 'k6.json', 'k7.json']);
+});
+
+// A memo recorded by `--plugin X` describes a run that gated a fraction of the
+// checks. Handing it back to a full run would be a false green - the worst outcome
+// this module can produce - so the scope is mixed into the key in both directions.
+test('a scoped pass never satisfies a full run, and a full pass never satisfies a scoped one', () => {
+  const repo = fixtureRepo('cross-scope');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-memo-cross-'));
+  const keyFor = (scope) => computeGateKey({ repo: repo.root, scope, tools: TOOLS }).key;
+  const full = keyFor({ plugin: null, lane: null });
+  const scoped = keyFor({ plugin: 'docks', lane: null });
+  const laned = keyFor({ plugin: null, lane: 'plan' });
+  assert.equal(new Set([full, scoped, laned]).size, 3, 'each scope keys its own memo');
+
+  recordMemo(scoped, { scope: { plugin: 'docks', lane: null } }, root);
+  assert.equal(lookupMemo(full, root), null, 'a --plugin pass must not satisfy a later full run');
+  assert.equal(lookupMemo(laned, root), null, 'a --plugin pass must not satisfy a later --lane run');
+  assert.equal(lookupMemo(scoped, root).status, 'passed', 'the same scope still hits');
+
+  fs.rmSync(path.join(root, `${scoped}.json`));
+  recordMemo(full, { scope: { plugin: null, lane: null } }, root);
+  assert.equal(lookupMemo(scoped, root), null, 'a full pass must not satisfy a later --plugin run');
+  assert.equal(lookupMemo(full, root).status, 'passed');
+});
+
+// The measured shape of a real full gate run: session-relay dominates at 88% and
+// everything else is noise beside it.
+const FULL_RUN = {
+  mode: { plugin: null },
+  status: 'passed',
+  total_ms: 364_600,
+  phases: [
+    { name: 'workflow YAML', duration_ms: 900 },
+    { name: 'plan orchestration', duration_ms: 23_800 },
+    { name: 'plugin: session-relay', duration_ms: 320_500 },
+    { name: 'plugin: plan-lifecycle', duration_ms: 4_200 },
+    { name: 'plugin: docks', duration_ms: 1_100 },
+  ],
+  commands: Array.from({ length: 70 }, (_, index) => ({ id: `c${index}` })),
+};
+
+const CHANGED_ONE = { plugins: ['plan-lifecycle'], outside: false };
+
+test('the cost summary ranks the full run and names the scope the tree actually needs', () => {
+  assert.equal(
+    renderGateCost(FULL_RUN, { memoRequested: true, scopes: CHANGED_ONE }),
+    [
+      '▣ gate cost — 364.6s across 5 phase(s) and 70 command(s)',
+      '     87.9%   320.5s  plugin: session-relay',
+      '      6.5%    23.8s  plan orchestration',
+      '      1.2%     4.2s  plugin: plan-lifecycle',
+      '  Cheaper next time: node scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
+    ].join('\n'),
+  );
+  // A failing gate still gets the cost breakdown: the operator about to re-run is
+  // exactly the one who needs to know what a re-run costs.
+  assert.match(renderGateCost({ ...FULL_RUN, status: 'failed' }, { scopes: CHANGED_ONE }), /^▣ gate cost — 364.6s/);
+});
+
+// The dearest phase is session-relay in every one of these runs. Naming it would be
+// exactly the wrong advice: it is the plugin these trees did not touch.
+test('the advice follows the changed paths, never the dearest phase', () => {
+  const advise = (scopes) => renderGateCost(FULL_RUN, { memoRequested: true, scopes }).split('\n').at(-1);
+  assert.equal(
+    advise(CHANGED_ONE),
+    '  Cheaper next time: node scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
+  );
+  assert.doesNotMatch(advise(CHANGED_ONE), /session-relay/, 'never hand over a command for the untouched plugin');
+
+  // Several plugins: name them, but offer no command, because no single --plugin run
+  // would be both cheaper and complete.
+  const many = advise({ plugins: ['docks', 'plan-lifecycle'], outside: false });
+  assert.equal(
+    many,
+    '  This working tree touches 2 plugins (docks, plan-lifecycle); one --plugin run covers one of them, so no single invocation is both cheaper and complete.',
+  );
+  assert.doesNotMatch(many, /node scripts\/ci\.mjs --plugin/, 'no copy-pasteable half-scope');
+
+  // A change outside every plugin root: the full gate IS the right scope, and the
+  // line must not push anyone off a gate they need.
+  assert.equal(
+    advise({ plugins: ['docks'], outside: true }),
+    '  The full gate is the correct scope: this working tree changes files outside every plugin root.',
+  );
+
+  // A clean tree has no cheaper scope at all; the memo is the only remaining lever,
+  // and it is named once rather than twice.
+  const clean = renderGateCost(FULL_RUN, { scopes: { plugins: [], outside: false } });
+  assert.equal(
+    clean.split('\n').at(-1),
+    '  Working tree is clean, so no targeted scope is cheaper; --memo is the only lever left (opt-in: a memo that enables itself can hide a stale pass).',
+  );
+  assert.doesNotMatch(clean, /would have keyed this/, 'the clean-tree advice already named --memo');
+
+  // git could not say: print the evidence, advise nothing, and never break the gate.
+  const blind = renderGateCost(FULL_RUN, { memoRequested: true, scopes: null });
+  assert.equal(blind.split('\n').at(-1), '      1.2%     4.2s  plugin: plan-lifecycle');
+});
+
+test('changed scopes are attributed from git status, and a git failure advises nothing', () => {
+  const plugins = [
+    { name: 'docks', root: 'plugins/docks' },
+    { name: 'plan-lifecycle', root: 'plugins/plan-lifecycle' },
+  ];
+  const from = (status) => changedScopes({ repo: '.', plugins, git: () => status });
+  assert.deepEqual(from(''), { plugins: [], outside: false });
+  assert.deepEqual(from(' M plugins/docks/hooks/a.mjs\0?? plugins/docks/b.mjs\0'), {
+    plugins: ['docks'],
+    outside: false,
+  });
+  assert.deepEqual(from(' M plugins/plan-lifecycle/x.mjs\0 M scripts/ci.mjs\0'), {
+    plugins: ['plan-lifecycle'],
+    outside: true,
+  });
+  // `R`/`C` records carry a NUL-terminated source path with no status prefix. Both
+  // ends are attributed, and the source is never re-read as a status record.
+  assert.deepEqual(from('R  plugins/docks/new.mjs\0plugins/plan-lifecycle/old.mjs\0'), {
+    plugins: ['docks', 'plan-lifecycle'],
+    outside: false,
+  });
+  assert.equal(
+    changedScopes({
+      repo: '.',
+      plugins,
+      git: () => {
+        throw new Error('git: command not found');
+      },
+    }),
+    null,
+  );
+});
+
+test('the cost summary is silent for a targeted run and for a memo hit', () => {
+  assert.equal(renderGateCost({ ...FULL_RUN, mode: { plugin: 'plan-lifecycle' } }, {}), null);
+  assert.equal(renderGateCost({ ...FULL_RUN, mode: { plugin: null, lane: 'plan' } }, {}), null);
+  // A memo hit exits before any phase or command runs, so there is no cost to report.
+  assert.equal(renderGateCost({ ...FULL_RUN, phases: [], commands: [], total_ms: 40 }, {}), null);
+  assert.equal(renderGateCost({ ...FULL_RUN, commands: [] }, {}), null);
+});
+
+test('the memo hint appears only above the threshold and only when nobody asked for --memo', () => {
+  const hint = /--memo would have keyed this/;
+  const at = (total_ms, options) => renderGateCost({ ...FULL_RUN, total_ms }, options);
+  assert.doesNotMatch(at(MEMO_HINT_MS, {}), hint, 'at the threshold the gate is not slow enough to nag');
+  assert.match(at(MEMO_HINT_MS + 1, {}), hint);
+  assert.doesNotMatch(at(MEMO_HINT_MS + 1, { memoRequested: true }), hint, '--memo was already passed');
+  assert.doesNotMatch(
+    renderGateCost({ ...FULL_RUN, status: 'failed' }, {}),
+    hint,
+    'a failing gate is never recorded, so the memo would not have helped',
+  );
 });

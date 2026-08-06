@@ -193,3 +193,121 @@ export function pruneMemos(root = memoRoot(), keep = MEMO_KEEP) {
     } catch {}
   }
 }
+
+// ---------------------------------------------------------------------------
+// Gate cost advisory.
+//
+// The memo above answers "do not re-pay for bytes already gated". This answers the
+// question one step earlier: "what did the gate just charge you for, and was a
+// cheaper correct invocation available?". An operator once ran the full gate six
+// times for a change confined to one plugin, because nothing in the output said
+// that 88% of the wall time belonged to a plugin the change never touched.
+//
+// It renders from the timing record ci.mjs already builds for `--timings-json`
+// (`total_ms`, `phases[].name/.duration_ms`, `commands`); there is deliberately no
+// second timing mechanism to keep honest.
+
+/** A full run slower than this is worth telling the operator about `--memo`. */
+export const MEMO_HINT_MS = 120_000;
+
+const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
+
+/**
+ * Which plugins the working tree actually touches, so the advice below can name the
+ * scope the operator NEEDS rather than the phase that happened to be dearest. The
+ * dearest phase is usually the plugin they did not touch, and a copy-pasteable
+ * command for the wrong scope is worse advice than none.
+ *
+ * One `git status` and nothing else - this must never cost gate time. Any git
+ * failure returns `null`, and a null scope prints the cost table with no advice at
+ * all: an unavailable git must not break the gate or invent a scope.
+ *
+ * @param {{repo: string, plugins: Array<{name: string, root: string}>, git?: (args: string[]) => string}} input
+ * @returns {{plugins: string[], outside: boolean}|null}
+ */
+export function changedScopes({ repo, plugins, git = gitReader(repo) }) {
+  let status;
+  try {
+    status = git(['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  } catch {
+    return null;
+  }
+  const records = status.split('\0');
+  const touched = new Set();
+  let outside = false;
+  const attribute = (file) => {
+    const owner = plugins.find(({ root }) => file === root || file.startsWith(`${root}/`));
+    if (owner === undefined) outside = true;
+    else touched.add(owner.name);
+  };
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (record === '') continue;
+    attribute(record.slice(3));
+    // `R`/`C` records are followed by a bare source path with no status prefix;
+    // consume it here so it is never read as a status record with three bytes eaten.
+    if (record[0] === 'R' || record[0] === 'C' || record[1] === 'R' || record[1] === 'C') {
+      index += 1;
+      if (records[index]) attribute(records[index]);
+    }
+  }
+  return { plugins: [...touched].sort(), outside };
+}
+
+/**
+ * Phase-cost summary for the end of a full gate run.
+ *
+ * Returns `null` - print nothing - for a targeted run (`--plugin`/`--lane`, already
+ * the cheap path, so the advice would be noise) and for a memo hit, which runs no
+ * commands and therefore has no costs to report.
+ *
+ * @param {{mode: {plugin: string|null, lane?: string|null}, status: string, total_ms: number,
+ *          phases: Array<{name: string, duration_ms: number}>, commands: Array<unknown>}} report
+ * @param {{memoRequested?: boolean, top?: number, scopes?: {plugins: string[], outside: boolean}|null}} options
+ * @returns {string|null}
+ */
+export function renderGateCost(report, { memoRequested = false, top = 3, scopes = null } = {}) {
+  if ((report.mode?.plugin ?? null) !== null || (report.mode?.lane ?? null) !== null) return null;
+  const phases = report.phases ?? [];
+  const commands = report.commands ?? [];
+  if (phases.length === 0 || commands.length === 0) return null;
+  const total = report.total_ms;
+  if (!(total > 0)) return null;
+
+  const share = (ms) => `${((ms / total) * 100).toFixed(1)}%`;
+  const ranked = [...phases].sort((a, b) => b.duration_ms - a.duration_ms);
+  const lines = [`▣ gate cost — ${seconds(total)} across ${phases.length} phase(s) and ${commands.length} command(s)`];
+  for (const phase of ranked.slice(0, top)) {
+    lines.push(`    ${share(phase.duration_ms).padStart(6)}  ${seconds(phase.duration_ms).padStart(7)}  ${phase.name}`);
+  }
+
+  // The advice is derived from what the working tree CHANGED, never from which phase
+  // was dearest: the dearest phase is typically the plugin the operator never touched,
+  // and a copy-pasteable command for the wrong scope is worse than silence. A null
+  // `scopes` (git unavailable or failing) prints the evidence above and stops.
+  const cheapestScope = () => {
+    if (scopes === null) return null;
+    if (scopes.outside) {
+      return '  The full gate is the correct scope: this working tree changes files outside every plugin root.';
+    }
+    if (scopes.plugins.length === 0) {
+      return '  Working tree is clean, so no targeted scope is cheaper; --memo is the only lever left (opt-in: a memo that enables itself can hide a stale pass).';
+    }
+    if (scopes.plugins.length === 1) {
+      return `  Cheaper next time: node scripts/ci.mjs --plugin ${scopes.plugins[0]} — the only plugin this working tree touches.`;
+    }
+    return `  This working tree touches ${scopes.plugins.length} plugins (${scopes.plugins.join(', ')}); one --plugin run covers one of them, so no single invocation is both cheaper and complete.`;
+  };
+  const advice = cheapestScope();
+  if (advice !== null) lines.push(advice);
+
+  // Only a pass is memoizable, so only a pass may claim the memo would have helped,
+  // and the clean-tree advice above already named it.
+  const memoAlreadyNamed = advice !== null && advice.includes('--memo');
+  if (report.status === 'passed' && !memoRequested && !memoAlreadyNamed && total > MEMO_HINT_MS) {
+    lines.push(
+      `  --memo would have keyed this ${seconds(total)} pass to the working tree, so an unchanged re-run costs nothing (opt-in only: a memo that enables itself can hide a stale pass).`,
+    );
+  }
+  return lines.join('\n');
+}

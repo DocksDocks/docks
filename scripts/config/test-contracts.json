@@ -895,6 +895,25 @@
       "skips": []
     },
     {
+      "id": "unit-no-bespoke-gates",
+      "version": 1,
+      "title": "No bespoke per-plan gate unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/no-bespoke-gates.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/no-bespoke-gates.test.mjs",
+        "expected_min": 8
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
       "id": "unit-reviewer-route-preflight",
       "version": 1,
       "title": "Reviewer route preflight unit contracts",

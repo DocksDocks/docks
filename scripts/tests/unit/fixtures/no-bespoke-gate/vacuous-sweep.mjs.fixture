@@ -1,0 +1,58 @@
+// Reconstruction of the deleted accepted-class sweep (removed in 28135d3), reduced to be
+// self-contained: same accumulator, same self-referential shape checks, same clearance loop
+// over `acceptedClasses`. With an empty accepted set the clearance loop never runs and an
+// empty-verdict ledger validates, which is exactly how the original sat silently vacuous.
+import crypto from 'node:crypto';
+
+const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
+function acceptedClassSweepUnitDigests(planText) {
+  return Object.fromEntries(
+    planText
+      .split('\n')
+      .filter((line) => line.startsWith('## '))
+      .map((line) => [`document_sections:${line.slice(3).trim()}`, sha256(line)]),
+  );
+}
+
+export function createAcceptedClassSweep({ accepted_classes: acceptedClasses, verdicts = [] }, planText) {
+  if (!Array.isArray(acceptedClasses)) throw new Error('accepted-class sweep accepted_classes must be an array');
+  return {
+    schema: 'AcceptedClassSweepV1',
+    plan_sha256: sha256(planText),
+    accepted_classes: [...acceptedClasses].sort(),
+    units: acceptedClassSweepUnitDigests(planText),
+    verdicts: verdicts.map((verdict) => ({ ...verdict })),
+  };
+}
+
+export function validateAcceptedClassSweep(ledger, planText, { acceptedClasses, planSha256 = sha256(planText) }) {
+  const problems = [];
+  const sweep = ledger?.accepted_class_sweep;
+  if (sweep === null || typeof sweep !== 'object' || Array.isArray(sweep)) {
+    return ['accepted-class sweep ledger is absent'];
+  }
+  if (sweep.schema !== 'AcceptedClassSweepV1') problems.push('accepted-class sweep schema must be AcceptedClassSweepV1');
+  if (sweep.plan_sha256 !== planSha256) problems.push('accepted-class sweep plan_sha256 is stale');
+
+  const expectedClasses = [...acceptedClasses];
+  if (JSON.stringify(sweep.accepted_classes) !== JSON.stringify(expectedClasses)) {
+    problems.push('accepted-class sweep accepted_classes does not exactly match the persisted accepted class set');
+  }
+
+  const expectedUnits = acceptedClassSweepUnitDigests(planText);
+  const actualUnits = sweep.units !== null && typeof sweep.units === 'object' ? sweep.units : {};
+  for (const [unit, unitSha256] of Object.entries(expectedUnits)) {
+    if (!Object.hasOwn(actualUnits, unit)) problems.push(`accepted-class sweep omits enumerated unit ${unit}`);
+    else if (actualUnits[unit] !== unitSha256) problems.push(`accepted-class sweep unit ${unit} is stale`);
+  }
+
+  for (const className of expectedClasses) {
+    for (const unit of Object.keys(expectedUnits)) {
+      const verdict = sweep.verdicts?.find((candidate) => candidate.class === className && candidate.unit === unit);
+      if (verdict === undefined) problems.push(`accepted-class sweep lacks clear verdict for ${className} on ${unit}`);
+      else if (verdict.verdict !== 'clear') problems.push(`accepted-class sweep ${className} is not clear on ${unit}`);
+    }
+  }
+  return problems;
+}
