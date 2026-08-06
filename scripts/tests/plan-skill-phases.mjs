@@ -51,6 +51,10 @@ const REVIEW_CONTRACT_CLAUSES = [
     text: 'Historical records are read-only inputs to the historical adapter and never current authority.',
   },
   {
+    name: 'local-draft-self-check-gate',
+    text: 'At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk reduces the completion review.',
+  },
+  {
     name: 'direct-review-transport',
     text: 'Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.',
   },
@@ -523,8 +527,8 @@ function assertBoundedWorkflows() {
     /ExternalAuthorityV1/,
     /legacy-quarantined/,
     /One clear, reversible, low-risk local diff[\s\S]*`0 \/ 0 \/ 0`/,
-    /Plan-only request[\s\S]*≤2 draft reviewers \/ 1 commit/,
-    /Ordinary canonical implementation[\s\S]*≤2 draft reviewers \/ 2 commits/,
+    /Plan-only request[\s\S]*0 local \/ ≤2 nonlocal draft reviewers \/ 1 commit/,
+    /Ordinary canonical implementation[\s\S]*0 draft reviewers \/ 2 commits/,
     /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤2 draft \+ exactly 2 completion reviewers \/ 3 commits/,
     /Before launching, transactionally\s+increment[\s\S]*persist\s+`reserved`/,
     /transport-only failure refunds its reservation/i,

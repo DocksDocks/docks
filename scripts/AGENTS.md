@@ -53,8 +53,9 @@ cross-subsystem or public-contract changes, destructive or security-sensitive
 work, external effects, or an explicit plan request.
 
 The live plan author suite has exactly three owners: `plan-workspace` maintains
-the workspace; main-context `plan-manager` owns classify through draft review,
-one repair, implementation, observed acceptance, finish, and archive; internal
+the workspace; main-context `plan-manager` owns classify through the draft gate —
+the deterministic self-check at local risk, a substantive review plus at most one
+repair above it — implementation, observed acceptance, finish, and archive; internal
 read-only `plan-reviewer` returns `PlanReviewV1`. Only reviewer wrappers ship.
 Current state is one compact `PlanRunV1`; schemas 1–6 are historical
 validation/quarantine only. The focused current contract lives in

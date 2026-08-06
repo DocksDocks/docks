@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-05"
-  content_hash: "079d5c0bcaeacd646a009f73ec87d2a51f2b1bcab1e2d044bcab99823ee4331f"
+  updated: "2026-08-06"
+  content_hash: "625809cafba16202ae5e858bef64c4ea88664459493ec701251846239a2adcdc"
 ---
 
 # Plans Workspace
@@ -75,8 +75,9 @@ preservation checks. Current markers are:
 - adaptive direct-work threshold and no manual follow-up `start` handoff;
 - a new Steps schema with stable ids, while only the frozen grandfather set may
   retain the legacy schema with an advisory;
-- one initial draft review plus one mandatory verification only after an accepted
-  repair, a substantive ceiling of two, and post-verification findings blocked;
+- the deterministic self-check as the local-risk draft gate, one initial draft
+  review plus one mandatory post-repair verification at sensitive/external risk,
+  a substantive ceiling of two, and post-verification findings blocked;
 - exactly two completion reviews and one transport retry, never two;
 - historical review fields readable only through the historical adapter;
 - release pre-completion guards for available live read-only final-boundary
@@ -133,21 +134,17 @@ vocabulary is closed by kind: `missing_decision` permits only
 reviewer emits `class`; the manager validates the kind/class pair and never
 derives a class from plan prose.
 
-`accepted_classes` remains valid on read for historical records and is written
-by no current transition. Historical records are read-only inputs to the historical adapter and never current authority. Draft review has one initial review and, only after an
-accepted repair, one mandatory fresh verification, with a ceiling of two
-substantive invocations. Completion review has exactly two substantive
-invocations and an empty `accepted_classes` set.
+`accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to
+the historical adapter and never current authority. Draft review has one initial review and, only after an accepted repair, one mandatory fresh
+verification, with a ceiling of two substantive invocations. Completion review has exactly two substantive invocations and an empty
+`accepted_classes` set. At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or
+external risk always requires a passed substantive draft review, and no risk reduces the completion review.
 
-A draft repair verdict is accepted at most once. Any further repair or new
-finding after the mandatory verification terminal-blocks the run and requires a
-new user-authorized successor. A transport-only failure refunds its reservation
-and allows one fresh `transport_retried` dispatch without changing substantive
-bindings; a second transport failure degrades only local draft work at local risk
-and otherwise blocks. One retry, never two.
+A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and
+requires a new user-authorized successor. A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without
+changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two.
 
-Review transport is a direct reviewer subprocess. Session Relay is never review
-evidence and never a required dependency.
+Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.
 
 ## Classification report
 Before mutation, show a table such as:

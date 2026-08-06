@@ -176,7 +176,7 @@ change `plan_sha256`, `source_base`, and `source_sha256` and no other field, onl
 
 | Phase state | Draft invocations | Completion invocations | Input | Result | Extra rule |
 |---|---:|---:|---|---|---|
-| `not_required` | forbidden | 0 | null | null | completion only, local risk |
+| `not_required` | 0 | 0 | null | null | local risk only; completion baseline, or the self-checked draft gate |
 | `not_started` | 0 | 0 | null | null | draft, or sensitive/external completion |
 | `reserved` | 1–2 | 1–2 | hash | null | live initial or repair launch |
 | `transport_retried` | 1–2 | 1–2 | hash | null | live launch after one transport failure |
@@ -187,22 +187,24 @@ change `plan_sha256`, `source_base`, and `source_sha256` and no other field, onl
 | `blocked` | 1–2 | 1–2 | hash | evidence/result hash | terminal for this run |
 | `cancelled` | 1–2 | 1–2 | hash | cancellation hash | terminal for this run |
 
-Legal phase transitions are only `not_started → reserved`; `reserved → passed | repairing | blocked | cancelled | retryable`; `retryable →
-transport_retried | blocked | cancelled`; `transport_retried → passed | repairing | blocked | cancelled | degraded`; and `repairing → reserved |
-blocked | cancelled`. A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive
-bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two. Terminal states never
-reset.
+Legal phase transitions are only `not_started → reserved`, plus local-draft `not_started → not_required`; `reserved → passed | repairing |
+blocked | cancelled | retryable`; `retryable → transport_retried | blocked | cancelled`; `transport_retried → passed | repairing | blocked |
+cancelled | degraded`; and `repairing → reserved | blocked | cancelled`. A transport-only failure refunds its reservation and allows one fresh
+`transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and
+otherwise blocks. One retry, never two. Terminal states never reset.
 
 Before spawning, transactionally increment the invocation count and persist `reserved`, or `transport_retried` after a transport failure, with the
 exact input digest. A verdict spends the reserved substantive permit. An arriving result may mutate only the matching phase while it remains
 `reserved` or `transport_retried` with the same run id, invocation, and input hash; stale results are discarded. Cold entry into either live state
 changes it to `blocked` with dangling-launch evidence and never redispatches.
 
-Before reserving, preflight the exact reviewer route and a private file that will receive complete stdout. Each invocation has a newly sealed bundle
-whose closed binding contains that invocation number. After reservation read-back, derive the prompt only from that bundle and capture directly to the
-file. Never consume console rendering, clipped lines, transcript fragments, or reconstructed JSON; do not request compact/single-line reviewer output.
-Parse the file, validate the closed object, then hash canonical JCS. Review transport is a direct reviewer subprocess. Session Relay is never review
-evidence and never a required dependency.
+Before reserving, preflight the exact reviewer route and a private file that will receive complete stdout. Preflighting the route means running it
+once with a trivial prompt and requiring exit 0 plus a parseable JSON object, because a route that spawns can still answer `usage_limit_reached` or
+reply off-contract; the probe runs below the dry-run exit and above the reserve, so a refusal costs no permit, and `--skip-route-probe` waives it
+only for an already-proven route. Each invocation has a newly sealed bundle whose closed binding contains that invocation number. After reservation
+read-back, derive the prompt only from that bundle and capture directly to the file. Never consume console rendering, clipped lines, transcript
+fragments, or reconstructed JSON; do not request compact/single-line reviewer output. Parse the file, validate the closed object, then hash canonical
+JCS. Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.
 
 Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive
 invocations. Completion review has exactly two substantive invocations and an empty `accepted_classes` set. A draft repair verdict is accepted at most
@@ -227,47 +229,50 @@ scheduled | ongoing | blocked`; `planned` ↔ `scheduled`; `planned | scheduled`
 
 | Frontmatter status | Draft phase | Completion phase | Implementation / acceptance | Blocker |
 |---|---|---|---|---|
-| `drafting` | `not_started | reserved | transport_retried | retryable | repairing | passed`, plus local-only `degraded` | risk baseline | both null | null |
-| `planned` / `scheduled` | `passed`, or local-only `degraded` | risk baseline | both null | null |
-| `ongoing` local | `passed | degraded` | `not_required` | implementation null; acceptance null | null |
+| `drafting` | `not_started | reserved | transport_retried | retryable | repairing | passed`, plus local-only `degraded | not_required` | risk baseline | both null | null |
+| `planned` / `scheduled` | `passed`, or local-only `degraded | not_required` | risk baseline | both null | null |
+| `ongoing` local | `passed | degraded | not_required` | `not_required` | implementation null; acceptance null | null |
 | `ongoing` sensitive/external before completion | `passed` | `not_started` | both null | null |
 | `ongoing` sensitive/external during/after completion | `passed` | `reserved | transport_retried | retryable | repairing | passed` | implementation required; acceptance required except that replacement clears stale acceptance while `repairing`, then the next reservation rebinds it | null |
-| `blocked` before start | baseline or terminal draft | risk baseline | both null | required |
-| `blocked` local before acceptance | `passed | degraded` | `not_required` | both null | required |
-| `blocked` local after acceptance | `passed | degraded` | `not_required` | implementation null; acceptance required | `concurrent_change` only |
+| `blocked` before start | baseline, local `not_required`, or terminal draft | risk baseline | both null | required |
+| `blocked` local before acceptance | `passed | degraded | not_required` | `not_required` | both null | required |
+| `blocked` local after acceptance | `passed | degraded | not_required` | `not_required` | implementation null; acceptance required | `concurrent_change` only |
 | `blocked` sensitive/external before completion | `passed` | `not_started` | both null | required |
 | `blocked` sensitive/external during completion | `passed` | `blocked | cancelled` | implementation and acceptance required | required |
 | `blocked` sensitive/external after completion | `passed` | `passed` | implementation and acceptance required | `missing_authority | concurrent_change` only |
-| `finished` local | `passed | degraded` | `not_required` | implementation null; acceptance required | null |
+| `finished` local | `passed | degraded | not_required` | `not_required` | implementation null; acceptance required | null |
 | `finished` sensitive/external | `passed` | `passed` | implementation and acceptance required | null |
 
-Draft baseline is `not_started`. Completion baseline is local `not_required` or
-sensitive/external `not_started`. A pre-dispatch `user_decision` or
-`missing_authority` blocker may reopen its existing run when new user input
-answers it; consumed permits never reset. Every other blocked/cancelled run is
-terminal and immutable. For the same domain goal, explicit current-user
-`PlanRunReplacementAuthorityV1` may append that terminal run to history and
-start fresh review budgets under a new `run_id` at the same `plan_path`.
-Replacement is never automatic and never reuses predecessor permits, bundles,
-prompts, output, or hashes. Unrelated goals use new files; never mint `v2`/`vN`
-paths to bypass a terminal run or permit budget.
+At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always
+requires a passed substantive draft review, and no risk reduces the completion review. The gate is
+`plan-manager/scripts/lifecycle/plan-self-check.mjs`: it is free, repeatable at `drafting`, and settles the phase without an invocation, an
+input digest, or a result digest. Settling it freezes the draft body exactly as a passed review does.
 
-The same-file replacement transaction resolves an explicit repository root and
-the current file's normalized repository-relative path after validating the
-current record. It rejects unless that file path equals the current run's
-`plan_path`, before any write, and never rewrites the target to make it match.
+Draft baseline is `not_started`. Completion baseline is local `not_required` or sensitive/external `not_started`. A pre-dispatch `user_decision` or
+`missing_authority` blocker may reopen its existing run when new user input answers it; consumed permits never reset. Every other blocked/cancelled
+run is terminal and immutable. For the same domain goal, explicit current-user `PlanRunReplacementAuthorityV1` may append that terminal run to
+history and start fresh review budgets under a new `run_id` at the same `plan_path`. Replacement is never automatic and never reuses predecessor
+permits, bundles, prompts, output, or hashes. Unrelated goals use new files; never mint `v2`/`vN` paths to bypass a terminal run or permit budget.
+
+The same-file replacement transaction resolves an explicit repository root and the current file's normalized repository-relative path after
+validating the current record. It rejects unless that file path equals the current run's `plan_path`, before any write, and never rewrites the
+target to make it match.
 
 ## Main-context orchestration
 
 1. Classify the goal. Direct local work stays untracked. Otherwise resolve one
    stable canonical path: create it only if absent; for an explicitly continued
    same-domain terminal goal, use the guarded same-file replacement transaction.
-2. Research repository facts and bind plan/source manifests. Preflight reviewer
-   availability and private full-output capture. Seal the invocation bundle,
-   reserve its digest, read back, derive the prompt from that exact bundle, then
-   launch one fresh reviewer and capture its complete stdout to the file.
-3. On `pass`, continue. On a repository-grounded `repair`, patch only the exact
-   accepted blocking set, then dispatch the mandatory changed-input verification.
+2. Research repository facts and bind plan/source manifests, then run the
+   deterministic self-check until it passes. At local risk that gate closes the
+   draft phase: settle `draft_review` to `not_required`, spending no permit. At
+   sensitive or external risk, also preflight reviewer availability and private
+   full-output capture, seal the invocation bundle, reserve its digest, read back,
+   derive the prompt from that exact bundle, then launch one fresh reviewer and
+   capture its complete stdout to the file.
+3. For a substantive draft review: on `pass`, continue. On a repository-grounded
+   `repair`, patch only the exact accepted blocking set, then dispatch the
+   mandatory changed-input verification.
    Any further repair or new finding terminal-blocks this run and requires a
    user-authorized successor. On a real missing decision/authority, block with
    evidence. A first transport-only failure refunds its reservation; seal a fresh
@@ -284,6 +289,7 @@ current record. It rejects unless that file path equals the current run's
    and write canonical Verification Results. Diagnose ordinary verification
    failures inside the implementation loop; repeated same-signature failure with
    no relevant-byte progress blocks this run and never reopens its draft review.
+   A plan never invents its own verification gate: `scripts/plans/no-bespoke-gates.mjs` fails when a plan-named export that validates its own versioned artifact clears one member of a set at a time, never requires that set to be non-empty, and answers to at most one shipped caller.
 6. Ordinary local work records acceptance, writes `finished`, moves once to a
    unique archive path, and commits implementation plus finished plan as one final
    checkpoint. It has no completion reviewer.
@@ -310,19 +316,21 @@ expected HEAD, index, and owned-path preimage, commits only owned paths, and
 reads the commit back before release. Any mismatch fails before write, dispatch,
 or external action and records `concurrent_change` when the tuple permits.
 
-Ordinary lifecycle writes use `transactPlanRun`. Terminal same-path rollover
-uses only `replacePlanRunInPlace`, locking on the predecessor identity/preimage
-and validating exact authority, successor, and append-only history before write.
+A checkpoint whose changed owned paths exceed `affected_paths` amends that set to
+the union and proceeds inside the same transaction, so the record always lists
+every path it commits; the amendment, and the checkpoint with it, is refused
+while a review phase is live, after a passed completion review, or once an
+acceptance is minted.
 
-A same-host dead-owner lock may be reclaimed only after matching owner PID,
-`run_id`, and unchanged preimages. A live, foreign, ambiguous, or changed stale
-lock blocks. Never weaken a lock, reset the index, include unrelated changes, or
-infer that another session owns a change.
+Ordinary lifecycle writes use `transactPlanRun`. Terminal same-path rollover uses only `replacePlanRunInPlace`, locking on the predecessor
+identity/preimage and validating exact authority, successor, and append-only history before write.
 
-Checkpoint ceilings: direct local work 0 automatic commits; reviewed plan-only 1;
-ordinary canonical implementation 2 (start, final); sensitive/external work 3
-(start, implementation, archive). A real terminal blocker may add one cold-handoff
-blocker commit. No automatic push follows any checkpoint.
+A same-host dead-owner lock may be reclaimed only after matching owner PID, `run_id`, and unchanged preimages. A live, foreign, ambiguous, or changed
+stale lock blocks. Never weaken a lock, reset the index, include unrelated changes, or infer that another session owns a change.
+
+Checkpoint ceilings: direct local work 0 automatic commits; reviewed plan-only 1; ordinary canonical implementation 2 (start, final);
+sensitive/external work 3 (start, implementation, archive). A real terminal blocker may add one cold-handoff blocker commit. No automatic push
+follows any checkpoint.
 
 ## Reviewer records
 

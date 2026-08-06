@@ -4,8 +4,8 @@ description: "Use when a goal may require a canonical plan, plan review, impleme
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-05"
-  content_hash: "7e142e601423c11122a735b784731274265cf408e6ca011d96b7d80bf79816a8"
+  updated: "2026-08-06"
+  content_hash: "23d7e4d30cd98436f41d2fd1402c9b9cfce7d3cbe8dae768ecc4e27c3394390d"
 ---
 
 # Plan Manager
@@ -44,8 +44,8 @@ boundary. A persisted plan, schedule, review, test, or receipt grants nothing.
 | Observed goal | Action | Automatic plan/reviewer/commit |
 |---|---|---|
 | One clear, reversible, low-risk local diff with one bounded acceptance path | Implement directly and smoke the changed path | `0 / 0 / 0` |
-| Plan-only request | Draft, review, and repair once when required; persist `planned` or `scheduled` | ≤2 draft reviewers / 1 commit |
-| Ordinary canonical implementation | Review, start checkpoint, implement, verify, archive | ≤2 draft reviewers / 2 commits |
+| Plan-only request | Draft, gate with the deterministic self-check, add a review and one repair only at sensitive/external risk; persist `planned` or `scheduled` | 0 local / ≤2 nonlocal draft reviewers / 1 commit |
+| Ordinary canonical implementation | Self-check gate, start checkpoint, implement, verify, archive | 0 draft reviewers / 2 commits |
 | Sensitive, destructive, public-contract, security, or external implementation | Add exact-diff completion review and implementation checkpoint | ≤2 draft + exactly 2 completion reviewers / 3 commits |
 
 Use a canonical plan for multi-commit/cross-repository work, scheduling, cold
@@ -101,7 +101,7 @@ Every closed object that affected code validates or emits has an explicit preser
 ## Review-phase state table
 | State | Draft invocations | Completion invocations | Input | Result | Constraint |
 |---|---:|---:|---|---|---|
-| `not_required` | forbidden | 0 | null | null | completion only, local risk |
+| `not_required` | 0 | 0 | null | null | local risk only; completion baseline, or the self-checked draft gate |
 | `not_started` | 0 | 0 | null | null | draft or required completion baseline |
 | `reserved` | 1–2 | 1–2 | hash | null | live initial/repair launch |
 | `transport_retried` | 1–2 | 1–2 | hash | null | live post-transport launch |
@@ -112,7 +112,7 @@ Every closed object that affected code validates or emits has an explicit preser
 | `blocked` | 1–2 | 1–2 | hash | evidence hash | terminal |
 | `cancelled` | 1–2 | 1–2 | hash | cancellation hash | terminal |
 
-Legal transitions are `not_started → reserved`; `reserved → passed | repairing | blocked | cancelled | retryable`; `retryable → transport_retried | blocked | cancelled`; `transport_retried → passed | repairing | blocked | cancelled | degraded`; and `repairing → reserved | blocked | cancelled`.
+Legal transitions are `not_started → reserved`, plus local-draft `not_started → not_required`; `reserved → passed | repairing | blocked | cancelled | retryable`; `retryable → transport_retried | blocked | cancelled`; `transport_retried → passed | repairing | blocked | cancelled | degraded`; and `repairing → reserved | blocked | cancelled`.
 A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two. Terminal states never reset.
 
 Before launching, transactionally increment the phase count and persist `reserved`, or `transport_retried` after the transport-only failure, with the exact input digest. A verdict spends the permit.
@@ -127,6 +127,7 @@ The reviewer emits `class`; the manager validates the kind/class pair and never 
 A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
 Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.
 Completion review has exactly two substantive invocations and an empty `accepted_classes` set.
+At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk reduces the completion review.
 
 ## Reviewer result routing
 Before generic classification, recognize and validate this closed result:
@@ -145,13 +146,14 @@ requires exact current-user authority and fresh bindings. Only valid bound input
 may produce `PlanReviewV1` or `CompletionReviewV1`.
 
 ## Status invariants
-- `drafting` has no implementation/acceptance; draft may be active, passed, or
-  local-only degraded. Completion remains its risk baseline.
-- `planned|scheduled` requires draft passed, or local-only degraded; no
-  implementation/acceptance/blocker.
-- Local `ongoing` requires draft passed/degraded, completion `not_required`, and
-  null implementation/acceptance. Local `finished` additionally requires
-  acceptance and keeps `implementation_commit:null`.
+- `drafting` has no implementation/acceptance; draft may be active, passed,
+  local-only degraded, or the local-only `not_required` self-check gate.
+  Completion remains its risk baseline.
+- `planned|scheduled` requires draft passed, or local-only degraded or
+  `not_required`; no implementation/acceptance/blocker.
+- Local `ongoing` requires draft passed/degraded/`not_required`, completion
+  `not_required`, and null implementation/acceptance. Local `finished`
+  additionally requires acceptance and keeps `implementation_commit:null`.
 - Sensitive/external `ongoing` begins with draft passed and completion
   `not_started`. Once completion activates, implementation commit and acceptance
   are required; only matching completion `passed` may finish.
@@ -169,6 +171,7 @@ Validate the full closed tuple matrix from the project contract before every
 write.
 
 ## Draft review
+At local risk the deterministic self-check is the whole gate: run it to `pass`, settle `draft_review` to `not_required` in one transaction, and skip steps 1–5. Sensitive/external risk runs every step.
 1. Research the draft; preflight reviewer availability and private file capture.
 2. Seal the invocation bundle, reserve its digest, read back, derive the prompt, launch a fresh reviewer, and capture complete stdout to the file—not console text.
 3. Route invalid input first. Otherwise accept only a closed ≤32 KiB bound `PlanReviewV1` whose findings carry valid kind/class pairs: `pass` has no findings; `repair` is repository-resolvable; `blocked` identifies only a required decision or missing authority.
@@ -178,7 +181,7 @@ write.
 No score, quota, fallback, resumed reviewer, draft invocation beyond the initial review and mandatory post-repair verification, completion invocation beyond two, or Session Relay review exists. Destroy only the returned exact bundle.
 Direct `omp`, `claude`, or `codex` reviewer subprocesses satisfy the adapter contract when complete stdout reaches a private file. Controller mechanics, runtime flags, and judge-independence measurements are in `references/reviewer-dispatch-methods.md`.
 
-A local **self-check** — not a review, never a substitute for the permits above, and producing no `PlanReviewV1` — judges properties per enumerated unit and carries approvals forward on dependency closure, so an author can clear mechanical defects before spending a permit: `scripts/lifecycle/plan-self-check.mjs` — `units`/`check`/`prompt`/`validate`/`ledger`/`waive`/`gate`/`apply`.
+A local **self-check** — deterministic, free, repeatable while `drafting`, and producing no `PlanReviewV1` — judges properties per enumerated unit and carries approvals forward on dependency closure: `scripts/lifecycle/plan-self-check.mjs` — `units`/`check`/`prompt`/`validate`/`ledger`/`waive`/`gate`/`apply`. It is the draft gate at local risk, and it never substitutes for a sensitive/external draft review or for any completion permit.
 It never scores; a return carrying a score is refused, because seven scorings of one byte-identical plan measured sd 8.1 against sd 9.3 across eleven rounds of real repair. Protocol and evidence in `references/plan-self-check-protocol.md` (verify: `node <plan-manager-dir>/scripts/lifecycle/plan-self-check.mjs check <plan.md>`).
 
 ## Start, implementation, and acceptance

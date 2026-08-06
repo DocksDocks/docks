@@ -20,8 +20,9 @@ import {
   reviewResultEvent,
   SOURCE_BASE,
   tuple,
+  withStamps,
 } from './fixtures/plan-run-v1.mjs';
-import { clone, expectThrow, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
+import { clone, expectReject, expectThrow, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
 
 const REPLACEMENT_COMMIT = '6'.repeat(40);
 const DIFF_SHA256 = '7'.repeat(64);
@@ -1080,5 +1081,138 @@ export function registerReviewBudget(suite, api, reviewer) {
     } finally {
       fs.rmSync(root, { force: true, recursive: true });
     }
+  });
+
+  // The draft gate for ordinary local work is the deterministic self-check, so
+  // `draft_review` settles to `not_required` exactly the way local
+  // `completion_review` already does (runtime/plan-state.mjs: the
+  // `self_check_gate` reducer branch and validateTuple's draft arms). The model
+  // spend moves to the completion diff, which these cases hold unchanged.
+  suite.test('review-budget', 'the local self-check gate reaches ongoing without spending a draft permit', () =>
+    withTempDirectory('plan-run-self-check-gate-', async (root) => {
+      const gated = reduce(api, localDraftState(), { type: 'self_check_gate' });
+      assertPhase(gated, 'draft_review', reviewPhase('not_required'));
+      assert.equal(gated.status, 'drafting', 'the gate settles the phase and never moves the lifecycle itself');
+      expectThrow(() => reduce(api, gated, reserve('draft_review')), /terminal|permit|phase/i);
+
+      const file = path.join(root, 'plan.md');
+      const drafting = bindPlan(api, tuple('drafting'));
+      const closed = bindPlan(api, tuple('drafting', { draft_review: reviewPhase('not_required') }));
+      const started = bindPlan(
+        api,
+        tuple('ongoing', { draft_review: reviewPhase('not_required'), execution_parent: SOURCE_BASE }),
+      );
+      const startedBytes = withStamps(started.bytes, '"2026-07-24T01:00:00Z"', 'null');
+      const identity = {
+        goalId: drafting.run.goal_id,
+        planPath: drafting.run.plan_path,
+        repositoryId: drafting.run.repository_id,
+        runId: drafting.run.run_id,
+      };
+      const lockRoot = path.join(root, 'locks');
+      fs.writeFileSync(file, drafting.bytes);
+      await api.transactPlanRun({
+        file,
+        identity,
+        expectedBytesSha256: api.sha256(drafting.bytes),
+        nextBytes: closed.bytes,
+        lockRoot,
+      });
+      await api.transactPlanRun({
+        file,
+        identity,
+        expectedBytesSha256: api.sha256(closed.bytes),
+        nextBytes: startedBytes,
+        lockRoot,
+      });
+
+      const readback = api.validatePlanRun(fs.readFileSync(file), identity);
+      assert.equal(readback.status, 'ongoing', 'an ordinary-risk plan reaches ongoing on the self-check gate');
+      assert.deepEqual(readback.run.draft_review, reviewPhase('not_required'));
+    }),
+  );
+
+  suite.test('review-budget', 'sensitive risk cannot substitute the self-check gate for a draft review', () =>
+    withTempDirectory('plan-run-self-check-gate-sensitive-', async (root) => {
+      const sensitiveRun = (overrides = {}) =>
+        planRun({
+          completion_review: reviewPhase('not_started'),
+          requested_effects: ['local', 'production_access'],
+          risk: 'sensitive',
+          ...overrides,
+        });
+      expectThrow(
+        () => reduce(api, { status: 'drafting', run: sensitiveRun() }, { type: 'self_check_gate' }),
+        /sensitive\/external risk requires a substantive draft review/,
+      );
+      for (const [status, overrides] of [
+        ['drafting', {}],
+        ['ongoing', { execution_parent: SOURCE_BASE }],
+      ]) {
+        expectThrow(
+          () =>
+            api.validatePlanRunRecord(sensitiveRun({ draft_review: reviewPhase('not_required'), ...overrides }), {
+              status,
+            }),
+          /sensitive\/external draft review cannot be not_required/,
+          `sensitive ${status} must reject a self-checked draft gate`,
+        );
+      }
+
+      const file = path.join(root, 'plan.md');
+      const current = bindPlan(api, tuple('drafting', { risk: 'sensitive' }));
+      const next = bindPlan(api, tuple('drafting', { draft_review: reviewPhase('not_required'), risk: 'sensitive' }));
+      fs.writeFileSync(file, current.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity: {
+              goalId: current.run.goal_id,
+              planPath: current.run.plan_path,
+              repositoryId: current.run.repository_id,
+              runId: current.run.run_id,
+            },
+            expectedBytesSha256: api.sha256(current.bytes),
+            nextBytes: next.bytes,
+            lockRoot: path.join(root, 'locks'),
+          }),
+        /not_required/,
+        'the persisted transaction must refuse a sensitive self-checked draft gate',
+      );
+      assert.ok(fs.readFileSync(file).equals(current.bytes), 'a refused gate must leave the plan bytes untouched');
+    }),
+  );
+
+  suite.test('review-budget', 'the completion review keeps its mandatory fresh verification', () => {
+    const gated = reduce(api, localDraftState(), { type: 'self_check_gate' });
+    assertPhase(gated, 'completion_review', reviewPhase('not_required'));
+    const startedLocal = { status: 'ongoing', run: { ...clone(gated.run), execution_parent: SOURCE_BASE } };
+    expectThrow(
+      () => reduce(api, startedLocal, reserveCompletion(DIFF_SHA256)),
+      /review phase not_required is terminal, live, or has no remaining permit/,
+      'a self-checked local run has no completion permit to spend',
+    );
+
+    const first = reduce(api, sensitiveCompletionState(), reserveCompletion(DIFF_SHA256));
+    const repairing = reduce(api, first, result(first, 'review_repair', 'completion_review'));
+    assert.equal(repairing.run.completion_review.state, 'repairing');
+    expectThrow(() => reduce(api, repairing, reserveCompletion(DIFF_SHA256)), /repair review requires changed input/);
+    expectThrow(
+      () => reduce(api, repairing, reserveCompletion(REPLACEMENT_DIFF_SHA256)),
+      /replaced implementation and cleared acceptance/,
+      'invocation 2 must verify the replacement, not the reviewed implementation',
+    );
+
+    const replacement = reduce(api, repairing, {
+      type: 'replace_implementation',
+      implementation_commit: REPLACEMENT_COMMIT,
+      diff_sha256: REPLACEMENT_DIFF_SHA256,
+    });
+    const second = reduce(api, replacement, reserveCompletion(REPLACEMENT_DIFF_SHA256, REPLACEMENT_COMMIT));
+    assert.equal(second.run.completion_review.invocations, 2);
+    const passed = reduce(api, second, result(second, 'review_passed', 'completion_review'));
+    assert.equal(passed.run.completion_review.state, 'passed');
+    assert.equal(passed.run.draft_review.state, 'passed', 'the draft gate reduction never reaches sensitive risk');
   });
 }

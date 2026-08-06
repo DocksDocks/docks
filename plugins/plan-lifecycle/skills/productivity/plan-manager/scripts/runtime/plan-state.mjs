@@ -280,7 +280,8 @@ function validateReviewPhaseInternal(phase, phaseName) {
     default:
       fail('unknown review state');
   }
-  if (phaseName === 'draft_review' && phase.state === 'not_required') fail('draft review cannot be not_required');
+  // `draft_review: not_required` is the local-risk self-check gate. The phase carries
+  // no permit, input, or result; validateTuple refuses it above local risk.
   return phase;
 }
 
@@ -341,13 +342,16 @@ function validateEffectsAndRisk(run) {
 function validateTuple(status, run) {
   const draftState = run.draft_review.state;
   const completionState = run.completion_review.state;
-  const successfulDraft = draftState === 'passed' || (run.risk === 'local' && draftState === 'degraded');
+  const successfulDraft =
+    draftState === 'passed' || (run.risk === 'local' && ['degraded', 'not_required'].includes(draftState));
   const beforeStart = ['drafting', 'planned', 'scheduled'].includes(status);
 
   if (draftState === 'degraded' && run.risk !== 'local') fail('degraded draft review is local-risk only');
   if (run.risk === 'local' && completionState !== 'not_required') fail('local completion review must be not_required');
   if (run.risk !== 'local' && completionState === 'not_required')
     fail('sensitive/external completion cannot be not_required');
+  if (draftState === 'not_required' && run.risk !== 'local')
+    fail('sensitive/external draft review cannot be not_required');
   if (run.risk === 'local' && run.implementation_commit !== null)
     fail('local work cannot carry an implementation commit');
   if (status !== 'blocked' && run.blocker !== null) fail(`${status} plan cannot carry blocker evidence`);
@@ -360,9 +364,16 @@ function validateTuple(status, run) {
 
   if (status === 'drafting') {
     if (
-      !['not_started', 'reserved', 'transport_retried', 'retryable', 'repairing', 'passed', 'degraded'].includes(
-        draftState,
-      )
+      ![
+        'not_required',
+        'not_started',
+        'reserved',
+        'transport_retried',
+        'retryable',
+        'repairing',
+        'passed',
+        'degraded',
+      ].includes(draftState)
     ) {
       fail(`drafting cannot retain terminal draft state ${draftState}`);
     }
@@ -374,7 +385,7 @@ function validateTuple(status, run) {
   }
 
   if (status === 'planned' || status === 'scheduled') {
-    if (!successfulDraft) fail(`${status} requires a passed draft review`);
+    if (!successfulDraft) fail(`${status} requires a passed draft review or the local self-check gate`);
     assertBaselineCompletion(run);
     if (run.implementation_commit !== null || run.acceptance !== null || run.blocker !== null) {
       fail(`${status} cannot retain implementation output`);
@@ -383,7 +394,7 @@ function validateTuple(status, run) {
   }
 
   if (status === 'ongoing') {
-    if (!successfulDraft) fail('ongoing requires a passed draft review');
+    if (!successfulDraft) fail('ongoing requires a passed draft review or the local self-check gate');
     if (run.execution_parent === null) fail('ongoing requires the exact execution_parent captured at start');
     if (run.risk === 'local') {
       if (run.acceptance !== null) fail('ongoing local work cannot retain acceptance');
@@ -412,7 +423,7 @@ function validateTuple(status, run) {
     }
 
     if (run.execution_parent === null) {
-      if (!['not_started', 'passed', 'degraded', 'blocked', 'cancelled'].includes(draftState)) {
+      if (!['not_required', 'not_started', 'passed', 'degraded', 'blocked', 'cancelled'].includes(draftState)) {
         fail('blocked before start cannot retain an active draft review');
       }
       assertBaselineCompletion(run);
@@ -426,7 +437,7 @@ function validateTuple(status, run) {
     }
 
     if (run.risk === 'local') {
-      if (!successfulDraft) fail('blocked local work after start requires a passed draft review');
+      if (!successfulDraft) fail('blocked local work after start requires a settled local draft gate');
       if (run.acceptance !== null && run.blocker.kind !== 'concurrent_change') {
         fail('accepted local work may block only for concurrent_change');
       }
@@ -462,7 +473,7 @@ function validateTuple(status, run) {
     if (run.execution_parent === null) fail('finished plan requires the execution_parent captured at start');
     if (run.blocker !== null || run.acceptance === null) fail('finished plan requires acceptance and no blocker');
     if (run.risk === 'local') {
-      if (!successfulDraft) fail('finished local work requires passed/degraded draft review');
+      if (!successfulDraft) fail('finished local work requires a settled local draft gate');
       return;
     }
     if (draftState !== 'passed' || completionState !== 'passed' || run.implementation_commit === null) {
@@ -642,6 +653,13 @@ export function reducePlanRun({ current, event }) {
       input_sha256: event.input_sha256,
       result_sha256: null,
     });
+  } else if (event.type === 'self_check_gate') {
+    eventKeys(event, new Set(['type']));
+    if (next.status !== 'drafting') fail('the draft self-check gate closes only while drafting');
+    if (next.run.risk !== 'local') fail('sensitive/external risk requires a substantive draft review');
+    const phase = next.run.draft_review;
+    if (phase.state !== 'not_started') fail(`the draft self-check gate cannot close a ${phase.state} draft review`);
+    next.run.draft_review = persistedPhase(phase, { state: 'not_required' });
   } else if (event.type === 'review_invalid_input') {
     eventKeys(event, new Set(['type', 'phase', 'result', 'run_id', 'invocation', 'input_sha256']));
     const phase = selectedPhase(next, event);
@@ -769,7 +787,7 @@ const LIFECYCLE_TRANSITIONS = new Map([
 ]);
 const REVIEW_TRANSITIONS = new Map([
   ['not_required', new Set(['not_required'])],
-  ['not_started', new Set(['not_started', 'reserved'])],
+  ['not_started', new Set(['not_started', 'not_required', 'reserved'])],
   ['reserved', new Set(['reserved', 'passed', 'repairing', 'blocked', 'cancelled', 'retryable'])],
   ['transport_retried', new Set(['transport_retried', 'passed', 'repairing', 'blocked', 'cancelled', 'degraded'])],
   ['retryable', new Set(['retryable', 'transport_retried', 'blocked', 'cancelled'])],
@@ -786,6 +804,16 @@ function assertPersistedReviewTransition(before, after, phaseName, risk) {
   if (before.state === after.state) {
     if (jcs(before) !== jcs(after)) fail(`${phaseName} cannot mutate without a state transition`);
     return false;
+  }
+  if (after.state === 'not_required') {
+    // The local-risk self-check gate closes the draft phase without spending a
+    // permit. REVIEW_TRANSITIONS admits it only from `not_started`, and
+    // validateTuple rejects it above local risk.
+    if (phaseName !== 'draft_review' || risk !== 'local') fail('not_required is draft-only at local risk');
+    if (after.invocations !== 0 || after.input_sha256 !== null || after.result_sha256 !== null) {
+      fail('the draft self-check gate spends no permit and binds no digests');
+    }
+    return true;
   }
   if (LIVE_REVIEW_STATES.has(after.state)) {
     if (after.invocations !== before.invocations + 1 || after.result_sha256 !== null) {

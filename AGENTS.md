@@ -83,10 +83,10 @@ The optional `docs/plans/QUEUE.md` is only a discovery and prioritization view: 
 Canonical plans live in `docs/plans/active/`; status is frontmatter and
 `docs/plans/finished/` is terminal. Exactly three skills own the workflow:
 `plan-workspace` maintains the workspace; main-context `plan-manager` owns
-classify → draft/review/one repair → start → implement/delegate → observed
-acceptance → finish/archive; internal `plan-reviewer` returns read-only
-`PlanReviewV1` evidence from one immutable bundle. Only the reviewer has
-Claude/Codex wrappers.
+classify → draft, self-check gate, review and one repair when risk requires it →
+start → implement/delegate → observed acceptance → finish/archive; internal
+`plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable
+bundle. Only the reviewer has Claude/Codex wrappers.
 </constraint>
 
 The current record is one unfenced compact-JCS `Plan-run: PlanRunV1` line.
@@ -99,8 +99,10 @@ hashes, and budgets. Review budgets are ≤2 substantive review permits per phas
 distinct from transport retries: a first transport-only failure refunds its
 reservation and allows one fresh `transport_retried` dispatch; a second
 transport failure degrades only local draft work and otherwise blocks. Cold
-`reserved` or `transport_retried` state blocks without redispatch; local
-completion is not required.
+`reserved` or `transport_retried` state blocks without redispatch. At local risk
+the deterministic self-check gate is the draft gate, so `draft_review` may be
+`not_required`; local completion review is likewise not required. Sensitive and
+external risk keep a passed substantive draft review and both completion permits.
 
 Every mutation uses an exclusive preimage-checked per-plan transaction and
 read-back. Checkpoint commits additionally lock the repository and verify HEAD,

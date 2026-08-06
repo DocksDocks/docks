@@ -33,7 +33,7 @@ Review phase ranges are closed:
 
 | Phase state | Draft invocations | Completion invocations |
 |---|---:|---:|
-| `not_required` | forbidden | 0 |
+| `not_required` | 0, local risk only | 0 |
 | `not_started` | 0 | 0 |
 | `reserved` | 1–2 | 1–2 |
 | `transport_retried` | 1–2 | 1–2 |
@@ -54,6 +54,12 @@ further repair or new finding after the mandatory verification terminal-blocks
 the run with `review_failed` evidence. Completion review has the same
 two-invocation ceiling. The first transport failure still refunds one invocation
 in either phase.
+
+At local risk the deterministic self-check gate is the draft gate and
+`draft_review` may be `not_required`; sensitive or external risk always requires
+a passed substantive draft review, and no risk reduces the completion review. The
+gate transition is `not_started → not_required`: it spends no permit and binds no
+digests.
 
 `repository_id + plan_path + run_id` is the run identity. Exact current-user
 `PlanRunReplacementAuthorityV1` binds the terminal predecessor and exact
@@ -99,7 +105,8 @@ neither review phase is `reserved` or `transport_retried`,
 `completion_review.state` is not `passed`, and `acceptance` is null. After
 acceptance is minted its scope is settled and only a replacement may change it.
 
-`source_base` is null only before draft review starts and is required thereafter.
+`source_base` is null only before draft review starts and is required thereafter,
+including once the self-check gate settles `draft_review` to `not_required`.
 `execution_parent` is null before start and is required, immutable, and exclusive
 to `ongoing`, post-start `blocked`, and `finished` tuples.
 `successor_run_sha256` is the exact install-time successor digest checked by the
