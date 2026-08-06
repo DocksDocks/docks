@@ -838,25 +838,6 @@
       "skips": []
     },
     {
-      "id": "unit-fixture-clone-pool",
-      "version": 1,
-      "title": "Fixture Clone Pool unit contracts",
-      "owner": {
-        "suite": "scripts/tests/unit/fixture-clone-pool.test.mjs",
-        "layer": "unit"
-      },
-      "selection": {
-        "kind": "node-test-file",
-        "selector": "scripts/tests/unit/fixture-clone-pool.test.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
       "id": "unit-gate-memo",
       "version": 1,
       "title": "CI gate memo unit contracts",
