@@ -33,7 +33,7 @@ Review phase ranges are closed:
 
 | Phase state | Draft invocations | Completion invocations |
 |---|---:|---:|
-| `not_required` | 0, local risk only | 0 |
+| `not_required` | 0, local draft only | forbidden |
 | `not_started` | 0 | 0 |
 | `reserved` | 1–2 | 1–2 |
 | `transport_retried` | 1–2 | 1–2 |
@@ -51,15 +51,17 @@ current transition. Draft review has one initial review and, only after an
 accepted repair, one mandatory fresh verification, with a ceiling of two
 substantive invocations. A draft repair verdict is accepted at most once; any
 further repair or new finding after the mandatory verification terminal-blocks
-the run with `review_failed` evidence. Completion review has the same
-two-invocation ceiling. The first transport failure still refunds one invocation
-in either phase.
+the run with `review_failed` evidence. Completion review has exactly one
+substantive invocation at local risk, which is why a local completion phase is
+never `repairing`, and two at sensitive or external risk. The first transport
+failure still refunds one invocation in either phase.
 
 At local risk the deterministic self-check gate is the draft gate and
 `draft_review` may be `not_required`; sensitive or external risk always requires
-a passed substantive draft review, and no risk reduces the completion review. The
-gate transition is `not_started → not_required`: it spends no permit and binds no
-digests.
+a passed substantive draft review, and no risk waives the completion review. The
+gate transition is `not_started → not_required`: it spends no permit, binds no
+digests, and exists for `draft_review` alone; `completion_review` baselines at
+`not_started` at every risk.
 
 `repository_id + plan_path + run_id` is the run identity. Exact current-user
 `PlanRunReplacementAuthorityV1` binds the terminal predecessor and exact

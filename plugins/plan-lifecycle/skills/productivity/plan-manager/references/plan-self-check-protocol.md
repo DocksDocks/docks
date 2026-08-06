@@ -42,7 +42,8 @@ the other. A self-check ledger never produces `PlanReviewV1` and never satisfies
 at sensitive or external risk it is what you run before spending one, so the permit is spent on a
 document that already passes its own mechanical checks. At local risk it is the whole draft gate —
 a passing ledger settles `draft_review` to `not_required`, which spends no permit and freezes the
-draft body exactly as a passed review does. It never reaches a completion review at any risk.
+draft body exactly as a passed review does. It never settles a completion review at any risk: local
+work still spends its one substantive completion invocation on the implementation diff.
 </constraint>
 
 ## The measurement that killed scoring

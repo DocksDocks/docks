@@ -93,7 +93,7 @@ A *documented* deviation is judged on merit, not reflex-blocked; an
 
 | Verdict | When | Action |
 |---|---|---|
-| **APPROVE** | bindings match, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It revalidates the live `PlanRunV1` and apply preimages, applies only the bound diff, reruns verification, records `## Verification Results`, binds `acceptance`, performs the separate completion review for `sensitive` or `external` risk, then finishes and archives the run without another lifecycle handoff. |
+| **APPROVE** | bindings match, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It revalidates the live `PlanRunV1` and apply preimages, applies only the bound diff, reruns verification, records `## Verification Results`, binds `acceptance`, performs the separate exact-diff completion review, then finishes and archives the run without another lifecycle handoff. |
 | **REVISE** | fixable gaps | Send the same executor specific, actionable feedback. Allow at most two executor revision rounds, then return a failure result to `plan-manager`. |
 | **BLOCK** | STOP hit, scope violated unrecoverably, or revisions exhausted | Return the evidence to `plan-manager`; it records the applicable current blocker and does not restart draft review. |
 

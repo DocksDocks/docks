@@ -9,7 +9,9 @@ import {
   HASHES,
   IDS,
   IMPLEMENTATION_COMMIT,
+  PLAN_PATH,
   planRun,
+  REPOSITORY_ID,
   REVIEW_CLASSES,
   REVIEW_INPUTS,
   REVIEW_INVALID_INPUT_REASONS,
@@ -22,11 +24,41 @@ import {
   tuple,
   withStamps,
 } from './fixtures/plan-run-v1.mjs';
-import { clone, expectReject, expectThrow, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
+import {
+  clone,
+  expectReject,
+  expectThrow,
+  git,
+  initializeRepository,
+  withTempDirectory,
+  writeFile,
+} from './harness.mjs';
 
 const REPLACEMENT_COMMIT = '6'.repeat(40);
 const DIFF_SHA256 = '7'.repeat(64);
 const REPLACEMENT_DIFF_SHA256 = '8'.repeat(64);
+const LOCAL_AFFECTED_PATHS = Object.freeze(['src/tracked.txt', 'src/untracked.txt']);
+const LOCAL_IDENTITY = Object.freeze({
+  goalId: IDS.goal,
+  planPath: PLAN_PATH,
+  repositoryId: REPOSITORY_ID,
+  runId: IDS.run,
+});
+
+// The sealed completion bundle binds the implementation commit and the exact
+// bytes of its diff, so the digest re-derives from the archived record plus the
+// repository, with no live worktree state.
+function completionBindingDigest(api, repo, commit) {
+  const diff = git(repo, ['diff', '--patch', `${commit}^`, commit]).stdout;
+  return api.sha256(api.jcs({ schema: 1, implementation_commit: commit, diff_sha256: api.sha256(diff) }));
+}
+
+// Ordinary local work after the deterministic self-check gate closed its draft
+// phase and `start` captured the execution parent.
+const LOCAL_STARTED_RUN = Object.freeze({
+  draft_review: reviewPhase('not_required'),
+  execution_parent: SOURCE_BASE,
+});
 
 function reduce(api, state, event) {
   return api.reducePlanRun({ current: state, event });
@@ -1053,10 +1085,7 @@ export function registerReviewBudget(suite, api, reviewer) {
       const file = path.join(root, 'plan.md');
       const repairingPhase = reviewPhase('repairing');
       const current = bindPlan(api, tuple('drafting', { draft_review: repairingPhase }));
-      const next = bindPlan(
-        api,
-        tuple('drafting', { draft_review: repairingPhase, completion_review: reviewPhase('not_required') }),
-      );
+      const next = bindPlan(api, tuple('drafting', { draft_review: repairingPhase, source_sha256: HASHES.input2 }));
       const currentBytes = current.bytes;
       const nextBytes = next.bytes;
       fs.writeFileSync(file, currentBytes);
@@ -1084,10 +1113,10 @@ export function registerReviewBudget(suite, api, reviewer) {
   });
 
   // The draft gate for ordinary local work is the deterministic self-check, so
-  // `draft_review` settles to `not_required` exactly the way local
-  // `completion_review` already does (runtime/plan-state.mjs: the
-  // `self_check_gate` reducer branch and validateTuple's draft arms). The model
-  // spend moves to the completion diff, which these cases hold unchanged.
+  // `draft_review` settles to `not_required` without spending a permit
+  // (runtime/plan-state.mjs: the `self_check_gate` reducer branch and
+  // validateTuple's draft arms). `not_required` is draft-only: the model spend it
+  // replaces now sits on the completion diff, which the cases below hold.
   suite.test('review-budget', 'the local self-check gate reaches ongoing without spending a draft permit', () =>
     withTempDirectory('plan-run-self-check-gate-', async (root) => {
       const gated = reduce(api, localDraftState(), { type: 'self_check_gate' });
@@ -1184,16 +1213,7 @@ export function registerReviewBudget(suite, api, reviewer) {
     }),
   );
 
-  suite.test('review-budget', 'the completion review keeps its mandatory fresh verification', () => {
-    const gated = reduce(api, localDraftState(), { type: 'self_check_gate' });
-    assertPhase(gated, 'completion_review', reviewPhase('not_required'));
-    const startedLocal = { status: 'ongoing', run: { ...clone(gated.run), execution_parent: SOURCE_BASE } };
-    expectThrow(
-      () => reduce(api, startedLocal, reserveCompletion(DIFF_SHA256)),
-      /review phase not_required is terminal, live, or has no remaining permit/,
-      'a self-checked local run has no completion permit to spend',
-    );
-
+  suite.test('review-budget', 'the sensitive completion review keeps its mandatory fresh verification', () => {
     const first = reduce(api, sensitiveCompletionState(), reserveCompletion(DIFF_SHA256));
     const repairing = reduce(api, first, result(first, 'review_repair', 'completion_review'));
     assert.equal(repairing.run.completion_review.state, 'repairing');
@@ -1215,4 +1235,231 @@ export function registerReviewBudget(suite, api, reviewer) {
     assert.equal(passed.run.completion_review.state, 'passed');
     assert.equal(passed.run.draft_review.state, 'passed', 'the draft gate reduction never reaches sensitive risk');
   });
+
+  suite.test('review-budget', 'no risk may carry a not_required completion phase', () => {
+    for (const status of ['drafting', 'ongoing', 'finished']) {
+      expectThrow(
+        () =>
+          api.validatePlanRunRecord(
+            planRun({
+              draft_review: reviewPhase('not_required'),
+              completion_review: reviewPhase('not_required'),
+              execution_parent: status === 'drafting' ? null : SOURCE_BASE,
+              acceptance: status === 'finished' ? acceptance() : null,
+            }),
+            { status },
+          ),
+        /completion review cannot be not_required/,
+        `${status} must refuse a waived completion phase`,
+      );
+    }
+  });
+
+  suite.test('review-budget', 'a local plan cannot reach finished with an unspent completion permit', () =>
+    withTempDirectory('plan-run-local-unreviewed-finish-', async (root) => {
+      expectThrow(
+        () =>
+          api.validatePlanRunRecord(
+            planRun({
+              draft_review: reviewPhase('not_required'),
+              execution_parent: SOURCE_BASE,
+              acceptance: acceptance(),
+            }),
+            { status: 'finished' },
+          ),
+        /finished work requires a passed completion review bound to its implementation commit/,
+      );
+
+      const file = path.join(root, 'plan.md');
+      const ongoing = bindPlan(api, tuple('ongoing', LOCAL_STARTED_RUN));
+      const finished = bindPlan(api, tuple('finished', { ...LOCAL_STARTED_RUN, acceptance: acceptance() }));
+      fs.writeFileSync(file, ongoing.bytes);
+      await expectReject(
+        () =>
+          api.transactPlanRun({
+            file,
+            identity: LOCAL_IDENTITY,
+            expectedBytesSha256: api.sha256(ongoing.bytes),
+            nextBytes: withStamps(finished.bytes, '"2026-07-24T01:00:00Z"', '"2026-07-24T02:00:00Z"'),
+            lockRoot: path.join(root, 'locks'),
+          }),
+        /finished work requires a passed completion review bound to its implementation commit/,
+        'the persisted edge must refuse an unreviewed local finish',
+      );
+      assert.ok(fs.readFileSync(file).equals(ongoing.bytes), 'a refused finish must leave the record untouched');
+    }),
+  );
+
+  suite.test('review-budget', 'a second substantive local completion invocation is refused', () => {
+    const started = { status: 'ongoing', run: planRun(LOCAL_STARTED_RUN) };
+    const reserved = reduce(api, started, reserveCompletion(DIFF_SHA256));
+    assert.equal(reserved.run.completion_review.invocations, 1);
+    assert.equal(reserved.run.implementation_commit, IMPLEMENTATION_COMMIT);
+    assert.deepEqual(reserved.run.acceptance, acceptance(), 'acceptance is minted with the reservation');
+
+    const passed = reduce(api, reserved, result(reserved, 'review_passed', 'completion_review'));
+    expectThrow(
+      () => reduce(api, passed, reserveCompletion(REPLACEMENT_DIFF_SHA256, REPLACEMENT_COMMIT)),
+      /terminal|permit|ceiling/i,
+      'a passed local completion has no second permit',
+    );
+
+    // Local risk carries no repair budget, so its single substantive verdict is
+    // terminal either way: a repair verdict blocks instead of opening a repair.
+    const repairVerdict = reduce(api, reserved, result(reserved, 'review_repair', 'completion_review'));
+    assert.equal(repairVerdict.status, 'blocked');
+    assert.equal(repairVerdict.run.completion_review.state, 'blocked');
+    assert.equal(repairVerdict.run.completion_review.invocations, 1);
+    assert.equal(repairVerdict.run.blocker.kind, 'review_failed');
+    expectThrow(
+      () => reduce(api, repairVerdict, reserveCompletion(REPLACEMENT_DIFF_SHA256, REPLACEMENT_COMMIT)),
+      /terminal|permit|ceiling/i,
+    );
+    expectThrow(
+      () =>
+        reduce(api, reserved, {
+          type: 'replace_implementation',
+          implementation_commit: REPLACEMENT_COMMIT,
+          diff_sha256: REPLACEMENT_DIFF_SHA256,
+        }),
+      /first completion repair state/,
+      'local work has no replacement round to spend a second permit on',
+    );
+  });
+
+  // Ordinary local work end to end over real transactions and real commits:
+  // start checkpoint, implementation checkpoint, one passed completion review
+  // bound to that commit and its exact diff, then the archive checkpoint. The
+  // archive is a new commit and never `--amend`: amending mints a fresh SHA, so
+  // the recorded `implementation_commit` would name an unreachable object and
+  // nobody could re-derive the diff the verdict was returned against.
+  suite.test('review-budget', 'ordinary local work archives with its reviewed commit and diff re-derivable', () =>
+    withTempDirectory('plan-run-local-completion-', async (root) => {
+      const repo = path.join(root, 'repo');
+      const baseCommit = initializeRepository(repo);
+      for (const logical of LOCAL_AFFECTED_PATHS) writeFile(repo, logical, `${logical} base bytes\n`);
+      const lockRoot = path.join(root, 'locks');
+      const startedRun = { ...LOCAL_STARTED_RUN, execution_parent: baseCommit, source_base: baseCommit };
+      const started = bindPlan(api, tuple('ongoing', startedRun));
+      const startedBytes = withStamps(started.bytes, '"2026-07-24T01:00:00Z"', 'null');
+      const planFile = writeFile(repo, PLAN_PATH, startedBytes);
+      git(repo, ['add', '-A']);
+      git(repo, ['commit', '-qm', 'start checkpoint']);
+
+      for (const logical of LOCAL_AFFECTED_PATHS) writeFile(repo, logical, `${logical} implemented bytes\n`);
+      git(repo, ['add', '--', ...LOCAL_AFFECTED_PATHS]);
+      git(repo, ['commit', '-qm', 'implementation checkpoint']);
+      const implementationCommit = git(repo, ['rev-parse', 'HEAD']).stdout;
+      const reviewInput = completionBindingDigest(api, repo, implementationCommit);
+
+      const acceptanceManifestExpectation = {
+        repo,
+        paths: [...LOCAL_AFFECTED_PATHS],
+        sourceBase: implementationCommit,
+      };
+      const acceptanceManifest = api.createAffectedPathManifest(acceptanceManifestExpectation);
+      const reviewedRun = {
+        ...startedRun,
+        implementation_commit: implementationCommit,
+        acceptance: acceptance(),
+      };
+      const bound = (status, completionPhase, finishedAt) =>
+        withStamps(
+          bindPlan(api, tuple(status, { ...reviewedRun, completion_review: completionPhase }), { acceptanceManifest })
+            .bytes,
+          '"2026-07-24T01:00:00Z"',
+          finishedAt,
+        );
+      const reservedBytes = bound('ongoing', reviewPhase('reserved', { input_sha256: reviewInput }), 'null');
+      const passedBytes = bound(
+        'ongoing',
+        reviewPhase('passed', { input_sha256: reviewInput, result_sha256: HASHES.result }),
+        'null',
+      );
+      const finishedBytes = bound(
+        'finished',
+        reviewPhase('passed', { input_sha256: reviewInput, result_sha256: HASHES.result }),
+        '"2026-07-24T02:00:00Z"',
+      );
+
+      const reservation = await api.transactPlanRun({
+        file: planFile,
+        identity: LOCAL_IDENTITY,
+        expectedBytesSha256: api.sha256(startedBytes),
+        nextBytes: reservedBytes,
+        acceptanceManifest,
+        acceptanceManifestExpectation,
+        lockRoot,
+      });
+      assert.equal(reservation.run.completion_review.invocations, 1);
+      assert.equal(reservation.run.implementation_commit, implementationCommit);
+
+      await api.transactPlanRun({
+        file: planFile,
+        identity: LOCAL_IDENTITY,
+        expectedBytesSha256: api.sha256(reservedBytes),
+        nextBytes: passedBytes,
+        lockRoot,
+      });
+      await api.transactPlanRun({
+        file: planFile,
+        identity: LOCAL_IDENTITY,
+        expectedBytesSha256: api.sha256(passedBytes),
+        nextBytes: finishedBytes,
+        lockRoot,
+      });
+
+      // The archive checkpoint owns the plan record and nothing else.
+      const ownedPaths = [PLAN_PATH];
+      const archive = await api.checkpointPlanRun(
+        {
+          changedPaths: [],
+          expected: api.captureRepositoryPreimage({ repo, ownedPaths }),
+          expectedBytesSha256: api.sha256(finishedBytes),
+          file: planFile,
+          identity: LOCAL_IDENTITY,
+          lockRoot,
+          ownedPaths,
+          repo,
+        },
+        async ({ paths }) => {
+          git(repo, ['add', '--', ...paths]);
+          git(repo, ['commit', '-qm', 'archive checkpoint']);
+          return git(repo, ['show', '--name-only', '--pretty=format:', 'HEAD']).stdout.split('\n').filter(Boolean);
+        },
+      );
+      assert.deepEqual(archive.committed_paths, [PLAN_PATH], 'the archive checkpoint commits only the plan record');
+      assert.equal(
+        Number(git(repo, ['rev-list', '--count', `${baseCommit}..HEAD`]).stdout),
+        3,
+        'ordinary local work spends start, implementation, and archive checkpoints',
+      );
+
+      // From the archived record alone: the reviewed commit still resolves and
+      // its diff still hashes to what the completion verdict was bound to.
+      const archived = api.validatePlanRun(fs.readFileSync(planFile), {
+        ...LOCAL_IDENTITY,
+        acceptanceProof: 'recorded',
+      });
+      assert.equal(archived.status, 'finished');
+      assert.equal(archived.run.completion_review.state, 'passed');
+      assert.equal(archived.run.completion_review.invocations, 1, 'local work spends exactly one completion permit');
+      assert.equal(
+        archived.run.draft_review.state,
+        'not_required',
+        'the draft gate stays the deterministic self-check',
+      );
+      const recorded = archived.run.implementation_commit;
+      assert.equal(
+        git(repo, ['merge-base', '--is-ancestor', recorded, 'HEAD'], { allowFailure: true }).status,
+        0,
+        `the recorded implementation commit ${recorded} is dangling: the archived record cites an unreachable commit`,
+      );
+      assert.equal(
+        completionBindingDigest(api, repo, recorded),
+        archived.run.completion_review.input_sha256,
+        `the diff of ${recorded} no longer hashes to the digest the completion review was bound to`,
+      );
+    }),
+  );
 }

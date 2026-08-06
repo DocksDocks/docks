@@ -30,6 +30,15 @@ const PLAN_FINDING_CLASSES = new Set([
   'v1_failure_action_missing',
 ]);
 const DRAFT_REVIEW_INVOCATION_LIMIT = 2;
+// Local risk spends exactly one substantive completion invocation: the model
+// permit that used to sit on the draft phase moved to the completion diff, and
+// moving it must not raise the ceiling, so local completion carries no repair
+// budget. Sensitive, destructive, public-contract, security, and external risk
+// keep the initial completion review plus its one repair verification.
+function invocationLimitFor(phaseName, risk) {
+  if (phaseName !== 'completion_review') return DRAFT_REVIEW_INVOCATION_LIMIT;
+  return risk === 'local' ? 1 : 2;
+}
 export const EFFECT_ORDER = Object.freeze([
   'local',
   'probe',
@@ -191,7 +200,7 @@ export function compareUtf16(left, right) {
   }
   return left.length - right.length;
 }
-function validateReviewPhaseInternal(phase, phaseName) {
+function validateReviewPhaseInternal(phase, phaseName, risk = null) {
   assertClosedWithOptional(
     phase,
     ['state', 'invocations', 'input_sha256', 'result_sha256'],
@@ -199,13 +208,13 @@ function validateReviewPhaseInternal(phase, phaseName) {
     'ReviewPhaseV1',
   );
   if (!REVIEW_STATES.has(phase.state)) fail(`unknown ReviewPhaseV1 state: ${phase.state}`);
-  const invocationLimit = phaseName === 'completion_review' ? 2 : DRAFT_REVIEW_INVOCATION_LIMIT;
+  const invocationLimit = invocationLimitFor(phaseName, risk);
+  const phaseLabel = phaseName === 'completion_review' ? 'completion' : 'draft';
   if (!Number.isInteger(phase.invocations) || phase.invocations < 0 || phase.invocations > invocationLimit) {
-    fail(
-      phaseName === 'completion_review'
-        ? 'completion ReviewPhaseV1 invocation permit must be between zero and two'
-        : `draft ReviewPhaseV1 invocation permit must be between zero and ${DRAFT_REVIEW_INVOCATION_LIMIT}`,
-    );
+    fail(`${phaseLabel} ReviewPhaseV1 invocation permit must be between zero and ${invocationLimit}`);
+  }
+  if (phaseName === 'completion_review' && invocationLimit === 1 && phase.state === 'repairing') {
+    fail('local completion review has no repair permit');
   }
   const acceptedClasses = phase.accepted_classes ?? [];
   if (!Array.isArray(acceptedClasses)) fail('ReviewPhaseV1 accepted_classes must be an array');
@@ -281,12 +290,13 @@ function validateReviewPhaseInternal(phase, phaseName) {
       fail('unknown review state');
   }
   // `draft_review: not_required` is the local-risk self-check gate. The phase carries
-  // no permit, input, or result; validateTuple refuses it above local risk.
+  // no permit, input, or result; validateTuple refuses it above local risk, and
+  // no risk admits it for `completion_review`.
   return phase;
 }
 
-export function validateReviewPhase(value, { phase: phaseName = null } = {}) {
-  return validateReviewPhaseInternal(value, phaseName);
+export function validateReviewPhase(value, { phase: phaseName = null, risk = null } = {}) {
+  return validateReviewPhaseInternal(value, phaseName, risk);
 }
 
 function validateAcceptance(value) {
@@ -305,9 +315,10 @@ function validateBlocker(value) {
 }
 
 function assertBaselineCompletion(run) {
-  const expected = run.risk === 'local' ? 'not_required' : 'not_started';
-  if (run.completion_review.state !== expected) {
-    fail(`${run.risk} completion review must be ${expected}`);
+  // Every risk owes a completion review, so the pre-reservation baseline is
+  // `not_started` at every risk.
+  if (run.completion_review.state !== 'not_started') {
+    fail('completion review baseline must be not_started');
   }
 }
 
@@ -347,13 +358,9 @@ function validateTuple(status, run) {
   const beforeStart = ['drafting', 'planned', 'scheduled'].includes(status);
 
   if (draftState === 'degraded' && run.risk !== 'local') fail('degraded draft review is local-risk only');
-  if (run.risk === 'local' && completionState !== 'not_required') fail('local completion review must be not_required');
-  if (run.risk !== 'local' && completionState === 'not_required')
-    fail('sensitive/external completion cannot be not_required');
+  if (completionState === 'not_required') fail('completion review cannot be not_required');
   if (draftState === 'not_required' && run.risk !== 'local')
     fail('sensitive/external draft review cannot be not_required');
-  if (run.risk === 'local' && run.implementation_commit !== null)
-    fail('local work cannot carry an implementation commit');
   if (status !== 'blocked' && run.blocker !== null) fail(`${status} plan cannot carry blocker evidence`);
   if (draftState !== 'not_started' && run.source_base === null) {
     fail('source_base is required once draft review has started');
@@ -396,13 +403,9 @@ function validateTuple(status, run) {
   if (status === 'ongoing') {
     if (!successfulDraft) fail('ongoing requires a passed draft review or the local self-check gate');
     if (run.execution_parent === null) fail('ongoing requires the exact execution_parent captured at start');
-    if (run.risk === 'local') {
-      if (run.acceptance !== null) fail('ongoing local work cannot retain acceptance');
-      return;
-    }
     if (completionState === 'not_started') {
       if (run.implementation_commit !== null || run.acceptance !== null) {
-        fail('nonlocal work cannot bind implementation or acceptance before completion reservation');
+        fail('work cannot bind implementation or acceptance before completion reservation');
       }
       return;
     }
@@ -436,15 +439,7 @@ function validateTuple(status, run) {
       return;
     }
 
-    if (run.risk === 'local') {
-      if (!successfulDraft) fail('blocked local work after start requires a settled local draft gate');
-      if (run.acceptance !== null && run.blocker.kind !== 'concurrent_change') {
-        fail('accepted local work may block only for concurrent_change');
-      }
-      return;
-    }
-
-    if (draftState !== 'passed') fail('blocked sensitive/external work requires passed draft review');
+    if (!successfulDraft) fail('blocked work after start requires a passed draft review or the local self-check gate');
     if (completionState === 'not_started') {
       if (run.implementation_commit !== null || run.acceptance !== null) {
         fail('blocked before completion reservation has no implementation output');
@@ -472,12 +467,9 @@ function validateTuple(status, run) {
   if (status === 'finished') {
     if (run.execution_parent === null) fail('finished plan requires the execution_parent captured at start');
     if (run.blocker !== null || run.acceptance === null) fail('finished plan requires acceptance and no blocker');
-    if (run.risk === 'local') {
-      if (!successfulDraft) fail('finished local work requires a settled local draft gate');
-      return;
-    }
-    if (draftState !== 'passed' || completionState !== 'passed' || run.implementation_commit === null) {
-      fail('finished sensitive/external work requires passed reviews and implementation commit');
+    if (!successfulDraft) fail('finished work requires a passed draft review or the local self-check gate');
+    if (completionState !== 'passed' || run.implementation_commit === null) {
+      fail('finished work requires a passed completion review bound to its implementation commit');
     }
   }
 }
@@ -503,8 +495,8 @@ export function validatePlanRunRecord(run, { status } = {}) {
   if (run.implementation_commit !== null && !COMMIT.test(run.implementation_commit)) {
     fail('implementation_commit must be a full commit identity');
   }
-  validateReviewPhaseInternal(run.draft_review, 'draft_review');
-  validateReviewPhaseInternal(run.completion_review, 'completion_review');
+  validateReviewPhaseInternal(run.draft_review, 'draft_review', run.risk);
+  validateReviewPhaseInternal(run.completion_review, 'completion_review', run.risk);
   validateAcceptance(run.acceptance);
   validateBlocker(run.blocker);
   if (status !== undefined) {
@@ -603,13 +595,9 @@ export function reducePlanRun({ current, event }) {
     if (!['not_started', 'retryable', 'repairing'].includes(phase.state)) {
       fail(`review phase ${phase.state} is terminal, live, or has no remaining permit`);
     }
-    const invocationLimit = completionReservation ? 2 : DRAFT_REVIEW_INVOCATION_LIMIT;
+    const invocationLimit = invocationLimitFor(event.phase, next.run.risk);
     if (phase.invocations >= invocationLimit) {
-      fail(
-        completionReservation
-          ? 'completion review invocation permit ceiling is two'
-          : `draft review invocation permit ceiling is ${DRAFT_REVIEW_INVOCATION_LIMIT}`,
-      );
+      fail(`${completionReservation ? 'completion' : 'draft'} review invocation permit ceiling is ${invocationLimit}`);
     }
     if (phase.state === 'retryable' && event.input_sha256 === phase.input_sha256) {
       fail('transport retry requires a fresh invocation-bound input');
@@ -619,9 +607,7 @@ export function reducePlanRun({ current, event }) {
     }
     if (event.phase === 'draft_review' && next.status !== 'drafting') fail('draft review cannot reopen after drafting');
     if (completionReservation) {
-      if (next.status !== 'ongoing' || next.run.risk === 'local') {
-        fail('completion review is not required for this phase/risk');
-      }
+      if (next.status !== 'ongoing') fail('completion review is reserved only while ongoing');
       if (!COMMIT.test(event.implementation_commit) || event.acceptance === null) {
         fail('completion reservation requires implementation and acceptance bindings');
       }
@@ -691,30 +677,18 @@ export function reducePlanRun({ current, event }) {
         result_sha256: event.result_sha256,
       });
     } else if (event.type === 'review_repair') {
-      if (event.phase === 'completion_review') {
-        if (phase.invocations === 2) {
-          blockReview(next, event.phase, event.result_sha256, {
-            kind: 'review_failed',
-            evidence_sha256: event.result_sha256,
-          });
-        } else {
-          next.run[event.phase] = persistedPhase(phase, {
-            state: 'repairing',
-            result_sha256: event.result_sha256,
-          });
-        }
+      // A repair verdict with no permit left is terminal. Local completion has a
+      // ceiling of one, so its only substantive verdict is final either way.
+      if (phase.invocations >= invocationLimitFor(event.phase, next.run.risk)) {
+        blockReview(next, event.phase, event.result_sha256, {
+          kind: 'review_failed',
+          evidence_sha256: event.result_sha256,
+        });
       } else {
-        if (phase.invocations >= DRAFT_REVIEW_INVOCATION_LIMIT) {
-          blockReview(next, event.phase, event.result_sha256, {
-            kind: 'review_failed',
-            evidence_sha256: event.result_sha256,
-          });
-        } else {
-          next.run[event.phase] = persistedPhase(phase, {
-            state: 'repairing',
-            result_sha256: event.result_sha256,
-          });
-        }
+        next.run[event.phase] = persistedPhase(phase, {
+          state: 'repairing',
+          result_sha256: event.result_sha256,
+        });
       }
     } else if (event.type === 'review_blocked') {
       const blockerValue = event.blocker ?? { kind: 'review_failed', evidence_sha256: event.result_sha256 };
@@ -799,7 +773,7 @@ const REVIEW_TRANSITIONS = new Map([
 ]);
 
 function assertPersistedReviewTransition(before, after, phaseName, risk) {
-  const invocationLimit = phaseName === 'completion_review' ? 2 : DRAFT_REVIEW_INVOCATION_LIMIT;
+  const invocationLimit = invocationLimitFor(phaseName, risk);
   if (!REVIEW_TRANSITIONS.get(before.state)?.has(after.state)) fail(`illegal ${phaseName} transition`);
   if (before.state === after.state) {
     if (jcs(before) !== jcs(after)) fail(`${phaseName} cannot mutate without a state transition`);
@@ -998,14 +972,18 @@ export function assertPersistedTransition(current, next) {
     if (current.run.execution_parent !== null || next.run.execution_parent === null) {
       fail('start transition must capture execution_parent exactly once');
     }
-  } else if (next.status === 'finished' && current.status === 'ongoing') {
-    allowed.add('acceptance');
   } else if (
     !(
-      (current.status === 'drafting' && ['planned', 'scheduled'].includes(next.status)) ||
-      (current.status === 'planned' && next.status === 'scheduled') ||
-      (current.status === 'scheduled' && next.status === 'planned') ||
-      current.status === next.status
+      // Finishing changes status alone: acceptance was minted atomically with the
+      // completion reservation that the passed verdict binds, so the archive
+      // transition may not rebind it.
+      (
+        (current.status === 'ongoing' && next.status === 'finished') ||
+        (current.status === 'drafting' && ['planned', 'scheduled'].includes(next.status)) ||
+        (current.status === 'planned' && next.status === 'scheduled') ||
+        (current.status === 'scheduled' && next.status === 'planned') ||
+        current.status === next.status
+      )
     )
   ) {
     fail('persisted lifecycle transition has no legal event shape');
@@ -1053,9 +1031,8 @@ export function assertPlanRunReplacement(current, next, currentBytes, authority)
   ) {
     fail('same-file replacement must start with a fresh draft-review budget');
   }
-  const expectedCompletionState = next.run.risk === 'local' ? 'not_required' : 'not_started';
   if (
-    next.run.completion_review.state !== expectedCompletionState ||
+    next.run.completion_review.state !== 'not_started' ||
     next.run.completion_review.invocations !== 0 ||
     next.run.completion_review.input_sha256 !== null ||
     next.run.completion_review.result_sha256 !== null

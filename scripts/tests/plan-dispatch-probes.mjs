@@ -159,7 +159,7 @@ function buildWorld(
     draft_review: draftReview,
     execution_parent: null,
     implementation_commit: null,
-    completion_review: reviewPhase(risk === 'local' ? 'not_required' : 'not_started'),
+    completion_review: reviewPhase('not_started'),
     acceptance: null,
     blocker: null,
   };

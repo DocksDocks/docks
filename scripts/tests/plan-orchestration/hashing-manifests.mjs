@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { acceptance, bindPlan, PLAN_PATH, REPOSITORY_ID, reviewPhase, tuple } from './fixtures/plan-run-v1.mjs';
+import {
+  acceptance,
+  bindPlan,
+  IMPLEMENTATION_COMMIT,
+  PLAN_PATH,
+  REPOSITORY_ID,
+  reviewPhase,
+  tuple,
+} from './fixtures/plan-run-v1.mjs';
 import { expectThrow, git, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
 
 function replaceOnce(text, before, after) {
@@ -69,6 +77,8 @@ function acceptedLiveFixture(api, repo, manifestPaths = PLAN_AFFECTED_PATHS) {
       acceptance: acceptance(),
       draft_review: reviewPhase('passed'),
       execution_parent: sourceBase,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      completion_review: reviewPhase('passed'),
       source_base: sourceBase,
     }),
   );

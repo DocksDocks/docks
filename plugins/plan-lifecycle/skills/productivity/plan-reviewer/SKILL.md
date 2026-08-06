@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-06"
-  content_hash: "af25886e99104cf7c3a0b56426a5c8f32b40de465fee6aa7e9d24c39d94c784b"
+  content_hash: "88c070f4728aa532b02396f48e2e6be49ebed5ef5d40107ee0c51efca81c68f5"
 ---
 
 # Plan Reviewer
@@ -58,8 +58,8 @@ returns the closed invalid-input result below and stops; never look elsewhere.
 Do not echo plan bytes, the source manifest, or the prompt.
 
 Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.
-Completion review has exactly two substantive invocations and an empty `accepted_classes` set.
-At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk reduces the completion review.
+Completion review has an empty `accepted_classes` set, exactly one substantive invocation at local risk — spent on the implementation commit and its exact diff, with no repair round — and exactly two at sensitive or external risk.
+At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk waives the completion review.
 A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
 A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two.
 `accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.

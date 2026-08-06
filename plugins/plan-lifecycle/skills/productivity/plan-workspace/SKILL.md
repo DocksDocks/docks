@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-06"
-  content_hash: "625809cafba16202ae5e858bef64c4ea88664459493ec701251846239a2adcdc"
+  content_hash: "1e9ab1329f796f749d5d8b7e09a36c6a5feaa384603647d2605b9eacb50757ad"
 ---
 
 # Plans Workspace
@@ -78,7 +78,8 @@ preservation checks. Current markers are:
 - the deterministic self-check as the local-risk draft gate, one initial draft
   review plus one mandatory post-repair verification at sensitive/external risk,
   a substantive ceiling of two, and post-verification findings blocked;
-- exactly two completion reviews and one transport retry, never two;
+- exactly one completion review at local risk and two above it, and one
+  transport retry, never two;
 - historical review fields readable only through the historical adapter;
 - release pre-completion guards for available live read-only final-boundary
   checks, closed-shape dispositions, and a release identity matrix;
@@ -136,9 +137,11 @@ derives a class from plan prose.
 
 `accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to
 the historical adapter and never current authority. Draft review has one initial review and, only after an accepted repair, one mandatory fresh
-verification, with a ceiling of two substantive invocations. Completion review has exactly two substantive invocations and an empty
-`accepted_classes` set. At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or
-external risk always requires a passed substantive draft review, and no risk reduces the completion review.
+verification, with a ceiling of two substantive invocations. Completion review has an empty `accepted_classes` set, exactly one substantive
+invocation at local risk — spent on the implementation commit and its exact diff, with no repair round — and exactly two at sensitive or
+external risk. At local risk
+the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires
+a passed substantive draft review, and no risk waives the completion review.
 
 A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and
 requires a new user-authorized successor. A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without

@@ -609,6 +609,8 @@ export function registerMutations(suite, api) {
             acceptance: acceptance(),
             draft_review: reviewPhase('passed'),
             execution_parent: SOURCE_BASE,
+            implementation_commit: IMPLEMENTATION_COMMIT,
+            completion_review: reviewPhase('passed'),
           }),
         ),
       ];

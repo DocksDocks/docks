@@ -84,8 +84,9 @@ terminal predecessor as validated `Plan-attempt-history`, and installs a fresh
 `run_id`; it never creates `v2`/`vN` files or resets predecessor permits.
 PlanRunV1 binds repository/path/run identity, cross-repository `goal_id`,
 effects/risk, plan/source and acceptance hashes, commits, review budgets, and one blocker.
-Reviews reserve before fresh launch; cold reserved state blocks. Ordinary local
-work has no completion review; sensitive/external exact-diff review is bounded.
+Reviews reserve before fresh launch; cold reserved state blocks. Every canonical
+implementation ends in a bounded exact-diff completion review: one substantive
+invocation at local risk, two at sensitive or external risk.
 
 Plan writes use exclusive preimage-checked transactions and major checkpoint
 commits only. Every Steps row has `Effect` exactly

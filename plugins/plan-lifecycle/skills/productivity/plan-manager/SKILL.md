@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-06"
-  content_hash: "23d7e4d30cd98436f41d2fd1402c9b9cfce7d3cbe8dae768ecc4e27c3394390d"
+  content_hash: "cacfe4f93f26f413dbbb7c6f8f1891ef32ad8891822396561eb876994a7e9f4a"
 ---
 
 # Plan Manager
@@ -45,8 +45,8 @@ boundary. A persisted plan, schedule, review, test, or receipt grants nothing.
 |---|---|---|
 | One clear, reversible, low-risk local diff with one bounded acceptance path | Implement directly and smoke the changed path | `0 / 0 / 0` |
 | Plan-only request | Draft, gate with the deterministic self-check, add a review and one repair only at sensitive/external risk; persist `planned` or `scheduled` | 0 local / ≤2 nonlocal draft reviewers / 1 commit |
-| Ordinary canonical implementation | Self-check gate, start checkpoint, implement, verify, archive | 0 draft reviewers / 2 commits |
-| Sensitive, destructive, public-contract, security, or external implementation | Add exact-diff completion review and implementation checkpoint | ≤2 draft + exactly 2 completion reviewers / 3 commits |
+| Ordinary canonical implementation | Self-check gate, start checkpoint, implement, verify, implementation checkpoint, exact-diff completion review, archive | 0 draft + exactly 1 completion reviewer / 3 commits |
+| Sensitive, destructive, public-contract, security, or external implementation | Add a substantive draft review and the completion repair round | ≤2 draft + exactly 2 completion reviewers / 3 commits |
 
 Use a canonical plan for multi-commit/cross-repository work, scheduling, cold
 handoff, unresolved decisions, cross-subsystem/public-contract/security/
@@ -101,8 +101,8 @@ Every closed object that affected code validates or emits has an explicit preser
 ## Review-phase state table
 | State | Draft invocations | Completion invocations | Input | Result | Constraint |
 |---|---:|---:|---|---|---|
-| `not_required` | 0 | 0 | null | null | local risk only; completion baseline, or the self-checked draft gate |
-| `not_started` | 0 | 0 | null | null | draft or required completion baseline |
+| `not_required` | 0 | forbidden | null | null | draft only, local risk only: the settled self-check gate |
+| `not_started` | 0 | 0 | null | null | draft and completion baseline at every risk |
 | `reserved` | 1–2 | 1–2 | hash | null | live initial/repair launch |
 | `transport_retried` | 1–2 | 1–2 | hash | null | live post-transport launch |
 | `retryable` | 0–1 | 0–1 | hash | failure hash | first transport failure; refunded |
@@ -126,8 +126,8 @@ The reviewer emits `class`; the manager validates the kind/class pair and never 
 `accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
 A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
 Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.
-Completion review has exactly two substantive invocations and an empty `accepted_classes` set.
-At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk reduces the completion review.
+Completion review has an empty `accepted_classes` set, exactly one substantive invocation at local risk — spent on the implementation commit and its exact diff, with no repair round — and exactly two at sensitive or external risk.
+At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk waives the completion review.
 
 ## Reviewer result routing
 Before generic classification, recognize and validate this closed result:
@@ -148,15 +148,15 @@ may produce `PlanReviewV1` or `CompletionReviewV1`.
 ## Status invariants
 - `drafting` has no implementation/acceptance; draft may be active, passed,
   local-only degraded, or the local-only `not_required` self-check gate.
-  Completion remains its risk baseline.
+  Completion is `not_started` at every risk.
 - `planned|scheduled` requires draft passed, or local-only degraded or
   `not_required`; no implementation/acceptance/blocker.
-- Local `ongoing` requires draft passed/degraded/`not_required`, completion
-  `not_required`, and null implementation/acceptance. Local `finished`
-  additionally requires acceptance and keeps `implementation_commit:null`.
-- Sensitive/external `ongoing` begins with draft passed and completion
-  `not_started`. Once completion activates, implementation commit and acceptance
-  are required; only matching completion `passed` may finish.
+- `ongoing` begins with a settled draft gate, completion `not_started`, and null
+  implementation/acceptance. Once completion activates, the implementation commit
+  and acceptance are required; only a matching completion `passed` may finish.
+- Local risk reaches that state through the self-check gate rather than a draft
+  review and spends one completion permit; sensitive/external risk needs draft
+  `passed` and keeps the second completion permit for its repair round.
 - `blocked` requires the exact blocker/status/phase tuple. A
   `user_decision|missing_authority` with no terminal review phase may reopen its
   run without resetting permits. Every other blocked/cancelled run is immutable.
@@ -178,7 +178,7 @@ At local risk the deterministic self-check is the whole gate: run it to `pass`, 
 4. For an accepted repair, patch only reproduced defects and dispatch the mandatory changed-input verification. Any further repair or new finding terminal-blocks the run and requires a user-authorized successor.
 5. A first genuine transport-only failure follows the single refund and fresh-dispatch rule above. A second failure degrades only reversible local work at local risk; sensitive/public-contract/security/external work blocks.
 
-No score, quota, fallback, resumed reviewer, draft invocation beyond the initial review and mandatory post-repair verification, completion invocation beyond two, or Session Relay review exists. Destroy only the returned exact bundle.
+No score, quota, fallback, resumed reviewer, draft invocation beyond the initial review and mandatory post-repair verification, completion invocation beyond its risk ceiling, or Session Relay review exists. Destroy only the returned exact bundle.
 Direct `omp`, `claude`, or `codex` reviewer subprocesses satisfy the adapter contract when complete stdout reaches a private file. Controller mechanics, runtime flags, and judge-independence measurements are in `references/reviewer-dispatch-methods.md`.
 
 A local **self-check** — deterministic, free, repeatable while `drafting`, and producing no `PlanReviewV1` — judges properties per enumerated unit and carries approvals forward on dependency closure: `scripts/lifecycle/plan-self-check.mjs` — `units`/`check`/`prompt`/`validate`/`ledger`/`waive`/`gate`/`apply`. It is the draft gate at local risk, and it never substitutes for a sensitive/external draft review or for any completion permit.
@@ -188,21 +188,11 @@ It never scores; a return carrying a score is refused, because seven scorings of
 A reviewed implementation writes `ongoing`, captures `execution_parent`, and creates one owned-path start checkpoint before implementation. Implement or delegate every authorized local row.
 Review changes from the user's perspective, run the requested smoke/acceptance paths, and write observed commands/results to `## Verification Results` before binding acceptance, which passes the live `acceptanceManifest` and `acceptanceManifestExpectation`; omitting either fails closed.
 
-Diagnose ordinary verification failures in the implementation loop. Repeated
-same-signature failure without relevant-byte progress blocks this run and never
-reopens its review; authorized recovery uses a fresh run at this path. Successful
-local work sets `finished`, moves to the unique archive path, and commits
-implementation plus finished plan as one final checkpoint. Local completion
-review is `not_required`.
+Diagnose ordinary verification failures in the implementation loop. Repeated same-signature failure without relevant-byte progress blocks this run and never reopens its review; authorized recovery uses a fresh run at this path.
 
-Sensitive/external work commits the implementation checkpoint and binds its exact
-commit/diff. Before reserving completion review, run every required available
-live read-only final-boundary check under exact authority. Then reserve a separate
-completion phase for a fresh code-review agent returning `CompletionReviewV1`.
-One accepted blocker fix replaces/amends the still-unpublished checkpoint, reruns
-invalidated checks, and consumes the second permit on the replacement SHA. The
-first result is invalid after any relevant byte changes. Only a matching pass may
-archive; repeated same-signature no-progress blocks this run and never reopens its completion review.
+Every risk then commits the implementation checkpoint and binds its exact commit/diff. Sensitive/external work first runs every required available live read-only final-boundary check under exact authority. Then reserve the completion phase — which mints acceptance atomically with the reservation — for a fresh code-review agent returning `CompletionReviewV1`. Local risk spends its single permit there and has no repair round: one substantive verdict settles the run. Sensitive/external work may take one accepted blocker fix, which replaces/amends the still-unpublished checkpoint, reruns invalidated checks, and consumes the second permit on the replacement SHA; the first result is invalid after any relevant byte changes.
+
+Only a matching pass may write `finished`, move once to the unique archive path, and create the archive checkpoint, which commits the plan record and its archive move and nothing else. The archive is always a new commit: `--amend` mints a fresh SHA, leaving the recorded `implementation_commit` unreachable and the reviewed diff impossible to re-derive. Repeated same-signature no-progress blocks this run and never reopens its completion review.
 
 ## Transactions and commits
 Every ordinary mutation uses `transactPlanRun`: lock by repository/path, verify
@@ -226,10 +216,11 @@ unchanged preimages. Live, foreign, ambiguous, or changed stale locks block.
 Never reset the index, include unrelated work, force Git history, or infer another
 session's ownership.
 
-Commit ceilings are direct `0`, plan-only `1`, ordinary implementation `2`
-(start/final), and sensitive/external `3` (start/implementation/archive). A real
-terminal blocker may add one cold-handoff commit. No per-round state/request/
-receipt commit and no automatic push exists.
+Commit ceilings are direct `0`, plan-only `1`, and every canonical implementation
+`3` (start/implementation/archive). Ordinary implementation spends 0 draft and
+exactly 1 completion reviewer there; sensitive/external spends ≤2 draft and 2
+completion. A real terminal blocker may add one cold-handoff commit. No per-round
+state/request/receipt commit and no automatic push exists.
 
 ## Literal external authority
 ```text
@@ -282,7 +273,7 @@ GOOD: require a matching live ExternalAuthorityV1 at the deploy boundary.
 
 ## Final checks
 - Exact repository/path/current-run identity, append-only attempt history, and exact plan/source/final-manifest/verification hashes.
-- Closed phase/lifecycle/status tuple, one initial draft review plus the mandatory post-repair verification, exactly two completion permits, and one transport retry—never two.
+- Closed phase/lifecycle/status tuple, one initial draft review plus the mandatory post-repair verification, one completion permit at local risk and two above it, and one transport retry—never two.
 - Transaction and owned checkpoint read-backs; unrelated paths excluded.
 - Fresh reviewer bindings; stale or cold-live-reservation output ignored.
 - Invalid reviewer input terminal-blocked through `review_invalid_input`; no retry, degrade, repair, or authority.

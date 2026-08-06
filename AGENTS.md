@@ -95,20 +95,23 @@ exact successor PlanRun, keeps the stable `plan_path`, appends validated
 `Plan-attempt-history`, and installs a fresh `run_id`; it never creates
 `v2`/`vN` files or resets predecessor permits. PlanRunV1 binds
 repository/path/run identity, cross-repository goal, effects/risk, commits,
-hashes, and budgets. Review budgets are ≤2 substantive review permits per phase,
-distinct from transport retries: a first transport-only failure refunds its
-reservation and allows one fresh `transport_retried` dispatch; a second
+hashes, and budgets. Draft review has ≤2 substantive permits and completion has
+one at local risk and two above it, all distinct from transport retries: a first
+transport-only failure refunds its reservation and allows one fresh
+`transport_retried` dispatch; a second
 transport failure degrades only local draft work and otherwise blocks. Cold
 `reserved` or `transport_retried` state blocks without redispatch. At local risk
 the deterministic self-check gate is the draft gate, so `draft_review` may be
-`not_required`; local completion review is likewise not required. Sensitive and
-external risk keep a passed substantive draft review and both completion permits.
+`not_required`, and the model permit that used to buy that draft review is spent
+instead on the completion diff. Sensitive and external risk keep a passed
+substantive draft review and both completion permits.
 
 Every mutation uses an exclusive preimage-checked per-plan transaction and
 read-back. Checkpoint commits additionally lock the repository and verify HEAD,
 index, and owned paths. Direct work has zero automatic commits; plan-only has
-one; ordinary canonical implementation has start/final checkpoints; sensitive
-or external implementation has start/implementation/archive checkpoints. There
+one; every canonical implementation has start/implementation/archive
+checkpoints, ordinary local work spending 0 draft and exactly 1 completion
+reviewer there and sensitive or external work ≤2 draft and 2 completion. There
 are no per-round commits or automatic pushes.
 
 Every Steps row has `Effect` exactly

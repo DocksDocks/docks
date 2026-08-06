@@ -54,9 +54,10 @@ The convention lives in exactly these three skills, each consumer project's
 
 The current contract moves as one PlanRunV1 surface: one unfenced compact-JCS
 record; repository/path/run and cross-repository goal identity; canonical
-plan/source/acceptance hashes; separate two-permit draft/completion phases;
-exclusive preimage/CAS transactions; major checkpoint commits; risk-based
-completion review; target-local legacy quarantine; literal live external
+plan/source/acceptance hashes; separate draft/completion phases holding two
+draft permits and one local or two nonlocal completion permits; exclusive
+preimage/CAS transactions; major checkpoint commits; an exact-diff completion
+review at every risk; target-local legacy quarantine; literal live external
 authority; and Steps `Effect` values
 `local|probe|production_access|publish|push|release|deploy`. Schemas 1–6 are
 historical validation/quarantine only.

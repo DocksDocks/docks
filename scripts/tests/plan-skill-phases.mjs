@@ -32,7 +32,7 @@ const REVIEW_CONTRACT_CLAUSES = [
   },
   {
     name: 'completion-exact-two',
-    text: 'Completion review has exactly two substantive invocations and an empty `accepted_classes` set.',
+    text: 'Completion review has an empty `accepted_classes` set, exactly one substantive invocation at local risk — spent on the implementation commit and its exact diff, with no repair round — and exactly two at sensitive or external risk.',
   },
   {
     name: 'transport-only-retry',
@@ -52,7 +52,7 @@ const REVIEW_CONTRACT_CLAUSES = [
   },
   {
     name: 'local-draft-self-check-gate',
-    text: 'At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk reduces the completion review.',
+    text: 'At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always requires a passed substantive draft review, and no risk waives the completion review.',
   },
   {
     name: 'direct-review-transport',
@@ -145,7 +145,7 @@ const STEP_CLASS_CONTRACT_CLAUSES = [
   },
   {
     name: 'completion-exact-two',
-    text: 'Completion review has exactly two substantive invocations and an empty `accepted_classes` set.',
+    text: 'Completion review has an empty `accepted_classes` set, exactly one substantive invocation at local risk — spent on the implementation commit and its exact diff, with no repair round — and exactly two at sensitive or external risk.',
   },
 ];
 
@@ -528,7 +528,7 @@ function assertBoundedWorkflows() {
     /legacy-quarantined/,
     /One clear, reversible, low-risk local diff[\s\S]*`0 \/ 0 \/ 0`/,
     /Plan-only request[\s\S]*0 local \/ ≤2 nonlocal draft reviewers \/ 1 commit/,
-    /Ordinary canonical implementation[\s\S]*0 draft reviewers \/ 2 commits/,
+    /Ordinary canonical implementation[\s\S]*0 draft \+ exactly 1 completion reviewer \/ 3 commits/,
     /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤2 draft \+ exactly 2 completion reviewers \/ 3 commits/,
     /Before launching, transactionally\s+increment[\s\S]*persist\s+`reserved`/,
     /transport-only failure refunds its reservation/i,

@@ -169,8 +169,8 @@ change `plan_sha256`, `source_base`, and `source_sha256` and no other field, onl
 
 | Phase state | Draft invocations | Completion invocations | Input | Result | Extra rule |
 |---|---:|---:|---|---|---|
-| `not_required` | 0 | 0 | null | null | local risk only; completion baseline, or the self-checked draft gate |
-| `not_started` | 0 | 0 | null | null | draft, or sensitive/external completion |
+| `not_required` | 0 | forbidden | null | null | draft only, local risk only: the settled self-check gate |
+| `not_started` | 0 | 0 | null | null | draft and completion baseline at every risk |
 | `reserved` | 1–2 | 1–2 | hash | null | live initial or repair launch |
 | `transport_retried` | 1–2 | 1–2 | hash | null | live launch after one transport failure |
 | `retryable` | 0–1 | 0–1 | hash | failure hash | first transport failure; reservation refunded |
@@ -200,10 +200,10 @@ fragments, or reconstructed JSON; do not request compact/single-line reviewer ou
 JCS. Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.
 
 Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive
-invocations. Completion review has exactly two substantive invocations and an empty `accepted_classes` set. A draft repair verdict is accepted at most
-once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
-`accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to
-the historical adapter and never current authority.
+invocations. Completion review has an empty `accepted_classes` set, exactly one substantive invocation at local risk — spent on the
+implementation commit and its exact diff, with no repair round — and exactly two at sensitive or external risk. A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory
+verification terminal-blocks the run and requires a new user-authorized successor. `accepted_classes` remains valid on read for historical
+records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
 
 For draft review, pre-seal rebinding changes exactly the run's `plan_sha256`, `source_base`, and `source_sha256`; it leaves both review phases
 untouched, so sealed `plan.md` retains the pre-reserve draft phase. Immediately before a permit is reserved, the driver re-verifies the bundle and its
@@ -222,26 +222,22 @@ scheduled | ongoing | blocked`; `planned` ↔ `scheduled`; `planned | scheduled`
 
 | Frontmatter status | Draft phase | Completion phase | Implementation / acceptance | Blocker |
 |---|---|---|---|---|
-| `drafting` | `not_started | reserved | transport_retried | retryable | repairing | passed`, plus local-only `degraded | not_required` | risk baseline | both null | null |
-| `planned` / `scheduled` | `passed`, or local-only `degraded | not_required` | risk baseline | both null | null |
-| `ongoing` local | `passed | degraded | not_required` | `not_required` | implementation null; acceptance null | null |
-| `ongoing` sensitive/external before completion | `passed` | `not_started` | both null | null |
-| `ongoing` sensitive/external during/after completion | `passed` | `reserved | transport_retried | retryable | repairing | passed` | implementation required; acceptance required except that replacement clears stale acceptance while `repairing`, then the next reservation rebinds it | null |
-| `blocked` before start | baseline, local `not_required`, or terminal draft | risk baseline | both null | required |
-| `blocked` local before acceptance | `passed | degraded | not_required` | `not_required` | both null | required |
-| `blocked` local after acceptance | `passed | degraded | not_required` | `not_required` | implementation null; acceptance required | `concurrent_change` only |
-| `blocked` sensitive/external before completion | `passed` | `not_started` | both null | required |
-| `blocked` sensitive/external during completion | `passed` | `blocked | cancelled` | implementation and acceptance required | required |
-| `blocked` sensitive/external after completion | `passed` | `passed` | implementation and acceptance required | `missing_authority | concurrent_change` only |
-| `finished` local | `passed | degraded | not_required` | `not_required` | implementation null; acceptance required | null |
-| `finished` sensitive/external | `passed` | `passed` | implementation and acceptance required | null |
+| `drafting` | `not_started | reserved | transport_retried | retryable | repairing | passed`, plus local-only `degraded | not_required` | `not_started` | both null | null |
+| `planned` / `scheduled` | `passed`, or local-only `degraded | not_required` | `not_started` | both null | null |
+| `ongoing` before completion | `passed`, plus local-only `degraded | not_required` | `not_started` | both null | null |
+| `ongoing` during/after completion | `passed`, plus local-only `degraded | not_required` | `reserved | transport_retried | retryable | repairing | passed` | implementation required; acceptance required except that a sensitive/external replacement clears stale acceptance while `repairing`, then the next reservation rebinds it | null |
+| `blocked` before start | baseline or terminal draft, plus local-only `not_required` | `not_started` | both null | required |
+| `blocked` after start, before completion | `passed`, plus local-only `degraded | not_required` | `not_started` | both null | required |
+| `blocked` during completion | `passed`, plus local-only `degraded | not_required` | `blocked | cancelled` | implementation and acceptance required | required |
+| `blocked` after completion | `passed`, plus local-only `degraded | not_required` | `passed` | implementation and acceptance required | `missing_authority | concurrent_change` only |
+| `finished` | `passed`, plus local-only `degraded | not_required` | `passed` | implementation and acceptance required | null |
 
 At local risk the deterministic self-check gate is the draft gate and `draft_review` may be `not_required`; sensitive or external risk always
-requires a passed substantive draft review, and no risk reduces the completion review. The gate is
+requires a passed substantive draft review, and no risk waives the completion review. The gate is
 `plan-manager/scripts/lifecycle/plan-self-check.mjs`: it is free, repeatable at `drafting`, and settles the phase without an invocation, an
 input digest, or a result digest. Settling it freezes the draft body exactly as a passed review does.
 
-Draft baseline is `not_started`. Completion baseline is local `not_required` or sensitive/external `not_started`. A pre-dispatch `user_decision` or
+Draft baseline is `not_started` and so is the completion baseline, at every risk. A pre-dispatch `user_decision` or
 `missing_authority` blocker may reopen its existing run when new user input answers it; consumed permits never reset. Every other blocked/cancelled
 run is terminal and immutable. For the same domain goal, explicit current-user `PlanRunReplacementAuthorityV1` may append that terminal run to
 history and start fresh review budgets under a new `run_id` at the same `plan_path`. Replacement is never automatic and never reuses predecessor
@@ -283,20 +279,26 @@ target to make it match.
    failures inside the implementation loop; repeated same-signature failure with
    no relevant-byte progress blocks this run and never reopens its draft review.
    A plan never invents its own verification gate: `scripts/plans/no-bespoke-gates.mjs` fails when a plan-named export that validates its own versioned artifact clears one member of a set at a time, never requires that set to be non-empty, and answers to at most one shipped caller.
-6. Ordinary local work records acceptance, writes `finished`, moves once to a
-   unique archive path, and commits implementation plus finished plan as one final
-   checkpoint. It has no completion reviewer.
-7. Sensitive, destructive, public-contract, security, or external work first
-   commits the implementation checkpoint, binds its exact diff, and completes
-   every required available live read-only final-boundary check. Only then may it
-   reserve and run a fresh code-review agent returning `CompletionReviewV1`. One
-   accepted blocker fix replaces/amends the unpublished checkpoint, reruns
-   invalidated checks, and consumes invocation 2 on the replacement SHA. Only a
-   matching pass may create the archive checkpoint.
+6. Every canonical implementation commits its implementation checkpoint and binds
+   that exact commit and its diff, then reserves one completion permit, minting
+   acceptance atomically with the reservation, and runs a fresh code-review agent
+   returning `CompletionReviewV1`. Only a matching pass may write `finished`, move
+   once to a unique archive path, and create the archive checkpoint, which commits
+   the plan record and its archive move and nothing else. The archive is a new
+   commit, never an amend of the reviewed one: `--amend` mints a fresh SHA, so the
+   recorded `implementation_commit` would name an unreachable object and the
+   reviewed diff could never be re-derived.
+7. Ordinary local work spends that single completion permit and has no repair
+   round: its one substantive verdict settles the run. Sensitive, destructive,
+   public-contract, security, or external work additionally completes every
+   required available live read-only final-boundary check before reserving, and
+   one accepted blocker fix replaces/amends the still-unpublished implementation
+   checkpoint, reruns invalidated checks, and consumes invocation 2 on the
+   replacement SHA.
 
 No numeric score, finding quota, fallback provider/model, resumed reviewer,
 draft invocation beyond the initial review and mandatory post-repair
-verification, completion invocation beyond two, completion-plan recursion,
+verification, completion invocation beyond its risk ceiling, completion-plan recursion,
 automatic push, or per-round state/request/receipt commit exists.
 
 ## Transactions and checkpoint commits
@@ -321,9 +323,10 @@ identity/preimage and validating exact authority, successor, and append-only his
 A same-host dead-owner lock may be reclaimed only after matching owner PID, `run_id`, and unchanged preimages. A live, foreign, ambiguous, or changed
 stale lock blocks. Never weaken a lock, reset the index, include unrelated changes, or infer that another session owns a change.
 
-Checkpoint ceilings: direct local work 0 automatic commits; reviewed plan-only 1; ordinary canonical implementation 2 (start, final);
-sensitive/external work 3 (start, implementation, archive). A real terminal blocker may add one cold-handoff blocker commit. No automatic push
-follows any checkpoint.
+Checkpoint ceilings: direct local work 0 automatic commits and 0 reviewers; reviewed plan-only 1 commit; ordinary canonical implementation
+3 commits (start, implementation, archive) with 0 draft reviewers and exactly 1 completion reviewer; sensitive/external work 3 commits
+(start, implementation, archive) with up to 2 draft and up to 2 completion reviewers. A real terminal blocker may add one cold-handoff
+blocker commit. No automatic push follows any checkpoint.
 
 ## Reviewer records
 

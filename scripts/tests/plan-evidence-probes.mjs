@@ -169,7 +169,7 @@ function oneRowPlan({ command = '`node fixture.mjs`', expected = 'Exit 0', sourc
     draft_review: { state: 'passed', invocations: 1, input_sha256: 'd'.repeat(64), result_sha256: 'e'.repeat(64) },
     execution_parent: sourceBase,
     implementation_commit: null,
-    completion_review: { state: 'not_required', invocations: 0, input_sha256: null, result_sha256: null },
+    completion_review: { state: 'not_started', invocations: 0, input_sha256: null, result_sha256: null },
     acceptance: null,
     blocker: null,
   };
@@ -344,7 +344,7 @@ function buildLifecycleWorld(root, { risk = 'local', includeProof = false, name 
     draft_review: reviewPhase('passed'),
     execution_parent: head,
     implementation_commit: null,
-    completion_review: reviewPhase(risk === 'local' ? 'not_required' : 'not_started'),
+    completion_review: reviewPhase('not_started'),
     acceptance: null,
     blocker: null,
   };

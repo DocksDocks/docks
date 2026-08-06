@@ -153,14 +153,35 @@ function invalidTupleCases() {
       error: /acceptance|finished/i,
     },
     {
-      name: 'local completion review stays not-required',
+      name: 'local finished work cannot skip its completion review',
       value: tuple('finished', {
-        draft_review: reviewPhase('passed'),
+        draft_review: reviewPhase('not_required'),
         execution_parent: SOURCE_BASE,
-        completion_review: reviewPhase('passed'),
         acceptance: acceptance(),
       }),
-      error: /completion|local|not_required/i,
+      error: /finished work requires a passed completion review/,
+    },
+    {
+      name: 'local completion review keeps its single-invocation ceiling',
+      value: tuple('ongoing', {
+        draft_review: reviewPhase('not_required'),
+        execution_parent: SOURCE_BASE,
+        implementation_commit: IMPLEMENTATION_COMMIT,
+        completion_review: reviewPhase('passed', { invocations: 2 }),
+        acceptance: acceptance(),
+      }),
+      error: /completion ReviewPhaseV1 invocation permit must be between zero and 1/,
+    },
+    {
+      name: 'local completion review has no repair permit',
+      value: tuple('ongoing', {
+        draft_review: reviewPhase('not_required'),
+        execution_parent: SOURCE_BASE,
+        implementation_commit: IMPLEMENTATION_COMMIT,
+        completion_review: reviewPhase('repairing'),
+        acceptance: null,
+      }),
+      error: /local completion review has no repair permit/,
     },
     {
       name: 'sensitive draft cannot degrade',
@@ -177,13 +198,13 @@ function invalidTupleCases() {
       error: /draft|planned|passed/i,
     },
     {
-      name: 'local ongoing work has no implementation checkpoint',
+      name: 'local work cannot bind an implementation before completion reservation',
       value: tuple('ongoing', {
         draft_review: reviewPhase('passed'),
         execution_parent: SOURCE_BASE,
         implementation_commit: IMPLEMENTATION_COMMIT,
       }),
-      error: /implementation|local|commit/i,
+      error: /cannot bind implementation or acceptance before completion reservation/,
     },
     {
       name: 'active completion requires implementation and acceptance bindings',
@@ -201,14 +222,16 @@ function invalidTupleCases() {
       error: /blocker|blocked/i,
     },
     {
-      name: 'accepted local work may block only for a concurrent change',
+      name: 'accepted local work may block only on authority or concurrency',
       value: tuple('blocked', {
-        draft_review: reviewPhase('passed'),
+        draft_review: reviewPhase('not_required'),
         execution_parent: SOURCE_BASE,
+        implementation_commit: IMPLEMENTATION_COMMIT,
+        completion_review: reviewPhase('passed'),
         acceptance: acceptance(),
         blocker: blocker('verification_failed'),
       }),
-      error: /concurrent_change|blocker|acceptance/i,
+      error: /missing_authority|concurrent_change|blocker/i,
     },
     {
       name: 'passed sensitive completion may block only on authority or concurrency',
@@ -414,25 +437,18 @@ function persistedEdgeCases() {
           sourceBase,
         };
         const acceptanceManifest = api.createAffectedPathManifest(acceptanceManifestExpectation);
-        const current = bindPlan(
-          api,
-          tuple('ongoing', {
-            source_base: sourceBase,
-            draft_review: reviewPhase('passed'),
-            execution_parent: sourceBase,
-          }),
-          { acceptanceManifest },
-        );
-        const next = bindPlan(
-          api,
-          tuple('finished', {
-            source_base: sourceBase,
-            draft_review: reviewPhase('passed'),
-            execution_parent: sourceBase,
-            acceptance: acceptance(),
-          }),
-          { acceptanceManifest },
-        );
+        // Finishing now follows a passed completion review, so acceptance and the
+        // implementation binding are already installed and the edge moves status alone.
+        const finishedRun = {
+          source_base: sourceBase,
+          draft_review: reviewPhase('passed'),
+          execution_parent: sourceBase,
+          implementation_commit: IMPLEMENTATION_COMMIT,
+          completion_review: reviewPhase('passed'),
+          acceptance: acceptance(),
+        };
+        const current = bindPlan(api, tuple('ongoing', finishedRun), { acceptanceManifest });
+        const next = bindPlan(api, tuple('finished', finishedRun), { acceptanceManifest });
         return {
           acceptanceManifest,
           acceptanceManifestExpectation,
@@ -656,17 +672,14 @@ export function registerStateMatrix(suite, api) {
     const { invalid, valid } = phaseTableCases();
     for (const [name, phase] of valid) {
       const terminalDraft = phase.state === 'blocked' || phase.state === 'cancelled';
+      // `not_required` is now a draft-only state: the local self-check gate is its
+      // sole producer and no completion phase may carry it.
       const entry = terminalDraft
         ? tuple('blocked', {
             draft_review: phase,
             blocker: blocker(phase.state === 'cancelled' ? 'user_cancelled' : 'review_failed'),
           })
-        : tuple('drafting', {
-            draft_review: phase.state === 'not_required' ? reviewPhase('not_started') : phase,
-          });
-      if (phase.state === 'not_required') {
-        entry.run.completion_review = phase;
-      }
+        : tuple('drafting', { draft_review: phase });
       validate(api, entry);
       assert.equal(typeof name, 'string');
     }
@@ -685,7 +698,7 @@ export function registerStateMatrix(suite, api) {
       api,
       tuple('drafting', {
         draft_review: reviewPhase('not_started', { accepted_classes: [] }),
-        completion_review: reviewPhase('not_required', { accepted_classes: [] }),
+        completion_review: reviewPhase('not_started', { accepted_classes: [] }),
       }),
     );
 

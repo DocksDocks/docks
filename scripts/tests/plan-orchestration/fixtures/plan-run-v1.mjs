@@ -81,7 +81,7 @@ export function planRun(overrides = {}) {
     draft_review: reviewPhase('not_started'),
     execution_parent: null,
     implementation_commit: null,
-    completion_review: reviewPhase('not_required'),
+    completion_review: reviewPhase('not_started'),
     acceptance: null,
     blocker: null,
     ...overrides,
@@ -137,9 +137,6 @@ export function tuple(status, overrides = {}) {
   delete runOverrides.status;
   if (risk !== 'local' && !Object.hasOwn(runOverrides, 'requested_effects')) {
     runOverrides.requested_effects = ['local', risk === 'external' ? 'release' : 'production_access'];
-  }
-  if (risk !== 'local' && !Object.hasOwn(runOverrides, 'completion_review')) {
-    runOverrides.completion_review = reviewPhase('not_started');
   }
   return { status, run: planRun(runOverrides) };
 }
@@ -205,9 +202,7 @@ export function validTupleCatalog() {
     'passed',
     'degraded',
   ];
-  const catalog = localDraftStates.map((state) =>
-    tuple('drafting', { draft_review: reviewPhase(state), completion_review: reviewPhase('not_required') }),
-  );
+  const catalog = localDraftStates.map((state) => tuple('drafting', { draft_review: reviewPhase(state) }));
   for (const risk of ['sensitive', 'external']) {
     for (const state of ['not_started', 'reserved', 'transport_retried', 'retryable', 'repairing', 'passed']) {
       catalog.push(
@@ -242,6 +237,19 @@ export function validTupleCatalog() {
       execution_parent: SOURCE_BASE,
     }),
   );
+  // Local completion is active exactly as sensitive completion is, minus the
+  // repair budget: one substantive permit, so `repairing` never appears.
+  for (const state of ['reserved', 'transport_retried', 'retryable', 'passed']) {
+    catalog.push(
+      tuple('ongoing', {
+        draft_review: reviewPhase('not_required'),
+        execution_parent: SOURCE_BASE,
+        implementation_commit: IMPLEMENTATION_COMMIT,
+        completion_review: reviewPhase(state),
+        acceptance: acceptance(),
+      }),
+    );
+  }
   for (const risk of ['sensitive', 'external']) {
     catalog.push(
       tuple('ongoing', {
@@ -275,10 +283,28 @@ export function validTupleCatalog() {
       blocker: blocker('verification_failed'),
     }),
     tuple('blocked', {
-      draft_review: reviewPhase('passed'),
+      draft_review: reviewPhase('not_required'),
       execution_parent: SOURCE_BASE,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      completion_review: reviewPhase('passed'),
       acceptance: acceptance(),
       blocker: blocker('concurrent_change'),
+    }),
+    tuple('blocked', {
+      draft_review: reviewPhase('not_required'),
+      execution_parent: SOURCE_BASE,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      completion_review: reviewPhase('blocked'),
+      acceptance: acceptance(),
+      blocker: blocker('review_failed'),
+    }),
+    tuple('blocked', {
+      draft_review: reviewPhase('not_required'),
+      execution_parent: SOURCE_BASE,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      completion_review: reviewPhase('cancelled'),
+      acceptance: acceptance(),
+      blocker: blocker('user_cancelled'),
     }),
   );
   for (const risk of ['sensitive', 'external']) {
@@ -326,11 +352,22 @@ export function validTupleCatalog() {
     tuple('finished', {
       draft_review: reviewPhase('passed'),
       execution_parent: SOURCE_BASE,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      completion_review: reviewPhase('passed'),
       acceptance: acceptance(),
     }),
     tuple('finished', {
       draft_review: reviewPhase('degraded'),
       execution_parent: SOURCE_BASE,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      completion_review: reviewPhase('passed'),
+      acceptance: acceptance(),
+    }),
+    tuple('finished', {
+      draft_review: reviewPhase('not_required'),
+      execution_parent: SOURCE_BASE,
+      implementation_commit: IMPLEMENTATION_COMMIT,
+      completion_review: reviewPhase('passed'),
       acceptance: acceptance(),
     }),
   );

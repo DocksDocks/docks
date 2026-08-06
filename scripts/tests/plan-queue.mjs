@@ -74,8 +74,8 @@ function planBytes({ goalId, label, logicalPath, status }) {
     source_sha256: HASH,
     draft_review: reviewPhase('passed'),
     execution_parent: started ? COMMIT : null,
-    implementation_commit: null,
-    completion_review: reviewPhase('not_required'),
+    implementation_commit: finished ? COMMIT : null,
+    completion_review: reviewPhase(finished ? 'passed' : 'not_started'),
     acceptance: finished ? { source_sha256: HASH, verification_sha256: HASH } : null,
     blocker: blocked ? { kind: 'user_decision', evidence_sha256: HASH } : null,
   };
