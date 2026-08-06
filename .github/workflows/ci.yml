@@ -19,16 +19,81 @@ permissions:
   contents: read
 
 jobs:
+  resolve-shards:
+    name: "resolve validation shards"
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      lanes: ${{ steps.shards.outputs.lanes }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          # Depth 1 cannot resolve the commit literals some checks pin.
+          fetch-depth: 0
+      - name: "setup Node 24"
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+      - name: "start hosted step timing"
+        run: |
+          printf '{"step":"start hosted step timing","at_ms":%s,"job":"%s","run_id":"%s","run_attempt":"%s","runner_os":"%s","runner_arch":"%s"}\n' "$(date +%s%3N)" "$GITHUB_JOB" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$RUNNER_OS" "$RUNNER_ARCH" > "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+      - name: "resolve validation shards from the pull request diff"
+        id: shards
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          # FAIL OPEN TO THE FULL GATE, NEVER TO NOTHING. This `if` is the decision
+          # point: only a base commit that exists, shares a merge base with HEAD, and
+          # yields a diff git actually produced may narrow the matrix. Every other
+          # path - missing base SHA, force-pushed or grafted history, a shallow
+          # clone, a git failure - takes the `--unresolved` branch and runs every
+          # shard. `ci-target.mjs shards` fails open the same way on any internal
+          # error, and it derives lanes from the plugin registry rather than from a
+          # list duplicated here, so a new plugin cannot go ungated by omission.
+          # Do not invert this default: a skipped shard must only ever be the result
+          # of a positive, successful determination that nothing it owns changed,
+          # because the opposite failure is silent and severe - a green pull request
+          # that gated none of its own changes.
+          CHANGED="$RUNNER_TEMP/docks-changed-paths.txt"
+          if [ -n "$BASE_SHA" ] \
+            && git rev-parse --verify --quiet "$BASE_SHA^{commit}" > /dev/null \
+            && git merge-base "$BASE_SHA" "$HEAD_SHA" > /dev/null 2>&1 \
+            && git -c core.quotePath=false diff --name-only "$BASE_SHA...$HEAD_SHA" > "$CHANGED"; then
+            node scripts/ci-target.mjs shards --event pull_request --changed-paths "$CHANGED" --github-output "$GITHUB_OUTPUT"
+          else
+            node scripts/ci-target.mjs shards --unresolved --github-output "$GITHUB_OUTPUT"
+          fi
+          printf '{"step":"resolve validation shards from the pull request diff","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+      - name: "publish hosted timing artifact"
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docks-hosted-timings-resolve-shards
+          path: |
+            ${{ runner.temp }}/docks-hosted-timings.jsonl
+            ${{ runner.temp }}/docks-ci-timings.json
+          if-no-files-found: warn
+
   validation-shards:
     name: "validation shard (${{ matrix.lane }})"
     if: github.event_name == 'pull_request'
+    needs: [resolve-shards]
     permissions:
       contents: read
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        lane: [core, relay]
+        # Registry-derived, resolved per pull request by the resolve-shards job.
+        # Always contains the `repo` shard; `core` and `relay` appear only when the
+        # diff implicates a plugin they own, or when resolution failed open.
+        lane: ${{ fromJSON(needs.resolve-shards.outputs.lanes) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -227,7 +292,7 @@ jobs:
   validate:
     name: "validate (scripts/ci.mjs)"
     runs-on: ubuntu-latest
-    needs: [validation-shards, targeting-contracts]
+    needs: [validation-shards, targeting-contracts, resolve-shards]
     if: always()
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -378,6 +443,11 @@ jobs:
         env:
           VALIDATION_SHARDS_RESULT: ${{ needs.validation-shards.result }}
           TARGETING_CONTRACTS_RESULT: ${{ needs.targeting-contracts.result }}
+          # A failed resolver skips validation-shards entirely, and a skipped shard
+          # job reads as a pass below (it is legitimately skipped on push and
+          # workflow_dispatch). Without this branch that combination is a green pull
+          # request with no shard having run at all.
+          RESOLVE_SHARDS_RESULT: ${{ needs.resolve-shards.result }}
         run: |
           status=0
           if [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then
@@ -386,6 +456,10 @@ jobs:
           fi
           if [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then
             echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2
+            status=1
+          fi
+          if [ "$RESOLVE_SHARDS_RESULT" = "failure" ] || [ "$RESOLVE_SHARDS_RESULT" = "cancelled" ]; then
+            echo "shard resolution result: $RESOLVE_SHARDS_RESULT" >&2
             status=1
           fi
           exit "$status"

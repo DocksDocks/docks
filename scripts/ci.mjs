@@ -304,9 +304,12 @@ if (onlyPlugin === null && onlyLane === null) {
     scheduleJavaScriptQuality('javascript quality lint', ['exec', 'biome', 'lint', ...lintPaths]);
 }
 
-// Catalogs are shared; read once (used by the per-plugin version checks too).
-const claudeMarket = targets.length === 0 ? null : readJSON(CLAUDE_MARKETPLACE);
-const codexMarket = targets.length === 0 ? null : readJSON(CODEX_MARKETPLACE);
+// Catalogs are shared; read once (used by the per-plugin version checks too). The
+// repo-wide shard selects no plugin but still validates both catalogs, so read
+// them whenever either a plugin or the repo-wide phase needs them.
+const needsCatalogs = repoWide || targets.length > 0;
+const claudeMarket = needsCatalogs ? readJSON(CLAUDE_MARKETPLACE) : null;
+const codexMarket = needsCatalogs ? readJSON(CODEX_MARKETPLACE) : null;
 
 if (repoWide) {
   const { parseDocument } = await import('yaml');

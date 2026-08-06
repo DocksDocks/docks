@@ -9,11 +9,14 @@ import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { startTask } from '../lib/ci-background-task.mjs';
 import {
+  assertShardTopologyCoversRegistry,
   CI_LANES,
   parseReleaseTag,
+  REPO_WIDE_LANE,
   releaseCiArgs,
   resolveCiLane,
   resolveCiTargets,
+  resolveShardSelection,
   selectedAuthorChecks,
   workflowCiSelection,
 } from '../lib/ci-targeting.mjs';
@@ -471,8 +474,15 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeCiArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeLintArgv), 1);
     assert.match(core.result.stdout, /javascript quality/);
-    assert.match(core.result.stdout, /repo-wide guards/);
-    assert.match(core.result.stdout, /CI targeting contract/);
+    // `core` is now a pure plugin shard: the repo-wide checks moved to the always-on
+    // `repo` shard so a pull request that skips `core` does not lose them.
+    assert.doesNotMatch(
+      core.result.stdout,
+      /workflow YAML|marketplace catalogs|repo-wide guards|CI targeting contract/,
+    );
+    for (const script of repoWideCommands) {
+      assert.equal(invokesNode(core.calls, script), false, `core CI must not invoke repo-wide command ${script}`);
+    }
     assert.match(core.result.stdout, /plan orchestration/);
     assert.match(core.result.stdout, /plugin: docks/);
     assert.match(core.result.stdout, /plugin: effect-kit/);
@@ -513,10 +523,6 @@ function testFocusedCiCommandSelection() {
     assert.deepEqual(
       timing.phases.map(({ name }) => name),
       [
-        'workflow YAML',
-        'marketplace catalogs',
-        'repo-wide guards',
-        'CI targeting contract',
         'skill-maintainer idempotency',
         'shell lint',
         'skill trigger collisions',
@@ -526,7 +532,7 @@ function testFocusedCiCommandSelection() {
         'plugin: plan-lifecycle',
         'javascript quality',
       ],
-      'core CI timing phases must retain repo-wide, focused plan, plugin, and quality ownership',
+      'core CI timing phases must own its three plugins and nothing repo-wide',
     );
     const observedFloorCalls = core.calls.filter(
       ({ args: callArgs }) => callArgs[0] === 'scripts/config/read-floor.mjs',
@@ -591,6 +597,50 @@ function testFocusedCiCommandSelection() {
     assert.ok(
       relayTiming.phases.every(({ status }) => status === 'passed'),
       `Relay timing report contains a failed phase: ${JSON.stringify(relayTiming.phases)}`,
+    );
+
+    // The always-on shard. Everything a shard-skipping pull request would otherwise
+    // lose lives here, and nothing plugin-scoped does - if a check migrates out of
+    // this census it stops running on a pull request that skips both plugin shards.
+    const repoTimingPath = path.join(fixtureRoot, 'repo-timings.json');
+    const repoWide = run(['--lane', 'repo', '--timings-json', repoTimingPath]);
+    assert.equal(repoWide.result.status, 0, `${repoWide.result.stdout}\n${repoWide.result.stderr}`);
+    for (const script of repoWideCommands) {
+      assert.equal(invokesNode(repoWide.calls, script), true, `repo CI must invoke repo-wide command ${script}`);
+    }
+    assert.equal(countToolInvocation(repoWide.calls, 'node', ['scripts/plans/no-bespoke-gates.mjs']), 1);
+    assert.equal(countToolInvocation(repoWide.calls, 'pnpm', ['run', 'test:unit']), 1);
+    assert.doesNotMatch(
+      repoWide.result.stdout,
+      /plugin: docks|plugin: session-relay|plugin: effect-kit|plugin: plan-lifecycle/,
+    );
+    assert.equal(countToolInvocation(repoWide.calls, 'pnpm', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(repoWide.calls, 'pnpm', coreBiomeCiArgv), 0);
+    assert.equal(countToolInvocation(repoWide.calls, 'node', orchestrationArgv), 0);
+    const repoTiming = JSON.parse(fs.readFileSync(repoTimingPath, 'utf8'));
+    assertCommandTelemetry(repoTiming);
+    assert.deepEqual(repoTiming.mode, { plugin: null, lane: 'repo' });
+    assert.deepEqual(
+      repoTiming.phases.map(({ name }) => name),
+      ['workflow YAML', 'marketplace catalogs', 'repo-wide guards', 'CI targeting contract'],
+      'the always-on shard must own every cross-plugin check and nothing else',
+    );
+    assert.ok(
+      repoTiming.phases.every(({ status }) => status === 'passed'),
+      `repo timing report contains a failed phase: ${JSON.stringify(repoTiming.phases)}`,
+    );
+    // No shard may drop a phase the pre-sharding full gate ran.
+    const shardedPhases = new Set(
+      [repoTiming, timing, relayTiming].flatMap(({ phases }) => phases.map(({ name }) => name)),
+    );
+    const fullTimingPath = path.join(fixtureRoot, 'full-timings.json');
+    const full = run(['--timings-json', fullTimingPath]);
+    assert.equal(full.result.status, 0, `${full.result.stdout}\n${full.result.stderr}`);
+    const fullPhases = JSON.parse(fs.readFileSync(fullTimingPath, 'utf8')).phases.map(({ name }) => name);
+    assert.deepEqual(
+      fullPhases.filter((name) => !shardedPhases.has(name)),
+      [],
+      'every phase of the untargeted gate must be owned by some shard',
     );
   } finally {
     if (!relayBinaryExisted) fs.rmSync(relayBinary, { force: true });
@@ -1260,7 +1310,7 @@ const laneShape = ({ name, targets, repoWide }) => ({
   targets: names(targets),
   repoWide,
 });
-assert.deepEqual(CI_LANES, ['core', 'relay']);
+assert.deepEqual(CI_LANES, ['repo', 'core', 'relay']);
 assert.ok(Object.isFrozen(CI_LANES));
 assert.deepEqual(
   PLUGINS.map(({ name, ciLane }) => ({ name, ciLane })),
@@ -1271,16 +1321,28 @@ assert.deepEqual(
     { name: 'plan-lifecycle', ciLane: 'core' },
   ],
 );
+assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'repo')), {
+  name: 'repo',
+  targets: [],
+  repoWide: true,
+});
 assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'core')), {
   name: 'core',
   targets: ['docks', 'effect-kit', 'plan-lifecycle'],
-  repoWide: true,
+  repoWide: false,
 });
 assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'relay')), {
   name: 'relay',
   targets: ['session-relay'],
   repoWide: false,
 });
+assert.equal(
+  [resolveCiLane(PLUGINS, 'repo'), resolveCiLane(PLUGINS, 'core'), resolveCiLane(PLUGINS, 'relay')].filter(
+    ({ repoWide }) => repoWide,
+  ).length,
+  1,
+  'exactly one shard may own the repo-wide checks, and it must be the always-on one',
+);
 const syntheticCorePlugin = {
   ...byName('effect-kit'),
   name: 'synthetic-core-plugin',
@@ -1316,9 +1378,9 @@ try {
 } finally {
   assert.equal(PLUGINS.pop(), unknownLanePlugin);
 }
-assert.throws(() => resolveCiLane(PLUGINS, 'unknown'), /unknown CI lane.*core, relay/);
-assert.throws(() => resolveCiLane(PLUGINS, 'toString'), /unknown CI lane.*core, relay/);
-assert.throws(() => resolveCiLane(PLUGINS, 'constructor'), /unknown CI lane.*core, relay/);
+assert.throws(() => resolveCiLane(PLUGINS, 'unknown'), /unknown CI lane.*repo, core, relay/);
+assert.throws(() => resolveCiLane(PLUGINS, 'toString'), /unknown CI lane.*repo, core, relay/);
+assert.throws(() => resolveCiLane(PLUGINS, 'constructor'), /unknown CI lane.*repo, core, relay/);
 assert.throws(
   () =>
     resolveCiLane(
@@ -1332,9 +1394,9 @@ for (const [invalidArgs, diagnostic] of [
   [['--lane', 'core', '--lane', 'relay'], /duplicate argument: --lane/],
   [['--lane', 'core', '--plugin', 'docks'], /--plugin cannot be combined with --lane/],
   [['--list', '--lane', 'core'], /--list cannot be combined with.*--lane/],
-  [['--lane', 'unknown'], /unknown CI lane.*core, relay/],
-  [['--lane', 'toString'], /unknown CI lane.*core, relay/],
-  [['--lane', 'constructor'], /unknown CI lane.*core, relay/],
+  [['--lane', 'unknown'], /unknown CI lane.*repo, core, relay/],
+  [['--lane', 'toString'], /unknown CI lane.*repo, core, relay/],
+  [['--lane', 'constructor'], /unknown CI lane.*repo, core, relay/],
 ]) {
   const rejected = spawnSync(process.execPath, ['scripts/ci.mjs', ...invalidArgs], {
     cwd: ROOT,
@@ -1344,6 +1406,126 @@ for (const [invalidArgs, diagnostic] of [
   assert.match(rejected.stderr, diagnostic);
 }
 console.log('closed CI lane resolver and argument parser passed');
+
+// ===================== pull-request shard selection =====================
+// A pull request must run the shards its diff implicates plus the always-on
+// repo-wide shard, and must fail OPEN to every shard whenever the diff could not
+// be trusted to prove otherwise.
+const shardsFor = (changedPaths, overrides = {}) =>
+  resolveShardSelection({ eventName: 'pull_request', baseResolved: true, changedPaths, ...overrides });
+
+// A single-plugin diff selects that plugin's shard plus repo-wide - and nothing
+// else. Derived from the registry so a fifth plugin is covered without editing
+// this list; the `deepEqual` is what makes a future edit that skips a changed
+// plugin's shard fail here instead of on a release.
+for (const plugin of PLUGINS) {
+  const { lanes, reason } = shardsFor([`${plugin.root}/probe.txt`]);
+  assert.equal(reason, 'diff-scoped', `${plugin.name}: a resolvable single-plugin diff must be scoped`);
+  assert.deepEqual(
+    lanes,
+    CI_LANES.filter((lane) => lane === REPO_WIDE_LANE || lane === plugin.ciLane),
+    `${plugin.name}: a diff touching only this plugin must select its shard plus repo-wide`,
+  );
+  assert.ok(lanes.includes(plugin.ciLane), `${plugin.name}: the shard that gates it must run`);
+  assert.ok(lanes.includes(REPO_WIDE_LANE), `${plugin.name}: the repo-wide shard is unconditional`);
+}
+assert.deepEqual(shardsFor(['plugins/plan-lifecycle/test/selftest.mjs']).lanes, ['repo', 'core']);
+assert.deepEqual(shardsFor(['plugins/session-relay/rust/src/main.rs']).lanes, ['repo', 'relay']);
+
+// A multi-plugin diff selects each implicated shard.
+assert.deepEqual(
+  shardsFor(['plugins/plan-lifecycle/test/selftest.mjs', 'plugins/session-relay/rust/src/main.rs']).lanes,
+  ['repo', 'core', 'relay'],
+);
+assert.deepEqual(shardsFor(['plugins/docks/skills/a.md', 'plugins/effect-kit/test/b.mjs']).lanes, ['repo', 'core']);
+
+// Every fail-open path selects everything.
+for (const [label, selection] of [
+  ['a path outside every plugin root', shardsFor(['scripts/ci.mjs'])],
+  ['the plugin root itself with a sibling outside it', shardsFor(['plugins/docks', 'pnpm-lock.yaml'])],
+  ['a lockfile-only diff', shardsFor(['pnpm-lock.yaml'])],
+  ['a workflow-only diff', shardsFor(['.github/workflows/ci.yml'])],
+  ['a quoted or otherwise undecodable path', shardsFor(['"plugins/docks/\\303\\251.md"'])],
+  ['an empty diff', shardsFor([])],
+  ['a whitespace-only diff', shardsFor(['', '   '])],
+  ['an unresolvable base', shardsFor(['plugins/docks/skills/a.md'], { baseResolved: false })],
+  ['a missing base', shardsFor(['plugins/docks/skills/a.md'], { baseResolved: undefined })],
+  ['a non-pull-request event', shardsFor(['plugins/docks/skills/a.md'], { eventName: 'push' })],
+  ['a workflow_dispatch run', shardsFor([], { eventName: 'workflow_dispatch' })],
+]) {
+  assert.deepEqual(selection.lanes, ['repo', 'core', 'relay'], `${label} must fail open to every shard`);
+  assert.notEqual(selection.reason, 'diff-scoped', `${label} must not report a positive determination`);
+}
+assert.equal(shardsFor(['plugins/docks-extra/x.md']).reason, 'path-outside-every-plugin-root:plugins/docks-extra/x.md');
+assert.equal(shardsFor([], { baseResolved: false }).reason, 'base-sha-unresolved');
+assert.equal(shardsFor([]).reason, 'empty-diff');
+
+// The registry, not the workflow, decides coverage: a plugin added without a
+// usable shard must fail here rather than ride in ungated.
+assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core', 'relay']);
+for (const [label, broken] of [
+  ['a plugin with no ciLane', { ...byName('effect-kit'), name: 'no-lane', root: 'plugins/no-lane', ciLane: undefined }],
+  [
+    'a plugin claiming the repo-wide shard',
+    { ...byName('effect-kit'), name: 'greedy', root: 'plugins/greedy', ciLane: 'repo' },
+  ],
+  [
+    'a plugin on an unknown shard',
+    { ...byName('effect-kit'), name: 'stray', root: 'plugins/stray', ciLane: 'mutations' },
+  ],
+]) {
+  if (broken.ciLane === undefined) delete broken.ciLane;
+  PLUGINS.push(broken);
+  try {
+    assert.throws(() => assertShardTopologyCoversRegistry(), /ciLane|shard/, `${label} must break shard coverage`);
+  } finally {
+    assert.equal(PLUGINS.pop(), broken);
+  }
+}
+console.log('pull-request shard selection and registry coverage passed');
+
+// The resolver CLI is the only thing the workflow calls, so prove the fail-open
+// property end to end through the CLI rather than through the library alone.
+const shardCli = (cliArgs) => {
+  const result = spawnSync(process.execPath, ['scripts/ci-target.mjs', 'shards', ...cliArgs], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  return JSON.parse(result.stdout);
+};
+const shardCliTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-shards-'));
+try {
+  const diffFile = path.join(shardCliTmp, 'changed.txt');
+  fs.writeFileSync(diffFile, 'plugins/plan-lifecycle/test/selftest.mjs\n');
+  assert.deepEqual(shardCli(['--changed-paths', diffFile]), { lanes: ['repo', 'core'], reason: 'diff-scoped' });
+  assert.deepEqual(shardCli(['--unresolved']), { lanes: ['repo', 'core', 'relay'], reason: 'base-sha-unresolved' });
+  // An unreadable diff file is a resolution failure, not evidence that a shard has
+  // nothing to do: the CLI must still exit 0 and select everything.
+  assert.deepEqual(shardCli(['--changed-paths', path.join(shardCliTmp, 'absent.txt')]), {
+    lanes: ['repo', 'core', 'relay'],
+    reason: 'resolution-error',
+  });
+  const githubOutput = path.join(shardCliTmp, 'github-output');
+  const emitted = spawnSync(
+    process.execPath,
+    ['scripts/ci-target.mjs', 'shards', '--unresolved', '--github-output', githubOutput],
+    { cwd: ROOT, encoding: 'utf8' },
+  );
+  assert.equal(emitted.status, 0, emitted.stderr);
+  assert.equal(emitted.stdout, '');
+  assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'lanes=["repo","core","relay"]\nreason=base-sha-unresolved\n');
+  for (const invalid of [[], ['--unresolved', '--changed-paths', diffFile], ['--changed-paths'], ['--bogus', 'x']]) {
+    const rejected = spawnSync(process.execPath, ['scripts/ci-target.mjs', 'shards', ...invalid], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+    assert.equal(rejected.status, 2, `${invalid.join(' ')} must be rejected`);
+  }
+} finally {
+  fs.rmSync(shardCliTmp, { recursive: true, force: true });
+}
+console.log('shard resolver CLI fail-open behaviour passed');
 assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'plan-reviewer']);
 assert.deepEqual([...selectedAuthorChecks([byName('effect-kit')])], []);
 assert.deepEqual([...selectedAuthorChecks([byName('plan-lifecycle')])], ['plan-reviewer']);
@@ -1491,7 +1673,12 @@ for (const [relativePath, parsed] of [
 }
 
 const validation = validateWorkflow.value;
-assert.deepEqual(Object.keys(validation.jobs), ['validation-shards', 'targeting-contracts', 'validate']);
+assert.deepEqual(Object.keys(validation.jobs), [
+  'resolve-shards',
+  'validation-shards',
+  'targeting-contracts',
+  'validate',
+]);
 assert.deepEqual(validation.permissions, { contents: 'read' });
 assert.deepEqual(validation.on.pull_request, { branches: ['main'] });
 assert.deepEqual(validation.on.push, { tags: ['*--v*'] });
@@ -1524,15 +1711,62 @@ for (const job of Object.values(validation.jobs)) {
 }
 
 const shardJob = validation.jobs['validation-shards'];
-assert.deepEqual(Object.keys(shardJob), ['name', 'if', 'permissions', 'runs-on', 'strategy', 'steps']);
+assert.deepEqual(Object.keys(shardJob), ['name', 'if', 'needs', 'permissions', 'runs-on', 'strategy', 'steps']);
 assert.equal(shardJob.name, `validation shard (\${{ matrix.lane }})`);
 assert.equal(shardJob.if, "github.event_name == 'pull_request'");
+assert.deepEqual(shardJob.needs, ['resolve-shards']);
 assert.deepEqual(shardJob.permissions, { contents: 'read' });
 assert.equal(shardJob['runs-on'], 'ubuntu-latest');
+// The matrix must come from the resolver, never from a lane list written here: a
+// static list is how a shard silently stops covering a plugin the registry added.
 assert.deepEqual(shardJob.strategy, {
   'fail-fast': false,
-  matrix: { lane: ['core', 'relay'] },
+  matrix: { lane: '${{ fromJSON(needs.resolve-shards.outputs.lanes) }}' },
 });
+
+// The resolver job. It owns the fail-open decision, so its shape is asserted here
+// rather than left to the shard job that consumes it.
+const resolverJob = validation.jobs['resolve-shards'];
+assert.deepEqual(Object.keys(resolverJob), [
+  'name',
+  'if',
+  'permissions',
+  'runs-on',
+  'timeout-minutes',
+  'outputs',
+  'steps',
+]);
+assert.equal(resolverJob.if, "github.event_name == 'pull_request'");
+assert.deepEqual(resolverJob.permissions, { contents: 'read' });
+assert.deepEqual(resolverJob.outputs, { lanes: '${{ steps.shards.outputs.lanes }}' });
+const resolverStep = resolverJob.steps.find(({ id }) => id === 'shards');
+assert.ok(resolverStep, 'the resolver job must expose a step whose outputs feed the matrix');
+assert.deepEqual(resolverStep.env, {
+  BASE_SHA: '${{ github.event.pull_request.base.sha }}',
+  HEAD_SHA: '${{ github.sha }}',
+});
+// Both halves of the decision: a resolvable base narrows the matrix from the real
+// diff, and every other path runs every shard.
+assert.match(
+  resolverStep.run,
+  /git -c core\.quotePath=false diff --name-only "\$BASE_SHA\.\.\.\$HEAD_SHA" > "\$CHANGED"; then\n {2}node scripts\/ci-target\.mjs shards --event pull_request --changed-paths "\$CHANGED" --github-output "\$GITHUB_OUTPUT"\nelse\n {2}node scripts\/ci-target\.mjs shards --unresolved --github-output "\$GITHUB_OUTPUT"\nfi/,
+);
+assert.match(resolverStep.run, /FAIL OPEN TO THE FULL GATE, NEVER TO NOTHING/);
+// checkout must reach the base commit, or every pull request fails open and the
+// whole mechanism is dead weight.
+assert.equal(resolverJob.steps[0].with['fetch-depth'], 0);
+assert.equal(resolverJob.steps[0].with['persist-credentials'], false);
+// The resolver runs no gate, so it must not carry the gate's setup cost.
+assert.deepEqual(
+  resolverJob.steps.map((row) => row.name ?? row.uses),
+  [
+    'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+    'setup Node 24',
+    'start hosted step timing',
+    'resolve validation shards from the pull request diff',
+    'publish hosted timing artifact',
+  ],
+);
 const shardSteps = shardJob.steps;
 const shardStep = (name) => shardSteps.find((row) => row.name?.startsWith(name));
 function assertDelegatedCgroupRun(run) {
@@ -1696,7 +1930,7 @@ assert.deepEqual(targetingStep('run non-unit plugin-targeting contracts'), {
 const validateJob = validation.jobs.validate;
 assert.deepEqual(Object.keys(validateJob), ['name', 'runs-on', 'needs', 'if', 'steps']);
 assert.equal(validateJob.name, 'validate (scripts/ci.mjs)');
-assert.deepEqual(validateJob.needs, ['validation-shards', 'targeting-contracts']);
+assert.deepEqual(validateJob.needs, ['validation-shards', 'targeting-contracts', 'resolve-shards']);
 assert.equal(validateJob.if, 'always()');
 const steps = validateWorkflow.value.jobs.validate.steps;
 const step = (name) => steps.find((row) => row.name?.startsWith(name));
@@ -1886,6 +2120,7 @@ assert.deepEqual(Object.keys(prerequisiteAssertion), ['name', 'env', 'run']);
 assert.deepEqual(prerequisiteAssertion.env, {
   VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}`,
   TARGETING_CONTRACTS_RESULT: `\${{ needs.targeting-contracts.result }}`,
+  RESOLVE_SHARDS_RESULT: `\${{ needs.resolve-shards.result }}`,
 });
 assert.equal(
   prerequisiteAssertion.run,
@@ -1898,14 +2133,21 @@ assert.equal(
     '  echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2\n' +
     '  status=1\n' +
     'fi\n' +
+    'if [ "$RESOLVE_SHARDS_RESULT" = "failure" ] || [ "$RESOLVE_SHARDS_RESULT" = "cancelled" ]; then\n' +
+    '  echo "shard resolution result: $RESOLVE_SHARDS_RESULT" >&2\n' +
+    '  status=1\n' +
+    'fi\n' +
     'exit "$status"\n',
 );
 const prerequisiteResultsPass = (...results) => results.every((result) => !['failure', 'cancelled'].includes(result));
-assert.equal(prerequisiteResultsPass('success', 'success'), true);
-assert.equal(prerequisiteResultsPass('skipped', 'success'), true);
-assert.equal(prerequisiteResultsPass('skipped', 'skipped'), true);
-assert.equal(prerequisiteResultsPass('success', 'failure'), false);
-assert.equal(prerequisiteResultsPass('cancelled', 'success'), false);
+assert.equal(prerequisiteResultsPass('success', 'success', 'success'), true);
+assert.equal(prerequisiteResultsPass('skipped', 'success', 'skipped'), true);
+assert.equal(prerequisiteResultsPass('skipped', 'skipped', 'skipped'), true);
+assert.equal(prerequisiteResultsPass('success', 'failure', 'success'), false);
+assert.equal(prerequisiteResultsPass('cancelled', 'success', 'success'), false);
+// The hole this branch closes: a resolver that failed skips every shard, and a
+// skipped shard job on its own reads as a pass.
+assert.equal(prerequisiteResultsPass('skipped', 'success', 'failure'), false);
 
 const integrity = integrityWorkflow.value;
 assert.ok(integrity.on.workflow_dispatch !== undefined);

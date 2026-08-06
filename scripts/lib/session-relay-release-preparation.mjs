@@ -20,6 +20,7 @@ import {
   validateCompletionReview as validateCurrentCompletionReview,
   validatePlanRunRecord,
 } from '../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs';
+import { assertShardTopologyCoversRegistry, REPO_WIDE_LANE } from './ci-targeting.mjs';
 import { CURRENT_RELEASE_TARGETS } from './rust-bin.mjs';
 import {
   COMMIT,
@@ -122,6 +123,31 @@ const TARGETS = CURRENT_RELEASE_TARGETS;
 const NON_PULL_REQUEST_CONDITION = "github.event_name != 'pull_request'";
 const NON_PULL_REQUEST_RUST_CONDITION =
   "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
+// The resolver step's script, byte-pinned. The comment block is load-bearing and is
+// part of the pin: it is the only in-band record of why the default must stay open.
+const RESOLVE_SHARDS_RUN = `# FAIL OPEN TO THE FULL GATE, NEVER TO NOTHING. This \`if\` is the decision
+# point: only a base commit that exists, shares a merge base with HEAD, and
+# yields a diff git actually produced may narrow the matrix. Every other
+# path - missing base SHA, force-pushed or grafted history, a shallow
+# clone, a git failure - takes the \`--unresolved\` branch and runs every
+# shard. \`ci-target.mjs shards\` fails open the same way on any internal
+# error, and it derives lanes from the plugin registry rather than from a
+# list duplicated here, so a new plugin cannot go ungated by omission.
+# Do not invert this default: a skipped shard must only ever be the result
+# of a positive, successful determination that nothing it owns changed,
+# because the opposite failure is silent and severe - a green pull request
+# that gated none of its own changes.
+CHANGED="$RUNNER_TEMP/docks-changed-paths.txt"
+if [ -n "$BASE_SHA" ] \\
+  && git rev-parse --verify --quiet "$BASE_SHA^{commit}" > /dev/null \\
+  && git merge-base "$BASE_SHA" "$HEAD_SHA" > /dev/null 2>&1 \\
+  && git -c core.quotePath=false diff --name-only "$BASE_SHA...$HEAD_SHA" > "$CHANGED"; then
+  node scripts/ci-target.mjs shards --event pull_request --changed-paths "$CHANGED" --github-output "$GITHUB_OUTPUT"
+else
+  node scripts/ci-target.mjs shards --unresolved --github-output "$GITHUB_OUTPUT"
+fi
+printf '{"step":"resolve validation shards from the pull request diff","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`;
 const SHARD_GATE_RUN = `if [ "\${{ matrix.lane }}" != "relay" ]; then
   node scripts/ci.mjs --lane "\${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
   printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
@@ -597,14 +623,72 @@ printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNN
   ];
 }
 
+// The pull-request shard resolver. Pinned in full because it is the single place
+// that decides which shards a change is gated by: an edit here that silently
+// narrowed the matrix would let a release ship against a CI topology nobody
+// reviewed, which is exactly what the old literal `lane: [core, relay]` existed to
+// prevent. The fail-open branch (`--unresolved`) is part of the pin.
+function expectedResolveShardsJob() {
+  return {
+    name: 'resolve validation shards',
+    if: "github.event_name == 'pull_request'",
+    permissions: { contents: 'read' },
+    'runs-on': 'ubuntu-latest',
+    'timeout-minutes': 5,
+    outputs: { lanes: `\${{ steps.shards.outputs.lanes }}` },
+    steps: [
+      {
+        uses: 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+        with: {
+          ref: `\${{ github.sha }}`,
+          'persist-credentials': false,
+          'fetch-depth': 0,
+        },
+      },
+      {
+        name: 'setup Node 24',
+        uses: 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e',
+        with: { 'node-version': '24' },
+      },
+      {
+        name: 'start hosted step timing',
+        run: `printf '{"step":"start hosted step timing","at_ms":%s,"job":"%s","run_id":"%s","run_attempt":"%s","runner_os":"%s","runner_arch":"%s"}\\n' "$(date +%s%3N)" "$GITHUB_JOB" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$RUNNER_OS" "$RUNNER_ARCH" > "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+`,
+      },
+      {
+        name: 'resolve validation shards from the pull request diff',
+        id: 'shards',
+        env: {
+          BASE_SHA: `\${{ github.event.pull_request.base.sha }}`,
+          HEAD_SHA: `\${{ github.sha }}`,
+        },
+        run: RESOLVE_SHARDS_RUN,
+      },
+      {
+        name: 'publish hosted timing artifact',
+        if: 'always()',
+        uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+        with: {
+          name: 'docks-hosted-timings-resolve-shards',
+          path: `\${{ runner.temp }}/docks-hosted-timings.jsonl
+\${{ runner.temp }}/docks-ci-timings.json
+`,
+          'if-no-files-found': 'warn',
+        },
+      },
+    ],
+  };
+}
+
 function expectedPrerequisiteAssertionStep() {
   return {
     name: 'assert successful prerequisite jobs',
     env: {
       VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}`,
       TARGETING_CONTRACTS_RESULT: `\${{ needs.targeting-contracts.result }}`,
+      RESOLVE_SHARDS_RESULT: `\${{ needs.resolve-shards.result }}`,
     },
-    run: 'status=0\nif [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then\n  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n  status=1\nfi\nif [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then\n  echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2\n  status=1\nfi\nexit "$status"\n',
+    run: 'status=0\nif [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then\n  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n  status=1\nfi\nif [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then\n  echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2\n  status=1\nfi\nif [ "$RESOLVE_SHARDS_RESULT" = "failure" ] || [ "$RESOLVE_SHARDS_RESULT" = "cancelled" ]; then\n  echo "shard resolution result: $RESOLVE_SHARDS_RESULT" >&2\n  status=1\nfi\nexit "$status"\n',
   };
 }
 
@@ -1760,15 +1844,46 @@ function decodeWorkflowFile(file, expectedPath) {
   ) {
     fail('source CI workflow triggers or permissions mismatch');
   }
-  exactKeys(workflow.jobs, ['validation-shards', 'targeting-contracts', 'validate'], 'source CI jobs');
+  exactKeys(
+    workflow.jobs,
+    ['resolve-shards', 'validation-shards', 'targeting-contracts', 'validate'],
+    'source CI jobs',
+  );
+  if (canonicalize(workflow.jobs['resolve-shards']) !== canonicalize(expectedResolveShardsJob()))
+    fail('source CI resolve-shards job definition mismatch');
+  // The shard matrix used to be the literal `lane: [core, relay]`, pinned so a
+  // release could not ship against a CI topology that changed without review. A
+  // resolver-driven matrix has no such literal, and a pin rewritten to match the
+  // new literal would be weaker: it would accept any topology someone later edits
+  // into the resolver. So pin the PROPERTY the literal stood for, derived from the
+  // plugin registry rather than restated here - every plugin the registry knows
+  // resolves to a shard that runs it, the repo-wide shard is in every selection,
+  // and an unresolved base fails open to all of them. A fifth plugin added without
+  // a usable `ciLane` fails here instead of riding into a release ungated.
+  try {
+    const resolvableLanes = assertShardTopologyCoversRegistry();
+    if (!resolvableLanes.includes(REPO_WIDE_LANE)) throw new Error('repo-wide shard is not resolvable');
+  } catch (error) {
+    fail(`source CI shard topology does not cover the plugin registry: ${error.message}`);
+  }
   const shardJob = workflow.jobs['validation-shards'];
-  exactKeys(shardJob, ['name', 'if', 'permissions', 'runs-on', 'strategy', 'steps'], 'source CI validation-shards job');
+  exactKeys(
+    shardJob,
+    ['name', 'if', 'needs', 'permissions', 'runs-on', 'strategy', 'steps'],
+    'source CI validation-shards job',
+  );
   const expectedShardJob = {
     name: `validation shard (\${{ matrix.lane }})`,
     if: "github.event_name == 'pull_request'",
+    needs: ['resolve-shards'],
     permissions: { contents: 'read' },
     'runs-on': 'ubuntu-latest',
-    strategy: { 'fail-fast': false, matrix: { lane: ['core', 'relay'] } },
+    // The matrix must be the resolver's output, never a hand-written list: a static
+    // lane list here is how a shard silently stops covering a plugin.
+    strategy: {
+      'fail-fast': false,
+      matrix: { lane: `\${{ fromJSON(needs.resolve-shards.outputs.lanes) }}` },
+    },
     steps: expectedValidationShardSteps(),
   };
   if (canonicalize(shardJob) !== canonicalize(expectedShardJob))
@@ -1780,7 +1895,7 @@ function decodeWorkflowFile(file, expectedPath) {
   if (
     job.name !== 'validate (scripts/ci.mjs)' ||
     job['runs-on'] !== 'ubuntu-latest' ||
-    canonicalize(job.needs) !== canonicalize(['validation-shards', 'targeting-contracts']) ||
+    canonicalize(job.needs) !== canonicalize(['validation-shards', 'targeting-contracts', 'resolve-shards']) ||
     job.if !== 'always()' ||
     canonicalize(job.steps) !== canonicalize(authoritativeSteps)
   )

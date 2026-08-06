@@ -18,7 +18,7 @@ plugin gate; the skipped targeting contract is accepted by the join.
 ## Trigger model
 
 Only three events trigger CI:
-- `pull_request` to main → run the `core` and `relay` lanes plus the targeting contract, then require their unchanged `validate` join status before merge
+- `pull_request` to main → resolve the diff into a shard set, run those shards plus the targeting contract, then require their unchanged `validate` join status before merge
 - `push` of tags matching `*--v*` — strictly resolve `<plugin>--v<version>` to a known plugin, then run that plugin's gate (`release.mjs` waits for this authoritative result)
 - `workflow_dispatch` → run the full gate manually
 
@@ -29,35 +29,56 @@ Only three events trigger CI:
 ## No drift — ci.yml runs ci.mjs
 
 `ci.yml` always invokes `scripts/ci.mjs`; targeting uses its supported `--lane`
-or `--plugin` arguments, not another validator implementation. The two PR lanes
+or `--plugin` arguments, not another validator implementation. The PR shards
 collectively cover the full contract through plugin ownership. They do not split
 a mutation catalog, pass validation artifacts, or carry regression partition or
 jobs-cap arguments.
 
-Both PR lanes perform the frozen pnpm install and materialize the lockfile-pinned
-`@anthropic-ai/claude-code` binary. Only Relay provisions Rust and restores the
-Cargo cache. Manual/tag runs materialize Node dependencies in `validate` and
-provision Rust only for a full run or Rust-capable target. The PR `validate`
-aggregator only checks the matrix result and performs no checkout, install,
-artifact handoff, or gate execution.
+Every gate-running PR shard performs the frozen pnpm install and materializes the
+lockfile-pinned `@anthropic-ai/claude-code` binary. Only Relay provisions Rust and
+restores the Cargo cache. Manual/tag runs materialize Node dependencies in
+`validate` and provision Rust only for a full run or Rust-capable target. The PR
+`validate` aggregator only checks prerequisite job results and performs no
+checkout, install, artifact handoff, or gate execution.
 
 Relay/full Linux source gates also provision one owned cgroup-v2 delegation,
-export it as `SESSION_RELAY_TEST_CGROUP_ROOT`, and remove it after `ci.mjs`. Core
-and non-Rust tag gates do not provision one. Missing delegation, failed native
-prerequisites, or leaked nested cgroups fail the owning gate; they are never
-hidden skips.
+export it as `SESSION_RELAY_TEST_CGROUP_ROOT`, and remove it after `ci.mjs`. Core,
+repo, and non-Rust tag gates do not provision one. Missing delegation, failed
+native prerequisites, or leaked nested cgroups fail the owning gate; they are
+never hidden skips.
 
 ## PR topology
 
-- `core`: repo-wide checks; focused plan orchestration; three-skill/one-wrapper
-  bounded workflows; Docks/effect-kit and their joint collision audit;
+A pull request pays for the shards its diff implicates, not for everything.
+`resolve-shards` diffs the base SHA against HEAD with first-party git plumbing and
+emits a lane list that `validation-shards` consumes through `fromJSON`. The
+changed-path → shard mapping is `root` + `ciLane` in `scripts/lib/plugins.mjs`; no
+lane list is duplicated in YAML.
+
+- `repo` (always runs): workflow YAML, marketplace catalogs, repo-wide guards
+  (context tree, no-bespoke-gates, durable anchors, author tooling, observability,
+  test-contract registry, unit tests), and the CI targeting contract. Cross-plugin
+  by nature and cheap (~10 s), so it is never skipped.
+- `core`: Docks, effect-kit and plan-lifecycle — their plugin gates, focused plan
+  orchestration, three-skill/one-wrapper bounded workflows, collision audits, and
   JavaScript quality.
 - `relay`: Session Relay's selected shell, collision, plugin, release-contract,
-  and Rust/source checks.
+  and Rust/source checks. It is the only shard needing musl/rustup provisioning,
+  the Cargo cache and cgroup delegation, which is why the other three plugins
+  share one shard instead of getting one each.
 
-Keep the two-lane selector and authoritative join in sync with
-`scripts/lib/ci-targeting.mjs`, `scripts/ci.mjs`, and
-`scripts/tests/ci-plugin-targeting.mjs`. Adding a third lane or moving plugin
+<constraint>
+Resolution fails **open**. A missing or unresolvable base SHA, an empty diff, a
+non-pull-request event, or any changed path outside every plugin root runs EVERY
+shard. A shard is skipped only on a positive, successful determination that
+nothing it owns changed. A failed `resolve-shards` skips `validation-shards`, and
+a skipped shard job reads as a pass, so `validate` depends on `resolve-shards`
+directly and fails on its failure.
+</constraint>
+
+Keep the shard selector and authoritative join in sync with
+`scripts/lib/ci-targeting.mjs`, `scripts/ci-target.mjs`, `scripts/ci.mjs`, and
+`scripts/tests/ci-plugin-targeting.mjs`. Adding a shard or moving plugin
 ownership requires corresponding workflow and targeting-contract changes.
 
 The separate targeting-contract job runs this test without `--unit` for pull
@@ -68,7 +89,7 @@ the job, and the join accepts that expected skip.
 
 ## Cache behavior
 
-The workflow pins the Corepack-provided pnpm version from `package.json`, configures a deterministic `~/.pnpm-store`, and caches that store with official `actions/cache`; the exact key binds runner identity, `pnpm-lock.yaml`, and `package.json`, with a same-pnpm-major restore prefix. The conditional Cargo cache stores registry/git dependencies and `plugins/session-relay/rust/target`; its exact key binds runner identity, dependencies, toolchain, and Rust sources, while its restore prefix permits incremental rebuilds only with the same dependency/toolchain identity. Cargo caching runs for the PR Relay lane, manual full validation, and Rust-capable release tags. Caches are hints only: frozen installs, Cargo's source validation, the pinned toolchain, and `ci.mjs` remain authoritative.
+The workflow pins the Corepack-provided pnpm version from `package.json`, configures a deterministic `~/.pnpm-store`, and caches that store with official `actions/cache`; the exact key binds runner identity, `pnpm-lock.yaml`, and `package.json`, with a same-pnpm-major restore prefix. The conditional Cargo cache stores registry/git dependencies and `plugins/session-relay/rust/target`; its exact key binds runner identity, dependencies, toolchain, and Rust sources, while its restore prefix permits incremental rebuilds only with the same dependency/toolchain identity. Cargo caching runs for the PR Relay shard, manual full validation, and Rust-capable release tags. Caches are hints only: frozen installs, Cargo's source validation, the pinned toolchain, and `ci.mjs` gates decide correctness. `resolve-shards` restores no cache and installs no dependencies; it needs only a checkout and Node.
 
 ## Hosted cost capture
 

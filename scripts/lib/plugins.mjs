@@ -10,8 +10,11 @@
 //
 // Fields:
 //   name          marketplace + tag identity (claude plugin tag → <name>--v<ver>)
-//   root          plugin dir under the repo
-//   ciLane        required plugin validation lane (`core` or `relay`)
+//   root          plugin dir under the repo; also the changed-path prefix that maps
+//                 a pull-request diff onto this plugin's shard (ci-targeting.mjs
+//                 `resolveShardSelection`), so the workflow never duplicates roots
+//   ciLane        required plugin validation shard (`core` or `relay`). `repo` is
+//                 the always-on repo-wide shard and no plugin may claim it.
 //   javascriptQuality scoped Biome paths (`ci` required, optional `lint`)
 //   skills        skills root, or null
 //   agents        agents root, or null
