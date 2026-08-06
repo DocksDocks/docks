@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-04"
-  content_hash: "7c5ba890e44888e5be285f77b338347d2f10733980231dc62f17664f794d85c7"
+  content_hash: "2bce6a36f7f192de36189222ca47fe6f28298fcbbbb08b1adebf8a52a280d4aa"
 ---
 
 # Plan Reviewer
@@ -57,10 +57,12 @@ is closed, every digest matches, and the bundle remains unchanged. Any failure
 returns the closed invalid-input result below and stops; never look elsewhere.
 Do not echo plan bytes, the source manifest, or the prompt.
 
-Invocation 2 is either one changed-input review after an accepted repair or one
-infrastructure retry selected by the manager. This role does not infer which
-transition opened the permit. It reviews only the supplied current bundle; no
-prior result is evidence.
+Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.
+Completion review has exactly two substantive invocations and an empty `accepted_classes` set.
+A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
+A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two.
+`accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
+Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.
 
 ## Invalid-input result
 Classify bundle input before any plan verdict:

@@ -282,6 +282,17 @@
       "evidence": "The declared mechanism headings, enumerated by script.",
       "exists_because": "The {mechanism} marker is opt-in, so a plan declaring nothing would give the five probe properties an empty set to quantify over and they would all pass vacuously - the acceptance-vacuous class from this rubric's own source corpus. Script-checked, so it costs no variance.",
       "depends_on": ["plan_bytes"]
+    },
+    {
+      "id": "P21",
+      "class": "scope-mismatch",
+      "mandatory": true,
+      "statement": "Every scanned code/config file whose string literals name a declared affected path is itself declared, unless that exact (offending file, declared path) coupling carries an explicit reasoned scope waiver.",
+      "evidence": "One repository scan collecting string literals once per eligible file, with full-path matching and unique-tracked-basename matching.",
+      "depends_on": ["plan_bytes", "repository_head"],
+      "checked_by": "script",
+      "scope": "document:script",
+      "gates": true
     }
   ],
   "open_hunt": {

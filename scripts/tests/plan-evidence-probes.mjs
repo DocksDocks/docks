@@ -454,7 +454,7 @@ probes['stale-quantity'] = () =>
 
       const validProducer = {
         op: 'show-count',
-        path: 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs',
+        path: 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/runtime/plan-state.mjs',
         matcher: 'EXCLUDED_SECTIONS = new Set',
         timeout_ms: 1_000,
         max_bytes: 1_048_576,
@@ -782,6 +782,12 @@ probes['r7-finished'] = () =>
         path.join(path.dirname(PLAN_RUN_PATH), 'legacy-review-records.mjs'),
         path.join(scriptsRoot, 'legacy-review-records.mjs'),
       );
+      // `plan-run.mjs` is a facade over `scripts/runtime/*.mjs`, so copying the entry point
+      // alone leaves the scratch tree unable to resolve its own imports. Mirror the whole
+      // directory rather than a hand-listed set: a seventh module must not silently break this
+      // probe the way the sixth did.
+      const runtimeSource = path.join(path.dirname(PLAN_RUN_PATH), 'runtime');
+      fs.cpSync(runtimeSource, path.join(scriptsRoot, 'runtime'), { recursive: true });
 
       const repairedBytes = fs.readFileSync(regressedScript, 'utf8');
       // Anchor on the rule's opening line ALONE, never on the comment beneath it. An anchor that

@@ -28,7 +28,7 @@
 //
 // Usage - paths may be repository-relative or absolute:
 //   plan-self-check.mjs units    <plan.md>
-//   plan-self-check.mjs check    <plan.md>            run deterministic checks and the falsifiability gate
+//   plan-self-check.mjs check    <plan.md> [--repo <root>] [--scope-waivers <file>]
 //   plan-self-check.mjs report   <plan.md>            print one falsifiability record line per acceptance row
 //   plan-self-check.mjs coverage <directory>          count falsifiability records without blocking
 //   plan-self-check.mjs rules    <plan.md>            run construct-conditional structural rules
@@ -37,7 +37,7 @@
 //   plan-self-check.mjs validate <result.json> <plan.md>
 //   plan-self-check.mjs ledger   <result.json> <ledger.json> <plan.md> [--reviewer <label>]
 //   plan-self-check.mjs waive    <ledger.json> <unit-key> <property> --reason <text> --by <who>
-//   plan-self-check.mjs gate     <ledger.json> <plan.md>
+//   plan-self-check.mjs gate     <ledger.json> <plan.md> [--repo <root>] [--scope-waivers <file>]
 //   plan-self-check.mjs apply    <result.json> <plan.md> [--commit]
 //
 // Exit 0 on success or a clear gate, 1 on a refusal or a blocked gate, 2 on usage error.
@@ -565,7 +565,180 @@ const judged = () => gating().filter((p) => p.checked_by !== 'script');
 const unitAsked = () => judged().filter((p) => p.scope.startsWith('unit:'));
 const docAsked = () => judged().filter((p) => !p.scope.startsWith('unit:'));
 
-export function scriptChecks(planText) {
+function declaredAffectedPaths(planText) {
+  const fm = planText.match(/^---\n([\s\S]*?)\n---/);
+  const block = fm?.[1].match(/^affected_paths:\n((?:[ \t]+-[ \t]+.*(?:\n|$))+)/m);
+  const inline = fm?.[1].match(/^affected_paths:\s*\[([^\]]*)\]\s*$/m);
+  const values =
+    block === undefined
+      ? (inline?.[1] ?? '').split(',')
+      : block[1].split('\n').map((line) => line.replace(/^\s*-\s*/, ''));
+  return new Set(
+    values
+      .map((value) => value.trim().replace(/^(['"])(.*)\1$/, '$2'))
+      .filter(Boolean)
+      .map((value) => value.split(path.sep).join('/')),
+  );
+}
+
+const excludedScopeDirectory = (segments) => {
+  const joined = `/${segments.join('/')}/`;
+  return (
+    segments.includes('.git') ||
+    segments.includes('node_modules') ||
+    segments.includes('target') ||
+    joined.includes('/docs/plans/') ||
+    joined.includes('/fixtures/legacy-regression-tree/')
+  );
+};
+
+const SCOPE_CODE_FILE = /\.(?:mjs|js|cjs|ts|json|toml|ya?ml|sh|rs)$/;
+const HASH_COMMENT_FILE = /\.(?:toml|ya?ml|sh)$/;
+
+function stringLiterals(text, { hashComments = false } = {}) {
+  const literals = [];
+  for (let index = 0; index < text.length; ) {
+    if (text[index] === '/' && text[index + 1] === '/') {
+      index = text.indexOf('\n', index + 2);
+      if (index < 0) break;
+      continue;
+    }
+    if (text[index] === '/' && text[index + 1] === '*') {
+      const end = text.indexOf('*/', index + 2);
+      if (end < 0) break;
+      index = end + 2;
+      continue;
+    }
+    if (hashComments && text[index] === '#') {
+      index = text.indexOf('\n', index + 1);
+      if (index < 0) break;
+      continue;
+    }
+    const quote = text[index];
+    if (!["'", '"', '`'].includes(quote)) {
+      index++;
+      continue;
+    }
+    let value = '';
+    let closed = false;
+    index++;
+    while (index < text.length) {
+      const character = text[index++];
+      if (character === '\\' && index < text.length) {
+        value += character + text[index++];
+      } else if (character === quote) {
+        closed = true;
+        break;
+      } else if (character === '\n' && quote !== '`') {
+        break;
+      } else {
+        value += character;
+      }
+    }
+    if (closed) literals.push(value);
+  }
+  return literals;
+}
+
+// A waiver names one exact `(file, path)` coupling, never a whole declared path.
+// Measured reason: a path-keyed waiver on the widely-referenced `plan-run.mjs` suppressed all
+// three of its couplings, and one of them was a true positive whose fixture tree copied the
+// facade without its runtime modules. The check had reported it; the waiver hid it, and the
+// defect surfaced later as a red full gate. Requiring the offending file makes each suppression
+// a specific, reviewable claim, and a newly appearing coupling of an already-waived path is
+// reported rather than inherited.
+function scopeWaiverMap(input, declared) {
+  if (input === null || input === undefined) return new Map();
+  if (
+    typeof input !== 'object' ||
+    input.schema !== 1 ||
+    !Array.isArray(input.waivers) ||
+    Object.keys(input).some((key) => !['schema', 'waivers'].includes(key))
+  ) {
+    throw new Error('scope waivers must be {schema:1, waivers:[{file, path, reason}]}');
+  }
+  const waivers = new Map();
+  for (const entry of input.waivers) {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      Object.keys(entry).some((key) => !['file', 'path', 'reason'].includes(key)) ||
+      typeof entry.file !== 'string' ||
+      !entry.file.trim() ||
+      typeof entry.path !== 'string' ||
+      !entry.path.trim() ||
+      typeof entry.reason !== 'string' ||
+      !entry.reason.trim()
+    ) {
+      throw new Error('every scope waiver requires exactly one non-empty file, path and reason');
+    }
+    const waiverPath = entry.path.split(path.sep).join('/');
+    const waiverFile = entry.file.split(path.sep).join('/');
+    if (!declared.has(waiverPath)) throw new Error(`scope waiver path is not declared: ${waiverPath}`);
+    const key = `${waiverFile}\u0000${waiverPath}`;
+    if (waivers.has(key)) throw new Error(`duplicate scope waiver: ${waiverFile} -> ${waiverPath}`);
+    waivers.set(key, entry.reason.trim());
+  }
+  return waivers;
+}
+
+function scopeWaiverKey(coupling) {
+  return `${coupling.file}\u0000${coupling.declaredPath}`;
+}
+
+function repositoryScopeCouplings(repo, declared) {
+  const root = path.resolve(repo);
+  if (!fs.statSync(root).isDirectory()) throw new Error(`repository root is not a directory: ${root}`);
+  const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root }).toString().split('\0').filter(Boolean);
+  const basenameCounts = new Map();
+  for (const trackedPath of tracked) {
+    const basename = path.posix.basename(trackedPath);
+    basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
+  }
+  const declaredPaths = [...declared].sort();
+  const declaredSet = new Set(declaredPaths);
+  const candidates = [];
+  const visit = (directory, relativeDirectory = '') => {
+    for (const entry of fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const segments = relative.split('/');
+      if (excludedScopeDirectory(segments)) continue;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute, relative);
+      else if (entry.isFile() && SCOPE_CODE_FILE.test(relative) && !declaredSet.has(relative)) {
+        candidates.push({ absolute, relative });
+      }
+    }
+  };
+  visit(root);
+
+  const couplings = [];
+  for (const candidate of candidates) {
+    const bytes = fs.readFileSync(candidate.absolute);
+    if (bytes.includes(0)) continue;
+    const literals = stringLiterals(bytes.toString('utf8'), {
+      hashComments: HASH_COMMENT_FILE.test(candidate.relative),
+    });
+    for (const declaredPath of declaredPaths) {
+      const basename = path.posix.basename(declaredPath);
+      const uniqueBasename = basenameCounts.get(basename) === 1;
+      if (
+        literals.some(
+          (literal) =>
+            literal.includes(declaredPath) ||
+            (uniqueBasename && (literal === basename || literal.endsWith(`/${basename}`))),
+        )
+      ) {
+        couplings.push({ file: candidate.relative, declaredPath });
+      }
+    }
+  }
+  return couplings;
+}
+
+export function scriptChecks(planText, { repo, scopeWaivers = null } = {}) {
   const units = enumerateUnits(planText);
   const out = {};
   out.P19 = units.named_mechanisms.length
@@ -575,14 +748,7 @@ export function scriptChecks(planText) {
         reason: 'no {mechanism} heading is declared, so every probe property would pass over an empty set',
       };
 
-  const fm = planText.match(/^---\n([\s\S]*?)\n---/);
-  const block = fm?.[1].match(/^affected_paths:\n((?:[ \t]+-[ \t]+.*(?:\n|$))+)/m);
-  const declared = new Set(
-    (block?.[1] ?? '')
-      .split('\n')
-      .map((l) => l.replace(/^\s*-\s*/, '').trim())
-      .filter(Boolean),
-  );
+  const declared = declaredAffectedPaths(planText);
   const used = new Set();
   for (const row of stepRows(planText)) {
     const files = row.cells[row.columns.files] ?? '';
@@ -597,6 +763,38 @@ export function scriptChecks(planText) {
           reason: `${undeclared.length} path(s) used but undeclared${undeclared.length ? ` (${undeclared.slice(0, 3).join(', ')})` : ''}; ${untouched.length} declared but untouched${untouched.length ? ` (${untouched.slice(0, 3).join(', ')})` : ''}`,
         }
       : { verdict: 'pass', reason: `${declared.size} declared path(s) match the steps exactly` };
+
+  if (repo !== undefined) {
+    const couplings = repositoryScopeCouplings(repo, declared);
+    const waivers = scopeWaiverMap(scopeWaivers, declared);
+    const unwaived = couplings.filter((coupling) => !waivers.has(scopeWaiverKey(coupling)));
+    const appliedWaivers = couplings
+      .filter((coupling) => waivers.has(scopeWaiverKey(coupling)))
+      .map(({ file, declaredPath }) => `${file} -> ${declaredPath}`)
+      .sort();
+    // Gate only where a permit can still be spent. `reducePlanRun` refuses a draft-review
+    // reservation unless the run is `drafting`, so `drafting` is the one status at which this
+    // check can prevent anything; every other status is a record of a scope already committed.
+    // Reporting there and blocking here is the same enforcing/counting-only split the rest of
+    // this script already uses, and it keeps a finished plan from being retroactively rejected
+    // for a coupling its author could no longer declare.
+    const enforcing = statusMode(planRecord(planText).status) === 'enforcing';
+    const couplingReason = unwaived
+      .map(({ file, declaredPath }) => `${file} is an undeclared coupling of ${declaredPath}`)
+      .join('; ');
+    const clearReason =
+      appliedWaivers.length > 0
+        ? `${declared.size} declared path(s); ${appliedWaivers.length} coupling(s) waived by exact file/path pair` +
+          ` (${appliedWaivers.slice(0, 3).join('; ')}${appliedWaivers.length > 3 ? '; …' : ''})`
+        : `${declared.size} declared path(s); no undeclared literal couplings found`;
+    if (unwaived.length === 0) {
+      out.P21 = { verdict: 'pass', reason: clearReason };
+    } else if (enforcing) {
+      out.P21 = { verdict: 'fail', reason: couplingReason };
+    } else {
+      out.P21 = { verdict: 'pass', advisory: true, reason: `counting-only: ${couplingReason}` };
+    }
+  }
 
   const rows = stepRows(planText);
   const ids = rows.map((row) => row.displayId);
@@ -985,112 +1183,6 @@ function stepIdentifierDiagnosticsFromContext(context) {
 export function stepIdentifierDiagnostics(planText) {
   return stepIdentifierDiagnosticsFromContext(structuralContext(planText));
 }
-const SCRIPT_DECIDABLE_FINDING_CLASSES = new Set(['v1_unstable_step_reference']);
-
-function acceptedClassSweepUnitDigests(planText) {
-  const units = enumerateUnits(planText);
-  return Object.fromEntries(
-    ['steps_rows', 'acceptance_rows', 'named_mechanisms', 'document_sections']
-      .flatMap((set) => units[set].map((unit) => [`${set}:${unit.id}`, fullDigest(unit.text ?? '')]))
-      .sort(([left], [right]) => left.localeCompare(right)),
-  );
-}
-
-export function createAcceptedClassSweep(
-  { accepted_classes: acceptedClasses, review_result_sha256: reviewResultSha256, verdicts = [] },
-  planText,
-) {
-  if (!Array.isArray(acceptedClasses) || !acceptedClasses.every((value) => typeof value === 'string')) {
-    throw new Error('accepted-class sweep accepted_classes must be an array of strings');
-  }
-  const canonicalClasses = [...new Set(acceptedClasses)].sort();
-  if (JSON.stringify(canonicalClasses) !== JSON.stringify(acceptedClasses)) {
-    throw new Error('accepted-class sweep accepted_classes must be sorted and unique');
-  }
-  if (!/^[0-9a-f]{64}$/.test(reviewResultSha256 ?? '')) {
-    throw new Error('accepted-class sweep review_result_sha256 must be a sha256');
-  }
-  if (!Array.isArray(verdicts)) throw new Error('accepted-class sweep verdicts must be an array');
-  return {
-    schema: 'AcceptedClassSweepV1',
-    plan_sha256: sha256(canonicalPlanView(Buffer.from(planText))),
-    review_result_sha256: reviewResultSha256,
-    accepted_classes: canonicalClasses,
-    units: acceptedClassSweepUnitDigests(planText),
-    verdicts: verdicts.map((verdict) => ({ ...verdict })),
-  };
-}
-
-export function validateAcceptedClassSweep(
-  ledger,
-  planText,
-  { acceptedClasses, reviewResultSha256, planSha256 = sha256(canonicalPlanView(Buffer.from(planText))) },
-) {
-  const problems = [];
-  const sweep = ledger?.accepted_class_sweep;
-  if (sweep === null || typeof sweep !== 'object' || Array.isArray(sweep)) {
-    return ['accepted-class sweep ledger is absent'];
-  }
-  if (sweep.schema !== 'AcceptedClassSweepV1')
-    problems.push('accepted-class sweep schema must be AcceptedClassSweepV1');
-  if (sweep.plan_sha256 !== planSha256) problems.push('accepted-class sweep plan_sha256 is stale');
-  if (sweep.review_result_sha256 !== reviewResultSha256) {
-    problems.push('accepted-class sweep review_result_sha256 does not match the preceding reviewer result');
-  }
-  const expectedClasses = [...acceptedClasses];
-  if (JSON.stringify(sweep.accepted_classes) !== JSON.stringify(expectedClasses)) {
-    problems.push('accepted-class sweep accepted_classes does not exactly match the persisted accepted class set');
-  }
-
-  const expectedUnits = acceptedClassSweepUnitDigests(planText);
-  const actualUnits =
-    sweep.units !== null && typeof sweep.units === 'object' && !Array.isArray(sweep.units) ? sweep.units : {};
-  for (const [unit, unitSha256] of Object.entries(expectedUnits)) {
-    if (!Object.hasOwn(actualUnits, unit)) problems.push(`accepted-class sweep omits enumerated unit ${unit}`);
-    else if (actualUnits[unit] !== unitSha256) problems.push(`accepted-class sweep unit ${unit} is stale`);
-  }
-  for (const unit of Object.keys(actualUnits)) {
-    if (!Object.hasOwn(expectedUnits, unit)) problems.push(`accepted-class sweep names unknown unit ${unit}`);
-  }
-
-  const seen = new Set();
-  if (!Array.isArray(sweep.verdicts)) {
-    problems.push('accepted-class sweep verdicts must be an array');
-  } else {
-    for (const verdict of sweep.verdicts) {
-      const className = verdict?.class;
-      const unit = verdict?.unit;
-      const key = `${className}|${unit}`;
-      if (!expectedClasses.includes(className))
-        problems.push(`accepted-class sweep verdict names unaccepted class ${className}`);
-      if (typeof unit !== 'string' || unit.includes('*') || !Object.hasOwn(expectedUnits, unit)) {
-        problems.push(`accepted-class sweep verdict names unknown or wildcard unit ${String(unit)}`);
-      }
-      if (!['clear', 'fail'].includes(verdict?.verdict)) {
-        problems.push(`accepted-class sweep ${key} has invalid verdict ${String(verdict?.verdict)}`);
-      }
-      if (seen.has(key)) problems.push(`accepted-class sweep duplicates verdict ${key}`);
-      seen.add(key);
-    }
-  }
-
-  for (const className of expectedClasses) {
-    if (SCRIPT_DECIDABLE_FINDING_CLASSES.has(className)) {
-      for (const error of stepIdentifierDiagnostics(planText).errors) {
-        problems.push(`accepted-class sweep ${className} script check failed: ${error}`);
-      }
-      continue;
-    }
-    for (const unit of Object.keys(expectedUnits)) {
-      const verdict = sweep.verdicts?.find((candidate) => candidate.class === className && candidate.unit === unit);
-      if (verdict === undefined) problems.push(`accepted-class sweep lacks clear verdict for ${className} on ${unit}`);
-      else if (verdict.verdict !== 'clear') {
-        problems.push(`accepted-class sweep ${className} is not clear on ${unit}`);
-      }
-    }
-  }
-  return problems;
-}
 
 const structuralRule = (id, check) => Object.freeze({ id, check });
 
@@ -1460,11 +1552,6 @@ export function mergeLedger(ledger, result, planText, { reviewer = null } = {}) 
     hunt: [...(ledger.hunt ?? [])],
     approvals: [...(result.approvals ?? ledger.approvals ?? [])],
   };
-  if (result.accepted_class_sweep !== undefined) {
-    next.accepted_class_sweep = createAcceptedClassSweep(result.accepted_class_sweep, planText);
-  } else if (ledger.accepted_class_sweep !== undefined) {
-    next.accepted_class_sweep = ledger.accepted_class_sweep;
-  }
   for (const v of result.verdicts ?? []) {
     const p = RUBRIC.properties.find((x) => x.id === (v.property ?? v.id));
     if (!p) continue;
@@ -1527,7 +1614,7 @@ export function gate(ledger, planText, opts = {}) {
       }
     }
   }
-  const auto = scriptChecks(planText);
+  const auto = scriptChecks(planText, { repo: opts.repo, scopeWaivers: opts.scopeWaivers });
   for (const p of docScoped().filter((x) => x.mandatory)) {
     if (p.checked_by === 'script') {
       const res = auto[p.id];
@@ -1606,10 +1693,14 @@ const COMMANDS = {
     }
     return 0;
   },
-  check({ rest, read }) {
+  check({ rest, read, json, flag }) {
     if (!rest[0]) return null;
     const planText = read(rest[0]);
-    const checks = scriptChecks(planText);
+    const scopeWaiversPath = flag('scope-waivers');
+    const checks = scriptChecks(planText, {
+      repo: flag('repo') ?? process.cwd(),
+      scopeWaivers: scopeWaiversPath === null ? null : json(scopeWaiversPath),
+    });
     let bad = 0;
     for (const [id, result] of Object.entries(checks)) {
       if (result.verdict !== 'pass') bad++;
@@ -1769,9 +1860,14 @@ const COMMANDS = {
     process.stdout.write(`waived ${key}\n`);
     return 0;
   },
-  gate({ rest, read, json }) {
+  gate({ rest, read, json, flag }) {
     if (!rest[1]) return null;
-    const { clear, blocking, reviewers } = gate(json(rest[0]), read(rest[1]));
+    const ledger = json(rest[0]);
+    const scopeWaiversPath = flag('scope-waivers');
+    const { clear, blocking, reviewers } = gate(ledger, read(rest[1]), {
+      repo: flag('repo') ?? process.cwd(),
+      scopeWaivers: scopeWaiversPath === null ? null : json(scopeWaiversPath),
+    });
     const labels = Object.entries(reviewers);
     if (labels.length) {
       process.stdout.write(
@@ -1817,6 +1913,8 @@ function main() {
   const read = (file) => fs.readFileSync(file, 'utf8');
   const json = (file) => JSON.parse(read(file));
   const flag = (name) => {
+    const equals = rest.find((value) => value.startsWith(`--${name}=`));
+    if (equals !== undefined) return equals.slice(name.length + 3);
     const index = rest.indexOf(`--${name}`);
     return index < 0 ? null : rest[index + 1];
   };

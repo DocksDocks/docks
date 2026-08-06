@@ -1,11 +1,11 @@
 ---
 name: plan-manager
-description: "Use when a goal may require a canonical plan, plan review, implementation, lifecycle handling, legacy-plan quarantine, or guarded GitHub issue publication. Owns classify → draft/class-bounded review and repair → start → implement/delegate → verify → finish/archive in main context. Not for docs/plans workspace setup (use plan-workspace) or read-only bundle evidence (use plan-reviewer internally)."
+description: "Use when a goal may require a canonical plan, plan review, implementation, lifecycle handling, legacy-plan quarantine, or guarded GitHub issue publication. Owns classify → draft/bounded review and one repair → start → implement/delegate → verify → finish/archive in main context. Not for docs/plans workspace setup (use plan-workspace) or read-only bundle evidence (use plan-reviewer internally)."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-05"
-  content_hash: "518356e2c1cc1e06d4b909173ee31c28c34b1f325dc4811268ac084caac67675"
+  content_hash: "0bf62d897d750791bf98a37d589b0d8647b6ae3dc09a36390fb3c8c38c12ca3c"
 ---
 
 # Plan Manager
@@ -44,9 +44,9 @@ boundary. A persisted plan, schedule, review, test, or receipt grants nothing.
 | Observed goal | Action | Automatic plan/reviewer/commit |
 |---|---|---|
 | One clear, reversible, low-risk local diff with one bounded acceptance path | Implement directly and smoke the changed path | `0 / 0 / 0` |
-| Plan-only request | Draft, review, repair only unseen classes, persist `planned` or `scheduled` | ≤12 draft reviewers / 1 commit |
-| Ordinary canonical implementation | Review, start checkpoint, implement, verify, archive | ≤12 draft reviewers / 2 commits |
-| Sensitive, destructive, public-contract, security, or external implementation | Add exact-diff completion review and implementation checkpoint | ≤12 draft + ≤2 completion reviewers / 3 commits |
+| Plan-only request | Draft, review, and repair once when required; persist `planned` or `scheduled` | ≤2 draft reviewers / 1 commit |
+| Ordinary canonical implementation | Review, start checkpoint, implement, verify, archive | ≤2 draft reviewers / 2 commits |
+| Sensitive, destructive, public-contract, security, or external implementation | Add exact-diff completion review and implementation checkpoint | ≤2 draft + exactly 2 completion reviewers / 3 commits |
 
 Use a canonical plan for multi-commit/cross-repository work, scheduling, cold
 handoff, unresolved decisions, cross-subsystem/public-contract/security/
@@ -94,7 +94,6 @@ several plans may run at once; a row is startable only once its full direct and 
 PlanRuns, and stage is priority, never a gate on unrelated work. Resolve archive moves by goal id; report blocked
 dependencies. Queue state never starts, reviews, schedules, or grants an effect: [`references/planqueuev1-schema.md`](references/planqueuev1-schema.md).
 
-
 A release plan that will mutate an external boundary places every available live read-only final-boundary check before completion-review reservation, using the exact canonical identities and data spellings consumed by the later mutation. Available means the repository already provides a read-only command or adapter path that exercises the boundary without the pending mutation; never invent a check or network call. If an available check requires probe authority and exact live `ExternalAuthorityV1` is absent, block before completion review rather than review an unexercised release assumption.
 Every closed object that affected code validates or emits has an explicit preserve-or-change disposition. A preserved shape has an exact-key compatibility fixture. An intentional shape change is in scope and includes migration, versioning, and historical-reader acceptance. When present, roles include release source, plan source, execution parent, implementation commit, and tag commit. A release identity matrix names each role, producer, consumer, and required equality, distinction, or ancestry relation. Reject a contradictory or unstated relation and any later successor whose current-run fixtures remain pinned to its predecessor. Existing `PlanRunV1`, review-result, affected-path manifest, `ExternalAuthorityV1`, and release-receipt shapes remain byte-compatible; these guards add no field, state, result, or authority.
 
@@ -103,33 +102,30 @@ Every closed object that affected code validates or emits has an explicit preser
 |---|---:|---:|---|---|---|
 | `not_required` | forbidden | 0 | null | null | completion only, local risk |
 | `not_started` | 0 | 0 | null | null | draft or required completion baseline |
-| `reserved` | 1–12 | 1–2 | hash | null | live initial/repair launch |
-| `transport_retried` | 1–12 | 1–2 | hash | null | live post-transport launch |
-| `retryable` | 0–11 | 0–1 | hash | failure hash | first transport failure; refunded |
-| `repairing` | 1–11 | 1 | hash | review hash | accepted repair verdict only |
-| `passed` | 1–12 | 1–2 | hash | review hash | matching validated output |
-| `degraded` | 1–12 | forbidden | hash | failure-set hash | draft/local only |
-| `blocked` | 1–12 | 1–2 | hash | evidence hash | terminal |
-| `cancelled` | 1–12 | 1–2 | hash | cancellation hash | terminal |
+| `reserved` | 1–2 | 1–2 | hash | null | live initial/repair launch |
+| `transport_retried` | 1–2 | 1–2 | hash | null | live post-transport launch |
+| `retryable` | 0–1 | 0–1 | hash | failure hash | first transport failure; refunded |
+| `repairing` | 1 | 1 | hash | review hash | accepted repair verdict only |
+| `passed` | 1–2 | 1–2 | hash | review hash | matching validated output |
+| `degraded` | 1–2 | forbidden | hash | failure-set hash | draft/local only |
+| `blocked` | 1–2 | 1–2 | hash | evidence hash | terminal |
+| `cancelled` | 1–2 | 1–2 | hash | cancellation hash | terminal |
 
 Legal transitions are `not_started → reserved`; `reserved → passed | repairing | blocked | cancelled | retryable`; `retryable → transport_retried | blocked | cancelled`; `transport_retried → passed | repairing | blocked | cancelled | degraded`; and `repairing → reserved | blocked | cancelled`.
-A transport failure from `reserved` refunds one invocation. Re-reservation consumes it into `transport_retried`; a second transport failure keeps that count and degrades only local draft review, otherwise blocks. Terminal states never reset.
+A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two. Terminal states never reset.
 
-Before launching, transactionally increment the phase count and persist `reserved`, or `transport_retried` after the first transport failure, with the exact input digest. A verdict spends the permit; only the first transport failure refunds it.
+Before launching, transactionally increment the phase count and persist `reserved`, or `transport_retried` after the transport-only failure, with the exact input digest. A verdict spends the permit.
 Accept results only in either live state with matching `run_id`, invocation, and input hash. Discard stale results. Cold entry into either live state blocks with dangling-launch evidence and never redispatches.
 
-Preflight the reviewer route and a private full-output file before reserving. Seal an invocation-specific bundle; after reservation read-back, derive its prompt and capture complete stdout to the file. Clipped console/transcript text is not evidence; never reconstruct JSON or request compact/single-line output. Parse the file, validate the closed object, then hash canonical JCS.
-A transport retry preserves substantive bindings but seals a fresh bundle with a different input digest and persists `transport_retried`; reuse is stale.
-
-Before creating a draft repair bundle or reserving its permit, verify the exact accepted-class sweep against the candidate plan bytes; an absent, stale, incomplete, or non-clear sweep fails before bundle creation and leaves the phase unchanged.
-The sweep is bound to the candidate `plan_sha256`, preceding reviewer-result digest, every accepted class, and every enumerated Steps row, acceptance row, named mechanism, and level-two document section. Waivers and wildcard units never satisfy it.
+Preflight the reviewer route and a private full-output file before reserving. Seal an invocation-specific bundle; after reservation read-back, derive its prompt and capture complete stdout to the file. Parse the file, validate the closed object, bind the result, then settle. Clipped console/transcript text is not evidence; never reconstruct JSON or request compact/single-line output. Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.
 
 ## Draft finding classes
 Every `PlanReviewV1` finding carries a required `class`. The draft finding vocabulary is closed by kind: `missing_decision` permits only `v1_missing_decision`; `contradiction` permits only `v1_contract_contradiction`, `v1_evidence_mismatch`, or `v1_unstable_step_reference`; `unsafe_scope` permits only `v1_unauthorized_effect`, `v1_missing_safety_boundary`, or `v1_affected_paths_incomplete`; and `missing_acceptance` permits only `v1_acceptance_command_not_runnable`, `v1_acceptance_output_mismatch`, `v1_acceptance_coverage_incomplete`, or `v1_failure_action_missing`.
 The reviewer emits `class`; the manager validates the kind/class pair and never derives a class from plan prose.
-For draft review only, `accepted_classes` is sorted and unique; an absent field on an existing record reads as empty, and the next legal draft transition writes it. An accepted repair atomically unions only unseen validated classes.
-Any draft result containing an already accepted class, including a mixed seen/unseen result, terminal-blocks the run; only an unseen-only class set may enter `repairing`.
-The draft limit is one initial round plus the closed v1 vocabulary cardinality (12 substantive invocations). Completion review keeps exactly two substantive invocations and an empty accepted-class set.
+`accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
+A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
+Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.
+Completion review has exactly two substantive invocations and an empty `accepted_classes` set.
 
 ## Reviewer result routing
 Before generic classification, recognize and validate this closed result:
@@ -173,15 +169,13 @@ write.
 
 ## Draft review
 1. Research the draft; preflight reviewer availability and private file capture.
-2. Before any repair round, verify the exact accepted-class sweep against the candidate bytes. Then seal the invocation bundle, reserve its digest, read back, derive the prompt, launch a fresh reviewer, and capture complete stdout to the file—not console text.
+2. Seal the invocation bundle, reserve its digest, read back, derive the prompt, launch a fresh reviewer, and capture complete stdout to the file—not console text.
 3. Route invalid input first. Otherwise accept only a closed ≤32 KiB bound `PlanReviewV1` whose findings carry valid kind/class pairs: `pass` has no findings; `repair` is repository-resolvable; `blocked` identifies only a required decision or missing authority.
-4. For an accepted repair, terminal-block any repeated or mixed repeated class; otherwise atomically persist the unseen classes, patch only reproduced defects, complete the sweep, and dispatch a changed-input repair round.
-5. A first genuine transport failure refunds its permit. Seal a fresh bundle with a different input digest, persist `transport_retried`, and dispatch once more without changing substantive bindings. A second failure degrades only reversible local work; sensitive/public-contract/security/external work blocks.
+4. For an accepted repair, patch only reproduced defects and dispatch the mandatory changed-input verification. Any further repair or new finding terminal-blocks the run and requires a user-authorized successor.
+5. A first genuine transport-only failure follows the single refund and fresh-dispatch rule above. A second failure degrades only reversible local work at local risk; sensitive/public-contract/security/external work blocks.
 
-No score, quota, fallback, resumed reviewer, draft invocation beyond one initial round plus the closed class-vocabulary cardinality, completion invocation beyond two, or Session Relay review exists. Destroy only the returned exact bundle.
-
-The protocol is transport-agnostic: `omp --model <vendor>/<model> -p`, `claude -p --permission-mode plan`, and `codex exec -s read-only` all satisfy it, provided complete stdout reaches a private file.
-Invocations, per-runtime model pinning, the flag trap where `--no-tools` leaves MCP tools callable, and what is and is not measured about judge independence are in `references/reviewer-dispatch-methods.md`.
+No score, quota, fallback, resumed reviewer, draft invocation beyond the initial review and mandatory post-repair verification, completion invocation beyond two, or Session Relay review exists. Destroy only the returned exact bundle.
+Direct `omp`, `claude`, or `codex` reviewer subprocesses satisfy the adapter contract when complete stdout reaches a private file. Controller mechanics, runtime flags, and judge-independence measurements are in `references/reviewer-dispatch-methods.md`.
 
 A local **self-check** — not a review, never a substitute for the permits above, and producing no `PlanReviewV1` — judges properties per enumerated unit and carries approvals forward on dependency closure, so an author can clear mechanical defects before spending a permit: `scripts/lifecycle/plan-self-check.mjs` — `units`/`check`/`prompt`/`validate`/`ledger`/`waive`/`gate`/`apply`.
 It never scores; a return carrying a score is refused, because seven scorings of one byte-identical plan measured sd 8.1 against sd 9.3 across eleven rounds of real repair. Protocol and evidence in `references/plan-self-check-protocol.md` (verify: `node <plan-manager-dir>/scripts/lifecycle/plan-self-check.mjs check <plan.md>`).
@@ -284,7 +278,7 @@ GOOD: require a matching live ExternalAuthorityV1 at the deploy boundary.
 
 ## Final checks
 - Exact repository/path/current-run identity, append-only attempt history, and exact plan/source/final-manifest/verification hashes.
-- Closed phase/lifecycle/status tuple, the draft limit of one initial permit plus the closed class-vocabulary cardinality, exactly two completion permits, and at most one transport retry.
+- Closed phase/lifecycle/status tuple, one initial draft review plus the mandatory post-repair verification, exactly two completion permits, and one transport retry—never two.
 - Transaction and owned checkpoint read-backs; unrelated paths excluded.
 - Fresh reviewer bindings; stale or cold-live-reservation output ignored.
 - Invalid reviewer input terminal-blocked through `review_invalid_input`; no retry, degrade, repair, or authority.

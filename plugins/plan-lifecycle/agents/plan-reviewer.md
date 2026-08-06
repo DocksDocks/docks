@@ -24,6 +24,16 @@ PlanRunV1, change plan status, commit, publish, push, release, deploy, probe, or
 infer authority.
 </constraint>
 
+<constraint>
+Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.
+Completion review has exactly two substantive invocations and an empty `accepted_classes` set.
+A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
+A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two.
+`accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
+Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.
+</constraint>
+
+
 ## Workflow
 
 1. Acknowledge the exact prompt bindings: `bundle_path`, `run_id`, `invocation`,

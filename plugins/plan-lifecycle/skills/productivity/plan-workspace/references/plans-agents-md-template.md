@@ -17,7 +17,7 @@ or any requested external effect. Never create a placeholder plan merely to unlo
 
 <constraint>
 There are exactly three live owners. `plan-workspace` maintains this workspace. Main-context `plan-manager` owns goal classification,
-drafting, class-bounded review and repair, lifecycle, implementation/delegation, observed acceptance, archive, and guarded GitHub issue
+drafting, bounded review and one repair, lifecycle, implementation/delegation, observed acceptance, archive, and guarded GitHub issue
 publication. Internal `plan-reviewer` reads one immutable bundle and returns `PlanReviewV1` evidence only. Only the reviewer has
 Claude/Codex wrappers; main invokes `plan-manager` directly.
 </constraint>
@@ -174,33 +174,31 @@ invariant.
 |---|---:|---:|---|---|---|
 | `not_required` | forbidden | 0 | null | null | completion only, local risk |
 | `not_started` | 0 | 0 | null | null | draft, or sensitive/external completion |
-| `reserved` | 1–12 | 1–2 | hash | null | live initial or repair launch |
-| `transport_retried` | 1–12 | 1–2 | hash | null | live launch after one transport failure |
-| `retryable` | 0–11 | 0–1 | hash | failure hash | first transport failure; permit refunded |
-| `repairing` | 1–11 | 1 | hash | reviewer-result hash | accepted repair verdict only |
-| `passed` | 1–12 | 1–2 | hash | reviewer-result hash | validated matching output |
-| `degraded` | 1–12 | forbidden | hash | failure-set hash | draft only, local risk only |
-| `blocked` | 1–12 | 1–2 | hash | evidence/result hash | terminal for this run |
-| `cancelled` | 1–12 | 1–2 | hash | cancellation hash | terminal for this run |
+| `reserved` | 1–2 | 1–2 | hash | null | live initial or repair launch |
+| `transport_retried` | 1–2 | 1–2 | hash | null | live launch after one transport failure |
+| `retryable` | 0–1 | 0–1 | hash | failure hash | first transport failure; reservation refunded |
+| `repairing` | 1 | 1 | hash | reviewer-result hash | accepted repair verdict only |
+| `passed` | 1–2 | 1–2 | hash | reviewer-result hash | validated matching output |
+| `degraded` | 1–2 | forbidden | hash | failure-set hash | draft only, local risk only |
+| `blocked` | 1–2 | 1–2 | hash | evidence/result hash | terminal for this run |
+| `cancelled` | 1–2 | 1–2 | hash | cancellation hash | terminal for this run |
 
 Legal phase transitions are only `not_started → reserved`; `reserved → passed |
 repairing | blocked | cancelled | retryable`; `retryable → transport_retried |
 blocked | cancelled`; `transport_retried → passed | repairing | blocked |
 cancelled | degraded`; and `repairing → reserved | blocked | cancelled`.
-A transport failure from `reserved` refunds exactly one invocation and enters
-`retryable`. Re-reservation consumes that refunded permit and enters
-`transport_retried`; a second transport failure then preserves its invocation
-and becomes local-draft `degraded` or otherwise `blocked`. Terminal states never
-reset.
+A transport-only failure refunds its reservation and allows one fresh
+`transport_retried` dispatch without changing substantive bindings; a second
+transport failure degrades only local draft work at local risk and otherwise
+blocks. One retry, never two. Terminal states never reset.
 
 Before spawning, transactionally increment the invocation count and persist
 `reserved`, or `transport_retried` after a transport failure, with the exact
-input digest. A verdict spends the reserved substantive permit. Only the first
-transport failure refunds it; the distinct retry state prevents an unbounded
-transport loop. An arriving result may mutate only the matching phase while it
-remains `reserved` or `transport_retried` with the same run id, invocation, and
-input hash; stale results are discarded. Cold entry into either live state
-changes it to `blocked` with dangling-launch evidence and never redispatches.
+input digest. A verdict spends the reserved substantive permit. An arriving
+result may mutate only the matching phase while it remains `reserved` or
+`transport_retried` with the same run id, invocation, and input hash; stale
+results are discarded. Cold entry into either live state changes it to `blocked`
+with dangling-launch evidence and never redispatches.
 
 Before reserving, preflight the exact reviewer route and a private file that will
 receive complete stdout. Each invocation has a newly sealed bundle whose closed
@@ -208,15 +206,16 @@ binding contains that invocation number. After reservation read-back, derive the
 prompt only from that bundle and capture directly to the file. Never consume
 console rendering, clipped lines, transcript fragments, or reconstructed JSON;
 do not request compact/single-line reviewer output. Parse the file, validate the
-closed object, then hash canonical JCS.
+closed object, then hash canonical JCS. Review transport is a direct reviewer
+subprocess. Session Relay is never review evidence and never a required dependency.
 
-Before creating a draft repair bundle or reserving its permit, verify the exact
-accepted-class sweep against the candidate plan bytes; an absent, stale,
-incomplete, or non-clear sweep fails before bundle creation and leaves the phase
-unchanged. The sweep is bound to the candidate `plan_sha256`, preceding
-reviewer-result digest, every accepted class, and every enumerated Steps row,
-acceptance row, named mechanism, and level-two document section. Waivers and
-wildcard units never satisfy it.
+Draft review has one initial review and, only after an accepted repair, one
+mandatory fresh verification, with a ceiling of two substantive invocations.
+Completion review has exactly two substantive invocations and an empty
+`accepted_classes` set. A draft repair verdict is accepted at most once. Any
+further repair or new finding after the mandatory verification terminal-blocks
+the run and requires a new user-authorized successor. `accepted_classes` remains
+valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
 
 For draft review, pre-seal rebinding changes exactly the run's `plan_sha256`,
 `source_base`, and `source_sha256`; it leaves both review phases untouched, so
@@ -277,22 +276,20 @@ current record. It rejects unless that file path equals the current run's
    stable canonical path: create it only if absent; for an explicitly continued
    same-domain terminal goal, use the guarded same-file replacement transaction.
 2. Research repository facts and bind plan/source manifests. Preflight reviewer
-   availability and private full-output capture. For a repair round, verify the
-   exact accepted-class sweep against the candidate bytes before creating a
-   bundle. Seal the invocation bundle, reserve its digest, read back, derive the
-   prompt from that exact bundle, then launch one fresh reviewer and capture its
-   complete stdout to the file.
-3. On `pass`, continue. On a repository-grounded `repair`, reject the result if
-   any finding has an already accepted class; otherwise atomically union its
-   unseen classes, patch only the exact accepted blocking set, complete the
-   accepted-class sweep, and dispatch a changed-input repair round. On a real
-   missing decision/authority, block with evidence. A first transport failure
-   refunds its reserved permit; seal a fresh bundle with a different digest,
-   persist `transport_retried`, read back, and dispatch once more without
-   changing canonical plan/source or completion bindings. Never reuse a bundle
+   availability and private full-output capture. Seal the invocation bundle,
+   reserve its digest, read back, derive the prompt from that exact bundle, then
+   launch one fresh reviewer and capture its complete stdout to the file.
+3. On `pass`, continue. On a repository-grounded `repair`, patch only the exact
+   accepted blocking set, then dispatch the mandatory changed-input verification.
+   Any further repair or new finding terminal-blocks this run and requires a
+   user-authorized successor. On a real missing decision/authority, block with
+   evidence. A first transport-only failure refunds its reservation; seal a fresh
+   bundle with a different digest, persist `transport_retried`, read back, and
+   dispatch once more without changing substantive bindings. Never reuse a bundle
    or prompt. A second transport failure may degrade only reversible local draft
-   work; sensitive, destructive, public-contract, security, or external work
-   blocks.
+   work at local risk; sensitive, destructive, public-contract, security, or
+   external work blocks.
+
 4. A plan-only request writes `planned` or `scheduled` and makes one owned-path
    checkpoint commit/read-back. A canonical implementation writes `ongoing`,
    captures `execution_parent`, and makes one reviewed start checkpoint.
@@ -312,8 +309,8 @@ current record. It rejects unless that file path equals the current run's
    matching pass may create the archive checkpoint.
 
 No numeric score, finding quota, fallback provider/model, resumed reviewer,
-draft invocation beyond one initial round plus the closed class-vocabulary
-cardinality, completion invocation beyond two, completion-plan recursion,
+draft invocation beyond the initial review and mandatory post-repair
+verification, completion invocation beyond two, completion-plan recursion,
 automatic push, or per-round state/request/receipt commit exists.
 
 ## Transactions and checkpoint commits
@@ -354,7 +351,8 @@ ReviewerFindingClassV1 =
     "v1_acceptance_coverage_incomplete" | "v1_failure_action_missing"
 
 PlanReviewV1 = {
-  schema:1, run_id:uuid, invocation:1..12,
+  schema:1, run_id:uuid, invocation:1..2,
+
   plan_sha256:64hex, source_sha256:64hex,
   verdict:"pass"|"repair"|"blocked",
   findings:[{id,kind:"missing_decision"|"contradiction"|"unsafe_scope"|"missing_acceptance",class:ReviewerFindingClassV1,locator,defect,fix}]
@@ -387,14 +385,14 @@ The draft finding vocabulary is closed by kind: `missing_decision` permits only
 reviewer emits `class`; the manager validates the kind/class pair and never
 derives a class from plan prose.
 
-For draft review only, `accepted_classes` is sorted and unique; an absent field
-on an existing record reads as empty, and the next legal draft transition writes
-it. An accepted repair atomically unions only unseen validated classes. Any
-draft result containing an already accepted class, including a mixed seen/unseen
-result, terminal-blocks the run; only an unseen-only class set may enter
-`repairing`. The draft limit is one initial round plus the closed v1 vocabulary
-cardinality (12 substantive invocations). Completion review keeps exactly two
-substantive invocations and an empty accepted-class set.
+Historical readers continue to accept a sorted, unique `accepted_classes` field;
+an absent historical field reads as empty. Current reducers never write it.
+Only the initial draft review may return an accepted repair verdict. That repair
+requires invocation 2 over newly sealed candidate bytes; a further repair or any
+finding terminal-blocks this run and needs explicit successor authority.
+
+The draft substantive ceiling is two. Completion always consumes exactly two
+substantive invocations and keeps its accepted-class set empty.
 
 The two verdict records are closed compact JCS objects capped at 32 KiB. `pass`
 has no findings; other verdicts have at least one. Draft `repair` contains only
@@ -481,19 +479,18 @@ historical finished plan.
 Before claiming success, verify the exact path, closed frontmatter, one valid
 current Plan-run line, append-only attempt history, repository/path/run identity,
 status tuple, plan/source hashes, transaction read-back, owned commit path set,
-the draft limit of one initial permit plus the closed class-vocabulary
-cardinality, exactly two completion permits, the bounded transport-retry state,
-and observed acceptance bindings. Never claim a wrapper ran
+the draft limit of one initial review plus one mandatory post-repair
+verification, exactly two completion permits, the one-retry-never-two transport
+state, historical-record isolation, and observed acceptance bindings. Never claim a wrapper ran
 merely because its file exists,
 claim review passed from reservation, translate stale output into state, or
 translate persisted intent into external authority.
 
 The `plan-manager` and `plan-reviewer` skill bodies are asserted verbatim by
 `scripts/tests/plan-skill-phases.mjs --case bounded-workflows`, which also pins
-the stable-step and class-budget contract independently in this file,
-`plan-manager`, `plan-workspace`, and the generated workspace template. Its
-mutation probes remove the id, repeated-class, pre-reservation-sweep, release
-pre-completion, workspace-current-marker, and status-hash clauses from every
-pinned copy and require the named assertion to fail. Update positive assertions
-in the same change as their normative sentences; never relax a matcher to accept drift.
+the stable-step and bounded-review contract independently in this file,
+`plan-manager`, `plan-reviewer`, `plan-workspace`, the dispatch reference,
+reviewer wrappers, and the generated workspace template. Its mutation probes
+remove each exact normative clause and require the named assertion to fail.
+
 ````

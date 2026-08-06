@@ -14,19 +14,19 @@ import { execFileSync, spawn } from 'node:child_process';
 //     the reviewer returned, which is precisely the window this driver removes.
 //  2. Signal handlers persist `review_transport_failure` and let the reducer
 //     choose the successor state. `reserved` refunds to `retryable`
-//     (plan-run.mjs:1552-1557, the sole result transition allowed to refund).
-//     `transport_retried` cannot reach `retryable` at all (plan-run.mjs:1523),
+//     (the refund predicate in runtime/plan-state.mjs, the sole result transition allowed to refund).
+//     `transport_retried` cannot reach `retryable` at all (REVIEW_TRANSITIONS in runtime/plan-state.mjs),
 //     so it degrades local draft work or blocks; at non-local risk `degraded` is
-//     unavailable (plan-run.mjs:535) and it blocks. A driver hardcoding one
+//     unavailable (validateTuple in runtime/plan-state.mjs) and it blocks. A driver hardcoding one
 //     successor fails closed and loses the run it exists to protect.
 //  3. Every result event carries `run_id`, `invocation` and `input_sha256`.
-//     `resultBindingMatches` (plan-run.mjs:916) requires them; omitting them is a
+//     `resultBindingMatches` in runtime/plan-state.mjs requires them; omitting them is a
 //     SUBSTANTIVE failure that burns the permit rather than a transport failure
 //     that refunds it.
 //
 // The body edit is installed INSIDE the reserve transaction, because only that
 // transition may move `plan_sha256`, `source_base` and `source_sha256`
-// (plan-run.mjs:1636-1639) - and only when the prior state is not `retryable`, so
+// (assertPersistedTransition's draft arm in runtime/plan-state.mjs) - and only when the prior state is not `retryable`, so
 // a transport retry can never smuggle new bytes past the reviewer.
 //
 // Settlement boundary: the driver persists only what is mechanical. `pass` is
@@ -66,9 +66,8 @@ Options:
   --body=<file>    repaired plan body installed inside the reserve transaction;
                    rejected when the prior phase state is 'retryable', because a
                    transport retry must not move the reviewed bytes
-  --class-sweep-ledger=<file>
-                   self-check ledger required before a repair reservation;
-                   bound to the exact candidate --body bytes and preceding result
+  --scope-waivers=<file>
+                   explicit exact file/path P21 waivers with mandatory reasons
   --commit         actually reserve and dispatch (default: dry run)
   --help           print this text
 
@@ -113,7 +112,7 @@ const PLAN = path.relative(REPO, planFile).split(path.sep).join('/');
 const TAG = flag('tag') ?? path.basename(planFile, '.md');
 const OUT_DIR = flag('out-dir') ?? path.join(REPO, '.git', 'docks-review');
 const BODY = flag('body');
-const CLASS_SWEEP_LEDGER = flag('class-sweep-ledger');
+const SCOPE_WAIVERS = flag('scope-waivers');
 const COMMIT = args.includes('--commit');
 
 // Resolved from this file, never from the plan's repository: when the plugin is
@@ -126,7 +125,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const lib = await import(path.join(HERE, '../plan-run.mjs'));
 const policy = await import(path.join(HERE, '../../../plan-reviewer/scripts/review-policy.mjs'));
 const selfCheck = await import(path.join(HERE, 'plan-self-check.mjs'));
-const DRAFT_REVIEW_INVOCATION_LIMIT = 1 + Object.values(policy.PLAN_FINDING_CLASSES).flat().length;
+const DRAFT_REVIEW_INVOCATION_LIMIT = 2;
 
 const readRecord = (text) => {
   const line = text.split('\n').find((l) => l.startsWith('Plan-run:'));
@@ -203,28 +202,25 @@ const preflight = (label, operation) => {
     process.exit(2);
   }
 };
-if (phase.state === 'repairing') {
-  preflight('accepted-class sweep is not clear', () => {
-    if (CLASS_SWEEP_LEDGER === null)
-      throw new Error('accepted-class sweep ledger is required before repair reservation');
-    let ledger;
-    try {
-      ledger = JSON.parse(fs.readFileSync(path.resolve(CLASS_SWEEP_LEDGER), 'utf8'));
-    } catch (error) {
-      throw new Error(`accepted-class sweep ledger is unreadable: ${error.message}`);
-    }
-    // Validate against the exact `--body` bytes, which is what the ledger was built from and what
-    // `planSha256` above already binds. `candidateText` carries an injected record line, so for any
-    // plan whose `Plan-run:` sits inside a level-two section the comparison is unsatisfiable by
-    // construction and no draft repair round could ever be reserved.
-    const problems = selfCheck.validateAcceptedClassSweep(ledger, candidateSourceText, {
-      acceptedClasses: candidate.run[PHASE].accepted_classes ?? [],
-      reviewResultSha256: candidate.run[PHASE].result_sha256,
-      planSha256,
-    });
-    if (problems.length > 0) throw new Error(problems.join('; '));
-  });
-}
+let scopeWaivers;
+const readScopeWaivers = () => {
+  if (SCOPE_WAIVERS === null) return null;
+  if (scopeWaivers !== undefined) return scopeWaivers;
+  try {
+    scopeWaivers = JSON.parse(fs.readFileSync(path.resolve(SCOPE_WAIVERS), 'utf8'));
+  } catch (error) {
+    throw new Error(`scope waivers are unreadable: ${error.message}`);
+  }
+  return scopeWaivers;
+};
+
+preflight('deterministic scope check failed', () => {
+  const result = selfCheck.scriptChecks(candidateSourceText, {
+    repo: REPO,
+    scopeWaivers: readScopeWaivers(),
+  }).P21;
+  if (result?.verdict !== 'pass') throw new Error(result?.reason ?? 'P21 did not return a verdict');
+});
 
 fs.mkdirSync(OUT_DIR, { recursive: true, mode: 0o700 });
 const bundle = policy.createPlanReviewBundle({
@@ -394,7 +390,7 @@ const resultEvent = (type, extra) => ({
 });
 
 // Emitting a result against a phase that is not live hard-fails at
-// plan-run.mjs:1039-1040, so a signal arriving BEFORE the reserve lands must
+// the live-phase guard in runtime/plan-state.mjs, so a signal arriving BEFORE the reserve lands must
 // persist nothing: no permit was consumed, so there is nothing to refund, and
 // emitting would turn a clean no-op into a crash inside the very window this
 // driver exists to make survivable.

@@ -29,16 +29,31 @@ PlanRunReplacementAuthorityV1 = {
   source_sha256:64hex, successor_run_sha256:64hex
 }
 ```
+Review phase ranges are closed:
 
-On read, an absent `accepted_classes` field is the empty set. Every legal draft
-review transition emits the field. Draft review permits are bounded by one
-initial invocation plus the eleven closed v1 finding classes. An accepted
-`repair` atomically unions only explicit, validated, previously unseen finding
-classes into the persisted sorted set; a result containing any already accepted
-class, including a mixed seen/unseen result, enters the terminal
-`review_failed` block without adding classes. Completion review never continues
-by class: its accepted set remains empty and its invocation ceiling remains two.
-The first transport failure still refunds one invocation in either phase.
+| Phase state | Draft invocations | Completion invocations |
+|---|---:|---:|
+| `not_required` | forbidden | 0 |
+| `not_started` | 0 | 0 |
+| `reserved` | 1–2 | 1–2 |
+| `transport_retried` | 1–2 | 1–2 |
+| `retryable` | 0–1 | 0–1 |
+| `repairing` | 1 | 1 |
+| `passed` | 1–2 | 1–2 |
+| `degraded` | 1–2 | forbidden |
+| `blocked` | 1–2 | 1–2 |
+| `cancelled` | 1–2 | 1–2 |
+
+
+On read, an absent `accepted_classes` field is the empty set.
+`accepted_classes` remains valid for historical records but is written by no
+current transition. Draft review has one initial review and, only after an
+accepted repair, one mandatory fresh verification, with a ceiling of two
+substantive invocations. A draft repair verdict is accepted at most once; any
+further repair or new finding after the mandatory verification terminal-blocks
+the run with `review_failed` evidence. Completion review has the same
+two-invocation ceiling. The first transport failure still refunds one invocation
+in either phase.
 
 `repository_id + plan_path + run_id` is the run identity. Exact current-user
 `PlanRunReplacementAuthorityV1` binds the terminal predecessor and exact

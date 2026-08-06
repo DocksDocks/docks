@@ -52,9 +52,9 @@ function workspace() {
 
 function reviewPhase(state) {
   if (state === 'not_required' || state === 'not_started') {
-    return { state, invocations: 0, input_sha256: null, result_sha256: null, accepted_classes: [] };
+    return { state, invocations: 0, input_sha256: null, result_sha256: null };
   }
-  return { state, invocations: 1, input_sha256: HASH, result_sha256: HASH, accepted_classes: [] };
+  return { state, invocations: 1, input_sha256: HASH, result_sha256: HASH };
 }
 
 function planBytes({ goalId, label, logicalPath, status }) {

@@ -15,6 +15,48 @@ const PINNED_STEP_CLASS_CONTRACTS = [
   'plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md',
   'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
 ];
+const REVIEW_CONTRACT_FILES = [
+  'docs/plans/AGENTS.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/references/reviewer-dispatch-methods.md',
+  'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
+  'plugins/plan-lifecycle/agents/plan-reviewer.md',
+  '.codex/agents/plan-reviewer.toml',
+];
+const REVIEW_CONTRACT_CLAUSES = [
+  {
+    name: 'draft-one-plus-verification',
+    text: 'Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.',
+  },
+  {
+    name: 'completion-exact-two',
+    text: 'Completion review has exactly two substantive invocations and an empty `accepted_classes` set.',
+  },
+  {
+    name: 'transport-only-retry',
+    text: 'A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two.',
+  },
+  {
+    name: 'post-verification-terminal',
+    text: 'A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.',
+  },
+  {
+    name: 'historical-accepted-classes',
+    text: '`accepted_classes` remains valid on read for historical records and is written by no current transition.',
+  },
+  {
+    name: 'historical-adapter-isolation',
+    text: 'Historical records are read-only inputs to the historical adapter and never current authority.',
+  },
+  {
+    name: 'direct-review-transport',
+    text: 'Review transport is a direct reviewer subprocess. Session Relay is never review evidence and never a required dependency.',
+  },
+];
+const REVIEWER_NO_FALLBACK_CLAUSE =
+  'Do not resume another reviewer, switch provider/model, fall back to Session Relay or another transport, ask the user, or launch a replacement after any output or failure.';
 
 // The absent-lifecycle guard: every route into the plan lifecycle carries one
 // byte-identical prerequisite paragraph, so a Codex install without the
@@ -86,24 +128,20 @@ const STEP_CLASS_CONTRACT_CLAUSES = [
     text: 'The reviewer emits `class`; the manager validates the kind/class pair and never derives a class from plan prose.',
   },
   {
-    name: 'legacy-empty-class-set',
-    text: 'For draft review only, `accepted_classes` is sorted and unique; an absent field on an existing record reads as empty, and the next legal draft transition writes it.',
+    name: 'historical-empty-class-set',
+    text: '`accepted_classes` remains valid on read for historical records and is written by no current transition.',
   },
   {
-    name: 'repeated-class',
-    text: 'Any draft result containing an already accepted class, including a mixed seen/unseen result, terminal-blocks the run; only an unseen-only class set may enter `repairing`.',
+    name: 'post-verification-terminal',
+    text: 'A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.',
   },
   {
     name: 'finite-draft-budget',
-    text: 'The draft limit is one initial round plus the closed v1 vocabulary cardinality (12 substantive invocations). Completion review keeps exactly two substantive invocations and an empty accepted-class set.',
+    text: 'Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.',
   },
   {
-    name: 'pre-reservation-sweep',
-    text: 'Before creating a draft repair bundle or reserving its permit, verify the exact accepted-class sweep against the candidate plan bytes; an absent, stale, incomplete, or non-clear sweep fails before bundle creation and leaves the phase unchanged.',
-  },
-  {
-    name: 'sweep-bindings',
-    text: 'The sweep is bound to the candidate `plan_sha256`, preceding reviewer-result digest, every accepted class, and every enumerated Steps row, acceptance row, named mechanism, and level-two document section.',
+    name: 'completion-exact-two',
+    text: 'Completion review has exactly two substantive invocations and an empty `accepted_classes` set.',
   },
 ];
 
@@ -203,6 +241,18 @@ const WORKSPACE_SKILL_QUEUE_CLAUSE = '`docs/plans/QUEUE.md` is optional and clas
 
 function normalizeContract(text) {
   return text.replace(/\s+/g, ' ').trim();
+}
+function assertReviewContract(text, relative) {
+  for (const clause of REVIEW_CONTRACT_CLAUSES) {
+    assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
+  }
+}
+
+function assertReviewerNoFallback(text) {
+  assert.ok(
+    text.includes(REVIEWER_NO_FALLBACK_CLAUSE),
+    'plan-reviewer is missing the one-invocation no-fallback clause',
+  );
 }
 
 function assertStepClassContract(text, relative) {
@@ -306,10 +356,12 @@ function assertStepClassContractsAndMutations() {
     'grandfather-cutover',
     'grandfather-two-routes',
     'stable-guard-citation',
-    'repeated-class',
-    'pre-reservation-sweep',
-    'sweep-bindings',
+    'historical-empty-class-set',
+    'post-verification-terminal',
+    'finite-draft-budget',
+    'completion-exact-two',
   ]);
+
   for (const relative of PINNED_STEP_CLASS_CONTRACTS) {
     const text = normalizeContract(read(relative));
     assertStepClassContract(text, relative);
@@ -471,12 +523,12 @@ function assertBoundedWorkflows() {
     /ExternalAuthorityV1/,
     /legacy-quarantined/,
     /One clear, reversible, low-risk local diff[\s\S]*`0 \/ 0 \/ 0`/,
-    /Plan-only request[\s\S]*≤12 draft reviewers \/ 1 commit/,
-    /Ordinary canonical implementation[\s\S]*≤12 draft reviewers \/ 2 commits/,
-    /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤12 draft \+ ≤2 completion reviewers \/ 3 commits/,
+    /Plan-only request[\s\S]*≤2 draft reviewers \/ 1 commit/,
+    /Ordinary canonical implementation[\s\S]*≤2 draft reviewers \/ 2 commits/,
+    /Sensitive, destructive, public-contract, security, or external implementation[\s\S]*≤2 draft \+ exactly 2 completion reviewers \/ 3 commits/,
     /Before launching, transactionally\s+increment[\s\S]*persist\s+`reserved`/,
-    /only\s+the\s+first\s+transport\s+failure\s+refunds/,
-    /persists\s+`transport_retried`/,
+    /transport-only failure refunds its reservation/i,
+    /one fresh `transport_retried` dispatch without changing substantive bindings/i,
     /no automatic push/i,
     // `transactPlanRun` has no in-repo callers: the caller is an agent reading
     // this body. If the instruction to pass the manifest is lost, acceptance
@@ -490,6 +542,8 @@ function assertBoundedWorkflows() {
   for (const contract of [
     /read-only bundle boundary/i,
     /One invocation, one result/i,
+    /direct reviewer subprocess/i,
+    /Session Relay is never review evidence and never a required dependency/i,
     /PlanReviewV1/,
     /missing_decision/,
     /contradiction/,
@@ -511,7 +565,36 @@ function assertBoundedWorkflows() {
   ]) {
     assert.match(reviewer, contract);
   }
+  assert.ok(
+    normalizeContract(reviewer).includes(REVIEWER_NO_FALLBACK_CLAUSE),
+    'plan-reviewer is missing the one-invocation no-fallback clause',
+  );
   assert.doesNotMatch(reviewer, /numeric score|provider\/model fallback|apply a patch|change lifecycle/i);
+}
+
+function assertReviewContractsAndMutations() {
+  for (const relative of REVIEW_CONTRACT_FILES) {
+    const text = normalizeContract(read(relative));
+    assertReviewContract(text, relative);
+    for (const clause of REVIEW_CONTRACT_CLAUSES) {
+      const occurrences = text.split(clause.text).length - 1;
+      assert.equal(occurrences, 1, `${relative} must contain exactly one ${clause.name} clause`);
+      assert.throws(
+        () => assertReviewContract(text.replace(clause.text, ''), relative),
+        new RegExp(`missing the ${clause.name} clause`),
+        `${relative} must fail when its ${clause.name} clause is removed`,
+      );
+    }
+  }
+
+  const reviewer = normalizeContract(read('plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md'));
+  const mutated = reviewer.replace('fall back to Session Relay or another transport', 'may fall back to Session Relay');
+  assertReviewerNoFallback(reviewer);
+  assert.throws(
+    () => assertReviewerNoFallback(mutated),
+    /missing the one-invocation no-fallback clause/,
+    'allowing Session Relay fallback must violate the reviewer transport contract',
+  );
 }
 
 function assertWorkspaceTemplateSynchronized() {
@@ -719,6 +802,7 @@ if (caseName === 'plan-workspace-template') {
   assertLiveTopology();
   assertReviewerWrappersOnly();
   assertBoundedWorkflows();
+  assertReviewContractsAndMutations();
   assertStepClassContractsAndMutations();
   assertReleasePrecompletionContractsAndMutations();
   assertWorkspaceCurrentMarkersAndMutations();

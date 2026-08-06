@@ -22,7 +22,7 @@ export const PLAN_FINDING_CLASSES = Object.freeze({
 });
 const PLAN_FINDING_KINDS = new Set(Object.keys(PLAN_FINDING_CLASSES));
 const PLAN_FINDING_CLASS_VOCABULARY = new Set(Object.values(PLAN_FINDING_CLASSES).flat());
-const DRAFT_REVIEW_INVOCATION_MAX = 1 + PLAN_FINDING_CLASS_VOCABULARY.size;
+const DRAFT_REVIEW_INVOCATION_MAX = 2;
 const COMPLETION_REVIEW_INVOCATION_MAX = 2;
 const VERDICTS = new Set(['pass', 'repair', 'blocked']);
 const MAX_REVIEW_BYTES = 32 * 1024;

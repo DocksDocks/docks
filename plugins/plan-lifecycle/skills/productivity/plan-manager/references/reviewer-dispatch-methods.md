@@ -1,31 +1,41 @@
 # Reviewer dispatch methods
 
-How to launch the fresh reviewer the review phase requires. The protocol itself
-is transport-agnostic and stays that way: it constrains what a reviewer must
-receive and return, never which program carries it.
+Review transport is a direct reviewer subprocess. Session Relay is never review
+evidence and never a required dependency.
+
 
 ## Contents
 
-- [What the protocol requires of any transport](#what-the-protocol-requires-of-any-transport)
+- [Direct transport adapter contract](#direct-transport-adapter-contract)
+
 - [Methods](#methods)
 - [Judge independence: what is measured](#judge-independence-what-is-measured)
 - [Reviewing code versus reviewing a document](#reviewing-code-versus-reviewing-a-document)
 - [One pass is a sample, not a verdict](#one-pass-is-a-sample-not-a-verdict)
 - [Flag traps](#flag-traps)
 
-## What the protocol requires of any transport
+## Direct transport adapter contract
 
 <constraint>
-A transport is acceptable only if it delivers a sealed invocation-specific bundle
-to a reviewer that shares no context with the author, and returns complete stdout
-to a private file. Clipped console or transcript text is not evidence. Never ask
-for compact or single-line output, and never reconstruct a returned object by
-hand. A transport that cannot produce the whole byte stream is not usable, no
-matter how convenient it is.
+The controller must reserve, dispatch, capture complete stdout, validate the
+closed result schema, bind the result to the exact live reservation, and settle
+in one crash-aware process. A transport status alone never mutates PlanRun.
+Clipped console or transcript text is not evidence. Never ask for compact or
+single-line output, and never reconstruct a returned object by hand.
 </constraint>
 
-Reserve the phase and read back before dispatch, because a lost output consumes
-the permit either way.
+Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive invocations.
+Completion review has exactly two substantive invocations and an empty `accepted_classes` set.
+A draft repair verdict is accepted at most once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
+A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two.
+`accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
+
+Reserve the phase and read back before dispatch. Capture the child process's
+complete stdout to a private file, re-read that file, validate its schema and
+bindings, hash canonical bytes, and only then settle the matching reservation.
+Session Relay may carry an optional reference later, but no Relay row or receipt
+can become plan authority or review evidence.
+
 
 ### What "a sealed bundle" means on disk
 
@@ -82,30 +92,32 @@ convenience ranking, not a requirement.
 
 ### One conforming implementation
 
-`plan-manager/scripts/lifecycle/dispatch-review.mjs` performs seal, reserve,
-dispatch and settle in a single process, so no window exists where the run sits
-cold-`reserved` with nobody holding it. It is *an* implementation of the
-requirements above, never a required one - the protocol still constrains only
-what a reviewer receives and returns.
+The shipped dispatch controller performs seal, reserve, dispatch, complete
+stdout capture, schema validation, result binding, and settle in one process, so
+no window exists where the run sits cold-`reserved` with nobody holding it. This
+ordering is the Adapter contract, not permission to split authority across
+transport callbacks.
 
-What it adds over an ad-hoc script is crash accounting. Handlers for the three
-catchable signals persist a transport failure and let the reducer choose the
-successor the phase actually permits: a refund from `reserved`, and from
-`transport_retried` either a local-risk degrade or a block, because that state
-has no `retryable` successor. An interrupted dispatch therefore returns the
-permit instead of stranding the run.
+Crash accounting covers catchable signals. The controller persists a
+transport-only failure and lets the reducer choose the closed successor: a
+refund from `reserved`, and from `transport_retried` either local-risk draft
+degradation or a block. A second refund or retry is forbidden.
 
-It settles only what is mechanical - `pass`, a closed `ReviewInvalidInputV1`,
-and transport failures. A `repair` or `blocked` verdict is written to its result
-file with the phase deliberately left `reserved`, because `repairing` is for an
-accepted repair verdict only and reviewer prose never mutates state; main
-context reproduces each finding and settles from the accepted set.
+The controller settles only validated bound bytes: `pass`, a closed
+`ReviewInvalidInputV1`, or a transport-only failure. A `repair` or `blocked`
+verdict is written to its private result file with the phase deliberately left
+`reserved`; main context reproduces each finding and settles the accepted
+verdict. Neither process exit status nor any transport receipt is review
+evidence.
 
 <constraint>
-Run it detached. A caller-side timeout that SIGKILLs the driver cannot be
-handled, so it leaves a bare `reserved` for cold entry to block - the exact
-outcome the driver exists to prevent. Only the three catchable signals refund.
+Run the controller detached. A caller-side timeout that SIGKILLs it cannot be
+handled, so it leaves a bare `reserved` for cold entry to block. Only catchable
+signals enter the refund path.
 </constraint>
+
+After changing a transport adapter, run the project's CI and validators, if
+present.
 
 ## Judge independence: what is measured
 

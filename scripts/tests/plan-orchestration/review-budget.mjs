@@ -132,12 +132,7 @@ export function registerReviewBudget(suite, api, reviewer) {
     apply('reserve', reserve('draft_review'));
     apply('transport_failure', result(state, 'review_transport_failure', 'draft_review', HASHES.failure));
     apply('transport_retry', reserve('draft_review', HASHES.input2));
-    apply(
-      'repair',
-      result(state, 'review_repair', 'draft_review', HASHES.result, {
-        finding_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable],
-      }),
-    );
+    apply('repair', result(state, 'review_repair', 'draft_review', HASHES.result));
     apply('repair_reserve', reserve('draft_review', HASHES.input3));
     apply('pass', result(state, 'review_passed', 'draft_review'));
 
@@ -151,6 +146,42 @@ export function registerReviewBudget(suite, api, reviewer) {
     ]);
   });
 
+  suite.test('review-budget', 'persisted transport failure refunds one invocation', () =>
+    withTempDirectory('plan-run-persisted-refund-', async (root) => {
+      const file = path.join(root, 'plan.md');
+      const reservedState = reduce(api, localDraftState(), reserve('draft_review'));
+      const retryableState = reduce(
+        api,
+        reservedState,
+        result(reservedState, 'review_transport_failure', 'draft_review', HASHES.failure),
+      );
+      const current = bindPlan(api, reservedState);
+      const next = bindPlan(api, retryableState);
+      fs.writeFileSync(file, current.bytes);
+
+      await api.transactPlanRun({
+        file,
+        identity: {
+          goalId: current.run.goal_id,
+          planPath: current.run.plan_path,
+          repositoryId: current.run.repository_id,
+          runId: current.run.run_id,
+        },
+        expectedBytesSha256: api.sha256(current.bytes),
+        nextBytes: next.bytes,
+        lockRoot: path.join(root, 'locks'),
+      });
+
+      const readback = api.validatePlanRun(fs.readFileSync(file), {
+        planPath: current.run.plan_path,
+        repositoryId: current.run.repository_id,
+        runId: current.run.run_id,
+      });
+      assert.equal(readback.run.draft_review.state, 'retryable');
+      assert.equal(readback.run.draft_review.invocations, current.run.draft_review.invocations - 1);
+    }),
+  );
+
   suite.test('review-budget', 'covers every legal ReviewPhaseV1 transition edge', () => {
     const initial = localDraftState();
     const reserved1 = reduce(api, initial, reserve('draft_review'));
@@ -163,9 +194,6 @@ export function registerReviewBudget(suite, api, reviewer) {
     ]) {
       const event = result(reserved1, type, 'draft_review');
       if (type === 'review_blocked') event.blocker = blocker('review_failed');
-      if (type === 'review_repair') {
-        event.finding_classes = [REVIEW_CLASSES.acceptanceCommandNotRunnable];
-      }
       if (type === 'review_cancelled') event.evidence_sha256 = HASHES.blocker;
       const next = reduce(api, reserved1, event);
       assert.equal(next.run.draft_review.state, expectedState);
@@ -194,22 +222,13 @@ export function registerReviewBudget(suite, api, reviewer) {
     ]) {
       const event = result(transportRetried, type, 'draft_review');
       if (type === 'review_blocked') event.blocker = blocker('review_failed');
-      if (type === 'review_repair') {
-        event.finding_classes = [REVIEW_CLASSES.acceptanceCommandNotRunnable];
-      }
       if (type === 'review_cancelled') event.evidence_sha256 = HASHES.blocker;
       const next = reduce(api, transportRetried, event);
       assert.equal(next.run.draft_review.state, expectedState);
       assert.equal(next.run.draft_review.invocations, 1);
     }
 
-    const repairing = reduce(
-      api,
-      reserved1,
-      result(reserved1, 'review_repair', 'draft_review', HASHES.result, {
-        finding_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable],
-      }),
-    );
+    const repairing = reduce(api, reserved1, result(reserved1, 'review_repair', 'draft_review', HASHES.result));
     const repairReserved = reduce(api, repairing, reserve('draft_review', HASHES.input2));
     assert.equal(repairReserved.run.draft_review.invocations, 2);
     for (const terminal of ['review_blocked', 'review_cancelled']) {
@@ -291,14 +310,7 @@ export function registerReviewBudget(suite, api, reviewer) {
           assert.equal(terminal.run.blocker.kind, 'review_failed');
           expectThrow(() => reduce(api, terminal, reserve('draft_review', HASHES.input2)), /blocked|terminal|permit/i);
           expectThrow(
-            () =>
-              reduce(
-                api,
-                terminal,
-                result(terminal, 'review_repair', 'draft_review', HASHES.result, {
-                  finding_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable],
-                }),
-              ),
+            () => reduce(api, terminal, result(terminal, 'review_repair', 'draft_review', HASHES.result)),
             /blocked|terminal|reserved|stale/i,
           );
         }
@@ -361,131 +373,45 @@ export function registerReviewBudget(suite, api, reviewer) {
     },
   );
 
-  suite.test('review-budget', 'unseen draft repair unions explicit classes into a sorted unique set', () => {
-    const reserved = reduce(api, localDraftState(), reserve('draft_review'));
-    const repaired = reduce(
-      api,
-      reserved,
-      result(reserved, 'review_repair', 'draft_review', HASHES.result, {
-        finding_classes: [
-          REVIEW_CLASSES.evidenceMismatch,
-          REVIEW_CLASSES.acceptanceCommandNotRunnable,
-          REVIEW_CLASSES.evidenceMismatch,
-        ],
-      }),
-    );
-    assert.equal(repaired.run.draft_review.state, 'repairing');
-    assert.deepEqual(repaired.run.draft_review.accepted_classes, [
-      REVIEW_CLASSES.acceptanceCommandNotRunnable,
-      REVIEW_CLASSES.evidenceMismatch,
-    ]);
-  });
-
-  suite.test('review-budget', 'draft repair requires explicit closed classes and never infers from prose', () => {
-    const reserved = reduce(api, localDraftState(), reserve('draft_review'));
-    expectThrow(
-      () => reduce(api, reserved, result(reserved, 'review_repair', 'draft_review')),
-      /explicit|finding_classes|class/i,
-    );
-    expectThrow(
-      () =>
-        reduce(
-          api,
-          reserved,
-          result(reserved, 'review_repair', 'draft_review', HASHES.result, {
-            finding_classes: ['v1_unknown'],
-          }),
-        ),
-      /unknown|finding class/i,
-    );
-  });
-
-  suite.test('review-budget', 'repeated accepted draft class immediately enters terminal review_failed', () => {
+  suite.test('review-budget', 'a further repair after mandatory verification terminally records evidence', () => {
     const first = reduce(api, localDraftState(), reserve('draft_review'));
-    const repaired = reduce(
-      api,
-      first,
-      result(first, 'review_repair', 'draft_review', HASHES.result, {
-        finding_classes: [REVIEW_CLASSES.evidenceMismatch],
-      }),
-    );
-    const second = reduce(api, repaired, reserve('draft_review', HASHES.input2));
-    const blocked = reduce(
-      api,
-      second,
-      result(second, 'review_repair', 'draft_review', HASHES.failure, {
-        finding_classes: [REVIEW_CLASSES.evidenceMismatch],
-      }),
-    );
+    const repairing = reduce(api, first, result(first, 'review_repair', 'draft_review', HASHES.result));
+    const verification = reduce(api, repairing, reserve('draft_review', HASHES.input2));
+    const blocked = reduce(api, verification, result(verification, 'review_repair', 'draft_review', HASHES.failure));
     assert.equal(blocked.status, 'blocked');
     assert.equal(blocked.run.draft_review.state, 'blocked');
+    assert.equal(blocked.run.draft_review.invocations, 2);
     assert.equal(blocked.run.blocker.kind, 'review_failed');
-    assert.deepEqual(blocked.run.draft_review.accepted_classes, [REVIEW_CLASSES.evidenceMismatch]);
+    assert.equal(blocked.run.blocker.evidence_sha256, HASHES.failure);
+    assert.equal(Object.hasOwn(blocked.run.draft_review, 'accepted_classes'), false);
   });
 
-  suite.test('review-budget', 'mixed repeated and unseen draft classes block without a partial union', () => {
-    const first = reduce(api, localDraftState(), reserve('draft_review'));
-    const repaired = reduce(
-      api,
-      first,
-      result(first, 'review_repair', 'draft_review', HASHES.result, {
-        finding_classes: [REVIEW_CLASSES.evidenceMismatch],
+  suite.test('review-budget', 'draft review allows exactly one repair verification and no third permit', () => {
+    assert.equal(REVIEW_INPUTS.length, 2);
+    const initial = localDraftState();
+    const first = reduce(api, initial, reserve('draft_review', REVIEW_INPUTS[0]));
+    const repairing = reduce(api, first, result(first, 'review_repair', 'draft_review', HASHES.result));
+    const verification = reduce(api, repairing, reserve('draft_review', REVIEW_INPUTS[1]));
+    assert.equal(verification.run.draft_review.invocations, 2);
+
+    const passed = reduce(api, verification, result(verification, 'review_passed', 'draft_review'));
+    assert.equal(passed.run.draft_review.state, 'passed');
+    assert.equal(passed.run.draft_review.invocations, 2);
+
+    const repairAtCeiling = localDraftState(
+      reviewPhase('repairing', {
+        input_sha256: REVIEW_INPUTS[1],
+        invocations: 2,
       }),
     );
-    const second = reduce(api, repaired, reserve('draft_review', HASHES.input2));
-    const blocked = reduce(
-      api,
-      second,
-      result(second, 'review_repair', 'draft_review', HASHES.failure, {
-        finding_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable, REVIEW_CLASSES.evidenceMismatch],
-      }),
+    expectThrow(
+      () => reduce(api, repairAtCeiling, reserve('draft_review', HASHES.input3)),
+      /repairing|invocation|permit|ceiling|2/i,
     );
-    assert.equal(blocked.status, 'blocked');
+
+    const blocked = reduce(api, verification, result(verification, 'review_repair', 'draft_review', HASHES.failure));
     assert.equal(blocked.run.draft_review.state, 'blocked');
     assert.equal(blocked.run.blocker.kind, 'review_failed');
-    assert.deepEqual(blocked.run.draft_review.accepted_classes, [REVIEW_CLASSES.evidenceMismatch]);
-  });
-
-  suite.test('review-budget', 'finite draft class budget allows twelve invocations and blocks repair overflow', () => {
-    const classes = Object.values(REVIEW_CLASSES);
-    assert.equal(classes.length, 11);
-    assert.equal(REVIEW_INPUTS.length, 12);
-    let state = localDraftState();
-    for (let index = 0; index < classes.length; index += 1) {
-      state = reduce(api, state, reserve('draft_review', REVIEW_INPUTS[index]));
-      state = reduce(
-        api,
-        state,
-        result(state, 'review_repair', 'draft_review', HASHES.result, {
-          finding_classes: [classes[index]],
-        }),
-      );
-      assert.equal(state.run.draft_review.invocations, index + 1);
-    }
-    state = reduce(api, state, reserve('draft_review', REVIEW_INPUTS[11]));
-    assert.equal(state.run.draft_review.invocations, 12);
-    state = reduce(api, state, result(state, 'review_passed', 'draft_review'));
-    assert.equal(state.run.draft_review.state, 'passed');
-    expectThrow(() => reduce(api, state, reserve('draft_review', HASHES.input3)), /terminal|permit|invocation|12/i);
-
-    const atLimit = localDraftState(
-      reviewPhase('reserved', {
-        accepted_classes: [],
-        input_sha256: REVIEW_INPUTS[11],
-        invocations: 12,
-      }),
-    );
-    const overflow = reduce(
-      api,
-      atLimit,
-      result(atLimit, 'review_repair', 'draft_review', HASHES.failure, {
-        finding_classes: [REVIEW_CLASSES.evidenceMismatch],
-      }),
-    );
-    assert.equal(overflow.status, 'blocked');
-    assert.equal(overflow.run.draft_review.state, 'blocked');
-    assert.equal(overflow.run.blocker.kind, 'review_failed');
-    assert.deepEqual(overflow.run.draft_review.accepted_classes, []);
   });
 
   suite.test('review-budget', 'sensitive and external draft review cannot degrade after transport failure', () => {
@@ -517,13 +443,7 @@ export function registerReviewBudget(suite, api, reviewer) {
         initial.run.completion_review = reviewPhase('not_started');
       }
       const first = reduce(api, initial, reserve('draft_review'));
-      const repairing = reduce(
-        api,
-        first,
-        result(first, 'review_repair', 'draft_review', HASHES.result, {
-          finding_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable],
-        }),
-      );
+      const repairing = reduce(api, first, result(first, 'review_repair', 'draft_review', HASHES.result));
       const repairReserved = reduce(api, repairing, reserve('draft_review', HASHES.input2));
       const retryable = reduce(
         api,
@@ -593,7 +513,7 @@ export function registerReviewBudget(suite, api, reviewer) {
     const transportRetried = reduce(api, retryable, reserveCompletion(HASHES.input2));
     assert.equal(transportRetried.run.completion_review.state, 'transport_retried');
     assert.equal(transportRetried.run.completion_review.invocations, 1);
-    assert.deepEqual(transportRetried.run.completion_review.accepted_classes, []);
+    assert.equal(Object.hasOwn(transportRetried.run.completion_review, 'accepted_classes'), false);
     expectThrow(
       () =>
         reduce(
@@ -606,7 +526,7 @@ export function registerReviewBudget(suite, api, reviewer) {
       /unknown|finding_classes|field/i,
     );
     const repairing = reduce(api, transportRetried, result(transportRetried, 'review_repair', 'completion_review'));
-    assert.deepEqual(repairing.run.completion_review.accepted_classes, []);
+    assert.equal(Object.hasOwn(repairing.run.completion_review, 'accepted_classes'), false);
     const replacement = reduce(api, repairing, {
       type: 'replace_implementation',
       implementation_commit: REPLACEMENT_COMMIT,
@@ -616,7 +536,7 @@ export function registerReviewBudget(suite, api, reviewer) {
     assert.equal(second.run.completion_review.invocations, 2);
     assert.equal(second.run.implementation_commit, REPLACEMENT_COMMIT);
     const passed = reduce(api, second, result(second, 'review_passed', 'completion_review'));
-    assert.deepEqual(passed.run.completion_review.accepted_classes, []);
+    assert.equal(Object.hasOwn(passed.run.completion_review, 'accepted_classes'), false);
     assert.equal(passed.run.completion_review.state, 'passed');
     expectThrow(
       () => reduce(api, passed, reserveCompletion(REPLACEMENT_DIFF_SHA256, REPLACEMENT_COMMIT)),
@@ -755,10 +675,9 @@ export function registerReviewBudget(suite, api, reviewer) {
     }
   });
 
-  suite.test('review-budget', 'draft invocation bound is class-derived while completion stays at two', () => {
-    const draftMax = 1 + Object.values(reviewer.PLAN_FINDING_CLASSES).flat().length;
-    assert.equal(draftMax, 12);
-    for (const invocation of [3, draftMax]) {
+  suite.test('review-budget', 'draft and completion reviewer bindings are bounded at two', () => {
+    const draftMax = 2;
+    for (const invocation of [1, draftMax]) {
       const binding = {
         invocation,
         plan_sha256: HASHES.plan,
@@ -1125,50 +1044,41 @@ export function registerReviewBudget(suite, api, reviewer) {
     expectThrow(() => reviewer.validatePlanReview(oversized, binding), /32|size|large|bytes/i);
   });
 
-  // The accepted-class guard must not fire on a phase that did not move. Placed above the
-  // unchanged-phase return it compares `draft_review` against itself, and since the lengths are
-  // then equal the `<=` check holds and EVERY persisted transaction that merely leaves the draft
-  // phase in `repairing` fails with an atomicity error no caller can satisfy. That reaches
-  // completion reserves, records and finishes, so a plan could be stranded mid-lifecycle.
-  suite.test(
-    'review-budget',
-    'a transaction leaving draft_review repairing is not blocked by the class guard',
-    async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-run-repairing-transact-'));
-      try {
-        const file = path.join(root, 'plan.md');
-        const repairingPhase = reviewPhase('repairing', {
-          accepted_classes: [REVIEW_CLASSES.acceptanceCommandNotRunnable],
-        });
-        const current = bindPlan(api, tuple('drafting', { draft_review: repairingPhase }));
-        const next = bindPlan(
-          api,
-          tuple('drafting', { draft_review: repairingPhase, completion_review: reviewPhase('not_required') }),
-        );
-        const currentBytes = current.bytes;
-        const nextBytes = next.bytes;
-        fs.writeFileSync(file, currentBytes);
+  // A persisted transaction may leave a repairing draft phase unchanged while
+  // another lifecycle field moves; the unchanged phase is not a review edge.
+  suite.test('review-budget', 'a transaction may leave draft_review repairing unchanged', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-run-repairing-transact-'));
+    try {
+      const file = path.join(root, 'plan.md');
+      const repairingPhase = reviewPhase('repairing');
+      const current = bindPlan(api, tuple('drafting', { draft_review: repairingPhase }));
+      const next = bindPlan(
+        api,
+        tuple('drafting', { draft_review: repairingPhase, completion_review: reviewPhase('not_required') }),
+      );
+      const currentBytes = current.bytes;
+      const nextBytes = next.bytes;
+      fs.writeFileSync(file, currentBytes);
 
-        await api.transactPlanRun({
-          file,
-          identity: {
-            goalId: current.run.goal_id,
-            planPath: current.run.plan_path,
-            repositoryId: current.run.repository_id,
-            runId: current.run.run_id,
-          },
-          expectedBytesSha256: api.sha256(currentBytes),
-          nextBytes,
-          lockRoot: path.join(root, 'locks'),
-        });
+      await api.transactPlanRun({
+        file,
+        identity: {
+          goalId: current.run.goal_id,
+          planPath: current.run.plan_path,
+          repositoryId: current.run.repository_id,
+          runId: current.run.run_id,
+        },
+        expectedBytesSha256: api.sha256(currentBytes),
+        nextBytes,
+        lockRoot: path.join(root, 'locks'),
+      });
 
-        assert.ok(
-          fs.readFileSync(file).equals(nextBytes),
-          'an unchanged repairing draft phase must not block an otherwise legal transaction',
-        );
-      } finally {
-        fs.rmSync(root, { force: true, recursive: true });
-      }
-    },
-  );
+      assert.ok(
+        fs.readFileSync(file).equals(nextBytes),
+        'an unchanged repairing draft phase must not block an otherwise legal transaction',
+      );
+    } finally {
+      fs.rmSync(root, { force: true, recursive: true });
+    }
+  });
 }

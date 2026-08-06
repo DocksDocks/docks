@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-05"
-  content_hash: "f38ec32ad37a1bbeaa92d912315e8d18f52a027a94ca77703b0648e93fc9f6e7"
+  content_hash: "105135fbdc0fefb9d4a4888a6500b67ef3d670ef532fbb5178d9bc4f14048ff5"
 ---
 
 # Plans Workspace
@@ -30,7 +30,7 @@ workspace maintenance has crossed into plan ownership.
 | Request | Owner |
 |---|---|
 | Bootstrap, migrate, audit, or explicit workspace refresh | `plan-workspace` |
-| Decide direct work versus a canonical plan; draft/review/class-bounded repair; execute, verify, finish, archive, list/show, publish | main-context `plan-manager` |
+| Decide direct work versus a canonical plan; draft/review/one repair; execute, verify, finish, archive, list/show, publish | main-context `plan-manager` |
 | Read one immutable bundle and return `PlanReviewV1` | internal `plan-reviewer` |
 
 These are the three live plan skills. Only `plan-reviewer` has Claude/Codex
@@ -75,10 +75,10 @@ preservation checks. Current markers are:
 - adaptive direct-work threshold and no manual follow-up `start` handoff;
 - a new Steps schema with stable ids, while only the frozen grandfather set may
   retain the legacy schema with an advisory;
-- a draft limit of one initial round plus the closed v1 class vocabulary,
-  repeated or mixed repeated classes terminal-blocked, and completion fixed at
-  two substantive invocations;
-- an exact accepted-class sweep before repair-bundle creation or reservation;
+- one initial draft review plus one mandatory verification only after an accepted
+  repair, a substantive ceiling of two, and post-verification findings blocked;
+- exactly two completion reviews and one transport retry, never two;
+- historical review fields readable only through the historical adapter;
 - release pre-completion guards for available live read-only final-boundary
   checks, closed-shape dispositions, and a release identity matrix;
 - frontmatter `plan_hash_mode: status-excluded-v1` for new and successor plans,
@@ -133,22 +133,21 @@ vocabulary is closed by kind: `missing_decision` permits only
 reviewer emits `class`; the manager validates the kind/class pair and never
 derives a class from plan prose.
 
-For draft review only, `accepted_classes` is sorted and unique; an absent field
-on an existing record reads as empty, and the next legal draft transition writes
-it. An accepted repair atomically unions only unseen validated classes. Any
-draft result containing an already accepted class, including a mixed seen/unseen
-result, terminal-blocks the run; only an unseen-only class set may enter
-`repairing`. The draft limit is one initial round plus the closed v1 vocabulary
-cardinality (12 substantive invocations). Completion review keeps exactly two
-substantive invocations and an empty accepted-class set.
+`accepted_classes` remains valid on read for historical records and is written
+by no current transition. Historical records are read-only inputs to the historical adapter and never current authority. Draft review has one initial review and, only after an
+accepted repair, one mandatory fresh verification, with a ceiling of two
+substantive invocations. Completion review has exactly two substantive
+invocations and an empty `accepted_classes` set.
 
-Before creating a draft repair bundle or reserving its permit, verify the exact
-accepted-class sweep against the candidate plan bytes; an absent, stale,
-incomplete, or non-clear sweep fails before bundle creation and leaves the phase
-unchanged. The sweep is bound to the candidate `plan_sha256`, preceding
-reviewer-result digest, every accepted class, and every enumerated Steps row,
-acceptance row, named mechanism, and level-two document section. Waivers and
-wildcard units never satisfy it.
+A draft repair verdict is accepted at most once. Any further repair or new
+finding after the mandatory verification terminal-blocks the run and requires a
+new user-authorized successor. A transport-only failure refunds its reservation
+and allows one fresh `transport_retried` dispatch without changing substantive
+bindings; a second transport failure degrades only local draft work at local risk
+and otherwise blocks. One retry, never two.
+
+Review transport is a direct reviewer subprocess. Session Relay is never review
+evidence and never a required dependency.
 
 ## Classification report
 Before mutation, show a table such as:
@@ -212,7 +211,7 @@ an obsolete project-owned wrapper automatically; report it for the user.
 ```markdown
 ## Plans
 
-Use direct implementation for one clear reversible low-risk local diff with one bounded acceptance path; it creates no plan, reviewer, or automatic commit. Canonical plans live in `docs/plans/active/`; lifecycle is frontmatter, and `docs/plans/finished/` is terminal. Exactly three skills own the workflow: `plan-workspace` maintains the workspace, main-context `plan-manager` owns classify → draft/class-bounded review and repair → start → implement/delegate → observed acceptance → finish/archive, and internal `plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable bundle. Only the reviewer has wrappers.
+Use direct implementation for one clear reversible low-risk local diff with one bounded acceptance path; it creates no plan, reviewer, or automatic commit. Canonical plans live in `docs/plans/active/`; lifecycle is frontmatter, and `docs/plans/finished/` is terminal. Exactly three skills own the workflow: `plan-workspace` maintains the workspace, main-context `plan-manager` owns classify → draft/bounded review and one repair → start → implement/delegate → observed acceptance → finish/archive, and internal `plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable bundle. Only the reviewer has wrappers.
 
 The current record is one compact-JCS `Plan-run: PlanRunV1` line. Exact current-user authority may preserve a terminal predecessor as append-only `Plan-attempt-history` and install a fresh run at the same stable path; never create `v2`/`vN` plans to reset review. Schemas 1–6 are historical only. Every Steps row has `Effect: local|probe|production_access|publish|push|release|deploy`; persisted intent is never live authority. The complete contract lives in `docs/plans/AGENTS.md`; `docs/plans/CLAUDE.md` contains only `@AGENTS.md`.
 ```

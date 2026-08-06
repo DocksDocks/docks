@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   acceptance,
@@ -16,8 +17,9 @@ import {
   SOURCE_BASE,
   tuple,
   validTupleCatalog,
+  withStamps,
 } from './fixtures/plan-run-v1.mjs';
-import { clone, expectThrow, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
+import { clone, expectReject, expectThrow, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
 
 const PLAN_AFFECTED_PATHS = Object.freeze(['src/tracked.txt', 'src/untracked.txt']);
 
@@ -191,7 +193,6 @@ function phaseTableCases() {
     ['repairing', reviewPhase('repairing')],
     ['passed first', reviewPhase('passed')],
     ['passed second', reviewPhase('passed', { invocations: 2 })],
-    ['passed at finite draft class bound', reviewPhase('passed', { invocations: 12 })],
     ['degraded first', reviewPhase('degraded', { invocations: 1 })],
     ['degraded second', reviewPhase('degraded')],
     ['blocked first', reviewPhase('blocked')],
@@ -212,14 +213,243 @@ function phaseTableCases() {
       reviewPhase('transport_retried', { result_sha256: HASHES.result }),
       /transport_retried|result/i,
     ],
-    ['retryable at finite bound', reviewPhase('retryable', { invocations: 12 }), /retryable|invocation|11/i],
-    ['repairing at finite bound', reviewPhase('repairing', { invocations: 12 }), /repairing|invocation|11/i],
+    ['retryable beyond its refunded range', reviewPhase('retryable', { invocations: 2 }), /retryable|invocation|1/i],
+    [
+      'repairing beyond the single repair verdict',
+      reviewPhase('repairing', { invocations: 2 }),
+      /repairing|invocation|1/i,
+    ],
     ['passed missing result', reviewPhase('passed', { result_sha256: null }), /passed|result/i],
     ['degraded without a permit', reviewPhase('degraded', { invocations: 0 }), /degraded|invocation/i],
     ['terminal missing input', reviewPhase('blocked', { input_sha256: null }), /blocked|input/i],
-    ['beyond finite draft bound', reviewPhase('passed', { invocations: 13 }), /invocation|permit|12/i],
+    ['beyond draft bound', reviewPhase('passed', { invocations: 3 }), /invocation|permit|2/i],
   ];
   return { invalid, valid };
+}
+
+const TRANSITION_IDENTITY = Object.freeze({
+  planPath: PLAN_PATH,
+  repositoryId: REPOSITORY_ID,
+  runId: IDS.run,
+});
+
+function reviewEdgeFixtures(api, from, to, beforeOverrides = {}, afterOverrides = {}) {
+  return {
+    current: bindPlan(
+      api,
+      tuple('drafting', {
+        draft_review: reviewPhase(from, beforeOverrides),
+      }),
+    ),
+    next: bindPlan(
+      api,
+      tuple('drafting', {
+        draft_review: reviewPhase(to, afterOverrides),
+      }),
+    ),
+  };
+}
+
+function persistedEdgeCases() {
+  return [
+    {
+      name: 'review not_started -> reserved',
+      build: (api) => reviewEdgeFixtures(api, 'not_started', 'reserved'),
+    },
+    {
+      name: 'review reserved -> retryable',
+      build: (api) => reviewEdgeFixtures(api, 'reserved', 'retryable'),
+    },
+    {
+      name: 'review transport_retried -> degraded',
+      build: (api) =>
+        reviewEdgeFixtures(api, 'transport_retried', 'degraded', {}, { invocations: 1, input_sha256: HASHES.input2 }),
+    },
+    {
+      name: 'review retryable -> transport_retried',
+      build: (api) => reviewEdgeFixtures(api, 'retryable', 'transport_retried'),
+    },
+    {
+      name: 'review repairing -> reserved',
+      build: (api) =>
+        reviewEdgeFixtures(api, 'repairing', 'reserved', {}, { invocations: 2, input_sha256: HASHES.input2 }),
+    },
+    {
+      name: 'lifecycle drafting -> planned',
+      build: (api) => ({
+        current: bindPlan(api, tuple('drafting', { draft_review: reviewPhase('passed') })),
+        next: bindPlan(api, tuple('planned', { draft_review: reviewPhase('passed') })),
+      }),
+    },
+    {
+      name: 'lifecycle ongoing -> blocked',
+      build: (api) => {
+        const current = bindPlan(
+          api,
+          tuple('ongoing', {
+            draft_review: reviewPhase('passed'),
+            execution_parent: SOURCE_BASE,
+          }),
+        );
+        const next = bindPlan(
+          api,
+          tuple('blocked', {
+            draft_review: reviewPhase('passed'),
+            execution_parent: SOURCE_BASE,
+            blocker: blocker('verification_failed'),
+          }),
+        );
+        return {
+          current,
+          next,
+          currentBytes: withStamps(current.bytes, '"2026-07-24T01:00:00Z"', 'null'),
+          nextBytes: withStamps(next.bytes, '"2026-07-24T01:00:00Z"', 'null'),
+        };
+      },
+    },
+    {
+      name: 'lifecycle blocked -> drafting',
+      build: (api) => ({
+        current: bindPlan(
+          api,
+          tuple('blocked', {
+            draft_review: reviewPhase('passed'),
+            blocker: blocker('user_decision'),
+          }),
+        ),
+        next: bindPlan(
+          api,
+          tuple('drafting', {
+            draft_review: reviewPhase('passed'),
+          }),
+        ),
+      }),
+    },
+    {
+      name: 'lifecycle ongoing -> finished',
+      build: (api, root) => {
+        const repo = path.join(root, 'repo');
+        const sourceBase = initializeRepository(repo);
+        for (const logical of PLAN_AFFECTED_PATHS) {
+          writeFile(repo, logical, `${logical} acceptance bytes\n`);
+        }
+        const acceptanceManifestExpectation = {
+          repo,
+          paths: [...PLAN_AFFECTED_PATHS],
+          sourceBase,
+        };
+        const acceptanceManifest = api.createAffectedPathManifest(acceptanceManifestExpectation);
+        const current = bindPlan(
+          api,
+          tuple('ongoing', {
+            source_base: sourceBase,
+            draft_review: reviewPhase('passed'),
+            execution_parent: sourceBase,
+          }),
+          { acceptanceManifest },
+        );
+        const next = bindPlan(
+          api,
+          tuple('finished', {
+            source_base: sourceBase,
+            draft_review: reviewPhase('passed'),
+            execution_parent: sourceBase,
+            acceptance: acceptance(),
+          }),
+          { acceptanceManifest },
+        );
+        return {
+          acceptanceManifest,
+          acceptanceManifestExpectation,
+          current,
+          next,
+          currentBytes: withStamps(current.bytes, '"2026-07-24T01:00:00Z"', 'null'),
+          nextBytes: withStamps(next.bytes, '"2026-07-24T01:00:00Z"', '"2026-07-24T02:00:00Z"'),
+        };
+      },
+    },
+  ];
+}
+
+function forbiddenReviewEdgeCases() {
+  return [
+    {
+      name: 'review reserved -> transport_retried',
+      build: (api) =>
+        reviewEdgeFixtures(api, 'reserved', 'transport_retried', {}, { invocations: 2, input_sha256: HASHES.input2 }),
+    },
+    {
+      name: 'review transport_retried -> reserved',
+      build: (api) =>
+        reviewEdgeFixtures(api, 'transport_retried', 'reserved', {}, { invocations: 2, input_sha256: HASHES.input3 }),
+    },
+    {
+      name: 'review retryable -> reserved',
+      build: (api) => reviewEdgeFixtures(api, 'retryable', 'reserved', {}, { input_sha256: HASHES.input2 }),
+    },
+    {
+      name: 'review repairing -> transport_retried',
+      build: (api) =>
+        reviewEdgeFixtures(api, 'repairing', 'transport_retried', {}, { invocations: 2, input_sha256: HASHES.input2 }),
+    },
+    {
+      name: 'review passed -> reserved',
+      build: (api) =>
+        reviewEdgeFixtures(api, 'passed', 'reserved', {}, { invocations: 2, input_sha256: HASHES.input2 }),
+    },
+    {
+      name: 'review degraded -> reserved',
+      build: (api) =>
+        reviewEdgeFixtures(
+          api,
+          'degraded',
+          'reserved',
+          { invocations: 1 },
+          { invocations: 2, input_sha256: HASHES.input2 },
+        ),
+    },
+  ];
+}
+
+async function persistEdge(api, root, edge) {
+  const fixture = edge.build(api, root);
+  const currentBytes = fixture.currentBytes ?? fixture.current.bytes;
+  const nextBytes = fixture.nextBytes ?? fixture.next.bytes;
+  const file = path.join(root, 'plan.md');
+  fs.writeFileSync(file, currentBytes);
+  const result = await api.transactPlanRun({
+    file,
+    identity: TRANSITION_IDENTITY,
+    expectedBytesSha256: api.sha256(currentBytes),
+    nextBytes,
+    ...(fixture.acceptanceManifest === undefined ? {} : { acceptanceManifest: fixture.acceptanceManifest }),
+    ...(fixture.acceptanceManifestExpectation === undefined
+      ? {}
+      : { acceptanceManifestExpectation: fixture.acceptanceManifestExpectation }),
+  });
+  assert.equal(result.status, fixture.next.status, `${edge.name} must return its successor status`);
+  assert.equal(result.bytes_sha256, api.sha256(nextBytes), `${edge.name} must return its persisted digest`);
+  assert.ok(fs.readFileSync(file).equals(nextBytes), `${edge.name} must read back exact successor bytes`);
+}
+
+async function rejectEdge(api, root, edge) {
+  const fixture = edge.build(api, root);
+  const currentBytes = fixture.currentBytes ?? fixture.current.bytes;
+  const nextBytes = fixture.nextBytes ?? fixture.next.bytes;
+  const file = path.join(root, 'plan.md');
+  fs.writeFileSync(file, currentBytes);
+  await expectReject(
+    () =>
+      api.transactPlanRun({
+        file,
+        identity: TRANSITION_IDENTITY,
+        expectedBytesSha256: api.sha256(currentBytes),
+        nextBytes,
+      }),
+    /illegal draft_review transition/i,
+    `${edge.name} must remain outside the persisted review edge set`,
+  );
+  assert.ok(fs.readFileSync(file).equals(currentBytes), `${edge.name} rejection must preserve current bytes`);
 }
 
 export function registerStateMatrix(suite, api) {
@@ -227,6 +457,17 @@ export function registerStateMatrix(suite, api) {
     const catalog = validTupleCatalog();
     assert.ok(catalog.length >= 40, 'fixture must cover the full tuple table, not a happy-path subset');
     for (const entry of catalog) validate(api, entry);
+  });
+  for (const edge of persistedEdgeCases()) {
+    suite.test('state-matrix', `persists ${edge.name}`, () =>
+      withTempDirectory('plan-run-state-edge-', (root) => persistEdge(api, root, edge)),
+    );
+  }
+
+  suite.test('state-matrix', 'keeps the persisted review edge set closed', async () => {
+    for (const edge of forbiddenReviewEdgeCases()) {
+      await withTempDirectory('plan-run-state-edge-rejected-', (root) => rejectEdge(api, root, edge));
+    }
   });
 
   suite.test('state-matrix', 'rejects impossible cross-field tuples', () => {
@@ -263,6 +504,14 @@ export function registerStateMatrix(suite, api) {
     delete legacy.run.draft_review.accepted_classes;
     delete legacy.run.completion_review.accepted_classes;
     validate(api, legacy);
+
+    validate(
+      api,
+      tuple('drafting', {
+        draft_review: reviewPhase('not_started', { accepted_classes: [] }),
+        completion_review: reviewPhase('not_required', { accepted_classes: [] }),
+      }),
+    );
 
     validate(
       api,

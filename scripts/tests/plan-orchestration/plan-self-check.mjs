@@ -1,6 +1,74 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { expectThrow } from './harness.mjs';
+import * as planRun from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs';
+import * as reviewer from '../../../plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts/review-policy.mjs';
+import { renderPlan } from './fixtures/plan-run-v1.mjs';
+import { expectThrow, git, initializeRepository, writeFile } from './harness.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const PROPERTIES_PATH = path.join(
+  ROOT,
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/plan-properties.json',
+);
+const SCRATCH_BASE = path.join(os.homedir(), '.local/state/docks/scratch/lifecycle-authority/self-check-tests');
+
+function withScratch(name, operation) {
+  fs.mkdirSync(SCRATCH_BASE, { recursive: true });
+  const root = fs.mkdtempSync(path.join(SCRATCH_BASE, `${name}-`));
+  initializeRepository(root);
+  try {
+    return operation(root);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function commitScratch(repo) {
+  git(repo, ['add', '.']);
+  git(repo, ['commit', '-qm', 'scope fixture']);
+}
+
+function scopePlan(paths) {
+  const files = paths.map((entry) => `\`${entry}\``).join('; ');
+  const body = `# Scope fixture
+
+## Goal
+
+Exercise deterministic scope detection.
+
+## Context & rationale
+
+### Scope scan {mechanism}
+
+Scan one repository.
+
+## Steps
+
+| # | Id | Task | Files | Depends | Done when / failure action |
+|---|---|---|---|---|---|
+| 1 | scan_scope | Scan scope | ${files} | — | P21 returns the expected verdict |
+
+## Acceptance criteria
+
+| ID | Command | Expected |
+|---|---|---|
+| A1 | \`node scope.mjs\` | Expected verdict |
+
+## STOP conditions
+
+Stop on an unexpected verdict.
+`;
+  return renderPlan({ body })
+    .toString()
+    .replace(
+      /affected_paths:\n(?: {2}- .+\n)+/,
+      `affected_paths:\n${paths.map((entry) => `  - ${entry}`).join('\n')}\n`,
+    );
+}
 
 // A minimal plan carrying the structures the unit gate enumerates. Kept small on purpose: every
 // case below edits exactly one thing, so a regression names itself.
@@ -112,6 +180,140 @@ export function registerPlanSelfCheck(suite, mod) {
     const extra = mod.scriptChecks(fixture({ declared: ['src/a.mjs', 'src/never-touched.mjs'] }));
     assert.equal(extra.P13.verdict, 'fail', 'a declared but untouched path is a scope mismatch');
     assert.match(extra.P13.reason, /untouched/);
+  });
+
+  suite.test(G, 'an undeclared string-literal coupling names both repository paths', () =>
+    withScratch('literal-coupling', (repo) => {
+      writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+      writeFile(repo, 'src/mirror.mjs', "export { value } from './lib.mjs';\n");
+      commitScratch(repo);
+      const result = mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21;
+      assert.equal(result.verdict, 'fail');
+      assert.match(result.reason, /src\/mirror\.mjs/);
+      assert.match(result.reason, /src\/lib\.mjs/);
+    }),
+  );
+
+  suite.test(G, 'declaring the coupling file clears the literal scope check', () =>
+    withScratch('declared-coupling', (repo) => {
+      writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+      writeFile(repo, 'src/mirror.mjs', "export { value } from './lib.mjs';\n");
+      commitScratch(repo);
+      const result = mod.scriptChecks(scopePlan(['src/lib.mjs', 'src/mirror.mjs']), { repo }).P21;
+      assert.deepEqual(result, {
+        verdict: 'pass',
+        reason: '2 declared path(s); no undeclared literal couplings found',
+      });
+    }),
+  );
+
+  // A waiver names one exact `(file, declared path)` coupling. The earlier path-keyed shape is
+  // what let a waiver on a widely-referenced module hide a true positive: two second-order hits
+  // were waived and a first-order caller went with them, surfacing later as a red full gate. So
+  // the assertion is deliberately the opposite of the old one \u2014 waiving one pair must leave the
+  // sibling coupling of the SAME declared path reported.
+  suite.test(G, 'a reasoned waiver clears exactly one file/path coupling, not the declared path', () =>
+    withScratch('waived-coupling', (repo) => {
+      writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+      writeFile(repo, 'src/mirror.mjs', 'const coupled = "src/lib.mjs";\n');
+      writeFile(repo, 'src/other.mjs', 'const coupled = `src/lib.mjs`;\n');
+      commitScratch(repo);
+      const waive = (waivers) => mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo, scopeWaivers: waivers }).P21;
+
+      const partial = waive({
+        schema: 1,
+        waivers: [{ file: 'src/mirror.mjs', path: 'src/lib.mjs', reason: 'generated mirror, synchronized externally' }],
+      });
+      assert.equal(partial.verdict, 'fail', 'waiving one pair must not clear the declared path');
+      assert.match(partial.reason, /src\/other\.mjs is an undeclared coupling of src\/lib\.mjs/);
+      assert.doesNotMatch(partial.reason, /src\/mirror\.mjs/);
+
+      const complete = waive({
+        schema: 1,
+        waivers: [
+          { file: 'src/mirror.mjs', path: 'src/lib.mjs', reason: 'generated mirror, synchronized externally' },
+          { file: 'src/other.mjs', path: 'src/lib.mjs', reason: 'generated mirror, synchronized externally' },
+        ],
+      });
+      assert.equal(complete.verdict, 'pass');
+      assert.match(complete.reason, /2 coupling\(s\) waived by exact file\/path pair/);
+      assert.match(complete.reason, /src\/mirror\.mjs -> src\/lib\.mjs/);
+
+      assert.throws(
+        () => waive({ schema: 1, waivers: [{ file: 'src/mirror.mjs', path: 'src/lib.mjs', reason: '' }] }),
+        /non-empty file, path and reason/,
+      );
+      assert.throws(
+        () => waive({ schema: 1, waivers: [{ path: 'src/lib.mjs', reason: 'no file named' }] }),
+        /non-empty file, path and reason/,
+      );
+      assert.throws(
+        () =>
+          waive({
+            schema: 1,
+            waivers: [
+              { file: 'src/mirror.mjs', path: 'src/lib.mjs', reason: 'first' },
+              { file: 'src/mirror.mjs', path: 'src/lib.mjs', reason: 'second' },
+            ],
+          }),
+        /duplicate scope waiver/,
+      );
+    }),
+  );
+
+  suite.test(G, 'scope scanning honours every excluded directory', () => {
+    for (const excluded of [
+      '.git/hooks/coupling.mjs',
+      'node_modules/pkg/coupling.mjs',
+      'build/target/coupling.mjs',
+      'scripts/tests/fixtures/legacy-regression-tree/coupling.mjs',
+    ]) {
+      withScratch(`excluded-${path.basename(path.dirname(excluded))}`, (repo) => {
+        writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+        writeFile(repo, excluded, 'const coupled = "src/lib.mjs";\n');
+        commitScratch(repo);
+        assert.equal(mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21.verdict, 'pass', excluded);
+      });
+    }
+  });
+
+  suite.test(G, 'couplings inside docs plans are ignored', () =>
+    withScratch('excluded-plans', (repo) => {
+      writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+      writeFile(repo, 'docs/plans/active/fixture.mjs', 'const coupled = "src/lib.mjs";\n');
+      commitScratch(repo);
+      assert.equal(mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21.verdict, 'pass');
+    }),
+  );
+
+  suite.test(G, 'only code string literals are scanned and binary-looking files are skipped', () =>
+    withScratch('literal-sites', (repo) => {
+      writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+      const mention = writeFile(repo, 'notes.mjs', '// "src/lib.mjs" is only a comment\n');
+      writeFile(repo, 'notes.md', '`src/lib.mjs` is Markdown\n');
+      commitScratch(repo);
+      assert.equal(mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21.verdict, 'pass');
+      fs.writeFileSync(mention, 'const coupled = "src/lib.mjs";\n');
+      assert.match(mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21.reason, /notes\.mjs/);
+      fs.writeFileSync(mention, Buffer.from('binary\0"src/lib.mjs"'));
+      assert.equal(mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21.verdict, 'pass');
+    }),
+  );
+
+  suite.test(G, 'basename matching requires uniqueness across tracked files', () =>
+    withScratch('basename-uniqueness', (repo) => {
+      writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+      writeFile(repo, 'other/lib.mjs', 'export const other = 2;\n');
+      const consumer = writeFile(repo, 'consumer.mjs', "import './lib.mjs';\n");
+      commitScratch(repo);
+      assert.equal(mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21.verdict, 'pass');
+      fs.writeFileSync(consumer, 'const coupled = "src/lib.mjs";\n');
+      assert.match(mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21.reason, /consumer\.mjs/);
+    }),
+  );
+
+  suite.test(G, 'P21 is omitted when a repository root is not supplied', () => {
+    assert.equal(mod.scriptChecks(scopePlan(['src/lib.mjs'])).P21, undefined);
   });
 
   suite.test(G, 'numeric Depends keeps its earlier-display-number semantics with an Id column', () => {
@@ -452,6 +654,7 @@ Plan-run: ${JSON.stringify({ plan_path: planPath })}
     const prompt = mod.buildPrompt(plan);
     assert.ok(!prompt.includes('P16'), 'the step-ordering property is decided by script and must not be asked');
     assert.ok(!prompt.includes('P19'), 'the vacuity guard is decided by script and must not be asked');
+    assert.ok(!prompt.includes('P21'), 'the literal scope property is decided by script and must not be asked');
     assert.ok(prompt.includes('P9'), 'genuinely judged properties are still asked');
     const problems = mod.validateReturn(
       { verdicts: [{ property: 'P16', unit: '1', verdict: 'fail', reason: 'r' }] },
@@ -462,6 +665,50 @@ Plan-run: ${JSON.stringify({ plan_path: planPath })}
       'a model verdict for a decided property is refused, or it can contradict the script check',
     );
   });
+
+  suite.test(G, 'the sealed reviewer prompt contains judgment work but no deterministic property statements', () =>
+    withScratch('judgment-prompt', (root) => {
+      const repo = path.join(root, 'repo');
+      const sourceBase = initializeRepository(repo);
+      writeFile(repo, 'src/tracked.txt', 'tracked review bytes\n');
+      writeFile(repo, 'src/untracked.txt', 'untracked review bytes\n');
+      const paths = ['src/tracked.txt', 'src/untracked.txt'];
+      const manifest = planRun.createAffectedPathManifest({ repo, paths, sourceBase });
+      const planBytes = renderPlan({ status: 'drafting' });
+      const binding = {
+        invocation: 1,
+        plan_sha256: planRun.sha256(planRun.canonicalPlanView(planBytes)),
+        run_id: '22222222-2222-4222-8222-222222222222',
+        source_sha256: manifest.source_sha256,
+      };
+      const bundle = reviewer.createPlanReviewBundle({
+        binding,
+        manifest,
+        outRoot: root,
+        planBytes,
+        repo,
+        paths,
+        sourceBase,
+      });
+      try {
+        const prompt = reviewer.buildPlanReviewPrompt({
+          binding,
+          bundlePath: bundle.path,
+          expectedSha256: bundle.sha256,
+        });
+        const rubric = JSON.parse(fs.readFileSync(PROPERTIES_PATH, 'utf8'));
+        for (const property of rubric.properties.filter((entry) => entry.checked_by === 'script')) {
+          assert.ok(!prompt.includes(property.statement), `${property.id} deterministic statement must stay out`);
+        }
+        assert.match(prompt, new RegExp(bundle.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+        assert.match(prompt, new RegExp(bundle.sha256));
+        assert.match(prompt, /Return exactly one compact canonical JCS object matching PlanReviewV1/);
+        assert.match(prompt, /repair only for repository-grounded defects/);
+      } finally {
+        reviewer.cleanupPlanReviewBundle({ bundlePath: bundle.path, expectedSha256: bundle.sha256 });
+      }
+    }),
+  );
 
   suite.test(G, 'a hunt entry with an empty note is refused', () => {
     const plan = fixture();

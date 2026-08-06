@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +17,8 @@ import {
   currentRun,
   currentSeries,
   currentWaiver,
+  DRIFTED_SCHEMA6_POLICY,
+  driftedSchema6Receipt,
   H1,
   H2,
   legacyCompletionReceipt,
@@ -30,11 +33,24 @@ import {
   legacyWaiver,
   workflowRecord,
 } from './fixtures/historical-records.mjs';
+import { legacyPlan } from './fixtures/legacy-plans.mjs';
 import { clone, expectThrow } from './harness.mjs';
 import { runHistoricalMalformedCorpus } from './historical-malformed-corpus.mjs';
 
 const RECORD =
   /^(Bootstrap-review-record|Review-receipt|Completion-review-receipt|Review-orchestration-state|Review-orchestration-prepared-request|Review-orchestration-dispatch-commitment|Review-orchestration-controller-abort|Review-orchestration-abandonment): /m;
+
+const DRIFT_EXCEPTION_NAMES = [
+  'complete_drifted_settled',
+  'partial_drift_fallback',
+  'cancelled_drifted_family',
+  'outside_classification_scope',
+  'throwing_scope_restoration',
+];
+
+function sha256Bytes(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
 
 function readInventory(root) {
   return JSON.parse(
@@ -246,12 +262,14 @@ function trackedRecordOutcomes(api, root, inventory) {
       try {
         api.canonicalPlanView(bytes);
         const result = { path: relative, outcome: 'pass' };
+        result.sha256 = sha256Bytes(bytes);
         if (quarantined.has(relative)) {
           result.quarantine = classifyLegacyPlan(bytes).classification;
         }
         outcomes.push(result);
       } catch (error) {
         outcomes.push({
+          sha256: sha256Bytes(bytes),
           path: relative,
           outcome: 'fail',
           reason: error instanceof Error ? error.message : String(error),
@@ -260,6 +278,85 @@ function trackedRecordOutcomes(api, root, inventory) {
     }
   }
   return outcomes;
+}
+
+function driftedPlanBytes(api, options) {
+  const { receipt, orchestration } = driftedSchema6Receipt(api, options);
+  return legacyPlan([`Review-orchestration-state: ${api.jcs(orchestration)}`, `Review-receipt: ${api.jcs(receipt)}`], {
+    status: 'finished',
+  });
+}
+
+function driftInputCodec(api, bytes) {
+  const text = bytes.toString('utf8');
+  if (!Buffer.from(text, 'utf8').equals(bytes)) return 'unknown_bytes';
+  if (RECORD.test(text)) return 'legacy_plan_utf8';
+  try {
+    if (api.jcs(JSON.parse(text)) === text) return 'current_policy_jcs_utf8';
+  } catch {
+    return 'unknown_utf8';
+  }
+  return 'unknown_utf8';
+}
+
+function driftExceptionOutcomes(api) {
+  const complete = driftedPlanBytes(api);
+  const partial = driftedPlanBytes(api, {
+    policy: { ...currentPolicy(6), fallback: 'availability_only' },
+  });
+  const cancelled = driftedPlanBytes(api, {
+    mutateRun: (run) => {
+      run.reviewer.raw.attempts[0].reason = 'user_cancelled';
+    },
+  });
+  const policyBytes = Buffer.from(api.jcs(DRIFTED_SCHEMA6_POLICY), 'utf8');
+  const policyClassification = () =>
+    capturedOutcome(() => api.validateCurrentPolicy(structuredClone(DRIFTED_SCHEMA6_POLICY)));
+
+  const completeResult = classifyLegacyPlan(complete);
+  const partialResult = classifyLegacyPlan(partial);
+  const cancelledResult = classifyLegacyPlan(cancelled);
+  const outsideClassification = policyClassification();
+  try {
+    api.withLegacyClassification(() => {
+      throw new Error('body failed');
+    });
+  } catch (error) {
+    assert.match(error instanceof Error ? error.message : String(error), /body failed/);
+  }
+
+  return [
+    {
+      name: 'complete_drifted_settled',
+      codec: driftInputCodec(api, complete),
+      sha256: sha256Bytes(complete),
+      classification: completeResult.classification,
+    },
+    {
+      name: 'partial_drift_fallback',
+      codec: driftInputCodec(api, partial),
+      sha256: sha256Bytes(partial),
+      classification: partialResult.classification,
+    },
+    {
+      name: 'cancelled_drifted_family',
+      codec: driftInputCodec(api, cancelled),
+      sha256: sha256Bytes(cancelled),
+      classification: cancelledResult.classification,
+    },
+    {
+      name: 'outside_classification_scope',
+      codec: driftInputCodec(api, policyBytes),
+      sha256: sha256Bytes(policyBytes),
+      classification: outsideClassification,
+    },
+    {
+      name: 'throwing_scope_restoration',
+      codec: driftInputCodec(api, policyBytes),
+      sha256: sha256Bytes(policyBytes),
+      classification: policyClassification(),
+    },
+  ];
 }
 
 export function registerHistoricalCharacterization(suite, api, { root }) {
@@ -394,8 +491,25 @@ export function registerHistoricalCharacterization(suite, api, { root }) {
     );
   });
 
+  suite.test('historical', 'the five drift exceptions retain closed golden outcomes', () => {
+    assert.deepEqual(
+      inventory.drift_exceptions.map(({ name }) => name),
+      DRIFT_EXCEPTION_NAMES,
+      'the named drift-exception golden set must remain closed',
+    );
+    assert.deepEqual(driftExceptionOutcomes(api), inventory.drift_exceptions);
+  });
+
   suite.test('historical', 'every tracked machine-record result matches the frozen inventory', () => {
     const outcomes = trackedRecordOutcomes(api, root, inventory);
+    const expectedByPath = new Map(
+      inventory.tracked_corpus.expected_outcomes.map((outcome) => [outcome.path, outcome]),
+    );
+    for (const outcome of outcomes) {
+      const expected = expectedByPath.get(outcome.path);
+      assert.ok(expected, `${outcome.path} must have a tracked historical golden`);
+      assert.equal(outcome.sha256, expected.sha256, `${outcome.path} exact UTF-8 input SHA-256`);
+    }
     assert.deepEqual(outcomes, inventory.tracked_corpus.expected_outcomes);
     assert.deepEqual(
       outcomes.filter((result) => result.quarantine).map((result) => result.path),

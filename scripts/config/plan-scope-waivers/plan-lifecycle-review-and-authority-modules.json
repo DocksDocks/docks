@@ -1,0 +1,330 @@
+{
+  "schema": 1,
+  "waivers": [
+    {
+      "file": ".github/workflows/ci.yml",
+      "path": "scripts/ci.mjs",
+      "reason": "Invokes this path as a tooling entry point; the entry point name and interface are unchanged by this plan."
+    },
+    {
+      "file": "package.json",
+      "path": "scripts/ci.mjs",
+      "reason": "Invokes this path as a tooling entry point; the entry point name and interface are unchanged by this plan."
+    },
+    {
+      "file": "package.json",
+      "path": "scripts/tests/test-contracts.mjs",
+      "reason": "Invokes this path as a tooling entry point; the entry point name and interface are unchanged by this plan."
+    },
+    {
+      "file": "plugins/docks/hooks/context-tree-nudge.mjs",
+      "path": "AGENTS.md",
+      "reason": "Context-tree hook matching the generic AGENTS.md filename, not the repository-root file this plan declares."
+    },
+    {
+      "file": "plugins/session-relay/test/distribution-contract.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/distribution-contract.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/distribution-contract.mjs",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/fixtures/release-identity-inventory.json",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "plugins/session-relay/test/fixtures/release-identity-inventory.json",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "path": "scripts/tests/plan-orchestration.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "plugins/session-relay/test/release-instance-contract.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/release-instance-contract.mjs",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/release-instance-contract.mjs",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/release-publication-contract.mjs",
+      "path": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/release-publication-contract.mjs",
+      "path": "plugins/session-relay/test/release-promotion-contract.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/release-publication-contract.mjs",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "plugins/session-relay/test/rust-test-inventory.mjs",
+      "path": "scripts/tests/plan-orchestration.mjs",
+      "reason": "Session Relay release contract naming this path in its own fixture or inventory; it imports no split runtime module and its suite passes unchanged under the full repository gate."
+    },
+    {
+      "file": "scripts/lib/ci-targeting.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/lib/plugin-release.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-cli.mjs",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-cli.mjs",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-core.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-fixture.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-fixture.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": ".codex/agents/plan-reviewer.toml",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "AGENTS.md",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "docs/plans/AGENTS.md",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "plugins/session-relay/test/release-promotion-contract.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/AGENTS.md",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/ci.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/tests/plan-orchestration.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/tests/plan-orchestration/historical-characterization.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/tests/plan-orchestration/historical-malformed-corpus.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/tests/plan-skill-phases.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "path": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "path": "plugins/session-relay/test/release-promotion-contract.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "path": "plugins/session-relay/test/remediation-contract.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "AGENTS.md",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "plugins/session-relay/test/release-promotion-contract.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "scripts/AGENTS.md",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "scripts/lib/session-relay-release-promotion.mjs",
+      "reason": "Frozen release-evidence record naming this path as recorded provenance of a past release, not as a caller; rewriting it would falsify history."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-publication.mjs",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Release tooling resolving this shared infrastructure path by name; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/release.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/skills/durable-anchors.mjs",
+      "path": "AGENTS.md",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/skills/transform-guard.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/author-tooling.mjs",
+      "path": "AGENTS.md",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "plugins/plan-lifecycle/test/selftest.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "scripts/tests/plan-orchestration.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "scripts/tests/plan-skill-phases.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "scripts/tests/test-contracts.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/unit/cargo-target-dir.test.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tests/unit/cargo-target-dir.test.mjs",
+      "path": "scripts/lib/session-relay-release-preparation.mjs",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    },
+    {
+      "file": "scripts/tree/guard.mjs",
+      "path": "AGENTS.md",
+      "reason": "Second-order reference to shared infrastructure; unchanged by this plan and proven green by the full repository gate."
+    }
+  ]
+}

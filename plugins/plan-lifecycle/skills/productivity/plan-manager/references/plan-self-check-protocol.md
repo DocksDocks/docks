@@ -10,6 +10,7 @@ the failure modes are counter-intuitive: the discarded design was reasonable, po
 - [Units, not documents](#units-not-documents)
 - [The scoping rule](#the-scoping-rule)
 - [What the script decides](#what-the-script-decides)
+- [Literal scope coupling](#literal-scope-coupling)
 - [Declaring mechanisms](#declaring-mechanisms)
 - [Approvals expire on dependency change](#approvals-expire-on-dependency-change)
 - [Fixes arrive as bytes](#fixes-arrive-as-bytes)
@@ -17,6 +18,7 @@ the failure modes are counter-intuitive: the discarded design was reasonable, po
 - [The unscored hunt](#the-unscored-hunt)
 - [Reviewing after implementation](#reviewing-after-implementation)
 - [Evidence summary](#evidence-summary)
+- [The pre-bundle scope boundary](#the-pre-bundle-scope-boundary)
 - [Running it](#running-it)
 - [Transport and egress](#transport-and-egress)
 
@@ -104,8 +106,9 @@ work queue without holding a gate they can never open.
 
 ## What the script decides
 
-Three properties never reach a model: the mechanism-existence check, declared-paths-versus-steps,
-and step-dependency ordering. Each is a comparison, so it costs zero variance by construction.
+Five properties never reach a model: mechanism existence, declared paths versus Steps, step
+dependency ordering, stable step identifiers, and literal scope coupling. Each is mechanically
+decidable, so asking a reviewer to repeat it would add variance rather than evidence.
 
 The step-dependency property earned its way here by measurement: the model reached only 29%
 unit-level consensus on it, the worst of any property, while a topological check is exact.
@@ -115,6 +118,43 @@ When a property is mechanically decidable, the script decides it. Model variance
 only for judgements that genuinely require reading. Moving a decidable property into the model is
 how a gate acquires a coin flip.
 </constraint>
+
+## Literal scope coupling
+
+When supplied a repository root, P21 runs the deterministic scope check:
+for each declared path P, it scans tracked files whose extension is one of `.mjs`, `.js`,
+`.cjs`, `.ts`, `.json`, `.toml`, `.yml`, `.yaml`, `.sh`, `.rs`, excluding `.git/`,
+`node_modules/`, `docs/plans/`, any `target/`, and `fixtures/legacy-regression-tree/`, and
+matches only inside quoted string literals: a literal containing the full declared path, or —
+only when that path's basename is unique across tracked files — a literal equal to the basename
+or ending in `/` plus the basename. Any matching file not itself in `affected_paths` is an
+undeclared coupling.
+
+Markdown is deliberately outside this mechanical check, and binary-looking files (those
+containing a NUL byte) are skipped.
+
+Waivers are a separate closed JSON input: `{ "schema": 1, "waivers": [{ "file": "...", "path":
+"...", "reason": "..." }] }`. A waiver names one exact coupling — the offending file AND the
+declared path it couples to — must be unique, must reference a declared path, and must carry a
+non-empty reason. `--scope-waivers` supplies the file to the self-check and the dispatch driver.
+Malformed, empty-reason, duplicate, or undeclared-path waivers are refused.
+
+Waiving a declared path wholesale is deliberately impossible, and the reason is measured. An
+earlier path-keyed shape let one waiver on a widely-referenced module clear all of its couplings
+at once: two were genuine second-order references, the third was a first-order caller whose
+fixture tree copied a facade without its runtime modules. The check had reported it; the waiver
+hid it, and the defect surfaced only as a failing repository-wide gate. Pair keying makes each
+suppression a specific reviewable claim, and a newly appearing coupling of an
+already-waived path is reported instead of inherited.
+
+This boundary is measured, not complete. Against the predecessor's 26-path declaration it caught
+7 of 11 real omissions. It missed `mutations.mjs` and `fixtures/plan-run-v1.mjs` because they
+couple through the symbol `accepted_classes`, not a path; `sample-review.mjs` because it imports a
+module that was itself undeclared; and `plan-self-check-protocol.md` because it is a Markdown
+contract mirror. Literal-path couplings in code are caught. Symbol-expressed couplings, Markdown
+contract mirrors, and second-order references to shared infrastructure still require judgment or
+a reasoned waiver. A plugin manifest description that enumerates MCP tool names is another
+symbol/tool-name coupling this check cannot discover.
 
 ## Declaring mechanisms
 
@@ -253,31 +293,24 @@ noticed, while the property rubric refused it on the first pass.
 |the property set partly generalises|derived from rounds 1–8; 96% class-level recall on held-out rounds 9–11 — **author-contaminated**, since those rounds had been read before the properties were written, so it is weaker than a clean holdout|
 |it catches what review missed|17 of 17 probe-only corrections map to a property; one property accounts for 6|
 
-## Accepted-class repair sweep
+## The pre-bundle scope boundary
 
-A draft repair may reserve its next review only with an `accepted_class_sweep` in this ledger.
-`ledger` constructs `AcceptedClassSweepV1` from an `accepted_class_sweep` request in the result:
-it binds the candidate `plan_sha256`, the preceding reviewer `result_sha256`, the exact sorted
-`accepted_classes` set, and the digest of every enumerated Steps row, acceptance row, declared
-mechanism, and level-two document section.
-
-For `v1_unstable_step_reference`, the script reruns the closed identifier and guard-citation checks
-against the candidate bytes. Every other accepted class requires an explicit `clear` verdict for
-every enumerated unit. A missing or `fail` verdict blocks; duplicate, unknown, stale, extra, or
-wildcard units are refused. Ordinary waivers never clear this sweep.
-
-`dispatch-review.mjs --class-sweep-ledger=<ledger.json> --body=<candidate.md> --commit` verifies the
-sweep against the exact candidate body and the persisted repairing phase before it creates the
-bundle directory, seals a bundle, or calls `reserve_review`. An absent, stale, incomplete, or
-non-clear sweep exits nonzero with the phase and plan bytes unchanged.
+`dispatch-review.mjs` runs P21 against the exact candidate `--body` bytes and repository root
+before it creates the bundle directory, seals a bundle, or calls `reserve_review`.
+`--scope-waivers=<file>` supplies reasoned exact file/path waivers. Scope failure exits before
+bundle creation, permit reservation, or reviewer dispatch. The sealed reviewer prompt then
+carries bundle identity and the judgment contract only; it does not restate deterministic
+property statements.
 
 ## Running it
 
-`plan-review.mjs` — `units` · `check` · `sections` · `prompt` (`--hunt`) · `validate` · `ledger` ·
-`waive` · `gate` · `apply` (`--commit`). No subcommand computes, prints, or accepts a score, and a
-return carrying one is refused.
+`plan-self-check.mjs` — `units` · `check` · `sections` · `prompt` (`--hunt`) · `validate` ·
+`ledger` · `waive` · `gate` · `apply` (`--commit`). No subcommand computes, prints, or accepts a
+score, and a return carrying one is refused. `check` accepts `--repo <root>` and
+`--scope-waivers <file>`; `gate` takes the review ledger positionally and accepts both flags.
+Without `--repo`, either command uses its current working directory.
 
-Verify with `node <plan-manager-dir>/scripts/lifecycle/plan-review.mjs check <plan.md>`.
+Verify with `node <plan-manager-dir>/scripts/lifecycle/plan-self-check.mjs check <plan.md>`.
 
 Per round: `prompt` the plan, dispatch it, `validate` the return, `apply` the fixes in order,
 `ledger` the result, then `gate`. Run `prompt --hunt` in parallel as the unscored pass.

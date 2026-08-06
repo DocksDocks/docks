@@ -55,7 +55,7 @@ const DISPATCH_PROBES = [
   ['invalid-input-verbatim', 'a malformed invalid-input reply refunds instead of settling terminally'],
   ['dirty-drift', 'uncommitted affected-path drift refunds with HEAD unmoved'],
   ['stdout-persistence', 'the complete reviewer stdout is persisted byte-for-byte before interpretation'],
-  ['class-sweep-before-reserve', 'only an exact complete clear accepted-class sweep reaches reservation'],
+  ['repair-reserve', 'a repair reservation needs only changed input bytes, which the reducer refuses to replay'],
 ];
 
 const EVIDENCE_PROBES = [
@@ -720,6 +720,39 @@ function registerDispatchDriver(target) {
       assert.equal(result.status, 0, `${probe} failed:\n${result.stdout ?? ''}${result.stderr ?? ''}`);
     });
   }
+
+  // A3 promises "no Relay dependency exists", and nothing observed it: Session Relay ships in
+  // this same repository, so a `session-relay` import added to the dispatch path would resolve
+  // and leave every dispatch-driver and plan-self-check case green. The clause was an
+  // unfalsifiable promise, which is the defect class this plan family exists to remove.
+  //
+  // It asserts a DEPENDENCY, not a mention, and the distinction is load-bearing: steps 7 and 8
+  // require every normative copy to state "Session Relay is never review evidence and never a
+  // required dependency", so a prose scan would make the independence clause its own violation.
+  // Markdown is therefore out of scope and only a resolvable specifier or a manifest entry
+  // counts. Read as bytes rather than by attempting an import, because the absence of a
+  // dependency is what must be detected and an import would simply succeed.
+  target.test('dispatch-driver', 'the plan-lifecycle payload names no Session Relay dependency', () => {
+    const payload = path.join(ROOT, 'plugins/plan-lifecycle');
+    const specifier = /(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*)['"`]([^'"`]*session[-_]relay[^'"`]*)['"`]/gi;
+    const manifestEntry = /"[^"]*session[-_]relay[^"]*"\s*:/gi;
+    const offenders = [];
+    const walk = (directory) => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const absolute = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          walk(absolute);
+          continue;
+        }
+        if (!/\.(?:mjs|js|cjs|ts|json|toml)$/.test(entry.name)) continue;
+        const text = fs.readFileSync(absolute, 'utf8');
+        const hits = [...text.matchAll(specifier), ...text.matchAll(manifestEntry)].map((match) => match[0].trim());
+        if (hits.length > 0) offenders.push(`${path.relative(ROOT, absolute)}: ${hits.join(', ')}`);
+      }
+    };
+    walk(payload);
+    assert.deepEqual(offenders, [], `plan-lifecycle must declare no Session Relay dependency: ${offenders.join('; ')}`);
+  });
 }
 
 function parseGroups(argv) {

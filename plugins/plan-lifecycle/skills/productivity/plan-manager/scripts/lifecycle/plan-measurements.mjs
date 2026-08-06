@@ -19,7 +19,7 @@ const COMMITTED_PRODUCERS = Object.freeze([
     claim: 'lines declaring `EXCLUDED_SECTIONS`',
     producer: Object.freeze({
       op: 'show-count',
-      path: 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs',
+      path: 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/runtime/plan-state.mjs',
       matcher: 'EXCLUDED_SECTIONS = new Set',
       timeout_ms: 1_000,
       max_bytes: 1_048_576,
