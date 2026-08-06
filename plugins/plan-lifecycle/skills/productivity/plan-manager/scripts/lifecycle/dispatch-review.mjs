@@ -39,12 +39,20 @@ import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// A sibling of this driver, NOT `scripts/lib/`: a static relative specifier resolves
+// against this module's URL, so the probe travels with the plugin wherever it is
+// installed. Author-side `scripts/*` is absent from a consumer's checkout.
+import { PLACEHOLDER, probeReviewerRoute } from './reviewer-route-preflight.mjs';
 
 const SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 const PHASE = 'draft_review';
 const LIVE_STATES = new Set(['reserved', 'transport_retried']);
-const DEFAULT_REVIEWER = ['omp', '--model', 'openai-codex/gpt-5.6-sol', '-p', '--mode', 'json', '{{PROMPT}}'];
+const DEFAULT_REVIEWER = ['omp', '--model', 'openai-codex/gpt-5.6-sol', '-p', '--mode', 'json', PLACEHOLDER];
 const DISPATCH_TIMEOUT_MS = Number(process.env.DOCKS_REVIEW_TIMEOUT_MS ?? 1_800_000);
+// Bounded far below the dispatch budget on purpose: the probe asks for one trivial
+// JSON object, so a route still silent after two minutes is not a route worth
+// reserving a permit against.
+const ROUTE_PROBE_TIMEOUT_MS = 120_000;
 // `transactPlanRun` defaults its per-plan lock to 1 s. A contended repository -
 // or a probe that deliberately holds the lock to order a preimage race - needs a
 // longer budget, so the existing parameter is threaded rather than raced.
@@ -69,6 +77,10 @@ Options:
   --scope-waivers=<file>
                    explicit exact file/path P21 waivers with mandatory reasons
   --commit         actually reserve and dispatch (default: dry run)
+  --skip-route-probe
+                   skip the pre-reserve reviewer-route probe. Only for an
+                   operator who has already proven this exact route; a dry run
+                   skips it anyway, because a dry run reserves nothing
   --help           print this text
 
 Environment:
@@ -114,6 +126,7 @@ const OUT_DIR = flag('out-dir') ?? path.join(REPO, '.git', 'docks-review');
 const BODY = flag('body');
 const SCOPE_WAIVERS = flag('scope-waivers');
 const COMMIT = args.includes('--commit');
+const SKIP_ROUTE_PROBE = args.includes('--skip-route-probe');
 
 // Resolved from this file, never from the plan's repository: when the plugin is
 // installed outside the repository under review, the library is not reachable
@@ -317,7 +330,7 @@ if (!COMMIT) {
 // PATH - narrowing the one path whose contract is "nothing reserved, nothing
 // dispatched, plan untouched". Every probe case still exercises this, because
 // `startDriver` (scripts/tests/plan-dispatch-probes.mjs) always appends `--commit`.
-const reviewerArgv = preflight('reviewer route is unusable', () => {
+const reviewerRoute = preflight('reviewer route is unusable', () => {
   let parsedArgv;
   try {
     parsedArgv = JSON.parse(process.env.DOCKS_REVIEWER_ARGV ?? JSON.stringify(DEFAULT_REVIEWER));
@@ -333,8 +346,12 @@ const reviewerArgv = preflight('reviewer route is unusable', () => {
   // Executability is part of the route being "exact": a binary that does not exist
   // fails at `spawn` after the reservation, which is the same hazard reached later.
   resolveExecutable(parsedArgv[0]);
-  return parsedArgv.map((a) => (a === '{{PROMPT}}' ? prompt : a));
+  return parsedArgv;
 });
+// The template keeps its placeholder so the probe below can substitute a trivial
+// prompt into the SAME argv the dispatch will use. Two argv shapes would prove a
+// route nobody is about to trust.
+const reviewerArgv = reviewerRoute.map((a) => (a === PLACEHOLDER ? prompt : a));
 
 preflight('raw-stdout target is not writable', () => {
   // Append mode, NOT 'w'. A transport failure refunds the permit, so the retry
@@ -368,6 +385,40 @@ preflight('sealed review bundle is inconsistent', () => {
     throw new Error('sealed plan record source_base must equal manifest source_base');
   }
 });
+
+// The last fallible preflight, and the only one that costs anything: it RUNS the
+// route once against a fixed trivial prompt, after every free check has passed.
+//
+// Executability is not usability. The shipped default route answered
+// `usage_limit_reached` and its hurried replacement answered off-contract; both
+// spawned perfectly, both were discovered only after the reservation, and both
+// burned a permit. This probe observes exit status and whether any JSON object came
+// back, which is exactly the pair those two failures separate on.
+//
+// Safe against the crash-safety design in the header rather than an exception to it:
+// no reservation exists yet, so the probe consumes no permit, mutates no plan bytes,
+// and a refusal here leaves nothing to refund and no cold `reserved` to reconcile.
+// The probe is a child process that writes nowhere - not even to RAW_STDOUT, whose
+// only writer stays the dispatch itself.
+if (!SKIP_ROUTE_PROBE) {
+  preflight('reviewer route probe failed', () => {
+    const probed = probeReviewerRoute({
+      argv: reviewerRoute,
+      cwd: REPO,
+      env: process.env,
+      timeoutMs: ROUTE_PROBE_TIMEOUT_MS,
+    });
+    if (!probed.usable) {
+      // The route is printed separately, not folded into the thrown message:
+      // `preflight` truncates at 200 characters, and an operator reading a refusal
+      // needs BOTH the full argv that was tried and the reason it came back.
+      console.error('\nroute probe   : refused');
+      console.error('route         :', reviewerRoute.join(' '));
+      throw new Error(probed.reason);
+    }
+    console.log('route probe   :', `${probed.reason} (${probed.durationMs} ms)`);
+  });
+}
 
 console.log('route         :', reviewerArgv[0], `(${reviewerArgv.length} argv)`);
 console.log('raw stdout    :', RAW_STDOUT);

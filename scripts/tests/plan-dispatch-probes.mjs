@@ -35,6 +35,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PROBE_PROMPT } from '../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/lifecycle/reviewer-route-preflight.mjs';
 import { reviewPhase } from './plan-orchestration/fixtures/plan-run-v1.mjs';
 import { git, initializeRepository, withTempDirectory } from './plan-orchestration/harness.mjs';
 
@@ -185,12 +187,21 @@ function recordOf(world) {
   return JSON.parse(line.slice('Plan-run:'.length));
 }
 
+// Every stub answers TWO invocations: the driver's pre-reserve route probe, which
+// passes the fixed probe prompt and must be answered immediately with any JSON
+// object, and the real dispatch, which gets the sealed prompt and the reply this
+// probe is actually about. Blocking the route probe on `goFile` would hang it until
+// its timeout and refuse the dispatch before it started.
 function writeStub(world, { reply, goFile, name = 'stub' }) {
   const stub = path.join(world.root, `${name}.mjs`);
   fs.writeFileSync(
     stub,
     [
       "import fs from 'node:fs';",
+      `if (process.argv.includes(${JSON.stringify(PROBE_PROMPT)})) {`,
+      '  process.stdout.write(\'{"probe":"ok"}\\n\');',
+      '  process.exit(0);',
+      '}',
       `const go = ${JSON.stringify(goFile)};`,
       'if (go !== null) {',
       '  while (!fs.existsSync(go)) await new Promise((r) => setTimeout(r, 10));',
@@ -216,16 +227,23 @@ function rebindStub(stub, previous, next) {
 // probe can tell the two apart: the driver must resolve a relative reviewer route against
 // `--repo`, because `spawn` chdirs there before the OS resolves the command. With the
 // default they coincide and that confusion is invisible.
-function startDriver(world, { body = null, cwd = null, driver = DRIVER, stub, env = {} }) {
-  const argv = [driver, world.planFile, `--out-dir=${world.outDir}`, `--repo=${world.repo}`, '--commit'];
+function startDriver(
+  world,
+  { body = null, commit = true, cwd = null, driver = DRIVER, extraArgs = [], stub, env = {} },
+) {
+  const argv = [driver, world.planFile, `--out-dir=${world.outDir}`, `--repo=${world.repo}`];
+  if (commit) argv.push('--commit');
   if (body !== null) argv.push(`--body=${body}`);
+  argv.push(...extraArgs);
   const child = spawn(process.execPath, argv, {
     cwd: cwd ?? world.repo,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       DOCKS_PLAN_LOCK_TIMEOUT_MS: LOCK_BUDGET_MS,
-      DOCKS_REVIEWER_ARGV: JSON.stringify([process.execPath, stub]),
+      // Carries the placeholder because the driver probes the route TEMPLATE before
+      // reserving: a placeholder-less argv proves nothing about the prompt path.
+      DOCKS_REVIEWER_ARGV: JSON.stringify([process.execPath, stub, '{{PROMPT}}']),
       ...env,
     },
   });
@@ -1205,12 +1223,19 @@ probes['preflight-before-reserve'] = () =>
       // was first written.
       const inRepo = buildWorld(path.join(root, 'relative-ok'));
       const real = path.join(inRepo.repo, 'real-reviewer.sh');
-      fs.writeFileSync(real, "#!/bin/sh\nprintf 'no json here'\n", { mode: 0o755 });
+      // Answers the pre-reserve route probe with a JSON object and the dispatch with
+      // prose: the row is about resolving a relative argv[0], and the malformed reply
+      // after RESERVED is what keeps it from settling a verdict it never earned.
+      fs.writeFileSync(
+        real,
+        `#!/bin/sh\nPROBE='${PROBE_PROMPT}'\nif [ "$1" = "$PROBE" ]; then printf '{"probe":"ok"}\\n'; exit 0; fi\nprintf 'no json here'\n`,
+        { mode: 0o755 },
+      );
       fs.chmodSync(real, 0o755);
       const accepted = await startDriver(inRepo, {
         cwd: elsewhere,
         stub: real,
-        env: { DOCKS_REVIEWER_ARGV: JSON.stringify(['./real-reviewer.sh']) },
+        env: { DOCKS_REVIEWER_ARGV: JSON.stringify(['./real-reviewer.sh', '{{PROMPT}}']) },
       }).done;
       assert.match(
         accepted.output,
@@ -1257,21 +1282,32 @@ probes['preflight-before-reserve'] = () =>
   });
 
 export const PROBE_NAMES = Object.keys(probes);
+// The scratch world is reusable evidence: `scripts/tests/unit/reviewer-route-preflight.test.mjs`
+// drives the same driver against the same disposable plan. Exporting it costs nothing;
+// duplicating a hundred lines of fixture would cost a divergence.
+export { buildWorld, phaseOf, startDriver, withScratchRoot };
 
-const name = args.find((a) => !a.startsWith('-'));
-if (name !== undefined && !Object.hasOwn(probes, name)) {
-  console.error(`usage: node scripts/tests/plan-dispatch-probes.mjs [${PROBE_NAMES.join('|')}] [--driver=<path>]`);
-  process.exit(2);
-}
+// Only the direct invocation runs probes. An importer that also ran them would run
+// ALL of them - including `withStaleBundleDriver`, which writes a mutant beside the
+// shipped driver.
+const invokedDirectly = process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url;
 
-for (const probeName of name === undefined ? PROBE_NAMES : [name]) {
-  try {
-    await probes[probeName]();
-    process.stdout.write(`ok - plan-dispatch-probes: ${probeName}\n`);
-  } catch (error) {
-    process.stderr.write(`not ok - plan-dispatch-probes: ${probeName}\n`);
-    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-    process.exitCode = 1;
-    break;
+if (invokedDirectly) {
+  const name = args.find((a) => !a.startsWith('-'));
+  if (name !== undefined && !Object.hasOwn(probes, name)) {
+    console.error(`usage: node scripts/tests/plan-dispatch-probes.mjs [${PROBE_NAMES.join('|')}] [--driver=<path>]`);
+    process.exit(2);
+  }
+
+  for (const probeName of name === undefined ? PROBE_NAMES : [name]) {
+    try {
+      await probes[probeName]();
+      process.stdout.write(`ok - plan-dispatch-probes: ${probeName}\n`);
+    } catch (error) {
+      process.stderr.write(`not ok - plan-dispatch-probes: ${probeName}\n`);
+      process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+      process.exitCode = 1;
+      break;
+    }
   }
 }
