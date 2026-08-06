@@ -20,7 +20,14 @@ import {
   validateCompletionReview as validateCurrentCompletionReview,
   validatePlanRunRecord,
 } from '../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-run.mjs';
-import { assertShardTopologyCoversRegistry, REPO_WIDE_LANE } from './ci-targeting.mjs';
+import {
+  AUTHORITATIVE_GATE_STEP_NAME,
+  assertAuthoritativeGateCoversReleasedBytes,
+  assertPrerequisiteJoinGatesItsEvent,
+  assertShardTopologyCoversRegistry,
+  PREREQUISITE_ASSERTION_STEP_NAME,
+  REPO_WIDE_LANE,
+} from './ci-targeting.mjs';
 import { CURRENT_RELEASE_TARGETS } from './rust-bin.mjs';
 import {
   COMMIT,
@@ -148,110 +155,6 @@ else
 fi
 printf '{"step":"resolve validation shards from the pull request diff","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
 `;
-const SHARD_GATE_RUN = `if [ "\${{ matrix.lane }}" != "relay" ]; then
-  node scripts/ci.mjs --lane "\${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-  printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-  exit
-fi
-CURRENT_CGROUP=
-while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
-  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
-    CURRENT_CGROUP="$CGROUP_PATH"
-    break
-  fi
-done < /proc/self/cgroup
-test -n "$CURRENT_CGROUP"
-CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-\${{ matrix.lane }}"
-sudo -n mkdir "$CGROUP"
-cleanup() {
-  status=$?
-  trap - EXIT
-  for _ in {1..100}; do
-    grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-    sleep 0.05
-  done
-  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
-    echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
-    status=1
-    if [ -f "$CGROUP/cgroup.kill" ]; then
-      printf '1\\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
-      for _ in {1..100}; do
-        grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-        sleep 0.05
-      done
-    fi
-  fi
-  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
-    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
-    status=1
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
-sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
-sudo -n chown "$(id -u):$(id -g)" \\
-  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
-(
-  test_pid=$BASHPID
-  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
-  SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "\${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-)
-printf '{"step":"run validation lane","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-`;
-const AUTHORITATIVE_GATE_RUN = `if [ "\${{ github.event_name }}" = "push" ] && [ "\${{ steps.target.outputs.needs_rust }}" != "true" ]; then
-  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-  printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-  exit
-fi
-CURRENT_CGROUP=
-while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
-  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
-    CURRENT_CGROUP="$CGROUP_PATH"
-    break
-  fi
-done < /proc/self/cgroup
-test -n "$CURRENT_CGROUP"
-CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-validate"
-sudo -n mkdir "$CGROUP"
-cleanup() {
-  status=$?
-  trap - EXIT
-  for _ in {1..100}; do
-    grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-    sleep 0.05
-  done
-  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
-    echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
-    status=1
-    if [ -f "$CGROUP/cgroup.kill" ]; then
-      printf '1\\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
-      for _ in {1..100}; do
-        grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-        sleep 0.05
-      done
-    fi
-  fi
-  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
-    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
-    status=1
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
-sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
-sudo -n chown "$(id -u):$(id -g)" \\
-  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
-(
-  test_pid=$BASHPID
-  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
-  if [ "\${{ github.event_name }}" = "push" ]; then
-    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-  else
-    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-  fi
-)
-printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-`;
 
 const REQUIRED_CI_STEPS = [
   'setup Node 24',
@@ -262,6 +165,11 @@ const REQUIRED_CI_STEPS = [
   'provision Rust 1.85.0 with musl for the session-relay host leg',
   'run the authoritative gate (scripts/ci.mjs)',
 ];
+// Positional: `REQUIRED_CI_STEP_NUMBERS[i]` is where `REQUIRED_CI_STEPS[i]` sits in the
+// closed job, and the numbers are re-derived below from the step's own index. Editing a
+// step BODY is safe; inserting or removing a step in the validate job shifts every
+// number at or after it and must be updated here in the same change, or release
+// preparation fails at release time rather than in the pull request that caused it.
 const REQUIRED_CI_STEP_NUMBERS = [3, 6, 11, 13, 14, 15, 16];
 const EXPECTED_CI_STEP_DEFINITIONS = [
   {
@@ -308,63 +216,17 @@ fi
 printf '{"step":"provision Rust 1.85.0 with musl for the session-relay host leg","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
 `,
   },
+  // The authoritative gate is NOT byte-pinned. Its body is shell, and a byte pin on
+  // shell asserts only "whatever the author last pasted": it would accept a future edit
+  // that keeps the spelling and drops the coverage. What must hold is a property, so it
+  // is asserted from `ci-targeting.mjs` (shared with the workflow contract test so the
+  // two cannot drift): the push leg a release tag takes runs the repo-wide shard exactly
+  // once over the released bytes - the version-bump commit reaches CI through no other
+  // run - the targeted plugin gate keeps the last word, and the non-push leg stays
+  // untargeted.
   {
-    name: 'run the authoritative gate (scripts/ci.mjs)',
+    name: AUTHORITATIVE_GATE_STEP_NAME,
     if: NON_PULL_REQUEST_CONDITION,
-    run: `if [ "\${{ github.event_name }}" = "push" ] && [ "\${{ steps.target.outputs.needs_rust }}" != "true" ]; then
-  node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-  printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-  exit
-fi
-CURRENT_CGROUP=
-while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
-  if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
-    CURRENT_CGROUP="$CGROUP_PATH"
-    break
-  fi
-done < /proc/self/cgroup
-test -n "$CURRENT_CGROUP"
-CGROUP="/sys/fs/cgroup\${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}-validate"
-sudo -n mkdir "$CGROUP"
-cleanup() {
-  status=$?
-  trap - EXIT
-  for _ in {1..100}; do
-    grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-    sleep 0.05
-  done
-  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
-    echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
-    status=1
-    if [ -f "$CGROUP/cgroup.kill" ]; then
-      printf '1\\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
-      for _ in {1..100}; do
-        grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-        sleep 0.05
-      done
-    fi
-  fi
-  if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
-    echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
-    status=1
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
-sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
-sudo -n chown "$(id -u):$(id -g)" \\
-  "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
-(
-  test_pid=$BASHPID
-  sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
-  if [ "\${{ github.event_name }}" = "push" ]; then
-    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --plugin "\${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-  else
-    SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-  fi
-)
-printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-`,
   },
 ];
 function expectedCiJobSteps() {
@@ -680,16 +542,41 @@ function expectedResolveShardsJob() {
   };
 }
 
-function expectedPrerequisiteAssertionStep() {
-  return {
-    name: 'assert successful prerequisite jobs',
-    env: {
-      VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}`,
-      TARGETING_CONTRACTS_RESULT: `\${{ needs.targeting-contracts.result }}`,
-      RESOLVE_SHARDS_RESULT: `\${{ needs.resolve-shards.result }}`,
-    },
-    run: 'status=0\nif [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then\n  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n  status=1\nfi\nif [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then\n  echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2\n  status=1\nfi\nif [ "$RESOLVE_SHARDS_RESULT" = "failure" ] || [ "$RESOLVE_SHARDS_RESULT" = "cancelled" ]; then\n  echo "shard resolution result: $RESOLVE_SHARDS_RESULT" >&2\n  status=1\nfi\nexit "$status"\n',
-  };
+// The prerequisite join is NOT byte-pinned. A byte pin on a shell body asserts only
+// "the step is whatever the author last pasted here": weaken the assertion, re-paste,
+// green run. It would have accepted the fail-open hole it was supposed to catch. So
+// pin the PROPERTY instead, from `ci-targeting.mjs` so this and the workflow contract
+// test cannot drift: the step keeps the name release tooling depends on, it reads the
+// event plus one `needs.<job>.result` for EVERY job in the graph, every required-result
+// row is accepted, and a pull request whose shard job was skipped is rejected. That is
+// asserted by EXECUTING the extracted shell, so no reformatting can satisfy it cheaply.
+function assertPrerequisiteAssertionStep(workflow, step) {
+  if (!record(step) || step.name !== PREREQUISITE_ASSERTION_STEP_NAME)
+    fail(`source CI validate job must end with the step: ${PREREQUISITE_ASSERTION_STEP_NAME}`);
+  exactKeys(step, ['name', 'env', 'run'], 'source CI prerequisite assertion step');
+  try {
+    assertPrerequisiteJoinGatesItsEvent(workflow);
+  } catch (error) {
+    fail(`source CI prerequisite join does not gate its own event: ${error.message}`);
+  }
+}
+
+// The gate step's byte pin was replaced by this for the reason recorded on the step
+// definition above. Returns the step with its shell removed, so the surrounding
+// byte comparison still pins everything about the step EXCEPT the body asserted here -
+// its name, its condition, and the absence of any other key.
+function assertAuthoritativeGateStep(steps) {
+  const matching = steps.filter((step) => record(step) && step.name === AUTHORITATIVE_GATE_STEP_NAME);
+  if (matching.length !== 1)
+    fail(`source CI validate job must declare exactly one step named ${AUTHORITATIVE_GATE_STEP_NAME}`);
+  const step = matching[0];
+  exactKeys(step, ['name', 'if', 'run'], 'source CI authoritative gate step');
+  try {
+    assertAuthoritativeGateCoversReleasedBytes(step.run);
+  } catch (error) {
+    fail(`source CI authoritative gate does not cover the released bytes: ${error.message}`);
+  }
+  return steps.map((candidate) => (candidate === step ? { name: step.name, if: step.if } : candidate));
 }
 
 function record(value) {
@@ -1891,13 +1778,14 @@ function decodeWorkflowFile(file, expectedPath) {
   const job = workflow.jobs.validate;
   exactKeys(job, ['name', 'runs-on', 'needs', 'if', 'steps'], 'source CI validate job');
   const expectedSteps = expectedCiJobSteps();
-  const authoritativeSteps = [...expectedSteps, expectedPrerequisiteAssertionStep()];
+  assertPrerequisiteAssertionStep(workflow, Array.isArray(job.steps) ? job.steps.at(-1) : undefined);
+  const comparableSteps = assertAuthoritativeGateStep(Array.isArray(job.steps) ? job.steps.slice(0, -1) : []);
   if (
     job.name !== 'validate (scripts/ci.mjs)' ||
     job['runs-on'] !== 'ubuntu-latest' ||
     canonicalize(job.needs) !== canonicalize(['validation-shards', 'targeting-contracts', 'resolve-shards']) ||
     job.if !== 'always()' ||
-    canonicalize(job.steps) !== canonicalize(authoritativeSteps)
+    canonicalize(comparableSteps) !== canonicalize(expectedSteps)
   )
     fail('source CI validate job definition mismatch');
   const requiredDefinitions = EXPECTED_CI_STEP_DEFINITIONS.map((expected) => {

@@ -9,7 +9,7 @@ Docks/Effect Kit trigger-collision audit, both plugin gates, and JavaScript
 quality. Relay owns the Session Relay shell, trigger, plugin, release-contract,
 and native Rust gates. Manual dispatches run one full gate alongside the
 targeting contract before the same join. Tag pushes run one registry-resolved
-plugin gate; the skipped targeting contract is accepted by the join.
+plugin gate; the join requires the targeting contract to be skipped there.
 
 ## build-binaries.yml — the session-relay binary producer
 
@@ -19,11 +19,11 @@ plugin gate; the skipped targeting contract is accepted by the join.
 
 Only three events trigger CI:
 - `pull_request` to main → resolve the diff into a shard set, run those shards plus the targeting contract, then require their unchanged `validate` join status before merge
-- `push` of tags matching `*--v*` — strictly resolve `<plugin>--v<version>` to a known plugin, then run that plugin's gate (`release.mjs` waits for this authoritative result)
+- `push` of tags matching `*--v*` — strictly resolve `<plugin>--v<version>` to a known plugin, then run the repo-wide shard over the released bytes followed by that plugin's gate (`release.mjs` waits for this authoritative result)
 - `workflow_dispatch` → run the full gate manually
 
 <constraint>
-**No** `push: branches: [main]` trigger — main pushes don't re-run CI; PR validation already covers it. The tag-push CI is the authoritative release gate (it decides whether the GitHub Release object is created).
+**No** `push: branches: [main]` trigger — main pushes don't re-run CI; PR validation already covers it. The tag-push CI is the authoritative release gate (it decides whether the GitHub Release object is created). Because the version-bump commit goes straight to main and the targeted `--plugin` gate skips every repo-wide phase, the tag push runs `--lane repo` first and the plugin gate last: the released bytes — including the repo-wide `.claude-plugin/marketplace.json` the bump edits — get repo-wide validation exactly once, without charging every merge a second full run.
 </constraint>
 
 ## No drift — ci.yml runs ci.mjs
@@ -71,9 +71,11 @@ lane list is duplicated in YAML.
 Resolution fails **open**. A missing or unresolvable base SHA, an empty diff, a
 non-pull-request event, or any changed path outside every plugin root runs EVERY
 shard. A shard is skipped only on a positive, successful determination that
-nothing it owns changed. A failed `resolve-shards` skips `validation-shards`, and
-a skipped shard job reads as a pass, so `validate` depends on `resolve-shards`
-directly and fails on its failure.
+nothing it owns changed. The join asserts a per-event truth table: each
+prerequisite must hold exactly the result its own `if:` requires (all three
+`success` on a pull request), so a skipped shard or resolver is a failure there
+rather than a pass, and an unrecognised event fails outright. The resolver
+itself may never return a selection that gates nothing.
 </constraint>
 
 Keep the shard selector and authoritative join in sync with

@@ -23,7 +23,10 @@ const RELEASE_POLICY_KEYS = Object.freeze({
   generic: Object.freeze(['install', 'kind']),
   'reviewed-session-relay': Object.freeze(['assets', 'install', 'kind', 'prereleaseBody']),
 });
-const TAG_CI_RESULT_KEYS = Object.freeze(['ok', 'runId']);
+// The tag-CI result is the only evidence a release is published on, so it carries the
+// identity of the run that produced it — not just a status. `runId` alone cannot be
+// checked against anything; tag, commit, event, and creation time can.
+const TAG_CI_RESULT_KEYS = Object.freeze(['commit', 'createdAt', 'event', 'ok', 'runId', 'tag']);
 
 function sameKeys(value, expected) {
   const actual = Object.keys(value).sort();
@@ -31,7 +34,30 @@ function sameKeys(value, expected) {
   return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
 }
 
-function validateTagCiResult(result, tag) {
+// GitHub stamps run creation with whole-second precision, so a run created in the same
+// second as the push can report a timestamp milliseconds behind it. Compare at the
+// second both clocks agree on; a stale run from an earlier push of the same tag is
+// minutes away, never one second.
+function createdAtOrAfter(createdAt, pushedAt) {
+  const created = Date.parse(createdAt);
+  const pushed = Date.parse(pushedAt);
+  if (!Number.isFinite(created) || !Number.isFinite(pushed)) return false;
+  return Math.floor(created / 1000) >= Math.floor(pushed / 1000);
+}
+
+function validatePushTimestamp(pushedAt, tag) {
+  if (typeof pushedAt !== 'string' || !Number.isFinite(Date.parse(pushedAt))) {
+    throw new Error(`tag push for ${tag} reported no usable push timestamp; a CI run cannot be bound to this push`);
+  }
+  return pushedAt;
+}
+
+// Deleting and re-pushing a tag (the recovery this script itself advises) leaves two push
+// runs at one commit. A result that only proves "some run was green" would let the older
+// one authorize the release, so every identity field is re-checked here against what this
+// release pushed: same tag, same commit, a push event, and created no earlier than the
+// push. Anything short of that is malformed, not merely unusual.
+function validateTagCiResult(result, { tag, commit, pushedAt }) {
   if (
     !result ||
     typeof result !== 'object' ||
@@ -39,9 +65,16 @@ function validateTagCiResult(result, tag) {
     !sameKeys(result, TAG_CI_RESULT_KEYS) ||
     typeof result.ok !== 'boolean' ||
     typeof result.runId !== 'string' ||
-    result.runId.trim() === ''
+    !/^[1-9][0-9]*$/.test(result.runId) ||
+    result.tag !== tag ||
+    result.commit !== commit ||
+    result.event !== 'push' ||
+    typeof result.createdAt !== 'string' ||
+    !createdAtOrAfter(result.createdAt, pushedAt)
   ) {
-    throw new Error(`tag CI result for ${tag} is malformed; an explicit green result is required`);
+    throw new Error(
+      `tag CI result for ${tag} is malformed; an explicit green result from the run this push created is required`,
+    );
   }
   return result;
 }
@@ -317,11 +350,18 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
 
   await io.commit(addFiles, `chore(release): ${plugin.name} v${newVersion}`);
   await io.push();
-  await io.createTag(tag);
+  // The tag push reports when it happened; the CI run this release waits on must be the
+  // one that push created, so the timestamp travels with the tag rather than being
+  // inferred from whatever run happens to be listed first.
+  const pushedAt = validatePushTimestamp(await io.createTag(tag), tag);
   const tagCommit = await io.resolveTagCommit(tag);
 
-  io.log(`\nWaiting for CI on tag ${tag} (commit ${tagCommit})...`);
-  const ci = validateTagCiResult(await io.waitForTagCi(tag, tagCommit), tag);
+  io.log(`\nWaiting for CI on tag ${tag} (commit ${tagCommit}, pushed ${pushedAt})...`);
+  const ci = validateTagCiResult(await io.waitForTagCi(tag, tagCommit, pushedAt), {
+    tag,
+    commit: tagCommit,
+    pushedAt,
+  });
   if (ci.ok !== true) {
     const runId = ci.runId;
     io.log(`\n✘ CI failed for ${tag} — NOT creating GitHub Release.\n`);
@@ -363,6 +403,18 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
     if (!plugin) throw new Error(`release tag has no plugin descriptor: ${tag}`);
     return plugin;
   };
+  // GitHub's own clock, read immediately before the push, is what run creation times are
+  // stamped against, so binding the wait to it removes local clock skew from the
+  // comparison entirely. When the header cannot be read, local time stands in: it can
+  // only be late, which makes the poll wait for a run it will not accept and time out —
+  // never early enough to accept a run some earlier push of this tag produced.
+  const githubNow = () => {
+    const response = capture('gh', ['api', 'rate_limit', '--include']);
+    if ((response.status ?? 1) !== 0) return null;
+    const header = /^date:[ \t]*(.+)$/im.exec(response.stdout ?? '');
+    const parsed = header ? Date.parse(header[1].trim()) : Number.NaN;
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  };
 
   return Object.freeze({
     commit(files, message) {
@@ -374,7 +426,9 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
     },
     createTag(tag) {
       const plugin = pluginForTag(tag);
+      const pushedAt = githubNow() ?? new Date().toISOString();
       run('claude', ['plugin', 'tag', '--push', '--message', `${plugin.name} plugin %s`, `./${plugin.root}`]);
+      return pushedAt;
     },
     ensureCleanTree() {
       return capture('git', ['status', '--porcelain']).stdout.trim() === '';
@@ -410,28 +464,79 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
     runSelectedCi(_plugin, ciArgs) {
       return spawnSync('node', [path.join(repo, 'scripts/ci.mjs'), ...ciArgs], { stdio: 'inherit' });
     },
-    waitForTagCi(tag, commit) {
-      let runId = '';
+    // `headBranch` carries the pushed ref's short name, so for a tag push it is the tag
+    // itself (verified against `gh run list --json headBranch` on this repository: every
+    // push run reports its `<plugin>--v<version>` tag). Commit plus event alone cannot
+    // distinguish the run this push created from the one an earlier push of the same tag
+    // left behind, and that older run is usually already complete and green.
+    //
+    // So: match on tag, commit, event, AND creation at or after this push, and require
+    // the match to be unique. No match keeps polling; several matches is an ambiguity a
+    // release may not resolve by guessing, so it stops. `--limit` is raised because a
+    // busy repository can push the run off the default page — with identity this exact,
+    // a wider page can only find the right run, never the wrong one.
+    waitForTagCi(tag, commit, pushedAt) {
+      validatePushTimestamp(pushedAt, tag);
+      let identified = null;
       for (let index = 0; index < 30; index += 1) {
-        runId =
-          capture('gh', [
-            'run',
-            'list',
-            '--workflow=ci.yml',
-            '--json',
-            'databaseId,headSha,event',
-            '--jq',
-            `.[] | select(.headSha == "${commit}" and .event == "push") | .databaseId`,
-          ])
-            .stdout.trim()
-            .split('\n')[0] || '';
-        if (runId) break;
+        const listed = capture('gh', [
+          'run',
+          'list',
+          '--workflow=ci.yml',
+          '--limit',
+          '100',
+          '--json',
+          'databaseId,headSha,headBranch,event,createdAt',
+        ]);
+        if ((listed.status ?? 1) !== 0) {
+          throw new Error(
+            `gh run list failed while identifying the CI run for ${tag}: ${(listed.stderr ?? '').trim()}`,
+          );
+        }
+        let runs;
+        try {
+          runs = JSON.parse(listed.stdout || 'null');
+        } catch {
+          runs = null;
+        }
+        if (!Array.isArray(runs)) {
+          throw new Error(`gh run list returned no run list while identifying the CI run for ${tag}`);
+        }
+        const matches = runs.filter(
+          (candidate) =>
+            candidate?.event === 'push' &&
+            candidate?.headSha === commit &&
+            candidate?.headBranch === tag &&
+            typeof candidate?.createdAt === 'string' &&
+            createdAtOrAfter(candidate.createdAt, pushedAt),
+        );
+        if (matches.length > 1) {
+          throw new Error(
+            `${matches.length} CI runs match tag ${tag} at ${commit} since ${pushedAt} (${matches
+              .map((candidate) => candidate.databaseId)
+              .join(', ')}) — identify which run gates this tag before releasing`,
+          );
+        }
+        if (matches.length === 1) {
+          identified = matches[0];
+          break;
+        }
         spawnSync('sleep', ['2']);
       }
-      if (!runId) throw new Error(`no CI run appeared for ${tag} after 60s — check Actions manually before releasing`);
+      if (!identified) {
+        throw new Error(`no CI run appeared for ${tag} after 60s — check Actions manually before releasing`);
+      }
+      const runId = String(identified.databaseId);
       console.log(`Watching CI run ${runId}...\n  https://github.com/DocksDocks/docks/actions/runs/${runId}`);
       const result = spawnSync('gh', ['run', 'watch', runId, '--exit-status'], { stdio: 'inherit', cwd: repo });
-      return { ok: (result.status ?? 1) === 0, runId };
+      return {
+        ok: (result.status ?? 1) === 0,
+        runId,
+        tag: identified.headBranch,
+        commit: identified.headSha,
+        event: identified.event,
+        createdAt: identified.createdAt,
+      };
     },
     writeJson(file, value) {
       fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);

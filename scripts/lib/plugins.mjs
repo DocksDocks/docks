@@ -87,6 +87,21 @@ const SESSION_RELAY_PREBUILT = Object.freeze({
   checksumAsset: 'SHA256SUMS',
 });
 
+// Biome paths no plugin owns, and therefore the always-on repo-wide shard does.
+// `package.json` `scripts.check:js` checks these in full mode; in lane/plugin mode
+// ci.mjs unions `javascriptQuality` over the SELECTED plugins, so a path outside
+// every plugin root would be checked by no pull-request shard at all — `tests/`
+// holds the cross-plugin suites ci.mjs itself runs, and biome.json/package.json
+// configure every other check. Shape mirrors a plugin's `javascriptQuality` so
+// the scheduler treats owner and residual identically. `lint` is empty because
+// `check:js`'s second invocation (`biome lint`) names only the two plugin-owned
+// skill script dirs; the superset contract in scripts/tests/ci-plugin-targeting.mjs
+// fails if either invocation ever grows an unowned path.
+export const REPO_WIDE_JAVASCRIPT_QUALITY = Object.freeze({
+  ci: Object.freeze(['tests', 'package.json', 'biome.json']),
+  lint: Object.freeze([]),
+});
+
 export const PLUGINS = [
   {
     name: 'docks',

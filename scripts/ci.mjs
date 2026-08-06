@@ -28,10 +28,12 @@ import {
   PLUGINS,
   presentPlugins,
   privatizeBuiltBinary,
+  REPO_WIDE_JAVASCRIPT_QUALITY,
   resolveBuiltBinary,
   shellHooks,
 } from './lib/plugins.mjs';
 import { findCargo } from './lib/rust-bin.mjs';
+import { eachSkillCandidateDir } from './lib/skills-walk.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 process.chdir(REPO);
@@ -296,7 +298,16 @@ const scheduleJavaScriptQuality = (name, args) => {
 if (onlyPlugin === null && onlyLane === null) {
   scheduleJavaScriptQuality('javascript quality', ['run', 'check:js']);
 } else {
-  const pathsFor = (field) => [...new Set(targets.flatMap((plugin) => plugin.javascriptQuality?.[field] ?? []))];
+  // Union of the selected plugins' scoped paths, plus the residual set the repo-wide
+  // shard owns. Without the residual the always-on shard scheduled no biome at all
+  // (it selects zero plugins), so a pull request touching only `tests/`, `biome.json`
+  // or `package.json` was neither formatted nor linted by any shard.
+  const pathsFor = (field) => [
+    ...new Set([
+      ...targets.flatMap((plugin) => plugin.javascriptQuality?.[field] ?? []),
+      ...(repoWide ? (REPO_WIDE_JAVASCRIPT_QUALITY[field] ?? []) : []),
+    ]),
+  ];
   const ciPaths = pathsFor('ci');
   const lintPaths = pathsFor('lint');
   if (ciPaths.length > 0) scheduleJavaScriptQuality('javascript quality', ['exec', 'biome', 'ci', ...ciPaths]);
@@ -675,14 +686,42 @@ function gateSkills(p, manifest) {
       ? ok(`repo-wide transform-guard passed (owned by ${p.name})`)
       : fail(`repo-wide transform-guard failed (node scripts/skills/transform-guard.mjs)`);
 
-  const scores = node([BUNDLE, 'score', '--per-file', p.skills])
-    .stdout.trim()
+  // The scorer's stdout is the ONLY input to both loops below, so a scorer that
+  // crashed, was killed, wrote a diagnostic to stderr, or silently skipped skills
+  // would leave both loops iterating nothing and still reach the all-clear below.
+  // Two independent conditions close that: the child's exit status, and a row
+  // count corroborated from disk (same shape as the agents branch above).
+  const scoreArgs = [BUNDLE, 'score', '--per-file', p.skills];
+  const scoreCommand = `node ${scoreArgs.join(' ')}`;
+  const scoreRun = node(scoreArgs);
+  if ((scoreRun.status ?? 1) !== 0) {
+    const detail = `${scoreRun.stdout ?? ''}${scoreRun.stderr ?? ''}`.trim();
+    if (detail) console.error(detail);
+    fail(`${p.name} skill scorer exited ${scoreRun.status ?? 'null'} — no score set to gate (${scoreCommand})`);
+    return;
+  }
+  const scores = scoreRun.stdout
+    .trim()
     .split('\n')
     .filter(Boolean)
     .map((l) => {
       const [n, s] = l.split(' ');
       return { name: n, cat: n.split('/')[0], score: parseInt(s, 10) };
     });
+  // Counted from skill DIRECTORIES, not SKILL.md files: a directory missing its
+  // SKILL.md is invisible to the scorer, so counting files would corroborate an
+  // empty-by-omission score set at the wrong number.
+  const onDisk = [...eachSkillCandidateDir(p.skills)].map(({ category, name }) => `${category}/${name}`);
+  const scored = new Set(scores.map((r) => r.name));
+  const unscored = onDisk.filter((n) => !scored.has(n));
+  if (scores.length !== onDisk.length) {
+    fail(
+      `${p.name} skill score set does not cover the tree: expected ${onDisk.length} skill(s) on disk, parsed ${scores.length} score row(s) from ${scoreCommand}` +
+        (unscored.length ? ` — unscored on disk: ${unscored.join(', ')}` : ''),
+    );
+    return;
+  }
+  ok(`${p.name} skill score set covers the tree: ${scores.length} score rows for ${onDisk.length} skill dirs on disk`);
   for (const c of [...new Set(scores.map((r) => r.cat))]) {
     const floor = floorOf('skills', c);
     if (floor == null) {

@@ -9,18 +9,24 @@ import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { startTask } from '../lib/ci-background-task.mjs';
 import {
+  assertAuthoritativeGateCoversReleasedBytes,
+  assertPluginTreesAreRegistered,
+  assertPrerequisiteJoinGatesItsEvent,
   assertShardTopologyCoversRegistry,
   CI_LANES,
+  extractPrerequisiteAssertion,
+  PREREQUISITE_REQUIRED_RESULTS,
   parseReleaseTag,
   REPO_WIDE_LANE,
   releaseCiArgs,
   resolveCiLane,
   resolveCiTargets,
   resolveShardSelection,
+  runPrerequisiteAssertion,
   selectedAuthorChecks,
   workflowCiSelection,
 } from '../lib/ci-targeting.mjs';
-import { PLUGINS } from '../lib/plugins.mjs';
+import { PLUGINS, REPO_WIDE_JAVASCRIPT_QUALITY } from '../lib/plugins.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
@@ -297,16 +303,29 @@ process.exit(97);
 function writeCiProbeShim(directory, name) {
   const script = `#!${process.execPath}
 import fs from 'node:fs';
+import path from 'node:path';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.DOCKS_CI_PROBE_LOG, JSON.stringify({ tool, args }) + '\\n');
 if (tool === 'claude') process.stdout.write('Validation passed\\n');
-if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs') {
+// The scorer stub must emit a row per scorable skill directory, because gateSkills now
+// corroborates the row count against the tree on disk. Enumerated here rather than listed so
+// adding a skill cannot silently turn this probe into a short-set failure; the short-set and
+// empty-set behaviour of that corroboration is owned by scripts/tests/unit/skill-score-vacuity.test.mjs.
+if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
   const skillRoot = args.at(-1);
-  if (skillRoot === 'plugins/docks/skills') process.stdout.write('engineering/security 16\\nproductivity/write-skill 14\\n');
-  else if (skillRoot === 'plugins/session-relay/skills') process.stdout.write('productivity/session-relay 14\\n');
-  else if (skillRoot === 'plugins/effect-kit/skills') process.stdout.write('engineering/effect-ts-setup 14\\n');
-  else if (skillRoot === 'plugins/plan-lifecycle/skills') process.stdout.write('productivity/plan-manager 14\\n');
+  const rows = [];
+  for (const category of fs.readdirSync(skillRoot).sort()) {
+    const cp = path.join(skillRoot, category);
+    if (!fs.statSync(cp).isDirectory()) continue;
+    for (const skill of fs.readdirSync(cp).sort()) {
+      const dir = path.join(cp, skill);
+      if (!fs.statSync(dir).isDirectory()) continue;
+      if (!fs.existsSync(path.join(dir, 'SKILL.md'))) continue;
+      rows.push(\`\${category}/\${skill} 14\`);
+    }
+  }
+  if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
 }
 if (tool === 'node' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
   process.stdout.write('plan-reviewer.md 14\\n');
@@ -315,6 +334,53 @@ if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdo
 process.exit(0);
 `;
   fs.writeFileSync(path.join(directory, name), script, { mode: 0o755 });
+}
+
+// `check:js` is what the untargeted gate runs, so it is the definition of "every
+// JavaScript path this repo format- and lint-checks". Lane mode never runs it: it
+// unions per-plugin scoped paths instead, so a path in `check:js` that no lane
+// schedules is checked by no pull request. Parsed rather than restated, so a path
+// added to the script later is covered here without anyone remembering to add it.
+function parseCheckJsBiomeInvocations() {
+  const script = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts?.['check:js'];
+  assert.equal(typeof script, 'string', 'package.json must declare scripts["check:js"]');
+  const invocations = new Map();
+  for (const segment of script.split('&&')) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    assert.equal(tokens[0], 'biome', `check:js segment must invoke biome directly: ${segment.trim()}`);
+    const [, subcommand, ...paths] = tokens;
+    // A flag can silently narrow what a path argument means (`--files-ignore-unknown`,
+    // a `--changed` diff scope), and this contract compares path sets. Refuse to guess.
+    for (const token of [subcommand, ...paths]) {
+      assert.ok(!token.startsWith('-'), `check:js passes unsupported flag ${token}; teach this parser first`);
+    }
+    assert.ok(paths.length > 0, `check:js biome ${subcommand} checks no paths`);
+    const existing = invocations.get(subcommand) ?? new Set();
+    for (const value of paths) existing.add(value);
+    invocations.set(subcommand, existing);
+  }
+  assert.ok(invocations.size > 0, 'check:js declares no biome invocations');
+  return invocations;
+}
+
+// The union of the biome argv every lane actually schedules, keyed by subcommand.
+function laneBiomeInvocations(callsByLane) {
+  assert.deepEqual(
+    [...callsByLane.keys()].sort(),
+    [...CI_LANES].sort(),
+    'the biome ownership contract must observe every lane, or an unobserved lane could own nothing',
+  );
+  const invocations = new Map();
+  for (const calls of callsByLane.values()) {
+    for (const { tool, args: callArgs } of calls) {
+      if (tool !== 'pnpm' || callArgs[0] !== 'exec' || callArgs[1] !== 'biome') continue;
+      const [, , subcommand, ...paths] = callArgs;
+      const existing = invocations.get(subcommand) ?? new Set();
+      for (const value of paths) existing.add(value);
+      invocations.set(subcommand, existing);
+    }
+  }
+  return invocations;
 }
 
 function testFocusedCiCommandSelection() {
@@ -390,6 +456,9 @@ function testFocusedCiCommandSelection() {
     'plugins/docks/skills/productivity/write-skill/scripts',
     'plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts',
   ];
+  // The repo lane owns exactly the paths no plugin claims. Derived from the registry so
+  // this stays a statement about ownership rather than about a pasted argv.
+  const repoBiomeCiArgv = ['exec', 'biome', 'ci', ...REPO_WIDE_JAVASCRIPT_QUALITY.ci];
 
   try {
     if (!relayBinaryExisted) {
@@ -616,19 +685,56 @@ function testFocusedCiCommandSelection() {
     );
     assert.equal(countToolInvocation(repoWide.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(repoWide.calls, 'pnpm', coreBiomeCiArgv), 0);
+    // The repo shard used to schedule no biome at all: it selects zero plugins, so the
+    // union of plugin-scoped paths was empty and `tests/`, `package.json` and `biome.json`
+    // went unchecked on every pull request. It now owns exactly the unowned residue.
+    assert.equal(
+      countToolInvocation(repoWide.calls, 'pnpm', repoBiomeCiArgv),
+      1,
+      `the always-on shard must biome-check the paths no plugin owns (${repoBiomeCiArgv.join(' ')})`,
+    );
+    const repoLintCalls = repoWide.calls.filter(
+      ({ tool, args: callArgs }) => tool === 'pnpm' && callArgs[1] === 'biome' && callArgs[2] === 'lint',
+    );
+    assert.equal(
+      repoLintCalls.length,
+      REPO_WIDE_JAVASCRIPT_QUALITY.lint.length > 0 ? 1 : 0,
+      `the repo shard must schedule a biome lint exactly when it owns lint paths: ${JSON.stringify(repoLintCalls)}`,
+    );
     assert.equal(countToolInvocation(repoWide.calls, 'node', orchestrationArgv), 0);
     const repoTiming = JSON.parse(fs.readFileSync(repoTimingPath, 'utf8'));
     assertCommandTelemetry(repoTiming);
     assert.deepEqual(repoTiming.mode, { plugin: null, lane: 'repo' });
     assert.deepEqual(
       repoTiming.phases.map(({ name }) => name),
-      ['workflow YAML', 'marketplace catalogs', 'repo-wide guards', 'CI targeting contract'],
+      ['workflow YAML', 'marketplace catalogs', 'repo-wide guards', 'CI targeting contract', 'javascript quality'],
       'the always-on shard must own every cross-plugin check and nothing else',
     );
     assert.ok(
       repoTiming.phases.every(({ status }) => status === 'passed'),
       `repo timing report contains a failed phase: ${JSON.stringify(repoTiming.phases)}`,
     );
+
+    // No shard may drop a PATH the pre-sharding full gate biome-checked. Phase-level
+    // ownership above is not enough: every lane can schedule a `javascript quality`
+    // phase while their union still omits a path `check:js` covers.
+    const declaredBiome = parseCheckJsBiomeInvocations();
+    const scheduledBiome = laneBiomeInvocations(
+      new Map([
+        ['repo', repoWide.calls],
+        ['core', core.calls],
+        ['relay', relay.calls],
+      ]),
+    );
+    for (const [subcommand, declaredPaths] of declaredBiome) {
+      const scheduledPaths = scheduledBiome.get(subcommand) ?? new Set();
+      const orphans = [...declaredPaths].filter((value) => !scheduledPaths.has(value)).sort();
+      assert.deepEqual(
+        orphans,
+        [],
+        `check:js runs \`biome ${subcommand}\` over paths no lane schedules, so a pull request touching them is unchecked: ${orphans.join(', ')} (lanes schedule: ${[...scheduledPaths].sort().join(', ') || 'nothing'})`,
+      );
+    }
     // No shard may drop a phase the pre-sharding full gate ran.
     const shardedPhases = new Set(
       [repoTiming, timing, relayTiming].flatMap(({ phases }) => phases.map(({ name }) => name)),
@@ -670,9 +776,19 @@ function genericReleaseIo(repo, options = {}) {
   const calls = [];
   const output = [];
   const relativePath = (file) => path.relative(repo, path.isAbsolute(file) ? file : path.join(repo, file));
+  // The fixture stands in for a real tag push: it reports when it pushed, and the tag-CI
+  // result it hands back carries the identity of the run that push created.
+  const pushedAt = options.pushedAt ?? '2026-08-06T12:00:00.000Z';
   const tagCiResult = Object.hasOwn(options, 'tagCiResult')
     ? options.tagCiResult
-    : { ok: true, runId: 'fixture-tag-ci-run' };
+    : {
+        ok: true,
+        runId: '30939989435',
+        tag: `${options.tag ?? ''}`,
+        commit: 'a'.repeat(40),
+        event: 'push',
+        createdAt: '2026-08-06T12:00:04Z',
+      };
   const record = (tool, args = []) => calls.push({ tool, args });
   const io = {
     commit(files, message) {
@@ -683,6 +799,8 @@ function genericReleaseIo(repo, options = {}) {
     },
     createTag(tag) {
       record('createTag', [tag]);
+      if (typeof tagCiResult === 'object' && tagCiResult !== null && tagCiResult.tag === '') tagCiResult.tag = tag;
+      return pushedAt;
     },
     ensureCleanTree() {
       record('ensureCleanTree');
@@ -722,8 +840,8 @@ function genericReleaseIo(repo, options = {}) {
       assert.equal(plugin.name, ciArgs.at(-1));
       return { status: 0, stdout: '', stderr: '' };
     },
-    waitForTagCi(tag, commit) {
-      record('waitForTagCi', [tag, commit]);
+    waitForTagCi(tag, commit, pushed) {
+      record('waitForTagCi', [tag, commit, pushed]);
       return tagCiResult;
     },
     writeJson(file, value) {
@@ -1027,14 +1145,32 @@ async function testGenericReleaseModuleContract(
     'an explicit green tag-CI result must authorize stable release creation',
   );
 
+  const greenRun = {
+    ok: true,
+    runId: '30939989435',
+    tag: '',
+    commit: 'a'.repeat(40),
+    event: 'push',
+    createdAt: '2026-08-06T12:00:04Z',
+  };
+  // Every row is evidence a release must refuse: no result, a malformed one, or - the
+  // stale-run cases - a green result belonging to some OTHER run. Deleting and re-pushing
+  // a tag is this script's own documented recovery, and it leaves exactly such a run
+  // behind: same commit, same event, already complete, already green.
   for (const tagCiResult of [
     undefined,
     null,
     {},
-    { ok: 'true', runId: 'fixture-tag-ci-run' },
-    { ok: true },
-    { ok: true, runId: '' },
-    { ok: true, runId: 'fixture-tag-ci-run', extra: true },
+    { ...greenRun, ok: 'true' },
+    { ok: true, runId: '30939989435' },
+    { ...greenRun, runId: '' },
+    { ...greenRun, runId: 'fixture-tag-ci-run' },
+    { ...greenRun, extra: true },
+    { ...greenRun, tag: 'some-other-plugin--v9.9.9' },
+    { ...greenRun, commit: 'b'.repeat(40) },
+    { ...greenRun, event: 'workflow_dispatch' },
+    { ...greenRun, createdAt: '2026-08-06T11:59:59Z' },
+    { ...greenRun, createdAt: 'not a timestamp' },
   ]) {
     const malformed = genericReleaseIo(ROOT, { tagCiResult });
     await assert.rejects(
@@ -1460,6 +1596,22 @@ assert.equal(shardsFor(['plugins/docks-extra/x.md']).reason, 'path-outside-every
 assert.equal(shardsFor([], { baseResolved: false }).reason, 'base-sha-unresolved');
 assert.equal(shardsFor([]).reason, 'empty-diff');
 
+// The resolver may never hand the matrix a selection that gates nothing: an empty
+// `lanes` makes `fromJSON` produce zero matrix instances and GitHub reports the
+// shard job as skipped. Every branch, including the diff-scoped one, must carry
+// the repo-wide shard.
+for (const [label, input] of [
+  ['not-a-pull-request', { eventName: 'push', baseResolved: true, changedPaths: [] }],
+  ['unresolved-base', { eventName: 'pull_request', baseResolved: false, changedPaths: [] }],
+  ['empty-diff', { eventName: 'pull_request', baseResolved: true, changedPaths: [] }],
+  ['path-outside-every-root', { eventName: 'pull_request', baseResolved: true, changedPaths: ['scripts/ci.mjs'] }],
+  ['diff-scoped', { eventName: 'pull_request', baseResolved: true, changedPaths: ['plugins/docks/skills/a.md'] }],
+]) {
+  const { lanes } = resolveShardSelection(input);
+  assert.notEqual(lanes.length, 0, `resolver branch ${label} must never gate nothing`);
+  assert.ok(lanes.includes(REPO_WIDE_LANE), `resolver branch ${label} must always carry the repo-wide shard`);
+}
+
 // The registry, not the workflow, decides coverage: a plugin added without a
 // usable shard must fail here rather than ride in ungated.
 assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core', 'relay']);
@@ -1482,6 +1634,91 @@ for (const [label, broken] of [
     assert.equal(PLUGINS.pop(), broken);
   }
 }
+
+// ===================== disk-to-registry coverage =====================
+// The lane checks above close registry->lane and lane->registry. Neither can see a
+// `plugins/<new>/` tree that no descriptor mentions: it owns no root, so no shard
+// selects it and no gate validates it, and the pull request that added it is green
+// having gated none of it. These cases use the REAL `plugins/` directory, because a
+// temp-dir mock would prove only that the helper can read some directory.
+const pluginTreeRoot = path.join(ROOT, 'plugins');
+const withPluginTreeEntry = (name, make, run) => {
+  const target = path.join(pluginTreeRoot, name);
+  assert.equal(fs.existsSync(target), false, `${name} must not already exist`);
+  make(target);
+  try {
+    run(target);
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+  assert.equal(fs.existsSync(target), false, `${name} must leave no residue`);
+};
+
+assert.deepEqual(assertPluginTreesAreRegistered(), [
+  'plugins/docks',
+  'plugins/effect-kit',
+  'plugins/plan-lifecycle',
+  'plugins/session-relay',
+]);
+
+// The reported defect, and it must reach callers through the wired entry point too.
+withPluginTreeEntry(
+  'zz-unregistered-probe',
+  (target) => fs.mkdirSync(path.join(target, '.claude-plugin'), { recursive: true }),
+  () => {
+    for (const [label, call] of [
+      ['the helper', assertPluginTreesAreRegistered],
+      ['the wired topology assertion', assertShardTopologyCoversRegistry],
+    ]) {
+      assert.throws(
+        call,
+        /unregistered plugin tree plugins\/zz-unregistered-probe: no shard gates it.*scripts\/lib\/plugins\.mjs/s,
+        `${label} must reject an unregistered plugin tree by name and point at the registry`,
+      );
+    }
+  },
+);
+
+// A symlink is neither a file nor a directory to `readdir`, so any type-based rule
+// would skip it - and skipping is exactly how a tree hides from validation.
+withPluginTreeEntry(
+  'zz-symlinked-probe',
+  (target) => fs.symlinkSync(path.join(ROOT, 'plugins', 'docks'), target),
+  () =>
+    assert.throws(
+      assertPluginTreesAreRegistered,
+      /unregistered plugin tree plugins\/zz-symlinked-probe/,
+      'a symlinked plugin tree must be validated, never skipped for its type',
+    ),
+);
+
+// The rule is "git considers it repository content", asked of git at run time - not a
+// denylist of incidental names that grows one plausible entry at a time. A globally
+// ignored entry cannot appear in a pull-request diff, so it smuggles nothing.
+withPluginTreeEntry(
+  'node_modules',
+  (target) => fs.mkdirSync(path.join(target, 'left-pad'), { recursive: true }),
+  () =>
+    assert.doesNotThrow(
+      assertPluginTreesAreRegistered,
+      'a git-ignored entry is not repository content and must not be demanded of the registry',
+    ),
+);
+
+// The mirror defect: a descriptor outliving its tree. The shard resolver keeps
+// routing diffs to a root nothing can validate.
+const deletedTreePlugin = { ...byName('effect-kit'), name: 'deleted-tree', root: 'plugins/deleted-tree' };
+PLUGINS.push(deletedTreePlugin);
+try {
+  assert.throws(
+    assertPluginTreesAreRegistered,
+    /registry plugin deleted-tree declares root plugins\/deleted-tree, which does not exist on disk/,
+    'a registry entry whose root is gone must fail as loudly as an unregistered tree',
+  );
+} finally {
+  assert.equal(PLUGINS.pop(), deletedTreePlugin);
+}
+assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core', 'relay']);
 console.log('pull-request shard selection and registry coverage passed');
 
 // The resolver CLI is the only thing the workflow calls, so prove the fail-open
@@ -2056,14 +2293,76 @@ assert.match(
   /if \[ "\$\{\{ github\.event_name \}\}" = "push" \] && \[ "\$\{\{ steps\.target\.outputs\.needs_rust \}\}" != "true" \]; then/,
 );
 assertDelegatedCgroupRun(authoritativeGateRun);
+// The push leg is asserted through the shared parser rather than by matching argv text:
+// what must hold is that the bytes a release tag publishes get repo-wide validation
+// exactly once, with the targeted plugin gate still last. `ci-targeting.mjs` owns the
+// assertion so this contract and the release-preparation source-CI pin cannot drift into
+// asserting different things.
+const gateCoverage = assertAuthoritativeGateCoversReleasedBytes(authoritativeGateRun);
+assert.equal(gateCoverage.pushLegs, 2, 'both release-tag push legs (Rust and non-Rust) must be covered');
+assert.match(
+  authoritativeGateRun,
+  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*DOCKS_CI_MEMO=0 node scripts\/ci\.mjs --lane repo/,
+);
 assert.match(
   authoritativeGateRun,
   /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/,
 );
-assert.match(
-  authoritativeGateRun,
-  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*node scripts\/ci\.mjs[\s\\]*--timings-json "\$RUNNER_TEMP\/docks-ci-timings\.json"/,
-);
+// Each mutation is a way the release path could stop gating the bytes it publishes.
+// They run here so the assertion above is proven load-bearing rather than merely present.
+const repoLaneCall = 'DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo';
+const untargetedCall = 'node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"';
+for (const [label, mutated, expected] of [
+  [
+    'no push leg runs the repo-wide shard',
+    authoritativeGateRun
+      .split('\n')
+      .filter((line) => !line.includes('--lane repo'))
+      .join('\n'),
+    /repo-wide shard .* exactly once, found 0/,
+  ],
+  [
+    'only one of the two push legs runs it',
+    authoritativeGateRun.replace(`${repoLaneCall}\n`, ''),
+    /repo-wide shard .* exactly once, found 0/,
+  ],
+  [
+    'a push leg runs it twice',
+    authoritativeGateRun.replace(`${repoLaneCall}\n`, `${repoLaneCall}\n${repoLaneCall}\n`),
+    /repo-wide shard .* exactly once, found 2/,
+  ],
+  [
+    'the repo-wide shard is only named, not run',
+    authoritativeGateRun.replace(repoLaneCall, `printf '${repoLaneCall}\\n'`),
+    /does not run it/,
+  ],
+  [
+    'the repo-wide shard may be satisfied by a cached memo',
+    authoritativeGateRun.replace(repoLaneCall, 'node scripts/ci.mjs --lane repo'),
+    /DOCKS_CI_MEMO=0/,
+  ],
+  [
+    'the repo-wide shard clobbers the timing report',
+    authoritativeGateRun.replace(repoLaneCall, `${repoLaneCall} --timings-json "$RUNNER_TEMP/docks-ci-timings.json"`),
+    /exactly one release-tag push invocation may write the timing report/,
+  ],
+  [
+    'the targeted plugin gate no longer has the last word',
+    authoritativeGateRun.replace(
+      /( *)DOCKS_CI_MEMO=0 node scripts\/ci\.mjs --lane repo\n( *)(node scripts\/ci\.mjs --plugin [^\n]*\n)/,
+      (_matched, repoIndent, pluginIndent, pluginCall) => `${pluginIndent}${pluginCall}${repoIndent}${repoLaneCall}\n`,
+    ),
+    /last word/,
+  ],
+  [
+    'the non-push leg is narrowed to one plugin',
+    authoritativeGateRun.replace(untargetedCall, 'node scripts/ci.mjs --plugin docks'),
+    /must run the untargeted gate/,
+  ],
+]) {
+  assert.notEqual(mutated, authoritativeGateRun, `${label}: mutation did not change the workflow shell`);
+  assert.throws(() => assertAuthoritativeGateCoversReleasedBytes(mutated), expected, label);
+}
 const signatureAudit = step('verify registry signatures (non-blocking)');
 assert.deepEqual(
   signatureAudit.run,
@@ -2116,38 +2415,87 @@ const prerequisiteAssertion = step('assert successful prerequisite jobs');
 assert.equal(steps.at(-3), authoritativeGate);
 assert.equal(steps.at(-2).name, 'publish hosted timing artifact');
 assert.equal(steps.at(-1), prerequisiteAssertion);
-assert.deepEqual(Object.keys(prerequisiteAssertion), ['name', 'env', 'run']);
-assert.deepEqual(prerequisiteAssertion.env, {
-  VALIDATION_SHARDS_RESULT: `\${{ needs.validation-shards.result }}`,
-  TARGETING_CONTRACTS_RESULT: `\${{ needs.targeting-contracts.result }}`,
-  RESOLVE_SHARDS_RESULT: `\${{ needs.resolve-shards.result }}`,
-});
-assert.equal(
-  prerequisiteAssertion.run,
-  'status=0\n' +
-    'if [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then\n' +
-    '  echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2\n' +
-    '  status=1\n' +
-    'fi\n' +
-    'if [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then\n' +
-    '  echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2\n' +
-    '  status=1\n' +
-    'fi\n' +
-    'if [ "$RESOLVE_SHARDS_RESULT" = "failure" ] || [ "$RESOLVE_SHARDS_RESULT" = "cancelled" ]; then\n' +
-    '  echo "shard resolution result: $RESOLVE_SHARDS_RESULT" >&2\n' +
-    '  status=1\n' +
-    'fi\n' +
-    'exit "$status"\n',
+assert.ok(
+  prerequisiteAssertion,
+  'the validate job must keep a step named `assert successful prerequisite jobs`; without it there is no join gate to execute',
 );
-const prerequisiteResultsPass = (...results) => results.every((result) => !['failure', 'cancelled'].includes(result));
-assert.equal(prerequisiteResultsPass('success', 'success', 'success'), true);
-assert.equal(prerequisiteResultsPass('skipped', 'success', 'skipped'), true);
-assert.equal(prerequisiteResultsPass('skipped', 'skipped', 'skipped'), true);
-assert.equal(prerequisiteResultsPass('success', 'failure', 'success'), false);
-assert.equal(prerequisiteResultsPass('cancelled', 'success', 'success'), false);
-// The hole this branch closes: a resolver that failed skips every shard, and a
-// skipped shard job on its own reads as a pass.
-assert.equal(prerequisiteResultsPass('skipped', 'success', 'failure'), false);
+assert.deepEqual(Object.keys(prerequisiteAssertion), ['name', 'env', 'run']);
+
+// The join is the only thing standing between a green pull request and a pull
+// request that gated none of its own changes, so its shell is EXECUTED here
+// against injected job results rather than string-matched. Extraction is shared
+// with the release-preparation source-CI pin (`ci-targeting.mjs`) so the two
+// cannot drift; env var names come from the workflow, so renaming a key cannot
+// silently orphan this test.
+const extractedJoin = extractPrerequisiteAssertion(validation);
+assert.deepEqual(
+  extractedJoin.prerequisites.sort(),
+  ['resolve-shards', 'targeting-contracts', 'validation-shards'],
+  'every job in the graph except validate must be a prerequisite the join reads',
+);
+const deviation = (event, overrides) => ({
+  event,
+  results: { ...PREREQUISITE_REQUIRED_RESULTS[event], ...overrides },
+});
+const prerequisiteCases = [
+  ...Object.keys(PREREQUISITE_REQUIRED_RESULTS).map((event) => [
+    deviation(event, {}),
+    0,
+    `${event}: the required-result row must be accepted`,
+  ]),
+  [
+    deviation('pull_request', { 'validation-shards': 'skipped' }),
+    1,
+    'THE REPORTED DEFECT: a pull request whose validation-shards job was skipped (empty resolver matrix) must not be green',
+  ],
+  [
+    deviation('pull_request', { 'resolve-shards': 'skipped' }),
+    1,
+    'a pull request whose resolve-shards job was skipped gated nothing and must not be green',
+  ],
+  [
+    deviation('pull_request', { 'targeting-contracts': 'skipped' }),
+    1,
+    'a pull request whose targeting-contracts job was skipped must not be green',
+  ],
+  [
+    deviation('workflow_dispatch', { 'targeting-contracts': 'skipped' }),
+    1,
+    'workflow_dispatch runs targeting-contracts, so a skipped one must not be green',
+  ],
+  [
+    deviation('push', { 'validation-shards': 'success' }),
+    1,
+    'a shard job that ran on a release tag means the topology drifted and must fail',
+  ],
+  [
+    { event: 'schedule', results: PREREQUISITE_REQUIRED_RESULTS.pull_request },
+    1,
+    'an unrecognised event must fail loudly rather than fall through to a permissive default',
+  ],
+  ...['failure', 'cancelled'].flatMap((result) =>
+    ['validation-shards', 'targeting-contracts', 'resolve-shards'].map((job) => [
+      deviation('pull_request', { [job]: result }),
+      1,
+      `a ${result} ${job} job must still be rejected`,
+    ]),
+  ),
+];
+for (const [injected, expectedFailure, diagnostic] of prerequisiteCases) {
+  const outcome = runPrerequisiteAssertion(extractedJoin, injected);
+  const failed = outcome.status !== 0;
+  assert.equal(
+    failed,
+    expectedFailure === 1,
+    `${diagnostic} (injected ${JSON.stringify(injected)}, exit ${outcome.status}, stderr: ${outcome.stderr.trim()})`,
+  );
+  if (failed)
+    assert.notEqual(outcome.stderr.trim(), '', `${diagnostic}: a rejection must name the offending job on stderr`);
+}
+// The same property the release-preparation source-CI pin asserts, run against the
+// live workflow here so a weakening is caught before a release ever fetches it.
+assert.doesNotThrow(() => assertPrerequisiteJoinGatesItsEvent(validation));
+console.log(`prerequisite join contract executed across ${prerequisiteCases.length} injected job-result rows`);
 
 const integrity = integrityWorkflow.value;
 assert.ok(integrity.on.workflow_dispatch !== undefined);

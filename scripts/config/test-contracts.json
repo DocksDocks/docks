@@ -950,6 +950,44 @@
       "release_role": "gate",
       "replaces": [],
       "skips": []
+    },
+    {
+      "id": "unit-skill-score-vacuity",
+      "version": 1,
+      "title": "Skill score gate vacuity contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/skill-score-vacuity.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/skill-score-vacuity.test.mjs",
+        "expected_min": 4
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-tag-ci-run-identity",
+      "version": 1,
+      "title": "Release tag-CI run identity contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/tag-ci-run-identity.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/tag-ci-run-identity.test.mjs",
+        "expected_min": 9
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
     }
   ]
 }

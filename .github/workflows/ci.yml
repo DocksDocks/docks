@@ -377,7 +377,14 @@ jobs:
       - name: "run the authoritative gate (scripts/ci.mjs)"
         if: github.event_name != 'pull_request'
         run: |
+          # A release-tag push carries the version bump that edited the repo-wide
+          # `.claude-plugin/marketplace.json`, and it is the only run those bytes ever get:
+          # the bump goes straight to `main`, which this workflow does not trigger on, and
+          # the targeted `--plugin` gate skips every repo-wide phase by design. So the push
+          # leg runs the repo-wide shard too — once, here, over the exact bytes being
+          # released — and the targeted plugin gate still has the last word.
           if [ "${{ github.event_name }}" = "push" ] && [ "${{ steps.target.outputs.needs_rust }}" != "true" ]; then
+            DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo
             node scripts/ci.mjs --plugin "${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
             printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
             exit
@@ -424,6 +431,7 @@ jobs:
             test_pid=$BASHPID
             sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
             if [ "${{ github.event_name }}" = "push" ]; then
+              SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo
               SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --plugin "${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
             else
               SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
@@ -441,25 +449,33 @@ jobs:
           if-no-files-found: warn
       - name: assert successful prerequisite jobs
         env:
+          EVENT_NAME: ${{ github.event_name }}
           VALIDATION_SHARDS_RESULT: ${{ needs.validation-shards.result }}
           TARGETING_CONTRACTS_RESULT: ${{ needs.targeting-contracts.result }}
-          # A failed resolver skips validation-shards entirely, and a skipped shard
-          # job reads as a pass below (it is legitimately skipped on push and
-          # workflow_dispatch). Without this branch that combination is a green pull
-          # request with no shard having run at all.
+          # A prerequisite must hold exactly its required result for this event;
+          # `skipped` is a pass only where the job's own `if:` makes it legitimate.
+          # resolve-shards and validation-shards are pull-request-only and
+          # targeting-contracts runs on everything but push, so the required result
+          # is a function of the event and nothing else. Accepting `skipped`
+          # unconditionally is a green pull request with no shard having run at all
+          # (an empty resolver matrix reports the shard job as skipped), so an
+          # unlisted event fails rather than defaulting to permissive.
           RESOLVE_SHARDS_RESULT: ${{ needs.resolve-shards.result }}
         run: |
           status=0
-          if [ "$VALIDATION_SHARDS_RESULT" = "failure" ] || [ "$VALIDATION_SHARDS_RESULT" = "cancelled" ]; then
-            echo "validation shards result: $VALIDATION_SHARDS_RESULT" >&2
-            status=1
-          fi
-          if [ "$TARGETING_CONTRACTS_RESULT" = "failure" ] || [ "$TARGETING_CONTRACTS_RESULT" = "cancelled" ]; then
-            echo "targeting contracts result: $TARGETING_CONTRACTS_RESULT" >&2
-            status=1
-          fi
-          if [ "$RESOLVE_SHARDS_RESULT" = "failure" ] || [ "$RESOLVE_SHARDS_RESULT" = "cancelled" ]; then
-            echo "shard resolution result: $RESOLVE_SHARDS_RESULT" >&2
-            status=1
-          fi
+          case "$EVENT_NAME" in
+            pull_request) EXPECT_RESOLVE=success; EXPECT_SHARDS=success; EXPECT_TARGETING=success ;;
+            push) EXPECT_RESOLVE=skipped; EXPECT_SHARDS=skipped; EXPECT_TARGETING=skipped ;;
+            workflow_dispatch) EXPECT_RESOLVE=skipped; EXPECT_SHARDS=skipped; EXPECT_TARGETING=success ;;
+            *) echo "unrecognised event name: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          require() {
+            if [ "$3" != "$2" ]; then
+              echo "$1 on $EVENT_NAME: expected $2, observed $3" >&2
+              status=1
+            fi
+          }
+          require resolve-shards "$EXPECT_RESOLVE" "$RESOLVE_SHARDS_RESULT"
+          require validation-shards "$EXPECT_SHARDS" "$VALIDATION_SHARDS_RESULT"
+          require targeting-contracts "$EXPECT_TARGETING" "$TARGETING_CONTRACTS_RESULT"
           exit "$status"
