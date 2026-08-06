@@ -194,6 +194,31 @@ export function registerPlanSelfCheck(suite, mod) {
     }),
   );
 
+  // P21's contract is "scans tracked files". An untracked or ignored coupling cannot be
+  // committed, so it is not a coupling a reader of the repository could ever inherit -
+  // and reporting it made a scratch file or build artifact block a pre-reserve check.
+  suite.test(G, 'an untracked coupling file is not scanned', () =>
+    withScratch('untracked-coupling', (repo) => {
+      writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');
+      writeFile(repo, '.gitignore', 'ignored/\n');
+      commitScratch(repo);
+      writeFile(repo, 'src/untracked-mirror.mjs', 'const coupled = "src/lib.mjs";\n');
+      writeFile(repo, 'ignored/build-output.mjs', 'const coupled = "src/lib.mjs";\n');
+      const result = mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21;
+      assert.deepEqual(
+        result,
+        { verdict: 'pass', reason: '1 declared path(s); no undeclared literal couplings found' },
+        'neither an untracked nor an ignored coupling may be reported',
+      );
+      // Committing the same bytes is what makes it a real coupling, so the case cannot
+      // pass by the scan being broken.
+      commitScratch(repo);
+      const tracked = mod.scriptChecks(scopePlan(['src/lib.mjs']), { repo }).P21;
+      assert.equal(tracked.verdict, 'fail', 'the same file, once tracked, must be reported');
+      assert.match(tracked.reason, /src\/untracked-mirror\.mjs/);
+    }),
+  );
+
   suite.test(G, 'declaring the coupling file clears the literal scope check', () =>
     withScratch('declared-coupling', (repo) => {
       writeFile(repo, 'src/lib.mjs', 'export const value = 1;\n');

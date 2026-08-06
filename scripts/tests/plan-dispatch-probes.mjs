@@ -9,16 +9,17 @@
 // a "go" file, and the probe advances only after polling the on-disk phase, so
 // "inside the dispatch window" is a causal fact rather than a sleep. The one
 // remaining ordering requirement - bytes changing after the seal but before the
-// reserve transaction - is enforced by holding the per-plan lock, which the
-// driver must acquire (plan-run.mjs:1863-1874) before it can read its preimage.
+// reserve transaction - is enforced by holding the per-plan lock, which the driver
+// must acquire (`acquirePlanLock` in `runtime/transaction.mjs`, called by
+// `transactPlanRun`) before it can read its preimage.
 //
 // Falsify with --driver=<mutated copy>: every probe accepts an alternate driver,
 // so a deleted guard can be shown to make its own probe fail.
 //
 // The copy MUST live in the driver's own directory. The driver resolves its library
 // as `../plan-run.mjs` and the review policy as
-// `../../../plan-reviewer/scripts/review-policy.mjs`, both relative to its own file
-// (dispatch-review.mjs:120-122), so a copy under /tmp dies with
+// `../../../plan-reviewer/scripts/review-policy.mjs`, both resolved against `HERE` in
+// the driver itself, so a copy under /tmp dies with
 // ERR_MODULE_NOT_FOUND for `/plan-run.mjs` before reaching any guard - which looks
 // exactly like a caught defect and proves nothing. Write the mutant beside the real
 // driver under a temporary name, and delete it afterwards.
@@ -610,10 +611,10 @@ probes['dry-run'] = () =>
       expectedSha256: reported[1],
     });
     // The C1 preflight must stay BELOW the dry-run exit. Every other case forces
-    // `--commit` (`startDriver` :183), so nothing else can catch a re-hoist that makes
-    // bare inspection depend on the reviewer binary existing - and the default route
-    // is `omp` (`dispatch-review.mjs:46`), absent on most consumer machines. A
-    // deliberately unparseable route must therefore change nothing here.
+    // `--commit` (`startDriver`, above), so nothing else can catch a re-hoist that makes
+    // bare inspection depend on the reviewer binary existing - and the default route is
+    // `omp` (`DEFAULT_REVIEWER` in `dispatch-review.mjs`), absent on most consumer
+    // machines. A deliberately unparseable route must therefore change nothing here.
     const blind = await new Promise((resolve) => {
       const proc = spawn(
         process.execPath,
@@ -854,8 +855,8 @@ probes['settle-binding'] = () =>
   });
 
 // A8: the second dispatch cannot refund, because `transport_retried` has no
-// `retryable` successor (plan-run.mjs:1523). Both risk branches run, so a driver
-// that always blocks fails as surely as one that always refunds.
+// `retryable` successor in `REVIEW_TRANSITIONS` (`runtime/plan-state.mjs`). Both risk
+// branches run, so a driver that always blocks fails as surely as one that always refunds.
 probes['retry-block'] = () =>
   withScratchRoot('dispatch-retry-', async (root) => {
     for (const [risk, expected] of [
@@ -966,6 +967,49 @@ probes['stdout-persistence'] = () =>
     assert.equal(phaseOf(world).state, 'passed', 'stdout persistence must preserve the passing settlement');
     assert.equal(result.code, 0, `a persisted bound pass must exit 0: ${result.output.slice(-200)}`);
     process.stdout.write('  ok complete stdout persisted byte-for-byte, normalized verdict separate, pass settled\n');
+
+    // Step 7 settles from the PERSISTED file, not from the buffer the child streamed, and
+    // the two are indistinguishable while both hold the same bytes. Point the raw target
+    // at a sink before the driver starts: the write still succeeds, the child still
+    // streams a fully bound pass, and the persisted bytes are empty. A controller that
+    // parses its in-memory buffer settles `passed` here; one that re-reads the file finds
+    // nothing contract-shaped and refunds. The divergence is a property of the target, so
+    // no ordering or timing is load-bearing.
+    const sinkWorld = buildWorld(path.join(root, 'sink'));
+    const sinkGo = path.join(root, 'sink-go');
+    const sinkRaw = path.join(sinkWorld.outDir, 'scratch-dispatch-draft_review-1-stdout.raw');
+    fs.mkdirSync(sinkWorld.outDir, { mode: 0o700, recursive: true });
+    fs.symlinkSync('/dev/null', sinkRaw);
+    const sinkStub = writeStub(sinkWorld, { goFile: sinkGo, reply: placeholder });
+
+    const sink = startDriver(sinkWorld, { stub: sinkStub });
+    await waitForState(sinkWorld, new Set(['reserved']));
+    const sinkReview = PASS_REVIEW(sealedBinding(sinkWorld));
+    rebindStub(sinkStub, placeholder, sinkReview);
+    const sinkEmitted = Buffer.from(`${JSON.stringify(sinkReview)}\n`);
+    fs.writeFileSync(sinkGo, 'go\n');
+    const sinkResult = await sink.done;
+
+    assert.ok(sinkEmitted.length > 0, 'the sink case must stream a non-empty bound pass');
+    assert.equal(
+      fs.readFileSync(sinkRaw, 'utf8'),
+      '',
+      'the sink target must read back empty, so the persisted bytes differ from the streamed bytes',
+    );
+    assert.match(
+      sinkResult.output,
+      /INVALID REVIEWER OUTPUT/,
+      'a verdict judged from the persisted file must be unusable when the file holds nothing',
+    );
+    const sinkPhase = phaseOf(sinkWorld);
+    assert.equal(sinkPhase.state, 'retryable', `an unusable persisted reply must refund, found ${sinkPhase.state}`);
+    assert.equal(sinkPhase.invocations, 0, 'an unusable persisted reply must not consume a permit');
+    assert.equal(
+      fs.existsSync(path.join(sinkWorld.outDir, 'scratch-dispatch-draft_review-1-result.json')),
+      false,
+      'a verdict that never reached the persisted file must not be normalized into a result',
+    );
+    process.stdout.write('  ok the settled verdict comes from the persisted file, not the in-memory buffer\n');
   });
 
 probes['invalid-input-verbatim'] = () =>

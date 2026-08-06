@@ -690,6 +690,13 @@ function repositoryScopeCouplings(repo, declared) {
   const root = path.resolve(repo);
   if (!fs.statSync(root).isDirectory()) throw new Error(`repository root is not a directory: ${root}`);
   const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root }).toString().split('\0').filter(Boolean);
+  // Two roles for one listing. `basenameCounts` decides whether a bare basename is
+  // unambiguous enough to count as a coupling; `trackedFiles` decides whether a
+  // candidate can be a coupling at all. P21's contract is "scans tracked files", and an
+  // untracked or ignored file - scratch output, a local experiment, a build artifact -
+  // can never be committed, so naming a declared path there is not a coupling anyone
+  // could inherit. Scanning the whole worktree reported those as undeclared couplings.
+  const trackedFiles = new Set(tracked);
   const basenameCounts = new Map();
   for (const trackedPath of tracked) {
     const basename = path.posix.basename(trackedPath);
@@ -707,7 +714,12 @@ function repositoryScopeCouplings(repo, declared) {
       if (excludedScopeDirectory(segments)) continue;
       const absolute = path.join(directory, entry.name);
       if (entry.isDirectory()) visit(absolute, relative);
-      else if (entry.isFile() && SCOPE_CODE_FILE.test(relative) && !declaredSet.has(relative)) {
+      else if (
+        entry.isFile() &&
+        trackedFiles.has(relative) &&
+        SCOPE_CODE_FILE.test(relative) &&
+        !declaredSet.has(relative)
+      ) {
         candidates.push({ absolute, relative });
       }
     }

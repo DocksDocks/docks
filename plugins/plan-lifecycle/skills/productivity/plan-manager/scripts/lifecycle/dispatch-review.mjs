@@ -257,8 +257,9 @@ console.log('prompt bytes  :', Buffer.byteLength(prompt));
 // --- preflight: everything the dispatch depends on, proven BEFORE a permit is at
 // stake ---------------------------------------------------------------------
 //
-// `docs/plans/AGENTS.md:224-226` is one sentence with two halves: preflight the
-// exact reviewer route AND a private file that will receive complete stdout.
+// `docs/plans/AGENTS.md` states one sentence with two halves: "Before reserving,
+// preflight the exact reviewer route and a private file that will receive complete
+// stdout."
 // Both run here, above the reserve, because a throw PAST the reservation leaves a
 // live `reserved` that cold entry can only block - and no refund path covers a
 // defect the driver could have seen before spending anything.
@@ -312,10 +313,10 @@ if (!COMMIT) {
 // Below the dry-run exit ON PURPOSE. Step 1 requires the route proven ahead of the
 // RESERVE, and the reserve is ~40 lines below; the dry-run early exit is not the
 // reserve. Hoisting these above it would make `DEFAULT_REVIEWER`'s bare `omp`
-// (:46) a hard failure for any consumer inspecting a plan without that binary on
+// a hard failure for any consumer inspecting a plan without that binary on
 // PATH - narrowing the one path whose contract is "nothing reserved, nothing
 // dispatched, plan untouched". Every probe case still exercises this, because
-// `startDriver` always appends `--commit` (plan-dispatch-probes.mjs:183).
+// `startDriver` (scripts/tests/plan-dispatch-probes.mjs) always appends `--commit`.
 const reviewerArgv = preflight('reviewer route is unusable', () => {
   let parsedArgv;
   try {
@@ -337,10 +338,10 @@ const reviewerArgv = preflight('reviewer route is unusable', () => {
 
 preflight('raw-stdout target is not writable', () => {
   // Append mode, NOT 'w'. A transport failure refunds the permit, so the retry
-  // recomputes the same `invocation` (:163) and the same target path - and a
-  // truncating probe would erase the previous attempt's captured stdout, which is
-  // the one artifact worth having at that moment. Creating the file here keeps
-  // step 4's write the only truncating writer.
+  // recomputes the same `invocation` (declared as `phase.invocations + 1`) and the
+  // same target path - and a truncating probe would erase the previous attempt's
+  // captured stdout, which is the one artifact worth having at that moment.
+  // Creating the file here keeps step 4's write the only truncating writer.
   const descriptor = fs.openSync(RAW_STDOUT, 'a', 0o600);
   fs.closeSync(descriptor);
 });
@@ -479,7 +480,7 @@ const runReviewer = () =>
       clearTimeout(timer);
       // Persist the COMPLETE byte stream before interpreting it. The target's
       // existence and writability are proven pre-reserve, so this write is the
-      // second half of `docs/plans/AGENTS.md:224-226` and nothing more. The
+      // second half of that same AGENTS.md sentence and nothing more. The
       // normalized verdict stays a SEPARATE artifact (`resultFile`), because a
       // reply that fails validation must still be recoverable verbatim.
       const raw = Buffer.concat(chunks);
@@ -493,7 +494,15 @@ const runReviewer = () =>
         reject(new Error(`reviewer exited ${signal ?? code}: ${Buffer.concat(errors).toString().slice(0, 200)}`));
         return;
       }
-      resolve(raw.toString());
+      // Step 7 judges the PERSISTED bytes, not the buffer they came from: re-read the
+      // file that was just written, so a reply that never reached disk can never settle
+      // a verdict. `extractReview` and `validatePlanReview` then see exactly what an
+      // operator auditing the artifact sees.
+      try {
+        resolve(fs.readFileSync(RAW_STDOUT, 'utf8'));
+      } catch (error) {
+        reject(error);
+      }
     });
   });
 
@@ -543,7 +552,8 @@ try {
     }
 
     // HEAD holding still does not mean the reviewed bytes held still: the manifest
-    // digests worktree CONTENT (`plan-run.mjs:snapshotPath`), so an uncommitted edit
+    // digests worktree CONTENT (the private snapshot step of
+    // `createAffectedPathManifest`, in `runtime/git-preimage.mjs`), so an uncommitted edit
     // to an affected path moves `source_sha256` while HEAD is unchanged. Re-derive
     // and compare both, or the guard settles against a stale manifest - which is
     // exactly what it did.
