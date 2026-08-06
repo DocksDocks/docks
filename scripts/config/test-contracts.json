@@ -2,16 +2,16 @@
   "schema": 1,
   "contracts": [
     {
-      "id": "unit-cargo-target-dir",
+      "id": "plugin-effect-kit-selftest",
       "version": 1,
-      "title": "Cargo Target Dir unit contracts",
+      "title": "Effect Kit self-test",
       "owner": {
-        "suite": "scripts/tests/unit/cargo-target-dir.test.mjs",
-        "layer": "unit"
+        "suite": "plugins/effect-kit/test/selftest.mjs",
+        "layer": "smoke"
       },
       "selection": {
-        "kind": "node-test-file",
-        "selector": "scripts/tests/unit/cargo-target-dir.test.mjs",
+        "kind": "node-script",
+        "selector": "plugins/effect-kit/test/selftest.mjs",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],
@@ -21,16 +21,16 @@
       "skips": []
     },
     {
-      "id": "unit-ci-background-task",
+      "id": "plugin-plan-lifecycle-selftest",
       "version": 1,
-      "title": "Ci Background Task unit contracts",
+      "title": "Plan Lifecycle self-test",
       "owner": {
-        "suite": "scripts/tests/unit/ci-background-task.test.mjs",
-        "layer": "unit"
+        "suite": "plugins/plan-lifecycle/test/selftest.mjs",
+        "layer": "smoke"
       },
       "selection": {
-        "kind": "node-test-file",
-        "selector": "scripts/tests/unit/ci-background-task.test.mjs",
+        "kind": "node-script",
+        "selector": "plugins/plan-lifecycle/test/selftest.mjs",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],
@@ -40,16 +40,16 @@
       "skips": []
     },
     {
-      "id": "unit-fixture-clone-pool",
+      "id": "plugin-session-relay-distribution-contract",
       "version": 1,
-      "title": "Fixture Clone Pool unit contracts",
+      "title": "Session Relay distribution contract",
       "owner": {
-        "suite": "scripts/tests/unit/fixture-clone-pool.test.mjs",
-        "layer": "unit"
+        "suite": "plugins/session-relay/test/distribution-contract.mjs",
+        "layer": "contract"
       },
       "selection": {
-        "kind": "node-test-file",
-        "selector": "scripts/tests/unit/fixture-clone-pool.test.mjs",
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/distribution-contract.mjs",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],
@@ -59,16 +59,130 @@
       "skips": []
     },
     {
-      "id": "unit-host-resources",
+      "id": "plugin-session-relay-release-companion-distribution-contract",
       "version": 1,
-      "title": "Host Resources unit contracts",
+      "title": "Session Relay companion distribution contract",
       "owner": {
-        "suite": "scripts/tests/unit/host-resources.test.mjs",
-        "layer": "unit"
+        "suite": "plugins/session-relay/test/companion-distribution-contract.mjs",
+        "layer": "contract"
       },
       "selection": {
-        "kind": "node-test-file",
-        "selector": "scripts/tests/unit/host-resources.test.mjs",
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/companion-distribution-contract.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "release-evidence",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-release-release-evidence-contract",
+      "version": 1,
+      "title": "Session Relay release evidence contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/release-evidence-contract.mjs",
+        "layer": "contract"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/release-evidence-contract.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "release-evidence",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-release-release-promotion-contract",
+      "version": 1,
+      "title": "Session Relay release promotion contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/release-promotion-contract.mjs",
+        "layer": "contract"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/release-promotion-contract.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "release-evidence",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-release-release-publication-contract",
+      "version": 1,
+      "title": "Session Relay release publication contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/release-publication-contract.mjs",
+        "layer": "contract"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/release-publication-contract.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "release-evidence",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-release-remediation-contract",
+      "version": 1,
+      "title": "Session Relay remediation contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/remediation-contract.mjs",
+        "layer": "contract"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/remediation-contract.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "release-evidence",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-selftest",
+      "version": 1,
+      "title": "Session Relay self-test",
+      "owner": {
+        "suite": "plugins/session-relay/test/selftest.mjs",
+        "layer": "smoke"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/selftest.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-reentry-inventory-default",
+      "version": 1,
+      "title": "Session Relay reentry inventory default source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/reentry-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/reentry-inventory.mjs",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],
@@ -78,20 +192,267 @@
       "skips": []
     },
     {
-      "id": "unit-session-relay-selftest",
+      "id": "plugin-session-relay-source-release-instance-contract-case-coverage",
       "version": 1,
-      "title": "Session Relay Selftest unit contracts",
+      "title": "Session Relay release instance contract case coverage source contract",
       "owner": {
-        "suite": "scripts/tests/unit/session-relay-selftest.test.mjs",
-        "layer": "unit"
+        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
+        "layer": "integration"
       },
       "selection": {
-        "kind": "node-test-file",
-        "selector": "scripts/tests/unit/session-relay-selftest.test.mjs",
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/release-instance-contract.mjs --case coverage",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-release-instance-contract-case-modules",
+      "version": 1,
+      "title": "Session Relay release instance contract case modules source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/release-instance-contract.mjs --case modules",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-release-instance-contract-case-validator",
+      "version": 1,
+      "title": "Session Relay release instance contract case validator source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/release-instance-contract.mjs --case validator",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-release-instance-contract-default",
+      "version": 1,
+      "title": "Session Relay release instance contract default source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/release-instance-contract.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-fanout",
+      "version": 1,
+      "title": "Session Relay rust test inventory case fanout source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case fanout",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-fanout-reap",
+      "version": 1,
+      "title": "Session Relay rust test inventory case fanout reap source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case fanout_reap",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-lifecycle-supervisor",
+      "version": 1,
+      "title": "Session Relay rust test inventory case lifecycle supervisor source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_supervisor",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-protocol",
+      "version": 1,
+      "title": "Session Relay rust test inventory case protocol source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case protocol",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-coordination-process",
+      "version": 1,
+      "title": "Session Relay rust test inventory case workspace coordination process source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_coordination_process",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-identity",
+      "version": 1,
+      "title": "Session Relay rust test inventory case workspace identity source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_identity",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-lease-process",
+      "version": 1,
+      "title": "Session Relay rust test inventory case workspace lease process source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_lease_process",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-resources",
+      "version": 1,
+      "title": "Session Relay rust test inventory case workspace resources source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_resources",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-workspace-smoke-case-docs-contract",
+      "version": 1,
+      "title": "Session Relay workspace smoke case docs contract source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/workspace-smoke.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/workspace-smoke.mjs --case docs-contract",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "plugin-session-relay-source-workspace-smoke-case-single-session-compat",
+      "version": 1,
+      "title": "Session Relay workspace smoke case single session compat source contract",
+      "owner": {
+        "suite": "plugins/session-relay/test/workspace-smoke.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "plugins/session-relay/test/workspace-smoke.mjs --case single-session-compat",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
       "release_role": "gate",
       "replaces": [],
       "skips": []
@@ -116,6 +477,25 @@
       "skips": []
     },
     {
+      "id": "repo-ci-observability",
+      "version": 1,
+      "title": "Ci Observability repository contract",
+      "owner": {
+        "suite": "scripts/tests/ci-observability.mjs",
+        "layer": "contract"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "scripts/tests/ci-observability.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
       "id": "repo-ci-plugin-targeting",
       "version": 1,
       "title": "Ci Plugin Targeting repository contract",
@@ -126,6 +506,25 @@
       "selection": {
         "kind": "node-script",
         "selector": "scripts/tests/ci-plugin-targeting.mjs --unit",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "repo-idempotency",
+      "version": 1,
+      "title": "Idempotency repository contract",
+      "owner": {
+        "suite": "tests/idempotency.mjs",
+        "layer": "contract"
+      },
+      "selection": {
+        "kind": "node-script",
+        "selector": "tests/idempotency.mjs",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],
@@ -192,16 +591,16 @@
       "skips": []
     },
     {
-      "id": "repo-ci-observability",
+      "id": "repo-skill-trigger-collision",
       "version": 1,
-      "title": "Ci Observability repository contract",
+      "title": "Skill Trigger Collision repository contract",
       "owner": {
-        "suite": "scripts/tests/ci-observability.mjs",
+        "suite": "tests/skill-trigger-collision.mjs",
         "layer": "contract"
       },
       "selection": {
         "kind": "node-script",
-        "selector": "scripts/tests/ci-observability.mjs",
+        "selector": "tests/skill-trigger-collision.mjs",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],
@@ -225,519 +624,6 @@
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "repo-idempotency",
-      "version": 1,
-      "title": "Idempotency repository contract",
-      "owner": {
-        "suite": "tests/idempotency.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "tests/idempotency.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "repo-skill-trigger-collision",
-      "version": 1,
-      "title": "Skill Trigger Collision repository contract",
-      "owner": {
-        "suite": "tests/skill-trigger-collision.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "tests/skill-trigger-collision.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-selftest",
-      "version": 1,
-      "title": "Session Relay self-test",
-      "owner": {
-        "suite": "plugins/session-relay/test/selftest.mjs",
-        "layer": "smoke"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/selftest.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-distribution-contract",
-      "version": 1,
-      "title": "Session Relay distribution contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/distribution-contract.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/distribution-contract.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-effect-kit-selftest",
-      "version": 1,
-      "title": "Effect Kit self-test",
-      "owner": {
-        "suite": "plugins/effect-kit/test/selftest.mjs",
-        "layer": "smoke"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/effect-kit/test/selftest.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-plan-lifecycle-selftest",
-      "version": 1,
-      "title": "Plan Lifecycle self-test",
-      "owner": {
-        "suite": "plugins/plan-lifecycle/test/selftest.mjs",
-        "layer": "smoke"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/plan-lifecycle/test/selftest.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-protocol",
-      "version": 1,
-      "title": "Session Relay rust test inventory case protocol source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case protocol",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-fanout",
-      "version": 1,
-      "title": "Session Relay rust test inventory case fanout source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case fanout",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-fanout-reap",
-      "version": 1,
-      "title": "Session Relay rust test inventory case fanout reap source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case fanout_reap",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-lifecycle-supervisor",
-      "version": 1,
-      "title": "Session Relay rust test inventory case lifecycle supervisor source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case lifecycle_supervisor",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-identity",
-      "version": 1,
-      "title": "Session Relay rust test inventory case workspace identity source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_identity",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-lease-process",
-      "version": 1,
-      "title": "Session Relay rust test inventory case workspace lease process source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_lease_process",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-coordination-process",
-      "version": 1,
-      "title": "Session Relay rust test inventory case workspace coordination process source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_coordination_process",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-rust-test-inventory-case-workspace-resources",
-      "version": 1,
-      "title": "Session Relay rust test inventory case workspace resources source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/rust-test-inventory.mjs --case workspace_resources",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-reentry-inventory-default",
-      "version": 1,
-      "title": "Session Relay reentry inventory default source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/reentry-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/reentry-inventory.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-workspace-smoke-case-single-session-compat",
-      "version": 1,
-      "title": "Session Relay workspace smoke case single session compat source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/workspace-smoke.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/workspace-smoke.mjs --case single-session-compat",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-workspace-smoke-case-docs-contract",
-      "version": 1,
-      "title": "Session Relay workspace smoke case docs contract source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/workspace-smoke.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/workspace-smoke.mjs --case docs-contract",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-release-instance-contract-default",
-      "version": 1,
-      "title": "Session Relay release instance contract default source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/release-instance-contract.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-release-instance-contract-case-modules",
-      "version": 1,
-      "title": "Session Relay release instance contract case modules source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/release-instance-contract.mjs --case modules",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-release-instance-contract-case-validator",
-      "version": 1,
-      "title": "Session Relay release instance contract case validator source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/release-instance-contract.mjs --case validator",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-source-release-instance-contract-case-coverage",
-      "version": 1,
-      "title": "Session Relay release instance contract case coverage source contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/release-instance-contract.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/release-instance-contract.mjs --case coverage",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-release-release-evidence-contract",
-      "version": 1,
-      "title": "Session Relay release evidence contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/release-evidence-contract.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/release-evidence-contract.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "release-evidence",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-release-release-publication-contract",
-      "version": 1,
-      "title": "Session Relay release publication contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/release-publication-contract.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/release-publication-contract.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "release-evidence",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-release-release-promotion-contract",
-      "version": 1,
-      "title": "Session Relay release promotion contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/release-promotion-contract.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/release-promotion-contract.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "release-evidence",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-release-remediation-contract",
-      "version": 1,
-      "title": "Session Relay remediation contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/remediation-contract.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/remediation-contract.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "release-evidence",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "plugin-session-relay-release-companion-distribution-contract",
-      "version": 1,
-      "title": "Session Relay companion distribution contract",
-      "owner": {
-        "suite": "plugins/session-relay/test/companion-distribution-contract.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/session-relay/test/companion-distribution-contract.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "release-evidence",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "rust-target-protocol",
-      "version": 1,
-      "title": "Session Relay Rust target protocol",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "cargo-test-target",
-        "selector": "protocol",
-        "expected_min": 38
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
       "release_role": "gate",
       "replaces": [],
       "skips": []
@@ -800,6 +686,44 @@
       "skips": []
     },
     {
+      "id": "rust-target-protocol",
+      "version": 1,
+      "title": "Session Relay Rust target protocol",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "cargo-test-target",
+        "selector": "protocol",
+        "expected_min": 38
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "rust-target-workspace-coordination-process",
+      "version": 1,
+      "title": "Session Relay Rust target workspace_coordination_process",
+      "owner": {
+        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
+        "layer": "integration"
+      },
+      "selection": {
+        "kind": "cargo-test-target",
+        "selector": "workspace_coordination_process",
+        "expected_min": 9
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24", "rust-1.85.0"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
       "id": "rust-target-workspace-identity",
       "version": 1,
       "title": "Session Relay Rust target workspace_identity",
@@ -829,25 +753,6 @@
       "selection": {
         "kind": "cargo-test-target",
         "selector": "workspace_lease_process",
-        "expected_min": 9
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24", "rust-1.85.0"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
-      "id": "rust-target-workspace-coordination-process",
-      "version": 1,
-      "title": "Session Relay Rust target workspace_coordination_process",
-      "owner": {
-        "suite": "plugins/session-relay/test/rust-test-inventory.mjs",
-        "layer": "integration"
-      },
-      "selection": {
-        "kind": "cargo-test-target",
-        "selector": "workspace_coordination_process",
         "expected_min": 9
       },
       "platforms": ["linux", "macos"],
@@ -891,6 +796,139 @@
       "platforms": ["linux", "macos"],
       "toolchains": ["node-24", "rust-1.85.0"],
       "release_role": "release-evidence",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-cargo-target-dir",
+      "version": 1,
+      "title": "Cargo Target Dir unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/cargo-target-dir.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/cargo-target-dir.test.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-ci-background-task",
+      "version": 1,
+      "title": "Ci Background Task unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/ci-background-task.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/ci-background-task.test.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-fixture-clone-pool",
+      "version": 1,
+      "title": "Fixture Clone Pool unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/fixture-clone-pool.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/fixture-clone-pool.test.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-gate-memo",
+      "version": 1,
+      "title": "CI gate memo unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/gate-memo.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/gate-memo.test.mjs",
+        "expected_min": 11
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-host-resources",
+      "version": 1,
+      "title": "Host Resources unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/host-resources.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/host-resources.test.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-reviewer-route-preflight",
+      "version": 1,
+      "title": "Reviewer route preflight unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/reviewer-route-preflight.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/reviewer-route-preflight.test.mjs",
+        "expected_min": 9
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-session-relay-selftest",
+      "version": 1,
+      "title": "Session Relay Selftest unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/session-relay-selftest.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/session-relay-selftest.test.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
       "replaces": [],
       "skips": []
     }

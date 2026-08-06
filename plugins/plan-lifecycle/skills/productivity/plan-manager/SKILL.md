@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-05"
-  content_hash: "0bf62d897d750791bf98a37d589b0d8647b6ae3dc09a36390fb3c8c38c12ca3c"
+  content_hash: "7e142e601423c11122a735b784731274265cf408e6ca011d96b7d80bf79816a8"
 ---
 
 # Plan Manager
@@ -78,6 +78,7 @@ A cross-repository reference names the other repository's id, not a local checko
 
 ## PlanRunV1
 `repository_id + plan_path + run_id` is the run identity. Never list the plan record itself in `affected_paths`: acceptance writes to it and breaks that bind.
+A scope omission discovered before acceptance — most often a path missing from `affected_paths` — is amended in place: one `ongoing -> ongoing` transition changes `plan_sha256`, `source_base`, and `source_sha256` and nothing else, permitted only while neither review phase is `reserved` or `transport_retried`, `completion_review.state` is not `passed`, and `acceptance` is null. After acceptance it requires a replacement.
 Field shapes, replacement-authority rules, and the exact `plan_sha256` exclusion list: [`references/planrunv1-schema.md`](references/planrunv1-schema.md).
 New and successor plans set `plan_hash_mode: status-excluded-v1`; unmarked plans
 retain byte-identical legacy hashing. The marked canonical view validates the

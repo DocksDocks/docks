@@ -168,6 +168,10 @@ Minting or changing an acceptance requires live manifest proof and the caller pa
 predecessor, does not. A live-worktree proof is discharged at the instant it is written and is not re-provable once HEAD moves, so it is never a durable
 invariant.
 
+A scope omission found before acceptance — most often a path missing from `affected_paths` — is amended in place: one `ongoing -> ongoing` transition may
+change `plan_sha256`, `source_base`, and `source_sha256` and no other field, only while neither review phase is `reserved` or `transport_retried`,
+`completion_review.state` is not `passed`, and `acceptance` is null. After acceptance its scope is settled and only a replacement may change it.
+
 ## Closed phase table and transitions
 
 | Phase state | Draft invocations | Completion invocations | Input | Result | Extra rule |
@@ -183,54 +187,37 @@ invariant.
 | `blocked` | 1–2 | 1–2 | hash | evidence/result hash | terminal for this run |
 | `cancelled` | 1–2 | 1–2 | hash | cancellation hash | terminal for this run |
 
-Legal phase transitions are only `not_started → reserved`; `reserved → passed |
-repairing | blocked | cancelled | retryable`; `retryable → transport_retried |
-blocked | cancelled`; `transport_retried → passed | repairing | blocked |
-cancelled | degraded`; and `repairing → reserved | blocked | cancelled`.
-A transport-only failure refunds its reservation and allows one fresh
-`transport_retried` dispatch without changing substantive bindings; a second
-transport failure degrades only local draft work at local risk and otherwise
-blocks. One retry, never two. Terminal states never reset.
+Legal phase transitions are only `not_started → reserved`; `reserved → passed | repairing | blocked | cancelled | retryable`; `retryable →
+transport_retried | blocked | cancelled`; `transport_retried → passed | repairing | blocked | cancelled | degraded`; and `repairing → reserved |
+blocked | cancelled`. A transport-only failure refunds its reservation and allows one fresh `transport_retried` dispatch without changing substantive
+bindings; a second transport failure degrades only local draft work at local risk and otherwise blocks. One retry, never two. Terminal states never
+reset.
 
-Before spawning, transactionally increment the invocation count and persist
-`reserved`, or `transport_retried` after a transport failure, with the exact
-input digest. A verdict spends the reserved substantive permit. An arriving
-result may mutate only the matching phase while it remains `reserved` or
-`transport_retried` with the same run id, invocation, and input hash; stale
-results are discarded. Cold entry into either live state changes it to `blocked`
-with dangling-launch evidence and never redispatches.
+Before spawning, transactionally increment the invocation count and persist `reserved`, or `transport_retried` after a transport failure, with the
+exact input digest. A verdict spends the reserved substantive permit. An arriving result may mutate only the matching phase while it remains
+`reserved` or `transport_retried` with the same run id, invocation, and input hash; stale results are discarded. Cold entry into either live state
+changes it to `blocked` with dangling-launch evidence and never redispatches.
 
-Before reserving, preflight the exact reviewer route and a private file that will
-receive complete stdout. Each invocation has a newly sealed bundle whose closed
-binding contains that invocation number. After reservation read-back, derive the
-prompt only from that bundle and capture directly to the file. Never consume
-console rendering, clipped lines, transcript fragments, or reconstructed JSON;
-do not request compact/single-line reviewer output. Parse the file, validate the
-closed object, then hash canonical JCS. Review transport is a direct reviewer
-subprocess. Session Relay is never review evidence and never a required dependency.
+Before reserving, preflight the exact reviewer route and a private file that will receive complete stdout. Each invocation has a newly sealed bundle
+whose closed binding contains that invocation number. After reservation read-back, derive the prompt only from that bundle and capture directly to the
+file. Never consume console rendering, clipped lines, transcript fragments, or reconstructed JSON; do not request compact/single-line reviewer output.
+Parse the file, validate the closed object, then hash canonical JCS. Review transport is a direct reviewer subprocess. Session Relay is never review
+evidence and never a required dependency.
 
-Draft review has one initial review and, only after an accepted repair, one
-mandatory fresh verification, with a ceiling of two substantive invocations.
-Completion review has exactly two substantive invocations and an empty
-`accepted_classes` set. A draft repair verdict is accepted at most once. Any
-further repair or new finding after the mandatory verification terminal-blocks
-the run and requires a new user-authorized successor. `accepted_classes` remains
-valid on read for historical records and is written by no current transition. Historical records are read-only inputs to the historical adapter and never current authority.
+Draft review has one initial review and, only after an accepted repair, one mandatory fresh verification, with a ceiling of two substantive
+invocations. Completion review has exactly two substantive invocations and an empty `accepted_classes` set. A draft repair verdict is accepted at most
+once. Any further repair or new finding after the mandatory verification terminal-blocks the run and requires a new user-authorized successor.
+`accepted_classes` remains valid on read for historical records and is written by no current transition. Historical records are read-only inputs to
+the historical adapter and never current authority.
 
-For draft review, pre-seal rebinding changes exactly the run's `plan_sha256`,
-`source_base`, and `source_sha256`; it leaves both review phases untouched, so
-sealed `plan.md` retains the pre-reserve draft phase. Immediately before a
-permit is reserved, the driver re-verifies the bundle and its digests through
-reviewer policy, then requires record `plan_sha256` to equal binding
-`plan_sha256`, record `source_sha256` to equal binding `source_sha256`, and
-record `source_base` to equal manifest `source_base`. The binding has no
-`source_base` field. Any mismatch fails with `PREFLIGHT FAILED - no permit
-reserved, no reviewer dispatched.` before the reserve transaction.
+For draft review, pre-seal rebinding changes exactly the run's `plan_sha256`, `source_base`, and `source_sha256`; it leaves both review phases
+untouched, so sealed `plan.md` retains the pre-reserve draft phase. Immediately before a permit is reserved, the driver re-verifies the bundle and its
+digests through reviewer policy, then requires record `plan_sha256` to equal binding `plan_sha256`, record `source_sha256` to equal binding
+`source_sha256`, and record `source_base` to equal manifest `source_base`. The binding has no `source_base` field. Any mismatch fails with `PREFLIGHT
+FAILED - no permit reserved, no reviewer dispatched.` before the reserve transaction.
 
-A transport retry preserves canonical plan/source and any completion
-implementation/acceptance bindings, but seals a fresh bundle with a different
-input digest and persists `transport_retried`. It reuses the refunded
-substantive permit; reusing the failed dispatch's bundle or prompt is stale.
+A transport retry preserves canonical plan/source and any completion implementation/acceptance bindings, but seals a fresh bundle with a different
+input digest and persists `transport_retried`. It reuses the refunded substantive permit; reusing the failed dispatch's bundle or prompt is stale.
 
 ## Closed lifecycle and tuple matrix
 

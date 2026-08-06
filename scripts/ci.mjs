@@ -4,12 +4,13 @@
 // scripts/lib/plugins.mjs is gated through the same capability-driven
 // gatePlugin() (a check runs only when the descriptor declares that capability).
 // Adding a plugin = one registry entry; no edits here.
-// Usage: node scripts/ci.mjs [-q] [--plugin <name> | --lane <name>] [--timings-json <path>] [--list]
+// Usage: node scripts/ci.mjs [-q] [--memo] [--plugin <name> | --lane <name>] [--timings-json <path>] [--list]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { beginCommand, startTask, summarizeCommands } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
+import { computeGateKey, lookupMemo, memoRoot, recordMemo } from './lib/gate-memo.mjs';
 import {
   cargoJobLimit,
   describeEnvelope,
@@ -37,14 +38,15 @@ process.chdir(REPO);
 const rawArgv = process.argv.slice(2);
 
 function parseArgs(args) {
-  const options = { quiet: false, list: false, plugin: null, lane: null, timingsJson: null };
+  const options = { quiet: false, list: false, memo: false, plugin: null, lane: null, timingsJson: null };
   const seen = new Set();
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === '-q' || arg === '--list') {
+    if (arg === '-q' || arg === '--list' || arg === '--memo') {
       if (seen.has(arg)) throw new Error(`duplicate argument: ${arg}`);
       seen.add(arg);
       if (arg === '-q') options.quiet = true;
+      else if (arg === '--memo') options.memo = true;
       else options.list = true;
       continue;
     }
@@ -220,6 +222,37 @@ function prepareRelayLinuxDelegation(selected) {
 if (options.list) {
   for (const p of PLUGINS) console.log(`${p.name}\t${p.root}\t${fs.existsSync(p.root) ? 'present' : 'MISSING'}`);
   process.exit(0);
+}
+
+// Content-keyed memo (opt-in: --memo or DOCKS_CI_MEMO=1). A hit skips the gate and
+// says so loudly; a miss, an undescribable working tree, or a disabled memo runs the
+// full gate exactly as before. `--timings-json` forces a full run: a memo hit produces
+// no commands to report, and a caller asking for a timing report must get a real one.
+const memoScope = { plugin: onlyPlugin, lane: onlyLane };
+const memoEnabled = (options.memo || process.env.DOCKS_CI_MEMO === '1') && options.timingsJson === null;
+const MEMO_ROOT = memoRoot();
+let memoKey = null;
+if (memoEnabled) {
+  const computed = computeGateKey({ repo: REPO, scope: memoScope });
+  memoKey = computed.key;
+  const hit = lookupMemo(memoKey, MEMO_ROOT);
+  if (hit !== null) {
+    console.log(`\x1b[1;35m▣ CACHED PASS (ci.mjs memo hit) — NOT a fresh gate run\x1b[0m`);
+    console.log(`  key         : ${hit.key}`);
+    console.log(
+      `  recorded at : ${hit.recorded_at} (${Math.round((Date.now() - Date.parse(hit.recorded_at)) / 1000)}s ago)`,
+    );
+    console.log(`  recorded by : ${hit.git_head ?? 'unknown'} in ${hit.duration_ms ?? '?'}ms`);
+    console.log(`  memo file   : ${path.join(MEMO_ROOT, `${hit.key}.json`)}`);
+    console.log('  Working-tree bytes, node, platform and tool versions are identical to that run.');
+    console.log('  Re-run without --memo (and unset DOCKS_CI_MEMO) to force a full gate.');
+    process.exit(0);
+  }
+  console.log(
+    memoKey === null
+      ? `\x1b[1;35m▣ ci.mjs memo MISS — working tree not describable (${computed.reason}); running the full gate\x1b[0m`
+      : `\x1b[1;35m▣ ci.mjs memo MISS — key ${memoKey.slice(0, 16)}… not recorded; running the full gate\x1b[0m`,
+  );
 }
 const resources = hostResources();
 const availability = runtimeAvailability({
@@ -716,6 +749,24 @@ if (failures.length === 0) {
   console.log(
     `\x1b[1;32m✔ All ci.mjs checks passed\x1b[0m — ${ciLane ? `lane '${ciLane.name}'` : onlyPlugin ? `plugin '${onlyPlugin}'` : `${targets.length} plugin(s) + repo-wide`}; safe to release.`,
   );
+  // Only a PASS is memoized, and only under the key computed from the pre-run
+  // working tree - the bytes this run actually gated.
+  if (memoEnabled && memoKey !== null) {
+    try {
+      const file = recordMemo(
+        memoKey,
+        {
+          scope: memoScope,
+          git_head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).stdout?.trim() ?? null,
+          duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+        },
+        MEMO_ROOT,
+      );
+      console.log(`\x1b[1;35m▣ memo recorded\x1b[0m ${file}`);
+    } catch (error) {
+      console.log(`\x1b[1;33m  ⚠\x1b[0m memo not recorded: ${error.message}`);
+    }
+  }
   process.exit(0);
 }
 writeTimings('failed');

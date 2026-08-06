@@ -54,6 +54,7 @@ const BLOCKER_KINDS = new Set([
 ]);
 const PHASE_FIELDS = new Set(['draft_review', 'completion_review']);
 export const LIVE_REVIEW_STATES = new Set(['reserved', 'transport_retried']);
+const SCOPE_DIGEST_FIELDS = Object.freeze(['plan_sha256', 'source_base', 'source_sha256']);
 export const LEGACY_RECORD_KINDS = Object.freeze([
   'Bootstrap-review-record',
   'Review-receipt',
@@ -915,6 +916,28 @@ export function assertPersistedTransition(current, next) {
     allowed.add('source_base');
     allowed.add('source_sha256');
     assertOnlyChanged(changed, allowed, 'draft preparation');
+    return;
+  }
+
+  if (
+    current.status === 'ongoing' &&
+    next.status === 'ongoing' &&
+    SCOPE_DIGEST_FIELDS.some((field) => changed.includes(field)) &&
+    jcs(current.run.implementation_commit) === jcs(next.run.implementation_commit)
+  ) {
+    for (const phaseName of PHASE_FIELDS) {
+      if (LIVE_REVIEW_STATES.has(current.run[phaseName].state)) {
+        fail(`scope amendment cannot move bytes held by a live ${phaseName}`);
+      }
+    }
+    if (current.run.completion_review.state === 'passed') {
+      fail('scope amendment cannot follow a passed completion review');
+    }
+    if (current.run.acceptance !== null || next.run.acceptance !== null) {
+      fail('scope amendment cannot invalidate a minted acceptance');
+    }
+    for (const field of SCOPE_DIGEST_FIELDS) allowed.add(field);
+    assertOnlyChanged(changed, allowed, 'scope amendment');
     return;
   }
 

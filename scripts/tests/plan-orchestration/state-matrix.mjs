@@ -368,6 +368,10 @@ function persistedEdgeCases() {
         };
       },
     },
+    {
+      name: 'scope amendment widening affected_paths at ongoing',
+      build: (api) => amendScope(api, ongoingLocalTuple()),
+    },
   ];
 }
 
@@ -452,6 +456,97 @@ async function rejectEdge(api, root, edge) {
   assert.ok(fs.readFileSync(file).equals(currentBytes), `${edge.name} rejection must preserve current bytes`);
 }
 
+const AMENDED_SOURCE_SHA256 = '7'.repeat(64);
+
+function widenAffectedPaths(bytes) {
+  const text = bytes.toString();
+  const widened = text.replace('  - src/untracked.txt\n', '  - src/untracked.txt\n  - src/amended.txt\n');
+  assert.notEqual(widened, text, 'scope amendment fixture must widen affected_paths');
+  return Buffer.from(widened);
+}
+
+// Rebinds `plan_sha256` over widened `affected_paths` the way `bindPlan` binds a
+// freshly rendered plan, so the successor is a valid PlanRun in its own right.
+function amendScope(api, tupleValue, nextRunOverrides = {}) {
+  const current = bindPlan(api, tupleValue);
+  const draft = { ...current.run, source_sha256: AMENDED_SOURCE_SHA256, ...nextRunOverrides };
+  const unbound = widenAffectedPaths(renderPlan({ status: current.status, run: draft, jcs: api.jcs }));
+  const run = { ...draft, plan_sha256: api.sha256(api.canonicalPlanView(unbound)) };
+  const next = {
+    bytes: widenAffectedPaths(renderPlan({ status: current.status, run, jcs: api.jcs })),
+    run,
+    status: current.status,
+  };
+  return {
+    current,
+    next,
+    currentBytes: withStamps(current.bytes, '"2026-07-24T01:00:00Z"', 'null'),
+    nextBytes: withStamps(next.bytes, '"2026-07-24T01:00:00Z"', 'null'),
+  };
+}
+
+function ongoingLocalTuple(overrides = {}) {
+  return tuple('ongoing', {
+    draft_review: reviewPhase('passed'),
+    execution_parent: SOURCE_BASE,
+    ...overrides,
+  });
+}
+
+function ongoingSensitiveTuple(completionState, overrides = {}) {
+  return tuple('ongoing', {
+    risk: 'sensitive',
+    draft_review: reviewPhase('passed'),
+    execution_parent: SOURCE_BASE,
+    completion_review: reviewPhase(completionState),
+    implementation_commit: IMPLEMENTATION_COMMIT,
+    ...overrides,
+  });
+}
+
+function scopeAmendmentRefusals() {
+  return [
+    {
+      name: 'refuses a scope amendment while a review phase is live',
+      build: (api) => amendScope(api, ongoingSensitiveTuple('reserved', { acceptance: acceptance() })),
+      error: /live completion_review/i,
+    },
+    {
+      name: 'refuses a scope amendment after a passed completion review',
+      build: (api) => amendScope(api, ongoingSensitiveTuple('passed', { acceptance: acceptance() })),
+      error: /passed completion review/i,
+    },
+    {
+      name: 'refuses a scope amendment that would invalidate a minted acceptance',
+      build: (api) => amendScope(api, ongoingSensitiveTuple('retryable', { acceptance: acceptance() })),
+      error: /minted acceptance/i,
+    },
+    {
+      name: 'refuses a scope amendment bundled with any other field change',
+      build: (api) => amendScope(api, ongoingLocalTuple(), { execution_parent: IMPLEMENTATION_COMMIT }),
+      error: /scope amendment cannot change execution_parent/i,
+    },
+  ];
+}
+
+async function refuseScopeAmendment(api, root, testCase) {
+  const fixture = testCase.build(api);
+  const file = path.join(root, 'plan.md');
+  fs.writeFileSync(file, fixture.currentBytes);
+  await expectReject(
+    () =>
+      api.transactPlanRun({
+        file,
+        identity: TRANSITION_IDENTITY,
+        expectedBytesSha256: api.sha256(fixture.currentBytes),
+        nextBytes: fixture.nextBytes,
+      }),
+    testCase.error,
+    testCase.name,
+  );
+  assert.ok(fs.readFileSync(file).equals(fixture.currentBytes), `${testCase.name} must preserve current bytes`);
+}
+
 export function registerStateMatrix(suite, api) {
   suite.test('state-matrix', 'accepts every documented frontmatter and phase tuple row', () => {
     const catalog = validTupleCatalog();
@@ -461,6 +556,12 @@ export function registerStateMatrix(suite, api) {
   for (const edge of persistedEdgeCases()) {
     suite.test('state-matrix', `persists ${edge.name}`, () =>
       withTempDirectory('plan-run-state-edge-', (root) => persistEdge(api, root, edge)),
+    );
+  }
+
+  for (const testCase of scopeAmendmentRefusals()) {
+    suite.test('state-matrix', testCase.name, () =>
+      withTempDirectory('plan-run-scope-amendment-', (root) => refuseScopeAmendment(api, root, testCase)),
     );
   }
 

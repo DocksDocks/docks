@@ -92,6 +92,13 @@ and tombstones. Acceptance binds the final affected-path manifest and canonical
 Verification Results bytes. Never list the plan record in `affected_paths`;
 acceptance writes to it and breaks that bind.
 
+A scope omission — most often an `affected_paths` gap — discovered before
+acceptance is amended in place. One `ongoing -> ongoing` transition may change
+`plan_sha256`, `source_base`, and `source_sha256` and no other field, provided
+neither review phase is `reserved` or `transport_retried`,
+`completion_review.state` is not `passed`, and `acceptance` is null. After
+acceptance is minted its scope is settled and only a replacement may change it.
+
 `source_base` is null only before draft review starts and is required thereafter.
 `execution_parent` is null before start and is required, immutable, and exclusive
 to `ongoing`, post-start `blocked`, and `finished` tuples.
