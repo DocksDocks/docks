@@ -42,26 +42,3 @@ export function slopCount(lines) {
   }
   return countLines(prose, SLOP_RE);
 }
-
-// metadata.updated date (YYYY-MM-DD) from the frontmatter `metadata:` block.
-export function metaUpdated(lines) {
-  let inMeta = false;
-  for (const l of lines) {
-    if (/^metadata:/.test(l)) {
-      inMeta = true;
-      continue;
-    }
-    if (inMeta && /^[a-z]/.test(l)) inMeta = false;
-    if (inMeta && /updated:/.test(l)) {
-      const m = l.match(/updated:\s*"?([0-9-]*)"?/);
-      return m ? m[1] : '';
-    }
-  }
-  return '';
-}
-
-// `date -d "YYYY-MM-DD" +%s` in a UTC context.
-export function dateToTs(d) {
-  const t = Date.parse(`${d}T00:00:00Z`);
-  return Number.isNaN(t) ? 0 : Math.floor(t / 1000);
-}

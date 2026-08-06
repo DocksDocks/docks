@@ -135,8 +135,8 @@ export function releaseTagCommit(instance) {
     );
   }
   // Presence is not enough. An explicit `undefined` would otherwise flow out and
-  // make `isReleaseTagCut` answer true, asserting the tag is cut when nothing is
-  // known - the fail-open this helper exists to close.
+  // read as a real commit, asserting the tag is cut when nothing is known - the
+  // fail-open this helper exists to close.
   const value = group.release_tag_commit;
   if (value !== null && !(typeof value === 'string' && COMMIT40.test(value))) {
     throw new ReleaseInstanceError(
@@ -145,8 +145,6 @@ export function releaseTagCommit(instance) {
   }
   return value;
 }
-export const isReleaseTagCut = (instance) => releaseTagCommit(instance) !== null;
-export const UNBORN_RELEASE_TAG_REASON = 'the release tag is not cut yet, so no commit can be bound to it';
 
 export class ReleaseInstanceError extends Error {
   constructor(message) {

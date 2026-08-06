@@ -145,7 +145,7 @@ node scripts/agents/score.mjs    # quality score (max 15) — model, tools, Work
 
 `--per-file` on a scorer prints one `<name> <score>` line per item — useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
 
-CI runs all of these on every PR to `main` and on every `docks--v*` release tag (see `.github/workflows/ci.yml`; full trigger model below).
+On a PR to `main`, CI runs only the shards the changed paths resolve to — the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks, session-relay, plan-lifecycle and effect-kit each tag independently), it runs the repo-wide shard plus that plugin's own gate. See `.github/workflows/ci.yml`; full trigger model below.
 
 ## Versioning + releases
 
@@ -165,7 +165,7 @@ node scripts/release.mjs 0.2.0    # explicit
 
 The script bumps the Claude and Codex plugin manifests plus the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes auto-generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created — the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
 
-CI runs only on (a) PRs to main, (b) tag pushes matching `docks--v*`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI — PR validation gates merges, tag-CI gates releases.
+CI runs only on (a) PRs to main, (b) tag pushes matching `<plugin>--v<version>`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI — PR validation gates merges, tag-CI gates releases.
 
 Manually: `claude plugin tag --push ./plugins/docks` (tag only, no GitHub Release).
 
