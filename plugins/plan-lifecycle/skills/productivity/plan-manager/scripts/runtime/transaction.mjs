@@ -539,3 +539,124 @@ export async function withRepositoryTransaction(
     lock.release();
   }
 }
+
+// A path is emitted plain only when `parseScalar` reads it back unchanged: a
+// quoted scalar is always legal, so quoting is the fallback rather than a
+// special case.
+function yamlPathScalar(value) {
+  return /^[A-Za-z0-9][A-Za-z0-9._+/-]*$/.test(value) ? value : JSON.stringify(value);
+}
+
+// Rewrite `frontmatter.affected_paths` to `paths` and rebind `plan_sha256` to
+// the result. Both halves belong together: `affected_paths` is inside
+// `canonicalPlanView`, so amending the list without moving the digest produces
+// bytes no validator accepts. The digest is computed BEFORE the Plan-run line is
+// substituted because `canonicalBody` drops that line, so the two orders agree
+// and this one needs no fixpoint.
+function planBytesWithAffectedPaths(bytes, paths, run) {
+  const parsed = parsePlan(bytes);
+  if (!Buffer.from(parsed.text, 'utf8').equals(Buffer.from(bytes))) {
+    fail('affected-path amendment requires LF-normalized plan bytes');
+  }
+  const lines = [...parsed.lines];
+  let keyIndex = -1;
+  for (let index = 1; index < parsed.frontmatterEnd; index += 1) {
+    if (/^affected_paths:/.test(lines[index])) {
+      keyIndex = index;
+      break;
+    }
+  }
+  if (keyIndex === -1) fail('plan frontmatter declares no affected_paths to amend');
+  let end = keyIndex + 1;
+  while (end < parsed.frontmatterEnd && /^ {2}- /.test(lines[end])) end += 1;
+  lines.splice(keyIndex, end - keyIndex, 'affected_paths:', ...paths.map((item) => `  - ${yamlPathScalar(item)}`));
+  const rewritten = parsePlan(Buffer.from(lines.join('\n'), 'utf8'));
+  if (jcs(normalizeLogicalPaths(rewritten.frontmatter.affected_paths, 'amended affected path')) !== jcs(paths)) {
+    fail('affected-path amendment did not round-trip through the frontmatter parser');
+  }
+  const digest = sha256(
+    canonicalPlanViewFromParsed(
+      rewritten.frontmatter,
+      rewritten.frontmatter.plan_hash_mode === PLAN_HASH_MODE
+        ? bodyWithNormalizedStepStatuses(rewritten.body, parseStepsTable(rewritten.body))
+        : rewritten.body,
+      false,
+    ),
+  );
+  const amended = [...rewritten.lines];
+  amended[rewritten.frontmatterEnd + 1 + planRunBodyLineIndex(rewritten.body)] =
+    `Plan-run: ${jcs({ ...run, plan_sha256: digest })}`;
+  return Buffer.from(amended.join('\n'), 'utf8');
+}
+
+// A checkpoint commits what the implementation ACTUALLY changed, which is not
+// always the set its author predicted while drafting. Refusing that mismatch
+// cost three terminal restarts in one run - each one fresh user authority, a
+// redraft and a full re-review - to repair bookkeeping, not risk.
+//
+// The risk the refusal stood in for is real but narrower: the record must LIST
+// every path the checkpoint commits, so the archived plan stays auditable, and
+// scope must not widen underneath evidence that already bound it. So an omission
+// is HEALED instead of refused, and only while healing is safe. The single
+// authority on "safe" is `assertPersistedTransition`'s `ongoing` scope-amendment
+// arm in runtime/plan-state.mjs; this function reaches it by writing amended
+// bytes through the ordinary `transactPlanRun` path rather than by re-deciding
+// legality here, so a live review phase, a passed completion review or a minted
+// acceptance still refuse with exactly the messages that arm already emits.
+// Acceptance binds the affected-path manifest, which is why widening under one
+// is a refusal and not a second amendment.
+//
+// Ordering carries the crash safety: the amendment is persisted BEFORE `commit`
+// runs and inside the same exclusive repository transaction, so no interruption
+// can leave a commit whose paths the record does not list. The reverse order can.
+// `commit` returns the paths the resulting commit actually contains and they are
+// compared against the recorded set, so this is emphatically not "commit
+// anything": it is "record everything committed".
+export async function checkpointPlanRun(
+  { changedPaths, expected, expectedBytesSha256, file, identity, lockRoot, lockTimeoutMs = 1_000, ownedPaths, repo },
+  commit,
+) {
+  if (typeof commit !== 'function') fail('checkpoint commit must be a function');
+  assertPlainObject(identity, 'checkpoint identity');
+  if (!Array.isArray(changedPaths)) fail('checkpoint changed path set must be an array');
+  const changed = changedPaths.length === 0 ? [] : normalizeLogicalPaths(changedPaths, 'changed owned path');
+  const owned = new Set(normalizeLogicalPaths(ownedPaths, 'owned path'));
+  for (const logical of changed) {
+    if (!owned.has(logical)) fail(`checkpoint changed path is not an owned path: ${logical}`);
+  }
+  return withRepositoryTransaction({ expected, ownedPaths, repo, runId: identity.runId, lockTimeoutMs }, async () => {
+    const currentBytes = fs.readFileSync(file);
+    if (sha256(currentBytes) !== expectedBytesSha256) fail('plan CAS preimage is stale');
+    const current = validatePlanRun(currentBytes, { ...identity, acceptanceProof: 'recorded' });
+    const declared = normalizeLogicalPaths(current.frontmatter.affected_paths, 'frontmatter affected path');
+    const undeclared = changed.filter((logical) => !declared.includes(logical));
+    let amendment = null;
+    let affectedPaths = declared;
+    let bytesSha256 = expectedBytesSha256;
+    if (undeclared.length > 0) {
+      affectedPaths = normalizeLogicalPaths([...declared, ...undeclared], 'amended affected path');
+      const result = await transactPlanRun({
+        file,
+        identity,
+        expectedBytesSha256,
+        nextBytes: planBytesWithAffectedPaths(currentBytes, affectedPaths, current.run),
+        ...(lockRoot === undefined ? {} : { lockRoot }),
+        lockTimeoutMs,
+      });
+      amendment = { added: undeclared, affected_paths: affectedPaths, plan_sha256: result.run.plan_sha256 };
+      bytesSha256 = result.bytes_sha256;
+    }
+    const recorded = new Set([...affectedPaths, current.run.plan_path]);
+    const paths = normalizeLogicalPaths([...changed, current.run.plan_path], 'checkpoint commit path');
+    for (const logical of paths) {
+      if (!recorded.has(logical)) fail(`checkpoint cannot commit a path the record does not list: ${logical}`);
+    }
+    const contents = await commit({ amendment, paths });
+    if (!Array.isArray(contents)) fail('checkpoint commit must return the paths its commit contains');
+    const committed = contents.length === 0 ? [] : normalizeLogicalPaths(contents, 'committed path');
+    if (jcs(committed) !== jcs(paths)) {
+      fail('checkpoint commit contents do not match the recorded affected-path set');
+    }
+    return { affected_paths: affectedPaths, amendment, bytes_sha256: bytesSha256, committed_paths: committed };
+  });
+}

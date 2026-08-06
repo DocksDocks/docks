@@ -19,9 +19,84 @@ import {
   validTupleCatalog,
   withStamps,
 } from './fixtures/plan-run-v1.mjs';
-import { clone, expectReject, expectThrow, initializeRepository, withTempDirectory, writeFile } from './harness.mjs';
+import {
+  clone,
+  expectReject,
+  expectThrow,
+  git,
+  initializeRepository,
+  withTempDirectory,
+  writeFile,
+} from './harness.mjs';
 
 const PLAN_AFFECTED_PATHS = Object.freeze(['src/tracked.txt', 'src/untracked.txt']);
+
+// The path the implementation actually touched and the plan never declared. It
+// sorts between the two declared paths, so a union that merely appends would be
+// caught by the canonical-ordering assertions below.
+const UNDECLARED_PATH = 'src/undeclared.txt';
+const AMENDED_PATHS = Object.freeze([...PLAN_AFFECTED_PATHS, UNDECLARED_PATH].sort());
+
+function ongoingCheckpointTuple() {
+  return tuple('ongoing', { draft_review: reviewPhase('passed'), execution_parent: SOURCE_BASE });
+}
+
+// The three states in which scope may NOT widen. Each carries a bound
+// acceptance, because that is the shape a real run reaches them in.
+function boundCheckpointTuple(overrides) {
+  return tuple('ongoing', {
+    risk: 'sensitive',
+    draft_review: reviewPhase('passed'),
+    execution_parent: SOURCE_BASE,
+    implementation_commit: IMPLEMENTATION_COMMIT,
+    acceptance: acceptance(),
+    ...overrides,
+  });
+}
+
+function withCheckpointFixture(api, tupleValue, operation) {
+  return withTempDirectory('plan-run-checkpoint-', (root) => {
+    const repo = path.join(root, 'repo');
+    initializeRepository(repo);
+    const fixture = bindPlan(api, tupleValue);
+    const planFile = writeFile(repo, PLAN_PATH, fixture.bytes);
+    for (const logical of PLAN_AFFECTED_PATHS) writeFile(repo, logical, `${logical} committed bytes\n`);
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-qm', 'plan and declared paths']);
+    // The implementation changed a path drafting never predicted.
+    writeFile(repo, UNDECLARED_PATH, 'undeclared implementation bytes\n');
+    const ownedPaths = [PLAN_PATH, ...PLAN_AFFECTED_PATHS, UNDECLARED_PATH];
+    const head = () => git(repo, ['rev-parse', 'HEAD']).stdout;
+    const commitContents = () =>
+      git(repo, ['show', '--name-only', '--pretty=format:', 'HEAD']).stdout.split('\n').filter(Boolean).sort();
+    const calls = [];
+    const commit = async ({ paths }) => {
+      calls.push(paths);
+      git(repo, ['add', '--', ...paths]);
+      git(repo, ['commit', '-qm', 'checkpoint']);
+      return commitContents();
+    };
+    return operation({
+      baseHead: head(),
+      calls,
+      commit,
+      commitContents,
+      fixture,
+      head,
+      input: {
+        changedPaths: [UNDECLARED_PATH],
+        expected: api.captureRepositoryPreimage({ repo, ownedPaths }),
+        expectedBytesSha256: api.sha256(fixture.bytes),
+        file: planFile,
+        identity: { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run },
+        ownedPaths,
+        repo,
+      },
+      planFile,
+      repo,
+    });
+  });
+}
 
 function validateBoundPlan(api, fixture, expected, acceptanceManifestExpectation = null) {
   return api.validatePlanRun(fixture.bytes, {
@@ -779,5 +854,74 @@ export function registerStateMatrix(suite, api) {
         );
       expectThrow(() => api.validatePlanRun(Buffer.from(fenced)), /Plan-run|missing/i);
     },
+  );
+
+  suite.test('state-matrix', 'checkpoint amends an undeclared changed path instead of refusing', () =>
+    withCheckpointFixture(api, ongoingCheckpointTuple(), async (context) => {
+      const result = await api.checkpointPlanRun(context.input, context.commit);
+      assert.deepEqual(result.amendment.added, [UNDECLARED_PATH]);
+      assert.deepEqual(result.affected_paths, AMENDED_PATHS);
+      assert.equal(context.calls.length, 1, 'the checkpoint must proceed to its commit');
+      // The record on disk - not just the return value - has to carry the path,
+      // because the archived plan is the audit surface.
+      const persisted = api.parsePlan(fs.readFileSync(context.planFile));
+      assert.deepEqual(persisted.frontmatter.affected_paths, AMENDED_PATHS);
+      assert.equal(persisted.frontmatter.status, 'ongoing');
+      assert.equal(
+        api.validatePlanRun(fs.readFileSync(context.planFile), { ...context.input.identity, goalId: IDS.goal }).run
+          .plan_sha256,
+        result.amendment.plan_sha256,
+      );
+    }),
+  );
+
+  for (const [name, overrides, error] of [
+    ['a live review phase', { completion_review: reviewPhase('reserved') }, /live completion_review/i],
+    ['a passed completion review', { completion_review: reviewPhase('passed') }, /passed completion review/i],
+    ['a minted acceptance', { completion_review: reviewPhase('retryable') }, /minted acceptance/i],
+  ]) {
+    suite.test('state-matrix', `checkpoint still refuses an undeclared path under ${name}`, () =>
+      withCheckpointFixture(api, boundCheckpointTuple(overrides), async (context) => {
+        await expectReject(() => api.checkpointPlanRun(context.input, context.commit), error);
+        assert.equal(context.calls.length, 0, 'a refused amendment must never reach its commit');
+        assert.ok(
+          fs.readFileSync(context.planFile).equals(context.fixture.bytes),
+          'a refused amendment must leave the record byte-identical',
+        );
+        assert.equal(context.head(), context.baseHead, 'a refused checkpoint must not move HEAD');
+      }),
+    );
+  }
+
+  suite.test('state-matrix', 'an amended checkpoint commits exactly the paths its record lists', () =>
+    withCheckpointFixture(api, ongoingCheckpointTuple(), async (context) => {
+      const result = await api.checkpointPlanRun(context.input, context.commit);
+      assert.deepEqual(result.committed_paths, context.commitContents(), 'reported and actual commit contents differ');
+      const recorded = new Set([
+        ...api.parsePlan(fs.readFileSync(context.planFile)).frontmatter.affected_paths,
+        PLAN_PATH,
+      ]);
+      assert.deepEqual(
+        result.committed_paths.filter((logical) => !recorded.has(logical)),
+        [],
+        'no committed path may be absent from the record',
+      );
+    }),
+  );
+
+  // The converse of the case above, and the reason the amendment is not "commit
+  // anything": a commit that reaches beyond the recorded set is rejected even
+  // though the amendment itself was legal.
+  suite.test('state-matrix', 'a commit reaching outside the recorded set is rejected', () =>
+    withCheckpointFixture(api, ongoingCheckpointTuple(), async (context) => {
+      writeFile(context.repo, 'src/unrecorded.txt', 'bytes no record lists\n');
+      await expectReject(
+        () =>
+          api.checkpointPlanRun(context.input, async ({ paths }) =>
+            context.commit({ paths: [...paths, 'src/unrecorded.txt'] }),
+          ),
+        /commit contents|recorded/i,
+      );
+    }),
   );
 }

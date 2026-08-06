@@ -13,6 +13,7 @@ import {
   REPOSITORY_ID,
   renderPlan,
   reviewPhase,
+  SOURCE_BASE,
   tuple,
   withStamps,
 } from './fixtures/plan-run-v1.mjs';
@@ -171,6 +172,48 @@ async function stopChild(child) {
       resolve();
     });
   });
+}
+
+// A checkpoint-shaped repository: the plan and its two declared paths committed,
+// plus one changed path drafting never declared.
+function checkpointFixture(api, root) {
+  const repo = path.join(root, 'repo');
+  initializeRepository(repo);
+  const fixture = bindPlan(
+    api,
+    tuple('ongoing', { draft_review: reviewPhase('passed'), execution_parent: SOURCE_BASE }),
+  );
+  const planFile = writeFile(repo, PLAN_PATH, fixture.bytes);
+  for (const logical of ['src/tracked.txt', 'src/untracked.txt']) {
+    writeFile(repo, logical, `${logical} committed bytes\n`);
+  }
+  git(repo, ['add', '-A']);
+  git(repo, ['commit', '-qm', 'plan and declared paths']);
+  writeFile(repo, 'src/undeclared.txt', 'undeclared implementation bytes\n');
+  const ownedPaths = [PLAN_PATH, 'src/tracked.txt', 'src/undeclared.txt', 'src/untracked.txt'];
+  return {
+    // A preimage over only the source paths. The amendment rewrites the plan
+    // file, so a contender that owned it too would be turned away by preimage
+    // drift and could not observe whether the repository lock was held at all.
+    contenderExpected: api.captureRepositoryPreimage({
+      repo,
+      ownedPaths: ['src/tracked.txt', 'src/undeclared.txt', 'src/untracked.txt'],
+    }),
+    commitContents: () =>
+      git(repo, ['show', '--name-only', '--pretty=format:', 'HEAD']).stdout.split('\n').filter(Boolean).sort(),
+    fixture,
+    input: {
+      changedPaths: ['src/undeclared.txt'],
+      expected: api.captureRepositoryPreimage({ repo, ownedPaths }),
+      expectedBytesSha256: api.sha256(fixture.bytes),
+      file: planFile,
+      identity: { planPath: PLAN_PATH, repositoryId: REPOSITORY_ID, runId: IDS.run },
+      ownedPaths,
+      repo,
+    },
+    planFile,
+    repo,
+  };
 }
 
 export function registerLocksAndCas(suite, api, { planRunPath }) {
@@ -401,6 +444,68 @@ export function registerLocksAndCas(suite, api, { planRunPath }) {
       assert.equal(attempts.filter(({ status }) => status === 'fulfilled').length, 1);
       assert.equal(attempts.filter(({ status }) => status === 'rejected').length, 1);
       assert.equal(fs.readFileSync(path.join(repo, 'user.txt'), 'utf8'), 'unexpected user bytes\n');
+    }),
+  );
+
+  // The amendment lives inside the checkpoint's own exclusive, preimage-checked
+  // repository transaction. Two consequences are worth pinning separately:
+  // drift refuses before the record is touched, and the lock is genuinely held
+  // across amend-then-commit rather than reacquired between them.
+  suite.test('locks-cas', 'a drifted repository preimage refuses the checkpoint before the record is amended', () =>
+    withTempDirectory('plan-run-checkpoint-drift-', async (root) => {
+      const context = checkpointFixture(api, root);
+      writeFile(context.repo, 'src/tracked.txt', 'concurrent third-party bytes\n');
+      let entered = false;
+      await expectReject(
+        () =>
+          api.checkpointPlanRun(context.input, () => {
+            entered = true;
+            return [];
+          }),
+        /preimage|concurrent/i,
+      );
+      assert.equal(entered, false, 'drift must fail before the commit');
+      assert.ok(
+        fs.readFileSync(context.planFile).equals(context.fixture.bytes),
+        'drift must fail before the record is amended',
+      );
+    }),
+  );
+
+  suite.test('locks-cas', 'the checkpoint holds the repository lock across amendment and commit', () =>
+    withTempDirectory('plan-run-checkpoint-lock-', async (root) => {
+      const context = checkpointFixture(api, root);
+      let contender = null;
+      await api.checkpointPlanRun(context.input, async ({ paths }) => {
+        // Observed from INSIDE the commit callback: the record is already amended
+        // and no second controller can enter until this checkpoint releases.
+        assert.deepEqual(api.parsePlan(fs.readFileSync(context.planFile)).frontmatter.affected_paths, [
+          'src/tracked.txt',
+          'src/undeclared.txt',
+          'src/untracked.txt',
+        ]);
+        contender = await api
+          .withRepositoryTransaction(
+            {
+              expected: context.contenderExpected,
+              lockTimeoutMs: 50,
+              ownedPaths: context.contenderExpected.owned_paths.map((entry) => entry.path),
+              repo: context.repo,
+              runId: IDS.otherRun,
+            },
+            () => 'entered',
+          )
+          .then(
+            (value) => value,
+            (error) => String(error),
+          );
+        git(context.repo, ['add', '--', ...paths]);
+        git(context.repo, ['commit', '-qm', 'checkpoint']);
+        return context.commitContents();
+      });
+      // Not merely "the contender failed": it failed ON THE LOCK, which is the
+      // only obstacle left once its preimage excludes the amended plan file.
+      assert.match(String(contender), /busy|timed out/i);
     }),
   );
 

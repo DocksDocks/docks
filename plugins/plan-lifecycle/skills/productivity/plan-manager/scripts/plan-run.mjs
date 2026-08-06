@@ -27,6 +27,7 @@ export {
 } from './runtime/plan-state.mjs';
 export {
   acquirePlanLock,
+  checkpointPlanRun,
   replacePlanRunInPlace,
   transactPlanRun,
   withRepositoryTransaction,
