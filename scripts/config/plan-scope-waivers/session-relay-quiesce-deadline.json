@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "waivers": [
+    {
+      "file": "plugins/session-relay/test/rust-test-inventory.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Generator, not a coupled edit. rust-test-inventory.mjs derives the executable test list from the cargo targets and compares it with assert.deepEqual; step 2 regenerates the fixture BY RUNNING that generator with --generate, unchanged. Declaring the generator in affected_paths would assert an edit that must not happen: hand-editing it to accept a drifted fixture is STOP condition 4."
+    },
+    {
+      "file": "plugins/session-relay/test/fixtures/reentry-inventory.json",
+      "path": "plugins/session-relay/rust/src/workspace/platform/linux.rs",
+      "reason": "Verified rather than asserted: `node scripts/ci.mjs --plugin session-relay` passed in 362s on 2026-08-07 with this exact change applied to the working tree, and that gate run executed this consumer green. The reentry inventory keys operation sites by file and FUNCTION name, not by line, and this change adds no syscall site: the calls move from graceful_stop_and_wait_empty into graceful_stop_and_wait_empty_within, which contains no tracked operation of its own. A poll-based rewrite of wait_recursive_empty WOULD add a libc_poll site and require regenerating this fixture, which is one reason that rewrite is deferred to its own plan."
+    },
+    {
+      "file": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Verified rather than asserted: `node scripts/ci.mjs --plugin session-relay` passed in 362s on 2026-08-07 with this exact change applied to the working tree, and that gate run executed this consumer green. It asserts the shape and presence of release evidence, not the membership of any target's test list, so one added test name is invisible to it."
+    },
+    {
+      "file": "plugins/session-relay/test/release-promotion-contract.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Verified rather than asserted: `node scripts/ci.mjs --plugin session-relay` passed in 362s on 2026-08-07 with this exact change applied to the working tree, and that gate run executed this consumer green. It asserts promotion preconditions over release instances, not the membership of any target's test list."
+    },
+    {
+      "file": "plugins/session-relay/test/remediation-contract.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Verified rather than asserted: `node scripts/ci.mjs --plugin session-relay` passed in 362s on 2026-08-07 with this exact change applied to the working tree, and that gate run executed this consumer green. It asserts remediation wiring, not the membership of any target's test list."
+    },
+    {
+      "file": "scripts/tests/test-contracts.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "It reads the fixture to derive registry rows per target (test-contracts.mjs:396) and asserts the eight TARGETS are registered, not which tests each contains. Step 2 adds a test to an existing target and creates no target, so the registry is unchanged. This check is repo-wide rather than in the selected-plugin lane, so it is verified by the full gate rather than the plugin gate."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/plan-lifecycle-review-and-authority-modules.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Another plan's frozen scope-waiver record. It cites this path to waive its own coupling; it consumes no content and is not read at runtime by any consumer. Editing another plan's waiver to accommodate this one would falsify that plan's recorded scope."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-payload-boundary.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Another plan's frozen scope-waiver record, same reasoning: a path citation, not a content consumer."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Frozen release evidence for 0.16.0. Its recorded paths are consumed only as synthetic affected-path manifest entries and are never resolved against the working tree, so adding a test name cannot break it. Rewriting it would falsify what was true at that release commit."
+    }
+  ]
+}
