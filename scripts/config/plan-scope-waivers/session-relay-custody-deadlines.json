@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "waivers": [
+    {
+      "file": "plugins/session-relay/test/rust-test-inventory.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Generator, not a coupled edit. rust-test-inventory.mjs derives the executable test list from the cargo targets and compares it with assert.deepEqual; step:load_regression regenerates the fixture BY RUNNING that generator with --generate, unchanged. Declaring the generator in affected_paths would assert an edit that must not happen: hand-editing it to accept a drifted fixture is a STOP condition of this plan."
+    },
+    {
+      "file": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Asserts the shape and presence of release evidence, not the membership of any target's test list, so the one test name added by step:load_regression is invisible to it. Same disposition this consumer received in scripts/config/plan-scope-waivers/session-relay-quiesce-deadline.json, which added a test to the same target and passed the plugin gate."
+    },
+    {
+      "file": "plugins/session-relay/test/release-promotion-contract.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Asserts promotion preconditions over release instances, not the membership of any target's test list. Unchanged by adding one test name."
+    },
+    {
+      "file": "plugins/session-relay/test/remediation-contract.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Asserts remediation wiring, not the membership of any target's test list. Unchanged by adding one test name."
+    },
+    {
+      "file": "scripts/tests/test-contracts.mjs",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Reads the fixture to derive one registry row per TARGET and asserts the eight targets are registered, not which tests each contains. step:load_regression adds a test to an existing target and creates no target, so the registry is unchanged. This check is repo-wide rather than in the selected-plugin lane, so it is verified by the full gate."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/plan-lifecycle-review-and-authority-modules.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Another plan's frozen scope-waiver record. It cites this path to waive its own coupling; it consumes no content and is not read at runtime by any consumer. Editing another plan's waiver to accommodate this one would falsify that plan's recorded scope."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-payload-boundary.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Another plan's frozen scope-waiver record, same reasoning: a path citation, not a content consumer."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-quiesce-deadline.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "A finished plan's frozen scope-waiver record. It is historical evidence of what was true at that plan's acceptance; rewriting it would falsify that record."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-quiesce-deadline.json",
+      "path": "plugins/session-relay/rust/src/workspace/platform/linux.rs",
+      "reason": "Same finished plan's frozen record, citing the file this plan also edits. A path citation inside archived evidence, not a live consumer of the file's content."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "Frozen release evidence for 0.16.0. Its recorded paths are consumed only as synthetic affected-path manifest entries and are never resolved against the working tree, so adding a test name cannot break it. Rewriting it would falsify what was true at that release commit."
+    },
+    {
+      "file": "plugins/session-relay/test/reentry-inventory.mjs",
+      "path": "plugins/session-relay/test/fixtures/reentry-inventory.json",
+      "reason": "Generator, not a coupled edit. step:broker_event_wait regenerates the fixture BY RUNNING this generator, unchanged. Hand-editing the generator to accept a drifted inventory would defeat the check it exists to perform."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-quiesce-deadline.json",
+      "path": "plugins/session-relay/test/fixtures/reentry-inventory.json",
+      "reason": "A finished plan's frozen scope-waiver record, which waived this same fixture because its change added no syscall site. This plan's step:broker_event_wait does add one, so this plan regenerates the fixture; the archived record stays as written."
+    }
+  ]
+}
