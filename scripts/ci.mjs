@@ -555,9 +555,22 @@ function gatePlugin(p) {
     const checkOptions = p.rust
       ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }
       : undefined;
-    nodeOk(args, checkOptions)
-      ? ok(`${p.name} source check passed (${(check.binaryArg ? args.slice(0, -2) : args).join(' ')})`)
-      : fail(`${p.name} source check failed (run: node ${args.join(' ')})`);
+    const outcome = node(args, checkOptions);
+    const label = (check.binaryArg ? args.slice(0, -2) : args).join(' ');
+    if ((outcome.status ?? 1) !== 0) {
+      const detail = `${outcome.stdout ?? ''}${outcome.stderr ?? ''}`.trim();
+      if (detail) console.error(detail);
+      fail(`${p.name} source check failed (run: node ${args.join(' ')})`);
+      continue;
+    }
+    // A source check may legitimately decline to run: the three cgroup-delegation cases cannot
+    // execute without an owned cgroup-v2 subtree, and on a host with neither an override nor a
+    // usable `systemd --user` scope they exit 0 after printing their own SKIP line. Treating exit
+    // 0 alone as a pass would render that hole in the gate as green, so surface it as a warning.
+    const skipped = (outcome.stdout ?? '').split('\n').find((line) => line.startsWith('SKIP '));
+    skipped
+      ? warn(`${p.name} source check SKIPPED (${label}) - ${skipped.slice('SKIP '.length)}`)
+      : ok(`${p.name} source check passed (${label})`);
   }
 
   for (const contract of p.releaseContracts ?? []) {
