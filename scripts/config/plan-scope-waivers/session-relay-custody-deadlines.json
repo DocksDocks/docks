@@ -60,6 +60,21 @@
       "file": "scripts/config/plan-scope-waivers/session-relay-quiesce-deadline.json",
       "path": "plugins/session-relay/test/fixtures/reentry-inventory.json",
       "reason": "A finished plan's frozen scope-waiver record, which waived this same fixture because its change added no syscall site. This plan's step:broker_event_wait does add one, so this plan regenerates the fixture; the archived record stays as written."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-custody-deadlines.json",
+      "path": "plugins/session-relay/rust/src/workspace/platform/linux.rs",
+      "reason": "This plan's OWN scope-waiver record. P21 scans tracked files for string literals naming a declared path, and this file necessarily cites the paths it waives, so it reports itself as a coupling of them. It is a path citation consumed only by the self-check via --scope-waivers, never a runtime consumer of the file's content, and declaring it in affected_paths would instead fail P13 as declared-but-untouched because no step edits it. Cited by this file's waiver of the finished quiesce-deadline plan's frozen record for the same file."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-custody-deadlines.json",
+      "path": "plugins/session-relay/test/fixtures/reentry-inventory.json",
+      "reason": "This plan's OWN scope-waiver record. P21 scans tracked files for string literals naming a declared path, and this file necessarily cites the paths it waives, so it reports itself as a coupling of them. It is a path citation consumed only by the self-check via --scope-waivers, never a runtime consumer of the file's content, and declaring it in affected_paths would instead fail P13 as declared-but-untouched because no step edits it. Cited by this file's generator waiver and its waiver of the finished quiesce-deadline plan's frozen record."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-custody-deadlines.json",
+      "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
+      "reason": "This plan's OWN scope-waiver record. P21 scans tracked files for string literals naming a declared path, and this file necessarily cites the paths it waives, so it reports itself as a coupling of them. It is a path citation consumed only by the self-check via --scope-waivers, never a runtime consumer of the file's content, and declaring it in affected_paths would instead fail P13 as declared-but-untouched because no step edits it. Cited by this file's eight waivers covering that fixture's generator, contract consumers, sibling plan records and frozen release evidence."
     }
   ]
 }
