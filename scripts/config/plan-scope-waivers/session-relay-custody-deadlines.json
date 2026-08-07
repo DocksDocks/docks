@@ -75,6 +75,211 @@
       "file": "scripts/config/plan-scope-waivers/session-relay-custody-deadlines.json",
       "path": "plugins/session-relay/test/fixtures/rust-test-inventory.json",
       "reason": "This plan's OWN scope-waiver record. P21 scans tracked files for string literals naming a declared path, and this file necessarily cites the paths it waives, so it reports itself as a coupling of them. It is a path citation consumed only by the self-check via --scope-waivers, never a runtime consumer of the file's content, and declaring it in affected_paths would instead fail P13 as declared-but-untouched because no step edits it. Cited by this file's eight waivers covering that fixture's generator, contract consumers, sibling plan records and frozen release evidence."
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "path": "scripts/ci.mjs",
+      "reason": "Invokes the gate entry point with --lane/--plugin/--timings-json only (:167,212,387-388,434-437). The lane set comes from scripts/lib/ci-targeting.mjs:23 CI_LANES; neither a ninth session-relay source check nor a SKIP-to-fail branch adds, renames or removes a lane or step."
+    },
+    {
+      "file": "package.json",
+      "path": "scripts/ci.mjs",
+      "reason": "A bare npm-script alias at :7, \"ci\": \"node scripts/ci.mjs\", with no flags. test-contracts.mjs reads package.json only for scripts.test:unit (:152-156), which this plan does not touch."
+    },
+    {
+      "file": "plugins/plan-lifecycle/test/selftest.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports PLUGINS at :139-142 and asserts only that exactly one plan-lifecycle descriptor exists with root plugins/plan-lifecycle. It never inspects the session-relay descriptor or any sourceChecks array."
+    },
+    {
+      "file": "plugins/session-relay/test/distribution-contract.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Asserts at :937 that a release fixture journalled an argv naming the gate command. It inspects argv strings produced by session-relay-release-fixture.mjs, never the gate behaviour or bytes."
+    },
+    {
+      "file": "plugins/session-relay/test/distribution-contract.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports the registry at :11 and consumes it at :929 as PLUGINS.filter(({ release }) => release.kind === \"generic\"). It reads only release.kind and name; session-relay is excluded by that filter and sourceChecks is never read."
+    },
+    {
+      "file": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Every occurrence (:567,587,744,807-808,892-895,1009-1010,2952-2976) is a workflow step or job name string, or an expected release argv [\"node\",\"scripts/ci.mjs\"]. They assert release-evidence shape, not gate internals."
+    },
+    {
+      "file": "plugins/session-relay/test/release-evidence-contract.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Named at :92 inside PREPARATION_RUNTIME_DEPENDENCIES (:82-118) as a file to COPY into a fixture tree so the preparation binder resolves its imports. The binder consumes only name, root and ciLane, so a ninth sourceChecks entry travels with the copy inertly."
+    },
+    {
+      "file": "plugins/session-relay/test/release-instance-contract.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports four manifest and marketplace helpers at :31 (byName, CLAUDE_MARKETPLACE, claudeManifest, codexManifest) for version identity. None of them exposes a descriptor check list."
+    },
+    {
+      "file": "plugins/session-relay/test/release-promotion-contract.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Appears at :156 inside the frozen PLANRUN_DOCKS_AFFECTED_PATHS census (:136-165), a recorded list of paths a past release PlanRun declared. Census strings are compared with release-instance evidence and are never resolved or hashed against the working tree."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/plan-lifecycle-review-and-authority-modules.json",
+      "path": "scripts/ci.mjs",
+      "reason": "Another plan's frozen scope-waiver record. It cites the path to waive that plan's own coupling, is read by no runtime consumer, and editing it would falsify that plan's recorded scope."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/plan-lifecycle-review-and-authority-modules.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Same frozen record, same reasoning: a path citation inside another plan's scope evidence, not a content dependency."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-payload-boundary.json",
+      "path": "scripts/ci.mjs",
+      "reason": "Another active plan's frozen waiver rows, keyed to that plan's own move and consuming no content from this path."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-payload-boundary.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Same frozen waiver record, same reasoning."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-quiesce-deadline.json",
+      "path": "scripts/ci.mjs",
+      "reason": "Cites node scripts/ci.mjs --plugin session-relay at :12,17,22,27 inside prose recording how a finished plan was verified. It is evidence text in a frozen waiver, not an invocation or a content read."
+    },
+    {
+      "file": "scripts/lib/ci-targeting.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Uses the path as the AUTHORITATIVE_GATE_STEP_NAME literal (:397), in diagnostics (:401,436,451,463) and as a sample outside-every-plugin-root diff entry (:264). Shard and lane derivation reads only plugin.root (:126-131) and plugin.ciLane (:37-47), never sourceChecks."
+    },
+    {
+      "file": "scripts/lib/ci-targeting.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "The path appears only inside two operator-facing error messages at :212 and :220 telling the reader where to add or remove a descriptor."
+    },
+    {
+      "file": "scripts/lib/gate-memo.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "The memo key is a content digest of the working tree plus scope, node, platform and tools (:139-147); this path appears only in comments (:1,206) and an advisory string (:297). The plan changes cause the next run to MISS and recompute, which is the intended behaviour, and there is no recorded fixture to update."
+    },
+    {
+      "file": "scripts/lib/plugin-release.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Spawns the gate as a subprocess at :465 and reports its exit status, with the path also in error text at :308. It passes flags through unchanged and inspects no gate output."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-core.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports five manifest and version helpers at :6 (byName, CLAUDE_MARKETPLACE, claudeManifest, codexManifest, marketEntryVersion). None carries a descriptor check list."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-fixture.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Synthesises expected release-journal argv [\"node\",\"scripts/ci.mjs\", ...] at :58,226,236 for fixture scenarios. The fixture never executes the gate."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-fixture.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Reads descriptor identity (name, release) to build fixture scenarios. The file contains no sourceChecks access; repo-wide, the only sourceChecks readers are scripts/ci.mjs and scripts/tests/test-contracts.mjs."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/ci.mjs",
+      "reason": "Frozen release evidence. The recorded docks_affected_paths at :45-46 are consumed only as synthetic manifest entries carrying state missing (session-relay-release-preparation.mjs:1372, release-promotion-contract.mjs:2498-2515) and are never resolved against the working tree; rewriting it would falsify that release commit."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.14.0.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Same frozen release-evidence record and the same never-resolved consumption path."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.15.0.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Frozen release evidence at :30 recording what that release touched, not what the tree contains now."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-instances/0.16.0.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Four frozen attempt manifests at :36,69,109,140, each a historical path census, none re-resolved against disk."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-preparation.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Pins the workflow step name, the generated workflow shell text node scripts/ci.mjs --lane ..., and the source-CI command [\"node\",\"scripts/ci.mjs\"] at :166,423,468,971,1579,1617,1784,1839,1925. It asserts invocation spelling and hosted job identity, never gate internals or the source-check list."
+    },
+    {
+      "file": "scripts/lib/session-relay-release-promotion.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Runs the full gate in a repair checkout at :3602 and :3928 via commandAt(root, process.execPath, [\"scripts/ci.mjs\"]) and checks only ok and stderr. A new source check simply runs inside that gate."
+    },
+    {
+      "file": "scripts/release.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports PLUGINS at :20 to resolve the plugin being released by name and release policy. No check-list access."
+    },
+    {
+      "file": "scripts/skills/transform-guard.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports PLUGINS at :8 and reads only the skills and transformGuard descriptor fields to walk curated transformers."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Asserts invocation argv, workflow job and step names, and shard-selection branches across :404-2359. It contains no sourceChecks reference, no source-check count and no relay-lane snapshot, and its gate runs target --plugin effect-kit and --plugin docks, so a ninth relay source check changes none of its expected strings."
+    },
+    {
+      "file": "scripts/tests/ci-plugin-targeting.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports PLUGINS and REPO_WIDE_JAVASCRIPT_QUALITY at :29 and consumes name, root, ciLane and javascriptQuality for shard-topology assertions. The descriptor check arrays are never enumerated."
+    },
+    {
+      "file": "scripts/tests/unit/cargo-target-dir.test.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports privatizeBuiltBinary and resolveBuiltBinary at :7. Both operate on rust.source, which this plan does not touch."
+    },
+    {
+      "file": "scripts/tests/unit/gate-memo.test.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "The string appears at :246,260,305 inside expected advisory output produced by gate-memo.mjs:297 and inside a synthetic git status record. Every key is computed over throwaway temp repos (:32,92-94), never over this repository, so no recorded fixture can be invalidated."
+    },
+    {
+      "file": "scripts/tests/unit/skill-score-vacuity.test.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "Drives the gate at :82 for TARGET = effect-kit (:16), a plugin with no sourceChecks, so neither the new relay entry nor the SKIP branch is reached. The other mention at :11 is a comment."
+    },
+    {
+      "file": "scripts/tests/unit/tag-ci-run-identity.test.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Imports PLUGINS at :13 to resolve plugin identity for release-tag assertions. It reads no check descriptor fields."
+    },
+    {
+      "file": "scripts/tests/test-contracts.mjs",
+      "path": "scripts/ci.mjs",
+      "reason": "The one derivation consumer, waived as a re-run rather than an edit. repoSuiteDescriptors (:207) harvests only QUOTED scripts/tests/*.mjs literals and gateInvocationArguments (:177) only matches node([...]) or nodeOk([...]) calls, so a single-line fail(`...`) backtick template adds nothing to either derivation. It reads ci.mjs bytes at :398 and must be re-run green, which the repo-wide lane performs, but it needs no source change."
+    },
+    {
+      "file": "scripts/tests/test-contracts.mjs",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "Mints one descriptor per sourceChecks entry at :264-274. The new entry is included as id plugin-session-relay-source-rust-unit-tests-default with selector equal to its suite path, matching the shape of the existing reentry-inventory row. The cargo-test-target derivation at :318-322 filters to --case entries on RUST_INVENTORY_SUITE and therefore skips it, so no cargo target changes. Requires the matching registry row and a green re-run, not an edit."
+    },
+    {
+      "file": "scripts/tests/test-contracts.mjs",
+      "path": "scripts/config/test-contracts.json",
+      "reason": "Reads the registry at :395 and asserts discovered/registered equality in both directions (:420), per-field agreement (:426-428), the expected_min floor (:429-432) and suite existence (:432). step:execute_unit_tests adds exactly one row shaped as the derivation dictates, so this file passes unchanged and is a re-run dependency rather than an edit target."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-custody-deadlines.json",
+      "path": "scripts/ci.mjs",
+      "reason": "This plan's OWN scope-waiver record. P21 scans tracked files for string literals naming a declared path, and this file necessarily cites scripts/ci.mjs in the waiver rows that waive it. It is a path citation consumed only by the self-check via --scope-waivers, never a runtime consumer of that file's content, and declaring it in affected_paths would instead fail P13 as declared-but-untouched because no step edits it."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-custody-deadlines.json",
+      "path": "scripts/lib/plugins.mjs",
+      "reason": "This plan's OWN scope-waiver record. P21 scans tracked files for string literals naming a declared path, and this file necessarily cites scripts/lib/plugins.mjs in the waiver rows that waive it. It is a path citation consumed only by the self-check via --scope-waivers, never a runtime consumer of that file's content, and declaring it in affected_paths would instead fail P13 as declared-but-untouched because no step edits it."
+    },
+    {
+      "file": "scripts/config/plan-scope-waivers/session-relay-custody-deadlines.json",
+      "path": "scripts/config/test-contracts.json",
+      "reason": "This plan's OWN scope-waiver record. P21 scans tracked files for string literals naming a declared path, and this file necessarily cites scripts/config/test-contracts.json in the waiver rows that waive it. It is a path citation consumed only by the self-check via --scope-waivers, never a runtime consumer of that file's content, and declaring it in affected_paths would instead fail P13 as declared-but-untouched because no step edits it."
     }
   ]
 }
