@@ -192,8 +192,15 @@ function recordOf(world) {
 // object, and the real dispatch, which gets the sealed prompt and the reply this
 // probe is actually about. Blocking the route probe on `goFile` would hang it until
 // its timeout and refuse the dispatch before it started.
+// The stub records its own pid before blocking. `sigkill-control` kills the driver
+// with SIGKILL, which the driver cannot handle, so it never gets to reap the
+// reviewer it spawned — the stub is orphaned by construction and outlives the
+// scratch directory. Observed: one leaked node process per gate run, still alive
+// with its cwd deleted. The pid file lets the probe reap what the driver could not,
+// without depending on `pkill` being present.
 function writeStub(world, { reply, goFile, name = 'stub' }) {
   const stub = path.join(world.root, `${name}.mjs`);
+  const pidFile = path.join(world.root, `${name}.pid`);
   fs.writeFileSync(
     stub,
     [
@@ -202,6 +209,7 @@ function writeStub(world, { reply, goFile, name = 'stub' }) {
       '  process.stdout.write(\'{"probe":"ok"}\\n\');',
       '  process.exit(0);',
       '}',
+      `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
       `const go = ${JSON.stringify(goFile)};`,
       'if (go !== null) {',
       '  while (!fs.existsSync(go)) await new Promise((r) => setTimeout(r, 10));',
@@ -210,6 +218,22 @@ function writeStub(world, { reply, goFile, name = 'stub' }) {
     ].join('\n'),
   );
   return stub;
+}
+
+// Reap a stub the driver could not: only the SIGKILL path leaves one, and only
+// after it has written its pid. A missing file means it never blocked, which is
+// the ordinary case and not an error.
+function reapStub(stub) {
+  const pidFile = `${stub.replace(/\.mjs$/, '')}.pid`;
+  if (!fs.existsSync(pidFile)) return false;
+  const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 'SIGKILL');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // The reply is only knowable after the driver seals, because it must bind the
@@ -428,13 +452,23 @@ probes['sigkill-control'] = () =>
     const stub = writeStub(world, { goFile: path.join(root, 'never-go'), reply: {} });
     const { child, done } = startDriver(world, { stub });
     await waitForState(world, new Set(['reserved']));
+    // Reaching `reserved` does not mean the reviewer is running: the reserve lands
+    // first and the spawn follows, so killing on the state alone raced the spawn and
+    // this control sometimes measured a driver that had not yet dispatched. Waiting
+    // for the stub's pid makes "killed while live" a causal fact, and it is why the
+    // orphan below appeared only intermittently.
+    await waitFor('stub reviewer to start', () => fs.existsSync(`${stub.replace(/\.mjs$/, '')}.pid`));
     child.kill('SIGKILL');
     await done;
 
     const phase = phaseOf(world);
     assert.equal(phase.state, 'reserved', 'SIGKILL must leave a bare reserved');
     assert.equal(phase.invocations, 1, 'an unrefunded permit stays consumed');
-    process.stdout.write('  ok SIGKILL: bare reserved, permit consumed (control holds)\n');
+    // The orphan is the point of this probe, not an accident — but leaving it alive
+    // leaks one blocked node process per gate run, so reap it once the assertions
+    // above have observed what it was here to prove.
+    assert.equal(reapStub(stub), true, 'the orphaned stub must still be reapable by pid');
+    process.stdout.write('  ok SIGKILL: bare reserved, permit consumed (control holds), orphan reaped\n');
   });
 
 // A3: the body edit and the reservation are ONE transaction, so bytes changing
