@@ -527,6 +527,53 @@ probes['head-drift'] = () =>
     process.stdout.write('  ok HEAD drift refunded to retryable, permit returned\n');
   });
 
+// The sealed manifest must snapshot the scope of the bytes being sealed, not the
+// scope on disk. A repaired `--body` may widen `affected_paths`, and the driver
+// already binds `plan_sha256` to that candidate, so reading the live frontmatter
+// for the path list sealed evidence narrower than the plan it claimed to bind.
+// Measured against the real defect: a repair adding 7 paths produced an
+// invocation-2 `source_sha256` byte-identical to invocation 1's, and the reviewer
+// returned `v1_evidence_mismatch` naming 199 manifest entries against 206 declared.
+// Falsify by restoring `const paths = current.frontmatter.affected_paths;`.
+probes['candidate-scope'] = () =>
+  withScratchRoot('dispatch-candidate-scope-', async (root) => {
+    const world = buildWorld(root, { draftReview: reviewPhase('repairing'), recordInReview: true });
+    // A second tracked file the live plan does not declare, so the widened body is
+    // the only route by which it can enter the manifest.
+    fs.writeFileSync(path.join(world.repo, 'widened.txt'), 'widened\n');
+    git(world.repo, ['add', 'widened.txt']);
+    git(world.repo, ['commit', '-m', 'add widened fixture', '--no-gpg-sign']);
+
+    const source = fs.readFileSync(world.planFile, 'utf8');
+    const body = source
+      .replace('affected_paths:\n  - tracked.txt', 'affected_paths:\n  - tracked.txt\n  - widened.txt')
+      .replace('| `tracked.txt` |', '| `tracked.txt`; `widened.txt` |');
+    assert.notEqual(body, source, 'the widened body must change plan-hashed bytes');
+    const bodyFile = path.join(world.root, 'widened.md');
+    fs.writeFileSync(bodyFile, body);
+
+    const neverGo = path.join(world.root, 'never-go');
+    const stub = writeStub(world, { goFile: neverGo, reply: {} });
+    const running = startDriver(world, { body: bodyFile, stub });
+    await waitForState(world, new Set(['reserved']));
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(sealedBundlePath(world), 'manifest.json'), 'utf8'));
+    const sealed = manifest.paths.map((entry) => entry.path).sort();
+    assert.deepEqual(
+      sealed,
+      ['tracked.txt', 'widened.txt'],
+      'the sealed manifest must carry every path the candidate body declares',
+    );
+    assert.notEqual(
+      manifest.source_sha256,
+      world.run.source_sha256,
+      'a widened scope must move source_sha256 away from the pre-repair digest',
+    );
+    running.child.kill('SIGTERM');
+    await running.done;
+    process.stdout.write('  ok candidate scope: the sealed manifest follows --body, not the on-disk frontmatter\n');
+  });
+
 // A6: a dry run reserves nothing and reports the sealed digest. `--help` exiting 0
 // observes none of this, which is why it is a separate row.
 probes['dry-run'] = () =>

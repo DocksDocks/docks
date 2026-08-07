@@ -56,6 +56,7 @@ const DISPATCH_PROBES = [
   ['dirty-drift', 'uncommitted affected-path drift refunds with HEAD unmoved'],
   ['stdout-persistence', 'the complete reviewer stdout is persisted byte-for-byte before interpretation'],
   ['repair-reserve', 'a repair reservation needs only changed input bytes, which the reducer refuses to replay'],
+  ['candidate-scope', 'the sealed manifest follows the --body candidate scope, not the on-disk frontmatter'],
 ];
 
 const EVIDENCE_PROBES = [

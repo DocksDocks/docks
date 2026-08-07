@@ -185,7 +185,13 @@ const withRecord = (baseText, state) => {
 };
 
 const head = git(REPO, ['rev-parse', 'HEAD']);
-const paths = current.frontmatter.affected_paths;
+// Scope comes from the bytes being sealed, NOT from the bytes on disk. A repaired
+// body may widen `affected_paths`, and `planSha256` below already binds the
+// candidate - so reading the live frontmatter here sealed a manifest narrower than
+// the plan it was bound to. Measured: a repair that added 7 paths produced an
+// invocation-2 `source_sha256` byte-identical to invocation 1's, and the reviewer
+// caught it as `v1_evidence_mismatch` (199 manifest entries against 206 declared).
+const paths = lib.parsePlan(Buffer.from(candidateSourceText)).frontmatter.affected_paths;
 const manifest = lib.createAffectedPathManifest({ repo: REPO, sourceBase: head, paths });
 const planSha256 = lib.sha256(lib.canonicalPlanView(Buffer.from(candidateSourceText)));
 const rebound = {
