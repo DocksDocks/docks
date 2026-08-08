@@ -10,8 +10,6 @@ observed acceptance remain authoritative.
 |---:|---|---|---|
 | 1 | ci-observability-and-test-contracts | — | This plan is finished. |
 | 2 | plan-execution-queue-contract | ci-observability-and-test-contracts | CI observability is finished and its full gate is green; this plan is finished, so the queue now orders the remaining work. |
-| 3 | session-relay-typed-irc-sqlite | plan-execution-queue-contract | The queue contract is finished and the CI observability gate remains green. |
-| 4 | session-relay-post-cutover-modules | session-relay-typed-irc-sqlite | Relay vNext is finished and its selected plugin gate is green. |
 
 ## OptMem design input
 

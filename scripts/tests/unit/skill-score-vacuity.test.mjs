@@ -76,7 +76,6 @@ for (const tool of ['node', 'pnpm', 'claude', 'shellcheck', 'cargo']) writeShim(
 const baseEnv = { ...process.env };
 delete baseEnv.CARGO_TARGET_DIR;
 delete baseEnv.GITHUB_ACTIONS;
-delete baseEnv.SESSION_RELAY_TEST_CGROUP_ROOT;
 
 const runCi = (mode) => {
   const result = spawnSync(process.execPath, ['scripts/ci.mjs', '--plugin', TARGET], {

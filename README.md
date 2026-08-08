@@ -10,13 +10,12 @@ Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cro
 /reload-plugins
 ```
 
-## session-relay moved
+## session-relay moved out
 
-session-relay no longer lives in this repository. It lives at
-https://github.com/DocksDocks/session-relay and stays reachable through the docks Claude
-marketplace by redirect. The redirect uses a `git-subdir` source that points at that
-repository's `plugin/` directory. Codex users add that repository's own catalog directly,
-because the Codex catalog schema has no remote source kind.
+session-relay is no longer part of this kit. It lives at
+https://github.com/DocksDocks/session-relay and is installed from that repository's own
+catalog, in both Claude Code and Codex. This marketplace no longer lists it, and the skills
+here neither depend on it nor reference it.
 
 ## Platform support
 
