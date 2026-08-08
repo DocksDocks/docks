@@ -11,7 +11,7 @@ on:
     branches: [main]
   push:
     tags:
-      - '*--v*'   # any <plugin>--v<version> release tag (docks--v*, session-relay--v*, ...)
+      - '*--v*'   # any <plugin>--v<version> release tag (docks--v*, effect-kit--v*, ...)
   workflow_dispatch:
 
 # Least privilege: every validation job is read-only.
@@ -91,8 +91,8 @@ jobs:
       fail-fast: false
       matrix:
         # Registry-derived, resolved per pull request by the resolve-shards job.
-        # Always contains the `repo` shard; `core` and `relay` appear only when the
-        # diff implicates a plugin they own, or when resolution failed open.
+        # Always contains the `repo` shard; `core` appears only when the diff
+        # implicates a plugin it owns, or when resolution failed open.
         lane: ${{ fromJSON(needs.resolve-shards.outputs.lanes) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -120,20 +120,9 @@ jobs:
           path: ~/.pnpm-store
           key: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
           restore-keys: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-
-      - name: "cache Cargo dependencies and target outputs"
-        id: cargo-cache
-        if: matrix.lane == 'relay'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            plugins/session-relay/rust/target
-          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-${{ hashFiles('plugins/session-relay/rust/src/**/*.rs', 'plugins/session-relay/rust/build.rs', 'plugins/session-relay/rust/tests/**/*.rs', 'plugins/session-relay/rust/.cargo/config', 'plugins/session-relay/rust/.cargo/config.toml') }}
-          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-
       - name: "mark hosted cache restore"
         run: |
-          printf '{"step":"mark hosted cache restore","at_ms":%s,"pnpm_cache_hit":"%s","pnpm_cache_key":"%s","cargo_cache_hit":"%s","cargo_cache_key":"%s"}\n' "$(date +%s%3N)" '${{ steps.pnpm-cache.outputs.cache-hit }}' '${{ steps.pnpm-cache.outputs.cache-primary-key }}' '${{ steps.cargo-cache.outputs.cache-hit }}' '${{ steps.cargo-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+          printf '{"step":"mark hosted cache restore","at_ms":%s,"pnpm_cache_hit":"%s","pnpm_cache_key":"%s"}\n' "$(date +%s%3N)" '${{ steps.pnpm-cache.outputs.cache-hit }}' '${{ steps.pnpm-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
         run: |
           pnpm install --frozen-lockfile
@@ -153,64 +142,9 @@ jobs:
         run: |
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
           printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: provision Rust 1.85.0 with musl for the session-relay host leg
-        if: matrix.lane == 'relay'
-        run: |
-          if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then
-            sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
-            (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)
-          fi
-          printf '{"step":"provision Rust 1.85.0 with musl for the session-relay host leg","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "run validation lane"
         run: |
-          if [ "${{ matrix.lane }}" != "relay" ]; then
-            node scripts/ci.mjs --lane "${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-            printf '{"step":"run validation lane","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-            exit
-          fi
-          CURRENT_CGROUP=
-          while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
-            if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
-              CURRENT_CGROUP="$CGROUP_PATH"
-              break
-            fi
-          done < /proc/self/cgroup
-          test -n "$CURRENT_CGROUP"
-          CGROUP="/sys/fs/cgroup${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.lane }}"
-          sudo -n mkdir "$CGROUP"
-          cleanup() {
-            status=$?
-            trap - EXIT
-            for _ in {1..100}; do
-              grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-              sleep 0.05
-            done
-            if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
-              echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
-              status=1
-              if [ -f "$CGROUP/cgroup.kill" ]; then
-                printf '1\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
-                for _ in {1..100}; do
-                  grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-                  sleep 0.05
-                done
-              fi
-            fi
-            if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
-              echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
-              status=1
-            fi
-            exit "$status"
-          }
-          trap cleanup EXIT
-          sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
-          sudo -n chown "$(id -u):$(id -g)" \
-            "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
-          (
-            test_pid=$BASHPID
-            sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
-            SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --lane "${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-          )
+          node scripts/ci.mjs --lane "${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
           printf '{"step":"run validation lane","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "publish hosted timing artifact"
         if: always()
@@ -328,21 +262,10 @@ jobs:
           path: ~/.pnpm-store
           key: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
           restore-keys: pnpm-v11-${{ runner.os }}-${{ runner.arch }}-
-      - name: "cache Cargo dependencies and target outputs"
-        id: cargo-cache
-        if: github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            plugins/session-relay/rust/target
-          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-${{ hashFiles('plugins/session-relay/rust/src/**/*.rs', 'plugins/session-relay/rust/build.rs', 'plugins/session-relay/rust/tests/**/*.rs', 'plugins/session-relay/rust/.cargo/config', 'plugins/session-relay/rust/.cargo/config.toml') }}
-          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/session-relay/rust/Cargo.lock', 'plugins/session-relay/rust/Cargo.toml', 'plugins/session-relay/rust/rust-toolchain.toml') }}-
       - name: "mark hosted cache restore"
         if: github.event_name != 'pull_request'
         run: |
-          printf '{"step":"mark hosted cache restore","at_ms":%s,"pnpm_cache_hit":"%s","pnpm_cache_key":"%s","cargo_cache_hit":"%s","cargo_cache_key":"%s"}\n' "$(date +%s%3N)" '${{ steps.pnpm-cache.outputs.cache-hit }}' '${{ steps.pnpm-cache.outputs.cache-primary-key }}' '${{ steps.cargo-cache.outputs.cache-hit }}' '${{ steps.cargo-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+          printf '{"step":"mark hosted cache restore","at_ms":%s,"pnpm_cache_hit":"%s","pnpm_cache_key":"%s"}\n' "$(date +%s%3N)" '${{ steps.pnpm-cache.outputs.cache-hit }}' '${{ steps.pnpm-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
         if: github.event_name != 'pull_request'
         run: |
@@ -366,14 +289,6 @@ jobs:
         run: |
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
           printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: provision Rust 1.85.0 with musl for the session-relay host leg
-        if: github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')
-        run: |
-          if [ -f plugins/session-relay/rust/rust-toolchain.toml ]; then
-            sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
-            (cd plugins/session-relay/rust && rustup toolchain install && rustup target add x86_64-unknown-linux-musl)
-          fi
-          printf '{"step":"provision Rust 1.85.0 with musl for the session-relay host leg","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "run the authoritative gate (scripts/ci.mjs)"
         if: github.event_name != 'pull_request'
         run: |
@@ -383,60 +298,12 @@ jobs:
           # the targeted `--plugin` gate skips every repo-wide phase by design. So the push
           # leg runs the repo-wide shard too — once, here, over the exact bytes being
           # released — and the targeted plugin gate still has the last word.
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ steps.target.outputs.needs_rust }}" != "true" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
             DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo
             node scripts/ci.mjs --plugin "${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-            printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-            exit
+          else
+            node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
           fi
-          CURRENT_CGROUP=
-          while IFS=: read -r HIERARCHY CONTROLLERS CGROUP_PATH; do
-            if [ "$HIERARCHY" = 0 ] && [ -z "$CONTROLLERS" ]; then
-              CURRENT_CGROUP="$CGROUP_PATH"
-              break
-            fi
-          done < /proc/self/cgroup
-          test -n "$CURRENT_CGROUP"
-          CGROUP="/sys/fs/cgroup${CURRENT_CGROUP%/}/session-relay-test-$(id -u)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-validate"
-          sudo -n mkdir "$CGROUP"
-          cleanup() {
-            status=$?
-            trap - EXIT
-            for _ in {1..100}; do
-              grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-              sleep 0.05
-            done
-            if ! grep -qx 'populated 0' "$CGROUP/cgroup.events"; then
-              echo "Session Relay cgroup delegation leaked live processes: $CGROUP" >&2
-              status=1
-              if [ -f "$CGROUP/cgroup.kill" ]; then
-                printf '1\n' | sudo -n tee "$CGROUP/cgroup.kill" >/dev/null
-                for _ in {1..100}; do
-                  grep -qx 'populated 0' "$CGROUP/cgroup.events" && break
-                  sleep 0.05
-                done
-              fi
-            fi
-            if ! grep -qx 'populated 0' "$CGROUP/cgroup.events" || ! sudo -n rmdir "$CGROUP"; then
-              echo "Session Relay cgroup delegation did not cleanly close: $CGROUP" >&2
-              status=1
-            fi
-            exit "$status"
-          }
-          trap cleanup EXIT
-          sudo -n chown "$(id -u):$(id -g)" "$CGROUP"
-          sudo -n chown "$(id -u):$(id -g)" \
-            "$CGROUP/cgroup.procs" "$CGROUP/cgroup.threads" "$CGROUP/cgroup.subtree_control"
-          (
-            test_pid=$BASHPID
-            sudo -n tee "$CGROUP/cgroup.procs" >/dev/null <<<"$test_pid"
-            if [ "${{ github.event_name }}" = "push" ]; then
-              SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo
-              SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --plugin "${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-            else
-              SESSION_RELAY_TEST_CGROUP_ROOT="$CGROUP" node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
-            fi
-          )
           printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "publish hosted timing artifact"
         if: always() && github.event_name != 'pull_request'

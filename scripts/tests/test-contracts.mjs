@@ -3,16 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  LABEL_CONTRACT_OWNERS,
-  PRODUCTION_OUTPUT_LABELS,
-  SCENARIOS,
-} from '../../plugins/session-relay/test/selftest.mjs';
 import { PLUGINS } from '../lib/plugins.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '../..');
-const RUST_INVENTORY_SUITE = 'plugins/session-relay/test/rust-test-inventory.mjs';
 const ROW_KEYS = [
   'id',
   'version',
@@ -29,7 +23,7 @@ const OWNER_KEYS = ['suite', 'layer'];
 const SELECTION_KEYS = ['kind', 'selector', 'expected_min'];
 const SKIP_KEYS = ['selector', 'owner', 'reason', 'expires'];
 const LAYERS = new Set(['unit', 'integration', 'contract', 'smoke']);
-const SELECTION_KINDS = new Set(['node-test-file', 'node-script', 'cargo-test-target', 'semantic-label-set']);
+const SELECTION_KINDS = new Set(['node-test-file', 'node-script']);
 const RELEASE_ROLES = new Set(['gate', 'release-evidence', 'none']);
 const PLATFORMS = new Set(['linux', 'macos']);
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -289,99 +283,6 @@ function pluginDescriptors() {
   return discovered;
 }
 
-function validateOmittedRustTargets(inventory) {
-  assert.equal(inventory.schema_version, 5, 'Rust inventory schema must be 5');
-  assert.ok(isPlainObject(inventory.cases), 'Rust inventory cases must be an object');
-  assert.ok(isPlainObject(inventory.omitted_targets), 'Rust inventory omitted_targets must be an object');
-  const rustTests = fs
-    .readdirSync(path.join(REPO, 'plugins/session-relay/rust/tests'), { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.rs'))
-    .map((entry) => entry.name.slice(0, -3))
-    .sort();
-  const expectedOmitted = rustTests.filter((target) => !Object.hasOwn(inventory.cases, target));
-  assert.deepEqual(Object.keys(inventory.omitted_targets).sort(), expectedOmitted, 'unowned omitted Rust target');
-  for (const [target, omission] of Object.entries(inventory.omitted_targets)) {
-    assertExactKeys(omission, ['owner', 'reason', 'expires'], `omitted Rust target ${target}`);
-    assertNonemptyString(omission.owner, `omitted Rust target ${target}.owner`);
-    assertNonemptyString(omission.reason, `omitted Rust target ${target}.reason`);
-    assertIsoDate(omission.expires, `omitted Rust target ${target}.expires`);
-  }
-
-  const suiteSource = fs.readFileSync(path.join(REPO, RUST_INVENTORY_SUITE), 'utf8');
-  assert.match(suiteSource, /assert\.equal\(Number\(summary\[2\]\), 0,/u, 'Rust inventory must record zero ignored');
-  assert.match(suiteSource, /assert\.equal\(Number\(summary\[3\]\), 0,/u, 'Rust inventory must record zero filtered');
-}
-
-function rustDescriptors(inventory, plugins) {
-  const relay = plugins.find((plugin) => plugin.name === 'session-relay');
-  assert.ok(relay, 'Session Relay plugin descriptor is missing');
-  const executedTargets = new Set(
-    (relay.sourceChecks ?? [])
-      .filter((check) => check.path === RUST_INVENTORY_SUITE && check.args?.[0] === '--case')
-      .map((check) => check.args[1]),
-  );
-  return Object.entries(inventory.cases)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([target, entry]) => {
-      assertExactKeys(entry, ['tests'], `Rust target ${target}`);
-      assert.ok(Array.isArray(entry.tests), `Rust target ${target}.tests must be an array`);
-      for (const [index, test] of entry.tests.entries()) {
-        assertNonemptyString(test, `Rust target ${target}.tests[${index}]`);
-      }
-      assert.deepEqual(
-        entry.tests,
-        [...new Set(entry.tests)].sort(),
-        `Rust target ${target}.tests must be sorted and unique`,
-      );
-      return descriptor({
-        id: `rust-target-${slug(target)}`,
-        suite: RUST_INVENTORY_SUITE,
-        kind: 'cargo-test-target',
-        selector: target,
-        selectedCount: entry.tests.length,
-        executed: executedTargets.has(target),
-      });
-    });
-}
-
-function semanticDescriptor(plugins) {
-  assert.deepEqual(
-    Object.keys(LABEL_CONTRACT_OWNERS),
-    SCENARIOS.map(({ name }) => name),
-  );
-  for (const scenario of SCENARIOS) {
-    const ownership = LABEL_CONTRACT_OWNERS[scenario.name];
-    assertExactKeys(ownership, ['owner', 'label_count'], `semantic owner ${scenario.name}`);
-    assert.equal(
-      ownership.owner,
-      path.relative(REPO, scenario.modulePath).split(path.sep).join('/'),
-      `semantic owner ${scenario.name} suite drifted`,
-    );
-    assert.equal(
-      ownership.label_count,
-      scenario.expectedLabels.length,
-      `semantic owner ${scenario.name} count drifted`,
-    );
-    assert.ok(
-      fs.existsSync(path.join(REPO, ownership.owner)),
-      `semantic owner suite does not exist: ${ownership.owner}`,
-    );
-  }
-  const selectedCount = Object.values(LABEL_CONTRACT_OWNERS).reduce((sum, owner) => sum + owner.label_count, 0);
-  const relaySelftestExecuted = plugins.some(
-    (plugin) => plugin.name === 'session-relay' && plugin.selftest === 'plugins/session-relay/test/selftest.mjs',
-  );
-  assert.equal(PRODUCTION_OUTPUT_LABELS.length, selectedCount, 'production semantic label union drifted');
-  return descriptor({
-    id: 'session-relay-semantic-label-set',
-    suite: 'plugins/session-relay/test/selftest.mjs',
-    kind: 'semantic-label-set',
-    selector: 'SCENARIOS.expectedLabels',
-    selectedCount,
-    executed: relaySelftestExecuted,
-  });
-}
-
 function assertSetEqual(actual, expected, label) {
   const missing = [...expected].filter((value) => !actual.has(value)).sort();
   const unknown = [...actual].filter((value) => !expected.has(value)).sort();
@@ -393,18 +294,14 @@ function assertSetEqual(actual, expected, label) {
 }
 
 const registry = readJson('scripts/config/test-contracts.json');
-const inventory = readJson('plugins/session-relay/test/fixtures/rust-test-inventory.json');
 const packageJson = readJson('package.json');
 const ciSource = fs.readFileSync(path.join(REPO, 'scripts/ci.mjs'), 'utf8');
 validateRegistry(registry);
-validateOmittedRustTargets(inventory);
 
 const discoveredDescriptors = [
   ...unitDescriptors(packageJson),
   ...repoSuiteDescriptors(ciSource),
   ...pluginDescriptors(),
-  ...rustDescriptors(inventory, PLUGINS),
-  semanticDescriptor(PLUGINS),
 ];
 const descriptorById = new Map();
 for (const discovered of discoveredDescriptors) {

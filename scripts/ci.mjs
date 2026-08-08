@@ -11,13 +11,7 @@ import path from 'node:path';
 import { beginCommand, startTask, summarizeCommands } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 import { changedScopes, computeGateKey, lookupMemo, memoRoot, recordMemo, renderGateCost } from './lib/gate-memo.mjs';
-import {
-  cargoJobLimit,
-  describeEnvelope,
-  detectCompetingWork,
-  hostResources,
-  runtimeAvailability,
-} from './lib/host-resources.mjs';
+import { describeEnvelope, detectCompetingWork, hostResources, runtimeAvailability } from './lib/host-resources.mjs';
 import {
   CLAUDE_MARKETPLACE,
   CODEX_MARKETPLACE,
@@ -27,12 +21,9 @@ import {
   marketEntryVersion,
   PLUGINS,
   presentPlugins,
-  privatizeBuiltBinary,
   REPO_WIDE_JAVASCRIPT_QUALITY,
-  resolveBuiltBinary,
   shellHooks,
 } from './lib/plugins.mjs';
-import { findCargo } from './lib/rust-bin.mjs';
 import { eachSkillCandidateDir } from './lib/skills-walk.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -166,60 +157,6 @@ const floorOf = (kind, cat) => {
   return floor;
 };
 
-function prepareRelayLinuxDelegation(selected) {
-  if (process.platform !== 'linux' || !selected.some((plugin) => (plugin.sourceChecks ?? []).length > 0)) return null;
-  const configured = process.env.SESSION_RELAY_TEST_CGROUP_ROOT;
-  if (configured) {
-    let canonical;
-    try {
-      canonical = fs.realpathSync(configured);
-      const stat = fs.statSync(canonical);
-      if (!stat.isDirectory() || stat.uid !== process.getuid()) throw new Error('not an owned directory');
-    } catch (error) {
-      fail(`Session Relay cgroup delegation is invalid: ${error.message}`);
-      return null;
-    }
-    if (canonical !== path.resolve(configured)) {
-      fail('Session Relay cgroup delegation must be a canonical path');
-      return null;
-    }
-    process.env.SESSION_RELAY_TEST_CGROUP_ROOT = canonical;
-    return null;
-  }
-  if (process.env.GITHUB_ACTIONS !== 'true') return null;
-  const uid = process.getuid();
-  const gid = process.getgid();
-  const root =
-    `/sys/fs/cgroup/session-relay-test-${uid}-` +
-    `${process.env.GITHUB_RUN_ID ?? 'run'}-${process.env.GITHUB_RUN_ATTEMPT ?? 'attempt'}-${process.pid}`;
-  const runSudo = (args) =>
-    runCommand(`sudo -n ${args.join(' ')}`, ['sudo', '-n', ...args], {
-      encoding: 'utf8',
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  const failureDetail = (result) =>
-    result.stderr?.trim() || result.error?.message || result.signal || `exit ${result.status}`;
-  const created = runSudo(['mkdir', root]);
-  if (created.error || created.signal !== null || created.status !== 0) {
-    fail(`Session Relay cgroup delegation could not be created: ${failureDetail(created)}`);
-    return null;
-  }
-  const owned = runSudo(['chown', `${uid}:${gid}`, root]);
-  if (owned.error || owned.signal !== null || owned.status !== 0) {
-    runSudo(['rmdir', root]);
-    fail(`Session Relay cgroup delegation could not be delegated: ${failureDetail(owned)}`);
-    return null;
-  }
-  process.env.SESSION_RELAY_TEST_CGROUP_ROOT = root;
-  return () => {
-    delete process.env.SESSION_RELAY_TEST_CGROUP_ROOT;
-    const removed = runSudo(['rmdir', root]);
-    if (removed.error || removed.signal !== null || removed.status !== 0)
-      fail(`Session Relay cgroup delegation did not cleanly close: ${failureDetail(removed)}`);
-  };
-}
-
 // --list: print the registry and exit.
 if (options.list) {
   for (const p of PLUGINS) console.log(`${p.name}\t${p.root}\t${fs.existsSync(p.root) ? 'present' : 'MISSING'}`);
@@ -266,9 +203,7 @@ const availability = runtimeAvailability({
   cgroupRelative: resources.cgroupRelative,
 });
 const competing = detectCompetingWork();
-const cargoJobs = cargoJobLimit(resources, { availability });
-process.env.CARGO_BUILD_JOBS = String(cargoJobs);
-ok(describeEnvelope(resources, { cargoJobs, availability, competing }));
+ok(describeEnvelope(resources, { availability, competing }));
 
 // Which plugins to gate (default: every present plugin; --plugin and --lane narrow it).
 let ciLane = null;
@@ -326,11 +261,7 @@ if (repoWide) {
   const { parseDocument } = await import('yaml');
   // ========================== repo-wide checks ==========================
   section('workflow YAML');
-  for (const workflowPath of [
-    '.github/workflows/ci.yml',
-    '.github/workflows/build-binaries.yml',
-    '.github/workflows/dependency-integrity.yml',
-  ]) {
+  for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/dependency-integrity.yml']) {
     try {
       const doc = parseDocument(fs.readFileSync(workflowPath, 'utf8'), {
         prettyErrors: true,
@@ -395,7 +326,8 @@ if (authorChecks.has('idempotency')) {
 }
 
 // shell lint — shellHooks(p) collects each plugin's hooks/*.sh plus a rust
-// capability's sh launcher (today: session-relay's bin/relay). Self-skips without shellcheck.
+// capability's sh launcher. No plugin ships either today, so the set is empty and
+// the phase stands as the guard that lints the first shell script added back.
 if (targets.length > 0) {
   section('shell lint');
   const bashFiles = targets.flatMap(shellHooks);
@@ -527,46 +459,25 @@ function gatePlugin(p) {
     if (!aunder) ok(`${p.name} agents per-file all ≥ ${floor}`);
   }
 
-  // Rust source is built before tests so self-tests never resolve a committed
-  // or ambient executable.
-  let rustBinary = null;
-  if (p.rust) {
-    if (fs.existsSync(p.rust.dir)) rustBinary = gateRust(p);
-    else fail(`${p.name}: Rust source directory missing: ${p.rust.dir}`);
-  }
-
   if (p.distributionContract) {
     nodeOk([p.distributionContract])
       ? ok(`${p.name} distribution contract passed (${path.basename(p.distributionContract)})`)
       : fail(`${p.name} distribution contract failed (run: node ${p.distributionContract})`);
   }
 
-  const delegationCleanup = rustBinary === null ? null : prepareRelayLinuxDelegation([p]);
-
   for (const check of p.sourceChecks ?? []) {
     const args = [check.path, ...(check.args ?? [])];
-    if (check.binaryArg) {
-      if (rustBinary === null) {
-        fail(`${p.name} source check requires a fresh Rust binary (${check.path})`);
-        continue;
-      }
-      args.push(check.binaryArg, rustBinary);
-    }
-    const checkOptions = p.rust
-      ? { env: { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' } }
-      : undefined;
-    const outcome = node(args, checkOptions);
-    const label = (check.binaryArg ? args.slice(0, -2) : args).join(' ');
+    const outcome = node(args);
+    const label = args.join(' ');
     if ((outcome.status ?? 1) !== 0) {
       const detail = `${outcome.stdout ?? ''}${outcome.stderr ?? ''}`.trim();
       if (detail) console.error(detail);
       fail(`${p.name} source check failed (run: node ${args.join(' ')})`);
       continue;
     }
-    // A source check may legitimately decline to run: the three cgroup-delegation cases cannot
-    // execute without an owned cgroup-v2 subtree, and on a host with neither an override nor a
-    // usable `systemd --user` scope they exit 0 after printing their own SKIP line. Treating exit
-    // 0 alone as a pass would render that hole in the gate as green, so surface it as a warning.
+    // A source check may legitimately decline to run: a check whose host prerequisites are
+    // absent exits 0 after printing its own SKIP line. Treating exit 0 alone as a pass would
+    // render that hole in the gate as green, so surface it as a warning.
     const skipped = (outcome.stdout ?? '').split('\n').find((line) => line.startsWith('SKIP '));
     skipped
       ? warn(`${p.name} source check SKIPPED (${label}) - ${skipped.slice('SKIP '.length)}`)
@@ -580,92 +491,10 @@ function gatePlugin(p) {
   }
 
   if (p.selftest) {
-    if (p.rust) {
-      const baseEnv = { ...process.env, [p.rust.source.testBinaryEnv]: rustBinary ?? '' };
-      const jobsOne = node([p.selftest], {
-        env: { ...baseEnv, SESSION_RELAY_TEST_JOBS: '1' },
-      });
-      const jobsFour = node([p.selftest], {
-        env: { ...baseEnv, SESSION_RELAY_TEST_JOBS: '4' },
-      });
-      const runs = [
-        ['jobs-1', jobsOne],
-        ['jobs-4', jobsFour],
-      ];
-      const crashed = runs.filter(([, run]) => (run.status ?? 1) !== 0);
-      const drifted = crashed.length === 0 && jobsOne.stdout !== jobsFour.stdout;
-      if (crashed.length === 0 && !drifted) {
-        ok(`${p.name} self-test passed with byte-identical jobs-1/jobs-4 output (${path.basename(p.selftest)})`);
-      } else {
-        for (const [label, run] of crashed) {
-          const detail = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
-          console.error(`${label} exited ${run.status ?? 'null'}${detail ? `:\n${detail}` : ' with no output'}`);
-        }
-        if (drifted) {
-          const left = (jobsOne.stdout ?? '').split('\n');
-          const right = (jobsFour.stdout ?? '').split('\n');
-          const firstDiff = left.findIndex((line, index) => line !== right[index]);
-          const at = firstDiff === -1 ? Math.min(left.length, right.length) : firstDiff;
-          console.error(
-            `jobs-1 (${left.length} lines) vs jobs-4 (${right.length} lines) diverged at line ${at + 1}:\n` +
-              `- ${left[at] ?? '<eof>'}\n+ ${right[at] ?? '<eof>'}`,
-          );
-        }
-        const binary = rustBinary ?? '<fresh-release-binary>';
-        const reason = drifted
-          ? 'jobs-1/jobs-4 output drifted'
-          : `failed (${crashed.map(([label]) => label).join(', ')})`;
-        fail(
-          `${p.name} self-test ${reason} ` +
-            `(run twice with ${p.rust.source.testBinaryEnv}=${binary} and SESSION_RELAY_TEST_JOBS=1|4)`,
-        );
-      }
-    } else {
-      nodeOk([p.selftest])
-        ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
-        : fail(`${p.name} self-test failed (run: node ${p.selftest})`);
-    }
+    nodeOk([p.selftest])
+      ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
+      : fail(`${p.name} self-test failed (run: node ${p.selftest})`);
   }
-  if (delegationCleanup !== null) delegationCleanup();
-}
-
-// Rust capability: format, lint, and build the host executable directly from
-// source. Published target binaries are produced only by the release workflow;
-// local CI never reads or writes plugin bin/ assets or SHA256SUMS.
-function gateRust(p) {
-  const { binName, dir, source } = p.rust;
-  const cargo = findCargo();
-  if (!cargo) {
-    fail(`${p.name}: cargo not found — Rust source build is required`);
-    return null;
-  }
-
-  const cargoRun = (args) => runCommand(`cargo ${args.join(' ')}`, [cargo, ...args], { encoding: 'utf8', cwd: dir });
-  (cargoRun(['fmt', '--check']).status ?? 1) === 0
-    ? ok(`${p.name} cargo fmt --check clean`)
-    : fail(`${p.name} cargo fmt --check failed (run: cargo fmt, in ${dir})`);
-  (cargoRun(['clippy', '--release', '--all-targets', '--locked', '--', '-D', 'warnings']).status ?? 1) === 0
-    ? ok(`${p.name} cargo clippy --release --locked -D warnings clean`)
-    : fail(
-        `${p.name} cargo clippy failed (run: cargo clippy --release --all-targets --locked -- -D warnings, in ${dir})`,
-      );
-
-  if ((cargoRun(['build', '--release', '--locked']).status ?? 1) !== 0) {
-    fail(`${p.name} host build failed (run: cargo build --release --locked, in ${dir})`);
-    return null;
-  }
-
-  const built = resolveBuiltBinary({ source, binName, env: process.env, repo: REPO, cargoCwd: dir });
-  try {
-    if (!fs.statSync(built).isFile()) throw new Error('not a regular file');
-    fs.accessSync(built, fs.constants.X_OK);
-  } catch {
-    fail(`${p.name} host build did not produce executable ${built}`);
-    return null;
-  }
-  const privateBinary = privatizeBuiltBinary({ binary: built, dir: path.dirname(built) });
-  ok(`${p.name} source-built host executable ready --release --locked: source ${built} → private ${privateBinary}`);
-  return privateBinary;
 }
 
 function gateSkills(p, manifest) {

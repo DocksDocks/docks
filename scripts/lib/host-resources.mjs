@@ -28,24 +28,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const DEFAULTS = Object.freeze({
-  // Conservative ceiling for one release-mode rustc + LLVM codegen unit. A
-  // budgeting estimate, not a measurement: a handful of small crates peak far
-  // below it, a large dependency graph can exceed it. Sized so a healthy host
-  // keeps full parallelism and only a memory-poor host or small container is
-  // throttled.
-  cargoBytesPerJob: 512 * 1024 * 1024,
-  // Share of usable memory the gate may claim. The rest belongs to the editor,
-  // browser, and agent processes sharing an interactive machine.
-  memoryBudgetFraction: 0.6,
-  // Headroom kept free even on a large host.
-  reserveBytes: 512 * 1024 * 1024,
-  // Share of wall time spent stalled on memory reclaim above which the host is
-  // already in trouble. Direct reclaim thrashing is what hard-locks a swapless
-  // box, so the gate stops adding parallelism rather than joining in.
-  memoryStallCeiling: 0.1,
-});
-
 // Other work competing for the same cores. Reported to the operator so a
 // shrunken envelope explains itself; deliberately NOT an input to the job
 // maths, because a name list both misses renamed competitors and matches the
@@ -403,57 +385,24 @@ export function detectCompetingWork({
   return found;
 }
 
-function parsePositiveInteger(value) {
-  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-// Uncapped `cargo -j ncpu` in release mode is the difference between a slow
-// build and a memory-poor host livelocking in direct reclaim, where the kernel
-// never fires the OOM killer and the machine simply stops responding.
-//
-// Precedence: DOCKS_CI_CARGO_JOBS, then an operator's own CARGO_BUILD_JOBS,
-// then the derived value. An explicit setting returns immediately, so a
-// transient load spike can never quietly override a deliberate choice.
-export function cargoJobLimit(
-  resources = hostResources(),
-  { env = process.env, defaults = DEFAULTS, availability = null } = {},
-) {
-  const override = parsePositiveInteger(env.DOCKS_CI_CARGO_JOBS) ?? parsePositiveInteger(env.CARGO_BUILD_JOBS);
-  if (override !== null) return Math.min(override, resources.cpus);
-  const usable = Math.max(0, (resources.availableBytes ?? resources.totalBytes) - defaults.reserveBytes);
-  const byMemory = Math.floor((usable * defaults.memoryBudgetFraction) / defaults.cargoBytesPerJob);
-  // `?? cpus` keeps hand-built resource objects without runtime data working.
-  const byAvailability = availability?.idleCpus ?? resources.cpus;
-  let jobs = Math.max(1, Math.min(resources.cpus, byAvailability, byMemory));
-  // Already thrashing: adding parallelism is how a slow machine becomes a dead
-  // one, so stop at a single job and let the run be slow instead.
-  if ((availability?.memoryStall ?? 0) >= defaults.memoryStallCeiling) jobs = 1;
-  // With no swap there is no elastic buffer, so leave a core for the desktop: a
-  // saturated swapless box cannot be interrupted, only power-cycled.
-  if (resources.swapBytes === 0) jobs = Math.max(1, Math.min(jobs, resources.cpus - 1));
-  return jobs;
-}
-
 const gib = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)}G`;
 const percent = (fraction) => `${Math.round(fraction * 100)}%`;
 
-export function describeEnvelope(resources, { cargoJobs, availability = null, competing = [] }) {
+export function describeEnvelope(resources, { availability = null, competing = [] }) {
   const swap = resources.swapBytes === null ? 'swap unknown' : `swap ${gib(resources.swapBytes)}`;
   const scope = resources.constrainedBy === 'cgroup' ? ' (cgroup-limited)' : '';
   const cores = availability === null ? `${resources.cpus} cpu` : `${availability.idleCpus}/${resources.cpus} cpu free`;
   const stall = availability?.memoryStall ? `, memory stall ${percent(availability.memoryStall)}` : '';
   const busy = competing.length === 0 ? '' : `, ${competing.length} competing (${competing[0].label})`;
   // Reported, deliberately not worked around. Relocating the temp root is not
-  // available as a remedy here: the session-relay self-test nests ~98 bytes of
-  // scenario path under it against the kernel's 108-byte unix `sun_path` limit,
-  // leaving under ten characters of budget, so a longer root makes socket
-  // bind() fail. Swap is the real fix - it makes tmpfs pages reclaimable
-  // instead of pinning them in RAM until their files are deleted.
+  // available as a remedy here: a scenario suite can nest most of the kernel's
+  // 108-byte unix `sun_path` budget under the temp root, leaving under ten
+  // characters spare, so a longer root makes socket bind() fail. Swap is the
+  // real fix - it makes tmpfs pages reclaimable instead of pinning them in RAM
+  // until their files are deleted.
   const ramTemp =
     resources.tmpIsRamBacked && resources.swapBytes === 0
       ? `, WARNING ${resources.tmpdir} is ${resources.tmpFilesystem} with no swap (temp competes for RAM)`
       : '';
-  return `${cores}, ${gib(resources.totalBytes)} ram, ${swap}${scope}${stall}${busy}${ramTemp} → cargo -j${cargoJobs}`;
+  return `${cores}, ${gib(resources.totalBytes)} ram, ${swap}${scope}${stall}${busy}${ramTemp}`;
 }

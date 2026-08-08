@@ -31,9 +31,8 @@ function releaseTagCommand(args) {
       [
         ['mode', 'targeted'],
         ['plugin', resolved.plugin],
-        ['needs_rust', resolved.needsRust],
       ],
-      { mode: 'targeted', plugin: resolved.plugin, needs_rust: resolved.needsRust },
+      { mode: 'targeted', plugin: resolved.plugin },
     );
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));

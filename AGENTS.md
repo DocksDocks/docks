@@ -22,8 +22,7 @@ node scripts/ci.mjs                                  # full gate for repo-wide, 
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
 ├── plugins/plan-lifecycle/           plan lifecycle plugin (cross-tool): plan-workspace / plan-manager / plan-reviewer skills, shipped PlanRunV1 machinery, one read-only Claude plan-reviewer wrapper under agents/; self-versioned with a closed compatibility.json checked by its self-test
-├── plugins/session-relay/            2nd plugin (cross-tool: Claude + Codex): cross-session/cross-project/cross-tool agent message bus — MCP bus server + shared SessionStart hook + relay CLI; self-versioned, gated by its own ci.mjs section
-├── plugins/effect-kit/               3rd plugin (cross-tool): Effect-TS skill kit — effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
+├── plugins/effect-kit/               Effect-TS skill kit plugin (cross-tool): effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
@@ -42,7 +41,6 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 |---|---|
 | `docs/plans/AGENTS.md` | three-skill routing, PlanRunV1, review budgets, transactions, effects, lifecycle |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
-| `plugins/session-relay/AGENTS.md` | the relay plugin — layout, binary-release discipline, its CI gates |
 | `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x plus version-gated Effect v4 conventions |
 | `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring — the three lifecycle skills, contract sync, fail-loud routing |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
@@ -126,8 +124,7 @@ frontmatter first; active, prepared, committed, cancelled, crossed, malformed,
 or otherwise unsettled legacy evidence is target-locally quarantined and never
 blocks unrelated goals or authorizes dispatch. The complete closed status
 matrix, review outputs, lock protocol, effects contract, GitHub issue preflights,
-and migration rules live in `docs/plans/AGENTS.md`. Session Relay remains
-optional transport/workspace custody, never plan-review evidence.
+and migration rules live in `docs/plans/AGENTS.md`.
 
 ## Project-local skills
 
@@ -139,9 +136,9 @@ Claude Code sees these via the symlinks under `.claude/skills/`. Codex sees them
 
 ## CI targeting
 
-A pull request resolves its changed paths into a shard set and runs `node scripts/ci.mjs --lane <shard>` per lane (`repo` always, plus `core` and/or `relay` when the diff touches a plugin they own), alongside an independent targeting-contracts job; the `validate` job joins those prerequisites and does not rerun the gate. Manual workflow dispatches run the full `node scripts/ci.mjs` gate. A release-tag push strictly resolves `<plugin>--v<version>` to a known registry plugin before Rust-specific work, then runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate. That targeted invocation skips repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting checks; it runs only the named plugin's owned author checks, shell-hook lint, and plugin gate, including that plugin's marketplace/version coherence. The release command's local preflight targets that same selected plugin before creating and waiting on the tag.
+A pull request resolves its changed paths into a shard set and runs `node scripts/ci.mjs --lane <shard>` per lane (`repo` always, plus `core` when the diff touches a plugin it owns), alongside an independent targeting-contracts job; the `validate` job joins those prerequisites and does not rerun the gate. Manual workflow dispatches run the full `node scripts/ci.mjs` gate. A release-tag push strictly resolves `<plugin>--v<version>` to a known registry plugin, then runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate. That targeted invocation skips repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting checks; it runs only the named plugin's owned author checks, shell-hook lint, and plugin gate, including that plugin's marketplace/version coherence. The release command's local preflight targets that same selected plugin before creating and waiting on the tag.
 
-CI caches pnpm data by `pnpm-lock.yaml` and restores Cargo dependencies/build outputs only for full runs or a resolved Rust-capable release target. Caches improve speed but carry no authority: frozen dependency resolution, pinned toolchains, and the gate result define correctness.
+CI caches pnpm data by `pnpm-lock.yaml`. Caches improve speed but carry no authority: frozen dependency resolution, pinned toolchains, and the gate result define correctness.
 
 ## Tool-agnostic rules
 

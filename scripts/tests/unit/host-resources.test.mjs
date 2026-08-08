@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  cargoJobLimit,
   describeEnvelope,
   detectCompetingWork,
   hostResources,
@@ -11,7 +10,6 @@ import {
 } from '../../lib/host-resources.mjs';
 
 const GIB = 1024 ** 3;
-const MIB = 1024 ** 2;
 const CGROUP_ROOT = '/sys/fs/cgroup';
 
 function fakeReader(entries = []) {
@@ -50,16 +48,6 @@ function linuxResources(entries, overrides = {}) {
     availableParallelism: () => 16,
     ...overrides,
   });
-}
-
-function jobResources(overrides = {}) {
-  return {
-    cpus: 8,
-    totalBytes: 16 * GIB,
-    availableBytes: 16 * GIB,
-    swapBytes: 2 * GIB,
-    ...overrides,
-  };
 }
 
 test('hostResources honours a cgroup v2 memory bound', () => {
@@ -204,61 +192,6 @@ test('detectCompetingWork excludes self and ancestors while reporting planted pr
   assert.deepEqual(competing, [{ pid: 42, label: 'cargo', command: '/usr/bin/cargo build' }]);
 });
 
-test('cargoJobLimit applies environment precedence and clamps overrides to cpu count', () => {
-  const resources = jobResources({ cpus: 6 });
-
-  assert.equal(cargoJobLimit(resources, { env: { DOCKS_CI_CARGO_JOBS: '4', CARGO_BUILD_JOBS: '2' } }), 4);
-  assert.equal(cargoJobLimit(resources, { env: { CARGO_BUILD_JOBS: '3' } }), 3);
-  assert.equal(cargoJobLimit(resources, { env: { DOCKS_CI_CARGO_JOBS: '99' } }), 6);
-});
-
-test('cargoJobLimit ignores invalid overrides and never returns fewer than one job', () => {
-  const resources = jobResources({ cpus: 4 });
-  for (const invalid of ['not-a-number', '0', '-2']) {
-    assert.equal(cargoJobLimit(resources, { env: { DOCKS_CI_CARGO_JOBS: invalid } }), 4, invalid);
-  }
-  assert.equal(
-    cargoJobLimit(jobResources({ cpus: 1, totalBytes: 128 * MIB, availableBytes: 0, swapBytes: 0 }), { env: {} }),
-    1,
-  );
-});
-
-test('cargoJobLimit limits memory-poor hosts and reserves one core only without swap', () => {
-  const memoryPoor = jobResources({ availableBytes: 2 * GIB });
-  const swapless = jobResources({ swapBytes: 0 });
-  const withSwap = jobResources({ swapBytes: 1 });
-
-  assert.ok(cargoJobLimit(memoryPoor, { env: {} }) < memoryPoor.cpus);
-  assert.equal(cargoJobLimit(swapless, { env: {} }), 7);
-  assert.equal(cargoJobLimit(withSwap, { env: {} }), 8);
-});
-
-test('cargoJobLimit uses runtime availability and memory pressure unless an override is explicit', () => {
-  const resources = jobResources({ cpus: 8 });
-
-  assert.equal(
-    cargoJobLimit(resources, {
-      env: {},
-      availability: { idleCpus: 3, cpuStall: 0.2, memoryStall: 0, sampled: true },
-    }),
-    3,
-  );
-  assert.equal(
-    cargoJobLimit(resources, {
-      env: {},
-      availability: { idleCpus: 7, cpuStall: 0, memoryStall: 0.1, sampled: true },
-    }),
-    1,
-  );
-  assert.equal(
-    cargoJobLimit(resources, {
-      env: { DOCKS_CI_CARGO_JOBS: '5', CARGO_BUILD_JOBS: '4' },
-      availability: { idleCpus: 1, cpuStall: 1, memoryStall: 1, sampled: true },
-    }),
-    5,
-  );
-});
-
 test('describeEnvelope warns only when temp is RAM-backed without swap', () => {
   const diskHost = {
     cpus: 4,
@@ -269,21 +202,17 @@ test('describeEnvelope warns only when temp is RAM-backed without swap', () => {
     tmpIsRamBacked: false,
     constrainedBy: null,
   };
-  const diskEnvelope = describeEnvelope(diskHost, { cargoJobs: 4 });
+  const diskEnvelope = describeEnvelope(diskHost, {});
   assert.ok(!diskEnvelope.includes('WARNING'), `disk-backed temp must not warn: ${diskEnvelope}`);
 
-  const tmpfsWithSwap = describeEnvelope(
-    { ...diskHost, tmpFilesystem: 'tmpfs', tmpIsRamBacked: true },
-    { cargoJobs: 4 },
-  );
+  const tmpfsWithSwap = describeEnvelope({ ...diskHost, tmpFilesystem: 'tmpfs', tmpIsRamBacked: true }, {});
   assert.ok(!tmpfsWithSwap.includes('WARNING'), `tmpfs with swap must not warn: ${tmpfsWithSwap}`);
 
   const swaplessTmpfs = describeEnvelope(
     { ...diskHost, swapBytes: 0, tmpFilesystem: 'tmpfs', tmpIsRamBacked: true },
-    { cargoJobs: 3 },
+    {},
   );
   assert.match(swaplessTmpfs, /WARNING \/tmp is tmpfs with no swap/);
-  assert.match(swaplessTmpfs, /→ cargo -j\d+$/);
 });
 
 test('mountFilesystem chooses the longest prefix, decodes spaces, and returns null without a match', () => {

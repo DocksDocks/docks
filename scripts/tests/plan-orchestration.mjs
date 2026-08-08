@@ -722,17 +722,19 @@ function registerDispatchDriver(target) {
     });
   }
 
-  // A3 promises "no Relay dependency exists", and nothing observed it: Session Relay ships in
-  // this same repository, so a `session-relay` import added to the dispatch path would resolve
-  // and leave every dispatch-driver and plan-self-check case green. The clause was an
-  // unfalsifiable promise, which is the defect class this plan family exists to remove.
+  // A3 promises "no Relay dependency exists", and nothing observed it. Session Relay now ships
+  // from its own repository, so a bare `session-relay` import would fail to resolve rather than
+  // pass silently; the remaining ways to acquire one are a declared manifest entry or a path
+  // specifier, and both are exactly what this check reads. The clause was an unfalsifiable
+  // promise, which is the defect class this plan family exists to remove.
   //
   // It asserts a DEPENDENCY, not a mention, and the distinction is load-bearing: steps 7 and 8
   // require every normative copy to state "Session Relay is never review evidence and never a
   // required dependency", so a prose scan would make the independence clause its own violation.
   // Markdown is therefore out of scope and only a resolvable specifier or a manifest entry
   // counts. Read as bytes rather than by attempting an import, because the absence of a
-  // dependency is what must be detected and an import would simply succeed.
+  // dependency is what must be detected and a resolution failure is a weaker signal than a
+  // declared entry.
   target.test('dispatch-driver', 'the plan-lifecycle payload names no Session Relay dependency', () => {
     const payload = path.join(ROOT, 'plugins/plan-lifecycle');
     const specifier = /(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*)['"`]([^'"`]*session[-_]relay[^'"`]*)['"`]/gi;

@@ -66,7 +66,7 @@ Edit the node, not this list, when a folder's rules change.
 | `docs/plans/` | plan lifecycle + frontmatter schema |
 | `plugins/docks/skills/` | skill authoring + scoring |
 | `plugins/effect-kit/skills/` | effect-kit skill authoring |
-| `plugins/session-relay/` | relay plugin: bus server + hook + CLI |
+| `plugins/plan-lifecycle/skills/` | plan-lifecycle skill authoring |
 | `scripts/` | validator / CI tooling contract |
 | `.github/` | CI workflow triggers |
 ```

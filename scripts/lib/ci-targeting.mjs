@@ -18,16 +18,15 @@ const RELEASE_TAG = new RegExp(`^([a-z0-9]+(?:-[a-z0-9]+)*)--v${SEMVER}$`);
 // plugin (workflow YAML, the marketplace catalogs, the context-tree guard,
 // no-bespoke-gates, the test-contract registry, unit tests, the CI targeting
 // contract), so a pull request that skips every plugin shard still runs all of
-// them. `core` and `relay` are pure plugin shards; a plugin declares which one
-// owns it through its `ciLane`, and no plugin may declare `repo`.
-export const CI_LANES = Object.freeze(['repo', 'core', 'relay']);
+// them. `core` is the only plugin shard; each plugin declares it through its
+// `ciLane`, and no plugin may declare `repo`.
+export const CI_LANES = Object.freeze(['repo', 'core']);
 export const REPO_WIDE_LANE = 'repo';
-const PLUGIN_CI_LANES = new Set(['core', 'relay']);
+const PLUGIN_CI_LANES = new Set(['core']);
 
 const CI_LANE_DESCRIPTORS = Object.freeze({
   repo: Object.freeze({ repoWide: true }),
   core: Object.freeze({ repoWide: false }),
-  relay: Object.freeze({ repoWide: false }),
 });
 
 function knownNames(plugins) {
@@ -92,7 +91,6 @@ export function parseReleaseTag(tag) {
   return {
     plugin: plugin.name,
     version: `${match[2]}.${match[3]}.${match[4]}`,
-    needsRust: plugin.rust !== null,
   };
 }
 
@@ -103,11 +101,11 @@ export function releaseCiArgs(pluginName) {
 
 export function workflowCiSelection(eventName, refName) {
   if (eventName === 'pull_request' || eventName === 'workflow_dispatch') {
-    return { mode: 'full', plugin: null, needsRust: true };
+    return { mode: 'full', plugin: null };
   }
   if (eventName === 'push') {
     const tag = parseReleaseTag(refName);
-    return { mode: 'targeted', plugin: tag.plugin, needsRust: tag.needsRust };
+    return { mode: 'targeted', plugin: tag.plugin };
   }
   throw new Error(`unsupported workflow event: ${eventName}`);
 }
@@ -240,7 +238,7 @@ export function assertShardTopologyCoversRegistry() {
     if (!lanes.includes(lane)) throw new Error(`plugin ${plugin.name} resolves to no shard that runs it`);
     if (!lanes.includes(REPO_WIDE_LANE)) throw new Error(`plugin ${plugin.name} resolves without the repo-wide shard`);
   }
-  // The reverse direction, and the last thing the old literal `lane: [core, relay]`
+  // The reverse direction, and the last thing the old hard-coded lane literal
   // still covered: a shard nobody owns. Without this a phantom lane could be added
   // here and every pull request would pay for a shard that gates nothing.
   const claimed = new Set([REPO_WIDE_LANE, ...PLUGINS.map((plugin) => plugin.ciLane)]);

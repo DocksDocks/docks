@@ -1,19 +1,18 @@
 # CI workflows (.github/)
 
 `workflows/ci.yml` keeps one authoritative `validate (scripts/ci.mjs)` status.
-Pull requests run two `validation-shards` matrix lanes (`core`, `relay`) plus
-the independent `targeting-contracts` job; `validate` joins both prerequisites
-without rerunning the gate. Core owns repo-wide checks, the focused Docks
+Pull requests run the `validation-shards` matrix lanes their changed paths
+resolve to plus the independent `targeting-contracts` job; `validate` joins both
+prerequisites without rerunning the gate. Core owns the focused Docks
 `PlanRunV1` orchestration and bounded-workflow contracts, the joint
-Docks/Effect Kit trigger-collision audit, both plugin gates, and JavaScript
-quality. Relay owns the Session Relay shell, trigger, plugin, release-contract,
-and native Rust gates. Manual dispatches run one full gate alongside the
-targeting contract before the same join. Tag pushes run one registry-resolved
-plugin gate; the join requires the targeting contract to be skipped there.
+Docks/Effect Kit trigger-collision audit, the plugin gates, and JavaScript
+quality. Manual dispatches run one full gate alongside the targeting contract
+before the same join. Tag pushes run one registry-resolved plugin gate; the join
+requires the targeting contract to be skipped there.
 
-## build-binaries.yml — the session-relay binary producer
-
-`workflows/build-binaries.yml` is the external-artifact producer for Session Relay. It has three native runner/target legs (`ubuntu-24.04`/x86_64-linux-musl, `ubuntu-24.04-arm`/aarch64-linux-musl, and `macos-15`/aarch64-darwin). x86_64-apple-darwin is no longer published as of Session Relay 0.16.0; macOS support is aarch64-apple-darwin, and retained 0.13-0.15 receipts keep their frozen four-leg shape as historical evidence. Each locked native build must prove platform behavior before unchanged attestation/upload: Linux runs positive cgroup/pidfd/Landlock custody and both workspace smokes against that leg's explicit fresh executable; macOS runs the frozen negative-admission test and remains unsupported for managed writing. Preflight verifies successful job identity, exact native runner label, and ordered build → platform evidence → Linux smoke/skip → attestation → upload without changing V1 receipt or attestation keys. The aggregate still accepts exactly three binary+attestation pairs and publishes the three-line `SHA256SUMS` artifact. A `validate-only` dispatch proves an exact 40-hex source commit without publishing; `publish-existing-tag` and `session-relay--v*` tag pushes retain the existing staging-prerelease contract of exactly three executables plus `SHA256SUMS`, with the Intel deprecation sentence in the staged prerelease body.
+`workflows/dependency-integrity.yml` is the only other workflow. It runs on a
+weekly schedule and on manual dispatch, installs with the frozen lockfile, and
+verifies registry signatures with `npm audit signatures`.
 
 ## Trigger model
 
@@ -35,17 +34,10 @@ a mutation catalog, pass validation artifacts, or carry regression partition or
 jobs-cap arguments.
 
 Every gate-running PR shard performs the frozen pnpm install and materializes the
-lockfile-pinned `@anthropic-ai/claude-code` binary. Only Relay provisions Rust and
-restores the Cargo cache. Manual/tag runs materialize Node dependencies in
-`validate` and provision Rust only for a full run or Rust-capable target. The PR
-`validate` aggregator only checks prerequisite job results and performs no
-checkout, install, artifact handoff, or gate execution.
-
-Relay/full Linux source gates also provision one owned cgroup-v2 delegation,
-export it as `SESSION_RELAY_TEST_CGROUP_ROOT`, and remove it after `ci.mjs`. Core,
-repo, and non-Rust tag gates do not provision one. Missing delegation, failed
-native prerequisites, or leaked nested cgroups fail the owning gate; they are
-never hidden skips.
+lockfile-pinned `@anthropic-ai/claude-code` binary. Manual and tag runs
+materialize Node dependencies in `validate`. The PR `validate` aggregator only
+checks prerequisite job results and performs no checkout, install, artifact
+handoff, or gate execution.
 
 ## PR topology
 
@@ -62,10 +54,6 @@ lane list is duplicated in YAML.
 - `core`: Docks, effect-kit and plan-lifecycle — their plugin gates, focused plan
   orchestration, three-skill/one-wrapper bounded workflows, collision audits, and
   JavaScript quality.
-- `relay`: Session Relay's selected shell, collision, plugin, release-contract,
-  and Rust/source checks. It is the only shard needing musl/rustup provisioning,
-  the Cargo cache and cgroup delegation, which is why the other three plugins
-  share one shard instead of getting one each.
 
 <constraint>
 Resolution fails **open**. A missing or unresolvable base SHA, an empty diff, a
@@ -91,13 +79,13 @@ the job, and the join accepts that expected skip.
 
 ## Cache behavior
 
-The workflow pins the Corepack-provided pnpm version from `package.json`, configures a deterministic `~/.pnpm-store`, and caches that store with official `actions/cache`; the exact key binds runner identity, `pnpm-lock.yaml`, and `package.json`, with a same-pnpm-major restore prefix. The conditional Cargo cache stores registry/git dependencies and `plugins/session-relay/rust/target`; its exact key binds runner identity, dependencies, toolchain, and Rust sources, while its restore prefix permits incremental rebuilds only with the same dependency/toolchain identity. Cargo caching runs for the PR Relay shard, manual full validation, and Rust-capable release tags. Caches are hints only: frozen installs, Cargo's source validation, the pinned toolchain, and `ci.mjs` gates decide correctness. `resolve-shards` restores no cache and installs no dependencies; it needs only a checkout and Node.
+The workflow pins the Corepack-provided pnpm version from `package.json`, configures a deterministic `~/.pnpm-store`, and caches that store with official `actions/cache`; the exact key binds runner identity, `pnpm-lock.yaml`, and `package.json`, with a same-pnpm-major restore prefix. Caches are hints only: frozen installs and `ci.mjs` gates decide correctness. `resolve-shards` restores no cache and installs no dependencies; it needs only a checkout and Node.
 
 ## Hosted cost capture
 
 `workflows/ci.yml` — hosted timing stamps — `start hosted step timing` establishes the baseline and
-`mark hosted cache restore` records pnpm/Cargo outcomes. The frozen install, registry-signature audit, Claude binary
-materialization, PATH update, conditional Rust provisioning, `run validation lane`,
+`mark hosted cache restore` records pnpm cache outcomes. The frozen install, registry-signature audit, Claude binary
+materialization, PATH update, `run validation lane`,
 `run non-unit plugin-targeting contracts`, and `run the authoritative gate (scripts/ci.mjs)` append stamps. A stamped
 step's duration is its stamp minus the preceding stamp.
 
@@ -112,9 +100,9 @@ Mitigations against npm / GitHub Actions supply-chain attacks (per the Supabase 
 
 <constraint>
 - **Pin every `uses:` to a 40-char commit SHA**, never a tag, with the version as a trailing comment (`actions/checkout@<sha> # v6.0.2`). A `@vN` tag is a moving target an attacker can republish; the tag-push run executes with `GITHUB_TOKEN`. SHA bumps are MANUAL — no update automation is configured (verify: `ls .github/dependabot.yml renovate.json` → neither exists); update the SHA + version comment together when bumping an action.
-- **`permissions: contents: read`** at workflow scope — least privilege for validators and artifact builders. The Session Relay prerelease publisher is the sole job-level `contents: write` exception; it may consume only artifacts from its own run after the read-only identity, native-build, and aggregate jobs pass.
-- **Dependency caches use official `actions/cache` pinned to a 40-character SHA**, with its release version in the trailing comment. The pnpm key binds `pnpm-lock.yaml`; the Cargo condition must stay identical to Rust provisioning so non-Rust release tags do not restore Rust state.
+- **`permissions: contents: read`** at workflow scope — least privilege for validators and artifact builders.
+- **Dependency caches use official `actions/cache` pinned to a 40-character SHA**, with its release version in the trailing comment. The pnpm key binds `pnpm-lock.yaml`.
 - **`claude-code` is pinned**, not `npm install -g`'d: it's an exact-version devDependency in `package.json`, hash-locked in `pnpm-lock.yaml` (incl. its 8 platform-binary optional deps). `pnpm-workspace.yaml` sets `allowBuilds: { '@anthropic-ai/claude-code': false }` (deny-by-default lifecycle scripts) and `minimumReleaseAge` (quarantine fresh publishes). Bump it only to a version aged past the quarantine.
-- **Each PR Core/Relay lane and every non-PR `validate` execution** does a full `pnpm install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the ~230MB CLI binary (the `allowBuilds: false` build it skips), and puts `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. Only the PR Relay lane provisions Rust and restores Cargo state; the PR `validate` job is only the authoritative lane-result join.
+- **The PR Core lane and every non-PR `validate` execution** does a full `pnpm install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the ~230MB CLI binary (the `allowBuilds: false` build it skips), and puts `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join.
 - **`npm audit signatures`** runs (non-blocking) after every install.
 </constraint>

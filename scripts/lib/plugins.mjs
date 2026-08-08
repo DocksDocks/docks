@@ -5,7 +5,7 @@
 // Each descriptor declares paths + capabilities; the tooling runs a check only
 // when the capability is present, so a skills-only plugin and a skills+agents+
 // selftest plugin share one code path. Versions are PER-PLUGIN and independent
-// (docks and session-relay version separately); the Claude marketplace catalog
+// (each plugin versions separately); the Claude marketplace catalog
 // holds one entry per plugin, matched by `name`.
 //
 // Fields:
@@ -13,7 +13,7 @@
 //   root          plugin dir under the repo; also the changed-path prefix that maps
 //                 a pull-request diff onto this plugin's shard (ci-targeting.mjs
 //                 `resolveShardSelection`), so the workflow never duplicates roots
-//   ciLane        required plugin validation shard (`core` or `relay`). `repo` is
+//   ciLane        required plugin validation shard (`core`). `repo` is
 //                 the always-on repo-wide shard and no plugin may claim it.
 //   javascriptQuality scoped Biome paths (`ci` required, optional `lint`)
 //   skills        skills root, or null
@@ -22,70 +22,16 @@
 //   selftest      path to a runnable self-test, or null
 //   rust          Rust binary capability, or null. `source` owns local build
 //                 paths; `prebuilt` owns immutable release target/asset naming.
-//                 ci.mjs builds source.builtBinary and passes it explicitly to
-//                 the self-test. No generated executable is written to bin/.
+//                 No plugin declares it today; the shape stays documented so a
+//                 future Rust plugin needs one descriptor and no tooling edit.
 //   extraJson     additional JSON configs to validate (hooks/mcp/etc.)
 //   authorChecks  repository author suites owned by this plugin
 //   releaseContracts additional release-state/evidence contract tests
-//   sourceChecks  ordered source/process/smoke checks; `binaryArg` appends the
-//                 one fresh source-built executable as an explicit CLI argument
+//   sourceChecks  ordered source/process/smoke checks
 //   transformGuard run scripts/skills/transform-guard.mjs (curated transformers)
-//   release       closed data-only policy. Generic plugins own only kind/install;
-//                 Session Relay additionally owns prerelease staging/assets.
+//   release       closed data-only policy: plugins own only kind/install.
 import fs from 'node:fs';
 import path from 'node:path';
-import { CURRENT_RELEASE_TARGETS, rustReleaseAssetNames } from './rust-bin.mjs';
-
-// `CARGO_TARGET_DIR` is documented as relative to cargo's working directory, not
-// to the repository root — `CARGO_TARGET_DIR=reltarget cargo metadata` run from
-// the crate reports `<crate>/reltarget`. `gateRust` invokes cargo with
-// `cwd: p.rust.dir`, so `cargoCwd` must be that same directory or the gate stats
-// a path cargo never wrote: a false red normally, and a false GREEN whenever a
-// stale binary already sits at the repo-root-relative path.
-export function resolveBuiltBinary({ source, binName, env, repo, cargoCwd }) {
-  const cargoTargetDir = env.CARGO_TARGET_DIR;
-  return typeof cargoTargetDir === 'string' && cargoTargetDir.length > 0
-    ? path.resolve(repo, cargoCwd, cargoTargetDir, 'release', binName)
-    : path.resolve(repo, source.builtBinary);
-}
-
-// The private copy exists so a concurrent rebuild cannot swap the bytes out from
-// under validation. It is scratch, so it must not outlive the run that made it:
-// without this sweep every gate invocation would strand a `.docks-ci-binary-*`
-// directory inside `target/release/` forever.
-const privateBinaryDirs = new Set();
-let privateBinarySweepArmed = false;
-
-export function privatizeBuiltBinary({ binary, dir }) {
-  const privateDir = fs.mkdtempSync(path.join(path.resolve(dir), '.docks-ci-binary-'));
-  privateBinaryDirs.add(privateDir);
-  if (!privateBinarySweepArmed) {
-    privateBinarySweepArmed = true;
-    process.on('exit', () => {
-      for (const created of privateBinaryDirs) {
-        try {
-          fs.rmSync(created, { force: true, recursive: true });
-        } catch {
-          // Best effort: a swept-away or read-only scratch dir must never fail the gate.
-        }
-      }
-    });
-  }
-  const privateBinary = path.join(privateDir, path.basename(binary));
-  const mode = fs.statSync(binary).mode & 0o777;
-  fs.copyFileSync(binary, privateBinary, fs.constants.COPYFILE_EXCL);
-  fs.chmodSync(privateBinary, mode);
-  return privateBinary;
-}
-
-// The Session Relay prebuilt descriptor tracks the CURRENT release generation
-// only; retained historical four-target (x86_64-apple-darwin) expectations live
-// beside the retained validators, never here.
-const SESSION_RELAY_PREBUILT = Object.freeze({
-  targets: CURRENT_RELEASE_TARGETS,
-  assetPrefix: 'session-relay',
-  checksumAsset: 'SHA256SUMS',
-});
 
 // Biome paths no plugin owns, and therefore the always-on repo-wide shard does.
 // `package.json` `scripts.check:js` checks these in full mode; in lane/plugin mode
@@ -123,115 +69,6 @@ export const PLUGINS = [
     release: {
       kind: 'generic',
       install: '/plugin marketplace update docks\n/plugin install docks@docks',
-    },
-  },
-  {
-    name: 'session-relay',
-    root: 'plugins/session-relay',
-    ciLane: 'relay',
-    javascriptQuality: { ci: ['scripts', 'plugins/session-relay/test'], lint: [] },
-    skills: 'plugins/session-relay/skills',
-    agents: null,
-    codex: true,
-    selftest: 'plugins/session-relay/test/selftest.mjs',
-    rust: {
-      dir: 'plugins/session-relay/rust',
-      binName: 'relay',
-      source: {
-        manifest: 'plugins/session-relay/rust/Cargo.toml',
-        lockfile: 'plugins/session-relay/rust/Cargo.lock',
-        builtBinary: 'plugins/session-relay/rust/target/release/relay',
-        testBinaryEnv: 'SESSION_RELAY_TEST_BIN',
-      },
-      prebuilt: SESSION_RELAY_PREBUILT,
-    },
-    distributionContract: 'plugins/session-relay/test/distribution-contract.mjs',
-    sourceChecks: [
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'protocol'],
-      },
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'fanout'],
-      },
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'fanout_reap'],
-      },
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'lifecycle_supervisor'],
-      },
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'workspace_identity'],
-      },
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'workspace_lease_process'],
-      },
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'workspace_coordination_process'],
-      },
-      {
-        path: 'plugins/session-relay/test/rust-test-inventory.mjs',
-        args: ['--case', 'workspace_resources'],
-      },
-      { path: 'plugins/session-relay/test/reentry-inventory.mjs', args: [] },
-      {
-        path: 'plugins/session-relay/test/workspace-smoke.mjs',
-        args: ['--case', 'single-session-compat'],
-        binaryArg: '--bin',
-      },
-      {
-        path: 'plugins/session-relay/test/workspace-smoke.mjs',
-        args: ['--case', 'docs-contract'],
-        binaryArg: '--bin',
-      },
-      // Release-instance separation. The lane must hold protocol logic only: every value
-      // identifying one release attempt lives in an instance file loaded by version, so a
-      // release edits the single `VERSION` declaration. These run as source checks rather
-      // than release contracts because they scan lane source and need `--case` arguments.
-      {
-        path: 'plugins/session-relay/test/release-instance-contract.mjs',
-      },
-      {
-        path: 'plugins/session-relay/test/release-instance-contract.mjs',
-        args: ['--case', 'modules'],
-      },
-      {
-        path: 'plugins/session-relay/test/release-instance-contract.mjs',
-        args: ['--case', 'validator'],
-      },
-      {
-        path: 'plugins/session-relay/test/release-instance-contract.mjs',
-        args: ['--case', 'coverage'],
-      },
-    ],
-    extraJson: ['plugins/session-relay/hooks/codex-hooks.json', 'plugins/session-relay/.codex-plugin/bus.mcp.json'],
-    authorChecks: [],
-    releaseContracts: [
-      'plugins/session-relay/test/release-evidence-contract.mjs',
-      'plugins/session-relay/test/release-publication-contract.mjs',
-      'plugins/session-relay/test/release-promotion-contract.mjs',
-      // These two were real contract suites that nothing executed: declared in the
-      // release instance's `docks_affected_paths` but absent from every descriptor
-      // field, so CI never ran them. One had been failing since before the 0.15.0
-      // migration and nobody noticed. Listing them here is the fix for that rot -
-      // a contract nothing runs is not a contract. Both take no arguments, matching
-      // how `ci.mjs` invokes each entry.
-      'plugins/session-relay/test/remediation-contract.mjs',
-      'plugins/session-relay/test/companion-distribution-contract.mjs',
-    ],
-    transformGuard: false,
-    release: {
-      kind: 'reviewed-session-relay',
-      assets: rustReleaseAssetNames(SESSION_RELAY_PREBUILT),
-      prereleaseBody:
-        'This prerelease stages Session Relay binaries for downstream checksum pinning. It is not ready for installation.',
-      install: 'docks-kit sync',
     },
   },
   {

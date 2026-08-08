@@ -217,7 +217,7 @@ test('a scoped pass never satisfies a full run, and a full pass never satisfies 
   assert.equal(lookupMemo(full, root).status, 'passed');
 });
 
-// The measured shape of a real full gate run: session-relay dominates at 88% and
+// The measured shape of a real full gate run: one plugin dominates at 88% and
 // everything else is noise beside it.
 const FULL_RUN = {
   mode: { plugin: null },
@@ -226,7 +226,7 @@ const FULL_RUN = {
   phases: [
     { name: 'workflow YAML', duration_ms: 900 },
     { name: 'plan orchestration', duration_ms: 23_800 },
-    { name: 'plugin: session-relay', duration_ms: 320_500 },
+    { name: 'plugin: effect-kit', duration_ms: 320_500 },
     { name: 'plugin: plan-lifecycle', duration_ms: 4_200 },
     { name: 'plugin: docks', duration_ms: 1_100 },
   ],
@@ -240,7 +240,7 @@ test('the cost summary ranks the full run and names the scope the tree actually 
     renderGateCost(FULL_RUN, { memoRequested: true, scopes: CHANGED_ONE }),
     [
       '▣ gate cost — 364.6s across 5 phase(s) and 70 command(s)',
-      '     87.9%   320.5s  plugin: session-relay',
+      '     87.9%   320.5s  plugin: effect-kit',
       '      6.5%    23.8s  plan orchestration',
       '      1.2%     4.2s  plugin: plan-lifecycle',
       '  Cheaper next time: node scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
@@ -251,7 +251,7 @@ test('the cost summary ranks the full run and names the scope the tree actually 
   assert.match(renderGateCost({ ...FULL_RUN, status: 'failed' }, { scopes: CHANGED_ONE }), /^▣ gate cost — 364.6s/);
 });
 
-// The dearest phase is session-relay in every one of these runs. Naming it would be
+// The dearest phase is effect-kit in every one of these runs. Naming it would be
 // exactly the wrong advice: it is the plugin these trees did not touch.
 test('the advice follows the changed paths, never the dearest phase', () => {
   const advise = (scopes) => renderGateCost(FULL_RUN, { memoRequested: true, scopes }).split('\n').at(-1);
@@ -259,7 +259,7 @@ test('the advice follows the changed paths, never the dearest phase', () => {
     advise(CHANGED_ONE),
     '  Cheaper next time: node scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
   );
-  assert.doesNotMatch(advise(CHANGED_ONE), /session-relay/, 'never hand over a command for the untouched plugin');
+  assert.doesNotMatch(advise(CHANGED_ONE), /effect-kit/, 'never hand over a command for the untouched plugin');
 
   // Several plugins: name them, but offer no command, because no single --plugin run
   // would be both cheaper and complete.

@@ -387,18 +387,11 @@ function testFocusedCiCommandSelection() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-command-selection-'));
   const shimDir = path.join(fixtureRoot, 'bin');
   const callLog = path.join(fixtureRoot, 'calls.jsonl');
-  const relayBinary = path.resolve(ROOT, PLUGINS.find(({ name }) => name === 'session-relay').rust.source.builtBinary);
-  const relayBinaryDirectory = path.dirname(relayBinary);
-  const relayBinaryExisted = fs.existsSync(relayBinary);
-  const relayBinaryDirectoryExisted = fs.existsSync(relayBinaryDirectory);
   fs.mkdirSync(shimDir, { mode: 0o700 });
   fs.writeFileSync(callLog, '', { mode: 0o600 });
 
   const probeEnv = { ...process.env };
-  // This probe stubs the descriptor binary; an inherited target dir would make gateRust look elsewhere.
-  delete probeEnv.CARGO_TARGET_DIR;
   delete probeEnv.GITHUB_ACTIONS;
-  delete probeEnv.SESSION_RELAY_TEST_CGROUP_ROOT;
   const run = (ciArgs) => {
     fs.writeFileSync(callLog, '', { mode: 0o600 });
     const result = spawnSync(process.execPath, ['scripts/ci.mjs', ...ciArgs], {
@@ -438,7 +431,6 @@ function testFocusedCiCommandSelection() {
     'scripts/tests/test-contracts.mjs',
   ];
   const effectKitBiomeCiArgv = ['exec', 'biome', 'ci', 'plugins/effect-kit/test'];
-  const sessionRelayBiomeCiArgv = ['exec', 'biome', 'ci', 'scripts', 'plugins/session-relay/test'];
   const coreBiomeCiArgv = [
     'exec',
     'biome',
@@ -461,11 +453,7 @@ function testFocusedCiCommandSelection() {
   const repoBiomeCiArgv = ['exec', 'biome', 'ci', ...REPO_WIDE_JAVASCRIPT_QUALITY.ci];
 
   try {
-    if (!relayBinaryExisted) {
-      fs.mkdirSync(relayBinaryDirectory, { recursive: true });
-      fs.writeFileSync(relayBinary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-    }
-    for (const name of ['node', 'pnpm', 'claude', 'shellcheck', 'cargo']) writeCiProbeShim(shimDir, name);
+    for (const name of ['node', 'pnpm', 'claude', 'shellcheck']) writeCiProbeShim(shimDir, name);
 
     const targeted = run(['--plugin', 'effect-kit']);
     assert.equal(targeted.result.status, 0, `${targeted.result.stdout}\n${targeted.result.stderr}`);
@@ -496,7 +484,6 @@ function testFocusedCiCommandSelection() {
       'plugins/docks/skills',
       'plugins/effect-kit/skills',
     ];
-    const sessionRelayCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/session-relay/skills'];
     const planLifecycleCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/plan-lifecycle/skills'];
 
     assert.equal(
@@ -556,7 +543,7 @@ function testFocusedCiCommandSelection() {
     assert.match(core.result.stdout, /plugin: docks/);
     assert.match(core.result.stdout, /plugin: effect-kit/);
     assert.match(core.result.stdout, /plugin: plan-lifecycle/);
-    assert.doesNotMatch(core.result.stdout, /plugin: session-relay|partition passed/);
+    assert.doesNotMatch(core.result.stdout, /partition passed/);
     assert.equal(countToolInvocation(core.calls, 'node', orchestrationArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', boundedWorkflowArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', crossPluginCollisionArgv), 1);
@@ -637,37 +624,6 @@ function testFocusedCiCommandSelection() {
       'docks no longer ships agents, so core CI must not score a docks agents dir',
     );
 
-    const relayTimingPath = path.join(fixtureRoot, 'relay-timings.json');
-    const relay = run(['--lane', 'relay', '--timings-json', relayTimingPath]);
-    assert.equal(relay.result.status, 0, `${relay.result.stdout}\n${relay.result.stderr}`);
-    assert.match(relay.result.stdout, /plugin: session-relay/);
-    assert.doesNotMatch(relay.result.stdout, /plugin: docks|plugin: effect-kit|plan orchestration|partition passed/);
-    for (const script of repoWideCommands) {
-      assert.equal(invokesNode(relay.calls, script), false, `Relay CI must not invoke repo-wide command ${script}`);
-    }
-    assert.equal(countToolInvocation(relay.calls, 'node', sessionRelayCollisionArgv), 1);
-    assert.equal(countToolInvocation(relay.calls, 'node', orchestrationArgv), 0);
-    assert.equal(countToolInvocation(relay.calls, 'node', boundedWorkflowArgv), 0);
-    assert.equal(countToolInvocation(relay.calls, 'pnpm', ['run', 'check:js']), 0);
-    assert.equal(countToolInvocation(relay.calls, 'pnpm', sessionRelayBiomeCiArgv), 1);
-    assert.match(relay.result.stdout, /javascript quality/);
-    const relayTiming = JSON.parse(fs.readFileSync(relayTimingPath, 'utf8'));
-    assertCommandTelemetry(relayTiming);
-    assert.equal(relayTiming.schema, 2);
-    assert.deepEqual(
-      relayTiming.tasks.map(({ name }) => name),
-      ['javascript quality'],
-    );
-    assert.deepEqual(
-      relayTiming.phases.map(({ name }) => name),
-      ['shell lint', 'skill trigger collisions', 'plugin: session-relay', 'javascript quality'],
-      'Relay CI must own only its shell, trigger, plugin, and quality gates',
-    );
-    assert.ok(
-      relayTiming.phases.every(({ status }) => status === 'passed'),
-      `Relay timing report contains a failed phase: ${JSON.stringify(relayTiming.phases)}`,
-    );
-
     // The always-on shard. Everything a shard-skipping pull request would otherwise
     // lose lives here, and nothing plugin-scoped does - if a check migrates out of
     // this census it stops running on a pull request that skips both plugin shards.
@@ -679,10 +635,7 @@ function testFocusedCiCommandSelection() {
     }
     assert.equal(countToolInvocation(repoWide.calls, 'node', ['scripts/plans/no-bespoke-gates.mjs']), 1);
     assert.equal(countToolInvocation(repoWide.calls, 'pnpm', ['run', 'test:unit']), 1);
-    assert.doesNotMatch(
-      repoWide.result.stdout,
-      /plugin: docks|plugin: session-relay|plugin: effect-kit|plugin: plan-lifecycle/,
-    );
+    assert.doesNotMatch(repoWide.result.stdout, /plugin: docks|plugin: effect-kit|plugin: plan-lifecycle/);
     assert.equal(countToolInvocation(repoWide.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(repoWide.calls, 'pnpm', coreBiomeCiArgv), 0);
     // The repo shard used to schedule no biome at all: it selects zero plugins, so the
@@ -723,7 +676,6 @@ function testFocusedCiCommandSelection() {
       new Map([
         ['repo', repoWide.calls],
         ['core', core.calls],
-        ['relay', relay.calls],
       ]),
     );
     for (const [subcommand, declaredPaths] of declaredBiome) {
@@ -736,9 +688,7 @@ function testFocusedCiCommandSelection() {
       );
     }
     // No shard may drop a phase the pre-sharding full gate ran.
-    const shardedPhases = new Set(
-      [repoTiming, timing, relayTiming].flatMap(({ phases }) => phases.map(({ name }) => name)),
-    );
+    const shardedPhases = new Set([repoTiming, timing].flatMap(({ phases }) => phases.map(({ name }) => name)));
     const fullTimingPath = path.join(fixtureRoot, 'full-timings.json');
     const full = run(['--timings-json', fullTimingPath]);
     assert.equal(full.result.status, 0, `${full.result.stdout}\n${full.result.stderr}`);
@@ -749,8 +699,6 @@ function testFocusedCiCommandSelection() {
       'every phase of the untargeted gate must be owned by some shard',
     );
   } finally {
-    if (!relayBinaryExisted) fs.rmSync(relayBinary, { force: true });
-    if (!relayBinaryDirectoryExisted) fs.rmSync(relayBinaryDirectory, { recursive: true, force: true });
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
@@ -932,12 +880,6 @@ async function testGenericReleaseModuleContract(
     );
   }
 
-  const relay = PLUGINS.find(({ name }) => name === 'session-relay');
-  assert.ok(relay, 'missing Session Relay descriptor');
-  assert.deepEqual(Object.keys(relay.release).sort(), ['assets', 'install', 'kind', 'prereleaseBody']);
-  assert.equal(relay.release.kind, 'reviewed-session-relay');
-  assert.equal('install' in relay, false, 'Session Relay install text belongs only to its reviewed policy');
-
   const generic = ordinaryPlugins[0];
   await expectReleasePolicyRefusal(
     runGenericPluginRelease,
@@ -963,71 +905,27 @@ async function testGenericReleaseModuleContract(
     { kind: 'generic' },
     /install.*non-empty|missing.*install/i,
   );
-  await expectReleasePolicyRefusal(
-    runGenericPluginRelease,
-    relay,
-    relay.release,
-    /Session Relay.*reviewed|positional.*Session Relay/i,
-  );
-
-  for (const { name, plugins, expected, argv = ['--prepare', '--plugin', relay.name, '0.16.1', '--dry-run'] } of [
-    {
-      name: 'malformed reviewed descriptor',
-      plugins: PLUGINS.map((plugin) =>
-        plugin.name === relay.name ? { ...plugin, release: { ...plugin.release, prepare() {} } } : plugin,
-      ),
-      expected: /closed release policy|unexpected release policy field/i,
-    },
-    {
-      name: 'malformed unrelated descriptor',
+  // Registry validation is global: one malformed descriptor refuses the release of every
+  // plugin, not only its own, and it must refuse before any release IO happens.
+  const malformedRegistryIo = genericReleaseIo(ROOT);
+  await assert.rejects(
+    dispatchPluginRelease({
+      argv: ['--dry-run', '--plugin', ordinaryNames[1], 'patch'],
+      repo: ROOT,
       plugins: PLUGINS.map((plugin) =>
         plugin.name === generic.name
           ? { ...plugin, release: { kind: 'future-release-policy', install: plugin.release.install } }
           : plugin,
       ),
-      expected: /unknown release policy kind/i,
-    },
-    {
-      name: 'reviewed plugin assigned a generic policy',
-      plugins: PLUGINS.map((plugin) =>
-        plugin.name === relay.name
-          ? { ...plugin, release: { kind: 'generic', install: plugin.release.install } }
-          : plugin,
-      ),
-      expected: /unknown generic release option.*--prepare/i,
-    },
-    {
-      name: 'duplicate plugin option hides a reviewed flag',
-      plugins: PLUGINS.map((plugin) =>
-        plugin.name === relay.name
-          ? { ...plugin, release: { kind: 'generic', install: plugin.release.install } }
-          : plugin,
-      ),
-      expected: /duplicate generic release option.*--plugin/i,
-      argv: ['--plugin', relay.name, '--plugin', '--prepare', '0.16.1'],
-    },
-  ]) {
-    let reviewedDispatchCalls = 0;
-    await assert.rejects(
-      dispatchPluginRelease({
-        argv,
-        repo: ROOT,
-        plugins,
-        io: genericReleaseIo(ROOT).io,
-        dispatchReviewed: async () => {
-          reviewedDispatchCalls += 1;
-          return true;
-        },
-      }),
-      expected,
-      name,
-    );
-    assert.equal(reviewedDispatchCalls, 0, `${name} reached reviewed release dispatch`);
-  }
+      io: malformedRegistryIo.io,
+    }),
+    /unknown release policy kind/i,
+    'a malformed unrelated descriptor must refuse every release',
+  );
+  assert.deepEqual(malformedRegistryIo.calls, [], 'registry validation reached production release IO');
 
   const fixtureIo = genericReleaseIo(ROOT);
   let fixtureDispatchCalls = 0;
-  let reviewedDispatchCalls = 0;
   const fixtureResult = await dispatchPluginRelease({
     argv: ['--plugin', generic.name, 'patch'],
     repo: ROOT,
@@ -1037,19 +935,14 @@ async function testGenericReleaseModuleContract(
       fixtureDispatchCalls += 1;
       return true;
     },
-    dispatchReviewed: async () => {
-      reviewedDispatchCalls += 1;
-      return true;
-    },
   });
   assert.equal(fixtureResult, true);
   assert.equal(fixtureDispatchCalls, 1, 'fixture-only dispatcher did not intercept the simulated release');
-  assert.equal(reviewedDispatchCalls, 0, 'generic fixture dispatch reached the reviewed dispatcher');
   assert.deepEqual(fixtureIo.calls, [], 'generic fixture dispatch reached production release IO');
 
   for (const [name, argv, expected] of [
     ['unknown default-plugin option in fixture mode', ['--unknown', 'patch'], /unknown.*--unknown/i],
-    ['reviewed option without plugin selector in fixture mode', ['--prepare', '0.16.1'], /unknown.*--prepare/i],
+    ['unknown option without plugin selector in fixture mode', ['--prepare', '0.16.1'], /unknown.*--prepare/i],
     [
       'duplicate generic plugin option in fixture mode',
       ['--plugin', generic.name, '--plugin', ordinaryNames[1], 'patch'],
@@ -1064,7 +957,7 @@ async function testGenericReleaseModuleContract(
       /duplicate generic release option.*--dry-run/i,
     ],
     [
-      'reviewed option assigned to generic plugin in fixture mode',
+      'unknown option assigned to a generic plugin in fixture mode',
       ['--prepare', '--plugin', generic.name, 'patch'],
       /unknown generic release option.*--prepare/i,
     ],
@@ -1081,7 +974,6 @@ async function testGenericReleaseModuleContract(
           malformedFixtureCalls += 1;
           return true;
         },
-        dispatchReviewed: async () => true,
       }),
       expected,
       name,
@@ -1110,7 +1002,6 @@ async function testGenericReleaseModuleContract(
   assert.equal(createdGenericIo, 0, 'fixture mode constructed a production generic IO adapter');
 
   let declinedFixtureCalls = 0;
-  let declinedReviewedCalls = 0;
   await assert.rejects(
     dispatchPluginRelease({
       argv: ['--plugin', generic.name, 'patch'],
@@ -1121,16 +1012,11 @@ async function testGenericReleaseModuleContract(
         declinedFixtureCalls += 1;
         return null;
       },
-      dispatchReviewed: async () => {
-        declinedReviewedCalls += 1;
-        return true;
-      },
     }),
     /generic release IO must be the exact closed adapter/i,
     'a missed fixture interception retained production release capability',
   );
   assert.equal(declinedFixtureCalls, 1);
-  assert.equal(declinedReviewedCalls, 0);
   assert.equal(createdGenericIo, 0, 'a missed fixture interception reached production release IO');
 
   const successfulRelease = genericReleaseIo(ROOT);
@@ -1220,21 +1106,6 @@ async function testDryRunReleaseSafety() {
     );
   }
   await testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease, resolveGenericReleaseIo);
-  const emptyFixtureResult = spawnSync(
-    process.execPath,
-    ['scripts/release.mjs', '--prepare', '--plugin', 'session-relay', '0.16.0', '--dry-run'],
-    {
-      cwd: ROOT,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        SESSION_RELAY_RELEASE_FIXTURE: '',
-        SESSION_RELAY_RELEASE_REPORT: '',
-      },
-    },
-  );
-  assert.equal(emptyFixtureResult.status, 1, 'empty fixture capability reached a release lane');
-  assert.match(emptyFixtureResult.stderr, /fixture and report environment variables must both be non-empty/i);
   const before = gitSnapshot();
   assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-dry-run-'));
@@ -1435,24 +1306,20 @@ if (mode === '--timing-write-failure') {
 const names = (rows) => rows.map((row) => row.name);
 const byName = (name) => PLUGINS.find((plugin) => plugin.name === name);
 
-assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'session-relay', 'effect-kit', 'plan-lifecycle']);
+assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'effect-kit', 'plan-lifecycle']);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, 'docks')), ['docks']);
-assert.throws(
-  () => resolveCiTargets(PLUGINS, 'unknown-plugin'),
-  /unknown plugin.*docks, session-relay, effect-kit, plan-lifecycle/,
-);
+assert.throws(() => resolveCiTargets(PLUGINS, 'unknown-plugin'), /unknown plugin.*docks, effect-kit, plan-lifecycle/);
 const laneShape = ({ name, targets, repoWide }) => ({
   name,
   targets: names(targets),
   repoWide,
 });
-assert.deepEqual(CI_LANES, ['repo', 'core', 'relay']);
+assert.deepEqual(CI_LANES, ['repo', 'core']);
 assert.ok(Object.isFrozen(CI_LANES));
 assert.deepEqual(
   PLUGINS.map(({ name, ciLane }) => ({ name, ciLane })),
   [
     { name: 'docks', ciLane: 'core' },
-    { name: 'session-relay', ciLane: 'relay' },
     { name: 'effect-kit', ciLane: 'core' },
     { name: 'plan-lifecycle', ciLane: 'core' },
   ],
@@ -1467,15 +1334,8 @@ assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'core')), {
   targets: ['docks', 'effect-kit', 'plan-lifecycle'],
   repoWide: false,
 });
-assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'relay')), {
-  name: 'relay',
-  targets: ['session-relay'],
-  repoWide: false,
-});
 assert.equal(
-  [resolveCiLane(PLUGINS, 'repo'), resolveCiLane(PLUGINS, 'core'), resolveCiLane(PLUGINS, 'relay')].filter(
-    ({ repoWide }) => repoWide,
-  ).length,
+  [resolveCiLane(PLUGINS, 'repo'), resolveCiLane(PLUGINS, 'core')].filter(({ repoWide }) => repoWide).length,
   1,
   'exactly one shard may own the repo-wide checks, and it must be the always-on one',
 );
@@ -1507,16 +1367,13 @@ try {
 const unknownLanePlugin = { ...syntheticCorePlugin, name: 'unknown-lane-plugin', ciLane: 'mutations' };
 PLUGINS.push(unknownLanePlugin);
 try {
-  assert.throws(
-    () => resolveCiLane(PLUGINS, 'core'),
-    /plugin unknown-lane-plugin has unknown ciLane: mutations.*core, relay/,
-  );
+  assert.throws(() => resolveCiLane(PLUGINS, 'core'), /plugin unknown-lane-plugin has unknown ciLane: mutations.*core/);
 } finally {
   assert.equal(PLUGINS.pop(), unknownLanePlugin);
 }
-assert.throws(() => resolveCiLane(PLUGINS, 'unknown'), /unknown CI lane.*repo, core, relay/);
-assert.throws(() => resolveCiLane(PLUGINS, 'toString'), /unknown CI lane.*repo, core, relay/);
-assert.throws(() => resolveCiLane(PLUGINS, 'constructor'), /unknown CI lane.*repo, core, relay/);
+assert.throws(() => resolveCiLane(PLUGINS, 'unknown'), /unknown CI lane.*repo, core/);
+assert.throws(() => resolveCiLane(PLUGINS, 'toString'), /unknown CI lane.*repo, core/);
+assert.throws(() => resolveCiLane(PLUGINS, 'constructor'), /unknown CI lane.*repo, core/);
 assert.throws(
   () =>
     resolveCiLane(
@@ -1527,12 +1384,12 @@ assert.throws(
 );
 for (const [invalidArgs, diagnostic] of [
   [['--lane'], /--lane requires one value/],
-  [['--lane', 'core', '--lane', 'relay'], /duplicate argument: --lane/],
+  [['--lane', 'core', '--lane', 'repo'], /duplicate argument: --lane/],
   [['--lane', 'core', '--plugin', 'docks'], /--plugin cannot be combined with --lane/],
   [['--list', '--lane', 'core'], /--list cannot be combined with.*--lane/],
-  [['--lane', 'unknown'], /unknown CI lane.*repo, core, relay/],
-  [['--lane', 'toString'], /unknown CI lane.*repo, core, relay/],
-  [['--lane', 'constructor'], /unknown CI lane.*repo, core, relay/],
+  [['--lane', 'unknown'], /unknown CI lane.*repo, core/],
+  [['--lane', 'toString'], /unknown CI lane.*repo, core/],
+  [['--lane', 'constructor'], /unknown CI lane.*repo, core/],
 ]) {
   const rejected = spawnSync(process.execPath, ['scripts/ci.mjs', ...invalidArgs], {
     cwd: ROOT,
@@ -1566,13 +1423,16 @@ for (const plugin of PLUGINS) {
   assert.ok(lanes.includes(REPO_WIDE_LANE), `${plugin.name}: the repo-wide shard is unconditional`);
 }
 assert.deepEqual(shardsFor(['plugins/plan-lifecycle/test/selftest.mjs']).lanes, ['repo', 'core']);
-assert.deepEqual(shardsFor(['plugins/session-relay/rust/src/main.rs']).lanes, ['repo', 'relay']);
+assert.deepEqual(shardsFor(['plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs']).lanes, [
+  'repo',
+  'core',
+]);
 
 // A multi-plugin diff selects each implicated shard.
-assert.deepEqual(
-  shardsFor(['plugins/plan-lifecycle/test/selftest.mjs', 'plugins/session-relay/rust/src/main.rs']).lanes,
-  ['repo', 'core', 'relay'],
-);
+assert.deepEqual(shardsFor(['plugins/plan-lifecycle/test/selftest.mjs', 'plugins/docks/skills/a.md']).lanes, [
+  'repo',
+  'core',
+]);
 assert.deepEqual(shardsFor(['plugins/docks/skills/a.md', 'plugins/effect-kit/test/b.mjs']).lanes, ['repo', 'core']);
 
 // Every fail-open path selects everything.
@@ -1589,7 +1449,7 @@ for (const [label, selection] of [
   ['a non-pull-request event', shardsFor(['plugins/docks/skills/a.md'], { eventName: 'push' })],
   ['a workflow_dispatch run', shardsFor([], { eventName: 'workflow_dispatch' })],
 ]) {
-  assert.deepEqual(selection.lanes, ['repo', 'core', 'relay'], `${label} must fail open to every shard`);
+  assert.deepEqual(selection.lanes, ['repo', 'core'], `${label} must fail open to every shard`);
   assert.notEqual(selection.reason, 'diff-scoped', `${label} must not report a positive determination`);
 }
 assert.equal(shardsFor(['plugins/docks-extra/x.md']).reason, 'path-outside-every-plugin-root:plugins/docks-extra/x.md');
@@ -1614,7 +1474,7 @@ for (const [label, input] of [
 
 // The registry, not the workflow, decides coverage: a plugin added without a
 // usable shard must fail here rather than ride in ungated.
-assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core', 'relay']);
+assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core']);
 for (const [label, broken] of [
   ['a plugin with no ciLane', { ...byName('effect-kit'), name: 'no-lane', root: 'plugins/no-lane', ciLane: undefined }],
   [
@@ -1654,12 +1514,7 @@ const withPluginTreeEntry = (name, make, run) => {
   assert.equal(fs.existsSync(target), false, `${name} must leave no residue`);
 };
 
-assert.deepEqual(assertPluginTreesAreRegistered(), [
-  'plugins/docks',
-  'plugins/effect-kit',
-  'plugins/plan-lifecycle',
-  'plugins/session-relay',
-]);
+assert.deepEqual(assertPluginTreesAreRegistered(), ['plugins/docks', 'plugins/effect-kit', 'plugins/plan-lifecycle']);
 
 // The reported defect, and it must reach callers through the wired entry point too.
 withPluginTreeEntry(
@@ -1718,7 +1573,7 @@ try {
 } finally {
   assert.equal(PLUGINS.pop(), deletedTreePlugin);
 }
-assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core', 'relay']);
+assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core']);
 console.log('pull-request shard selection and registry coverage passed');
 
 // The resolver CLI is the only thing the workflow calls, so prove the fail-open
@@ -1736,11 +1591,11 @@ try {
   const diffFile = path.join(shardCliTmp, 'changed.txt');
   fs.writeFileSync(diffFile, 'plugins/plan-lifecycle/test/selftest.mjs\n');
   assert.deepEqual(shardCli(['--changed-paths', diffFile]), { lanes: ['repo', 'core'], reason: 'diff-scoped' });
-  assert.deepEqual(shardCli(['--unresolved']), { lanes: ['repo', 'core', 'relay'], reason: 'base-sha-unresolved' });
+  assert.deepEqual(shardCli(['--unresolved']), { lanes: ['repo', 'core'], reason: 'base-sha-unresolved' });
   // An unreadable diff file is a resolution failure, not evidence that a shard has
   // nothing to do: the CLI must still exit 0 and select everything.
   assert.deepEqual(shardCli(['--changed-paths', path.join(shardCliTmp, 'absent.txt')]), {
-    lanes: ['repo', 'core', 'relay'],
+    lanes: ['repo', 'core'],
     reason: 'resolution-error',
   });
   const githubOutput = path.join(shardCliTmp, 'github-output');
@@ -1751,7 +1606,7 @@ try {
   );
   assert.equal(emitted.status, 0, emitted.stderr);
   assert.equal(emitted.stdout, '');
-  assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'lanes=["repo","core","relay"]\nreason=base-sha-unresolved\n');
+  assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'lanes=["repo","core"]\nreason=base-sha-unresolved\n');
   for (const invalid of [[], ['--unresolved', '--changed-paths', diffFile], ['--changed-paths'], ['--bogus', 'x']]) {
     const rejected = spawnSync(process.execPath, ['scripts/ci-target.mjs', 'shards', ...invalid], {
       cwd: ROOT,
@@ -1776,12 +1631,8 @@ console.log('registry targeting and author-check selection passed');
 testFocusedCiCommandSelection();
 console.log('focused CI command selection passed');
 
-assert.deepEqual(parseReleaseTag('docks--v0.12.8'), { plugin: 'docks', version: '0.12.8', needsRust: false });
-assert.deepEqual(parseReleaseTag('session-relay--v11.2.0'), {
-  plugin: 'session-relay',
-  version: '11.2.0',
-  needsRust: true,
-});
+assert.deepEqual(parseReleaseTag('docks--v0.12.8'), { plugin: 'docks', version: '0.12.8' });
+assert.deepEqual(parseReleaseTag('effect-kit--v11.2.0'), { plugin: 'effect-kit', version: '11.2.0' });
 for (const invalid of [
   'docks--v01.2.3',
   'docks--v1.02.3',
@@ -1792,13 +1643,9 @@ for (const invalid of [
   'refs/tags/docks--v1.2.3',
 ])
   assert.throws(() => parseReleaseTag(invalid), /invalid release tag|unknown plugin/);
-assert.deepEqual(workflowCiSelection('pull_request', ''), { mode: 'full', plugin: null, needsRust: true });
-assert.deepEqual(workflowCiSelection('workflow_dispatch', ''), { mode: 'full', plugin: null, needsRust: true });
-assert.deepEqual(workflowCiSelection('push', 'effect-kit--v0.3.1'), {
-  mode: 'targeted',
-  plugin: 'effect-kit',
-  needsRust: false,
-});
+assert.deepEqual(workflowCiSelection('pull_request', ''), { mode: 'full', plugin: null });
+assert.deepEqual(workflowCiSelection('workflow_dispatch', ''), { mode: 'full', plugin: null });
+assert.deepEqual(workflowCiSelection('push', 'effect-kit--v0.3.1'), { mode: 'targeted', plugin: 'effect-kit' });
 assert.throws(() => workflowCiSelection('push', 'bad-tag'), /invalid release tag/);
 assert.throws(() => workflowCiSelection('schedule', ''), /unsupported workflow event/);
 console.log('release tag and workflow selection passed');
@@ -1808,12 +1655,12 @@ try {
   const githubOutput = path.join(tmp, 'github-output');
   const cli = spawnSync(
     'node',
-    ['scripts/ci-target.mjs', 'release-tag', 'session-relay--v0.11.2', '--github-output', githubOutput],
+    ['scripts/ci-target.mjs', 'release-tag', 'effect-kit--v0.11.2', '--github-output', githubOutput],
     { cwd: ROOT, encoding: 'utf8' },
   );
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stdout, '');
-  assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'mode=targeted\nplugin=session-relay\nneeds_rust=true\n');
+  assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'mode=targeted\nplugin=effect-kit\n');
 
   const malformed = spawnSync('node', ['scripts/ci-target.mjs', 'release-tag', 'docks--v1.2.3;echo-owned'], {
     cwd: ROOT,
@@ -1838,10 +1685,7 @@ try {
       timeout: 120_000,
     });
     assert.equal(targeted.status, 0, `${targeted.stdout}\n${targeted.stderr}`);
-    assert.doesNotMatch(
-      targeted.stdout,
-      /skill-maintainer idempotency|plan review policy|plugin: docks|plugin: session-relay/,
-    );
+    assert.doesNotMatch(targeted.stdout, /skill-maintainer idempotency|plan review policy|plugin: docks/);
     assert.match(targeted.stdout, /plugin: effect-kit/);
     validateTimingReport(timingPath, 'effect-kit', ['javascript quality']);
     console.log('targeted CI timing report passed');
@@ -1899,11 +1743,9 @@ function assertPinnedActions(workflow, relativePath) {
 }
 
 const validateWorkflow = parseWorkflow('.github/workflows/ci.yml');
-const binaryWorkflow = parseWorkflow('.github/workflows/build-binaries.yml');
 const integrityWorkflow = parseWorkflow('.github/workflows/dependency-integrity.yml');
 for (const [relativePath, parsed] of [
   ['.github/workflows/ci.yml', validateWorkflow],
-  ['.github/workflows/build-binaries.yml', binaryWorkflow],
   ['.github/workflows/dependency-integrity.yml', integrityWorkflow],
 ]) {
   assertPinnedActions(parsed.value, relativePath);
@@ -1941,9 +1783,6 @@ for (const [jobName, job] of Object.entries(validation.jobs)) {
 for (const job of Object.values(validation.jobs)) {
   for (const cacheStep of job.steps.filter(({ name }) => name === 'cache pnpm store')) {
     assert.equal(cacheStep.id, 'pnpm-cache');
-  }
-  for (const cacheStep of job.steps.filter(({ name }) => name === 'cache Cargo dependencies and target outputs')) {
-    assert.equal(cacheStep.id, 'cargo-cache');
   }
 }
 
@@ -2006,24 +1845,6 @@ assert.deepEqual(
 );
 const shardSteps = shardJob.steps;
 const shardStep = (name) => shardSteps.find((row) => row.name?.startsWith(name));
-function assertDelegatedCgroupRun(run) {
-  assert.match(
-    run,
-    /CURRENT_CGROUP=[\s\S]*done < \/proc\/self\/cgroup[\s\S]*CGROUP="\/sys\/fs\/cgroup\$\{CURRENT_CGROUP%\/\}\/session-relay-test-/,
-  );
-  assert.match(
-    run,
-    /sudo -n mkdir "\$CGROUP"[\s\S]*trap cleanup EXIT[\s\S]*sudo -n chown "\$\(id -u\):\$\(id -g\)" "\$CGROUP"[\s\S]*cgroup\.procs" "\$CGROUP\/cgroup\.threads" "\$CGROUP\/cgroup\.subtree_control"/,
-  );
-  assert.match(
-    run,
-    /test_pid=\$BASHPID[\s\S]*tee "\$CGROUP\/cgroup\.procs"[\s\S]*SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"/,
-  );
-  assert.match(
-    run,
-    /cleanup\(\)[\s\S]*for _ in \{1\.\.100\}[\s\S]*if ! grep -qx 'populated 0' "\$CGROUP\/cgroup\.events"[\s\S]*leaked live processes[\s\S]*status=1[\s\S]*cgroup\.kill[\s\S]*if ! grep -qx 'populated 0' "\$CGROUP\/cgroup\.events" \|\| ! sudo -n rmdir "\$CGROUP"[\s\S]*status=1/,
-  );
-}
 assert.deepEqual(
   shardSteps.map((row) => row.name ?? row.uses),
   [
@@ -2033,13 +1854,11 @@ assert.deepEqual(
     'enable corepack',
     'configure deterministic pnpm store',
     'cache pnpm store',
-    'cache Cargo dependencies and target outputs',
     'mark hosted cache restore',
     'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
     'materialize claude-code binary (allowBuilds denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-    'provision Rust 1.85.0 with musl for the session-relay host leg',
     'run validation lane',
     'publish hosted timing artifact',
   ],
@@ -2054,61 +1873,13 @@ for (const name of [
   'verify registry signatures',
   'materialize claude-code binary',
   'add node_modules/.bin to PATH',
+  'run validation lane',
 ])
   assert.equal(shardStep(name).if, undefined, `${name} must run on both candidate lanes`);
-for (const name of ['cache Cargo dependencies', 'provision Rust 1.85.0 with musl'])
-  assert.equal(shardStep(name).if, "matrix.lane == 'relay'");
-const shardStepsForLane = (lane) =>
-  shardSteps
-    .filter(
-      (row) =>
-        row.if === undefined || row.if === 'always()' || (row.if === "matrix.lane == 'relay'" && lane === 'relay'),
-    )
-    .map((row) => row.name ?? 'checkout');
-assert.deepEqual(shardStepsForLane('core'), [
-  'checkout',
-  'setup Node 24',
-  'start hosted step timing',
-  'enable corepack',
-  'configure deterministic pnpm store',
-  'cache pnpm store',
-  'mark hosted cache restore',
-  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
-  'verify registry signatures (non-blocking)',
-  'materialize claude-code binary (allowBuilds denies it by default)',
-  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-  'run validation lane',
-  'publish hosted timing artifact',
-]);
-assert.deepEqual(shardStepsForLane('relay'), [
-  'checkout',
-  'setup Node 24',
-  'start hosted step timing',
-  'enable corepack',
-  'configure deterministic pnpm store',
-  'cache pnpm store',
-  'cache Cargo dependencies and target outputs',
-  'mark hosted cache restore',
-  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
-  'verify registry signatures (non-blocking)',
-  'materialize claude-code binary (allowBuilds denies it by default)',
-  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-  'provision Rust 1.85.0 with musl for the session-relay host leg',
-  'run validation lane',
-  'publish hosted timing artifact',
-]);
 assert.equal(shardSteps[0].with['persist-credentials'], false);
 assert.equal(shardStep('setup Node 24').with['node-version'], '24');
 const shardGateRun = shardStep('run validation lane').run;
-assert.match(
-  shardGateRun,
-  /if \[ "\$\{\{ matrix\.lane \}\}" != "relay" \]; then[\s\S]*node scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}"[\s\S]*exit/,
-);
-assertDelegatedCgroupRun(shardGateRun);
-assert.match(
-  shardGateRun,
-  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP" node scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}"/,
-);
+assert.match(shardGateRun, /^node scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}" --timings-json /u);
 
 const targetingJob = validation.jobs['targeting-contracts'];
 assert.deepEqual(Object.keys(targetingJob), ['name', 'if', 'permissions', 'runs-on', 'timeout-minutes', 'steps']);
@@ -2142,6 +1913,7 @@ for (const name of [
   'enable corepack',
   'configure deterministic pnpm store',
   'cache pnpm store',
+  'mark hosted cache restore',
   'install pnpm dependencies',
   'verify registry signatures',
   'materialize claude-code binary',
@@ -2149,12 +1921,10 @@ for (const name of [
 ]) {
   assert.deepEqual(targetingStep(name), shardStep(name), `${name}: targeting-contract setup drifted from shard setup`);
 }
-for (const name of ['start hosted step timing', 'mark hosted cache restore']) {
+for (const name of ['start hosted step timing']) {
   assert.ok(shardStep(name), `${name} must exist in validation-shards`);
   assert.ok(targetingStep(name), `${name} must exist in targeting-contracts`);
 }
-assert.match(shardStep('mark hosted cache restore').run, /steps\.cargo-cache\.outputs\.cache-hit/);
-assert.doesNotMatch(targetingStep('mark hosted cache restore').run, /steps\.cargo-cache\.outputs\.cache-hit/);
 assert.deepEqual(targetingSteps[0], shardSteps[0]);
 assert.deepEqual(targetingStep('run non-unit plugin-targeting contracts'), {
   name: 'run non-unit plugin-targeting contracts',
@@ -2181,13 +1951,11 @@ assert.deepEqual(
     'enable corepack',
     'configure deterministic pnpm store',
     'cache pnpm store',
-    'cache Cargo dependencies and target outputs',
     'mark hosted cache restore',
     'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
     'materialize claude-code binary (allowBuilds denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-    'provision Rust 1.85.0 with musl for the session-relay host leg',
     'run the authoritative gate (scripts/ci.mjs)',
     'publish hosted timing artifact',
     'assert successful prerequisite jobs',
@@ -2196,8 +1964,6 @@ assert.deepEqual(
 const nonPullRequestCondition = "github.event_name != 'pull_request'";
 const pushCondition = "github.event_name == 'push'";
 const pullRequestCondition = "github.event_name == 'pull_request'";
-const nonPullRequestRustCondition =
-  "github.event_name != 'pull_request' && (github.event_name != 'push' || steps.target.outputs.needs_rust == 'true')";
 const hostedTimingPublishCondition = "always() && github.event_name != 'pull_request'";
 const validateStepLabel = (row) => row.name ?? 'checkout';
 assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), row.if])), {
@@ -2208,18 +1974,16 @@ assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), 
   'enable corepack': nonPullRequestCondition,
   'configure deterministic pnpm store': nonPullRequestCondition,
   'cache pnpm store': nonPullRequestCondition,
-  'cache Cargo dependencies and target outputs': nonPullRequestRustCondition,
   'mark hosted cache restore': nonPullRequestCondition,
   'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)': nonPullRequestCondition,
   'verify registry signatures (non-blocking)': nonPullRequestCondition,
   'materialize claude-code binary (allowBuilds denies it by default)': nonPullRequestCondition,
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)': nonPullRequestCondition,
-  'provision Rust 1.85.0 with musl for the session-relay host leg': nonPullRequestRustCondition,
   'run the authoritative gate (scripts/ci.mjs)': nonPullRequestCondition,
   'assert successful prerequisite jobs': undefined,
   'publish hosted timing artifact': hostedTimingPublishCondition,
 });
-function effectiveValidateInventory(eventName, needsRust = false) {
+function effectiveValidateInventory(eventName) {
   return steps
     .filter((row) => {
       switch (row.if) {
@@ -2229,8 +1993,6 @@ function effectiveValidateInventory(eventName, needsRust = false) {
           return eventName === 'push';
         case pullRequestCondition:
           return eventName === 'pull_request';
-        case nonPullRequestRustCondition:
-          return eventName !== 'pull_request' && (eventName !== 'push' || needsRust);
         case hostedTimingPublishCondition:
           return eventName !== 'pull_request';
         case undefined:
@@ -2248,73 +2010,43 @@ const fullValidateInventory = [
   'enable corepack',
   'configure deterministic pnpm store',
   'cache pnpm store',
-  'cache Cargo dependencies and target outputs',
   'mark hosted cache restore',
   'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
   'verify registry signatures (non-blocking)',
   'materialize claude-code binary (allowBuilds denies it by default)',
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-  'provision Rust 1.85.0 with musl for the session-relay host leg',
   'run the authoritative gate (scripts/ci.mjs)',
   'publish hosted timing artifact',
   'assert successful prerequisite jobs',
 ];
 assert.deepEqual(effectiveValidateInventory('pull_request'), ['assert successful prerequisite jobs']);
 assert.deepEqual(effectiveValidateInventory('workflow_dispatch'), fullValidateInventory);
-assert.deepEqual(effectiveValidateInventory('push', true), [
+assert.deepEqual(effectiveValidateInventory('push'), [
   'checkout',
   'setup Node 24',
   'resolve CI target',
   ...fullValidateInventory.slice(2),
 ]);
-assert.deepEqual(effectiveValidateInventory('push', false), [
-  'checkout',
-  'setup Node 24',
-  'resolve CI target',
-  'start hosted step timing',
-  'enable corepack',
-  'configure deterministic pnpm store',
-  'cache pnpm store',
-  'mark hosted cache restore',
-  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
-  'verify registry signatures (non-blocking)',
-  'materialize claude-code binary (allowBuilds denies it by default)',
-  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-  'run the authoritative gate (scripts/ci.mjs)',
-  'publish hosted timing artifact',
-  'assert successful prerequisite jobs',
-]);
 assert.equal(step('resolve CI target').if, "github.event_name == 'push'");
 assert.match(step('resolve CI target').run, /scripts\/ci-target\.mjs release-tag/);
-assert.equal(step('provision Rust 1.85.0 with musl for the session-relay host leg').if, nonPullRequestRustCondition);
 const authoritativeGateRun = step('run the authoritative gate').run;
-assert.match(
-  authoritativeGateRun,
-  /if \[ "\$\{\{ github\.event_name \}\}" = "push" \] && \[ "\$\{\{ steps\.target\.outputs\.needs_rust \}\}" != "true" \]; then/,
-);
-assertDelegatedCgroupRun(authoritativeGateRun);
+assert.match(authoritativeGateRun, /if \[ "\$\{\{ github\.event_name \}\}" = "push" \]; then/);
 // The push leg is asserted through the shared parser rather than by matching argv text:
 // what must hold is that the bytes a release tag publishes get repo-wide validation
 // exactly once, with the targeted plugin gate still last. `ci-targeting.mjs` owns the
 // assertion so this contract and the release-preparation source-CI pin cannot drift into
 // asserting different things.
 const gateCoverage = assertAuthoritativeGateCoversReleasedBytes(authoritativeGateRun);
-assert.equal(gateCoverage.pushLegs, 2, 'both release-tag push legs (Rust and non-Rust) must be covered');
-assert.match(
-  authoritativeGateRun,
-  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*DOCKS_CI_MEMO=0 node scripts\/ci\.mjs --lane repo/,
-);
-assert.match(
-  authoritativeGateRun,
-  /SESSION_RELAY_TEST_CGROUP_ROOT="\$CGROUP"[\s\\]*node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/,
-);
+assert.equal(gateCoverage.pushLegs, 1, 'the single release-tag push leg must be covered');
+assert.match(authoritativeGateRun, /DOCKS_CI_MEMO=0 node scripts\/ci\.mjs --lane repo/);
+assert.match(authoritativeGateRun, /node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/);
 // Each mutation is a way the release path could stop gating the bytes it publishes.
 // They run here so the assertion above is proven load-bearing rather than merely present.
 const repoLaneCall = 'DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo';
 const untargetedCall = 'node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"';
 for (const [label, mutated, expected] of [
   [
-    'no push leg runs the repo-wide shard',
+    'the push leg does not run the repo-wide shard',
     authoritativeGateRun
       .split('\n')
       .filter((line) => !line.includes('--lane repo'))
@@ -2322,12 +2054,7 @@ for (const [label, mutated, expected] of [
     /repo-wide shard .* exactly once, found 0/,
   ],
   [
-    'only one of the two push legs runs it',
-    authoritativeGateRun.replace(`${repoLaneCall}\n`, ''),
-    /repo-wide shard .* exactly once, found 0/,
-  ],
-  [
-    'a push leg runs it twice',
+    'the push leg runs it twice',
     authoritativeGateRun.replace(`${repoLaneCall}\n`, `${repoLaneCall}\n${repoLaneCall}\n`),
     /repo-wide shard .* exactly once, found 2/,
   ],
@@ -2382,14 +2109,6 @@ assert.equal(pnpmCache.id, 'pnpm-cache');
 assert.equal(pnpmCache.with.path, '~/.pnpm-store');
 assert.match(pnpmCache.with.key, /runner\.os.*runner\.arch.*hashFiles\('pnpm-lock\.yaml', 'package\.json'\)/);
 assert.match(pnpmCache.with['restore-keys'], /pnpm-v11-.*runner\.os.*runner\.arch/);
-const cargoCache = step('cache Cargo dependencies and target outputs');
-assert.equal(cargoCache.id, 'cargo-cache');
-assert.equal(cargoCache.if, nonPullRequestRustCondition);
-assert.match(
-  cargoCache.with.key,
-  /runner\.os.*runner\.arch.*Cargo\.lock.*Cargo\.toml.*rust-toolchain\.toml.*src\/\*\*\/\*\.rs.*build\.rs.*tests\/\*\*\/\*\.rs.*\.cargo\/config/,
-);
-assert.match(cargoCache.with['restore-keys'], /runner\.os.*runner\.arch.*Cargo\.lock.*rust-toolchain\.toml/);
 const withoutIf = (row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'if'));
 assert.deepEqual(withoutIf(shardSteps[0]), withoutIf(steps[0]));
 assert.deepEqual(withoutIf(shardStep('setup Node 24')), withoutIf(setupNode));
@@ -2397,12 +2116,11 @@ for (const name of [
   'enable corepack',
   'configure deterministic pnpm store',
   'cache pnpm store',
-  'cache Cargo dependencies and target outputs',
+  'mark hosted cache restore',
   'install pnpm dependencies',
   'verify registry signatures',
   'materialize claude-code binary',
   'add node_modules/.bin to PATH',
-  'provision Rust 1.85.0 with musl',
 ]) {
   assert.deepEqual(
     withoutIf(shardStep(name)),
@@ -2510,27 +2228,4 @@ assert.match(integrityStep('install pnpm dependencies').run, /pnpm install --fro
 assert.equal(integrityStep('verify registry signatures').run, 'npm audit signatures');
 assert.equal(integrityStep('verify registry signatures')['continue-on-error'], undefined);
 
-const binary = binaryWorkflow.value;
-const matrix = binary.jobs.build.strategy.matrix.include;
-assert.equal(binary.jobs.build.strategy['fail-fast'], false);
-// Three legs as of Session Relay 0.16.0: `x86_64-apple-darwin` was retired from the current
-// release lane, so the matrix and this census move together. A retained historical receipt still
-// names four targets; that capability lives in the release validators, not in this workflow scan.
-assert.equal(matrix.length, 3);
-assert.equal(new Set(matrix.map((row) => row.target)).size, 3);
-const binaryCache = binary.jobs.build.steps.find((row) => row.name === 'cache Cargo dependencies and target outputs');
-assert.equal(binaryCache.uses, pnpmCache.uses);
-assert.deepEqual(binaryCache.with.path.split('\n').filter(Boolean), [
-  '~/.cargo/registry',
-  '~/.cargo/git',
-  'plugins/session-relay/rust/target',
-]);
-assert.match(
-  binaryCache.with.key,
-  /runner\.os.*runner\.arch.*matrix\.target.*Cargo\.lock.*Cargo\.toml.*rust-toolchain\.toml.*src\/\*\*\/\*\.rs.*build\.rs.*tests\/\*\*\/\*\.rs.*\.cargo\/config/,
-);
-assert.match(binaryCache.with['restore-keys'], /runner\.os.*runner\.arch.*matrix\.target.*Cargo\.lock/);
-assert.deepEqual(binary.jobs.aggregate.needs, ['identity', 'build']);
-assert.deepEqual(binary.jobs.publish.needs, ['identity', 'aggregate']);
-assert.deepEqual(binary.jobs.publish.permissions, { contents: 'write' });
-console.log('workflow targeting, integrity separation, and target-safe cache contracts passed');
+console.log('workflow targeting and integrity separation contracts passed');

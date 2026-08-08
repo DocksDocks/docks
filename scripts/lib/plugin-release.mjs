@@ -21,7 +21,6 @@ const IO_KEYS = Object.freeze([
 
 const RELEASE_POLICY_KEYS = Object.freeze({
   generic: Object.freeze(['install', 'kind']),
-  'reviewed-session-relay': Object.freeze(['assets', 'install', 'kind', 'prereleaseBody']),
 });
 // The tag-CI result is the only evidence a release is published on, so it carries the
 // identity of the run that produced it — not just a status. `runId` alone cannot be
@@ -90,18 +89,6 @@ function validateReleasePolicy(plugin) {
   if (typeof release.install !== 'string' || release.install.trim() === '') {
     throw new Error(`plugin ${plugin?.name ?? '<unknown>'} release install must be a non-empty string`);
   }
-  if (release.kind === 'reviewed-session-relay') {
-    if (
-      !Array.isArray(release.assets) ||
-      release.assets.length === 0 ||
-      release.assets.some((asset) => typeof asset !== 'string' || asset === '')
-    ) {
-      throw new Error(`plugin ${plugin?.name ?? '<unknown>'} reviewed release assets must be a non-empty string array`);
-    }
-    if (typeof release.prereleaseBody !== 'string' || release.prereleaseBody.trim() === '') {
-      throw new Error(`plugin ${plugin?.name ?? '<unknown>'} reviewed prerelease body must be a non-empty string`);
-    }
-  }
   if (!sameKeys(release, RELEASE_POLICY_KEYS[release.kind])) {
     const unexpected = Object.keys(release).find((key) => !RELEASE_POLICY_KEYS[release.kind].includes(key));
     const missing = RELEASE_POLICY_KEYS[release.kind].find((key) => !Object.hasOwn(release, key));
@@ -164,24 +151,6 @@ function fixturePlugin(argv, plugins) {
   return plugins.find((candidate) => candidate.name === pluginName);
 }
 
-function selectedPlugin(argv, plugins) {
-  if (!Array.isArray(argv)) throw new Error('release argv must be an array');
-  let pluginName = 'docks';
-  let pluginSeen = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] !== '--plugin') continue;
-    if (pluginSeen) throw new Error('duplicate generic release option: --plugin');
-    const value = argv[index + 1];
-    if (typeof value !== 'string' || value.startsWith('--')) {
-      throw new Error('generic release option --plugin requires a plugin name');
-    }
-    pluginSeen = true;
-    pluginName = value;
-    index += 1;
-  }
-  return resolvePlugin(pluginName, plugins);
-}
-
 function parseGenericArgs(argv, plugins) {
   if (!Array.isArray(argv)) throw new Error('generic release argv must be an array');
   let dryRun = false;
@@ -211,11 +180,6 @@ function parseGenericArgs(argv, plugins) {
     }
   }
   const plugin = resolvePlugin(pluginName, plugins);
-  if (plugin.release.kind === 'reviewed-session-relay') {
-    throw new Error(
-      'Session Relay uses its reviewed release flow; positional Session Relay releases are not supported',
-    );
-  }
   if (positional.length > 1)
     throw new Error(`generic release accepts one version argument, received ${positional.length}`);
   const versionArgument = positional[0];
@@ -262,7 +226,7 @@ function reportedFailure(message) {
   return error;
 }
 
-export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchFixture, dispatchReviewed }) {
+export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchFixture }) {
   validateReleaseRegistry(plugins);
   if (dispatchFixture !== undefined) {
     if (typeof dispatchFixture !== 'function') throw new Error('release fixture dispatcher must be a function');
@@ -271,18 +235,7 @@ export async function dispatchPluginRelease({ argv, repo, plugins, io, dispatchF
     const fixture = await dispatchFixture(argv);
     if (fixture !== null) return fixture;
   }
-  const plugin = selectedPlugin(argv, plugins);
-  if (plugin.release.kind !== 'reviewed-session-relay') {
-    return runGenericPluginRelease({ argv, repo, plugins, io });
-  }
-  if (typeof dispatchReviewed !== 'function') {
-    throw new Error('reviewed release dispatcher must be a function');
-  }
-  const reviewed = await dispatchReviewed(argv);
-  if (reviewed === null) {
-    throw new Error(`reviewed release dispatcher did not handle plugin ${plugin.name}`);
-  }
-  return reviewed;
+  return runGenericPluginRelease({ argv, repo, plugins, io });
 }
 
 export async function runGenericPluginRelease({ argv, repo, plugins, io }) {

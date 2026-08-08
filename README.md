@@ -10,14 +10,22 @@ Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cro
 /reload-plugins
 ```
 
+## session-relay moved
+
+session-relay no longer lives in this repository. It lives at
+https://github.com/DocksDocks/session-relay and stays reachable through the docks Claude
+marketplace by redirect. The redirect uses a `git-subdir` source that points at that
+repository's `plugin/` directory. Codex users add that repository's own catalog directly,
+because the Codex catalog schema has no remote source kind.
+
 ## Platform support
 
-All three marketplace plugins support Linux and macOS only:
+The three plugins that ship from this repository support Linux and macOS only:
 
 | Plugin | Supported hosts |
 |---|---|
 | `docks` | Linux and macOS only |
-| `session-relay` | Linux and macOS only; official prebuilts are available for x64 and arm64 |
+| `plan-lifecycle` | Linux and macOS only |
 | `effect-kit` | Linux and macOS only |
 
 After install, the pipeline skills are user-invocable — ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `skill-agent-pipeline` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
@@ -109,7 +117,6 @@ The complete contract lives in `docs/plans/AGENTS.md`.
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
 │   ├── plan-lifecycle/                ← docs/plans lifecycle plugin (three plan skills + agents/plan-reviewer.md wrapper)
-│   ├── session-relay/                 ← cross-session message-bus plugin
 │   └── effect-kit/                    ← Effect-TS skill kit plugin
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
@@ -145,7 +152,7 @@ node scripts/agents/score.mjs    # quality score (max 15) — model, tools, Work
 
 `--per-file` on a scorer prints one `<name> <score>` line per item — useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
 
-On a PR to `main`, CI runs only the shards the changed paths resolve to — the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks, session-relay, plan-lifecycle and effect-kit each tag independently), it runs the repo-wide shard plus that plugin's own gate. See `.github/workflows/ci.yml`; full trigger model below.
+On a PR to `main`, CI runs only the shards the changed paths resolve to — the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks, plan-lifecycle and effect-kit each tag independently), it runs the repo-wide shard plus that plugin's own gate. See `.github/workflows/ci.yml`; full trigger model below.
 
 ## Versioning + releases
 

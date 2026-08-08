@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-08-03"
-  content_hash: "ae321c931f5bf145fd316570f71197671d297877dcf55ab86143559e87c67a13"
+  content_hash: "0409848af3d383240cad440967ca712f2445945be6163153901d6abb50113d80"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
