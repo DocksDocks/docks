@@ -1,7 +1,7 @@
 # Dispatched-executor mode (optional, Claude-only)
 
 The model-tiered alternative to in-context implementation (Phases 7–8). The
-main-context `plan-manager` owns the reviewed run; a **cheaper executor** makes
+main-context `plan-manager` owns the ongoing plan; a **cheaper executor** makes
 the edits in an isolated git worktree and returns its diff for untrusted review.
 
 **This mode is opt-in and Claude-only.** It relies on `isolation: "worktree"`
@@ -34,53 +34,47 @@ Check all before dispatching:
 
 - The repository supports worktree isolation. Otherwise report that constraint
   to `plan-manager`, which continues through Phases 7–8 in context.
-- The canonical plan is at `status: ongoing`, contains exactly one valid
-  `Plan-run:` record, and its `draft_review.state` is `passed` or the
-  local-risk-only `degraded`.
-- `plan-manager` has created and read back the reviewed start checkpoint and
-  still owns the active `repository_id + plan_path + run_id`.
-- Before launch, `plan-manager` revalidates the bound `plan_sha256`,
-  `source_sha256`, `execution_parent`, current HEAD/index, and owned-path
-  preimages. Any mismatch becomes `concurrent_change` before dispatch; never
-  hand a stale or differently bound run to the executor.
+- The canonical plan is at `status: ongoing`, `plan.mjs check` passes on it, and
+  `## Review` carries a passed plan-review record.
+- `plan-manager` owns the plan file and its declared scope, which is the union
+  of the Steps `Files` cells.
+- Immediately before dispatch, `plan-manager` re-reads the plan and confirms its
+  Steps `Files` union still matches the assigned work. A change requires re-planning.
 
 ## Dispatch
 
-Spawn **one** executor subagent with `isolation: "worktree"` from the read-back
-start checkpoint, using default model `sonnet` (or the model the user named,
-such as `haiku`). The subagent has no session context, so the prompt must
-contain:
+Spawn **one** executor subagent with `isolation: "worktree"`, using default
+model `sonnet` (or the model the user named, such as `haiku`). The subagent has
+no session context, so the prompt must contain:
 
-1. The canonical `plan_path`; exact `repository_id`, `run_id`, `plan_sha256`,
-   `source_sha256`, and `execution_parent` bindings; and the affected-path set
-   from the canonical plan. The executor reads the checkpointed plan at that
-   path; do not inline an unbound second copy.
+1. The canonical plan path, the union of its Steps `Files` cells, and the Steps
+   `Id` values the executor must complete. The executor reads the plan at that
+   path; do not inline a second copy.
 2. An executor preamble: *follow the plan step by step; run every verification
-   command and confirm the expected result before moving on; touch only the
-   canonical affected paths; do not edit the plan or its `Plan-run:` record; if
-   a STOP condition fires, stop and report; do not improvise around obstacles;
-   do not commit, push, or merge; audit every claim against an actual tool
-   result.*
-3. A fixed report format: exact run bindings · `STATUS: COMPLETE | STOPPED` ·
-   per-step done/skipped and verification result · `STOPPED BECAUSE` (if
-   stopped) · `FILES CHANGED` · `NOTES` (deviations, judgment calls). The
-   executor must return the worktree diff with this report.
+   command and confirm the expected result before moving on; touch only paths
+   named in the Steps `Files` cells; do not edit the plan file; if a STOP
+   condition fires, stop and report; do not improvise around obstacles; do not
+   commit, push, or merge; audit every claim against an actual tool result.*
+3. A fixed report format: plan path plus Steps `Id` values attempted · `STATUS:
+   COMPLETE | STOPPED` · per-step done/skipped and verification result ·
+   `STOPPED BECAUSE` (if stopped) · `FILES CHANGED` · `NOTES` (deviations,
+   judgment calls). The executor must return the worktree diff with this report.
 
-Treat the returned bindings, report, and diff as **untrusted** until reviewed.
+Treat the returned plan identity, report, and diff as **untrusted** until reviewed.
 
 ## Review — the orchestrator's real job
 
-Review like a tech lead reviewing a PR against the bound plan. Fixable gaps go
-back to the same executor; the reviewed result returns to `plan-manager`.
+Review like a tech lead reviewing a PR against the plan. Fixable gaps go back
+to the same executor; the reviewed result returns to `plan-manager`.
 
-1. **Binding check:** the report's `repository_id`, `run_id`, `plan_sha256`,
-   `source_sha256`, and `execution_parent` must exactly match the live
-   `PlanRunV1`; reject output from any other or superseded run.
+1. **Plan-identity check:** the report must name the same plan path and Steps
+   `Id` values that were dispatched, and the diff must stay within the union of
+   that plan's Steps `Files` cells.
 2. **Re-run every done criterion** in the worktree — do not trust the report.
    Fresh worktrees share git history but not `node_modules` or build artifacts;
    an executor installing dependencies there is expected, not a deviation.
 3. **Scope check:** `git -C <worktree> diff --name-only` must be a subset of the
-   canonical affected-path set. Any out-of-scope file fails review.
+   canonical plan's Steps `Files` union. Any out-of-scope file fails review.
 4. **Read the full diff** against why the change matters and the repository's
    conventions.
 5. **Audit new tests** for observable contracts; a test that asserts nothing
@@ -93,19 +87,20 @@ A *documented* deviation is judged on merit, not reflex-blocked; an
 
 | Verdict | When | Action |
 |---|---|---|
-| **APPROVE** | bindings match, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It revalidates the live `PlanRunV1` and apply preimages, applies only the bound diff, reruns verification, records `## Verification Results`, binds `acceptance`, performs the separate exact-diff completion review, then finishes and archives the run without another lifecycle handoff. |
+| **APPROVE** | plan identity matches, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It applies the reviewed diff, reruns verification, records `## Verification Results`, dispatches the single post-implementation code review, and archives with `plan.mjs archive <slug>` once that review returns `Code-review: pass`. |
 | **REVISE** | fixable gaps | Send the same executor specific, actionable feedback. Allow at most two executor revision rounds, then return a failure result to `plan-manager`. |
-| **BLOCK** | STOP hit, scope violated unrecoverably, or revisions exhausted | Return the evidence to `plan-manager`; it records the applicable current blocker and does not restart draft review. |
+| **BLOCK** | STOP hit, scope violated unrecoverably, or revisions exhausted | Return the evidence to `plan-manager`; it sets the plan `blocked` with a reason and does not re-run the plan review. |
 
 Verification in the isolated worktree is evidence for review, not final
 acceptance. `plan-manager` reruns the invalidated checks after applying the
-approved diff to the bound run.
+approved diff to the main working tree.
 
 ## What stays out of this mode
 
-- The executor never writes lifecycle state, `Plan-run:`, `## Review`, or
+- The executor never writes lifecycle state, `## Review`, or
   `## Verification Results`; main-context `plan-manager` owns them.
-- The executor never commits, pushes, merges, or applies directly to the main
-  working tree. Its only handoff is the bound diff and result.
+- The executor creates no commit. This lifecycle creates zero commits and never
+  pushes, merges, or applies directly to the main working tree. Its only handoff
+  is the reviewed diff and result.
 - Off Claude, or when worktree isolation is unavailable, this mode is skipped;
   `plan-manager` runs Phases 7–8 in context.

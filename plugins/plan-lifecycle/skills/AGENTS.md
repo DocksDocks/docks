@@ -1,9 +1,12 @@
 # Authoring the plan-lifecycle skills (plugins/plan-lifecycle/skills/)
 
 This plugin ships exactly three skills — `productivity/plan-workspace`,
-`productivity/plan-manager`, and `productivity/plan-reviewer` — plus the
-manager's shipped PlanRunV1 machinery (`plan-manager/scripts/`) and the
-reviewer's canonical policy helper (`plan-reviewer/scripts/review-policy.mjs`).
+`productivity/plan-manager`, and `productivity/plan-reviewer` — plus one
+`plan-manager/scripts/plan.mjs` lifecycle tool, one
+`plan-manager/references/plan-contract.md` contract reference, and two read-only
+reviewer wrappers at `../agents/plan-reviewer.md` and
+`../agents/code-reviewer.md`, with this source repository's matching
+`.codex/agents/plan-reviewer.toml` and `.codex/agents/code-reviewer.toml` pair.
 It is self-versioned: manifests live in `.claude-plugin/` and `.codex-plugin/`,
 and `compatibility.json` is the closed declaration
 `{"schema":1,"minimum_docks_major":0}` verified by `test/selftest.mjs` against
@@ -37,39 +40,29 @@ present". `scripts/skills/no-author-scripts.mjs` enforces this.
 ## Roles (closed set)
 
 `plan-workspace` maintains the `docs/plans/` workspace; main-context
-`plan-manager` owns classify → draft/review/one repair → start →
-implement/delegate → observed acceptance → finish/archive; internal
-`plan-reviewer` returns read-only `PlanReviewV1` evidence over one immutable
-bundle. Only the reviewer has wrappers: the plugin-shipped Claude wrapper at
-`../agents/plan-reviewer.md` and this source repo's Codex wrapper at
-`.codex/agents/plan-reviewer.toml`. `plugins/plan-lifecycle/agents/`
+`plan-manager` runs decide → draft → research → one plan review → implement →
+code review; internal `plan-reviewer` returns a read-only pre-implementation
+verdict. Two read-only reviewer wrappers ship: the plugin wrappers at
+`../agents/plan-reviewer.md` and `../agents/code-reviewer.md`, with this source
+repository's matching `.codex/agents/plan-reviewer.toml` and
+`.codex/agents/code-reviewer.toml` pair. `plugins/plan-lifecycle/agents/`
 deliberately carries no context-tree node (`claude plugin validate` lints every
 `agents/*.md` as a subagent, so a node pair there fails validation).
 
 ## Plan-skill contract sync
 
-The convention lives in exactly these three skills, each consumer project's
-`docs/plans/AGENTS.md`, and the embedded
-`plan-workspace/references/plans-agents-md-template.md`.
+The synchronized surface is the v2 frontmatter, the eight sections, both table
+headers, the three plan-review kinds (`goal_fit`, `research_gap`,
+`security_risk`), the two review-record shapes, and the zero-commit rule.
 
-The current contract moves as one PlanRunV1 surface: one unfenced compact-JCS
-record; repository/path/run and cross-repository goal identity; canonical
-plan/source/acceptance hashes; separate draft/completion phases holding two
-draft permits and one local or two nonlocal completion permits; exclusive
-preimage/CAS transactions; major checkpoint commits; an exact-diff completion
-review at every risk; target-local legacy quarantine; literal live external
-authority; and Steps `Effect` values
-`local|probe|production_access|publish|push|release|deploy`. Schemas 1–6 are
-historical validation/quarantine only.
-
-When any part changes, synchronize the three skills, the workspace template,
-this repository's `docs/plans/AGENTS.md`, reviewer wrappers, and public routing
-prose. Main owns one content-hash backfill after a coordinated multi-file
-cutover. The skill bodies are asserted verbatim by
-`scripts/tests/plan-skill-phases.mjs`; the machinery is exercised by
-`scripts/tests/plan-orchestration.mjs`. Update positive assertions in the same
-change as their normative sentences; never relax an assertion to make a copy
-drift pass.
+When any part changes, synchronize the three skills,
+`plan-manager/references/plan-contract.md`, the workspace template, this
+repository's `docs/plans/AGENTS.md`, both plugin and Codex wrapper pairs, and
+`scripts/tests/plan-skill-phases.mjs`. Main owns one content-hash backfill after
+a coordinated multi-file cutover. The skill bodies are asserted verbatim by
+`scripts/tests/plan-skill-phases.mjs`; the CLI is exercised by
+`scripts/tests/plan-cli.mjs`. Update positive assertions in the same change as
+their normative sentences; never relax an assertion to make a copy drift pass.
 
 ## Fail-loud routing (six external routes)
 

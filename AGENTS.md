@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for agentskills.io-compliant runtimes (Codex, Claude Code, OpenCode, VS Code Copilot), including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the `docs/plans/` lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin's sole Claude-specific plan subagent is the read-only `plan-reviewer`; this source repo has the matching reviewer-only Codex wrapper under `.codex/agents/`.
+docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for agentskills.io-compliant runtimes (Codex, Claude Code, OpenCode, VS Code Copilot), including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the `docs/plans/` lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships two read-only reviewer wrappers, `plan-reviewer` and `code-reviewer`; this source repository has the matching Codex wrapper pair under `.codex/agents/`.
 
 This root file stays **repo-wide**. Per-area authoring details — skill/agent frontmatter, scoring, the release flow, CI triggers — live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -21,12 +21,12 @@ node scripts/ci.mjs                                  # full gate for repo-wide, 
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks — near-parity with Claude)
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
-├── plugins/plan-lifecycle/           plan lifecycle plugin (cross-tool): plan-workspace / plan-manager / plan-reviewer skills, shipped PlanRunV1 machinery, one read-only Claude plan-reviewer wrapper under agents/; self-versioned with a closed compatibility.json checked by its self-test
+├── plugins/plan-lifecycle/           plan lifecycle plugin (cross-tool): three skills, shipped plan.mjs, v2 contract reference, and two read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── plugins/effect-kit/               Effect-TS skill kit plugin (cross-tool): effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
-├── .codex/agents/                    repo-local Codex plan-reviewer wrapper (not plugin payload)
+├── .codex/agents/                    repo-local Codex plan-reviewer and code-reviewer wrappers (not plugin payload)
 ├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
 ├── docs/plans/                       active/finished lifecycle planning (maintained by plan-workspace)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
@@ -39,7 +39,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 
 | Node | Covers |
 |---|---|
-| `docs/plans/AGENTS.md` | three-skill routing, PlanRunV1, review budgets, transactions, effects, lifecycle |
+| `docs/plans/AGENTS.md` | three-skill routing, markdown-only v2 plan contract, review flow, effects, lifecycle |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
 | `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x plus version-gated Effect v4 conventions |
 | `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring — the three lifecycle skills, contract sync, fail-loud routing |
@@ -55,7 +55,7 @@ on this repository with Codex and are not part of the installable Docks plugin.
 Keep them thin: load the matching canonical skill, add only Codex-specific
 dispatch/sandbox guidance, and avoid duplicating full skill bodies.
 
-Plugin-shipped agents are not Codex-visible (Codex does not consume plugin-shipped subagents), but they are **not Claude-exclusive**: omp discovers Claude plugin `agents/` dirs too, so this payload has two consuming runtimes and must stay portable across both. `plugins/plan-lifecycle/agents/` holds the repository's one thin read-only `plan-reviewer` wrapper for inter-agent `Agent(subagent_type=…)` dispatch. It is the flat file `agents/plan-reviewer.md`; main context invokes the canonical `plan-manager` skill directly.
+Plugin-shipped agents are not Codex-visible (Codex does not consume plugin-shipped subagents), but they are **not Claude-exclusive**: omp discovers Claude plugin `agents/` dirs too, so this payload has two consuming runtimes and must stay portable across both. `plugins/plan-lifecycle/agents/` holds two thin read-only reviewer wrappers for inter-agent `Agent(subagent_type=…)` dispatch: the flat files `agents/plan-reviewer.md` and `agents/code-reviewer.md`. Main context invokes the canonical `plan-manager` skill directly.
 
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): `claude plugin validate` lints every `*.md` under `agents/` as a subagent, so an `AGENTS.md`/`CLAUDE.md` pair there fails `validate --strict` with "No frontmatter". Neither relocating the files into a subdir nor declaring an `agents` array in the manifest avoids that scan (both tried and ruled out). These authoring rules therefore live in this root file instead of a nested node.
 
@@ -68,64 +68,43 @@ The `agents/` folder deliberately carries **no context-tree node** (hence its ab
 
 ## Plans
 
-Use direct implementation for one clear, reversible, low-risk local diff with
-one bounded acceptance path; it creates no tracked plan, reviewer, or automatic
+Use direct implementation for one clear, reversible, low-risk local diff with one
+bounded acceptance path; it creates no tracked plan, reviewer, or automatic
 commit. Use a canonical plan for explicit planning, multi-commit or
-cross-repository work, scheduling, cold handoff, unresolved decisions,
-cross-subsystem/public-contract changes, security-sensitive or destructive work,
-or an external effect.
-
-The optional `docs/plans/QUEUE.md` is only a discovery and prioritization view: its goal id is the row identity, and eligibility requires the complete direct and transitive dependency closure to be finished. It grants no lifecycle or execution authority.
+cross-repository work, cold handoff, an unresolved decision, a cross-subsystem or
+public-contract change, security-sensitive or destructive work, or any
+non-`local` effect.
 
 <constraint>
 Canonical plans live in `docs/plans/active/`; status is frontmatter and
 `docs/plans/finished/` is terminal. Exactly three skills own the workflow:
-`plan-workspace` maintains the workspace; main-context `plan-manager` owns
-classify → draft, self-check gate, review and one repair when risk requires it →
-start → implement/delegate → observed acceptance → finish/archive; internal
-`plan-reviewer` returns read-only `PlanReviewV1` evidence from one immutable
-bundle. Only the reviewer has Claude/Codex wrappers.
+`plan-workspace` maintains the workspace; main-context `plan-manager` runs six
+phases — decide, draft, research, one plan review, implement, code review — and
+archives; internal `plan-reviewer` returns a readable pre-implementation verdict.
+Two read-only reviewer wrappers ship, `plan-reviewer` and `code-reviewer`, and
+nothing else in the lifecycle has a wrapper.
 </constraint>
 
-The current record is one unfenced compact-JCS `Plan-run: PlanRunV1` line.
-Exact current-user replacement authority binds the terminal predecessor and
-exact successor PlanRun, keeps the stable `plan_path`, appends validated
-`Plan-attempt-history`, and installs a fresh `run_id`; it never creates
-`v2`/`vN` files or resets predecessor permits. PlanRunV1 binds
-repository/path/run identity, cross-repository goal, effects/risk, commits,
-hashes, and budgets. Draft review has ≤2 substantive permits and completion has
-one at local risk and two above it, all distinct from transport retries: a first
-transport-only failure refunds its reservation and allows one fresh
-`transport_retried` dispatch; a second
-transport failure degrades only local draft work and otherwise blocks. Cold
-`reserved` or `transport_retried` state blocks without redispatch. At local risk
-the deterministic self-check gate is the draft gate, so `draft_review` may be
-`not_required`, and the model permit that used to buy that draft review is spent
-instead on the completion diff. Sensitive and external risk keep a passed
-substantive draft review and both completion permits.
+The record is markdown only: `plan_contract: v2` frontmatter plus eight `##`
+sections — `## Goal`, `## Research`, `## Steps`, `## Acceptance`,
+`## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.
+There are no hashes, permits, run identities, lock files, sealed review bundles,
+or `v2`/`vN` plan files, and the shipped `plan.mjs` is the only lifecycle tool. This lifecycle
+creates zero commits and never pushes; commit when the user asks, under
+`docks:commit-discipline`.
 
-Every mutation uses an exclusive preimage-checked per-plan transaction and
-read-back. Checkpoint commits additionally lock the repository and verify HEAD,
-index, and owned paths. Direct work has zero automatic commits; plan-only has
-one; every canonical implementation has start/implementation/archive
-checkpoints, ordinary local work spending 0 draft and exactly 1 completion
-reviewer there and sensitive or external work ≤2 draft and 2 completion. There
-are no per-round commits or automatic pushes.
+Every Steps row carries an `Effect` of exactly
+`local|probe|production_access|publish|push|release|deploy`. A step whose
+`Effect` is not `local` requires an in-session `ask` confirmation immediately
+before it runs; when `ask` is unavailable the step is set `blocked` with
+`blocked_reason` naming the unconfirmed effect. Persisted effects record intent
+only.
 
-Every Steps row has `Effect` exactly
-`local|probe|production_access|publish|push|release|deploy`. Persisted effects
-record intent only. Non-local actions require a live
-`ExternalAuthorityV1 {scopes,mode,targets,source_sha256}` derived from the exact
-current-user message and matching the exact boundary; probe is read-only and
-non-transitive.
-
-Schemas 1–6 are historical validation/quarantine only. List and audit scan
-frontmatter first; active, prepared, committed, cancelled, crossed, malformed,
-or otherwise unsettled legacy evidence is target-locally quarantined and never
-blocks unrelated goals or authorizes dispatch. The complete closed status
-matrix, review outputs, lock protocol, effects contract, GitHub issue preflights,
-and migration rules live in `docs/plans/AGENTS.md`.
-
+A plan carrying a `Plan-run:` line is a v1 plan: render it, never parse or
+migrate it, and finish it by hand by moving the file byte-unchanged to
+`docs/plans/finished/<YYYY-MM-DD>-<slug>.md` with a `## Retirement` section
+appended. The complete contract lives in `docs/plans/AGENTS.md`;
+`docs/plans/CLAUDE.md` contains only `@AGENTS.md`.
 ## Project-local skills
 
 The repo's own `.agents/skills/` hosts skills useful only when working ON this plugin repo — they don't ship to consumers:
@@ -149,7 +128,7 @@ CI caches pnpm data by `pnpm-lock.yaml`. Caches improve speed but carry no autho
 - Manifest version numbers stay in lockstep across `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and the versioned Claude marketplace catalog — `ci.mjs`'s per-plugin gate and `release.mjs` both enforce this (verify: bump one manifest's version alone → `node scripts/ci.mjs --plugin <name>` must fail on the disagreement; revert)
 - Skill bodies stay ≤500 lines per agentskills.io spec; sweet spot 80–310
 - Agent scratch worktrees live under `$XDG_DATA_HOME/agent-worktrees/<repo>/<slug>` (default `~/.local/share/agent-worktrees/…`) — never as a sibling of the repository, and never under `/tmp` or `/var/tmp`, which are tmpfs on some hosts (a worktree there is a RAM claim, and `systemd-tmpfiles` ages out individual files, silently corrupting the checkout). Teardown is `git worktree remove` followed by `git worktree prune`; removing the directory by hand leaves an orphan admin record. The artifact set to delete before teardown is stack-dependent — `target/`, `node_modules/`, `dist/`, `.next/`, `__pycache__`, `.venv` — not a fixed `cargo clean`, because a worktree's reclaimable bytes are almost entirely build output. This rule binds agents working in **this** repository; cross-repository coverage requires your runtime's user-global agent file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.omp/agent/AGENTS.md`), each of which is outside every repository and therefore a user action.
-- Other agent scratch follows the same principle as worktrees: **never the home root, never a repository sibling.** Review bundles belong in `<repo>/.git/docks-review` — the `dispatch-review.mjs` default, created mode `0700`, untracked, and discarded with the clone; a bundle written anywhere else is a sign the canonical driver was bypassed. One-shot drivers, candidate plan bodies, measurement output, and the cross-session handoff index belong under `$XDG_STATE_HOME/docks/…` (default `~/.local/state/docks/…`, mode `0700`), extending the release tooling's existing `~/.local/state/docks-release/<plugin>-<version>/run.<id>/`. Persisted authorization sources are **not** scratch: keep them in their own `authority/` directory, because a plan record binds them by `authorization_source_sha256`, and a cleanup reading `scratch/` as disposable would destroy a live run's provenance. Relocation asymmetry: an artifact cited by content hash may move, because the digest is of bytes; an artifact an **active** plan cites by path may not, because the citation is of the path. A finished plan is a historical record, so a path inside it describes what was true then and is stale by design once the artifact relocates — record the new location in the handoff index rather than editing archived bytes. Enumerate **both** spellings and skip frozen records, because a tilde citation is invisible to an expanded-path scan and `repository_id` inside a `Plan-run:` line is not a citation (verify: `grep -rhvE '^[A-Z][A-Za-z0-9-]*: *\{' docs/plans/active/*.md | grep -oE '(/home/[^ \`]+|~/[A-Za-z0-9._/-]+)'` — expected empty; the expanded-only form silently reports an empty immovable set even when a `~/…` citation exists).
+- Other agent scratch follows the same principle as worktrees: **never the home root, never a repository sibling.** Review bundles belong in `<repo>/.git/docks-review` — `plan-manager` writes them in phase 6, created mode `0700`, untracked, and discarded with the clone; a bundle written anywhere else falls outside the lifecycle's scratch contract. One-shot drivers, candidate plan bodies, measurement output, and the cross-session handoff index belong under `$XDG_STATE_HOME/docks/…` (default `~/.local/state/docks/…`, mode `0700`), extending the release tooling's existing `~/.local/state/docks-release/<plugin>-<version>/run.<id>/`.
 
 ## Security
 

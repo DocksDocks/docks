@@ -66,12 +66,12 @@ A skill that **moves, splits, migrates, or rewrites existing content** (root →
 Use direct implementation for one clear, reversible, low-risk local diff with
 one bounded acceptance path; it creates no tracked plan, reviewer, or automatic
 commit. Canonical planning is for explicit planning, multi-commit or
-cross-repository work, scheduling, cold handoff, unresolved decisions,
+cross-repository work, cold handoff, unresolved decisions,
 cross-subsystem/public-contract changes, security-sensitive/destructive work, or
 external effects.
 
-The three `plan-*` skills, their shipped PlanRunV1 machinery, and the reviewer
-wrapper live in the `plan-lifecycle` plugin
+The three `plan-*` skills, their shipped `plan.mjs`, the v2 contract reference,
+and the two read-only reviewer wrappers live in the `plan-lifecycle` plugin
 (`plugins/plan-lifecycle/skills/AGENTS.md` owns their authoring and contract
 sync). Under this tree, `refactor`, `security`, `context-tree`, and
 `skill-agent-pipeline` are lifecycle ROUTES: each carries one byte-identical

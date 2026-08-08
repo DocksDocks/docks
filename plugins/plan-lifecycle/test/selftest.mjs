@@ -13,49 +13,34 @@ const repoRoot = path.resolve(pluginRoot, '../..');
 const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(repoRoot, relative), 'utf8'));
 const read = (relative) => fs.readFileSync(path.join(repoRoot, relative), 'utf8');
 
-// ---- PlanQueueV1: closed shipped API and no lifecycle authority ------------
-const queueScriptRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-queue.mjs';
-const queueReferenceRelative =
-  'plugins/plan-lifecycle/skills/productivity/plan-manager/references/planqueuev1-schema.md';
+// ---- plan.mjs: closed shipped API and no retired lifecycle machinery ------
+const planScriptRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+const planContractRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
 const managerSkillRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md';
-assert.ok(fs.existsSync(path.join(repoRoot, queueScriptRelative)), `${queueScriptRelative} must exist`);
-assert.ok(fs.existsSync(path.join(repoRoot, queueReferenceRelative)), `${queueReferenceRelative} must exist`);
+assert.ok(fs.existsSync(path.join(repoRoot, planScriptRelative)), `${planScriptRelative} must exist`);
+assert.ok(fs.existsSync(path.join(repoRoot, planContractRelative)), `${planContractRelative} must exist`);
 assert.ok(
-  read(managerSkillRelative).includes('[`references/planqueuev1-schema.md`](references/planqueuev1-schema.md)'),
-  `${managerSkillRelative} must link the PlanQueueV1 reference`,
+  read(managerSkillRelative).includes('[`references/plan-contract.md`](references/plan-contract.md)'),
+  `${managerSkillRelative} must link the v2 plan contract reference`,
 );
 
-const queue = await import(new URL('../skills/productivity/plan-manager/scripts/plan-queue.mjs', import.meta.url));
-const QUEUE_EXPORTS = [
-  'QUEUE_MARKER',
-  'addQueueRow',
-  'moveQueueRow',
-  'nextQueue',
-  'parseQueue',
-  'removeQueueRow',
-  'resolvePlanRecords',
-  'showQueue',
-  'validateQueue',
+const planCli = await import(new URL('../skills/productivity/plan-manager/scripts/plan.mjs', import.meta.url));
+const PLAN_CLI_EXPORTS = ['checkPlan', 'machinePathCitations'];
+assert.deepEqual(Object.keys(planCli).sort(), PLAN_CLI_EXPORTS, 'plan.mjs must expose only the closed plan CLI API');
+for (const name of PLAN_CLI_EXPORTS) {
+  assert.equal(typeof planCli[name], 'function', `plan.mjs export ${name} must be a function`);
+}
+const RETIRED_PLAN_MACHINERY = [
+  'transactPlanRun',
+  'reducePlanRun',
+  'replacePlanRunInPlace',
+  'plan_sha256',
+  'ExternalAuthorityV1',
 ];
-assert.deepEqual(
-  Object.keys(queue).sort(),
-  QUEUE_EXPORTS,
-  'plan-queue.mjs must expose only the closed PlanQueueV1 API',
-);
-assert.equal(queue.QUEUE_MARKER, 'Plan-queue: PlanQueueV1');
-for (const name of QUEUE_EXPORTS.slice(1)) {
-  assert.equal(typeof queue[name], 'function', `plan-queue.mjs export ${name} must be a function`);
+const planSource = read(planScriptRelative);
+for (const name of RETIRED_PLAN_MACHINERY) {
+  assert.ok(!planSource.includes(name), `plan.mjs source must not contain retired machinery ${name}`);
 }
-const PLAN_RUN_TRANSITION_EXPORTS = new Set(['reducePlanRun', 'replacePlanRunInPlace', 'transactPlanRun']);
-const queueSource = read(queueScriptRelative);
-for (const name of PLAN_RUN_TRANSITION_EXPORTS) {
-  assert.ok(!queueSource.includes(name), `plan-queue.mjs must not import or invoke PlanRun transition ${name}`);
-}
-assert.deepEqual(
-  Object.keys(queue).filter((name) => PLAN_RUN_TRANSITION_EXPORTS.has(name)),
-  [],
-  'plan-queue.mjs must not export any PlanRun transition capability',
-);
 
 // ---- routing prerequisite: byte-identical, exactly once per route ----------
 // Keep in lockstep with scripts/tests/plan-skill-phases.mjs and the six files.
@@ -144,6 +129,6 @@ assert.equal(registered[0].root, 'plugins/plan-lifecycle');
 console.log(
   'plan-lifecycle self-test PASSED: routing-prerequisite (6 routes), ' +
     `manifest/catalog agreement (plan-lifecycle ${claudeManifest.version}, effect-kit ${effectClaude.version}), ` +
-    'registry and both catalogs hold exactly one entry, ' +
+    'registry and both catalogs hold exactly one entry, plan CLI exposes its closed API, ' +
     `minimum_docks_major ${compatibility.minimum_docks_major} met by docks major ${docksMajor}`,
 );

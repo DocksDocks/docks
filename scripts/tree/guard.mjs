@@ -17,7 +17,6 @@ try {
 }
 
 const nodeDirs = new Set();
-const FROZEN_HISTORICAL_ROOT = path.join(ROOT, 'scripts/tests/plan-orchestration/fixtures/legacy-regression-tree');
 (function walk(dir) {
   let entries;
   try {
@@ -29,7 +28,7 @@ const FROZEN_HISTORICAL_ROOT = path.join(ROOT, 'scripts/tests/plan-orchestration
   for (const e of entries) {
     if (e.name === '.git' || e.name === 'node_modules' || e.isSymbolicLink()) continue;
     const full = path.join(dir, e.name);
-    if (e.isDirectory() && full !== FROZEN_HISTORICAL_ROOT) walk(full);
+    if (e.isDirectory()) walk(full);
     else if (e.name === 'AGENTS.md' || e.name === 'CLAUDE.md') nodeDirs.add(dir);
   }
 })(ROOT);

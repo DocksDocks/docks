@@ -102,3 +102,9 @@ N/A — awaiting canonical draft review.
 ## Verification Results
 
 N/A — plan-only draft; implementation and acceptance have not run.
+
+## Retirement
+
+The v2 plan-lifecycle redesign in `plan-lifecycle-redesign` supersedes this goal.
+The goal is unreachable because the redesign deletes the modules this plan targets.
+The frontmatter status remains deliberately unsettled because this run never completed.

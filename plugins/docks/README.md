@@ -58,10 +58,12 @@ Plus `write-skill`, `multi-tool-bridge`, and `zoom-out` under `productivity/`.
 
 ### Plan lifecycle (companion plugin)
 
-The plan lifecycle — `plan-workspace`, `plan-manager`, internal `plan-reviewer`,
-their shipped PlanRunV1 machinery, and the read-only Claude reviewer wrapper —
-ships separately as the self-versioned `plan-lifecycle` plugin in this same
-marketplace. Every docks route into that lifecycle is fail-loud:
+The plan lifecycle ships separately as the self-versioned `plan-lifecycle`
+plugin in this same marketplace. It includes three skills, the shipped
+`plan.mjs`, a markdown-only v2 plan contract, and the read-only `plan-reviewer`
+and `code-reviewer` wrappers. Its six phases are decide, draft, research, one
+plan review, implement, and code review, with zero automatic commits. Every
+docks route into that lifecycle is fail-loud:
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 

@@ -20,7 +20,7 @@ The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`, `effect-kit`) un
 | `selftest` | path to a runnable self-test, or `null` |
 | `ciLane` | required pull-request shard ownership: `core` for every plugin. With `root`, this is the changed-path → shard mapping the PR matrix resolves against; `repo` is the always-on repo-wide shard and no plugin may claim it |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
-| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`, `plan-reviewer` for Docks; `[]` otherwise) |
+| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`; `plan-reviewer`, which selects `plan-cli.mjs` and two `plan-skill-phases.mjs` cases, for Docks; `[]` otherwise) |
 | `releaseContracts` | ordered production release-state/evidence contract tests owned by the plugin (`[]` when absent) |
 | `sourceChecks` | ordered source/process/smoke invocations owned by the plugin; each `{ path, args }` (`[]` when absent) |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
@@ -28,15 +28,14 @@ The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`, `effect-kit`) un
 
 `lib/plugin-release.mjs` owns ordinary release ordering behind `runGenericPluginRelease({ argv, repo, plugins, io })`. Its IO value is an exact closed adapter of filesystem, Git, Claude, GitHub, selected-CI, and logging operations; production composes those operations in `release.mjs`, while descriptors remain inert policy data. The engine validates every policy before touching IO and enforces dry-run no-mutation itself rather than trusting an adapter.
 
-`ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When Docks plan author checks apply, CI runs `scripts/tests/plan-orchestration.mjs` plus `plan-skill-phases.mjs --case bounded-workflows`. Trigger-collision checks audit Docks and Effect Kit together once.
+`ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When Docks plan author checks apply, CI runs `scripts/tests/plan-cli.mjs` plus `scripts/tests/plan-skill-phases.mjs` with the `bounded-workflows` and `plan-workspace-template` cases. Trigger-collision checks audit Docks and Effect Kit together once.
 
 ## Pull-request topology
 
 The closed `core` pull-request lane selects plugins, not regression partitions.
-It owns the focused Docks plan-orchestration and bounded-workflow contracts, the
-Docks, effect-kit, and plan-lifecycle plugin gates, their joint
-trigger-collision audit, and JavaScript quality. The always-on `repo` shard owns
-the repo-wide checks.
+It owns the focused Docks plan CLI and plan skill phase contracts, the Docks,
+effect-kit, and plan-lifecycle plugin gates, their joint trigger-collision
+audit, and JavaScript quality. The always-on `repo` shard owns the repo-wide checks.
 
 The lane performs the frozen pnpm install and materializes the pinned
 `claude-code` binary. Its result feeds the single authoritative
@@ -51,21 +50,17 @@ for multi-commit work, scheduling, cold handoff, unresolved approaches,
 cross-subsystem or public-contract changes, destructive or security-sensitive
 work, external effects, or an explicit plan request.
 
-The live plan author suite has exactly three owners: `plan-workspace` maintains
-the workspace; main-context `plan-manager` owns classify through the draft gate —
-the deterministic self-check at local risk, a substantive review plus at most one
-repair above it — implementation, observed acceptance, finish, and archive; internal
-read-only `plan-reviewer` returns `PlanReviewV1`. Only reviewer wrappers ship.
-Current state is one compact `PlanRunV1`; schemas 1–6 are historical
-validation/quarantine only. The focused current contract lives in
-`scripts/tests/plan-orchestration.mjs`; executable historical characterization,
-including the frozen 143-case malformed corpus, is selected through
-`--case historical`.
+The live plan author suite exercises the markdown-only v2 lifecycle.
+`scripts/tests/plan-cli.mjs` tests the shipped
+`plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs`.
+`scripts/tests/plan-skill-phases.mjs` runs the `bounded-workflows` and
+`plan-workspace-template` cases.
 
-The optional plan queue keeps its data in `docs/plans/QUEUE.md`; the shipped
-validator and setter module is `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan-queue.mjs`.
-The queue is only a discovery and prioritization view and grants no lifecycle or execution authority. Both new
-contracts run inside the existing plan-orchestration section, so the timing phase census is unchanged.
+The optional plan queue keeps its data in `docs/plans/QUEUE.md`. It is an input
+to `plan.mjs next`, not a separate validator. The queue is only a discovery and
+prioritization view and grants no lifecycle or execution authority. These
+contracts run inside the existing plan orchestration section, so the timing
+phase census is unchanged.
 
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 
@@ -96,8 +91,8 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| `tests/plan-queue.mjs` | validates the optional PlanQueueV1 parser, dependency selection, setters, and non-authority boundary | pass/fail |
-| `tests/plan-skill-phases.mjs` | validates selected plan skill, workspace, routing, and synchronized-copy contracts | pass/fail |
+| `tests/plan-cli.mjs` | validates the shipped v2 plan CLI, including checks, transitions, steps, archive, and retirement | pass/fail |
+| `tests/plan-skill-phases.mjs` | validates the `bounded-workflows` and `plan-workspace-template` plan skill contracts | pass/fail |
 | `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
 | `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |

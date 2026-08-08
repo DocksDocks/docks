@@ -8,8 +8,8 @@
     "guard:skills": "node scripts/skills/guard.mjs plugins/docks/skills",
     "score:skills": "node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file plugins/docks/skills",
     "format:js": "biome format --write scripts tests plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks package.json biome.json",
-    "lint:js": "biome lint scripts tests plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts plugins/docks/skills/productivity/write-skill/scripts",
-    "check:js": "biome ci scripts tests plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks package.json biome.json && biome lint plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts plugins/docks/skills/productivity/write-skill/scripts",
+    "lint:js": "biome lint scripts tests plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks plugins/plan-lifecycle/skills/productivity/plan-manager/scripts plugins/docks/skills/productivity/write-skill/scripts",
+    "check:js": "biome ci scripts tests plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks package.json biome.json && biome lint plugins/plan-lifecycle/skills/productivity/plan-manager/scripts plugins/docks/skills/productivity/write-skill/scripts",
     "test:unit": "node --test --test-concurrency=4 scripts/tests/unit/*.test.mjs",
     "test:observability": "node scripts/tests/ci-observability.mjs",
     "test:contracts": "node scripts/tests/test-contracts.mjs"

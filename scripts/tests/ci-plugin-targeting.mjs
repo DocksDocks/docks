@@ -328,7 +328,7 @@ if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skil
   if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
 }
 if (tool === 'node' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
-  process.stdout.write('plan-reviewer.md 14\\n');
+  process.stdout.write('code-reviewer.md 14\\nplan-reviewer.md 14\\n');
 }
 if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
 process.exit(0);
@@ -446,7 +446,7 @@ function testFocusedCiCommandSelection() {
     'biome',
     'lint',
     'plugins/docks/skills/productivity/write-skill/scripts',
-    'plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts',
+    'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
   ];
   // The repo lane owns exactly the paths no plugin claims. Derived from the registry so
   // this stays a statement about ownership rather than about a pasted argv.
@@ -477,8 +477,9 @@ function testFocusedCiCommandSelection() {
     );
     assert.equal(countToolInvocation(targeted.calls, 'pnpm', ['run', 'check:js']), 0);
 
-    const orchestrationArgv = ['scripts/tests/plan-orchestration.mjs'];
+    const planCliArgv = ['scripts/tests/plan-cli.mjs'];
     const boundedWorkflowArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'];
+    const templateCaseArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'plan-workspace-template'];
     const crossPluginCollisionArgv = [
       'tests/skill-trigger-collision.mjs',
       'plugins/docks/skills',
@@ -491,15 +492,15 @@ function testFocusedCiCommandSelection() {
       1,
       'an Effect Kit target must retain the joint Docks/Effect trigger-collision contract',
     );
-    assert.equal(countToolInvocation(targeted.calls, 'node', orchestrationArgv), 0);
+    assert.equal(countToolInvocation(targeted.calls, 'node', planCliArgv), 0);
 
     for (const ciArgs of [[], ['--plugin', 'docks']]) {
       const selected = run(ciArgs);
       assert.equal(selected.result.status, 0, `${selected.result.stdout}\n${selected.result.stderr}`);
       assert.equal(
-        countToolInvocation(selected.calls, 'node', orchestrationArgv),
+        countToolInvocation(selected.calls, 'node', planCliArgv),
         1,
-        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the focused orchestration driver once`,
+        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the plan CLI contract once`,
       );
       assert.equal(
         countToolInvocation(selected.calls, 'node', boundedWorkflowArgv),
@@ -544,8 +545,9 @@ function testFocusedCiCommandSelection() {
     assert.match(core.result.stdout, /plugin: effect-kit/);
     assert.match(core.result.stdout, /plugin: plan-lifecycle/);
     assert.doesNotMatch(core.result.stdout, /partition passed/);
-    assert.equal(countToolInvocation(core.calls, 'node', orchestrationArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'node', planCliArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', boundedWorkflowArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'node', templateCaseArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', crossPluginCollisionArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', planLifecycleCollisionArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
@@ -556,7 +558,7 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeCiArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeLintArgv), 1);
-    assert.equal(countToolInvocation(timedCore.calls, 'node', orchestrationArgv), 1);
+    assert.equal(countToolInvocation(timedCore.calls, 'node', planCliArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
     const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
     assertCommandTelemetry(timing);
@@ -654,7 +656,7 @@ function testFocusedCiCommandSelection() {
       REPO_WIDE_JAVASCRIPT_QUALITY.lint.length > 0 ? 1 : 0,
       `the repo shard must schedule a biome lint exactly when it owns lint paths: ${JSON.stringify(repoLintCalls)}`,
     );
-    assert.equal(countToolInvocation(repoWide.calls, 'node', orchestrationArgv), 0);
+    assert.equal(countToolInvocation(repoWide.calls, 'node', planCliArgv), 0);
     const repoTiming = JSON.parse(fs.readFileSync(repoTimingPath, 'utf8'));
     assertCommandTelemetry(repoTiming);
     assert.deepEqual(repoTiming.mode, { plugin: null, lane: 'repo' });

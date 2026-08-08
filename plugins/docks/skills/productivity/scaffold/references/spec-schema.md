@@ -35,7 +35,7 @@ plugin:
 
 ## `templated_files`
 
-Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted. The only Codex plan wrapper is the read-only reviewer under `.codex/agents/`; main context owns `plan-manager` directly.
+Each entry is `{ template, dest }`. `template` is a path under `docs/scaffold/templates/`; `dest` is the output path (may contain `{{ var }}` tokens). The file content is rendered with `{{ var }}` substituted. The two Codex plan wrappers are the read-only reviewers `plan-reviewer` and `code-reviewer` under `.codex/agents/`; main context owns `plan-manager` directly.
 
 ```yaml
 templated_files:
@@ -44,6 +44,7 @@ templated_files:
   - { template: marketplace.json.template,       dest: ".claude-plugin/marketplace.json" }
   - { template: codex-marketplace.json.template, dest: ".agents/plugins/marketplace.json" }
   - { template: codex-plan-reviewer.toml.template, dest: ".codex/agents/plan-reviewer.toml" }
+  - { template: codex-code-reviewer.toml.template, dest: ".codex/agents/code-reviewer.toml" }
   - { template: package.json.template,           dest: "package.json" }
   - { template: pnpm-lock.yaml.template,         dest: "pnpm-lock.yaml" }
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
@@ -84,7 +85,7 @@ bundled_skills:
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and read-only immutable-bundle review. Scaffold generation does not automatically create or review a plan. Only `plan-reviewer` receives a Codex wrapper; main context invokes `plan-manager` directly. Current plans use one compact-JCS `Plan-run: PlanRunV1` record, while schemas 1–6 remain historical validation/quarantine only.
+The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and repository-grounded plan review. Scaffold generation does not automatically create or review a plan. Both `plan-reviewer` and `code-reviewer` receive read-only Codex wrappers; main context invokes `plan-manager` directly. Plans are markdown with `plan_contract: v2` frontmatter and eight `##` sections; no record line exists.
 
 - `source` — path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` — optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.

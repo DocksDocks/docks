@@ -71,37 +71,31 @@ a canonical plan for explicit planning, multi-commit/cross-repository work,
 scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
 changes, security-sensitive/destructive work, or an external effect.
 
-The three lifecycle skills, their shipped PlanRunV1 machinery, and the
-read-only Claude reviewer wrapper ship as the self-versioned `plan-lifecycle`
-plugin (`plugins/plan-lifecycle/`), installable from this same marketplace.
+The three lifecycle skills, shipped `plan.mjs`, markdown-only v2 contract
+reference, and two read-only reviewer wrappers ship as the self-versioned
+`plan-lifecycle` plugin (`plugins/plan-lifecycle/`), installable from this same
+marketplace.
 
 | Owner | Skill | Invocation | Responsibility |
 |---|---|---|---|
 | Workspace | `plan-workspace` | Public | Bootstrap, migrate, audit, or explicitly refresh `docs/plans/`; never mutate an individual plan |
-| Orchestration | `plan-manager` | Public, main context | Classify → draft/review/one repair → start → implement/delegate → observed acceptance → finish/archive; list/show/lifecycle and guarded issue publication |
-| Draft evidence | `plan-reviewer` | Internal, read-only | Return bound `PlanReviewV1` evidence over one immutable bundle |
+| Orchestration | `plan-manager` | Public, main context | Decide → draft → research → one plan review → implement → code review; archive after a passing review and publish issues only with confirmation |
+| Plan review | `plan-reviewer` | Internal, read-only | Check only `goal_fit`, `research_gap`, and `security_risk` before implementation |
+| Code review | `code-reviewer` | Internal, read-only | Review the implemented diff against code standards and the plan |
 
-These are the only live plan skills. Only `plan-reviewer` ships/gets seeded as a
-thin Claude/Codex wrapper; main context invokes `plan-manager` directly. The
-docks pipelines route to these skills and stop, naming the missing
+These are the only live plan skills. Both read-only reviewers ship and get
+seeded as thin Claude/Codex wrappers; main context invokes `plan-manager`
+directly. The docks pipelines route to these skills and stop, naming the missing
 `plan-lifecycle` plugin, when they are unavailable.
 
-Current plans contain one current compact-JCS `Plan-run: PlanRunV1` line.
-Exact current-user same-domain recovery keeps the stable plan path, appends the
-terminal predecessor as validated `Plan-attempt-history`, and installs a fresh
-`run_id`; it never creates `v2`/`vN` files or resets predecessor permits.
-PlanRunV1 binds repository/path/run identity, cross-repository `goal_id`,
-effects/risk, plan/source and acceptance hashes, commits, review budgets, and one blocker.
-Reviews reserve before fresh launch; cold reserved state blocks. Every canonical
-implementation ends in a bounded exact-diff completion review: one substantive
-invocation at local risk, two at sensitive or external risk.
+The lifecycle runs six phases: decide, draft, research, one plan review,
+implement, and one post-implementation code review. Plans use a markdown-only v2
+record with `plan_contract: v2` frontmatter and eight sections. The lifecycle
+creates zero automatic commits and never pushes.
 
-Plan writes use exclusive preimage-checked transactions and major checkpoint
-commits only. Every Steps row has `Effect` exactly
-`local|probe|production_access|publish|push|release|deploy`; persisted intent is
-never external authority. Each non-local action requires exact live current-user
-scope/mode/target authority. Schemas 1–6 are historical
-validation/quarantine-only, target-locally isolated from unrelated goals.
+Every Steps row has `Effect` exactly
+`local|probe|production_access|publish|push|release|deploy`. Each non-`local`
+effect requires an in-session confirmation immediately before it runs.
 
 The complete contract lives in `docs/plans/AGENTS.md`.
 
@@ -110,13 +104,13 @@ The complete contract lives in `docs/plans/AGENTS.md`.
 ```
 .
 ├── .claude-plugin/marketplace.json   ← marketplace catalog (this file is what /plugin marketplace add reads)
-├── .codex/agents/                     ← repo-local Codex plan-reviewer wrapper
+├── .codex/agents/                     ← repo-local Codex plan-reviewer and code-reviewer wrappers
 ├── plugins/
 │   ├── docks/                         ← the engineering kit plugin (only plugin dirs get cached on user install)
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
-│   ├── plan-lifecycle/                ← docs/plans lifecycle plugin (three plan skills + agents/plan-reviewer.md wrapper)
+│   ├── plan-lifecycle/                ← docs/plans lifecycle plugin (three skills + plan.mjs + v2 contract + two read-only reviewer wrappers)
 │   └── effect-kit/                    ← Effect-TS skill kit plugin
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)

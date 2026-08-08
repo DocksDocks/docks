@@ -1,16 +1,16 @@
 ---
 name: scaffold
-description: "Use when spinning up a new docks-style plugin project, or capturing the current repo's structure for reuse — generates a cross-tool plugin skeleton (context-tree AGENTS.md/CLAUDE.md nodes, plugin manifests, one reviewer-only Codex plan wrapper, bundled skills, validator scripts) from docs/scaffold/spec.yaml. Modes: `scaffold setup` writes the spec from this repo; `scaffold target-path` seeds a new greenfield project. Not for non-plugin repos, non-empty targets, or generic file templating."
+description: "Use when spinning up a new docks-style plugin project, or capturing the current repo's structure for reuse — generates a cross-tool plugin skeleton (context-tree AGENTS.md/CLAUDE.md nodes, plugin manifests, two read-only Codex reviewer wrappers, bundled skills, validator scripts) from docs/scaffold/spec.yaml. Modes: `scaffold setup` writes the spec from this repo; `scaffold target-path` seeds a new greenfield project. Not for non-plugin repos, non-empty targets, or generic file templating."
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-08-03"
-  content_hash: "bca697c0461b81fb1269bd46078ab4a3c62e4ea14524bdae52ddf49c6ba2233d"
+  updated: "2026-08-08"
+  content_hash: "81eceeab2b90a760a04ba0a2d93bad605ab8171ab8347d4b96152af1a44195ad"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
 
-`scaffold` turns a project's structure into a reusable, versioned spec (`docs/scaffold/spec.yaml` + `templates/`) and seeds brand-new projects from it. One skill, two modes selected by the argument. The pattern is a generic skill consuming per-repo config captured once (mattpocock/skills). The output is a context-tree-shaped plugin — AGENTS.md/CLAUDE.md node pairs, plugin manifests, exactly one repo-local `plan-reviewer` Codex wrapper, bundled skills, and validator scripts — so a new project starts green from the same baseline.
+`scaffold` turns a project's structure into a reusable, versioned spec (`docs/scaffold/spec.yaml` + `templates/`) and seeds brand-new projects from it. One skill, two modes selected by the argument. The pattern is a generic skill consuming per-repo config captured once (mattpocock/skills). The output is a context-tree-shaped plugin — AGENTS.md/CLAUDE.md node pairs, plugin manifests, two repo-local read-only Codex reviewer wrappers, `plan-reviewer` and `code-reviewer`, bundled skills, and validator scripts — so a new project starts green from the same baseline.
 
 `docs/scaffold/` is opt-in, project-owned generated state, not part of this skill's payload. Its absence is normal: `scaffold setup` creates a project-specific spec and templates only after the approval gate; seed mode is available after that setup.
 
@@ -49,6 +49,7 @@ templated_files:
   - { template: plugin.json.template, dest: "plugins/{{ plugin_name }}/.claude-plugin/plugin.json" }
   - { template: root-AGENTS.md.template, dest: "AGENTS.md" }
   - { template: codex-plan-reviewer.toml.template, dest: ".codex/agents/plan-reviewer.toml" }
+  - { template: codex-code-reviewer.toml.template, dest: ".codex/agents/code-reviewer.toml" }
 tree_nodes:
   - { path: docs/plans, seed_from_skill: plan-workspace }
   - { path: "plugins/{{ plugin_name }}/skills", template: node-templates/skills-AGENTS.md }
@@ -88,7 +89,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 2. **Load spec.** Read `docs/scaffold/spec.yaml`. If absent, stop and suggest `scaffold setup`.
 3. **Interview.** Prompt for each `variable`; pull `default_from` via `git config` where set. (Use `AskUserQuestion` on Claude; plain prompts elsewhere.)
 4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **STOP for confirmation** (constraint 2).
-5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; seed `docs/plans/` via the bundled `plan-workspace`; bundle the three exact plan skills (`plan-workspace`, `plan-manager`, `plan-reviewer`); render only `.codex/agents/plan-reviewer.toml` as a project-local Codex wrapper. Main context owns `plan-manager` directly; do not invent wrappers for manager, workspace, creator, repairer, or improver. The seeded entrypoints are `.mjs` (`scripts/ci.mjs`, `scripts/release.mjs`), run via `node` — no exec bit to set.
+5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; seed `docs/plans/` via the bundled `plan-workspace`; bundle the three exact plan skills (`plan-workspace`, `plan-manager`, `plan-reviewer`); render `.codex/agents/plan-reviewer.toml` and `.codex/agents/code-reviewer.toml` as the two project-local read-only reviewer wrappers. Main context owns `plan-manager` directly; do not invent wrappers for manager, workspace, creator, repairer, or improver. The seeded entrypoints are `.mjs` (`scripts/ci.mjs`, `scripts/release.mjs`), run via `node` — no exec bit to set.
 6. **Init + verify.** `git init` if needed. Run `corepack enable && pnpm install --frozen-lockfile`, then the generated validators such as `node <target>/scripts/skills/guard.mjs <target>/plugins/<name>/skills` and `node <target>/scripts/tree/guard.mjs <target>`. Then grep for stray `{{` (constraint 3).
 
 ## Gotchas
@@ -99,7 +100,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 | Left a raw `{{ plugin_name }}` in an output file | Unmapped variable. Grep the target for `{{` after writing; every token must resolve. |
 | Bundled-skill path in spec is stale (`tree`, old `agents`) | Detect bundled skills from the LIVE repo during setup; don't copy a hand-written example. |
 | Wrote a node AGENTS.md without its CLAUDE.md | Tree nodes are pairs. Seed both; CLAUDE.md = `@AGENTS.md` (see `context-tree`). |
-| Put a Codex plan wrapper in plugin manifests, or emitted anything except reviewer | The only plan wrapper is repo-local `.codex/agents/plan-reviewer.toml`; main context owns `plan-manager` directly. |
+| Put a Codex plan wrapper in plugin manifests, or emitted anything except the two read-only reviewers | The only plan wrappers are repo-local `.codex/agents/plan-reviewer.toml` and `.codex/agents/code-reviewer.toml`; main context owns `plan-manager` directly. |
 | New project's validators fail on cold start | The spec/templates are wrong. Fix until the generated skill and tree guards are green — that's the acceptance bar. |
 | Used `ExitPlanMode` for the gate | Claude-only. Use a conversational confirm so Codex works too. |
 

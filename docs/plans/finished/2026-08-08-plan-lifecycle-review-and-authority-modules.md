@@ -256,3 +256,9 @@ readback, and five of the eight public-contract copy nouns. Step 1 closed the or
 suite closed all four transition nouns, and steps 7 and 8 closed the copy nouns. Fsync, atomic
 rename and readback remain unobserved by any assertion and are named here as limits, not as
 guarantees.
+
+## Retirement
+
+The v2 plan-lifecycle redesign in `plan-lifecycle-redesign` supersedes this goal.
+The goal is unreachable because the redesign deletes the modules this plan targets.
+The frontmatter status remains deliberately unsettled because this run never completed.

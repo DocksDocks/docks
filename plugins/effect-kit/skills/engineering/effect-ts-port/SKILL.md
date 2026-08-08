@@ -4,8 +4,8 @@ description: "Use when porting existing Fastify, Next.js App Router, or React co
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-03"
-  content_hash: "c6443efa3759601612bd176388d850fdfc083adb870eb60efc7f7ed473d9547d"
+  updated: "2026-08-08"
+  content_hash: "4ad49201a716fd885b11ed473e50f2b8ce295810bdf3f5e790cf329724195f05"
 ---
 
 # Effect-TS Port (cross-tool pipeline)
@@ -113,7 +113,7 @@ Read the relevant framework reference(s). Write `## Phase 3: Migration Plan` and
 
 ## Phase 5 — Verification (inline)
 
-Write `## Phase 5: Verification`: type-check clean, tests green (vs the Phase 4 baseline), and a scope check — every changed file must trace to a planned slice (`git diff --name-only` ⊆ the plan's `affected_paths`). An out-of-scope change ⇒ `git restore` it. Report slices applied vs reverted, and any follow-up slices deferred to a new plan.
+Write `## Phase 5: Verification`: type-check clean, tests green (vs the Phase 4 baseline), and a scope check — every changed file must trace to a planned slice (`git diff --name-only` ⊆ the union of the plan's Steps `Files` cells). An out-of-scope change ⇒ `git restore` it. Report slices applied vs reverted, and any follow-up slices deferred to a new plan.
 
 ## Framework references
 

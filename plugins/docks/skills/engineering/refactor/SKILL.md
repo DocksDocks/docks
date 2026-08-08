@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-06"
-  content_hash: "94b8f01d81075ee4b19f45c035eb68e5d905d3071def761c5befff6fd97845de"
+  updated: "2026-08-08"
+  content_hash: "a3ad4d513510549906397933e1f99072481c19dddc2b5427847edc7babe99f33"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -17,7 +17,7 @@ Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS con
 </constraint>
 
 <constraint>
-Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, the unified `plan-manager` owns canonical-plan creation, fresh review, the reviewed start checkpoint, implementation/delegation, verification, and finish/archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Do not call `ExitPlanMode` (Claude-only). Stop only for a real unresolved user decision or persisted blocker.
+Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, the unified `plan-manager` owns canonical-plan creation, the single pre-implementation plan review, implementation and delegation, verification, the post-implementation code review, and archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Do not call `ExitPlanMode` (Claude-only). Stop only for a real unresolved user decision or persisted blocker.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
@@ -69,7 +69,7 @@ Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 mer
 1. Anchor the date once (`date "+%Y-%m-%d"`), record scope (a path, or the whole project).
 2. Resolve the artifact path. Route an absent tracked workspace to `plan-workspace`; route canonical-plan creation and all lifecycle work to the unified `plan-manager`. Write an `## Environment` block (date, branch, short git status).
 3. For each read-only row (1 → 5), in order: read `references/<phase>.md`, perform it, write under the row's heading, confirm the heading landed before the next phase. If a phase finds nothing, write "no findings" — never silently skip.
-4. At the HANDOFF, follow the request intent below. Resume at Phase 7 after the manager records the reviewed start checkpoint; no user lifecycle command is required.
+4. At the HANDOFF, follow the request intent below. Resume at Phase 7 after the manager sets the plan `ongoing`; no user lifecycle command is required.
 
 ## The plan file (IPC + deliverable)
 
@@ -89,11 +89,11 @@ After Phase 5, write `## Phase 6: Plan Presentation` to the plan file:
 3. Skipped findings (including over-engineering and unreproducible drops).
 4. Any MUST FIX from the pre-verifier requiring plan adjustment first.
 
-For an assessment-only or plan-only request, report the reviewed plan path and summary, then stop. For an implementation request, hand the complete artifact to the unified `plan-manager`; it performs the bounded fresh review and records the reviewed start checkpoint, then this orchestration continues directly into Phases 7–8 without a manual lifecycle prompt. Ask only when the manager identifies a genuine unresolved decision.
+For an assessment-only or plan-only request, report the reviewed plan path and summary, then stop. For an implementation request, hand the complete artifact to the unified `plan-manager`; it performs the single pre-implementation plan review and sets the plan `ongoing`, then this orchestration continues directly into Phases 7–8 without a manual lifecycle prompt. Ask only when the manager identifies a genuine unresolved decision.
 
-After the reviewed start checkpoint, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same `docs/plans/` verdict; just who does the edits.
+After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same `docs/plans/` verdict; just who does the edits.
 
-## Implementation (Phases 7–8, after the reviewed start checkpoint)
+## Implementation (Phases 7–8, while the plan is ongoing)
 
 1. Run the full test suite first to establish a baseline. If tests already fail, note which and proceed carefully.
 2. For each refactoring in tier order (1 → 2 → 3):
@@ -132,9 +132,9 @@ After the reviewed start checkpoint, implement via **Phases 7–8 in-context (th
 Phase 8 is where a refactor can silently delete or rewrite code outside the plan. Enforce scope mechanically instead of trusting the prose rule in constraint 3:
 
 ```bash
-# changed files must be a SUBSET of the plan's affected_paths — no scope bleed
+# changed files must be a SUBSET of the union of Steps Files cells — no scope bleed
 git diff --name-only | while read -r f; do
-  grep -qF "$f" <plan-affected_paths> || echo "OUT OF SCOPE: $f"
+  grep -qFx "$f" <plan-steps-files-union> || echo "OUT OF SCOPE: $f"
 done
 ```
 
@@ -144,7 +144,7 @@ No content loss outside the planned diff: every deletion must be a planned dead-
 
 | Gotcha | Consequence | Right move |
 |---|---|---|
-| Editing code during Phases 1–5 | Invalidates the analysis input before review | Keep analysis read-only; implementation begins after the manager's reviewed start checkpoint |
+| Editing code during Phases 1–5 | Invalidates the analysis input before review | Keep analysis read-only; implementation begins after the manager sets the plan `ongoing` |
 | Batching several changes before testing | Can't tell which change broke the suite | One refactoring → test → keep/revert |
 | Raw `rm` to delete dead code | Unstaged, harder to recover | `git rm` only; revert via `git restore` |
 | Flagging modernization from memory | Ships a backwards "fix" (e.g. Next.js `proxy.ts`) | Verify against current docs for the installed version |

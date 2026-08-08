@@ -96,7 +96,7 @@ export const PLUGINS = [
     ciLane: 'core',
     javascriptQuality: {
       ci: ['plugins/plan-lifecycle/test'],
-      lint: ['plugins/plan-lifecycle/skills/productivity/plan-reviewer/scripts'],
+      lint: ['plugins/plan-lifecycle/skills/productivity/plan-manager/scripts'],
     },
     skills: 'plugins/plan-lifecycle/skills',
     agents: 'plugins/plan-lifecycle/agents',

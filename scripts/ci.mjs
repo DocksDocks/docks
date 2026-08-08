@@ -371,20 +371,17 @@ if (collisionGroups.length > 0) {
 
 if (planAuthorChecks) {
   section('plan orchestration');
-  nodeOk(['scripts/tests/plan-orchestration.mjs'])
-    ? ok('focused PlanRunV1 orchestration contract passed')
-    : fail('focused orchestration contract failed (run: node scripts/tests/plan-orchestration.mjs)');
+  nodeOk(['scripts/tests/plan-cli.mjs'])
+    ? ok('plan CLI contract passed')
+    : fail('plan CLI contract failed (run: node scripts/tests/plan-cli.mjs)');
   nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'])
-    ? ok('three-skill, one-wrapper bounded workflow contract passed')
+    ? ok('bounded workflow contract passed')
+    : fail('bounded workflow contract failed (run: node scripts/tests/plan-skill-phases.mjs --case bounded-workflows)');
+  nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'plan-workspace-template'])
+    ? ok('plan workspace template contract passed')
     : fail(
-        'bounded plan workflow contract failed (run: node scripts/tests/plan-skill-phases.mjs --case bounded-workflows)',
+        'plan workspace template contract failed (run: node scripts/tests/plan-skill-phases.mjs --case plan-workspace-template)',
       );
-  nodeOk(['scripts/tests/plan-queue.mjs'])
-    ? ok('queue contract passed')
-    : fail('queue contract failed (run: node scripts/tests/plan-queue.mjs)');
-  nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'plan-queue'])
-    ? ok('plan-queue skill contract passed')
-    : fail('plan-queue skill contract failed (run: node scripts/tests/plan-skill-phases.mjs --case plan-queue)');
 }
 
 for (const plugin of targets) gatePlugin(plugin);
