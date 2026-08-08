@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { parseDocument } from 'yaml';
 import { startTask } from '../lib/ci-background-task.mjs';
 import {
@@ -42,6 +43,21 @@ if (!validInvocation) {
   );
 }
 const unitOnly = mode === '--unit';
+const execFileAsync = promisify(execFile);
+
+async function execFileResult(file, fileArgs, options) {
+  try {
+    const { stdout, stderr } = await execFileAsync(file, fileArgs, options);
+    return { status: 0, signal: null, stdout, stderr };
+  } catch (error) {
+    return {
+      status: Number.isInteger(error.code) ? error.code : null,
+      signal: error.signal ?? null,
+      stdout: error.stdout ?? '',
+      stderr: error.stderr ?? error.message,
+    };
+  }
+}
 
 const TIMING_REPORT_KEYS = [
   'schema',
@@ -383,31 +399,39 @@ function laneBiomeInvocations(callsByLane) {
   return invocations;
 }
 
-function testFocusedCiCommandSelection() {
+async function testFocusedCiCommandSelection() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-command-selection-'));
-  const shimDir = path.join(fixtureRoot, 'bin');
-  const callLog = path.join(fixtureRoot, 'calls.jsonl');
-  fs.mkdirSync(shimDir, { mode: 0o700 });
-  fs.writeFileSync(callLog, '', { mode: 0o600 });
 
   const probeEnv = { ...process.env };
   delete probeEnv.GITHUB_ACTIONS;
-  const run = (ciArgs) => {
+  const run = async (name, ciArgs, { timings = false } = {}) => {
+    const scenarioRoot = fs.mkdtempSync(path.join(fixtureRoot, `${name}-`));
+    const shimDir = path.join(scenarioRoot, 'bin');
+    const callLog = path.join(scenarioRoot, 'calls.jsonl');
+    const timingPath = timings ? path.join(scenarioRoot, 'timings.json') : null;
+    fs.mkdirSync(shimDir, { mode: 0o700 });
     fs.writeFileSync(callLog, '', { mode: 0o600 });
-    const result = spawnSync(process.execPath, ['scripts/ci.mjs', ...ciArgs], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 120_000,
-      env: {
-        ...probeEnv,
-        PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
-        DOCKS_CI_PROBE_LOG: callLog,
+    for (const tool of ['node', 'pnpm', 'claude', 'shellcheck']) writeCiProbeShim(shimDir, tool);
+
+    const result = await execFileResult(
+      process.execPath,
+      ['scripts/ci.mjs', ...ciArgs, ...(timingPath === null ? [] : ['--timings-json', timingPath])],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 120_000,
+        env: {
+          ...probeEnv,
+          PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+          DOCKS_CI_PROBE_LOG: callLog,
+        },
       },
-    });
+    );
     const contents = fs.readFileSync(callLog, 'utf8').trim();
     return {
       result,
       calls: contents === '' ? [] : contents.split('\n').map((line) => JSON.parse(line)),
+      timingPath,
     };
   };
   const invokesNode = (calls, script, expectedArg = null) =>
@@ -453,9 +477,15 @@ function testFocusedCiCommandSelection() {
   const repoBiomeCiArgv = ['exec', 'biome', 'ci', ...REPO_WIDE_JAVASCRIPT_QUALITY.ci];
 
   try {
-    for (const name of ['node', 'pnpm', 'claude', 'shellcheck']) writeCiProbeShim(shimDir, name);
-
-    const targeted = run(['--plugin', 'effect-kit']);
+    const [targeted, untargeted, docksTargeted, core, timedCore, repoWide, full] = await Promise.all([
+      run('targeted-', ['--plugin', 'effect-kit']),
+      run('untargeted-', []),
+      run('docks-targeted-', ['--plugin', 'docks']),
+      run('core-', ['--lane', 'core']),
+      run('timed-core-', ['--lane', 'core'], { timings: true }),
+      run('repo-', ['--lane', 'repo'], { timings: true }),
+      run('timed-full-', [], { timings: true }),
+    ]);
     assert.equal(targeted.result.status, 0, `${targeted.result.stdout}\n${targeted.result.stderr}`);
     for (const script of repoWideCommands) {
       assert.equal(
@@ -494,8 +524,10 @@ function testFocusedCiCommandSelection() {
     );
     assert.equal(countToolInvocation(targeted.calls, 'node', planCliArgv), 0);
 
-    for (const ciArgs of [[], ['--plugin', 'docks']]) {
-      const selected = run(ciArgs);
+    for (const [ciArgs, selected] of [
+      [[], untargeted],
+      [['--plugin', 'docks'], docksTargeted],
+    ]) {
       assert.equal(selected.result.status, 0, `${selected.result.stdout}\n${selected.result.stderr}`);
       assert.equal(
         countToolInvocation(selected.calls, 'node', planCliArgv),
@@ -525,7 +557,6 @@ function testFocusedCiCommandSelection() {
       }
     }
 
-    const core = run(['--lane', 'core']);
     assert.equal(core.result.status, 0, `${core.result.stdout}\n${core.result.stderr}`);
     assert.equal(countToolInvocation(core.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeCiArgv), 1);
@@ -552,15 +583,13 @@ function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(core.calls, 'node', planLifecycleCollisionArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
 
-    const timingPath = path.join(fixtureRoot, 'timings.json');
-    const timedCore = run(['--lane', 'core', '--timings-json', timingPath]);
     assert.equal(timedCore.result.status, 0, `${timedCore.result.stdout}\n${timedCore.result.stderr}`);
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeCiArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeLintArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', planCliArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
-    const timing = JSON.parse(fs.readFileSync(timingPath, 'utf8'));
+    const timing = JSON.parse(fs.readFileSync(timedCore.timingPath, 'utf8'));
     assertCommandTelemetry(timing);
     assert.equal(timing.schema, 2);
     assert.deepEqual(timing.mode, { plugin: null, lane: 'core' });
@@ -629,8 +658,6 @@ function testFocusedCiCommandSelection() {
     // The always-on shard. Everything a shard-skipping pull request would otherwise
     // lose lives here, and nothing plugin-scoped does - if a check migrates out of
     // this census it stops running on a pull request that skips both plugin shards.
-    const repoTimingPath = path.join(fixtureRoot, 'repo-timings.json');
-    const repoWide = run(['--lane', 'repo', '--timings-json', repoTimingPath]);
     assert.equal(repoWide.result.status, 0, `${repoWide.result.stdout}\n${repoWide.result.stderr}`);
     for (const script of repoWideCommands) {
       assert.equal(invokesNode(repoWide.calls, script), true, `repo CI must invoke repo-wide command ${script}`);
@@ -657,7 +684,7 @@ function testFocusedCiCommandSelection() {
       `the repo shard must schedule a biome lint exactly when it owns lint paths: ${JSON.stringify(repoLintCalls)}`,
     );
     assert.equal(countToolInvocation(repoWide.calls, 'node', planCliArgv), 0);
-    const repoTiming = JSON.parse(fs.readFileSync(repoTimingPath, 'utf8'));
+    const repoTiming = JSON.parse(fs.readFileSync(repoWide.timingPath, 'utf8'));
     assertCommandTelemetry(repoTiming);
     assert.deepEqual(repoTiming.mode, { plugin: null, lane: 'repo' });
     assert.deepEqual(
@@ -691,10 +718,8 @@ function testFocusedCiCommandSelection() {
     }
     // No shard may drop a phase the pre-sharding full gate ran.
     const shardedPhases = new Set([repoTiming, timing].flatMap(({ phases }) => phases.map(({ name }) => name)));
-    const fullTimingPath = path.join(fixtureRoot, 'full-timings.json');
-    const full = run(['--timings-json', fullTimingPath]);
     assert.equal(full.result.status, 0, `${full.result.stdout}\n${full.result.stderr}`);
-    const fullPhases = JSON.parse(fs.readFileSync(fullTimingPath, 'utf8')).phases.map(({ name }) => name);
+    const fullPhases = JSON.parse(fs.readFileSync(full.timingPath, 'utf8')).phases.map(({ name }) => name);
     assert.deepEqual(
       fullPhases.filter((name) => !shardedPhases.has(name)),
       [],
@@ -1384,22 +1409,24 @@ assert.throws(
     ),
   /unknown plugin: effect-kit/,
 );
-for (const [invalidArgs, diagnostic] of [
-  [['--lane'], /--lane requires one value/],
-  [['--lane', 'core', '--lane', 'repo'], /duplicate argument: --lane/],
-  [['--lane', 'core', '--plugin', 'docks'], /--plugin cannot be combined with --lane/],
-  [['--list', '--lane', 'core'], /--list cannot be combined with.*--lane/],
-  [['--lane', 'unknown'], /unknown CI lane.*repo, core/],
-  [['--lane', 'toString'], /unknown CI lane.*repo, core/],
-  [['--lane', 'constructor'], /unknown CI lane.*repo, core/],
-]) {
-  const rejected = spawnSync(process.execPath, ['scripts/ci.mjs', ...invalidArgs], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
-  assert.equal(rejected.status, 2, `${invalidArgs.join(' ')}\n${rejected.stdout}\n${rejected.stderr}`);
-  assert.match(rejected.stderr, diagnostic);
-}
+await Promise.all(
+  [
+    [['--lane'], /--lane requires one value/],
+    [['--lane', 'core', '--lane', 'repo'], /duplicate argument: --lane/],
+    [['--lane', 'core', '--plugin', 'docks'], /--plugin cannot be combined with --lane/],
+    [['--list', '--lane', 'core'], /--list cannot be combined with.*--lane/],
+    [['--lane', 'unknown'], /unknown CI lane.*repo, core/],
+    [['--lane', 'toString'], /unknown CI lane.*repo, core/],
+    [['--lane', 'constructor'], /unknown CI lane.*repo, core/],
+  ].map(async ([invalidArgs, diagnostic]) => {
+    const rejected = await execFileResult(process.execPath, ['scripts/ci.mjs', ...invalidArgs], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+    assert.equal(rejected.status, 2, `${invalidArgs.join(' ')}\n${rejected.stdout}\n${rejected.stderr}`);
+    assert.match(rejected.stderr, diagnostic);
+  }),
+);
 console.log('closed CI lane resolver and argument parser passed');
 
 // ===================== pull-request shard selection =====================
@@ -1630,7 +1657,7 @@ assert.deepEqual(
 );
 assert.deepEqual(releaseCiArgs('docks'), ['-q', '--plugin', 'docks']);
 console.log('registry targeting and author-check selection passed');
-testFocusedCiCommandSelection();
+await testFocusedCiCommandSelection();
 console.log('focused CI command selection passed');
 
 assert.deepEqual(parseReleaseTag('docks--v0.12.8'), { plugin: 'docks', version: '0.12.8' });
@@ -1673,28 +1700,18 @@ try {
   console.log('release tag resolver CLI passed');
 
   if (!unitOnly) {
-    const timingPath = path.join(tmp, 'effect-kit-timings.json');
+    const hostFreeRoot = fs.mkdtempSync(path.join(tmp, 'host-free-'));
+    const hostedRoot = fs.mkdtempSync(path.join(tmp, 'hosted-'));
+    const timingPath = path.join(hostFreeRoot, 'timings.json');
+    const hostedTimingPath = path.join(hostedRoot, 'timings.json');
     // The gate records hosted identity whenever GITHUB_ACTIONS is set, and this suite runs unfiltered
     // inside the hosted targeting-contracts job. Inheriting that marker would make the fixture report
     // a non-null `host` and fail the closed assertion below on every pull request, so scrub it here
     // exactly as the focused-selection probe does.
     const hostFreeEnv = { ...process.env };
     delete hostFreeEnv.GITHUB_ACTIONS;
-    const targeted = spawnSync('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', timingPath], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      env: hostFreeEnv,
-      timeout: 120_000,
-    });
-    assert.equal(targeted.status, 0, `${targeted.stdout}\n${targeted.stderr}`);
-    assert.doesNotMatch(targeted.stdout, /skill-maintainer idempotency|plan review policy|plugin: docks/);
-    assert.match(targeted.stdout, /plugin: effect-kit/);
-    validateTimingReport(timingPath, 'effect-kit', ['javascript quality']);
-    console.log('targeted CI timing report passed');
-
     // `host` is only populated under GitHub Actions, so prove it with an explicit synthetic
     // environment rather than leaving the field unexercised by every fixture.
-    const hostedTimingPath = path.join(tmp, 'effect-kit-hosted-timings.json');
     const hostedEnv = {
       ...hostFreeEnv,
       GITHUB_ACTIONS: 'true',
@@ -1705,12 +1722,26 @@ try {
       RUNNER_OS: 'Linux',
       RUNNER_ARCH: 'X64',
     };
-    const hosted = spawnSync('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', hostedTimingPath], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      env: hostedEnv,
-      timeout: 120_000,
-    });
+    const [targeted, hosted] = await Promise.all([
+      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', timingPath], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env: hostFreeEnv,
+        timeout: 120_000,
+      }),
+      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', hostedTimingPath], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env: hostedEnv,
+        timeout: 120_000,
+      }),
+    ]);
+    assert.equal(targeted.status, 0, `${targeted.stdout}\n${targeted.stderr}`);
+    assert.doesNotMatch(targeted.stdout, /skill-maintainer idempotency|plan review policy|plugin: docks/);
+    assert.match(targeted.stdout, /plugin: effect-kit/);
+    validateTimingReport(timingPath, 'effect-kit', ['javascript quality']);
+    console.log('targeted CI timing report passed');
+
     assert.equal(hosted.status, 0, `${hosted.stdout}\n${hosted.stderr}`);
     const hostedTiming = JSON.parse(fs.readFileSync(hostedTimingPath, 'utf8'));
     assert.deepEqual(hostedTiming.host, {

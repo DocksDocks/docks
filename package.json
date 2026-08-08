@@ -12,7 +12,8 @@
     "check:js": "biome ci scripts tests plugins/effect-kit/test plugins/plan-lifecycle/test plugins/docks/hooks package.json biome.json && biome lint plugins/plan-lifecycle/skills/productivity/plan-manager/scripts plugins/docks/skills/productivity/write-skill/scripts",
     "test:unit": "node --test --test-concurrency=4 scripts/tests/unit/*.test.mjs",
     "test:observability": "node scripts/tests/ci-observability.mjs",
-    "test:contracts": "node scripts/tests/test-contracts.mjs"
+    "test:contracts": "node scripts/tests/test-contracts.mjs",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs' --test-coverage-exclude='**/scripts/tests/**' --test-coverage-exclude='**/plugins/**/test/**' scripts/tests/plan-cli.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/claude-code": "2.1.158",
