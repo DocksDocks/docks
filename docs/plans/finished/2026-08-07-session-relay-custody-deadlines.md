@@ -2,13 +2,13 @@
 title: Stop slow-but-alive peers becoming retained custody faults
 goal: Replace the custody deadlines that turn a merely slow local peer into a retained fault with widened bounds and event waits, and prove it with tests that actually execute.
 plan_hash_mode: status-excluded-v1
-status: blocked
-blocked_reason: "Draft verification invocation 2 of 2 returned two findings and both reproduce, so the run is terminal: a draft repair verdict is accepted at most once and invocation 1 spent it on six accepted findings. F1: step:runtime_exchange_retry edits src/workspace.rs but no acceptance row observes that source change. Its only RED row is A7, a grep for the word idempotent in README.md; A9 and A13 pin RUNTIME_EXCHANGE_DEADLINE at its definition :41 and its unrelated post-fence use :4721 and stay green when workspace.rs is untouched; A6 and A17 are green before and after. An implementation writing only README prose, or widening the read timeout alone which the step itself forbids, satisfies every row. F2: the clause this run ADDED to step:load_regression claiming every RELAY_TEST_* delay knob sits on the lifecycle-supervisor startup checkpoint is false. Knobs exist at supervisor.rs:1048 RELAY_TEST_WATCHDOG_CALLER_DISCONNECT_MS, :1072-1102 the control-ready latches, :1970 RELAY_TEST_SUPERVISOR_CANCEL_BARRIER_MS and :2445 RELAY_TEST_THREAD_SPAWN_FAIL; only :1037-1042 is on the startup checkpoint. That clause was copied verbatim from the invocation-1 reviewer defect text without independent verification, which is a new failure mode: a reviewer verdict may be right while its supporting evidence is wrong. The conclusion it supported is independently true, since the custodian acknowledgements are unconditional, so no custodian-ACK delay seam exists. No code is lost: run 1 implementation commit dfa599f stays preserved at refs/docks/preserve/24728318-1179-42d7-be26-6bda735c2433 and the tracked source is unchanged at its pre-change content."
+status: finished
+blocked_reason: "Superseded by the extraction of session-relay into its own repository, DocksDocks/session-relay, split with `git subtree split --prefix=plugins/session-relay` from docks commit 2e973cbf08e6be28da260f1f0f48643afb58ac42. The tree this plan targets no longer exists in this repository, so the goal cannot be executed here. Run identity is repository_id + plan_path + run_id, so a plan cannot move between repositories: re-draft this goal in the new repository under goal_id 9373c033-3c34-4774-9cf3-f5240feb538e rather than reusing this record. Terminal after four runs. The code fix, the CONTROL_EXCHANGE_DEADLINE decision, and the 17 measured falsifiability proofs remain valid and belong to the new repository's crate."
 blocked_since: "2026-08-08T00:14:53.943+00:00"
 created: "2026-08-07T13:40:00+00:00"
-updated: "2026-08-08T00:14:53.943+00:00"
+updated: "2026-08-07T23:05:00+00:00"
 started_at: null
-finished_at: null
+finished_at: "2026-08-07T23:05:00+00:00"
 assignee: null
 tags: [session-relay, custody, deadlines, reliability]
 affected_paths:

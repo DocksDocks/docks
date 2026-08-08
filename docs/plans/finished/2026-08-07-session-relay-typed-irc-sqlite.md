@@ -2,11 +2,12 @@
 title: Replace Relay messaging with typed SQLite IRC
 goal: Replace Relay file messaging with separate typed IRC and job protocols, durable SQLite transactions, artifact-first delivery, and a fenced forward-only migration.
 plan_hash_mode: status-excluded-v1
-status: planned
+status: finished
 created: "2026-08-05T03:40:58.144Z"
-updated: "2026-08-05T03:50:22.194+00:00"
+updated: "2026-08-07T23:05:00+00:00"
 started_at: null
-finished_at: null
+finished_at: "2026-08-07T23:05:00+00:00"
+blocked_reason: "Superseded by the extraction of session-relay into its own repository, DocksDocks/session-relay, split with `git subtree split --prefix=plugins/session-relay` from docks commit 2e973cbf08e6be28da260f1f0f48643afb58ac42. The tree this plan targets no longer exists in this repository, so the goal cannot be executed here. Run identity is repository_id + plan_path + run_id, so a plan cannot move between repositories: re-draft this goal in the new repository under goal_id 30fee75d-a1f7-40a9-9fcb-952b18fb2f4a rather than reusing this record."
 assignee: null
 tags: [session-relay, sqlite, irc, protocol]
 affected_paths:

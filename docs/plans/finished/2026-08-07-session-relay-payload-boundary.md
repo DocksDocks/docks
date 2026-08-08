@@ -2,13 +2,13 @@
 title: Ship only consumer-reachable files in plugin payloads
 goal: Move the Session Relay crate and Node suites out of the shipped plugin directory, keep CI lane ownership, and guard the payload boundary.
 plan_hash_mode: status-excluded-v1
-status: blocked
-blocked_reason: "Draft review invocation 2 of 2 returned two further findings, both reproduced: step:move_suites deleted only the session-relay biome/javascriptQuality entries while relocating the effect-kit and plan-lifecycle self-tests (plugins.mjs:241,:260 and package.json:10-12 keep all three dirs), and its descriptor enumeration omitted distributionContract (plugins.mjs:148, consumed by ci.mjs:538). Root cause across both runs is hand-enumerated citation lists; the successor must state a mechanical retarget rule backed by an exhaustive grep acceptance row. Draft permits spent; a successor requires exact current-user replacement authority."
+status: finished
+blocked_reason: "Superseded by the extraction of session-relay into its own repository, DocksDocks/session-relay, split with `git subtree split --prefix=plugins/session-relay` from docks commit 2e973cbf08e6be28da260f1f0f48643afb58ac42. The tree this plan targets no longer exists in this repository, so the goal cannot be executed here. Run identity is repository_id + plan_path + run_id, so a plan cannot move between repositories: re-draft this goal in the new repository under goal_id 74f45ad9-2bc6-4d22-8b7f-f782465413bf rather than reusing this record. Directly subsumed: this goal was to separate the crate and the Node suites from the shipped payload inside docks, and the extraction achieves that across repositories. Its payload allowlist is adopted verbatim by the new repository's test/distribution-contract.mjs, which enforces it with `git ls-files` and no exemption mechanism."
 blocked_since: "2026-08-07T02:32:18.602+00:00"
 created: "2026-08-06T23:58:34.120+00:00"
-updated: "2026-08-07T02:32:18.601+00:00"
+updated: "2026-08-07T23:05:00+00:00"
 started_at: null
-finished_at: null
+finished_at: "2026-08-07T23:05:00+00:00"
 assignee: null
 tags: [session-relay, packaging, ci, payload]
 affected_paths:

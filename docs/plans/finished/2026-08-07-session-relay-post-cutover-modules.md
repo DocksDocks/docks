@@ -2,11 +2,12 @@
 title: Split Relay custody modules after the vNext cutover
 goal: After typed SQLite Relay is authoritative, separate process custody, lifecycle garbage collection, cleanup replay, guardian, and Git broker modules without changing behavior.
 plan_hash_mode: status-excluded-v1
-status: planned
+status: finished
 created: "2026-08-05T03:40:58.144Z"
-updated: "2026-08-05T03:54:12.338+00:00"
+updated: "2026-08-07T23:05:00+00:00"
 started_at: null
-finished_at: null
+finished_at: "2026-08-07T23:05:00+00:00"
+blocked_reason: "Superseded by the extraction of session-relay into its own repository, DocksDocks/session-relay, split with `git subtree split --prefix=plugins/session-relay` from docks commit 2e973cbf08e6be28da260f1f0f48643afb58ac42. The tree this plan targets no longer exists in this repository, so the goal cannot be executed here. Run identity is repository_id + plan_path + run_id, so a plan cannot move between repositories: re-draft this goal in the new repository under goal_id d3d2f5b2-81f7-4a3a-8660-20dfc76b4e72 rather than reusing this record."
 assignee: null
 tags: [session-relay, refactor, custody, post-cutover]
 affected_paths:
