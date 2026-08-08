@@ -7,7 +7,7 @@ During skill iteration, run the narrow validators and checks relevant to the cha
 </constraint>
 
 <constraint>
-After changing a skill's meaning, bump `metadata.updated` (today) and re-sync the hash: `node scripts/skills/content-hash.mjs --backfill`. CI's idempotency check fails if a stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
+After changing a skill's meaning, run `node scripts/skills/content-hash.mjs --backfill`. It re-syncs `content_hash` and stamps `metadata.updated` in the same write, and it writes only when the hash actually differs — so a formatting-only or otherwise meaning-preserving edit leaves both fields alone and the recorded date keeps describing the last real change. That is the point: readers use `metadata.updated` to judge staleness, so the date must never be bumped by a formatting pass. CI's idempotency check fails if the stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
 </constraint>
 
 <constraint>

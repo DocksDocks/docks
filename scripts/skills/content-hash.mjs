@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 //
 // Usage:
 //   content-hash.mjs <skill-dir>            print the content hash of one skill
-//   content-hash.mjs --backfill [root]      write/refresh content_hash on every kit skill
+//   content-hash.mjs --backfill [root]      re-sync content_hash + stamp updated on changed skills
 //   content-hash.mjs --check-only [root]    report unchanged | would-bump; exit 1 if any would-bump
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,10 +93,27 @@ const storedHash = (dir) => {
 function writeHash(dir, h) {
   const file = path.join(dir, 'SKILL.md');
   const lines = fs.readFileSync(file, 'utf8').split('\n');
+  // The hash deliberately excludes `updated:`, so a stale date can never make the hash drift. That
+  // is why the date is stamped HERE: this function runs only when the meaning actually changed, so
+  // the recorded date and the recorded hash always describe the same edit. Without this, an author
+  // could change a skill's meaning, re-sync the hash, pass CI, and leave a date that lies to every
+  // reader — which is what happened to `context-tree` on 2026-08-07.
+  const today = new Date().toISOString().slice(0, 10);
   const out = [];
   let fm = 0;
   let inMeta = false;
-  let done = false;
+  let hashDone = false;
+  let dateDone = false;
+  const closeMeta = () => {
+    if (!dateDone) {
+      out.push(`  updated: "${today}"`);
+      dateDone = true;
+    }
+    if (!hashDone) {
+      out.push(`  content_hash: "${h}"`);
+      hashDone = true;
+    }
+  };
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (i === 0 && line === '---') {
@@ -105,10 +122,7 @@ function writeHash(dir, h) {
       continue;
     }
     if (fm === 1 && line === '---') {
-      if (inMeta && !done) {
-        out.push(`  content_hash: "${h}"`);
-        done = true;
-      }
+      if (inMeta) closeMeta();
       fm = 0;
       inMeta = false;
       out.push(line);
@@ -119,16 +133,18 @@ function writeHash(dir, h) {
       out.push(line);
       continue;
     }
+    if (fm === 1 && inMeta && /^[ \t]*updated:/.test(line)) {
+      out.push(`  updated: "${today}"`);
+      dateDone = true;
+      continue;
+    }
     if (fm === 1 && inMeta && /^[ \t]*content_hash:/.test(line)) {
       out.push(`  content_hash: "${h}"`);
-      done = true;
+      hashDone = true;
       continue;
     }
     if (fm === 1 && inMeta && /^[^ \t]/.test(line)) {
-      if (!done) {
-        out.push(`  content_hash: "${h}"`);
-        done = true;
-      }
+      closeMeta();
       inMeta = false;
       out.push(line);
       continue;

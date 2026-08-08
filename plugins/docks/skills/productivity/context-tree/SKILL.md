@@ -4,7 +4,7 @@ description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-08-03"
+  updated: "2026-08-07"
   content_hash: "0409848af3d383240cad440967ca712f2445945be6163153901d6abb50113d80"
 ---
 

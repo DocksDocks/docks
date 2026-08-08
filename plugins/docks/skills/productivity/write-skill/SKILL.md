@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-07-17"
-  content_hash: "c9d1bd144d53e4c7b1caf1f263c641ce844d0507a487935025cb6f4928fac3f5"
+  updated: "2026-08-08"
+  content_hash: "3925a186101828983542fc0cbe9d5356c64f93a681cac5c9ff969f8ada3f0151"
 ---
 
 # Write a Skill (docks conventions)
@@ -23,7 +23,7 @@ Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 p
 </constraint>
 
 <constraint>
-Bookkeeping is part of the edit, not an afterthought. After any change to a skill's meaning, bump `metadata.updated` to today AND re-sync the stored content hash with the project's documented hash command (in this kit: the content-hash backfill script) — CI's idempotency gate fails on a stale hash, and editing only `updated:` does not change the hash.
+Bookkeeping is part of the edit, not an afterthought — but let the tooling do it. After any change to a skill's meaning, run the project's content-hash backfill: it re-syncs the stored hash AND stamps `metadata.updated` in the same write, and it writes only when the hash actually differs. So a formatting-only or otherwise meaning-preserving edit leaves both fields untouched and the recorded date keeps describing the last real change. Readers use `metadata.updated` to judge staleness, so a date bumped by a formatting pass is worse than no date at all. Never hand-edit the hash: CI's idempotency gate fails on a stale one, and editing only `updated:` does not change it.
 </constraint>
 
 ## The minimum viable docks skill

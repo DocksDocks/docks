@@ -22,10 +22,14 @@ floors to make a file pass; fix the file. The validator/CI contract lives in
 </constraint>
 
 <constraint>
-After changing a skill's meaning, bump `metadata.updated` (today) and re-sync
-the hash: `node scripts/skills/content-hash.mjs --backfill
-plugins/plan-lifecycle/skills`. Shipped `scripts/` sit outside the content-hash
-surface — bump `metadata.updated` manually when they change.
+After changing a skill's meaning, run `node scripts/skills/content-hash.mjs
+--backfill plugins/plan-lifecycle/skills`. It re-syncs `content_hash` and stamps
+`metadata.updated` in the same write, and it writes only when the hash actually
+differs, so a formatting-only edit leaves both fields alone and the recorded date
+keeps describing the last real change. Readers use `metadata.updated` to judge
+staleness, so the date must never be bumped by a formatting pass. Shipped
+`scripts/` sit outside the content-hash surface — bump `metadata.updated`
+manually when only those change.
 </constraint>
 
 <constraint>

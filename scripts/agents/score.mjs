@@ -13,6 +13,32 @@ const args = process.argv.slice(2);
 const mode = args.includes('--per-file') ? 'per-file' : 'total';
 const dirArg = args.find((a) => !a.startsWith('--'));
 const DIR = dirArg || path.join(REPO_DIR, 'plugins/docks/agents');
+// Research gate: the agent is told to settle a claim against an authoritative source instead of
+// trusting memory. Scoring one vendor's MCP tool names would bake a single harness into a quality
+// score — omp ships built-in web search, Claude Code ships its own fetch and search, and other
+// runtimes differ again. So match the DISCIPLINE, in two independent forms.
+//
+// Form 1: a verification verb whose object, in the same sentence, is a source of truth. `against
+// actual …` is deliberately open-ended: "against actual callers", "against actual reach" and
+// "against actual output" are all the same idiom, namely checking a belief against reality.
+const RESEARCH_VERB = String.raw`\b(?:verif|confirm|check|validat|corroborat|cross-check|re-read|trace)`;
+const SOURCE_OF_TRUTH = String.raw`(?:${[
+  'official\\s+doc',
+  'current\\s+doc',
+  'upstream\\s+doc',
+  'authoritative\\s+(?:doc|source)',
+  'release\\s+notes',
+  'changelog',
+  'current\\s+(?:official|authoritative)',
+  'against\\s+actual\\b',
+  'the\\s+source\\s+code',
+].join('|')})`;
+// One sentence must carry both halves, so an unrelated mention of "documentation" earns nothing.
+const RESEARCH_DISCIPLINE = new RegExp(`${RESEARCH_VERB}[^.\\n]*${SOURCE_OF_TRUTH}`, 'i');
+// Form 2: naming a documentation-lookup tool is itself a concrete expression of the discipline, so
+// it earns the point without a verb. Kept so a Context7-targeted agent does not regress.
+const RESEARCH_TOOL = /\b(?:resolve-library-id|query-docs|context7)\b/i;
+const RESEARCH_GATE = { test: (text) => RESEARCH_DISCIPLINE.test(text) || RESEARCH_TOOL.test(text) };
 
 // frontmatter (between the first two `---`) contains a top-level `key:`
 function hasFmField(lines, key) {
@@ -75,7 +101,7 @@ for (const fname of mdFiles) {
   // 10. slop (max −2)
   score += Math.max(0, 2 - slopCount(lines));
   // 11. research-gate (1)
-  if (anyLine(lines, /(resolve-library-id|query-docs|context7)/i)) score += 1;
+  if (RESEARCH_GATE.test(content)) score += 1;
 
   if (mode === 'per-file') console.log(`${name} ${score}`);
   total += score;

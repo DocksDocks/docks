@@ -86,7 +86,7 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `skills/no-author-scripts.mjs` | shipped SKILL.md + references/ + agent bodies must not name docks author scripts — incl. the `.mjs` entry points `scripts/ci.mjs`/`scripts/release.mjs` (verify: plant one in a non-allowlisted body → the guard must fail naming it; revert); allowlist: `scaffold`, `write-skill`. Takes `<skills-dir> [agents-dir]` args so `gatePlugin` scopes it per-plugin (agents scanned only when given) | pass/fail |
 | `skills/durable-anchors.mjs` | repo-wide (runs once): long-lived docs — every shipped skill body/reference + every AGENTS.md node outside docs/plans/ (point-in-time by contract) — carry no LIVE `file:line` anchors (a `path:NN` whose path resolves in the repo fails; fictional example paths pass by non-resolution). Fix = the durable grammar: `` `path` — `symbol` — purpose (verify: `command`) `` | pass/fail |
 | `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, **no `model` key** (any literal — `inherit` included — reaches omp as a model ID and kills the spawn; Claude defaults to `inherit` anyway) | pass/fail |
-| `agents/score.mjs` | agent quality (max 15) | per-file ≥14; total = N×14 |
+| `agents/score.mjs` | agent quality (max 15, reachable in any harness) | per-file ≥14 with one genuine point of slack; total = N×14 |
 | `tree/guard.mjs` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
@@ -98,6 +98,8 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
+
+The `test:coverage` package command measures test coverage on demand. `scripts/ci.mjs` deliberately does not run it because coverage is a diagnostic, not a gate.
 
 **Shared author-side libs (`scripts/lib/`):** `skills-walk.mjs` (SKILL.md traversal — `findSkillFiles`/`eachSkillDir`/`eachSkillCandidateDir`/`findSkillByName`) and `skills-parse.mjs` (frontmatter/body line helpers — `splitLines`/`bodyAfterFrontmatter`/`countLines`/`anyLine`/`slopCount`) are imported by the author-side validators so the walk + body-line method live once. The bundled `write-skill/scripts/skill-guard.mjs` keeps its OWN copies on purpose — it ships standalone into consumer repos.
 
