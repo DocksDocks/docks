@@ -238,7 +238,8 @@ try {
       'let rewritten = false;',
       'fs.readFileSync = function (file, ...args) {',
       '  const value = readFileSync.call(fs, file, ...args);',
-      '  if (!rewritten && path.resolve(file) === process.env.PLAN_CONCURRENT_PATH) {',
+      // The ESM loader calls readFileSync with a URL (Node 24.18+), so guard before path.resolve.
+      "  if (!rewritten && typeof file === 'string' && path.resolve(file) === process.env.PLAN_CONCURRENT_PATH) {",
       '    rewritten = true;',
       '    fs.writeFileSync(file, value + "\\n");',
       '  }',
