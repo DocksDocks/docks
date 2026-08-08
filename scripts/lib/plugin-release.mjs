@@ -190,18 +190,21 @@ function parseGenericArgs(argv, plugins) {
   return { dryRun, plugin, versionArgument };
 }
 
+function releaseTagExists(tag, repo) {
+  return (
+    spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], { cwd: repo, stdio: 'ignore' }).status === 0
+  );
+}
+
 function nextVersion(current, requested) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(current || '');
   if (!match) throw new Error(`current version not semver: ${current}`);
   const [major, minor, patch] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  let version;
-  if (requested === 'major') version = `${major + 1}.0.0`;
-  else if (requested === 'minor') version = `${major}.${minor + 1}.0`;
-  else if (requested === 'patch') version = `${major}.${minor}.${patch + 1}`;
-  else if (/^\d+\.\d+\.\d+$/.test(requested)) version = requested;
-  else throw new Error(`version must be X.Y.Z, patch, minor, or major (got: ${requested})`);
-  if (version === current) throw new Error(`new version equals current (${current})`);
-  return version;
+  if (requested === 'major') return `${major + 1}.0.0`;
+  if (requested === 'minor') return `${major}.${minor + 1}.0`;
+  if (requested === 'patch') return `${major}.${minor}.${patch + 1}`;
+  if (/^\d+\.\d+\.\d+$/.test(requested)) return requested;
+  throw new Error(`version must be X.Y.Z, patch, minor, or major (got: ${requested})`);
 }
 
 function formattedJson(value) {
@@ -265,6 +268,13 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   const pluginManifest = await io.readJson(pluginJson);
   const currentVersion = pluginManifest.version;
   const newVersion = nextVersion(currentVersion, versionArgument);
+  // Re-cutting the version already in the manifest is legal only while that version was never
+  // tagged. The manifest is a proxy for "already released", not the fact: a run that bumps the
+  // manifest and then fails CI leaves the number written but unpublished, and the recovery this
+  // tool itself prints is to re-cut exactly that number.
+  if (newVersion === currentVersion && releaseTagExists(`${plugin.name}--v${newVersion}`, repo)) {
+    throw new Error(`already released: ${plugin.name} v${newVersion} (tag ${plugin.name}--v${newVersion} exists)`);
+  }
   io.log(`Bumping ${plugin.name}: ${currentVersion} → ${newVersion}`);
 
   const pluginOriginal = dryRun ? formattedJson(pluginManifest) : null;
